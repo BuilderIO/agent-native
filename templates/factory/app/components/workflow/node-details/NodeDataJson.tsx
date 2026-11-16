@@ -59,7 +59,7 @@ export function JsonView({
   );
 }
 
-function JsonBlock({
+export function JsonBlock({
   badge,
   children,
 }: {

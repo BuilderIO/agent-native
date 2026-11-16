@@ -1,4 +1,11 @@
-import type { FileUploadProvider } from "@agent-native/core/file-upload";
+import {
+  cancelS3ResponseBody,
+  presignS3GetUrl,
+  readS3ErrorText,
+  rfc3986,
+  signedS3Request,
+  type FileUploadProvider,
+} from "@agent-native/core/file-upload";
 
 interface S3Config {
   region: string;
@@ -10,6 +17,7 @@ interface S3Config {
 }
 
 const S3_STORAGE_PREFIX = "s3:";
+const S3_TIMEOUT_MS = 120_000;
 
 export function s3StorageKey(objectKey: string): string {
   return `${S3_STORAGE_PREFIX}${objectKey}`;
@@ -23,6 +31,11 @@ function objectKeyFromStorageKey(key: string): string {
   return isS3StorageKey(key) ? key.slice(S3_STORAGE_PREFIX.length) : key;
 }
 
+/**
+ * Reads only the deployment's env, never workspace settings, so every request
+ * and link below passes `trustedEndpoint`: a self-hosted MinIO on a private
+ * network or plain HTTP is the deployment's own choice.
+ */
 function readS3Config(): S3Config | null {
   const env = process.env;
   const bucket =
@@ -60,135 +73,27 @@ function readS3Config(): S3Config | null {
   };
 }
 
-async function hmac(key: ArrayBuffer, msg: string): Promise<ArrayBuffer> {
-  const k = await crypto.subtle.importKey(
-    "raw",
-    key,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  return crypto.subtle.sign("HMAC", k, new TextEncoder().encode(msg));
-}
-
-async function sha256(data: Uint8Array): Promise<string> {
-  const ab = new ArrayBuffer(data.byteLength);
-  new Uint8Array(ab).set(data);
-  const buf = await crypto.subtle.digest("SHA-256", ab);
-  return toHex(buf);
-}
-
-function toHex(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let out = "";
-  for (let i = 0; i < bytes.length; i++) {
-    out += bytes[i].toString(16).padStart(2, "0");
-  }
-  return out;
-}
-
-async function deriveSigningKey(
-  secret: string,
-  dateStamp: string,
-  region: string,
-): Promise<ArrayBuffer> {
-  const kSecret = new TextEncoder().encode(`AWS4${secret}`);
-  const kDate = await hmac(kSecret.buffer as ArrayBuffer, dateStamp);
-  const kRegion = await hmac(kDate, region);
-  const kService = await hmac(kRegion, "s3");
-  return hmac(kService, "aws4_request");
-}
-
-function rfc3986(str: string): string {
-  return encodeURIComponent(str).replace(
-    /[!'()*]/g,
-    (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase(),
-  );
-}
-
 async function putObject(
   cfg: S3Config,
   key: string,
   body: Uint8Array,
   contentType: string,
-): Promise<string> {
-  const now = new Date();
-  const amzDate =
-    now
-      .toISOString()
-      .replace(/[:-]|\.\d{3}/g, "")
-      .slice(0, 15) + "Z";
-  const dateStamp = amzDate.slice(0, 8);
-  const credentialScope = `${dateStamp}/${cfg.region}/s3/aws4_request`;
-
-  const hostUrl = new URL(cfg.endpoint);
-  const host = hostUrl.host;
-  const canonicalUri = `/${cfg.bucket}/${key.split("/").map(rfc3986).join("/")}`;
-
-  const payloadHash = await sha256(body);
-
-  const headers: Record<string, string> = {
-    host,
-    "content-type": contentType,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate,
-  };
-
-  const signedHeaderKeys = Object.keys(headers).sort();
-  const signedHeaders = signedHeaderKeys.join(";");
-  const canonicalHeaders =
-    signedHeaderKeys.map((k) => `${k}:${headers[k]}`).join("\n") + "\n";
-
-  const canonicalRequest = [
-    "PUT",
-    canonicalUri,
-    "", // no query string
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
-
-  const crHash = await sha256(new TextEncoder().encode(canonicalRequest));
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    crHash,
-  ].join("\n");
-
-  const signingKey = await deriveSigningKey(
-    cfg.secretAccessKey,
-    dateStamp,
-    cfg.region,
-  );
-  const signature = toHex(await hmac(signingKey, stringToSign));
-
-  const authorization =
-    `AWS4-HMAC-SHA256 Credential=${cfg.accessKeyId}/${credentialScope}, ` +
-    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
-  const url = `${cfg.endpoint}${canonicalUri}`;
-  const res = await fetch(url, {
+): Promise<void> {
+  const res = await signedS3Request(cfg, key, {
     method: "PUT",
-    headers: {
-      ...headers,
-      Authorization: authorization,
-      "Content-Length": String(body.byteLength),
-    },
-    body: body.buffer.slice(
-      body.byteOffset,
-      body.byteOffset + body.byteLength,
-    ) as BodyInit,
+    body,
+    contentType,
+    timeoutMs: S3_TIMEOUT_MS,
+    trustedEndpoint: true,
   });
 
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
+    const text = await readS3ErrorText(res);
     throw new Error(
       `S3 PutObject failed (${res.status}): ${text || res.statusText}`,
     );
   }
-
-  return key;
+  await cancelS3ResponseBody(res);
 }
 
 function publicObjectUrl(cfg: S3Config, key: string): string | null {
@@ -196,106 +101,16 @@ function publicObjectUrl(cfg: S3Config, key: string): string | null {
   return `${cfg.publicBaseUrl}/${key.split("/").map(rfc3986).join("/")}`;
 }
 
-function canonicalObjectUri(cfg: S3Config, key: string): string {
-  return `/${cfg.bucket}/${key.split("/").map(rfc3986).join("/")}`;
-}
-
-function s3Timestamp() {
-  const amzDate =
-    new Date()
-      .toISOString()
-      .replace(/[:-]|\.\d{3}/g, "")
-      .slice(0, 15) + "Z";
-  return {
-    amzDate,
-    dateStamp: amzDate.slice(0, 8),
-  };
-}
-
-async function authorizationHeader(input: {
-  cfg: S3Config;
-  method: "GET" | "PUT";
-  key: string;
-  headers: Record<string, string>;
-  payloadHash: string;
-  query?: string;
-  dateStamp: string;
-  amzDate: string;
-}): Promise<string> {
-  const credentialScope = `${input.dateStamp}/${input.cfg.region}/s3/aws4_request`;
-  const signedHeaderKeys = Object.keys(input.headers).sort();
-  const signedHeaders = signedHeaderKeys.join(";");
-  const canonicalHeaders =
-    signedHeaderKeys.map((k) => `${k}:${input.headers[k]}`).join("\n") + "\n";
-  const canonicalRequest = [
-    input.method,
-    canonicalObjectUri(input.cfg, input.key),
-    input.query ?? "",
-    canonicalHeaders,
-    signedHeaders,
-    input.payloadHash,
-  ].join("\n");
-  const crHash = await sha256(new TextEncoder().encode(canonicalRequest));
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    input.amzDate,
-    credentialScope,
-    crHash,
-  ].join("\n");
-  const signingKey = await deriveSigningKey(
-    input.cfg.secretAccessKey,
-    input.dateStamp,
-    input.cfg.region,
-  );
-  const signature = toHex(await hmac(signingKey, stringToSign));
-  return (
-    `AWS4-HMAC-SHA256 Credential=${input.cfg.accessKeyId}/${credentialScope}, ` +
-    `SignedHeaders=${signedHeaders}, Signature=${signature}`
-  );
-}
-
-function canonicalQuery(params: URLSearchParams): string {
-  return [...params.entries()]
-    .sort(([leftKey, leftValue], [rightKey, rightValue]) =>
-      leftKey === rightKey
-        ? leftValue.localeCompare(rightValue)
-        : leftKey.localeCompare(rightKey),
-    )
-    .map(([key, value]) => `${rfc3986(key)}=${rfc3986(value)}`)
-    .join("&");
-}
-
 export async function getS3Object(key: string): Promise<Buffer> {
   const cfg = readS3Config();
   if (!cfg) throw new Error("S3 env vars not configured");
-  const objectKey = objectKeyFromStorageKey(key);
-  const { amzDate, dateStamp } = s3Timestamp();
-  const hostUrl = new URL(cfg.endpoint);
-  const headers: Record<string, string> = {
-    host: hostUrl.host,
-    "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
-    "x-amz-date": amzDate,
-  };
-  const authorization = await authorizationHeader({
-    cfg,
+  const res = await signedS3Request(cfg, objectKeyFromStorageKey(key), {
     method: "GET",
-    key: objectKey,
-    headers,
-    payloadHash: "UNSIGNED-PAYLOAD",
-    dateStamp,
-    amzDate,
+    timeoutMs: S3_TIMEOUT_MS,
+    trustedEndpoint: true,
   });
-  const res = await fetch(
-    `${cfg.endpoint}${canonicalObjectUri(cfg, objectKey)}`,
-    {
-      headers: {
-        ...headers,
-        Authorization: authorization,
-      },
-    },
-  );
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
+    const text = await readS3ErrorText(res);
     throw new Error(
       `S3 GetObject failed (${res.status}): ${text || res.statusText}`,
     );
@@ -318,42 +133,11 @@ export async function getPresignedS3ObjectUrl(
     };
   }
 
-  const { amzDate, dateStamp } = s3Timestamp();
-  const credentialScope = `${dateStamp}/${cfg.region}/s3/aws4_request`;
-  const params = new URLSearchParams({
-    "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
-    "X-Amz-Credential": `${cfg.accessKeyId}/${credentialScope}`,
-    "X-Amz-Date": amzDate,
-    "X-Amz-Expires": String(expiresIn),
-    "X-Amz-SignedHeaders": "host",
-  });
-  const query = canonicalQuery(params);
-  const hostUrl = new URL(cfg.endpoint);
-  const canonicalRequest = [
-    "GET",
-    canonicalObjectUri(cfg, objectKey),
-    query,
-    `host:${hostUrl.host}\n`,
-    "host",
-    "UNSIGNED-PAYLOAD",
-  ].join("\n");
-  const crHash = await sha256(new TextEncoder().encode(canonicalRequest));
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    crHash,
-  ].join("\n");
-  const signingKey = await deriveSigningKey(
-    cfg.secretAccessKey,
-    dateStamp,
-    cfg.region,
-  );
-  params.set("X-Amz-Signature", toHex(await hmac(signingKey, stringToSign)));
   return {
-    url: `${cfg.endpoint}${canonicalObjectUri(cfg, objectKey)}?${canonicalQuery(
-      params,
-    )}`,
+    url: await presignS3GetUrl(cfg, objectKey, {
+      expiresInSeconds: expiresIn,
+      trustedEndpoint: true,
+    }),
     expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
   };
 }

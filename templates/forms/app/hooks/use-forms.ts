@@ -4,6 +4,8 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+import { isSaveConflict } from "@agent-native/core/save-conflict";
 import { scrubPageUrl } from "@shared/page-url";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -32,8 +34,8 @@ export function useCreateForm() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
     },
-    onError: () => {
-      toast.error("Failed to create form");
+    onError: (error) => {
+      reportWriteFailure(error, { label: "Failed to create form" });
     },
   });
 }
@@ -62,6 +64,8 @@ export function usePatchFormFields() {
       void qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
     onError: (err: unknown) => {
+      // The field save merges and retries these; they aren't failures yet.
+      if (isSaveConflict(err)) return;
       const message =
         err instanceof Error && err.message
           ? err.message.replace(/^Action patch-form-fields failed:\s*/, "")
@@ -108,7 +112,7 @@ export function useDeleteForm() {
       void qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
       void qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
-    onError: (_error, variables, context) => {
+    onError: (error, variables, context) => {
       const mutationContext = context as FormListMutationContext | undefined;
       for (const { queryKey, form, index } of mutationContext?.removed ?? []) {
         qc.setQueryData<FormListItem[]>(queryKey, (old) => {
@@ -119,9 +123,9 @@ export function useDeleteForm() {
         });
       }
       if (variables.purge) {
-        toast.error("Failed to delete form");
+        reportWriteFailure(error, { label: "Failed to delete form" });
       } else if (!mutationContext?.removed.length) {
-        toast.error(t("forms.archiveFailed"));
+        reportWriteFailure(error, { label: t("forms.archiveFailed") });
       }
     },
   });
@@ -134,8 +138,8 @@ export function useRestoreForm() {
       void qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
       void qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
-    onError: () => {
-      toast.error("Failed to restore form");
+    onError: (error) => {
+      reportWriteFailure(error, { label: "Failed to restore form" });
     },
   });
 }

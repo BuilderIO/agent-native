@@ -1,17 +1,31 @@
-import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { updateMcpAppModelContext } from "@agent-native/core/client/mcp-app-host";
-import type { ComposeState, EmailMessage } from "@shared/types";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  mcpAppLinkUrl,
+  openMcpAppHostLink,
+  updateMcpAppModelContext,
+} from "@agent-native/core/client/mcp-app-host";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+import {
+  SaveOverlapError,
+  saveWithMerge,
+  type SavedRecord,
+} from "@agent-native/core/save-conflict";
+import type { ComposeState, DraftCardData, EmailMessage } from "@shared/types";
 import {
   IconAlertCircle,
   IconArrowBackUp,
   IconArrowForwardUp,
-  IconCheck,
-  IconClock,
-  IconLoader2,
+  IconMail,
   IconPencil,
   IconTrash,
 } from "@tabler/icons-react";
-import type { ReactNode, RefObject } from "react";
+import {
+  type QueryClient,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import {
   useCallback,
   useEffect,
@@ -25,136 +39,183 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
-import {
-  DRAFT_DELETE_FAILED_EVENT,
-  DRAFT_SAVE_FAILED_EVENT,
-  useComposeState,
-} from "@/hooks/use-compose-state";
-import { useEmail, useThreadMessages } from "@/hooks/use-emails";
-import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import { ensureThread } from "@/lib/thread-cache";
-import { cn } from "@/lib/utils";
+import { useDraftConflictPrompt } from "@/hooks/use-draft-conflict-prompt";
 
-import { ComposeModal, type ComposeSendProgress } from "./ComposeModal";
+import { ComposeModal } from "./ComposeModal";
 import { CollapsedMessageRow, ExpandedMessageCard } from "./EmailThread";
 
 // Older messages past this many fold into one row until the reader opens them.
 const VISIBLE_THREAD_TAIL = 3;
 // How much of the newest message stays in view when the thread opens.
 const LATEST_MESSAGE_MIN_VISIBLE = 120;
+// Every save rewrites the Gmail draft, so a save waits for a pause in typing.
+const SAVE_DELAY_MS = 1_500;
+const EDITABLE_FIELDS = ["to", "cc", "bcc", "subject", "body"] as const;
+// A card's session reaches only its draft's read and edit. The read carries the
+// signature and image setting, and recipients get no address book to
+// autocomplete from.
+const QUERIES_THE_CARD_CANNOT_FETCH = [
+  ["settings"],
+  ["aliases"],
+  ["contacts"],
+  ["snippets"],
+] as const;
 
-type CardOutcome =
-  | { status: "queued"; undo: () => void }
-  | { status: "sending" }
-  | { status: "sent" }
-  | { status: "scheduled"; runAt: number }
-  // Shown at once; the model hears about it only once the delete has stuck.
-  | { status: "deleted"; confirmed: boolean };
-
-type MailAccount = { email: string; displayName?: string; photoUrl?: string };
+type DraftEdits = Partial<Pick<ComposeState, (typeof EDITABLE_FIELDS)[number]>>;
 
 const noop = () => {};
 
+function restrictCardQueries(queryClient: QueryClient) {
+  for (const key of QUERIES_THE_CARD_CANNOT_FETCH) {
+    queryClient.setQueryDefaults(key, { enabled: false });
+  }
+}
+
+function draftCardQueryKey(draftId: string) {
+  return ["draft-card", draftId] as const;
+}
+
+// What a save writes. Leaving out the rest keeps other writers' changes to them.
+function changedFields(from: ComposeState, to: ComposeState) {
+  return Object.fromEntries(
+    EDITABLE_FIELDS.filter((field) => to[field] !== from[field]).map(
+      (field) => [field, to[field]],
+    ),
+  );
+}
+
 /**
  * One draft as a chat-sized card: the conversation it answers, then the
- * editable draft with Send. Outside agents embed it from manage-draft.
+ * editable draft. Outside agents embed it from manage-draft. Its session is
+ * limited to this draft, so sending and deleting open in Mail.
  */
 export function DraftCard({ draftId }: { draftId: string }) {
   const t = useT();
-  const compose = useComposeState();
-  const googleStatus = useGoogleAuthStatus();
-  const googleAccounts = googleStatus.data?.accounts;
-  const accounts = useMemo<MailAccount[]>(
-    () => googleAccounts ?? [],
-    [googleAccounts],
+  const queryClient = useQueryClient();
+  // Before the composer's first render, which starts these queries.
+  useState(() => restrictCardQueries(queryClient));
+  // Leaving the card puts Mail's own queries back, without the card's partial
+  // settings.
+  useEffect(() => {
+    restrictCardQueries(queryClient);
+    return () => {
+      for (const key of QUERIES_THE_CARD_CANNOT_FETCH) {
+        queryClient.setQueryDefaults(key, {});
+      }
+      queryClient.removeQueries({ queryKey: ["settings"], exact: true });
+    };
+  }, [queryClient]);
+
+  const card = useQuery<DraftCardData>({
+    queryKey: draftCardQueryKey(draftId),
+    queryFn: async () => {
+      const data = (await callAction(
+        "get-draft-card",
+        { id: draftId },
+        { method: "GET" },
+      )) as DraftCardData;
+      if (data.draft) queryClient.setQueryData(["settings"], data.settings);
+      return data;
+    },
+    enabled: Boolean(draftId),
+    staleTime: 60_000,
+    // request-storm-allow: one query for the one draft on this card, at most once a minute, to notice a draft deleted in Mail.
+    refetchOnWindowFocus: true,
+  });
+  const loaded = card.data?.draft ? card.data : null;
+  const { edits, update, flush, flushAll, conflictPrompt } =
+    useDraftEdits(draftId);
+
+  useReportDraftGoneToModel(draftId, card.data);
+  // A draft this card showed and can't read now was sent or deleted, most
+  // likely by Send in Mail.
+  const [showedDraft, setShowedDraft] = useState(false);
+  if (card.data?.draft && !showedDraft) setShowedDraft(true);
+
+  const draft = useMemo<ComposeState | null>(
+    () => (loaded ? { ...loaded.draft, ...edits } : null),
+    [loaded, edits],
   );
-  // The card renders outside AppLayout, which provides the accounts for the
-  // From picker everywhere else.
-  const accountFilter = useMemo(
-    () => ({
+  const accountFilter = useMemo(() => {
+    // The card renders outside AppLayout, which provides the accounts for the
+    // composer everywhere else.
+    const accounts = loaded?.accounts ?? [];
+    return {
       activeAccounts: new Set(accounts.map((account) => account.email)),
       allAccounts: accounts,
-    }),
-    [accounts],
-  );
+    };
+  }, [loaded?.accounts]);
 
-  // A draft leaves compose.drafts while it is staged to send, so the card keeps
-  // the last one it showed for the header and thread.
-  const draft = compose.drafts.find((d) => d.id === draftId) ?? null;
-  const lastDraftRef = useRef<ComposeState | null>(null);
-  if (draft) lastDraftRef.current = draft;
-  const shownDraft = draft ?? lastDraftRef.current;
-
-  const [outcome, setOutcome] = useState<CardOutcome | null>(null);
-  const outcomeRef = useRef<CardOutcome | null>(null);
-  const [sendFailed, setSendFailed] = useState(false);
-  const settle = useCallback((next: CardOutcome | null) => {
-    outcomeRef.current = next;
-    setOutcome(next);
-  }, []);
-
-  const handleSendProgress = useCallback(
-    (progress: ComposeSendProgress) => {
-      if (progress.status === "failed") {
-        setSendFailed(true);
-        settle(null);
-        return;
-      }
-      setSendFailed(false);
-      if (progress.status === "queued") {
-        settle({
-          status: "queued",
-          undo: () => {
-            if (outcomeRef.current?.status !== "queued") return;
-            progress.undo();
-            settle(null);
-          },
-        });
-        return;
-      }
-      settle(progress);
-    },
-    [settle],
-  );
-
-  // The composer discards the draft after it sends or schedules it too; only a
-  // discard with nothing in flight is the reader deleting it.
-  const { discard } = compose;
-  const [deleteFailed, setDeleteFailed] = useState(false);
-  const handleDiscard = useCallback(
-    (id: string) => {
-      const deleted = discard(id);
-      if (outcomeRef.current) return;
-      settle({ status: "deleted", confirmed: false });
-      void deleted.then((ok) => {
-        if (outcomeRef.current?.status !== "deleted") return;
-        if (ok) {
-          settle({ status: "deleted", confirmed: true });
-        } else {
-          settle(null);
-          setDeleteFailed(true);
-        }
-      });
-    },
-    [discard, settle],
-  );
-
-  useReportOutcomeToModel(draftId, outcome);
-  useDraftFailureToasts(draftId, outcomeRef);
-
-  const thread = useDraftThread(shownDraft, accounts);
-  const cardDraft = useMemo(
-    () =>
-      draft && thread.resolvedThreadId && !draft.replyToThreadId
-        ? { ...draft, replyToThreadId: thread.resolvedThreadId }
-        : draft,
-    [draft, thread.resolvedThreadId],
-  );
+  const deepLink = loaded?.deepLink;
+  const handleSendInMail = useCallback(async () => {
+    if (!deepLink || !(await flushAll())) return;
+    const url = mcpAppLinkUrl(deepLink);
+    // The host opens the link in the user's browser; without one, or when it
+    // refuses, the card opens it as it would anywhere.
+    const handled = openMcpAppHostLink(url);
+    if (handled && (await handled)) return;
+    // The waits above can outlast the click, and then the browser blocks the
+    // tab. "noopener" would hide that, so it's cleared on the tab instead.
+    const tab = window.open(url, "_blank");
+    if (tab) {
+      tab.opener = null;
+      return;
+    }
+    toast.error(t("mail.draftCard.openBlocked"), {
+      action: {
+        label: t("mail.draftCard.sendInMail"),
+        onClick: () => window.open(url, "_blank", "noopener,noreferrer"),
+      },
+    });
+  }, [deepLink, flushAll, t]);
 
   let body: ReactNode;
-  if (!shownDraft && compose.isLoading) {
-    body = <DraftCardSkeleton />;
-  } else if (!shownDraft && compose.isError) {
+  if (showedDraft && card.data?.draft === null) {
+    body = (
+      <CardNotice
+        icon={<IconMail className="size-5 text-muted-foreground" />}
+        title={t("mail.draftCard.goneTitle")}
+      />
+    );
+  } else if (!draftId || card.data?.draft === null) {
+    body = (
+      <CardNotice
+        icon={<IconTrash className="size-5 text-muted-foreground" />}
+        title={t("mail.draftCard.notFoundTitle")}
+      />
+    );
+  } else if (draft && loaded) {
+    const thread = loaded.thread;
+    body = (
+      <>
+        <DraftCardHeader draft={draft} subject={thread.messages[0]?.subject} />
+        {thread.status !== "none" && (
+          <DraftThreadSection
+            messages={thread.messages}
+            unavailable={thread.status === "unavailable"}
+          />
+        )}
+        <div className="flex min-h-[220px] flex-1 flex-col gap-2 p-2">
+          <ComposeModal
+            presentation="card"
+            drafts={[draft]}
+            activeId={draft.id}
+            activeDraft={draft}
+            onSetActiveId={noop}
+            onUpdate={update}
+            onClose={noop}
+            onCloseAll={noop}
+            onDiscard={noop}
+            onStageForSend={noop}
+            onRestoreAfterSend={noop}
+            onNewDraft={noop}
+            onFlush={flush}
+            onSendInMail={() => void handleSendInMail()}
+          />
+        </div>
+      </>
+    );
+  } else if (card.isError) {
     body = (
       <CardNotice
         icon={<IconAlertCircle className="size-5 text-destructive" />}
@@ -163,93 +224,15 @@ export function DraftCard({ draftId }: { draftId: string }) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => void compose.refetch()}
+            onClick={() => void card.refetch()}
           >
             {t("mail.error.tryAgain")}
           </Button>
         }
       />
     );
-  } else if (deleteFailed && !draft) {
-    body = (
-      <CardNotice
-        icon={<IconAlertCircle className="size-5 text-destructive" />}
-        title={t("mail.toasts.failedToDeleteDraft")}
-      />
-    );
-  } else if (!shownDraft || (!draft && !outcome)) {
-    body = (
-      <CardNotice
-        icon={<IconTrash className="size-5 text-muted-foreground" />}
-        title={t("mail.draftCard.notFoundTitle")}
-      />
-    );
   } else {
-    body = (
-      <>
-        <DraftCardHeader draft={shownDraft} subject={thread.subject} />
-        {thread.wanted && (
-          <DraftThreadSection
-            messages={thread.messages}
-            loading={thread.loading}
-            unavailable={thread.unavailable}
-            compact={!outcome}
-          />
-        )}
-        <div
-          className={cn(
-            "flex flex-col gap-2 p-2",
-            outcome && thread.wanted ? "shrink-0" : "min-h-[220px] flex-1",
-          )}
-        >
-          {sendFailed && draft && (
-            <div
-              role="alert"
-              className="flex shrink-0 items-center gap-2 rounded-md bg-destructive/10 px-3 py-2 text-[13px] text-destructive"
-            >
-              <IconAlertCircle className="size-4 shrink-0" />
-              {t("mail.toasts.failedToSendEmail")}
-            </div>
-          )}
-          {thread.lookupFailed && draft && (
-            <div
-              role="alert"
-              className="flex shrink-0 items-center gap-2 rounded-md bg-destructive/10 px-3 py-2 text-[13px] text-destructive"
-            >
-              <IconAlertCircle className="size-4 shrink-0" />
-              <span className="min-w-0 flex-1">
-                {t("mail.draftCard.threadLookupFailed")}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void thread.retryLookup()}
-              >
-                {t("mail.error.tryAgain")}
-              </Button>
-            </div>
-          )}
-          {outcome && <OutcomePanel outcome={outcome} />}
-          <ComposeModal
-            presentation="card"
-            drafts={cardDraft ? [cardDraft] : []}
-            activeId={cardDraft ? cardDraft.id : null}
-            activeDraft={cardDraft}
-            onSetActiveId={noop}
-            onUpdate={compose.update}
-            onClose={noop}
-            onCloseAll={noop}
-            onDiscard={handleDiscard}
-            onStageForSend={compose.stageForSend}
-            onRestoreAfterSend={compose.restoreAfterSend}
-            onNewDraft={noop}
-            onFlush={compose.flush}
-            onSendProgress={handleSendProgress}
-            sendDisabled={thread.lookupPending}
-          />
-        </div>
-      </>
-    );
+    body = <DraftCardSkeleton />;
   }
 
   // An inline chat card's document is shorter than its frame (core clamps it),
@@ -262,8 +245,167 @@ export function DraftCard({ draftId }: { draftId: string }) {
       >
         {body}
       </div>
+      {conflictPrompt}
     </AccountFilterContext.Provider>
   );
+}
+
+/**
+ * The reader's unsaved edits, shown over the stored draft and saved through
+ * manage-draft. A save names the revision the edits started from, so a change
+ * the reader hasn't seen can't be overwritten: one to another field merges in,
+ * and one to the same field asks which to keep.
+ */
+function useDraftEdits(draftId: string) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [edits, setEdits] = useState<DraftEdits>({});
+  const editsRef = useRef<DraftEdits>({});
+  // What the edits started from. A read can't move it under them, or a change to
+  // a field being edited would go unnoticed.
+  const baseRef = useRef<SavedRecord<ComposeState> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lastSaveRef = useRef<Promise<boolean>>(Promise.resolve(true));
+
+  const { resolveOverlap, prompt: conflictPrompt } = useDraftConflictPrompt(
+    (restoreOnto) => {
+      const shown = queryClient.getQueryData<DraftCardData>(
+        draftCardQueryKey(draftId),
+      );
+      if (shown?.draft) {
+        update(draftId, restoreOnto({ ...shown.draft, ...editsRef.current }));
+      }
+    },
+  );
+
+  const save = useCallback(async (): Promise<boolean> => {
+    const sent = editsRef.current;
+    const base = baseRef.current;
+    if (!base || Object.keys(sent).length === 0) return true;
+    try {
+      const saved = await saveWithMerge<ComposeState>({
+        base,
+        mine: { ...base.value, ...sent },
+        resolveOverlap,
+        parseCurrent: (current) => {
+          // Sent or deleted during this save. Merging would store it again, so
+          // this fails and the read below says it's gone.
+          if (!current) throw new Error(`Draft ${draftId} is gone.`);
+          return current as ComposeState;
+        },
+        save: async ({ value, revision, base: from }) => {
+          const result = (await callAction("manage-draft", {
+            action: "update",
+            id: draftId,
+            expectedRevision: revision ?? undefined,
+            ...changedFields(from, value),
+          })) as { draft: ComposeState; revision: string };
+          return { value: result.draft, revision: result.revision };
+        },
+      });
+      baseRef.current = saved;
+      const key = draftCardQueryKey(draftId);
+      await queryClient.cancelQueries({ queryKey: key });
+      queryClient.setQueryData<DraftCardData>(key, (current) =>
+        current?.draft
+          ? {
+              ...current,
+              draft: saved.value,
+              revision: saved.revision ?? current.revision,
+            }
+          : current,
+      );
+      // Anything typed while this save ran is still unsaved.
+      const remaining = Object.fromEntries(
+        Object.entries(editsRef.current).filter(
+          ([field, value]) => sent[field as keyof DraftEdits] !== value,
+        ),
+      );
+      editsRef.current = remaining;
+      setEdits(remaining);
+      reportToModel(
+        draftId,
+        "edited",
+        `The user edited email draft ${draftId} in the Mail card. To change it ` +
+          `again, send expectedRevision "${saved.revision}". It now reads:\n` +
+          `To: ${saved.value.to}\nCc: ${saved.value.cc ?? ""}\n` +
+          `Bcc: ${saved.value.bcc ?? ""}\nSubject: ${saved.value.subject}\n\n` +
+          saved.value.body,
+      );
+      return true;
+    } catch (error) {
+      console.error(`Couldn't save draft ${draftId}:`, error);
+      // The prompt already said so when it couldn't ask.
+      if (!(error instanceof SaveOverlapError)) {
+        reportWriteFailure(error, {
+          label: t("mail.toasts.failedToSaveDraft"),
+        });
+      }
+      // The draft may be gone by now; the read says so.
+      void queryClient.invalidateQueries({
+        queryKey: draftCardQueryKey(draftId),
+      });
+      return false;
+    }
+  }, [draftId, queryClient, resolveOverlap, t]);
+
+  // Saves run one at a time, so they can't land out of order. Resolves once
+  // everything typed so far is saved, or false when that failed.
+  const flush = useCallback((): Promise<boolean> => {
+    clearTimeout(timerRef.current);
+    const next = lastSaveRef.current.then(save);
+    lastSaveRef.current = next;
+    return next;
+  }, [save]);
+
+  // Typing can go on while a save runs, so this waits until nothing is left.
+  const flushAll = useCallback(async (): Promise<boolean> => {
+    do {
+      if (!(await flush())) return false;
+    } while (Object.keys(editsRef.current).length > 0);
+    return true;
+  }, [flush]);
+
+  const update = useCallback(
+    (_id: string, partial: Partial<ComposeState>) => {
+      const changed: DraftEdits = {};
+      for (const field of EDITABLE_FIELDS) {
+        const value = partial[field];
+        if (value !== undefined) changed[field] = value;
+      }
+      if (Object.keys(changed).length === 0) return;
+      // Nothing unsaved, so this starts from the draft on screen.
+      if (Object.keys(editsRef.current).length === 0) {
+        const shown = queryClient.getQueryData<DraftCardData>(
+          draftCardQueryKey(draftId),
+        );
+        // The composer's last change after the draft went: nothing to edit.
+        if (!shown?.draft) return;
+        baseRef.current = { value: shown.draft, revision: shown.revision };
+      }
+      editsRef.current = { ...editsRef.current, ...changed };
+      setEdits(editsRef.current);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => void flush(), SAVE_DELAY_MS);
+    },
+    [draftId, flush, queryClient],
+  );
+
+  // A host can tear the card down with the chat, so a hidden card saves now.
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
+  useEffect(() => {
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") void flushRef.current();
+    };
+    document.addEventListener("visibilitychange", flushWhenHidden);
+    return () => {
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+      void flushRef.current();
+    };
+  }, []);
+
+  return { edits, update, flush, flushAll, conflictPrompt };
 }
 
 function DraftCardHeader({
@@ -304,98 +446,12 @@ function DraftCardHeader({
   );
 }
 
-function useDraftThread(draft: ComposeState | null, accounts: MailAccount[]) {
-  const replyToId =
-    draft && draft.mode !== "compose" ? draft.replyToId : undefined;
-  // get-email needs the exact account; a mailbox without Google is "local".
-  const onlyAccount = accounts.length === 1 ? accounts[0] : undefined;
-  const accountEmail =
-    draft?.accountEmail ??
-    draft?.savedDraftAccountEmail ??
-    (onlyAccount
-      ? onlyAccount.email
-      : accounts.length === 0
-        ? "local"
-        : undefined);
-  const threadAccount = accountEmail === "local" ? undefined : accountEmail;
-  const knownThreadId = draft?.replyToThreadId;
-  // Agents often pass only the message they answer, so look up its thread.
-  const lookupId = replyToId && !knownThreadId ? replyToId : undefined;
-  const email = useEmail(lookupId, accountEmail);
-  // Send waits for the lookup, and its first answer sticks, so a reply's
-  // thread can't change while it's being scheduled. A failed lookup isn't an
-  // answer: Send stays held until a retry finds the message.
-  const lookupKey =
-    lookupId && accountEmail ? `${accountEmail}\n${lookupId}` : null;
-  const [settledLookup, setSettledLookup] = useState<{
-    key: string;
-    threadId?: string;
-  } | null>(null);
-  const lookup = settledLookup?.key === lookupKey ? settledLookup : null;
-  if (lookupKey && !lookup && email.data) {
-    setSettledLookup({ key: lookupKey, threadId: email.data.threadId });
-  }
-  const lookupPending = Boolean(lookupKey && !lookup);
-  const lookupFailed = lookupPending && email.isError;
-  const resolvedThreadId = replyToId
-    ? (knownThreadId ?? lookup?.threadId)
-    : undefined;
-  // A thread often shares its first message's ID, which is worth trying for
-  // the conversation when the lookup fails or can't run. The draft never gets
-  // it, since a reply sent into the wrong thread is worse than one Gmail
-  // threads itself.
-  const threadId =
-    resolvedThreadId ??
-    (replyToId && (!lookupPending || lookupFailed) ? replyToId : undefined);
-
-  // The thread cache reports no errors and refetches a failed thread on every
-  // render, so the card catches the failure and stops asking.
-  const [failedThreadId, setFailedThreadId] = useState<string | null>(null);
-  const failed = threadId !== undefined && failedThreadId === threadId;
-  const thread = useThreadMessages(
-    failed ? undefined : threadId,
-    threadAccount,
-  );
-  useEffect(() => {
-    if (!threadId) return;
-    let live = true;
-    ensureThread(threadId, threadAccount).catch(() => {
-      if (live) setFailedThreadId(threadId);
-    });
-    return () => {
-      live = false;
-    };
-  }, [threadId, threadAccount]);
-
-  const messages = useMemo(
-    () => (thread.data ?? []).filter((message) => !message.isDraft),
-    [thread.data],
-  );
-  const loading = !failed && (!threadId || (thread.isLoading && !thread.data));
-
-  return {
-    wanted: Boolean(replyToId),
-    resolvedThreadId,
-    lookupPending,
-    lookupFailed,
-    retryLookup: email.refetch,
-    subject: messages[0]?.subject,
-    messages,
-    loading,
-    unavailable: failed || (!loading && messages.length === 0),
-  };
-}
-
 function DraftThreadSection({
   messages,
-  loading,
   unavailable,
-  compact,
 }: {
   messages: EmailMessage[];
-  loading: boolean;
   unavailable: boolean;
-  compact: boolean;
 }) {
   const t = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -440,18 +496,10 @@ function DraftThreadSection({
   return (
     <div
       ref={scrollRef}
-      className={cn(
-        "relative min-h-0 shrink overflow-y-auto border-b border-border/60 px-2 py-2",
-        // On a phone the recipients wrap, so the thread gives the draft more room.
-        compact ? "max-h-[35%] sm:max-h-[45%]" : "flex-1",
-      )}
+      // On a phone the recipients wrap, so the thread gives the draft more room.
+      className="relative max-h-[35%] min-h-0 shrink overflow-y-auto border-b border-border/60 px-2 py-2 sm:max-h-[45%]"
     >
-      {loading ? (
-        <div className="space-y-2 px-2 py-1">
-          <Skeleton className="h-4 w-2/3" />
-          <Skeleton className="h-4 w-1/2" />
-        </div>
-      ) : unavailable ? (
+      {unavailable ? (
         <p className="px-2 py-1 text-[13px] text-muted-foreground">
           {t("mail.draftCard.threadUnavailable")}
         </p>
@@ -475,6 +523,7 @@ function DraftThreadSection({
                 ref={isLatest ? latestRef : undefined}
                 email={message}
                 onCollapse={() => toggle(message.id)}
+                attachmentNamesOnly
               />
             ) : (
               <CollapsedMessageRow
@@ -487,66 +536,6 @@ function DraftThreadSection({
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-function OutcomePanel({ outcome }: { outcome: CardOutcome }) {
-  const t = useT();
-  const formatters = useFormatters();
-
-  if (outcome.status === "queued" || outcome.status === "sending") {
-    return (
-      <div
-        role="status"
-        className="flex flex-1 items-center justify-center gap-3 py-6 text-[13px] text-muted-foreground"
-      >
-        <IconLoader2 className="size-4 animate-spin" />
-        {t("mail.compose.sending")}
-        {outcome.status === "queued" && (
-          <Button variant="outline" size="sm" onClick={outcome.undo}>
-            {t("mail.actions.undo")}
-          </Button>
-        )}
-      </div>
-    );
-  }
-
-  const { icon, text } =
-    outcome.status === "sent"
-      ? {
-          icon: (
-            <span className="flex size-8 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-              <IconCheck className="size-4" />
-            </span>
-          ),
-          text: t("mail.toasts.messageSent"),
-        }
-      : outcome.status === "scheduled"
-        ? {
-            icon: <IconClock className="size-5 text-muted-foreground" />,
-            text: t("mail.sendLater.scheduledFor", {
-              date: formatters.formatDate(new Date(outcome.runAt), {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-                hour: "numeric",
-                minute: "2-digit",
-              }),
-            }),
-          }
-        : {
-            icon: <IconTrash className="size-5 text-muted-foreground" />,
-            text: t("mail.draftCard.deleted"),
-          };
-
-  return (
-    <div
-      role="status"
-      className="flex flex-1 flex-col items-center justify-center gap-2 py-6 text-[13px] font-medium"
-    >
-      {icon}
-      {text}
     </div>
   );
 }
@@ -580,78 +569,50 @@ function DraftCardSkeleton() {
   );
 }
 
-// Tell the chat's model what the reader did, so its next turn doesn't offer to
-// send a draft that already went out.
-function useReportOutcomeToModel(draftId: string, outcome: CardOutcome | null) {
-  useEffect(() => {
-    if (
-      !outcome ||
-      outcome.status === "queued" ||
-      outcome.status === "sending" ||
-      (outcome.status === "deleted" && !outcome.confirmed)
-    ) {
-      return;
-    }
-    const runAt =
-      outcome.status === "scheduled"
-        ? new Date(outcome.runAt).toISOString()
-        : undefined;
-    const text =
-      outcome.status === "sent"
-        ? `The user sent email draft ${draftId} from the Mail card.`
-        : outcome.status === "scheduled"
-          ? `The user scheduled email draft ${draftId} to send at ${runAt}.`
-          : `The user deleted email draft ${draftId} from the Mail card.`;
-    const reported = updateMcpAppModelContext({
-      structuredContent: {
-        draftId,
-        status: outcome.status,
-        ...(runAt ? { runAt } : {}),
+// Tell the chat's model what the reader did, so its next turn works from the
+// draft as it stands and doesn't offer to send one that's gone.
+function reportToModel(
+  draftId: string,
+  status: "edited" | "gone",
+  text: string,
+) {
+  const reported = updateMcpAppModelContext({
+    structuredContent: { draftId, status },
+    content: [{ type: "text", text }],
+  });
+  // Outside a chat there's no model to tell. In one, the card already shows
+  // the change, so a failed report only costs the model this update.
+  if (reported) {
+    void reported.then(
+      (ok) => {
+        if (!ok) {
+          console.warn(`The chat didn't take the update for draft ${draftId}.`);
+        }
       },
-      content: [{ type: "text", text }],
-    });
-    // Outside a chat there's no model to tell. In one, the card already shows
-    // the outcome, so a failed report only costs the model this update.
-    if (reported) {
-      void reported.then(
-        (ok) => {
-          if (!ok) {
-            console.warn(
-              `The chat didn't take the update for draft ${draftId}.`,
-            );
-          }
-        },
-        (error) => {
-          console.warn(`Couldn't tell the chat about draft ${draftId}:`, error);
-        },
-      );
-    }
-  }, [draftId, outcome]);
+      (error) => {
+        console.warn(`Couldn't tell the chat about draft ${draftId}:`, error);
+      },
+    );
+  }
 }
 
-// The inbox shows these from AppLayout, which the card renders without. A
-// delete the reader asked for gets the card's own failure state instead.
-function useDraftFailureToasts(
+// A draft that was here and isn't has been sent or deleted, most likely in the
+// Mail tab the card opened.
+function useReportDraftGoneToModel(
   draftId: string,
-  outcomeRef: RefObject<CardOutcome | null>,
+  data: DraftCardData | undefined,
 ) {
-  const t = useT();
+  const hadDraftRef = useRef(false);
   useEffect(() => {
-    const handleSaveFailed = (event: Event) => {
-      const failedId =
-        event instanceof CustomEvent ? event.detail?.draftId : undefined;
-      if (failedId && failedId !== draftId) return;
-      toast.error(t("mail.toasts.failedToSaveDraft"));
-    };
-    const handleDeleteFailed = () => {
-      if (outcomeRef.current?.status === "deleted") return;
-      toast.error(t("mail.toasts.failedToDeleteDraft"));
-    };
-    window.addEventListener(DRAFT_SAVE_FAILED_EVENT, handleSaveFailed);
-    window.addEventListener(DRAFT_DELETE_FAILED_EVENT, handleDeleteFailed);
-    return () => {
-      window.removeEventListener(DRAFT_SAVE_FAILED_EVENT, handleSaveFailed);
-      window.removeEventListener(DRAFT_DELETE_FAILED_EVENT, handleDeleteFailed);
-    };
-  }, [draftId, outcomeRef, t]);
+    if (data?.draft) {
+      hadDraftRef.current = true;
+    } else if (data && hadDraftRef.current) {
+      hadDraftRef.current = false;
+      reportToModel(
+        draftId,
+        "gone",
+        `Email draft ${draftId} is no longer in Mail: it was sent or deleted.`,
+      );
+    }
+  }, [draftId, data]);
 }

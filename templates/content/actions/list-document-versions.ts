@@ -8,6 +8,7 @@ import { documentChatStartVersionId } from "../server/lib/document-history.js";
 import { parseDocumentVersionChatContext } from "../server/lib/document-version-context.js";
 
 export default defineAction({
+  searchHints: ["page history", "old versions", "version history"],
   description: "List saved versions for a document.",
   schema: z.object({
     documentId: z.string().optional().describe("Document ID"),

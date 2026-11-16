@@ -17,10 +17,18 @@ import {
 import { abortRun } from "../agent/run-manager.js";
 import { AppConfigurationError, getAppConfig } from "../app-config/index.js";
 import { isServerlessRuntime } from "../db/client.js";
-import { getOrgContext } from "../org/context.js";
+import {
+  getOrgContext,
+  getOrgScopeResolutionError,
+  hasForbiddenOrgScope,
+  hasOrgScopeResolutionUnavailable,
+} from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
-import { getSession } from "../server/auth.js";
+import {
+  getSession,
+  SessionResolutionUnavailableError,
+} from "../server/auth.js";
 import { registerBackgroundJobStop } from "../server/background-jobs.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import { resolveSecret } from "../server/credential-provider.js";
@@ -43,6 +51,8 @@ import {
 } from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
+import { sessionResolutionFailure } from "../server/session-resolution-errors.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { dispatchAutomationWebhookTask } from "../triggers/dispatcher.js";
 import {
   AUTOMATION_WEBHOOK_PLATFORM,
@@ -1083,32 +1093,45 @@ export function createIntegrationsPlugin(
       });
     }
 
+    async function getIntegrationOrgContext(
+      event: Parameters<typeof getOrgContext>[0],
+    ) {
+      try {
+        const context = await getOrgContext(event);
+        if (hasForbiddenOrgScope(event)) throw new ForbiddenError();
+        if (hasOrgScopeResolutionUnavailable(event)) {
+          throw (
+            getOrgScopeResolutionError(event) ??
+            new SessionResolutionUnavailableError()
+          );
+        }
+        return context;
+      } catch (cause) {
+        throw sessionResolutionFailure(cause);
+      }
+    }
+
+    // A null orgId from getIntegrationOrgContext is verified Personal scope.
+    // Resolving it again by email can fail where that lookup did not.
+    function verifiedRequestScope(
+      orgId: string | null | undefined,
+    ): IntegrationRequestScope {
+      return orgId ? { orgId } : { orgId: null, orgScope: "personal" };
+    }
+
     async function requireSessionContext(
       event: any,
     ): Promise<({ ownerEmail: string } & IntegrationRequestScope) | null> {
-      const session = await getSession(event).catch(() => null);
+      const session = await getSession(event);
       if (!session?.email) {
         setResponseStatus(event, 401);
         return null;
       }
-      const orgCtx = await getOrgContext(event).catch(() => null);
-      try {
-        return {
-          ownerEmail: session.email,
-          ...(await resolveIntegrationRequestScope({
-            ownerEmail: session.email,
-            orgId: orgCtx?.orgId ?? session.orgId ?? null,
-            principalType: "user",
-          })),
-        };
-      } catch (error) {
-        console.error(
-          "[integrations] Could not resolve signed-in user's organization scope:",
-          error,
-        );
-        setResponseStatus(event, 503);
-        return null;
-      }
+      const orgCtx = await getIntegrationOrgContext(event);
+      return {
+        ownerEmail: session.email,
+        ...verifiedRequestScope(orgCtx.orgId),
+      };
     }
 
     function toCredentialContext(
@@ -1171,12 +1194,12 @@ export function createIntegrationsPlugin(
     async function checkOrgAdmin(
       event: any,
     ): Promise<{ ok: true } | { ok: false; error: string }> {
-      const session = await getSession(event).catch(() => null);
+      const session = await getSession(event);
       if (!session?.email) {
         setResponseStatus(event, 401);
         return { ok: false, error: "unauthorized" };
       }
-      const ctx = await getOrgContext(event).catch(() => null);
+      const ctx = await getIntegrationOrgContext(event);
       if (!ctx?.orgId) return { ok: true };
       if (ctx.role === "owner" || ctx.role === "admin") return { ok: true };
       setResponseStatus(event, 403);
@@ -2827,15 +2850,15 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        const session = await getSession(event).catch(() => null);
+        const session = await getSession(event);
         if (!session?.email) {
           setResponseStatus(event, 401);
           return { error: "unauthorized" };
         }
-        const org = await getOrgContext(event).catch(() => null);
+        const org = await getIntegrationOrgContext(event);
         const actor = {
           userEmail: session.email,
-          orgId: org?.orgId ?? session.orgId ?? null,
+          orgId: org.orgId ?? null,
           isOrgAdmin: org?.role === "owner" || org?.role === "admin",
         };
         if (method === "GET") {
@@ -3075,16 +3098,16 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        const session = await getSession(event).catch(() => null);
+        const session = await getSession(event);
         if (!session?.email) {
           setResponseStatus(event, 401);
           return { error: "Sign in before connecting Slack." };
         }
-        const org = await getOrgContext(event).catch(() => null);
+        const org = await getIntegrationOrgContext(event);
         try {
           assertSlackInstallAccess({
             email: session.email,
-            orgId: org?.orgId ?? session.orgId ?? null,
+            orgId: org.orgId ?? null,
             orgRole: org?.role ?? null,
           });
         } catch (err) {
@@ -3093,18 +3116,7 @@ export function createIntegrationsPlugin(
             error: err instanceof Error ? err.message : "Slack access denied",
           };
         }
-        let requestScope: IntegrationRequestScope;
-        try {
-          requestScope = await resolveIntegrationRequestScope({
-            ownerEmail: session.email,
-            orgId: org?.orgId ?? session.orgId ?? null,
-            principalType: "user",
-          });
-        } catch (error) {
-          console.error("[slack] Could not resolve install scope:", error);
-          setResponseStatus(event, 503);
-          return { error: "Could not verify your account scope." };
-        }
+        const requestScope = verifiedRequestScope(org.orgId);
         return await runWithRequestContext(
           {
             userEmail: session.email,
@@ -3133,7 +3145,7 @@ export function createIntegrationsPlugin(
             const state = encodeOAuthState({
               redirectUri,
               owner: session.email,
-              orgId: org?.orgId ?? session.orgId ?? undefined,
+              orgId: org.orgId ?? undefined,
               app: "agent-native:slack",
               addAccount: true,
               returnUrl:
@@ -3178,14 +3190,14 @@ export function createIntegrationsPlugin(
             "Your Slack install session expired or changed. Sign in and start again.",
           );
         }
-        const session = await getSession(event).catch(() => null);
-        const org = await getOrgContext(event).catch(() => null);
+        const session = await getSession(event);
+        const org = await getIntegrationOrgContext(event);
         if (
           state.app !== "agent-native:slack" ||
           !session?.email ||
           !state.owner ||
           session.email.toLowerCase() !== state.owner.toLowerCase() ||
-          (state.orgId ?? null) !== (org?.orgId ?? session.orgId ?? null)
+          (state.orgId ?? null) !== (org.orgId ?? null)
         ) {
           return oauthErrorPage(
             "Your Slack install session expired or changed. Sign in and start again.",
@@ -3196,14 +3208,10 @@ export function createIntegrationsPlugin(
         try {
           const access = assertSlackInstallAccess({
             email: session.email,
-            orgId: org?.orgId ?? session.orgId ?? null,
+            orgId: org.orgId ?? null,
             orgRole: org?.role ?? null,
           });
-          const requestScope = await resolveIntegrationRequestScope({
-            ownerEmail: access.ownerEmail,
-            orgId: access.orgId,
-            principalType: "user",
-          });
+          const requestScope = verifiedRequestScope(access.orgId);
           return await runWithRequestContext(
             {
               userEmail: access.ownerEmail,
@@ -3595,7 +3603,7 @@ export function createIntegrationsPlugin(
         ) {
           const adminCheck = await checkOrgAdmin(event);
           if (adminCheck.ok === false) return { error: adminCheck.error };
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const enabled = action === "enable";
           await channels.setEnabled(platform, enabled, {
             actorEmail: session?.email,

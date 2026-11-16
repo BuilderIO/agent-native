@@ -9,6 +9,7 @@ import { bigqueryOperations } from "./bigquery.js";
 import { builderOperations } from "./builder.js";
 import { emailOperations } from "./email.js";
 import { factoryOperations } from "./factory.js";
+import { genericOperations } from "./generic.js";
 import { githubOperations } from "./github.js";
 import { gongOperations } from "./gong.js";
 import { hubspotOperations } from "./hubspot.js";
@@ -35,6 +36,7 @@ export const OPERATION_DEFINITIONS: readonly OperationDefinitionInput[] = [
   ...notionOperations,
   ...sentryOperations,
   ...emailOperations,
+  ...genericOperations,
 ];
 
 /** Parses every definition, so a malformed or duplicate one fails here and not at a run. */

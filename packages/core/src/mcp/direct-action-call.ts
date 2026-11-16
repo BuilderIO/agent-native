@@ -19,6 +19,7 @@ import {
 import { agentErrorDetails } from "../agent/action-error-details.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { extractAgentImagesFromActionResult } from "../agent/tool-result-images.js";
+import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { captureError } from "../server/capture-error.js";
 import {
@@ -62,7 +63,7 @@ import {
 } from "./build-server.js";
 import { mcpCallAttribution } from "./call-attribution.js";
 import {
-  DATABASE_FAILURE_MESSAGE,
+  databaseFailureMessage,
   describeThrownForLog,
   HIDDEN_EMBED_URL,
   isDatabaseQueryFailure,
@@ -187,7 +188,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       : callableActions[name]?.mcpOutputContract;
 
     const errorText = (err: any) => {
-      if (isDatabaseQueryFailure(err)) return DATABASE_FAILURE_MESSAGE;
+      if (isDatabaseQueryFailure(err)) return databaseFailureMessage(err);
       const projectedError =
         directoryCatalog && config.directoryProfile?.projectResult
           ? config.directoryProfile.projectResult(name, err.message)
@@ -269,11 +270,15 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       args,
       // A tool the request leaves out is unknown here, as it is to tools/list.
       callable: isAdvertisable(name) ? callableActions : {},
-      actionRunContext: mcpCallAttribution({
-        request,
-        envelope: ctx.mcpReq.envelope,
-        oauthClientId: effectiveIdentity?.oauthClientId,
-      }),
+      actionRunContext: {
+        ...mcpCallAttribution({
+          request,
+          envelope: ctx.mcpReq.envelope,
+          oauthClientId: effectiveIdentity?.oauthClientId,
+          userAgent: requestMeta?.clientName,
+        }),
+        signal: ctx.mcpReq.signal,
+      },
       approval: {
         state: () =>
           ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined,
@@ -322,6 +327,13 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     }
 
     if (outcome.status === "threw") {
+      if (
+        name === "tool-search" &&
+        outcome.error instanceof ServicePrincipalRefusedError &&
+        outcome.error.statusCode === 503
+      ) {
+        throw outcome.error;
+      }
       // Once a write entered its handler, in the call or one nested in it,
       // other sessions refresh however the call then failed.
       if (

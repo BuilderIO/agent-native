@@ -103,7 +103,7 @@ npx @agent-native/core@latest create app-workspace --template tasks,content
 Inside an existing workspace root, `create <name>` delegates to `add-app`:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 pnpm install    # at the workspace root
 pnpm dev
 ```

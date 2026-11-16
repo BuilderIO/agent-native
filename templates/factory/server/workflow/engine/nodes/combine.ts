@@ -90,6 +90,9 @@ function groupKey(value: unknown): string | null {
     : null;
 }
 
+/** The items of one group: never empty, which is how its first member is always there to read. */
+type Members = [FlowItem, ...FlowItem[]];
+
 /**
  * Groups items by a path. An item that cannot be read for it fails, one by one,
  * when the groups are used for routing (`problems` is null); when they feed
@@ -99,8 +102,8 @@ async function groupItems(
   call: NodeCall<WorkflowNodeOfKind<"combine">>,
   path: string,
   problems: Problem[] | null,
-): Promise<Map<string, FlowItem[]>> {
-  const groups = new Map<string, FlowItem[]>();
+): Promise<Map<string, Members>> {
+  const groups = new Map<string, Members>();
   const unreadable = async (item: FlowItem, failure: ItemFailure) => {
     if (problems === null) await failItem(call, item, failure);
     else problems.push({ item, failure });
@@ -119,7 +122,8 @@ async function groupItems(
       });
       continue;
     }
-    groups.set(key, [...(groups.get(key) ?? []), item]);
+    const found = groups.get(key);
+    groups.set(key, found === undefined ? [item] : [...found, item]);
   }
   return groups;
 }
@@ -174,7 +178,9 @@ export function combinedItemId(identity: CombinedIdentity): string {
  * A group is one standing item per key, the same on every tick whoever its
  * members are: what is counted on it (`nudges`, `rounds`) stays counted. Not
  * built from its members, whose ids change as a task goes round (a group of
- * groups would never be the same item twice).
+ * groups would never be the same item twice). With `identity: "firstMember"`
+ * the key is the id of the group's first member, so a grouping value that came
+ * from a model never becomes what the group is.
  */
 export function groupItemId(nodeId: string, key: string): string {
   return `group:${nodeId}:${stableHash(key)}`;
@@ -287,9 +293,11 @@ export const executeCombine: NodeExecutorFor<"combine"> = async (call) => {
   if (settings.mode === "groupBy") {
     const groups = await groupItems(call, settings.key ?? "", null);
     const out: FlowItem[] = [];
-    for (const [key, members] of groups) {
-      const id = groupItemId(node.id, key);
+    for (const [groupedBy, members] of groups) {
       const [first] = members;
+      // `groups` keeps the order the items arrived in, so `first` is the same item whatever the grouping value says.
+      const key = settings.identity === "firstMember" ? first.id : groupedBy;
+      const id = groupItemId(node.id, key);
       out.push({
         id,
         data: {
@@ -310,7 +318,7 @@ export const executeCombine: NodeExecutorFor<"combine"> = async (call) => {
           itemId: member.id,
           nodeId: node.id,
           kind: "output",
-          summary: `grouped under ${key} as ${id}`,
+          summary: `grouped under ${groupedBy} as ${id}`,
         });
       }
     }

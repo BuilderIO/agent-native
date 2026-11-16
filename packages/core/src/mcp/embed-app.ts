@@ -1,5 +1,10 @@
 import type { ActionMcpAppResourceConfig } from "../action.js";
-import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
+import {
+  FETCH_TRANSPORT_CHANGED_EVENT,
+  FETCH_TRANSPORT_SYMBOL_KEY,
+  EMBED_SESSION_RENEWAL_WINDOW_KEY,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   MCP_APP_HOST_FILL_ATTRIBUTE,
   MCP_APP_PANE_FILL_MAX_HEIGHT,
@@ -65,6 +70,9 @@ export function embedApp(
   return {
     title,
     requiresEmbedSession: true,
+    // Claude reads this from the resources/read content item and moves the
+    // view to its side panel; hosts that do not know the field ignore it.
+    _meta: { ui: { preferredDisplayMode: "fullscreen" } },
     ...(options.description ? { description: options.description } : {}),
     html: (ctx) => {
       const remoteBridgeFallbackEnabled = ctx.catalogMode !== "directory";
@@ -957,6 +965,7 @@ export function embedApp(
       }
       if (typeof fetch === "function") {
         const originalFetch = fetch.bind(window);
+        var pageFetch = fetch;
         window.fetch = function(input, init) {
           const raw = input instanceof Request ? input.url : String(input);
           const url = rewrittenUrl(raw, false);
@@ -966,10 +975,62 @@ export function embedApp(
             credentials: "omit"
           });
           if (input instanceof Request) {
-            return originalFetch(new Request(url, input), nextInit);
+            const requestInit = {
+              method: input.method,
+              mode: input.mode,
+              cache: input.cache,
+              redirect: input.redirect,
+              referrer: input.referrer,
+              referrerPolicy: input.referrerPolicy,
+              integrity: input.integrity,
+              keepalive: input.keepalive,
+              signal: input.signal
+            };
+            // A body in init replaces the Request's, which may already be spent.
+            if (nextInit.body !== undefined) {
+              return originalFetch(url, Object.assign(requestInit, nextInit));
+            }
+            // Read the body first: a Request used as init sends it as a stream,
+            // which needs HTTP/2 and which not every browser can send.
+            return input.arrayBuffer().then(function(body) {
+              return originalFetch(
+                url,
+                Object.assign(
+                  requestInit,
+                  body.byteLength > 0 ? { body: body } : null,
+                  nextInit
+                )
+              );
+            });
           }
           return originalFetch(url, nextInit);
         };
+        // The requests it signs go out on a transport of their own, one per
+        // token. It signs only on the target's mount and with a token; its
+        // other requests still omit cookies, so they go out on another
+        // transport, never the signed one or the page's. Asked as each read
+        // is keyed and sent, so it follows the page between mounts. With no
+        // app origin, every request passes through unchanged.
+        var signedTransport = null;
+        var unsignedTransport = {};
+        window.fetch[Symbol.for(${JSON.stringify(FETCH_TRANSPORT_SYMBOL_KEY)})] = function() {
+          if (!appOrigin()) return pageFetch;
+          var token = activeConfig().token;
+          if (!token || authorizedTargetPath() === null) {
+            return unsignedTransport;
+          }
+          if (!signedTransport || signedTransport.token !== token) {
+            signedTransport = { token: token, transport: {} };
+          }
+          return signedTransport.transport;
+        };
+        // Requests now go out signed by this runtime: the app reads the
+        // session again over it.
+        if (typeof window.dispatchEvent === "function") {
+          window.dispatchEvent(
+            new Event(${JSON.stringify(FETCH_TRANSPORT_CHANGED_EVENT)})
+          );
+        }
       }
       if (typeof XMLHttpRequest !== "undefined") {
         const originalOpen = XMLHttpRequest.prototype.open;
@@ -1270,11 +1331,13 @@ export function embedApp(
       if (!isEmbedStartUrl(src)) {
         return { url: new URL(src), response: null };
       }
+      // A fetch has no document context, so the start route answers with its
+      // redirect, and the app serves that page only to a request for HTML.
       const response = await fetch(src, {
         credentials: "omit",
         redirect: "follow",
         headers: {
-          Accept: "application/json",
+          Accept: "text/html",
           "X-Agent-Native-Embed-Transplant": "1"
         }
       });
@@ -1293,6 +1356,8 @@ export function embedApp(
     }
 
     async function transplantAppDocument(src) {
+      window[${JSON.stringify(EMBED_SESSION_RENEWAL_WINDOW_KEY)}] =
+        renewTransplantedEmbedSession;
       rememberActiveEmbedSessionTicket(src);
       clearFrameReadyTimer();
       clearFrameLoadTimer();
@@ -1340,6 +1405,7 @@ export function embedApp(
         window.history.replaceState(window.history.state, "", localPathFromUrl(appUrl, false));
       } catch {}
       await mountTransplantedHtml(html, appUrl);
+      watchPageTools();
       embedSessionRefreshAttempts = 0;
       notifyHostHeightRepeatedly();
     }
@@ -1733,6 +1799,7 @@ export function embedApp(
       ${ctx.catalogMode === "directory" ? "" : 'frame.allow = "clipboard-read; clipboard-write";'}
       appFrame = frame;
       appFrameReady = false;
+      notifyViewToolsChanged();
       lastFrameSrc = src;
       appFrameDocumentState.loadGeneration += 1;
       frame.addEventListener("load", () => {
@@ -1848,6 +1915,30 @@ export function embedApp(
           type: "agentNative.embedSessionRenewed",
           data: { requestId, ok: false },
         });
+      }
+    }
+
+    // An app running in this window has the chat as its parent, not this shell,
+    // so it asks for a renewal by calling this rather than by posting a message.
+    async function renewTransplantedEmbedSession() {
+      if (embedSessionRefreshAttempts >= maxEmbedSessionRefreshAttempts) {
+        return false;
+      }
+      embedSessionRefreshAttempts += 1;
+      try {
+        const args = embedSessionArgsFor(
+          openStartUrl || openUrl,
+          true,
+          activeEmbedSessionTicket,
+        );
+        if (!args.sourceTicket) return false;
+        const data = parseToolResult(await callEmbedSessionTool(args));
+        if (data.renewed !== true) return false;
+        embedSessionRefreshAttempts = 0;
+        return true;
+      } catch (err) {
+        console.warn("[agent-native] embedded session renewal failed", err);
+        return false;
       }
     }
 
@@ -1986,6 +2077,14 @@ export function embedApp(
       return sections.filter(Boolean).join("\\n\\n");
     }
 
+    // "noopener" would hide whether the browser blocked the tab, so it's cleared
+    // on the tab instead.
+    function openBlankTab(url) {
+      const tab = window.open(url, "_blank");
+      if (tab) tab.opener = null;
+      return Boolean(tab);
+    }
+
     async function openHostLink(data) {
       const url = typeof (data && data.url) === "string" ? data.url : "";
       if (!url) return { isError: true };
@@ -1995,8 +2094,7 @@ export function embedApp(
       if (app && typeof app.openLink === "function") {
         return await app.openLink({ url });
       }
-      window.open(url, "_blank", "noopener,noreferrer");
-      return { ok: true };
+      return openBlankTab(url) ? { ok: true } : { isError: true };
     }
 
     function notifyHostHeight() {
@@ -2588,6 +2686,226 @@ export function embedApp(
       if (bridge && (!appFrame || openAiBridge)) syncOpenAiBridge(bridge);
     }, { passive: true });
 
+    // App tools: the host calls these on this open view, so a "filter it" or
+    // "open that one" turn changes the panel in place instead of opening a new view.
+    const readViewToolName = "read_view";
+    const navigateViewToolName = "navigate_view";
+    const maxViewTextChars = 6000;
+    const maxPageTools = 60;
+    const pageToolWaitMs = 40000;
+    const pageToolOrigins = new Map();
+    let pageToolWatchStarted = false;
+
+    function appPageToolHelper() {
+      if (appFrame) return null;
+      const helper = window.__agentNativeWebMcp;
+      return helper && typeof helper.tools === "function" && typeof helper.call === "function"
+        ? helper
+        : null;
+    }
+
+    function currentViewUrl() {
+      if (appFrame) {
+        try {
+          return new URL(appFrame.src, window.location.href);
+          // coercion-ok: null means "no readable view URL"; read_view and navigate_view report it as an error
+        } catch {
+          return null;
+        }
+      }
+      return lastFrameSrc ? new URL(window.location.href) : null;
+    }
+
+    function readViewState() {
+      // A nested app frame is cross-origin and moves on its own, so its src is
+      // only the launch URL; reporting it would describe the wrong page.
+      if (appFrame) throw new Error("This host shows the app in a nested frame, so its current page can't be read.");
+      const url = currentViewUrl();
+      if (!url) throw new Error("No app page has loaded in this view yet.");
+      const state = {
+        path: localPathFromUrl(url, false),
+        title: document.title
+      };
+      {
+        const selection = typeof window.getSelection === "function"
+          ? String(window.getSelection() || "").trim()
+          : "";
+        if (selection) state.selectedText = selection.slice(0, maxViewTextChars);
+        const root = document.querySelector("main") || document.body;
+        state.visibleText = root
+          ? String(root.innerText || "").replace(/\\s+/g, " ").trim().slice(0, maxViewTextChars)
+          : "";
+      }
+      return state;
+    }
+
+    function navigateView(rawPath) {
+      const path = typeof rawPath === "string" ? rawPath.trim() : "";
+      if (!path.startsWith("/") || path.startsWith("//")) {
+        throw new Error("path must start with / and stay inside the open app, e.g. the path read_view returns.");
+      }
+      // The nested frame was launched on a session scoped to its start URL;
+      // pointing it at a bare app route would drop that session.
+      if (appFrame) {
+        throw new Error("This host shows the app in a nested frame, so it can't be moved from here.");
+      }
+      const base = currentViewUrl();
+      if (!base) throw new Error("No app page has loaded in this view yet.");
+      const target = new URL(path, base);
+      if (target.origin !== base.origin) throw new Error("path must stay inside the open app.");
+      const nextPath = localPathFromUrl(target, false);
+      // React Router reads the location on popstate, so a pushed entry plus a
+      // popstate event moves the transplanted app without reloading it.
+      const current = window.history.state;
+      const idx = current && typeof current.idx === "number" ? current.idx + 1 : 0;
+      window.history.pushState(
+        { usr: null, key: Math.random().toString(36).slice(2, 10), idx },
+        "",
+        nextPath
+      );
+      window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+      return { path: nextPath };
+    }
+
+    async function listViewTools() {
+      // A nested cross-origin frame can be neither read nor moved from here.
+      if (appFrame) return [];
+      const tools = [
+        {
+          name: readViewToolName,
+          title: "Read open app view",
+          description: "Read the app page open beside the chat: its path, title, selected text and visible text. Call it before acting on what the user is looking at.",
+          inputSchema: { type: "object", properties: {} },
+          annotations: { readOnlyHint: true }
+        },
+        {
+          name: navigateViewToolName,
+          title: "Navigate open app view",
+          description: "Show another page of the open app in place, such as a filtered list or one record. Pass a path in the form read_view returns.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description: "App path starting with /, in the form read_view returns, e.g. a list with a search query."
+              }
+            },
+            required: ["path"]
+          }
+        }
+      ];
+      const helper = appPageToolHelper();
+      if (!helper) return tools;
+      pageToolOrigins.clear();
+      try {
+        const summaries = await helper.tools();
+        for (const summary of (Array.isArray(summaries) ? summaries : []).slice(0, maxPageTools)) {
+          if (!summary || typeof summary.name !== "string") continue;
+          if (tools.some((tool) => tool.name === summary.name)) continue;
+          const full = typeof helper.describe === "function"
+            ? await helper.describe(summary.name, summary.origin)
+            : null;
+          const schema = full && full.inputSchema && full.inputSchema.type === "object"
+            ? full.inputSchema
+            : { type: "object", properties: {} };
+          tools.push({
+            name: summary.name,
+            ...(summary.title ? { title: summary.title } : {}),
+            description: String((full && full.description) || summary.description || summary.name),
+            inputSchema: schema,
+            ...(summary.readOnly ? { annotations: { readOnlyHint: true } } : {})
+          });
+          pageToolOrigins.set(summary.name, summary.origin);
+        }
+      } catch (err) {
+        console.warn("[agent-native] page tools unavailable to the MCP host", err);
+      }
+      return tools;
+    }
+
+    async function callViewTool(params) {
+      const record = objectValue(params);
+      const name = typeof record.name === "string" ? record.name : "";
+      const args = objectValue(record.arguments);
+      try {
+        let result;
+        if (name === readViewToolName) {
+          result = readViewState();
+        } else if (name === navigateViewToolName) {
+          result = navigateView(args.path);
+        } else {
+          const helper = appPageToolHelper();
+          if (!helper) throw new Error("Unknown view tool: " + name);
+          const origin = pageToolOrigins.get(name);
+          const outcome = await helper.call(name, args, {
+            waitMs: pageToolWaitMs,
+            ...(origin ? { origin } : {})
+          });
+          if (!outcome || outcome.state !== "done") {
+            throw new Error("Page tool " + name + " did not finish.");
+          }
+          if (!outcome.ok) throw new Error(outcome.error || "Page tool " + name + " failed.");
+          result = outcome.result;
+        }
+        const structured = result && typeof result === "object" && !Array.isArray(result)
+          ? result
+          : undefined;
+        return {
+          content: [{
+            type: "text",
+            text: typeof result === "string" ? result : JSON.stringify(result === undefined ? null : result)
+          }],
+          ...(structured ? { structuredContent: structured } : {})
+        };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: err && err.message ? err.message : String(err) }]
+        };
+      }
+    }
+
+    function notifyViewToolsChanged() {
+      if (app && typeof app.sendToolListChanged === "function") {
+        try {
+          app.sendToolListChanged();
+        } catch (error) {
+          console.warn("[agent-native] tools/list_changed notification failed", error);
+        }
+      }
+    }
+
+    // The app registers its WebMCP tools from module scripts that keep running
+    // after the transplant mounts, so the first list_changed can arrive before
+    // they exist. Re-announce when the helper appears and on every toolchange.
+    function watchPageTools() {
+      notifyViewToolsChanged();
+      if (pageToolWatchStarted) return;
+      pageToolWatchStarted = true;
+      let timer = null;
+      const schedule = () => {
+        clearTimeout(timer);
+        timer = setTimeout(notifyViewToolsChanged, 250);
+      };
+      let watchedContext = null;
+      let helperSeen = false;
+      let ticks = 0;
+      const check = () => {
+        const context = document.modelContext;
+        if (context && context !== watchedContext && typeof context.addEventListener === "function") {
+          context.addEventListener("toolchange", schedule);
+          watchedContext = context;
+        }
+        if (!helperSeen && appPageToolHelper()) {
+          helperSeen = true;
+          schedule();
+        }
+        if ((helperSeen && watchedContext) || ++ticks >= 20) clearInterval(poll);
+      };
+      const poll = setInterval(check, 500);
+      check();
+    }
+
     function createNativeMcpAppsBridge() {
       let rpcId = 0;
       let connectPromise = null;
@@ -2691,7 +3009,10 @@ export function embedApp(
               "ui/initialize",
               {
                 appInfo: { name: "Agent-Native Embed", version: "1.0.0" },
-                appCapabilities: {},
+                appCapabilities: {
+                  availableDisplayModes: ["inline", "fullscreen"],
+                  tools: { listChanged: true }
+                },
                 protocolVersion: "2026-01-26"
               },
               nativeBridgeInitializeTimeoutMs
@@ -2728,8 +3049,7 @@ export function embedApp(
           } catch (err) {
             console.warn("[agent-native] MCP host open-link request failed", err);
           }
-          const opened = window.open(url, "_blank", "noopener,noreferrer");
-          return opened ? { ok: true } : { isError: true };
+          return openBlankTab(url) ? { ok: true } : { isError: true };
         },
         async requestDisplayMode(params) {
           await nativeApp.connect();
@@ -2738,17 +3058,43 @@ export function embedApp(
         sendSizeChanged(params) {
           rpcNotify("ui/notifications/size-changed", objectValue(params));
         },
+        sendToolListChanged() {
+          if (connectPromise) rpcNotify("notifications/tools/list_changed", {});
+        },
         async sendMessage(params) {
           await nativeApp.connect();
           return await rpcRequest("ui/message", objectValue(params));
         }
       };
 
+      async function answerHostRequest(message) {
+        let reply;
+        try {
+          if (message.method === "tools/list") {
+            reply = { result: { tools: await listViewTools() } };
+          } else if (message.method === "tools/call") {
+            reply = { result: await callViewTool(message.params) };
+          } else if (message.method === "ping" || message.method === "ui/resource-teardown") {
+            reply = { result: {} };
+          } else {
+            reply = { error: { code: -32601, message: "Method not found: " + message.method } };
+          }
+        } catch (err) {
+          reply = { error: { code: -32603, message: err && err.message ? err.message : String(err) } };
+        }
+        window.parent.postMessage({ jsonrpc: "2.0", id: message.id, ...reply }, "*");
+      }
+
       function onMessage(event) {
         if (event.source !== window.parent) return;
         const message = event.data;
         if (!message || message.jsonrpc !== "2.0") return;
-        if (typeof message.id === "number" || typeof message.id === "string") {
+        const hasId = typeof message.id === "number" || typeof message.id === "string";
+        if (hasId && typeof message.method === "string") {
+          void answerHostRequest(message);
+          return;
+        }
+        if (hasId) {
           settleRpcResponse(message);
           return;
         }
@@ -2829,9 +3175,11 @@ export function embedApp(
       const { App } = await import("${MCP_APP_IMPORT}");
       app = new App(
         { name: "Agent-Native Embed", version: "1.0.0" },
-        {},
+        { availableDisplayModes: ["inline", "fullscreen"], tools: { listChanged: true } },
         { autoResize: false }
       );
+      app.onlisttools = async () => ({ tools: await listViewTools() });
+      app.oncalltool = async (params) => await callViewTool(params);
       appConnectPromise = null;
       app.ontoolinput = (params) => {
         toolInput = params.arguments || {};

@@ -25,6 +25,7 @@
  *   - Framework infra endpoints (poll and events) are skipped.
  *   - Any error during interception falls back to the original response.
  */
+import { markPassThroughFetch } from "../client/fetch-transport.js";
 import { getBrowserDemoModeEnabled } from "./browser-state.js";
 import { redactDemoData } from "./redact.js";
 
@@ -54,7 +55,18 @@ const RAW_AGENT_REPLAY_EVENTS_RE =
   /\/api\/session-replay\/agent-events\.json(?:[?#]|$)/;
 
 export function shouldSkipDemoResponseRedaction(url: string): boolean {
+  // This payload is also used to authorize writes. Presentation redaction
+  // must not replace the effective account that those writes assert.
+  let sessionControlPayload = false;
+  try {
+    sessionControlPayload = /\/_agent-native\/auth\/session\/?$/.test(
+      new URL(url, "http://localhost").pathname,
+    );
+  } catch {
+    // coercion-ok: an unparseable URL is not the session endpoint; it keeps the ordinary redaction policy.
+  }
   return (
+    sessionControlPayload ||
     SKIP_SUBSTRINGS.some((substring) => url.includes(substring)) ||
     RAW_REPLAY_PAYLOAD_RE.test(url) ||
     RAW_AGENT_REPLAY_EVENTS_RE.test(url)
@@ -97,9 +109,10 @@ export function ensureDemoModeFetchInterceptor(): void {
   if (installed) return;
   installed = true;
 
-  const base = window.fetch.bind(window);
+  const pageFetch = window.fetch;
+  const base = pageFetch.bind(window);
 
-  window.fetch = async function patchedFetch(
+  const patchedFetch = async function patchedFetch(
     input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> {
@@ -142,5 +155,9 @@ export function ensureDemoModeFetchInterceptor(): void {
     } catch {
       return res;
     }
-  };
+  } as typeof fetch;
+  // Sends every request on unchanged, so it keeps the credentials (such as
+  // embed auth's bearer) of the fetch underneath.
+  markPassThroughFetch(patchedFetch, pageFetch);
+  window.fetch = patchedFetch;
 }

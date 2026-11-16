@@ -79,7 +79,9 @@ interface WorkflowJobIssue {
     | "source_scope_unsupported"
     | "source_filter_invalid"
     | "source_filter_conflict"
-    | "source_poller_duplicate";
+    | "source_poller_duplicate"
+    | "repository_invalid"
+    | "repository_conflict";
   nodeId?: string;
   detail: string;
 }
@@ -130,6 +132,34 @@ const CONFIG_KEYS = [
   "authorIds",
   "workLimit",
 ] as const;
+
+/**
+ * The one repository a workflow declares it acts on: `settings.extras.repository`,
+ * the setting its Builder step already checks pull requests against. A workflow
+ * with no GitHub source has no other way to tell the merge gate which repository
+ * it may touch. A graph that declares none leaves it unset, and the gate then
+ * refuses; nothing here defaults it.
+ */
+function declaredRepository(graph: WorkflowGraph): {
+  repository?: string;
+  issue?: WorkflowJobIssue;
+} {
+  const value = graph.settings.extras?.repository;
+  if (value === undefined || value === "") return {};
+  const invalid = {
+    issue: {
+      code: "repository_invalid" as const,
+      detail:
+        'The workflow\'s repository setting (`settings.extras.repository`) must be a GitHub repository written as "owner/name", for example "acme/web".',
+    },
+  };
+  if (typeof value !== "string") return invalid;
+  try {
+    return { repository: canonicalGitHubRepository(value) };
+  } catch {
+    return invalid;
+  }
+}
 
 function inboxConfig(
   graph: WorkflowGraph,
@@ -266,6 +296,19 @@ function inboxConfig(
           ),
         );
       }
+    }
+  }
+  const declared = declaredRepository(graph);
+  if (declared.issue) issues.push(declared.issue);
+  else if (declared.repository) {
+    const polled = config.repository;
+    if (polled && polled.toLowerCase() !== declared.repository.toLowerCase()) {
+      issues.push({
+        code: "repository_conflict",
+        detail: `The workflow's repository setting is ${declared.repository}, but its GitHub source polls ${polled}. A workflow acts on one repository.`,
+      });
+    } else {
+      config.repository = polled ?? declared.repository;
     }
   }
   if (author) {

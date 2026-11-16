@@ -27,7 +27,7 @@
         "operation": "pylon.newTickets",
         "args": {},
         "memory": "inbox",
-        "maxItems": 50
+        "maxItems": 8
       }
     },
     {

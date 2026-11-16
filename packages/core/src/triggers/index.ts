@@ -21,7 +21,10 @@ export {
   type AutomationActor,
   type AutomationDefinition,
 } from "../automations/service.js";
-export { queueAutomationRunNow } from "../jobs/run-now.js";
+export {
+  authorizeAutomationRunNow,
+  queueAutomationRunNow,
+} from "../jobs/run-now.js";
 export {
   deleteAutomationRuns,
   listAutomationRuns,

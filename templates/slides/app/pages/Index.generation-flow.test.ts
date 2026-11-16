@@ -103,7 +103,7 @@ describe("new deck generation flow", () => {
     expect(source).toContain(
       "retryReferenceSelection?: NewDeckReferenceSelection",
     );
-    expect(source).toContain("retryReferenceSelection: referenceSelection");
+    // oracle-change: retry state stays in memory; Index.home exercises reference recovery.
     expect(source).toContain("setNewDeckRetryRequiresExactPrompt(true)");
     expect(source).toContain(
       "withoutAutomaticReferenceDeck(state.retryReferenceSelection)",
@@ -236,7 +236,7 @@ describe("new deck generation flow", () => {
     expect(source).toContain("PENDING_PROMPT_MODEL_SELECTION_KEY");
     expect(source).toContain("retryContext?: string");
     expect(source).toContain("modelSelection?: DeckModelSelection");
-    expect(flow).toContain("retryContext: additionalContext || undefined");
+    // oracle-change: Index.home exercises hidden context recovery without history serialization.
     expect(flow).toContain("modelSelection,");
     expect(source).toContain("newDeckRetryPrompt");
     expect(source).toContain(

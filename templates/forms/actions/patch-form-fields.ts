@@ -3,6 +3,11 @@ import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
 } from "@agent-native/core/action-ui";
+import {
+  EXPECTED_REVISION_DESCRIPTION,
+  isSameRecord,
+  saveIfCurrent,
+} from "@agent-native/core/save-conflict/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { and, eq } from "drizzle-orm";
@@ -10,7 +15,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { requireFormsPermission } from "../server/lib/app-roles.js";
-import { applyFieldOps } from "../server/lib/merge-fields.js";
+import { applyFieldOps, fieldsRevision } from "../server/lib/merge-fields.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 import {
   assertValidFields,
@@ -79,6 +84,12 @@ export default defineAction({
     "Apply granular field operations (upsert/remove/reorder) to a form using a server-side read-modify-write merge. Concurrent edits to different fields both survive. Before adding or restyling a field, read the form with `get-form` and follow its theme and the other fields' label, required, and help-text conventions so the new field matches its siblings.",
   schema: z.object({
     id: z.string().describe("Form ID"),
+    expectedRevision: z
+      .string()
+      .optional()
+      .describe(
+        `${EXPECTED_REVISION_DESCRIPTION} Required for everything except adding a new field.`,
+      ),
     ops: z
       .array(fieldOpSchema)
       .describe(
@@ -95,103 +106,124 @@ export default defineAction({
 
     return withFormLock(args.id, async () => {
       const db = getDb();
-      const ops = args.ops as Array<{ op: string; [k: string]: unknown }>;
+      const ops = args.ops as Parameters<typeof applyFieldOps>[1];
+      let now = "";
 
-      // ponytail: three CAS attempts; move to a shared retry policy if hot-form
-      // contention needs tuning.
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const [existing] = await db
-          .select()
-          .from(schema.forms)
-          .where(eq(schema.forms.id, args.id))
-          .limit(1);
+      const { outcome, current } = await saveIfCurrent({
+        record: "form_fields",
+        expectedRevision: args.expectedRevision,
+        // Adding a field can't undo another writer's edit. The one exception, a
+        // caller reusing an ID someone removed, only brings that field back.
+        requireRevision: ({ value }) =>
+          ops.some(
+            (op) =>
+              op.op !== "upsert" ||
+              value.some((field) => field.id === op.field.id),
+          ),
+        read: async () => {
+          const rows = await db
+            .select()
+            .from(schema.forms)
+            .where(eq(schema.forms.id, args.id))
+            .limit(1);
 
-        if (!existing) {
-          fail(`Form ${args.id} not found`, {
-            errorCode: "form_not_found",
-            statusCode: 404,
-          });
-        }
+          const existing = rows.shift();
+          if (!existing) {
+            fail(`Form ${args.id} not found`, {
+              errorCode: "form_not_found",
+              statusCode: 404,
+            });
+          }
 
-        let currentFields: FormField[];
-        try {
-          currentFields = normalizePersistedFields(
-            JSON.parse(existing.fields),
-          ) as FormField[];
-        } catch {
-          fail("Cannot update fields because saved fields are invalid", {
-            errorCode: "invalid_existing_fields",
-          });
-        }
-
-        const nextFields = applyFieldOps(
-          currentFields,
-          ops as Parameters<typeof applyFieldOps>[1],
-        );
-
-        assertValidFields(nextFields);
-        if (existing.status === "published") {
-          assertPublishableForm(nextFields);
-        }
-
-        const now = new Date().toISOString();
-        const [written] = await db
-          .update(schema.forms)
-          .set({ fields: JSON.stringify(nextFields), updatedAt: now })
-          .where(
-            and(
-              eq(schema.forms.id, args.id),
-              eq(schema.forms.fields, existing.fields),
-              eq(schema.forms.updatedAt, existing.updatedAt),
-            ),
-          )
-          .returning({ id: schema.forms.id });
-
-        if (written) {
-          invalidatePublicFormCache(existing);
-          const editTypes = Array.from(new Set(ops.map((op) => String(op.op))));
-          track(
-            "form_edited",
-            {
-              app_name: "forms",
-              template_name: "forms",
-              output_id: args.id,
-              output_type: "form",
-              form_id: args.id,
-              edit_type: editTypes.length === 1 ? editTypes[0] : "mixed",
-              field_count: nextFields.length,
-            },
-            ctx,
-          );
-          const priorFieldIds = new Set(currentFields.map((field) => field.id));
-          const addedFollowUps = nextFields
-            .map((field, index) => ({ field, index }))
-            .filter(
-              ({ field }) => field.conditional && !priorFieldIds.has(field.id),
-            );
-          const change =
-            addedFollowUps.length === 1
-              ? {
-                  verb: "created" as const,
-                  kind: "form-follow-up",
-                  title: addedFollowUps[0]!.field.label,
-                  detail: `#${addedFollowUps[0]!.index + 1}`,
-                  url: `/forms/${encodeURIComponent(args.id)}?tab=edit`,
-                }
-              : undefined;
+          let value: FormField[];
+          try {
+            value = normalizePersistedFields(
+              JSON.parse(existing.fields),
+            ) as FormField[];
+          } catch {
+            fail("Cannot update fields because saved fields are invalid", {
+              errorCode: "invalid_existing_fields",
+            });
+          }
           return {
-            id: args.id,
-            fields: nextFields,
-            updatedAt: now,
-            ...(change ? { change } : {}),
+            value,
+            revision: fieldsRevision(existing.fields),
+            existing,
           };
-        }
+        },
+        isSameSave: (fields: FormField[]) =>
+          isSameRecord(applyFieldOps(fields, ops), fields),
+        write: async ({ value, existing }) => {
+          const nextFields = applyFieldOps(value, ops);
+          assertValidFields(nextFields);
+          if (existing.status === "published") {
+            assertPublishableForm(nextFields);
+          }
+          now = new Date().toISOString();
+          return db
+            .update(schema.forms)
+            .set({ fields: JSON.stringify(nextFields), updatedAt: now })
+            .where(
+              and(
+                eq(schema.forms.id, args.id),
+                eq(schema.forms.fields, existing.fields),
+                eq(schema.forms.updatedAt, existing.updatedAt),
+              ),
+            )
+            .returning({ id: schema.forms.id });
+        },
+      });
+
+      if (outcome === "already_applied") {
+        return {
+          id: args.id,
+          fields: current.value,
+          updatedAt: current.existing.updatedAt,
+          revision: current.revision,
+        };
       }
 
-      fail(
-        `Form ${args.id} changed while this update was in progress; read it again and retry`,
-        { errorCode: "form_changed", statusCode: 409 },
+      const currentFields = current.value;
+      const nextFields = applyFieldOps(currentFields, ops);
+      invalidatePublicFormCache(current.existing);
+      const editTypes = Array.from(new Set(ops.map((op) => String(op.op))));
+      track(
+        "form_edited",
+        {
+          app_name: "forms",
+          template_name: "forms",
+          output_id: args.id,
+          output_type: "form",
+          form_id: args.id,
+          edit_type: editTypes.length === 1 ? editTypes[0] : "mixed",
+          field_count: nextFields.length,
+        },
+        ctx,
       );
+      const priorFieldIds = new Set(currentFields.map((field) => field.id));
+      const addedFollowUps = nextFields
+        .map((field, index) => ({ field, index }))
+        .filter(
+          ({ field }) => field.conditional && !priorFieldIds.has(field.id),
+        );
+      const followUp =
+        addedFollowUps.length === 1 ? addedFollowUps[0] : undefined;
+      const change = followUp
+        ? {
+            verb: "created" as const,
+            kind: "form-follow-up",
+            title: followUp.field.label,
+            detail: `#${followUp.index + 1}`,
+            url: `/forms/${encodeURIComponent(args.id)}?tab=edit`,
+          }
+        : undefined;
+      return {
+        id: args.id,
+        fields: nextFields,
+        updatedAt: now,
+        revision: fieldsRevision(JSON.stringify(nextFields)),
+        ...(change ? { change } : {}),
+      };
     });
   },
 });

@@ -8,6 +8,7 @@ import {
 } from "@agent-native/toolkit/ui/dropdown-menu";
 import {
   IconAppWindow,
+  IconArrowUpRight,
   IconChevronDown,
   IconExternalLink,
   IconPlus,
@@ -51,6 +52,7 @@ export function AppOpenActions({
   showInlineOption = false,
   showNewTabOption = false,
   menuItems,
+  external = false,
   className,
 }: {
   name: string;
@@ -64,6 +66,8 @@ export function AppOpenActions({
   showInlineOption?: boolean;
   showNewTabOption?: boolean;
   menuItems?: readonly AppOpenActionMenuItem[];
+  /** Marks an app that opens outside this one. */
+  external?: boolean;
   className?: string;
 }) {
   const labels = { ...DEFAULT_LABELS, ...labelOverrides };
@@ -74,6 +78,9 @@ export function AppOpenActions({
     (Boolean(href) && (Boolean(onOpenInline) || canOfferNewTab)) ||
     Boolean(menuItems?.length);
   const canOpen = primaryUsesHref || Boolean(onOpen);
+  const externalIcon = external ? (
+    <IconArrowUpRight size={13} aria-hidden="true" />
+  ) : null;
 
   if (!canOpen && !hasMenu) {
     return (
@@ -98,18 +105,18 @@ export function AppOpenActions({
         disabled={!canOpen}
         onClick={onOpen}
         type={primaryUsesHref ? undefined : "button"}
-        aria-label={
-          !primaryUsesHref
-            ? (labels.openAppAccessible ?? `Open ${name}`)
-            : undefined
-        }
+        aria-label={labels.openAppAccessible ?? `Open ${name}`}
       >
         {primaryUsesHref ? (
           <a href={href ?? undefined} target={target} rel={rel}>
             {labels.openApp}
+            {externalIcon}
           </a>
         ) : (
-          <span>{labels.openApp}</span>
+          <span className="inline-flex items-center gap-1">
+            {labels.openApp}
+            {externalIcon}
+          </span>
         )}
       </Button>
       {hasMenu ? (

@@ -9,7 +9,6 @@ import {
 
 import { getAppConfig } from "../app-config/store.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
-import { isLoopbackRequest } from "../server/auth.js";
 import {
   describeBearerCredentialRefusal,
   type BearerCredentialRefusal,
@@ -19,6 +18,7 @@ import { resolveEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { isDirectLoopbackRequest } from "../server/loopback.js";
 import { registerMcpAppCardsLab } from "./app-cards-lab.js";
 import { mcpApprovalRoute, mountMcpApprovalRoute } from "./approval-route.js";
 import { mcpApprovalAppId } from "./approval-store.js";
@@ -119,22 +119,6 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     ...(fullCatalog ? { fullCatalog } : {}),
     ...(inlineAppsRequested ? { inlineMcpApps: true } : {}),
   };
-}
-
-function isLoopbackOrigin(origin: string | undefined): boolean {
-  if (!origin) return false;
-  try {
-    const hostname = new URL(origin).hostname;
-    return (
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "::1" ||
-      hostname === "[::1]" ||
-      hostname.startsWith("127.")
-    );
-  } catch {
-    return false;
-  }
 }
 
 function buildWebRequest(
@@ -295,10 +279,17 @@ function directoryProfileUnavailable(
   };
 }
 
-function identityVerificationUnavailable(event: H3Event): {
+function identityVerificationUnavailable(
+  event: H3Event,
+  error: McpIdentityVerificationUnavailableError,
+): {
   error: string;
-  message: string;
+  message?: string;
 } {
+  if (error.retryable === false) {
+    setResponseStatus(event, 500);
+    return { error: "Internal server error" };
+  }
   setResponseStatus(event, 503);
   setResponseHeader(event, "Retry-After", "5");
   return {
@@ -365,9 +356,15 @@ async function handleMcpRequestInternal(
     "x-agent-native-owner-email",
   );
   const requestMeta = deriveRequestMeta(event);
-  const hasLocalOwnerHint = Boolean(ownerEmailHeader?.trim());
+  const requestOrigin = getRequestHeader(event, "origin");
+  const directLocalRequest =
+    isDirectLoopbackRequest(event, { behindDevProxy: true }) &&
+    (requestOrigin === undefined || requestOrigin === requestMeta.origin);
+  const localOwnerHint = directLocalRequest ? ownerEmailHeader : undefined;
+  const hasLocalOwnerHint = Boolean(localOwnerHint?.trim());
   const directoryProfile =
-    routePath === MCP_DIRECTORY_ROUTE_PREFIX
+    routePath === MCP_DIRECTORY_ROUTE_PREFIX &&
+    config.directoryProfile?.directoryRoute !== false
       ? config.directoryProfile
       : undefined;
   if (routePath === MCP_DIRECTORY_ROUTE_PREFIX && !directoryProfile) {
@@ -389,10 +386,10 @@ async function handleMcpRequestInternal(
     : config;
   let authResult: Awaited<ReturnType<typeof verifyAuth>>;
   try {
-    authResult = await verifyAuth(authHeader, ownerEmailHeader, {
+    authResult = await verifyAuth(authHeader, localOwnerHint, {
+      allowLocalOwnerHint: hasLocalOwnerHint,
       allowDevOpen:
-        isLoopbackRequest(event) &&
-        isLoopbackOrigin(requestMeta.origin) &&
+        directLocalRequest &&
         (hasLocalOwnerHint || getAppConfig().mcp.allowDevOpen),
       resourceUrl: getMcpOAuthAudiences(event, routePath),
       requestOrigin: getOrigin(event),
@@ -400,7 +397,7 @@ async function handleMcpRequestInternal(
     });
   } catch (error) {
     if (error instanceof McpIdentityVerificationUnavailableError) {
-      return identityVerificationUnavailable(event);
+      return identityVerificationUnavailable(event, error);
     }
     if (error instanceof McpIdentityVerificationRefusedError) {
       return identityVerificationRefused(event, routePath);
@@ -429,18 +426,20 @@ async function handleMcpRequestInternal(
   }
 
   if (
-    authResult.identity?.orgId === undefined &&
-    authResult.identity?.orgDomain !== undefined
+    authResult.identity &&
+    authResult.identity.orgId === undefined &&
+    (authResult.identity.orgDomain !== undefined ||
+      Boolean(authResult.identity.userEmail))
   ) {
     try {
       const orgId = await resolveMcpIdentityOrgId(authResult.identity);
       authResult = {
         ...authResult,
-        identity: { ...authResult.identity, orgId },
+        identity: { ...authResult.identity, orgId: orgId ?? null },
       };
     } catch (error) {
       if (error instanceof McpIdentityVerificationUnavailableError) {
-        return identityVerificationUnavailable(event);
+        return identityVerificationUnavailable(event, error);
       }
       if (error instanceof McpIdentityVerificationRefusedError) {
         return identityVerificationRefused(event, routePath);
@@ -544,7 +543,11 @@ export function mountMCP(
     routePrefix === "/_agent-native"
       ? [...MCP_ROUTE_PREFIXES]
       : [joinMcpRoute(routePrefix, "/mcp")];
-  if (config.directoryProfile) routePaths.unshift(MCP_DIRECTORY_ROUTE_PREFIX);
+  if (
+    config.directoryProfile &&
+    config.directoryProfile.directoryRoute !== false
+  )
+    routePaths.unshift(MCP_DIRECTORY_ROUTE_PREFIX);
   if (config.appApprovalPage && routePrefix !== "/_agent-native") {
     throw new Error(
       `appApprovalPage needs MCP mounted under /_agent-native, where the app's review page reads approvals, not under ${routePrefix}.`,

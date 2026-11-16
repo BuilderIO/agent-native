@@ -61,6 +61,30 @@ function captureEvents(): TrackingEvent[] {
 }
 
 describe("tracking registry", () => {
+  it("attributes client Builder failure diagnostics using server configuration, not the supplied experiment ID", async () => {
+    setAppConfigLayer("app", {
+      onboarding: {
+        builderSignupExperiment: true,
+        builderSignupExperimentId: "clips_builder_signup_v1",
+      },
+    });
+    const events = captureEvents();
+    track(
+      "builder_signup_experiment_client_failed",
+      { experiment_id: "forged", experiment_variant: "automatic" },
+      {
+        userId: "customer@example.com",
+        authUserId: "customer",
+        telemetryOrigin: "client",
+      },
+    );
+    await flushTracking();
+    expect(events[0]?.properties).toMatchObject({
+      experiment_id: "clips_builder_signup_v1",
+    });
+    expect(events[0]?.properties).not.toHaveProperty("experiment_variant");
+  });
+
   beforeEach(() => {
     setAppConfigLayer("app", {
       onboarding: { firstRunCreditsExperiment: "v2" },

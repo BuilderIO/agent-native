@@ -1,9 +1,19 @@
+import { isActionContractError } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as schema from "../schema/index.js";
-import type { BusyInterval } from "../shared/index.js";
-import { aggregateBusy } from "./availability-engine.js";
+import type { BusyInterval, EventType, Schedule } from "../shared/index.js";
+import {
+  aggregateBusy,
+  assertSlotAvailable,
+  CalendarAvailabilityUnavailableError,
+  getAvailableSlots,
+} from "./availability-engine.js";
 import { setSchedulingContext } from "./context.js";
+import {
+  CalendarCredentialInvalidError,
+  CalendarLookupRateLimitedError,
+} from "./providers/errors.js";
 import { registerCalendarProvider } from "./providers/registry.js";
 import type { CalendarProvider } from "./providers/types.js";
 
@@ -11,9 +21,29 @@ const RANGE_START = new Date("2026-07-10T09:00:00.000Z");
 const RANGE_END = new Date("2026-07-10T17:00:00.000Z");
 const TEST_USER_EMAIL = "availability-test@example.com";
 
+const WORKDAY_SCHEDULE: Schedule = {
+  id: "schedule-workday",
+  name: "Working hours",
+  timezone: "UTC",
+  ownerEmail: TEST_USER_EMAIL,
+  weeklyAvailability: [1, 2, 3, 4, 5].map((day) => ({
+    day,
+    intervals: [{ startTime: "09:00", endTime: "17:00" }],
+  })),
+  dateOverrides: [],
+  isDefault: true,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
+
+vi.mock("./schedules-repo.js", () => ({
+  getScheduleById: vi.fn(async () => WORKDAY_SCHEDULE),
+}));
+
 interface CredentialRow {
   id: string;
   type: string;
+  invalid?: boolean;
 }
 
 interface SelectedCalendarRow {
@@ -260,7 +290,7 @@ describe("aggregateBusy", () => {
     );
   });
 
-  it("keeps successful provider intervals when another provider fails", async () => {
+  it("fails naming the unreadable calendar even when another provider succeeds", async () => {
     const credentials = [
       { id: "credential-failure", type: "availability-failure" },
       { id: "credential-success", type: "availability-success" },
@@ -282,33 +312,39 @@ describe("aggregateBusy", () => {
         }),
       ),
     );
+    const successBusy = vi.fn(async () => [interval("provider-success", 13)]);
     registerCalendarProvider(
-      createCalendarProvider(
-        "availability-success",
-        vi.fn(async () => [interval("provider-success", 13)]),
-      ),
+      createCalendarProvider("availability-success", successBusy),
     );
 
-    await expect(readBusy()).resolves.toEqual([
-      interval("provider-success", 13),
+    const error = await readBusy().then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(CalendarAvailabilityUnavailableError);
+    const unavailable = error as CalendarAvailabilityUnavailableError;
+    expect(unavailable.message).toContain(
+      "Couldn't check Test provider availability-failure",
+    );
+    expect(unavailable.failures).toEqual([
+      {
+        credentialId: "credential-failure",
+        provider: "availability-failure",
+        providerLabel: "Test provider availability-failure",
+        calendarExternalIds: ["calendar-failure"],
+        reason: "lookup_failed",
+        cause: "Expected provider failure",
+      },
     ]);
+    expect(successBusy).toHaveBeenCalledTimes(1);
   });
 
-  it("skips credentials without selected calendars or a registered provider", async () => {
-    const credentials = [
-      { id: "credential-empty", type: "availability-empty" },
-      { id: "credential-unknown", type: "availability-unknown" },
-    ];
-    const selected = [
-      {
-        credentialId: "credential-unknown",
-        externalId: "calendar-unknown",
-      },
-    ];
+  it("skips credentials without selected calendars", async () => {
     createFakeDb({
-      credentials,
-      selected,
-      legacySelectedBatches: [[], selected],
+      credentials: [{ id: "credential-empty", type: "availability-empty" }],
+      selected: [],
+      legacySelectedBatches: [[]],
     });
     const emptyProviderBusy = vi.fn(async () => []);
     registerCalendarProvider(
@@ -317,6 +353,259 @@ describe("aggregateBusy", () => {
 
     await expect(readBusy()).resolves.toEqual([]);
     expect(emptyProviderBusy).not.toHaveBeenCalled();
+  });
+
+  it("fails when a selected calendar's provider is not registered", async () => {
+    createFakeDb({
+      credentials: [{ id: "credential-unknown", type: "availability-unknown" }],
+      selected: [
+        { credentialId: "credential-unknown", externalId: "calendar-unknown" },
+      ],
+    });
+
+    const error = await readBusy().then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(CalendarAvailabilityUnavailableError);
+    expect((error as CalendarAvailabilityUnavailableError).failures).toEqual([
+      expect.objectContaining({
+        credentialId: "credential-unknown",
+        provider: "availability-unknown",
+        reason: "provider_not_registered",
+      }),
+    ]);
+  });
+
+  it("fails when a selected calendar's credential was marked invalid", async () => {
+    const invalidBusy = vi.fn(async () => []);
+    registerCalendarProvider(
+      createCalendarProvider("availability-invalid", invalidBusy),
+    );
+    createFakeDb({
+      credentials: [
+        {
+          id: "credential-invalid",
+          type: "availability-invalid",
+          invalid: true,
+        },
+      ],
+      selected: [
+        { credentialId: "credential-invalid", externalId: "calendar-invalid" },
+      ],
+    });
+
+    const error = await readBusy().then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(CalendarAvailabilityUnavailableError);
+    expect((error as CalendarAvailabilityUnavailableError).failures).toEqual([
+      expect.objectContaining({
+        credentialId: "credential-invalid",
+        reason: "credential_invalid",
+      }),
+    ]);
+    expect(invalidBusy).not.toHaveBeenCalled();
+  });
+
+  it("reports a throttled lookup as a retryable lookup_failed with its Retry-After", async () => {
+    registerCalendarProvider(
+      createCalendarProvider(
+        "availability-throttled",
+        vi.fn(async () => {
+          throw new CalendarLookupRateLimitedError(
+            "Test provider rate limited (403 rateLimitExceeded)",
+            45,
+          );
+        }),
+      ),
+    );
+    createFakeDb({
+      credentials: [
+        { id: "credential-throttled", type: "availability-throttled" },
+      ],
+      selected: [
+        {
+          credentialId: "credential-throttled",
+          externalId: "calendar-throttled",
+        },
+      ],
+    });
+
+    const error = await readBusy().then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(CalendarAvailabilityUnavailableError);
+    expect((error as CalendarAvailabilityUnavailableError).details).toEqual({
+      calendars: [
+        {
+          provider: "availability-throttled",
+          providerLabel: "Test provider availability-throttled",
+          reason: "lookup_failed",
+          retryAfterSeconds: 45,
+        },
+      ],
+      retryAfterSeconds: 45,
+    });
+    // A 429 with details.retryAfterSeconds is what the action route turns
+    // into a Retry-After header.
+    expect((error as CalendarAvailabilityUnavailableError).statusCode).toBe(
+      429,
+    );
+  });
+
+  it("stays a 503 when a throttled calendar fails alongside another failure", async () => {
+    registerCalendarProvider(
+      createCalendarProvider(
+        "availability-throttled-mixed",
+        vi.fn(async () => {
+          throw new CalendarLookupRateLimitedError("Rate limited", 45);
+        }),
+      ),
+    );
+    registerCalendarProvider(
+      createCalendarProvider(
+        "availability-broken-mixed",
+        vi.fn(async () => {
+          throw new Error("Provider outage");
+        }),
+      ),
+    );
+    createFakeDb({
+      credentials: [
+        {
+          id: "credential-throttled-mixed",
+          type: "availability-throttled-mixed",
+        },
+        { id: "credential-broken-mixed", type: "availability-broken-mixed" },
+      ],
+      selected: [
+        {
+          credentialId: "credential-throttled-mixed",
+          externalId: "calendar-throttled-mixed",
+        },
+        {
+          credentialId: "credential-broken-mixed",
+          externalId: "calendar-broken-mixed",
+        },
+      ],
+    });
+
+    const error = await readBusy().then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(CalendarAvailabilityUnavailableError);
+    expect((error as CalendarAvailabilityUnavailableError).statusCode).toBe(
+      503,
+    );
+    expect(
+      (error as CalendarAvailabilityUnavailableError).details
+        ?.retryAfterSeconds,
+    ).toBe(45);
+  });
+
+  it("is a 429 without a delay when a throttle gives no Retry-After", async () => {
+    registerCalendarProvider(
+      createCalendarProvider(
+        "availability-throttled-no-delay",
+        vi.fn(async () => {
+          throw new CalendarLookupRateLimitedError("Rate limited");
+        }),
+      ),
+    );
+    createFakeDb({
+      credentials: [
+        {
+          id: "credential-throttled-no-delay",
+          type: "availability-throttled-no-delay",
+        },
+      ],
+      selected: [
+        {
+          credentialId: "credential-throttled-no-delay",
+          externalId: "calendar-throttled-no-delay",
+        },
+      ],
+    });
+
+    const error = await readBusy().then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(CalendarAvailabilityUnavailableError);
+    const unavailable = error as CalendarAvailabilityUnavailableError;
+    expect(unavailable.statusCode).toBe(429);
+    expect(unavailable.details).toEqual({
+      calendars: [
+        {
+          provider: "availability-throttled-no-delay",
+          providerLabel: "Test provider availability-throttled-no-delay",
+          reason: "lookup_failed",
+        },
+      ],
+    });
+  });
+
+  it("reports credential_invalid when the provider rejects the credential on this lookup", async () => {
+    registerCalendarProvider(
+      createCalendarProvider(
+        "availability-unauthorized",
+        vi.fn(async () => {
+          throw new CalendarCredentialInvalidError(
+            "Test provider credential invalid (401)",
+          );
+        }),
+      ),
+    );
+    createFakeDb({
+      credentials: [
+        { id: "credential-unauthorized", type: "availability-unauthorized" },
+      ],
+      selected: [
+        {
+          credentialId: "credential-unauthorized",
+          externalId: "calendar-unauthorized",
+        },
+      ],
+    });
+
+    const error = await readBusy().then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(CalendarAvailabilityUnavailableError);
+    expect((error as CalendarAvailabilityUnavailableError).details).toEqual({
+      calendars: [
+        expect.objectContaining({
+          provider: "availability-unauthorized",
+          reason: "credential_invalid",
+        }),
+      ],
+    });
+  });
+
+  it("ignores an invalid credential that has no selected calendars", async () => {
+    createFakeDb({
+      credentials: [
+        {
+          id: "credential-invalid-unselected",
+          type: "availability-invalid-unselected",
+          invalid: true,
+        },
+      ],
+      selected: [],
+    });
+
+    await expect(readBusy()).resolves.toEqual([]);
   });
 
   it("does not read selected calendars when there are no valid credentials", async () => {
@@ -339,5 +628,152 @@ describe("aggregateBusy", () => {
       },
     ]);
     expect(reads.selectedCalendars).toBe(0);
+  });
+});
+
+const SLOT_DAY_START = new Date("2030-01-07T00:00:00.000Z");
+const SLOT_DAY_END = new Date("2030-01-08T00:00:00.000Z");
+
+const EVENT_TYPE: EventType = {
+  id: "event-type-availability",
+  title: "Intro call",
+  slug: "intro-call",
+  length: 30,
+  hidden: false,
+  position: 0,
+  schedulingType: "individual",
+  ownerEmail: TEST_USER_EMAIL,
+  scheduleId: WORKDAY_SCHEDULE.id,
+  locations: [],
+  customFields: [],
+  minimumBookingNotice: 0,
+  beforeEventBuffer: 0,
+  afterEventBuffer: 0,
+  slotInterval: null,
+  periodType: "unlimited",
+  requiresConfirmation: false,
+  disableGuests: false,
+  hideCalendarNotes: false,
+  lockTimeZoneToggle: false,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
+
+function readSlots() {
+  return getAvailableSlots({
+    eventType: EVENT_TYPE,
+    forUserEmail: TEST_USER_EMAIL,
+    rangeStart: SLOT_DAY_START,
+    rangeEnd: SLOT_DAY_END,
+    now: new Date("2029-12-01T00:00:00.000Z"),
+  });
+}
+
+function selectedCalendarDb(kind: string) {
+  createFakeDb({
+    credentials: [{ id: `credential-${kind}`, type: kind }],
+    selected: [
+      { credentialId: `credential-${kind}`, externalId: `calendar-${kind}` },
+    ],
+  });
+}
+
+describe("getAvailableSlots with selected calendars", () => {
+  it("offers the whole working day when no calendar is connected", async () => {
+    createFakeDb({ credentials: [] });
+
+    await expect(readSlots()).resolves.toHaveLength(16);
+  });
+
+  it("offers nothing when a selected calendar is busy all day", async () => {
+    const getBusy = vi.fn(async () => [
+      {
+        start: "2030-01-07T09:00:00.000Z",
+        end: "2030-01-07T17:00:00.000Z",
+        source: "calendar-slots-busy",
+      },
+    ]);
+    registerCalendarProvider(createCalendarProvider("slots-busy", getBusy));
+    selectedCalendarDb("slots-busy");
+
+    await expect(readSlots()).resolves.toHaveLength(0);
+    expect(getBusy).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails with a typed error instead of offering free slots when the busy lookup throws", async () => {
+    const getBusy = vi.fn(async () => {
+      throw new Error("Injected calendar outage");
+    });
+    registerCalendarProvider(createCalendarProvider("slots-throws", getBusy));
+    selectedCalendarDb("slots-throws");
+
+    const result = await readSlots().then(
+      (slots) => ({ slots }),
+      (error: unknown) => ({ error }),
+    );
+
+    expect(getBusy).toHaveBeenCalledTimes(1);
+    expect(result).not.toHaveProperty("slots");
+    const error = (result as { error: unknown }).error;
+    expect(error).toBeInstanceOf(CalendarAvailabilityUnavailableError);
+    expect(isActionContractError(error)).toBe(true);
+    const unavailable = error as CalendarAvailabilityUnavailableError;
+    expect(unavailable.errorCode).toBe("calendar_availability_unavailable");
+    expect(unavailable.statusCode).toBe(503);
+    expect(unavailable.message).toContain(
+      "Couldn't check Test provider slots-throws",
+    );
+    expect(unavailable.details).toEqual({
+      calendars: [
+        {
+          provider: "slots-throws",
+          providerLabel: "Test provider slots-throws",
+          reason: "lookup_failed",
+        },
+      ],
+    });
+    expect(JSON.stringify(unavailable.details)).not.toContain(
+      "Injected calendar outage",
+    );
+  });
+
+  it("keeps offering slots for a credential whose calendars are all unselected", async () => {
+    const getBusy = vi.fn(async () => {
+      throw new Error("Unselected calendars are never read");
+    });
+    registerCalendarProvider(
+      createCalendarProvider("slots-unselected", getBusy),
+    );
+    createFakeDb({
+      credentials: [
+        { id: "credential-slots-unselected", type: "slots-unselected" },
+      ],
+      selected: [],
+    });
+
+    await expect(readSlots()).resolves.toHaveLength(16);
+    expect(getBusy).not.toHaveBeenCalled();
+  });
+});
+
+describe("assertSlotAvailable with selected calendars", () => {
+  it("refuses the booking when a selected calendar can't be read", async () => {
+    registerCalendarProvider(
+      createCalendarProvider(
+        "booking-throws",
+        vi.fn(async () => {
+          throw new Error("Injected calendar outage");
+        }),
+      ),
+    );
+    selectedCalendarDb("booking-throws");
+
+    await expect(
+      assertSlotAvailable({
+        hostEmail: TEST_USER_EMAIL,
+        startTime: "2030-01-07T09:00:00.000Z",
+        endTime: "2030-01-07T09:30:00.000Z",
+      }),
+    ).rejects.toBeInstanceOf(CalendarAvailabilityUnavailableError);
   });
 });

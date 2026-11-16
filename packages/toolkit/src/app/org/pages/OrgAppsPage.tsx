@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
 import { IconApps, IconArrowUpRight } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import { SettingsGroup, SettingsRow } from "../../settings/SettingsRow.js";
 import { useSettingsPageHeader } from "../../settings/shell/context.js";
@@ -150,7 +150,10 @@ function BrowseAppsAction({ href }: { href: string }) {
   const t = useT();
   return (
     <Button asChild size="sm">
-      <a href={href}>
+      {/* Cross-app destination: this leaves the app for the apps directory, so it
+          opens beside the app (the arrow icon promises a new place) instead of
+          replacing the page the reader is working in. */}
+      <a href={href} target="_blank" rel="noopener noreferrer">
         {t("agentChat.settingsOrg.apps.browse")}
         <IconArrowUpRight />
       </a>
@@ -158,7 +161,13 @@ function BrowseAppsAction({ href }: { href: string }) {
   );
 }
 
-function OrgAppsContent({ org }: { org: OrgInfo }) {
+function OrgAppsContent({
+  org,
+  extraGroups,
+}: {
+  org: OrgInfo;
+  extraGroups?: ReactNode;
+}) {
   const t = useT();
   const { isWorkspace, dispatchAllAppsHref } = useOrgSwitcherAppLinks(true);
   const header = useMemo(
@@ -186,20 +195,22 @@ function OrgAppsContent({ org }: { org: OrgInfo }) {
           visibility={org.workspaceAppDefaultVisibility ?? "org"}
         />
       </SettingsGroup>
+      {extraGroups}
     </div>
   );
 }
 
 /**
  * Organization › Apps (owners and admins): who can open each workspace app,
- * and the privacy new apps start with.
+ * and the privacy new apps start with. An app adds its own groups after
+ * Defaults with `extraGroups`.
  */
-export function OrgAppsPage() {
+export function OrgAppsPage({ extraGroups }: { extraGroups?: ReactNode } = {}) {
   return (
     <OrgPageGate skeletonRows={3}>
       {(org) =>
         org.role === "owner" || org.role === "admin" ? (
-          <OrgAppsContent key={org.orgId} org={org} />
+          <OrgAppsContent key={org.orgId} org={org} extraGroups={extraGroups} />
         ) : null
       }
     </OrgPageGate>

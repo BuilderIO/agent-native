@@ -1,4 +1,5 @@
 import type { WorkflowCatalog, WorkflowNode } from "@/lib/workflow-editor";
+import { requestPathOf } from "@/lib/workflow-editor/api-request";
 
 import { providerName } from "./node-kinds";
 import type { WorkflowCanvasStrings } from "./strings";
@@ -37,7 +38,13 @@ export function describeNode(
         default:
           return operation(node.settings.operation);
       }
-    case "lookup":
+    case "lookup": {
+      // An API request names its path: the card reads `GET: repos/acme/web`, and `GET:` until one is set.
+      const path = requestPathOf(node, catalog);
+      return path === undefined
+        ? operation(node.settings.operation)
+        : s.inspector.apiRequest.cardSubtitle(path);
+    }
     case "action":
       return operation(node.settings.operation);
     case "filter":

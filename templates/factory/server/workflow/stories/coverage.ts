@@ -1,3 +1,4 @@
+import { genericOperations } from "../catalog/generic.js";
 import { OPERATION_CATALOG } from "../catalog/index.js";
 import { END_OUTCOMES, NODE_KINDS } from "../contract.js";
 import type { StoryKey } from "../story-graphs.fixture.js";
@@ -12,11 +13,52 @@ import { STORIES } from "./registry.js";
 // story uses it.
 
 /**
- * Catalog operations no story uses, each with the reason. Empty today: all
- * thirty-six are used. An entry here is a decision a reviewer should see, and
- * the spec fails when an operation listed here turns out to be covered.
+ * Catalog operations no story uses, each with the reason. The API request,
+ * which is one definition generated per provider: the ten stories are product
+ * narratives and none reads an endpoint no curated step covers, so
+ * api-request.scenario.spec.ts runs each of them through the engine instead.
+ * And the Jira and Sentry steps of the triage loop, which no story wires yet and
+ * jira-sentry.scenario.spec.ts runs through the engine, and its GitHub label
+ * steps and Slack reaction, which issue-writes.scenario.spec.ts runs.
+ * An entry here is a
+ * decision a reviewer should see, and the spec fails when an operation listed
+ * here turns out to be covered.
  */
-export const UNUSED_ON_PURPOSE: Readonly<Record<string, string>> = {};
+export const UNUSED_ON_PURPOSE: Readonly<Record<string, string>> =
+  Object.fromEntries([
+    ...genericOperations.map(({ id }): [string, string] => [
+      id,
+      "generated per provider, run by api-request.scenario.spec.ts",
+    ]),
+    ...[
+      "jira.getIssue",
+      "jira.listTransitions",
+      "jira.transitionIssue",
+      "sentry.resolveIssue",
+      "sentry.assignIssue",
+    ].map((id): [string, string] => [
+      id,
+      "no story wires it yet, run by jira-sentry.scenario.spec.ts",
+    ]),
+    ...["github.addLabels", "github.removeLabel", "slack.addReaction"].map(
+      (id): [string, string] => [
+        id,
+        "no story wires it yet, run by issue-writes.scenario.spec.ts",
+      ],
+    ),
+  ]);
+
+/**
+ * AI node uses no story needs, each with the reason and the spec that runs it.
+ * Story 1 grouped its reports with one answer for the whole list; it now asks
+ * the model per report (so each answer is joined to its report by id in code)
+ * and no story judges a list as one. The mode is still part of the engine, and
+ * the spec fails when a story starts using it, so this entry cannot go stale.
+ */
+export const AI_USES_UNUSED_ON_PURPOSE: Readonly<Record<string, string>> = {
+  wholeList:
+    "no story judges a list as one since story 1 groups per report, run by engine/nodes/ai.spec.ts",
+};
 
 /**
  * What no story can prove yet because the engine lacks the feature, each with
@@ -60,6 +102,7 @@ export const PATHS = [
   "testStep",
   "runFailed",
   "itemFailed",
+  "errorRouted",
   "needsCheck",
   "lookupFailed",
   "aiInvalidOutput",
@@ -142,6 +185,9 @@ export function computeCoverage(runs: StoryRuns): CoverageTable {
         if (mode(tick) === "test") mark("paths", "testStep", story.key);
         if (ran?.run.status === "failed") mark("paths", "runFailed", story.key);
         if (tick.crash !== undefined) mark("paths", "crashRecovery", story.key);
+        if (ran?.run.counts.errorRouted) {
+          mark("paths", "errorRouted", story.key);
+        }
         if (ran?.run.counts.sentBack) mark("loops", "loopBack", story.key);
         if (ran?.run.counts.loopLimited) {
           mark("loops", "loopLimitReached", story.key);
@@ -246,6 +292,7 @@ export function uncovered(
     for (const [name, stories] of Object.entries(entries)) {
       if (stories.length > 0) continue;
       if (family === "operations" && name in UNUSED_ON_PURPOSE) continue;
+      if (family === "aiUses" && name in AI_USES_UNUSED_ON_PURPOSE) continue;
       missing.push({ family: family as keyof CoverageSpec, name });
     }
   }
@@ -312,7 +359,11 @@ export function renderCoverage(table: CoverageTable): string {
       ["Capability", ...STORY_KEYS.map((_, index) => String(index + 1))],
       ...Object.entries(table[family]).map(([name, stories]) => {
         const unused =
-          family === "operations" ? UNUSED_ON_PURPOSE[name] : undefined;
+          family === "operations"
+            ? UNUSED_ON_PURPOSE[name]
+            : family === "aiUses"
+              ? AI_USES_UNUSED_ON_PURPOSE[name]
+              : undefined;
         return [
           `\`${name}\`${unused === undefined ? "" : ` (unused on purpose: ${unused})`}`,
           ...STORY_KEYS.map((key) => (stories.includes(key) ? "●" : "")),
@@ -321,12 +372,15 @@ export function renderCoverage(table: CoverageTable): string {
     ];
     lines.push(`## ${TITLES[family]}`, "", ...renderTable(rows), "");
   }
-  const reasons = Object.entries(UNUSED_ON_PURPOSE);
+  const reasons = [
+    ...Object.entries(UNUSED_ON_PURPOSE),
+    ...Object.entries(AI_USES_UNUSED_ON_PURPOSE),
+  ];
   lines.push(
     "## Unused on purpose",
     "",
     reasons.length === 0
-      ? "None: every catalog operation is used by a story."
+      ? "None: every catalog operation and AI use is used by a story."
       : reasons.map(([name, why]) => `- \`${name}\`: ${why}`).join("\n"),
     "",
     "## Follow-ups",

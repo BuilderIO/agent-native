@@ -24,7 +24,7 @@ apply:
 | `action`       | Other required fields | Notes                                    |
 | -------------- | ---------------------- | ---------------------------------------- |
 | `create`       | none                    | `id` is optional; the action assigns one when omitted. Recipient/subject/body fields are all optional but should be set to compose real content. |
-| `update`       | `id`                    | `id` must be the id returned by a prior `create` call — never invent one. |
+| `update`       | `id`, `expectedRevision` | `id` must be the id returned by a prior `create` call — never invent one. `expectedRevision` is the `revision` from `create`, `update` or `view-composer`. |
 | `delete`       | `id`                    | Removes the compose state and its saved mailbox copy. |
 | `delete-saved` | `savedDraftId`          | Use when only the saved mailbox copy remains (compose state already closed). |
 | `delete-all`   | none                    | Deletes every open compose draft. |
@@ -140,6 +140,8 @@ first, update only `autocompleteEnabled`, and re-read to verify persistence.
 2. **UI polling sees the change** — invalidates the `compose-drafts` React Query cache
 3. **Compose panel re-renders** — shows the updated draft as a tab, switches to it if new
 
+A person may be typing in a draft while you update it. `save_conflict` means it changed after your read and nothing was saved: redo your edit on `details.current` with `details.currentRevision`. Never tell the user the edit landed until an `update` succeeds.
+
 The compose panel opens automatically when any compose draft exists. When the last draft is deleted, the panel closes.
 
 ## Use the `manage-draft` action, not raw `writeAppState`
@@ -165,7 +167,7 @@ The compose panel opens automatically when any compose draft exists. When the la
 
 ```bash
 pnpm action manage-draft --action=create --to=jane@example.com --subject="Quick question" --body="Hi Jane,\n\nJust wanted to follow up on..."
-pnpm action manage-draft --action=update --id=draft1 --body="Hi Jane,\n\nI refined the draft as requested..."
+pnpm action manage-draft --action=update --id=draft1 --expectedRevision=<revision> --body="Hi Jane,\n\nI refined the draft as requested..."
 pnpm action manage-draft --action=delete --id=draft1
 pnpm action manage-draft --action=delete-all
 ```
@@ -203,11 +205,25 @@ Mail expects. From the local host, upload the raw bytes directly:
 curl --fail-with-body --request PUT --header '<Authorization header>' --data-binary @/absolute/path/to/report.pdf '<uploadUrl>'
 ```
 
-Use the response's `attachment` object in the draft/send request. The upload
-Authorization header is a short-lived bearer credential: do not log, persist,
-reuse, or share it. Creating or consuming it does not send mail. Keep `send-email` behind its
-normal explicit-intent and human-approval gate; for drafting, pass the handle
-through `ask_app` or open the returned compose deep link.
+With several files, finish one PUT before starting the next: uploads running at
+the same time can lose each other's records.
+
+Pass the `attachment` object to `manage-draft` in `attachments`, on `create` or
+`update`. That list replaces the draft's files, so on `update` include the ones
+to keep, and `[]` removes them all. Forwarded files can share a filename: to
+keep just one of them, pass its `id` from the draft too. The upload
+Authorization header is a
+short-lived bearer credential: do not log, persist, reuse, or share it. Creating
+or consuming it does not send mail. Keep `send-email` behind its normal
+explicit-intent and human-approval gate.
+
+A failed PUT means the draft has no file. Tell the user the error it returned
+rather than saying the file is attached. A 503 with `storageSetupRequired` means
+the workspace's file storage needs fixing in Settings, so don't retry the upload.
+Its `error` says how, and `storageSetupReason` says why: `builder-refused`
+(reconnect Builder.io, or switch to the workspace's own bucket),
+`storage-refused` (the workspace's own bucket refused its keys), or
+`not-configured` (connect Builder.io or an S3-compatible bucket).
 
 Example:
 ```json

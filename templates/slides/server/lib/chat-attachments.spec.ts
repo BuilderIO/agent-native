@@ -612,6 +612,36 @@ describe("prepareSlidesChatAttachments", () => {
     );
   });
 
+  it.each([
+    "source.html",
+    "source.htm",
+    "source.txt",
+    "source.md",
+    "source.csv",
+    "source.json",
+  ])(
+    "leaves %s readable by the shared text attachment pipeline",
+    async (name) => {
+      const attachments = [
+        {
+          type: "file",
+          name,
+          contentType: "text/plain",
+          url: "https://storage.example.test/source",
+        },
+      ];
+      const prepared = await prepareSlidesChatAttachments({
+        ownerEmail: "user@example.com",
+        message: "convert this",
+        attachments,
+      });
+      expect(prepared).toBeUndefined();
+      expect(attachments[0]).not.toHaveProperty("referenceOnly");
+      expect(saveUploadedReferenceFileMock).not.toHaveBeenCalled();
+      expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("ignores an already-hosted attachment whose extension isn't a supported reference type", async () => {
     const result = await prepareSlidesChatAttachments({
       ownerEmail: "adam@builder.io",

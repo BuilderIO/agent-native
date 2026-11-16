@@ -1,3 +1,4 @@
+import { writeAppState } from "@agent-native/core/application-state";
 // guard:allow-unscoped — isolated PostgreSQL-compatible fixtures.
 // oracle-change: Approved durable cleanup replaces synchronous deletion; assert row/intent atomicity and eventual worker outcomes in the database.
 import { PGlite } from "@electric-sql/pglite";
@@ -28,7 +29,30 @@ const mocks = vi.hoisted(() => ({
   role: vi.fn(),
   privateBlob: vi.fn(),
   scope: vi.fn(),
+  // Which reads of a recording's cleanup summary come back missing, or throw
+  // ("throws"), counting reads from 1 since the last clear.
+  unreadableSummaries: new Map<string, (read: number) => boolean | "throws">(),
+  summaryReads: new Map<string, number>(),
 }));
+vi.mock("../server/lib/recording-media-cleanup-worker.js", async (original) => {
+  const actual =
+    await original<
+      typeof import("../server/lib/recording-media-cleanup-worker.js")
+    >();
+  return {
+    ...actual,
+    mediaCleanupSummary: (id: string, ownerEmail: string) => {
+      const read = (mocks.summaryReads.get(id) ?? 0) + 1;
+      mocks.summaryReads.set(id, read);
+      const unreadable = mocks.unreadableSummaries.get(id)?.(read);
+      if (unreadable === "throws")
+        return Promise.reject(new Error("cleanup summary read failed"));
+      return unreadable
+        ? Promise.resolve(null)
+        : actual.mediaCleanupSummary(id, ownerEmail);
+    },
+  };
+});
 vi.mock("../server/db/index.js", async () => ({
   getDb: () => db,
   schema: await import("../server/db/schema.js"),
@@ -734,6 +758,7 @@ describe("permanent recording deletion with durable media cleanup", () => {
     expect(mocks.release).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "stable-user",
+      reason: "cleanup",
     });
   });
   it("does not settle accounting while external compression can still produce media", async () => {
@@ -868,5 +893,158 @@ describe("permanent recording deletion with durable media cleanup", () => {
       status: "complete",
       deleted: 1,
     });
+  });
+});
+
+describe("permanent deletion of several recordings in one call", () => {
+  it("deletes nothing when one recording isn't the caller's", async () => {
+    await insertRecording("rec-2", video + "-2");
+    await insertRecording("theirs", video + "-3", "other@example.test");
+    await expect(
+      action.run({ ids: ["rec-1", "rec-2", "theirs"] }),
+    ).rejects.toThrow(/Nothing was deleted: 1 of 3 .*theirs/);
+    expect((await rows("recordings")).map((row) => row.id).sort()).toEqual([
+      "rec-1",
+      "rec-2",
+      "theirs",
+    ]);
+    expect(await rows("recording_media_cleanups")).toEqual([]);
+  });
+  it("reports each recording, and an earlier delete as unchanged", async () => {
+    await insertRecording("rec-2", video + "-2");
+    expect(await action.run({ id: "rec-1" })).toMatchObject({
+      recordingRemoved: true,
+    });
+    mocks.summaryReads.clear();
+    const result = await action.run({ ids: ["rec-1", "rec-2"] });
+    // The check before the batch finds rec-1's cleanup without reading it.
+    const rec1Reads = mocks.summaryReads.get("rec-1");
+    mocks.summaryReads.clear();
+    expect(rec1Reads).toBe(1);
+    expect(result).toMatchObject({ changed: 1, unchanged: 1, skipped: 0 });
+    expect(
+      "results" in result &&
+        result.results.map(({ id, status }) => ({ id, status })),
+    ).toEqual([
+      { id: "rec-1", status: "unchanged" },
+      { id: "rec-2", status: "changed" },
+    ]);
+    expect(await rows("recordings")).toEqual([]);
+    expect(await rows("recording_media_cleanups")).toHaveLength(2);
+  });
+  it("reports a deletion whose cleanup state can't be read as deleted", async () => {
+    await insertRecording("rec-2", video + "-2");
+    mocks.unreadableSummaries.set("rec-2", () => true);
+    try {
+      const result = await action.run({ ids: ["rec-1", "rec-2"] });
+      expect(result).toMatchObject({ changed: 2, unchanged: 0, skipped: 0 });
+      expect("results" in result && result.results[1]).toEqual({
+        id: "rec-2",
+        status: "changed",
+        recordingRemoved: true,
+        mediaCleanup: null,
+        reason:
+          "Deleted, but its media cleanup state couldn't be read. Call again with this id to read it.",
+      });
+      await expect(action.run({ id: "rec-2" })).rejects.toThrow(
+        "Recording cleanup could not be read",
+      );
+    } finally {
+      mocks.unreadableSummaries.clear();
+      mocks.summaryReads.clear();
+    }
+    expect(await rows("recordings")).toEqual([]);
+    expect(await rows("recording_media_cleanups")).toHaveLength(2);
+  });
+  it("counts a recording another call deleted first as unchanged", async () => {
+    await insertRecording("rec-2", video + "-2");
+    await action.run({ id: "rec-2" });
+    // The delete's own first look misses rec-2's cleanup (read 1), as when
+    // another call commits while this one waits on the row, so it finds the
+    // row already gone.
+    mocks.summaryReads.clear();
+    mocks.unreadableSummaries.set("rec-2", (read) => read === 1);
+    try {
+      const result = await action.run({ ids: ["rec-2"] });
+      expect(result).toMatchObject({ changed: 0, unchanged: 1, skipped: 0 });
+      expect("results" in result && result.results[0]).toMatchObject({
+        id: "rec-2",
+        status: "unchanged",
+        recordingRemoved: true,
+        mediaCleanup: { recordingId: "rec-2" },
+      });
+    } finally {
+      mocks.unreadableSummaries.clear();
+      mocks.summaryReads.clear();
+    }
+  });
+  it("reports a deletion as done when reading its cleanup state fails after the delete", async () => {
+    await insertRecording("rec-2", video + "-2");
+    await insertRecording("rec-3", video + "-3");
+    // Read 1 is the delete's own first look; read 2 follows the commit.
+    mocks.unreadableSummaries.set("rec-2", (read) => read === 2 && "throws");
+    mocks.unreadableSummaries.set("rec-3", (read) => read === 2 && "throws");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await action.run({ ids: ["rec-1", "rec-2"] });
+      expect(result).toMatchObject({ changed: 2, unchanged: 0, skipped: 0 });
+      expect("results" in result && result.results[1]).toEqual({
+        id: "rec-2",
+        status: "changed",
+        recordingRemoved: true,
+        mediaCleanup: null,
+        reason:
+          "Deleted, but its media cleanup state couldn't be read. Call again with this id to read it.",
+      });
+      vi.mocked(writeAppState).mockClear();
+      await expect(action.run({ id: "rec-3" })).rejects.toThrow(
+        "Recording cleanup could not be read",
+      );
+      expect(writeAppState).toHaveBeenCalledWith(
+        "refresh-signal",
+        expect.anything(),
+      );
+    } finally {
+      errors.mockRestore();
+      mocks.unreadableSummaries.clear();
+      mocks.summaryReads.clear();
+    }
+    expect(await rows("recordings")).toEqual([]);
+    expect(await rows("recording_media_cleanups")).toHaveLength(3);
+  });
+  it("lists the recordings a batch didn't reach in time as skipped", async () => {
+    await insertRecording("rec-2", video + "-2");
+    await insertRecording("rec-3", video + "-3");
+    let clock = Date.now();
+    const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    // rec-1's read after its delete commits moves the clock past the budget.
+    mocks.unreadableSummaries.set("rec-1", (read) => {
+      if (read === 2) clock += 21_000;
+      return false;
+    });
+    try {
+      const result = await action.run({ ids: ["rec-1", "rec-2", "rec-3"] });
+      expect(result).toMatchObject({ changed: 1, unchanged: 0, skipped: 2 });
+      expect("results" in result && result.results.slice(1)).toEqual(
+        ["rec-2", "rec-3"].map((id) => ({
+          id,
+          status: "skipped",
+          reason:
+            "Not deleted: the call ran out of time before reaching it. Call again with the skipped ids.",
+        })),
+      );
+      expect(
+        (await rows("recordings"))
+          .map((row) => String(row.id))
+          .sort((a, b) => a.localeCompare(b)),
+      ).toEqual(["rec-2", "rec-3"]);
+    } finally {
+      now.mockRestore();
+      mocks.unreadableSummaries.clear();
+      mocks.summaryReads.clear();
+    }
+    const retried = await action.run({ ids: ["rec-1", "rec-2", "rec-3"] });
+    expect(retried).toMatchObject({ changed: 2, unchanged: 1, skipped: 0 });
+    expect(await rows("recordings")).toEqual([]);
   });
 });

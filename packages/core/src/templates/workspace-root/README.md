@@ -121,7 +121,7 @@ authenticated org routes whenever possible.
 ## Adding a new app
 
 ```bash
-pnpm exec agent-native create crm --template=chat
+pnpm exec agent-native add-app crm --template=chat
 ```
 
 The CLI detects the workspace root and scaffolds a minimal starter app that already
@@ -134,9 +134,9 @@ If the request starts from Dispatch in production, Dispatch sends it to Builder
 branch creation; that branch should still add a new `apps/<app-id>` workspace
 app rather than editing an existing app directory.
 Dispatch discovers ready apps from `apps/<app-id>/package.json`; there is no
-separate workspace app registry to edit. React Router apps must preserve
-`APP_BASE_PATH` / `VITE_APP_BASE_PATH` in `app/entry.client.tsx` via
-`appBasePath()` so `/<app-id>` hydrates correctly.
+separate workspace app registry to edit. React Router apps must keep the
+`configureClientRouterBasename()` call in `app/entry.client.tsx`, before
+`hydrateRoot`, so `/<app-id>` hydrates correctly.
 For requests phrased as creating an "agent", classify the scope first: simple
 recurring Dispatch behavior can stay in Dispatch, while a robust app-like
 teammate should become a real workspace app listed with the rest of the apps.

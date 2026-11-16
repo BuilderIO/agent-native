@@ -21,6 +21,11 @@ const mocks = vi.hoisted(() => ({
   withLocalEmailMutationLock: vi.fn(),
   writeLocalEmails: vi.fn(),
   appendSignatureToBody: vi.fn(),
+  attachmentFromUpload: vi.fn(),
+}));
+
+vi.mock("../server/lib/media-upload.js", () => ({
+  attachmentFromUpload: mocks.attachmentFromUpload,
 }));
 
 vi.mock("@agent-native/core", async () => {
@@ -38,6 +43,7 @@ vi.mock("@agent-native/core/action", async (importOriginal) => {
       const error = Object.assign(new Error(message), options);
       throw error;
     },
+    ActionContractError: actual.ActionContractError,
     NoWriteError: actual.NoWriteError,
     isNoWriteError: actual.isNoWriteError,
   };
@@ -82,6 +88,7 @@ vi.mock("../shared/signature.js", () => ({
 }));
 
 import { isNoWriteError } from "@agent-native/core/action";
+import { saveRevisionOf } from "@agent-native/core/save-conflict";
 
 import {
   GmailQuotaCooldownError,
@@ -119,9 +126,302 @@ beforeEach(() => {
   );
 });
 
+/** The revision an agent would have read for the stored draft. */
+function revisionOf(id: string): string {
+  return saveRevisionOf(appState.get(`compose-${id}`));
+}
+
 function manageDraftSource(): string {
   return readFileSync(new URL("./manage-draft.ts", import.meta.url), "utf8");
 }
+
+describe("manage-draft attachments", () => {
+  const uploaded = {
+    id: "abc123.pdf",
+    filename: "abc123.pdf",
+    originalName: "invoice.pdf",
+    mimeType: "application/pdf",
+    size: 2048,
+    url: "https://cdn.builder.io/o/assets/abc123",
+  };
+  const handle = {
+    filename: "abc123.pdf",
+    originalName: "invoice.pdf",
+    mimeType: "application/pdf",
+  };
+
+  it("puts an uploaded file on a new draft and its Gmail copy", async () => {
+    mocks.attachmentFromUpload.mockResolvedValue(uploaded);
+
+    const result = await action.run({
+      action: "create",
+      id: "with-file",
+      to: "recipient@example.com",
+      attachments: [handle],
+    });
+
+    expect(mocks.attachmentFromUpload).toHaveBeenCalledWith(
+      "owner@example.com",
+      handle,
+    );
+    expect(mocks.saveGmailDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: [uploaded] }),
+    );
+    expect((result as { draft: unknown }).draft).toMatchObject({
+      attachments: [uploaded],
+    });
+  });
+
+  it("saves nothing when a handle isn't one of this account's uploads", async () => {
+    mocks.attachmentFromUpload.mockResolvedValue(null);
+
+    await expect(
+      action.run({
+        action: "create",
+        id: "missing-file",
+        attachments: [{ filename: "someone-elses.pdf" }],
+      }),
+    ).rejects.toMatchObject({ errorCode: "draft_attachment_not_found" });
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+    expect(appState.has("compose-missing-file")).toBe(false);
+  });
+
+  it("keeps a forwarded Gmail file named in an update without re-reading it", async () => {
+    const forwarded = {
+      id: "gmail-part",
+      filename: "forwarded.pdf",
+      originalName: "forwarded.pdf",
+      mimeType: "application/pdf",
+      size: 10,
+      url: "",
+      source: "gmail",
+      gmailMessageId: "message-1",
+      gmailAttachmentId: "part-1",
+    };
+    appState.set("compose-forward", {
+      id: "forward",
+      to: "recipient@example.com",
+      subject: "Fwd",
+      body: "",
+      mode: "forward",
+      attachments: [forwarded],
+    });
+    mocks.attachmentFromUpload.mockResolvedValue(uploaded);
+
+    const result = await action.run({
+      action: "update",
+      id: "forward",
+      expectedRevision: revisionOf("forward"),
+      attachments: [{ filename: "forwarded.pdf" }, handle],
+    });
+
+    expect(mocks.attachmentFromUpload).toHaveBeenCalledTimes(1);
+    expect((result as { draft: unknown }).draft).toMatchObject({
+      attachments: [forwarded, uploaded],
+    });
+  });
+
+  it("keeps two forwarded Gmail files that share a name", async () => {
+    const forwardedPart = (part: string) => ({
+      id: part,
+      filename: "image.png",
+      originalName: "image.png",
+      mimeType: "image/png",
+      size: 10,
+      url: "",
+      source: "gmail",
+      gmailMessageId: "message-1",
+      gmailAttachmentId: part,
+    });
+    const first = forwardedPart("part-1");
+    const second = forwardedPart("part-2");
+    appState.set("compose-same-names", {
+      id: "same-names",
+      to: "recipient@example.com",
+      subject: "Fwd",
+      body: "",
+      mode: "forward",
+      attachments: [first, second],
+    });
+    mocks.attachmentFromUpload.mockResolvedValue(uploaded);
+
+    const result = await action.run({
+      action: "update",
+      id: "same-names",
+      expectedRevision: revisionOf("same-names"),
+      attachments: [
+        { filename: "image.png" },
+        { filename: "image.png" },
+        handle,
+      ],
+    });
+
+    expect((result as { draft: unknown }).draft).toMatchObject({
+      attachments: [first, second, uploaded],
+    });
+  });
+
+  it("keeps the second of two same-named files when its id is passed", async () => {
+    const forwardedPart = (part: string) => ({
+      id: part,
+      filename: "image.png",
+      originalName: "image.png",
+      mimeType: "image/png",
+      size: 10,
+      url: "",
+      source: "gmail",
+      gmailMessageId: "message-1",
+      gmailAttachmentId: part,
+    });
+    const second = forwardedPart("part-2");
+    appState.set("compose-pick-one", {
+      id: "pick-one",
+      to: "recipient@example.com",
+      subject: "Fwd",
+      body: "",
+      mode: "forward",
+      attachments: [forwardedPart("part-1"), second],
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "pick-one",
+      expectedRevision: revisionOf("pick-one"),
+      attachments: [{ filename: "image.png", id: "part-2" }],
+    });
+
+    expect(
+      (result as { draft: { attachments: unknown } }).draft.attachments,
+    ).toEqual([second]);
+  });
+
+  it("lets an id claim its file before a name-only entry does", async () => {
+    const forwardedPart = (part: string) => ({
+      id: part,
+      filename: "image.png",
+      originalName: "image.png",
+      mimeType: "image/png",
+      size: 10,
+      url: "",
+      source: "gmail",
+      gmailMessageId: "message-1",
+      gmailAttachmentId: part,
+    });
+    const first = forwardedPart("part-1");
+    const second = forwardedPart("part-2");
+    appState.set("compose-id-first", {
+      id: "id-first",
+      to: "recipient@example.com",
+      subject: "Fwd",
+      body: "",
+      mode: "forward",
+      attachments: [first, second],
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "id-first",
+      expectedRevision: revisionOf("id-first"),
+      attachments: [
+        { filename: "image.png" },
+        { filename: "image.png", id: "part-1" },
+      ],
+    });
+
+    expect(
+      (result as { draft: { attachments: unknown } }).draft.attachments,
+    ).toEqual([second, first]);
+  });
+
+  it("renames a file already on the draft when a new name is passed", async () => {
+    appState.set("compose-rename", {
+      id: "rename",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "",
+      mode: "compose",
+      attachments: [uploaded],
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "rename",
+      expectedRevision: revisionOf("rename"),
+      attachments: [{ ...handle, originalName: "october-invoice.pdf" }],
+    });
+
+    expect(
+      (result as { draft: { attachments: unknown } }).draft.attachments,
+    ).toEqual([{ ...uploaded, originalName: "october-invoice.pdf" }]);
+    expect(mocks.attachmentFromUpload).not.toHaveBeenCalled();
+  });
+
+  it("removes every file when an update passes an empty list", async () => {
+    appState.set("compose-clear", {
+      id: "clear",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "",
+      mode: "compose",
+      attachments: [uploaded],
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "clear",
+      expectedRevision: revisionOf("clear"),
+      attachments: [],
+    });
+
+    expect((result as { draft: unknown }).draft).toMatchObject({
+      attachments: [],
+    });
+  });
+
+  it("applies a repeated attachment update once", async () => {
+    appState.set("compose-repeat", {
+      id: "repeat",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "",
+      mode: "compose",
+      attachments: [uploaded],
+    });
+
+    const result = await action.run({
+      action: "update",
+      id: "repeat",
+      expectedRevision: "stale-revision",
+      attachments: [handle],
+    });
+
+    expect((result as { message: string }).message).toContain(
+      "already has this update",
+    );
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+  });
+
+  it("doesn't call an empty list already applied to corrupt attachment state", async () => {
+    appState.set("compose-corrupt", {
+      id: "corrupt",
+      to: "recipient@example.com",
+      subject: "Hello",
+      body: "",
+      mode: "compose",
+      attachments: { filename: "brief.pdf" },
+    });
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "corrupt",
+        expectedRevision: "stale-revision",
+        attachments: [],
+      }),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+  });
+});
 
 describe("manage-draft MCP App", () => {
   it("requires an action and IDs for draft operations that target a draft", () => {
@@ -305,6 +605,7 @@ describe("manage-draft local fallback", () => {
     const updated = await action.run({
       action: "update",
       id: "ui-draft",
+      expectedRevision: revisionOf("ui-draft"),
       body: "Updated draft",
     });
 
@@ -315,8 +616,9 @@ describe("manage-draft local fallback", () => {
     expect(mocks.saveGmailDraft).toHaveBeenCalledWith(
       expect.objectContaining({ attachments }),
     );
-    expect(mocks.writeAppState).toHaveBeenCalledWith(
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
       "compose-ui-draft",
+      expect.anything(),
       expect.objectContaining({
         body: "Updated draft",
         attachments,
@@ -339,6 +641,7 @@ describe("manage-draft local fallback", () => {
       action.run({
         action: "update",
         id: "ui-draft",
+        expectedRevision: revisionOf("ui-draft"),
         body: "Updated draft",
       }),
     ).rejects.toThrow('Draft "ui-draft" has invalid attachments');
@@ -360,6 +663,7 @@ describe("manage-draft local fallback", () => {
     const updated = await action.run({
       action: "update",
       id: "local-draft",
+      expectedRevision: revisionOf("local-draft"),
       body: "Updated draft",
     });
 
@@ -390,6 +694,7 @@ describe("manage-draft local fallback", () => {
       action.run({
         action: "update",
         id: "gmail-draft",
+        expectedRevision: revisionOf("gmail-draft"),
         accountEmail: "new@example.com",
       }),
     ).rejects.toMatchObject({ errorCode: "draft_account_change" });
@@ -410,6 +715,7 @@ describe("manage-draft local fallback", () => {
     const result = await action.run({
       action: "update",
       id: "local-draft",
+      expectedRevision: revisionOf("local-draft"),
       body: "Updated body",
     });
 
@@ -425,6 +731,41 @@ describe("manage-draft local fallback", () => {
       savedDraftId: "local-draft-1",
       savedDraftBackend: "local",
     });
+  });
+
+  it("saves changed attachments to a saved local draft", async () => {
+    const uploaded = {
+      id: "abc123.pdf",
+      filename: "abc123.pdf",
+      originalName: "invoice.pdf",
+      mimeType: "application/pdf",
+      size: 2048,
+      url: "https://cdn.builder.io/o/assets/abc123",
+    };
+    appState.set("compose-local-file", {
+      id: "local-file",
+      savedDraftId: "local-draft-2",
+      savedDraftBackend: "local",
+      to: "old@example.com",
+      subject: "Old",
+      body: "Old body",
+      mode: "compose",
+    });
+    mocks.attachmentFromUpload.mockResolvedValue(uploaded);
+
+    await action.run({
+      action: "update",
+      id: "local-file",
+      expectedRevision: revisionOf("local-file"),
+      attachments: [{ filename: "abc123.pdf" }],
+    });
+
+    expect(mocks.updateLocalSavedDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draftId: "local-draft-2",
+        attachments: [uploaded],
+      }),
+    );
   });
 
   it("resolves a legacy local draft by mailbox row before updating it", async () => {
@@ -443,6 +784,7 @@ describe("manage-draft local fallback", () => {
     const result = await action.run({
       action: "update",
       id: "legacy-local",
+      expectedRevision: revisionOf("legacy-local"),
       body: "Updated body",
     });
 
@@ -476,6 +818,7 @@ describe("manage-draft local fallback", () => {
     await action.run({
       action: "update",
       id: "legacy-gmail",
+      expectedRevision: revisionOf("legacy-gmail"),
       body: "Updated body",
     });
 
@@ -499,7 +842,12 @@ describe("manage-draft local fallback", () => {
     });
 
     await expect(
-      action.run({ action: "update", id: "unknown", body: "Changed" }),
+      action.run({
+        action: "update",
+        id: "unknown",
+        expectedRevision: revisionOf("unknown"),
+        body: "Changed",
+      }),
     ).rejects.toThrow("Could not verify the backend");
     expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
     expect(mocks.updateLocalSavedDraft).not.toHaveBeenCalled();
@@ -546,7 +894,12 @@ describe("manage-draft Gmail budget refusals", () => {
     mocks.saveGmailDraft.mockRejectedValue(new GmailQuotaRefusedError(5_000));
 
     const error = await action
-      .run({ action: "update", id: "gmail-draft", body: "Changed" })
+      .run({
+        action: "update",
+        id: "gmail-draft",
+        expectedRevision: revisionOf("gmail-draft"),
+        body: "Changed",
+      })
       .catch((thrown: unknown) => thrown);
 
     expect(isNoWriteError(error)).toBe(true);
@@ -597,6 +950,7 @@ describe("manage-draft deep link", () => {
     const updated = await action.run({
       action: "update",
       id: "card-draft",
+      expectedRevision: revisionOf("card-draft"),
       body: "Revised body",
     });
 
@@ -677,6 +1031,7 @@ describe("manage-draft create-then-reply flow", () => {
     const updated = await action.run({
       action: "update",
       id: created.id,
+      expectedRevision: created.revision,
       body: "Hi,\n\nQuick follow-up: could you confirm your check-in date?",
     });
 
@@ -690,6 +1045,275 @@ describe("manage-draft create-then-reply flow", () => {
       url: "/mail",
     });
     expect(JSON.stringify(updated.change)).not.toContain("Quick follow-up");
+  });
+});
+
+describe("manage-draft saves against the revision it read", () => {
+  const stored = {
+    id: "shared-draft",
+    to: "recipient@example.com",
+    subject: "Hello",
+    body: "Original",
+    mode: "compose",
+  };
+
+  beforeEach(() => {
+    appState.set("compose-shared-draft", stored);
+  });
+
+  it("returns the current draft when the person changed it after the read", async () => {
+    const readRevision = revisionOf("shared-draft");
+    const typed = { ...stored, body: "Typed in the compose window" };
+    appState.set("compose-shared-draft", typed);
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "shared-draft",
+        expectedRevision: readRevision,
+        subject: "Agent subject",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "save_conflict",
+      details: { current: typed, currentRevision: saveRevisionOf(typed) },
+    });
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+    expect(appState.get("compose-shared-draft")).toBe(typed);
+  });
+
+  it("sends the same conflict when no revision was read at all", async () => {
+    await expect(
+      action.run({ action: "update", id: "shared-draft", body: "Blind" }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: { current: stored, currentRevision: revisionOf("shared-draft") },
+    });
+    expect(appState.get("compose-shared-draft")).toBe(stored);
+  });
+
+  it("lets the agent redo its edit with the revision from the conflict", async () => {
+    const conflict = await action
+      .run({ action: "update", id: "shared-draft", body: "Agent body" })
+      .catch((error: { details: { currentRevision: string } }) => error);
+
+    const redone = await action.run({
+      action: "update",
+      id: "shared-draft",
+      expectedRevision: (conflict as { details: { currentRevision: string } })
+        .details.currentRevision,
+      body: "Agent body",
+    });
+
+    expect(redone.draft.body).toBe("Agent body");
+    expect(redone.revision).toBe(revisionOf("shared-draft"));
+  });
+
+  it("applies a repeated update once", async () => {
+    const readRevision = revisionOf("shared-draft");
+    const first = await action.run({
+      action: "update",
+      id: "shared-draft",
+      expectedRevision: readRevision,
+      body: "Agent body",
+    });
+    mocks.saveGmailDraft.mockClear();
+
+    const repeat = await action.run({
+      action: "update",
+      id: "shared-draft",
+      expectedRevision: readRevision,
+      body: "Agent body",
+    });
+
+    expect(repeat.draft.body).toBe("Agent body");
+    expect(repeat.revision).toBe(first.revision);
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+  });
+
+  it("catches a save that lands between the check and the write", async () => {
+    const typed = { ...stored, body: "Typed during the Gmail save" };
+    mocks.saveGmailDraft.mockImplementation(async () => {
+      appState.set("compose-shared-draft", typed);
+      return null;
+    });
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "shared-draft",
+        expectedRevision: revisionOf("shared-draft"),
+        subject: "Agent subject",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: { current: typed },
+    });
+    expect(appState.get("compose-shared-draft")).toBe(typed);
+  });
+
+  it("removes the Gmail draft it made when it loses that race", async () => {
+    const typed = { ...stored, body: "Typed during the Gmail save" };
+    mocks.saveGmailDraft.mockImplementation(async () => {
+      appState.set("compose-shared-draft", typed);
+      return {
+        draftId: "new-gmail-draft",
+        accountEmail: "user@example.com",
+        created: true,
+      };
+    });
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "shared-draft",
+        expectedRevision: revisionOf("shared-draft"),
+        subject: "Agent subject",
+      }),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountEmail: "user@example.com",
+        draftId: "new-gmail-draft",
+      }),
+    );
+  });
+
+  it("names the Gmail draft it couldn't remove after losing that race", async () => {
+    const typed = { ...stored, body: "Typed during the Gmail save" };
+    mocks.saveGmailDraft.mockImplementation(async () => {
+      appState.set("compose-shared-draft", typed);
+      return {
+        draftId: "stuck-gmail-draft",
+        accountEmail: "user@example.com",
+        created: true,
+      };
+    });
+    mocks.deleteGmailDraft.mockRejectedValueOnce(new Error("Gmail is down"));
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "shared-draft",
+        expectedRevision: revisionOf("shared-draft"),
+        subject: "Agent subject",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: {
+        current: typed,
+        leftoverGmailDraftId: "stuck-gmail-draft",
+      },
+    });
+  });
+
+  it("keeps a Gmail draft it only updated when it loses that race", async () => {
+    const saved = {
+      ...stored,
+      savedDraftId: "existing-gmail-draft",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "user@example.com",
+    };
+    appState.set("compose-shared-draft", saved);
+    mocks.saveGmailDraft.mockImplementation(async () => {
+      appState.set("compose-shared-draft", {
+        ...saved,
+        body: "Typed during the Gmail save",
+      });
+      return {
+        draftId: "existing-gmail-draft",
+        accountEmail: "user@example.com",
+        created: false,
+      };
+    });
+
+    await expect(
+      action.run({
+        action: "update",
+        id: "shared-draft",
+        expectedRevision: revisionOf("shared-draft"),
+        subject: "Agent subject",
+      }),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+    expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+  });
+
+  describe("when the write throws", () => {
+    const writeError = new Error("connection reset");
+    const newGmailDraft = {
+      draftId: "new-gmail-draft",
+      accountEmail: "user@example.com",
+      created: true,
+    };
+    const update = () =>
+      action.run({
+        action: "update",
+        id: "shared-draft",
+        expectedRevision: revisionOf("shared-draft"),
+        subject: "Agent subject",
+      });
+
+    it("removes the Gmail draft it made if the write didn't land", async () => {
+      mocks.saveGmailDraft.mockResolvedValue(newGmailDraft);
+      mocks.compareAndSetAppState.mockRejectedValueOnce(writeError);
+
+      await expect(update()).rejects.toBe(writeError);
+      expect(mocks.deleteGmailDraft).toHaveBeenCalledWith(
+        expect.objectContaining({ draftId: "new-gmail-draft" }),
+      );
+    });
+
+    it("counts a write that landed before it threw as stored", async () => {
+      mocks.saveGmailDraft.mockResolvedValue(newGmailDraft);
+      mocks.compareAndSetAppState.mockImplementationOnce(
+        async (key: string, _expected: unknown, next: unknown) => {
+          appState.set(key, next);
+          throw writeError;
+        },
+      );
+
+      await expect(update()).resolves.toMatchObject({
+        draft: { savedDraftId: "new-gmail-draft", subject: "Agent subject" },
+      });
+      expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+    });
+
+    it("keeps the Gmail draft and says so if the reread fails too", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      mocks.saveGmailDraft.mockResolvedValue(newGmailDraft);
+      mocks.compareAndSetAppState.mockImplementationOnce(async () => {
+        mocks.readAppState.mockRejectedValueOnce(new Error("database down"));
+        throw writeError;
+      });
+
+      await expect(update()).rejects.toMatchObject({
+        errorCode: "draft_store_unconfirmed",
+        details: { gmailDraftId: "new-gmail-draft" },
+      });
+      expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+      consoleError.mockRestore();
+    });
+
+    it("doesn't take an existing Gmail draft's ID as proof the write landed", async () => {
+      const saved = {
+        ...stored,
+        savedDraftId: "existing-gmail-draft",
+        savedDraftBackend: "gmail",
+        savedDraftAccountEmail: "user@example.com",
+      };
+      appState.set("compose-shared-draft", saved);
+      mocks.saveGmailDraft.mockResolvedValue({
+        draftId: "existing-gmail-draft",
+        accountEmail: "user@example.com",
+        created: false,
+      });
+      mocks.compareAndSetAppState.mockRejectedValueOnce(writeError);
+
+      await expect(update()).rejects.toBe(writeError);
+      expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+    });
   });
 });
 

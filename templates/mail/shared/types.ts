@@ -70,12 +70,33 @@ export type ComposeAttachment = {
   originalName: string;
   mimeType: string;
   size: number;
-  url: string;
+  /**
+   * Only a file-storage address. A file Mail serves itself (a Gmail part, or a
+   * local upload) has none: `composeAttachmentLink` rebuilds it from the IDs.
+   */
+  url?: string;
   source?: "upload" | "gmail";
   gmailMessageId?: string;
   gmailAttachmentId?: string;
   accountEmail?: string;
 };
+
+// What the Mail card reads for one draft (get-draft-card).
+export type DraftCardThread = {
+  messages: EmailMessage[];
+  status: "none" | "ready" | "unavailable";
+};
+
+export type DraftCardData =
+  | { draft: null }
+  | {
+      draft: ComposeState;
+      revision: string;
+      accounts: Array<{ email: string }>;
+      thread: DraftCardThread;
+      settings: Pick<UserSettings, "signature" | "imagePolicy">;
+      deepLink: string;
+    };
 
 export type ComposeState = {
   id: string;

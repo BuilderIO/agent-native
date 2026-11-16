@@ -226,6 +226,7 @@ export interface SearchEverythingResult {
   score?: number | null;
   matchLane?: "semantic" | "keyword" | "hybrid" | (string & {}) | null;
   retrievalReason?: string | null;
+  withheldPassages?: number | null;
 }
 
 export interface SearchEverythingResponse {
@@ -754,6 +755,7 @@ export interface BrainCaptureReviewItem {
   capturedAt: string;
   sourceUrl?: string | null;
   distillationQueue?: BrainDistillationQueue | null;
+  withheldPassages?: number | null;
   preview?: string;
   createdAt?: string | null;
   updatedAt?: string | null;

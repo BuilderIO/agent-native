@@ -59,6 +59,7 @@ import { formatMcpConnectError } from "./errors.js";
 import { fetchHubServers } from "./hub-client.js";
 import {
   buildMcpToolName,
+  fetchMcpOriginBound,
   parseMcpToolName,
   type McpClientManager,
   type McpTool,
@@ -990,8 +991,10 @@ async function handleList(
   role: string | null;
 }> {
   const { email, orgId, role } = await resolveContextForRequest(event);
-  const userServers = email ? await listRemoteServers("user", email) : [];
-  const orgServers = orgId ? await listRemoteServers("org", orgId) : [];
+  const [userServers, orgServers] = await Promise.all([
+    email ? listRemoteServers("user", email) : [],
+    orgId ? listRemoteServers("org", orgId) : [],
+  ]);
   return {
     user: userServers.map((s) =>
       projectForClient(
@@ -1317,6 +1320,8 @@ async function tryConnect(
     }
     const transport = new StreamableHTTPClientTransport(new URL(url), {
       requestInit,
+      fetch: (input, init) =>
+        fetchMcpOriginBound(input, init, new URL(url).origin),
     });
     const client = new Client(
       { name: "agent-native-mcp-client-test", version: "1.0.0" },

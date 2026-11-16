@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import { sql } from "drizzle-orm";
+import { QueryBuilder } from "drizzle-orm/pg-core";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import {
@@ -32,10 +33,12 @@ import {
   assertHostedRuntimeDatabase,
 } from "./client.js";
 import type { DbExec, DbExecInput } from "./client.js";
+import { noteSqlStatement } from "./note-sql-statement.js";
 import {
   assertPoolConnectionAvailable,
   runHoldingPoolConnection,
 } from "./pool-self-deadlock.js";
+import { getDbDependencies } from "./readiness.js";
 import { getSqlFragmentParameterOffsets, isSqlFragment } from "./sql.js";
 
 let _pgDrizzle: Promise<{ drizzle: any; postgres: any }> | undefined;
@@ -270,11 +273,17 @@ function scopeDrizzlePreparedQuery(
         (prop === "execute" || prop === "all" || prop === "values") &&
         typeof value === "function"
       ) {
-        return (...args: unknown[]) =>
-          withDrizzleTransactionQuery(queue, () => {
+        return (...args: unknown[]) => {
+          // A driver-level hook cannot see this: inside a transaction the
+          // driver is handed a raw client, so the statement is read here.
+          noteSqlStatement(
+            (prepareArgs[0] as { sql?: unknown } | undefined)?.sql,
+          );
+          return withDrizzleTransactionQuery(queue, () => {
             const current = resolvePrepared(target);
             return current[prop].apply(current, args);
           });
+        };
       }
       return typeof value === "function" ? value.bind(target) : value;
     },
@@ -307,12 +316,14 @@ function scopeDrizzleSessionQueries(
         (prop === "query" || prop === "queryObjects") &&
         typeof value === "function"
       ) {
-        return (...args: unknown[]) =>
-          withDrizzleTransactionQuery(queue, () => {
+        return (...args: unknown[]) => {
+          noteSqlStatement(args[0]);
+          return withDrizzleTransactionQuery(queue, () => {
             const activeScope = activeDrizzleTransactionScopeForQueue(queue);
             const querySession = activeScope?.transaction.session ?? target;
             return querySession[prop].apply(querySession, args);
           });
+        };
       }
       return typeof value === "function" ? value.bind(receiver) : value;
     },
@@ -1005,6 +1016,8 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   let _db: any;
   let _dbReady: Promise<any> | undefined;
   let _dbGeneration = 0;
+  let dependenciesReady = 0;
+  let dependenciesPending: Promise<void> | undefined;
 
   // The Drizzle instance is bound to a shared pool, so a `closeDbExec()` (test
   // teardown, script cleanup) must invalidate it rather than leave this store
@@ -1017,6 +1030,8 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     _dbGeneration += 1;
     _db = undefined;
     _dbReady = undefined;
+    dependenciesReady = 0;
+    dependenciesPending = undefined;
   };
   function resetOnPoolClose(driver?: string, url?: string): void {
     if (_closeHookRegistered) return;
@@ -1130,6 +1145,32 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     });
   }
 
+  // A select chain embedded as a subquery only needs its SQL, which a
+  // connection-less QueryBuilder of the same dialect can build. Anything else
+  // (inserts, relational queries, ...) cannot be answered offline.
+  function replayChainOffline(
+    chain: Array<{ prop: string | symbol; args?: unknown[] }>,
+  ): Record<string | symbol, unknown> | undefined {
+    const first = chain[0]?.prop;
+    if (
+      first !== "select" &&
+      first !== "selectDistinct" &&
+      first !== "selectDistinctOn"
+    ) {
+      return undefined;
+    }
+    let result: unknown = new QueryBuilder();
+    for (const step of chain) {
+      if (step.prop === "execute") return undefined;
+      if (result == null || !(step.prop in Object(result))) return undefined;
+      const target = result as Record<string | symbol, unknown>;
+      const val = target[step.prop];
+      result =
+        typeof val === "function" ? val.apply(target, step.args ?? []) : val;
+    }
+    return result as Record<string | symbol, unknown> | undefined;
+  }
+
   function createLazyProxy(
     ready: Promise<any>,
     chain: Array<{ prop: string | symbol; args?: any[] }>,
@@ -1150,12 +1191,16 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
           return (promise as any)[prop].bind(promise);
         }
         if (prop === "getSQL" || prop === "shouldOmitSQLParens") {
+          const replayed = replayChainOffline(chain);
+          const member = replayed?.[prop];
+          if (typeof member === "function") return member.bind(replayed);
+          // Drizzle calls shouldOmitSQLParens optionally; absent on selects.
+          if (replayed && prop === "shouldOmitSQLParens") return undefined;
           throw new Error(
             "getDb(): accessed an unresolved query chain synchronously " +
-              `(reading '${String(prop)}'). This chain was embedded as a raw ` +
-              "value instead of being awaited first — e.g. a subquery passed " +
-              "straight into another expression. Await the chain before " +
-              "using its result.",
+              `(reading '${String(prop)}'). Only select-style query chains ` +
+              "can be embedded as a subquery before the database is ready; " +
+              "await this chain before using its result.",
           );
         }
         return createLazyProxy(ready, [...chain, { prop }]);
@@ -1171,6 +1216,27 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   }
 
   function getDb(): PgDatabase<PgQueryResultHKT, T> {
+    const dependencies = getDbDependencies(getDb);
+    if (dependencies && dependenciesReady !== dependencies.size) {
+      if (!dependenciesPending) {
+        const count = dependencies.size;
+        const generation = _dbGeneration;
+        dependenciesPending = Promise.all(
+          [...dependencies].map((ready) => ready()),
+        )
+          .then(() => {
+            if (generation === _dbGeneration) dependenciesReady = count;
+          })
+          .finally(() => {
+            if (generation === _dbGeneration) dependenciesPending = undefined;
+          });
+        dependenciesPending.catch(() => {});
+      }
+      return createLazyProxy(
+        dependenciesPending.then(() => getDb()),
+        [],
+      ) as PgDatabase<PgQueryResultHKT, T>;
+    }
     const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
     const activePgliteClient = isPgliteUrl(url)
       ? getActivePgliteTransactionClient(url)

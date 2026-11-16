@@ -159,24 +159,6 @@ export function inspectDecodedFig(
   };
 }
 
-const LARGE_FIG_WARNING_BYTES = 10 * 1024 * 1024;
-const LARGE_FIG_WARNING_FRAMES = 12;
-const LARGE_FIG_WARNING_NODES = 10_000;
-const LARGE_FIG_WARNING_IMAGES = 64;
-
-export function shouldWarnForFigImport(
-  fileBytes: number,
-  summary: FigImportSummary,
-): boolean {
-  if (summary.frameCount === 0) return false;
-  return (
-    fileBytes >= LARGE_FIG_WARNING_BYTES ||
-    summary.frameCount >= LARGE_FIG_WARNING_FRAMES ||
-    summary.nodeCount >= LARGE_FIG_WARNING_NODES ||
-    summary.imageCount >= LARGE_FIG_WARNING_IMAGES
-  );
-}
-
 async function uploadEmbeddedImages(
   images: DecodedFigImage[],
   ownerEmail: string,

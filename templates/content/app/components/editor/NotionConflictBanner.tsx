@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
+  isDocumentSyncStatusCurrent,
   useDocumentSyncStatus,
   useResolveDocumentSyncConflict,
 } from "@/hooks/use-notion";
@@ -19,13 +20,28 @@ export function NotionConflictBanner({
   canEdit = true,
 }: NotionConflictBannerProps) {
   const t = useT();
-  const { data: syncStatus } = useDocumentSyncStatus(
-    canEdit ? documentId : null,
-  );
+  const {
+    data: syncStatus,
+    isFetchedAfterMount: syncStatusReadSinceMount,
+    status: syncStatusState,
+    dataUpdatedAt: syncStatusAnsweredAt,
+  } = useDocumentSyncStatus(canEdit ? documentId : null);
   const resolveConflict = useResolveDocumentSyncConflict(documentId);
   const [direction, setDirection] = useState<"pull" | "push" | null>(null);
 
-  if (!canEdit || !syncStatus?.hasConflict) return null;
+  // Both choices overwrite one side, so the banner shows only for a current
+  // answer: a conflict cached by an earlier visit may have cleared since.
+  if (
+    !canEdit ||
+    !syncStatus?.hasConflict ||
+    !isDocumentSyncStatusCurrent({
+      status: syncStatusState,
+      isFetchedAfterMount: syncStatusReadSinceMount,
+      dataUpdatedAt: syncStatusAnsweredAt,
+    })
+  ) {
+    return null;
+  }
 
   const handleResolve = async (dir: "pull" | "push") => {
     setDirection(dir);

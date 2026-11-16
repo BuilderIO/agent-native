@@ -145,6 +145,11 @@ describe("describeRunCounts", () => {
     expect(describeRunCounts({ taken: 0, modelCalls: 0 })).toBe("Nothing new");
   });
 
+  it("says a first read started from now, which is not an empty channel", () => {
+    expect(describeRunCounts({ taken: 0, primed: 1 })).toBe("Started from now");
+    expect(describeRunCounts({ taken: 0, primed: 0 })).toBe("Nothing new");
+  });
+
   it("still reports a failure on a run that took nothing", () => {
     expect(describeRunCounts({ taken: 0, itemFailures: 2 })).toBe(
       "Took 0 items: 2 items failed",

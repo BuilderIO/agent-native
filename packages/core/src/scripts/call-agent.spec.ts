@@ -103,7 +103,8 @@ vi.mock("../integrations/a2a-continuation-processor.js", () => ({
   dispatchA2AContinuation: dispatchA2AContinuationMock,
 }));
 
-vi.mock("../agent/run-store.js", () => ({
+vi.mock("../agent/run-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/run-store.js")>()),
   insertRun: vi.fn(() => Promise.resolve()),
   insertRunEvent: vi.fn(() => Promise.resolve()),
   insertRunEvents: vi.fn(() => Promise.resolve()),

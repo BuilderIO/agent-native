@@ -475,8 +475,7 @@ function failureKindForStatus(status: number) {
 }
 
 async function readFailure(response: Response, action: string) {
-  // coercion-ok: the body only adds detail to a failure thrown below with its status.
-  const detail = await readS3ErrorText(response).catch(() => "");
+  const detail = await readS3ErrorText(response);
   return new PrivateBlobError(
     `S3 ${action} failed (${response.status}): ${detail.slice(0, 300) || response.statusText}`,
     failureKindForStatus(response.status),

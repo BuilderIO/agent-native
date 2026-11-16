@@ -230,7 +230,7 @@ export function BreakpointDeviceControl({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
                     align="end"
-                    className="design-editor-app-menu-content w-52 rounded-lg bg-[var(--design-editor-panel-bg)] p-1"
+                    className="design-editor-app-menu-content w-52 bg-[var(--design-editor-panel-bg)]"
                   >
                     {/* Change width — inline input row; Enter commits.
                       Key events stay local (stopPropagation) so the menu's
@@ -286,7 +286,7 @@ export function BreakpointDeviceControl({
                     ) : null}
                     {onRemove ? (
                       <DropdownMenuItem
-                        className="h-7 px-2 py-0 !text-[12px] text-destructive focus:text-destructive"
+                        className="text-destructive focus:text-destructive"
                         onSelect={() => {
                           setMenuOpenFor(null);
                           onRemove(breakpoint.id);

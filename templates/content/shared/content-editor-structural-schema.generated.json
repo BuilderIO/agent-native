@@ -47,9 +47,15 @@
           "default": 0
         }
       ],
-      "content": "block*",
+      "content": "notionToggleSummary? (block | notionToggleSummary)*",
       "group": "block",
       "draggable": true,
+      "defining": true
+    },
+    {
+      "name": "notionToggleSummary",
+      "attrs": [],
+      "content": "inline*",
       "defining": true
     },
     {
@@ -209,6 +215,11 @@
         },
         {
           "name": "height",
+          "hasDefault": true,
+          "default": null
+        },
+        {
+          "name": "assetId",
           "hasDefault": true,
           "default": null
         },
@@ -442,7 +453,13 @@
     },
     {
       "name": "notionColumn",
-      "attrs": [],
+      "attrs": [
+        {
+          "name": "ratio",
+          "hasDefault": true,
+          "default": null
+        }
+      ],
       "content": "block+",
       "defining": true
     },

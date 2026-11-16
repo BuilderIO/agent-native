@@ -17,6 +17,10 @@ import {
   hybridSearchArtifacts,
   type SearchLaneStatuses,
 } from "./hybrid-search.js";
+import {
+  parseCaptureMetadata,
+  withheldZoomPassageCount,
+} from "./search-index-contracts.js";
 
 export type UniversalSearchType = "knowledge" | "capture" | "source";
 
@@ -51,6 +55,7 @@ export interface UniversalSearchResult {
   capturedAt?: string | null;
   location?: string | null;
   content?: string | null;
+  withheldPassages?: number | null;
 }
 
 export type FederatedDelegationTarget = "analytics" | "mail" | "dispatch";
@@ -596,6 +601,10 @@ async function searchCaptureResults(
         capturedAt: row.capturedAt,
         location: captureLocation(metadata),
         content: captureContent(row.content),
+        withheldPassages: withheldZoomPassageCount(
+          parseCaptureMetadata(row.metadataJson),
+          source.provider,
+        ),
       },
     ];
   });
@@ -697,12 +706,12 @@ export async function searchEverythingRows(
 
 export async function searchEverythingWithLanes(args: {
   query: string;
-  type?: UniversalSearchType | "all";
-  provider?: string;
-  kind?: string;
-  projectId?: string;
-  status?: string;
-  limit?: number;
+  type?: UniversalSearchType | "all" | undefined;
+  provider?: string | undefined;
+  kind?: string | undefined;
+  projectId?: string | undefined;
+  status?: string | undefined;
+  limit?: number | undefined;
 }): Promise<{ rows: UniversalSearchResult[]; lanes: SearchLaneStatuses }> {
   const lanes: SearchLaneStatuses = {
     fts: { status: "ok" },
@@ -801,6 +810,10 @@ export async function searchEverythingWithLanes(args: {
                 capturedAt: artifact.capturedAt,
                 location: captureLocation(metadata),
                 content: captureContent(detail.content),
+                withheldPassages: withheldZoomPassageCount(
+                  parseCaptureMetadata(detail.metadataJson),
+                  source.provider,
+                ),
               },
             ];
           });
@@ -971,8 +984,8 @@ async function readDiscoveredAgentCoverage(): Promise<
 
 function buildDelegationHints(args: {
   query: string;
-  provider?: string | null;
-  status?: string | null;
+  provider?: string | null | undefined;
+  status?: string | null | undefined;
 }): FederatedSearchCoverage["delegationHints"] {
   const text = searchSignalText(args);
   return FEDERATED_DELEGATION_TARGETS.map((target) => ({
@@ -988,8 +1001,8 @@ function buildDelegationHints(args: {
 
 export async function buildFederatedSearchCoverage(args: {
   query: string;
-  provider?: string | null;
-  status?: string | null;
+  provider?: string | null | undefined;
+  status?: string | null | undefined;
 }): Promise<FederatedSearchCoverage> {
   const [brainSourceProviders, workspaceProviderCoverage, discoveredAgents] =
     await Promise.all([

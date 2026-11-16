@@ -1,3 +1,4 @@
+import { withoutWriteObservation } from "../action-frame.js";
 import { getAppConfig } from "../app-config/index.js";
 import { captureError } from "../server/capture-error.js";
 import { getIntegrationRequestContext } from "../server/request-context.js";
@@ -258,7 +259,9 @@ export async function recordActionAudit(
     }
     if (target?.orgId !== undefined) event.orgId = target.orgId;
 
-    await insertAuditEvent(event);
+    // The row records the call; a call that failed after saving only this
+    // saved nothing a retry would repeat.
+    await withoutWriteObservation(() => insertAuditEvent(event));
   } catch (error) {
     // Never rethrown: auditing must not break the audited action. Reported,
     // because nothing else shows that the call went unrecorded.

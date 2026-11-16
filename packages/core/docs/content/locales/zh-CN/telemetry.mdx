@@ -1,0 +1,179 @@
+---
+title: "遥测"
+description: "Agent-Native CLI 会上报什么、绝不发送什么，以及如何关闭。"
+---
+
+# 遥测
+
+命令行工具 `@agent-native/core` 和 `@agent-native/skills` 会收集匿名使用数据。这些数据让我们了解 CLI 的哪些部分运行正常、用户卡在哪里，从而知道该修复什么。
+
+这些内容都不会识别你、你的项目或你的代码，你可以用一条命令关闭。本页介绍这两个 CLI，并列出它们可能发送的全部内容。你构建的应用内的分析是另一项由你自行配置的选择；请参阅[跟踪](/docs/tracking)。
+
+## 关闭 {#turn-it-off}
+
+```bash
+npx @agent-native/core telemetry disable
+```
+
+这适用于本机上的两个 CLI，也会停止崩溃报告。
+
+| 命令                                       | 作用                                       |
+| ------------------------------------------ | ------------------------------------------ |
+| `npx @agent-native/core telemetry status`  | 显示遥测是否开启，以及是哪项设置将其关闭。 |
+| `npx @agent-native/core telemetry disable` | 在本机关闭遥测。                           |
+| `npx @agent-native/core telemetry enable`  | 重新开启。                                 |
+| `npx @agent-native/core telemetry reset`   | 用新的随机 ID 替换本机的随机 ID。          |
+
+设置保存在 `~/.agent-native/telemetry.json` 中，旁边的 `~/.agent-native/installation-id` 保存随机 ID。
+
+你也可以用以下任一环境变量关闭，它们优先于设置。可在 CI 或共享的 shell 配置文件中使用：
+
+```bash
+DO_NOT_TRACK=1
+AGENT_NATIVE_TELEMETRY_DISABLED=1
+```
+
+## 查看命令会发送什么 {#see-what-a-command-would-send}
+
+设置 `AGENT_NATIVE_TELEMETRY_DEBUG=1` 可将每个事件打印到 stderr，每个事件占一行并以 `[telemetry]` 开头，且不发送任何内容。遥测关闭时同样有效，也不会创建机器 ID。
+
+```bash
+AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
+```
+
+## 通知 {#the-notice}
+
+当某条命令第一次要在一台机器上发送内容时，它会向 stderr 打印以下内容：
+
+```text
+▶ Agent-Native collects anonymous usage data.
+  It shows us which parts of the CLI work and where people get stuck.
+  Run "npx @agent-native/core telemetry disable" to opt out.
+  https://www.agent-native.com/docs/telemetry
+```
+
+每台机器只打印一次。在 CI 中或遥测关闭时不会打印。除非设置了上述变量之一，CI 运行仍会发送事件，并带有 `ci` 标记。
+
+## 发送的内容 {#what-is-sent}
+
+事件发送到 Agent-Native 自己的分析服务 `analytics.agent-native.com`，使用一个只写密钥，该密钥在 CLI 源码中公开。事件在后台发送。退出前等待发送的命令最多等待 1.5 秒。不等待的短命令可能会一直保持打开，直到缓慢或无响应的网络作出响应或放弃。
+
+每个事件都有名称、时间戳、机器 ID 和运行 ID，以及以下属性。如果 CLI 可发送的某个属性没有出现在本页的英文版中，`packages/core/src/cli/telemetry.spec.ts` 中的测试就会失败。
+
+### 每个事件都包含 {#on-every-event}
+
+| 属性          | 含义                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `cli`         | 发送它的 CLI：`core` 或 `skills-installer`。                                          |
+| `cliVersion`  | CLI 的版本。                                                                          |
+| `command`     | 命令名称，例如 `dev`。任何不是命令的内容，如拼写错误或提示词，都会以 `unknown` 发送。 |
+| `node`        | Node.js 版本。                                                                        |
+| `platform`    | 操作系统：`darwin`、`linux` 或 `win32`。                                              |
+| `ci`          | 命令是否在 CI 中运行。                                                                |
+| `interactive` | 命令是否在终端中运行。                                                                |
+| `installId`   | 机器 ID：在本机创建的随机值，不与其他任何内容关联。                                   |
+| `runId`       | 这次命令运行的随机值。                                                                |
+
+部分事件还会以第二个较新的名称发送，并由 `canonical_event_name` 和 `legacy_event_name` 记录这两个名称。
+
+### 命令 {#commands}
+
+| 事件                        | 时机                   | 属性    |
+| --------------------------- | ---------------------- | ------- |
+| `cli.run`                   | 命令开始时。           | 无。    |
+| `cli.crash`                 | 命令崩溃时。           | `error` |
+| `cli.scaffold.import_error` | 无法加载项目脚手架时。 | `error` |
+
+`error` 是[崩溃报告](#crash-reports)中介绍的简短消息提示。
+
+### 项目活动 {#project-activity}
+
+这些事件显示运行过 `create` 的机器中，有多少继续启动了开发服务器并完成了生产构建，以及它们来自哪些模板。
+
+| 事件                  | 时机                                                                                                  | 属性                                                |
+| --------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `cli_create_finished` | `create` 完成、被取消或失败时。                                                                       | `outcome`, `templates`, `projectKind`, `failedStep` |
+| `cli_dev_ready`       | 开发服务器在一次 `dev` 运行中首次开始监听时。重启不会再次发送；在工作区中，只有最先启动的应用会发送。 | `workspace`, `appCount`, `readySeconds`             |
+| `cli_deploy_finished` | `build` 或 `deploy` 完成或失败时。                                                                    | `outcome`, `preset`, `failedStep`                   |
+
+| 属性           | 含义                                                                                                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `outcome`      | `completed` 或 `failed`。`create` 还可能发送 `cancelled`。                                                                                                                             |
+| `templates`    | 所选模板，以逗号分隔。Agent-Native 自己的模板按名称发送。社区模板以 `community` 发送，其他名称以 `unknown` 发送，因此绝不会发送 URL。                                                  |
+| `projectKind`  | `create` 创建的内容：`workspace`、`standalone`、`headless` 或 `workspace-add`（添加到工作区的应用）。                                                                                  |
+| `failedStep`   | 失败的运行停在哪一步。`create`：`choose`、`scaffold` 或 `finish`。`build`：`doctor`、`react-router-build`、`vite-build` 或 `deploy-build`。`deploy`：`prepare`、`build` 或 `package`。 |
+| `workspace`    | `dev` 是否在工作区中运行。                                                                                                                                                             |
+| `appCount`     | 工作区中的应用数量；不在工作区中时为 1。                                                                                                                                               |
+| `readySeconds` | 从 `dev` 启动到服务器开始监听的秒数。                                                                                                                                                  |
+| `preset`       | 构建面向的托管平台：`aws`、`azure`、`bun`、`cloudflare`、`deno`、`firebase`、`netlify`、`node` 或 `vercel`。面向其他平台的预设以 `other` 发送。                                        |
+
+`deploy` 只构建应用并打印发布它的命令，因此 `completed` 表示构建已完成，而不是有内容已上线。这两个完成事件在命令退出时通过一个短暂运行的辅助进程发出，退出最多等待它 1.5 秒。这段等待会叠加在之前等待其他事件的时间之上。在 `create` 的提示处按 Ctrl+C 计为 `cancelled`。用 Ctrl+C 停止 `build` 或 `deploy` 时，不会发送完成事件。
+
+### 安装技能 {#installing-skills}
+
+这些事件跟随 `skills add` 和 `npx @agent-native/skills`，让我们看到安装在哪里中断。Agent-Native 自己目录中的技能按名称发送。来自其他来源的技能，例如本地清单或其他仓库，以 `custom` 发送。
+
+| 事件                                                         | 时机                            | 属性                                                      |
+| ------------------------------------------------------------ | ------------------------------- | --------------------------------------------------------- |
+| `skills_cli started`                                         | 命令开始时。                    | 无。                                                      |
+| `skills_cli skills listed`, `skills_cli skills prompted`     | 显示可用技能时。                | `available`, `availableCount`                             |
+| `skills_cli skills selected`                                 | 选择技能时。                    | `selected`, `selectedCount`, `selectedAll`, `preselected` |
+| `skills_cli plan mode selected`                              | 选择计划模式时。                | `mode`                                                    |
+| `skills_cli clients selected`                                | 选择编程智能体时。              | `clients`, `clientCount`                                  |
+| `skills_cli scope selected`                                  | 选择项目或全局安装时。          | `scope`                                                   |
+| `skills_cli install completed`                               | 写入技能文件时。                | `skills`, `clients`, `scope`, `dryRun`, `writtenCount`    |
+| `skills_cli instructions updated`                            | 更新指令文件时。                | `fileCount`                                               |
+| `skills_cli mcp registered`                                  | 注册 MCP 连接器时。             | `skills`, `serverName`, `clients`, `authenticated`        |
+| `skills_cli github action added`                             | 添加 PR Visual Recap 工作流时。 | 无。                                                      |
+| `skills_cli connect started`, `skills_cli connect completed` | 应用登录开始或结束时。          | 无。                                                      |
+| `skills_cli connect failed`                                  | 应用登录失败时。                | `error`                                                   |
+| `skills_cli cancelled`                                       | 取消安装时。                    | `step`                                                    |
+| `skills_cli completed`                                       | 命令结束时。                    | `skills`, `clients`, `scope`, `dryRun`, `durationMs`      |
+| `skills_cli failed`                                          | 命令失败时。                    | `command`, `error`, `durationMs`                          |
+
+### 崩溃报告 {#crash-reports}
+
+命令失败时，`$exception` 事件会报告 Agent-Native 的代码中出了什么问题，不涉及你的代码：
+
+| 属性               | 含义                                                                                                                                                      |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exceptionType`    | 标准错误类型，例如 `TypeError`。其他类型（例如自定义错误类）一律作为 `Error` 发送。                                                                       |
+| `exceptionCode`    | 标准错误代码，例如 `ENOENT`。                                                                                                                             |
+| `exceptionMessage` | 简短提示。Agent-Native 自己的已知错误发送其固定文本。其他消息只发送开头的词，最多 20 个字符，并在第一个含有字母以外内容的词处，或以冒号结尾的词之后停止。 |
+| `exceptionStack`   | Agent-Native 自身文件中的堆栈帧，路径相对于包。其他所有帧都会被移除。                                                                                     |
+| `handled`          | 错误使命令停止时为 `false`。                                                                                                                              |
+| `level`            | 严重程度。                                                                                                                                                |
+| `occurredAt`       | 发生时间。                                                                                                                                                |
+| `release`          | CLI 的版本。                                                                                                                                              |
+| `app`              | 始终为 `agent-native-cli`。                                                                                                                               |
+| `template`         | 始终为 `cli`。                                                                                                                                            |
+| `runtime`          | 始终为 `cli`。                                                                                                                                            |
+| `source`           | 始终为 `cli`。                                                                                                                                            |
+| `exceptionTags`    | 失败发生的位置；见下文。                                                                                                                                  |
+| `exceptionExtra`   | 失败的结束方式；见下文。                                                                                                                                  |
+
+这两个字段只包含以下值：
+
+- `exceptionTags`：`source`（失败的 CLI 部分）、`buildStep`（我们的构建步骤名称之一）、`template`（仅限我们自己的模板名称）、`command` 和 `handled`（报告它的检查的标签）。
+- `exceptionExtra`：`exitCode` 和 `signal`（构建步骤的退出方式）、`stage` 和 `durationMs`。
+
+提示是消息的开头，因此以你的普通词（例如项目名称）开头的消息可能带上这些词。数字、下划线、斜杠或其他符号会结束提示，过长的词也一样，因此路径、URL、电子邮件和大多数令牌无法通过。
+
+### Sentry {#sentry}
+
+如果 `@sentry/node` 与 `@agent-native/core` 一起安装，崩溃和失败的构建也会发送到 Agent-Native 的 Sentry 项目，工作区开发服务器的两个警告也是如此。失败的技能命令则不会。这些报告遵循本页的所有设置，并带有相同的错误类型、提示、堆栈帧和 `exceptionExtra` 字段，以及这些标签：上面 `exceptionTags` 的字段、错误的 `code`、`command` 名称、`nodeVersion` 和 `platform`。环境始终为 `production`。报告还带有 Sentry 的常规字段：事件 ID、时间戳、严重级别、CLI 版本，以及 Sentry SDK 的名称和版本。CLI 不会发送主机名、源代码行、控制台输出或你的依赖列表。
+
+## 绝不发送的内容 {#what-is-never-sent}
+
+- 环境变量
+- 文件路径、文件内容或源代码
+- 项目、仓库或应用名称，以及 git 远程地址
+- 日志或命令输出
+- 命令行参数或提示词
+- 电子邮件、用户名或主机名
+- 原始错误消息，或你的代码的堆栈帧
+- 你的项目的任何 ID
+
+这份列表唯一的例外是上文介绍的崩溃提示，它可能带上错误消息开头的几个词。
+
+接收事件的服务可以看到请求的 IP 地址，任何 Web 服务器都是如此。CLI 不会将其放入事件中。

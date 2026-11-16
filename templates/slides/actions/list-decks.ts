@@ -348,6 +348,12 @@ export default defineAction({
         : undefined,
       args.ids ? inArray(schema.decks.id, args.ids) : undefined,
     );
+    // Same predicates the write actions enforce, so a card never offers a
+    // control the server will refuse.
+    const roleFlags = {
+      canEdit: sql<boolean>`${accessFilter(schema.decks, schema.deckShares, undefined, "editor")}`,
+      canManage: sql<boolean>`${accessFilter(schema.decks, schema.deckShares, undefined, "admin")}`,
+    };
 
     // Previews cost a first slide per row, so every preview listing is paged.
     const paged =
@@ -390,6 +396,7 @@ export default defineAction({
           .select({
             ...pagedMeta,
             starred,
+            ...roleFlags,
             previewSlide: previewRequested
               ? schema.decks.previewSlide
               : sql<null>`null`,
@@ -438,6 +445,8 @@ export default defineAction({
         createdByMe:
           normalizedOwnerEmail !== null &&
           normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+        canEdit: row.canEdit,
+        canManage: row.canManage,
         starred: row.starred,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
@@ -462,6 +471,7 @@ export default defineAction({
             visibility: schema.decks.visibility,
             ownerEmail: schema.decks.ownerEmail,
             starred,
+            ...roleFlags,
           })
           .from(schema.decks)
           .where(where)
@@ -478,6 +488,8 @@ export default defineAction({
           createdByMe:
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+          canEdit: row.canEdit,
+          canManage: row.canManage,
           starred: row.starred,
         })),
       };
@@ -495,6 +507,7 @@ export default defineAction({
             updatedAt: schema.decks.updatedAt,
             visibility: schema.decks.visibility,
             starred,
+            ...roleFlags,
           })
           .from(schema.decks)
           .where(where)
@@ -513,6 +526,8 @@ export default defineAction({
           createdByMe:
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+          canEdit: row.canEdit,
+          canManage: row.canManage,
           starred: row.starred,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,

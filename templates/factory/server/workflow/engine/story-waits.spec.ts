@@ -12,7 +12,6 @@ import {
 import {
   aiPerItem,
   aiRouter,
-  aiWholeList,
   ok,
   type AiResponder,
   type ScriptedOperation,
@@ -153,7 +152,7 @@ const feedbackMessage = (id: string, thread: ThreadRef = FEEDBACK) =>
     provider: "slack",
     title: `Checkout button does nothing (${id})`,
     text: "Clicking Pay does nothing.",
-    author: "reporter@example.test",
+    author: "U01REPORTER",
     url: `https://slack.test/archives/C0FEEDBACK/${id}`,
     thread,
   });
@@ -185,28 +184,23 @@ function bugModel(assess: (call: number) => Record<string, unknown>) {
     },
     {
       when: "Group related bugs",
-      respond: (request) =>
-        aiWholeList({
-          groups: request.items.map((item) => {
-            const assessed = item.nodes.assess as Record<string, unknown>;
-            return {
-              id: item.id,
-              groupId: `g-${item.id}`,
-              thread: item.item.thread,
-              author: item.item.author,
-              // A one-report group: its strictest values are the report's own.
-              clearBug: assessed.clearBug,
-              risk: assessed.risk,
-              confidence: assessed.confidence,
-              productUxImplications: assessed.productUxImplications,
-              alreadyClaimed: assessed.alreadyClaimed,
-              categories: assessed.categories,
-            };
-          }),
-        })(request),
+      respond: aiPerItem((item) => {
+        const assessed = item.nodes.assess as Record<string, unknown>;
+        return {
+          groupName: `g-${item.id}`,
+          reason: "Only report about the Pay button.",
+          // A one-report group: its strictest values are the report's own.
+          clearBug: assessed.clearBug,
+          risk: assessed.risk,
+          confidence: assessed.confidence,
+          productUxImplications: assessed.productUxImplications,
+          alreadyClaimed: assessed.alreadyClaimed,
+          categories: assessed.categories,
+        };
+      }),
     },
     {
-      when: "Summarize the bug for Builder",
+      when: "Write the task for Builder",
       respond: aiPerItem(() => ({ prompt: "Fix the checkout button." })),
     },
   ]);
@@ -218,18 +212,28 @@ const bugProviders = (): StoryStep[] => [
   provider("slack.postMessage", [], slackPosts()),
   provider("factory.listItems", [], ok({ items: [] })),
   provider(
+    "slack.getUserEmail",
+    [],
+    ok({
+      ok: true,
+      userId: "U01REPORTER",
+      email: "reporter@example.test",
+      emailSource: "slack",
+    }),
+  ),
+  provider(
     "builder.start",
     [],
     ok(
       {
         accepted: true,
-        branchName: "factory-g-m1",
+        branchName: "factory-m1",
         projectId: "project-1",
-        url: "https://builder.test/branches/factory-g-m1",
+        url: "https://builder.test/branches/factory-m1",
       },
       {
-        externalRef: "factory-g-m1",
-        url: "https://builder.test/branches/factory-g-m1",
+        externalRef: "factory-m1",
+        url: "https://builder.test/branches/factory-m1",
       },
     ),
   ),
@@ -274,7 +278,7 @@ describe("story 1: a bug report that waits for an answer and goes round", () => 
     expect(sentTo(run, "builder.start")).toHaveLength(1);
     expect(sentTo(run, "builder.start")[0].fields).toMatchObject({
       projectId: "project-1",
-      branchName: "factory-g-m1",
+      branchName: "factory-m1",
       userEmail: "reporter@example.test",
       prompt: "Fix the checkout button.",
       // The gate's six inputs reach the start, from the group the model made.
@@ -289,7 +293,7 @@ describe("story 1: a bug report that waits for an answer and goes round", () => 
       sentTo(run, "slack.replyInThread").map((call) => call.fields.text),
     ).toEqual([
       "Which browser are you using?",
-      "Builder has started work on m1. We will report back when it is merged.",
+      'Builder has started work on "Checkout button does nothing (m1)". We will report back when it is merged.',
     ]);
     expect(run.statuses).toEqual({ m1: "automation_started" });
     expect(run.parked).toEqual([]);
@@ -606,7 +610,7 @@ describe("story 1 with a long Slack thread, parked at its Wait", () => {
     for (const instruction of [
       "Assess whether this report is a clear bug",
       "Group related bugs",
-      "Summarize the bug for Builder",
+      "Write the task for Builder",
     ]) {
       expect(shown(parked, instruction)).toEqual(shown(never, instruction));
     }
@@ -631,6 +635,7 @@ const report = (id: string) =>
       builderTaskId: "task-1",
       projectId: "project-1",
       branchName: "factory-g1",
+      builderUrl: "https://builder.example.test/branches/factory-g1",
       repository: "example-org/example-repo",
     },
   });
@@ -664,6 +669,8 @@ const checksOf = (kind: "pending" | "failing" | "green") => ({
   passed: kind === "green" ? 3 : 1,
   failed: kind === "failing" ? 1 : 0,
   pending: kind === "pending" ? 1 : 0,
+  // oracle-change: the real action now returns a cancelled count, which story 2's `ci` switch reads; this recorded answer lacked it
+  cancelled: 0,
   informational: 0,
   allPassing: kind === "green",
 });
@@ -689,6 +696,12 @@ describe("story 2: from Builder's branch to a merged pull request", () => {
           pullRequest("pending"),
           pullRequest("green"),
         ]),
+        ai(
+          aiPerItem(() => ({
+            verdict: "verified",
+            reason: "The notes name the spec and its result.",
+          })),
+        ),
         tick(0, "working, no pull request yet"),
         tick(5, "stuck: nudge once"),
         tick(10, "pull request opened, checks pending"),
@@ -701,6 +714,8 @@ describe("story 2: from Builder's branch to a merged pull request", () => {
     expect(sentTo(run, "builder.followUp")).toHaveLength(1);
     expect(countsOf(run, 0)).toMatchObject({ released: 1, done: 0 });
     expect(countsOf(run, 2)).toMatchObject({ released: 1, done: 0 });
+    // The judge is asked only about the green pull request, once.
+    expect(run.ticks.flatMap((entry) => entry.aiRequests)).toHaveLength(1);
     expect(sentTo(run, "github.mergePullRequest")).toHaveLength(1);
     expect(sentTo(run, "github.mergePullRequest")[0].fields).toMatchObject({
       repo: "example-org/example-repo",
@@ -717,12 +732,12 @@ describe("story 2: from Builder's branch to a merged pull request", () => {
       [
         "C0FEEDBACK",
         reportThread("r1").threadTs,
-        `${PR_URL} is merged, r1 is resolved.`,
+        `${PR_URL} is merged, "Report r1" is resolved.`,
       ],
       [
         "C0FEEDBACK",
         reportThread("r2").threadTs,
-        `${PR_URL} is merged, r2 is resolved.`,
+        `${PR_URL} is merged, "Report r2" is resolved.`,
       ],
     ]);
     expect(run.statuses).toEqual({ r1: "merged", r2: "merged" });
@@ -751,7 +766,7 @@ describe("story 2: from Builder's branch to a merged pull request", () => {
     expect(sentTo(run, "slack.postMessage")).toHaveLength(1);
     expect(sentTo(run, "slack.postMessage")[0].fields).toMatchObject({
       to: "triage-owner@example.test",
-      text: `${PR_URL} may not merge by itself: touches a migration Needs a person.`,
+      text: `"Report r1": ${PR_URL} may not merge by itself: touches a migration Needs a person.`,
     });
     expect(run.statuses).toEqual({ r1: "needs_manual", r2: "needs_manual" });
   });

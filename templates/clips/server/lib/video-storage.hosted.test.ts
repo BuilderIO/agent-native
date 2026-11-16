@@ -15,11 +15,18 @@ const mockGetDb = vi.hoisted(() => vi.fn());
 const mockDbExec = vi.hoisted(() => vi.fn());
 const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
+const mockResolveHostedConfig = vi.hoisted(() => vi.fn());
+const mockTrack = vi.hoisted(() => vi.fn());
 const hostedProvider = vi.hoisted(() => ({ id: "clips-hosted" }));
 
 vi.mock("@agent-native/core/file-upload", () => ({
   getActiveFileUploadProviderForRequest: (...args: unknown[]) =>
     mockGetActiveFileUploadProviderForRequest(...args),
+  getBuilderUploadCredentialStatus: async () => ({
+    builderConfigured: false,
+    builderUploadConfigured: false,
+    builderReauthorizationRequired: false,
+  }),
   listFileUploadProviders: () => [],
 }));
 vi.mock("@agent-native/core/feature-flags", () => ({
@@ -45,10 +52,13 @@ vi.mock("@agent-native/core/server", () => ({
       },
     },
   }),
-  hasBuilderApiCredentialCustody: vi.fn(async () => false),
-  resolveClipsHostedStorageConfig: (config: unknown) => config,
+  resolveClipsHostedStorageConfig: (...args: unknown[]) =>
+    mockResolveHostedConfig(...args),
   runWithRequestContext: async (_context: unknown, callback: () => unknown) =>
     callback(),
+}));
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: () => state.requestContext,
@@ -125,7 +135,11 @@ describe("hosted Clips storage mode pinning", () => {
       ok: true,
       allowance: { recordingId: "recording-1" },
       alreadyReserved: false,
+      remainingCount: 2,
     });
+    mockResolveHostedConfig.mockReset();
+    mockResolveHostedConfig.mockImplementation((config: unknown) => config);
+    mockTrack.mockReset();
     mockGetActiveFileUploadProviderForRequest.mockReset();
     mockGetActiveFileUploadProviderForRequest.mockImplementation(
       async () => state.activeProvider,
@@ -169,11 +183,6 @@ describe("hosted Clips storage mode pinning", () => {
 
   it("refuses a file over the hosted limit before reserving a grant", async () => {
     state.activeProvider = null;
-    mockGetHostedClipAllowanceSnapshot.mockResolvedValue({
-      status: "available",
-      remainingCount: 3,
-      denialReason: null,
-    });
     const resolveWithSize = (sizeBytes: number) =>
       resolveClipsVideoStorage({
         intent: "new",
@@ -293,11 +302,6 @@ describe("hosted Clips storage mode pinning", () => {
       async (_flag: unknown, scope: { userEmail?: string }) =>
         scope.userEmail === "alice@example.com",
     );
-    mockGetHostedClipAllowanceSnapshot.mockResolvedValue({
-      status: "available",
-      remainingCount: 3,
-      denialReason: null,
-    });
     mockDbExec.mockResolvedValue({
       rows: [{ email: "alice@example.com", email_verified: true }],
     });
@@ -400,5 +404,206 @@ describe("hosted Clips storage mode pinning", () => {
       expect.objectContaining({ recordingId: "recording-1", userId: "user-1" }),
     );
     expect(JSON.stringify(wheres[1])).not.toContain("allowances.identityKey");
+  });
+
+  it.each([
+    ["missing user row", [], "hosted_identity_unverifiable"],
+    [
+      "email mismatch",
+      [{ email: "someone-else@example.com", email_verified: true }],
+      "hosted_identity_mismatch",
+    ],
+  ])(
+    "fails the status read with a typed non-auth error for a %s",
+    async (_name, rows, errorCode) => {
+      state.activeProvider = null;
+      mockDbExec.mockResolvedValue({ rows });
+      await expect(getClipsVideoStorageStatus()).rejects.toMatchObject({
+        errorCode,
+        statusCode: 500,
+      });
+    },
+  );
+
+  it("takes the hosted remaining count from the reserve and never reads a separate snapshot", async () => {
+    state.activeProvider = null;
+    const create = (recordingId: string) =>
+      resolveClipsVideoStorage({
+        intent: "new",
+        recordingId,
+        email: "owner@example.com",
+        userId: "user-1",
+      });
+
+    await expect(create("recording-1")).resolves.toMatchObject({
+      mode: "hosted",
+      hostedRemaining: 2,
+      reservationCreated: true,
+    });
+    mockReserveHostedClipAllowance.mockResolvedValueOnce({
+      ok: true,
+      allowance: { recordingId: "recording-1" },
+      alreadyReserved: true,
+      remainingCount: 1,
+    });
+    await expect(create("recording-1")).resolves.toMatchObject({
+      mode: "hosted",
+      hostedRemaining: 1,
+      reservationCreated: false,
+    });
+    expect(mockGetHostedClipAllowanceSnapshot).not.toHaveBeenCalled();
+  });
+
+  describe("when hosted storage is enabled but misconfigured", () => {
+    const misconfigured = new Error(
+      "Clips hosted storage is enabled but missing required settings: bucket.",
+    );
+
+    beforeEach(() => {
+      mockResolveHostedConfig.mockImplementation(() => {
+        throw misconfigured;
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("answers users with their own storage normally", async () => {
+      await expect(
+        resolveClipsVideoStorage({
+          intent: "new",
+          recordingId: "recording-1",
+          email: "owner@example.com",
+        }),
+      ).resolves.toMatchObject({ mode: "own", provider: state.activeProvider });
+      await expect(
+        getClipsVideoStorageStatus({
+          email: "owner@example.com",
+          userId: "user-1",
+        }),
+      ).resolves.toMatchObject({ configured: true, mode: "own" });
+      state.recordingRows = [{ storageMode: "own" }];
+      await expect(
+        resolveClipsVideoStorage({
+          intent: "existing",
+          recordingId: "recording-1",
+          email: "owner@example.com",
+        }),
+      ).resolves.toMatchObject({ mode: "own" });
+      expect(mockResolveHostedConfig).not.toHaveBeenCalled();
+    });
+
+    it("answers local SQL scratch and flag-off users without the hosted config", async () => {
+      state.activeProvider = null;
+      mockIsFeatureFlagEnabled.mockResolvedValue(false);
+      await expect(
+        getClipsVideoStorageStatus({
+          email: "owner@example.com",
+          userId: "user-1",
+        }),
+      ).resolves.toMatchObject({ mode: "none", denyReason: "disabled" });
+      await expect(
+        resolveClipsVideoStorage({
+          intent: "new",
+          recordingId: "recording-1",
+          email: "owner@example.com",
+          userId: "user-1",
+        }),
+      ).resolves.toMatchObject({ mode: "none", denyReason: "disabled" });
+
+      vi.stubEnv("APP_NAME", "");
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("DATABASE_URL", "pglite:clips");
+      await expect(
+        resolveClipsVideoStorage({
+          intent: "new",
+          recordingId: "recording-1",
+          email: "owner@example.com",
+          userId: "user-1",
+        }),
+      ).resolves.toMatchObject({ mode: "own", provider: null });
+      expect(mockResolveHostedConfig).not.toHaveBeenCalled();
+    });
+
+    it("fails the hosted path loudly, without reserving, and logs and tracks the misconfiguration", async () => {
+      state.activeProvider = null;
+      await expect(
+        resolveClipsVideoStorage({
+          intent: "new",
+          recordingId: "recording-1",
+          email: "owner@example.com",
+          userId: "user-1",
+        }),
+      ).rejects.toBe(misconfigured);
+      await expect(
+        getClipsVideoStorageStatus({
+          email: "owner@example.com",
+          userId: "user-1",
+        }),
+      ).rejects.toBe(misconfigured);
+      expect(mockReserveHostedClipAllowance).not.toHaveBeenCalled();
+      expect(console.error).toHaveBeenCalledWith(
+        "[clips-hosted] hosted_storage_misconfigured",
+        { message: misconfigured.message },
+      );
+      expect(mockTrack).toHaveBeenCalledWith(
+        "clips_hosted_storage_misconfigured",
+        expect.objectContaining({ message: misconfigured.message }),
+        undefined,
+      );
+    });
+
+    it("still fails an existing hosted recording", async () => {
+      state.recordingRows = [{ storageMode: "hosted" }];
+      await expect(
+        resolveClipsVideoStorage({
+          intent: "existing",
+          recordingId: "recording-1",
+          email: "owner@example.com",
+        }),
+      ).rejects.toBe(misconfigured);
+      expect(mockTrack).toHaveBeenCalledWith(
+        "clips_hosted_storage_misconfigured",
+        expect.anything(),
+        undefined,
+      );
+    });
+
+    it("keeps the request failing when analytics throws", async () => {
+      state.activeProvider = null;
+      mockTrack.mockImplementation(() => {
+        throw new Error("tracker down");
+      });
+      await expect(
+        resolveClipsVideoStorage({
+          intent: "new",
+          recordingId: "recording-1",
+          email: "owner@example.com",
+          userId: "user-1",
+        }),
+      ).rejects.toBe(misconfigured);
+    });
+
+    it("logs the tracking failure and still rethrows the config error", async () => {
+      state.activeProvider = null;
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockTrack.mockImplementation(() => {
+        throw new Error("tracker down");
+      });
+      await expect(
+        resolveClipsVideoStorage({
+          intent: "new",
+          recordingId: "recording-1",
+          email: "owner@example.com",
+          userId: "user-1",
+        }),
+      ).rejects.toBe(misconfigured);
+      expect(warn).toHaveBeenCalledWith("[clips-hosted] tracking failed", {
+        event: "clips_hosted_storage_misconfigured",
+        error: "tracker down",
+      });
+    });
   });
 });

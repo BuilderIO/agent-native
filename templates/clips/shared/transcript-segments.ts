@@ -4,6 +4,8 @@ export interface TranscriptSegment {
   text: string;
   source?: "mic" | "system";
   speaker?: string | null;
+  /** Audio recovered from before the user started recording. */
+  recovered?: true;
 }
 
 const MAX_WORDS_PER_CAPTION = 7;
@@ -11,7 +13,7 @@ const MIN_WORDS_BEFORE_PUNCTUATION_BREAK = 3;
 const ESTIMATED_MS_PER_WORD = 420;
 const MIN_CAPTION_MS = 900;
 
-function parseSegmentsArray(raw: string | null | undefined) {
+export function parseSegmentsArray(raw: string | null | undefined) {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw ?? "");
@@ -19,6 +21,17 @@ function parseSegmentsArray(raw: string | null | undefined) {
     return null; // coercion-ok: null is "unreadable", and callers tell it from []
   }
   return Array.isArray(parsed) ? parsed : null;
+}
+
+/**
+ * Whether a transcript has saved lines that can't be parsed. That isn't having
+ * none: a reader must say the transcript couldn't be read, not that there is
+ * no transcript, and must not build lines of its own in their place.
+ */
+export function storedSegmentsUnreadable(
+  raw: string | null | undefined,
+): boolean {
+  return Boolean(raw) && parseSegmentsArray(raw) === null;
 }
 
 /**
@@ -63,6 +76,7 @@ export function parseTranscriptSegments(
             : undefined,
         speaker:
           typeof segment?.speaker === "string" ? segment.speaker : undefined,
+        ...(segment?.recovered === true ? { recovered: true as const } : {}),
       }))
       .filter(
         (segment) =>
@@ -223,6 +237,7 @@ function splitTimedSegmentIntoCaptions(
       text: chunk,
       source: segment.source,
       speaker: segment.speaker,
+      ...(segment.recovered ? { recovered: true as const } : {}),
     };
     cursorMs = endMs;
     return next;

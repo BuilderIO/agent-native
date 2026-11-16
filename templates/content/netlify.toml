@@ -22,3 +22,14 @@ AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
 
 [functions."*"]
 timeout = 75
+
+# The app-shell service worker (app/service-worker/). Browsers must see each
+# deploy's copy, so no CDN keeps one. Building with
+# VITE_CONTENT_SERVICE_WORKER=off ships a worker that removes itself.
+[[headers]]
+for = "/sw.js"
+[headers.values]
+Cache-Control = "no-cache"
+CDN-Cache-Control = "no-store"
+Cloudflare-CDN-Cache-Control = "no-store"
+Netlify-CDN-Cache-Control = "no-store"

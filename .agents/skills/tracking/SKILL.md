@@ -181,6 +181,15 @@ providers build it.
   issue page links `threadUrl`; hand any agent the packet and it can run
   `get-agent-thread-debug` with the `runId`. Never put an email, a token or a
   prompt in it.
+- **CLI telemetry has its own allowlist.** `@agent-native/core` and
+  `@agent-native/skills` send through `packages/core/src/cli/telemetry.ts`, which
+  silently drops any property missing from `CLI_TELEMETRY_PROPERTIES` in
+  `telemetry-sanitize.ts`, and any string value that could hold a path, URL or
+  email. Adding a CLI property means adding it there and to
+  `packages/core/docs/content/telemetry.mdx`; a test fails until the page lists
+  it. Pass the error itself as `error` and it is cut down to a short hint. Wrap
+  a message we wrote in `KnownCliError` to report it whole. Nothing that names a
+  project, a path or a person belongs in a CLI event.
 - **Rates are events, not log lines.** `tracking/failure-counters.ts` counts a
   failure class per (event, bounded dimensions) and ships `count` per window
   (first occurrence at once, the rest once a minute, `SUM(count)` is exact):

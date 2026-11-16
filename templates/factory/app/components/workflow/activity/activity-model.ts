@@ -109,7 +109,7 @@ const COUNT_ORDER = [
   "needsCheck",
 ] as const;
 
-/** "Took 3 items: 1 done, 1 dismissed, 1 handed to a person", or "Nothing new". */
+/** "Took 3 items: 1 done, 1 dismissed, 1 handed to a person", "Started from now" for a first read that took the position only, or "Nothing new". */
 export function describeRunCounts(
   counts: RunActivity["counts"],
   s: ItemsStrings,
@@ -120,7 +120,12 @@ export function describeRunCounts(
     const count = counts[key] ?? 0;
     if (count > 0) parts.push(s.activity.runCounts[key](count));
   }
-  if (taken === 0 && parts.length === 0) return s.activity.runCounts.nothing;
+  // A first live read that started from now took nothing on purpose: it is not an empty channel.
+  if (taken === 0 && parts.length === 0) {
+    return "primed" in counts && counts.primed > 0
+      ? s.activity.runCounts.primed
+      : s.activity.runCounts.nothing;
+  }
   const head = s.activity.runCounts.taken(taken);
   return parts.length === 0
     ? head

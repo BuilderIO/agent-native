@@ -136,6 +136,7 @@ async function insertGeneratedImageWithStatus(args: {
 }
 
 export default defineAction({
+  searchHints: ["create an image", "picture", "illustration", "AI image"],
   description:
     "Generate a slide image locally by default. Set `useBrandLibrary: true` only when the user asks for Assets' brand library or an asset/capability exclusive to Assets is required; this delegates through A2A and falls back locally only when Assets is unreachable. Show the returned `url` as inline markdown (![alt](url)), never as a bare link. If `insertIntoSlide` returns `inserted: false`, the generated URL is still available; report the insertion error and reuse that URL instead of generating again.",
   schema: z.object({
@@ -246,7 +247,19 @@ export default defineAction({
 
     const { getProvider } =
       await import("../server/handlers/image-providers/index.js");
-    const provider = await getProvider(args.model || "auto");
+    let provider: Awaited<ReturnType<typeof getProvider>>;
+    try {
+      provider = await getProvider(args.model || "auto");
+    } catch (error) {
+      if (!assetsUnavailableReason) throw error;
+      fail(
+        `Assets image generation was unavailable (${assetsUnavailableReason}), and no local provider could generate instead: ${error instanceof Error ? error.message : String(error)}`,
+        {
+          errorCode: "assets_unavailable_no_local_provider",
+          statusCode: 424,
+        },
+      );
+    }
 
     const referenceUrls = normalizeReferenceUrls([
       ...DEFAULT_STYLE_REFERENCE_URLS,

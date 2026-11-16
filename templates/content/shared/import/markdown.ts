@@ -97,7 +97,10 @@ const NFM_SIGNALS = [
   /^\t*<(?:callout|columns|column|synced_block|synced_block_reference|table_of_contents|page|database)\b/m,
   /<mention-[a-z-]+\b/,
   /\{(?:color|toggle)="[^"]*"\}\s*$/m,
+  // An image copied from Assets keeps its asset id, beside any color.
+  /\{(?:color="[^"]*"\s+)?asset="[^"]*"(?:\s+color="[^"]*")?\}\s*$/m,
   /^\t*<table\s+header-(?:row|column)=/m,
+  /^\t*<details\s[^>]*\bmarkdown="1"/m,
 ];
 
 const GITHUB_ALERTS: Record<string, { icon: string; color: string }> = {

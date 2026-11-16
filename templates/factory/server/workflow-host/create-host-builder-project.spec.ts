@@ -32,10 +32,48 @@ import { createFactoryWorkflowHost } from "./create-host.js";
 
 const T0 = "2026-10-19T12:00:00.000Z";
 
+/** The one row of the inbox this spec's fake database holds, as the poller stored it. */
+const storedReport = {
+  id: "r1",
+  source: "slack",
+  externalId: "C1:1760000000.000100",
+  sourceUrl: "https://slack.example.test/archives/C1/p1760000000000100",
+  title: "Slack user Sam",
+  summary: "The export button downloads an empty file.",
+  status: "received",
+  risk: "unknown",
+  confidence: "unknown",
+  channelId: "C1",
+  threadTs: "1760000000.000100",
+  repository: null,
+  pullRequestNumber: null,
+  headSha: null,
+  coverage: "complete",
+  dedupeKey: "r1",
+  metadataJson: JSON.stringify({
+    messageTs: "1760000000.000100",
+    headline: "The export button downloads an empty file",
+  }),
+  payloadJson: "{}",
+  textRef: null,
+  lastSeenAt: null,
+  createdAt: "2026-10-19T11:00:00.000Z",
+  updatedAt: "2026-10-19T11:00:00.000Z",
+  ownerEmail: "creator@example.test",
+  orgId: "org-1",
+  factoryId: "support-triage",
+};
+
+/** Just the query the report reader makes: select, from, where. */
+const fakeDatabase = {
+  select: () => ({ from: () => ({ where: async () => [storedReport] }) }),
+};
+
 /** Passes the Builder dispatch gate: a clear, low-risk, high-confidence bug nobody claimed. */
 const startFields = {
   branchName: "factory-g1",
   prompt: "Fix it",
+  reports: [{ id: "r1" }],
   clearBug: true,
   productUxImplications: false,
   risk: "low",
@@ -63,7 +101,7 @@ function startBuilder(
     deps: {
       store: createInMemoryWorkflowStore({ clock: () => clock.now() }),
       clock,
-      getDatabase: () => ({}) as never,
+      getDatabase: () => fakeDatabase as never,
       actions: async () => ({}),
       ai: {} as never,
       threads: {} as never,
@@ -107,6 +145,22 @@ describe("a Builder start in a workflow with a builderProjectId setting", () => 
     expect(builder.startAgent).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: "workflow-project" }),
     );
+  });
+
+  it("sends the instruction and then the stored report, read from the host's own inbox", async () => {
+    await startBuilder({ builderProjectId: "workflow-project" }, {});
+
+    const [sent] = builder.startAgent.mock.calls[0] ?? [];
+    expect(sent.prompt.startsWith("Fix it")).toBe(true);
+    // The row's title is who wrote it; the headline the poll recorded names the report.
+    expect(sent.prompt).toContain(
+      "Report 1 of 1: The export button downloads an empty file",
+    );
+    expect(sent.prompt).toContain("From: Slack user Sam");
+    expect(sent.prompt).toContain(
+      "> The export button downloads an empty file.",
+    );
+    expect(sent.prompt).toContain(storedReport.sourceUrl);
   });
 
   it("keeps the project the node names over the workflow's", async () => {

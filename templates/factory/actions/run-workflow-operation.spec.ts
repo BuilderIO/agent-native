@@ -504,11 +504,11 @@ describe("run-workflow-operation: a good answer", () => {
       a: { b: { c: index } },
     }));
     executeRequestMock.mockResolvedValue(
-      answer({ callTranscripts: [{ callId: "c1", transcript: nested }] }),
+      answer({ id: "c1", associations: nested }),
     );
     const result = await run({
-      operationId: "gong.transcript",
-      fields: { callId: "c1" },
+      operationId: "hubspot.companyActivity",
+      fields: { leadId: "c1" },
     });
     expect(result.truncated).toBe(true);
     expect(JSON.stringify(result).length).toBeLessThan(
@@ -523,11 +523,11 @@ describe("run-workflow-operation: a good answer", () => {
       text: `sentence ${index} with some more words in it`,
     }));
     executeRequestMock.mockResolvedValue(
-      answer({ callTranscripts: [{ callId: "c1", transcript: sentences }] }),
+      answer({ id: "c1", associations: sentences }),
     );
     const result = await run({
-      operationId: "gong.transcript",
-      fields: { callId: "c1" },
+      operationId: "hubspot.companyActivity",
+      fields: { leadId: "c1" },
     });
     expect(result.truncated).toBe(true);
     expect(result.output.truncated).toBe(true);
@@ -832,6 +832,17 @@ describe("run-workflow-operation: every operation in the catalog", () => {
     def: OperationDefinition,
     field: OperationDefinition["fields"][number],
   ): unknown {
+    // A free-form request's own fields need values it accepts, and no status beside paging, which it refuses.
+    if (
+      def.implementation.type === "provider-request" &&
+      def.implementation.freeForm
+    ) {
+      if (field.name === "pagination") {
+        return { cursorPath: "next", cursorParam: "cursor" };
+      }
+      if (field.name === "includeStatus") return false;
+      if (field.name === "fieldsToKeep") return ["number", "user.login"];
+    }
     switch (field.type) {
       case "number":
         return 5;

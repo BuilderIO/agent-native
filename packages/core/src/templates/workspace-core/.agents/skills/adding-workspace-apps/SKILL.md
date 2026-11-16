@@ -55,10 +55,10 @@ Dispatch and A2A connected-agent context use the app name plus description so
 agents know what it does. Use relative workspace links like `/<app-name>` and never
 hardcode `localhost`, `127.0.0.1`, `8080`, `8100`, or any dev port in app
 cards, instructions, redirects, or navigation; the active workspace
-gateway/browser origin owns the port. React Router apps must preserve
-`APP_BASE_PATH` / `VITE_APP_BASE_PATH` in
-`app/entry.client.tsx` via `appBasePath()` so the app hydrates correctly when
-mounted at `/<app-name>`. Use the framework/template UI stack for standard UI:
+gateway/browser origin owns the port. React Router apps must keep the
+`configureClientRouterBasename()` call in `app/entry.client.tsx`, before
+`hydrateRoot`, so the app hydrates correctly when mounted at `/<app-name>`.
+Use the framework/template UI stack for standard UI:
 shadcn/ui components and `@tabler/icons-react`. Do not add `lucide-react` or
 another icon library. Read `.agents/skills/shadcn-ui/SKILL.md` before adding,
 updating, or debugging shadcn components.
@@ -88,7 +88,7 @@ saved to app tables.
 ## Scaffolding
 
 In local development, run
-`pnpm exec agent-native create <app-name> --template=<template>` from the
+`pnpm exec agent-native add-app <app-name> --template=<template>` from the
 workspace root. In production, Dispatch posts new-app requests to Builder
 branch creation; Builder should still scaffold the separate workspace app. The
 workspace dev gateway (`pnpm dev`) detects new `apps/<app-name>` directories

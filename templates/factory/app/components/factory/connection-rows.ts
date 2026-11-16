@@ -42,6 +42,8 @@ const READINESS: Record<ProviderConnectionStatus, Readiness> = {
   connected: { readiness: "ready", word: "connected" },
   "not connected": { readiness: "needs_credentials", word: "notConnected" },
   unknown: { readiness: "needs_attention", word: "couldNotCheck" },
+  // A saved key this deployment cannot read: not a gap to connect, and not a check to repeat.
+  unreadable: { readiness: "needs_attention", word: "needsAttention" },
 };
 
 /** Where connecting a provider happens. */

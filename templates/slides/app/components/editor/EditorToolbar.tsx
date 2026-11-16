@@ -183,6 +183,7 @@ interface EditorToolbarProps {
   onExportPdf?: (signal: AbortSignal) => Promise<void> | void;
   onExportPptx?: (signal: AbortSignal) => Promise<void> | void;
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
+  flushInlineEdit?: () => void;
   onPresent?: (request?: PresentRequest) => boolean | void;
   onDownloadBackup?: () => void;
   onImportDeckBackup?: (file: File) => Promise<{ slideCount: number }>;
@@ -276,6 +277,7 @@ export default function EditorToolbar({
   onExportPdf,
   onExportPptx,
   onExportGoogleSlides,
+  flushInlineEdit,
   onPresent,
   onDownloadBackup,
   onImportDeckBackup,
@@ -923,7 +925,7 @@ export default function EditorToolbar({
           nothing when idle. Only meaningful for editors. */}
       {!readOnlyWidget && (canEdit || saveFailed) && (
         <SaveStatusIndicator
-          saving={saving}
+          saving={saving && deckHasUnsavedChanges}
           hasUnsavedChanges={deckHasUnsavedChanges}
           saveFailed={saveFailed}
           saveError={saveError}
@@ -1096,6 +1098,7 @@ export default function EditorToolbar({
           onExportPdf={onExportPdf}
           onExportPptx={onExportPptx ?? (() => {})}
           onExportGoogleSlides={onExportGoogleSlides}
+          flushInlineEdit={flushInlineEdit}
         />
         <ExportStatusDialog
           status={exportStatus}
@@ -1116,6 +1119,9 @@ export default function EditorToolbar({
           shareUrlLabel={deckShareProps.shareUrlLabel}
           peopleAccessLabel={t("share.whoHasAccess")}
           sendTo={widgetEmbed ? undefined : deckShareProps.sendTo}
+          shareFooterContent={
+            widgetEmbed ? undefined : deckShareProps.shareFooterContent
+          }
           basicSharingOnly={widgetEmbed}
           shareTabs={
             creativeContextEnabled && !widgetEmbed

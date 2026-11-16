@@ -7,6 +7,8 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
+import { startCommand, stopProcessTree } from "./lib/pnpm-command.ts";
+
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -54,10 +56,12 @@ async function run(
   },
 ): Promise<void> {
   console.log(`[agentkit-packaging] ${options.label}`);
-  const child = spawn(command, args, {
+  const start = startCommand(command, args);
+  const child = spawn(start.command, start.args, {
     cwd: options.cwd,
     env: { ...process.env, NO_COLOR: "1", ...options.env },
     stdio: ["ignore", "pipe", "pipe"],
+    shell: start.shell,
   });
   const chunks: string[] = [];
   const record = (chunk: Buffer | string) => {
@@ -71,8 +75,8 @@ async function run(
   let timedOut = false;
   const timeout = setTimeout(() => {
     timedOut = true;
-    child.kill("SIGTERM");
-    setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
+    stopProcessTree(child, "SIGTERM");
+    setTimeout(() => stopProcessTree(child, "SIGKILL"), 5_000).unref();
   }, options.timeoutMs ?? commandTimeoutMs);
   try {
     const result = await new Promise<{

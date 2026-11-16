@@ -156,6 +156,102 @@
       "ok": true,
       "items": []
     },
+    "burst": {
+      "match": [
+        {
+          "when": {
+            "since": "2026-10-19T11:24:00Z"
+          },
+          "answer": {
+            "ok": true,
+            "items": []
+          }
+        },
+        {
+          "when": {
+            "since": "2026-10-19T11:18:00Z"
+          },
+          "answer": {
+            "ok": true,
+            "items": {
+              "count": 4,
+              "template": {
+                "id": "t-c{i}",
+                "externalId": "t-c{i}",
+                "kind": "ticket",
+                "provider": "pylon",
+                "title": "Question C{i}",
+                "url": "https://pylon.example.test/issues/t-c{i}",
+                "author": "c{i}@customer.example.test",
+                "occurredAt": "2026-10-19T11:2{i}:00.000Z",
+                "thread": {
+                  "ticketId": "t-c{i}"
+                },
+                "extras": {
+                  "state": "new"
+                }
+              }
+            },
+            "cursor": "2026-10-19T11:24:00Z"
+          }
+        },
+        {
+          "when": {
+            "since": "2026-10-19T11:08:00Z"
+          },
+          "answer": {
+            "ok": true,
+            "items": {
+              "count": 8,
+              "template": {
+                "id": "t-b{i}",
+                "externalId": "t-b{i}",
+                "kind": "ticket",
+                "provider": "pylon",
+                "title": "Question B{i}",
+                "url": "https://pylon.example.test/issues/t-b{i}",
+                "author": "b{i}@customer.example.test",
+                "occurredAt": "2026-10-19T11:1{i}:00.000Z",
+                "thread": {
+                  "ticketId": "t-b{i}"
+                },
+                "extras": {
+                  "state": "new"
+                }
+              }
+            },
+            "totalAvailable": 12,
+            "cursor": "2026-10-19T11:18:00Z"
+          }
+        },
+        {
+          "answer": {
+            "ok": true,
+            "items": {
+              "count": 8,
+              "template": {
+                "id": "t-a{i}",
+                "externalId": "t-a{i}",
+                "kind": "ticket",
+                "provider": "pylon",
+                "title": "Question A{i}",
+                "url": "https://pylon.example.test/issues/t-a{i}",
+                "author": "a{i}@customer.example.test",
+                "occurredAt": "2026-10-19T11:0{i}:00.000Z",
+                "thread": {
+                  "ticketId": "t-a{i}"
+                },
+                "extras": {
+                  "state": "new"
+                }
+              }
+            },
+            "totalAvailable": 20,
+            "cursor": "2026-10-19T11:08:00Z"
+          }
+        }
+      ]
+    },
     "bugAndOther": {
       "ok": true,
       "items": [

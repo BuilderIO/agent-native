@@ -13,7 +13,7 @@ import {
   DEFAULT_DOCS_LOCALE,
   browserDocsLocale,
   docsLocaleOptionLabel,
-  isCampaignPathname,
+  isSiteContentPathname,
   routeLocaleFromPathname,
   sitePathForLocale,
   type DocsLocale,
@@ -44,7 +44,7 @@ export function shouldSuggestDocsLocale({
   storedPreference: LocalePreference | null;
   dismissedTarget: string | null;
 }) {
-  if (isCampaignPathname(pathname) && !pageLocales?.includes(browserLocale))
+  if (isSiteContentPathname(pathname) && !pageLocales?.includes(browserLocale))
     return false;
   if (routeLocale !== DEFAULT_DOCS_LOCALE) return false;
   if (browserLocale === DEFAULT_DOCS_LOCALE) return false;

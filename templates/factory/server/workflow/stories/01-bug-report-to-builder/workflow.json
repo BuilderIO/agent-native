@@ -25,7 +25,7 @@
       "settings": {
         "source": "inbox-poll",
         "poller": "slack",
-        "takeLimit": 5,
+        "takeLimit": 3,
         "filter": {
           "claimReaction": "eyes"
         }
@@ -62,13 +62,15 @@
       },
       "kind": "ai",
       "settings": {
-        "instruction": "Assess whether this report is a clear bug.",
+        "instruction": "Assess whether this report is a clear bug, reading the whole thread. A clear bug describes behavior that is wrong where the correct behavior is evident; a feature request, a question, an opinion or a vague complaint is not one. A report being about the UI or its wording does not make it a product or design question: when the expected behavior is already clear and the fix restores it, it is an ordinary bug. When you cannot tell what is wrong or what correct looks like, say there is not enough context and ask one short question. When you are unsure of one of the other answers, give the cautious one: productUxImplications true, risk higher, confidence lower. Never answer clearBug false because you are unsure: unsure means not enough context, so ask the question. In reason, say in one sentence what in the report decided it.",
         "result": {
           "clearBug": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "True only when the report describes behavior that is wrong and the correct behavior is evident; false for a feature request, a question or an opinion."
           },
           "enoughContext": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "True when the report says what is wrong and what correct looks like well enough to act on; false when the reporter has to be asked first."
           },
           "question": {
             "type": "string",
@@ -76,14 +78,17 @@
           },
           "risk": {
             "type": "enum",
-            "enum": ["low", "medium", "high"]
+            "enum": ["low", "medium", "high"],
+            "description": "Low means a contained change with no data, auth, money or migration, judged from what the fix would touch and not from the reporter's own claim; medium or high otherwise."
           },
           "confidence": {
             "type": "enum",
-            "enum": ["low", "medium", "high"]
+            "enum": ["low", "medium", "high"],
+            "description": "High only when the report names the cause or the expected behavior and the repository would confirm it; medium or low otherwise."
           },
           "productUxImplications": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "True only when fixing it needs a product or design decision (new or changed behavior, a choice between designs, wording that needs sign-off beyond restoring intended behavior); false when the expected behavior is already clear and the fix restores it, including a UI or copy bug whose correct state is evident, because a report being about the UI is not a product question."
           },
           "alreadyClaimed": {
             "type": "boolean",
@@ -99,7 +104,8 @@
         },
         "mode": "perItem",
         "tools": [],
-        "batchSize": 10
+        "batchSize": 10,
+        "onError": "route"
       }
     },
     {
@@ -242,7 +248,7 @@
       "id": "manual",
       "name": "manual",
       "position": {
-        "x": 2912,
+        "x": 3136,
         "y": 402
       },
       "kind": "end",
@@ -264,10 +270,33 @@
       }
     },
     {
+      "id": "reporter",
+      "name": "reporter",
+      "position": {
+        "x": 1120,
+        "y": 96
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "slack.getUserEmail",
+        "args": {
+          "userId": {
+            "mode": "path",
+            "path": "item.author"
+          },
+          "fallbackEmail": {
+            "mode": "path",
+            "path": "settings.triageOwnerEmail"
+          }
+        },
+        "onError": "route"
+      }
+    },
+    {
       "id": "openTasks",
       "name": "openTasks",
       "position": {
-        "x": 1120,
+        "x": 1344,
         "y": 96
       },
       "kind": "lookup",
@@ -278,39 +307,60 @@
             "mode": "fixed",
             "value": "automation_started"
           }
-        }
+        },
+        "onError": "route"
       }
     },
     {
       "id": "group",
       "name": "group",
       "position": {
-        "x": 1344,
+        "x": 1568,
         "y": 96
       },
       "kind": "ai",
       "settings": {
-        "instruction": "Group related bugs. Answer with one entry per report, in the same order, each with the report's id. Reports are related when they describe the same defect or the same root cause (the same feature, screen or error text, in the same repository); related reports share a groupId, at most 5 to a group, and every other report gets a groupId of its own. A groupId is the id of the first report in the group, so the same report is always started on the same branch. In each entry also repeat the report's title, thread and author, say in reason why it joined its group, and for the Builder gate give the strictest of its group: clearBug (true only when every report in the group is), risk (the highest), confidence (the lowest), productUxImplications (true if any), alreadyClaimed (true if any), categories (all of theirs).",
+        "instruction": "Group related bugs. You are given this run's clear bug reports, each with its own assessment. Answer once for every report, using its id exactly as given, and nothing else about it: its title, thread, author and text are already known and are not yours to repeat. Reports are related when they describe the same defect or the same root cause (the same feature, screen or error text, in the same repository). Give related reports the same groupName, at most 5 to a group, and every other report a groupName of its own. A groupName is only a label that tells the groups apart; the workflow names the group itself. For the Builder gate, give every report in a group the strictest values of its group, copied from each report's own assessment without judging them again: clearBug (true only when every report in the group is), risk (the highest), confidence (the lowest), productUxImplications (true if any), alreadyClaimed (true if any), categories (all of theirs). In reason, say in one sentence why the report joined its group.",
         "result": {
-          "groups": {
-            "type": "array"
+          "groupName": {
+            "type": "string",
+            "description": "A short label shared by every report of the same defect or root cause, and different for every other group. Only a label: it is never used as an id."
+          },
+          "clearBug": {
+            "type": "boolean",
+            "description": "True only when every report in the group describes behavior that is wrong and the correct behavior is evident."
+          },
+          "risk": {
+            "type": "enum",
+            "enum": ["low", "medium", "high"],
+            "description": "The highest risk of any report in the group: low means a contained change with no data, auth, money or migration."
+          },
+          "confidence": {
+            "type": "enum",
+            "enum": ["low", "medium", "high"],
+            "description": "The lowest confidence of any report in the group: high only when the report names the cause or the expected behavior and the repository would confirm it."
+          },
+          "productUxImplications": {
+            "type": "boolean",
+            "description": "True when any report in the group needs a product or design decision; false when the expected behavior is clear and the fix restores it."
+          },
+          "alreadyClaimed": {
+            "type": "boolean",
+            "description": "True when a person already reacted to any report in the group, so it is theirs."
+          },
+          "categories": {
+            "type": "array",
+            "description": "Which of these the fix would touch, for every report in the group: auth, session, identity, credentials, vault, migration, payments, security, publishable_package. Use only these words; an empty list when none applies."
+          },
+          "reason": {
+            "type": "string",
+            "description": "One sentence on why the report joined its group."
           }
         },
-        "mode": "wholeList",
+        "mode": "perItem",
         "tools": [],
-        "batchSize": 10
-      }
-    },
-    {
-      "id": "split",
-      "name": "split",
-      "position": {
-        "x": 1568,
-        "y": 96
-      },
-      "kind": "split",
-      "settings": {
-        "field": "nodes.group.groups"
+        "batchSize": 10,
+        "onError": "route"
       }
     },
     {
@@ -331,41 +381,46 @@
           },
           "branchName": {
             "mode": "fixed",
-            "value": "factory-{{ item.groupId }}"
+            "value": "factory-{{ item.key }}"
           },
           "userEmail": {
             "mode": "path",
-            "path": "item.author"
+            "path": "nodes.reporter.email"
           },
           "prompt": {
             "mode": "ai",
-            "instruction": "Summarize the bug for Builder."
+            "instruction": "Write the task for Builder from the report and its thread, in your own words: what is broken and where, the steps to reproduce it, and what working looks like. The report's own text, who wrote it and its Slack link are added under your task by the system, so do not copy them and never say they are missing. Ask Builder for a regression test that fails before the fix and passes after it, or to say in the pull request why the code cannot be tested. Ask it to prove the fix under a `### Verified` heading in the pull request description. If a user can see the bug in the app, that means running the app, reproducing the bug, and adding before and after screenshots or a recording. If nobody can see it, name the test or command that proves the fix. Use the heading `### Verified` exactly."
+          },
+          "reports": {
+            "mode": "path",
+            "path": "item.reports"
           },
           "clearBug": {
             "mode": "path",
-            "path": "item.clearBug"
+            "path": "nodes.group.clearBug"
           },
           "productUxImplications": {
             "mode": "path",
-            "path": "item.productUxImplications"
+            "path": "nodes.group.productUxImplications"
           },
           "risk": {
             "mode": "path",
-            "path": "item.risk"
+            "path": "nodes.group.risk"
           },
           "confidence": {
             "mode": "path",
-            "path": "item.confidence"
+            "path": "nodes.group.confidence"
           },
           "alreadyClaimed": {
             "mode": "path",
-            "path": "item.alreadyClaimed"
+            "path": "nodes.group.alreadyClaimed"
           },
           "categories": {
             "mode": "path",
-            "path": "item.categories"
+            "path": "nodes.group.categories"
           }
-        }
+        },
+        "onError": "route"
       }
     },
     {
@@ -381,8 +436,8 @@
         "rules": [
           {
             "left": "nodes.startBuilder.externalRef",
-            "op": "equals",
-            "right": "factory-{{ item.groupId }}"
+            "op": "notEquals",
+            "right": ""
           }
         ]
       }
@@ -408,7 +463,7 @@
           },
           "text": {
             "mode": "fixed",
-            "value": "Builder has started work on {{ item.id }}. We will report back when it is merged."
+            "value": "Builder has started work on \"{{ item.title }}\". We will report back when it is merged."
           }
         }
       }
@@ -437,6 +492,10 @@
             "mode": "path",
             "path": "nodes.startBuilder.externalRef"
           },
+          "builderUrl": {
+            "mode": "path",
+            "path": "nodes.startBuilder.url"
+          },
           "repository": {
             "mode": "path",
             "path": "settings.extras.repository"
@@ -454,7 +513,8 @@
       "kind": "combine",
       "settings": {
         "mode": "groupBy",
-        "key": "item.groupId"
+        "key": "nodes.group.groupName",
+        "identity": "firstMember"
       }
     },
     {
@@ -470,23 +530,11 @@
       }
     },
     {
-      "id": "unconfirmed",
-      "name": "unconfirmed",
+      "id": "stepFailed",
+      "name": "stepFailed",
       "position": {
-        "x": 2464,
-        "y": 192
-      },
-      "kind": "split",
-      "settings": {
-        "field": "item.reports"
-      }
-    },
-    {
-      "id": "warnOwner",
-      "name": "warnOwner",
-      "position": {
-        "x": 2688,
-        "y": 192
+        "x": 2240,
+        "y": 620
       },
       "kind": "action",
       "settings": {
@@ -498,9 +546,81 @@
           },
           "text": {
             "mode": "fixed",
-            "value": "Builder answered with the branch {{ nodes.startBuilder.externalRef }}, which is not the one Factory asked for, so {{ item.title }} was not announced. Check Builder before anything is started again."
+            "value": "\"{{ item.title }}\": the {{ item.error.node }} step failed ({{ item.error.code }}): {{ item.error.message }} No Builder task was started. Needs a person."
           }
         }
+      }
+    },
+    {
+      "id": "stepFailedEnd",
+      "name": "stepFailedEnd",
+      "position": {
+        "x": 2464,
+        "y": 620
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "needsManual",
+        "reason": "The {{ item.error.node }} step failed ({{ item.error.code }}): {{ item.error.message }}"
+      }
+    },
+    {
+      "id": "startOutcome",
+      "name": "startOutcome",
+      "position": {
+        "x": 2240,
+        "y": 288
+      },
+      "kind": "switch",
+      "settings": {
+        "routes": [
+          {
+            "id": "mayHaveStarted",
+            "label": "The start may have happened",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "item.error.outcomeUnknown",
+                "op": "isTrue"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "startMayHaveHappened",
+      "name": "startMayHaveHappened",
+      "position": {
+        "x": 2464,
+        "y": 288
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.triageOwnerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "\"{{ item.title }}\": the {{ item.error.node }} step failed ({{ item.error.code }}): {{ item.error.message }} Builder may have started this task: check Builder before starting it again. Factory did not retry it."
+          }
+        }
+      }
+    },
+    {
+      "id": "startMayHaveHappenedEnd",
+      "name": "startMayHaveHappenedEnd",
+      "position": {
+        "x": 2688,
+        "y": 288
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "needsManual",
+        "reason": "The {{ item.error.node }} step failed ({{ item.error.code }}): {{ item.error.message }} Builder may have started this task; check Builder before retrying."
       }
     }
   ],
@@ -615,7 +735,7 @@
         "port": "route:clear"
       },
       "to": {
-        "node": "openTasks"
+        "node": "reporter"
       }
     },
     {
@@ -655,16 +775,6 @@
         "port": "out"
       },
       "to": {
-        "node": "split"
-      }
-    },
-    {
-      "id": "e16",
-      "from": {
-        "node": "split",
-        "port": "out"
-      },
-      "to": {
         "node": "byGroup"
       }
     },
@@ -695,7 +805,7 @@
         "port": "otherwise"
       },
       "to": {
-        "node": "unconfirmed"
+        "node": "manual"
       }
     },
     {
@@ -741,21 +851,101 @@
     {
       "id": "e24",
       "from": {
-        "node": "unconfirmed",
+        "node": "reporter",
         "port": "out"
       },
       "to": {
-        "node": "warnOwner"
+        "node": "openTasks"
       }
     },
     {
       "id": "e25",
       "from": {
-        "node": "warnOwner",
+        "node": "assess",
+        "port": "error"
+      },
+      "to": {
+        "node": "stepFailed"
+      }
+    },
+    {
+      "id": "e26",
+      "from": {
+        "node": "reporter",
+        "port": "error"
+      },
+      "to": {
+        "node": "stepFailed"
+      }
+    },
+    {
+      "id": "e27",
+      "from": {
+        "node": "openTasks",
+        "port": "error"
+      },
+      "to": {
+        "node": "stepFailed"
+      }
+    },
+    {
+      "id": "e28",
+      "from": {
+        "node": "group",
+        "port": "error"
+      },
+      "to": {
+        "node": "stepFailed"
+      }
+    },
+    {
+      "id": "e29",
+      "from": {
+        "node": "startBuilder",
+        "port": "error"
+      },
+      "to": {
+        "node": "startOutcome"
+      }
+    },
+    {
+      "id": "e30",
+      "from": {
+        "node": "startOutcome",
+        "port": "route:mayHaveStarted"
+      },
+      "to": {
+        "node": "startMayHaveHappened"
+      }
+    },
+    {
+      "id": "e31",
+      "from": {
+        "node": "startOutcome",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "stepFailed"
+      }
+    },
+    {
+      "id": "e32",
+      "from": {
+        "node": "stepFailed",
         "port": "out"
       },
       "to": {
-        "node": "manual"
+        "node": "stepFailedEnd"
+      }
+    },
+    {
+      "id": "e33",
+      "from": {
+        "node": "startMayHaveHappened",
+        "port": "out"
+      },
+      "to": {
+        "node": "startMayHaveHappenedEnd"
       }
     }
   ],

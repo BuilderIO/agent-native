@@ -111,6 +111,7 @@ server/routes/
     webhooks/
       stripe.post.ts       -> POST   /api/webhooks/stripe
   [...page].get.ts         -> SSR catch-all for public pages
+  index.get.ts             -> SSR for the app root (re-exports the catch-all)
 ```
 
 `defineEventHandler` ist die H3-Primitive zum Schreiben einer Route. Sie umschließt Ihre Handler-Funktion und gibt ihr Zugriff auf das `event`-Objekt, das Request, Response, Router-Parameter, Query-String, Header und Body trägt. Gibt der Handler einen Wert zurück, wird dieser als Antwort gesendet — ein einfaches Objekt wird automatisch zu JSON. Das Werfen eines `createError` sendet den passenden HTTP-Fehlerstatus.
@@ -188,6 +189,12 @@ import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
 export default createH3SSRHandler(
   () => import("virtual:react-router/server-build"),
 );
+```
+
+Der Catch-all trifft nie das App-Root, deshalb exportiert `server/routes/index.get.ts` ihn erneut. Behalten Sie beide Dateien; ohne den Re-Export liefert eine in einem Workspace gemountete App unter `/<app-id>` einen 404:
+
+```ts filename="server/routes/index.get.ts"
+export { default } from "./[...page].get";
 ```
 
 Jede SSR-Antwort ist eine unpersönliche, öffentliche Shell, die am CDN gecacht wird. Lesen Sie in diesem Handler niemals Cookies, Session-Zustand oder Auth-Verzweigungen. Personalisierung erfolgt clientseitig nach der Hydration.

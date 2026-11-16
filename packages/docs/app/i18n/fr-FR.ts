@@ -1,7 +1,7 @@
 import type { PluralLocaleMessages } from "./en-US";
 
 const frFR = {
-  campaign: {
+  siteContent: {
     recipeWhen: "Quand",
     howOften: "À quelle fréquence",
     filterRole: "Rôle",
@@ -24,7 +24,6 @@ const frFR = {
     whereItBreaks: "Les limites",
     updatedDate: "Mis à jour le {{date}}",
     publishedDate: "Publié le {{date}}",
-    allArticles: "Tous les articles",
     useCases: "Cas d’usage",
     useCasesDescription: "Pages pour les tâches récurrentes, par app",
     useCasesTitle:
@@ -33,14 +32,15 @@ const frFR = {
       "Choisissez le travail que vous faites encore et encore, ou parcourez les {{articles}} pour trouver des modèles et des tutoriels.",
     articles: "Articles",
     articlesIntro:
-      "Des réponses pratiques sur le travail récurrent avec des agents IA. Pour des pages qui détaillent une tâche précise étape par étape, parcourez les {{useCases}}.",
-    useCasesLink: "cas d’usage",
+      "Des guides et des explications pour le travail récurrent avec des agents IA.",
     articleCount_one: "{{count}} article",
     articleCount_many: "{{count}} d’articles",
     articleCount_other: "{{count}} articles",
-    moreOnTopic: "En savoir plus sur {{topic}}",
-    faqs: "FAQ",
     copyPage: "Copier la page",
+    enlargeImage: "Agrandir l’image",
+    closeImage: "Fermer l’image",
+    copyPrompt: "Copier le prompt",
+    promptHint: "Collez le prompt dans la zone de saisie de {{app}}.",
     copyLink: "Copier le lien",
     copied: "Copié",
     copyFailed: "Impossible de copier. Réessayez.",
@@ -49,11 +49,9 @@ const frFR = {
     readTime_many: "{{count}} min de lecture",
     readTime_other: "{{count}} min de lecture",
     partOf: "Fait partie de :",
-    relatedResources: "Ressources associées",
     moreArticles: "Plus d’articles {{category}}",
     genericMore: "Plus d’articles",
     showMore: "Afficher plus d’articles",
-    allTopics: "Tous les sujets",
     topics: {
       clips:
         "Enregistrements d’écran, réunions et dictées utilisables par votre agent IA",
@@ -2714,6 +2712,7 @@ const frFR = {
     deploymentEnvironmentVariables: "Déploiement : Variables d'Environnement",
     updatingUiInProduction: "Mettre à Jour l'UI en Production",
     environmentVariables: "Variables d'environnement",
+    telemetry: "Télémétrie",
     progress: "Progression",
     authentication: "Authentification",
     multiTenancy: "Multilocation",

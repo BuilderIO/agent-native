@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -6,12 +10,14 @@ import {
   ACTION_EXECUTION_KEY,
   actionCallIntent,
   defineAction,
+  isActionDefinitionError,
   preparedCallArguments,
 } from "../action.js";
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
 import {
   actionDefinition,
   filesystemActionEntry,
+  importDevActionEntry,
 } from "./filesystem-action-entry.js";
 
 const keyOf = (entry: object) =>
@@ -36,6 +42,21 @@ describe("filesystemActionEntry", () => {
     expect(entry.run).toBe(action.run);
     // A registry rebuild spreads entries; the key has to survive the copy.
     expect(keyOf({ ...entry })).toBe(keyOf(action));
+  });
+
+  it("keeps an action's word that its empty lists erase nothing", () => {
+    const action = defineAction({
+      description: "Generate a design",
+      schema: z.object({ devices: z.array(z.string()).optional() }),
+      emptyListsEraseNothing: true,
+      run: async () => ({ ok: true }),
+    });
+
+    expect(filesystemActionEntry(action).emptyListsEraseNothing).toBe(true);
+    expect(
+      loadActionsFromStaticRegistry({ generate: { default: action } }).generate
+        ?.emptyListsEraseNothing,
+    ).toBe(true);
   });
 
   it("keeps the schema and gates a built registry keeps", () => {
@@ -235,5 +256,69 @@ describe("actionDefinition", () => {
   it("finds no action in a CLI script", () => {
     expect(actionDefinition({ default: async () => {} })).toBeUndefined();
     expect(actionDefinition({ tool })).toBeUndefined();
+  });
+});
+
+describe("importDevActionEntry", () => {
+  const write = (dir: string, file: string, source: string) => {
+    const filePath = path.join(dir, file);
+    fs.writeFileSync(filePath, source);
+    return filePath;
+  };
+
+  it("loads a real action, and leaves CLI scripts to the shell wrapper", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-dev-entry-"));
+    try {
+      const good = write(
+        dir,
+        "good.ts",
+        `export default { tool: { description: "Rules", parameters: { type: "object" } }, searchHints: ["inbox rule"], run: async () => "ok" };
+`,
+      );
+      const cli = write(dir, "cli.ts", 'throw new Error("runs at import");\n');
+      const plain = write(dir, "plain.ts", "export const value = 1;\n");
+
+      expect((await importDevActionEntry(good, "good"))?.searchHints).toEqual([
+        "inbox rule",
+      ]);
+      await expect(importDevActionEntry(cli, "cli")).resolves.toBeNull();
+      await expect(importDevActionEntry(plain, "plain")).resolves.toBeNull();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws a named definition error instead of falling back to the wrapper", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-dev-entry-"));
+    try {
+      // What `defineAction` throws at import for bad hints: a definition error
+      // that cannot name the file it is in.
+      const defined = write(
+        dir,
+        "defined.ts",
+        `throw Object.assign(new TypeError("searchHints must be at most 12 non-empty strings."), { name: "ActionDefinitionError", actionDefinitionError: true });
+`,
+      );
+      const handBuilt = write(
+        dir,
+        "hand-built.ts",
+        `export default { tool: { description: "Rules", parameters: { type: "object" } }, searchHints: "inbox rule", run: async () => "ok" };
+`,
+      );
+
+      for (const [filePath, name] of [
+        [defined, "manage-rules"],
+        [handBuilt, "hand-built"],
+      ] as const) {
+        await expect(importDevActionEntry(filePath, name)).rejects.toSatisfy(
+          (error) =>
+            isActionDefinitionError(error) &&
+            error.actionName === name &&
+            error.message.startsWith(`Action "${name}": searchHints`),
+        );
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

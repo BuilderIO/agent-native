@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { OPERATION_CATALOG } from "../../catalog/index.js";
 import {
   callsTo,
   effectsOf,
@@ -13,6 +14,8 @@ const STORY = "support-ticket-routing";
 const EACH = "each-category-lands-where-the-story-says";
 const FIGURES =
   "an-answer-that-states-an-amount-or-a-date-goes-to-finance-whatever-the-model-says";
+const BURST =
+  "a-burst-of-twenty-tickets-is-taken-eight-a-run-and-every-ticket-once";
 const PYLON_WRITES = ["pylon.reply", "pylon.addNote"];
 const graph = STORIES[STORY].graph;
 const edgesInto = (nodeId: string) =>
@@ -165,6 +168,71 @@ describe("story 6 proofs: support ticket to the right place", () => {
     expect(tickAt(summary, 1).ai).toEqual([]);
     const source = run.ticks[1].steps.find((step) => step.nodeId === "tickets");
     expect(source?.fields).toMatchObject({ taken: 0, alreadyHandled: 1 });
+  });
+
+  describe("a burst of tickets bigger than one run takes", () => {
+    const ticketIds = [
+      ...Array.from({ length: 8 }, (_, index) => `t-a${index + 1}`),
+      ...Array.from({ length: 8 }, (_, index) => `t-b${index + 1}`),
+      ...Array.from({ length: 4 }, (_, index) => `t-c${index + 1}`),
+    ];
+
+    it("is handled oldest first across runs: every ticket once, none skipped", async () => {
+      const { summary } = await scenarioRun(STORY, BURST);
+
+      const noted = effectsOf(summary, "pylon.addNote").map(
+        (effect) => effect.item,
+      );
+      expect(noted).toEqual(ticketIds);
+      expect(Object.keys(summary.statuses).sort()).toEqual(
+        [...ticketIds].sort(),
+      );
+      expect(new Set(Object.values(summary.statuses))).toEqual(
+        new Set(["resolved"]),
+      );
+      expect(summary.ticks.map((tick) => tick.run?.counts.taken)).toEqual([
+        8,
+        8,
+        4,
+        undefined,
+      ]);
+    });
+
+    it("says on the source step how many the page held, and sends each run the position the last one saved", async () => {
+      const { summary, run } = await scenarioRun(STORY, BURST);
+
+      expect(
+        summary.ticks.map((tick) => tick.nodes.tickets?.truncatedFrom),
+      ).toEqual([20, 12, undefined, undefined]);
+      expect(
+        run.ticks.map((tick) =>
+          tick.calls
+            .filter((call) => call.operation.id === "pylon.newTickets")
+            .map((call) => call.fields.since),
+        ),
+      ).toEqual([
+        [undefined],
+        ["2026-10-19T11:08:00Z"],
+        ["2026-10-19T11:18:00Z"],
+        ["2026-10-19T11:24:00Z"],
+      ]);
+      expect(summary.cursors.tickets).toBe("2026-10-19T11:24:00Z");
+    });
+
+    it("rests on a source that sorts the page itself and fails a page Pylon calls partial", () => {
+      const source = graph.nodes.find((node) => node.id === "tickets");
+      expect(
+        source?.kind === "source" &&
+          "maxItems" in source.settings &&
+          source.settings.maxItems,
+      ).toBe(8);
+      expect(
+        OPERATION_CATALOG.get("pylon.newTickets")?.cursor?.forward,
+      ).toMatchObject({
+        itemPath: "created_at",
+        sortInCode: { morePath: "pagination.has_next_page" },
+      });
+    });
   });
 
   it("fails a ticket whose classification cannot be read, alone, and sends nothing for it", async () => {

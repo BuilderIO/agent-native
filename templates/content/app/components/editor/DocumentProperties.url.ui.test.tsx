@@ -31,6 +31,8 @@ import {
 const reviewUrl =
   "https://content.agent-native.com/_agent-native/open?app=content&documentId=7n4Q5pN4U9J2";
 
+const threadLink = "t3-thread://v1/ada5164c-bc1f-4866-b908-dd17f8d65cd2";
+
 function urlProperty(value: DocumentProperty["value"]): DocumentProperty {
   return {
     definition: {
@@ -92,12 +94,16 @@ describe("URL property values", () => {
     };
   }
 
-  it("opens only http(s) addresses as links", () => {
+  it("opens only http(s) addresses and named app links as links", () => {
     expect(propertyUrlHref(` ${reviewUrl} `)).toBe(reviewUrl);
     expect(propertyUrlHref("http://example.com/a")).toBe(
       "http://example.com/a",
     );
+    expect(propertyUrlHref(threadLink)).toBe(threadLink);
     expect(propertyUrlHref("javascript:alert(1)")).toBeNull();
+    expect(propertyUrlHref("data:text/html,hi")).toBeNull();
+    expect(propertyUrlHref("ms-msdt:/id")).toBeNull();
+    expect(propertyUrlHref("t3code://threads/env/thread-1")).toBeNull();
     expect(propertyUrlHref("ftp://example.com/file")).toBeNull();
     expect(propertyUrlHref("example.com")).toBeNull();
     expect(propertyUrlHref(null)).toBeNull();
@@ -109,6 +115,18 @@ describe("URL property values", () => {
     expect(link?.getAttribute("target")).toBe("_blank");
     expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
     expect(link?.textContent).toBe(reviewUrl);
+  });
+
+  it("renders an app link as a link that stays in this tab", () => {
+    const { link } = renderCell(urlProperty(threadLink));
+    expect(link?.getAttribute("href")).toBe(threadLink);
+    expect(link?.hasAttribute("target")).toBe(false);
+    expect(link?.textContent).toBe(threadLink);
+  });
+
+  it("keeps a refused scheme as plain text", () => {
+    const { link } = renderCell(urlProperty("javascript:alert(1)"));
+    expect(link).toBeNull();
   });
 
   it("keeps the link outside the edit button and the editor closed when it is clicked", () => {

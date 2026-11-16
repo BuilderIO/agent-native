@@ -62,21 +62,33 @@ const budgets = JSON.parse(
   readFileSync(new URL("./runtime-budget.json", import.meta.url), "utf8"),
 ) as BudgetFile;
 
-function seedDesign(): string {
+function seedDesign(url: string): string {
+  const args = [
+    "exec",
+    "tsx",
+    "e2e/fixtures/seed-perf-stress-design.ts",
+    "--base-url",
+    url,
+    "--copies",
+    String(budgets.copies),
+    "--title",
+    "Runtime budget",
+  ];
+  // pnpm is a pnpm.cmd shim on Windows, which Node starts only through a
+  // shell. Quote each argument there so the title stays one argument. cmd.exe
+  // still expands %NAME% inside quotes, can't escape a quote and ends a line at
+  // a line break, so refuse those.
+  const windows = process.platform === "win32";
+  const unsafe = windows ? args.find((arg) => /["%\r\n]/.test(arg)) : undefined;
+  if (unsafe !== undefined) {
+    throw new Error(
+      `cmd.exe would change ${JSON.stringify(unsafe)}: pass a --base-url without a quote, percent sign or line break on Windows.`,
+    );
+  }
   const output = execFileSync(
-    "pnpm",
-    [
-      "exec",
-      "tsx",
-      "e2e/fixtures/seed-perf-stress-design.ts",
-      "--base-url",
-      baseUrl!,
-      "--copies",
-      String(budgets.copies),
-      "--title",
-      "Runtime budget",
-    ],
-    { cwd: designRoot, encoding: "utf8" },
+    windows ? ["pnpm", ...args].map((arg) => `"${arg}"`).join(" ") : "pnpm",
+    windows ? [] : args,
+    { cwd: designRoot, encoding: "utf8", shell: windows },
   );
   const id = /^design (\S+) /m.exec(output)?.[1];
   if (!id) throw new Error(`seeding printed no design id:\n${output}`);
@@ -100,7 +112,7 @@ async function postAction(name: string, input: unknown): Promise<unknown> {
   return response.json();
 }
 
-if (!values.design) seededDesignId = seedDesign();
+if (!values.design) seededDesignId = seedDesign(baseUrl);
 const designId = values.design ?? seededDesignId!;
 const sessionStartedAt = Date.now();
 
@@ -745,6 +757,7 @@ async function runSession() {
             () => (window as any).__budget.selectionEvents.length as number,
           );
           const target = await stableBox(heading);
+          const clickedAt = await now();
           await page.keyboard.down(modifier);
           try {
             await page.mouse.click(
@@ -770,9 +783,29 @@ async function runSession() {
             )
             .then(
               () => true,
-              () => false,
+              (error: unknown) => {
+                console.log(`  selection wait rejected: ${String(error)}`);
+                if (!(error instanceof errors.TimeoutError)) throw error;
+                return false;
+              },
             );
-          if (!selected) continue;
+          if (!selected) {
+            const diagnostic = await page.evaluate(
+              (after) => ({
+                now: performance.now(),
+                events: (
+                  window as unknown as {
+                    __budget: { selectionEvents: unknown[] };
+                  }
+                ).__budget.selectionEvents.slice(after),
+              }),
+              selectionCount,
+            );
+            console.log(
+              `  selection attempt ${attempt + 1}: ${JSON.stringify({ selectionCount, clickedAt, ...diagnostic })}`,
+            );
+            continue;
+          }
           await details.waitFor({ timeout: 5_000 });
           return true;
         }

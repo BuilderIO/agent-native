@@ -1489,6 +1489,31 @@ describe("agent-native skills", () => {
     expect(result.mcpUrl).toBe("https://design.agent-native.com/mcp");
   });
 
+  it("installs only the remix skill from Design", async () => {
+    const root = tmpDir();
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "remix",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      { baseDir: root, runCommand: async () => 0 },
+    );
+
+    expect(result.id).toBe("design");
+    expect(result.skillNames).toEqual(["remix"]);
+    const skillDir = path.join(root, ".agents", "skills", "remix");
+    expect(result.written).toContain(skillDir);
+    expect(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8")).toContain(
+      "name: remix",
+    );
+    expect(result.mcpUrl).toBe("https://design.agent-native.com/mcp");
+  });
+
   it("does not replace a symlinked project skill folder", async () => {
     const root = tmpDir();
     const sourceDir = path.join(root, "skills", "visual-edit");
@@ -2447,6 +2472,7 @@ describe("agent-native skills", () => {
       "rewind",
       "design-exploration",
       "visual-edit",
+      "remix",
       "context-xray",
       "turn-into-app",
     ]);
@@ -2535,6 +2561,7 @@ describe("agent-native skills", () => {
       "rewind",
       "design-exploration",
       "visual-edit",
+      "remix",
       "context-xray",
       "turn-into-app",
       "quick-recap",

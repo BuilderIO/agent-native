@@ -5,6 +5,7 @@ import {
   appBasePath,
 } from "@agent-native/core/client/api-path";
 import { isInBuilderFrame } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   buildChatFirstAppCreationPrompt,
   docsUrl,
@@ -696,5 +697,26 @@ function CreateAppPopoverBody({
     return <BuildInBuilderPanel url={builderWorkspaceUrl} />;
   return (
     <CreateAppFlow onClose={onClose} {...(onCreated ? { onCreated } : {})} />
+  );
+}
+
+/** The "New app" button every app list puts beside its search. */
+export function NewAppButton({
+  onCreated,
+}: {
+  onCreated?: (() => void) | undefined;
+}) {
+  const t = useT();
+  return (
+    <CreateAppPopover
+      align="end"
+      {...(onCreated ? { onCreated } : {})}
+      trigger={
+        <Button type="button" variant="default" size="sm" className="gap-1.5">
+          <IconPlus size={14} aria-hidden="true" />
+          {t("dispatch.pages.newApp")}
+        </Button>
+      }
+    />
   );
 }

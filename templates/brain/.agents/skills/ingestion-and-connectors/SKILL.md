@@ -113,6 +113,22 @@ Captures use the organization audience. There are no Zoom webhooks. Only
 meetings cloud-recorded with audio transcript on reach Brain; Brain cannot
 read local recordings, live captions, or AI Companion transcripts.
 
+A restricted remark does not discard a Zoom transcript. Brain withholds the
+restricted transcript lines, plus one neighbouring line on each side, and keeps
+the rest: deterministic credential lines are dropped directly, and when Jev
+rejects the transcript, Brain bisects it with Jev down to the restricted lines.
+Each withheld run becomes `[…]`. The remaining transcript must still pass the
+normal whole-capture screen, so anything restricted only as a whole meeting (a
+sensitive title, a workspace rule, a transcript over Jev's length limit, or a
+screen that exceeds its call or time budget) is still quarantined whole.
+Withheld text is never stored, and partial captures drop the full-recording
+link. `metadata.zoomPassageQuarantine.withheldPassages` counts the gaps and is
+returned as `withheldPassages` by `get-capture`, `list-captures`, and capture
+search results (`null` means the count is unknown, not zero). Disclose that
+such captures are incomplete and never reconstruct omitted text. A meeting that
+was quarantined whole is re-screened when a sync downloads it again; one outside
+the incremental scan window is not recovered automatically.
+
 ## Blessed FAQ And Docs Publishers
 
 Approved FAQs, docs, handbooks, and similar owned resources use the same

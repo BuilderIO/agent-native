@@ -1,7 +1,7 @@
 import type { PluralLocaleMessages } from "./en-US";
 
 const jaJP = {
-  campaign: {
+  siteContent: {
     recipeWhen: "いつ",
     howOften: "頻度",
     filterRole: "役割",
@@ -23,7 +23,6 @@ const jaJP = {
     whereItBreaks: "限界となる点",
     updatedDate: "更新日：{{date}}",
     publishedDate: "公開日：{{date}}",
-    allArticles: "すべての記事",
     useCases: "ユースケース",
     useCasesDescription: "繰り返しの仕事のためのページをアプリ別に紹介",
     useCasesTitle:
@@ -32,23 +31,22 @@ const jaJP = {
       "何度も繰り返す仕事を選ぶか、{{articles}}でテンプレートや使い方を探してください。",
     articles: "記事",
     articlesIntro:
-      "AI エージェントと取り組む繰り返しの仕事についての実践的な回答。個別の仕事をステップごとに解説するページは、{{useCases}}をご覧ください。",
-    useCasesLink: "ユースケース",
+      "AI エージェントと進める、繰り返し発生する仕事のためのガイドと解説。",
     articleCount_other: "{{count}} 件の記事",
-    moreOnTopic: "{{topic}}についてもっと読む",
-    faqs: "よくある質問",
     copyPage: "ページをコピー",
+    enlargeImage: "画像を拡大",
+    closeImage: "画像を閉じる",
+    copyPrompt: "プロンプトをコピー",
+    promptHint: "プロンプトを {{app}} の入力欄に貼り付けてください。",
     copyLink: "リンクをコピー",
     copied: "コピーしました",
     copyFailed: "コピーできませんでした。もう一度お試しください。",
     breadcrumb: "パンくずリスト",
     readTime_other: "読了 {{count}} 分",
     partOf: "関連するユースケース：",
-    relatedResources: "関連リソース",
     moreArticles: "{{category}} のその他の記事",
     genericMore: "その他の記事",
     showMore: "記事をさらに表示",
-    allTopics: "すべてのトピック",
     topics: {
       clips: "AI エージェントが使える画面録画、会議、音声入力",
       design: "AI エージェントと作るインタラクティブなプロトタイプ",
@@ -2675,6 +2673,7 @@ const jaJP = {
     deploymentEnvironmentVariables: "デプロイ: 環境変数",
     updatingUiInProduction: "本番環境でのUI更新",
     environmentVariables: "環境変数",
+    telemetry: "テレメトリ",
     progress: "進行状況",
     authentication: "認証",
     multiTenancy: "マルチテナンシー",

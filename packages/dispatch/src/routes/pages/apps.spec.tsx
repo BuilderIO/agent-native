@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const queryState = vi.hoisted(() => ({
-  workspaceApps: [] as Array<Record<string, unknown>>,
+  workspaceApps: [] as Array<Record<string, unknown>> | undefined,
   workspaceAppsError: null as Error | null,
   workspaceAppsLoading: false,
   connectedApps: [] as Array<Record<string, unknown>>,
@@ -16,6 +16,8 @@ const queryState = vi.hoisted(() => ({
   installCommunityApp: vi.fn(),
   installCommunityAppResult: null as Record<string, unknown> | null,
   sendToAgentChat: vi.fn(),
+  pinnedIds: [] as string[],
+  canManageOrg: false,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -93,8 +95,19 @@ vi.mock("../../components/action-query-error", () => ({
   ),
 }));
 
+vi.mock("@agent-native/core/client/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/org")>()),
+  useOrgRole: () => ({
+    org: { orgId: "org-1" },
+    canManageOrg: queryState.canManageOrg,
+    isLoading: false,
+    role: queryState.canManageOrg ? "admin" : "member",
+  }),
+}));
+
 vi.mock("../../components/create-app-popover", () => ({
-  CreateAppPopover: () => null,
+  CreateAppPopover: () => <span data-create-app />,
+  NewAppButton: () => <span data-create-app />,
 }));
 
 vi.mock("../../components/dispatch-shell", () => ({
@@ -108,16 +121,18 @@ vi.mock("../../components/workspace-app-search", () => ({
   WorkspaceAppSearchEmpty: () => <div>No search results</div>,
 }));
 
-vi.mock("../../lib/workspace-app-layout", () => ({
+vi.mock("../../lib/workspace-app-layout", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/workspace-app-layout")>()),
   orderWorkspaceApps: (apps: unknown[]) => apps,
   useWorkspaceAppLayout: () => ({
-    layout: { pinnedIds: [], orderedIds: [] },
+    layout: { pinnedIds: queryState.pinnedIds, orderedIds: [] },
     persistenceError: null,
     togglePinned: vi.fn(),
   }),
   workspaceAppMatchesQuery: () => true,
 }));
 
+import { TooltipProvider } from "../../components/ui/tooltip";
 import AppsRouteEntry from "./apps";
 
 describe("Dispatch apps route", () => {
@@ -137,6 +152,8 @@ describe("Dispatch apps route", () => {
     queryState.installCommunityApp.mockReset();
     queryState.installCommunityAppResult = null;
     queryState.sendToAgentChat.mockReset();
+    queryState.pinnedIds = [];
+    queryState.canManageOrg = false;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -152,7 +169,9 @@ describe("Dispatch apps route", () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/apps"]}>
-          <AppsRouteEntry />
+          <TooltipProvider>
+            <AppsRouteEntry />
+          </TooltipProvider>
         </MemoryRouter>,
       );
     });
@@ -169,10 +188,119 @@ describe("Dispatch apps route", () => {
     expect(container.textContent).not.toContain("No workspace apps");
   });
 
+  it.each([
+    [true, "link"],
+    [false, "disabled"],
+  ] as const)(
+    "puts pinned hosted apps first and hosted apps last (admin %s)",
+    async (canManageOrg, manage) => {
+      queryState.canManageOrg = canManageOrg;
+      queryState.pinnedIds = ["clips"];
+      queryState.workspaceApps = [
+        { id: "notes", name: "Notes", path: "/notes", status: "ready" },
+      ];
+      queryState.connectedApps = [
+        {
+          id: "mail",
+          name: "Mail",
+          url: "https://mail.agent-native.com",
+          source: "builtin",
+        },
+        {
+          id: "clips",
+          name: "Clips",
+          url: "https://clips.agent-native.com",
+          source: "builtin",
+        },
+      ];
+
+      await renderAppsRoute();
+
+      const sections = [...container.querySelectorAll("section[aria-label]")];
+      expect(
+        sections.map((section) => section.getAttribute("aria-label")),
+      ).toEqual([
+        "dispatch.pages.pinnedApps",
+        "dispatch.pages.workspaceApps",
+        "dispatch.pages.hostedApps",
+      ]);
+      expect(sections[0]?.textContent).toContain("Clips");
+      expect(sections[1]?.textContent).toContain("Notes");
+      expect(sections[2]?.textContent).toContain("Mail");
+      expect(sections[2]?.textContent).not.toContain("Clips");
+      const mailRow = sections[2]!;
+      expect(
+        mailRow.querySelector('a[href^="https://mail.agent-native.com"] svg'),
+      ).not.toBeNull();
+      expect(
+        mailRow
+          .querySelector('button[aria-label="dispatch.pages.pinApp"]')
+          ?.getAttribute("aria-pressed"),
+      ).toBe("false");
+      const manageLink = mailRow.querySelector('a[href="/settings/apps"]');
+      const manageButton = [...mailRow.querySelectorAll("button")].find(
+        (button) => button.textContent === "dispatch.pages.manageHostedApps",
+      );
+      if (manage === "link") {
+        expect(manageLink?.textContent).toBe("dispatch.pages.manageHostedApps");
+      } else {
+        expect(manageLink).toBeNull();
+        expect(manageButton?.disabled).toBe(true);
+      }
+    },
+  );
+
+  it.each([
+    ["loading", null],
+    ["failed", new Error("Workspace app list failed")],
+  ])(
+    "lists no apps until the workspace list arrives (%s)",
+    async (_state, error) => {
+      queryState.workspaceApps = undefined;
+      queryState.workspaceAppsError = error;
+      queryState.connectedApps = [
+        {
+          id: "mail",
+          name: "Mail",
+          url: "https://mail.agent-native.com",
+          source: "builtin",
+        },
+      ];
+
+      await renderAppsRoute();
+
+      expect(container.textContent).not.toContain("No workspace apps");
+      expect(container.textContent).not.toContain("Mail");
+    },
+  );
+
   it("shows the empty state after successful app discovery", async () => {
     await renderAppsRoute();
 
     expect(container.textContent).toContain("No workspace apps");
+  });
+
+  it("keeps Add app when app discovery fails", async () => {
+    queryState.workspaceApps = [];
+    queryState.connectedAppsError = new Error("discovery down");
+    await renderAppsRoute();
+
+    expect(container.querySelectorAll("[data-create-app]")).toHaveLength(1);
+  });
+
+  it("offers one Add app when only hosted apps are listed", async () => {
+    queryState.connectedApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        url: "https://mail.agent-native.com",
+        source: "builtin",
+      },
+    ];
+    await renderAppsRoute();
+
+    expect(container.textContent).toContain("No workspace apps");
+    expect(container.querySelectorAll("[data-create-app]")).toHaveLength(1);
   });
 
   it("identifies each app discovery query when both fail", async () => {

@@ -4,13 +4,14 @@
  * packages and template code can import it without pulling in server code.
  *
  * Only an EXACT substring match is ever applied. A whitespace-flexible match
- * (runs of whitespace, including CRLF/LF, collapsed to a single space before
- * comparing) is never spliced in — collapsing whitespace before applying an
- * edit risks silently rewriting semantically significant whitespace
- * (`<pre>`, `white-space: pre`, embedded JS/CSS string literals). Instead a
- * whitespace-flexible hit is reported as the top "not_found" candidate, with
- * its exact current bytes, so the caller's next attempt can copy the real
- * text verbatim. Cheap token-overlap window candidates fill any remaining
+ * (runs of whitespace, including CRLF/LF, collapsed to a single space, and
+ * dropped next to `: ; , < >`, before comparing — so Prettier's `padding: 4px`
+ * still finds the stored `padding:4px`) is never spliced in — collapsing
+ * whitespace before applying an edit risks silently rewriting semantically
+ * significant whitespace (`<pre>`, `white-space: pre`, embedded JS/CSS string
+ * literals). Instead a whitespace-flexible hit is reported as the top
+ * "not_found" candidate, with its exact current bytes, so the caller's next
+ * attempt can copy the real text verbatim. Cheap token-overlap window candidates fill any remaining
  * slots when nothing matches at all, even loosely.
  *
  * A find that matches more than once is reported as "ambiguous" instead of
@@ -43,6 +44,11 @@ export interface TargetedCandidate {
   line: number;
   text: string;
   similarity: number;
+  /**
+   * `text` is the complete stored text and equals the find text apart from
+   * whitespace; false when it was cut at the snippet limit.
+   */
+  whitespaceOnly?: boolean;
 }
 
 export interface TargetedAmbiguousMatch {
@@ -198,6 +204,11 @@ interface NormalizedSpan {
   end: number;
 }
 
+// A formatter adds or drops whitespace beside these, which must not hide a
+// near-match. Not generally safe to ignore (`Hello, world` is not
+// `Hello,world`): fine only because flexible hits are reported, never applied.
+const PUNCTUATION_NEIGHBORS = new Set([":", ";", ",", "<", ">"]);
+
 function normalizeForMatch(text: string): {
   normalized: string;
   spans: NormalizedSpan[];
@@ -210,6 +221,10 @@ function normalizeForMatch(text: string): {
     if (/\s/.test(text[i]!)) {
       const start = i;
       while (i < n && /\s/.test(text[i]!)) i += 1;
+      const nextToPunctuation =
+        PUNCTUATION_NEIGHBORS.has(chars.at(-1) ?? "") ||
+        PUNCTUATION_NEIGHBORS.has(text.charAt(i));
+      if (nextToPunctuation) continue;
       chars.push(" ");
       spans.push({ start, end: i });
     } else {
@@ -222,7 +237,7 @@ function normalizeForMatch(text: string): {
 }
 
 function scanFlexibleMatches(content: string, find: string): RawMatch[] {
-  const needle = find.replace(/\s+/g, " ");
+  const needle = normalizeForMatch(find).normalized.trim();
   if (!needle) return [];
 
   const { normalized, spans } = normalizeForMatch(content);
@@ -307,6 +322,7 @@ function computeCandidates(content: string, find: string): TargetedCandidate[] {
       line: lineNumberFor(lineStarts, m.index),
       text: truncate(m.text, SNIPPET_MAX_CHARS),
       similarity: 1,
+      whitespaceOnly: m.text.length <= SNIPPET_MAX_CHARS,
     }));
 
   const remaining = MAX_CANDIDATES - flexible.length;
@@ -325,10 +341,12 @@ function tokenOverlapCandidates(
   find: string,
 ): TargetedCandidate[] {
   const needleLines = find.split(/\r\n|\r|\n/);
-  const needleLineCount = needleLines.length;
+  // A quote taller than the stored text (e.g. Prettier output against compact
+  // HTML) would otherwise leave no window to score and no hint at all.
+  const contentLines = content.split(/\r\n|\r|\n/);
+  const needleLineCount = Math.min(needleLines.length, contentLines.length);
   const needleTokens = tokenize(needleLines[0] ?? "");
 
-  const contentLines = content.split(/\r\n|\r|\n/);
   const scored: TargetedCandidate[] = [];
   for (let i = 0; i + needleLineCount <= contentLines.length; i += 1) {
     const windowLines = contentLines.slice(i, i + needleLineCount);

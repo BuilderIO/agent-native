@@ -59,6 +59,11 @@ import {
 import { normalizeScreenHtml } from "@shared/screen-annotation";
 import { sourceContentHash } from "@shared/source-workspace";
 import { sanitizeVisualEditSnapshotHtml } from "@shared/visual-edit-snapshot";
+import {
+  CANVAS_CONTEXT_RECORDER_SCRIPT,
+  injectCanvasContextRecorder,
+  isVisualLayerKind,
+} from "@shared/visual-layers";
 import { IconPlugConnectedX, IconRefresh } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import {
@@ -177,6 +182,10 @@ import {
   forwardEmbeddedCanvasPanMessage,
   type EmbeddedCanvasPanSession,
 } from "./design-canvas/iframe-pan";
+import {
+  filterPastedMediaFiles,
+  hasSkippedImagePaste,
+} from "./design-canvas/image-paste-files";
 import { buildInteractPreviewDocument } from "./design-canvas/interact-document";
 import {
   inlineDesignStylesheets,
@@ -3740,7 +3749,10 @@ export function DesignCanvas({
       imageDiagBridge;
     let frameDocument: string;
     if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
-      frameDocument = injectDocumentMarkup(frameContent, bridgeToInject);
+      frameDocument = injectDocumentMarkup(
+        injectCanvasContextRecorder(frameContent),
+        bridgeToInject,
+      );
     } else {
       const frameStyle = [
         getEmbeddedFrameBackgroundStyle({
@@ -3752,7 +3764,7 @@ export function DesignCanvas({
           embeddedFrame?.contentOffsetY ?? 0,
         ),
       ].join("");
-      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
+      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}${CANVAS_CONTEXT_RECORDER_SCRIPT}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
     }
     frameDocument = inlineDesignStylesheets(frameDocument, designStylesheets);
     if (isEmbeddedFrame) {
@@ -5753,31 +5765,12 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "canvas-image-paste") {
-        const raw = Array.isArray(e.data.files) ? e.data.files : [];
-        const MAX_IMAGE_PASTE_FILES = 20;
-        const MAX_DATA_URL_BYTES = 20 * 1024 * 1024;
-        const files = raw
-          .slice(0, MAX_IMAGE_PASTE_FILES)
-          .filter(
-            (
-              f: unknown,
-            ): f is { dataUrl: string; type: string; name: string } => {
-              if (!f || typeof f !== "object") return false;
-              const dataUrl = (f as { dataUrl?: unknown }).dataUrl;
-              if (typeof dataUrl !== "string") return false;
-              if (
-                !dataUrl.startsWith("data:image/") &&
-                !dataUrl.startsWith("data:video/")
-              )
-                return false;
-              if (dataUrl.length > MAX_DATA_URL_BYTES) return false;
-              return true;
-            },
-          );
-        if (files.length > 0) {
+        const { files, skipped } = filterPastedMediaFiles(e.data.files);
+        if (files.length > 0 || hasSkippedImagePaste(skipped)) {
           onImagePaste?.({
             files,
             screenId: boardSurface ? undefined : screenId,
+            skipped,
           });
         }
         return;
@@ -5827,6 +5820,9 @@ export function DesignCanvas({
                       typeof e.data.screenId === "string"
                         ? e.data.screenId
                         : undefined,
+                    ...(isVisualLayerKind(candidate.kind)
+                      ? { kind: candidate.kind }
+                      : {}),
                     info: candidate.info,
                   }))
               : [],

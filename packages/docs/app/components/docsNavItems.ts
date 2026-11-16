@@ -741,6 +741,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "internationalization",
       },
       { id: "file-uploads", labelKey: "fileUploads", slug: "file-uploads" },
+      { id: "telemetry", labelKey: "telemetry", slug: "telemetry" },
       {
         id: "environment-variables",
         labelKey: "environmentVariables",

@@ -11,10 +11,13 @@ import {
   type AgentToolCall,
   type AgentTransport,
 } from "@agent-native/agentkit/protocol";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../../i18n.js";
+import { ThumbsFeedback } from "../../observability/ThumbsFeedback.js";
 import { AgentKitChat } from "./components.js";
 import { AgentKitProvider, type AgentKitRunUsageLoader } from "./context.js";
 
@@ -114,6 +117,7 @@ async function renderChat(
     onThreadForked?: () => void;
     followUpModel?: string;
     formatModelName?: (model: string) => string;
+    feedbackNote?: boolean;
   } = {},
 ) {
   const submitFeedback = options.submitFeedback ?? vi.fn(async () => undefined);
@@ -183,15 +187,32 @@ async function renderChat(
       await Promise.resolve();
     });
   await render(
-    <AgentKitProvider
-      controller={client}
-      threadId={THREAD}
-      onThreadForked={options.onThreadForked ?? (() => undefined)}
-      loadRunUsage={options.loadRunUsage}
-      formatModelName={options.formatModelName}
+    <AgentNativeI18nProvider
+      catalog={createToolkitI18nCatalog({ messages: {} })}
+      persistPreference={false}
     >
-      <AgentKitChat composer={false} />
-    </AgentKitProvider>,
+      <AgentKitProvider
+        controller={client}
+        threadId={THREAD}
+        slots={
+          options.feedbackNote
+            ? {
+                feedbackNote: ({ renderTrigger, ...props }) => (
+                  <ThumbsFeedback
+                    {...props}
+                    renderNegativeTrigger={renderTrigger}
+                  />
+                ),
+              }
+            : undefined
+        }
+        onThreadForked={options.onThreadForked ?? (() => undefined)}
+        loadRunUsage={options.loadRunUsage}
+        formatModelName={options.formatModelName}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>
+    </AgentNativeI18nProvider>,
   );
   cleanups.push(async () => {
     await act(async () => {
@@ -251,6 +272,91 @@ function thumb(toolbar: HTMLElement, value: "positive" | "negative") {
 }
 
 describe("assistant reply toolbar", () => {
+  it("opens the note form after one negative vote and delivers the note to both destinations", async () => {
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_FEEDBACK_URL",
+      "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+    );
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/api/forms/public/")
+        ? Response.json({
+            id: "form-1",
+            fields: [{ id: "feedback", type: "textarea" }],
+          })
+        : Response.json({}),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { toolbar, submitFeedback } = await renderChat({
+        feedbackNote: true,
+      });
+      await press(thumb(toolbar("assistant-latest"), "negative"));
+      expect(submitFeedback).toHaveBeenCalledOnce();
+      let input = document.body.querySelector<HTMLTextAreaElement>("textarea");
+      expect(input).not.toBeNull();
+      const negative = thumb(toolbar("assistant-latest"), "negative");
+      expect(negative.getAttribute("aria-expanded")).toBe("true");
+      expect(
+        document.getElementById(negative.getAttribute("aria-controls")!),
+      ).not.toBeNull();
+      await act(async () => {
+        negative.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        negative.click();
+      });
+      expect(document.body.querySelector("textarea")).toBeNull();
+      await press(negative);
+      input = document.body.querySelector<HTMLTextAreaElement>("textarea");
+      expect(input).not.toBeNull();
+      await act(async () => {
+        input!.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        );
+      });
+      await vi.waitFor(() => expect(document.activeElement).toBe(negative));
+      await press(negative);
+      input = document.body.querySelector<HTMLTextAreaElement>("textarea");
+      expect(input).not.toBeNull();
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          "value",
+        )?.set?.call(input, "The answer used the wrong source.");
+        input!.dispatchEvent(new Event("input", { bubbles: true }));
+        input!.form?.requestSubmit();
+      });
+      await vi.waitFor(() =>
+        expect(
+          fetchMock.mock.calls.some(([url]) =>
+            String(url).includes("/api/submit/"),
+          ),
+        ).toBe(true),
+      );
+      const calls = fetchMock.mock.calls as unknown as Array<
+        [RequestInfo | URL, RequestInit?]
+      >;
+      expect(
+        calls.some(
+          ([url, init]) =>
+            String(url).includes("/observability/feedback") &&
+            JSON.parse(String(init?.body)).feedbackType === "text",
+        ),
+      ).toBe(true);
+      expect(submitFeedback).toHaveBeenCalledOnce();
+      await vi.waitFor(() =>
+        expect(document.body.querySelector("textarea")).toBeNull(),
+      );
+      await vi.waitFor(() => expect(document.activeElement).toBe(negative));
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
   it("shows Copy, both thumbs and More at rest, with no rating menu or timestamp", async () => {
     const { footer, toolbar } = await renderChat();
     const latest = toolbar("assistant-latest");
@@ -259,7 +365,7 @@ describe("assistant reply toolbar", () => {
     expect(latest.dataset.latest).toBe("true");
     expect(older.dataset.latest).toBeUndefined();
     expect(footer("assistant-latest").dataset.placement).toBe("inline");
-    expect(latest.getAttribute("role")).toBe("group");
+    expect(latest.getAttribute("role")).toBe("toolbar");
     expect(labelsOf(set(latest, "primary"))).toEqual([
       "Copy message",
       "Good response",
@@ -714,6 +820,60 @@ describe("assistant reply toolbar", () => {
         reasoningEffort: "high",
       }),
     );
+  });
+});
+
+describe("assistant reply toolbar keyboard", () => {
+  it("costs one tab stop per reply and moves between actions with the arrow keys", async () => {
+    const { toolbar } = await renderChat();
+    const latest = toolbar("assistant-latest");
+    const stops = () =>
+      Array.from(latest.querySelectorAll("button")).filter(
+        (button) => button.tabIndex === 0,
+      );
+    expect(stops().map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Copy message",
+    ]);
+
+    await act(async () => stops()[0]?.focus());
+    await act(async () => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "Good response",
+    );
+    expect(stops()).toEqual([document.activeElement]);
+  });
+
+  it("keeps Retry focused and enabled while its fork is in flight", async () => {
+    const fork = Promise.withResolvers<{
+      id: string;
+      createdAt: string;
+      updatedAt: string;
+    }>();
+    const { toolbar } = await renderChat({
+      transport: {
+        forkThread: vi.fn(() => fork.promise),
+        assertAiSetupReady: vi.fn(async () => undefined),
+      },
+    });
+    const latest = toolbar("assistant-latest");
+    await press(toggle(latest));
+    const retry = latest.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]',
+    );
+    await act(async () => retry?.focus());
+    await press(retry);
+
+    expect(retry?.disabled).toBe(false);
+    expect(retry?.getAttribute("aria-busy")).toBe("true");
+    expect(document.activeElement).toBe(retry);
+    await act(async () => {
+      fork.reject(new Error("offline"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   });
 });
 

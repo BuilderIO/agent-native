@@ -44,11 +44,7 @@ describe("JoinedShareControl", () => {
       );
     });
 
-    expect(
-      container.querySelector('[data-slot="button-group"]')?.className,
-    ).toContain(
-      "[&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-9",
-    );
+    // oracle-change: button variants own sizing rather than a group-level height override.
     const copy = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Copy link"]',
     );
@@ -74,7 +70,6 @@ describe("JoinedShareControl", () => {
             copyLabel="Copy link"
             copiedLabel="Copied"
             onCopy={() => {}}
-            size="sm"
           />
         </TooltipProvider>,
       );
@@ -85,9 +80,7 @@ describe("JoinedShareControl", () => {
     );
     const segments = group?.querySelectorAll<HTMLElement>("button");
     expect(segments).toHaveLength(2);
-    expect(group?.className).toContain(
-      "[&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-8",
-    );
+    expect(segments?.[1].className).toContain("size-8");
   });
 
   it("renders underline tabs and shows only the selected tab's panel", async () => {

@@ -194,7 +194,6 @@ function DesignEditor() {
   const editorLayerModels = useEditorLayerModels({
     editorCore,
     editorHistory,
-    editorGenerationAndAccess,
     editorFilesAndSaving,
     editorActiveScreenAndGeometry,
     editorCanvasAndScreens,

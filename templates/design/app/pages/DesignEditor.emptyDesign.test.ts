@@ -22,14 +22,7 @@ describe("empty design", () => {
   it("keeps a failed generation recoverable", () => {
     expect(source).toContain("<GenerationStatusCard");
     expect(source).toContain("onRetry={handleRetryGeneration}");
-    const gate = source.slice(
-      // The gate also opens for a first-screen build, so it starts with a paren.
-      source.indexOf("{(designIsEmpty &&"),
-      source.indexOf("<GenerationStatusCard"),
-    );
-    expect(gate).toContain(
-      "generating || pendingGenerationActive || generationIssue",
-    );
+    // oracle-change: a live run no longer swaps the canvas for the card, so the card gate has no run-active clause; e2e/generation-keeps-canvas-live.spec.ts covers it
   });
 
   it("keeps failed generations retryable regardless of changed design files", () => {

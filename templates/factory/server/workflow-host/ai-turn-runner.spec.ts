@@ -21,6 +21,7 @@ import type {
   OperationResult,
   RunBudget,
 } from "../workflow/adapter.js";
+import { OPERATION_CATALOG } from "../workflow/catalog/index.js";
 import type { ResultField } from "../workflow/contract.js";
 import {
   createOperationRegistry,
@@ -728,6 +729,53 @@ describe("tools", () => {
     expect(requests()).toBe(0);
   });
 
+  it("refuses a tool that takes a typed endpoint path before any model call, though it only reads", async () => {
+    const open = OPERATION_CATALOG.get("github.apiRequest");
+    if (!open) throw new Error("github.apiRequest is not in the catalog");
+    const { engine, requests } = scriptedEngine([]);
+    const { deps } = makeDeps(engine);
+
+    const turn = await runStructuredAgentTurn(
+      turnInput({ tools: [toolFor(open).tool] }),
+      deps,
+    );
+
+    expect(open.effect).toBe("read");
+    expect(turn).toMatchObject({ ok: false, errorCode: "engine_error" });
+    expect(turn.ok ? "" : turn.reason).toContain("tool_endpoint_not_fixed");
+    expect(requests()).toBe(0);
+  });
+
+  it("refuses the same through the runner when the catalog is the real one", async () => {
+    const { engine, requests } = scriptedEngine([]);
+    const { deps } = makeDeps(engine);
+    const runner = createAiTurnRunner({
+      owner: "owner@example.test",
+      orgId: "org-1",
+      factoryId: "factory-1",
+      workflowId: "wf-1",
+      catalog: OPERATION_CATALOG,
+      operations: recordingExecutor(() => ({ ok: true, output: {} })),
+      deps,
+    });
+
+    const result = await runner.run({
+      instruction: "Judge.",
+      items: ITEMS,
+      mode: "perItem",
+      resultSchemaFields: SCHEMA,
+      tools: ["slack.apiRequest"],
+      maxRepairs: 1,
+      budget: makeBudget(10),
+      signal: new AbortController().signal,
+      runId: "run-1",
+    });
+
+    expect(result).toMatchObject({ ok: false, code: "engine_error" });
+    expect(result.ok ? "" : result.reason).toContain("tool_endpoint_not_fixed");
+    expect(requests()).toBe(0);
+  });
+
   it("refuses the same through the runner, for a catalog write, an unknown id, or no executor", async () => {
     const { engine, requests } = scriptedEngine([]);
     const { deps } = makeDeps(engine);
@@ -1099,6 +1147,104 @@ describe("credentials", () => {
 
     expect(turn).toMatchObject({ ok: false, errorCode: "engine_error" });
     expect(turn.ok ? "" : turn.reason).toContain("Bad request");
+  });
+
+  it("names the engine whose credential failed, however the loop reports it", async () => {
+    const unusable = scriptedEngine([]);
+    const refused = scriptedEngine([
+      engineFailure("http_401", "Invalid API key"),
+    ]);
+    const missingKey = scriptedEngine([]);
+    const turns = await Promise.all([
+      runStructuredAgentTurn(
+        turnInput(),
+        makeDeps(unusable.engine, { isEngineUsable: async () => false }).deps,
+      ),
+      runStructuredAgentTurn(turnInput(), makeDeps(refused.engine).deps),
+      runStructuredAgentTurn(
+        turnInput(),
+        makeDeps(missingKey.engine, {
+          runLoop: async (options) => {
+            options.send({ type: "missing_api_key" });
+            return {
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              model: "test-model",
+            };
+          },
+        }).deps,
+      ),
+    ]);
+
+    for (const turn of turns) {
+      expect(turn).toMatchObject({
+        ok: false,
+        errorCode: "credentials",
+        provider: "scripted",
+      });
+    }
+  });
+
+  it("names builder when the Builder gateway refuses the sign-in", async () => {
+    const { engine } = scriptedEngine([
+      engineFailure("builder_auth_error", "Sign in to Builder.io again"),
+    ]);
+    const { deps } = makeDeps({ ...engine, name: "builder" });
+
+    const turn = await runStructuredAgentTurn(turnInput(), deps);
+
+    expect(turn).toMatchObject({
+      ok: false,
+      errorCode: "credentials",
+      provider: "builder",
+    });
+  });
+
+  it("names no provider on a failure that is not about a credential", async () => {
+    const { engine } = scriptedEngine([
+      engineFailure("invalid_request", "Bad request"),
+    ]);
+    const { deps } = makeDeps(engine);
+
+    const turn = await runStructuredAgentTurn(turnInput(), deps);
+
+    expect(turn).toMatchObject({ ok: false, errorCode: "engine_error" });
+    expect(turn).not.toHaveProperty("provider");
+  });
+
+  it("hands the failed credential's provider on through the runner", async () => {
+    const { engine } = scriptedEngine([
+      engineFailure("builder_auth_error", "Sign in to Builder.io again"),
+    ]);
+    const { deps } = makeDeps({ ...engine, name: "builder" });
+    const runner = createAiTurnRunner({
+      owner: "owner@example.test",
+      orgId: "org-1",
+      factoryId: "factory-1",
+      workflowId: "wf-1",
+      catalog: catalogWith(),
+      deps,
+    });
+
+    const result = await runner.run({
+      instruction: "Judge.",
+      items: ITEMS,
+      mode: "wholeList",
+      resultSchemaFields: SCHEMA,
+      tools: [],
+      maxRepairs: 1,
+      budget: makeBudget(10),
+      signal: new AbortController().signal,
+      runId: "run-1",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "credentials",
+      provider: "builder",
+    });
   });
 
   it("does not read an unreadable credential store as a missing credential", async () => {

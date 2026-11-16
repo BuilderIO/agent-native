@@ -1,3 +1,81 @@
+## 0.16.6
+
+### Patch Changes
+
+- a2f21dc: Fix `ActionButton` and `IconButton` (from `@agent-native/toolkit/design-system`) not forwarding a native `ref`, which broke every Radix `asChild` trigger built on them — popovers, tooltips, dropdown menus, and dialogs positioned relative to the button would render off-screen (`transform: translate(0px, -200%)`) because Radix's `Slot` had no DOM node to measure. `ActionButton`/`IconButton` are now wrapped in `forwardRef`, and the forwarded ref is merged with the existing `elementRef` prop so both resolve to the same DOM node — existing consumers that pass `elementRef` explicitly are unaffected.
+
+  Also fix `IconButton` dropping a native `onClick`. `IconButtonProps` did not
+  declare `onClick` and the default adapter spread incoming props before setting
+  its own handler, so a Radix `asChild` trigger built on `IconButton` — popover,
+  dropdown menu, dialog — never opened at all. `IconButton` now merges `onClick`
+  with `onPress` the same way `ActionButton` already did.
+
+## 0.16.5
+
+### Patch Changes
+
+- 0b57293: Fix `ActionButton` and `IconButton` (from `@agent-native/toolkit/design-system`) not forwarding a native `ref`, which broke every Radix `asChild` trigger built on them — popovers, tooltips, dropdown menus, and dialogs positioned relative to the button would render off-screen (`transform: translate(0px, -200%)`) because Radix's `Slot` had no DOM node to measure. `ActionButton`/`IconButton` are now wrapped in `forwardRef`, and the forwarded ref is merged with the existing `elementRef` prop so both resolve to the same DOM node — existing consumers that pass `elementRef` explicitly are unaffected.
+
+  Also fix `IconButton` dropping a native `onClick`. `IconButtonProps` did not
+  declare `onClick` and the default adapter spread incoming props before setting
+  its own handler, so a Radix `asChild` trigger built on `IconButton` — popover,
+  dropdown menu, dialog — never opened at all. `IconButton` now merges `onClick`
+  with `onPress` the same way `ActionButton` already did.
+
+## 0.16.4
+
+### Patch Changes
+
+- 95ea873: Allow editor-owned controls outside TipTap's contenteditable surface to protect active edits from stale collaboration snapshots, and preserve a valid selection when collaborative documents initially hydrate block-only nodes.
+
+## 0.16.3
+
+### Patch Changes
+
+- 81fb79e: Keep shared composer labels theme-safe and translatable.
+
+## 0.16.2
+
+### Patch Changes
+
+- 43fa797: Keep shared composer labels theme-safe and translatable.
+
+## 0.16.1
+
+### Patch Changes
+
+- fb18771: Keep shared composer labels theme-safe and translatable.
+
+## 0.16.0
+
+### Minor Changes
+
+- 9e21e1b: Add a Core-free data grid kit with keyboard navigation, selection, resizing, typed editor slots, and app-owned persistence callbacks.
+
+### Patch Changes
+
+- 9e21e1b: Align chat history rail overflow actions with trailing timestamps.
+- 9e21e1b: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
+
+## 0.15.1
+
+### Patch Changes
+
+- 73c4a97: Align chat history rail overflow actions with trailing timestamps.
+- 73c4a97: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
+
+## 0.15.0
+
+### Minor Changes
+
+- f07ec04: Localize the Core agent-chat interface and Toolkit composer across every supported locale, provide built-in Core translations with app-level catalog overrides, and guard the complete chat surface against new raw visible strings.
+
+## 0.14.3
+
+### Patch Changes
+
+- 89f194f: Fix toolkit canvas interaction and collaboration UI behavior.
+
 ## 0.14.2
 
 ### Patch Changes

@@ -399,15 +399,16 @@ pub fn raise_to_status_level(window: &WebviewWindow) {
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn raise_to_status_level(_window: &WebviewWindow) {}
 
-#[cfg(any(target_os = "windows", test))]
-fn advance_topmost_generation(current_generation: &AtomicU64) -> u64 {
+/// Claims a background loop slot. A loop keeps running only while its
+/// generation is current, so a restart or stop supersedes it without the
+/// exiting loop ever clearing a newer one's claim.
+pub(crate) fn advance_loop_generation(current_generation: &AtomicU64) -> u64 {
     current_generation
         .fetch_add(1, Ordering::SeqCst)
         .wrapping_add(1)
 }
 
-#[cfg(any(target_os = "windows", test))]
-fn is_current_topmost_generation(current_generation: &AtomicU64, generation: u64) -> bool {
+pub(crate) fn is_current_loop_generation(current_generation: &AtomicU64, generation: u64) -> bool {
     current_generation.load(Ordering::SeqCst) == generation
 }
 
@@ -417,11 +418,11 @@ pub fn start_topmost_reassert_loop(
     label: &'static str,
     current_generation: &'static AtomicU64,
 ) {
-    let generation = advance_topmost_generation(current_generation);
+    let generation = advance_loop_generation(current_generation);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         loop {
-            if !is_current_topmost_generation(current_generation, generation) {
+            if !is_current_loop_generation(current_generation, generation) {
                 break;
             }
             let Some(window) = app.get_webview_window(label) else {
@@ -706,6 +707,27 @@ pub fn restart_after_update(app: AppHandle) {
     app.request_restart();
 }
 
+/// Reads the bundled third-party notices, which carry the licenses for
+/// transcribe.cpp and the models Clips downloads, for Settings to show.
+#[tauri::command]
+pub fn read_third_party_notices(app: AppHandle) -> Result<String, String> {
+    const FILE: &str = "THIRD_PARTY_NOTICES.md";
+    let bundled = app
+        .path()
+        .resource_dir()
+        .map(|dir| dir.join(FILE))
+        .ok()
+        .filter(|path| path.exists());
+    // `tauri dev` runs unbundled, so there the file is only in the source tree.
+    let path = bundled
+        .or_else(|| {
+            let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(FILE);
+            (cfg!(debug_assertions) && source.exists()).then_some(source)
+        })
+        .ok_or_else(|| format!("{FILE} is missing from this build"))?;
+    std::fs::read_to_string(&path).map_err(|e| format!("could not read {FILE}: {e}"))
+}
+
 pub fn set_dictation_active(app: &AppHandle, active: bool) {
     if let Some(state) = app.try_state::<DictationActive>() {
         if let Ok(mut g) = state.0.lock() {
@@ -742,20 +764,20 @@ pub fn hide_voice_wake_popover(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::{advance_topmost_generation, is_current_topmost_generation};
+    use super::{advance_loop_generation, is_current_loop_generation};
     use std::sync::atomic::AtomicU64;
 
     #[test]
     fn replacement_topmost_loop_supersedes_the_exiting_generation() {
         let current_generation = AtomicU64::new(0);
-        let exiting_generation = advance_topmost_generation(&current_generation);
-        let replacement_generation = advance_topmost_generation(&current_generation);
+        let exiting_generation = advance_loop_generation(&current_generation);
+        let replacement_generation = advance_loop_generation(&current_generation);
 
-        assert!(!is_current_topmost_generation(
+        assert!(!is_current_loop_generation(
             &current_generation,
             exiting_generation
         ));
-        assert!(is_current_topmost_generation(
+        assert!(is_current_loop_generation(
             &current_generation,
             replacement_generation
         ));

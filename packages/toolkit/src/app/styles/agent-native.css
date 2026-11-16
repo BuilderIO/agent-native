@@ -1240,6 +1240,10 @@
   animation: agent-builder-setup-card-enter 220ms var(--ease-out-strong) both;
 }
 
+.agent-builder-setup-card--attached.animate-bounce-once {
+  animation: var(--animate-bounce-once);
+}
+
 @keyframes agent-builder-setup-card-enter {
   from {
     opacity: 0;
@@ -1367,10 +1371,23 @@
   pointer-events: auto;
 }
 
+.agent-composer-setup-gated button:disabled {
+  pointer-events: none;
+}
+
 .agent-composer-area--attached-above .agent-composer-root {
   position: relative;
   z-index: 3;
   background: var(--agent-kit-raised-surface);
+}
+
+/* A host may offset the stack with `translate`, which creates a stacking
+   context and traps the composer root's z-index behind the setup card. Raise
+   the stack itself so the box's top edge still hides the card's tucked lower
+   edge, while the card stays above the wrapper that holds the composer. */
+.agent-composer-area--attached-above .agentkit-composer-stack {
+  position: relative;
+  z-index: 2;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1463,12 +1480,12 @@
     --agentkit-composer-primary-control-size,
     var(--agent-kit-composer-control-size)
   );
-  border-radius: 999px;
+  border-radius: var(--agent-kit-radius-sm, 0.5rem);
 }
 
 .agent-composer-root:not(.agent-composer-root--hero)
   .agent-composer-send-button {
-  border-radius: 999px;
+  border-radius: var(--agent-kit-radius-sm, 0.5rem);
 }
 
 /* 12px text: plain muted-foreground misses 4.5:1 on dark composer surfaces. */

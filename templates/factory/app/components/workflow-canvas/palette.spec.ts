@@ -9,7 +9,7 @@ import {
 } from "@/lib/workflow-editor";
 
 import { OPERATION_CATALOG } from "../../../server/workflow/catalog/index.js";
-import { buildPalette } from "./palette";
+import { buildPalette, isGeneric } from "./palette";
 import { createWorkflowCanvasStrings } from "./strings";
 
 const strings = createWorkflowCanvasStrings(createEnglishTranslator());
@@ -113,6 +113,52 @@ describe("buildPalette", () => {
     expect(
       starts.entries.find((entry) => entry.kind === "trigger")?.disabled,
     ).toBeFalsy();
+  });
+
+  const everything = buildPalette(
+    OPERATION_CATALOG,
+    { hasTrigger: false },
+    strings,
+  ).flatMap((section) => section.entries);
+
+  it("marks the API request step of each app as generic, and nothing else", () => {
+    const generic = everything.filter(isGeneric);
+    expect(generic.map((entry) => entry.options.operationId).sort()).toEqual(
+      OPERATION_CATALOG.list()
+        .filter((def) => def.id.endsWith(".apiRequest"))
+        .map((def) => def.id)
+        .sort(),
+    );
+    expect(generic.length).toBeGreaterThan(1);
+    expect(
+      generic.every(
+        (entry) => entry.kind === "lookup" && entry.label === "API request",
+      ),
+    ).toBe(true);
+    expect(
+      everything.filter((entry) => !isGeneric(entry) && entry.generic),
+    ).toEqual([]);
+    expect(
+      everything.filter((entry) => entry.generic !== undefined),
+    ).toHaveLength(generic.length);
+  });
+
+  it("gives the generic step the words people search for it by", () => {
+    for (const entry of everything.filter(isGeneric)) {
+      const words = entry.keywords.split(" ");
+      for (const word of [
+        "http",
+        "api",
+        "request",
+        "rest",
+        "endpoint",
+        "fetch",
+        "get",
+        "curl",
+      ]) {
+        expect(words).toContain(word);
+      }
+    }
   });
 
   it("follows the catalog it is given", () => {

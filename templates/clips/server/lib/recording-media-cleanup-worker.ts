@@ -584,6 +584,7 @@ export async function runRecordingMediaCleanup(
               await releaseHostedClipRecording({
                 recordingId: id,
                 userId: intent.allowanceUserId,
+                reason: "cleanup",
               });
             else if (allowance.status === "consumed") {
               const adjustment = await adjustHostedClipRecordingBytes({

@@ -86,31 +86,27 @@ las peticiones por tarea.
 
 ### Importar {#import}
 
-Un panel, cinco formas de traer contenido externo:
+Cuatro formas de traer contenido externo:
 
 <Table
   id="doc-block-design-import-table"
   columns={["Método", "Cómo funciona"]}
   rows={[
     [
-      "URL de frame de Figma",
-      "Pega un enlace de Figma compartido. Conecta tu cuenta de Figma la primera vez. Se importa como una pantalla real y editable.",
+      "Enlace de Figma",
+      "Pega en el chat un enlace a una página o un marco de Figma. Conecta tu cuenta de Figma la primera vez. Se importa como pantallas reales y editables, y funciona con archivos demasiado grandes para importarlos desde el disco.",
     ],
     [
       "Pegar desde Figma",
-      "Copia un frame en Figma y luego pégalo (Cmd+V) directamente en el lienzo de Design. Es un atajo del lienzo, no un botón aparte en el panel Importar.",
+      "Copia un marco en Figma y pégalo (Cmd+V) en el lienzo de Design.",
     ],
     [
-      "Subir .fig",
-      "Sube un archivo .fig directamente. Es una importación aparte a nivel de diseño, distinta de importar un .fig en un sistema de diseño.",
-    ],
-    [
-      "Importar HTML",
-      "Pega HTML sin procesar en un cuadro de texto, o sube un archivo .html, para traerlo como una pantalla.",
+      "Archivo → Importar…",
+      "Elige un archivo .fig o .html. Design importa el archivo completo al lienzo y muestra el progreso en una notificación. Un .fig que supera los límites del navegador se rechaza de inmediato; usa un enlace de Figma en su lugar. Esto es independiente de importar un .fig a un sistema de diseño.",
     ],
     [
       "App local",
-      "No es de autoservicio desde este panel. Muestra comandos de instalación y conexión pensados para pegarlos en un agente de codificación externo, que luego abre tu app en ejecución dentro de Design como sus propias pantallas. Consulta /visual-edit en la Guía para desarrolladores.",
+      "Archivo → Conectar app local abre el comando de instalación de la skill /visual-edit. Tu agente de programación abre entonces tu app en ejecución en Design como sus propias pantallas. Consulta /visual-edit en la Guía para desarrolladores.",
     ],
   ]}
 />

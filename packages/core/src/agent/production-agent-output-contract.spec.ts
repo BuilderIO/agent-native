@@ -7,6 +7,7 @@ import {
   AgentActionStopError,
   AgentConnectionRequiredError,
   defineAction,
+  noteExternalWrite,
   runActionWithExecutionOutcome,
   type ActionRunContext,
 } from "../action.js";
@@ -268,6 +269,7 @@ describe("runAgentLoop — output-contract failures", () => {
       await runOneCall(
         {
           "publish-draft": defaultedPublish(true, async () => {
+            noteExternalWrite("test");
             throw new Error("Publishing stopped halfway.");
           }),
         },
@@ -315,11 +317,27 @@ describe("runAgentLoop — output-contract failures", () => {
 
 describe("runAgentLoop — a thrown value that cannot be classified", () => {
   it.each([
-    { readOnly: true, outcome: { completedSideEffect: false }, markers: 0 },
-    { readOnly: false, outcome: { outcomeUnknown: true }, markers: 1 },
+    {
+      readOnly: true,
+      wrote: false,
+      outcome: { completedSideEffect: false },
+      markers: 0,
+    },
+    {
+      readOnly: false,
+      wrote: false,
+      outcome: { completedSideEffect: false },
+      markers: 1,
+    },
+    {
+      readOnly: false,
+      wrote: true,
+      outcome: { outcomeUnknown: true },
+      markers: 1,
+    },
   ])(
-    "finishes the call as an untyped failure (readOnly: $readOnly)",
-    async ({ readOnly, outcome, markers }) => {
+    "finishes the call as an untyped failure (readOnly: $readOnly, wrote: $wrote)",
+    async ({ readOnly, wrote, outcome, markers }) => {
       notify.mockClear();
       const thrown = Object.defineProperty(
         new Error("Handler failed"),
@@ -335,6 +353,7 @@ describe("runAgentLoop — a thrown value that cannot be classified", () => {
         schema: z.object({}),
         readOnly,
         run: async () => {
+          if (wrote) noteExternalWrite("test");
           throw thrown;
         },
       }) as unknown as ActionEntry;
@@ -1655,6 +1674,7 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
       schema: z.object({}),
       run: async () => {
         saves += 1;
+        noteExternalWrite("test");
         throw new Error("Save lost its connection.");
       },
     });
@@ -1743,6 +1763,7 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     const first = await runOneCall(
       {
         "publish-draft": defaultedPublish(true, async () => {
+          noteExternalWrite("test");
           throw new Error("Lost connection after entering the write.");
         }),
       },
@@ -1778,6 +1799,7 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
       description: "Save the draft.",
       schema: z.object({}),
       run: async () => {
+        noteExternalWrite("test");
         throw new Error("Save lost its connection.");
       },
     });

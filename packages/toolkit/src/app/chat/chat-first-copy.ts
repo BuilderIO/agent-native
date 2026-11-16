@@ -29,6 +29,7 @@ const DEFAULT_COPY: Partial<Record<string, string>> = {
   removeApp: "Remove app from workspace",
   showMore: "Show more",
   showLess: "Show less",
+  showMoreCount: "Show {count} more",
   appOrderUnavailable: "App order could not be saved on this device.",
   openSideSurfaces: "Open side surfaces",
   sideSurfaces: "Side surfaces",

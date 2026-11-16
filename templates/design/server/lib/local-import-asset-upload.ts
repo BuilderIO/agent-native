@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { noteExternalWrite } from "@agent-native/core/action";
 import {
   registerPrivateBlobProvider,
   type PrivateBlobProvider,
@@ -117,6 +118,7 @@ export function createLocalImportAssetUploadProvider(options?: {
       const filepath = localImportAssetAssetPath(ownerEmail, assetId, rootDir);
       if (!filepath)
         throw new Error("Could not allocate a safe QA asset path.");
+      noteExternalWrite("local-disk");
       await mkdir(ownerRoot, { recursive: true, mode: 0o700 });
       await writeFile(filepath, bytes, { flag: "wx", mode: 0o600 });
       return {
@@ -162,6 +164,7 @@ function createPrivateBlobProvider(options: {
         throw new Error("Local QA private blobs are disabled.");
       const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
       const id = `${randomUUID()}.blob`;
+      noteExternalWrite("local-disk");
       await mkdir(rootDir, { recursive: true, mode: 0o700 });
       await writeFile(blobPath(id), bytes, { flag: "wx", mode: 0o600 });
       return {
@@ -182,6 +185,7 @@ function createPrivateBlobProvider(options: {
       handle,
     }),
     delete: async (handle) => {
+      noteExternalWrite("local-disk");
       await rm(blobPath(handle.id), { force: true });
       return { deleted: true, provider: handle.provider };
     },

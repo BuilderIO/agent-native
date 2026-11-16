@@ -42,14 +42,13 @@ import {
 } from "@agent-native/toolkit/composer/runtime-adapters";
 import { useMemo, type ReactNode } from "react";
 
-import { McpIntegrationDialogDeferred } from "../../resources/index.js";
-import {
-  BuilderConnectPopover as DeferredBuilderConnectPopover,
-  useBuilderConnectFlow,
-} from "../../settings/index.js";
+import { McpIntegrationDialogDeferred } from "../../resources/McpIntegrationDialogDeferred.js";
+import { DeferredBuilderConnectPopover } from "../../settings/deferred-builder-connect-popover.js";
+import { useBuilderConnectFlow } from "../../settings/useBuilderStatus.js";
 import { BuilderSetupCard, BuilderSetupContent } from "../chat/run-recovery.js";
 import { AssistantUiStaleIndexErrorBoundary } from "./assistant-ui-recovery.js";
 import { coreComposerModelAdapters } from "./model-runtime-adapters.js";
+import { useWorkspaceComposerMenu } from "./use-workspace-composer-menu.js";
 
 const REALTIME_VOICE_REQUEST_SOURCE = "realtime-voice";
 
@@ -102,6 +101,7 @@ export const coreComposerAdapters: CoreComposerRuntimeAdapters = {
     isTrustedFrameMessage,
   },
   resources: {
+    useWorkspaceMenu: useWorkspaceComposerMenu,
     useOrg,
     isMcpIntegrationAvailable: isMcpIntegrationCatalogAvailable,
     useCreateMcpServer,

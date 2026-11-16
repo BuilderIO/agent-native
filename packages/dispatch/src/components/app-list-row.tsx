@@ -1,23 +1,61 @@
-import type { ReactNode } from "react";
+import { Item } from "@agent-native/toolkit/ui/item";
+import {
+  createContext,
+  useContext,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 
 import { cn } from "../lib/utils";
 
-export const APP_LIST_GRID_CLASS =
-  "w-full xl:grid xl:grid-cols-2 xl:gap-3 xl:overflow-visible xl:rounded-none";
-export const APP_LIST_GRID_ROW_CLASS =
-  "xl:rounded-2xl xl:border xl:border-transparent xl:transition-[border-color] xl:focus-within:border-ring/50";
+type AppListLayout = "list" | "grid";
 
+const AppListLayoutContext = createContext<AppListLayout>("list");
+
+/**
+ * `grid` is the two-column app list on Home, New chat, All apps and the
+ * catalogs; its rows are shadcn `Item`s. `list` is a bordered, divided list.
+ */
 export function AppList({
   children,
   className,
+  layout = "list",
 }: {
   children: ReactNode;
   className?: string;
+  layout?: AppListLayout;
 }) {
   return (
-    <div className={cn("overflow-hidden rounded-2xl", className)}>
-      {children}
-    </div>
+    <AppListLayoutContext.Provider value={layout}>
+      <div
+        className={cn(
+          layout === "grid"
+            ? "grid w-full grid-cols-1 gap-2 sm:grid-cols-2"
+            : "overflow-hidden rounded-2xl",
+          className,
+        )}
+      >
+        {children}
+      </div>
+    </AppListLayoutContext.Provider>
+  );
+}
+
+/** One app in a grid app list. */
+export function AppGridItem({
+  className,
+  ...props
+}: ComponentProps<typeof Item>) {
+  return (
+    <Item
+      variant="muted"
+      size="sm"
+      className={cn(
+        "group min-w-0 flex-nowrap focus-within:border-ring/50",
+        className,
+      )}
+      {...props}
+    />
   );
 }
 
@@ -28,6 +66,10 @@ export function AppListRow({
   children: ReactNode;
   className?: string;
 }) {
+  const layout = useContext(AppListLayoutContext);
+  if (layout === "grid") {
+    return <AppGridItem className={className}>{children}</AppGridItem>;
+  }
   return (
     <div
       className={cn(

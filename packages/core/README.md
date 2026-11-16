@@ -281,6 +281,7 @@ Explore the [full app gallery](https://agent-native.com/apps?utm_source=npm&utm_
 
 - Read the [documentation](https://agent-native.com/docs?utm_source=npm&utm_medium=referral&utm_content=core-readme).
 - Join [Discord](https://discord.gg/qm82StQ2NC) to ask questions, share what you're building, and get help.
+- The CLI collects anonymous usage data. [Telemetry](https://agent-native.com/docs/telemetry?utm_source=npm&utm_medium=referral&utm_content=core-readme) lists what it sends and how to turn it off.
 
 ## Contributing
 

@@ -17,6 +17,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { draftRevisionPromptArg } from "@/hooks/use-compose-state";
 import { cn, formatShortcut } from "@/lib/utils";
 
 import { getSelectedMarkdown } from "./compose-draft-context";
@@ -225,7 +226,7 @@ export function ComposeBubbleToolbar({
 
     sendToAgent({
       message: aiPrompt.trim(),
-      context: `The user selected specific text in their email draft and wants you to edit only that selected portion. Update the existing draft by calling manage-draft with action "update", id "${draftId}", and body set to the full revised Markdown draft body. Preserve every unselected part of the body exactly, including quoted history. Do not only reply with replacement text.\n\nCurrent Markdown draft body:\n${currentDraftBody || "(empty draft)"}\n\nSelected Markdown slice to edit:\n${selectedMarkdown?.trim() || "(selection could not be serialized; use the plain selected text below)"}\n\nPlain selected text:\n"${selectedText}"\n\nSelection range in the editor document: ${from}-${to}.`,
+      context: `The user selected specific text in their email draft and wants you to edit only that selected portion. Update the existing draft by calling manage-draft with action "update", id "${draftId}"${draftRevisionPromptArg(draftId)}, and body set to the full revised Markdown draft body. Preserve every unselected part of the body exactly, including quoted history. Do not only reply with replacement text.\n\nCurrent Markdown draft body:\n${currentDraftBody || "(empty draft)"}\n\nSelected Markdown slice to edit:\n${selectedMarkdown?.trim() || "(selection could not be serialized; use the plain selected text below)"}\n\nPlain selected text:\n"${selectedText}"\n\nSelection range in the editor document: ${from}-${to}.`,
       submit: true,
     });
 

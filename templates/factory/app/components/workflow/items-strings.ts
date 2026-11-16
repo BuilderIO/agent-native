@@ -297,6 +297,7 @@ export function createItemsStrings(t: Translate<ItemsKey>) {
         needsCheck: (count: number) =>
           t("activity.runCounts.needsCheck", { count }),
         nothing: t("activity.runCounts.nothing"),
+        primed: t("activity.runCounts.primed"),
         summary: (head: string, parts: string) =>
           t("activity.runCounts.summary", { head, parts }),
       },

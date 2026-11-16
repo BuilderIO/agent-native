@@ -4,6 +4,7 @@ import {
   isMissingOrganizationTableError,
   isStandaloneDispatchRuntime,
   type AppRoles,
+  type OrgRole,
   validateFederatedOrganizationMembershipForCurrentRequest,
 } from "@agent-native/core/org";
 import {
@@ -22,19 +23,21 @@ function getDispatchAccess(): AppRoles<"admin", "administer"> {
   }));
 }
 
-export async function authorizeDispatchAdmin(
-  _args: unknown,
-  ctx?: ActionRunContext,
-): Promise<void> {
+/**
+ * The caller's active membership in the request org, or null when there is no
+ * org to check (a user without one, or standalone Dispatch with no org tables).
+ */
+async function requireActiveMembership(
+  ctx: ActionRunContext | undefined,
+  action: string,
+): Promise<{ email: string; orgId: string; role: OrgRole } | null> {
   const email =
     ctx?.userEmail !== undefined ? ctx.userEmail : getRequestUserEmail();
   const orgId = ctx?.orgId !== undefined ? ctx.orgId : getRequestOrgId();
   if (!email?.trim()) {
-    throw new ForbiddenError(
-      "Dispatch administration requires an authenticated user.",
-    );
+    throw new ForbiddenError(`${action} requires an authenticated user.`);
   }
-  if (!orgId?.trim()) return;
+  if (!orgId?.trim()) return null;
   let membership;
   try {
     membership = await validateFederatedOrganizationMembershipForCurrentRequest(
@@ -48,17 +51,46 @@ export async function authorizeDispatchAdmin(
       isMissingOrganizationTableError(error) &&
       isStandaloneDispatchRuntime()
     ) {
-      return;
+      return null;
     }
     throw error;
   }
   if (!membership.active) {
     throw new ForbiddenError(
-      "Dispatch administration requires active organization membership.",
+      `${action} requires active organization membership.`,
     );
   }
+  return { email, orgId, role: membership.role };
+}
+
+export async function authorizeDispatchAdmin(
+  _args: unknown,
+  ctx?: ActionRunContext,
+): Promise<void> {
+  const membership = await requireActiveMembership(
+    ctx,
+    "Dispatch administration",
+  );
+  if (!membership) return;
   await getDispatchAccess().assertPermission(["administer"], {
-    userEmail: email,
-    orgId,
+    userEmail: membership.email,
+    orgId: membership.orgId,
   });
+}
+
+/** Organization owners and admins only; Dispatch admin roles do not count. */
+export async function authorizeOrgOwnerOrAdmin(
+  _args: unknown,
+  ctx?: ActionRunContext,
+): Promise<void> {
+  const membership = await requireActiveMembership(
+    ctx,
+    "This organization setting",
+  );
+  if (!membership) return;
+  if (membership.role !== "owner" && membership.role !== "admin") {
+    throw new ForbiddenError(
+      "Only organization owners and admins can change this setting.",
+    );
+  }
 }

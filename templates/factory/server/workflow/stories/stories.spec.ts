@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { OPERATION_CATALOG } from "../catalog/index.js";
 import { validateWorkflowGraph } from "../graph-validation.js";
 import {
+  AI_USES_UNUSED_ON_PURPOSE,
   REQUIRED,
   UNUSED_ON_PURPOSE,
   computeCoverage,
@@ -133,6 +134,15 @@ describe("the coverage matrix", () => {
         table.operations[operation],
         `${operation} is covered after all`,
       ).toEqual([]);
+    }
+  });
+
+  it("lists only AI uses that exist and are not covered, each with a reason", async () => {
+    const table = computeCoverage(await runAllStories());
+    for (const [use, reason] of Object.entries(AI_USES_UNUSED_ON_PURPOSE)) {
+      expect(Object.keys(table.aiUses), use).toContain(use);
+      expect(reason.trim(), use).not.toBe("");
+      expect(table.aiUses[use], `${use} is covered after all`).toEqual([]);
     }
   });
 

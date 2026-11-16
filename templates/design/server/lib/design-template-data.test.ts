@@ -24,6 +24,23 @@ describe("design template data", () => {
     expect(fonts).toEqual(["Sora"]);
   });
 
+  it("keeps an email screen's frame type when a template is copied", () => {
+    const data = remapTemplateFileIds(
+      redactTemplateDesignData(
+        JSON.stringify({
+          screenMetadata: {
+            old: { width: 600, frameType: "hubspot-email" },
+          },
+        }),
+      ),
+      new Map([["old", "new"]]),
+    );
+
+    expect(data.screenMetadata).toEqual({
+      new: { width: 600, frameType: "hubspot-email" },
+    });
+  });
+
   it("remaps file-addressed canvas and screen metadata", () => {
     const data = remapTemplateFileIds(
       JSON.stringify({
@@ -194,6 +211,25 @@ describe("design template data", () => {
     expect(data).not.toHaveProperty("bridgeUrl");
     expect(data).not.toHaveProperty("url");
     expect(data).not.toHaveProperty("previewUrl");
+  });
+
+  it("leaves out the Content pages the source design was built from", () => {
+    const data = JSON.parse(
+      redactTemplateDesignData(
+        JSON.stringify({
+          title: "Launch page",
+          briefs: [
+            {
+              source: "content",
+              id: "page-one",
+              url: "https://content.example.com/_agent-native/open?documentId=page-one",
+            },
+          ],
+        }),
+      ),
+    ) as Record<string, unknown>;
+
+    expect(data).toEqual({ title: "Launch page" });
   });
 
   it("preserves remote root URLs for explicit non-local sources", () => {

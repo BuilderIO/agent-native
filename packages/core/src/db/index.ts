@@ -35,7 +35,14 @@ export {
   type DbExecStatement,
 } from "./client.js";
 export { table, text, integer, real, now } from "./schema.js";
-export { sql, type SqlFragment, type SqlTag } from "./sql.js";
+export {
+  sql,
+  withSqlBudget,
+  type BudgetedSqlFragment,
+  type SqlExecutionBudget,
+  type SqlFragment,
+  type SqlTag,
+} from "./sql.js";
 export {
   ensureAdditiveColumns,
   type EnsureAdditiveColumnsOptions,

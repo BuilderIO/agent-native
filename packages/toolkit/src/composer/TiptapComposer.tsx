@@ -1,6 +1,7 @@
 import { useComposer, useComposerRuntime } from "@assistant-ui/react";
 import {
   IconCheck,
+  IconSearch,
   IconChevronDown,
   IconBulb,
   IconClock,
@@ -8,12 +9,13 @@ import {
   IconTool,
   IconX,
   IconClipboardList,
-  IconAlertCircle,
+  IconAlertTriangle,
   IconLoader2,
   IconRefresh,
 } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/core";
 import Placeholder from "@tiptap/extension-placeholder";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { useEditor, EditorContent } from "@tiptap/react";
@@ -24,6 +26,7 @@ import React, {
   useEffect,
   useLayoutEffect,
   useCallback,
+  useId,
   useImperativeHandle,
   useMemo,
 } from "react";
@@ -46,7 +49,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu.js";
-import { Popover, PopoverAnchor, PopoverContent } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
 import { ComposerNotice } from "./composer-notice.js";
@@ -77,15 +79,11 @@ import {
   resolvePreferredAgentModel,
 } from "./model-selection.js";
 import {
-  hasModelDetails,
-  RecommendedBadge,
-  ModelDetailsCard,
-} from "./ModelPickerParts.js";
-import {
   createPastedAttachmentFile,
   readClipboardPaste,
   shouldConvertClipboardToAttachment,
 } from "./pasted-text.js";
+import { COMPOSER_POPOVER_SURFACE_CLASS } from "./popover-surface.js";
 import {
   AGENT_CHAT_INSERT_REFERENCE_EVENT,
   AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
@@ -112,7 +110,11 @@ import type {
   ComposerMode,
   AgentComposerLayoutVariant,
 } from "./types.js";
-import { useMentionSearch } from "./use-mention-search.js";
+import {
+  useMentionSearch,
+  loadWorkspaceMentionItems,
+  MentionSearchError,
+} from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
 import {
   RealtimeVoiceModeBoundary,
@@ -329,33 +331,32 @@ export function isVoicePreviewRangeValid(options: {
   return options.currentText === options.previewText;
 }
 
-// The doc can change under dictation (edit, clear, submit), so the stored
-// anchor/preview must be re-checked against it before any range edit.
+// The editor can be cleared or edited (message sent, draft replaced) while
+// dictation is live, leaving the stored anchor past the end of the document.
 function isVoicePreviewIntact(
-  doc: {
-    content: { size: number };
-    textBetween(
-      from: number,
-      to: number,
-      blockSeparator?: string,
-      leafText?: string,
-    ): string;
-  },
+  ed: Editor,
   anchor: number,
   previewText: string,
-  selectionFrom: number,
 ): boolean {
-  if (!previewText) return anchor >= 1 && selectionFrom === anchor;
-  const documentSize = doc.content.size;
+  const documentSize = ed.state.doc.content.size;
+  if (!previewText) {
+    return (
+      anchor >= 1 &&
+      anchor <= documentSize &&
+      ed.state.selection.empty &&
+      ed.state.selection.from === anchor
+    );
+  }
   const end = anchor + previewText.length;
+  const currentText =
+    anchor >= 1 && end <= documentSize
+      ? ed.state.doc.textBetween(anchor, end, "", "\n")
+      : "";
   return isVoicePreviewRangeValid({
     documentSize,
     anchor,
     previewText,
-    currentText:
-      anchor >= 1 && end <= documentSize
-        ? doc.textBetween(anchor, end, "", "\n")
-        : "",
+    currentText,
   });
 }
 
@@ -512,6 +513,20 @@ export function mentionItemMatchesQuery(
   );
 }
 
+/**
+ * The items that match a query, in their given order except that one named
+ * exactly by the query comes first, so typing a whole name or alias and
+ * pressing Enter picks it over an earlier item that merely contains the text.
+ */
+export function mentionItemsForQuery(
+  items: MentionItem[],
+  query: string,
+): MentionItem[] {
+  const matches = items.filter((item) => mentionItemMatchesQuery(item, query));
+  const exact = findExactMentionItem(matches, query.trim());
+  return exact ? [exact, ...matches.filter((item) => item !== exact)] : matches;
+}
+
 export function findExactMentionItem(
   items: MentionItem[],
   query: string,
@@ -555,10 +570,11 @@ function referenceFromComposerReference(
     name: ref.label,
     source: ref.source || "",
     refType: ref.refType,
-    refId: ref.refId || undefined,
-    slotKey: ref.slotKey,
-    slotLabel: ref.slotLabel,
-    metadata: ref.metadata,
+    // Chip attrs default to null; the run protocol rejects null optionals.
+    ...(ref.refId ? { refId: ref.refId } : {}),
+    ...(ref.slotKey ? { slotKey: ref.slotKey } : {}),
+    ...(ref.slotLabel ? { slotLabel: ref.slotLabel } : {}),
+    ...(ref.metadata ? { metadata: ref.metadata } : {}),
   };
 }
 
@@ -795,6 +811,45 @@ function readComposerDraft(value: string): {
   return { html: parsed.html, slotReferences: parsed.slotReferences };
 }
 
+/**
+ * Drafts are written to localStorage so a refresh keeps the prompt. They are
+ * only read back inside the browser-tab session that wrote them: sessionStorage
+ * survives a reload, so a refresh restores the prompt, while a new tab, a later
+ * session or another account sharing the profile starts empty. Without that
+ * boundary a draft typed once resurfaced as somebody else's text in a fresh
+ * panel.
+ */
+const COMPOSER_DRAFT_SESSION_PREFIX = "an-composer-draft-session:";
+
+function composerDraftSessionKey(draftKey: string): string {
+  return `${COMPOSER_DRAFT_SESSION_PREFIX}${draftKey}`;
+}
+
+function markComposerDraftSession(draftKey: string): void {
+  try {
+    sessionStorage.setItem(composerDraftSessionKey(draftKey), "1");
+  } catch {
+    // coercion-ok: without sessionStorage the draft still restores (see below).
+  }
+}
+
+function forgetComposerDraftSession(draftKey: string): void {
+  try {
+    sessionStorage.removeItem(composerDraftSessionKey(draftKey));
+  } catch {
+    // coercion-ok: nothing to forget when sessionStorage is unavailable.
+  }
+}
+
+function composerDraftBelongsToThisSession(draftKey: string): boolean {
+  try {
+    return sessionStorage.getItem(composerDraftSessionKey(draftKey)) === "1";
+  } catch {
+    // coercion-ok: a browser without sessionStorage keeps the old restore.
+    return true;
+  }
+}
+
 function writeComposerDraft(
   draftKey: string | null,
   html: string,
@@ -804,6 +859,7 @@ function writeComposerDraft(
   try {
     if (!html.trim() && slotReferences.length === 0) {
       localStorage.removeItem(draftKey);
+      forgetComposerDraftSession(draftKey);
     } else if (slotReferences.length > 0) {
       localStorage.setItem(
         draftKey,
@@ -816,6 +872,8 @@ function writeComposerDraft(
     } else {
       localStorage.setItem(draftKey, html);
     }
+    if (html.trim() || slotReferences.length > 0)
+      markComposerDraftSession(draftKey);
   } catch {
     // coercion-ok: Browser storage is optional and can be unavailable or full.
   }
@@ -836,6 +894,24 @@ function composerDocumentHasContent(doc: ComposerDocument): boolean {
     return true;
   });
   return hasContent;
+}
+
+function composerReferenceSignature(
+  doc: Pick<ProseMirrorNode, "descendants">,
+): string {
+  const references: unknown[] = [];
+  doc.descendants((node) => {
+    if (
+      node.type.name === "mentionReference" ||
+      node.type.name === "fileReference" ||
+      node.type.name === "skillReference"
+    ) {
+      references.push([node.type.name, node.attrs]);
+      return false;
+    }
+    return true;
+  });
+  return JSON.stringify(references);
 }
 
 function persistComposerDraft(
@@ -869,6 +945,7 @@ function clearComposerDraft(
       return;
     }
     localStorage.removeItem(draftKey);
+    forgetComposerDraftSession(draftKey);
   } catch {
     // coercion-ok: browser storage is optional and can be unavailable or full.
   }
@@ -1140,7 +1217,7 @@ function ComposerChip({
   return (
     <span
       data-agent-composer-slot={slot}
-      className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-muted/50 px-1.5 text-xs font-medium text-foreground"
+      className="inline-flex h-6 items-center gap-1 rounded-[var(--agent-kit-radius-xs,0.25rem)] border border-border bg-muted/50 px-1.5 text-xs font-medium text-foreground"
     >
       <Icon className="h-3 w-3 text-muted-foreground" />
       {label}
@@ -1148,7 +1225,7 @@ function ComposerChip({
         type="button"
         onClick={onRemove}
         aria-label={removeLabel}
-        className="-my-1 -me-1.5 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+        className="-my-1 -me-1.5 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:text-foreground"
       >
         <IconX aria-hidden="true" className="h-3 w-3" />
       </button>
@@ -1283,9 +1360,11 @@ export interface TiptapComposerProps {
   /** Extra button to render alongside the primary action. */
   extraActionButton?: React.ReactNode;
   /**
-   * Stop control rendered beside send while a run is active, whatever the
-   * draft holds. Pass it only while there is something to stop; Escape in the
-   * editor clicks it when it is enabled.
+   * Stop control for an active run. It takes the primary slot while the
+   * composer is empty and gives it to Send once a draft exists; it stays
+   * mounted, so Escape in the editor still clicks it when it is enabled.
+   * During voice chat it sits beside End voice chat, which does not stop the
+   * run. Pass it only while there is something to stop.
    */
   stopButton?: React.ReactNode;
   /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */
@@ -1321,6 +1400,11 @@ export interface TiptapComposerProps {
   planCommand?: boolean;
   /** Show the microphone button for voice dictation. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
+  /**
+   * Give dictation a global mod+d accelerator (default false). Hosts that bind Cmd+D to their own
+   * action leave it off, since an unconditional window listener would swallow that shortcut.
+   */
+  dictationShortcut?: boolean;
   /** Let an empty draft turn Send into the voice-chat button (default: true). Dictation is unaffected. */
   voiceChatEnabled?: boolean;
   /** Starts voice chat from the empty Send slot in place of the provider's default start. */
@@ -1347,6 +1431,17 @@ export interface TiptapComposerProps {
   }>;
   /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
+  /**
+   * Show the chevron after the model name (default true). A host with a compact trigger
+   * can turn it off without losing the menu.
+   */
+  modelSelectorChevron?: boolean;
+  /**
+   * Name the selection in the trigger even while the selected provider is unset (default false).
+   * The picker keeps the connect rows, so setup is still reachable, but the trigger keeps the
+   * model name instead of a setup label.
+   */
+  modelTriggerNamesSelectionOnly?: boolean;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks an effort */
@@ -1398,6 +1493,11 @@ export interface TiptapComposerProps {
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
+  /**
+   * Claims a paste as app context before the composer handles it. Return true
+   * when the paste was taken, so nothing is inserted or attached.
+   */
+  onPasteContext?: (clipboard: DataTransfer) => boolean;
   /** Shared + menu entries; matching IDs replace built-in full-mode actions. */
   contextMenuItems?: readonly ComposerContextMenuItem[];
   /**
@@ -1407,7 +1507,7 @@ export interface TiptapComposerProps {
    * host-context launcher without full-mode actions. `"hidden"` suppresses
    * the launcher unless the host explicitly provides `contextMenuItems`.
    */
-  plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
+  plusMenuMode?: "full" | "upload-only" | "attach-only" | "terminal" | "hidden";
   /** Controls the terminal-specific plus menu when `plusMenuMode` is terminal. */
   terminalModeControl?: ComposerTerminalModeControl;
   /**
@@ -1698,9 +1798,7 @@ export const MODEL_SELECTOR_POPOVER_STYLE = {
 
 type ModelPickerSection = "more" | "effort" | "image" | "agent" | "mode";
 const MODEL_PICKER_STACK_BELOW_PX = 544;
-// The shared menu primitives as they come; only the stacking order and a
-// scrollable height are added, since the composer sits above app overlays.
-const MODEL_SELECTOR_MENU_CLASS = "z-[9999] overflow-y-auto";
+const MODEL_SELECTOR_MENU_CLASS = COMPOSER_POPOVER_SURFACE_CLASS;
 const MODEL_PICKER_TWO_LINE_ITEM_CLASS = "flex-col items-start gap-0 py-1.5";
 
 /**
@@ -1864,10 +1962,6 @@ interface ModelPickerRow {
   model: string;
   engine: string;
   label: string;
-  /** The card's title: the row's name without a provider suffix. */
-  cardName: string;
-  /** Marked with the Recommended badge (Auto). */
-  recommended?: boolean;
   description?: ComposerModelDescription | undefined;
   identity: string;
   recommendedRank?: number | undefined;
@@ -1890,12 +1984,14 @@ function ModelSelector({
   hostedHarness = false,
   showAutoModelOption = true,
   modelListLoading = false,
+  modelSelectorChevron = true,
   open: controlledOpen,
   onChange,
   onEffortChange,
   onAgentChange,
   onModelSelectorOpenChange,
   providerConnectStatusEnabled = true,
+  modelTriggerNamesSelectionOnly = false,
   onConnectProvider,
   onConnectLocalRuntime,
   terminalModeControl,
@@ -1921,10 +2017,12 @@ function ModelSelector({
   agentOnly?: boolean;
   showAutoModelOption?: boolean;
   modelListLoading?: boolean;
+  modelSelectorChevron?: boolean;
   onChange: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
   onAgentChange?: (agent: string) => void;
   providerConnectStatusEnabled?: boolean;
+  modelTriggerNamesSelectionOnly?: boolean;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
   terminalModeControl?: ComposerTerminalModeControl;
@@ -1936,7 +2034,6 @@ function ModelSelector({
 }) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate;
-  const formatNumber = adapters.formatNumber;
   const reasoning = adapters.models?.reasoning;
   const engineNames = useMemo(
     () => engines.map((group) => group.engine),
@@ -2052,11 +2149,35 @@ function ModelSelector({
   );
   const selectedAgentLabel = selectedAgentOption?.label ?? "Default";
 
+  // The model menu sits above its trigger, but the reply box extends further up than the trigger
+  // does, so a 6px offset let the menu cover the box. On open, clear the whole
+  // composer root instead of only the button.
+  const [modelMenuOffset, setModelMenuOffset] = useState(6);
+  // The space above the trigger is what the menu may occupy. A menu taller than that overflows back
+  // over the reply box (re-measured at 102px of overlap with a hit test landing
+  // inside the menu), so the room is measured on open and the menu is capped to it: it scrolls inside
+  // the cap instead of covering the box or flipping underneath it.
+  const [modelMenuMaxHeight, setModelMenuMaxHeight] = useState<number | null>(
+    null,
+  );
+  const modelTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const handleModelMenuOpenChange = (next: boolean) => {
+    setPickerOpen(next);
+    if (!next) return;
+    const trigger = modelTriggerRef.current;
+    const root = trigger?.closest(".agent-composer-root");
+    if (!trigger) return;
+    const triggerTop = trigger.getBoundingClientRect().top;
+    if (root) {
+      const clearance = triggerTop - root.getBoundingClientRect().top;
+      setModelMenuOffset(Math.max(6, Math.round(clearance) + 8));
+    }
+    // 16px keeps the menu off the window's own top edge and off the composer's border.
+    setModelMenuMaxHeight(Math.max(160, Math.round(triggerTop - 16)));
+  };
   const [openSection, setOpenSection] = useState<ModelPickerSection | null>(
     null,
   );
-  const [highlightedRow, setHighlightedRow] = useState<string | null>(null);
-  const [moreSide, setMoreSide] = useState<"left" | "right">("right");
   const sectionTriggerRefs = useRef<
     Partial<Record<ModelPickerSection, HTMLDivElement | null>>
   >({});
@@ -2066,7 +2187,6 @@ function ModelSelector({
       if (controlledOpen === undefined) setInternalOpen(nextOpen);
       if (!nextOpen) {
         setOpenSection(null);
-        setHighlightedRow(null);
       }
       onModelSelectorOpenChange?.(nextOpen);
     },
@@ -2139,7 +2259,6 @@ function ModelSelector({
               model: candidate,
               engine: group.engine,
               label,
-              cardName: label,
               description,
               identity: description?.catalogId ?? candidate,
               recommendedRank: description?.recommended
@@ -2179,8 +2298,6 @@ function ModelSelector({
             model: "auto",
             engine: autoModelGroup.engine,
             label: t("agentChat.composer.auto", { defaultValue: "Auto" }),
-            cardName: t("agentChat.composer.auto", { defaultValue: "Auto" }),
-            recommended: description?.recommended === true,
             description,
             identity: "auto",
           };
@@ -2209,10 +2326,14 @@ function ModelSelector({
     selectedModelDisplayName ??
     selectedModelDescription?.name ??
     friendlyModelName(model, t);
+  // An empty list mid-load says nothing about connection; judging it now
+  // flashes "Connect agent" at a connected user.
+  const awaitingModelList = modelListLoading && providerGroups.length === 0;
   const selectedModelNeedsConnection =
-    onlyConnectPathAvailable ||
-    (selectedModelProviderGroups.length > 0 &&
-      selectedModelProviderGroups.every((group) => !group.configured));
+    !awaitingModelList &&
+    (onlyConnectPathAvailable ||
+      (selectedModelProviderGroups.length > 0 &&
+        selectedModelProviderGroups.every((group) => !group.configured)));
   // Only a loaded list that names providers, none of them connected, means
   // setup. A selected model on an unconnected provider still has others, and
   // an empty list is a catalog that failed to load, not proof of anything.
@@ -2227,13 +2348,21 @@ function ModelSelector({
   );
   // One connect label on every surface: hosts differ in which connect paths
   // they offer, and the picker lists those paths.
-  const selectedModelButtonLabel = selectedModelNeedsConnection
-    ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
-    : model === "auto" && autoRow
-      ? autoRow.label
-      : (selectedModelDisplayName ??
-        selectedModelDescription?.shortName ??
-        selectedModelFriendlyName);
+  // An empty selection is "no override", which is the engine default the picker
+  // lists as Auto; reading it through the model description instead printed the
+  // catalogue's generic "Default model" entry while a host resolved its
+  // selection. Both spellings of "nothing chosen" read Auto here, and the Auto
+  // row's own label wins when it has one.
+  // `modelTriggerNamesSelectionOnly` opts out of the setup label; the picker keeps its setup rows.
+  const selectedModelButtonLabel =
+    selectedModelNeedsConnection && !modelTriggerNamesSelectionOnly
+      ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
+      : model === "auto" || model === ""
+        ? (autoRow?.label ??
+          t("agentChat.composer.auto", { defaultValue: "Auto" }))
+        : (selectedModelDisplayName ??
+          selectedModelDescription?.shortName ??
+          selectedModelFriendlyName);
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -2264,78 +2393,79 @@ function ModelSelector({
   }
 
   // Two menus side by side need about 34rem; below that a submenu cannot
-  // clear the viewport on either side, so the sections stack in one menu and
-  // the model card, which needs the same room, stays hidden.
+  // clear the viewport on either side, so the sections stack in one menu.
   const stacked =
     open &&
     typeof window !== "undefined" &&
     window.innerWidth < MODEL_PICKER_STACK_BELOW_PX;
 
-  const connectItems = showProviderActions ? (
-    <>
-      {showBuilderAction && BuilderConnectPopover ? (
-        <>
-          <BuilderConnectPopover
-            flow={builderFlow}
-            onConnect={(provisionAccount) => {
-              if (onConnectProvider && !provisionAccount) {
-                onConnectProvider();
-              } else {
-                builderFlow.start({ provisionAccount });
-              }
-            }}
+  const connectItems =
+    showProviderActions && !awaitingModelList ? (
+      <>
+        {showBuilderAction && BuilderConnectPopover ? (
+          <>
+            <BuilderConnectPopover
+              flow={builderFlow}
+              keepOpenOnFocusOutside
+              onConnect={(provisionAccount) => {
+                if (onConnectProvider && !provisionAccount) {
+                  onConnectProvider();
+                } else {
+                  builderFlow.start({ provisionAccount });
+                }
+              }}
+            >
+              <DropdownMenuItem
+                disabled={builderFlow.connecting}
+                // The Builder choice opens its own popover from this row.
+                onSelect={(event) => event.preventDefault()}
+                className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
+              >
+                <span className="block font-medium text-foreground">
+                  {builderFlow.connecting
+                    ? t("agentPanel.connectingBuilder", {
+                        defaultValue: "Setting up Builder.io…",
+                      })
+                    : t("agentPanel.connectBuilderIo", {
+                        defaultValue: "Use Builder.io",
+                      })}
+                </span>
+                <span className="block agent-kit-caption-copy text-muted-foreground">
+                  {t("agentPanel.builderModelCredits", {
+                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
+                  })}
+                </span>
+              </DropdownMenuItem>
+            </BuilderConnectPopover>
+            {!onConnectProvider && builderFlow.error && (
+              <p
+                role="alert"
+                className="px-2 pb-2 agent-kit-caption-copy agent-kit-tone-warning"
+              >
+                {builderFlow.error}
+              </p>
+            )}
+          </>
+        ) : null}
+        {showAddKeysAction && (
+          <DropdownMenuItem
+            onSelect={openLlmSettings}
+            className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
           >
-            <DropdownMenuItem
-              disabled={builderFlow.connecting}
-              // The Builder choice opens its own popover from this row.
-              onSelect={(event) => event.preventDefault()}
-              className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
-            >
-              <span className="block font-medium text-foreground">
-                {builderFlow.connecting
-                  ? t("agentPanel.connectingBuilder", {
-                      defaultValue: "Setting up Builder.io…",
-                    })
-                  : t("agentPanel.connectBuilderIo", {
-                      defaultValue: "Use Builder.io",
-                    })}
-              </span>
-              <span className="block agent-kit-caption-copy text-muted-foreground">
-                {t("agentPanel.builderModelCredits", {
-                  defaultValue: "Free credits for Claude, OpenAI & Gemini",
-                })}
-              </span>
-            </DropdownMenuItem>
-          </BuilderConnectPopover>
-          {!onConnectProvider && builderFlow.error && (
-            <p
-              role="alert"
-              className="px-2 pb-2 agent-kit-caption-copy text-destructive"
-            >
-              {builderFlow.error}
-            </p>
-          )}
-        </>
-      ) : null}
-      {showAddKeysAction && (
-        <DropdownMenuItem
-          onSelect={openLlmSettings}
-          className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
-        >
-          <span className="block font-medium text-foreground">
-            {t("agentPanel.addOwnKeys", {
-              defaultValue: "Add your own keys",
-            })}
-          </span>
-          <span className="block agent-kit-caption-copy text-muted-foreground">
-            {t("agentPanel.configureProviderKeys", {
-              defaultValue: "Choose a cloud, gateway, or local provider",
-            })}
-          </span>
-        </DropdownMenuItem>
-      )}
-    </>
-  ) : null;
+            <span className="block font-medium text-foreground">
+              {t("agentPanel.addOwnKeys", {
+                defaultValue: "Add your own keys",
+              })}
+            </span>
+            <span className="block agent-kit-caption-copy text-muted-foreground">
+              {t("agentPanel.configureProviderKeys", {
+                defaultValue: "Choose a cloud, gateway, or local provider",
+              })}
+            </span>
+          </DropdownMenuItem>
+        )}
+      </>
+    ) : null;
 
   const agentItems = hasAgentSection ? (
     <>
@@ -2370,7 +2500,7 @@ function ModelSelector({
             >
               <span className="min-w-0 flex-1 truncate">{agent.label}</span>
               {statusLabel ? (
-                <span className="ms-auto max-w-[6rem] shrink-0 truncate agent-kit-micro-copy text-muted-foreground/70">
+                <span className="ms-auto max-w-[6rem] shrink-0 truncate agent-kit-micro-copy text-muted-foreground">
                   {statusLabel}
                 </span>
               ) : null}
@@ -2392,7 +2522,7 @@ function ModelSelector({
           );
         })}
       </DropdownMenuRadioGroup>
-      <DropdownMenuSeparator className="my-1" />
+      <DropdownMenuSeparator />
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuItem asChild inset>
@@ -2441,90 +2571,25 @@ function ModelSelector({
 
   const renderModelRow = (
     row: ModelPickerRow,
-    cardSide: "left" | "right",
-    options: { shortcut?: number; section?: ModelPickerSection } = {},
+    options: { shortcut?: number } = {},
   ) => {
-    const { shortcut, section } = options;
+    const { shortcut } = options;
     const selected = isSelectedRow(row);
-    const details = hasModelDetails(row.description)
-      ? row.description
-      : undefined;
-    const cardOpen = !stacked && details && highlightedRow === row.key;
-    const cardId = `${row.key}-card`;
-    const item = (
+    return (
       <DropdownMenuItem
         key={row.key}
         role="menuitemradio"
         aria-checked={selected}
-        aria-describedby={cardOpen ? cardId : undefined}
+        // Digits 1-9 pick these rows; announced, not printed beside every name.
+        aria-keyshortcuts={shortcut === undefined ? undefined : `${shortcut}`}
         data-agent-composer-model-row={row.model}
         onSelect={() => selectModel(row.model, row.engine)}
-        onFocus={(event) => {
-          setHighlightedRow(row.key);
-          // A submenu row's card goes on the far side of its submenu.
-          const side = event.currentTarget
-            .closest("[data-agent-composer-model-panel]")
-            ?.getAttribute("data-side");
-          if (side === "left" || side === "right") setMoreSide(side);
-        }}
-        onBlur={() =>
-          setHighlightedRow((current) => (current === row.key ? null : current))
-        }
       >
-        <span className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate">{row.label}</span>
-          {row.recommended ? <RecommendedBadge t={t} /> : null}
-        </span>
-        {shortcut !== undefined ? (
-          // One trailing column: the current row's check takes the place of
-          // its number, at the same width, so no row shifts.
-          <DropdownMenuShortcut>
-            {selected ? <IconCheck aria-hidden="true" /> : shortcut}
-          </DropdownMenuShortcut>
-        ) : (
-          <DropdownMenuTrailing>
-            {selected ? <IconCheck aria-hidden="true" /> : null}
-          </DropdownMenuTrailing>
-        )}
+        <span className="min-w-0 flex-1 truncate">{row.label}</span>
+        <DropdownMenuTrailing>
+          {selected ? <IconCheck aria-hidden="true" /> : null}
+        </DropdownMenuTrailing>
       </DropdownMenuItem>
-    );
-    if (!details || stacked) return item;
-    return (
-      <Popover key={row.key} open={Boolean(cardOpen)}>
-        <PopoverAnchor asChild>{item}</PopoverAnchor>
-        <PopoverContent
-          id={cardId}
-          role="tooltip"
-          side={cardSide}
-          align="start"
-          sideOffset={8}
-          collisionPadding={8}
-          // The card describes the focused row; focus stays in the menu.
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          onCloseAutoFocus={(event) => event.preventDefault()}
-          // The card is the top layer, so it receives the Escape meant for
-          // the menu under it: close that menu, one level at a time.
-          onEscapeKeyDown={(event) => {
-            if (!section) {
-              setPickerOpen(false);
-              return;
-            }
-            event.preventDefault();
-            setHighlightedRow(null);
-            setOpenSection(null);
-            sectionTriggerRefs.current[section]?.focus();
-          }}
-          data-agent-native-composer-popover="true"
-          className="pointer-events-none z-[9999]"
-        >
-          <ModelDetailsCard
-            name={row.cardName}
-            description={details}
-            t={t}
-            formatNumber={formatNumber}
-          />
-        </PopoverContent>
-      </Popover>
     );
   };
 
@@ -2537,6 +2602,17 @@ function ModelSelector({
 
   const primaryItems = (
     <>
+      {awaitingModelList ? (
+        <div
+          role="status"
+          aria-busy="true"
+          className="agent-composer-model-loading flex flex-col gap-2 px-2 py-2"
+        >
+          <div className="h-4 w-40 animate-pulse rounded bg-muted" />
+          <div className="h-4 w-32 animate-pulse rounded bg-muted" />
+          <div className="h-4 w-36 animate-pulse rounded bg-muted" />
+        </div>
+      ) : null}
       {connectItems}
       {hasConfiguredProvider &&
         isCodexAgent &&
@@ -2553,24 +2629,20 @@ function ModelSelector({
                 defaultValue: "No OpenAI models configured",
               })}
             </span>
-            <span className="shrink-0 agent-kit-caption-copy text-muted-foreground/70">
+            <span className="shrink-0 agent-kit-caption-copy text-muted-foreground">
               Configure
             </span>
           </DropdownMenuItem>
         )}
       {shortcutRows.map((row, index) =>
-        renderModelRow(row, "left", { shortcut: index + 1 }),
+        renderModelRow(row, { shortcut: index + 1 }),
       )}
     </>
   );
 
   const moreItems =
     moreRows.length > 0 ? (
-      <>
-        {moreRows.map((row) =>
-          renderModelRow(row, moreSide, stacked ? {} : { section: "more" }),
-        )}
-      </>
+      <>{moreRows.map((row) => renderModelRow(row))}</>
     ) : null;
 
   const imageItems =
@@ -2632,11 +2704,8 @@ function ModelSelector({
                 setPickerOpen(false);
               }}
             >
-              <span className="flex min-w-0 flex-1 items-center gap-2">
-                <span className="truncate">{effortLabel(level)}</span>
-                {level === providerDefaultEffort ? (
-                  <RecommendedBadge t={t} />
-                ) : null}
+              <span className="min-w-0 flex-1 truncate">
+                {effortLabel(level)}
               </span>
               <DropdownMenuTrailing>
                 {selected ? <IconCheck aria-hidden="true" /> : null}
@@ -2712,7 +2781,7 @@ function ModelSelector({
         data-agent-composer-model-group={section.key}
       >
         {leading || section !== otherSections[0] ? (
-          <DropdownMenuSeparator className="my-1" />
+          <DropdownMenuSeparator />
         ) : null}
         <DropdownMenuLabel>{section.label}</DropdownMenuLabel>
         {section.content}
@@ -2759,18 +2828,21 @@ function ModelSelector({
       </DropdownMenuSub>
     );
 
-  const hasPrimaryItems = Boolean(connectItems) || shortcutRows.length > 0;
+  const hasPrimaryItems =
+    awaitingModelList || Boolean(connectItems) || shortcutRows.length > 0;
   const showEffortInLabel =
     effortOptions.length > 0 &&
     !selectedModelNeedsConnection &&
+    !awaitingModelList &&
     effectiveEffort !== undefined &&
     effectiveEffort !== "auto";
 
   return (
-    <DropdownMenu open={open} onOpenChange={setPickerOpen}>
+    <DropdownMenu open={open} onOpenChange={handleModelMenuOpenChange}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
+          ref={modelTriggerRef}
           data-agent-composer-slot="model-button"
           // Screen readers in browse mode activate with a bare click,
           // which the menu trigger ignores because it opens on pointer
@@ -2797,7 +2869,7 @@ function ModelSelector({
                 })}: ${effortValueLabel}`
               : ""
           }`}
-          className="agent-composer-model-button flex min-w-[var(--agentkit-composer-model-min-width,min(8rem,100%))] max-w-[var(--agentkit-composer-model-max-width,none)] shrink items-center gap-1 overflow-hidden rounded-[var(--agentkit-composer-control-radius,var(--radius-md))] px-[var(--agentkit-composer-toolbar-control-padding-inline,0.5rem)] py-1 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          className="agent-composer-model-button flex min-w-[var(--agentkit-composer-model-min-width,min(8rem,100%))] max-w-[var(--agentkit-composer-model-max-width,none)] shrink items-center gap-1 overflow-hidden rounded-[var(--agentkit-composer-control-radius,var(--agent-kit-radius-xs,0.25rem))] px-[var(--agentkit-composer-toolbar-control-padding-inline,0.5rem)] py-1 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground aria-expanded:bg-accent/50 aria-expanded:text-foreground"
         >
           <span className="agent-composer-model-name min-w-0 truncate text-foreground">
             {selectedAgentOption?.icon ? (
@@ -2805,29 +2877,46 @@ function ModelSelector({
                 {selectedAgentOption.icon}
               </span>
             ) : null}
-            {selectedAgentOption && selectedAgentOption.id !== "default"
-              ? selectedAgentLabel
-              : selectedModelButtonLabel}
+            {selectedAgentOption && selectedAgentOption.id !== "default" ? (
+              selectedAgentLabel
+            ) : awaitingModelList ? (
+              // The default model name is a guess until the list says what is connected.
+              <span
+                aria-hidden="true"
+                className="inline-block h-3.5 w-20 animate-pulse rounded bg-muted align-middle"
+              />
+            ) : (
+              selectedModelButtonLabel
+            )}
           </span>
           {showEffortInLabel && (
             <span className="agent-composer-model-effort shrink-0 text-muted-foreground">
               {effortLabel(effectiveEffort)}
             </span>
           )}
-          <IconChevronDown
-            aria-hidden="true"
-            className="h-4 w-4 shrink-0 opacity-60"
-          />
+          {modelSelectorChevron && (
+            <IconChevronDown
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 opacity-60"
+            />
+          )}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         side="top"
         align="end"
-        sideOffset={6}
+        sideOffset={modelMenuOffset}
         collisionPadding={8}
         data-agent-native-composer-popover="true"
         className={MODEL_SELECTOR_MENU_CLASS}
-        style={MODEL_SELECTOR_POPOVER_STYLE}
+        style={
+          modelMenuMaxHeight === null
+            ? MODEL_SELECTOR_POPOVER_STYLE
+            : {
+                ...MODEL_SELECTOR_POPOVER_STYLE,
+                maxHeight: `${modelMenuMaxHeight}px`,
+              }
+        }
         onKeyDown={(event) => {
           if (
             event.altKey ||
@@ -2851,7 +2940,7 @@ function ModelSelector({
             {primaryItems}
             {moreSection ? renderSection(moreSection, true) : null}
             {otherSections.length > 0 && (hasPrimaryItems || moreSection) ? (
-              <DropdownMenuSeparator className="my-1" />
+              <DropdownMenuSeparator />
             ) : null}
             {otherSections.map((section) => renderSection(section, false))}
           </>
@@ -2984,6 +3073,7 @@ function TiptapComposerSurface({
   onSlashCommand,
   planCommand = false,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
+  dictationShortcut = false,
   voiceChatEnabled = true,
   onVoiceChatStart,
   selectedModel,
@@ -2993,6 +3083,7 @@ function TiptapComposerSurface({
   modelSelectorOpen,
   availableModels,
   modelListLoading,
+  modelSelectorChevron = true,
   onModelChange,
   onEffortChange,
   availableAgents,
@@ -3002,6 +3093,7 @@ function TiptapComposerSurface({
   onAgentChange,
   onModelSelectorOpenChange,
   providerConnectStatusEnabled,
+  modelTriggerNamesSelectionOnly,
   onConnectProvider,
   onConnectLocalRuntime,
   setupCardVisible = false,
@@ -3011,6 +3103,7 @@ function TiptapComposerSurface({
   contextItems: providedContextItems,
   onRemoveContextItem,
   onRetryContextItem,
+  onPasteContext,
   contextMenuItems,
   plusMenuMode = "full",
   terminalModeControl,
@@ -3067,6 +3160,10 @@ function TiptapComposerSurface({
     id: string;
   } | null>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
+  const mentionListboxId = useId();
+  const [activeMentionOptionId, setActiveMentionOptionId] = useState<
+    string | undefined
+  >(undefined);
   const composerRuntime = useComposerRuntime();
   const lastComposerRuntimeSyncRef = useRef<{
     text: string;
@@ -3188,6 +3285,8 @@ function TiptapComposerSurface({
   const composingRef = useRef(false);
   const voiceCapturingRef = useRef(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const onPasteContextRef = useRef(onPasteContext);
+  onPasteContextRef.current = onPasteContext;
   const onAttachmentErrorRef = useRef(onAttachmentError);
   // Many standalone prompts pass no handler; a rejected file must still say so.
   onAttachmentErrorRef.current = onAttachmentError ?? setAttachmentError;
@@ -3212,7 +3311,7 @@ function TiptapComposerSurface({
     settledQuery: settledMentionQuery,
   } = useMentionSearch(
     popover?.type === "@" ? popover.query : "",
-    includeDefaultMentionSearch && (contextMenuOpen || popover?.type === "@"),
+    includeDefaultMentionSearch && popover?.type === "@",
   );
   const mentionQuery = popover?.type === "@" ? popover.query : "";
   const filteredMentionItems = useMemo(
@@ -3220,9 +3319,7 @@ function TiptapComposerSurface({
       filterMentionItemsForSlots(
         [
           // Host items arrive unfiltered; the default search filters itself.
-          ...hostMentionItems.filter((item) =>
-            mentionItemMatchesQuery(item, mentionQuery),
-          ),
+          ...mentionItemsForQuery(hostMentionItems, mentionQuery),
           ...mentionItems,
         ].filter(
           (item, index, items) =>
@@ -3702,6 +3799,7 @@ function TiptapComposerSurface({
   const placeholderRef = useRef(resolvedPlaceholder);
   placeholderRef.current = resolvedPlaceholder;
   const applyingInitialContentRef = useRef(false);
+  const editorReferenceSignatureRef = useRef("[]");
   const initialTextSyncCompleteRef = useRef(false);
 
   const editor = useEditor({
@@ -3719,9 +3817,22 @@ function TiptapComposerSurface({
       ) {
         onTextChangeRef.current?.(ed.getText({ blockSeparator: "\n" }).trim());
       }
-      setReferenceRevision((revision) => revision + 1);
-
       scheduleComposerDraftPersist(ed);
+    },
+    onTransaction: ({ editor: ed, transaction, appendedTransactions }) => {
+      if (
+        !transaction.docChanged &&
+        !appendedTransactions.some((appended) => appended.docChanged)
+      ) {
+        return;
+      }
+      // An unconditional bump can loop through React node views and the
+      // ProseMirror DOM observer, even when references have not changed.
+      const referenceSignature = composerReferenceSignature(ed.state.doc);
+      if (referenceSignature !== editorReferenceSignatureRef.current) {
+        editorReferenceSignatureRef.current = referenceSignature;
+        setReferenceRevision((revision) => revision + 1);
+      }
     },
     onSelectionUpdate: ({ editor: ed }) => {
       const { from, to, anchor, head } = ed.state.selection;
@@ -3743,13 +3854,18 @@ function TiptapComposerSurface({
       attributes: {
         "aria-label": ariaLabel ?? resolvedPlaceholder,
         "aria-multiline": "true",
+        "aria-autocomplete": "list",
         // Context controls can be off while the editor still takes a draft.
         "aria-disabled": String(editorLocked),
         role: "textbox",
         "data-agent-composer-variant": layoutVariant,
         "data-agent-composer-slot": "editor-input",
+        // Page-level paste listeners defer to a composer that claims pastes.
+        ...(onPasteContext ? { "data-claims-paste": "true" } : {}),
+        // Each paragraph takes its direction from its first letter; an empty
+        // draft keeps the page's direction for the placeholder.
         class:
-          "agent-composer-prosemirror flex-1 resize-none bg-transparent text-[length:var(--agentkit-composer-font-size,0.875rem)] text-foreground outline-none leading-[var(--agentkit-composer-line-height,1.625rem)] min-h-[var(--agentkit-composer-editor-min-height,3.25rem)] max-h-[var(--agentkit-composer-editor-max-height,10rem)] overflow-y-auto [&>p.is-editor-empty:first-child]:before:pointer-events-none [&>p.is-editor-empty:first-child]:before:float-start [&>p.is-editor-empty:first-child]:before:h-0 [&>p.is-editor-empty:first-child]:before:text-muted-foreground [&>p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]",
+          "agent-composer-prosemirror [&>*]:[unicode-bidi:plaintext] flex-1 resize-none bg-transparent text-[length:var(--agentkit-composer-font-size,0.875rem)] text-foreground outline-none leading-[var(--agentkit-composer-line-height,1.625rem)] min-h-[var(--agentkit-composer-editor-min-height,3.25rem)] max-h-[var(--agentkit-composer-editor-max-height,10rem)] overflow-y-auto [&>p.is-editor-empty:first-child]:before:pointer-events-none [&>p.is-editor-empty:first-child]:before:float-start [&>p.is-editor-empty:first-child]:before:h-0 [&>p.is-editor-empty:first-child]:before:text-muted-foreground [&>p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]",
       },
       handleDOMEvents: {
         compositionstart: () => {
@@ -3786,6 +3902,13 @@ function TiptapComposerSurface({
             return true;
           }
           return false;
+        }
+        if (
+          event.clipboardData &&
+          onPasteContextRef.current?.(event.clipboardData)
+        ) {
+          event.preventDefault();
+          return true;
         }
         if (!attachmentsEnabled) {
           if (event.clipboardData?.files.length) {
@@ -4131,6 +4254,14 @@ function TiptapComposerSurface({
       },
     },
   });
+
+  // Tiptap builds its decorations once, so a placeholder that changes while the composer is mounted
+  // (an instructional hint that cycles, or a mode/thread switch) keeps painting the old string.
+  // An empty transaction re-runs the decorations without touching the document.
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    editor.view.dispatch(editor.state.tr);
+  }, [editor, resolvedPlaceholder]);
 
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
@@ -4578,14 +4709,7 @@ function TiptapComposerSurface({
       const anchor = voiceAnchorRef.current;
       if (anchor == null) return;
       const previewText = prevVoiceInsertRef.current;
-      if (
-        isVoicePreviewIntact(
-          ed.state.doc,
-          anchor,
-          previewText,
-          ed.state.selection.from,
-        )
-      ) {
+      if (isVoicePreviewIntact(ed, anchor, previewText)) {
         return;
       }
       if (previewText) {
@@ -4640,6 +4764,8 @@ function TiptapComposerSurface({
     (text: string) => {
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return;
+      detachStaleVoicePreview(ed);
+
       const detached = detachedVoiceTextRef.current;
       detachedVoiceTextRef.current = "";
       const fullFormatted = formatVoiceTranscriptForComposer(text);
@@ -4647,8 +4773,6 @@ function TiptapComposerSurface({
         detached && fullFormatted.startsWith(detached)
           ? fullFormatted.slice(detached.length).trimStart()
           : fullFormatted;
-
-      detachStaleVoicePreview(ed);
 
       const anchor = voiceAnchorRef.current;
       if (anchor != null) {
@@ -4664,8 +4788,6 @@ function TiptapComposerSurface({
             .deleteRange({ from: anchor, to: anchor + prevLen })
             .run();
         }
-        voiceAnchorRef.current = null;
-        prevVoiceInsertRef.current = "";
       } else if (formattedText) {
         const { from } = ed.state.selection;
         const prevChar =
@@ -4676,6 +4798,8 @@ function TiptapComposerSurface({
           .insertContent((needsLead ? " " : "") + formattedText)
           .run();
       }
+      voiceAnchorRef.current = null;
+      prevVoiceInsertRef.current = "";
     },
     [editor, detachStaleVoicePreview],
   );
@@ -4772,19 +4896,7 @@ function TiptapComposerSurface({
       const anchor = voiceAnchorRef.current;
       const prevLen = prevVoiceInsertRef.current.length;
       if (isComposerEditorUsable(editor) && prevLen > 0) {
-        const documentSize = editor.state.doc.content.size;
-        const currentText =
-          anchor >= 1 && anchor + prevLen <= documentSize
-            ? editor.state.doc.textBetween(anchor, anchor + prevLen, "", "\n")
-            : "";
-        if (
-          canRemoveVoicePreview({
-            documentSize,
-            anchor,
-            previewText: prevVoiceInsertRef.current,
-            currentText,
-          })
-        ) {
+        if (isVoicePreviewIntact(editor, anchor, prevVoiceInsertRef.current)) {
           editor
             .chain()
             .deleteRange({ from: anchor, to: anchor + prevLen })
@@ -4800,20 +4912,25 @@ function TiptapComposerSurface({
   const voiceChatActiveRef = useRef(false);
   voiceChatActiveRef.current = voiceChat !== null;
 
-  // Global shortcut: Cmd/Ctrl + Shift + M toggles dictation. Escape cancels
-  // while recording. Scoped to avoid firing when focus is outside the app.
+  // Global shortcut: Cmd/Ctrl + D toggles dictation (taking the browser's
+  // bookmark accelerator). Opt-in through `dictationShortcut`, because a host
+  // can bind Cmd+D to its own action (for example duplicating blocks) and this
+  // listener would take the key from it. Escape below is not part of that
+  // opt-in: it only ends a recording the person chose to start.
   useEffect(() => {
-    if (!voiceEnabled || !voice.supported) return;
+    if (!voiceEnabled || !voice.supported || !dictationShortcut) return;
     const handler = (e: KeyboardEvent) => {
       // e.key can be undefined on some trusted keydown events (autofill/IME
       // quirks) — seen crashing in production (AGENT-NATIVE-BROWSER-S).
       const isToggleCombo =
         typeof e.key === "string" &&
-        e.key.toLowerCase() === "m" &&
-        e.shiftKey &&
+        e.key.toLowerCase() === "d" &&
         (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
         !e.altKey;
       if (isToggleCombo) {
+        // A page that has already used the key keeps it.
+        if (e.defaultPrevented) return;
         e.preventDefault();
         if (voiceChatActiveRef.current) return;
         if (voice.state === "recording" || voice.state === "starting") {
@@ -4823,6 +4940,15 @@ function TiptapComposerSurface({
         }
         return;
       }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [voiceEnabled, voice, dictationShortcut]);
+
+  // Escape cancels a dictation or its start, on every host that shows dictation.
+  useEffect(() => {
+    if (!voiceEnabled || !voice.supported) return;
+    const handler = (e: KeyboardEvent) => {
       if (
         e.key === "Escape" &&
         (voice.state === "recording" || voice.state === "starting")
@@ -4889,25 +5015,7 @@ function TiptapComposerSurface({
           source: node.attrs.source || "codebase",
         });
       } else if (node.type.name === "mentionReference") {
-        const refType = node.attrs.refType;
-        references.push({
-          type:
-            refType === "file"
-              ? "file"
-              : refType === "agent"
-                ? "agent"
-                : refType === "custom-agent"
-                  ? "custom-agent"
-                  : "mention",
-          path: node.attrs.refPath || "",
-          name: node.attrs.label,
-          source: node.attrs.source,
-          refType: node.attrs.refType,
-          refId: node.attrs.refId,
-          slotKey: node.attrs.slotKey,
-          slotLabel: node.attrs.slotLabel,
-          metadata: node.attrs.metadata,
-        });
+        references.push(referenceFromComposerReference(node.attrs));
       } else if (node.type.name === "skillReference") {
         references.push({
           type: "skill",
@@ -6348,7 +6456,7 @@ function TiptapComposerSurface({
     }
     const key = initialTextKey ?? initialText;
     let saved: string | null = null;
-    if (draftKey) {
+    if (draftKey && composerDraftBelongsToThisSession(draftKey)) {
       try {
         saved = localStorage.getItem(draftKey);
       } catch {
@@ -6467,54 +6575,155 @@ function TiptapComposerSurface({
     });
   }, [editor, editorLocked]);
 
+  // The editor ignores attributes it did not set, so these follow the panel without a re-render.
+  const mentionPanelOpen = popover !== null;
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    const dom = editor.view.dom;
+    if (mentionPanelOpen) dom.setAttribute("aria-controls", mentionListboxId);
+    else dom.removeAttribute("aria-controls");
+    if (mentionPanelOpen && activeMentionOptionId)
+      dom.setAttribute("aria-activedescendant", activeMentionOptionId);
+    else dom.removeAttribute("aria-activedescendant");
+  }, [editor, mentionPanelOpen, mentionListboxId, activeMentionOptionId]);
+
   const launchersDisabled = disabled || contextControlsDisabled;
 
   const contextLauncherItems = useMemo(() => {
-    const sections = new Map<string, ComposerContextMenuItem[]>();
-    for (const item of filteredMentionItems) {
-      const section = item.section || "Other";
-      const entries = sections.get(section) ?? [];
-      entries.push({
-        id: `mention:${item.id}`,
-        label: item.label,
-        description: item.description,
-        onSelect: () => insertReference(composerReferenceFromMentionItem(item)),
-      });
-      sections.set(section, entries);
-    }
-    const sectionKeys: Record<string, string> = {
-      Agents: "agents",
-      "Connected Agents": "connectedAgents",
-      Files: "files",
-      Other: "other",
+    const excludedTypes = new Set<string>();
+    const visit = (entries: readonly ComposerContextMenuItem[]) => {
+      for (const entry of entries) {
+        if (entry.referenceType) excludedTypes.add(entry.referenceType);
+        if (entry.referencePicker)
+          excludedTypes.add(entry.referencePicker.referenceType);
+        if (entry.children) visit(entry.children);
+      }
     };
+    visit(contextMenuItems ?? []);
+    const pickerFor = (filter?: { referenceType: string; source: string }) => {
+      const available = new Map<string, MentionItem>();
+      return {
+        identityScope: "workspace" as const,
+        presentation: { type: "dialog" as const, mode: "action" as const },
+        searchPlaceholder: t("agentChat.composer.menu.searchWorkspace", {
+          defaultValue: "Search workspace…",
+        }),
+        load: async ({
+          search,
+          signal,
+        }: {
+          search: string;
+          signal: AbortSignal;
+        }) => {
+          const remote =
+            filter || includeDefaultMentionSearch
+              ? await loadWorkspaceMentionItems(
+                  search,
+                  adapters.resolvePath,
+                  signal,
+                  filter?.source,
+                ).catch((cause: unknown) => {
+                  if (signal.aborted) throw cause;
+                  if (cause instanceof MentionSearchError) throw cause;
+                  throw new Error(
+                    t("agentChat.composer.contextLoadFailed", {
+                      defaultValue: "Could not load context.",
+                    }),
+                    { cause },
+                  );
+                })
+              : [];
+          const entries = [
+            ...mentionItemsForQuery(hostMentionItems, search),
+            ...remote,
+          ].filter((item) =>
+            filter
+              ? item.refType === filter.referenceType &&
+                (!filter.source || item.source === filter.source)
+              : !excludedTypes.has(item.refType),
+          );
+          if (signal.aborted)
+            throw new DOMException("The operation was aborted.", "AbortError");
+          available.clear();
+          for (const item of entries) available.set(item.id, item);
+          return {
+            items: Array.from(available.values()).map((item) => ({
+              id: item.id,
+              title: item.label,
+              ...(item.description === undefined
+                ? {}
+                : { description: item.description }),
+              ...(item.section === undefined
+                ? {}
+                : {
+                    group:
+                      item.section === "Files"
+                        ? "agentChat.mentions.sections.files"
+                        : item.section === "Agents"
+                          ? "agentChat.mentions.sections.agents"
+                          : item.section === "Connected Agents"
+                            ? "agentChat.mentions.sections.connectedAgents"
+                            : item.section,
+                  }),
+              icon: (
+                <MentionItemMedia
+                  {...(item.icon === undefined ? {} : { icon: item.icon })}
+                  {...(item.media === undefined ? {} : { media: item.media })}
+                  size="sm"
+                />
+              ),
+            })),
+          };
+        },
+        onSelect: (item: { id: string }) => {
+          const reference = available.get(item.id);
+          if (!reference)
+            throw new Error(
+              t("agentChat.composer.contextLoadFailed", {
+                defaultValue: "Could not load context.",
+              }),
+            );
+          insertReference(composerReferenceFromMentionItem(reference));
+        },
+      };
+    };
+    const resolveEntries = (
+      entries: readonly ComposerContextMenuItem[],
+    ): ComposerContextMenuItem[] =>
+      entries.map((entry) => {
+        if (entry.referencePicker) {
+          const { referencePicker, ...rest } = entry;
+          return { ...rest, picker: pickerFor(referencePicker) };
+        }
+        return entry.children
+          ? { ...entry, children: resolveEntries(entry.children) }
+          : entry;
+      });
     return [
-      ...(contextMenuItems ?? []),
-      ...Array.from(sections)
-        .sort(([left], [right]) => {
-          const order = (section: string) =>
-            section === "Agents"
-              ? 0
-              : section === "Connected Agents"
-                ? 1
-                : section === "Files"
-                  ? 3
-                  : section === "Other"
-                    ? 4
-                    : 2;
-          return order(left) - order(right) || left.localeCompare(right);
-        })
-        .map(([section, children]) => ({
-          id: `mentions:${section}`,
-          label: sectionKeys[section]
-            ? t(`agentChat.mentions.sections.${sectionKeys[section]}`, {
-                defaultValue: section,
-              })
-            : section,
-          children,
-        })),
+      ...resolveEntries(contextMenuItems ?? []),
+      ...(includeDefaultMentionSearch || hostMentionItems.length
+        ? [
+            {
+              id: "composer-workspace-search",
+              section: "context" as const,
+              order: 90,
+              label: t("agentChat.composer.menu.searchWorkspace", {
+                defaultValue: "Search workspace…",
+              }),
+              icon: <IconSearch />,
+              picker: pickerFor(),
+            },
+          ]
+        : []),
     ];
-  }, [contextMenuItems, filteredMentionItems, insertReference, t]);
+  }, [
+    contextMenuItems,
+    hostMentionItems,
+    includeDefaultMentionSearch,
+    adapters.resolvePath,
+    insertReference,
+    t,
+  ]);
 
   const sendButton = (
     <ComposerSendButton
@@ -6596,7 +6805,7 @@ function TiptapComposerSurface({
           {slotReferences.map((ref) => (
             <span
               key={ref.slotKey}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-0.5 agent-kit-caption-copy font-medium text-foreground shadow-sm"
+              className="inline-flex h-5 max-w-full items-center gap-1 rounded-[var(--agent-kit-radius-xs,0.25rem)] border border-border bg-background px-2 text-xs leading-4 font-medium text-foreground shadow-sm"
             >
               <MentionItemMedia
                 media={ref.media}
@@ -6623,7 +6832,7 @@ function TiptapComposerSurface({
                   defaultValue: "Remove {{name}} reference",
                   name: slotReferenceTitle(ref),
                 })}
-                className="-my-1 -me-1.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="-my-1 -me-1.5 flex size-6 shrink-0 items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <IconX aria-hidden="true" className="h-3 w-3" />
               </button>
@@ -6638,7 +6847,7 @@ function TiptapComposerSurface({
                 data-state={
                   selectedContextItemKey === item.key ? "selected" : undefined
                 }
-                className={`inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-0.5 agent-kit-caption-copy font-medium text-foreground ${
+                className={`inline-flex h-5 max-w-full items-center gap-1 rounded-[var(--agent-kit-radius-xs,0.25rem)] border px-2 text-xs leading-4 font-medium text-foreground ${
                   selectedContextItemKey === item.key
                     ? "border-ring bg-accent ring-2 ring-ring/40"
                     : "border-border bg-muted/50"
@@ -6652,16 +6861,20 @@ function TiptapComposerSurface({
                     className="size-3 shrink-0 animate-spin motion-reduce:animate-none text-muted-foreground"
                   />
                 ) : item.status === "error" ? (
-                  <IconAlertCircle
+                  <IconAlertTriangle
                     aria-label={t("agentChat.composer.contextError", {
                       defaultValue: "Context failed",
                     })}
-                    className="size-3 shrink-0 text-destructive"
+                    className="size-3 shrink-0 text-[hsl(var(--agent-kit-warning))]"
                   />
                 ) : (
                   <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
                 )}
                 <span className="min-w-0 truncate">{item.title}</span>
+                {/* A title attribute only reaches a pointer, so the reason is read here. */}
+                {item.status === "error" && item.statusMessage ? (
+                  <span className="sr-only">{item.statusMessage}</span>
+                ) : null}
                 {onRemoveContextItem && item.removable !== false ? (
                   <button
                     type="button"
@@ -6674,7 +6887,7 @@ function TiptapComposerSurface({
                       defaultValue: "Remove {{name}} context",
                       name: item.title,
                     })}
-                    className="-my-1 -me-1.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                    className="-my-1 -me-1.5 flex size-6 shrink-0 items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
                     <IconX aria-hidden="true" className="h-3 w-3" />
                   </button>
@@ -6690,7 +6903,7 @@ function TiptapComposerSurface({
                         defaultValue: "Retry {{name}} context",
                         name: item.title,
                       })}
-                      className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                      className="flex size-6 shrink-0 items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:bg-accent hover:text-foreground"
                     >
                       <IconRefresh aria-hidden="true" className="size-3.5" />
                     </button>
@@ -6700,6 +6913,11 @@ function TiptapComposerSurface({
                       defaultValue: "Retry {{name}} context",
                       name: item.title,
                     })}
+                    {item.statusMessage ? (
+                      <span className="block text-muted-foreground">
+                        {item.statusMessage}
+                      </span>
+                    ) : null}
                   </TooltipContent>
                 </Tooltip>
               ) : null}
@@ -6801,15 +7019,7 @@ function TiptapComposerSurface({
             attachmentsEnabled={attachmentsEnabled}
             open={contextMenuOpen}
             onOpenChange={setContextMenuOpen}
-            loading={mentionsLoading}
-            error={
-              mentionsError
-                ? t("agentChat.composer.contextLoadFailed", {
-                    defaultValue: "Could not load context.",
-                  })
-                : undefined
-            }
-            onRetry={retryMentions}
+            onSelectIntegration={insertReference}
             onRestoreFocus={
               launchersDisabled
                 ? undefined
@@ -6866,11 +7076,13 @@ function TiptapComposerSurface({
             hostedHarness={hostedHarness}
             showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
+            modelSelectorChevron={modelSelectorChevron}
             onChange={onModelChange!}
             onEffortChange={onEffortChange}
             onAgentChange={onAgentChange}
             onModelSelectorOpenChange={onModelSelectorOpenChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}
+            modelTriggerNamesSelectionOnly={modelTriggerNamesSelectionOnly}
             onConnectProvider={onConnectProvider}
             onConnectLocalRuntime={onConnectLocalRuntime}
             terminalModeControl={terminalModeControl}
@@ -6890,23 +7102,21 @@ function TiptapComposerSurface({
                 isMac={isMac}
                 disabled={disabled}
                 voiceChat={voiceChatEnabled}
+                showShortcut={dictationShortcut}
               />
             )}
             {stopButton ? (
-              // Stop takes Send's place while the composer is empty, and Send
-              // joins it once a draft exists so a draft never hides Stop. The
-              // slot grows from zero width, gap included, so the controls to
-              // its left slide rather than jump.
+              // Stop and Send are one control: Stop while the composer is
+              // empty, Send once a draft exists. The hidden Stop stays mounted
+              // so Escape can still stop the run mid-draft. Voice chat keeps it
+              // visible: End voice chat does not stop the run.
               <div
                 ref={stopSlotRef}
                 data-agent-composer-slot="stop-slot"
-                className={`grid shrink-0 grid-cols-[1fr] justify-items-end transition-[grid-template-columns,margin-inline-start,margin-inline-end] duration-150 ease-out starting:-ms-[var(--agentkit-composer-toolbar-control-gap,0.25rem)] starting:me-0 starting:grid-cols-[0fr] motion-reduce:transition-none ${
-                  hasDraft ? "me-1" : ""
-                }`}
+                hidden={hasDraft && voiceChat === null}
+                className="flex shrink-0"
               >
-                <div className="flex min-w-0 transition-[opacity,scale] duration-150 ease-out starting:scale-75 starting:opacity-0 motion-reduce:transition-none">
-                  {stopButton}
-                </div>
+                {stopButton}
               </div>
             ) : null}
             {stopButton && !hasDraft && !voiceChat ? null : sendButton}
@@ -6916,6 +7126,7 @@ function TiptapComposerSurface({
       <MentionPopover
         ref={popoverRef}
         density={mentionPopoverDensity}
+        keepSectionOrder={!includeDefaultMentionSearch}
         type={popover?.type ?? "@"}
         position={popover?.position ?? null}
         mentionItems={inlineMentionItems}
@@ -6923,13 +7134,22 @@ function TiptapComposerSurface({
         commands={filteredCommands}
         hint={hint}
         isLoading={popover?.type === "@" ? mentionsLoading : skillsLoading}
-        error={mentionItemsError}
-        onRetry={onRetryMentionItems}
+        error={
+          mentionItemsError ??
+          (mentionsError
+            ? t("agentChat.composer.contextLoadFailed", {
+                defaultValue: "Could not load context.",
+              })
+            : undefined)
+        }
+        onRetry={onRetryMentionItems ?? retryMentions}
         query={popover?.query ?? ""}
         onSelectMention={handleSelectMention}
         onSelectSkill={handleSelectSkill}
         onSelectCommand={handleSelectCommand}
         onClose={closePopover}
+        listboxId={mentionListboxId}
+        onActiveOptionChange={setActiveMentionOptionId}
       />
     </>
   );

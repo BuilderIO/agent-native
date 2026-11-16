@@ -17,6 +17,7 @@ import {
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  assertUnswitchedCollectionRows,
   isUnsupportedBodyWriter,
   lockLegacyBodyWrites,
 } from "../server/lib/document-body-revision.js";
@@ -92,7 +93,6 @@ export { bulkChunkSizeForColumnCount } from "./_batch-utils.js";
 import {
   builderExecutionPayloadReference,
   isBuilderPrivatePayloadBoundToSource,
-  cleanupBuilderPrivatePayload,
   enqueueBuilderPrivatePayloadCleanup,
   readBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
@@ -1687,7 +1687,6 @@ type BuilderLiveBodyReadResult =
       state: "not_found";
       entry: null;
       providerStatus:
-        | "http_404"
         | "http_200_not_found"
         | "http_200_unexpected_entry"
         | "mcp_not_found";
@@ -7504,13 +7503,25 @@ export async function findOpenSourceChangeSet(args: {
   return rows.find((row) => openChangeSetKey(row) === args.key) ?? null;
 }
 
-async function deleteSourceChangeSetRecords(args: {
+type SourceChangeSetDeletion = {
   sourceId: string;
   changeSetIds?: string[];
-}) {
-  if (args.changeSetIds && args.changeSetIds.length === 0) return;
+};
 
-  const db = getDb();
+async function deleteSourceChangeSetRecords(args: SourceChangeSetDeletion) {
+  if (args.changeSetIds && args.changeSetIds.length === 0) return;
+  await getDb().transaction((tx) =>
+    deleteSourceChangeSetRecordsInTransaction(
+      tx as unknown as ReturnType<typeof getDb>,
+      args,
+    ),
+  );
+}
+
+async function deleteSourceChangeSetRecordsInTransaction(
+  tx: ReturnType<typeof getDb>,
+  args: SourceChangeSetDeletion,
+) {
   const executionWhere = args.changeSetIds
     ? and(
         eq(schema.contentDatabaseSourceExecutions.sourceId, args.sourceId),
@@ -7536,60 +7547,42 @@ async function deleteSourceChangeSetRecords(args: {
       )
     : eq(schema.contentDatabaseSourceChangeSets.sourceId, args.sourceId);
 
-  const references = new Set<string>();
-  await db.transaction(async (tx) => {
-    const [source] = await tx
+  const source = firstRow(
+    await tx
       .select({ databaseId: schema.contentDatabaseSources.databaseId })
       .from(schema.contentDatabaseSources)
-      .where(eq(schema.contentDatabaseSources.id, args.sourceId));
-    if (!source) return;
-    await lockContentDatabaseMutation(
-      tx as unknown as ReturnType<typeof getDb>,
-      source.databaseId,
-    );
-    await assertNoActiveBuilderSourceExecutions(
-      tx as unknown as ReturnType<typeof getDb>,
-      [args.sourceId],
-      args.changeSetIds,
-    );
-    const deletedExecutions = await tx
-      .delete(schema.contentDatabaseSourceExecutions)
-      .where(executionWhere)
-      .returning({
-        ownerEmail: schema.contentDatabaseSourceExecutions.ownerEmail,
-        sourceId: schema.contentDatabaseSourceExecutions.sourceId,
-        payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
-      });
-    for (const row of deletedExecutions) {
-      const reference = builderExecutionPayloadReference(row.payloadJson);
-      if (
-        reference &&
-        isBuilderPrivatePayloadBoundToSource(
-          reference,
-          row.ownerEmail,
-          row.sourceId,
-        )
-      ) {
-        references.add(reference);
-        await enqueueBuilderPrivatePayloadCleanup(
-          tx as unknown as ReturnType<typeof getDb>,
-          reference,
-        );
-      }
+      .where(eq(schema.contentDatabaseSources.id, args.sourceId)),
+  );
+  if (!source) return;
+  await lockContentDatabaseMutation(tx, source.databaseId);
+  await assertNoActiveBuilderSourceExecutions(
+    tx,
+    [args.sourceId],
+    args.changeSetIds,
+  );
+  const deletedExecutions = await tx
+    .delete(schema.contentDatabaseSourceExecutions)
+    .where(executionWhere)
+    .returning({
+      ownerEmail: schema.contentDatabaseSourceExecutions.ownerEmail,
+      sourceId: schema.contentDatabaseSourceExecutions.sourceId,
+      payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+    });
+  for (const row of deletedExecutions) {
+    const reference = builderExecutionPayloadReference(row.payloadJson);
+    if (
+      reference &&
+      isBuilderPrivatePayloadBoundToSource(
+        reference,
+        row.ownerEmail,
+        row.sourceId,
+      )
+    ) {
+      await enqueueBuilderPrivatePayloadCleanup(tx, reference);
     }
-    await tx
-      .delete(schema.contentDatabaseSourceChangeReviews)
-      .where(reviewWhere);
-    await tx
-      .delete(schema.contentDatabaseSourceChangeSets)
-      .where(changeSetWhere);
-  });
-  for (const reference of references) {
-    await cleanupBuilderPrivatePayload(
-      reference,
-      "deleted source execution payload",
-    );
   }
+  await tx.delete(schema.contentDatabaseSourceChangeReviews).where(reviewWhere);
+  await tx.delete(schema.contentDatabaseSourceChangeSets).where(changeSetWhere);
 }
 
 async function pruneDuplicateOpenSourceChangeSets(sourceId: string) {
@@ -8679,60 +8672,63 @@ export async function replaceSourceMetadata(args: {
 }) {
   const db = getDb();
   const sourceId = args.source?.id ?? crypto.randomUUID();
-
-  if (args.source) {
-    await deleteSourceChangeSetRecords({ sourceId: args.source.id });
-    await db
-      .delete(schema.contentDatabaseBodyHydrationQueue)
-      .where(
-        eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.source.id),
-      );
-    await db
-      .delete(schema.contentDatabaseSourceFields)
-      .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
-  }
-
-  if (args.source) {
-    await db
-      .update(schema.contentDatabaseSources)
-      .set({
-        sourceType: args.sourceType,
-        sourceName: args.sourceName,
-        sourceTable: args.sourceTable,
-        syncState: "linked",
-        freshness: "fresh",
-        capabilitiesJson: sourceCapabilitiesForType(args.sourceType),
-        metadataJson: serializeSourceMetadataRecord({
-          sourceType: args.sourceType,
-          sourceTable: args.sourceTable,
-          existingMetadataJson:
-            args.source.sourceType === args.sourceType &&
-            args.source.sourceTable === args.sourceTable
-              ? args.source.metadataJson
-              : null,
-        }),
-        lastRefreshedAt: args.now,
-        lastSourceUpdatedAt: args.now,
-        lastError: null,
-        updatedAt: args.now,
-      })
-      .where(eq(schema.contentDatabaseSources.id, args.source.id));
-  } else {
-    await db.transaction(async (tx) => {
-      await lockContentDatabaseMutation(
-        tx as unknown as ReturnType<typeof getDb>,
-        args.database.id,
-      );
-      const [existing] = await tx
-        .select({ id: schema.contentDatabaseSources.id })
-        .from(schema.contentDatabaseSources)
-        .where(eq(schema.contentDatabaseSources.databaseId, args.database.id))
-        .limit(1);
-      if (existing) {
-        throw new Error(
-          "Database source state changed before attachment completed.",
+  await db.transaction(async (transaction) => {
+    const tx = transaction as unknown as ReturnType<typeof getDb>;
+    await lockContentDatabaseMutation(tx, args.database.id);
+    await assertUnswitchedCollectionRows(tx, args.database.id, {
+      operation: "attach-content-database-source",
+    });
+    const sources = await tx
+      .select({ id: schema.contentDatabaseSources.id })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, args.database.id));
+    if (
+      args.source
+        ? !sources.some((source) => source.id === args.source?.id)
+        : sources.length > 0
+    ) {
+      fail("Database source state changed before attachment completed.", {
+        errorCode: "source_state_changed",
+        statusCode: 409,
+      });
+    }
+    if (args.source) {
+      await deleteSourceChangeSetRecordsInTransaction(tx, {
+        sourceId: args.source.id,
+      });
+      await tx
+        .delete(schema.contentDatabaseBodyHydrationQueue)
+        .where(
+          eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.source.id),
         );
-      }
+      await tx
+        .delete(schema.contentDatabaseSourceFields)
+        .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
+      await tx
+        .update(schema.contentDatabaseSources)
+        .set({
+          sourceType: args.sourceType,
+          sourceName: args.sourceName,
+          sourceTable: args.sourceTable,
+          syncState: "linked",
+          freshness: "fresh",
+          capabilitiesJson: sourceCapabilitiesForType(args.sourceType),
+          metadataJson: serializeSourceMetadataRecord({
+            sourceType: args.sourceType,
+            sourceTable: args.sourceTable,
+            existingMetadataJson:
+              args.source.sourceType === args.sourceType &&
+              args.source.sourceTable === args.sourceTable
+                ? args.source.metadataJson
+                : null,
+          }),
+          lastRefreshedAt: args.now,
+          lastSourceUpdatedAt: args.now,
+          lastError: null,
+          updatedAt: args.now,
+        })
+        .where(eq(schema.contentDatabaseSources.id, args.source.id));
+    } else {
       await tx.insert(schema.contentDatabaseSources).values({
         id: sourceId,
         ownerEmail: args.database.ownerEmail,
@@ -8754,8 +8750,8 @@ export async function replaceSourceMetadata(args: {
         createdAt: args.now,
         updatedAt: args.now,
       });
-    });
-  }
+    }
+  });
 
   return sourceId;
 }
@@ -8775,6 +8771,9 @@ export async function insertSecondarySource(args: {
       tx as unknown as ReturnType<typeof getDb>,
       args.database.id,
     );
+    await assertUnswitchedCollectionRows(tx, args.database.id, {
+      operation: "attach-content-database-source",
+    });
     const sources = await tx
       .select({
         id: schema.contentDatabaseSources.id,

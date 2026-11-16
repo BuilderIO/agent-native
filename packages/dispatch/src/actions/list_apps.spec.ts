@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   listGrantedApps: vi.fn(),
+  hideHostedAppsWhenOff: vi.fn(async <T>(apps: T[]) => apps),
+}));
+
+vi.mock("../server/lib/hosted-apps-settings.js", () => ({
+  hideHostedAppsWhenOff: mocks.hideHostedAppsWhenOff,
 }));
 
 vi.mock("../server/lib/mcp-gateway.js", () => ({
@@ -12,6 +17,7 @@ import listApps from "./list_apps.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.hideHostedAppsWhenOff.mockImplementation(async (apps) => apps);
   mocks.listGrantedApps.mockResolvedValue([
     {
       id: "slides",
@@ -29,6 +35,16 @@ beforeEach(() => {
 });
 
 describe("list_apps", () => {
+  it("leaves out apps the hosted apps setting hides", async () => {
+    mocks.hideHostedAppsWhenOff.mockImplementation(async (apps) =>
+      apps.filter((app: { id: string }) => app.id !== "analytics"),
+    );
+    const result = await listApps.run({});
+    expect(result.apps.map((app: { id: string }) => app.id)).toEqual([
+      "slides",
+    ]);
+  });
+
   it("returns a compact valid JSON message for MCP hosts", async () => {
     const result = await listApps.run({});
 

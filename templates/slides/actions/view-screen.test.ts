@@ -148,6 +148,22 @@ describe("view-screen", () => {
     expect(result).not.toContain("slides=");
   });
 
+  it("caps the Home deck list and says how many decks it does not show", async () => {
+    mockRows = Array.from({ length: 70 }, (_, i) => ({
+      id: `deck-${i + 1}`,
+      title: `Deck ${i + 1}`,
+      ownerEmail: "alice@example.com",
+    }));
+    navigationState = { view: "list" };
+
+    const result = await action.run({});
+
+    expect(result).toContain("### All decks (70)");
+    expect(result.match(/^- id=/gm)).toHaveLength(20);
+    expect(result).toContain("showing 20 of 70");
+    expect(result).toContain("list-decks");
+  });
+
   it("still fetches full deck content for a single open deck", async () => {
     mockRows = [
       {

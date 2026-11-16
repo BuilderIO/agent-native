@@ -41,7 +41,10 @@ vi.mock("../server/lib/clips-peer.js", () => ({
   ],
 }));
 
+import { isActionExposedToExternalAgents } from "@agent-native/core/action";
+
 import createClipUpload from "./create-clip-upload";
+import createVideoUpload from "./create-video-upload";
 import getClipUploadStatus from "./get-clip-upload-status";
 
 const PUBLIC_VIEWER =
@@ -54,6 +57,7 @@ const start = {
   blockId: "block_1",
   uploadKey: "picked-file-0001",
 };
+const { blockId: _blockId, ...agentStart } = start;
 const ticket = {
   recordingId: "rec_1",
   chunkUrl:
@@ -97,9 +101,10 @@ describe("who may upload a Clip into a page", () => {
   const runs = {
     status: () => getClipUploadStatus.run({ documentId: "doc_1" }),
     start: () => createClipUpload.run(start),
+    agentStart: () => createVideoUpload.run(agentStart),
   };
 
-  it.each(["status", "start"] as const)(
+  it.each(["status", "start", "agentStart"] as const)(
     "%s: refuses a reader who can't edit the page before asking Clips",
     async (kind) => {
       for (const role of ["viewer", "commenter"]) {
@@ -114,7 +119,7 @@ describe("who may upload a Clip into a page", () => {
     },
   );
 
-  it.each(["status", "start"] as const)(
+  it.each(["status", "start", "agentStart"] as const)(
     "%s: refuses a page the caller can't read, a page in Trash, and a signed-out caller",
     async (kind) => {
       mocks.resolveDocumentAccess.mockResolvedValueOnce(null);
@@ -140,7 +145,7 @@ describe("who may upload a Clip into a page", () => {
     },
   );
 
-  it.each(["status", "start"] as const)(
+  it.each(["status", "start", "agentStart"] as const)(
     "%s: refuses while the Clip block's flag is off",
     async (kind) => {
       mocks.isFeatureFlagEnabled.mockResolvedValue(false);
@@ -459,5 +464,152 @@ describe("create-clip-upload", () => {
       errorCode: "clip_rate_limited",
       statusCode: 429,
     });
+  });
+});
+
+describe("create-video-upload", () => {
+  function sentStart() {
+    const calls = mocks.requestClipsUpload.mock.calls;
+    return calls[calls.length - 1]?.[0].start as {
+      blockId: string;
+      uploadKey: string;
+    };
+  }
+
+  it("is offered to outside agents over MCP and not to the app's own agent", () => {
+    expect(createVideoUpload.agentTool).toBe(false);
+    expect(isActionExposedToExternalAgents(createVideoUpload)).toBe(true);
+  });
+
+  it("returns the upload URL, the steps to send the file, and the page's Clip tag", async () => {
+    const result = await createVideoUpload.run(agentStart, withIp);
+
+    const { blockId, uploadKey } = sentStart();
+    expect(uploadKey).toBe(agentStart.uploadKey);
+    expect(blockId).toBe(`clip-embed-${uploadKey}`);
+    expect(mocks.requestClipsUpload).toHaveBeenCalledWith({
+      uploader: {
+        kind: "signed-in",
+        email: "editor@example.test",
+        name: "Eden Editor",
+      },
+      documentId: "doc_1",
+      clientIp: "203.0.113.7",
+      start: {
+        fileName: "Team demo.mp4",
+        sizeBytes: 5_000_000,
+        mimeType: "video/mp4",
+        blockId,
+        uploadKey,
+      },
+    });
+    expect(result).toEqual({
+      status: "started",
+      recordingId: "rec_1",
+      uploadKey,
+      clipEmbedTag: `<ClipEmbed id="${blockId}" recordingId="rec_1" origin="upload" />`,
+      method: "POST",
+      chunkUrl: ticket.chunkUrl,
+      // curl's --data-binary otherwise labels the body as form data, which
+      // reaches Clips as text and saves a broken Clip.
+      headers: { "Content-Type": "video/mp4" },
+      cancelUrl: ticket.cancelUrl,
+      chunkSizeBytes: ticket.chunkSizeBytes,
+      totalChunks: 2,
+      expiresAt: ticket.expiresAt,
+      next: expect.stringContaining('"&index=N&isFinal=0"'),
+    });
+    const { next } = result as { next: string };
+    expect(next).toContain("with the returned headers");
+    expect(next).toContain("edit-document");
+    // The same retries the editor's uploader makes.
+    expect(next).toContain("no answer, times out, or answers 429 or 5xx");
+    expect(next).toContain('"upload_finishing"');
+  });
+
+  it("starts the same file again under its key and block id, so Clips makes one Clip", async () => {
+    // A retry whose first answer was lost sends the key the agent picked.
+    await createVideoUpload.run(agentStart);
+    const firstStart = sentStart();
+    await createVideoUpload.run(agentStart);
+    expect(sentStart()).toEqual(firstStart);
+
+    await createVideoUpload.run({
+      ...agentStart,
+      uploadKey: "other-file-00001",
+    });
+    expect(sentStart()).toMatchObject({
+      uploadKey: "other-file-00001",
+      blockId: "clip-embed-other-file-00001",
+    });
+  });
+
+  it("gives the Clip tag, and nothing to send, when an earlier start has the whole file", async () => {
+    mocks.requestClipsUpload.mockResolvedValue({
+      ok: true,
+      status: 409,
+      body: {
+        code: "upload_already_finished",
+        recordingId: "rec_1",
+        status: "processing",
+      },
+    });
+    const uploadKey = "agent-file-00001";
+    await expect(
+      createVideoUpload.run({ ...agentStart, uploadKey }),
+    ).resolves.toEqual({
+      status: "already_finished",
+      recordingId: "rec_1",
+      uploadKey,
+      clipEmbedTag: `<ClipEmbed id="clip-embed-${uploadKey}" recordingId="rec_1" origin="upload" />`,
+      next: expect.stringContaining("send nothing"),
+    });
+  });
+
+  it.each([
+    [
+      "an earlier start still setting up",
+      409,
+      { code: "upload_starting" },
+      { status: "starting", uploadKey: "agent-file-00001" },
+    ],
+    ["a spent key", 409, { code: "upload_key_used" }, { status: "key_used" }],
+    [
+      "no storage",
+      409,
+      { code: "storage_required", storage: { state: "used_up", limit: 3 } },
+      { status: "storage_required", storage: { state: "used_up", limit: 3 } },
+    ],
+    [
+      "a file too large",
+      413,
+      { code: "upload_too_large", maxBytes: 1_000 },
+      { status: "too_large", maxBytes: 1_000 },
+    ],
+  ])(
+    "says what to do next about %s",
+    async (_label, status, body, expected) => {
+      mocks.requestClipsUpload.mockResolvedValue({ ok: true, status, body });
+      const result = await createVideoUpload.run({
+        ...agentStart,
+        uploadKey: "agent-file-00001",
+      });
+      expect(result).toEqual({ ...expected, next: expect.any(String) });
+    },
+  );
+
+  it("refuses a type Clips doesn't take and a missing or malformed key before asking", async () => {
+    const { uploadKey: _key, ...withoutKey } = agentStart;
+    await expect(
+      createVideoUpload.run({
+        ...agentStart,
+        mimeType: "video/x-msvideo" as never,
+      }),
+    ).rejects.toThrow();
+    await expect(createVideoUpload.run(withoutKey as never)).rejects.toThrow();
+    await expect(
+      createVideoUpload.run({ ...agentStart, uploadKey: "short" }),
+    ).rejects.toThrow();
+    expect(mocks.requestClipsUpload).not.toHaveBeenCalled();
   });
 });

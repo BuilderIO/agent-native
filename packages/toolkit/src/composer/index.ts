@@ -169,3 +169,8 @@ export type {
   Reference,
   SlashCommand,
 } from "./types.js";
+
+export type {
+  WorkspaceComposerMenuOptions,
+  WorkspaceComposerMenuContribution,
+} from "./runtime-adapters.js";

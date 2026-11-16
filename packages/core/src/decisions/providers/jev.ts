@@ -1,3 +1,4 @@
+import { withoutWriteObservation } from "../../action-frame.js";
 import { getBuilderGatewayRequestHeaders } from "../../agent/engine/builder-gateway-headers.js";
 import type { JevContextCredentials } from "../../agent/production-agent.js";
 import {
@@ -229,20 +230,23 @@ export async function requestJevThroughBuilder(
   try {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       signal.throwIfAborted();
-      const response = await fetch(
-        `${getBuilderProxyOrigin().replace(/\/+$/, "")}/agent-native/jev/v1/system-one`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: auth.authorization,
-            ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
-            ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
-            ...getBuilderGatewayRequestHeaders(),
+      // A decision is an answer, not a write: the call may fail after it and retry.
+      const response = await withoutWriteObservation(() =>
+        fetch(
+          `${getBuilderProxyOrigin().replace(/\/+$/, "")}/agent-native/jev/v1/system-one`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: auth.authorization,
+              ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
+              ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
+              ...getBuilderGatewayRequestHeaders(),
+            },
+            body: JSON.stringify(request),
+            signal,
           },
-          body: JSON.stringify(request),
-          signal,
-        },
+        ),
       );
       if (!response.ok) {
         if (attempt === 0 && [429, 529].includes(response.status)) {

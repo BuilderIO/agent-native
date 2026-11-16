@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { withoutWriteObservation } from "../action-frame.js";
 import type { ActionRunContext } from "../action.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
@@ -171,7 +172,16 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
   };
 }
 
+// An event is bookkeeping about a call, never one of the writes the call is for.
 export function track(
+  name: string,
+  properties?: Record<string, unknown>,
+  source?: TrackingSource,
+): void {
+  withoutWriteObservation(() => trackEvent(name, properties, source));
+}
+
+function trackEvent(
   name: string,
   properties?: Record<string, unknown>,
   source?: TrackingSource,
@@ -297,6 +307,15 @@ function emitTrackedEvent(
   if (telemetryOrigin === "client") {
     delete safeProperties.experiment_id;
     delete safeProperties.experiment_variant;
+  }
+  if (name === "builder_signup_experiment_client_failed") {
+    const onboarding = getAppConfig().onboarding;
+    if (
+      onboarding.builderSignupExperimentOverride ??
+      onboarding.builderSignupExperiment
+    ) {
+      safeProperties.experiment_id = onboarding.builderSignupExperimentId;
+    }
   }
   if (authUserId) safeProperties.auth_user_id = authUserId;
   const firstRunExperiment =
@@ -435,6 +454,13 @@ export function identify(
   traits?: Record<string, unknown>,
 ): void {
   if (isTrackingSuppressed(userId, traits)) return;
+  withoutWriteObservation(() => identifyWithProviders(userId, traits));
+}
+
+function identifyWithProviders(
+  userId: string,
+  traits?: Record<string, unknown>,
+): void {
   for (const provider of getRegistry().values()) {
     if (!provider.identify) continue;
     try {
@@ -449,6 +475,10 @@ export function identify(
 }
 
 export function flushTracking(): Promise<void[]> {
+  return withoutWriteObservation(flushProviders);
+}
+
+function flushProviders(): Promise<void[]> {
   const promises: Promise<void>[] = [];
   for (const provider of getRegistry().values()) {
     if (!provider.flush) continue;

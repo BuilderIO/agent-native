@@ -47,7 +47,7 @@ Checklist each item: symptom, expected behavior, evidence, owning surface.
 - **UX proposal:** adding, moving, hiding, or restyling controls, or anything
   "hard to find". These are product calls. Don't build them on your own; write
   the proposal (what changes, why, the tradeoff) and flag it for a person. A
-  proposal Steve has explicitly approved (such as an `:upvote:`) is a request to
+  proposal a maintainer has explicitly approved (such as an `:upvote:`) is a request to
   build the smallest version.
 - **Unclear:** you've read everything and one concrete detail still blocks a
   safe fix.

@@ -25,7 +25,7 @@ export {
   type ClipsHostedStorageConfig,
   type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
-export { platformWaitUntil } from "./background-work.js";
+export { platformWaitUntil, runInBackground } from "./background-work.js";
 export { resolveDeployEnvironment } from "./deploy-environment.js";
 export { isTestIdentity, testIdentitySql } from "./test-identity.js";
 export {
@@ -100,6 +100,7 @@ export {
   mountAuthMiddleware,
   autoMountAuth,
   registerAuthPublicPaths,
+  recordBuilderSignupBinding,
   getSession,
   getBrowserCookieSession,
   isSessionResolutionUnavailable,
@@ -126,6 +127,7 @@ export {
   type AuthOptions,
 } from "./auth.js";
 export { hasSameOriginBrowserEvidence } from "./request-origin.js";
+export { declaredLinkOrigin } from "./origin-allowlist.js";
 export { getEmbedSessionOrigin } from "./embed-request-origin.js";
 export {
   handleIdentitySso,
@@ -263,6 +265,10 @@ export {
   resolveEngine,
 } from "../agent/engine/index.js";
 export {
+  resolveChatModelAvailability,
+  type ChatModelAvailability,
+} from "../agent/engine/chat-model-availability.js";
+export {
   completeText,
   type CompleteTextMessage,
   type CompleteTextOptions,
@@ -277,6 +283,7 @@ export {
   prepareTransactionalChange,
   getVersion,
   getChangesSince,
+  getCurrentPollBaseline,
   getPollEmitter,
   canSeeChangeForUser,
   POLL_CHANGE_EVENT,
@@ -343,6 +350,11 @@ export {
 } from "./google-auth-plugin.js";
 export type { GoogleAuthMode } from "./google-auth-mode.js";
 export {
+  discoverAgentContextAgents,
+  registerAgentContextAgentFilter,
+  type AgentContextAgentFilter,
+} from "./agent-context-agents.js";
+export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
   loadResourcesForPrompt,
@@ -388,7 +400,9 @@ export {
   createThread,
   getThread,
   listThreads,
+  searchThreads,
   updateThreadData,
+  replaceThreadData,
   deleteThread,
   setThreadArchived,
   setThreadPinned,
@@ -579,6 +593,7 @@ export {
   getRequestUserEmail,
   getRequestUserName,
   getRequestOrgId,
+  getRequestIdentityAuthenticatedAtMs,
   getAmbientUserEmail,
   getAmbientOrgId,
   getRequestTimezone,
@@ -697,6 +712,7 @@ export {
 
 export {
   CredentialStoreUnavailableError,
+  CredentialStoreLookupError,
   FeatureNotConfiguredError,
   hasBuilderPrivateKey,
   isBuilderEnvManaged,
@@ -796,7 +812,9 @@ export {
   BUILDER_CONTENT_WRITE_SCOPE,
   BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
+  resolveBuilderOAuthRequestAccessState,
   type BuilderOAuthPermissionScope,
+  type BuilderOAuthRequestAccessState,
 } from "./builder-oauth.js";
 export {
   assertBuilderDesignSystemCodeIndexingAllowed,

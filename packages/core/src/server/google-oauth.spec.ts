@@ -25,6 +25,21 @@ function signRawState(data: string): string {
 }
 
 describe("decodeOAuthState", () => {
+  it("carries the explicit Builder signup attempt in signed OAuth state", () => {
+    const state = encodeOAuthState({
+      redirectUri: "https://design.example.com/callback",
+      flowId: "signup-attempt-example",
+      builderSignupAttemptId: "signup-attempt-example",
+    });
+    expect(
+      decodeOAuthState(state, "https://design.example.com/callback"),
+    ).toMatchObject({
+      ok: true,
+      flowId: "signup-attempt-example",
+      builderSignupAttemptId: "signup-attempt-example",
+    });
+  });
+
   it("round-trips a valid signed state", () => {
     const signed = encodeOAuthState({
       redirectUri: "https://app.example.com/_agent-native/google/callback",

@@ -18,6 +18,8 @@ export function loadSkillConfig<T>(importMetaUrl: string): T {
 export interface CommonConfig {
   repo: string;
   dataDir: string;
+  /** Which tracker skill files findings: jira-refactor-findings or github-refactor-findings. */
+  tracker: string;
 }
 
 export function commonConfig(): CommonConfig {

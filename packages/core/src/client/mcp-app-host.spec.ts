@@ -11,6 +11,7 @@ import {
   getMcpAppHostContext,
   isMcpAppWidgetEmbed,
   isOpenAiMcpAppHost,
+  mcpAppLinkUrl,
   openMcpAppHostLink,
   requestMcpAppDisplayMode,
   sendMcpAppHostMessage,
@@ -106,6 +107,35 @@ function enableMcpEmbedBridge(): void {
     "/?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&embedMode=iframe",
   );
 }
+
+describe("mcpAppLinkUrl", () => {
+  const embedKey = "__AGENT_NATIVE_EXTERNAL_EMBED";
+  const windowHooks = window as unknown as Record<string, unknown>;
+
+  afterEach(() => {
+    delete windowHooks[embedKey];
+  });
+
+  it("uses the page's origin outside an in-place embed", () => {
+    expect(mcpAppLinkUrl("/inbox?id=1")).toBe(
+      `${window.location.origin}/inbox?id=1`,
+    );
+  });
+
+  it("uses the app's origin when an embed runs in place", () => {
+    windowHooks[embedKey] = { origin: "https://mail.example" };
+    expect(mcpAppLinkUrl("/inbox?id=1")).toBe(
+      "https://mail.example/inbox?id=1",
+    );
+  });
+
+  it("leaves a full URL as it is", () => {
+    windowHooks[embedKey] = { origin: "https://mail.example" };
+    expect(mcpAppLinkUrl("https://other.example/a")).toBe(
+      "https://other.example/a",
+    );
+  });
+});
 
 describe("MCP app host client helpers", () => {
   let container: HTMLDivElement;

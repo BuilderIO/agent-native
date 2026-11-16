@@ -7,9 +7,11 @@ import {
   asc,
   desc,
   eq,
+  gte,
   inArray,
   isNull,
   isNotNull,
+  lt,
   not,
   notInArray,
   sql,
@@ -40,6 +42,13 @@ import {
 } from "../server/lib/recordings.js";
 import { profileNameFor } from "../server/lib/user-identities.js";
 import { transcriptHasTextSql } from "./lib/transcript-text.js";
+
+// A calendar date (2026-10-25) or a date-time with its offset
+// (2026-10-25T12:00:00Z). Date.parse alone would also take 10/25/2026 and
+// roll 2026-02-30 over into March.
+const isoDate = z.union([z.iso.date(), z.iso.datetime({ offset: true })], {
+  error: "Use an ISO date or date-time, like 2026-10-25.",
+});
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -103,74 +112,87 @@ export function mergeViewCounts(
   return merged;
 }
 
+export const listRecordingsSchema = z.object({
+  view: z
+    .enum([
+      "library",
+      "shared",
+      "space",
+      "archive",
+      "trash",
+      "all",
+      "from-content",
+    ])
+    .default("library")
+    .describe("Which list to show"),
+  folderId: z
+    .string()
+    .nullish()
+    .describe(
+      "Folder id. Omit/null for the unified library or space view; pass a folder id to show only that folder.",
+    ),
+  spaceId: z
+    .string()
+    .nullish()
+    .describe("Space id — required when view is 'space'"),
+  tag: z.string().nullish().describe("Filter to recordings carrying this tag"),
+  recordingIds: z
+    .array(z.string().min(1))
+    .max(100)
+    .optional()
+    .describe("Restrict results to these recording IDs"),
+  kind: z
+    .enum(["video", "image", "all"])
+    .default("all")
+    .describe(
+      'Filter by what the row holds: "video" for clips, "image" for screenshots, "all" (the default) for both',
+    ),
+  search: z.string().nullish().describe("Title / description substring match"),
+  createdAfter: isoDate
+    .optional()
+    .describe("Only recordings created at or after this ISO date or time"),
+  createdBefore: isoDate
+    .optional()
+    .describe(
+      "Only recordings created before this ISO date or time, such as a week ago for clips older than a week",
+    ),
+  visibility: z
+    .array(z.enum(["private", "org", "public"]))
+    .min(1)
+    .optional()
+    .describe("Only recordings with one of these visibilities"),
+  hasShares: z
+    .preprocess(
+      // A query string arrives as "true" or "false"; anything else is
+      // left for z.boolean() to refuse rather than read as false.
+      (v) => (v === "true" ? true : v === "false" ? false : v),
+      z.boolean().optional(),
+    )
+    .describe(
+      "true: only your recordings whose share list names at least one person, group or org; false: only your recordings whose share list is empty. This reads the share list, not visibility, so an org or public recording can have an empty list; filter on visibility for that. Either value leaves out recordings you don't own.",
+    ),
+  sort: z
+    .enum(["recent", "views", "oldest"])
+    .default("recent")
+    .describe("Sort order"),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+  countOnly: z
+    // Robust coercion: a GET query param arrives as the string "true"/"false",
+    // and z.coerce.boolean would treat "false" as true. Map strings explicitly.
+    .preprocess((v) => (typeof v === "string" ? v === "true" : v), z.boolean())
+    .default(false)
+    .describe("Return only the total count, skipping the row payload"),
+  includeMedia: z
+    .preprocess((v) => (typeof v === "string" ? v === "true" : v), z.boolean())
+    .default(false)
+    .describe("Include playable media fields for editor workflows"),
+});
+
 export default defineAction({
   description:
-    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. The from-content view returns the user's Clips uploaded from Agent-Native Content pages, each with `contentPageUrl`; Library leaves them out.",
-  schema: z.object({
-    view: z
-      .enum([
-        "library",
-        "shared",
-        "space",
-        "archive",
-        "trash",
-        "all",
-        "from-content",
-      ])
-      .default("library")
-      .describe("Which list to show"),
-    folderId: z
-      .string()
-      .nullish()
-      .describe(
-        "Folder id. Omit/null for the unified library or space view; pass a folder id to show only that folder.",
-      ),
-    spaceId: z
-      .string()
-      .nullish()
-      .describe("Space id — required when view is 'space'"),
-    tag: z
-      .string()
-      .nullish()
-      .describe("Filter to recordings carrying this tag"),
-    recordingIds: z
-      .array(z.string().min(1))
-      .max(100)
-      .optional()
-      .describe("Restrict results to these recording IDs"),
-    kind: z
-      .enum(["video", "image", "all"])
-      .default("all")
-      .describe(
-        'Filter by what the row holds: "video" for clips, "image" for screenshots, "all" (the default) for both',
-      ),
-    search: z
-      .string()
-      .nullish()
-      .describe("Title / description substring match"),
-    sort: z
-      .enum(["recent", "views", "oldest"])
-      .default("recent")
-      .describe("Sort order"),
-    limit: z.coerce.number().int().min(1).max(500).default(100),
-    offset: z.coerce.number().int().min(0).default(0),
-    countOnly: z
-      // Robust coercion: a GET query param arrives as the string "true"/"false",
-      // and z.coerce.boolean would treat "false" as true. Map strings explicitly.
-      .preprocess(
-        (v) => (typeof v === "string" ? v === "true" : v),
-        z.boolean(),
-      )
-      .default(false)
-      .describe("Return only the total count, skipping the row payload"),
-    includeMedia: z
-      .preprocess(
-        (v) => (typeof v === "string" ? v === "true" : v),
-        z.boolean(),
-      )
-      .default(false)
-      .describe("Include playable media fields for editor workflows"),
-  }),
+    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, creation date, visibility, whether you've shared it with anyone, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. The from-content view returns the user's Clips uploaded from Agent-Native Content pages, each with `contentPageUrl`; Library leaves them out.",
+  schema: listRecordingsSchema,
   http: { method: "GET" },
   run: async (args, ctx) => {
     const db = getDb();
@@ -284,6 +306,42 @@ export default defineAction({
     // filter, and the unified library passes "all" so it still shows both.
     if (args.kind === "image" || args.kind === "video") {
       whereClauses.push(eq(schema.recordings.kind, args.kind));
+    }
+
+    // createdAt is text, and every insert writes toISOString(), so comparing
+    // it with another ISO-8601 UTC string compares times (the recent sort
+    // relies on the same).
+    if (args.createdAfter) {
+      whereClauses.push(
+        gte(
+          schema.recordings.createdAt,
+          new Date(args.createdAfter).toISOString(),
+        ),
+      );
+    }
+    if (args.createdBefore) {
+      whereClauses.push(
+        lt(
+          schema.recordings.createdAt,
+          new Date(args.createdBefore).toISOString(),
+        ),
+      );
+    }
+
+    if (args.visibility) {
+      whereClauses.push(inArray(schema.recordings.visibility, args.visibility));
+    }
+
+    // Who a recording is shared with is the owner's to see, so this filter
+    // only ever matches the caller's own recordings.
+    if (args.hasShares !== undefined) {
+      const email = ctx?.userEmail ?? getRequestUserEmail();
+      const shared = sql`EXISTS (SELECT 1 FROM ${schema.recordingShares} WHERE ${schema.recordingShares.resourceId} = ${schema.recordings.id})`;
+      whereClauses.push(
+        email
+          ? sql`(${ownerEmailMatches(schema.recordings.ownerEmail, email)} AND ${args.hasShares ? shared : not(shared)})`
+          : sql`1 = 0`,
+      );
     }
 
     // Tag filter — join-ish via subquery

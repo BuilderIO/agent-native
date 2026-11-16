@@ -9,6 +9,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { startCommand } from "./lib/pnpm-command.ts";
+
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -33,11 +35,13 @@ function run(
   opts: Partial<ExecFileSyncOptionsWithStringEncoding> & { cwd: string },
 ): string {
   log(`${cmd} ${args.join(" ")}`);
-  return execFileSync(cmd, args, {
+  const start = startCommand(cmd, args);
+  return execFileSync(start.command, start.args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     timeout: shellTimeoutMs,
     ...opts,
+    shell: start.shell,
     env: {
       ...process.env,
       NO_COLOR: "1",

@@ -6,13 +6,50 @@ function stripFrontmatter(markdown: string): string {
   return markdown.replace(/^---\s*\n[\s\S]*?\n---\s*(?:\n|$)/, "");
 }
 
+/**
+ * A fenced code block. A closing fence is at least as long as the opening one
+ * and has nothing after it, so a line like ```js inside the block doesn't close
+ * it, and a line with more backticks after its fence is text, not a fence.
+ */
+const FENCED_CODE =
+  /(?:^|\n) {0,3}(?<fence>(?<mark>`|~)\k<mark>{2,})(?:(?<=~)|(?=[^`\n]*(?:\n|$)))[\s\S]*?(?:\n {0,3}\k<fence>\k<mark>*[ \t]*(?=\n|$)|$)/g;
+
+/**
+ * A code span: a run of backticks up to the next run of the same length, in the
+ * same paragraph. A backtick after an odd run of backslashes is escaped, and an
+ * escaped one or one with no partner is plain text.
+ */
+const CODE_SPAN =
+  /(?<!`)(?<!(?<!\\)\\(?:\\\\)*)(?<ticks>`+)(?!`)(?<code>(?:(?!\n[ \t]*\n)[\s\S])*?)(?<!`)\k<ticks>(?!`)/g;
+
+/** Code, in the first capture, or an HTML comment, closed or not. */
+const CODE_OR_COMMENT = new RegExp(
+  `(${FENCED_CODE.source}|${CODE_SPAN.source})|<!--[\\s\\S]*?(?:-->|$)`,
+  "g",
+);
+
 function stripFencedCode(markdown: string): string {
-  // A closing fence is at least as long as the opening one and has nothing
-  // after it, so a line like ```js inside the block doesn't close it.
+  return markdown.replace(FENCED_CODE, "\n");
+}
+
+/**
+ * A comment hides its text, and an unclosed one hides the rest. Code is passed
+ * over first, so a `<!--` written as code stays.
+ */
+function stripHtmlComments(markdown: string): string {
   return markdown.replace(
-    /(?:^|\n) {0,3}((`|~)\2{2,})[\s\S]*?(?:\n {0,3}\1\2*[ \t]*(?=\n|$)|$)/g,
-    "\n",
+    CODE_OR_COMMENT,
+    (_match, code: string | undefined) => code ?? " ",
   );
+}
+
+/** Whether `markdown` stops inside an HTML comment, not counting code. */
+export function endsInHtmlComment(markdown: string): boolean {
+  let open = false;
+  for (const match of markdown.matchAll(CODE_OR_COMMENT)) {
+    open = match[0].startsWith("<!--") && !match[0].endsWith("-->");
+  }
+  return open;
 }
 
 function decodeCommonEntities(text: string): string {
@@ -67,13 +104,20 @@ function isDividerBlock(block: string): boolean {
 
 export function stripMarkdownForPreview(markdown: string): string {
   return (
-    decodeCommonEntities(markdown)
-      .replace(/<[^>\n]+\/>/g, " ")
-      .replace(/<\/?[^>\n]+>/g, " ")
+    // Comments go first: a `&lt;!--` is text that reads as a marker, not one.
+    decodeCommonEntities(stripHtmlComments(markdown))
+      // A tag starts with a name, so `3 < 4 and 5 > 2` stays.
+      .replace(/<[A-Za-z][^<>\n]*\/>/g, " ")
+      .replace(/<\/?[A-Za-z][^<>\n]*>/g, " ")
+      // A destination with balanced parentheses, then any other.
+      .replace(/!\[([^\]]*)\]\((?:[^()]|\([^()]*\))+\)/g, "$1")
       .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+      .replace(/\[([^\]]+)\]\((?:[^()]|\([^()]*\))+\)/g, "$1")
       .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
       .replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1")
-      .replace(/`([^`]+)`/g, "$1")
+      // A fence's own lines, when code reaches a preview, such as a search match.
+      .replace(/^ {0,3}(?:`{3,}[^`\n]*|~{3,}[^\n]*)$/gm, " ")
+      .replace(CODE_SPAN, "$<code>")
       .replace(/^#{1,6}\s+/gm, "")
       .replace(/\s+#+\s*$/gm, "")
       .replace(/^\s{0,3}>\s?/gm, "")
@@ -122,8 +166,9 @@ export function buildPublicDocumentDescription({
   title?: string | null;
   maxLength?: number;
 }): string {
+  // Comments go before the page splits into blocks, since one can span several.
   const normalizedContent = stripFencedCode(
-    stripFrontmatter(content?.replace(/\r\n?/g, "\n") ?? ""),
+    stripHtmlComments(stripFrontmatter(content?.replace(/\r\n?/g, "\n") ?? "")),
   );
   const blocks = normalizedContent.split(/\n{2,}/);
   const fallbackText: string[] = [];
@@ -282,7 +327,7 @@ export function buildDocumentExcerpt({
     // Then markup or an opening bracket or quote left with nothing after it.
     markdown = markdown.replace(/(^|\s)[*_~`(["'“‘]+$/u, "$1");
   }
-  const blocks = stripFencedCode(markdown)
+  const blocks = stripFencedCode(stripHtmlComments(markdown))
     // Headings and dividers stand alone even without blank lines around them.
     // A line of `=` or `-` right under a line of text underlines it as a
     // heading, so it stays with that line.
@@ -332,9 +377,11 @@ export const EXCERPT_SOURCE_CHARS = 1000;
 export function buildListRowExcerpt({
   content,
   title,
+  maxLength,
 }: {
   content?: string | null;
   title?: string | null;
+  maxLength?: number;
 }): string {
   // Count characters the way the database does, not UTF-16 units. No
   // character takes more than two units.
@@ -346,5 +393,6 @@ export function buildListRowExcerpt({
     title,
     truncated: characters.length > EXCERPT_SOURCE_CHARS,
     nextCharacter: characters[EXCERPT_SOURCE_CHARS],
+    maxLength,
   });
 }

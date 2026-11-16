@@ -204,6 +204,8 @@ export interface Form {
   responseCount?: number;
   createdAt: string;
   updatedAt: string;
+  /** Identifies this read of the field list. Field writes send it back. */
+  revision?: string;
 }
 
 export interface FormResponse {

@@ -60,6 +60,8 @@ interface RecipientInputProps {
     from: RecipientField,
     to: RecipientField,
   ) => void;
+  /** Off where the session can't save an alias, like a card in a chat app. */
+  offerSaveAlias?: boolean;
 }
 
 export function parseRecipients(value: string): string[] {
@@ -313,6 +315,7 @@ export function RecipientInput({
   autoFocus,
   field,
   onMoveRecipient,
+  offerSaveAlias = true,
 }: RecipientInputProps) {
   const t = useT();
   const recipientInstanceId = useId().replace(/:/g, "");
@@ -684,7 +687,7 @@ export function RecipientInput({
       : null;
 
   const nonAliasRecipients = recipients.filter((r) => !isAliasToken(r));
-  const canSaveAlias = nonAliasRecipients.length >= 2;
+  const canSaveAlias = offerSaveAlias && nonAliasRecipients.length >= 2;
 
   return (
     <div

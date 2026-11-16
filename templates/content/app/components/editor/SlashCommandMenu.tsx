@@ -32,6 +32,9 @@ import {
   IconTable as TableIcon,
   IconHierarchy2,
   IconInfoCircle,
+  IconColumns,
+  IconColumns2,
+  IconColumns3,
   IconMusic,
   IconPhoto,
   IconFileText,
@@ -75,7 +78,10 @@ import { useRollbackCreatedSlashDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
 
-import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
+import {
+  focusMostRecentEmptyToggleSummary,
+  TOGGLE_TITLE_NODE,
+} from "./extensions/NotionExtensions";
 import { createImagePickerId } from "./image-upload";
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
 import { MathRenderer } from "./MathRenderer";
@@ -243,11 +249,18 @@ export function insertMediaPlaceholder(
   return editor.chain().focus().insertContent({ type, attrs }).run();
 }
 
+// The menu's commands turn the block it opens in into another, or put blocks
+// there. A Toggle's title is its own line, not a block to turn into another.
+function canOpenSlashMenu(editor: Editor) {
+  const { parent } = editor.state.selection.$from;
+  return parent.isTextblock && parent.type.name !== TOGGLE_TITLE_NODE;
+}
+
 function getActiveSlashCommandRange(editor: Editor) {
   const { state } = editor;
   if (!state.selection.empty) return null;
   const { from, $from } = state.selection;
-  if (!$from.parent.isTextblock) return null;
+  if (!canOpenSlashMenu(editor)) return null;
 
   const blockStart = $from.start();
   const textBefore = state.doc.textBetween(blockStart, from, "\n");
@@ -570,6 +583,32 @@ export function getEquationInsertionRange(
     : slashRange;
 }
 
+export function columnSetContent(count: number) {
+  return {
+    type: "notionColumns",
+    content: Array.from({ length: count }, () => ({
+      type: "notionColumn",
+      content: [{ type: "paragraph" }],
+    })),
+  };
+}
+
+/** Puts a set of empty columns where the menu opened, caret in the first. */
+export function insertColumnSet(
+  editor: Pick<Editor, "chain" | "commands" | "state">,
+  count: number,
+) {
+  if (!editor.chain().focus().insertContent(columnSetContent(count)).run())
+    return false;
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth--) {
+    if ($from.node(depth).type.name !== "notionColumns") continue;
+    // Inside the set, its first column, and that column's paragraph.
+    return editor.commands.setTextSelection($from.before(depth) + 3);
+  }
+  return true;
+}
+
 export function setCodeBlockFromSlashCommand(
   editor: Editor,
   slashRange: { from: number; to: number } | null,
@@ -664,6 +703,20 @@ const commands: CommandTemplate[] = [
         })
         .run(),
   },
+  ...(
+    [
+      [2, "editor.slash.twoColumns", IconColumns2],
+      [3, "editor.slash.threeColumns", IconColumns3],
+      [4, "editor.slash.fourColumns", IconColumns],
+    ] as const
+  ).map(
+    ([count, titleKey, icon]): CommandTemplate => ({
+      titleKey,
+      descriptionKey: "editor.slash.columnsDescription",
+      icon,
+      action: (editor) => insertColumnSet(editor, count),
+    }),
+  ),
   {
     titleKey: "editor.slash.divider",
     descriptionKey: "editor.slash.dividerDescription",
@@ -1551,7 +1604,7 @@ export function SlashCommandMenu({
       const { state } = editor;
       const { from } = state.selection;
       const { $from } = state.selection;
-      if (!$from.parent.isTextblock) {
+      if (!canOpenSlashMenu(editor)) {
         if (isOpen) {
           setIsOpen(false);
           setIsTurnInto(false);

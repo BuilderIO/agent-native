@@ -6,7 +6,7 @@ import {
 } from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
-import { USE_CASE_SLUG_REDIRECTS } from "../app/components/campaign/use-case-redirects";
+import { USE_CASE_SLUG_REDIRECTS } from "../app/components/site-content/use-case-redirects";
 import { loader as localeLoader } from "../app/routes/$locale";
 import { loader as localizedUseCaseLoader } from "../app/routes/$locale.use-cases.$slug";
 import { loader as localizedDocsLoader } from "../app/routes/docs.$locale.$slug";
@@ -15,7 +15,7 @@ import { loader as corePhilosophyLoader } from "../app/routes/docs.core-philosop
 import { loader as databaseAdaptersLoader } from "../app/routes/docs.database-adapters";
 import { loader as templatesLoader } from "../app/routes/templates";
 import { loader as useCaseLoader } from "../app/routes/use-cases.$slug";
-import { loadCampaignContent } from "../lib/campaign-content.server";
+import { loadSiteContent } from "../lib/site-content.server";
 
 function captureRedirect(run: () => unknown): Response {
   try {
@@ -128,7 +128,7 @@ describe("moved use-case pages", () => {
   });
 
   it("redirects only to pages that exist, and never from one", () => {
-    const content = loadCampaignContent();
+    const content = loadSiteContent();
     const live = new Set(content.useCases.map((page) => page.slug));
     for (const [from, to] of Object.entries(USE_CASE_SLUG_REDIRECTS)) {
       expect(live.has(to), to).toBe(true);

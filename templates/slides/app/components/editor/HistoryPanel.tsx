@@ -175,21 +175,43 @@ export default function HistoryPanel({
         return;
       }
     }
+    let applied: boolean | undefined;
     try {
-      await restoreVersion.mutateAsync({
+      ({ applied } = await restoreVersion.mutateAsync({
         deckId,
         versionId: selectedVersionId,
-      });
-      await refreshOpenDeck(deckId, { clearPendingWrites: true });
-      toast.success(t("history.versionRestored"), {
-        description: t("history.versionRestoredDescription"),
-      });
-      handleClose(false);
+      }));
     } catch (error) {
       toast.error(t("history.restoreFailed"), {
         description: restoreFailureDescription(error, t),
       });
+      return;
     }
+    const reloaded = await refreshOpenDeck(deckId, {
+      clearPendingWrites: true,
+    }).then(
+      (deck) => deck !== null,
+      () => false,
+    );
+    if (!reloaded) {
+      toast.error(t("history.restoreReloadFailed"), {
+        description: t("history.restoreReloadFailedDescription"),
+      });
+      return;
+    }
+    if (applied === true) {
+      toast.success(t("history.versionRestored"), {
+        description: t("history.versionRestoredDescription"),
+      });
+    } else if (applied === false) {
+      toast.info(t("history.alreadyAtVersion"));
+    } else {
+      toast.error(t("history.restoreFailed"), {
+        description: t("history.restoreFailedDescription"),
+      });
+      return;
+    }
+    handleClose(false);
   };
 
   return (

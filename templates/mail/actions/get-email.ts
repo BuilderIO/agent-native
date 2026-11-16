@@ -78,8 +78,10 @@ export default defineAction({
     }
 
     try {
-      const labelMap = await fetchLabelMap(account.accessToken);
-      const msg = await gmailGetMessage(account.accessToken, args.id, "full");
+      const [labelMap, msg] = await Promise.all([
+        fetchLabelMap(account.accessToken),
+        gmailGetMessage(account.accessToken, args.id, "full"),
+      ]);
       const email = gmailToEmailMessage(msg, account.email, labelMap);
       return ctx?.caller === "mcp"
         ? {

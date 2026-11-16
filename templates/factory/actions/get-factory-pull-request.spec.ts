@@ -24,6 +24,9 @@ import {
   observedAt,
   pullRequestSummary,
 } from "../server/lib/factory-pull-request.fixture.js";
+import { VERIFICATION_EXCERPT_CHARS } from "../server/lib/pull-request-evidence.js";
+import { WORKFLOW_ACTION_OUTPUT_LIMIT_CHARS } from "../server/lib/workflow-action-support.js";
+import { GitHubRequestError } from "../server/triage/github-client.js";
 import action from "./get-factory-pull-request.js";
 
 const caller = {
@@ -76,6 +79,12 @@ describe("get-factory-pull-request", () => {
       },
       checks: { coverage: "complete", total: 1, passed: 1, allPassing: true },
       reviewThreads: { complete: true, total: 0, unresolved: 0 },
+      verification: {
+        present: true,
+        hasMedia: false,
+        excerpt:
+          "Ran the form list spec: it fails without the change and passes with it.",
+      },
     });
     expect(github.getPullRequestChecks).toHaveBeenCalledWith(
       { owner: "acme", repo: "app" },
@@ -117,11 +126,12 @@ describe("get-factory-pull-request", () => {
       failed: 1,
       pending: 1,
       informational: 1,
+      cancelled: 0,
       allPassing: false,
+      // oracle-change: a skipped or neutral check blocks nothing, so it is counted but no longer listed as not passing
       notPassing: [
         { name: "tests", state: "failed" },
         { name: "build", state: "queued" },
-        { name: "docs", state: "informational" },
       ],
       notPassingTruncated: false,
     });
@@ -129,6 +139,114 @@ describe("get-factory-pull-request", () => {
       total: 2,
       unresolved: 1,
       unresolvedThreads: [{ threadId: "t2", path: "a.ts" }],
+    });
+  });
+
+  describe("what counts as green on a real pull request", () => {
+    const named = (prefix: string, state: string, count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        name: `${prefix} ${index}`,
+        state,
+        observedAt,
+      }));
+    const readChecks = async (
+      checks: unknown[],
+      checksCoverage: "complete" | "partial" = "complete",
+    ) => {
+      createClientMock.mockReturnValue(
+        fakeGitHub({
+          getPullRequestChecks: vi
+            .fn()
+            .mockResolvedValue({ checks, checksCoverage }),
+        }),
+      );
+      return ((await action.run(input, context)) as Record<string, any>).checks;
+    };
+
+    it("is green with 34 passed beside 33 skipped, as on a merged pull request", async () => {
+      const checks = await readChecks([
+        ...named("job", "passed", 34),
+        ...named("skipped job", "informational", 33),
+      ]);
+
+      expect(checks).toMatchObject({
+        total: 67,
+        passed: 34,
+        informational: 33,
+        failed: 0,
+        pending: 0,
+        cancelled: 0,
+        allPassing: true,
+        notPassing: [],
+      });
+    });
+
+    it("is not green when nothing passed, however many checks were skipped", async () => {
+      const checks = await readChecks(
+        named("skipped job", "informational", 33),
+      );
+
+      expect(checks).toMatchObject({ passed: 0, informational: 33 });
+      expect(checks.allPassing).toBe(false);
+      expect((await readChecks([])).allPassing).toBe(false);
+    });
+
+    it("is not green while any check is failed, cancelled or running, or when coverage is partial", async () => {
+      const passed = named("job", "passed", 5);
+      const skipped = named("skipped job", "informational", 20);
+      for (const blocker of ["failed", "cancelled", "queued", "in_progress"]) {
+        const checks = await readChecks([
+          ...passed,
+          ...skipped,
+          ...named("blocker", blocker, 1),
+        ]);
+        expect(checks.allPassing, blocker).toBe(false);
+      }
+      expect(
+        (await readChecks([...passed, ...skipped], "partial")).allPassing,
+      ).toBe(false);
+    });
+
+    it("counts cancelled runs apart from failures: 3 failed and 33 cancelled are not 36 failed", async () => {
+      const checks = await readChecks([
+        ...named("job", "passed", 36),
+        ...named("cancelled job", "cancelled", 33),
+        ...named("failed job", "failed", 3),
+        ...named("skipped job", "informational", 27),
+      ]);
+
+      expect(checks).toMatchObject({
+        total: 99,
+        passed: 36,
+        failed: 3,
+        cancelled: 33,
+        informational: 27,
+        allPassing: false,
+      });
+      // The real failures come first, so a bounded list never cuts them off.
+      expect(checks.notPassing.slice(0, 3)).toEqual([
+        { name: "failed job 0", state: "failed" },
+        { name: "failed job 1", state: "failed" },
+        { name: "failed job 2", state: "failed" },
+      ]);
+      expect(checks.notPassing).toHaveLength(36);
+    });
+
+    it("reads a pull request with 140 checks and lists the one that failed", async () => {
+      const checks = await readChecks([
+        ...named("skipped job", "informational", 79),
+        ...named("job", "passed", 60),
+        ...named("failed job", "failed", 1),
+      ]);
+
+      expect(checks).toMatchObject({
+        total: 140,
+        failed: 1,
+        allPassing: false,
+      });
+      expect(checks.notPassing).toEqual([
+        { name: "failed job 0", state: "failed" },
+      ]);
     });
   });
 
@@ -175,6 +293,134 @@ describe("get-factory-pull-request", () => {
     expect(result.reviewThreads.unresolvedThreadsTruncated).toBe(true);
     expect(result.reviewThreads.unresolved).toBe(30);
     expect(JSON.stringify(result).length).toBeLessThan(40_000);
+  });
+
+  describe("verification", () => {
+    const read = async (body: string | null) => {
+      createClientMock.mockReturnValue(
+        fakeGitHub({
+          getPullRequestSummary: vi
+            .fn()
+            .mockResolvedValue(pullRequestSummary({ body })),
+        }),
+      );
+      return (await action.run(input, context)) as Record<string, any>;
+    };
+
+    it("summarizes the Verified section and returns nothing else of the description", async () => {
+      const result = await read(
+        [
+          "PLANTED-SUMMARY-TEXT that stays in the description.",
+          "",
+          '<a href="https://builder.example.test/edit"><img src="https://cdn.example.test/edit.png" alt="Edit"></a>',
+          "",
+          "<!-- FUSION_SCREENSHOTS_START -->",
+          "### Verified",
+          "",
+          "[Watch the run](https://www.builder.io/app/timelines/abc123)",
+          '<img src="https://storage.example.test/after.webp" alt="After: the list is sorted" />',
+          "Ran the form list spec and it passed.",
+          "<!-- FUSION_SCREENSHOTS_END -->",
+          "",
+          "---",
+          "PLANTED-FOOTER-TEXT and a clone command.",
+        ].join("\n"),
+      );
+
+      expect(result.verification).toEqual({
+        present: true,
+        hasMedia: true,
+        excerpt: "Watch the run Ran the form list spec and it passed.",
+      });
+      const raw = JSON.stringify(result);
+      for (const leaked of [
+        "PLANTED-SUMMARY-TEXT",
+        "PLANTED-FOOTER-TEXT",
+        "builder.example.test",
+        "cdn.example.test",
+        "storage.example.test",
+        "FUSION_",
+      ]) {
+        expect(raw, leaked).not.toContain(leaked);
+      }
+      expect(JSON.stringify(result.verification)).not.toMatch(/https?:|<img/);
+      expect(result).not.toHaveProperty("body");
+    });
+
+    it("clips a long section to its bound and keeps the whole result small", async () => {
+      const result = await read(
+        `### Verified\n${"Ran the form list spec and it passed. ".repeat(2_000)}`,
+      );
+
+      expect(result.verification.present).toBe(true);
+      expect(result.verification.excerpt.length).toBeLessThanOrEqual(
+        VERIFICATION_EXCERPT_CHARS,
+      );
+      expect(JSON.stringify(result).length).toBeLessThan(10_000);
+    });
+
+    it("keeps a full excerpt inside the action's output limit even beside full thread and check lists", async () => {
+      const heavyThreads = Array.from({ length: 30 }, (_, index) => ({
+        ...thread(`t${index}`, false),
+        body: "Please rename this. ".repeat(500),
+      }));
+      const heavyChecks = Array.from({ length: 80 }, (_, index) => ({
+        name: `check-${index}-${"x".repeat(200)}`,
+        state: "failed",
+        observedAt,
+      }));
+      createClientMock.mockReturnValue(
+        fakeGitHub({
+          getPullRequestSummary: vi.fn().mockResolvedValue(
+            pullRequestSummary({
+              title: "t".repeat(400),
+              body: `### Verified\n${"Ran the form list spec and it passed. ".repeat(200)}`,
+            }),
+          ),
+          getPullRequestChecks: vi.fn().mockResolvedValue({
+            checks: heavyChecks,
+            checksCoverage: "complete",
+          }),
+          listPullRequestReviewThreads: vi.fn().mockResolvedValue({
+            comments: heavyThreads,
+            commentsTruncated: false,
+          }),
+        }),
+      );
+
+      const result = (await action.run(input, context)) as Record<string, any>;
+
+      expect(result.verification.excerpt).toHaveLength(
+        VERIFICATION_EXCERPT_CHARS,
+      );
+      expect(JSON.stringify(result).length).toBeLessThan(
+        WORKFLOW_ACTION_OUTPUT_LIMIT_CHARS,
+      );
+    });
+
+    it("says absent, not an error, for a description with no Verified section or none at all", async () => {
+      const absent = { present: false, hasMedia: false, excerpt: "" };
+
+      expect((await read(null)).verification).toEqual(absent);
+      expect((await read("")).verification).toEqual(absent);
+      expect((await read("Only a summary here.")).verification).toEqual(absent);
+    });
+
+    it("fails, rather than report an absent section, when the pull request cannot be read", async () => {
+      createClientMock.mockReturnValue(
+        fakeGitHub({
+          getPullRequestSummary: vi
+            .fn()
+            .mockRejectedValue(
+              new GitHubRequestError("HTTP 502 - <html>", true, 502),
+            ),
+        }),
+      );
+
+      await expect(action.run(input, context)).rejects.toMatchObject({
+        errorCode: "github_request_failed",
+      });
+    });
   });
 
   it("refuses a repository it cannot parse, and a caller the gate refuses", async () => {

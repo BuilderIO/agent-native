@@ -29,8 +29,10 @@ export default defineAction({
     isConsequential: false,
   },
   run: async (args) => {
-    const { guidance } = await readBrainAgentGuidance();
-    const rows = await searchKnowledgeRows(args);
+    const [{ guidance }, rows] = await Promise.all([
+      readBrainAgentGuidance(),
+      searchKnowledgeRows(args),
+    ]);
     return {
       count: rows.length,
       policy: guidance.retrieval,

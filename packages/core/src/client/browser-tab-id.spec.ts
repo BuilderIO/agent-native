@@ -74,6 +74,54 @@ describe("browser tab id", () => {
     expect(second.getBrowserTabId()).toBe(firstId);
   });
 
+  it("adopts the tab ID an open link names, drops it from the URL and keeps it on reload", async () => {
+    stubNavigationType("navigate");
+    window.sessionStorage.setItem(STORAGE_KEY, "tab-before-link");
+    window.history.replaceState(
+      {},
+      "",
+      "/home?agentSidebar=closed&agentNativeTab=link-tab#week",
+    );
+
+    const first = await loadTabId();
+
+    expect(first.getBrowserTabId()).toBe("link-tab");
+    expect(window.location.pathname).toBe("/home");
+    expect(window.location.search).toBe("?agentSidebar=closed");
+    expect(window.location.hash).toBe("#week");
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBe("link-tab");
+
+    vi.restoreAllMocks();
+    stubNavigationType("reload");
+    resetSharedTabIds();
+    const reloaded = await loadTabId();
+    expect(reloaded.getBrowserTabId()).toBe("link-tab");
+  });
+
+  it("adopts a later open link's tab ID in a window that already has one", async () => {
+    stubNavigationType("navigate");
+    const { getBrowserTabId } = await loadTabId();
+    const first = getBrowserTabId();
+
+    window.history.replaceState({}, "", "/home?agentNativeTab=relaunch-tab");
+
+    expect(getBrowserTabId()).toBe("relaunch-tab");
+    expect(first).not.toBe("relaunch-tab");
+    expect(window.location.search).toBe("");
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBe("relaunch-tab");
+    expect(getBrowserTabId()).toBe("relaunch-tab");
+  });
+
+  it("drops a malformed linked tab ID and makes its own", async () => {
+    stubNavigationType("navigate");
+    window.history.replaceState({}, "", "/home?agentNativeTab=bad%2Ftab");
+
+    const { getBrowserTabId } = await loadTabId();
+
+    expect(getBrowserTabId()).not.toBe("bad/tab");
+    expect(window.location.search).toBe("");
+  });
+
   it("does not reuse malformed stored ids", async () => {
     stubNavigationType("reload");
     window.sessionStorage.setItem(STORAGE_KEY, "bad/tab");

@@ -1,7 +1,7 @@
 import type { PluralLocaleMessages } from "./en-US";
 
 const esES = {
-  campaign: {
+  siteContent: {
     recipeWhen: "Cuándo",
     howOften: "Con qué frecuencia",
     filterRole: "Rol",
@@ -24,7 +24,6 @@ const esES = {
     whereItBreaks: "Dónde falla",
     updatedDate: "Actualizado el {{date}}",
     publishedDate: "Publicado el {{date}}",
-    allArticles: "Todos los artículos",
     useCases: "Casos de uso",
     useCasesDescription: "Páginas para tareas recurrentes, por app",
     useCasesTitle:
@@ -33,14 +32,15 @@ const esES = {
       "Elige el trabajo que haces una y otra vez, o explora los {{articles}} para encontrar plantillas y guías prácticas.",
     articles: "Artículos",
     articlesIntro:
-      "Respuestas prácticas sobre el trabajo recurrente con agentes de IA. Para ver páginas que explican una tarea concreta paso a paso, explora los {{useCases}}.",
-    useCasesLink: "casos de uso",
+      "Guías y explicaciones para el trabajo recurrente con agentes de IA.",
     articleCount_one: "{{count}} artículo",
     articleCount_many: "{{count}} de artículos",
     articleCount_other: "{{count}} artículos",
-    moreOnTopic: "Más sobre {{topic}}",
-    faqs: "Preguntas frecuentes",
     copyPage: "Copiar página",
+    enlargeImage: "Ampliar imagen",
+    closeImage: "Cerrar imagen",
+    copyPrompt: "Copiar prompt",
+    promptHint: "Pega el prompt en el cuadro de prompt de {{app}}.",
     copyLink: "Copiar enlace",
     copied: "Copiado",
     copyFailed: "No se pudo copiar. Inténtalo de nuevo.",
@@ -49,11 +49,9 @@ const esES = {
     readTime_many: "{{count}} min de lectura",
     readTime_other: "{{count}} min de lectura",
     partOf: "Parte de:",
-    relatedResources: "Recursos relacionados",
     moreArticles: "Más artículos de {{category}}",
     genericMore: "Más artículos",
     showMore: "Mostrar más artículos",
-    allTopics: "Todos los temas",
     topics: {
       clips:
         "Grabaciones de pantalla, reuniones y dictado que tu agente de IA puede usar",
@@ -2703,6 +2701,7 @@ const esES = {
     deploymentEnvironmentVariables: "Despliegue: Variables de Entorno",
     updatingUiInProduction: "Actualizar la UI en Producción",
     environmentVariables: "Variables de entorno",
+    telemetry: "Telemetría",
     progress: "Progreso",
     authentication: "Autenticación",
     multiTenancy: "multiinquilino",

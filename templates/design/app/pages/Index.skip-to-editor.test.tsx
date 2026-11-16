@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   },
   promptProps: null as Record<string, any> | null,
   toastError: vi.fn(),
+  reportWriteFailure: vi.fn(),
   writePendingGeneration: vi.fn(),
   clearPendingGeneration: vi.fn(),
   fullAppBuilding: false,
@@ -323,6 +324,10 @@ vi.mock("nanoid", () => ({
   nanoid: () => mocks.nanoid(),
 }));
 
+vi.mock("@agent-native/core/client/write-failure", () => ({
+  reportWriteFailure: (...args: unknown[]) => mocks.reportWriteFailure(...args),
+}));
+
 vi.mock("sonner", () => ({
   toast: { error: (...args: unknown[]) => mocks.toastError(...args) },
 }));
@@ -520,14 +525,12 @@ it("does not query or apply a default system when workflows are disabled", async
   expect(mocks.systemsQuery).toHaveBeenLastCalledWith(false);
   expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
   expect(
-    mocks.promptProps?.contextMenuItems[0].children.map(
-      (item: { id: string }) => item.id,
-    ),
+    mocks.promptProps?.contextMenuItems.map((item: { id: string }) => item.id),
   ).toEqual([
-    "design-reference",
     "figma-reference",
+    "design-reference",
+    "content-reference",
     "website-reference",
-    "integrations",
   ]);
   await act(async () => mocks.promptProps?.onSubmit("New design", [], {}));
   expect(mocks.createDesign).toHaveBeenCalledWith(
@@ -1040,7 +1043,10 @@ describe("Index skip to editor", () => {
     });
 
     expect(mocks.navigate).not.toHaveBeenCalled();
-    expect(mocks.toastError).toHaveBeenCalledWith("Failed to create design");
+    expect(mocks.reportWriteFailure).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ message: "database unavailable" }),
+      { label: "Failed to create design" },
+    );
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
     expect(mocks.generateTitle).not.toHaveBeenCalled();
 

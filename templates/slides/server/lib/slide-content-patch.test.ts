@@ -186,6 +186,37 @@ describe("applySlideContentEdits", () => {
     expect(message).toContain("<span>Hello   World</span>");
   });
 
+  it("tells the caller to copy the stored text when only whitespace differs", async () => {
+    const stored = '<div style="padding:32px 64px;">Hi</div>';
+    const error = await applySlideContentEdits(stored, [
+      { find: "padding: 32px 64px;", replace: "padding: 20px 64px;" },
+    ]).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SlideContentEditError);
+    const message = (error as Error).message;
+    expect(message.split("\n")[0]).toBe("replace found no matches.");
+    expect(message).toContain("(whitespace only)");
+    expect(message).toContain("padding:32px 64px;");
+  });
+
+  it("does not tell the caller to copy a whitespace-only candidate that was cut off", async () => {
+    const items = Array.from(
+      { length: 12 },
+      (_, i) => `<li style="margin:0;padding:4px;">Item number ${i}</li>`,
+    ).join("");
+    const stored = `<ul style="list-style:none;">${items}</ul>`;
+    const quote = stored.replace(/></g, ">\n  <").replace(/:/g, ": ");
+    const error = await applySlideContentEdits(stored, [
+      { find: quote, replace: "<ul></ul>" },
+    ]).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SlideContentEditError);
+    const message = (error as Error).message;
+    expect(message).toContain("Closest matches in the current slide:");
+    expect(message).not.toContain("(whitespace only)");
+    expect(message).not.toContain("copy it exactly");
+  });
+
   it("reports ambiguity instead of silently patching the first of several matches", async () => {
     await expect(
       applySlideContentEdits("<p>Same</p><p>Same</p>", [

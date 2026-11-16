@@ -13,7 +13,7 @@ import {
   browserDocsLocale,
   docsLocaleFromSegment,
   docsLocaleOptionLabel,
-  isCampaignPathname,
+  isSiteContentPathname,
   sitePathForLocale,
   type DocsLocale,
 } from "../../docs-locale";
@@ -87,7 +87,7 @@ export function LanguagePicker(props: LanguagePickerProps) {
     const target = localeForPreference(value);
     const path = sitePathForLocale(
       location.pathname,
-      isCampaignPathname(location.pathname) && !pageLocales?.includes(target)
+      isSiteContentPathname(location.pathname) && !pageLocales?.includes(target)
         ? DEFAULT_DOCS_LOCALE
         : target,
     );

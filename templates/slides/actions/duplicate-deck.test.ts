@@ -79,6 +79,21 @@ describe("duplicate-deck", () => {
     ]);
   });
 
+  it("returns a 404 when the source deck is missing", async () => {
+    mocks.resolveAccess.mockResolvedValueOnce(null);
+
+    const failure = await action
+      .run({ deckId: "deck-missing", newId: "deck-copy" })
+      .catch(
+        (error: unknown) =>
+          error as { statusCode?: number; errorCode?: string },
+      );
+
+    expect(failure.statusCode).toBe(404);
+    expect(failure.errorCode).toBe("deck_not_found");
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+  });
+
   it("maps a newId collision to a 409 without leaking the SQL", async () => {
     // Drizzle wraps the driver error: the SQL text is on the outer message and the 23505 code on its cause.
     mocks.insertValues.mockRejectedValueOnce(

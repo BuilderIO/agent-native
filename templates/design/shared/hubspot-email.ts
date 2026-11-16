@@ -4,7 +4,52 @@ import { scanHubLInterpolations } from "./hubl-tokens.js";
 
 export const HUBSPOT_EMAIL_FRAME_TYPE = "hubspot-email";
 
+// Gates the full parse, so it must match every spelling parse5 decodes to the
+// marker name. Any meta tag holding a character reference goes to the parse,
+// since references can spell any part of the name. A false positive only
+// costs a parse. The scan is linear and honors quoted attribute values, which
+// may contain ">"; a regex like /<meta[^>]*&/ is neither.
+function mayHaveFrameTypeMarker(content: string): boolean {
+  const lower = content.toLowerCase();
+  if (lower.includes("agent-native:frame-type")) return true;
+  let from = 0;
+  for (;;) {
+    const start = lower.indexOf("<meta", from);
+    if (start === -1) return false;
+    let quote = "";
+    // A quote opens a value only right after "=" and optional whitespace;
+    // anywhere else it is an ordinary character, as it is to the parser.
+    let expectingValue = false;
+    let hasReference = false;
+    let index = start + 5;
+    for (; index < lower.length; index += 1) {
+      const character = lower.charAt(index);
+      if (quote) {
+        if (character === quote) quote = "";
+      } else if (character === ">") {
+        break;
+      } else if (character === "=") {
+        expectingValue = true;
+      } else if (expectingValue && /\s/.test(character)) {
+        // Still waiting for the value.
+      } else {
+        if (expectingValue && (character === '"' || character === "'")) {
+          quote = character;
+        }
+        expectingValue = false;
+      }
+      if (character === "&") hasReference = true;
+    }
+    // A tag still open at the end of the input may hold a later tag inside
+    // an unclosed quoted value, so any reference after it goes to the parse.
+    if (index >= lower.length) return hasReference;
+    if (hasReference) return true;
+    from = index;
+  }
+}
+
 export function isHubSpotEmailHtml(content: string): boolean {
+  if (!mayHaveFrameTypeMarker(content)) return false;
   // HubL string literals may contain HTML attribute delimiters or closing braces.
   const scanned = scanHubLInterpolations(content);
   if (scanned.unclosedAt !== undefined) return false;

@@ -93,6 +93,7 @@ import {
   type PastedImageFilesClientAnchor,
   type PastedImageFilesTarget,
 } from "../commands/pasted-image-files";
+import { runReportSkippedImagePaste } from "../commands/report-skipped-image-paste";
 import { runSendRuntimeLayerSemanticHandoff } from "../commands/send-runtime-layer-semantic-handoff";
 import {
   runContextMenuPaste,
@@ -202,6 +203,7 @@ export function useEditorClipboard({
     pendingLocalFileContentsRef,
     createFileMutation,
     publishAuthoritativeClipboardMutation,
+    leaseSources,
   } = editorGenerationAndAccess;
   const {
     navigate,
@@ -214,6 +216,7 @@ export function useEditorClipboard({
     boardFileId,
     overviewScreens,
     updateLiveScreenSnapshotContent,
+    designDataJsonRef,
   } = editorFilesAndSaving;
   const {
     setCameraCommand,
@@ -649,6 +652,7 @@ export function useEditorClipboard({
         copiedLayerEntriesRef,
         copiedLayerHtmlRef,
         copiedScreenEntriesRef,
+        designData: designDataJsonRef.current,
         designSourceType,
         files,
         getScreenContent,
@@ -1178,8 +1182,10 @@ export function useEditorClipboard({
   );
 
   const handleCanvasImagePaste = useCallback(
-    ({ files, screenId }: IframeImagePastePayload) => {
-      if (files.length === 0 || !canEditDesign) return;
+    ({ files, screenId, skipped }: IframeImagePastePayload) => {
+      if (!canEditDesign) return;
+      if (skipped) runReportSkippedImagePaste({ t }, skipped);
+      if (files.length === 0) return;
       const fileObjects = files.map(({ dataUrl, type, name }) => {
         const comma = dataUrl.indexOf(",");
         const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
@@ -1212,6 +1218,7 @@ export function useEditorClipboard({
       canvasFrameGeometryById,
       handlePastedImageFiles,
       overviewScreens,
+      t,
     ],
   );
 
@@ -1510,64 +1517,61 @@ export function useEditorClipboard({
     ],
   );
 
-  const handleDuplicateSelection = useCallback(
-    () =>
-      runDuplicateSelection({
-        activeFile,
-        applyLinkedComponentEdit,
-        selectionBefore: captureCurrentSelection(),
-        designId: id,
-        applyFileContentUpdate,
-        applyLocalContentUpdate,
-        canEditDesign,
-        canEditLiveScreen: canEditActiveVisualScreen,
-        files,
-        getFreshActiveContent,
-        getScreenContent,
-        getSelectedLayerSnapshots,
-        handleDuplicateScreen,
-        clearExplicitOverviewScreenSelection: () => {
-          explicitOverviewScreenSelectionRef.current = [];
-        },
-        lastDuplicateTransformRef,
-        contentHistorySelectionAfterRef,
-        contentUndoStackRef,
-        localContentUndoStackRef,
-        overviewSelectedScreenIds,
-        remapMotionTracksForClone,
-        runtimeStructureInsertRevisionRef,
-        selectedCanvasSelector,
-        selectedElement,
-        selectedLayerIdsState,
-        setRuntimeStructureInsertRequest,
-        setOverviewSelectedScreenIds,
-        setSelectedElement,
-        setSelectedLayerIdsState,
-        t,
-        undoManagerRef,
-        viewModeRef,
-      }),
-    [
-      applyLinkedComponentEdit,
+  const duplicateSelectionRef = useRef<
+    (loadUnloadedScreens?: (screenIds: string[]) => void) => void
+  >(() => {});
+  duplicateSelectionRef.current = (loadUnloadedScreens) =>
+    runDuplicateSelection({
       activeFile,
-      id,
+      applyLinkedComponentEdit,
+      selectionBefore: captureCurrentSelection(),
+      designId: id,
       applyFileContentUpdate,
       applyLocalContentUpdate,
       canEditDesign,
-      canEditActiveVisualScreen,
+      canEditLiveScreen: canEditActiveVisualScreen,
       files,
       getFreshActiveContent,
       getScreenContent,
       getSelectedLayerSnapshots,
       handleDuplicateScreen,
+      clearExplicitOverviewScreenSelection: () => {
+        explicitOverviewScreenSelectionRef.current = [];
+      },
+      lastDuplicateTransformRef,
+      contentHistorySelectionAfterRef,
+      contentUndoStackRef,
       localContentUndoStackRef,
       overviewSelectedScreenIds,
       remapMotionTracksForClone,
       runtimeStructureInsertRevisionRef,
       selectedCanvasSelector,
       selectedElement,
+      selectedLayerIdsState,
+      setRuntimeStructureInsertRequest,
+      setOverviewSelectedScreenIds,
+      setSelectedElement,
+      setSelectedLayerIdsState,
       t,
-    ],
+      undoManagerRef,
+      viewModeRef,
+      loadUnloadedScreens,
+    });
+  const handleDuplicateSelection = useCallback(
+    () =>
+      duplicateSelectionRef.current((screenIds) => {
+        void leaseSources(screenIds).then(
+          (release) => {
+            try {
+              duplicateSelectionRef.current();
+            } finally {
+              release();
+            }
+          },
+          () => toast.error(t("designEditor.sourceLoadFailed")),
+        );
+      }),
+    [leaseSources, t],
   );
 
   const handleDeleteSelection = useCallback(

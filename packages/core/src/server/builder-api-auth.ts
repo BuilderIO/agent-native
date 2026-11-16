@@ -20,6 +20,7 @@ import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
+  hasStoredBuilderOAuthGrantForUse,
   type BuilderOAuthPermissionScope,
 } from "./builder-oauth.js";
 import {
@@ -57,11 +58,14 @@ function getBuilderCredentialScope(): {
     : { orgId: storageOrgId, storageOnly: true };
 }
 
-async function readCredentialStore<T>(read: () => Promise<T>): Promise<T> {
+async function readCredentialStore<T>(
+  read: () => Promise<T>,
+  context?: { source: "database" },
+): Promise<T> {
   try {
     return await read();
   } catch (err) {
-    if (isTransientDatabaseError(err)) {
+    if (isTransientDatabaseError(err, context)) {
       throw new CredentialStoreUnavailableError(err);
     }
     throw err;
@@ -73,10 +77,12 @@ async function readOAuthCustody(
   orgId?: string | null,
   orgOnly = false,
 ): Promise<boolean> {
-  return readCredentialStore(() =>
-    orgOnly
-      ? hasBuilderOAuthSession(ownerEmail, orgId, { orgOnly: true })
-      : hasBuilderOAuthSession(ownerEmail, orgId),
+  return readCredentialStore(
+    () =>
+      orgOnly
+        ? hasBuilderOAuthSession(ownerEmail, orgId, { orgOnly: true })
+        : hasBuilderOAuthSession(ownerEmail, orgId),
+    { source: "database" },
   );
 }
 
@@ -416,6 +422,18 @@ export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
     return true;
   }
   return !!(await resolveBuilderCredential("BUILDER_PRIVATE_KEY"));
+}
+
+/** A Builder OAuth grant is stored for this request, readable or not. */
+export async function hasStoredBuilderApiOAuthGrant(): Promise<boolean> {
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) return false;
+  const { orgId, storageOnly } = getBuilderCredentialScope();
+  return readCredentialStore(() =>
+    storageOnly
+      ? hasStoredBuilderOAuthGrantForUse(ownerEmail, orgId, { orgOnly: true })
+      : hasStoredBuilderOAuthGrantForUse(ownerEmail, orgId),
+  );
 }
 
 export async function canAuthorizeBuilderApiRequest(

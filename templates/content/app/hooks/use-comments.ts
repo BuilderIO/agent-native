@@ -74,6 +74,8 @@ export interface Comment {
   author_model?: string | null;
   /** The thinking effort the writing run resolved, when one was recorded. */
   author_effort?: string | null;
+  /** The MCP host, such as `claude-code`, an outside agent posted it from. */
+  author_client?: string | null;
   mutation?: CommentMutationState;
 }
 
@@ -965,11 +967,26 @@ export function useResolveComment() {
   );
 }
 
+/** Deleting a thread's first comment deletes the thread. */
 export function useDeleteComment() {
+  const queryClient = useQueryClient();
   return useContentActionMutation<
-    { ok: boolean },
+    { ok: boolean; deletedIds?: string[] },
     { id: string; documentId: string }
   >("delete-comment", {
+    // Gone at once rather than after the refetch the invalidation starts.
+    onSuccess: (data, { id, documentId }) => {
+      const deleted = new Set(data.deletedIds ?? [id]);
+      queryClient.setQueryData<CommentListResponse>(
+        commentQueryKey(documentId),
+        (response) =>
+          response === undefined
+            ? response
+            : updateComments(response, (comments) =>
+                comments.filter((comment) => !deleted.has(comment.id)),
+              ),
+      );
+    },
     invalidates: (_data, { documentId }) => [
       commentQueryKey(documentId),
       ["action", "list-comment-ai-requests", { documentId }],

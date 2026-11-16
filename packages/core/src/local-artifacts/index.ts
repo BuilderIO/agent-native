@@ -6,6 +6,8 @@ import path from "node:path";
 
 import { minimatch } from "minimatch";
 
+import { noteObservedWrite } from "../action-frame.js";
+
 export type AgentNativeDataMode = "database" | "local-files";
 
 export interface AgentNativeManifestRoot {
@@ -872,6 +874,7 @@ export async function writeLocalArtifactFile(
     }
 
     await assertNoSymlinkPath(root, absolutePath, { allowMissingLeaf: true });
+    noteObservedWrite("local-file");
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
     const tempPath = path.join(
       path.dirname(absolutePath),
@@ -893,6 +896,7 @@ export async function deleteLocalArtifactFile(
   const { root, absolutePath } = await resolveArtifactPath(app, options.path);
   try {
     await assertNoSymlinkPath(root, absolutePath);
+    noteObservedWrite("local-file");
     await fs.unlink(absolutePath);
     return true;
   } catch (error) {
@@ -1373,6 +1377,7 @@ export async function writeLocalWorkspaceResource(
     assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath, {
       allowMissingLeaf: true,
     });
+    noteObservedWrite("local-file");
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
     const tempPath = path.join(
       path.dirname(absolutePath),
@@ -1405,6 +1410,7 @@ export async function deleteLocalWorkspaceResource(
   for (const absolutePath of absolutePaths) {
     try {
       assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath);
+      noteObservedWrite("local-file");
       await fs.unlink(absolutePath);
       deleted = true;
     } catch (error) {
@@ -1447,6 +1453,7 @@ export async function deleteLocalWorkspaceResourceIfCurrent(
     }
     try {
       assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath);
+      noteObservedWrite("local-file");
       await fs.unlink(absolutePath);
       return true;
     } catch (error) {
@@ -1489,6 +1496,7 @@ export async function writeLocalWorkspaceResourceIfCurrent(
     assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath, {
       allowMissingLeaf: true,
     });
+    noteObservedWrite("local-file");
     const tempPath = path.join(
       path.dirname(absolutePath),
       `.${path.basename(absolutePath)}.${process.pid}.${crypto.randomUUID()}.tmp`,
@@ -1530,6 +1538,7 @@ export async function writeLocalWorkspaceResourceIfAbsentAtPath(
     assertNoSymlinkAbsolutePathSync(workspaceRoot, absolutePath, {
       allowMissingLeaf: true,
     });
+    noteObservedWrite("local-file");
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
     const tempPath = path.join(
       path.dirname(absolutePath),

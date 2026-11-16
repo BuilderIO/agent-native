@@ -53,6 +53,7 @@ import {
   CONNECTION_REFERENCE_MD,
   CONTENT_SKILL_MD,
   DESIGN_EXPLORATION_SKILL_MD,
+  DESIGN_REMIX_SKILL_MD,
   DESIGN_VISUAL_EDIT_SKILL_MD,
   DOCUMENT_QUALITY_REFERENCE_MD,
   EXEMPLAR_REFERENCE_MD,
@@ -289,6 +290,7 @@ export const BUILT_IN_APP_SKILLS = {
     skillName: "design-exploration",
     extraSkills: {
       "visual-edit": DESIGN_VISUAL_EDIT_SKILL_MD,
+      remix: DESIGN_REMIX_SKILL_MD,
     },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
@@ -317,6 +319,11 @@ export const BUILT_IN_APP_SKILLS = {
           action: "add-localhost-screens",
           path: "/design",
         },
+        {
+          id: "remix",
+          action: "add-localhost-screens",
+          path: "/design",
+        },
       ],
       skills: [
         {
@@ -328,6 +335,11 @@ export const BUILT_IN_APP_SKILLS = {
           path: "skills/visual-edit",
           visibility: "exported",
           exportAs: "visual-edit",
+        },
+        {
+          path: "skills/remix",
+          visibility: "exported",
+          exportAs: "remix",
         },
       ],
       hostAdapters: [
@@ -572,6 +584,8 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "visual-edit": "design",
   "local-visual-edit": "design",
   "design-visual-edit": "design",
+  remix: "design",
+  "design-remix": "design",
   "ux-exploration": "design",
   "agent-native-design": "design",
   "agent-native-design-exploration": "design",
@@ -617,6 +631,7 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "design-exploration",
     "visual-edit",
     "local-visual-edit",
+    "remix",
     "ux-exploration",
     "agent-native-design-exploration",
   ],
@@ -850,6 +865,8 @@ export interface RunSkillsOptions {
   baseDir?: string;
   catalogMode?: SkillsCatalogMode;
   publicSkillSource?: string;
+  /** The public catalog came from somewhere other than BuilderIO/skills. */
+  customPublicSkillSource?: boolean;
   publicSkillEntries?: PublicSkillCatalogEntry[];
   hiddenBuiltInSkillTargets?: string[];
   isInteractive?: () => boolean;
@@ -1047,6 +1064,9 @@ function builtInOnlySkillNames(target: string): string[] | undefined {
     normalized === "design-visual-edit"
   ) {
     return ["visual-edit"];
+  }
+  if (normalized === "remix" || normalized === "design-remix") {
+    return ["remix"];
   }
   return undefined;
 }
@@ -2610,6 +2630,11 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     hint: "Open a running local app in Design overview mode as URL-backed iframe screens.",
   },
   {
+    value: "remix",
+    label: "remix",
+    hint: "Rebuild part of another website in your site from Design, with live knobs.",
+  },
+  {
     value: "context-xray",
     label: "context-xray",
     hint: BUILT_IN_APP_SKILLS["context-xray"].manifest.description,
@@ -2667,6 +2692,22 @@ function publicSkillEntries(
 
 function publicSkillNames(options: RunSkillsOptions): Set<string> {
   return new Set(publicSkillEntries(options).map((entry) => entry.name));
+}
+
+// Our own catalog by name. A local manifest or another repo can name private work.
+function telemetrySkillNames(
+  skillNames: string[],
+  options: RunSkillsOptions,
+): string {
+  const publicNames = options.customPublicSkillSource
+    ? new Set<string>()
+    : publicSkillNames(options);
+  return skillNames
+    .flatMap((name) => publicSkillSelectionNames(name) ?? [name])
+    .map((name) =>
+      isKnownSkill(name) || publicNames.has(name) ? name : "custom",
+    )
+    .join(",");
 }
 
 function publicSkillPromptOptions(
@@ -3082,7 +3123,10 @@ async function resolveSkillTargets(
   const promptOptions = skillPromptOptions(options);
   options.telemetry?.track("skills_cli skills prompted", {
     availableCount: promptOptions.length,
-    available: promptOptions.map((option) => option.value).join(","),
+    available: telemetrySkillNames(
+      promptOptions.map((option) => option.value),
+      options,
+    ),
   });
   const selected = await prompt({
     initialTargets: defaultSkillPromptTargets(options),
@@ -3605,7 +3649,9 @@ async function addPlainSkillRepo(
       );
   }
   options.telemetry?.track("skills_cli install completed", {
-    skills: selectedSkillNames.length ? selectedSkillNames.join(",") : target,
+    skills: selectedSkillNames.length
+      ? telemetrySkillNames(selectedSkillNames, options)
+      : "custom",
     clients: clients.join(","),
     scope: parsed.scope,
     dryRun: Boolean(parsed.dryRun),
@@ -3838,7 +3884,7 @@ async function connectAfterEnsure(
     clearSpinner();
     writeAuthMessage();
     options.telemetry?.track("skills_cli connect failed", {
-      error: err?.message ?? String(err),
+      error: err,
     });
     connectLog?.(
       `Could not finish authentication automatically (${err?.message ?? err}). ` +
@@ -4024,7 +4070,7 @@ export async function addAgentNativeSkill(
           ? prVisualRecapInstallCommand()
           : undefined;
       options.telemetry?.track("skills_cli install completed", {
-        skills: installTarget.skillNames.join(","),
+        skills: telemetrySkillNames(installTarget.skillNames, options),
         clients: clients.join(","),
         scope: parsed.scope,
         dryRun: true,
@@ -4148,7 +4194,7 @@ export async function addAgentNativeSkill(
 
     if (!installsScreenMemoryMcp) {
       options.telemetry?.track("skills_cli install completed", {
-        skills: installTarget.skillNames.join(","),
+        skills: telemetrySkillNames(installTarget.skillNames, options),
         clients: clients.join(","),
         scope: parsed.scope,
         dryRun: Boolean(parsed.dryRun),
@@ -4169,10 +4215,10 @@ export async function addAgentNativeSkill(
         return client;
       });
       options.telemetry?.track("skills_cli mcp registered", {
-        skills: installTarget.skillNames.join(","),
+        skills: telemetrySkillNames(installTarget.skillNames, options),
       });
       options.telemetry?.track("skills_cli install completed", {
-        skills: installTarget.skillNames.join(","),
+        skills: telemetrySkillNames(installTarget.skillNames, options),
         clients: clients.join(","),
         scope: parsed.scope,
         dryRun: false,
@@ -4194,7 +4240,7 @@ export async function addAgentNativeSkill(
           (written) => written.client,
         );
         options.telemetry?.track("skills_cli mcp registered", {
-          skills: installTarget.skillNames.join(","),
+          skills: telemetrySkillNames(installTarget.skillNames, options),
         });
 
         if (parsed.connect) {
@@ -4607,6 +4653,9 @@ function deferCliTelemetry(target: CliTelemetry): {
         if (committed) target.track(...args);
         else trackCalls.push(args);
       },
+      trackAtExit(...args) {
+        if (committed) target.trackAtExit(...args);
+      },
       captureException(...args) {
         if (committed) target.captureException(...args);
         else exceptionCalls.push(args);
@@ -4691,7 +4740,10 @@ export async function runSkills(
       const skills = listSkills(optionsWithTelemetry);
       telemetry.track("skills_cli skills listed", {
         availableCount: skills.length,
-        available: skills.map((skill) => skill.id).join(","),
+        available: telemetrySkillNames(
+          skills.map((skill) => skill.id),
+          options,
+        ),
       });
       if (parsed.printJson) {
         process.stdout.write(`${JSON.stringify(skills, null, 2)}\n`);
@@ -4725,7 +4777,7 @@ export async function runSkills(
     deferredTelemetry.commit();
     const preselected = Boolean(parsed.target);
     telemetry.track("skills_cli skills selected", {
-      selected: targets.join(","),
+      selected: telemetrySkillNames(targets, options),
       selectedCount: targets.length,
       selectedAll: targets.length === skillPromptOptions(options).length,
       preselected,
@@ -4889,7 +4941,7 @@ export async function runSkills(
       ...new Set(results.flatMap((result) => result.mcpClients)),
     ];
     telemetry.track("skills_cli completed", {
-      skills: completedSkills.join(","),
+      skills: telemetrySkillNames(completedSkills, options),
       clients: completedClients.join(","),
       scope: parsed.scope,
       durationMs: Date.now() - startedAt,
@@ -5035,7 +5087,7 @@ export async function runSkills(
   } catch (error) {
     telemetry.track("skills_cli failed", {
       command: parsed.command,
-      error: error instanceof Error ? error.message : String(error),
+      error,
       durationMs: Date.now() - startedAt,
     });
     telemetry.captureException(error, {

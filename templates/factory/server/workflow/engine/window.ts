@@ -1,4 +1,4 @@
-import type { WorkflowNodeOfKind } from "../contract.js";
+import type { WorkflowGraph, WorkflowNodeOfKind } from "../contract.js";
 import type { RunWindow } from "./types.js";
 
 type Schedule = WorkflowNodeOfKind<"trigger">["settings"]["schedule"];
@@ -165,4 +165,26 @@ export function computeRunWindow(args: {
       firstRun: true,
     },
   };
+}
+
+/**
+ * The span a run of `graph` covers, from its Trigger's schedule and time zone
+ * and the workflow's lookback. A tick and a test of one step ask here, so
+ * `{{ run.windowStart }}` reads the same in both.
+ */
+export function runWindowOfGraph(args: {
+  graph: WorkflowGraph;
+  trigger: WorkflowNodeOfKind<"trigger">;
+  lastTriggerAt: string | null;
+  end: Date;
+}): WindowResult {
+  const { graph, trigger, lastTriggerAt, end } = args;
+  const lookback = graph.settings.lookbackMinutes;
+  return computeRunWindow({
+    schedule: trigger.settings.schedule,
+    timeZone: trigger.settings.timezone ?? graph.settings.timezone ?? "UTC",
+    lastTriggerAt,
+    end,
+    ...(lookback === undefined ? {} : { lookbackMinutes: lookback }),
+  });
 }

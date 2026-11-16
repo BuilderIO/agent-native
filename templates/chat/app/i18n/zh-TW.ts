@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "引用對話…",
+    group: "對話",
+    authentication: "登入以新增引用。",
+    invalid: "傳送前請選擇有效的引用。",
+    unavailable: "所選引用已無法使用。請移除或重新選擇。",
+  },
   composer: {
     removeAttachment: "移除 {{name}}",
     removeReference: "移除 {{name}} 參照",

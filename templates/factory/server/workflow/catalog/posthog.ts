@@ -4,12 +4,18 @@ export const posthogOperations: OperationDefinitionInput[] = [
   {
     // `{customer}` and `{windowDays}` are HogQL placeholders, bound through
     // `values`; they are named differently from the fields so they are never
-    // pasted into the SQL text. The count is `results[0][0]`.
+    // pasted into the SQL text. The count is `results[0][0]`. The answer also
+    // echoes the generated SQL, the timings and the modifiers, a few KB that
+    // sit before `results` and ride on every subscription a run takes, so only
+    // the count and its column are kept; a single count row is far below the
+    // smallest budget.
     id: "posthog.usage",
     provider: "posthog",
     label: "PostHog: events from a person over recent days",
     nodeKinds: ["lookup"],
     effect: "read",
+    answerBudgetChars: 1_000,
+    answerFields: ["columns", "results", "hasMore", "error"],
     readsViaPost: true,
     fields: [
       {

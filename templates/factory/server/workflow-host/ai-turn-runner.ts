@@ -41,10 +41,11 @@ import type {
 } from "../workflow/adapter.js";
 import type { ResultField, RunMode } from "../workflow/contract.js";
 import { validateAiFields } from "../workflow/engine/ai-fields.js";
-import type {
-  OperationCatalog,
-  OperationDefinition,
-  OperationField,
+import {
+  isModelToolAllowed,
+  type OperationCatalog,
+  type OperationDefinition,
+  type OperationField,
 } from "../workflow/operations.js";
 
 /** The one tool that carries the answer. Allowed tools get their own names. */
@@ -152,12 +153,18 @@ interface TurnAttachments {
   inputTruncated?: boolean;
 }
 
+interface TurnFailureExtras extends Partial<TurnAttachments> {
+  /** For `credentials`: the provider of the model credential that failed. */
+  provider?: string;
+}
+
 type StructuredTurnResult =
   | ({ ok: true; result: StructuredTurnPayload } & TurnAttachments)
   | ({
       ok: false;
       errorCode: AiFailureCode;
       reason: string;
+      provider?: string;
     } & TurnAttachments);
 
 /** Everything the turn takes from outside, so a spec can script it. */
@@ -638,6 +645,11 @@ function validateInput(
         reason: `tool_not_read_only: "${tool.operation.id}" writes; a model may only be given reads.`,
       };
     }
+    if (!isModelToolAllowed(tool.operation)) {
+      return {
+        reason: `tool_endpoint_not_fixed: "${tool.operation.id}" reads a path someone types; a model may only be given reads whose endpoint is fixed.`,
+      };
+    }
     const name = toolNameFor(tool.operation.id);
     if (name === RESULT_TOOL_NAME || toolNames.has(name)) {
       return {
@@ -667,7 +679,7 @@ export async function runStructuredAgentTurn(
   const failed = (
     errorCode: AiFailureCode,
     reason: string,
-    extra: Partial<TurnAttachments> = {},
+    extra: TurnFailureExtras = {},
   ): StructuredTurnResult => ({
     ok: false,
     errorCode,
@@ -712,7 +724,7 @@ async function executeTurn(
   failed: (
     errorCode: AiFailureCode,
     reason: string,
-    extra?: Partial<TurnAttachments>,
+    extra?: TurnFailureExtras,
   ) => StructuredTurnResult,
 ): Promise<StructuredTurnResult> {
   const { owner, orgId, budget } = input;
@@ -726,6 +738,7 @@ async function executeTurn(
       return failed(
         "credentials",
         `No usable model credential for the "${engine.name}" engine for ${owner}. Connect a provider in Settings > Agent > AI providers, or ask a workspace admin to.`,
+        { provider: engine.name },
       );
     }
     model = await deps.resolveModel(engine);
@@ -953,7 +966,12 @@ async function executeTurn(
 
   let verdict:
     | { ok: true; result: StructuredTurnPayload }
-    | { ok: false; errorCode: AiFailureCode; reason: string };
+    | {
+        ok: false;
+        errorCode: AiFailureCode;
+        reason: string;
+        provider?: string;
+      };
   const { cause, credentialEventCode, outcome } = state;
   if (state.captured) {
     verdict = { ok: true, result: state.captured };
@@ -968,6 +986,7 @@ async function executeTurn(
       ok: false,
       errorCode: "credentials",
       reason: `The model provider has no usable credential (${credentialEventCode}).`,
+      provider: engine.name,
     };
   } else if (cause === "timeout" || cause === "signal") {
     verdict = {
@@ -990,6 +1009,7 @@ async function executeTurn(
           ok: false,
           errorCode: "credentials",
           reason: `The model provider refused the credential for "${engine.name}" (${code}): ${describeError(thrown)}`,
+          provider: engine.name,
         }
       : {
           ok: false,
@@ -1103,6 +1123,9 @@ async function executeTurn(
         ok: false,
         errorCode: verdict.errorCode,
         reason: verdict.reason,
+        ...(verdict.provider === undefined
+          ? {}
+          : { provider: verdict.provider }),
         ...attachments,
       };
 }
@@ -1425,6 +1448,7 @@ export function createAiTurnRunner(options: AiTurnRunnerOptions): AiTurnRunner {
           ok: false,
           code: turn.errorCode,
           reason: turn.reason,
+          ...(turn.provider === undefined ? {} : { provider: turn.provider }),
           usage: turn.usage,
           ...extras,
         };

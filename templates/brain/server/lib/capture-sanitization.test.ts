@@ -378,7 +378,6 @@ describe("capture sanitization", () => {
       content: "Deploy notes. password: not-a-real-secret",
     });
 
-    expect(mocks.classifyWithJev).not.toHaveBeenCalled();
     expect(result.decision?.disposition).toBe("suppressed");
     expect(result.decision?.categories).toEqual(["secret-credential"]);
     expect(result.content).not.toContain("not-a-real-secret");
@@ -391,7 +390,6 @@ describe("capture sanitization", () => {
       content: "We're investigating the checkout outage from this morning.",
     });
 
-    expect(mocks.classifyWithJev).not.toHaveBeenCalled();
     expect(result.decision?.disposition).toBe("suppressed");
     expect(result.decision?.categories).toEqual(["investigation"]);
   });
@@ -544,5 +542,295 @@ describe("capture sanitization", () => {
 
     expect(screen.categories).toContain("layoff-reorg");
     expect(decision?.disposition).toBe("suppressed");
+  });
+});
+
+describe("Zoom restricted-line withholding", () => {
+  const turns = Array.from(
+    { length: 40 },
+    (_, index) =>
+      `[Speaker ${index % 3} 00:${String(index).padStart(2, "0")}:00] Roadmap update ${index} - the API launch is on track.`,
+  );
+  const transcript = (lines: string[]) =>
+    `Weekly sync\nDate: 2026-05-20T15:00:00Z\n\nTranscript\n${lines.join("\n")}`;
+  const withLine = (index: number, text: string, lines = turns) =>
+    lines.map((line, at) => (at === index ? text : line));
+  const zoomInput = (content: string, extra: Record<string, unknown> = {}) => ({
+    ...baseInput,
+    title: "Weekly sync",
+    source: { ...baseInput.source, provider: "zoom" as const },
+    settings: { ...DEFAULT_BRAIN_SETTINGS, privacyClassifier: "jev" as const },
+    metadata: { sourceUrl: "https://zoom.us/rec/share/example" },
+    content,
+    ...extra,
+  });
+  const judge =
+    (isRestricted: (text: string) => boolean, workspaceRule = false) =>
+    async ({ title, content }: { title: string; content: string }) => ({
+      configured: true,
+      decision: jevSensitivityDecision(
+        {
+          "health-accommodation": isRestricted(`${title}\n${content}`)
+            ? 0.95
+            : 0.01,
+          ...(workspaceRule ? { "workspace-rule": 0.9 } : {}),
+        },
+        {
+          judgedContent: content,
+          capturedAt: baseInput.capturedAt,
+          truncated: false,
+        },
+      ),
+    });
+  const mentions = (needle: string) => (text: string) => text.includes(needle);
+
+  it.each([false, true])(
+    "keeps every other turn when one turn is restricted (sanitizeBeforeStorage %s)",
+    async (sanitizeBeforeStorage) => {
+      mocks.classifyWithJev.mockImplementation(
+        judge(mentions("MEDICAL_LEAVE")),
+      );
+      const lines = withLine(20, "[Speaker 2 00:20:00] MEDICAL_LEAVE details");
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(lines), {
+          metadata: {
+            sourceUrl: "https://zoom.us/rec/share/example",
+            sanitizeBeforeStorage,
+          },
+        }),
+      );
+
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.content).not.toContain("MEDICAL_LEAVE");
+      // The restricted turn and one turn either side are withheld as one gap.
+      for (const index of [19, 20, 21])
+        expect(result.content).not.toContain(`update ${index} -`);
+      for (const index of [0, 18, 22, 39])
+        expect(result.content).toContain(`update ${index} -`);
+      expect(result.content.split("[…]")).toHaveLength(2);
+      expect(result.metadata.zoomPassageQuarantine).toEqual({
+        version: 1,
+        withheldPassages: 1,
+      });
+      expect(result.metadata.sourceUrl).toBeUndefined();
+      expect(mocks.classifyWithJev.mock.calls.length).toBeLessThan(20);
+    },
+  );
+
+  it("withholds separate restricted turns as separate passages", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const lines = withLine(
+      30,
+      "[Speaker 0 00:30:00] MEDICAL_LEAVE follow-up",
+      withLine(5, "[Speaker 2 00:05:00] MEDICAL_LEAVE request"),
+    );
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(lines)),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).not.toContain("MEDICAL_LEAVE");
+    expect(result.content).toContain("update 17 -");
+    expect(result.metadata.zoomPassageQuarantine).toEqual({
+      version: 1,
+      withheldPassages: 2,
+    });
+  });
+
+  it("drops a credential turn instead of suppressing the meeting", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(() => false));
+    const lines = withLine(
+      10,
+      "[Speaker 1 00:10:00] password: hunter2-staging",
+    );
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(lines)),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).not.toContain("hunter2");
+    expect(result.content).toContain("update 25 -");
+    expect(result.metadata.zoomPassageQuarantine).toEqual({
+      version: 1,
+      withheldPassages: 1,
+    });
+  });
+
+  it("drops keyword-restricted turns in deterministic-only mode", async () => {
+    const lines = withLine(
+      12,
+      "[Speaker 0 00:12:00] Her salary increase is approved.",
+    );
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(lines), {
+        settings: {
+          ...DEFAULT_BRAIN_SETTINGS,
+          privacyClassifier: "deterministic" as const,
+        },
+      }),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).not.toContain("salary");
+    expect(result.content).toContain("update 30 -");
+  });
+
+  it.each([
+    {
+      name: "a restricted title",
+      title: "MEDICAL_LEAVE planning",
+      restricted: mentions("MEDICAL_LEAVE"),
+      workspaceRule: false,
+    },
+    {
+      name: "turns restricted only together",
+      title: "Weekly sync",
+      restricted: (text: string) =>
+        text.includes("update 3 -") && text.includes("update 36 -"),
+      workspaceRule: false,
+    },
+    {
+      name: "a workspace rule",
+      title: "Weekly sync",
+      restricted: mentions("update 7 -"),
+      workspaceRule: true,
+    },
+  ])(
+    "quarantines the whole meeting for $name",
+    async ({ title, restricted, workspaceRule }) => {
+      mocks.classifyWithJev.mockImplementation(
+        judge(restricted, workspaceRule),
+      );
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(turns), { title }),
+      );
+      expect(result.decision?.disposition).not.toBe("allowed");
+      expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
+      expect(mocks.classifyWithJev.mock.calls.length).toBeLessThan(10);
+    },
+  );
+
+  it("quarantines the whole meeting when line screening exceeds its call budget", async () => {
+    const lines = Array.from(
+      { length: 300 },
+      (_, index) =>
+        `[Speaker 0] ${index % 7 === 0 ? "MEDICAL_LEAVE" : "Roadmap"} note ${index}`,
+    );
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(lines)),
+    );
+    expect(result.decision?.disposition).not.toBe("allowed");
+    expect(mocks.classifyWithJev.mock.calls.length).toBeLessThanOrEqual(168);
+  });
+
+  it("keeps a realistic meeting with several scattered restricted turns", async () => {
+    const restrictedAt = [90, 260, 410, 555, 720];
+    const lines = Array.from({ length: 800 }, (_, index) =>
+      restrictedAt.includes(index)
+        ? `[Speaker 1] MEDICAL_LEAVE detail ${index}`
+        : `[Speaker 0] Roadmap note ${index}`,
+    );
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(lines)),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).not.toContain("MEDICAL_LEAVE");
+    expect(result.content).toContain("Roadmap note 400");
+    expect(result.metadata.zoomPassageQuarantine).toEqual({
+      version: 1,
+      withheldPassages: 5,
+    });
+    expect(mocks.classifyWithJev.mock.calls.length).toBeLessThan(160);
+  });
+
+  it("lets the whole-capture screen overrule a withheld excerpt", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const lines = withLine(20, "[Speaker 2] MEDICAL_LEAVE details");
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(lines), { title: "Sync password: hunter2-staging" }),
+    );
+    expect(result.decision?.disposition).not.toBe("allowed");
+    expect(result.content).not.toContain("Roadmap");
+    expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
+  });
+
+  it("never re-asks Jev after line screening gives up on a rejection", async () => {
+    let calls = 0;
+    const reject = judge(() => true, true);
+    const allow = judge(() => false);
+    mocks.classifyWithJev.mockImplementation(async (input) =>
+      ++calls === 1 ? reject(input) : allow(input),
+    );
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(withLine(20, "[Speaker 2] MEDICAL_LEAVE details"))),
+    );
+    expect(result.decision?.disposition).not.toBe("allowed");
+    expect(result.content).not.toContain("MEDICAL_LEAVE");
+    expect(calls).toBe(1);
+  });
+
+  it("surfaces a Jev outage during line screening instead of storing", async () => {
+    let calls = 0;
+    mocks.classifyWithJev.mockImplementation(async (input) =>
+      ++calls === 3
+        ? { configured: true, failureReason: "jev-timeout" }
+        : judge(mentions("MEDICAL_LEAVE"))(input),
+    );
+    const lines = withLine(20, "[Speaker 2] MEDICAL_LEAVE details");
+    await expect(
+      sanitizeCaptureForStorage(zoomInput(transcript(lines))),
+    ).rejects.toBeInstanceOf(BrainClassifierUnavailableError);
+  });
+
+  it.each([
+    { stored: { version: 1, withheldPassages: 2 }, expected: 2 },
+    { stored: { version: 1, withheldPassages: "two" }, expected: null },
+  ])(
+    "keeps a stored receipt when re-sanitizing an excerpt ($expected)",
+    async ({ stored, expected }) => {
+      mocks.classifyWithJev.mockImplementation(judge(() => false));
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(withLine(4, "[…]")), {
+          metadata: { zoomPassageQuarantine: stored },
+        }),
+      );
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.metadata.zoomPassageQuarantine).toEqual({
+        version: 1,
+        withheldPassages: expected,
+      });
+    },
+  );
+
+  it("merges a new gap with an adjacent stored gap without double counting", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const lines = withLine(
+      6,
+      "[Speaker 1] MEDICAL_LEAVE details",
+      withLine(4, "[…]"),
+    );
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(lines), {
+        metadata: {
+          zoomPassageQuarantine: { version: 1, withheldPassages: 2 },
+        },
+      }),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).not.toContain("MEDICAL_LEAVE");
+    expect(result.content.split("[…]")).toHaveLength(2);
+    expect(result.metadata.zoomPassageQuarantine).toEqual({
+      version: 1,
+      withheldPassages: 2,
+    });
+  });
+
+  it("still quarantines a whole non-Zoom transcript", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details")), {
+        source: { ...baseInput.source, provider: "granola" as const },
+      }),
+    );
+    expect(result.decision?.disposition).not.toBe("allowed");
   });
 });

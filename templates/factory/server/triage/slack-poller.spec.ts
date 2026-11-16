@@ -285,6 +285,89 @@ describe("pollSlackChannel", () => {
   });
 });
 
+describe("pollSlackChannel headlines", () => {
+  const long = `${"word ".repeat(200)}end`;
+  const history = () =>
+    mockedSlackReader.getChannelHistory.mockResolvedValue({
+      messages: [
+        {
+          type: "message",
+          user: "U1",
+          text: "*Pay button* is dead\nSteps:\n1. open <https://example.test|the cart>",
+          ts: "40.1",
+        },
+        { type: "message", user: "U2", text: long, ts: "40.2" },
+        { type: "message", user: "U3", text: "<@U9> :wave:", ts: "40.3" },
+      ],
+      has_more: false,
+    });
+  const poll = (headlines?: boolean) =>
+    pollSlackChannel({
+      workspace: "primary",
+      channelId: "C1",
+      priorLastSlackTs: "40.0",
+      ownerEmail: "owner@example.com",
+      ...(headlines === undefined ? {} : { headlines }),
+    });
+
+  it("records the first line of the message as the headline, and leaves the title as the author label", async () => {
+    history();
+
+    const { envelopes } = await poll(true);
+
+    expect(envelopes[0]).toMatchObject({
+      title: "Slack user U1",
+      metadata: { headline: "Pay button is dead" },
+    });
+    // The summary is the compact copy it always was.
+    expect(envelopes[0]?.summary).toBe(
+      "*Pay button* is dead Steps: 1. open <https://example.test|the cart>",
+    );
+  });
+
+  it("says the stored summary is cut short of the message when it is, and only then", async () => {
+    history();
+
+    const { envelopes } = await poll(true);
+
+    expect(envelopes[0]?.metadata).not.toHaveProperty("textTruncated");
+    expect(envelopes[1]?.metadata).toMatchObject({ textTruncated: true });
+    expect(envelopes[1]?.summary?.endsWith("…")).toBe(true);
+    expect(envelopes[1]?.metadata?.headline).toEqual(expect.any(String));
+    expect(String(envelopes[1]?.metadata?.headline).length).toBeLessThanOrEqual(
+      100,
+    );
+  });
+
+  it("records no headline for a message with no words, so the author label stands", async () => {
+    history();
+
+    const { envelopes } = await poll(true);
+
+    expect(envelopes[2]?.title).toBe("Slack user U3");
+    expect(envelopes[2]?.metadata).not.toHaveProperty("headline");
+  });
+
+  it("adds nothing to what a poll always recorded unless asked", async () => {
+    history();
+
+    const plain = await poll();
+    const refused = await poll(false);
+
+    for (const { envelopes } of [plain, refused]) {
+      for (const envelope of envelopes) {
+        expect(envelope.metadata).not.toHaveProperty("headline");
+        expect(envelope.metadata).not.toHaveProperty("textTruncated");
+      }
+    }
+    const withoutReceivedAt = (envelopes: typeof plain.envelopes) =>
+      envelopes.map(({ receivedAt: _receivedAt, ...rest }) => rest);
+    expect(withoutReceivedAt(plain.envelopes)).toEqual(
+      withoutReceivedAt(refused.envelopes),
+    );
+  });
+});
+
 describe("pollSlackChannel reactions", () => {
   const OWN_BOT = "UAGENTNATIVE";
 

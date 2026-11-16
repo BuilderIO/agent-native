@@ -366,4 +366,23 @@ export const dispatchMigrations: MigrationEntry[] = [
         ADD COLUMN IF NOT EXISTS browser_binding_hash TEXT;
     `,
   },
+  {
+    version: 10,
+    name: "vault-grants-credential-key",
+    sql: `
+      ALTER TABLE IF EXISTS vault_grants ADD COLUMN IF NOT EXISTS credential_key TEXT;
+      DO $$
+      BEGIN
+        IF to_regclass('vault_secrets') IS NOT NULL
+          AND to_regclass('vault_grants') IS NOT NULL THEN
+          UPDATE vault_grants AS g
+          SET credential_key = s.credential_key
+          FROM vault_secrets AS s
+          WHERE g.credential_key IS NULL
+            AND s.id = g.secret_id
+            AND s.org_id = g.org_id;
+        END IF;
+      END $$;
+    `,
+  },
 ];

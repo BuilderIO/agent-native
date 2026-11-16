@@ -11,6 +11,7 @@ import PromptPopover, {
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
 import { getDesignHostChannel } from "@/host/design-host-channel";
+import { figmaReferenceDirectives } from "@/lib/figma-attachment";
 import { patchPendingGeneration } from "@/lib/pending-generation";
 
 import { designPrecedentDirectives } from "../creative-context-precedent";
@@ -135,7 +136,7 @@ export function renderPromptPopovers({
             return;
           }
           if (!canEditDesign) return;
-          const outputBaselineFiles = generationOutputBaselineRef.current;
+          const outputBaselineFiles = generationOutputBaselineRef.current?.();
           if (outputBaselineFiles === undefined) {
             throw new Error(t("promptDialog.failedToSubmitPrompt"));
           }
@@ -216,6 +217,7 @@ export function renderPromptPopovers({
             fileContext,
             "",
             ...generationDirectives,
+            ...figmaReferenceDirectives(options.contextItems),
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);
@@ -319,7 +321,7 @@ export function renderPromptPopovers({
           canRestore={canEditDesign}
           onRestored={() => {
             void queryClient.invalidateQueries({
-              queryKey: ["action", "get-design", { id }],
+              queryKey: ["action", "get-design"],
             });
           }}
         />

@@ -122,6 +122,13 @@ const messages = {
     noAssetsYet: "Aún no hay recursos.",
     assetUploadFailed: "Algunas subidas fallaron",
     assetDeleteFailed: "No se pudo eliminar el recurso",
+    assetLoadFailed: "No se pudieron cargar los recursos",
+    assetSelectNoChange: "No se pudo aplicar esta imagen a esta diapositiva",
+    retry: "Reintentar",
+    assetDeleteInUse:
+      "Este recurso se usa en una presentación. Quítalo primero de la presentación",
+    assetDeleteStorageRemains:
+      "Se quitó de la biblioteca, pero no se pudo eliminar el archivo almacenado",
     contentMarkdown: "Contenido (Markdown)",
     speakerNotes: "Notas del presentador",
     speakerNotesForSlide:
@@ -302,6 +309,7 @@ const messages = {
       "Empieza a escribir o genera notas del presentador rápidamente con el agente",
   },
   editorToolbar: {
+    saving: "Guardando...",
     layoutTitle: "Título",
     layoutSection: "Separador de sección",
     layoutContent: "Contenido",
@@ -434,6 +442,8 @@ const messages = {
       "Ver las notas del presentador mientras presentas",
     presenterViewBlocked:
       "Permite las ventanas emergentes para abrir la vista del presentador.",
+    presenterViewUnsupported:
+      "La vista del presentador no es compatible con este navegador.",
     export: "Exportar",
     privacyPrivate: "Privado",
     privacyOrg: "Compartido con la organización",
@@ -489,6 +499,11 @@ const messages = {
   editorExport: {
     pptxFailed: "No se pudo generar el archivo PPTX.",
     exportFailed: "Error al exportar",
+    exportFinishedWithWarnings: "Exportado con advertencias",
+    imagesDropped:
+      "No se pudieron cargar {{count}} imagen(es) y se omitieron del archivo de PowerPoint (diapositivas {{slides}}).",
+    pdfSidecarSkipped:
+      "Este PDF se exportó sin su fuente editable. Al volver a importarlo, las diapositivas se reconstruirán a partir del contenido de las páginas.",
     exporting: "Exportando...",
     exportPptxError: "Algo salió mal al exportar como PPTX.",
     googleSlidesDownloaded: "Descargado para Google Slides",
@@ -507,6 +522,9 @@ const messages = {
     exportPdf: "Exportar como PDF",
     exportPptx: "Exportar como PPTX",
     connectGoogle: "Conectar Google",
+    disconnectGoogle: "Desconectar Google",
+    googleDisconnectFailed: "No se pudo desconectar Google Drive.",
+    googleSlidesStatusUnknown: "No se pudo comprobar el estado",
     openInGoogleSlides: "Abrir en Google Slides",
     googleSlidesUnavailable: "No disponible",
     googleSlidesOpenImporter: "Abrir la importación de Google Slides",
@@ -530,6 +548,7 @@ const messages = {
   share: {
     createFailed: "No se pudo crear el enlace para compartir",
     snapshotLinks: "Enlaces de instantánea",
+    snapshotLinksLoadFailed: "No se pudieron cargar los enlaces de instantánea",
     revokeLink: "Revocar",
     revokeFailed: "No se pudo revocar el enlace para compartir",
     title: "Compartir presentación",
@@ -871,6 +890,10 @@ const messages = {
     versionRestoredDescription: "El deck volvió a la instantánea seleccionada.",
     restoreFailed: "Error al restaurar",
     restoreFailedDescription: "No se pudo restaurar esta versión del deck.",
+    alreadyAtVersion: "Ya está en esta versión",
+    restoreReloadFailed: "No se pudo actualizar el deck",
+    restoreReloadFailedDescription:
+      "Recarga la página para ver la versión actual de este deck.",
     backToSavedVersions: "Volver a versiones guardadas",
     savedVersions: "Versiones guardadas",
     description:
@@ -900,9 +923,6 @@ const messages = {
     newSlideSaveFailed:
       "No se pudo guardar la nueva diapositiva. Inténtalo de nuevo.",
     addSlides: "Añadir diapositivas",
-    addEmptySlide: "Añadir diapositiva vacía",
-    noAi: "sin AI",
-    duplicateCurrentSlide: "Duplicar diapositiva actual",
     promptPlaceholder: "Describe las diapositivas que quieres...",
     newSlide: "Nueva diapositiva",
     slidesHeading: "Diapositivas",
@@ -1345,7 +1365,27 @@ const messages = {
     },
     importDeck: "Importar presentación",
     context: {
+      googleSlides: {
+        connectionFailed:
+          "No se pudo comprobar tu conexión con Google Drive. Inténtalo de nuevo.",
+        attach: "Adjuntar",
+        reading: "Leyendo…",
+        authentication: "Inicia sesión para adjuntar Google Slides.",
+        invalid:
+          "Introduce una URL válida de una presentación de Google Slides.",
+        connect: "Conecta Google Drive para leer esta presentación.",
+        denied:
+          "Esta presentación no está disponible. Comprueba el acceso o vuelve a conectar Google Drive.",
+        failed: "No se pudo leer esta presentación. Inténtalo de nuevo.",
+        tooLarge:
+          "Esta presentación es demasiado grande para leerla como contexto.",
+        truncated:
+          "Extracto de referencia truncado; no se incluyó el contenido restante.",
+      },
       websiteReference: "Añadir sitio web",
+      connectFigma: "Conectar Figma",
+      figmaDisconnected: "Conecta Figma para explorar diseños.",
+      websiteReferenceMenu: "Añadir sitio web…",
       websiteUrlLabel: "URL del sitio web",
       websiteUrl: "Pega la URL de un sitio web",
       figmaUrlLabel: "Enlace de Figma",
@@ -1360,9 +1400,9 @@ const messages = {
       searchPresentations: "Buscar presentaciones…",
       menu: {
         system: "Usar un sistema de diseño",
-        figma: "Añadir Figma",
+        figma: "Diseño de Figma",
         design: "Usar un diseño como referencia",
-        deck: "Usar una presentación como referencia",
+        deck: "Usar una presentación como referencia…",
         searchDesign: "Buscar en diseño…",
       },
       loadFailed: "No se pudo cargar la referencia. Inténtalo de nuevo.",
@@ -1387,7 +1427,7 @@ const messages = {
         "Design no pudo leer esta referencia de Figma. Comprueba el token de acceso a Figma guardado en Design y que esa cuenta pueda abrir el archivo; luego inténtalo de nuevo.",
       tooMany: "Elige hasta 20 referencias.",
       search: "Buscar referencias",
-      designCategory: "Diseño",
+      designCategory: "Referencias de diseño",
     },
     quickStart: {
       invalidUrl: "Introduce una URL HTTP o HTTPS válida.",

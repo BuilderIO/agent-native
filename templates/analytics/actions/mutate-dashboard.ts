@@ -466,6 +466,7 @@ function helpResult() {
 }
 
 export default defineAction({
+  searchHints: ["add a chart", "add a panel", "edit a chart", "remove a chart"],
   description:
     "Edit an existing SQL dashboard atomically. Typed `operations` or constrained `code` can move, insert, duplicate, remove, and update panels (title, SQL, width, height, config), dashboard fields, and filter defaults. Panel width spans 1–6 grid columns; optional height is 1–6 units of 180px, and `clearHeight()` restores content-based height. Place panels with nextToPanelId or rowNumber. Read existing panels with `get-sql-dashboard` first. First-party SQL must bind to a dashboard time filter; use `compose-dashboard` for catalog metrics and keep large SQL out of `code`. Changed panels are validated and checked as the page renders them. Report `verified` and per-panel results; when false, on errors, or after a report that nothing changed, call `inspect-dashboard-panel` before claiming the edit worked.",
   schema: z.object({
@@ -615,7 +616,7 @@ export default defineAction({
           existing.config as Record<string, unknown>,
           actionContext?.signal,
         );
-        if (sqlError) throw new Error(sqlError);
+        if (sqlError) fail(sqlError);
         verdict = await verifyMutation(
           existing.config as Record<string, unknown>,
           root,
@@ -644,7 +645,7 @@ export default defineAction({
               existing.config as Record<string, unknown>,
               actionContext?.signal,
             );
-            if (sqlError) throw new Error(sqlError);
+            if (sqlError) fail(sqlError);
             verdict = await verifyMutation(
               existing.config as Record<string, unknown>,
               computed.nextRoot,

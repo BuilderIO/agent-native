@@ -7,6 +7,7 @@ import {
 } from "../server/lib/clips-peer.js";
 import {
   CLIP_PLAYBACK_ERRORS,
+  CONTENT_CLIP_COMMENT_KEY,
   CONTENT_CLIP_MAX_COMMENT_CHARS,
   CONTENT_CLIP_MAX_VIDEO_TIMESTAMP_MS,
 } from "../shared/clips-peer-contract.js";
@@ -30,7 +31,7 @@ const ONE_TARGET =
 
 export default defineAction({
   description:
-    "Comment on a Clip placed in a page: start a thread at a moment of its video (videoTimestampMs), or reply to one of its threads (threadId from list-clip-comments). The comment is saved in Clips as the caller, who must be able to comment on the page. Fails with clip_comments_disabled when the Clip's comments are off.",
+    "Comment on a Clip placed in a page: start a thread at a moment of its video (videoTimestampMs), or reply to one of its threads (threadId from list-clip-comments). The comment is saved in Clips as the caller, who must be able to comment on the page. Pass idempotencyKey to make a retry safe: the same key with the same comment returns the comment already saved instead of adding another, and a key used for a different comment fails with clip_comment_key_used. Fails with clip_comments_disabled when the Clip's comments are off.",
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: false,
@@ -59,6 +60,13 @@ export default defineAction({
         .describe(
           "Id of the thread to reply to, from list-clip-comments. Omit to start a thread.",
         ),
+      idempotencyKey: z
+        .string()
+        .regex(CONTENT_CLIP_COMMENT_KEY)
+        .optional()
+        .describe(
+          "Optional key for this comment, 16-64 letters, digits, - or _ (a UUID works). Send the same key when retrying the same comment after a failure that may have saved it. A new comment needs a new key.",
+        ),
     })
     .refine(
       (args) =>
@@ -72,6 +80,7 @@ export default defineAction({
     content,
     videoTimestampMs,
     threadId,
+    idempotencyKey,
   }) => {
     const write: ClipCommentWrite | null =
       threadId !== undefined
@@ -86,6 +95,7 @@ export default defineAction({
       documentId,
       recordingId,
       write,
+      ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
     });
     if (!result.ok) failClip(result.code);
     const parsed = answerSchema.safeParse(result.body);

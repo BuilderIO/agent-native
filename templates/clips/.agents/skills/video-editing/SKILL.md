@@ -168,6 +168,7 @@ The player team may have its own copy of some of these. If so, consolidate on
 | `set-thumbnail`      | `thumbnailUrl` / `animatedThumbnailUrl` / `editsJson.thumbnail` | Three modes: upload / frame / gif |
 | `set-chapters`       | `chaptersJson`                           | Overwrites the chapter array                      |
 | `stitch-recordings`  | new `recordings` row                     | Client-side ffmpeg concat + upload + insert       |
+| `set-recording-trims` | `editsJson.trims`                       | Replaces the list; needs `expectedRevision` from `recording.trimsRevision`, and returns `save_conflict` with the current trims if they moved |
 | `undo-edit`          | `editsJson.trims`                        | Pop the last excluded range (no redo)             |
 | `clear-edits`        | `editsJson`                              | Reset to defaults (chapters/thumbnailUrl kept)    |
 

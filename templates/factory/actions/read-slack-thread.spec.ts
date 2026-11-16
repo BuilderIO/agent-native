@@ -40,6 +40,7 @@ beforeEach(() => {
   workspaceMock.mockResolvedValue("primary");
   createClientMock.mockReturnValue({
     getCompleteThread: getCompleteThreadMock,
+    getAgentNativeIdentity: async () => ({ userId: "UBOT" }),
   });
   getCompleteThreadMock.mockResolvedValue({
     hasMore: false,
@@ -85,6 +86,73 @@ describe("read-slack-thread", () => {
     );
 
     expect(result).toMatchObject({ messageCount: 1 });
+  });
+
+  it("cuts the thread to the budget it is given, whole messages first, and says where to read on", async () => {
+    getCompleteThreadMock.mockResolvedValue({
+      hasMore: false,
+      messages: Array.from({ length: 30 }, (_, index) => ({
+        type: "message",
+        text: "y".repeat(1_000),
+        ts: `1700000${String(index).padStart(3, "0")}.000100`,
+        user: "U1",
+      })),
+    });
+
+    const result = (await action.run(
+      { ...input, budgetChars: 5_000 },
+      context,
+    )) as Record<string, any>;
+
+    expect(result.truncated).toBe(true);
+    expect(result.messageCount).toBe(30);
+    expect(result.messages.length).toBeGreaterThan(0);
+    expect(result.messages.length).toBeLessThan(30);
+    expect(JSON.stringify(result.messages).length).toBeLessThanOrEqual(5_000);
+    expect(result.omittedMessages).toBe(30 - result.messages.length);
+    expect(result.nextOldest).toBe(
+      result.messages[result.messages.length - 1].ts,
+    );
+  });
+
+  it("keeps the first message when the budget is smaller than it, so a cut thread can always be read on", async () => {
+    getCompleteThreadMock.mockResolvedValue({
+      hasMore: false,
+      messages: [
+        {
+          type: "message",
+          text: "x".repeat(3_500),
+          ts: "1700000000.000100",
+          user: "U1",
+        },
+        {
+          type: "message",
+          text: "second",
+          ts: "1700000001.000100",
+          user: "U2",
+        },
+      ],
+    });
+
+    const result = (await action.run(
+      { ...input, budgetChars: 1_000 },
+      context,
+    )) as Record<string, any>;
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.truncated).toBe(true);
+    expect(result.nextOldest).toBe("1700000000.000100");
+  });
+
+  it("takes a budget between 1,000 and the output budget, and no more", () => {
+    const parse = (value: unknown) =>
+      (
+        action.schema as { safeParse: (v: unknown) => { success: boolean } }
+      ).safeParse(value).success;
+
+    expect(parse({ ...input, budgetChars: 10_000 })).toBe(true);
+    expect(parse({ ...input, budgetChars: 999 })).toBe(false);
+    expect(parse({ ...input, budgetChars: 34_001 })).toBe(false);
   });
 
   it("fails, never returns a short thread, when Slack cannot be paged to the end", async () => {

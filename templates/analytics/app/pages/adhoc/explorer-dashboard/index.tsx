@@ -13,6 +13,10 @@ import {
   callAction,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
@@ -313,7 +317,14 @@ export default function ExplorerDashboardPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: body, requestSource: TAB_ID }),
-      }).catch(() => {});
+      }).then(
+        (res) => {
+          if (!res.ok) {
+            reportWriteFailure(writeFailureFromResponse(res));
+          }
+        },
+        (error: unknown) => reportWriteFailure(error),
+      );
     },
     [collabDocId],
   );

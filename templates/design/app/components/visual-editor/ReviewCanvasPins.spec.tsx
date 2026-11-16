@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   sendToAgent: vi.fn().mockResolvedValue({ delivered: true }),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
+  reportWriteFailure: vi.fn(),
   agentStart: vi.fn(),
   agentStop: vi.fn(),
   agentRetry: vi.fn(),
@@ -119,6 +120,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/uploads", () => ({
   uploadEditorImage: mocks.uploadImage,
+}));
+
+vi.mock("@agent-native/core/client/write-failure", () => ({
+  reportWriteFailure: mocks.reportWriteFailure,
 }));
 
 vi.mock("sonner", () => ({
@@ -452,6 +457,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     mocks.sendToAgent.mockClear();
     mocks.toastError.mockReset();
     mocks.toastSuccess.mockReset();
+    mocks.reportWriteFailure.mockReset();
     mocks.agentStart.mockReset().mockResolvedValue("started");
     mocks.agentStop.mockReset().mockResolvedValue(undefined);
     mocks.agentRetry.mockReset().mockResolvedValue("started");
@@ -6237,14 +6243,18 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           await openDraftComposer();
           await click("[data-review-test-agent-mention]");
           await click("[data-review-test-submit]");
+          const failure = new Error("comment not saved");
           await act(async () => {
             const handlers = mocks.createMutate.mock.calls[0]?.[1] as
-              | { onError?: () => void }
+              | { onError?: (error: Error) => void }
               | undefined;
-            handlers?.onError?.();
+            handlers?.onError?.(failure);
           });
           expect(mocks.agentStart).not.toHaveBeenCalled();
-          expect(mocks.toastError).toHaveBeenCalledWith("review.postFailed");
+          expect(mocks.reportWriteFailure).toHaveBeenCalledExactlyOnceWith(
+            failure,
+            { label: "review.postFailed" },
+          );
         });
 
         it("starts no run for a comment that mentions only people", async () => {

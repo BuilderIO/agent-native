@@ -184,8 +184,18 @@ export const aiWholeList =
   () => ({ ok: true, mode: "wholeList", usage, fields, ...extra });
 
 export const aiFailed =
-  (code: AiFailureCode, reason = "failed in the fake"): AiResponder =>
-  () => ({ ok: false, code, reason, usage });
+  (
+    code: AiFailureCode,
+    reason = "failed in the fake",
+    provider?: string,
+  ): AiResponder =>
+  () => ({
+    ok: false,
+    code,
+    reason,
+    ...(provider === undefined ? {} : { provider }),
+    usage,
+  });
 
 /**
  * Picks the responder whose `when` text is in the request's instruction, so a

@@ -83,11 +83,6 @@
 .agent-kit-chat-guided-question {
   max-block-size: min(32rem, 58dvh);
   overflow: auto;
-  margin-block-end: 0.5rem;
-  border: 1px solid var(--agentkit-border);
-  border-radius: var(--agentkit-radius);
-  background: var(--agentkit-surface);
-  box-shadow: var(--agentkit-elevation);
 }
 
 .chat-sidebar-history .an-chat-history__list {

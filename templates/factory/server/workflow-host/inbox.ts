@@ -21,19 +21,23 @@ import {
 import { z } from "zod";
 
 import { factoryWorkflowItemState, triageItems } from "../db/schema.js";
+import { previewRowSchema } from "../lib/factory-poll-start.js";
 import { orgFactoryItemFilter } from "../lib/factory-scope.js";
 import {
   PERSON_REACTIONS_KEY,
   parseOptionalReaction,
 } from "../lib/source-reaction.js";
+import { SECRET_UNREADABLE_CODE } from "../lib/unreadable-secret.js";
 import { connectionAdvice } from "../lib/workflow-action-errors.js";
 import { triageItemStatusSchema } from "../triage/contracts.js";
 import { parseTriageMetadata } from "../triage/metadata.js";
+import { SLACK_IDENTITY_UNRESOLVED_CODE } from "../triage/slack-own-posts.js";
 import type { TripwireSink } from "../tripwire/types.js";
 import type {
   InboxReader,
   InboxRequest,
   InboxResult,
+  InboxStart,
   RequeuedRequest,
   StoreClock,
   WorkflowScope,
@@ -46,6 +50,7 @@ import {
   type ItemKind,
   type NormalizedItem,
 } from "../workflow/items.js";
+import { decodeStart, encodeStart, type StoredStart } from "./inbox-start.js";
 import {
   ITEM_METADATA,
   queueStatusFor,
@@ -87,6 +92,9 @@ type InboxFailureReason =
   | "partial_read"
   | "row_unreadable"
   | "filter_invalid"
+  | "position_unreadable"
+  | "position_missing"
+  | "identity_unresolved"
   | "aborted";
 
 type InboxFailure = Extract<InboxResult, { ok: false }> & {
@@ -220,6 +228,18 @@ function pollerFailure(
       false,
     );
   }
+  // The key is saved, so connecting is no fix, and it never heals, so a retry is none either.
+  if (
+    result.errorCode === SECRET_UNREADABLE_CODE ||
+    result.output.includes(`(errorCode: ${SECRET_UNREADABLE_CODE})`)
+  ) {
+    return fail(
+      "poller_failed",
+      "provider_error",
+      `${action} cannot read a saved key, and trying again will not change that: ${text}`,
+      false,
+    );
+  }
   if (
     /(?:missing|no|not (?:configured|connected)).{0,40}(?:token|credential|api key)|connect (?:your )?(?:slack|github|sentry)/i.test(
       text,
@@ -232,6 +252,19 @@ function pollerFailure(
       false,
     );
   }
+  // The app could not say which posts are its own, so the read took none: a
+  // workflow that cannot tell its notices from reports must not take any.
+  if (
+    result.errorCode === SLACK_IDENTITY_UNRESOLVED_CODE ||
+    result.output.includes(`(errorCode: ${SLACK_IDENTITY_UNRESOLVED_CODE})`)
+  ) {
+    return fail(
+      "identity_unresolved",
+      "provider_error",
+      `${action} took nothing: ${text}`,
+      true,
+    );
+  }
   return fail(
     "poller_failed",
     "provider_error",
@@ -241,6 +274,11 @@ function pollerFailure(
 }
 
 type Checked<T> = { ok: true; value: T } | InboxFailure;
+
+/** The own-post count a poll reported, as the part of an inbox answer that carries it. */
+function skippedOwnOf(read: PollRead): { skippedOwn?: number } {
+  return read.skippedOwn === undefined ? {} : { skippedOwn: read.skippedOwn };
+}
 
 function pollerArgs(
   factoryId: string,
@@ -255,23 +293,52 @@ function pollerArgs(
       false,
     );
   }
+  const includeOwnPosts = settings.filter?.includeOwnPosts === true;
+  if (includeOwnPosts && settings.poller !== "slack") {
+    return fail(
+      "filter_invalid",
+      "graph_invalid",
+      `Only a Slack source has the app's own posts to include; a ${settings.poller} source has none.`,
+      false,
+    );
+  }
+  if (settings.poller !== "slack") return { ok: true, value: { factoryId } };
   // The job file holds the real channel; naming it here makes the poller
   // refuse a job whose file drifted from the graph instead of polling another.
   return {
     ok: true,
-    value:
-      settings.poller === "slack" && scopes.length === 1
-        ? { factoryId, channelId: scopes[0] }
-        : { factoryId },
+    value: {
+      factoryId,
+      ...(scopes.length === 1 ? { channelId: scopes[0] } : {}),
+      // The app's notices and replies land in the channel it reads: they are
+      // its output, so a source never takes them unless it says it should.
+      ...(includeOwnPosts ? {} : { skipOwnPosts: true }),
+      // What the loop's messages and a Builder task name a report by.
+      headlines: true,
+    },
   };
+}
+
+/** What a poller says beyond how many items it observed, when a workflow source asked for a position or a preview. */
+interface PollRead {
+  observed: number;
+  /** Where the read left off (or, for a first read, the newest position). */
+  position?: string;
+  primed: boolean;
+  /** How many of the app's own posts the read left out; said by a Slack poll that was asked to leave them out. */
+  skippedOwn?: number;
+  /** The rows a preview would have stored, and how many there were before the answer was cut. */
+  previewRows?: unknown;
+  previewTotal?: number;
 }
 
 function readPollResult(
   settings: InboxPollSettings,
   action: string,
   output: string,
+  skippedOwnAsked: boolean,
   observe: (details: Record<string, unknown>) => void,
-): Checked<{ observed: number }> {
+): Checked<PollRead> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(output);
@@ -326,7 +393,103 @@ function readPollResult(
       true,
     );
   }
-  return { ok: true, value: { observed } };
+  const skippedOwn =
+    typeof result.skippedOwn === "number" &&
+    Number.isInteger(result.skippedOwn) &&
+    result.skippedOwn >= 0
+      ? result.skippedOwn
+      : undefined;
+  // An answer that does not say how many own posts it left out may have taken
+  // them (a poller that ignored the argument), so it is not read as none.
+  if (skippedOwnAsked && skippedOwn === undefined) {
+    observe({ reason: "poll_skipped_own_missing", body: result });
+    return fail(
+      "poller_failed",
+      "provider_error",
+      `${action} did not say how many of the app's own posts it left out, so it cannot be known that it did.`,
+      true,
+    );
+  }
+  return {
+    ok: true,
+    value: {
+      observed,
+      ...(skippedOwnAsked && skippedOwn !== undefined ? { skippedOwn } : {}),
+      ...(typeof result.position === "string"
+        ? { position: result.position }
+        : {}),
+      primed: result.primed === true,
+      ...(result.previewRows === undefined
+        ? {}
+        : { previewRows: result.previewRows }),
+      ...(typeof result.previewTotal === "number"
+        ? { previewTotal: result.previewTotal }
+        : {}),
+    },
+  };
+}
+
+type HostStart =
+  | { kind: "none" }
+  | { kind: "prime" }
+  | { kind: "from"; stored: StoredStart };
+
+/** What the engine's start means for the place this source reads now. */
+function readStart(
+  start: InboxStart | undefined,
+  scopeKey: string,
+): Checked<HostStart> {
+  if (start === undefined) return { ok: true, value: { kind: "none" } };
+  if (start.kind === "prime") return { ok: true, value: { kind: "prime" } };
+  const decoded = decodeStart(start.position);
+  if (!decoded.ok) {
+    return fail(
+      "position_unreadable",
+      "engine_error",
+      `This source's saved position cannot be read (${decoded.message}), so it cannot go on from it, and starting over would skip what arrived since. Nothing was read.`,
+      false,
+    );
+  }
+  // A position saved for another place says nothing about this one: the source
+  // was pointed somewhere else, so it starts from now there.
+  return {
+    ok: true,
+    value:
+      decoded.start.scope === scopeKey
+        ? { kind: "from", stored: decoded.start }
+        : { kind: "prime" },
+  };
+}
+
+/** The sample rows a preview returned, as the items a live read would have offered. */
+function previewItems(
+  action: string,
+  rows: unknown,
+): Checked<NormalizedItem[]> {
+  const parsed = previewRowSchema.array().safeParse(rows);
+  if (!parsed.success) {
+    const problems = parsed.error.issues
+      .slice(0, 3)
+      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .join("; ");
+    return fail(
+      "poller_failed",
+      "provider_error",
+      `${action} returned preview rows that are not what a poll stores: ${problems}.`,
+      true,
+    );
+  }
+  try {
+    return { ok: true, value: parsed.data.map(rowToNormalizedItem) };
+  } catch (error) {
+    if (!(error instanceof RowUnreadable)) throw error;
+    return fail(
+      "row_unreadable",
+      "item_invalid",
+      `Preview row "${error.itemId}" cannot be read: ${error.message}`,
+      false,
+    );
+  }
 }
 
 const jsonKey = (key: string): SQL<string | null> =>
@@ -589,12 +752,20 @@ export function rowToNormalizedItem(row: ItemRow): NormalizedItem {
   // keeps them in the metadata it wrote.
   const providerFields = { ...metadata };
   delete providerFields[ITEM_METADATA.workflowEnd];
+  // A Slack row's title is who wrote it ("Slack user Sam"), which names nothing
+  // in a message or a task. The headline a workflow's poll records does, and
+  // the label stays beside it for a reader that wants to say who.
+  const storedHeadline = metadata[ITEM_METADATA.headline];
+  const headline =
+    typeof storedHeadline === "string" && storedHeadline.trim() !== ""
+      ? storedHeadline
+      : undefined;
   const candidate = {
     id: row.id,
     externalId: row.externalId,
     kind,
     provider: row.source === "github_issue" ? "github" : row.source,
-    title: row.title,
+    title: headline ?? row.title,
     ...(row.summary === null ? {} : { text: row.summary }),
     ...(metadata[ITEM_METADATA.textTruncated] === true
       ? { textTruncated: true }
@@ -613,6 +784,7 @@ export function rowToNormalizedItem(row: ItemRow): NormalizedItem {
       status: row.status,
       coverage: row.coverage,
       ...(row.headSha ? { headSha: row.headSha } : {}),
+      ...(headline === undefined ? {} : { authorLabel: row.title }),
     },
     payload: Object.keys(payload).length > 0 ? payload : providerFields,
     ...(metadata[ITEM_METADATA.payloadTruncated] === true
@@ -731,9 +903,22 @@ export function createInboxHost(options: InboxHostOptions): InboxHost {
         );
       }
 
+      const live = request.mode === "live";
+      const scopeKey = settings.filter?.scopes?.[0] ?? "";
+      const started = readStart(request.start, scopeKey);
+      if (!started.ok) return started;
+      const start = started.value;
+
+      // Only a live read stores anything: a dry or test read asks the poller
+      // for a preview, so it leaves no row, no cursor and no audit behind.
       const polled = await callAction({
         name: action,
-        input: args.value,
+        input: {
+          ...args.value,
+          ...(start.kind === "prime" ? { prime: true } : {}),
+          ...(start.kind === "from" ? { after: start.stored.position } : {}),
+          ...(live ? {} : { preview: true }),
+        },
         callId: `${workflowId}:${action}`,
         signal,
       });
@@ -747,10 +932,94 @@ export function createInboxHost(options: InboxHostOptions): InboxHost {
           severity: "warn",
           details: { provider: poller, action, ...details },
         });
-      const summary = readPollResult(settings, action, polled.output, observe);
+      const summary = readPollResult(
+        settings,
+        action,
+        polled.output,
+        args.value.skipOwnPosts === true,
+        observe,
+      );
       if (!summary.ok) return summary;
+      const read = summary.value;
 
       const sources = POLLER_SOURCES[poller];
+      const sourceQueue = (): SQL =>
+        and(
+          orgFactoryItemFilter(scope.orgId, scope.factoryId),
+          inArray(triageItems.source, [...sources]),
+          queueCondition(poller),
+          notHeldByWorkflow(db, scope, workflowId, nowIso),
+          // A row stored before the source started was already there.
+          ...(start.kind === "from"
+            ? [gt(triageItems.createdAt, start.stored.since)]
+            : []),
+          ...filters.value,
+        ) ?? sql`true`;
+
+      if (!live) {
+        const sample = previewItems(action, read.previewRows);
+        if (!sample.ok) return sample;
+        // A source with no position yet starts from now, so what is in the
+        // inbox is not what a live read would offer: only the sample is shown.
+        const queued: InboxTaken | InboxFailure =
+          start.kind === "prime"
+            ? { ok: true, items: [], totalAvailable: 0 }
+            : await readQueue(db, sourceQueue(), settings.takeLimit);
+        if (!queued.ok) return queued;
+        // The newest first, so a short take shows what the source would read next.
+        const newest = [...sample.value].sort(
+          (a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt),
+        );
+        const seen = new Set(newest.map((item) => item.id));
+        const items = [
+          ...newest,
+          ...queued.items.filter((item) => !seen.has(item.id)),
+        ].slice(0, settings.takeLimit);
+        return {
+          ok: true,
+          items,
+          totalAvailable: Math.max(
+            items.length,
+            (read.previewTotal ?? sample.value.length) +
+              (queued.totalAvailable ?? queued.items.length),
+          ),
+          sample: true,
+          ...skippedOwnOf(read),
+        };
+      }
+
+      if (start.kind === "prime") {
+        if (!read.primed || read.position === undefined) {
+          observe({ reason: "prime_position_missing", primed: read.primed });
+          return fail(
+            "position_missing",
+            "provider_error",
+            `${action} did not say where the source stands, so it cannot start from now.`,
+            true,
+          );
+        }
+        return {
+          ok: true,
+          items: [],
+          primed: true,
+          position: encodeStart({
+            scope: scopeKey,
+            position: read.position,
+            since: nowIso,
+          }),
+          ...skippedOwnOf(read),
+        };
+      }
+      if (start.kind === "from" && read.position === undefined) {
+        observe({ reason: "poll_position_missing" });
+        return fail(
+          "position_missing",
+          "provider_error",
+          `${action} did not say where the read left off, so the source cannot go on from there.`,
+          true,
+        );
+      }
+
       const stored = (
         await db
           .select({ count: sql<number>`count(*)::int` })
@@ -763,31 +1032,28 @@ export function createInboxHost(options: InboxHostOptions): InboxHost {
           )
       )[0];
       const storedCount = Number(stored?.count ?? 0);
-      if (summary.value.observed > storedCount) {
+      if (read.observed > storedCount) {
         observe({
           reason: "observed_exceeds_stored",
-          observed: summary.value.observed,
+          observed: read.observed,
           stored: storedCount,
         });
         return fail(
           "partial_read",
           "partial_read",
-          `${action} reported ${summary.value.observed} observed items but this factory's inbox holds ${storedCount} from ${sources.join(" and ")}.`,
+          `${action} reported ${read.observed} observed items but this factory's inbox holds ${storedCount} from ${sources.join(" and ")}.`,
           true,
         );
       }
 
-      return readQueue(
-        db,
-        and(
-          orgFactoryItemFilter(scope.orgId, scope.factoryId),
-          inArray(triageItems.source, [...sources]),
-          queueCondition(poller),
-          notHeldByWorkflow(db, scope, workflowId, nowIso),
-          ...filters.value,
-        )!,
-        settings.takeLimit,
-      );
+      const taken = await readQueue(db, sourceQueue(), settings.takeLimit);
+      if (!taken.ok) return taken;
+      const counted = { ...taken, ...skippedOwnOf(read) };
+      if (start.kind !== "from" || read.position === undefined) return counted;
+      return {
+        ...counted,
+        position: encodeStart({ ...start.stored, position: read.position }),
+      };
     },
   };
 }

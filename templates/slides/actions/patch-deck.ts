@@ -56,6 +56,7 @@ import {
 } from "../server/lib/source-import.js";
 import {
   assertSlideAnimationsResolve,
+  type RepointedReveal,
   type SlideAnimationBaseline,
 } from "../server/lib/validate-slide-animations.js";
 import { ANIMATION_TRIGGERS } from "../shared/api.js";
@@ -191,7 +192,7 @@ const SlideFieldsSchema = z.object({
     .nullable()
     .optional()
     .describe(
-      "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes. Omit it to keep the current reveals; a content change that strands one, or moves one onto a different element, fails with a slide_animation_* error (400) and writes nothing. [] or null clears every reveal.",
+      "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes. Omit it to keep the current reveals: each follows its target to the target's new path, and the result lists every move in repointedReveals. A content change that strands one, or leaves it unclear which element its target became, fails with a slide_animation_* error (400) and writes nothing. [] or null clears every reveal.",
     ),
   splitByParagraph: z.boolean().nullable().optional(),
   skipped: z
@@ -845,16 +846,18 @@ const AgentPatchDeckInputSchema = z.object({
         AddSlideOp,
         z.object({
           op: z.literal("patch-deck-fields"),
-          fields: z.object({
-            title: z
-              .string()
-              .optional()
-              .describe("The concise, specific title to apply to the deck"),
-            starred: z
-              .boolean()
-              .optional()
-              .describe("Whether the deck should be starred"),
-          }),
+          fields: z
+            .object({
+              title: z
+                .string()
+                .optional()
+                .describe("The concise, specific title to apply to the deck"),
+              starred: z
+                .boolean()
+                .optional()
+                .describe("Whether the deck should be starred"),
+            })
+            .strict(),
         }),
       ]),
     )
@@ -938,6 +941,7 @@ export function applyOperation(
   op: Operation,
   options?: {
     clearLayoutWarningDismissal?: boolean;
+    strictReorder?: boolean;
     sourceContentHashes?: ReadonlyMap<string, string>;
   },
 ): boolean {
@@ -956,11 +960,17 @@ export function applyOperation(
           hashSlideContent(String(slide.content ?? ""));
         if (sourceContentHash !== op.baseContentHash) {
           fail(
-            "Slide content changed since it was read. Call get-deck with this slideId again and rebase the patch.",
+            "Slide content changed since it was read. Call get-deck with this slideId for the exact current HTML, rebase the patch on it, and retry with details.currentContentHash as baseContentHash. details.currentContent is only a preview: it is omitted when large and may have credential-like text redacted, so never write from it.",
             {
               errorCode: "slide_content_stale",
               statusCode: 409,
-              details: { slideId: op.slideId },
+              details: {
+                slideId: op.slideId,
+                currentContent: String(slide.content ?? ""),
+                currentContentHash: hashSlideContent(
+                  String(slide.content ?? ""),
+                ),
+              },
             },
           );
         }
@@ -1098,12 +1108,18 @@ export function applyOperation(
         });
       }
       const byId = new Map(slides.map((s: { id: string }) => [s.id, s]));
-      // Build the new order from the client's desired order, keeping only
-      // slides that actually exist in the server copy.
+      const unknownId = orderedIds.find((id) => !byId.has(id));
+      if (unknownId !== undefined && options?.strictReorder) {
+        fail(
+          `Cannot reorder: slide ${unknownId} is not in this deck. Nothing was moved; re-read the deck and reorder with current slide IDs.`,
+          { errorCode: "reorder_unknown_slide_id", statusCode: 409 },
+        );
+      }
+      // Unnamed slides stay at the end so a concurrent add is not dropped.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const reordered: any[] = orderedIds
-        .map((id) => byId.get(id))
-        .filter(Boolean);
+        .filter((id) => byId.has(id))
+        .map((id) => byId.get(id));
       const orderedSet = new Set(orderedIds);
       for (const s of slides) {
         if (!orderedSet.has(s.id)) reordered.push(s);
@@ -1231,13 +1247,17 @@ export function slideContents(deck: any): Map<string, string> {
 // Reveal objects are replaced, never mutated, so a shallow copy is a true baseline.
 export function slideAnimationBaselines(
   deck: any,
-): Map<string, SlideAnimationBaseline> {
-  const baselines = new Map<string, SlideAnimationBaseline>();
+): Map<string, SlideAnimationBaseline & { steps: string[] }> {
+  const baselines = new Map<
+    string,
+    SlideAnimationBaseline & { steps: string[] }
+  >();
   for (const slide of Array.isArray(deck?.slides) ? deck.slides : []) {
     if (typeof slide?.id !== "string") continue;
     baselines.set(slide.id, {
       content: typeof slide.content === "string" ? slide.content : "",
       animations: Array.isArray(slide.animations) ? [...slide.animations] : [],
+      steps: [],
     });
   }
   return baselines;
@@ -1251,7 +1271,7 @@ export function assertPatchedSlideAnimationsResolve(
     contentChangedSlideIds?: ReadonlySet<string>;
     baselines?: ReadonlyMap<string, SlideAnimationBaseline>;
   },
-): void {
+): RepointedReveal[] {
   const slideIdsToValidate = new Set(
     operations.flatMap((operation) => {
       if (operation.op !== "patch-slide" && operation.op !== "add-slide") {
@@ -1265,7 +1285,7 @@ export function assertPatchedSlideAnimationsResolve(
         : [];
     }),
   );
-  if (slideIdsToValidate.size === 0) return;
+  if (slideIdsToValidate.size === 0) return [];
 
   // Only a reveal list the caller sent must carry element paths. Reveals that a
   // content patch keeps are checked the same way update-slide checks them.
@@ -1279,21 +1299,25 @@ export function assertPatchedSlideAnimationsResolve(
   );
 
   const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
+  const repointed: RepointedReveal[] = [];
   for (const slideId of slideIdsToValidate) {
     const slide = slides.find((candidate) => candidate?.id === slideId);
     if (!slide || !Array.isArray(slide.animations) || !slide.animations.length)
       continue;
 
-    assertSlideAnimationsResolve({
+    const explicit = explicitAnimationSlideIds.has(slideId);
+    const saved = assertSlideAnimationsResolve({
       slideId,
       content: typeof slide.content === "string" ? slide.content : "",
       animations: slide.animations,
-      requireElementPaths:
-        options?.requireElementPaths === true &&
-        explicitAnimationSlideIds.has(slideId),
+      requireElementPaths: options?.requireElementPaths === true && explicit,
       baseline: options?.baselines?.get(slideId),
+      followContent: !explicit,
     });
+    slide.animations = saved.animations;
+    repointed.push(...saved.repointed);
   }
+  return repointed;
 }
 
 export function resolveDeckColumnUpdates(
@@ -1372,8 +1396,12 @@ export default defineAction({
     "operation with content for every imported slide in one call; the action " +
     "rejects partial coverage. For animations, inspect the final slide HTML, " +
     "then patch content and the complete ordered animations list together. " +
-    "A content patch that omits animations keeps the current reveals; one its " +
-    "change strands or moves onto a different element fails with a slide_animation_* error (400) and writes nothing. " +
+    "A content patch that omits animations keeps the current reveals and moves " +
+    "each to its target's new path; the result's repointedReveals lists every " +
+    "move as { slideId, animationIndex, animationId, fromPath, toPath }, so " +
+    "mention a moved reveal instead of assuming paths stayed put. A change that " +
+    "strands a reveal, or leaves it unclear which element its target became, " +
+    "fails with a slide_animation_* error (400) and writes nothing. " +
     "Send animations: [] to clear every reveal. " +
     "Use delete-slide to remove a slide and reorder-slides to set the order; " +
     "validate every 0-based elementPath and do not invent one-based indexes. " +
@@ -1656,6 +1684,7 @@ export default defineAction({
 
       const layoutFitSlideIds = new Set<string>();
       const deletedSlideIds = new Set<string>();
+      const skippedSlideIds = new Set<string>();
       const signaturesBeforeOperations = slideSignatures(deck);
       const contentsBeforeOperations = slideContents(deck);
       const animationBaselinesBeforeOperations = slideAnimationBaselines(deck);
@@ -1701,11 +1730,30 @@ export default defineAction({
           (deck.slides as Array<{ id?: string }>).some(
             (slide) => slide.id === op.slideId,
           );
+        if (
+          op.op === "add-slide" &&
+          (deck.slides as Array<{ id?: string }>).some(
+            (slide) => slide.id === op.slideId,
+          )
+        ) {
+          skippedSlideIds.add(op.slideId);
+        }
         const operationChangedStructure = applyOperation(deck, op, {
           clearLayoutWarningDismissal: isAgentCaller,
+          strictReorder: isAgentCaller,
           sourceContentHashes,
         });
         structuralOperationApplied ||= operationChangedStructure;
+        if (op.op === "patch-slide" && op.fields.content !== undefined) {
+          const patched = (
+            deck.slides as Array<{ id?: string; content?: unknown }>
+          ).find((slide) => slide.id === op.slideId);
+          animationBaselinesBeforeOperations
+            .get(op.slideId)
+            ?.steps.push(
+              typeof patched?.content === "string" ? patched.content : "",
+            );
+        }
         if (
           existedBeforeDelete &&
           !(deck.slides as Array<{ id?: string }>).some(
@@ -1842,11 +1890,15 @@ export default defineAction({
       }
 
       if (sourceImportCleared) delete deck.sourceImport;
-      assertPatchedSlideAnimationsResolve(deck, operations, {
-        requireElementPaths: isAgentCaller,
-        contentChangedSlideIds,
-        baselines: animationBaselinesBeforeOperations,
-      });
+      const repointedReveals = assertPatchedSlideAnimationsResolve(
+        deck,
+        operations,
+        {
+          requireElementPaths: isAgentCaller,
+          contentChangedSlideIds,
+          baselines: animationBaselinesBeforeOperations,
+        },
+      );
 
       const { title: sqlTitle, designSystemId: sqlDesignSystemId } =
         resolveDeckColumnUpdates(
@@ -2004,7 +2056,9 @@ export default defineAction({
       if (!meaningfulChange) {
         if (isAgentCaller) {
           throw new NoWriteError(
-            "Nothing was written: the requested deck patch is identical to the current deck. Re-read with get-deck before retrying.",
+            skippedSlideIds.size
+              ? `Nothing was written: add-slide skipped ${[...skippedSlideIds].join(", ")} because a slide with that ID already exists. Use a new slideId to add another slide.`
+              : "Nothing was written: the requested deck patch is identical to the current deck. Re-read with get-deck before retrying.",
           );
         }
         if (clientWrite) {
@@ -2124,6 +2178,14 @@ export default defineAction({
             signaturesBeforeOperations.has(slideId) &&
             !signaturesAfterOperations.has(slideId),
         ),
+        ...(skippedSlideIds.size
+          ? {
+              skippedSlideIds: [...skippedSlideIds],
+              warnings: [
+                `add-slide skipped ${[...skippedSlideIds].join(", ")}: a slide with that ID already exists, so nothing was added. Use a new slideId to add another slide.`,
+              ],
+            }
+          : {}),
         ...(unchangedSlideIds.length
           ? {
               unchangedSlideIds,
@@ -2140,6 +2202,7 @@ export default defineAction({
               })),
             )
           : {}),
+        ...(repointedReveals.length ? { repointedReveals } : {}),
         ...(sourceRewriteRequested ? { sourceRewritten: true } : {}),
         ...(sourceImportCleared && !sourceRewriteRequested
           ? { sourceImportCleared: true }

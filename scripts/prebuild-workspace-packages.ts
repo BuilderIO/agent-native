@@ -3,6 +3,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
+import { pnpmCommand } from "./lib/pnpm-command.ts";
+
 type PrebuildMode = "agentkit-acceptance" | "dev" | "postinstall";
 
 interface PackageTarget {
@@ -246,10 +248,6 @@ function readMode(): PrebuildMode {
   process.exit(1);
 }
 
-function pnpmExecutable(): string {
-  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-}
-
 function firstMissingOutput(target: PackageTarget): string | null {
   for (const output of target.expectedOutputs) {
     if (!existsSync(path.join(target.dir, output))) return output;
@@ -301,8 +299,9 @@ console.log(
     .map((target) => target.name)
     .join(", ")}`,
 );
-execFileSync(pnpmExecutable(), [...filters, "run", "build"], {
+const pnpm = pnpmCommand([...filters, "run", "build"]);
+execFileSync(pnpm.command, pnpm.args, {
   cwd: process.cwd(),
   stdio: "inherit",
-  shell: process.platform === "win32",
+  shell: pnpm.shell,
 });

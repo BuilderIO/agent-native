@@ -1006,6 +1006,7 @@ describe("direct tools/call wire output", () => {
   });
 
   it("approval: a static-token caller cannot approve", async () => {
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "static-owner@example.com";
     const { client, wire } = await connect(
       {
         authorization: "Bearer test-access-token",

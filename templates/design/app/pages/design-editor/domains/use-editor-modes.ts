@@ -767,12 +767,15 @@ export function useEditorModes({
       overviewScreens,
     ],
   );
+  const reviewPendingScreenRef = useRef<(screenId: string) => void>(() => {});
+  reviewPendingScreenRef.current = (screenId: string) => {
+    const proposal = pendingNodeRewriteByFile.get(screenId);
+    if (proposal) handleReviewNodeRewrite(proposal);
+  };
+  // Every canvas Screen receives this; a new identity per source arrival re-renders all of them.
   const handleReviewPendingScreen = useCallback(
-    (screenId: string) => {
-      const proposal = pendingNodeRewriteByFile.get(screenId);
-      if (proposal) handleReviewNodeRewrite(proposal);
-    },
-    [handleReviewNodeRewrite, pendingNodeRewriteByFile],
+    (screenId: string) => reviewPendingScreenRef.current(screenId),
+    [],
   );
 
   const handleSidebarScreenOverview = useCallback(() => {

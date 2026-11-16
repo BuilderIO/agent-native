@@ -90,12 +90,8 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
-import {
-  useForm,
-  useUpdateForm,
-  usePatchFormFields,
-  useDeleteForm,
-} from "@/hooks/use-forms";
+import { useFormFieldSave } from "@/hooks/use-form-field-save";
+import { useForm, useUpdateForm, useDeleteForm } from "@/hooks/use-forms";
 import { useFormResponses } from "@/hooks/use-responses";
 import {
   formBuilderTabSearchParam,
@@ -103,7 +99,6 @@ import {
   type FormBuilderTab,
 } from "@/lib/form-builder-tabs";
 import type { AppFormFieldType } from "@/lib/form-field-types";
-import { normalizeFields } from "@/lib/normalize-fields";
 import { getPublishedFormUrl } from "@/lib/public-form-link";
 import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
@@ -180,11 +175,6 @@ function getFieldTypeDefaults(
   };
 }
 
-type FieldOp =
-  | { op: "upsert"; field: FormField }
-  | { op: "remove"; id: string }
-  | { op: "reorder"; ids: string[] };
-
 export function FormBuilderPage() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
@@ -193,7 +183,6 @@ export function FormBuilderPage() {
   const tabParam = searchParams.get("tab");
   const { data: form, isLoading, error, refetch } = useForm(id!);
   const updateForm = useUpdateForm();
-  const patchFormFields = usePatchFormFields();
   const deleteForm = useDeleteForm();
   const role = (form as any)?.role as
     | "owner"
@@ -260,7 +249,6 @@ export function FormBuilderPage() {
 
   const titleFocused = useRef(false);
   const descriptionFocused = useRef(false);
-  const fieldsDirty = useRef(false);
   const [localTitle, setLocalTitle] = useReconciledState(form?.title ?? "", {
     active: titleFocused.current,
   });
@@ -281,9 +269,8 @@ export function FormBuilderPage() {
     form?.description ?? "",
     { active: descriptionFocused.current },
   );
-  const [localFields, setLocalFields] = useState<FormField[]>(
-    normalizeFields(form?.fields),
-  );
+  const { localFields, editFields, fieldConflictPrompt } =
+    useFormFieldSave(form);
   const titleMeasureRef = useRef<HTMLSpanElement>(null);
   const [titleInputWidth, setTitleInputWidth] = useState<number | undefined>();
 
@@ -330,12 +317,6 @@ export function FormBuilderPage() {
   }, [localTitle]);
 
   useEffect(() => {
-    if (form && !fieldsDirty.current)
-      setLocalFields(normalizeFields(form.fields));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form?.fields]);
-
-  useEffect(() => {
     if (pendingStatus && form?.status === pendingStatus) {
       setPendingStatus(null);
     }
@@ -354,11 +335,7 @@ export function FormBuilderPage() {
     (data: Parameters<typeof updateForm.mutate>[0]) => {
       clearTimeout(saveTimeout.current);
       saveTimeout.current = setTimeout(() => {
-        updateForm.mutate(data, {
-          onSettled: () => {
-            fieldsDirty.current = false;
-          },
-        });
+        updateForm.mutate(data);
       }, 500);
     },
     [updateForm],
@@ -367,43 +344,14 @@ export function FormBuilderPage() {
   const saveImmediately = useCallback(
     async (data: Parameters<typeof updateForm.mutate>[0]) => {
       clearTimeout(saveTimeout.current);
-      try {
-        await updateForm.mutateAsync(data);
-      } finally {
-        fieldsDirty.current = false;
-      }
+      await updateForm.mutateAsync(data);
     },
     [updateForm],
-  );
-
-  const fieldOpTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const pendingOps = useRef<FieldOp[]>([]);
-  const saveFieldOps = useCallback(
-    (ops: FieldOp[]) => {
-      const formId = form?.id;
-      if (!formId) return;
-      pendingOps.current = [...pendingOps.current, ...ops];
-      clearTimeout(fieldOpTimeout.current);
-      fieldOpTimeout.current = setTimeout(() => {
-        const opsToSend = pendingOps.current;
-        pendingOps.current = [];
-        patchFormFields.mutate(
-          { id: formId, ops: opsToSend },
-          {
-            onSettled: () => {
-              fieldsDirty.current = false;
-            },
-          },
-        );
-      }, 500);
-    },
-    [patchFormFields, form?.id],
   );
 
   useEffect(
     () => () => {
       clearTimeout(saveTimeout.current);
-      clearTimeout(fieldOpTimeout.current);
     },
     [],
   );
@@ -518,36 +466,26 @@ export function FormBuilderPage() {
       width: "full",
       ...(type === "file" ? { multiple: true } : {}),
     } as FormField;
-    setLocalFields((prev) => [...prev, newField]);
-    fieldsDirty.current = true;
-    saveFieldOps([{ op: "upsert", field: newField }]);
+    editFields((prev) => [...prev, newField]);
     setSelectedFieldId(newField.id);
   }
 
   function updateField(updated: FormField) {
-    setLocalFields((prev) =>
-      prev.map((f) => (f.id === updated.id ? updated : f)),
-    );
-    fieldsDirty.current = true;
-    saveFieldOps([{ op: "upsert", field: updated }]);
+    editFields((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
   }
 
   function deleteField(fieldId: string) {
-    setLocalFields((prev) => prev.filter((f) => f.id !== fieldId));
-    fieldsDirty.current = true;
-    saveFieldOps([{ op: "remove", id: fieldId }]);
+    editFields((prev) => prev.filter((f) => f.id !== fieldId));
     if (selectedFieldId === fieldId) setSelectedFieldId(null);
   }
 
   function moveField(from: number, to: number) {
-    setLocalFields((prev) => {
+    editFields((prev) => {
       const next = [...prev];
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
-      saveFieldOps([{ op: "reorder", ids: next.map((f) => f.id) }]);
       return next;
     });
-    fieldsDirty.current = true;
   }
 
   function handleDragStart(idx: number) {
@@ -756,7 +694,6 @@ export function FormBuilderPage() {
                   resourceId={form.id}
                   allowedRoles={["viewer", "editor", "admin"]}
                   resourceTitle={form.title}
-                  triggerClassName="h-10 border-input bg-transparent px-3 text-xs active:scale-[0.96] hover:bg-accent hover:text-accent-foreground"
                   shareUrl={publishedFormUrl}
                   shareUrlLabel={t("builder.publicResponseLink")}
                   shareUrlDescription={t(
@@ -986,6 +923,7 @@ export function FormBuilderPage() {
           </div>
         </div>
       )}
+      {fieldConflictPrompt}
     </div>
   );
 }
@@ -2122,7 +2060,7 @@ function IntegrationsEditor({
               : t("builder.integrations.addIntegration")}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="center" className="w-80 p-1.5">
+        <DropdownMenuContent align="center" className="w-80">
           {(
             Object.entries(integrationMeta) as [
               IntegrationType,

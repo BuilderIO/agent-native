@@ -19,6 +19,15 @@ const clipsAppUrl = vi.hoisted(() => ({
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() =>
   vi.fn((_token: unknown, _options: unknown) => ({ ok: false })),
 );
+const readerContext = vi.hoisted(() => ({
+  icon: null,
+  ancestors: [{ id: "parent-1", title: "Handbook", icon: null }],
+  subPages: [{ id: "child-1", title: "Repair log", icon: null }],
+  pageLinks: {},
+}));
+const mockLoadPublicReaderContext = vi.hoisted(() =>
+  vi.fn(async (_doc: unknown) => readerContext),
+);
 
 vi.mock("@/components/editor/VisualEditor", () => ({
   VisualEditor: () => null,
@@ -35,7 +44,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@agent-native/core/server", () => ({
   AGENT_ACCESS_PARAM: "agent_access",
   getConfiguredAppBasePath: () => configuredBasePath.current,
-  getRequestUserEmail: () => null,
   verifyScopedAgentAccessToken: (token: unknown, options: unknown) =>
     mockVerifyScopedAgentAccessToken(token, options),
 }));
@@ -44,8 +52,8 @@ vi.mock("../../server/lib/clips-peer", () => ({
   resolveClipsAppUrl: () => clipsAppUrl.current,
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
-  resolveAccess: vi.fn(),
+vi.mock("../../server/lib/public-reader", () => ({
+  loadPublicReaderContext: (doc: unknown) => mockLoadPublicReaderContext(doc),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -64,12 +72,15 @@ vi.mock("../../server/db", () => ({
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
       trashedAt: "trashed_at_col",
+      parentId: "parent_id_col",
+      icon: "icon_col",
     },
   },
 }));
 
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { messagesByLocale } from "../i18n-data";
 import {
   AgentReadableDocumentDiscovery,
   headers,
@@ -85,6 +96,8 @@ function firstPaint(content: string, appUrl: string | null) {
       documentId: "doc-1",
       content,
       clipsAppUrl: appUrl,
+      pageLinks: {},
+      basePath: "",
     }),
   );
 }
@@ -106,6 +119,9 @@ function documentRows(visibility: "public" | "private" | "org") {
       content: "## Summary\n\n- Ship it",
       updatedAt: "2026-01-02T03:04:05.000Z",
       visibility,
+      parentId: "parent-1",
+      icon: null,
+      ownerEmail: "owner@example.test",
     },
   ];
 }
@@ -166,6 +182,8 @@ describe("public document route", () => {
     });
     expect(JSON.stringify(result)).not.toContain("Launch notes");
     expect(JSON.stringify(result)).not.toContain("Ship it");
+    expect(mockLoadPublicReaderContext).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty("reader");
   });
 
   it("advertises the agent context endpoint for private share pages", () => {
@@ -190,6 +208,35 @@ describe("public document route", () => {
       href: "/content/api/document-agent-context.json?id=doc-1",
       title: "Agent-readable Content document",
     });
+  });
+
+  it("titles a page it can't show as the editor does, never as public", () => {
+    const appMeta = messagesByLocale["en-US"].root;
+    const privateMeta =
+      meta({
+        loaderData: {
+          document: null,
+          agentAccessToken: null,
+          basePath: "/content",
+          origin: "https://content.example.test",
+          unavailable: {
+            reason: "private",
+            id: "doc-1",
+            basePath: "/content",
+          },
+        },
+      } as never) ?? [];
+
+    expect(privateMeta).toContainEqual({ title: appMeta.metaTitle });
+    expect(privateMeta).toContainEqual({
+      property: "og:title",
+      content: appMeta.metaTitle,
+    });
+    expect(privateMeta).toContainEqual({
+      name: "description",
+      content: appMeta.metaDescription,
+    });
+    expect(JSON.stringify(privateMeta).toLowerCase()).not.toContain("public");
   });
 
   it("uses document-aware social images only for public documents", () => {
@@ -315,10 +362,22 @@ Second part
         id: "doc-1",
         title: "Launch notes",
       },
+      reader: readerContext,
       agentAccessToken: null,
       basePath: "",
       origin: "https://content.example.test",
     });
+    expect(mockLoadPublicReaderContext).toHaveBeenCalledWith({
+      id: "doc-1",
+      parentId: "parent-1",
+      icon: null,
+      content: "## Summary\n\n- Ship it",
+      ownerEmail: "owner@example.test",
+    });
+    // The parent's id reaches the reader only through its public path, and
+    // the owner stays unnamed.
+    expect(result.data.document).not.toHaveProperty("parentId");
+    expect(JSON.stringify(result.data)).not.toContain("owner@example.test");
     expect(result.init?.headers).toEqual({
       [SSR_MAX_AGE_HEADER]: String(PUBLIC_DOCUMENT_CACHE_SECONDS),
     });

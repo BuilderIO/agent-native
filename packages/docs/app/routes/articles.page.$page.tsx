@@ -1,34 +1,33 @@
 import { redirect, useLoaderData, type LoaderFunctionArgs } from "react-router";
 
-import { getArticleTopics } from "../../lib/article-topics";
-import { ARTICLES_BASE, ARTICLES_PAGE_SIZE } from "../../lib/campaign-content";
-import { loadCampaignContent } from "../../lib/campaign-content.server";
-import { ArticlesList } from "../components/campaign/articles";
+import { ARTICLES_BASE, ARTICLES_PAGE_SIZE } from "../../lib/site-content";
+import { loadSiteContent } from "../../lib/site-content.server";
 import {
-  newestArticles,
-  publicArticle,
-} from "../components/campaign/public-content";
-import { sitePathForLocale } from "../components/docs-locale";
-import enUS from "../i18n/en-US";
-import { campaignMeta } from "../lib/campaign-seo";
+  DEFAULT_DOCS_LOCALE,
+  docsLocaleFromSegment,
+  sitePathForLocale,
+} from "../components/docs-locale";
+import { ArticlesList } from "../components/site-content/articles";
+import { articlesListCopy } from "../lib/articles-copy.server";
+import { siteContentMeta, localeAlternates } from "../lib/site-content-seo";
+import { articlesPageData } from "./articles._index";
 
+// Serves page 2 onward of the grid in the route's language; the localized
+// route calls it only for a language that has translated articles.
 export function loader({ params }: LoaderFunctionArgs) {
   if (!params.page || !/^[1-9]\d*$/.test(params.page))
     throw new Response(null, { status: 404 });
   const page = Number(params.page);
   if (page === 1)
     throw redirect(sitePathForLocale(ARTICLES_BASE, params.locale), 301);
-  const articles = newestArticles(loadCampaignContent().articles);
+  const { articles } = loadSiteContent();
   const start = (page - 1) * ARTICLES_PAGE_SIZE;
   if (!Number.isSafeInteger(page) || start >= articles.length)
     throw new Response(null, { status: 404 });
+  const locale = docsLocaleFromSegment(params.locale) ?? DEFAULT_DOCS_LOCALE;
   return {
-    articles: articles
-      .slice(start, start + ARTICLES_PAGE_SIZE)
-      .map(publicArticle),
-    topics: getArticleTopics(articles),
-    page,
-    hasMore: start + ARTICLES_PAGE_SIZE < articles.length,
+    ...articlesPageData(articles, page, locale),
+    copy: articlesListCopy(locale),
   };
 }
 export const meta = ({
@@ -42,18 +41,30 @@ export const meta = ({
 }) => {
   const content = data ?? loaderData;
   return content
-    ? campaignMeta(
-        enUS.campaign.articles,
-        enUS.campaign.articlesIntro.replace(
-          "{{useCases}}",
-          enUS.campaign.useCasesLink,
+    ? [
+        ...siteContentMeta(
+          content.copy.title,
+          content.copy.description,
+          `${ARTICLES_BASE}/page/${content.page}`,
+          "website",
+          params?.locale,
         ),
-        `${ARTICLES_BASE}/page/${content.page}`,
-        "website",
-        params?.locale,
-      )
+        ...localeAlternates(
+          `${ARTICLES_BASE}/page/${content.page}/`,
+          content.locales,
+        ),
+      ]
     : [];
 };
 export default function ArticlesPageRoute() {
-  return <ArticlesList {...useLoaderData<typeof loader>()} />;
+  const { articles, translatedSlugs, page, hasMore } =
+    useLoaderData<typeof loader>();
+  return (
+    <ArticlesList
+      articles={articles}
+      translatedSlugs={translatedSlugs}
+      page={page}
+      hasMore={hasMore}
+    />
+  );
 }

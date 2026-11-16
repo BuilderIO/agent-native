@@ -140,7 +140,7 @@ export function runApplyDesignEditorCommand(
         : typeof commandRecord.layerId === "string"
           ? commandRecord.layerId
           : null;
-  const targetFile = findDesignFileByScreenTarget(files, target);
+  const targetFile = findDesignFileByScreenTarget(overviewScreens, target);
   if (target && !targetFile) return false;
   // A restored URL or agent request for Annotate/Draw waits for the Labs answer
   // rather than being downgraded while the lab is still unknown.
@@ -216,9 +216,8 @@ export function runApplyDesignEditorCommand(
       hasZoomCommand: commandZoom !== null,
       targetView,
       filesLoaded:
-        files.length > 0 &&
-        (targetView !== "overview" ||
-          (overviewDataReady && overviewScreens.length > 0)),
+        overviewScreens.length > 0 &&
+        (targetView !== "overview" || overviewDataReady),
     })
   ) {
     return false;

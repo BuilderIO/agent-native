@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -812,7 +812,8 @@ function buildLambda(
     NITRO_PRESET: "aws-lambda",
     [STREAM_RUNTIME_ENV_KEY]: "1",
   };
-  execFileSync(process.platform === "win32" ? "pnpm.cmd" : "pnpm", ["build"], {
+  // Through a shell, so Windows finds the pnpm.cmd shim.
+  execSync("pnpm build", {
     cwd: projectCwd,
     env: buildEnv,
     stdio: "inherit",

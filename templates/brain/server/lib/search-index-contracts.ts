@@ -1,4 +1,50 @@
+import { z } from "zod";
+
 export const BRAIN_SEARCH_INDEX_VERSION = "1";
+
+const zoomPassageQuarantineSchema = z.object({
+  version: z.literal(1),
+  withheldPassages: z.number().int().positive().nullable(),
+});
+
+export function parseCaptureMetadata(
+  raw: string | null,
+): Record<string, unknown> | null {
+  if (raw === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed !== null &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    // coercion-ok: null is unreadable metadata; callers surface unknown completeness, never zero.
+    return null;
+  }
+}
+
+/** `undefined`: no receipt; `null`: a receipt whose count is unknown. */
+export function readWithheldZoomPassages(
+  metadata: Record<string, unknown>,
+): number | null | undefined {
+  if (metadata.zoomPassageQuarantine === undefined) return undefined;
+  const receipt = zoomPassageQuarantineSchema.safeParse(
+    metadata.zoomPassageQuarantine,
+  );
+  return receipt.success ? receipt.data.withheldPassages : null;
+}
+
+export function withheldZoomPassageCount(
+  metadata: Record<string, unknown> | null,
+  provider: string,
+): number | null {
+  if (provider !== "zoom") return 0;
+  if (metadata === null) return null;
+  const withheld = readWithheldZoomPassages(metadata);
+  return withheld === undefined ? 0 : withheld;
+}
+
 export const BRAIN_SENSITIVITY_POLICY_VERSION = "2";
 
 export const BRAIN_SENSITIVITY_CATEGORIES = [

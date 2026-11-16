@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,7 @@ import {
 import {
   ActionContractError,
   isActionContractError,
+  noteExternalWrite,
 } from "@agent-native/core/action";
 import { describeErrorWithCauses } from "@agent-native/core/agent/engine/error-detail";
 import { getAppConfig } from "@agent-native/core/app-config";
@@ -55,7 +56,7 @@ import {
   parseAgentProfileMetadata,
   type ConnectRequiredCard,
 } from "@agent-native/core/shared";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { resolveAccessMany } from "@agent-native/core/sharing";
 
 import { getDb } from "../../db/index.js";
 import { workspaceAppRoute } from "../../shared/workspace-app-route.js";
@@ -95,7 +96,6 @@ const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
 const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 2_500;
-const WORKSPACE_APP_ACCESS_CONCURRENCY = 8;
 const MAX_PENDING_APPS = 50;
 const PENDING_WORKSPACE_APP_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const AGENT_CARD_PATH = "/.well-known/agent-card.json";
@@ -278,9 +278,9 @@ interface FinalizeWorkspaceAppsOptions {
   persist?: boolean;
 }
 
-interface WorkspaceAppDiscovery {
-  apps: WorkspaceAppSummary[];
-}
+type WorkspaceAppDiscovery =
+  | { kind: "apps"; apps: WorkspaceAppSummary[] }
+  | { kind: "domainless" };
 
 export interface ListWorkspaceAppsOptions {
   includeAgentCards?: boolean;
@@ -439,6 +439,13 @@ function workspaceAppMetadataSettingsKey(): string {
   const orgId = currentOrgId();
   if (orgId) return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:org:${orgId}`;
   return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:user:${currentOwnerEmail()}`;
+}
+
+function scopedSettingsWriteOptions(): { owner: string } | { orgId: string } {
+  const orgId = currentOrgId();
+  return orgId
+    ? { orgId }
+    : { owner: currentOwnerEmail().trim().toLowerCase() };
 }
 
 function cleanOptionalString(value: unknown): string | null {
@@ -638,7 +645,7 @@ async function writeWorkspaceAppMetadataOverride(input: {
   if (input.visibility) next.visibility = input.visibility;
 
   current.apps[appId] = next;
-  await putSetting(key, { apps: current.apps });
+  await putSetting(key, { apps: current.apps }, scopedSettingsWriteOptions());
   return current;
 }
 
@@ -1321,73 +1328,81 @@ async function reservePendingWorkspaceApp(input: {
   const creatorEmail = currentOwnerEmail();
   const communitySourceId = normalizeCommunitySourceId(input.communitySourceId);
 
-  await mutateSetting(scopedSettingsKey(), async (current) => {
-    const raw =
-      current && typeof current === "object" && !Array.isArray(current)
-        ? current
-        : {};
-    const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
-    const existing = pendingApps
-      .filter((app) => !isPendingWorkspaceAppExpired(app))
-      .find((app) => app.id === input.appId);
-    if (existing) {
-      const owner = existing.createdBy ?? existing.owner ?? null;
-      throw new WorkspaceAppIdTakenError({
-        appId: input.appId,
-        conflict: "pending",
-        owner,
-        message: `Workspace app "${input.appId}" is already being created${
-          owner ? ` by ${owner}` : ""
-        }.`,
-      });
-    }
+  await mutateSetting(
+    scopedSettingsKey(),
+    async (current) => {
+      const raw =
+        current && typeof current === "object" && !Array.isArray(current)
+          ? current
+          : {};
+      const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
+      const existing = pendingApps
+        .filter((app) => !isPendingWorkspaceAppExpired(app))
+        .find((app) => app.id === input.appId);
+      if (existing) {
+        const owner = existing.createdBy ?? existing.owner ?? null;
+        throw new WorkspaceAppIdTakenError({
+          appId: input.appId,
+          conflict: "pending",
+          owner,
+          message: `Workspace app "${input.appId}" is already being created${
+            owner ? ` by ${owner}` : ""
+          }.`,
+        });
+      }
 
-    const reservation: PendingWorkspaceApp = {
-      id: input.appId,
-      name: titleCase(input.appId),
-      description:
-        input.description ||
-        "Builder is creating this app. The workspace path becomes live after the branch is merged and deployed.",
-      path: `/${input.appId}`,
-      builderUrl: null,
-      branchName: null,
-      projectId: input.projectId,
-      contextId: context?.id ?? null,
-      contextLabel: context?.label ?? null,
-      visibility: input.visibility,
-      ...(communitySourceId ? { communitySourceId } : {}),
-      createdBy: creatorEmail,
-      owner: creatorEmail,
-      createdAt: now,
-      updatedAt: now,
-      expiresAt: pendingWorkspaceAppExpiresAt(now),
-    };
+      const reservation: PendingWorkspaceApp = {
+        id: input.appId,
+        name: titleCase(input.appId),
+        description:
+          input.description ||
+          "Builder is creating this app. The workspace path becomes live after the branch is merged and deployed.",
+        path: `/${input.appId}`,
+        builderUrl: null,
+        branchName: null,
+        projectId: input.projectId,
+        contextId: context?.id ?? null,
+        contextLabel: context?.label ?? null,
+        visibility: input.visibility,
+        ...(communitySourceId ? { communitySourceId } : {}),
+        createdBy: creatorEmail,
+        owner: creatorEmail,
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: pendingWorkspaceAppExpiresAt(now),
+      };
 
-    return {
-      ...raw,
-      pendingApps: [reservation, ...pendingApps].slice(0, MAX_PENDING_APPS),
-    };
-  });
+      return {
+        ...raw,
+        pendingApps: [reservation, ...pendingApps].slice(0, MAX_PENDING_APPS),
+      };
+    },
+    scopedSettingsWriteOptions(),
+  );
 }
 
 async function releasePendingWorkspaceAppReservation(appId: string) {
   const contextId = pendingWorkspaceAppContext()?.id ?? null;
   const creatorEmail = currentOwnerEmail().trim().toLowerCase();
-  await mutateSetting(scopedSettingsKey(), async (current) => {
-    const raw =
-      current && typeof current === "object" && !Array.isArray(current)
-        ? current
-        : {};
-    const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
-    return {
-      ...raw,
-      pendingApps: pendingApps.filter((app) => {
-        if (app.id !== appId || app.contextId !== contextId) return true;
-        const owner = (app.createdBy ?? app.owner)?.trim().toLowerCase();
-        return owner !== creatorEmail;
-      }),
-    };
-  });
+  await mutateSetting(
+    scopedSettingsKey(),
+    async (current) => {
+      const raw =
+        current && typeof current === "object" && !Array.isArray(current)
+          ? current
+          : {};
+      const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
+      return {
+        ...raw,
+        pendingApps: pendingApps.filter((app) => {
+          if (app.id !== appId || app.contextId !== contextId) return true;
+          const owner = (app.createdBy ?? app.owner)?.trim().toLowerCase();
+          return owner !== creatorEmail;
+        }),
+      };
+    },
+    scopedSettingsWriteOptions(),
+  );
 }
 
 function parseArchivedAppIds(value: unknown): string[] {
@@ -1411,7 +1426,11 @@ export async function archiveWorkspaceApp(input: {
   const raw = await readSettingsRecord();
   const current = parseArchivedAppIds(raw.archivedAppIds);
   if (!current.includes(appId)) current.push(appId);
-  await putSetting(scopedSettingsKey(), { ...raw, archivedAppIds: current });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, archivedAppIds: current },
+    scopedSettingsWriteOptions(),
+  );
   invalidateOrgAppsDirectoryCache();
   await recordAudit({
     action: "workspace-app.archived",
@@ -1431,7 +1450,11 @@ export async function unarchiveWorkspaceApp(input: {
   const current = parseArchivedAppIds(raw.archivedAppIds).filter(
     (id) => id !== appId,
   );
-  await putSetting(scopedSettingsKey(), { ...raw, archivedAppIds: current });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, archivedAppIds: current },
+    scopedSettingsWriteOptions(),
+  );
   invalidateOrgAppsDirectoryCache();
   await recordAudit({
     action: "workspace-app.unarchived",
@@ -1454,7 +1477,11 @@ export async function removePendingWorkspaceApp(input: {
   );
   const removed = next.length !== pending.length;
   if (!removed) return { removed: false };
-  await putSetting(scopedSettingsKey(), { ...raw, pendingApps: next });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, pendingApps: next },
+    scopedSettingsWriteOptions(),
+  );
   await recordAudit({
     action: "workspace-app.pending-removed",
     targetType: "workspace-app",
@@ -1889,33 +1916,17 @@ async function filterWorkspaceAppsByAccess(
     candidates.push(app);
   }
 
-  for (
-    let start = 0;
-    start < candidates.length;
-    start += WORKSPACE_APP_ACCESS_CONCURRENCY
-  ) {
-    const batch = candidates.slice(
-      start,
-      start + WORKSPACE_APP_ACCESS_CONCURRENCY,
-    );
-    const decisions = await Promise.all(
-      batch.map(async (app) => {
-        try {
-          const access = await resolveAccess(
-            "workspace-app",
-            app.id,
-            { userEmail, orgId },
-            { skipResourceBody: true },
-          );
-          return { app, allowed: Boolean(access) };
-        } catch (error) {
-          console.warn("[dispatch] workspace app access lookup failed", error);
-          return { app, allowed: false };
-        }
-      }),
-    );
-    for (const decision of decisions) {
-      if (decision.allowed) visibleIds.add(decision.app.id);
+  if (candidates.length > 0) {
+    try {
+      const access = await resolveAccessMany(
+        "workspace-app",
+        candidates.map((app) => app.id),
+        { userEmail, ...(orgId ? { orgId } : {}) },
+        { skipResourceBody: true },
+      );
+      for (const id of access.keys()) visibleIds.add(id);
+    } catch (error) {
+      console.warn("[dispatch] workspace app access lookup failed", error);
     }
   }
 
@@ -2009,13 +2020,17 @@ async function recordPendingWorkspaceApp(input: {
     expiresAt: pendingWorkspaceAppExpiresAt(existing?.createdAt || now),
   };
 
-  await putSetting(scopedSettingsKey(), {
-    ...raw,
-    pendingApps: [
-      next,
-      ...pendingApps.filter((app) => !samePendingEntry(app)),
-    ].slice(0, MAX_PENDING_APPS),
-  });
+  await putSetting(
+    scopedSettingsKey(),
+    {
+      ...raw,
+      pendingApps: [
+        next,
+        ...pendingApps.filter((app) => !samePendingEntry(app)),
+      ].slice(0, MAX_PENDING_APPS),
+    },
+    scopedSettingsWriteOptions(),
+  );
 
   await writeWorkspaceAppMetadataOverride({
     appId: input.appId,
@@ -2099,13 +2114,10 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         );
       }
     }
-    if (requestContext.orgId && !orgDomain) {
-      throw new WorkspaceAppsGatewayAuthorizationError(
-        401,
-        "workspace_gateway_org_domain_missing",
-        "Workspace apps gateway cannot authenticate without a resolved organization domain.",
-      );
-    }
+    // The hosted registry is keyed by organization domain, so an org that has
+    // none (a new Builder-connected account) has no hosted workspace to read.
+    // A failed domain lookup still throws above.
+    if (requestContext.orgId && !orgDomain) return { kind: "domainless" };
     if (requestContext.orgId) {
       try {
         orgSecret =
@@ -2211,7 +2223,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         },
       );
     }
-    return { apps };
+    return { kind: "apps" as const, apps };
   };
 
   try {
@@ -2591,13 +2603,14 @@ async function listWorkspaceAppsWithPrincipal(
     if (!(error instanceof WorkspaceAppsGatewayAuthorizationError)) throw error;
     gatewayDenial = error;
   }
-  if (gatewayApps) {
+  if (gatewayApps?.kind === "apps") {
     return finalize(gatewayApps.apps);
   }
   if (gatewayDenial && gatewayDenial.statusCode >= 500) {
     throw gatewayDenial;
   }
-  const unverified = gatewayDenial !== null;
+  const unverified =
+    gatewayDenial !== null || gatewayApps?.kind === "domainless";
 
   const workspaceRoot = findWorkspaceRoot();
   const localFilesystemApps =
@@ -2829,6 +2842,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
     });
   } catch (error) {
     if (fs.existsSync(appDir)) {
+      noteExternalWrite("local-disk");
       fs.rmSync(appDir, { recursive: true, force: true });
     }
     throw error;
@@ -2845,6 +2859,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
     });
   } catch (error) {
     if (fs.existsSync(appDir)) {
+      noteExternalWrite("local-disk");
       fs.rmSync(appDir, { recursive: true, force: true });
     }
     throw error;
@@ -2885,11 +2900,22 @@ function runScaffoldCli(input: {
   args: string[];
 }): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn("pnpm", ["exec", "agent-native", ...input.args], {
-      cwd: input.cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
-    });
+    noteExternalWrite("child-process");
+    // pnpm is a pnpm.cmd shim on Windows, which Node starts only through a
+    // shell. The app id is validated and the template comes from an allowlist,
+    // so one joined command line is safe there.
+    const args = ["exec", "agent-native", ...input.args];
+    const windows = process.platform === "win32";
+    const child = spawn(
+      windows ? ["pnpm", ...args].join(" ") : "pnpm",
+      windows ? [] : args,
+      {
+        cwd: input.cwd,
+        shell: windows,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
+      },
+    );
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => {
@@ -2899,7 +2925,15 @@ function runScaffoldCli(input: {
       stderr += String(chunk);
     });
     const timer = setTimeout(() => {
-      child.kill("SIGTERM");
+      if (windows && child.pid) {
+        // The child is cmd.exe, so stop its whole tree before the caller
+        // removes the app folder. taskkill returns once the tree is gone.
+        spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+          stdio: "ignore",
+        });
+      } else {
+        child.kill("SIGTERM");
+      }
       reject(
         new Error(
           `Scaffold timed out after ${Math.round(SCAFFOLD_TIMEOUT_MS / 1000)}s`,
@@ -2961,7 +2995,11 @@ async function persistProvisionedBuilderProjectId(
 ): Promise<void> {
   const raw = await readSettingsRecord();
 
-  await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, builderProjectId },
+    scopedSettingsWriteOptions(),
+  );
   await recordAudit({
     action: "settings.updated",
     targetType: "dispatch-app-creation-settings",
@@ -3011,7 +3049,11 @@ export async function setAppCreationSettings(input: {
   const builderProjectId = input.builderProjectId?.trim() || null;
   const raw = await readSettingsRecord();
 
-  await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, builderProjectId },
+    scopedSettingsWriteOptions(),
+  );
   await recordAudit({
     action: "settings.updated",
     targetType: "dispatch-app-creation-settings",

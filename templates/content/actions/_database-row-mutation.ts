@@ -17,6 +17,7 @@ import {
   documentEditAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
+import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import type {
   ContentDatabaseMutationContract,
   ContentDatabaseRowMutationReceipt,
@@ -27,6 +28,7 @@ import type {
 import {
   isBlocksPropertyType,
   isComputedPropertyType,
+  isUrlPropertyValue,
   parsePropertyOptions,
   parsePropertyValue,
   serializePropertyValue,
@@ -49,6 +51,7 @@ import {
   normalizeDatabasePropertyInput,
   type DatabasePropertyEntry,
 } from "./_database-property-input.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertCollectionAcceptsNewRows,
   assertSourceAllowsPageEdit,
@@ -161,6 +164,21 @@ export type DatabaseMutationTargetInput = z.infer<
 type DatabaseRow = typeof schema.contentDatabases.$inferSelect;
 type DefinitionRow = typeof schema.documentPropertyDefinitions.$inferSelect;
 type Db = ReturnType<typeof getDb>;
+
+/** Binds the private images in written property values to their pages. */
+async function syncPropertyValueMedia(
+  tx: Db,
+  actor: string,
+  writes: Iterable<{ documentId: string; valueJson: string }>,
+): Promise<void> {
+  for (const write of writes) {
+    await syncPrivateMediaReferences(tx, {
+      documentId: write.documentId,
+      after: write.valueJson,
+      userEmail: actor,
+    });
+  }
+}
 
 export interface MutationContext {
   database: DatabaseRow;
@@ -674,13 +692,11 @@ async function strictValue(
     case "url": {
       if (typeof value !== "string" || value !== value.trim())
         invalidProperty(definition, "expected a URL");
-      try {
-        const url = new URL(value);
-        if (url.protocol !== "http:" && url.protocol !== "https:")
-          throw new Error();
-      } catch {
-        invalidProperty(definition, "expected an http or https URL");
-      }
+      if (!isUrlPropertyValue(value))
+        invalidProperty(
+          definition,
+          "expected an http or https URL, or a t3-thread link",
+        );
       return value;
     }
     case "email":
@@ -846,22 +862,42 @@ export async function rowSnapshots(
 ): Promise<Map<string, RowSnapshot>> {
   if (rows.length === 0) return new Map();
   const requested = new Map(rows.map((row) => [row.itemId, row.documentId]));
-  const found = (
+  const items = (
     await db
-      .select({ item: schema.contentDatabaseItems, document: schema.documents })
+      .select()
       .from(schema.contentDatabaseItems)
-      .innerJoin(
-        schema.documents,
-        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-      )
       .where(
         and(
           inArray(schema.contentDatabaseItems.id, [...requested.keys()]),
           eq(schema.contentDatabaseItems.databaseId, databaseId),
-          isNull(schema.documents.trashedAt),
         ),
       )
-  ).filter((row) => requested.get(row.item.id) === row.item.documentId);
+  ).filter((item) => requested.get(item.id) === item.documentId);
+  // DbExec returns objects; a join of both complete rows has duplicate column
+  // names, which cannot be mapped back to Drizzle's positional result.
+  // guard:allow-unscoped — exact memberships of an access-checked collection; mutation callers also resolve row access.
+  const documents =
+    items.length === 0
+      ? []
+      : await db
+          .select()
+          .from(schema.documents)
+          .where(
+            and(
+              inArray(
+                schema.documents.id,
+                items.map((item) => item.documentId),
+              ),
+              isNull(schema.documents.trashedAt),
+            ),
+          );
+  const documentsById = new Map(
+    documents.map((document) => [document.id, document]),
+  );
+  const found = items.flatMap((item) => {
+    const document = documentsById.get(item.documentId);
+    return document ? [{ item, document }] : [];
+  });
   // Before the values: see readPropertyTombstones.
   const tombstones =
     revisionPropertyIds.size === 0 || found.length === 0
@@ -1223,6 +1259,34 @@ async function withMutationLocks<T>(
   );
 }
 
+/**
+ * Access can be revoked, and another instance can commit this key, while a
+ * single-row write waits for the collection lock, so it checks both once the
+ * lock is held, as the batch patch does. A committed receipt replays with the
+ * access it needs before the lock; only a new write needs editor on the row.
+ * The transaction scopes the access reads to its own connection.
+ */
+async function replayAfterCollectionLock(
+  tx: Db,
+  context: MutationContext,
+  idempotencyKey: string,
+  replayDigests: readonly string[],
+  rowDocumentIds: readonly string[] = [],
+): Promise<ContentDatabaseRowMutationResult | null> {
+  await assertAccess("document", context.database.documentId, "editor");
+  const replay = await replayReceipt(
+    context,
+    idempotencyKey,
+    replayDigests,
+    tx,
+  );
+  if (replay) return replay;
+  for (const documentId of rowDocumentIds) {
+    await assertAccess("document", documentId, "editor");
+  }
+  return null;
+}
+
 async function createInsideTransaction(
   tx: Db,
   context: MutationContext,
@@ -1297,6 +1361,11 @@ async function createInsideTransaction(
         createdAt: now,
         updatedAt: now,
       })),
+    );
+    await syncPropertyValueMedia(
+      tx,
+      actor,
+      [...args.values.values()].map((valueJson) => ({ documentId, valueJson })),
     );
   }
   if (shares.length > 0) {
@@ -1380,6 +1449,7 @@ async function updateInsideTransaction(
     title?: string;
     values: Map<string, string>;
   },
+  ctx: ActionRunContext | undefined,
 ) {
   const actor = requireDocumentRequestActor();
   const unguardable = unguardablePropertyIds(
@@ -1455,6 +1525,7 @@ async function updateInsideTransaction(
   const titleChanged =
     args.title !== undefined && args.title.trim() !== before.document.title;
   if (titleChanged) {
+    assertAgentsMayEditPageText(before.document, ctx);
     await writeRowTitle(tx, actor, now, before, {
       title: args.title!,
       expectedRowRevision: args.expectedRowRevision,
@@ -1484,6 +1555,14 @@ async function updateInsideTransaction(
       });
     }
   }
+  await syncPropertyValueMedia(
+    tx,
+    actor,
+    changedValues.map(([, valueJson]) => ({
+      documentId: args.documentId,
+      valueJson,
+    })),
+  );
   await ensureNaturalKeyClaim(tx, context, {
     itemId: args.itemId,
     documentId: args.documentId,
@@ -1544,18 +1623,18 @@ export async function createDatabaseRow(
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
   const result = await withMutationLocks(initial.database, async () => {
-    await assertAccess("document", initial.database.documentId, "editor");
-    const lockedReplay = await replayReceipt(
-      initial,
-      input.idempotencyKey,
-      replayDigests,
-    );
-    if (lockedReplay) return lockedReplay;
     return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
       );
+      const lockedReplay = await replayAfterCollectionLock(
+        tx as unknown as Db,
+        initial,
+        input.idempotencyKey,
+        replayDigests,
+      );
+      if (lockedReplay) return lockedReplay;
       const locked = await loadContext(
         input.target,
         "editor",
@@ -1602,9 +1681,9 @@ export async function createDatabaseRow(
 
 export async function updateDatabaseRow(
   input: UpdateDatabaseRowMutationInput,
+  ctx?: ActionRunContext,
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
-  await assertAccess("document", input.documentId, "editor");
   const inputDigest = databaseMutationPayloadDigest("update", input);
   const replayDigests = [
     inputDigest,
@@ -1620,23 +1699,24 @@ export async function updateDatabaseRow(
     replayDigests,
   );
   if (replay) return replay;
+  await assertAccess("document", input.documentId, "editor");
   assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
   const result = await withMutationLocks(initial.database, async () => {
-    await assertAccess("document", initial.database.documentId, "editor");
-    await assertAccess("document", input.documentId, "editor");
-    const lockedReplay = await replayReceipt(
-      initial,
-      input.idempotencyKey,
-      replayDigests,
-    );
-    if (lockedReplay) return lockedReplay;
     return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
       );
+      const lockedReplay = await replayAfterCollectionLock(
+        tx as unknown as Db,
+        initial,
+        input.idempotencyKey,
+        replayDigests,
+        [input.documentId],
+      );
+      if (lockedReplay) return lockedReplay;
       const locked = await loadContext(
         input.target,
         "editor",
@@ -1656,6 +1736,7 @@ export async function updateDatabaseRow(
           title: input.title,
           values,
         },
+        ctx,
       );
       await touchContentDatabase(
         tx as unknown as Db,
@@ -1695,6 +1776,7 @@ export async function updateDatabaseRow(
 
 export async function upsertDatabaseRow(
   input: UpsertDatabaseRowMutationInput,
+  ctx?: ActionRunContext,
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
   const replayKeyPropertyId = initial.database.naturalKeyPropertyId;
@@ -1759,7 +1841,7 @@ export async function upsertDatabaseRow(
     [keyPropertyId]: input.keyValue,
   });
   const keyValueJson = values.get(keyPropertyId)!;
-  const [initialClaim] = await getDb()
+  const initialClaims = await getDb()
     .select({
       itemId: schema.contentDatabaseItemKeyClaims.itemId,
       documentId: schema.contentDatabaseItemKeyClaims.documentId,
@@ -1772,25 +1854,24 @@ export async function upsertDatabaseRow(
         eq(schema.contentDatabaseItemKeyClaims.keyValueJson, keyValueJson),
       ),
     );
+  const [initialClaim] = initialClaims;
   if (initialClaim) {
     await assertAccess("document", initialClaim.documentId, "editor");
   }
   const result = await withMutationLocks(initial.database, async () => {
-    await assertAccess("document", initial.database.documentId, "editor");
-    if (initialClaim) {
-      await assertAccess("document", initialClaim.documentId, "editor");
-    }
-    const lockedReplay = await replayReceipt(
-      initial,
-      input.idempotencyKey,
-      replayDigests,
-    );
-    if (lockedReplay) return lockedReplay;
     return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
       );
+      const lockedReplay = await replayAfterCollectionLock(
+        tx as unknown as Db,
+        initial,
+        input.idempotencyKey,
+        replayDigests,
+        initialClaims.map((row) => row.documentId),
+      );
+      if (lockedReplay) return lockedReplay;
       const locked = await loadContext(
         input.target,
         "editor",
@@ -1898,6 +1979,7 @@ export async function upsertDatabaseRow(
           title: input.title,
           values,
         },
+        ctx,
       );
       await touchContentDatabase(
         tx as unknown as Db,
@@ -2336,6 +2418,7 @@ async function patchRowsInsideTransaction(
   context: MutationContext,
   rows: CanonicalRowPatch[],
   patches: Map<string, string>[],
+  ctx: ActionRunContext | undefined,
 ): Promise<ContentDatabaseRowPatchReceipt[]> {
   const actor = requireDocumentRequestActor();
   const unguardable = rows.flatMap((row, index) => {
@@ -2431,6 +2514,7 @@ async function patchRowsInsideTransaction(
     }
     const titleChanged =
       row.title !== undefined && row.title.trim() !== snapshot.document.title;
+    if (titleChanged) assertAgentsMayEditPageText(snapshot.document, ctx);
     return {
       documentId: row.documentId,
       snapshot,
@@ -2537,6 +2621,7 @@ async function patchRowsInsideTransaction(
       })),
     );
   }
+  await syncPropertyValueMedia(tx, actor, [...valueUpdates, ...valueInserts]);
   rowPatchIssues(
     "NATURAL_KEY_CONFLICT",
     "Some rows claim a natural key that is already in use or cannot change; nothing was written.",
@@ -2605,6 +2690,7 @@ async function patchRowsInsideTransaction(
 
 export async function patchDatabaseRows(
   input: PatchDatabaseRowsMutationInput,
+  ctx?: ActionRunContext,
 ): Promise<ContentDatabaseRowPatchBatchResult> {
   const rows = canonicalRowPatches(input.rows);
   const initial = await loadContext(input.target, "editor");
@@ -2627,6 +2713,7 @@ export async function patchDatabaseRows(
         rows,
         patches,
         inputDigest,
+        ctx,
       );
     } catch (error) {
       // Another instance committed this key first. Replay its receipt, or
@@ -2650,6 +2737,7 @@ function patchRowsTransaction(
   rows: CanonicalRowPatch[],
   patches: Map<string, string>[],
   inputDigest: string,
+  ctx: ActionRunContext | undefined,
 ): Promise<ContentDatabaseRowPatchBatchResult> {
   return getDb().transaction(async (tx) => {
     const db = tx as unknown as Db;
@@ -2681,6 +2769,7 @@ function patchRowsTransaction(
       locked,
       rows,
       patches,
+      ctx,
     );
     const now = new Date().toISOString();
     await touchContentDatabase(db, locked.database.id, now);

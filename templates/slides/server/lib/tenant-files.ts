@@ -3,6 +3,8 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
+import { noteExternalWrite } from "@agent-native/core/action";
+
 export const HOSTED_PPTX_EXPORT_TTL_MS = 24 * 60 * 60 * 1_000;
 export const MAX_HOSTED_PPTX_EXPORTS_PER_TENANT = 20;
 const PPTX_DECK_BINDING_HEX_LENGTH = 24;
@@ -104,6 +106,7 @@ export function pruneHostedPptxExports(
       (file.name !== protectedFilename && file.mtimeMs < cutoff) ||
       index >= MAX_HOSTED_PPTX_EXPORTS_PER_TENANT
     ) {
+      noteExternalWrite("local-disk");
       try {
         fs.unlinkSync(path.join(exportDir, file.name));
       } catch (error) {

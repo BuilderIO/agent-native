@@ -1072,8 +1072,10 @@ test.describe("URL-backed live auto-layout probe", () => {
         },
         data: rpc,
       });
-      expect(response.ok(), `Design MCP ${response.status()}`).toBe(true);
       const body = await response.text();
+      expect(response.ok(), `Design MCP ${response.status()}: ${body}`).toBe(
+        true,
+      );
       if (!body) return null;
       const data = body
         .split(/\r?\n/)

@@ -80,11 +80,12 @@ export default defineAction({
     isConsequential: false,
   },
   run: async (args) => {
-    const { guidance } = await readBrainAgentGuidance();
-    const [{ rows: results, lanes }, federatedCoverage] = await Promise.all([
-      searchEverythingWithLanes(args),
-      buildFederatedSearchCoverage(args),
-    ]);
+    const [{ guidance }, { rows: results, lanes }, federatedCoverage] =
+      await Promise.all([
+        readBrainAgentGuidance(),
+        searchEverythingWithLanes(args),
+        buildFederatedSearchCoverage(args),
+      ]);
     const captureSourceIds = results.flatMap((result) =>
       result.type === "capture" && result.source?.id ? [result.source.id] : [],
     );

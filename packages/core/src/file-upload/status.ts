@@ -1,10 +1,33 @@
 import {
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
+  hasStoredBuilderApiOAuthGrant,
   isBuilderReauthorizationRequired,
 } from "../server/builder-api-auth.js";
 import { BUILDER_ASSETS_WRITE_SCOPE } from "../server/builder-oauth.js";
 import { listFileUploadProviderStatusesForRequest } from "./registry.js";
+
+/**
+ * Whether this request can upload to Builder and, when it cannot, whether its
+ * owner must reconnect. Every storage status surface reads this one answer so
+ * the reconnect prompt cannot drift between apps.
+ */
+export async function getBuilderUploadCredentialStatus() {
+  const builderConfigured = await hasBuilderApiCredentialCustody();
+  const builderUploadConfigured = await canAuthorizeBuilderApiRequest(
+    BUILDER_ASSETS_WRITE_SCOPE,
+  );
+  // A grant this deployment cannot decrypt is not custody, so it would
+  // otherwise read as never connected while every upload fails.
+  const builderReauthorizationRequired =
+    !builderUploadConfigured &&
+    (builderConfigured || (await hasStoredBuilderApiOAuthGrant()));
+  return {
+    builderConfigured,
+    builderUploadConfigured,
+    builderReauthorizationRequired,
+  };
+}
 
 /** Status probes isolate failures; upload dispatch still fails closed. */
 export async function getFileUploadStatusForRequest() {
@@ -14,12 +37,11 @@ export async function getFileUploadStatusForRequest() {
   let builderUnavailable = false;
   let builderReauthorizationRequired = false;
   try {
-    builderConfigured = await hasBuilderApiCredentialCustody();
-    builderUploadConfigured = await canAuthorizeBuilderApiRequest(
-      BUILDER_ASSETS_WRITE_SCOPE,
-    );
-    builderReauthorizationRequired =
-      builderConfigured && !builderUploadConfigured;
+    ({
+      builderConfigured,
+      builderUploadConfigured,
+      builderReauthorizationRequired,
+    } = await getBuilderUploadCredentialStatus());
   } catch (error) {
     builderUnavailable = true;
     builderReauthorizationRequired = isBuilderReauthorizationRequired(error);

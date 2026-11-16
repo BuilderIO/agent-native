@@ -52,6 +52,20 @@ export function classifyActionCall(
 }
 
 /**
+ * Whether every call of the action is read-only whatever its arguments: it
+ * declares `readOnly: true` and has no `planMode` effect that could say a
+ * call writes. An inferred or per-call read-only is not enough.
+ */
+export function actionAlwaysReadOnly(entry: {
+  readonly readOnly?: boolean | undefined;
+  readonly planMode?: { readonly effect?: unknown } | undefined;
+}): boolean {
+  if (entry.readOnly !== true) return false;
+  const effect = entry.planMode?.effect;
+  return effect === undefined || effect === "read";
+}
+
+/**
  * Whether one call is read-only, or `undefined` when neither `planMode` nor
  * `readOnly` says.
  */

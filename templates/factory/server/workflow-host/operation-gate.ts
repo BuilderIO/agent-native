@@ -3,6 +3,7 @@ import { actionTripwire } from "../lib/workflow-run-observer.js";
 import type { TripwireSink } from "../tripwire/types.js";
 import {
   OPERATION_CATALOG,
+  isModelToolAllowed,
   workflowGraphSchema,
   operationUse,
   WorkflowStoreError,
@@ -76,9 +77,12 @@ export function actionsNamedByGraph(
     if (node.kind === "wait" && node.settings.wait === "reply") {
       for (const action of REPLY_WAIT_ACTIONS) actions.add(action);
     }
-    // An AI node's tools read; a write operation listed there grants nothing.
+    // An AI node's tools read, and only a read whose endpoint a person fixed: a write or an open endpoint listed there grants nothing.
     if (node.kind === "ai") {
-      for (const tool of node.settings.tools) admit(tool, true);
+      for (const tool of node.settings.tools) {
+        const definition = catalog.get(tool);
+        if (definition && isModelToolAllowed(definition)) admit(tool, true);
+      }
     }
   }
   return { actions, providerOperations };

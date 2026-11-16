@@ -1,5 +1,8 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { MAX_TOOL_RESULT_IMAGES } from "@agent-native/core/agent/tool-result-images";
+import {
+  MAX_TOOL_RESULT_IMAGE_BASE64_CHARS,
+  MAX_TOOL_RESULT_IMAGES,
+} from "@agent-native/core/agent/tool-result-images";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -75,6 +78,14 @@ export interface ScreenshotResult {
 }
 
 const screenshotPngs = new WeakMap<ScreenshotResult, Buffer>();
+
+const MAX_INLINE_AGENT_IMAGE_BYTES =
+  Math.floor(MAX_TOOL_RESULT_IMAGE_BASE64_CHARS / 4) * 3;
+
+interface InlineAgentImage {
+  data: string;
+  mediaType: "image/png" | "image/jpeg";
+}
 
 export function getScreenshotPngData(
   screenshot: ScreenshotResult,
@@ -619,6 +630,13 @@ export default defineAction({
 
     const ownerEmail = getRequestUserEmail() ?? undefined;
     const screenshots: ScreenshotResult[] = [];
+    // Claude models through the Builder gateway reject a screenshot sent as a
+    // URL ("internal error"), so the agent gets the pixels inline. Model
+    // providers downscale wide images anyway, and 2x often exceeds the inline
+    // limit, so the agent's capture is 1x.
+    const forAgent = ctx?.caller === "tool";
+    const inlineAgentImages = new Map<ScreenshotResult, InlineAgentImage>();
+    const oversizeForAgent: number[] = [];
 
     try {
       for (const viewport of viewports) {
@@ -628,7 +646,7 @@ export default defineAction({
           () =>
             browser!.newContext({
               viewport: { width: viewport.widthPx, height: viewport.heightPx },
-              deviceScaleFactor: 2,
+              deviceScaleFactor: forAgent ? 1 : 2,
             }),
           viewport.widthPx,
         );
@@ -733,6 +751,33 @@ export default defineAction({
             },
           } satisfies ScreenshotResult;
           screenshots.push(screenshot);
+          if (forAgent && inlineAgentImages.size < MAX_TOOL_RESULT_IMAGES) {
+            const inline = await measure(
+              "agent-image",
+              async (): Promise<InlineAgentImage | undefined> => {
+                if (png.byteLength <= MAX_INLINE_AGENT_IMAGE_BYTES) {
+                  return {
+                    data: png.toString("base64"),
+                    mediaType: "image/png",
+                  };
+                }
+                const jpeg = await page
+                  .screenshot({
+                    type: "jpeg",
+                    quality: 80,
+                    fullPage: true,
+                    timeout: 30_000,
+                  })
+                  .catch(() => undefined);
+                return jpeg && jpeg.byteLength <= MAX_INLINE_AGENT_IMAGE_BYTES
+                  ? { data: jpeg.toString("base64"), mediaType: "image/jpeg" }
+                  : undefined;
+              },
+              viewport.widthPx,
+            );
+            if (inline) inlineAgentImages.set(screenshot, inline);
+            else oversizeForAgent.push(viewport.widthPx);
+          }
           if (
             screenshots.length === 1 &&
             ctx?.caller === "mcp" &&
@@ -779,7 +824,22 @@ export default defineAction({
       capturedAt: new Date().toISOString(),
       captureTimings,
       ...(emailPreview ? { preview: emailPreview.preview } : {}),
-      ...((ctx?.caller === "tool" || ctx?.caller === "mcp") &&
+      ...(forAgent && inlineAgentImages.size > 0
+        ? {
+            _agentImages: screenshots.flatMap((screenshot) => {
+              const inline = inlineAgentImages.get(screenshot);
+              return inline
+                ? [
+                    {
+                      ...inline,
+                      label: `${file.filename} (${screenshot.viewport.widthPx}px)`,
+                    },
+                  ]
+                : [];
+            }),
+          }
+        : {}),
+      ...(ctx?.caller === "mcp" &&
       screenshots.some((screenshot) => screenshot.url.startsWith("https://"))
         ? {
             _agentImages: screenshots
@@ -789,6 +849,11 @@ export default defineAction({
                 url: screenshot.url,
                 label: `${file.filename} (${screenshot.viewport.widthPx}px)`,
               })),
+          }
+        : {}),
+      ...(oversizeForAgent.length > 0
+        ? {
+            message: `The ${oversizeForAgent.map((w) => `${w}px`).join(", ")} screenshot was too large to attach inline; open its url to view it.`,
           }
         : {}),
       screenshots,

@@ -461,6 +461,22 @@ const messages = {
       scheduledCancelFailed: "शेड्यूल ईमेल रद्द करने में विफल",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "छवि अपलोड करने में विफल",
+      storageBuilderRefused:
+        "Builder.io ने Mail के फ़ाइल स्टोरेज कनेक्शन को अस्वीकार कर दिया, इसलिए फ़ाइल अटैच नहीं हुई। Builder.io फिर से कनेक्ट करें या अपना स्टोरेज इस्तेमाल करें, फिर दोबारा कोशिश करें।",
+      storageRefused:
+        "आपके स्टोरेज बकेट ने यह अपलोड अस्वीकार कर दिया, इसलिए फ़ाइल अटैच नहीं हुई। बकेट और उसकी कुंजियाँ जाँचें, फिर दोबारा कोशिश करें।",
+      storageNotConfigured:
+        "फ़ाइल स्टोरेज सेट अप नहीं है, इसलिए फ़ाइल अटैच नहीं हुई। Builder.io या अपना स्टोरेज बकेट कनेक्ट करें, फिर दोबारा कोशिश करें।",
+      openStorageSettings: "स्टोरेज सेटिंग्स खोलें",
+      reconnectBuilderStorage: "Builder.io फिर से कनेक्ट करें",
+      useOwnStorage: "अपना स्टोरेज इस्तेमाल करें",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io ने Mail के फ़ाइल स्टोरेज कनेक्शन को अस्वीकार कर दिया, इसलिए फ़ाइल अटैच नहीं हुई। Builder.io फिर से कनेक्ट करें या किसी ओनर या एडमिन से स्टोरेज सेट अप करने को कहें, फिर दोबारा कोशिश करें।",
+      storageRefusedAskAdmin:
+        "आपके संगठन के स्टोरेज बकेट ने यह अपलोड अस्वीकार कर दिया, इसलिए फ़ाइल अटैच नहीं हुई। किसी ओनर या एडमिन से बकेट और उसकी कुंजियाँ जाँचने को कहें।",
+      storageNotConfiguredAskAdmin:
+        "फ़ाइल स्टोरेज सेट अप नहीं है, इसलिए फ़ाइल अटैच नहीं हुई। अपना Builder.io खाता कनेक्ट करें या किसी ओनर या एडमिन से स्टोरेज सेट अप करने को कहें।",
+      connectBuilderStorage: "Builder.io कनेक्ट करें",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "संदेश भेज दिया गया।",
       failedToSaveDraft: "ड्राफ़्ट सहेजा नहीं जा सका।",
@@ -766,11 +782,11 @@ const messages = {
     draftCard: {
       loadFailed: "यह ड्राफ़्ट लोड नहीं हो सका।",
       notFoundTitle: "ड्राफ़्ट नहीं मिला",
+      goneTitle: "यह ड्राफ़्ट भेजा या हटाया जा चुका है।",
       threadUnavailable: "इस बातचीत के पिछले संदेश लोड नहीं हो सके।",
-      threadLookupFailed:
-        "यह जवाब किस बातचीत का है, यह नहीं मिल सका, इसलिए इसे अभी भेजा नहीं जा सकता।",
       earlierMessages: "पिछले संदेश ({{count}})",
-      deleted: "ड्राफ़्ट हटा दिया गया।",
+      sendInMail: "Mail में भेजें",
+      openBlocked: "आपके ब्राउज़र ने नया टैब ब्लॉक कर दिया।",
     },
     agentEngine: {
       activeEngine: "Motor activo",
@@ -927,15 +943,19 @@ const messages = {
     shortcutsList: "ईमेल सूची",
     shortcutsThread: "बातचीत",
     shortcutsCompose: "लिखें",
+    askAi: "AI से पूछें",
     backToCommands: "कमांड पर वापस जाएं",
     backToMessageList: "ईमेल सूची पर लौटें",
     cycleTabs: "टैब बदलें",
     extendSelection: "चयन बढ़ाएँ",
+    goToUnread: "अपठित पर जाएं",
     moveSelection: "चयन पर जाएं",
     nextPreviousConversation: "अगली / पिछली बातचीत",
     nextPreviousMessage: "अगला / पिछला संदेश",
     openMessage: "ईमेल खोलें",
+    pageDownUp: "पेज नीचे / ऊपर",
     selectAllConversations: "सभी बातचीत चुनें",
+    selectConversation: "बातचीत चुनें",
     sendAndMarkDone: "भेजें और पूर्ण के रूप में चिह्नित करें",
     toggleMessageExpansion: "संदेश फैलाएँ / समेटें",
     toggleReadState: "पढ़ने की स्थिति बदलें",

@@ -174,3 +174,10 @@ if (existsSync(wsPath)) {
   }
   writeFileSync("dist/catalog.json", JSON.stringify(catalog, null, 2) + "\n");
 }
+
+const { FRAMEWORK_PACKAGE_VERSIONS_FILE, collectFrameworkPackageVersions } =
+  await import("../src/cli/framework-package-versions.ts");
+writeFileSync(
+  join("dist", FRAMEWORK_PACKAGE_VERSIONS_FILE),
+  JSON.stringify(collectFrameworkPackageVersions(".."), null, 2) + "\n",
+);

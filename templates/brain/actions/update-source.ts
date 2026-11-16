@@ -22,6 +22,7 @@ import {
   zoomAllowlistChange,
 } from "../server/lib/zoom-governance.js";
 import { normalizeSlackChannelConfig } from "../shared/slack-source-config.js";
+import { COMPANY_CONTEXT_INTAKE_KEY } from "../shared/types.js";
 import {
   optionalJsonRecordSchema,
   sourceAnswerPolicySchema,
@@ -83,6 +84,20 @@ export default defineAction({
         : undefined;
     if (config !== undefined) {
       assertValidSourceConfig(existing.provider, config);
+      if (
+        Object.prototype.hasOwnProperty.call(
+          config,
+          COMPANY_CONTEXT_INTAKE_KEY,
+        ) &&
+        config[COMPANY_CONTEXT_INTAKE_KEY] !==
+          parseJson<Record<string, unknown>>(existing.configJson, {})[
+            COMPANY_CONTEXT_INTAKE_KEY
+          ]
+      ) {
+        fail("The Company Context intake marker cannot be changed.", {
+          errorCode: "company_context_intake_reserved",
+        });
+      }
     }
     const updates: Record<string, unknown> = { updatedAt: nowIso() };
     if (args.title !== undefined) updates.title = args.title;

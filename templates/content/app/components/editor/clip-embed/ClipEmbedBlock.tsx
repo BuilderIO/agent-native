@@ -73,6 +73,7 @@ const ERROR_MESSAGES: Record<ClipPlayerError, string> = {
   clip_redaction_pending: "clipEmbed.redactionPending",
   clip_comments_disabled: "clipEmbed.failed",
   clip_comment_required: "clipEmbed.failed",
+  clip_comment_key_used: "clipEmbed.failed",
   clip_forbidden: "clipEmbed.forbidden",
   clip_token_refused: "clipEmbed.refused",
   clip_rate_limited: "clipEmbed.rateLimited",

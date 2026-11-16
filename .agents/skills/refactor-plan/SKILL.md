@@ -39,7 +39,7 @@ Plans go to `<plansDir>/<run>/<slug>.md` (see `config.json`).
 
 Replace every `TODO(agent)` marker, `summary`, and `confidence`, following
 `references/plan-guide.md`. Keep slugs stable across runs. The
-fingerprint comes from the systems and the slug, and Jira dedup keys on it.
+fingerprint comes from the systems and the slug, and ticket dedup keys on it.
 
-A plan is finished when `jira-refactor-findings`' `jira-upsert.ts` accepts
+A plan is finished when fragility-common's `findings-upsert.ts` accepts
 it.

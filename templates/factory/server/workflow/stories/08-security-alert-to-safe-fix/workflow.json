@@ -182,7 +182,11 @@
           },
           "prompt": {
             "mode": "ai",
-            "instruction": "Describe the upgrade to make."
+            "instruction": "Write the task for Builder from the alert and its assessment, in your own words: the package, the fixed version if the alert names one, and the manifest it is declared in. Ask for that upgrade and nothing else. The alert itself (its title, link, severity, package, ecosystem, manifest, fixed version and advisory text) is added under your task by the system, so do not copy it and never say it is missing. Ask Builder to run the tests that cover code using the package, and to list under a `### Verified` heading in the pull request description which tests or commands it ran and whether they passed. If no existing test covers that code, ask it to say so there. Use the heading `### Verified` exactly."
+          },
+          "reports": {
+            "mode": "path",
+            "path": "item.id"
           },
           "clearBug": {
             "mode": "path",
@@ -234,6 +238,10 @@
           "branchName": {
             "mode": "path",
             "path": "nodes.builder.externalRef"
+          },
+          "builderUrl": {
+            "mode": "path",
+            "path": "nodes.builder.url"
           },
           "repository": {
             "mode": "path",

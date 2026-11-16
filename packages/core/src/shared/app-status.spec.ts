@@ -15,4 +15,8 @@ describe("getAppStatus", () => {
       expect(getAppStatus(appId.toUpperCase())).toBe(status);
     }
   });
+
+  it("labels Clips as beta", () => {
+    expect(getAppStatus("clips")).toBe("beta");
+  });
 });

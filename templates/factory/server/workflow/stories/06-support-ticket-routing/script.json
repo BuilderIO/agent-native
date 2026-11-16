@@ -515,6 +515,80 @@
           "label": "dry run"
         }
       ]
+    },
+    "a-burst-of-twenty-tickets-is-taken-eight-a-run-and-every-ticket-once": {
+      "description": "Twenty tickets wait for a run that takes 8: the first run takes the oldest 8 and records that it took 8 of 20, the next two continue from the last ticket taken, and a fourth finds nothing, so every ticket gets its one note and none is taken twice or left behind. The recorded pages are what the Pylon source returns for such a burst (see the host specs).",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "pylon.newTickets",
+          "recording": "burst"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.ticketThread",
+          "recording": "threads"
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.customerBilling",
+          "recording": "customers"
+        },
+        {
+          "kind": "serve",
+          "operation": "jira.createIssue",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.addNote",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.reply",
+          "recording": "replied"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "classify",
+          "recording": "allOther"
+        },
+        {
+          "kind": "ai",
+          "node": "suggest",
+          "recording": "reply"
+        },
+        {
+          "kind": "tick",
+          "label": "first run"
+        },
+        {
+          "kind": "tick",
+          "at": "+10m",
+          "label": "second run"
+        },
+        {
+          "kind": "tick",
+          "at": "+20m",
+          "label": "third run"
+        },
+        {
+          "kind": "tick",
+          "at": "+30m",
+          "label": "fourth run"
+        }
+      ]
     }
   }
 }

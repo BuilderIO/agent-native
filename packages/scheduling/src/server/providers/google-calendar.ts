@@ -10,7 +10,41 @@ import type { BusyInterval } from "../../shared/index.js";
  * the same for every scheduling consumer. Custom token stores are supported
  * via the `getAccessToken` callback.
  */
+import {
+  CalendarCredentialInvalidError,
+  CalendarLookupRateLimitedError,
+  parseRetryAfterSeconds,
+} from "./errors.js";
 import type { CalendarProvider } from "./types.js";
+
+const GOOGLE_RATE_LIMIT_REASONS = new Set([
+  "rateLimitExceeded",
+  "userRateLimitExceeded",
+  "quotaExceeded",
+  "dailyLimitExceeded",
+]);
+
+function googleRateLimitReason(body: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+    // coercion-ok: a non-JSON 403 names no throttle reason, so the caller still treats it as an authorization failure
+  } catch {
+    return undefined;
+  }
+  const errors = (parsed as { error?: { errors?: { reason?: unknown }[] } })
+    .error?.errors;
+  if (!Array.isArray(errors)) return undefined;
+  for (const entry of errors) {
+    if (
+      typeof entry.reason === "string" &&
+      GOOGLE_RATE_LIMIT_REASONS.has(entry.reason)
+    ) {
+      return entry.reason;
+    }
+  }
+  return undefined;
+}
 
 export interface GoogleCalendarProviderConfig {
   clientId: string;
@@ -44,9 +78,21 @@ export function createGoogleCalendarProvider(
       ...init,
       headers,
     });
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401 || res.status === 403 || res.status === 429) {
+      const body = await res.text();
+      // Google sends rate and quota limits as 403 (or 429); those are
+      // throttles on a good credential and must not force a reconnect.
+      const reason = googleRateLimitReason(body);
+      if (res.status === 429 || reason) {
+        throw new CalendarLookupRateLimitedError(
+          `Google Calendar: rate limited (${res.status} ${reason ?? "rateLimitExceeded"})`,
+          parseRetryAfterSeconds(res.headers.get("retry-after")),
+        );
+      }
       await config.markInvalid?.(credentialId);
-      throw new Error(`Google Calendar: credential invalid (${res.status})`);
+      throw new CalendarCredentialInvalidError(
+        `Google Calendar: credential invalid (${res.status})`,
+      );
     }
     if (!res.ok) {
       const body = await res.text();
@@ -134,7 +180,15 @@ export function createGoogleCalendarProvider(
 
     async getBusy({ credentialId, calendarExternalIds, start, end }) {
       const resp = await apiCall<{
-        calendars: Record<string, { busy: { start: string; end: string }[] }>;
+        calendars?: Partial<
+          Record<
+            string,
+            {
+              busy?: { start: string; end: string }[];
+              errors?: { domain?: string; reason?: string }[];
+            }
+          >
+        >;
       }>(credentialId, "https://www.googleapis.com/calendar/v3/freeBusy", {
         method: "POST",
         body: JSON.stringify({
@@ -143,8 +197,21 @@ export function createGoogleCalendarProvider(
           items: calendarExternalIds.map((id) => ({ id })),
         }),
       });
+      // freeBusy answers 200 with an empty `busy` and an `errors` entry for a
+      // calendar it couldn't read; that must not count as a free calendar.
       const out: BusyInterval[] = [];
-      for (const [calId, data] of Object.entries(resp.calendars)) {
+      for (const calId of calendarExternalIds) {
+        const data =
+          resp.calendars?.[calId] ??
+          Object.entries(resp.calendars ?? {}).find(
+            ([key]) => key.toLowerCase() === calId.toLowerCase(),
+          )?.[1];
+        if (!data || data.errors?.length || !Array.isArray(data.busy)) {
+          const reason = data?.errors?.[0]?.reason ?? "missing from response";
+          throw new Error(
+            `Google Calendar free/busy failed for ${calId}: ${reason}`,
+          );
+        }
         for (const b of data.busy) {
           out.push({ start: b.start, end: b.end, source: calId });
         }

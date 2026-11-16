@@ -19,6 +19,7 @@ import {
   type ShareableAgent,
 } from "../agent-principals.js";
 import { requireShareableResource } from "../registry.js";
+import { LINK_PRINCIPAL_TYPE } from "../schema.js";
 import { assertWidgetShareReadGrant } from "../widget-grant.js";
 
 interface ShareRow {
@@ -189,7 +190,7 @@ function agentReadPrompt(reg: ReturnType<typeof requireShareableResource>) {
 
 export default defineAction({
   description:
-    "List the current visibility and share grants on a shareable resource. Ordinary reads require resource access; widget reads require admin access. `displayNamesUnavailable` means profile names could not be read, so rows show emails only. `agentRead` names the MCP tool that reads the resource, when the type declares one. Owners and admins inside the resource's org also get `agents`: the org's service principals they can share with as a user principal.",
+    "List the current visibility and share grants on a shareable resource. A public resource also returns `linkRole`, what anyone with the link can do. Ordinary reads require resource access; widget reads require admin access. `displayNamesUnavailable` means profile names could not be read, so rows show emails only. `agentRead` names the MCP tool that reads the resource, when the type declares one. Owners and admins inside the resource's org also get `agents`: the org's service principals they can share with as a user principal.",
   schema: z.object({
     resourceType: z.string(),
     resourceId: z.string(),
@@ -202,11 +203,15 @@ export default defineAction({
       allowPublic: boolean;
       requireOrgMemberForUserShares: boolean;
       supportsGroupShares?: boolean;
+      confirmOrgVisibility?: boolean;
     } = {
       allowPublic: reg.allowPublic !== false,
       requireOrgMemberForUserShares: reg.requireOrgMemberForUserShares === true,
       ...(reg.supportsGroupShares === true
         ? { supportsGroupShares: true }
+        : {}),
+      ...(reg.confirmOrgVisibility === true
+        ? { confirmOrgVisibility: true }
         : {}),
     };
     const access = context?.mcpDirectoryWidgetReadOnly
@@ -224,7 +229,7 @@ export default defineAction({
       return { ownerEmail: null, visibility: null, shares: [], policy };
 
     const db = reg.getDb() as any;
-    const shares: ShareRow[] = await db
+    const rows: ShareRow[] = await db
       .select({
         id: reg.sharesTable.id,
         principalType: reg.sharesTable.principalType,
@@ -234,17 +239,21 @@ export default defineAction({
       })
       .from(reg.sharesTable)
       .where(eq(reg.sharesTable.resourceId, args.resourceId));
-    const orgDisplayNames = await loadOrgDisplayNames(db, shares);
-    const groupDisplayNames = await loadGroupDisplayNames(
-      access.resource.orgId,
-      shares,
+    const linkShare = rows.find(
+      (row) => row.principalType === LINK_PRINCIPAL_TYPE,
     );
+    const shares = rows.filter((row) => row !== linkShare);
+    const visibility = access.resource.visibility;
     const ownerEmail: string = access.resource.ownerEmail;
-    const nameAccess = await profileNameAccess(
-      access.role,
-      access.resource.orgId,
-      shares,
-    );
+    const [orgDisplayNames, groupDisplayNames, nameAccess, shareableAgents] =
+      await Promise.all([
+        loadOrgDisplayNames(db, shares),
+        loadGroupDisplayNames(access.resource.orgId, shares),
+        profileNameAccess(access.role, access.resource.orgId, shares),
+        context?.mcpDirectoryWidgetReadOnly
+          ? {}
+          : loadShareableAgents(access.resource.orgId, access.role),
+      ]);
     const { names: userDisplayNames, unavailable: displayNamesUnavailable } =
       nameAccess !== "allowed"
         ? {
@@ -263,17 +272,16 @@ export default defineAction({
                 .map((s) => s.principalId),
             ].map((email) => email.trim().toLowerCase()),
           );
-    const shareableAgents = context?.mcpDirectoryWidgetReadOnly
-      ? {}
-      : await loadShareableAgents(access.resource.orgId, access.role);
-
     return {
       ownerEmail,
       ownerDisplayName:
         userDisplayNames.get(ownerEmail.trim().toLowerCase()) ?? null,
       ...(displayNamesUnavailable ? { displayNamesUnavailable: true } : {}),
       orgId: access.resource.orgId ?? null,
-      visibility: access.resource.visibility ?? "private",
+      visibility,
+      ...(visibility === "public"
+        ? { linkRole: linkShare?.role ?? "viewer" }
+        : {}),
       role: access.role,
       agentReadable: Boolean(reg.agentReadable),
       ...(context?.mcpDirectoryWidgetReadOnly ? {} : agentReadPrompt(reg)),

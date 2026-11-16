@@ -8,7 +8,7 @@ import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
-    "Update a slide comment. Comment text supports inline Markdown without headings. Resolving or reopening a comment applies to the full thread.",
+    "Update a slide comment. Comment text supports inline Markdown without headings. content and resolved can be sent together. A resolved change applies to the full thread; sending the current resolved value leaves the thread unchanged.",
   schema: z
     .object({
       id: z.string().describe("Comment ID"),
@@ -19,13 +19,6 @@ export default defineAction({
     .refine(
       (args) => args.content !== undefined || args.resolved !== undefined,
       "Provide comment content or a resolved state",
-    )
-    .refine(
-      (args) => !(args.content !== undefined && args.resolved !== undefined),
-      {
-        message: "Provide either comment content or a resolved state, not both",
-        path: ["content"],
-      },
     ),
   changeResource: ({ deckId }) => ({
     resourceType: "deck",
@@ -33,15 +26,8 @@ export default defineAction({
   }),
   run: async (args) => {
     const hasContent = args.content !== undefined;
-    const hasResolved = args.resolved !== undefined;
-    if (!hasContent && !hasResolved) {
+    if (!hasContent && args.resolved === undefined) {
       fail("Provide comment content or a resolved state", {
-        errorCode: "invalid_request",
-        statusCode: 400,
-      });
-    }
-    if (hasContent && hasResolved) {
-      fail("Provide either comment content or a resolved state, not both", {
         errorCode: "invalid_request",
         statusCode: 400,
       });
@@ -55,6 +41,7 @@ export default defineAction({
         slideId: schema.slideComments.slideId,
         threadId: schema.slideComments.threadId,
         authorEmail: schema.slideComments.authorEmail,
+        resolved: schema.slideComments.resolved,
       })
       .from(schema.slideComments)
       .where(
@@ -71,6 +58,11 @@ export default defineAction({
         statusCode: 404,
       });
     }
+
+    const nextResolved =
+      args.resolved !== undefined && args.resolved !== comment.resolved
+        ? args.resolved
+        : undefined;
 
     const userEmail = getRequestUserEmail()?.trim().toLowerCase();
     if (hasContent && comment.authorEmail.trim().toLowerCase() !== userEmail) {
@@ -107,36 +99,28 @@ export default defineAction({
       return { ok: true, resolved };
     };
 
-    if (args.resolved === true) {
-      return setThreadResolved(true);
+    if (args.content !== undefined) {
+      const content = args.content;
+      const updated = await db
+        .update(schema.slideComments)
+        .set({ content, updatedAt })
+        .where(
+          and(
+            eq(schema.slideComments.id, args.id),
+            eq(schema.slideComments.deckId, comment.deckId),
+          ),
+        )
+        .returning({ id: schema.slideComments.id });
+      if (updated.length === 0) {
+        fail(`Comment not found: ${args.id}`, {
+          errorCode: "not_found",
+          statusCode: 404,
+        });
+      }
     }
 
-    if (args.resolved === false) {
-      return setThreadResolved(false);
-    }
-
-    if (args.content === undefined) {
-      fail("Provide comment content or a resolved state", {
-        errorCode: "invalid_request",
-        statusCode: 400,
-      });
-    }
-
-    const updated = await db
-      .update(schema.slideComments)
-      .set({ content: args.content, updatedAt })
-      .where(
-        and(
-          eq(schema.slideComments.id, args.id),
-          eq(schema.slideComments.deckId, comment.deckId),
-        ),
-      )
-      .returning({ id: schema.slideComments.id });
-    if (updated.length === 0) {
-      fail(`Comment not found: ${args.id}`, {
-        errorCode: "not_found",
-        statusCode: 404,
-      });
+    if (nextResolved !== undefined) {
+      return setThreadResolved(nextResolved);
     }
 
     return { ok: true };

@@ -111,6 +111,7 @@ server/routes/
     webhooks/
       stripe.post.ts       -> POST   /api/webhooks/stripe
   [...page].get.ts         -> SSR catch-all for public pages
+  index.get.ts             -> SSR for the app root (re-exports the catch-all)
 ```
 
 يُعد `defineEventHandler` بدائية H3 لكتابة مسار. فهو يلف دالة المعالج الخاصة بك ويمنحها وصولاً إلى كائن `event`، الذي يحمل الطلب، والاستجابة، ومعلمات الموجّه، وسلسلة الاستعلام، والترويسات، والجسم. يؤدي إرجاع قيمة من المعالج إلى إرسالها كاستجابة — يصبح الكائن العادي JSON تلقائيًا. ويؤدي رمي `createError` إلى إرسال حالة خطأ HTTP المناسبة.
@@ -187,6 +188,12 @@ import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
 export default createH3SSRHandler(
   () => import("virtual:react-router/server-build"),
 );
+```
+
+لا يطابق المسار الشامل (catch-all) جذر التطبيق أبدًا، لذلك يعيد `server/routes/index.get.ts` تصديره. احتفظ بالملفين معًا؛ فبدون إعادة التصدير هذه، يُرجع التطبيق المثبَّت في مساحة عمل الخطأ 404 عند `/<app-id>`:
+
+```ts filename="server/routes/index.get.ts"
+export { default } from "./[...page].get";
 ```
 
 كل استجابة SSR هي قالب (shell) عام وغير شخصي يُخزَّن مؤقتًا في CDN. لا تقرأ أبدًا ملفات تعريف الارتباط، أو حالة الجلسة، أو فروع المصادقة في هذا المعالج. يحدث التخصيص من جانب العميل بعد الترطيب (hydration).

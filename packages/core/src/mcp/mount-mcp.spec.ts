@@ -228,4 +228,18 @@ describe("mountMCP", () => {
       "/mcp",
     ]);
   });
+
+  it("mounts no directory for a profile that only scopes the app's cards", () => {
+    const use = vi.fn();
+    mountMCP({ h3: { use } }, {
+      actions: {},
+      directoryProfile: { connectorCatalog: ["card"], directoryRoute: false },
+    } as any);
+
+    expect(use.mock.calls.map(([path]) => path)).toEqual([
+      "/_agent-native/mcp/approvals",
+      "/_agent-native/mcp",
+      "/mcp",
+    ]);
+  });
 });

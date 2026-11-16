@@ -90,8 +90,24 @@ vi.mock("../server/db/index.js", () => {
 
 import action from "./toggle-slide-comment-reaction";
 
-function run(args: { commentId: string; deckId: string; emoji: string }) {
-  return (action as any).run(args);
+type ToggleResult = {
+  id: string;
+  emoji: string;
+  reacted: boolean;
+  reactions: { emoji: string; count: number; reacted: boolean }[];
+};
+const toggleAction = action as unknown as {
+  run: (
+    args: { commentId: string; deckId: string; emoji: string },
+    ctx?: { caller: string },
+  ) => Promise<ToggleResult>;
+};
+
+function run(
+  args: { commentId: string; deckId: string; emoji: string },
+  ctx?: { caller: string },
+) {
+  return toggleAction.run(args, ctx);
 }
 
 beforeEach(() => {
@@ -155,6 +171,38 @@ describe("toggle-slide-comment-reaction", () => {
       reactions: [],
     });
     expect(state.rows[0]!.emojiReactionsJson).toBe("{}");
+  });
+
+  it("keeps the agent's reaction when the user toggles the same emoji", async () => {
+    await run(
+      { commentId: "comment-1", deckId: "deck-1", emoji: "👍" },
+      { caller: "tool" },
+    );
+
+    const result = await run({
+      commentId: "comment-1",
+      deckId: "deck-1",
+      emoji: "👍",
+    });
+
+    expect(result).toMatchObject({ reacted: true });
+    expect(result.reactions).toEqual([
+      { emoji: "👍", count: 3, reacted: true },
+    ]);
+  });
+
+  it("reports the agent's own reaction as reacted in the toggle summary", async () => {
+    const result = await run(
+      { commentId: "comment-1", deckId: "deck-1", emoji: "🎉" },
+      { caller: "tool" },
+    );
+
+    expect(result).toMatchObject({ reacted: true });
+    expect(result.reactions).toContainEqual({
+      emoji: "🎉",
+      count: 1,
+      reacted: true,
+    });
   });
 
   it("does not expose or mutate a comment outside the requested deck", async () => {

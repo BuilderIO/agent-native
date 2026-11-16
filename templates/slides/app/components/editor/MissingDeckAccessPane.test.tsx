@@ -7,6 +7,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     ({
       "deckEditor.lookingForDeck": "Looking for this deck",
+      "presentation.loadFailed": "Could not load this presentation.",
       "deckEditor.privateDeckTitle": "You don't have access to this deck",
       "deckEditor.privateDeckDescription":
         "Request access and the owner will be notified.",
@@ -60,6 +61,7 @@ function renderPane(
       hasTeamJoinOption={false}
       orgLoading={false}
       orgError={false}
+      loadFailed={false}
       requestAccessPending={false}
       accessRequestSent={false}
       accessRequestNotified={false}
@@ -208,6 +210,34 @@ describe("MissingDeckAccessPane", () => {
       ).disabled,
     ).toBe(true);
     expect(screen.getByText("The owner has been notified.")).toBeTruthy();
+  });
+
+  it("shows a read failure with Retry, not an access denial, when access was confirmed", () => {
+    const onRetry = vi.fn();
+    renderPane({
+      accessStatus: {
+        exists: true,
+        hasAccess: true,
+        signedIn: true,
+        viewerEmail: "viewer@example.com",
+        viewerName: null,
+        role: null,
+        visibility: "private",
+      },
+      accessStatusError: false,
+      loadFailed: true,
+      onRetry,
+    });
+
+    expect(
+      screen.getByRole("heading", {
+        name: "Could not load this presentation.",
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText("You don't have access to this deck")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Request access" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalledOnce();
   });
 
   it("shows the saved request and a clear Home action when available", () => {
