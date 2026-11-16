@@ -2320,7 +2320,8 @@ async function buildOnboardingJourneyCohorts(
         partition.sessionlessMcpOauthSignupEvents,
     },
     tree: makeTree(partition.allSessionIds),
-    ...(read.truncationReason === "read_deadline"
+    ...(read.truncationReason === "read_deadline" &&
+    observation.observationWatermark
       ? {
           continueWith: {
             observationWatermark: observation.observationWatermark,
@@ -2619,7 +2620,7 @@ export async function getOnboardingJourney(
     app: args.app,
     rootN: built.rootN,
     ...(notes.length ? { notes } : {}),
-    ...(stoppedForTime
+    ...(stoppedForTime && observation.observationWatermark
       ? {
           continueWith: {
             observationWatermark: observation.observationWatermark,
