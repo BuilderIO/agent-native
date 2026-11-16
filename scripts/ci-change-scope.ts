@@ -529,11 +529,13 @@ const CONTENT_DB_ACTION_RUNTIME_FILES = new Set([
 ]);
 
 const CONTENT_CONVERGENCE_ACTION_FILES = new Set([
+  "templates/content/actions/_document-state-restore.ts",
   "templates/content/actions/add-comment.ts",
   "templates/content/actions/create-document.ts",
   "templates/content/actions/delete-document.ts",
   "templates/content/actions/edit-document.ts",
   "templates/content/actions/get-document.ts",
+  "templates/content/actions/get-document-history-change.ts",
   "templates/content/actions/get-trashed-document.ts",
   "templates/content/actions/import-content.ts",
   "templates/content/actions/list-comments.ts",
@@ -548,6 +550,7 @@ const CONTENT_CONVERGENCE_ACTION_FILES = new Set([
   "templates/content/actions/restore-document.ts",
   "templates/content/actions/restore-document-version.ts",
   "templates/content/actions/suggest-document-edit.ts",
+  "templates/content/actions/undo-document-change.ts",
   "templates/content/actions/update-comment.ts",
   "templates/content/actions/update-document.ts",
   "templates/content/server/lib/chatgpt-directory-tools.ts",
@@ -1970,6 +1973,7 @@ function isContentDbRuntimePath(path: string): boolean {
     path === "templates/content/server/db/schema.ts" ||
     [
       "templates/content/server/lib/document-history.ts",
+      "templates/content/server/lib/document-history-changes.ts",
       "templates/content/server/lib/private-icon-references.ts",
       "templates/content/server/lib/startup-maintenance.ts",
       "templates/content/server/lib/suggested-edits.ts",

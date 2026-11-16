@@ -200,6 +200,36 @@ edit commits. Restore it before editing. A local-folder sync
 (`import-content-source`) leaves a page in Trash unchanged and lists it in
 `skipped`.
 
+### undo-document-change
+
+Undo one History entry on a page, such as one agent's edits, keeping every
+change made since. An external `edit-document` receipt names its entry as
+`receipt.historyGroupId`. Otherwise find it with `list-document-history`.
+`get-document-history-change` reads what it changed: each change's title and
+body before and after, oldest first.
+
+```bash
+pnpm action get-document-history-change --documentId abc123 \
+  --groupId '<historyGroupId>'
+pnpm action undo-document-change --documentId abc123 \
+  --groupId '<historyGroupId>' --idempotencyKey '<uuid>'
+```
+
+Each block the entry changed goes back to how it read before, unless a later
+change touched it or the place it goes back to. Those blocks stay as they are
+and are listed in `keptBack`: `changedTo` is the entry's text, `changedFrom` the
+text before it. `outcome` is `undone`, `partly-undone`, `nothing-undone` (every
+change was kept back), `already-undone` (the page already reads as it did), or
+`replayed`, for a retry with the same key and entry, which returns the page as
+it is now. An undo that changed nothing records no entry, so a retry of it runs
+again. The undo is a History entry of its own, `undoGroupId`, so it can be
+undone too. It refuses as a version restore does:
+`DOCUMENT_RESTORE_SOURCE_UNSUPPORTED` for a page linked to a local file, and
+`DOCUMENT_RESTORE_CONFLICT` when the page, or the entry its agent is still
+adding to, kept changing through three tries; read it again and retry. It refuses with `DOCUMENT_UNDO_UNAVAILABLE` for an
+entry with no change to undo or more than 100, and for a page written in a form
+the merge can't keep in full; restore a checkpoint instead.
+
 ### update-document
 
 Update an existing document's metadata or browser-owned content. External

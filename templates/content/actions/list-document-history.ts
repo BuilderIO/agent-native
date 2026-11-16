@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, max, min, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -10,6 +9,7 @@ import type {
   DocumentHistoryPage,
 } from "../shared/document-history.js";
 import { IMPORT_CONTENT_OPERATION } from "../shared/import/types.js";
+import { assertHistoryAccess } from "./_document-history-access.js";
 
 interface HistoryCursor {
   startedAt: string;
@@ -36,7 +36,7 @@ function encodeCursor(cursor: HistoryCursor) {
 
 export default defineAction({
   description:
-    "List one metadata-only page of a document's history groups, newest first.",
+    "List one metadata-only page of a page's History entries, newest first. Each entry is one person's editing session, one agent run, or one operation, with who made it (actorKind, actorEmail), its origin and its time span. Read an entry's checkpoints with list-document-history-checkpoints, and undo an entry, keeping later changes, with undo-document-change.",
   schema: z.object({
     documentId: z.string().min(1).describe("Document ID"),
     limit: z.coerce
@@ -53,8 +53,14 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args): Promise<DocumentHistoryPage> => {
-    const access = await assertAccess("document", args.documentId, "viewer");
+    const access = await assertHistoryAccess(args.documentId);
     const ownerEmail = access.resource.ownerEmail as string;
     const cursor = args.cursor ? decodeCursor(args.cursor) : undefined;
     const groupId = sql<string>`coalesce(${schema.documentVersions.groupId}, ${schema.documentVersions.id})`;

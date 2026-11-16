@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { rebaseBodyEdit } from "./rebase.js";
+import { rebaseBodyEdit, revertBodyEdit } from "./rebase.js";
 
 describe("rebaseBodyEdit", () => {
   it("applies an edit to a block nobody else changed, keeping theirs", () => {
@@ -193,5 +193,76 @@ describe("rebaseBodyEdit", () => {
     expect(rebaseBodyEdit("A\nB\nC\nD", "A\nDone\nC\nD", "A\nB\nC\nDone")).toBe(
       "A\nDone\nC\nDone",
     );
+  });
+});
+
+describe("revertBodyEdit", () => {
+  it("takes an edit back to the exact body before it when nothing changed since", () => {
+    expect(revertBodyEdit("One A\nTwo", "One\nTwo", "One A\nTwo")).toEqual({
+      content: "One\nTwo",
+      keptBack: [],
+    });
+  });
+
+  it("keeps a later change to a block the edit didn't touch", () => {
+    expect(revertBodyEdit("One A\nTwo", "One\nTwo", "One A\nTwo B")).toEqual({
+      content: "One\nTwo B",
+      keptBack: [],
+    });
+  });
+
+  it("keeps back only the rewritten block a later change touched", () => {
+    expect(revertBodyEdit("One A\nTwo A", "One\nTwo", "One AB\nTwo A")).toEqual(
+      {
+        content: "One AB\nTwo",
+        keptBack: [{ changedTo: "One A", changedFrom: "One" }],
+      },
+    );
+  });
+
+  it("removes a block the edit added beside a block changed since", () => {
+    expect(
+      revertBodyEdit("One\nNew\nTwo", "One\nTwo", "One B\nNew\nTwo"),
+    ).toEqual({ content: "One B\nTwo", keptBack: [] });
+  });
+
+  it("keeps back a removed block whose neighbor changed since", () => {
+    expect(revertBodyEdit("One\nTwo", "One\nGone\nTwo", "One B\nTwo")).toEqual({
+      content: "One B\nTwo",
+      keptBack: [{ changedTo: "", changedFrom: "Gone" }],
+    });
+  });
+
+  it("leaves a change the page already took back", () => {
+    expect(revertBodyEdit("One A\nTwo", "One\nTwo", "One\nTwo B")).toEqual({
+      content: "One\nTwo B",
+      keptBack: [],
+    });
+  });
+
+  it("leaves a page already back to the body before the edit", () => {
+    expect(revertBodyEdit("A\nSame\nSame", "A\nSame", "A\nSame")).toEqual({
+      content: "A\nSame",
+      keptBack: [],
+    });
+  });
+
+  it("refuses a page the parser can't keep in full", () => {
+    expect(
+      revertBodyEdit(
+        "A\nB",
+        "a\nB",
+        "A\nB\n<table>\n<tr><td>Kept cell</td></tr>\nLATER WORDS\n</table>",
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps back a change to a block that reads the same as another", () => {
+    expect(
+      revertBodyEdit("A\nSame\nSame", "A\nSame", "A2\nSame\nSame"),
+    ).toEqual({
+      content: "A2\nSame\nSame",
+      keptBack: [{ changedTo: "Same", changedFrom: "" }],
+    });
   });
 });

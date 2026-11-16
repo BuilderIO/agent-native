@@ -1339,7 +1339,7 @@ export const parityMatrix: ParityRow[] = [
       "app/hooks/use-document-versions.ts",
     ],
     durableEffect:
-      "Document versions are listed and selected versions can restore the document while snapshotting current state.",
+      "Document versions are listed and selected versions can restore the document while snapshotting current state; one History entry's changes can be read, and undone while later edits stay.",
     uiImplementation:
       "Version panel reads and restores through document version actions.",
     status: "action-backed",
@@ -1348,7 +1348,9 @@ export const parityMatrix: ParityRow[] = [
       "list-document-history",
       "list-document-history-checkpoints",
       "get-document-history-checkpoint",
+      "get-document-history-change",
       "restore-document-version",
+      "undo-document-change",
     ],
     exception: null,
     reliabilityRisk: "none",

@@ -489,6 +489,7 @@ function serverHistoryCause(
     ...(cause.historySessionId
       ? { historySessionId: cause.historySessionId }
       : {}),
+    ...cause.historyGrouping,
   };
 }
 

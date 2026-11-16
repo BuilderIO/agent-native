@@ -45,6 +45,16 @@ interface ResolvedDocumentHistoryCause {
   operation: string;
 }
 
+/**
+ * The History group a write records, fixed before the write so the writer
+ * can name it, as an edit receipt does, or choose its id, as an undo does.
+ * Pass it in the write's cause.
+ */
+export type DocumentHistoryGrouping = Omit<
+  ResolvedDocumentHistoryCause,
+  "operation"
+>;
+
 function newGroupId(prefix: string) {
   return `${prefix}:${crypto.randomUUID()}`;
 }
@@ -122,6 +132,19 @@ export function resolveDocumentHistoryCause(
       cause.actorKind ?? (ctx?.caller === "frontend" ? "human" : "system"),
     origin: cause.origin ?? ctx?.caller ?? "internal",
     operation: cause.operation,
+  };
+}
+
+export function documentHistoryGrouping(
+  cause: DocumentHistoryCause,
+): DocumentHistoryGrouping {
+  const resolved = resolveDocumentHistoryCause(cause);
+  return {
+    groupId: resolved.groupId,
+    groupKind: resolved.groupKind,
+    actorEmail: resolved.actorEmail,
+    actorKind: resolved.actorKind,
+    origin: resolved.origin,
   };
 }
 

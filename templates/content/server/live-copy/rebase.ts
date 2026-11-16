@@ -4,7 +4,12 @@ import DiffMatchPatch, {
   DIFF_INSERT,
 } from "diff-match-patch";
 
-import { docToNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
+import {
+  docToNfm,
+  nfmToDoc,
+  parseNfmWithLosses,
+  type PMNode,
+} from "../../shared/nfm.js";
 
 /** Base blocks `from`..`to` become `insert`, whose keys are `keys`. */
 type BlockHunk = {
@@ -206,6 +211,87 @@ function coveredBlocks(
   return covered;
 }
 
+type BlockCounts = Map<string, { base: number; current: number }>;
+
+// How many times each base block reads in base and in current.
+function blockCounts(
+  baseKeys: readonly string[],
+  currentKeys: readonly string[],
+): BlockCounts {
+  const counts: BlockCounts = new Map();
+  for (const key of baseKeys) {
+    const count = counts.get(key) ?? { base: 0, current: 0 };
+    counts.set(key, { ...count, base: count.base + 1 });
+  }
+  for (const key of currentKeys) {
+    const count = counts.get(key);
+    if (count) count.current += 1;
+  }
+  return counts;
+}
+
+// Content opts out of `noUncheckedIndexedAccess`, so `items[index]` reads as
+// never missing there.
+function itemAt<T>(items: readonly T[], index: number): T | undefined {
+  return items[index];
+}
+
+// Each base block a hunk removes, and each block beside an insertion, reads
+// unlike every other block in base and current.
+function placedOnce(
+  hunk: BlockHunk,
+  baseKeys: readonly string[],
+  counts: BlockCounts,
+): boolean {
+  const readsOnce = (index: number) => {
+    const key = itemAt(baseKeys, index);
+    if (key === undefined) return true;
+    const count = counts.get(key);
+    return count?.base === 1 && count.current <= 1;
+  };
+  for (let index = hunk.from; index < hunk.to; index += 1)
+    if (!readsOnce(index)) return false;
+  return (
+    hunk.from !== hunk.to || (readsOnce(hunk.from - 1) && readsOnce(hunk.from))
+  );
+}
+
+// The edit's hunks another writer made too, at a place neither could slide
+// from, with the other writer's hunks they match.
+function sharedHunks(
+  edit: readonly BlockHunk[],
+  editRanges: readonly SlidRange[],
+  others: readonly BlockHunk[],
+): Set<BlockHunk> {
+  const shared = new Set<BlockHunk>();
+  edit.forEach((hunk, index) => {
+    const same = others.find((other) => sameHunk(hunk, other));
+    const range = itemAt(editRanges, index);
+    if (same && range && range.from === hunk.from && range.to === hunk.to) {
+      shared.add(hunk);
+      shared.add(same);
+    }
+  });
+  return shared;
+}
+
+// The base blocks hunks remove, and the blocks they add that base or current
+// already holds.
+function hunkBlocks(
+  hunks: readonly BlockHunk[],
+  baseKeys: readonly string[],
+  counts: BlockCounts,
+  skip?: ReadonlySet<BlockHunk>,
+): Set<string> {
+  const keys = new Set<string>();
+  for (const hunk of hunks) {
+    if (skip?.has(hunk)) continue;
+    for (const key of baseKeys.slice(hunk.from, hunk.to)) keys.add(key);
+    for (const key of hunk.keys) if (counts.has(key)) keys.add(key);
+  }
+  return keys;
+}
+
 /**
  * Applies the blocks `candidate` changed from `base` to `current`, which
  * other writers moved on from `base`. Null unless that is unambiguous:
@@ -244,55 +330,16 @@ export function rebaseBodyEdit(
   const others = blockHunks(baseKeys, currentKeys, currentBlocks, codes);
   if (!edit || !others) return null;
   if (!edit.length) return current;
-  const counts = new Map<string, { base: number; current: number }>();
-  for (const key of baseKeys) {
-    const count = counts.get(key) ?? { base: 0, current: 0 };
-    counts.set(key, { ...count, base: count.base + 1 });
-  }
-  for (const key of currentKeys) {
-    const count = counts.get(key);
-    if (count) count.current += 1;
-  }
-  const readsOnce = (index: number) => {
-    if (index < 0 || index >= baseKeys.length) return true;
-    const count = counts.get(baseKeys[index]);
-    return count?.base === 1 && count.current <= 1;
-  };
-  for (const hunk of edit) {
-    for (let index = hunk.from; index < hunk.to; index += 1)
-      if (!readsOnce(index)) return null;
-    if (
-      hunk.from === hunk.to &&
-      !(readsOnce(hunk.from - 1) && readsOnce(hunk.from))
-    )
-      return null;
-  }
+  const counts = blockCounts(baseKeys, currentKeys);
+  if (!edit.every((hunk) => placedOnce(hunk, baseKeys, counts))) return null;
   const editRanges = edit.map((hunk) => slidRange(baseKeys, hunk));
   const otherRanges = others.map((hunk) => slidRange(baseKeys, hunk));
-  const shared = new Set<BlockHunk>();
-  edit.forEach((hunk, index) => {
-    const same = others.find((other) => sameHunk(hunk, other));
-    const range = editRanges[index];
-    if (same && range.from === hunk.from && range.to === hunk.to) {
-      shared.add(hunk);
-      shared.add(same);
-    }
-  });
-  const blocksOf = (hunks: readonly BlockHunk[], all: boolean) => {
-    const keys = new Set<string>();
-    for (const hunk of hunks) {
-      if (!all && shared.has(hunk)) continue;
-      for (let index = hunk.from; index < hunk.to; index += 1)
-        keys.add(baseKeys[index]);
-      for (const key of hunk.keys) if (counts.has(key)) keys.add(key);
-    }
-    return keys;
-  };
-  const editBlocks = blocksOf(edit, true);
-  const otherBlocks = blocksOf(others, true);
-  for (const key of blocksOf(edit, false))
+  const shared = sharedHunks(edit, editRanges, others);
+  const editBlocks = hunkBlocks(edit, baseKeys, counts);
+  const otherBlocks = hunkBlocks(others, baseKeys, counts);
+  for (const key of hunkBlocks(edit, baseKeys, counts, shared))
     if (otherBlocks.has(key)) return null;
-  for (const key of blocksOf(others, false))
+  for (const key of hunkBlocks(others, baseKeys, counts, shared))
     if (editBlocks.has(key)) return null;
   for (let index = 0; index < edit.length; index += 1) {
     for (let other = 0; other < others.length; other += 1) {
@@ -327,4 +374,120 @@ export function rebaseBodyEdit(
     type: "doc",
     content: merged.length ? merged : [{ type: "paragraph" }],
   });
+}
+
+/** Blocks an undo leaves as they are, because a later change overlaps them. */
+export type KeptBackBlocks = {
+  /** The blocks as the undone edit left them, in Markdown. */
+  changedTo: string;
+  /** The blocks as they read before that edit, in Markdown. */
+  changedFrom: string;
+};
+
+// A change that rewrote several blocks in a row reads block by block: an
+// edit's is taken back one block at a time, so a later change to one of them
+// keeps back only that one, and a later writer's shows which of those blocks
+// it already took back.
+function eachRewrittenBlock(hunk: BlockHunk): BlockHunk[] {
+  const removed = hunk.to - hunk.from;
+  if (removed < 2 || removed !== hunk.insert.length) return [hunk];
+  return hunk.insert.map((block, index) => ({
+    from: hunk.from + index,
+    to: hunk.from + index + 1,
+    insert: [block],
+    keys: hunk.keys.slice(index, index + 1),
+  }));
+}
+
+function blocksMarkdown(blocks: readonly PMNode[]): string {
+  return blocks.length ? docToNfm({ type: "doc", content: [...blocks] }) : "";
+}
+
+/**
+ * Takes back, in `current`, the blocks an edit changed from `before` to
+ * `after`, where other writers may have moved `current` on from `after`.
+ * Each of the edit's changes is taken back on its own, under
+ * `rebaseBodyEdit`'s rules: a change a later one overlaps or borders, or
+ * whose place depends on how the diff aligned the bodies, stays as `current`
+ * has it and is listed in `keptBack`. A change `current` already takes back
+ * is left alone. Every later change stays. Null when the parser drops part
+ * of a body, since the page the merge writes would lose that part.
+ */
+export function revertBodyEdit(
+  after: string,
+  before: string,
+  current: string,
+): { content: string; keptBack: KeptBackBlocks[] } | null {
+  if (current === after) return { content: before, keptBack: [] };
+  if (current === before) return { content: current, keptBack: [] };
+  const parsedAfter = parseNfmWithLosses(after);
+  const parsedBefore = parseNfmWithLosses(before);
+  const parsedCurrent = parseNfmWithLosses(current);
+  if (
+    parsedAfter.losses.length ||
+    parsedBefore.losses.length ||
+    parsedCurrent.losses.length
+  ) {
+    return null;
+  }
+  const baseBlocks = parsedAfter.doc.content;
+  const beforeBlocks = parsedBefore.doc.content;
+  const currentBlocks = parsedCurrent.doc.content;
+  const baseKeys = baseBlocks.map((block) => JSON.stringify(block));
+  const currentKeys = currentBlocks.map((block) => JSON.stringify(block));
+  const codes = new Map<string, string>();
+  const undo = blockHunks(
+    baseKeys,
+    beforeBlocks.map((block) => JSON.stringify(block)),
+    beforeBlocks,
+    codes,
+  );
+  const laterHunks = blockHunks(baseKeys, currentKeys, currentBlocks, codes);
+  if (!undo || !laterHunks) {
+    return {
+      content: current,
+      keptBack:
+        before === after ? [] : [{ changedTo: after, changedFrom: before }],
+    };
+  }
+  const edit = undo.flatMap(eachRewrittenBlock);
+  const others = laterHunks.flatMap(eachRewrittenBlock);
+  const counts = blockCounts(baseKeys, currentKeys);
+  const editRanges = edit.map((hunk) => slidRange(baseKeys, hunk));
+  const otherRanges = others.map((hunk) => slidRange(baseKeys, hunk));
+  const shared = sharedHunks(edit, editRanges, others);
+  const otherBlocks = hunkBlocks(others, baseKeys, counts);
+  const taken: BlockHunk[] = [];
+  const keptBack: KeptBackBlocks[] = [];
+  for (const hunk of edit) {
+    if (shared.has(hunk)) continue;
+    const blocks = hunkBlocks([hunk], baseKeys, counts);
+    const editRange = slidRange(baseKeys, hunk);
+    const overlapped =
+      !placedOnce(hunk, baseKeys, counts) ||
+      [...blocks].some((key) => otherBlocks.has(key)) ||
+      otherRanges.some((range) => rangesOverlap(editRange, range));
+    if (!overlapped) {
+      taken.push(hunk);
+      continue;
+    }
+    keptBack.push({
+      changedTo: blocksMarkdown(baseBlocks.slice(hunk.from, hunk.to)),
+      changedFrom: blocksMarkdown(hunk.insert),
+    });
+  }
+  if (!taken.length) return { content: current, keptBack };
+  const merged = [...baseBlocks];
+  for (const hunk of [...taken, ...others].sort(
+    (left, right) => right.from - left.from || right.to - left.to,
+  )) {
+    merged.splice(hunk.from, hunk.to - hunk.from, ...hunk.insert);
+  }
+  return {
+    content: docToNfm({
+      type: "doc",
+      content: merged.length ? merged : [{ type: "paragraph" }],
+    }),
+    keptBack,
+  };
 }
