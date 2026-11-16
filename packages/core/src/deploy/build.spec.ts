@@ -3091,13 +3091,26 @@ export default {
   );
 
   it.each([
-    ["a full-app panel with the UI capability", "full-app", true, true],
-    ["a full-app panel without the UI capability", "full-app", false, false],
-    ["a scoped widget with the UI capability", "widget", true, false],
-    ["a full-app panel's non-frontend request", "server", true, false],
+    ["a full-app panel with the UI capability", "full-app", true, false, true],
+    [
+      "a full-app panel without the UI capability",
+      "full-app",
+      false,
+      false,
+      false,
+    ],
+    [
+      "a full-app panel's header token from its host's origin",
+      "full-app",
+      false,
+      true,
+      true,
+    ],
+    ["a scoped widget with the UI capability", "widget", true, false, false],
+    ["a full-app panel's non-frontend request", "server", true, true, false],
   ] as const)(
     "gives UI-only actions the owner's UI context from %s in generated workers",
-    async (_caller, kind, withCapability, proven) => {
+    async (_caller, kind, withCapability, panelBearer, proven) => {
       const dir = makeTempDir();
       const actionPath = path.join(dir, "ui-action.mjs");
       fs.writeFileSync(actionPath, "export default { uiOnly: true };");
@@ -3124,6 +3137,7 @@ export default {
       const getContext = new Function(
         "resolveGeneratedEmbedSession",
         "GENERATED_FULL_APP_EMBED_SCOPE",
+        "presentsGeneratedFullAppEmbedBearer",
         "hasGeneratedSameOriginBrowserEvidence",
         "hasGeneratedUiActionCapability",
         "resolveGeneratedOrgId",
@@ -3132,7 +3146,8 @@ export default {
       )(
         async () => embedSession,
         "full-app",
-        () => true,
+        () => panelBearer,
+        () => !panelBearer,
         (_event: unknown, owner: string) => {
           capabilityOwners.push(owner);
           return withCapability;
@@ -3151,7 +3166,9 @@ export default {
           userEmail: "panel-owner@example.com",
           orgId: "org-1",
         });
-        expect(capabilityOwners).toEqual(["panel-owner@example.com"]);
+        expect(capabilityOwners).toEqual(
+          panelBearer ? [] : ["panel-owner@example.com"],
+        );
       } else {
         expect(context).toBeNull();
       }

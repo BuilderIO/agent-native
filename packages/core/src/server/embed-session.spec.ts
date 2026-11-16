@@ -43,6 +43,7 @@ import {
   createEmbedSessionTicket as createEmbedSessionTicketForAudience,
   hasExplicitEmbedSessionCredential,
   hasPresentedEmbedSessionCredential,
+  presentsFullAppEmbedBearer,
   hasEmbedSessionRequestMarker,
   isExpiredMcpDirectoryWidgetSessionRequest,
   readMcpDirectoryWidgetRenewalTicket as readMcpDirectoryWidgetRenewalTicketForAudience,
@@ -1478,6 +1479,57 @@ describe("requestMatchesEmbedTarget", () => {
       responseHeaders,
     } as any;
   }
+
+  it.each([
+    [
+      "the owner's full-app token in the header",
+      "bearer",
+      "full-app",
+      "owner@example.com",
+      true,
+    ],
+    [
+      "a full-app token only in the cookie",
+      "cookie",
+      "full-app",
+      "owner@example.com",
+      false,
+    ],
+    [
+      "a scoped widget token in the header",
+      "bearer",
+      "capability:visual-edit:design:d-1",
+      "owner@example.com",
+      false,
+    ],
+    [
+      "another owner's full-app token",
+      "bearer",
+      "full-app",
+      "other@example.com",
+      false,
+    ],
+  ] as const)(
+    "treats %s as a full-app panel's own request",
+    (_name, transport, scope, ownerEmail, expected) => {
+      const token = signEmbedSessionToken({
+        ownerEmail,
+        audienceHost: "http://mail.test",
+        targetPath: "/inbox",
+        scope,
+      });
+      expect(
+        presentsFullAppEmbedBearer(
+          credentialEvent(
+            "/_agent-native/actions/send-draft",
+            token,
+            transport,
+          ),
+          "Owner@example.com",
+        ),
+      ).toBe(expected);
+    },
+  );
 
   it.each([
     ["/inbox/t-1", "GET"],

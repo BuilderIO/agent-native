@@ -156,6 +156,8 @@ vi.mock("./embed-session.js", () => ({
     mockHasEmbedSessionRequestMarker(event),
   hasFullAppEmbedSession: (event: any) =>
     event._hasFullAppEmbedSession ?? false,
+  presentsFullAppEmbedBearer: (event: any) =>
+    event._presentsFullAppEmbedBearer ?? false,
   hasLiveEmbedCapabilityCookie: (event: any) =>
     event._hasLiveEmbedCapabilityCookie ?? false,
   hasPresentedEmbedSessionCredential: (event: any) =>
@@ -504,11 +506,12 @@ describe("mountActionRoutes", () => {
   });
 
   it.each([
-    [true, "runs"],
-    [false, "refused"],
+    ["the UI capability cookie on its own origin", true, false, "runs"],
+    ["neither its header token nor the capability", false, false, "refused"],
+    ["its token in the header from the host's origin", false, true, "runs"],
   ] as const)(
-    "treats a full-app panel's own request as the app UI when its capability is %s",
-    async (capability, outcome) => {
+    "treats a full-app panel's own request as the app UI with %s",
+    async (_name, capability, panelBearer, outcome) => {
       const { mountActionRoutes } = await import("./action-routes.js");
       const mounted: Array<{ path: string; handler: any }> = [];
       const run = vi.fn(async () => ({ ok: true }));
@@ -543,10 +546,11 @@ describe("mountActionRoutes", () => {
         const event = {
           _method: "POST",
           _headers: {
-            "sec-fetch-site": "same-origin",
+            "sec-fetch-site": panelBearer ? "cross-site" : "same-origin",
             authorization: "Bearer panel-token",
             "x-agent-native-frontend": "1",
           },
+          _presentsFullAppEmbedBearer: panelBearer,
           req: { json: async () => ({}) },
         };
         const result = await mounted[0]!.handler(event);

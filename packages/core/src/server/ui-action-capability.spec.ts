@@ -265,6 +265,39 @@ describe("UI action capability", () => {
     },
   );
 
+  it.each([
+    ["bearer", 200],
+    ["cookie", 403],
+  ] as const)(
+    "mints from another site only for a full-app panel's %s token in the header",
+    async (source, status) => {
+      mockGetBrowserCookieSession.mockResolvedValue(null);
+      const embedToken = signEmbedSessionToken({
+        ownerEmail: "panel@example.com",
+        targetPath: "/inbox",
+        audienceHost: "https://example.test",
+        scope: "full-app",
+      });
+      const app = createApp();
+      mountUiActionCapabilityRoute(app);
+      const response = await app.fetch(
+        new Request("https://example.test/_agent-native/ui-capability", {
+          headers: {
+            "sec-fetch-site": "cross-site",
+            origin: "https://panel.claudemcpcontent.com",
+            ...(source === "cookie"
+              ? { cookie: `an_embed_session=${embedToken}` }
+              : {
+                  authorization: `Bearer ${embedToken}`,
+                  "x-agent-native-embed-target": "/inbox",
+                }),
+          },
+        }),
+      );
+      expect(response.status).toBe(status);
+    },
+  );
+
   it.each(["bearer", "cookie"] as const)(
     "mints for the owner of a full-app panel's %s session",
     async (source) => {

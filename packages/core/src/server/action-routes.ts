@@ -123,6 +123,7 @@ import {
   FULL_APP_EMBED_SCOPE,
   hasEmbedSessionRequestMarker,
   hasFullAppEmbedSession,
+  presentsFullAppEmbedBearer,
   hasPresentedEmbedSessionCredential,
   isExpiredMcpDirectoryWidgetSessionRequest,
   resolveEmbedSessionFromRequest,
@@ -310,8 +311,9 @@ async function isProvenUiRequest(
       !!userEmail &&
       embedSession.email.trim().toLowerCase() ===
         userEmail.trim().toLowerCase() &&
-      hasSameOriginBrowserEvidence(event) &&
-      hasUiActionCapability(event, userEmail)
+      (presentsFullAppEmbedBearer(event, userEmail) ||
+        (hasSameOriginBrowserEvidence(event) &&
+          hasUiActionCapability(event, userEmail)))
     );
   }
   if (
