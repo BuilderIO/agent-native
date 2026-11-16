@@ -348,11 +348,15 @@ describe("comment images", () => {
         { errorCode: "comment_image_invalid" },
       );
     }
-    const gif = await uploaded(COMMENTER, doc, "image/gif");
-    const created = await comment(COMMENTER, doc, [image(gif)]);
-    expect(stored(await storedImages(created.id))).toEqual([
-      { ...image(gif), contentType: "image/gif" },
-    ]);
+    const types = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+    const ids = await Promise.all(
+      types.map((type) => uploaded(COMMENTER, doc, type)),
+    );
+    // Each is sent labelled PNG, as image() does, and is stored as uploaded.
+    const created = await comment(COMMENTER, doc, ids.map(image));
+    expect(stored(await storedImages(created.id))).toEqual(
+      ids.map((id, at) => ({ ...image(id), contentType: types[at] })),
+    );
   });
 
   it("lets an agent keep a comment's images but not attach any", async () => {
@@ -432,7 +436,7 @@ describe("comment images", () => {
       as(COMMENTER, () =>
         updateComment.run({ id: created.id, documentId: doc, content: "" }),
       ),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ paths: ["content"] });
     expect(await storedImages(created.id)).toBeNull();
   });
 
