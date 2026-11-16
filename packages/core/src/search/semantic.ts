@@ -630,7 +630,11 @@ async function drain(
   // Without a vector store the changes stay queued, ready for when one exists.
   if (!(await storeAvailable(exec, store))) return;
   const feed = feedFor(registration);
-  const limits: RateLimits = new Map();
+  const context: DrainContext = {
+    deadline,
+    limits: new Map(),
+    deferred: new Set(),
+  };
   while (Date.now() < deadline) {
     const claimed = await claimResourceChanges(
       exec,
@@ -643,18 +647,12 @@ async function drain(
     const fresh = claimed.filter((change) => change.attempts <= 1);
     const retries = claimed.filter((change) => change.attempts > 1);
     if (fresh.length) {
-      await embedGroup(exec, store, registration, feed, fresh, {
-        deadline,
-        limits,
-      });
+      await embedGroup(exec, store, registration, feed, fresh, context);
     }
     for (const change of retries) {
       // Changes left claimed are claimed again when their lease expires.
       if (Date.now() >= deadline) return;
-      await embedGroup(exec, store, registration, feed, [change], {
-        deadline,
-        limits,
-      });
+      await embedGroup(exec, store, registration, feed, [change], context);
     }
   }
 }
@@ -666,10 +664,11 @@ async function drain(
  */
 type RateLimits = Map<string, number>;
 
-/** Changes put back untried, and for how many seconds. */
-interface DeferredChanges {
-  changes: ClaimedResourceChange[];
-  seconds: number;
+interface DrainContext {
+  deadline: number;
+  limits: RateLimits;
+  /** Changes already put back for a rate limit, so none is put back twice. */
+  deferred: Set<ClaimedResourceChange>;
 }
 
 /**
@@ -691,8 +690,11 @@ function rateLimitWaitSeconds(error: unknown): number | undefined {
 async function deferAfterRateLimit(
   exec: DbExec,
   feed: ResourceChangeFeed,
-  { changes, seconds }: DeferredChanges,
+  changes: ClaimedResourceChange[],
+  seconds: number,
+  deferred: Set<ClaimedResourceChange>,
 ): Promise<void> {
+  for (const change of changes) deferred.add(change);
   // Changes not put back are claimed again when their lease expires.
   await deferResourceChanges(exec, feed, changes, seconds).catch(
     (error: unknown) => {
@@ -714,7 +716,7 @@ async function embedGroup(
   registration: SearchableResourceRegistration,
   feed: ResourceChangeFeed,
   changes: ClaimedResourceChange[],
-  context: { deadline: number; limits: RateLimits },
+  context: DrainContext,
 ): Promise<void> {
   const { deadline } = context;
   const label = `${registration.app}/${registration.type}`;
@@ -734,6 +736,8 @@ async function embedGroup(
       for (const change of changes) {
         // Changes left claimed are claimed again when their lease expires.
         if (Date.now() >= deadline) return;
+        // Changes put back for a rate limit wait it out already.
+        if (context.deferred.has(change)) continue;
         await embedGroup(exec, store, registration, feed, [change], context);
       }
       return;
@@ -813,15 +817,14 @@ async function embedChanges(
   registration: SearchableResourceRegistration,
   feed: ResourceChangeFeed,
   changes: ClaimedResourceChange[],
-  context: { deadline: number; limits: RateLimits },
+  context: DrainContext,
 ): Promise<void> {
-  const { deadline, limits } = context;
+  const { deadline } = context;
   const ids = changes.map((change) => change.resourceId);
   const documents = await registration.load(ids);
   const byId = new Map(documents.map((document) => [document.id, document]));
   const stored = await storedEmbeddings(exec, registration, ids);
   const done: ClaimedResourceChange[] = [];
-  const deferred: DeferredChanges[] = [];
   const groups = new Map<string, AudienceGroup>();
   for (const change of changes) {
     const document = byId.get(change.resourceId);
@@ -858,16 +861,11 @@ async function embedChanges(
     // Changes in the groups left over stay claimed for the next drain.
     if (Date.now() >= deadline) break;
     await embedAudienceGroup(exec, store, registration, feed, group, stored, {
+      ...context,
       done,
-      deferred,
-      deadline,
-      limits,
     });
   }
   await completeResourceChanges(exec, feed, done);
-  for (const waiting of deferred) {
-    await deferAfterRateLimit(exec, feed, waiting);
-  }
 }
 
 async function embedAudienceGroup(
@@ -882,12 +880,7 @@ async function embedAudienceGroup(
     deferred,
     deadline,
     limits,
-  }: {
-    done: ClaimedResourceChange[];
-    deferred: DeferredChanges[];
-    deadline: number;
-    limits: RateLimits;
-  },
+  }: DrainContext & { done: ClaimedResourceChange[] },
 ): Promise<void> {
   // An unreadable setting or membership throws, so nothing is sent until it
   // reads as on.
@@ -945,20 +938,28 @@ async function embedAudienceGroup(
   }
   if (!pending.length) return;
   const label = `${registration.app}/${registration.type}`;
-  // A provider rate limits the credentials it's called with, which resolve
-  // for the governing organization, or for the owner when none governs.
-  const scope = `${family.id}\u0000${orgId ?? group.identity.userEmail ?? ""}`;
+  // A provider rate limits the credentials it's called with. Members of one
+  // organization can resolve different ones, such as a personal key, so a
+  // limit holds back one owner's pages; owners sharing credentials each learn
+  // of it from one refused call.
+  const scope = [family.id, orgId ?? "", group.identity.userEmail ?? ""].join(
+    "\u0000",
+  );
   // Each call embeds whole pages, stored before the next call, so a provider
-  // that starts refusing part way keeps what it already embedded.
-  const slices = wholePageSlices(pending);
+  // that starts refusing part way keeps what it already embedded. A provider
+  // that takes fewer inputs a request gets fewer pages a call.
+  const slices = wholePageSlices(
+    pending,
+    Math.min(EMBED_BATCH, family.inputsPerRequest ?? EMBED_BATCH),
+  );
   for (const [index, slice] of slices.entries()) {
-    const left = slices.slice(index).flat();
+    const left = slices
+      .slice(index)
+      .flat()
+      .map((item) => item.change);
     const limited = limits.get(scope);
     if (limited !== undefined) {
-      deferred.push({
-        changes: left.map((item) => item.change),
-        seconds: limited,
-      });
+      await deferAfterRateLimit(exec, feed, left, limited, deferred);
       return;
     }
     let on: boolean;
@@ -977,14 +978,12 @@ async function embedAudienceGroup(
       const wait = rateLimitWaitSeconds(error);
       if (wait === undefined) throw error;
       console.warn(
-        `[search] The embedding provider is rate limiting ${label}, so ${left.length} changes wait ${wait}s:`,
+        `[search] The embedding provider is rate limiting ${label}, so ${left.length} ${left.length === 1 ? "change waits" : "changes wait"} ${wait}s:`,
         error instanceof Error ? error.message : String(error),
       );
       limits.set(scope, wait);
-      deferred.push({
-        changes: left.map((item) => item.change),
-        seconds: wait,
-      });
+      // Put back now, so they wait even if a later group runs out of time.
+      await deferAfterRateLimit(exec, feed, left, wait, deferred);
       return;
     }
     if (!on) {
@@ -1006,13 +1005,19 @@ async function embedAudienceGroup(
   }
 }
 
-/** Pending pages in runs of whole pages that each fit one embedding call. */
-function wholePageSlices(pending: PendingEmbedding[]): PendingEmbedding[][] {
+/**
+ * Pending pages in runs of whole pages of at most `limit` chunks, each sent
+ * in one embedding call. A page with more chunks than that goes alone.
+ */
+function wholePageSlices(
+  pending: PendingEmbedding[],
+  limit: number,
+): PendingEmbedding[][] {
   const slices: PendingEmbedding[][] = [];
   let slice: PendingEmbedding[] = [];
   let chunks = 0;
   for (const item of pending) {
-    if (slice.length && chunks + item.chunks.length > EMBED_BATCH) {
+    if (slice.length && chunks + item.chunks.length > limit) {
       slices.push(slice);
       slice = [];
       chunks = 0;

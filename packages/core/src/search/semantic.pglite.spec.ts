@@ -960,6 +960,157 @@ describe("when something fails part way", () => {
     expect(await pendingIds()).toEqual([]);
   });
 
+  it("embeds another member's pages while one member's credentials are rate limited", async () => {
+    const { EmbeddingProviderError } = await import("../embeddings/index.js");
+    await insertPage("limited-member", "Limited laptop", "Hardware limited.", {
+      orgId: "org-a",
+      ownerEmail: "limited@a.com",
+    });
+    await insertPage("other-member", "Other laptop", "Hardware other.", {
+      orgId: "org-a",
+      ownerEmail: "other@a.com",
+    });
+    await settle();
+    let limitedCalls = 0;
+    const limitedFamily: EmbeddingFamily = {
+      ...family,
+      async embed() {
+        limitedCalls += 1;
+        throw new EmbeddingProviderError(
+          "Embedding provider fake failed with status 429.",
+          429,
+        );
+      },
+    };
+    search.configureSemanticSearch({
+      vectorStore: store,
+      // One member's personal key, and the organization's for the other.
+      resolveEmbeddingFamily: async (identity) =>
+        identity?.userEmail === "limited@a.com" ? limitedFamily : family,
+    });
+    try {
+      await drain();
+    } finally {
+      restoreStore();
+    }
+    expect(limitedCalls).toBe(1);
+    expect(keysFor("other-member")).toEqual(["wiki/page/other-member/0"]);
+    expect(keysFor("limited-member")).toEqual([]);
+    const { rows } = await run(
+      `SELECT resource_id, attempts, available_at > now() AS waiting
+       FROM app_resource_changes
+       WHERE consumer = 'search-embeddings' AND resource_id IN ('limited-member', 'other-member')`,
+    );
+    expect(rows).toEqual([
+      { resource_id: "limited-member", attempts: 0, waiting: true },
+    ]);
+
+    await run(`DELETE FROM pages WHERE id = 'limited-member'`);
+    await settle();
+    await drain();
+    expect(await pendingIds()).toEqual([]);
+  });
+
+  it("keeps the pages embedded before a rate limit by a provider taking one input a request", async () => {
+    const { EmbeddingProviderError } = await import("../embeddings/index.js");
+    const ids = Array.from({ length: 8 }, (_, index) => `single-${index}`);
+    for (const id of ids) await insertPage(id, "Single laptop", "Notes.");
+    await settle();
+    const embed = family.embed;
+    // Like Gemini, each input is its own request, and three go through a
+    // window.
+    let allowed = 3;
+    family.inputsPerRequest = 1;
+    family.embed = async (inputs, purpose, options) => {
+      const vectors: number[][] = [];
+      for (const input of inputs) {
+        if (allowed <= 0) {
+          throw new EmbeddingProviderError(
+            "Embedding provider fake failed with status 429.",
+            429,
+          );
+        }
+        allowed -= 1;
+        vectors.push(...(await embed([input], purpose, options)));
+      }
+      return vectors;
+    };
+    const embedded = () =>
+      ids.filter((id) => store.keys().includes(`wiki/page/${id}/0`));
+    try {
+      await drain();
+      expect(embedded()).toHaveLength(3);
+      for (let window = 0; window < 4; window++) {
+        if (embedded().length === ids.length) break;
+        allowed = 3;
+        await settle();
+        await drain();
+      }
+    } finally {
+      family.embed = embed;
+      delete family.inputsPerRequest;
+    }
+    expect(embedded()).toEqual(ids);
+    expect(await pendingIds()).toEqual([]);
+  });
+
+  it("keeps a rate limit's wait when a later page runs out of time", async () => {
+    const { EmbeddingProviderError } = await import("../embeddings/index.js");
+    // The limited organization's page is older, so it leads the claim.
+    await insertPage("waiting-page", "Waiting laptop", "Hardware waiting.", {
+      orgId: "org-limited",
+    });
+    await insertPage("slow-page", "Slow laptop", "Hardware slow.");
+    await settle();
+    const limitedFamily: EmbeddingFamily = {
+      ...family,
+      async embed() {
+        throw new EmbeddingProviderError(
+          "Embedding provider fake failed with status 429.",
+          429,
+          900_000,
+        );
+      },
+    };
+    const slowFamily: EmbeddingFamily = {
+      ...family,
+      // A call still running at the deadline, cut off by its timeout.
+      embed: (_inputs, _purpose, options) =>
+        new Promise<number[][]>((_resolve, reject) => {
+          const signal = options?.signal;
+          if (!signal) return;
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        }),
+    };
+    search.configureSemanticSearch({
+      vectorStore: store,
+      resolveEmbeddingFamily: async (identity) =>
+        identity?.orgId === "org-limited" ? limitedFamily : slowFamily,
+    });
+    try {
+      await search.drainSemanticIndex(registration, Date.now() + 500);
+    } finally {
+      restoreStore();
+    }
+    const { rows } = await run(
+      `SELECT resource_id, attempts,
+              available_at > now() + interval '800 seconds' AS waiting
+       FROM app_resource_changes
+       WHERE consumer = 'search-embeddings' AND resource_id = 'waiting-page'`,
+    );
+    expect(rows).toEqual([
+      { resource_id: "waiting-page", attempts: 0, waiting: true },
+    ]);
+    expect(await pendingIds()).toContain("slow-page");
+
+    await run(`DELETE FROM pages WHERE id IN ('waiting-page', 'slow-page')`);
+    await settle();
+    await drain();
+    expect(await pendingIds()).toEqual([]);
+  });
+
   it("never starts an embedding call after its time is up", async () => {
     const long = "laptop ".repeat(2500);
     for (let index = 0; index < 4; index++) {

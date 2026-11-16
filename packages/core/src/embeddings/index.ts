@@ -40,6 +40,12 @@ export interface EmbeddingFamily {
    * scale; leave it unset until an eval has measured it.
    */
   minSimilarity?: number;
+  /**
+   * How many inputs the provider takes in one request, when `embed` sends a
+   * call's inputs in several. A request it refuses part way loses the ones
+   * before it, so callers that keep progress send at most this many a call.
+   */
+  inputsPerRequest?: number;
   embed(
     inputs: readonly MultimodalEmbeddingInput[],
     purpose: EmbeddingInputPurpose,
@@ -224,6 +230,8 @@ export function createGeminiEmbeddingFamily(
     version: "stable-2026-04",
     dimensions,
     supportedImageMimeTypes: ["image/png", "image/jpeg"],
+    // embedContent takes one input a request.
+    inputsPerRequest: 1,
     async embed(inputs, purpose, options) {
       const vectors: number[][] = [];
       for (const raw of inputs) {
