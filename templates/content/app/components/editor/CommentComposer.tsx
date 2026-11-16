@@ -442,6 +442,7 @@ export const CommentComposer = forwardRef<
   // Why the last picked, pasted or dropped image didn't go on the comment.
   const [imageNotice, setImageNotice] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const imageStripRef = useRef<HTMLDivElement>(null);
   const imageUpload = useReviewCommentImageUpload({
     images,
     onImagesChange: imagesOn ? onImagesChange : undefined,
@@ -815,6 +816,7 @@ export const CommentComposer = forwardRef<
   const imageStrip =
     imagesOn && (images.length > 0 || imageUpload.uploading) ? (
       <div
+        ref={imageStripRef}
         className="flex flex-wrap items-center gap-1.5"
         data-comment-composer-images
       >
@@ -823,9 +825,19 @@ export const CommentComposer = forwardRef<
             ...image,
             url: imageDisplaySrc(image.url),
           }))}
-          onRemove={(index) =>
-            onImagesChange?.(images.filter((_, current) => current !== index))
-          }
+          onRemove={(index) => {
+            onImagesChange?.(images.filter((_, current) => current !== index));
+            // The removed button takes focus with it, so hand it to the next
+            // image's button, or back to the box once none are left.
+            requestAnimationFrame(() => {
+              const buttons = imageStripRef.current?.querySelectorAll(
+                "[data-review-composer-image] button",
+              );
+              const next = buttons?.[Math.min(index, buttons.length - 1)];
+              if (next instanceof HTMLElement) next.focus();
+              else composerRef.current?.focus();
+            });
+          }}
           removeLabel={t("comments.removeImage")}
           disabled={disabled}
         />
@@ -952,6 +964,8 @@ export const CommentComposer = forwardRef<
         ariaLabel={ariaLabel}
         autoFocus={autoFocus}
         disabled={disabled}
+        // Enter while an image uploads keeps the text instead of clearing it.
+        submissionDisabled={imageUpload.uploading}
         attachmentsEnabled={false}
         plusMenuMode="hidden"
         voiceEnabled={false}
