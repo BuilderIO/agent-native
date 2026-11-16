@@ -14,6 +14,12 @@ export default defineAction({
   description:
     "Set or remove a public HTTPS tunnel for a localhost screen's shared live preview. Signed-in editors only; sharing permissions remain unchanged.",
   requiresAuth: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    // Replaces or clears the screen's existing tunnel mapping.
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   schema: z.object({
     designId: z.string().min(1).describe("Design project ID."),
     fileId: z.string().min(1).describe("Localhost screen ID."),
