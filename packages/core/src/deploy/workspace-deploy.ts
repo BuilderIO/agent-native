@@ -715,7 +715,10 @@ type BuildRunner = (
  */
 function workspaceBuildSelection(
   apps: string[],
-  config: { onlyApps?: string[] | undefined; prebuiltApps?: string[] | undefined },
+  config: {
+    onlyApps?: string[] | undefined;
+    prebuiltApps?: string[] | undefined;
+  },
 ): { only: string[] | null; prebuilt: Set<string> } {
   const only = config.onlyApps?.length ? config.onlyApps : null;
   const prebuilt = config.prebuiltApps ?? [];

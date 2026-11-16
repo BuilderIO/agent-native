@@ -84,7 +84,9 @@ afterEach(() => {
 
 function render(node: React.ReactNode) {
   return act(async () =>
-    root.render(<QueryClientProvider client={client}>{node}</QueryClientProvider>),
+    root.render(
+      <QueryClientProvider client={client}>{node}</QueryClientProvider>,
+    ),
   );
 }
 
@@ -151,7 +153,9 @@ it("an explicit refetch stays background unless the query opts in", async () => 
   await act(async () => {
     await refetch();
   });
-  expect(reads("synthetic-retry").map(({ headers }) => headers.get(INTERACTIVE))).toEqual([null]);
+  expect(
+    reads("synthetic-retry").map(({ headers }) => headers.get(INTERACTIVE)),
+  ).toEqual([null]);
 });
 
 it("a foreground refetch recovers a read the paused provider refused", async () => {
@@ -247,7 +251,9 @@ it("an inactive data-only cache waits for its reader before the foreground readb
   expect(client.getQueryState(queryKey)?.error).toBeNull();
   expect(client.getQueryState(untouchedKey)?.isInvalidated).toBe(false);
   await mountRange();
-  expect(reads("synthetic-range").map(({ headers }) => headers.get(INTERACTIVE))).toEqual(["1"]);
+  expect(
+    reads("synthetic-range").map(({ headers }) => headers.get(INTERACTIVE)),
+  ).toEqual(["1"]);
 });
 
 async function mountCached(options: {
@@ -276,7 +282,9 @@ it("admits a visible first read that holds only cached initialData", async () =>
   vi.stubGlobal("fetch", foregroundOnlyServer());
   await mountCached({ initialData: { rows: ["cached"] } });
   await vi.waitFor(() => expect(statuses).toEqual([200]));
-  expect(reads("synthetic-list").map(({ headers }) => headers.get(INTERACTIVE))).toEqual(["1"]);
+  expect(
+    reads("synthetic-list").map(({ headers }) => headers.get(INTERACTIVE)),
+  ).toEqual(["1"]);
 });
 
 it("keeps the polling refetches of that query background", async () => {
