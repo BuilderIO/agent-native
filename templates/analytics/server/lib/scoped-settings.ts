@@ -144,7 +144,7 @@ export async function migrateGlobalSettingsPrefixesToUser(
     if (!existing) {
       await putUserSetting(scope.email, key, value);
     }
-    await deleteSetting(key);
+    await deleteSetting(key, { global: true });
     migrated.push(key);
   }
 

@@ -1066,6 +1066,14 @@ describe("validateFirstPartyAnalyticsSql", () => {
     ).toThrow("cannot call set-returning function unnest");
   });
 
+  it("reads a parenthesized CASE condition as a keyword, not a function", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT SUM(CASE WHEN (app = 'slides') THEN 1 ELSE 0 END) AS n FROM analytics_events",
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects unapproved SQL functions that can escape tenant scoping", () => {
     for (const sql of [
       "SELECT Σ.sum(event_count) FROM analytics_event_daily_rollups",

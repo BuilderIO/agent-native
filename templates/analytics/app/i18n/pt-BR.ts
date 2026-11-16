@@ -1392,6 +1392,8 @@ export default {
     resetFilters: "Redefinir filtros",
     collapseFilters: "Recolher filtros",
     expandFilters: "Expandir filtros",
+    collapseDescription: "Recolher descrição",
+    expandDescription: "Expandir descrição",
     drilldownChartPoints: "Pontos do gráfico",
     drilldownPreviousPage: "Página anterior dos pontos do gráfico",
     drilldownNextPage: "Página seguinte dos pontos do gráfico",
@@ -1411,6 +1413,8 @@ export default {
       "O gráfico mostra {{chart}}, mas {{total}} registros correspondem",
     drilldownAggregateOnly:
       "Este painel tem apenas linhas agregadas. As linhas do ponto clicado estão destacadas.",
+    drilldownNoXValueAggregateOnly:
+      "Este painel não consegue abrir registros de um ponto sem valor, então mostra linhas agregadas. As linhas do ponto clicado estão destacadas.",
     drilldownNoRecords: "Nenhum registro correspondente",
     drilldownNoRecordsIncomplete:
       "Nenhum registro foi carregado. O resultado está incompleto, então ainda pode haver registros correspondentes.",
@@ -1420,11 +1424,16 @@ export default {
     drilldownOverByteCap:
       "Estes registros leriam mais de {{gib}} GiB, então não foram carregados. Restrinja os filtros ou o período do painel e tente de novo.",
     filterSeries: "Filter",
+    noXValue: "Sem valor",
     chartTimeRangeOverride: "Substituir o intervalo de tempo deste gráfico",
     chartTimeRangeInherit: "Intervalo do painel",
     hide: "Hide",
     show: "Show",
     saveAsView: "Salvar como visualização",
+    unknownTraffic: "Desconhecido {{count}}",
+    unknownTrafficUnavailable: "Contagem de desconhecidos indisponível",
+    unknownTrafficTip:
+      "Eventos dos últimos {{days}} dias sem host nem ambiente reconhecido. Contam como produção.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
@@ -1716,6 +1725,10 @@ export default {
     hideEmptySessions: "Ocultar sessões vazias",
     networkErrors: "Erros de rede",
     rageClicksFilter: "Cliques de raiva",
+    traffic: "Tráfego",
+    allTraffic: "Todo o tráfego",
+    productionTraffic: "Produção",
+    betaTraffic: "Beta",
     visitors: "Visitantes",
     allVisitors: "Todos os visitantes",
     internalVisitors: "Internos",

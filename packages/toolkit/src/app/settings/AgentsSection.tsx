@@ -7,6 +7,10 @@ import { useChangeVersion } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg, useSyncA2ASecret } from "@agent-native/core/client/org";
 import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
+import {
   buildOpenRoutePath,
   buildSettingsRoute,
   STANDARD_APP_ROUTES,
@@ -2198,9 +2202,11 @@ export function useRemoteAgents(): RemoteAgentsState {
         void fetchAgents();
         return true;
       }
+      reportWriteFailure(writeFailureFromResponse(res));
       setAgents(previousAgents);
       return false;
-    } catch {
+    } catch (error) {
+      reportWriteFailure(error);
       setAgents(previousAgents);
       return false;
     }

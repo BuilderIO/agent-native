@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { CLIP_EMBED_BLOCK_TYPE } from "@shared/clip-embed-block";
 import {
   CLIP_UPLOAD_ERRORS,
@@ -293,7 +294,7 @@ export function useClipFileUpload(input: {
         }
         return result.status === "too_large";
       } catch (error) {
-        toast.error(t(uploadErrorKey(error)));
+        reportWriteFailure(error, { label: t(uploadErrorKey(error)) });
         return true;
       } finally {
         busyRef.current = false;

@@ -6,8 +6,15 @@ import {
   proposalGroups,
   receiptSuggestion,
   reviewedInThread,
+  piecesOfStaleUnits,
+  refreshedProposalMembers,
+  reviewedAsOne,
+  reviewUnitDiffParts,
+  reviewUnitOperations,
+  reviewUnits,
   suggestionLineExcerpt,
   suggestionsByThread,
+  withWholeReviewUnits,
 } from "./thread-suggestions";
 
 const suggestion = (
@@ -70,6 +77,288 @@ describe("proposalGroups", () => {
       ["alone"],
       ["first", "second"],
       ["later"],
+    ]);
+  });
+});
+
+describe("reviewUnits", () => {
+  const piece = (
+    id: string,
+    reviewUnit: string | null,
+    status: ResourceSuggestion["status"] = "pending",
+    proposalId = "p1",
+  ) =>
+    suggestion(id, reviewUnit ? { reviewUnit } : null, undefined, {
+      proposalId,
+      status,
+    });
+
+  const ids = (suggestions: ResourceSuggestion[]) =>
+    reviewUnits(suggestions).map((unit) => [
+      unit.leader.id,
+      unit.members.map((member) => member.id),
+    ]);
+
+  it("groups pieces by label, in the order given", () => {
+    expect(
+      ids([piece("a", "k:0"), piece("b", "k:1"), piece("c", "k:0")]),
+    ).toEqual([
+      ["a", ["a", "c"]],
+      ["b", ["b"]],
+    ]);
+  });
+
+  it("keeps a suggestion with no label on its own", () => {
+    expect(ids([piece("a", null), piece("b", null)])).toEqual([
+      ["a", ["a"]],
+      ["b", ["b"]],
+    ]);
+  });
+
+  it("separates pieces that ended differently", () => {
+    expect(
+      ids([
+        piece("a", "k:0"),
+        piece("b", "k:0", "accepted"),
+        piece("c", "k:0"),
+      ]),
+    ).toEqual([
+      ["a", ["a", "c"]],
+      ["b", ["b"]],
+    ]);
+  });
+
+  it("treats anything but a text label as no unit", () => {
+    const unlabeled = (id: string, reviewUnit: unknown) =>
+      suggestion(id, { reviewUnit }, undefined, { proposalId: "p1" });
+    expect(ids([unlabeled("a", ""), unlabeled("b", "")])).toHaveLength(2);
+    expect(ids([unlabeled("a", 1), unlabeled("b", 1)])).toHaveLength(2);
+  });
+
+  it("doesn't join the same label across proposals", () => {
+    expect(
+      ids([
+        piece("a", "k:0", "pending", "p1"),
+        piece("b", "k:0", "pending", "p2"),
+      ]),
+    ).toEqual([
+      ["a", ["a"]],
+      ["b", ["b"]],
+    ]);
+  });
+
+  it("brings the rest of a unit along with a piece a filter kept", () => {
+    const all = [
+      piece("a", "k:0"),
+      piece("b", "k:1"),
+      piece("c", "k:0"),
+      piece("d", null),
+      piece("e", "k:0", "accepted"),
+    ];
+    const [, , kept = null] = all;
+    if (!kept) throw new Error("The list has a third piece");
+    expect(
+      withWholeReviewUnits([kept], all).map((member) => member.id),
+    ).toEqual(["a", "c"]);
+  });
+});
+
+describe("reviewUnitOperations", () => {
+  const source = "Teh team will recieve the files.\n\nKeep this line.";
+  const unitOf = (...ops: unknown[]) => {
+    const members = ops.map((operation, index) =>
+      suggestion(`piece-${index}`, null, undefined, {
+        operations: [operation],
+      } as Partial<ResourceSuggestion>),
+    );
+    const [leader = null] = members;
+    if (!leader) throw new Error("A unit has a piece");
+    return { leader, members };
+  };
+  const joined = (...ops: unknown[]) => {
+    const [operation = null] = reviewUnitOperations(unitOf(...ops));
+    if (!operation) throw new Error("A unit has an operation");
+    return operation;
+  };
+  const swap = (find: string, inserted: string, markdown = source) => {
+    const from = markdown.indexOf(find);
+    return {
+      id: find,
+      kind: "replace_text",
+      before: { markdown, changedText: find },
+      after: { markdown, changedText: inserted },
+      anchor: { from, to: from + find.length },
+    };
+  };
+
+  it("reads a unit as one change from its first piece to its last", () => {
+    const operation = joined(swap("Teh", "The"), swap("recieve", "receive"));
+    expect(operation).toMatchObject({
+      kind: "replace_text",
+      before: { changedText: "Teh team will recieve" },
+      after: { changedText: "The team will receive" },
+      anchor: { from: 0, to: "Teh team will recieve".length },
+    });
+    expect((operation.after as { markdown: string }).markdown).toBe(
+      "The team will receive the files.\n\nKeep this line.",
+    );
+    expect(suggestionLineExcerpt([operation])).toEqual({
+      before: "Teh team will recieve the files.",
+      after: "The team will receive the files.",
+    });
+  });
+
+  it("reads pieces in Page order whichever order they come in", () => {
+    const operation = joined(swap("recieve", "receive"), swap("Teh", "The"));
+    expect(operation.after).toMatchObject({
+      changedText: "The team will receive",
+    });
+  });
+
+  it("applies a deletion and an insertion that change the length", () => {
+    const from = source.indexOf("team");
+    const operation = joined(swap("Teh ", ""), {
+      ...swap("team", ""),
+      before: { markdown: source, changedText: "" },
+      after: { markdown: source, changedText: "whole " },
+      anchor: { from, to: from },
+    });
+    expect(operation.before).toMatchObject({ changedText: "Teh " });
+    expect(operation.after).toMatchObject({ changedText: "whole " });
+  });
+
+  it("returns a single piece's operations untouched", () => {
+    const unit = unitOf(swap("Teh", "The"));
+    expect(reviewUnitOperations(unit)).toBe(unit.leader.operations);
+  });
+
+  it("lists pieces staged on different text instead of joining them", () => {
+    const operations = reviewUnitOperations(
+      unitOf(swap("Teh", "The"), swap("Keep", "Hold", "Keep it.")),
+    );
+    expect(operations).toHaveLength(2);
+  });
+
+  it("lists a piece that empties a block instead of writing out its marker", () => {
+    const operations = reviewUnitOperations(
+      unitOf(swap("Teh", "The"), swap("Keep this line.", "<empty-block/>")),
+    );
+    expect(operations).toHaveLength(2);
+  });
+});
+
+describe("reviewedAsOne", () => {
+  const piece = (id: string, reviewUnit?: string) =>
+    suggestion(id, reviewUnit ? { reviewUnit } : {}, undefined, {
+      proposalId: "p",
+    } as Partial<ResourceSuggestion>);
+
+  it("counts a unit's pieces as one decision", () => {
+    expect(reviewedAsOne([piece("a", "k:0"), piece("b", "k:0")])).toBe(true);
+    expect(reviewedAsOne([piece("a")])).toBe(true);
+  });
+
+  it("counts different units, or pieces with no unit, separately", () => {
+    expect(reviewedAsOne([piece("a", "k:0"), piece("b", "k:1")])).toBe(false);
+    expect(reviewedAsOne([piece("a"), piece("b")])).toBe(false);
+  });
+});
+
+describe("a unit with a stale piece", () => {
+  const piece = (id: string, status: string) =>
+    suggestion(id, { reviewUnit: "k:0" }, undefined, {
+      status,
+      proposalId: "p",
+    } as Partial<ResourceSuggestion>);
+
+  it("stays one unit, led by a piece that can still be decided", () => {
+    const units = reviewUnits([piece("a", "stale"), piece("b", "pending")]);
+    expect(units).toHaveLength(1);
+    expect(units[0]?.leader.id).toBe("b");
+    expect(units[0]?.members.map(({ id }) => id)).toEqual(["a", "b"]);
+  });
+
+  it("marks only the unit's pending pieces as not acceptable alone", () => {
+    const other = suggestion("c", { reviewUnit: "k:1" }, undefined, {
+      proposalId: "p",
+    } as Partial<ResourceSuggestion>);
+    expect([
+      ...piecesOfStaleUnits([
+        piece("a", "stale"),
+        piece("b", "pending"),
+        other,
+      ]),
+    ]).toEqual(["b"]);
+  });
+
+  it("keeps pieces that were decided apart from the ones still open", () => {
+    expect(
+      reviewUnits([piece("a", "accepted"), piece("b", "pending")]),
+    ).toHaveLength(2);
+    expect([
+      ...piecesOfStaleUnits([piece("a", "accepted"), piece("b", "pending")]),
+    ]).toEqual([]);
+  });
+});
+
+describe("refreshedProposalMembers", () => {
+  const piece = (id: string, status = "pending", proposalId = "p") =>
+    ({ id, status, proposalId }) as unknown as ResourceSuggestion;
+  const unit = [piece("a"), piece("b")];
+
+  it("keeps an exact set whose pieces are all still pending", () => {
+    const refreshed = [
+      piece("a"),
+      piece("b"),
+      piece("c"),
+      piece("x", "pending", "q"),
+    ];
+    expect(
+      refreshedProposalMembers(refreshed, "p", unit, true)?.map(({ id }) => id),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("refuses an exact set once one of its pieces changed elsewhere", () => {
+    const drawn = [
+      { ...piece("a"), revision: 1 },
+      { ...piece("b"), revision: 1 },
+    ] as ResourceSuggestion[];
+    const changed = drawn.map((member) =>
+      member.id === "b" ? { ...member, revision: 2 } : member,
+    );
+    expect(refreshedProposalMembers(changed, "p", drawn, true)).toBeNull();
+    expect(refreshedProposalMembers(drawn, "p", drawn, true)).toEqual(drawn);
+  });
+
+  it("refuses an exact set once one of its pieces was decided", () => {
+    expect(
+      refreshedProposalMembers(
+        [piece("a"), piece("b", "accepted")],
+        "p",
+        unit,
+        true,
+      ),
+    ).toBeNull();
+  });
+
+  it("takes whatever is left of a whole proposal", () => {
+    expect(
+      refreshedProposalMembers(
+        [piece("a", "accepted"), piece("b"), piece("c")],
+        "p",
+        unit,
+        false,
+      )?.map(({ id }) => id),
+    ).toEqual(["b", "c"]);
+  });
+});
+
+describe("reviewUnitDiffParts", () => {
+  it("keeps whole words together", () => {
+    expect(reviewUnitDiffParts("the retry hooks", "the retries")).toEqual([
+      { type: "equal", text: "the " },
+      { type: "delete", text: "retry hooks" },
+      { type: "insert", text: "retries" },
     ]);
   });
 });

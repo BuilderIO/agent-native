@@ -4437,6 +4437,30 @@ test("resolves the root script tests a guard-scoped change must run", () => {
   );
 });
 
+test("selects chat health regressions for its script or test changes", () => {
+  const source = classifyChangedPaths(["scripts/chat-health.mjs"]);
+  assert.equal(source.full, true);
+  assert.equal(source.checks.guards, true);
+  assert.deepEqual(source.scriptTests, [
+    "scripts/chat-health-terminal.test.ts",
+    "scripts/chat-health.test.ts",
+  ]);
+
+  for (const path of [
+    "scripts/chat-health.test.ts",
+    "scripts/chat-health-terminal.test.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, false, path);
+    assert.equal(scope.checks.guards, true, path);
+    assert.deepEqual(scope.scriptTests, [path], path);
+  }
+  assert.deepEqual(
+    classifyChangedPaths(["scripts/new-tool.ts"]).scriptTests,
+    [],
+  );
+});
+
 test("still runs changed root script tests when the change set is full", () => {
   const scope = classifyChangedPaths([
     ".github/workflows/ci.yml",
@@ -4718,10 +4742,13 @@ test(
         "scripts/ci-change-scope.test.ts",
         "scripts/ci-change-scope-renames.test.ts",
         "scripts/ci-change-scope.ts",
+        "scripts/guard-blocker-safe-module-names.ts",
         "scripts/lib/mutation-scope.ts",
         "verification/execution-lease/manifest.json",
         "scripts/ci-build-workspaces.test.ts",
         "scripts/ci-build-workspaces.ts",
+        "scripts/chat-health.test.ts",
+        "scripts/chat-health-terminal.test.ts",
         "scripts/lib/pnpm-command.ts",
         "scripts/design-e2e-regression-pin-identities.test.ts",
         "scripts/design-e2e-regression-pins.test.ts",

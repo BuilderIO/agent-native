@@ -3,6 +3,7 @@ import {
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
+import { nextFreeName } from "@agent-native/core/free-name";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -72,14 +73,7 @@ function isAppScreenFile(file: { content: string | null }): boolean {
 }
 
 function uniqueFilename(path: string, used: Set<string>): string {
-  const base = screenFilename(path);
-  const [stem, extension = "html"] = base.split(/\.(?=[^.]+$)/);
-  let filename = `${stem}.${extension}`;
-  let suffix = 2;
-  while (used.has(filename)) {
-    filename = `${stem}-${suffix}.${extension}`;
-    suffix += 1;
-  }
+  const filename = nextFreeName(screenFilename(path), used);
   used.add(filename);
   return filename;
 }

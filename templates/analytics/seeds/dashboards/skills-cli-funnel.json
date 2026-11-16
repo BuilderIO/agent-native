@@ -48,7 +48,7 @@
       "chartType": "metric",
       "source": "first-party",
       "width": 1,
-      "sql": "WITH started AS (SELECT COUNT(DISTINCT session_id) AS n FROM analytics_events WHERE event_name = 'skills_cli started'), completed AS (SELECT COUNT(DISTINCT session_id) AS n FROM analytics_events WHERE event_name = 'skills_cli install completed') SELECT CASE WHEN started.n = 0 THEN 0 ELSE ROUND(completed.n * 100.0 / started.n) END AS rate FROM started, completed",
+      "sql": "WITH started AS (SELECT COUNT(DISTINCT session_id) AS n FROM analytics_events WHERE event_name = 'skills_cli started'), completed AS (SELECT COUNT(DISTINCT session_id) AS n FROM analytics_events WHERE event_name = 'skills_cli install completed') SELECT CASE WHEN started.n = 0 THEN 0 ELSE ROUND(completed.n * 100.0 / started.n) END AS rate FROM started CROSS JOIN completed",
       "config": {
         "yKey": "rate",
         "yFormatter": "percent",
@@ -75,12 +75,12 @@
       "chartType": "bar",
       "source": "first-party",
       "width": 1,
-      "sql": "SELECT trim(s) AS skill, COUNT(*) AS count FROM analytics_events, LATERAL unnest(string_to_array(properties::jsonb ->> 'selected', ',')) AS s WHERE event_name = 'skills_cli skills selected' AND (properties::jsonb ->> 'selected') <> '' GROUP BY trim(s) ORDER BY count DESC LIMIT 30",
+      "sql": "WITH lists AS (SELECT properties::jsonb ->> 'selected' AS list FROM analytics_events WHERE event_name = 'skills_cli skills selected' AND (properties::jsonb ->> 'selected') <> ''), positions AS (SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10 UNION ALL SELECT 11 UNION ALL SELECT 12 UNION ALL SELECT 13 UNION ALL SELECT 14 UNION ALL SELECT 15 UNION ALL SELECT 16 UNION ALL SELECT 17 UNION ALL SELECT 18 UNION ALL SELECT 19 UNION ALL SELECT 20 UNION ALL SELECT 21 UNION ALL SELECT 22 UNION ALL SELECT 23 UNION ALL SELECT 24 UNION ALL SELECT 25 UNION ALL SELECT 26 UNION ALL SELECT 27 UNION ALL SELECT 28 UNION ALL SELECT 29 UNION ALL SELECT 30 UNION ALL SELECT 31 UNION ALL SELECT 32 UNION ALL SELECT 33 UNION ALL SELECT 34 UNION ALL SELECT 35 UNION ALL SELECT 36 UNION ALL SELECT 37 UNION ALL SELECT 38 UNION ALL SELECT 39 UNION ALL SELECT 40), items AS (SELECT trim(CASE positions.n WHEN 1 THEN split_part(lists.list, ',', 1) WHEN 2 THEN split_part(lists.list, ',', 2) WHEN 3 THEN split_part(lists.list, ',', 3) WHEN 4 THEN split_part(lists.list, ',', 4) WHEN 5 THEN split_part(lists.list, ',', 5) WHEN 6 THEN split_part(lists.list, ',', 6) WHEN 7 THEN split_part(lists.list, ',', 7) WHEN 8 THEN split_part(lists.list, ',', 8) WHEN 9 THEN split_part(lists.list, ',', 9) WHEN 10 THEN split_part(lists.list, ',', 10) WHEN 11 THEN split_part(lists.list, ',', 11) WHEN 12 THEN split_part(lists.list, ',', 12) WHEN 13 THEN split_part(lists.list, ',', 13) WHEN 14 THEN split_part(lists.list, ',', 14) WHEN 15 THEN split_part(lists.list, ',', 15) WHEN 16 THEN split_part(lists.list, ',', 16) WHEN 17 THEN split_part(lists.list, ',', 17) WHEN 18 THEN split_part(lists.list, ',', 18) WHEN 19 THEN split_part(lists.list, ',', 19) WHEN 20 THEN split_part(lists.list, ',', 20) WHEN 21 THEN split_part(lists.list, ',', 21) WHEN 22 THEN split_part(lists.list, ',', 22) WHEN 23 THEN split_part(lists.list, ',', 23) WHEN 24 THEN split_part(lists.list, ',', 24) WHEN 25 THEN split_part(lists.list, ',', 25) WHEN 26 THEN split_part(lists.list, ',', 26) WHEN 27 THEN split_part(lists.list, ',', 27) WHEN 28 THEN split_part(lists.list, ',', 28) WHEN 29 THEN split_part(lists.list, ',', 29) WHEN 30 THEN split_part(lists.list, ',', 30) WHEN 31 THEN split_part(lists.list, ',', 31) WHEN 32 THEN split_part(lists.list, ',', 32) WHEN 33 THEN split_part(lists.list, ',', 33) WHEN 34 THEN split_part(lists.list, ',', 34) WHEN 35 THEN split_part(lists.list, ',', 35) WHEN 36 THEN split_part(lists.list, ',', 36) WHEN 37 THEN split_part(lists.list, ',', 37) WHEN 38 THEN split_part(lists.list, ',', 38) WHEN 39 THEN split_part(lists.list, ',', 39) WHEN 40 THEN split_part(lists.list, ',', 40) END) AS skill FROM lists CROSS JOIN positions) SELECT skill, COUNT(*) AS count FROM items WHERE skill <> '' GROUP BY skill ORDER BY count DESC LIMIT 30",
       "config": {
         "xKey": "skill",
         "yKey": "count",
         "color": "var(--brand-teal)",
-        "description": "Occurrences of each skill across the `selected` property of skills selected events"
+        "description": "Occurrences of each skill across the `selected` property of skills selected events, counting the first 40 names in each run's list"
       }
     },
     {
@@ -145,12 +145,12 @@
       "chartType": "bar",
       "source": "first-party",
       "width": 1,
-      "sql": "SELECT trim(c) AS client, COUNT(*) AS count FROM analytics_events, LATERAL unnest(string_to_array(properties::jsonb ->> 'clients', ',')) AS c WHERE event_name = 'skills_cli clients selected' AND (properties::jsonb ->> 'clients') <> '' GROUP BY trim(c) ORDER BY count DESC LIMIT 30",
+      "sql": "WITH lists AS (SELECT properties::jsonb ->> 'clients' AS list FROM analytics_events WHERE event_name = 'skills_cli clients selected' AND (properties::jsonb ->> 'clients') <> ''), positions AS (SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10), items AS (SELECT trim(CASE positions.n WHEN 1 THEN split_part(lists.list, ',', 1) WHEN 2 THEN split_part(lists.list, ',', 2) WHEN 3 THEN split_part(lists.list, ',', 3) WHEN 4 THEN split_part(lists.list, ',', 4) WHEN 5 THEN split_part(lists.list, ',', 5) WHEN 6 THEN split_part(lists.list, ',', 6) WHEN 7 THEN split_part(lists.list, ',', 7) WHEN 8 THEN split_part(lists.list, ',', 8) WHEN 9 THEN split_part(lists.list, ',', 9) WHEN 10 THEN split_part(lists.list, ',', 10) END) AS client FROM lists CROSS JOIN positions) SELECT client, COUNT(*) AS count FROM items WHERE client <> '' GROUP BY client ORDER BY count DESC LIMIT 30",
       "config": {
         "xKey": "client",
         "yKey": "count",
         "color": "#a855f7",
-        "description": "Occurrences of each client across the `clients` property of clients selected events"
+        "description": "Occurrences of each client across the `clients` property of clients selected events, counting the first 10 names in each run's list"
       }
     },
     {
@@ -159,7 +159,7 @@
       "chartType": "table",
       "source": "first-party",
       "width": 3,
-      "sql": "WITH steps AS (SELECT 1 AS step_order, 'Started' AS step, COUNT(DISTINCT session_id) AS reached FROM analytics_events WHERE event_name = 'skills_cli started' UNION ALL SELECT 2, 'Skills prompted', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli skills prompted' UNION ALL SELECT 3, 'Skills selected', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli skills selected' UNION ALL SELECT 4, 'Clients selected', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli clients selected' UNION ALL SELECT 5, 'Scope selected', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli scope selected' UNION ALL SELECT 6, 'Install completed', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli install completed' UNION ALL SELECT 7, 'Completed', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli completed'), start_total AS (SELECT COUNT(DISTINCT session_id) AS n FROM analytics_events WHERE event_name = 'skills_cli started') SELECT steps.step, steps.reached, CASE WHEN start_total.n = 0 THEN 0 ELSE ROUND(steps.reached * 100.0 / start_total.n) END AS pct_of_start FROM steps, start_total ORDER BY steps.step_order",
+      "sql": "WITH steps AS (SELECT 1 AS step_order, 'Started' AS step, COUNT(DISTINCT session_id) AS reached FROM analytics_events WHERE event_name = 'skills_cli started' UNION ALL SELECT 2, 'Skills prompted', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli skills prompted' UNION ALL SELECT 3, 'Skills selected', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli skills selected' UNION ALL SELECT 4, 'Clients selected', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli clients selected' UNION ALL SELECT 5, 'Scope selected', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli scope selected' UNION ALL SELECT 6, 'Install completed', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli install completed' UNION ALL SELECT 7, 'Completed', COUNT(DISTINCT session_id) FROM analytics_events WHERE event_name = 'skills_cli completed'), start_total AS (SELECT COUNT(DISTINCT session_id) AS n FROM analytics_events WHERE event_name = 'skills_cli started') SELECT steps.step, steps.reached, CASE WHEN start_total.n = 0 THEN 0 ELSE ROUND(steps.reached * 100.0 / start_total.n) END AS pct_of_start FROM steps CROSS JOIN start_total ORDER BY steps.step_order",
       "config": {
         "description": "Distinct runs reaching each step and percent of starting runs, in funnel order",
         "columns": [

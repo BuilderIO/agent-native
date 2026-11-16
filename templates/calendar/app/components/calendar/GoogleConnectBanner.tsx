@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   IconCalendarCheck,
   IconX,
@@ -99,6 +100,10 @@ export function GoogleConnectBanner({
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
   const addAccountUrl = useGoogleAddAccountUrl(wantAddAccount);
   const disconnectGoogle = useDisconnectGoogle();
+  const disconnectAccount = (email: string) =>
+    disconnectGoogle.mutate(email, {
+      onError: (error) => reportWriteFailure(error),
+    });
 
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
@@ -428,7 +433,7 @@ export function GoogleConnectBanner({
                 <span>{account.email}</span>
                 {!account.shared && (
                   <button
-                    onClick={() => disconnectGoogle.mutate(account.email)}
+                    onClick={() => disconnectAccount(account.email)}
                     className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/25 hover:text-foreground/50"
                   >
                     <IconX className="h-3 w-3" />
@@ -474,7 +479,7 @@ export function GoogleConnectBanner({
                 <span className="truncate">{account.email}</span>
                 {!account.shared && (
                   <button
-                    onClick={() => disconnectGoogle.mutate(account.email)}
+                    onClick={() => disconnectAccount(account.email)}
                     className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/30 hover:text-foreground/60"
                   >
                     <IconX className="h-3 w-3" />

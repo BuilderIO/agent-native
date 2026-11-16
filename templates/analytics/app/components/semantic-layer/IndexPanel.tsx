@@ -491,7 +491,9 @@ function BuildSection() {
     retry: false,
     staleTime: 30_000,
   });
-  const build = useActionMutation("build-data-index");
+  const build = useActionMutation("build-data-index", {
+    errorNotification: "caller",
+  });
   const overview = overviewQuery.data as BrainOverview | undefined;
   const building = build.isPending || overview?.index.state === "running";
 
@@ -531,7 +533,9 @@ function ScheduleSection() {
     retry: false,
     staleTime: 30_000,
   });
-  const save = useActionMutation("set-index-schedule");
+  const save = useActionMutation("set-index-schedule", {
+    errorNotification: "caller",
+  });
   const saved = query.data as IndexSchedule | undefined;
   // Keyed on the saved value, not dataUpdatedAt: saving the other form
   // invalidates every action query, and that must not drop this unsaved edit.
@@ -677,7 +681,9 @@ function DbtRepositorySection() {
     retry: false,
     staleTime: 30_000,
   });
-  const save = useActionMutation("set-dbt-repository");
+  const save = useActionMutation("set-dbt-repository", {
+    errorNotification: "caller",
+  });
   const saved = query.data as DbtRepository | null | undefined;
   // Keyed on the saved value so a save elsewhere does not drop this unsaved edit.
   const savedKey = JSON.stringify(saved);

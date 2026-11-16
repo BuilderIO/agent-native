@@ -14,6 +14,28 @@ import {
   vi,
 } from "vitest";
 
+const beforeRowLock = vi.hoisted(() => ({
+  run: null as null | ((tx: unknown) => Promise<unknown>),
+}));
+
+vi.mock("../server/lib/document-body-revision.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../server/lib/document-body-revision.js")
+    >();
+  return {
+    ...actual,
+    lockLegacyBodyWrites: async (
+      ...args: Parameters<typeof actual.lockLegacyBodyWrites>
+    ) => {
+      const run = beforeRowLock.run;
+      beforeRowLock.run = null;
+      await run?.(args[0]);
+      return actual.lockLegacyBodyWrites(...args);
+    },
+  };
+});
+
 const durableLock = vi.hoisted(() => ({ entered: false }));
 const flushOpenDocumentEditorToSql = vi.hoisted(() => vi.fn());
 
@@ -527,6 +549,92 @@ describe("migrate-content-database-rows", () => {
       maxMigrationFlushConcurrency,
     );
     expect(durableLock.entered).toBe(false);
+  });
+
+  it("refuses an agent's apply and rollback over a locked row, and keeps an applied plan's replay", async () => {
+    const seed = await fixture(2);
+    const input = plan(seed);
+    const db = getDb();
+    const lockRow = (agentTextLocked: number) =>
+      db
+        .update(schema.documents)
+        .set({ agentTextLocked })
+        .where(eq(schema.documents.id, seed.rows[0].documentId));
+    const agent = { caller: "mcp" as const, userEmail: OWNER };
+    const refused = { errorCode: "AGENT_TEXT_LOCKED" };
+
+    await lockRow(1);
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }, agent),
+      ),
+    ).rejects.toMatchObject(refused);
+
+    await lockRow(0);
+    const applied = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }, agent),
+    );
+
+    await lockRow(1);
+    const replayed = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }, agent),
+    );
+    expect(replayed.postDigest).toBe(applied.postDigest);
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        terminalAction.run(
+          {
+            phase: "rollback",
+            databaseId: seed.databaseId,
+            idempotencyKey: input.idempotencyKey,
+            expectedPostDigest: applied.postDigest,
+          },
+          agent,
+        ),
+      ),
+    ).rejects.toMatchObject(refused);
+  });
+
+  it("refuses an agent's apply and rollback when a row locks just before the row locks are taken", async () => {
+    const seed = await fixture(2);
+    const input = plan(seed);
+    const lockInTransaction = (tx: unknown) =>
+      (tx as ReturnType<typeof getDb>)
+        .update(schema.documents)
+        .set({ agentTextLocked: 1 })
+        .where(eq(schema.documents.id, seed.rows[0].documentId));
+    const agent = { caller: "mcp" as const, userEmail: OWNER };
+    const refused = { errorCode: "AGENT_TEXT_LOCKED" };
+    const before = await readFixtureState(seed);
+
+    beforeRowLock.run = lockInTransaction;
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }, agent),
+      ),
+    ).rejects.toMatchObject(refused);
+    expect(await readFixtureState(seed)).toEqual(before);
+
+    const applied = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }, agent),
+    );
+    const after = await readFixtureState(seed);
+
+    beforeRowLock.run = lockInTransaction;
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        terminalAction.run(
+          {
+            phase: "rollback",
+            databaseId: seed.databaseId,
+            idempotencyKey: input.idempotencyKey,
+            expectedPostDigest: applied.postDigest,
+          },
+          agent,
+        ),
+      ),
+    ).rejects.toMatchObject(refused);
+    expect(await readFixtureState(seed)).toEqual(after);
   });
 
   it("validates without writes, applies all 20 synthetic rows, and replays without versions", async () => {

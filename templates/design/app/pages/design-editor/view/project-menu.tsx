@@ -171,6 +171,11 @@ export function renderProjectMenu({
             >
               {t("designEditor.fileMenu.import")}
             </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link to="/visual-edit" target="_blank" rel="noreferrer">
+                {t("designEditor.fileMenu.connectLocalApp")}
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 {t("designEditor.export")}

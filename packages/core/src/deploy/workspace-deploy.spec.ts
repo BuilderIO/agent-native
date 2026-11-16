@@ -10,11 +10,13 @@ import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
+import { WORKSPACE_DEPLOY_BUILD_ENV } from "../cli/process.js";
 import { addVercelSweepCron } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 import {
   buildStart,
   isDurableBackgroundWorkspaceDeployEnabled,
+  recurringJobsSweepSchedule,
   runWorkspaceDeploy,
   spawnBuild,
 } from "./workspace-deploy.js";
@@ -170,6 +172,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   delete (globalThis as Record<PropertyKey, unknown>)[
     INVALID_DIRECTORY_BASE_LOG
   ];
@@ -249,6 +252,26 @@ afterEach(() => {
 });
 
 describe("workspace deploy", () => {
+  it("reports its progress and keeps app builds from reporting for themselves", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    const progress: Array<{ step: string; preset?: string }> = [];
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+      onProgress: (update) => progress.push(update),
+    });
+
+    expect(progress).toEqual([
+      { step: "build", preset: "netlify" },
+      { step: "package" },
+    ]);
+    expect(buildCallForApp("dispatch")?.env).toMatchObject({
+      [WORKSPACE_DEPLOY_BUILD_ENV]: "1",
+    });
+  });
+
   it("preserves an explicitly configured hosted feedback URL", async () => {
     process.env.VITE_AGENT_NATIVE_FEEDBACK_URL =
       "https://feedback.example.com/f/workspace/form-id";
@@ -503,6 +526,22 @@ describe("workspace deploy", () => {
     ).rejects.toThrow("Expected one recurring-jobs sweep cron under /alpha");
   });
 
+  it("rejects database app access before building isolated-auth apps", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ACCESS_STORE", "database");
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.mts"),
+      'export default { deployment: { workspace: { appsDirectory: ".", authMode: "isolated" } } };',
+    );
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=netlify", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).rejects.toThrow("shared workspace authentication");
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
   it("builds direct-child apps with isolated workspace auth", async () => {
     const appDir = path.join(tmpDir, "account-tiering");
     fs.mkdirSync(appDir, { recursive: true });
@@ -661,6 +700,8 @@ describe("workspace deploy", () => {
   );
 
   it("collects Netlify static assets, functions, and redirects for a workspace", async () => {
+    vi.stubEnv("AGENT_NATIVE_BUILD_ID", "a".repeat(40));
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ACCESS_STORE", "database");
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
 
@@ -869,6 +910,12 @@ describe("workspace deploy", () => {
       "utf-8",
     );
     expect(dispatchServer).toContain('const basePath = "/dispatch";');
+    expect(dispatchServer).toContain("x-agent-native-build-sha");
+    expect(dispatchServer).toContain("a".repeat(40));
+    expect(dispatchServer).toContain(
+      'AGENT_NATIVE_WORKSPACE_APP_ACCESS_STORE ??= "database";',
+    );
+    vi.unstubAllEnvs();
     expect(dispatchServer).toContain("Object.assign(processRef.env");
     expect(dispatchServer).toContain('AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchServer).toContain("APP_BASE_PATH: basePath");
@@ -878,7 +925,7 @@ describe("workspace deploy", () => {
     expect(dispatchServer).toContain('\\"path\\":\\"/starter\\"');
     expect(dispatchServer).toContain('await import("./main.mjs")');
     expect(dispatchServer).toContain(
-      'path: ["/_agent-native/*","/.well-known/*","/dispatch/*"]',
+      'path: ["/_agent-native/*","/.well-known/*","/dispatch","/dispatch.data","/dispatch/*"]',
     );
     expect(dispatchServer).toContain('"/dispatch/assets/*"');
     expect(dispatchServer).toContain('"/dispatch/favicon.svg"');
@@ -902,7 +949,6 @@ describe("workspace deploy", () => {
       '"/.well-known/oauth-authorization-server/dispatch"',
     );
     expect(dispatchServer).toContain("preferStatic: false");
-    expect(dispatchServer).not.toContain("normalizeBasePathArgs");
 
     const starterServer = fs.readFileSync(
       path.join(
@@ -944,6 +990,13 @@ describe("workspace deploy", () => {
     process.env.VITE_APP_BASE_PATH = "/wrong";
     process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON = "[]";
     await dispatchModule.default();
+    // oracle-change: the mounted Dispatch index now follows the sibling-app request contract.
+    const dispatchRootResponse = await dispatchModule.default(
+      new Request("https://example.test/dispatch"),
+    );
+    expect(await dispatchRootResponse.text()).toBe(
+      "https://example.test/dispatch//",
+    );
     expect(process.env.APP_BASE_PATH).toBe("/dispatch");
     expect(process.env.VITE_APP_BASE_PATH).toBe("/dispatch");
     expect(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON).toBe(
@@ -1897,11 +1950,27 @@ describe("workspace deploy", () => {
     process.env.APP_URL = "https://workspace.example.test/dispatch";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
       version: 1,
-      apps: [{ id: "mail", homePath: "/compose" }],
+      apps: [
+        {
+          id: "mail",
+          name: "Inbox",
+          description: "",
+          homePath: "/compose",
+          icon: "users",
+        },
+      ],
     });
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "calendar", { homePath: "/dashboard" });
     makeWorkspaceApp(tmpDir, "mail", { homePath: "/inbox" });
+    const mailPackage = path.join(tmpDir, "apps", "mail", "package.json");
+    fs.writeFileSync(
+      mailPackage,
+      JSON.stringify({
+        ...JSON.parse(fs.readFileSync(mailPackage, "utf8")),
+        description: "A starter description",
+      }),
+    );
 
     await runWorkspaceDeploy({
       workspaceRoot: tmpDir,
@@ -1916,7 +1985,13 @@ describe("workspace deploy", () => {
     ).toEqual([
       expect.objectContaining({ id: "dispatch", homePath: "/home" }),
       expect.objectContaining({ id: "calendar", homePath: "/dashboard" }),
-      expect.objectContaining({ id: "mail", homePath: "/compose" }),
+      expect.objectContaining({
+        id: "mail",
+        name: "Inbox",
+        description: "",
+        homePath: "/compose",
+        icon: "users",
+      }),
     ]);
   }, 30_000);
 
@@ -2387,14 +2462,21 @@ describe("buildStart", () => {
     });
   });
 
-  it("starts a quoted line through a shell on Windows", () => {
+  it("starts a line through a shell on Windows, arguments quoted", () => {
     expect(
       buildStart("pnpm", ["--filter", "my app", "build"], "win32"),
     ).toEqual({
-      command: '"pnpm" "--filter" "my app" "build"',
+      command: 'pnpm "--filter" "my app" "build"',
       args: [],
       shell: true,
     });
+  });
+
+  it("quotes a command path on Windows", () => {
+    expect(
+      buildStart("C:\\Program Files\\nodejs\\node.exe", ["-v"], "win32")
+        .command,
+    ).toBe('"C:\\Program Files\\nodejs\\node.exe" "-v"');
   });
 });
 
@@ -2678,6 +2760,46 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
         ),
       ),
     ).toBe(true);
+  });
+
+  it("staggers the per-app recurring-jobs sweep over distinct minute phases when configured", async () => {
+    const previous = process.env.AGENT_NATIVE_SWEEP_STAGGER_MINUTES;
+    process.env.AGENT_NATIVE_SWEEP_STAGGER_MINUTES = "5";
+    try {
+      const apps = ["dispatch", "starter", "calendar"];
+      for (const app of apps) makeWorkspaceApp(tmpDir, app);
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=netlify", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      });
+
+      const schedules = new Map<string, string>();
+      for (const app of apps) {
+        const dir = recurringFuncDir(app);
+        const entryName = `${app}-agent-recurring-jobs.mjs`;
+        const entry = fs.readFileSync(path.join(dir, entryName), "utf8");
+        expect(entry).toMatch(/schedule: "[0-4]-59\/5 \* \* \* \*"/);
+        const mod = await import(
+          `${pathToFileURL(path.join(dir, entryName)).href}?t=${Date.now()}-stagger-${app}`
+        );
+        expect(mod.config.schedule).toMatch(/^[0-4]-59\/5 \* \* \* \*$/);
+        schedules.set(app, mod.config.schedule);
+      }
+      // Deterministic: the same app always gets the same phase.
+      for (const [app, schedule] of schedules) {
+        expect(recurringJobsSweepSchedule(app, 5)).toBe(schedule);
+      }
+      // The default (unset/0/1) is the historical every-minute cron.
+      expect(recurringJobsSweepSchedule("dispatch", 0)).toBe("* * * * *");
+      expect(recurringJobsSweepSchedule("dispatch", 1)).toBe("* * * * *");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_SWEEP_STAGGER_MINUTES;
+      } else {
+        process.env.AGENT_NATIVE_SWEEP_STAGGER_MINUTES = previous;
+      }
+    }
   });
 });
 

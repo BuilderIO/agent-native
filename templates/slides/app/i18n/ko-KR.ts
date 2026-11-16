@@ -430,6 +430,8 @@ const messages = {
     deckTitle: "덱 제목",
     presentPresenterViewDescription: "발표하는 동안 발표자 노트 보기",
     presenterViewBlocked: "발표자 보기를 열려면 팝업을 허용하세요.",
+    presenterViewUnsupported:
+      "이 브라우저에서는 발표자 보기를 지원하지 않습니다.",
     export: "내보내기",
     privacyPrivate: "비공개",
     privacyOrg: "조직과 공유됨",
@@ -485,6 +487,11 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX 파일을 생성할 수 없습니다.",
     exportFailed: "내보내기 실패",
+    exportFinishedWithWarnings: "경고와 함께 내보냈습니다",
+    imagesDropped:
+      "이미지 {{count}}개를 불러오지 못해 PowerPoint 파일에서 제외되었습니다(슬라이드 {{slides}}).",
+    pdfSidecarSkipped:
+      "편집 가능한 원본 없이 내보낸 PDF입니다. 다시 가져오면 페이지 내용으로 슬라이드를 다시 만듭니다.",
     exporting: "내보내는 중...",
     exportPptxError: "PPTX로 내보내는 중 문제가 발생했습니다.",
     googleSlidesDownloaded: "Google Slides용으로 다운로드됨",
@@ -503,6 +510,9 @@ const messages = {
     exportPdf: "PDF로 내보내기",
     exportPptx: "PPTX로 내보내기",
     connectGoogle: "Google 연결",
+    disconnectGoogle: "Google 연결 해제",
+    googleDisconnectFailed: "Google Drive 연결을 해제하지 못했습니다.",
+    googleSlidesStatusUnknown: "상태를 확인하지 못함",
     openInGoogleSlides: "Google Slides에서 열기",
     googleSlidesUnavailable: "사용 불가",
     googleSlidesOpenImporter: "Google Slides 가져오기 열기",
@@ -521,6 +531,7 @@ const messages = {
   share: {
     createFailed: "공유 링크를 만들 수 없습니다",
     snapshotLinks: "스냅샷 링크",
+    snapshotLinksLoadFailed: "스냅샷 링크를 불러올 수 없습니다",
     revokeLink: "취소",
     revokeFailed: "공유 링크를 취소할 수 없습니다",
     title: "프레젠테이션 공유",

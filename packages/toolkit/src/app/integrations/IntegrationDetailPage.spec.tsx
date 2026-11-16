@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
-import React, { act, type ReactNode } from "react";
+import React, { act, type ReactElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import englishMessages from "../i18n/catalogs/en-US.js";
@@ -21,7 +22,13 @@ const dialogMocks = vi.hoisted(() => ({
   McpIntegrationDialog: vi.fn(() => null),
 }));
 const agent = vi.hoisted(() => ({ submitToAgent: vi.fn() }));
-const keys = vi.hoisted(() => ({ saveApiKeyValue: vi.fn() }));
+const keys = vi.hoisted(() => ({
+  saveApiKeyValue: vi.fn(),
+  removeApiKeyValue: vi.fn(),
+}));
+const secrets = vi.hoisted(() => ({
+  listRegisteredSecrets: vi.fn(async (): Promise<unknown[]> => []),
+}));
 const oauth = vi.hoisted(() => ({
   navigateToMcpOAuthStart: vi.fn(() => true),
 }));
@@ -33,6 +40,7 @@ vi.mock("../shared/index.js", async (importOriginal) => ({
   ...agent,
 }));
 vi.mock("../settings/api-keys/api-keys-client.js", () => keys);
+vi.mock("@agent-native/core/client/secrets", () => secrets);
 vi.mock("@agent-native/core/client/org/hooks", () => ({
   useOrg: () => ({ data: { orgName: "Acme" } }),
 }));
@@ -310,6 +318,55 @@ describe("IntegrationDetailPage", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it("shows a saved Figma token as connected instead of offering another", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
+    secrets.listRegisteredSecrets.mockResolvedValueOnce([
+      { key: "FIGMA_ACCESS_TOKEN", status: "set", scope: "user" },
+    ]);
+    await render("figma");
+    expect(lastHeader()?.action).toBeNull();
+    expect(container.textContent).toContain("Connected");
+    const remove = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Remove",
+    );
+    await act(async () => remove?.click());
+    expect(keys.removeApiKeyValue).toHaveBeenCalledWith("FIGMA_ACCESS_TOKEN");
+  });
+
+  it("offers a retry when the store answers that the token status is unknown", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
+    secrets.listRegisteredSecrets.mockResolvedValueOnce([
+      { key: "FIGMA_ACCESS_TOKEN", status: "unknown" },
+    ]);
+    await render("figma");
+    const action = lastHeader()?.action as ReactElement<{
+      children: ReactNode;
+    }>;
+    expect(action.props.children).toBe("Try again");
+  });
+
+  it("offers a retry, never a token, while the saved-token status is unreadable", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
+    secrets.listRegisteredSecrets.mockRejectedValueOnce(new Error("down"));
+    await render("figma");
+    const action = lastHeader()?.action as ReactElement<{
+      children: ReactNode;
+      onClick: () => void;
+    }>;
+    expect(action.props.children).toBe("Try again");
+    expect(toast.error).toHaveBeenCalledWith(
+      "Couldn't check for a saved access token.",
+    );
+
+    secrets.listRegisteredSecrets.mockResolvedValueOnce([]);
+    await act(async () => action.props.onClick());
+    expect(secrets.listRegisteredSecrets).toHaveBeenCalledTimes(2);
+    const retried = lastHeader()?.action as ReactElement<{
+      children: ReactNode;
+    }>;
+    expect(retried.props.children).toBe("Add access token");
+  });
+
   it.each(["slides", undefined])(
     "offers neither OAuth nor an unavailable token fallback in %s",
     async (template) => {
@@ -519,7 +576,12 @@ describe("IntegrationDetailPage", () => {
     );
     expect(row?.textContent).toContain("Connected");
     expect(row?.textContent).toContain("Personal · 12 tools available");
-    expect(row?.querySelector("button")?.textContent).toBe("Remove");
+    expect(
+      Array.from(
+        row?.querySelectorAll("button") ?? [],
+        (button) => button.textContent,
+      ),
+    ).toEqual(["Reconnect", "Remove"]);
   });
 
   it("opens a custom connected server by its slug, with Reconnect and Remove", async () => {

@@ -28,6 +28,8 @@ export type LiveBodySwitchBlocker =
   | "source_owned"
   /** Notion pull, push and link. */
   | "notion"
+  /** A collection source can hydrate or rewrite any of its member Pages. */
+  | "collection_source"
   /** Row migration and a source's body hydration, which reach rows of a collection people made. */
   | "database_row";
 
@@ -35,6 +37,7 @@ export const LIVE_BODY_SWITCH_BLOCKERS: readonly LiveBodySwitchBlocker[] = [
   "local_file_copy",
   "source_owned",
   "notion",
+  "collection_source",
   "database_row",
 ];
 
@@ -47,10 +50,12 @@ function blockerConditions(): Record<LiveBodySwitchBlocker, SQL> {
   const links = schema.documentSyncLinks;
   const memberships = schema.contentDatabaseItems;
   const collections = schema.contentDatabases;
+  const sources = schema.contentDatabaseSources;
   return {
     local_file_copy: sql`${page.sourceKind} IS NOT DISTINCT FROM 'local-file-copy'`,
     source_owned: sql`${page.sourceMode} IS NOT NULL AND ${page.sourceMode} NOT IN ('database', 'local-files')`,
     notion: sql`EXISTS (SELECT 1 FROM ${links} WHERE ${links.documentId} = ${page.id})`,
+    collection_source: sql`EXISTS (SELECT 1 FROM ${memberships} INNER JOIN ${sources} ON ${sources.databaseId} = ${memberships.databaseId} WHERE ${memberships.documentId} = ${page.id})`,
     // A membership whose collection is missing counts: only a system
     // collection is known to be out of those writers' reach. Its primary
     // Blocks field is the page's body, which set-document-property writes

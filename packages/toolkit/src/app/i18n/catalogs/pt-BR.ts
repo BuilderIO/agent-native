@@ -1,6 +1,21 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "Origens aprovadas",
+  "settingsApiKeys.originsHint":
+    "Uma origem HTTPS exata por linha. Vazio bloqueia o encaminhamento. HTTP local é permitido.",
+  "settingsApiKeys.invalidOrigins":
+    "Informe origens HTTPS exatas, uma por linha.",
+  "settingsApiKeys.editOrigins": "Editar origens",
+  "settingsApiKeys.originsSaved": "Origens salvas",
+  "settingsApiKeys.originsCount_one": "{{count}} origem aprovada",
+  "settingsApiKeys.originsCount_many": "{{count}} origens aprovadas",
+  "settingsApiKeys.originsCount_other": "{{count}} origens aprovadas",
+  "settingsApiKeys.noApprovedOrigins": "Nenhuma origem aprovada",
+  "extensions.cancel": "Cancelar",
+  "extensions.context": "Contexto",
+  "extensions.confirmAgentMessage": "Enviar a mensagem da extensão ao agente?",
+  "extensions.sendToAgent": "Enviar ao agente",
   "auth.logOutFailed": "Não foi possível sair",
   "block.renderUnavailable": "Este bloco está temporariamente indisponível.",
   "block.loading": "Carregando bloco.",
@@ -33,10 +48,13 @@ const messages: ToolkitAgentChatTranslation = {
   "activity.groupLabel": "Atividade do agente",
   "activity.agents": "Colaboração entre agentes",
   "activity.tasks": "Tarefas dos agentes",
+  "activity.tasksProgress": "{{completed}} de {{total}} concluídas",
   "agent.started": "começou a trabalhar",
   "agent.resumed": "retomou o trabalho",
   "agent.messaged": "enviou uma mensagem",
   "agent.delegated": "delegou trabalho",
+  "agent.working": "trabalhando",
+  "agent.workedFor": "trabalhou por {{duration}}",
   "agent.paused": "pausou o trabalho",
   "agent.queued": "na fila",
   "agent.completed": "concluiu",
@@ -147,7 +165,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderCredits": "Incluído nos créditos gratuitos do Builder.io",
   "onboarding.builderIncludedFreeWithAccount":
     "Incluído gratuitamente em uma conta do Builder.io",
-  "onboarding.builderMonthlyCredits": "60 Agent Credits por mês",
+  "onboarding.builderMonthlyCredits":
+    "15 créditos gratuitos por dia, até 60 por mês",
   "onboarding.builderIncludedFree": "Incluído grátis",
   "onboarding.builderMoreServices": "+ {{count}} serviços adicionais",
   "onboarding.builderLlmCredits": "Créditos para LLM",
@@ -180,9 +199,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConsentAnd": "e",
   "onboarding.builderExistingAccount": "Tenho uma conta Builder.io",
   "onboarding.creditsTitle":
-    "Experimente com 60 créditos Agent gratuitos por mês",
+    "Experimente com 15 créditos gratuitos por dia, até 60 por mês",
   "onboarding.creditsTitleClips":
-    "Experimente com armazenamento de vídeo grátis e 60 créditos Agent por mês",
+    "Experimente com armazenamento de vídeo grátis e 15 créditos por dia, até 60 por mês",
   "onboarding.creditsActivate": "Ativar créditos gratuitos",
   "onboarding.creditsFinePrint":
     "Isto criará uma conta Builder.io gratuita. Ao continuar, você concorda com nossos",
@@ -442,6 +461,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.attachmentTooLarge": "O arquivo tem mais de 8 MB",
   "composer.attachmentNotUtf8": "O arquivo não é texto UTF-8",
   "composer.scrollToBottom": "Rolar até o final",
+  "composer.skipToMessageBox": "Ir para o campo de mensagem",
   "composer.suggestedPrompts": "Prompts sugeridos",
   "composer.stopResponse": "Parar resposta",
   "composer.subAgentReadOnly":
@@ -467,6 +487,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "Pesquisando...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Ontem",
+  "history.today": "Hoje",
+  "commandMenu.systemGroup": "Aplicativo",
+  "share.alreadyInvited": "Já convidado",
+  "share.notInvitedToPage": "Não convidado para a página",
   "history.mine": "Meus chats",
   "history.sharedWithYou": "Compartilhados com você",
   "history.showAll": "Mostrar tudo",
@@ -1000,6 +1024,7 @@ const messages: ToolkitAgentChatTranslation = {
     "O Builder.io inclui créditos gratuitos, ou você pode usar sua própria chave de API.",
   "setup.builderOrOwnKeys":
     "Use o Builder.io (créditos gratuitos) ou adicione as chaves do seu próprio provedor.",
+  "setup.reconnectBuilder": "Reconectar Builder.io",
   "setup.connectAi": "Conectar IA",
   "setup.connectBuilder": "Usar Builder.io",
   "setup.connectionsDescription":
@@ -1300,6 +1325,7 @@ const messages: ToolkitAgentChatTranslation = {
   "pastedText.remove": "Remover texto colado",
   "pastedText.title": "Texto colado",
   "voice.dictation.start": "Ditar ({{shortcut}})",
+  "voice.dictation.startPlain": "Ditar",
   "voice.dictation.stopRecording": "Parar gravação",
   "voice.dictation.transcribing": "Transcrevendo…",
   "voiceMode.errors.channelDisconnected":
@@ -1424,7 +1450,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "O provedor do modelo rejeitou este anexo por causa do formato ou tamanho. Para imagens, exporte uma versão menor em PNG, JPEG, GIF ou WebP; para documentos, use um formato de arquivo compatível ou cole o texto relevante e anexe novamente.",
   "errorMessages.noProviderConnected":
-    "Nenhum provedor LLM está conectado. Abra Configurações > Agente > Provedores de IA e use o Builder.io (plano gratuito disponível) ou adicione uma chave de provedor.",
+    "Nenhum provedor LLM está conectado. Abra Configurações > Agente > Provedores de IA e conecte o Builder.io ou adicione uma chave de provedor.",
   "errorMessages.openBuilderSpaceSettings":
     "Abrir as configurações do espaço do Builder",
   "errorMessages.providerAuthentication":
@@ -1678,6 +1704,34 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Indicações de créditos Builder",
   "featureFlags.builderCreditReferrals.description":
     "Mostrar os detalhes de indicação do espaço de trabalho Builder conectado em Uso.",
+  "featureFlags.scope.appliesTo": "Aplica-se a",
+  "featureFlags.scope.org": "Esta organização",
+  "featureFlags.scope.global": "Todas as organizações",
+  "featureFlags.scope.setForOrg": "Definido para esta organização",
+  "featureFlags.scope.setForGlobal": "Definido para todas as organizações",
+  "featureFlags.scope.overridesGlobal":
+    "Substitui a regra de todas as organizações",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "A regra própria desta organização substitui a regra de todas as organizações, que é: {{audience}}.",
+  "featureFlags.scope.unreadable": "Não foi possível ler",
+  "featureFlags.scope.enableForMeOrg":
+    "Adiciona você à regra desta organização",
+  "featureFlags.scope.enableForMeGlobal":
+    "Adiciona você à regra de todas as organizações",
+  "featureFlags.scope.turnOffOrg": "Desativar para esta organização",
+  "featureFlags.scope.turnOffGlobal": "Desativar para todas as organizações",
+  "featureFlags.scope.turnOffOrgTitle":
+    "Desativar {{name}} para esta organização?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "Desativar {{name}} para todas as organizações?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "Isso remove imediatamente o acesso de todas as pessoas desta organização. Você pode configurar um novo lançamento depois.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "Isso remove imediatamente o acesso em todas as organizações que não têm uma regra própria. Você pode configurar um novo lançamento depois.",
+  "featureFlags.scope.summaryOrg": "Nesta organização: {{audience}}.",
+  "featureFlags.scope.summaryGlobal": "Em todas as organizações: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule":
+    "Esta organização mantém a própria regra.",
   "usage.inviteFriends": "Convide amigos",
   "usage.inviteCredits":
     "Ganhe {{amount}} créditos do Builder quando um amigo assinar.",
@@ -2301,6 +2355,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "Senha atualizada",
   "settingsShell.account.photoError": "Não foi possível atualizar a foto.",
   "settingsShell.account.photoUpdated": "Foto atualizada",
+  "settingsShell.account.photoRemoved": "Foto removida",
+  "settingsShell.account.removePhoto": "Remover foto",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "O envio de e-mail não está configurado aqui",
   "settingsShell.account.profilePhoto": "Foto do perfil",
   "settingsShell.account.requestCopyDescription":
     "Um administrador verifica sua identidade e dá retorno.",
@@ -2597,6 +2655,9 @@ const messages: ToolkitAgentChatTranslation = {
     "O agente usa o token de acesso que você adicionar, então vê o que esse token pode ver.",
   "settingsShell.integrationDetail.accessToken": "Token de acesso",
   "settingsShell.integrationDetail.addAccessToken": "Adicionar token de acesso",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Não foi possível verificar um token de acesso salvo.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Tentar de novo",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Um admin precisa configurar isso",
   "settingsShell.integrationDetail.callout.adminNeededBody":
@@ -3018,6 +3079,95 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "Enviar um arquivo de habilidade",
   "settingsResources.skills.describePlaceholder":
     "Uma habilidade que revisa pull requests em busca de problemas de segurança",
+  "settingsResources.skills.personalHint": "Só você tem estas.",
+  "settingsResources.skills.orgHint":
+    "Compartilhadas com todas as pessoas em {{org}}. Seus botões valem só para você.",
+  "settingsResources.skills.orgAdminHint":
+    "Compartilhadas com todas as pessoas em {{org}}. Como você é admin, escolhe como cada uma começa para as pessoas.",
+  "settingsResources.skills.dispatchHint":
+    "O Dispatch é onde seu espaço de trabalho guarda as habilidades que todos os apps compartilham. Desativar uma aqui muda apenas {{app}}.",
+  "settingsResources.skills.thisApp": "este app",
+  "settingsResources.skills.forEveryone": "Para todos",
+  "settingsResources.skills.forYou": "Para você",
+  "settingsResources.skills.markRecommended": "Recomendada",
+  "settingsResources.skills.markRecommendedHint":
+    "Ativada a menos que alguém a desative.",
+  "settingsResources.skills.markOptional": "Opcional",
+  "settingsResources.skills.markOptionalHint":
+    "Desativada a menos que alguém a ative.",
+  "settingsResources.skills.markRequired": "Obrigatória",
+  "settingsResources.skills.markRequiredHint":
+    "Ativada para todos. Ninguém pode desativá-la nem usar a própria versão.",
+  "settingsResources.skills.recommendedBy": "Recomendada por {{org}}",
+  "settingsResources.skills.requiredBy": "Exigida por {{org}}",
+  "settingsResources.skills.requiredHidesOwn":
+    "Não usada: {{org}} exige que todos usem a versão compartilhada",
+  "settingsResources.skills.optionalOff":
+    "Opcional: desativada até você ativá-la",
+  "settingsResources.skills.optionalOn": "Opcional: você a ativou",
+  "settingsResources.skills.switchedOffOn": "Você a desativou em {{date}}",
+  "settingsResources.skills.alwaysOn": "Sempre ativada",
+  "settingsResources.skills.requiredLockHint":
+    "Exigida por {{org}}, por isso está sempre ativada",
+  "settingsResources.skills.dispatchClash":
+    "O Dispatch também tem uma {{name}}. O agente usa esta e ignora a do Dispatch. Renomeie uma para usar as duas.",
+  "settingsResources.skills.dispatchClashRequired":
+    "A {{name}} do Dispatch é obrigatória, então o agente usa ela e ignora esta. Renomeie uma para usar as duas.",
+  "settingsResources.skills.choicesLoadFailed":
+    "Não foi possível carregar quais habilidades estão ativadas para você, então os interruptores estão ocultos. Recarregue a página para tentar de novo.",
+  "settingsResources.skills.requireChecking": "Verificando quem isso afeta…",
+  "settingsResources.skills.requireCountsFailed":
+    "Não foi possível verificar quem isso afeta.",
+  "settingsResources.skills.requireTitle": "Tornar {{name}} obrigatória?",
+  "settingsResources.skills.makeRequired": "Tornar obrigatória",
+  "settingsResources.skills.switchFailed":
+    "Não foi possível salvar sua escolha para {{name}}.",
+  "settingsResources.skills.markFailed":
+    "Não foi possível mudar como {{name}} começa para as pessoas.",
+  "settingsResources.skills.addForMe": "Adicionar para mim",
+  "settingsResources.skills.addForEveryone": "Adicionar para todos",
+  "settingsResources.skills.offFor_one":
+    "Desativada para {{off}} de {{count}} pessoa",
+  "settingsResources.skills.offFor_many":
+    "Desativada para {{off}} de {{count}} pessoas",
+  "settingsResources.skills.offFor_other":
+    "Desativada para {{off}} de {{count}} pessoas",
+  "settingsResources.skills.onFor_one":
+    "Ativada para {{on}} de {{count}} pessoa",
+  "settingsResources.skills.onFor_many":
+    "Ativada para {{on}} de {{count}} pessoas",
+  "settingsResources.skills.onFor_other":
+    "Ativada para {{on}} de {{count}} pessoas",
+  "settingsResources.skills.ownVersions_one":
+    "{{count}} pessoa tem a própria versão",
+  "settingsResources.skills.ownVersions_many":
+    "{{count}} pessoas têm a própria versão",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}} pessoas têm a própria versão",
+  "settingsResources.skills.requireTurnsBackOn_one":
+    "Ela volta a ser ativada para a {{count}} pessoa que a desativou.",
+  "settingsResources.skills.requireTurnsBackOn_many":
+    "Ela volta a ser ativada para as {{count}} pessoas que a desativaram.",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "Ela volta a ser ativada para as {{count}} pessoas que a desativaram.",
+  "settingsResources.skills.requireTurnsOn_one":
+    "Ela é ativada para a {{count}} pessoa que não a tinha ativado.",
+  "settingsResources.skills.requireTurnsOn_many":
+    "Ela é ativada para as {{count}} pessoas que não a tinham ativado.",
+  "settingsResources.skills.requireTurnsOn_other":
+    "Ela é ativada para as {{count}} pessoas que não a tinham ativado.",
+  "settingsResources.skills.requireOwnVersions_one":
+    "A {{count}} pessoa com a própria versão recebe o texto de {{org}} no lugar. A versão dela é mantida e volta se você mudar isso depois.",
+  "settingsResources.skills.requireOwnVersions_many":
+    "As {{count}} pessoas com a própria versão recebem o texto de {{org}} no lugar. As versões delas são mantidas e voltam se você mudar isso depois.",
+  "settingsResources.skills.requireOwnVersions_other":
+    "As {{count}} pessoas com a própria versão recebem o texto de {{org}} no lugar. As versões delas são mantidas e voltam se você mudar isso depois.",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "A {{count}} pessoa com a própria versão recebe o texto de Dispatch no lugar. A versão dela é mantida e volta se você mudar isso depois.",
+  "settingsResources.skills.requireOwnVersionsDispatch_many":
+    "As {{count}} pessoas com a própria versão recebem o texto de Dispatch no lugar. As versões delas são mantidas e voltam se você mudar isso depois.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "As {{count}} pessoas com a própria versão recebem o texto de Dispatch no lugar. As versões delas são mantidas e voltam se você mudar isso depois.",
   "settingsResources.files.empty":
     "Adicione um arquivo para dar mais contexto ao seu agente.",
   "settingsResources.files.emptyTitle": "Nenhum arquivo ainda",
@@ -3486,7 +3636,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "Falha na resposta",
   "message.waitingForApproval": "Aguardando aprovação",
   "message.waitingForInput": "Aguardando resposta",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}} com falha",
+  "message.workSummaryFailedCount":
+    "{{summary}}, tentativas com falha: {{count}}",
   "message.taskStatusPending": "Pendente",
   "message.taskStatusRunning": "Em execução",
   "message.taskStatusCompleted": "Concluído",
@@ -3526,6 +3677,14 @@ const messages: ToolkitAgentChatTranslation = {
   "guided.other": "Outro…",
   "guided.otherDescription": "Diga ao agente exatamente o que você quer dizer.",
   "guided.recommended": "Recomendado",
+  "guided.question": "Pergunta",
+  "guided.questionProgress": "{{current}}/{{total}}",
+  "guided.questionProgressLabel": "{{current}} de {{total}}",
+  "guided.ownResponse": "Ou escreva sua própria resposta",
+  "guided.next": "Próxima",
+  "guided.send": "Enviar",
+  "guided.dismiss": "Dispensar perguntas",
+  "guided.chooseFiles": "Escolher arquivos…",
   "guided.typeAnswer": "Digite sua resposta…",
   "guided.typeCustomAnswer": "Digite uma resposta personalizada…",
   "guided.dropFiles": "Arraste arquivos para cá ou",
@@ -3564,6 +3723,10 @@ const messages: ToolkitAgentChatTranslation = {
   "toolCells.showMoreLines": "Mostrar mais {{count}} linhas",
   "toolCells.partial": "Parcial",
   "toolCells.timedOut": "Tempo esgotado",
+  "toolCells.exitCode": "Código de saída {{code}}",
+  "toolCells.copyOutput": "Copiar saída",
+  "toolCells.lineAdded": "Adicionado",
+  "toolCells.lineRemoved": "Removido",
   "codeRequired.requestFailed": "Falha na solicitação ({{status}})",
   "chatFirst.chats": "Conversas",
   "chatFirst.noChats": "Nenhuma conversa ainda.",
@@ -3681,6 +3844,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mentions.noCommands": "Nenhum comando",
   "mentions.noMatches": "Nenhuma correspondência",
   "queue.dragToReorder": "Arraste para reordenar",
+  "queue.attachedImage": "Imagem anexada",
   "queue.moveUp": "Mover para cima",
   "queue.moveDown": "Mover para baixo",
   "queue.movedToPosition": "Movido para a posição {{position}} de {{count}}",
@@ -3739,6 +3903,10 @@ const messages: ToolkitAgentChatTranslation = {
   "workSteps.readPagesOther": "{{count}} páginas lidas",
   "workSteps.fetchedOne": "1 URL obtida",
   "workSteps.fetchedOther": "{{count}} URLs obtidas",
+  "workSteps.sourcesOne": "1 fonte usada",
+  "workSteps.sourcesOther": "{{count}} fontes usadas",
+  "workSteps.frameworkFrames": "{{count}} frames do framework",
+  "workSteps.copyStackTrace": "Copiar rastreamento de pilha",
   "workSteps.readFilesOne": "1 arquivo lido",
   "workSteps.readFilesOther": "{{count}} arquivos lidos",
   "workSteps.editedOne": "1 arquivo editado",

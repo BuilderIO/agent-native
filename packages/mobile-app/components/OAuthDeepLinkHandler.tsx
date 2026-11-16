@@ -13,7 +13,6 @@ import {
 } from "@/lib/oauth-storage";
 
 async function handleOAuthUrl(url: string | null | undefined): Promise<void> {
-  console.log("[oauth] handleOAuthUrl saw url:", url);
   if (!url || !url.includes("oauth-complete")) return;
   const [returnPath, tokenKey, ownerKeyName, baseUrl] = await Promise.all([
     AsyncStorage.getItem(OAUTH_RETURN_PATH_KEY),
@@ -45,14 +44,24 @@ async function handleOAuthUrl(url: string | null | undefined): Promise<void> {
 export default function OAuthDeepLinkHandler() {
   useEffect(() => {
     console.log("[oauth] handler mounted");
-    void Linking.getInitialURL().then((url) => {
-      console.log("[oauth] getInitialURL:", url);
-      return handleOAuthUrl(url);
-    });
+    void Linking.getInitialURL()
+      .then((url) => {
+        return handleOAuthUrl(url);
+      })
+      .catch((error: unknown) =>
+        console.warn(
+          "[oauth] callback could not be completed",
+          error instanceof Error ? error.name : "UnknownError",
+        ),
+      );
     if (Platform.OS === "ios") return;
     const sub = Linking.addEventListener("url", (event) => {
-      console.log("[oauth] url event:", event.url);
-      void handleOAuthUrl(event.url);
+      void handleOAuthUrl(event.url).catch((error: unknown) =>
+        console.warn(
+          "[oauth] callback could not be completed",
+          error instanceof Error ? error.name : "UnknownError",
+        ),
+      );
     });
     return () => sub.remove();
   }, []);

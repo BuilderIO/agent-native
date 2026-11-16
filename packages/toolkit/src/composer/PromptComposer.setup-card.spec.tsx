@@ -116,6 +116,17 @@ describe("PromptComposer with no AI connected", () => {
     expect(onRequired).toHaveBeenLastCalledWith(true);
   });
 
+  it("lets the setup card own recovery when readiness is unavailable", async () => {
+    await render({ readiness: "unavailable", configured: false });
+    expect(card()).not.toBeNull();
+    expect(container.textContent).not.toContain(
+      "agentChat.setup.providerStatusUnavailable",
+    );
+    expect(
+      container.querySelector('[data-notice-id="provider-status-unavailable"]'),
+    ).toBeNull();
+  });
+
   it("points a click on the closed prompt at the setup card", async () => {
     await render({ readiness: "unknown", configured: false });
 

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   function makeWhereResult(rows: unknown[]) {
@@ -169,12 +170,35 @@ function lastSavedContent(): string {
   return content as string;
 }
 
+function setTwoScreens() {
+  setFiles([
+    {
+      id: "file-1",
+      designId: "design-1",
+      filename: "index.html",
+      fileType: "html",
+      content: "<html><body></body></html>",
+    },
+    {
+      id: "file-2",
+      designId: "design-1",
+      filename: "details.html",
+      fileType: "html",
+      content: "<html><body></body></html>",
+    },
+  ]);
+}
+
 describe("insert-design-native-asset", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.seededCollabText.clear();
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.updateChain.where.mockResolvedValue({ rowsAffected: 1 });
+  });
+
+  afterEach(() => {
+    vi.mocked(readAppStateForCurrentTab).mockResolvedValue(null);
   });
 
   it("without a position: appends before </body>, exactly as before x/y existed", async () => {
@@ -321,5 +345,39 @@ describe("insert-design-native-asset", () => {
 
     const content = lastSavedContent();
     expect(content).toContain("left:99px;top:100px;");
+  });
+
+  it("refuses to insert when editor state is unreadable and the design has several screens", async () => {
+    setTwoScreens();
+    vi.mocked(readAppStateForCurrentTab).mockRejectedValue(
+      new Error("db down"),
+    );
+
+    await expect(
+      action.run({
+        kind: "text-block",
+        designId: "design-1",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "asset_target_state_unreadable",
+      statusCode: 503,
+    });
+    expect(mocks.db.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses an explicit fileId that is not an HTML screen of the design", async () => {
+    setTwoScreens();
+
+    await expect(
+      action.run({
+        kind: "text-block",
+        designId: "design-1",
+        fileId: "does-not-exist",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "asset_target_screen_invalid",
+      statusCode: 404,
+    });
+    expect(mocks.db.update).not.toHaveBeenCalled();
   });
 });

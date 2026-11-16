@@ -64,28 +64,41 @@ export const DEFERRED_NOTES_POLL_MS = 5_000;
 export const DEFERRED_NOTES_WAIT_MS = 3 * 60_000;
 
 /**
- * Watches for notes the server left to its delayed job. An ended meeting's page
- * doesn't otherwise poll, so it would sit blank until the next focus or reload.
+ * Watches for notes built by a run this page didn't start: the removal's
+ * delayed job, or a run already under way when the page asked for its own. An
+ * ended meeting's page doesn't otherwise poll, so it would sit blank or stale
+ * until the next focus or reload.
  */
 export function useDeferredNotesWait({
   meetingId,
   notesArrived,
+  notesFailed = false,
   refetch,
   onGiveUp,
 }: {
   meetingId: string | undefined;
   notesArrived: boolean;
+  notesFailed?: boolean;
   refetch: () => unknown;
   onGiveUp: () => void;
 }) {
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
+  const [failedFor, setFailedFor] = useState<string | null>(null);
   const pending = !!meetingId && waitingFor === meetingId;
-  if (pending && notesArrived) setWaitingFor(null);
+  if (pending && notesFailed) {
+    setWaitingFor(null);
+    setFailedFor(meetingId);
+  } else if (pending && notesArrived) {
+    setWaitingFor(null);
+  }
 
   const onGiveUpRef = useRef(onGiveUp);
   useEffect(() => {
     onGiveUpRef.current = onGiveUp;
   });
+  useEffect(() => {
+    if (failedFor) onGiveUpRef.current();
+  }, [failedFor]);
   useEffect(() => {
     if (!pending) return;
     const poll = setInterval(() => void refetch(), DEFERRED_NOTES_POLL_MS);
@@ -99,7 +112,11 @@ export function useDeferredNotesWait({
     };
   }, [pending, refetch]);
 
-  return { pending, start: setWaitingFor };
+  const start = (id: string) => {
+    setFailedFor(null);
+    setWaitingFor(id);
+  };
+  return { pending, start };
 }
 
 export function EarlierAudioNotice({

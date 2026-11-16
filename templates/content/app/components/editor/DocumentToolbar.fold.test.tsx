@@ -73,19 +73,23 @@ import { DocumentToolbar, toolbarFoldLevel } from "./DocumentToolbar";
 describe("toolbarFoldLevel", () => {
   it("folds one step at each room for the controls", () => {
     expect(
-      [384, 383, 320, 319, 260, 259, 152, 151, 112, 111].map((width) =>
-        toolbarFoldLevel(width, 0),
+      [440, 439, 400, 399, 340, 339, 300, 299].map((width) =>
+        toolbarFoldLevel(width, 0, 1280),
       ),
-    ).toEqual([0, 1, 1, 2, 2, 3, 3, 4, 4, 5]);
+    ).toEqual([0, 1, 1, 2, 2, 3, 3, 4]);
   });
 
   it("leaves the controls what the trigger and breadcrumb do not keep", () => {
-    // A phone's preview keeps only padding; its page keeps the trigger and
-    // the breadcrumb, and a nested page its "…" too.
-    expect(toolbarFoldLevel(390, 32)).toBe(1);
-    expect(toolbarFoldLevel(390, 192)).toBe(3);
-    expect(toolbarFoldLevel(390, 236)).toBe(3);
-    expect(toolbarFoldLevel(320, 236)).toBe(5);
+    // A preview keeps only padding; a page keeps the trigger and the
+    // breadcrumb, and a nested page its "…" too.
+    expect(toolbarFoldLevel(600, 32, 1280)).toBe(0);
+    expect(toolbarFoldLevel(600, 192, 1280)).toBe(1);
+    expect(toolbarFoldLevel(600, 236, 1280)).toBe(2);
+  });
+
+  it("draws a phone's bar in any window under 600 px", () => {
+    expect(toolbarFoldLevel(599, 0, 599)).toBe(5);
+    expect(toolbarFoldLevel(600, 0, 600)).toBe(0);
   });
 });
 
@@ -197,7 +201,7 @@ describe("DocumentToolbar at narrow widths", () => {
 
   // Without a trigger, a top-level page keeps 140px: padding, the page title
   // and a gap.
-  it("keeps Comments and Suggesting in the toolbar while it has room", async () => {
+  it("keeps Discussion and Suggesting in the toolbar while it has room", async () => {
     await renderToolbar(800, { suggesting: true });
 
     expect(toolbarButton("comments.discussion")).not.toBeNull();
@@ -249,7 +253,7 @@ describe("DocumentToolbar at narrow widths", () => {
     expect(discussion()?.textContent).toBe("");
   });
 
-  it("moves Stop suggesting into page actions before Comments", async () => {
+  it("moves Stop suggesting into page actions and keeps Discussion", async () => {
     const escapeTarget = { current: null as HTMLButtonElement | null };
     await renderToolbar(400, {
       suggesting: true,
@@ -270,21 +274,55 @@ describe("DocumentToolbar at narrow widths", () => {
     expect(mocks.suggestingChange).toHaveBeenCalledWith(false);
   });
 
-  it("moves Comments into page actions and keeps Share", async () => {
+  it("orders the bar: the tabs, a hairline, Share, then page actions last", async () => {
+    await renderToolbar(1000, { showAgentTab: true });
+
+    const controls = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        "[data-document-panel-tab], [data-document-toolbar-divider], button",
+      ),
+    );
+    const at = (element: Element | null | undefined) =>
+      controls.indexOf(element as HTMLElement);
+    const agent = toolbarButton("navigation.agent");
+    const discussion = toolbarButton("comments.discussion");
+    const info = toolbarButton("editor.toolbar.info");
+    const divider = container.querySelector("[data-document-toolbar-divider]");
+    const actions = toolbarButton("editor.toolbar.morePageActions");
+
+    expect(at(agent)).toBeLessThan(at(discussion));
+    expect(at(discussion)).toBeLessThan(at(info));
+    expect(at(info)).toBeLessThan(at(divider));
+    expect(at(divider)).toBeLessThan(at(shareTrigger()));
+    expect(at(shareTrigger())).toBeLessThan(at(actions));
+    expect(controls[controls.length - 1]).toBe(actions);
+  });
+
+  it("asks for a tab, and for no tab from the one that is open", async () => {
+    await renderToolbar(1000, { showAgentTab: true });
+    await act(async () => toolbarButton("editor.toolbar.info")?.click());
+    expect(mocks.utilityPanelChange).toHaveBeenLastCalledWith("info");
+
+    await renderToolbar(1000, { showAgentTab: true, utilityPanel: "info" });
+    await act(async () => toolbarButton("editor.toolbar.info")?.click());
+    expect(mocks.utilityPanelChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("keeps the tabs when Share folds into page actions", async () => {
     await renderToolbar(280);
 
-    expect(toolbarButton("comments.discussion")).toBeNull();
-    expect(shareTrigger()).toBeDefined();
+    expect(toolbarButton("comments.discussion")).not.toBeNull();
+    expect(shareTrigger()).toBeUndefined();
 
     const items = await openPageActions();
-    expect(menuItem(items, "editor.toolbar.copyPageLink")).toBeUndefined();
-    await act(async () => menuItem(items, "comments.discussion")!.click());
-    expect(mocks.utilityPanelChange).toHaveBeenCalledWith("comments");
+    expect(items[0]?.textContent).toContain("editor.toolbar.share");
+    expect(items[1]?.textContent).toContain("editor.toolbar.copyPageLink");
+    expect(menuItem(items, "comments.discussion")).toBeUndefined();
   });
 
   it("folds by the room the trigger and breadcrumb leave, at the same width", async () => {
     await renderToolbar(380, { compact: true });
-    expect(toolbarButton("comments.discussion")).not.toBeNull();
+    expect(shareTrigger()).toBeDefined();
 
     await renderToolbar(
       380,
@@ -296,17 +334,17 @@ describe("DocumentToolbar at narrow widths", () => {
       },
       createElement("button", { type: "button" }, "sidebar"),
     );
-    expect(toolbarButton("comments.discussion")).toBeNull();
-    expect(shareTrigger()).toBeDefined();
+    expect(shareTrigger()).toBeUndefined();
+    expect(toolbarButton("comments.discussion")).not.toBeNull();
   });
 
-  it("keeps only the breadcrumb and page actions on the narrowest page", async () => {
+  it("keeps the tabs and page actions on the narrowest page", async () => {
     mocks.copy.mockResolvedValue(true);
     await renderToolbar(118);
 
     expect(shareTrigger()).toBeUndefined();
     expect(toolbarButton("editor.toolbar.copyPageLink")).toBeNull();
-    expect(toolbarButton("comments.discussion")).toBeNull();
+    expect(toolbarButton("comments.discussion")).not.toBeNull();
 
     const items = await openPageActions();
     expect(menuItem(items, "editor.toolbar.share")).toBeDefined();
@@ -316,6 +354,29 @@ describe("DocumentToolbar at narrow widths", () => {
     expect(
       container.querySelector('[data-share-trigger-hidden="true"]'),
     ).not.toBeNull();
+  });
+
+  it("draws a phone's bar with 44 px page actions in a window under 600 px", async () => {
+    vi.stubGlobal("innerWidth", 599);
+    await renderToolbar(599);
+
+    expect(
+      toolbarButton("editor.toolbar.morePageActions")?.className,
+    ).toContain("size-11");
+    expect(toolbarButton("comments.discussion")?.className).toContain("h-11");
+    expect(shareTrigger()).toBeUndefined();
+  });
+
+  it("ends page actions with Move to Trash below a divider", async () => {
+    await renderToolbar(1000, { canDelete: true, onDelete: vi.fn() });
+    const trash = (await openPageActions()).pop();
+    if (!trash) throw new Error("The page actions menu is empty");
+
+    expect(trash.textContent).toContain("sidebar.moveToTrash");
+    expect(trash.querySelector("svg")).not.toBeNull();
+    expect(trash.previousElementSibling?.getAttribute("role")).toBe(
+      "separator",
+    );
   });
 
   it("restores focus to Page actions after closing folded Share", async () => {
@@ -349,7 +410,7 @@ describe("DocumentToolbar at narrow widths", () => {
   });
 
   it("folds a local file's Share menu into page actions", async () => {
-    await renderToolbar(280, {
+    await renderToolbar(500, {
       source: { mode: "local-files", path: "notes/example.md" },
     });
     expect(shareTrigger()?.getAttribute("aria-label")).toBe(

@@ -1,5 +1,10 @@
+import { composeAttachmentLink } from "@shared/compose-attachments.js";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
-import type { EmailAddress, EmailMessage } from "@shared/types.js";
+import type {
+  ComposeAttachment,
+  EmailAddress,
+  EmailMessage,
+} from "@shared/types.js";
 
 import {
   readLocalEmails,
@@ -26,6 +31,7 @@ export async function updateLocalSavedDraft(args: {
   body: string;
   replyToId?: string;
   replyToThreadId?: string;
+  attachments?: ComposeAttachment[];
 }): Promise<void> {
   await withLocalEmailMutationLock(args.ownerEmail, async () => {
     const emails = await readLocalEmails(args.ownerEmail);
@@ -56,6 +62,17 @@ export async function updateLocalSavedDraft(args: {
       ...(args.replyToId ? { replyToId: args.replyToId } : {}),
       ...(args.replyToThreadId
         ? { replyToThreadId: args.replyToThreadId }
+        : {}),
+      ...(args.attachments
+        ? {
+            attachments: args.attachments.map((attachment) => ({
+              id: attachment.filename,
+              filename: attachment.originalName,
+              mimeType: attachment.mimeType,
+              size: attachment.size,
+              url: composeAttachmentLink(attachment),
+            })),
+          }
         : {}),
     };
 

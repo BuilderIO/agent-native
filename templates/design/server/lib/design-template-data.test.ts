@@ -213,6 +213,25 @@ describe("design template data", () => {
     expect(data).not.toHaveProperty("previewUrl");
   });
 
+  it("leaves out the Content pages the source design was built from", () => {
+    const data = JSON.parse(
+      redactTemplateDesignData(
+        JSON.stringify({
+          title: "Launch page",
+          briefs: [
+            {
+              source: "content",
+              id: "page-one",
+              url: "https://content.example.com/_agent-native/open?documentId=page-one",
+            },
+          ],
+        }),
+      ),
+    ) as Record<string, unknown>;
+
+    expect(data).toEqual({ title: "Launch page" });
+  });
+
   it("preserves remote root URLs for explicit non-local sources", () => {
     const data = JSON.parse(
       redactTemplateDesignData(

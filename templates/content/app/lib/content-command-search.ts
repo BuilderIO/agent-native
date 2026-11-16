@@ -26,6 +26,8 @@ export interface CommandSearchDocumentsResponse {
     hasMore: boolean;
     nextOffset: number | null;
   };
+  /** Mistyped query words the server also matched as these words. */
+  spellingCorrections?: { term: string; replacements: string[] }[];
 }
 
 export function isLocalFileSearchResult(
@@ -76,14 +78,14 @@ export function searchHighlightParts(text: string, needles: string[]) {
 // ---------------------------------------------------------------------------
 // Instant (browser) title lane
 //
-// The sidebar's already-loaded document list (`useDocuments()` /
-// `LIST_DOCUMENTS_QUERY_KEY`) lets the picker answer a title search from data
-// already in memory, before the debounced `search-documents` request lands.
-// These pure helpers filter that list down to what the server would also
-// consider eligible and in-scope, and merge it with the server's results once
-// they arrive for the *current* query: the server's own order wins for what
-// it returns, so the list converges rather than staying pinned to a browser
-// guess (see `mergeInstantAndServerResults`).
+// The titles of everything the caller can search (`list-document-titles`), or
+// in local-file mode the sidebar's complete list (`useDocuments()`), let the
+// picker answer a title search from data already in memory, before the
+// debounced `search-documents` request lands. These pure helpers filter that
+// list down to what the server would also consider eligible and in-scope, and
+// merge it with the server's results once they arrive for the *current* query:
+// the server's own order wins for what it returns, so the list converges rather
+// than staying pinned to a browser guess (see `mergeInstantAndServerResults`).
 // ---------------------------------------------------------------------------
 
 export function documentDisplayType(
@@ -255,6 +257,129 @@ export function documentToInstantSearchResult(
     hideFromSearch: document.hideFromSearch,
     updatedAt: document.updatedAt,
   };
+}
+
+export interface DocumentTitleEntry {
+  id: string;
+  parentId: string | null;
+  spaceId: string | null;
+  title: string;
+  updatedAt: string;
+  sourceKind: string | null;
+  sourceUpdatedAt: string | null;
+  documentType: "page" | "database";
+  /** The collection this page is a row of, other than a workspace's Files. */
+  collectionDocumentId: string | null;
+}
+
+export interface DocumentTitlesResponse {
+  documents: DocumentTitleEntry[];
+  truncated: boolean;
+}
+
+export interface TitleEntryFilters {
+  /** Omitted when searching every workspace, or inside a page. */
+  spaceId?: string | undefined;
+  /** The page being searched and everything loaded inside it. */
+  insidePage?: ReadonlySet<string> | null;
+  documentType?: "page" | "database" | undefined;
+  modifiedAfter?: string | undefined;
+}
+
+export function titleEntryPassesFilters(
+  entry: DocumentTitleEntry,
+  filters: TitleEntryFilters,
+): boolean {
+  if (filters.documentType && entry.documentType !== filters.documentType) {
+    return false;
+  }
+  if (!documentMatchesModifiedAfter(entry, filters.modifiedAfter)) return false;
+  if (filters.spaceId && entry.spaceId !== filters.spaceId) return false;
+  return !filters.insidePage || filters.insidePage.has(entry.id);
+}
+
+export function titleEntryToInstantSearchResult(
+  entry: DocumentTitleEntry,
+  titleById: ReadonlyMap<string, string>,
+): CommandSearchDocumentResult {
+  return {
+    id: entry.id,
+    parentId: entry.parentId,
+    // The list holds only what the caller can search, so a parent in it is
+    // one the caller may read the title of.
+    parentTitle: entry.parentId
+      ? (titleById.get(entry.parentId) ?? null)
+      : null,
+    description: "",
+    documentType: entry.documentType,
+    sourceKind: entry.sourceKind,
+    sourceUpdatedAt: entry.sourceUpdatedAt,
+    title: entry.title,
+    icon: null,
+    snippet: "",
+    contentLength: 0,
+    hideFromSearch: false,
+    updatedAt: entry.updatedAt,
+  };
+}
+
+/**
+ * A sidebar page as `pagesInsidePage` reads it. Rows of a system collection,
+ * such as Files, aren't inside its page, as in the server's scope.
+ */
+export function pageScopeEntry(
+  document: Pick<Document, "id" | "parentId" | "databaseMembership">,
+): {
+  id: string;
+  parentId: string | null;
+  collectionDocumentId: string | null;
+} {
+  const membership = document.databaseMembership;
+  return {
+    id: document.id,
+    parentId: document.parentId,
+    collectionDocumentId:
+      membership && !membership.systemRole
+        ? membership.databaseDocumentId
+        : null,
+  };
+}
+
+/**
+ * A page and everything inside it, among the pages loaded: its sub-pages and
+ * the rows of collections, however deep. A page reached only through one the
+ * list leaves out, such as a page hidden from search, is missed here, and the
+ * server's results bring it in. Memoize per list and page; the result is
+ * reused for every keystroke.
+ */
+export function pagesInsidePage(
+  pages: readonly {
+    id: string;
+    parentId: string | null;
+    collectionDocumentId?: string | null;
+  }[],
+  pageId: string,
+): ReadonlySet<string> {
+  const childrenOf = new Map<string, string[]>();
+  const addChild = (parentId: string, id: string) => {
+    const children = childrenOf.get(parentId);
+    if (children) children.push(id);
+    else childrenOf.set(parentId, [id]);
+  };
+  for (const page of pages) {
+    if (page.parentId) addChild(page.parentId, page.id);
+    if (page.collectionDocumentId) addChild(page.collectionDocumentId, page.id);
+  }
+  const inside = new Set([pageId]);
+  const frontier = [pageId];
+  for (let id = frontier.pop(); id !== undefined; id = frontier.pop()) {
+    for (const child of childrenOf.get(id) ?? []) {
+      if (inside.has(child)) continue;
+      inside.add(child);
+      frontier.push(child);
+    }
+  }
+  return inside;
 }
 
 /**

@@ -153,9 +153,14 @@ async function click(element: Element | null | undefined) {
 
 function expectSharedSummary(trigger: HTMLElement | null) {
   expect(trigger?.tagName).toBe("BUTTON");
-  const children = Array.from(trigger?.children ?? []).map(
-    (child) => child.classList[child.classList.length - 1],
-  );
+  // A trace line is `display: contents`: its parts are the summary's boxes.
+  const children = Array.from(trigger?.children ?? [])
+    .flatMap((child) =>
+      child.classList.contains("agentkit-trace-line")
+        ? Array.from(child.children)
+        : [child],
+    )
+    .map((child) => child.classList[child.classList.length - 1]);
   // Icon column first, then the label, then the chevron right after it.
   expect(children).toEqual([
     "agentkit-disclosure-icon-slot",
@@ -224,7 +229,10 @@ describe("AgentKit disclosures", () => {
     );
     expect(item.textContent).toContain("First file contents");
     await click(itemTrigger);
-    expect(item.querySelector(".agentkit-activity-summary")).toBeNull();
+    // Closed, it stays in the DOM for find-in-page.
+    expect(
+      item.querySelector(".agentkit-activity-summary")?.getAttribute("hidden"),
+    ).toBe("until-found");
 
     // A row with nothing to expand is text, not a disabled button.
     const plain = work.querySelectorAll<HTMLElement>(
@@ -1026,5 +1034,55 @@ describe("a turn that only answered", () => {
     expect(
       rows[0]!.querySelector(".agentkit-activities-summary")?.textContent,
     ).toBe("Worked for 4s");
+  });
+});
+
+describe("Sources", () => {
+  const cited = answer([
+    { type: "text", text: "The release shipped on Tuesday." },
+    { type: "citation", title: "Release notes", url: "https://example.com/r" },
+    { type: "citation", title: "Release notes", url: "https://example.com/r" },
+    { type: "citation", title: "", url: "https://docs.example.com/guide" },
+  ]);
+
+  it("collapses a message's citations into one deduped sources step", async () => {
+    const view = await renderThread([user, cited], eventsOf([], cited));
+    const sources = view.querySelector<HTMLElement>(".agentkit-sources");
+    const trigger = sources?.querySelector<HTMLElement>(
+      "button.agentkit-disclosure-summary",
+    );
+    expectSharedSummary(trigger ?? null);
+    expect(trigger?.textContent).toBe("Used 2 sources");
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+
+    // Closed sources stay findable in the page.
+    const content = sources?.querySelector<HTMLElement>(
+      '[data-slot="trace-collapsible-content"]',
+    );
+    expect(content?.getAttribute("hidden")).toBe("until-found");
+    const links = Array.from(
+      content?.querySelectorAll<HTMLAnchorElement>("a") ?? [],
+      (link) => [link.textContent, link.getAttribute("href")],
+    );
+    expect(links).toEqual([
+      ["Release notes", "https://example.com/r"],
+      ["docs.example.com", "https://docs.example.com/guide"],
+    ]);
+
+    await click(trigger);
+    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(content?.hidden).toBe(false);
+  });
+
+  it("names a single source in the singular", async () => {
+    const one = answer([
+      { type: "text", text: "See the guide." },
+      { type: "citation", title: "Guide", url: "https://example.com/g" },
+    ]);
+    const view = await renderThread([user, one], eventsOf([], one));
+    expect(
+      view.querySelector(".agentkit-sources .agentkit-disclosure-label")
+        ?.textContent,
+    ).toBe("Used 1 source");
   });
 });

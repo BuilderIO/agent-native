@@ -71,6 +71,8 @@ function DesignComposerContext({
     contextItems: context.contextItems,
     onRemoveContextItem: context.remove,
     onRetryContextItem: context.retry,
+    onPasteContext: context.onPasteContext,
+    dialogs: context.dialogs,
     prepareSubmission: async (snapshot) => {
       const prepared = await context.prepareSubmission(snapshot);
       if (!prepared) throw new Error(t("homeContext.loadFailed"));

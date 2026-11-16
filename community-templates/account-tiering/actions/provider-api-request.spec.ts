@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const executeRequest = vi.fn();
 
-vi.mock("@agent-native/core/provider-api", () => ({
+vi.mock("@agent-native/core/provider-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/provider-api")>()),
   createProviderApiRuntime: () => ({ executeRequest }),
+  registerProviderApiActionRuntime: vi.fn(),
 }));
 
 const { default: action, requiresProviderApiApproval } =

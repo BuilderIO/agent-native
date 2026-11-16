@@ -2,6 +2,7 @@ import { Agent } from "undici";
 
 import {
   DEV_ACTION_ORG_HEADER,
+  DEV_ACTION_ORG_SCOPE_HEADER,
   DEV_ACTION_TOKEN_HEADER,
   DEV_ACTION_USER_HEADER,
   DEV_DB_QUERY_ROUTE,
@@ -15,6 +16,8 @@ export interface TryForwardDbQueryOptions {
   format?: string;
   userEmail?: string;
   orgId?: string;
+  /** The caller acts in no org; the dev server must not look one up. */
+  orgScope?: "personal";
   print: (
     rows: Record<string, unknown>[],
     sql: string,
@@ -46,6 +49,9 @@ export async function tryForwardDbQueryToDevServer(
           ? { [DEV_ACTION_USER_HEADER]: options.userEmail }
           : {}),
         ...(options.orgId ? { [DEV_ACTION_ORG_HEADER]: options.orgId } : {}),
+        ...(options.orgScope === "personal"
+          ? { [DEV_ACTION_ORG_SCOPE_HEADER]: "personal" }
+          : {}),
       },
       body: JSON.stringify({
         sql: options.sql,

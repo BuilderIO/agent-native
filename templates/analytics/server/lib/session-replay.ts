@@ -63,6 +63,7 @@ import {
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
 } from "../../shared/session-replay-diagnostics.js";
+import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import { getDb, schema } from "../db/index.js";
 import {
   resolveAnalyticsEventDimensions,
@@ -102,6 +103,7 @@ import {
   slowSessionConditions,
 } from "./session-performance.js";
 import { sessionRecordingAssociationsReady } from "./session-recording-associations.js";
+import { trafficEnvironmentCondition } from "./traffic-environment.js";
 
 export type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -154,6 +156,8 @@ export interface SessionReplayListFilters {
   hideInternal?: boolean;
   visitorType?: "internal" | "work" | "personal" | "anonymous";
   emailDomain?: string;
+  /** Production or beta traffic, by the recording's host. Omitted means all. */
+  environment?: TrafficEnvironment;
   sort?:
     | "newest"
     | "longest"
@@ -1507,23 +1511,64 @@ function isVisibleSessionRecording(row: any): boolean {
   );
 }
 
+/** Where an upload's chunks fall among the ones its recording already has. */
+export interface ReplayUploadOrder {
+  /** The recording had no chunks before this upload. */
+  first: boolean;
+  /** This upload holds a chunk later than every one stored before it. */
+  newest: boolean;
+}
+
+/**
+ * A recording carries on across a reload, so it can span a deploy. It stays
+ * named for the commit its first upload reported, with the newest one kept
+ * beside it. Uploads can arrive late, so only a newer one moves the latest,
+ * and a start the first upload didn't report stays unknown.
+ */
+function mergedReplayCommits(
+  existing: Record<string, unknown>,
+  incoming: unknown,
+  upload: ReplayUploadOrder,
+): Record<string, unknown> {
+  const started = upload.first ? incoming : existing.commit_sha;
+  const stored = existing.commit_sha_latest ?? existing.commit_sha;
+  const latest =
+    upload.newest && typeof incoming === "string" ? incoming : stored;
+  return {
+    ...(typeof started === "string" ? { commit_sha: started } : {}),
+    ...(typeof latest === "string" &&
+    (latest !== started || existing.commit_sha_latest !== undefined)
+      ? { commit_sha_latest: latest }
+      : {}),
+  };
+}
+
 export function mergeReplayMetadata(
   existing: Record<string, unknown>,
   incoming: Record<string, unknown>,
   viewport: RecordedReplayViewport | null = null,
+  upload: ReplayUploadOrder = { first: false, newest: true },
 ): Record<string, unknown> {
   const {
     viewport: stored,
     capture_context: _existingCaptureContext,
     pre_auth_base_path: _existingPreAuthBasePath,
+    commit_sha: _existingCommit,
+    commit_sha_latest: _existingLatestCommit,
     ...existingMetadata
   } = existing;
   const {
     capture_context: _incomingCaptureContext,
     pre_auth_base_path: _incomingPreAuthBasePath,
+    commit_sha: incomingCommit,
+    commit_sha_latest: _incomingLatestCommit,
     ...incomingMetadata
   } = incoming;
-  const merged = { ...existingMetadata, ...incomingMetadata };
+  const merged = {
+    ...existingMetadata,
+    ...incomingMetadata,
+    ...mergedReplayCommits(existing, incomingCommit, upload),
+  };
   assertReplayMetadataCap(merged);
   // The cap bounds caller metadata; the server-owned viewport is a few bytes.
   const next = mergeReplayViewport(stored, viewport);
@@ -1746,7 +1791,15 @@ export async function recordSessionReplayChunks(
         template: clampedInput.template,
         status: clampedInput.status,
         metadata: JSON.stringify(
-          mergeReplayMetadata({}, clampedInput.metadata, clampedInput.viewport),
+          mergeReplayMetadata(
+            {},
+            clampedInput.metadata,
+            clampedInput.viewport,
+            {
+              first: true,
+              newest: true,
+            },
+          ),
         ),
         lastIngestedAt: ingestedAt,
         ownerEmail: key.ownerEmail,
@@ -1945,11 +1998,6 @@ export async function recordSessionReplayChunks(
     (endedAt
       ? Math.max(0, Date.parse(endedAt) - Date.parse(startedAt))
       : (recording.durationMs ?? null));
-  const metadata = mergeReplayMetadata(
-    parseRecordingMetadata(recording),
-    clampedInput.metadata,
-    clampedInput.viewport,
-  );
   const signalOverrides = clampedInput.signalOverrides ?? {};
   let errorCount =
     signalOverrides.errorCount === undefined
@@ -2007,12 +2055,25 @@ export async function recordSessionReplayChunks(
     app: clampedInput.app ?? recording.app ?? null,
     template: clampedInput.template ?? recording.template ?? null,
     status: recordingEnded ? "completed" : "active",
-    metadata: JSON.stringify(metadata),
     updatedAt: ingestedAt,
     lastIngestedAt: ingestedAt,
   };
   try {
     await db.transaction(async (tx: any) => {
+      // Uploads from a reload overlap, and the order they commit in is not the
+      // order they were recorded in. Under the row lock, the stored chunks
+      // place this upload by sequence. A session association share-locks the
+      // recording through its foreign key, so the lock comes first and is no
+      // stronger than the update needs: FOR UPDATE taken after that insert
+      // deadlocks two uploads against each other's share locks.
+      const [locked] = await tx
+        .select({ metadata: schema.sessionRecordings.metadata })
+        .from(schema.sessionRecordings)
+        .where(eq(schema.sessionRecordings.id, recording.id))
+        .for("no key update");
+      if (!locked) {
+        throw new Error("Replay recording disappeared during ingest");
+      }
       if (rowsToInsert.length) {
         await tx.insert(schema.sessionReplayChunks).values(rowsToInsert);
       }
@@ -2048,9 +2109,38 @@ export async function recordSessionReplayChunks(
           )
           .onConflictDoNothing();
       }
+      const [stored] = rowsToInsert.length
+        ? await tx
+            .select({
+              earliest: sql<unknown>`min(${schema.sessionReplayChunks.seq})`,
+              latest: sql<unknown>`max(${schema.sessionReplayChunks.seq})`,
+            })
+            .from(schema.sessionReplayChunks)
+            .where(
+              and(
+                eq(schema.sessionReplayChunks.recordingId, recording.id),
+                not(inArray(schema.sessionReplayChunks.seq, [...insertedSeqs])),
+              ),
+            )
+        : [null];
+      const metadata = mergeReplayMetadata(
+        parseRecordingMetadata(locked),
+        clampedInput.metadata,
+        clampedInput.viewport,
+        {
+          first:
+            stored !== null &&
+            (stored.earliest === null ||
+              rowsToInsert.some((row) => row.seq < Number(stored.earliest))),
+          newest:
+            stored !== null &&
+            (stored.latest === null ||
+              rowsToInsert.some((row) => row.seq > Number(stored.latest))),
+        },
+      );
       const [updatedRecording] = await tx
         .update(schema.sessionRecordings)
-        .set(recordingUpdate)
+        .set({ ...recordingUpdate, metadata: JSON.stringify(metadata) })
         .where(eq(schema.sessionRecordings.id, recording.id))
         .returning({
           errorCount: schema.sessionRecordings.errorCount,
@@ -2136,6 +2226,7 @@ export async function listSessionRecordings(
     filters.hideInternal ||
     filters.visitorType ||
     filters.emailDomain ||
+    filters.environment ||
     filters.sort ||
     filters.offset ||
     filters.didEvents?.length ||
@@ -2653,6 +2744,13 @@ export async function listSessionRecordingsPage(
     conditions.push(gte(schema.sessionRecordings.rageClickCount, 1));
   if (filters.status)
     conditions.push(eq(schema.sessionRecordings.status, filters.status));
+  if (filters.environment) {
+    conditions.push(
+      trafficEnvironmentCondition(filters.environment, {
+        host: schema.sessionRecordings.hostname,
+      }),
+    );
+  }
   if (filters.emailDomain && filters.visitorType === "anonymous") {
     conditions.push(sql`false`);
   } else if (filters.emailDomain) {

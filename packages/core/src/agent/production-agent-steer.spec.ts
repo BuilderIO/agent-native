@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ActionRunContext } from "../action.js";
 import type {
   AgentEngine,
   EngineEvent,
   EngineMessage,
 } from "./engine/types.js";
 import { runAgentLoop, type ActionEntry } from "./production-agent.js";
+import type { AgentChatEvent } from "./types.js";
 
 const claimSteeredMock = vi.hoisted(() => vi.fn());
 const deferSteeredMock = vi.hoisted(() => vi.fn(async () => undefined));
@@ -169,6 +171,68 @@ describe("Send now at a tool boundary", () => {
     );
     expect(order.indexOf("user_message")).toBeLessThan(order.indexOf("text"));
     expect(claimSteeredMock).toHaveBeenCalledWith("thread-1", "run-1");
+  });
+
+  it("continues after a steered instruction even if the action settled", async () => {
+    claimSteeredMock.mockResolvedValueOnce([
+      delivery("queued-1", "Also change the title"),
+    ]);
+    let calls = 0;
+    const requests: EngineMessage[][] = [];
+    const testEngine: AgentEngine = {
+      ...engine(0, requests),
+      async *stream(opts) {
+        requests.push(JSON.parse(JSON.stringify(opts.messages)));
+        calls++;
+        if (calls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "tool-call", id: "save", name: "save", input: {} }],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        } else if (calls === 2) {
+          yield { type: "stop", reason: "end_turn" };
+        } else {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Title updated." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        }
+      },
+    };
+    const events: AgentChatEvent[] = [];
+    await runAgentLoop({
+      engine: testEngine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "Save" }] }],
+      actions: {
+        save: {
+          tool: {
+            description: "Save",
+            parameters: { type: "object", properties: {} },
+          },
+          readOnly: false,
+          run: async (_input: unknown, ctx?: ActionRunContext) => {
+            ctx?.settle?.();
+            return "saved";
+          },
+        },
+      },
+      threadId: "thread-1",
+      runId: "run-1",
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+    expect(requests).toHaveLength(3);
+    expect(texts(requests[1]?.at(-1))).toContain("Also change the title");
+    expect(events).toContainEqual({ type: "text", text: "Title updated." });
+    expect(events).not.toContainEqual({
+      type: "done",
+      reason: "action_settled",
+    });
   });
 
   it("delivers several messages in queue order at one boundary", async () => {

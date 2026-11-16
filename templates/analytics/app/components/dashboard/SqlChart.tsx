@@ -285,10 +285,13 @@ export function formatSqlChartError(error: unknown): string {
       : typeof error === "string"
         ? error
         : stringifyValue(error);
+  // The action client names the failed action before the server's message,
+  // which says nothing to someone reading a panel.
   const readableMessage = message
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .replace(/^Action [\w-]+ failed:\s*/, "");
 
   if (/inactivity timeout|too much time has passed/i.test(readableMessage)) {
     return "This chart took too long to load. Try again.";
@@ -1365,8 +1368,16 @@ function ChartPointLimitNote({ limit }: { limit: ChartPointLimit }) {
 
 export interface ChartDatum {
   x: string;
+  /** Set when the row's x is null, which `x` alone can't tell from ''. */
+  xIsNull?: true;
   series?: string;
   value?: unknown;
+}
+
+function datumX(value: unknown): Pick<ChartDatum, "x" | "xIsNull"> {
+  return value == null
+    ? { x: "", xIsNull: true }
+    : { x: stringifyValue(value) };
 }
 
 type DatumClickHandler = (datum: ChartDatum) => void;
@@ -1374,7 +1385,7 @@ type DatumClickHandler = (datum: ChartDatum) => void;
 interface AccessibleDrilldownItem {
   datum: ChartDatum;
   label: string;
-  valueLabel?: string;
+  valueLabel?: string | undefined;
 }
 
 interface AccessibleDrilldownPage {
@@ -1401,39 +1412,46 @@ function chartDrilldownItems(
   const end = Math.min(offset + limit, total);
   const items: AccessibleDrilldownItem[] = [];
 
-  for (let index = offset; index < end; index += 1) {
-    const row = rows[Math.floor(index / seriesPerRow)];
-    const series =
-      seriesKeys.length > 0 ? seriesKeys[index % seriesPerRow] : null;
-    const x = stringifyValue(row[xKey]);
-    const label = formatXLabel(row[xKey]);
-    items.push(
-      series !== null
-        ? {
-            datum: { x, series, value: row[series] },
-            label: `${label} · ${formatSeriesLabel(series)}`,
-            valueLabel: formatValue(row[series], series),
-          }
-        : {
-            datum: {
-              x,
-              value: valueKeys.length === 1 ? row[valueKeys[0]] : undefined,
+  const firstRow = Math.floor(offset / seriesPerRow);
+  const slots: (string | null)[] = seriesKeys.length > 0 ? seriesKeys : [null];
+  const onlyValueKey = valueKeys.length === 1 ? valueKeys[0] : undefined;
+
+  for (const [rowOffset, row] of rows.slice(firstRow).entries()) {
+    for (const [slot, series] of slots.entries()) {
+      const index = (firstRow + rowOffset) * seriesPerRow + slot;
+      if (index < offset) continue;
+      if (index >= end) return { items, total };
+      const x = datumX(row[xKey]);
+      const label = formatXLabel(row[xKey]);
+      items.push(
+        series !== null
+          ? {
+              datum: { ...x, series, value: row[series] },
+              label: `${label} · ${formatSeriesLabel(series)}`,
+              valueLabel: formatValue(row[series], series),
+            }
+          : {
+              datum: {
+                ...x,
+                value:
+                  onlyValueKey === undefined ? undefined : row[onlyValueKey],
+              },
+              label:
+                valueKeys.length > 1
+                  ? `${label} · ${formatList(
+                      valueKeys.map(
+                        (key) =>
+                          `${formatSeriesLabel(key)}: ${formatValue(row[key], key)}`,
+                      ),
+                    )}`
+                  : label,
+              valueLabel:
+                onlyValueKey === undefined
+                  ? undefined
+                  : formatValue(row[onlyValueKey], onlyValueKey),
             },
-            label:
-              valueKeys.length > 1
-                ? `${label} · ${formatList(
-                    valueKeys.map(
-                      (key) =>
-                        `${formatSeriesLabel(key)}: ${formatValue(row[key], key)}`,
-                    ),
-                  )}`
-                : label,
-            valueLabel:
-              valueKeys.length === 1
-                ? formatValue(row[valueKeys[0]], valueKeys[0])
-                : undefined,
-          },
-    );
+      );
+    }
   }
 
   return { items, total };
@@ -1449,8 +1467,10 @@ function useChartDrilldownItems(
   valueFormatter: (value: number, name?: string | number) => string,
 ) {
   const formatters = useFormatters();
+  const noXValueLabel = useT()("sqlDashboard.noXValue");
   const formatAccessibleXLabel = useCallback(
     (value: unknown) => {
+      if (value == null) return noXValueLabel;
       const text = stringifyValue(value);
       const dateKey =
         /^\d{8}$/.test(text) || /^\d{4}-\d{2}-\d{2}(?:[T ]|$)/.test(text);
@@ -1463,7 +1483,7 @@ function useChartDrilldownItems(
         ...(isDailyChartKey(xKey) ? { weekday: "long" } : {}),
       });
     },
-    [formatXLabel, formatters, xKey],
+    [formatXLabel, formatters, noXValueLabel, xKey],
   );
   const formatValue = useCallback(
     (value: unknown, key?: string) => {
@@ -1619,7 +1639,7 @@ function rowDatum(
       : undefined;
   if (!row) return null;
   return {
-    x: stringifyValue(row[xKey]),
+    ...datumX(row[xKey]),
     series,
     value: valueKey ? row[valueKey] : undefined,
   };
@@ -1643,8 +1663,7 @@ function ChartClickLocator({
   useLayoutEffect(() => {
     if (!scale || !domain || !plot) return;
     // Recharts plots row i at the i-th domain value, not at the row's own x:
-    // null x values drop out of the domain, and repeated ones turn it into
-    // row indexes.
+    // repeated x values turn the domain into row indexes.
     const positions = domain.map((value) =>
       scale(value, { position: "middle" }),
     );
@@ -1978,7 +1997,7 @@ export function SqlChart({
       <div className="px-1 py-2">
         <DashboardPanelDescription
           description={panel.config?.description}
-          className="text-sm text-muted-foreground"
+          className="text-xs leading-relaxed text-muted-foreground"
         />
       </div>
     );
@@ -2116,10 +2135,11 @@ export function SqlChart({
     }
 
     return (
-      <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="flex h-full min-h-0 flex-col gap-1.5">
         <DashboardPanelDescription
           description={panel.config.description}
-          className="text-sm text-muted-foreground"
+          collapsible
+          className="shrink-0 text-xs leading-relaxed text-muted-foreground"
         />
         <div className="min-h-0 flex-1">{content}</div>
       </div>
@@ -3613,16 +3633,33 @@ const LEVEL_CATEGORY_AXIS: CategoryAxisPlan = {
   labelWidth: Number.POSITIVE_INFINITY,
 };
 
+/**
+ * The axis value of a row. Recharts leaves a null x off the axis yet still draws
+ * every row, shifting later values onto the wrong labels, so null gets its own
+ * tick. Rows keep their null: a drill-down filters on the value, not this label.
+ */
+function useChartXValue(xKey: string) {
+  const noXValueLabel = useT()("sqlDashboard.noXValue");
+  return useCallback(
+    (row: Record<string, unknown>) => row[xKey] ?? noXValueLabel,
+    [xKey, noXValueLabel],
+  );
+}
+
 /** Formatted x labels when the axis holds named categories, else null. */
 function useCategoryAxisLabels(
   rows: Record<string, unknown>[],
   xKey: string,
   formatLabel: (value: unknown) => string,
 ): string[] | null {
-  return useMemo(() => {
-    const values = rows.map((row) => row[xKey]);
-    return isCategoryAxis(values) ? values.map(formatLabel) : null;
-  }, [rows, xKey, formatLabel]);
+  const xValue = useChartXValue(xKey);
+  return useMemo(
+    () =>
+      isCategoryAxis(rows.map((row) => row[xKey]))
+        ? rows.map((row) => formatLabel(xValue(row)))
+        : null,
+    [rows, xKey, xValue, formatLabel],
+  );
 }
 
 function CategoryAxisTick({
@@ -3666,7 +3703,7 @@ function CategoryXAxis({
   labels,
   formatLabel,
 }: {
-  dataKey: string;
+  dataKey: (row: Record<string, unknown>) => unknown;
   labels: string[];
   formatLabel: (value: unknown) => string;
 }) {
@@ -3743,6 +3780,7 @@ function BarRenderer({
     [panel],
   );
   const categoryLabels = useCategoryAxisLabels(rows, xKey, xLabelFormatter);
+  const xValue = useChartXValue(xKey);
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = useCallback(
@@ -3814,13 +3852,13 @@ function BarRenderer({
         >
           {categoryLabels ? (
             <CategoryXAxis
-              dataKey={xKey}
+              dataKey={xValue}
               labels={categoryLabels}
               formatLabel={xLabelFormatter}
             />
           ) : (
             <XAxis
-              dataKey={xKey}
+              dataKey={xValue}
               stroke="hsl(var(--muted-foreground))"
               fontSize={12}
               tickLine={false}
@@ -3920,6 +3958,7 @@ function ComboRenderer({
     [panel],
   );
   const categoryLabels = useCategoryAxisLabels(rows, xKey, xLabelFormatter);
+  const xValue = useChartXValue(xKey);
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = useCallback(
@@ -3994,13 +4033,13 @@ function ComboRenderer({
           {chartClick.locator}
           {categoryLabels ? (
             <CategoryXAxis
-              dataKey={xKey}
+              dataKey={xValue}
               labels={categoryLabels}
               formatLabel={xLabelFormatter}
             />
           ) : (
             <XAxis
-              dataKey={xKey}
+              dataKey={xValue}
               stroke="hsl(var(--muted-foreground))"
               fontSize={12}
               tickLine={false}
@@ -4117,6 +4156,7 @@ function TimeSeriesRenderer({
     (value: unknown) => formatXLabel(String(value ?? ""), panel),
     [panel],
   );
+  const xValue = useChartXValue(xKey);
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = useCallback(
@@ -4199,7 +4239,7 @@ function TimeSeriesRenderer({
           >
             {chartClick.locator}
             <XAxis
-              dataKey={xKey}
+              dataKey={xValue}
               stroke="hsl(var(--muted-foreground))"
               fontSize={12}
               tickLine={false}
@@ -4345,7 +4385,7 @@ function TimeSeriesRenderer({
             </defs>
           )}
           <XAxis
-            dataKey={xKey}
+            dataKey={xValue}
             stroke="hsl(var(--muted-foreground))"
             fontSize={12}
             tickLine={false}
