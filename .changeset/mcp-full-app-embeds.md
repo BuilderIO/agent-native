@@ -12,3 +12,5 @@ Dispatch's `open_app` asks the target app for an embed session whenever an MCP h
 An action that returns another app's embed start URL, such as `open_app`, declares `opensAnotherAppEmbed: true` so the MCP server keeps that URL, whether the app runs on its own origin or under another mount on this one. Other actions keep only a session this app minted for the caller.
 
 When `open_app` cannot get a session from the target app, its result says why in `embedUnavailable` instead of looking like a plain link, and it waits at most 15 seconds for the target before answering with the link.
+
+`read_view` reports load errors from the app open beside the chat in `errors`, so a blank panel says why instead of returning empty text.

@@ -2361,6 +2361,7 @@ return requestFullscreenOnFirstInteraction;`;
       frameSrc?: string;
       modelContext?: unknown;
       app?: unknown;
+      windowListeners?: Record<string, Array<(event: unknown) => void>>;
     }) => {
       const resource = embedApp({ title: "Mail" });
       const html =
@@ -2376,6 +2377,10 @@ return requestFullscreenOnFirstInteraction;`;
       );
       const pushed: Array<{ state: unknown; url: string }> = [];
       const popstates: unknown[] = [];
+      const windowListeners: Record<
+        string,
+        Array<(event: unknown) => void>
+      > = options.windowListeners ?? {};
       const fakeWindow = {
         location: { href: options.href },
         history: {
@@ -2391,6 +2396,9 @@ return requestFullscreenOnFirstInteraction;`;
         },
         getSelection: () => "",
         __agentNativeWebMcp: options.pageHelper,
+        addEventListener(type: string, listener: (event: unknown) => void) {
+          (windowListeners[type] ??= []).push(listener);
+        },
       };
       const objectValue = (value: unknown) =>
         value && typeof value === "object" && !Array.isArray(value)
@@ -2546,6 +2554,24 @@ return requestFullscreenOnFirstInteraction;`;
         path: "/mail/inbox?q=acme",
         title: "Inbox",
         visibleText: "Invoice from Acme due Friday",
+      });
+    });
+
+    it("reports why the open page failed to load", async () => {
+      const windowListeners: Record<
+        string,
+        Array<(event: unknown) => void>
+      > = {};
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+        windowListeners,
+      });
+      windowListeners.unhandledrejection![0]!({
+        reason: new Error("Failed to fetch dynamically imported module"),
+      });
+      const read = await tools.callViewTool({ name: "read_view" });
+      expect(read.structuredContent).toMatchObject({
+        errors: ["Failed to fetch dynamically imported module"],
       });
     });
 

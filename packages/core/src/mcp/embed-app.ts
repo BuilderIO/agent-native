@@ -2716,6 +2716,18 @@ export function embedApp(
       return lastFrameSrc ? new URL(window.location.href) : null;
     }
 
+    // The transplanted app runs in this document, where the host shows no
+    // console; read_view is the only place its load failures surface.
+    const viewErrors = [];
+    function rememberViewError(value) {
+      const text = String(
+        (value && (value.message || (value.reason && value.reason.message) || value.reason)) || value || "",
+      ).slice(0, 300);
+      if (text && viewErrors.length < 5 && !viewErrors.includes(text)) viewErrors.push(text);
+    }
+    window.addEventListener("error", (event) => rememberViewError(event.error || event.message));
+    window.addEventListener("unhandledrejection", (event) => rememberViewError(event.reason));
+
     function readViewState() {
       // A nested app frame is cross-origin and moves on its own, so its src is
       // only the launch URL; reporting it would describe the wrong page.
@@ -2736,6 +2748,11 @@ export function embedApp(
           ? String(root.innerText || "").replace(/\\s+/g, " ").trim().slice(0, maxViewTextChars)
           : "";
       }
+      const loadError = document.body
+        ? document.body.getAttribute("data-agent-native-hydration-error")
+        : null;
+      if (loadError) rememberViewError(loadError);
+      if (viewErrors.length) state.errors = viewErrors.slice();
       return state;
     }
 
