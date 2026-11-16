@@ -868,11 +868,7 @@ class MarkdownConverter {
         }
         continue;
       }
-      if (
-        this.asideCallouts &&
-        node?.type === "html" &&
-        ASIDE_OPEN_RE.test(node.value)
-      ) {
+      if (this.asideCallouts && ASIDE_OPEN_RE.test(htmlSource(node) ?? "")) {
         const callout = this.aside(nodes, index);
         if (callout) {
           out.push(callout.node);
@@ -1087,10 +1083,10 @@ class MarkdownConverter {
   ): { node: PMNode; end: number } | null {
     let depth = 1;
     for (let index = start + 1; index < nodes.length; index++) {
-      const node = nodes[index];
-      if (node?.type !== "html") continue;
-      if (ASIDE_OPEN_RE.test(node.value)) depth += 1;
-      else if (ASIDE_CLOSE_RE.test(node.value)) depth -= 1;
+      const html = htmlSource(nodes[index]);
+      if (html === null) continue;
+      if (ASIDE_OPEN_RE.test(html)) depth += 1;
+      else if (ASIDE_CLOSE_RE.test(html)) depth -= 1;
       if (depth > 0) continue;
       const content = this.blocks(nodes.slice(start + 1, index));
       const icon = takeLeadingEmoji(content);
@@ -2167,17 +2163,26 @@ function normalizeInline(nodes: readonly PMNode[]): PMNode[] {
  * as the callout's icon. A paragraph left empty goes with it.
  */
 function takeLeadingEmoji(blocks: PMNode[]): string | null {
+  if (blocks[0]?.type !== "paragraph") return null;
   const first = blocks[0];
-  if (first?.type !== "paragraph") return null;
-  const [text, ...others] = first.content ?? [];
-  if (text?.type !== "text" || !text.text) return null;
-  const match = LEADING_EMOJI_RE.exec(text.text);
-  if (!match) return null;
-  const rest = text.text.slice(match[0].length);
+  const inline = first.content ?? [];
+  if (inline[0]?.type !== "text") return null;
+  const text = inline[0];
+  const value = text.text ?? "";
+  const match = LEADING_EMOJI_RE.exec(value);
+  const icon = match?.[1];
+  if (!match || !icon) return null;
+  const rest = value.slice(match[0].length);
+  const others = inline.slice(1);
   const content = rest ? [{ ...text, text: rest }, ...others] : others;
   if (content.length) blocks[0] = { ...first, content };
   else blocks.shift();
-  return match[1] ?? null;
+  return icon;
+}
+
+/** An HTML block's source, or null for any other node. */
+function htmlSource(node: RootContent | undefined): string | null {
+  return node?.type === "html" ? node.value : null;
 }
 
 function withLeadingParagraph(blocks: PMNode[]): PMNode[] {

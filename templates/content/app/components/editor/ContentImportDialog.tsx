@@ -235,7 +235,9 @@ async function readImportFiles(sources: ImportSource[]) {
   const skipped: ImportSkippedFile[] = [];
   let markdownBytes = 0;
   for (const source of sources) {
-    const kind = importFileKind(normalizeImportPath(source.name) ?? source.name);
+    const kind = importFileKind(
+      normalizeImportPath(source.name) ?? source.name,
+    );
     if (source.size > (IMPORT_SIZE_LIMITS[kind] ?? Infinity)) {
       skipped.push({
         name: source.name,
@@ -308,9 +310,7 @@ export function ContentImportDialog({
   const imageUploads = useRef(new Map<ImportSource, Promise<string>>());
   const [files, setFiles] = useState<ImportSource[]>([]);
   // Files a picked zip held that can't be imported, such as a zip in a zip.
-  const [archiveSkipped, setArchiveSkipped] = useState<ImportSkippedFile[]>(
-    [],
-  );
+  const [archiveSkipped, setArchiveSkipped] = useState<ImportSkippedFile[]>([]);
   const [payload, setPayload] = useState<ImportContentFileInput[]>([]);
   const [localSkipped, setLocalSkipped] = useState<ImportSkippedFile[]>([]);
   const [plan, setPlan] = useState<ImportContentResult | null>(null);

@@ -310,7 +310,11 @@ export function planMarkdownPages(input: {
         ];
       }),
   );
-  const drafts = new Map(markdown.map(({ path }) => [path, parsed.get(path)!]));
+  const drafts = new Map<string, MarkdownImportDraft>();
+  for (const { path } of markdown) {
+    const draft = parsed.get(path);
+    if (draft) drafts.set(path, draft);
+  }
   const importing = new Set(drafts.keys());
   const parents = new Map<string, string>();
   for (const [path, candidates] of notion?.parentCandidates ?? []) {
@@ -322,7 +326,8 @@ export function planMarkdownPages(input: {
   let stale = [...drafts.keys()];
   while (stale.length > 0) {
     for (const path of stale) {
-      planned.set(path, planPage(path, drafts.get(path)!, importing, files));
+      const draft = drafts.get(path);
+      if (draft) planned.set(path, planPage(path, draft, importing, files));
     }
     const dropped = stale.filter(
       (path) =>
@@ -394,7 +399,8 @@ function chooseParent(
           slot.reference.kind === "relative" && slot.reference.path === path,
       ),
   );
-  return linking ?? importing[0] ?? null;
+  if (linking) return linking;
+  return importing[0] ?? null;
 }
 
 /**

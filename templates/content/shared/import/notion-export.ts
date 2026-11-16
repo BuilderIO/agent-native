@@ -241,8 +241,8 @@ export function prepareNotionMarkdown(text: string): {
     }
     if (/^\s*<aside>\s*$/i.test(line)) {
       out.push(line, "");
-      const next = lines[index + 1];
-      if (next !== undefined && NOTION_ICON_IMG_RE.test(next)) {
+      const next = lines[index + 1] ?? "";
+      if (NOTION_ICON_IMG_RE.test(next)) {
         notes.push({ kind: "callout-icon-replaced" });
         const rest = next.replace(NOTION_ICON_IMG_RE, "$1");
         lines[index + 1] = rest.trim() ? rest : "";

@@ -1218,6 +1218,12 @@ function waitsForStorage(run: SyncRun, file: PlannedFile) {
 }
 
 /**
+ * A file the sync stores. A Notion signed link in a repo's Markdown stays as
+ * written: the sync fetches files from the repo only.
+ */
+type StoredAssetRequest = Exclude<ImportAssetRequest, { kind: "remote" }>;
+
+/**
  * Copies one image into Content's private storage. `"no-storage"` means
  * storage isn't set up or is down, and `"failed"` that this upload failed;
  * either way the page leaves the image out until a later sync can store it.
@@ -1226,7 +1232,7 @@ function waitsForStorage(run: SyncRun, file: PlannedFile) {
  */
 async function uploadAsset(
   run: SyncRun,
-  request: ImportAssetRequest,
+  request: StoredAssetRequest,
   beforeUpload: () => Promise<void>,
 ): Promise<{ sha: string; url: string } | "no-storage" | "failed" | null> {
   if (request.kind === "data-url") {
@@ -1314,11 +1320,12 @@ async function buildPage(
     text,
     tablePadding: newTablePaddingBudget(),
   });
-  const requests = new Map<string, ImportAssetRequest>();
+  const requests = new Map<string, StoredAssetRequest>();
   finalizeMarkdownImport(
     draft,
     {
       asset: (request): ImportAssetResolution => {
+        if (request.kind === "remote") return { status: "missing" };
         requests.set(
           request.kind === "file"
             ? `file:${request.path}`
@@ -1358,6 +1365,7 @@ async function buildPage(
     draft,
     {
       asset: (request) => {
+        if (request.kind === "remote") return { status: "missing" };
         const url = urls.get(
           request.kind === "file"
             ? `file:${request.path}`

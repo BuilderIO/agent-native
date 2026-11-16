@@ -982,6 +982,14 @@ describe("Notion export import", () => {
   const CHILD = `Plan/Child ${ID.child}.md`;
   const TASKS_ALL = `Plan/Tasks ${ID.tasks}_all.csv`;
 
+  /** The value, failing the test when it's missing. */
+  function present<T>(value: T | null | undefined): T {
+    if (value === null || value === undefined) {
+      throw new Error("Expected a value");
+    }
+    return value;
+  }
+
   /** A small export; `note` gives its pages text no other test imports. */
   function notionFiles(note = "") {
     return [
@@ -1060,13 +1068,14 @@ describe("Notion export import", () => {
         dryRun: false,
       }),
     );
-    const [planId, childId] = applied.pages.map((page) => page.id!);
+    const planId = present(applied.pages[0]?.id);
+    const childId = present(applied.pages[1]?.id);
     const rows = await getDb()
       .select()
       .from(schema.documents)
       .where(inArray(schema.documents.id, [planId, childId]));
-    const plan = rows.find((row) => row.id === planId)!;
-    const child = rows.find((row) => row.id === childId)!;
+    const plan = present(rows.find((row) => row.id === planId));
+    const child = present(rows.find((row) => row.id === childId));
 
     expect(plan.parentId).toBe(PARENT_ID);
     expect(child.parentId).toBe(planId);
@@ -1077,7 +1086,7 @@ describe("Notion export import", () => {
     expect(plan.content).not.toContain("signature=secret");
     expect(child.content).toContain(`/page/${planId}`);
     expect(signedFiles.fetch).toHaveBeenCalledTimes(1);
-    expect(signedFiles.fetch.mock.calls[0]![0]).toBe(CHART);
+    expect(signedFiles.fetch.mock.calls[0]?.[0]).toBe(CHART);
     expect(uploads.upload).toHaveBeenCalledWith(
       expect.objectContaining({
         ownerEmail: OWNER,
@@ -1112,7 +1121,7 @@ describe("Notion export import", () => {
     const [stored] = await getDb()
       .select()
       .from(schema.documents)
-      .where(eq(schema.documents.id, plan.id!));
+      .where(eq(schema.documents.id, present(plan.id)));
 
     expect(stored.content).toContain(CHART.split("?")[0]);
     expect(plan.status).toBe("lost");
@@ -1137,7 +1146,9 @@ describe("Notion export import", () => {
     );
     const applied = await asOwner(() =>
       importContent.run({
-        files: [{ name: `Spec ${ID.plan}.md`, text: `# Spec\n\n[Spec](${pdf})` }],
+        files: [
+          { name: `Spec ${ID.plan}.md`, text: `# Spec\n\n[Spec](${pdf})` },
+        ],
         parentId: PARENT_ID,
         dryRun: false,
       }),
@@ -1145,7 +1156,7 @@ describe("Notion export import", () => {
     const [stored] = await getDb()
       .select()
       .from(schema.documents)
-      .where(eq(schema.documents.id, applied.pages[0].id!));
+      .where(eq(schema.documents.id, present(applied.pages[0]?.id)));
 
     expect(publicFiles.upload).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1183,7 +1194,7 @@ describe("Notion export import", () => {
       undoContentImport.run({ importId: applied.importId }),
     );
     expect([...undone.trashedIds].sort()).toEqual(
-      applied.pages.map((page) => page.id!).sort(),
+      applied.pages.map((page) => present(page.id)).sort(),
     );
     const afterUndo = await asOwner(() =>
       importContent.run({

@@ -6,11 +6,6 @@ import {
   fail,
   isActionContractError,
 } from "@agent-native/core/action";
-import {
-  deletePrivateBlob,
-  isPrivateBlobConfiguredForRequest,
-  putPrivateBlob,
-} from "@agent-native/core/private-blob";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   deleteUploadedFile,
@@ -18,6 +13,11 @@ import {
   getActiveFileUploadProviderForRequest,
   uploadFile,
 } from "@agent-native/core/file-upload";
+import {
+  deletePrivateBlob,
+  isPrivateBlobConfiguredForRequest,
+  putPrivateBlob,
+} from "@agent-native/core/private-blob";
 import {
   deletePrivateMedia,
   PrivateMediaStorageUnavailableError,
@@ -145,7 +145,11 @@ export async function runContentImport(
       format: importFileFormat(asset.path),
     });
   }
-  const uploads = [...usedAssetPaths].map((path) => assets.get(path)!.name);
+  const usedAssets = [...usedAssetPaths].flatMap((path) => {
+    const asset = assets.get(path);
+    return asset ? [asset] : [];
+  });
+  const uploads = usedAssets.map((asset) => asset.name);
   const databases: ImportContentDatabaseResult[] = (
     notion?.databases ?? []
   ).map((database) => ({
@@ -156,8 +160,8 @@ export async function runContentImport(
   }));
   // Originals and images go to private storage. A PDF or CSV a page links
   // goes to file storage at a public URL: private storage holds images only.
-  const needsFileStorage = [...usedAssetPaths].some(
-    (path) => assets.get(path)?.kind === "attachment",
+  const needsFileStorage = usedAssets.some(
+    (asset) => asset.kind === "attachment",
   );
   const storageReady =
     (await isPrivateBlobConfiguredForRequest()) &&
@@ -191,10 +195,10 @@ export async function runContentImport(
     });
   }
   if (!storageReady) storageUnavailable();
-  for (const path of usedAssetPaths) {
-    if (!assets.get(path)!.url) {
+  for (const asset of usedAssets) {
+    if (!asset.url) {
       fail(
-        `Upload ${assets.get(path)!.name} and pass its url before applying the import.`,
+        `Upload ${asset.name} and pass its url before applying the import.`,
         { errorCode: "IMPORT_IMAGE_NOT_UPLOADED", statusCode: 400 },
       );
     }
@@ -789,7 +793,7 @@ async function deleteUnusedUploads(
           ? await deletePrivateMedia(upload.mediaId)
           : await deleteUploadedFile(upload.file.provider, {
               url: upload.file.url,
-              id: upload.file.id,
+              ...(upload.file.id ? { id: upload.file.id } : {}),
             });
       if (!deleted) {
         console.error(

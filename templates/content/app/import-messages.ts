@@ -4,7 +4,8 @@ const en = {
   menuItem: "Import…",
   title: "Import into {{title}}",
   titleUntitled: "Import into this page",
-  dropZone: "Drop Markdown files and their images, or a Notion export (.zip), here",
+  dropZone:
+    "Drop Markdown files and their images, or a Notion export (.zip), here",
   chooseFiles: "Choose files",
   chooseOtherFiles: "Choose other files",
   reading: "Reading files",
@@ -77,12 +78,14 @@ const en = {
   databaseRows_other: "{{count}} rows",
   databaseCsvKept: "CSV kept",
   databaseCsvNotKept: "No page links its CSV",
-  alreadyImported: "Imported before on {{date}}; importing again makes new pages",
+  alreadyImported:
+    "Imported before on {{date}}; importing again makes new pages",
   zipTooLarge: "{{name}} is larger than {{max}} MB",
   zipTooManyFiles: "{{name}} holds more than {{max}} files",
   zipExpandsTooLarge: "{{name}} unzips to more than {{max}} MB",
   zipUnreadable: "{{name}} can't be opened as a zip file",
-  markdownTooLarge: "These files hold more than {{max}} MB of Markdown. Import them in smaller groups.",
+  markdownTooLarge:
+    "These files hold more than {{max}} MB of Markdown. Import them in smaller groups.",
 } as const;
 
 export type ImportMessages = Record<keyof typeof en, string>;
@@ -95,7 +98,8 @@ const translations: Record<
     menuItem: "Importar…",
     title: "Importar en {{title}}",
     titleUntitled: "Importar en esta página",
-    dropZone: "Suelta aquí archivos Markdown y sus imágenes, o una exportación de Notion (.zip)",
+    dropZone:
+      "Suelta aquí archivos Markdown y sus imágenes, o una exportación de Notion (.zip)",
     chooseFiles: "Elegir archivos",
     chooseOtherFiles: "Elegir otros archivos",
     reading: "Leyendo archivos",
@@ -160,10 +164,13 @@ const translations: Record<
     noteUnsupportedMarkdown: "Markdown sin equivalente en Content descartado",
     noteTextNotLanded: "Texto que falta en la página",
     noteStructureChangedOnSave: "La estructura cambió al guardar",
-    noteCalloutIconReplaced: "Se reemplazaron los iconos personalizados de los avisos destacados",
+    noteCalloutIconReplaced:
+      "Se reemplazaron los iconos personalizados de los avisos destacados",
     noteExpiringLinkRehosted: "Se subieron los archivos de enlaces que caducan",
-    notePropertiesNotShown: "Propiedades de la página guardadas con la importación, sin mostrar",
-    noteExpiringLinkNotRehosted: "No se pudieron subir archivos de enlaces que caducan",
+    notePropertiesNotShown:
+      "Propiedades de la página guardadas con la importación, sin mostrar",
+    noteExpiringLinkNotRehosted:
+      "No se pudieron subir archivos de enlaces que caducan",
     skipUnusedFile: "Ninguna página enlaza este archivo",
     skipNestedArchive: "No se abren archivos zip dentro de un zip",
     databasesNotImported: "Bases de datos, aún sin importar",
@@ -175,18 +182,21 @@ const translations: Record<
     databaseRows_other: "{{count}} filas",
     databaseCsvKept: "CSV conservado",
     databaseCsvNotKept: "Ninguna página enlaza su CSV",
-    alreadyImported: "Ya se importó el {{date}}; importarlo otra vez crea páginas nuevas",
+    alreadyImported:
+      "Ya se importó el {{date}}; importarlo otra vez crea páginas nuevas",
     zipTooLarge: "{{name}} ocupa más de {{max}} MB",
     zipTooManyFiles: "{{name}} contiene más de {{max}} archivos",
     zipExpandsTooLarge: "{{name}} ocupa más de {{max}} MB al descomprimirlo",
     zipUnreadable: "{{name}} no se puede abrir como archivo zip",
-    markdownTooLarge: "Estos archivos contienen más de {{max}} MB de Markdown. Impórtalos en grupos más pequeños.",
+    markdownTooLarge:
+      "Estos archivos contienen más de {{max}} MB de Markdown. Impórtalos en grupos más pequeños.",
   },
   "fr-FR": {
     menuItem: "Importer…",
     title: "Importer dans {{title}}",
     titleUntitled: "Importer dans cette page",
-    dropZone: "Déposez ici des fichiers Markdown et leurs images, ou un export Notion (.zip)",
+    dropZone:
+      "Déposez ici des fichiers Markdown et leurs images, ou un export Notion (.zip)",
     chooseFiles: "Choisir des fichiers",
     chooseOtherFiles: "Choisir d’autres fichiers",
     reading: "Lecture des fichiers",
@@ -252,11 +262,15 @@ const translations: Record<
     noteTextNotLanded: "Texte absent de la page",
     noteStructureChangedOnSave: "La structure a changé à l’enregistrement",
     noteCalloutIconReplaced: "Icônes personnalisées des encadrés remplacées",
-    noteExpiringLinkRehosted: "Fichiers derrière des liens temporaires téléversés",
-    notePropertiesNotShown: "Propriétés de la page enregistrées avec l’import, non affichées",
-    noteExpiringLinkNotRehosted: "Des liens de fichiers temporaires n’ont pas pu être téléversés",
+    noteExpiringLinkRehosted:
+      "Fichiers derrière des liens temporaires téléversés",
+    notePropertiesNotShown:
+      "Propriétés de la page enregistrées avec l’import, non affichées",
+    noteExpiringLinkNotRehosted:
+      "Des liens de fichiers temporaires n’ont pas pu être téléversés",
     skipUnusedFile: "Aucune page ne renvoie à ce fichier",
-    skipNestedArchive: "Les fichiers zip contenus dans un zip ne sont pas ouverts",
+    skipNestedArchive:
+      "Les fichiers zip contenus dans un zip ne sont pas ouverts",
     databasesNotImported: "Bases de données, pas encore importées",
     databaseRows_zero: "{{count}} ligne",
     databaseRows_one: "{{count}} ligne",
@@ -266,18 +280,21 @@ const translations: Record<
     databaseRows_other: "{{count}} lignes",
     databaseCsvKept: "CSV conservé",
     databaseCsvNotKept: "Aucune page ne renvoie à son CSV",
-    alreadyImported: "Déjà importé le {{date}} ; un nouvel import crée de nouvelles pages",
+    alreadyImported:
+      "Déjà importé le {{date}} ; un nouvel import crée de nouvelles pages",
     zipTooLarge: "{{name}} dépasse {{max}} Mo",
     zipTooManyFiles: "{{name}} contient plus de {{max}} fichiers",
     zipExpandsTooLarge: "{{name}} dépasse {{max}} Mo une fois décompressé",
     zipUnreadable: "{{name}} ne peut pas être ouvert comme fichier zip",
-    markdownTooLarge: "Ces fichiers contiennent plus de {{max}} Mo de Markdown. Importez-les par petits groupes.",
+    markdownTooLarge:
+      "Ces fichiers contiennent plus de {{max}} Mo de Markdown. Importez-les par petits groupes.",
   },
   "de-DE": {
     menuItem: "Importieren…",
     title: "In {{title}} importieren",
     titleUntitled: "In diese Seite importieren",
-    dropZone: "Markdown-Dateien und ihre Bilder oder einen Notion-Export (.zip) hier ablegen",
+    dropZone:
+      "Markdown-Dateien und ihre Bilder oder einen Notion-Export (.zip) hier ablegen",
     chooseFiles: "Dateien auswählen",
     chooseOtherFiles: "Andere Dateien auswählen",
     reading: "Dateien werden gelesen",
@@ -342,8 +359,10 @@ const translations: Record<
     noteStructureChangedOnSave: "Struktur hat sich beim Speichern geändert",
     noteCalloutIconReplaced: "Eigene Callout-Symbole ersetzt",
     noteExpiringLinkRehosted: "Dateien hinter ablaufenden Links hochgeladen",
-    notePropertiesNotShown: "Seiteneigenschaften mit dem Import gespeichert, nicht angezeigt",
-    noteExpiringLinkNotRehosted: "Ablaufende Dateilinks konnten nicht hochgeladen werden",
+    notePropertiesNotShown:
+      "Seiteneigenschaften mit dem Import gespeichert, nicht angezeigt",
+    noteExpiringLinkNotRehosted:
+      "Ablaufende Dateilinks konnten nicht hochgeladen werden",
     skipUnusedFile: "Keine Seite verlinkt diese Datei",
     skipNestedArchive: "Zip-Dateien in einer Zip-Datei werden nicht geöffnet",
     databasesNotImported: "Datenbanken, noch nicht importiert",
@@ -355,18 +374,21 @@ const translations: Record<
     databaseRows_other: "{{count}} Zeilen",
     databaseCsvKept: "CSV behalten",
     databaseCsvNotKept: "Keine Seite verlinkt ihre CSV",
-    alreadyImported: "Bereits am {{date}} importiert; ein erneuter Import erstellt neue Seiten",
+    alreadyImported:
+      "Bereits am {{date}} importiert; ein erneuter Import erstellt neue Seiten",
     zipTooLarge: "{{name}} ist größer als {{max}} MB",
     zipTooManyFiles: "{{name}} enthält mehr als {{max}} Dateien",
     zipExpandsTooLarge: "{{name}} ist entpackt größer als {{max}} MB",
     zipUnreadable: "{{name}} kann nicht als Zip-Datei geöffnet werden",
-    markdownTooLarge: "Diese Dateien enthalten mehr als {{max}} MB Markdown. Importiere sie in kleineren Gruppen.",
+    markdownTooLarge:
+      "Diese Dateien enthalten mehr als {{max}} MB Markdown. Importiere sie in kleineren Gruppen.",
   },
   "pt-BR": {
     menuItem: "Importar…",
     title: "Importar para {{title}}",
     titleUntitled: "Importar para esta página",
-    dropZone: "Solte aqui arquivos Markdown e suas imagens, ou uma exportação do Notion (.zip)",
+    dropZone:
+      "Solte aqui arquivos Markdown e suas imagens, ou uma exportação do Notion (.zip)",
     chooseFiles: "Escolher arquivos",
     chooseOtherFiles: "Escolher outros arquivos",
     reading: "Lendo arquivos",
@@ -432,8 +454,10 @@ const translations: Record<
     noteStructureChangedOnSave: "A estrutura mudou ao salvar",
     noteCalloutIconReplaced: "Ícones personalizados dos destaques substituídos",
     noteExpiringLinkRehosted: "Arquivos de links que expiram foram enviados",
-    notePropertiesNotShown: "Propriedades da página salvas com a importação, não exibidas",
-    noteExpiringLinkNotRehosted: "Não foi possível enviar arquivos de links que expiram",
+    notePropertiesNotShown:
+      "Propriedades da página salvas com a importação, não exibidas",
+    noteExpiringLinkNotRehosted:
+      "Não foi possível enviar arquivos de links que expiram",
     skipUnusedFile: "Nenhuma página tem link para este arquivo",
     skipNestedArchive: "Arquivos zip dentro de um zip não são abertos",
     databasesNotImported: "Bancos de dados, ainda não importados",
@@ -445,12 +469,14 @@ const translations: Record<
     databaseRows_other: "{{count}} linhas",
     databaseCsvKept: "CSV mantido",
     databaseCsvNotKept: "Nenhuma página tem link para o CSV",
-    alreadyImported: "Já importado em {{date}}; importar de novo cria páginas novas",
+    alreadyImported:
+      "Já importado em {{date}}; importar de novo cria páginas novas",
     zipTooLarge: "{{name}} tem mais de {{max}} MB",
     zipTooManyFiles: "{{name}} contém mais de {{max}} arquivos",
     zipExpandsTooLarge: "{{name}} passa de {{max}} MB ao ser descompactado",
     zipUnreadable: "{{name}} não pode ser aberto como arquivo zip",
-    markdownTooLarge: "Estes arquivos têm mais de {{max}} MB de Markdown. Importe-os em grupos menores.",
+    markdownTooLarge:
+      "Estes arquivos têm mais de {{max}} MB de Markdown. Importe-os em grupos menores.",
   },
   "zh-CN": {
     menuItem: "导入…",
@@ -534,7 +560,8 @@ const translations: Record<
     zipTooManyFiles: "{{name}} 包含超过 {{max}} 个文件",
     zipExpandsTooLarge: "{{name}} 解压后超过 {{max}} MB",
     zipUnreadable: "无法将 {{name}} 作为 zip 文件打开",
-    markdownTooLarge: "这些文件包含超过 {{max}} MB 的 Markdown。请分成较小的批次导入。",
+    markdownTooLarge:
+      "这些文件包含超过 {{max}} MB 的 Markdown。请分成较小的批次导入。",
   },
   "zh-TW": {
     menuItem: "匯入…",
@@ -618,13 +645,15 @@ const translations: Record<
     zipTooManyFiles: "{{name}} 包含超過 {{max}} 個檔案",
     zipExpandsTooLarge: "{{name}} 解壓縮後超過 {{max}} MB",
     zipUnreadable: "無法將 {{name}} 作為 zip 檔案開啟",
-    markdownTooLarge: "這些檔案包含超過 {{max}} MB 的 Markdown。請分成較小的批次匯入。",
+    markdownTooLarge:
+      "這些檔案包含超過 {{max}} MB 的 Markdown。請分成較小的批次匯入。",
   },
   "ja-JP": {
     menuItem: "インポート…",
     title: "{{title}} にインポート",
     titleUntitled: "このページにインポート",
-    dropZone: "Markdown ファイルとその画像、または Notion のエクスポート (.zip) をここにドロップ",
+    dropZone:
+      "Markdown ファイルとその画像、または Notion のエクスポート (.zip) をここにドロップ",
     chooseFiles: "ファイルを選択",
     chooseOtherFiles: "別のファイルを選択",
     reading: "ファイルを読み込み中",
@@ -690,8 +719,10 @@ const translations: Record<
     noteStructureChangedOnSave: "保存時に構造が変わりました",
     noteCalloutIconReplaced: "コールアウトのカスタムアイコンを置き換えました",
     noteExpiringLinkRehosted: "期限付きリンクのファイルをアップロードしました",
-    notePropertiesNotShown: "ページのプロパティはインポートと一緒に保存され、表示されません",
-    noteExpiringLinkNotRehosted: "期限付きのファイルリンクをアップロードできませんでした",
+    notePropertiesNotShown:
+      "ページのプロパティはインポートと一緒に保存され、表示されません",
+    noteExpiringLinkNotRehosted:
+      "期限付きのファイルリンクをアップロードできませんでした",
     skipUnusedFile: "このファイルにリンクしているページはありません",
     skipNestedArchive: "zip 内の zip ファイルは開きません",
     databasesNotImported: "データベース (まだインポートされません)",
@@ -703,18 +734,21 @@ const translations: Record<
     databaseRows_other: "{{count}} 行",
     databaseCsvKept: "CSV を保持",
     databaseCsvNotKept: "CSV にリンクしているページはありません",
-    alreadyImported: "{{date}} にインポート済みです。もう一度インポートすると新しいページが作成されます",
+    alreadyImported:
+      "{{date}} にインポート済みです。もう一度インポートすると新しいページが作成されます",
     zipTooLarge: "{{name}} は {{max}} MB を超えています",
     zipTooManyFiles: "{{name}} には {{max}} 個を超えるファイルが含まれています",
     zipExpandsTooLarge: "{{name}} は展開すると {{max}} MB を超えます",
     zipUnreadable: "{{name}} を zip ファイルとして開けません",
-    markdownTooLarge: "これらのファイルには {{max}} MB を超える Markdown が含まれています。小さなグループに分けてインポートしてください。",
+    markdownTooLarge:
+      "これらのファイルには {{max}} MB を超える Markdown が含まれています。小さなグループに分けてインポートしてください。",
   },
   "ko-KR": {
     menuItem: "가져오기…",
     title: "{{title}}(으)로 가져오기",
     titleUntitled: "이 페이지로 가져오기",
-    dropZone: "Markdown 파일과 이미지 또는 Notion 내보내기(.zip)를 여기에 놓으세요",
+    dropZone:
+      "Markdown 파일과 이미지 또는 Notion 내보내기(.zip)를 여기에 놓으세요",
     chooseFiles: "파일 선택",
     chooseOtherFiles: "다른 파일 선택",
     reading: "파일을 읽는 중",
@@ -778,7 +812,8 @@ const translations: Record<
     noteStructureChangedOnSave: "저장할 때 구조가 바뀌었습니다",
     noteCalloutIconReplaced: "콜아웃의 사용자 지정 아이콘이 바뀌었습니다",
     noteExpiringLinkRehosted: "만료되는 링크의 파일을 업로드했습니다",
-    notePropertiesNotShown: "페이지 속성은 가져오기와 함께 저장되며 표시되지 않습니다",
+    notePropertiesNotShown:
+      "페이지 속성은 가져오기와 함께 저장되며 표시되지 않습니다",
     noteExpiringLinkNotRehosted: "만료되는 파일 링크를 업로드하지 못했습니다",
     skipUnusedFile: "이 파일에 연결된 페이지가 없습니다",
     skipNestedArchive: "zip 안의 zip 파일은 열지 않습니다",
@@ -791,12 +826,14 @@ const translations: Record<
     databaseRows_other: "{{count}}행",
     databaseCsvKept: "CSV 보관됨",
     databaseCsvNotKept: "CSV에 연결된 페이지가 없습니다",
-    alreadyImported: "{{date}}에 이미 가져왔습니다. 다시 가져오면 새 페이지가 만들어집니다",
+    alreadyImported:
+      "{{date}}에 이미 가져왔습니다. 다시 가져오면 새 페이지가 만들어집니다",
     zipTooLarge: "{{name}}이(가) {{max}}MB보다 큽니다",
     zipTooManyFiles: "{{name}}에 파일이 {{max}}개보다 많습니다",
     zipExpandsTooLarge: "{{name}}의 압축을 풀면 {{max}}MB를 넘습니다",
     zipUnreadable: "{{name}}을(를) zip 파일로 열 수 없습니다",
-    markdownTooLarge: "이 파일들의 Markdown이 {{max}}MB를 넘습니다. 더 작은 묶음으로 나누어 가져오세요.",
+    markdownTooLarge:
+      "이 파일들의 Markdown이 {{max}}MB를 넘습니다. 더 작은 묶음으로 나누어 가져오세요.",
   },
   "hi-IN": {
     menuItem: "इंपोर्ट करें…",
@@ -876,12 +913,14 @@ const translations: Record<
     databaseRows_other: "{{count}} पंक्तियां",
     databaseCsvKept: "CSV रखी गई",
     databaseCsvNotKept: "कोई पेज इसकी CSV से लिंक नहीं करता",
-    alreadyImported: "{{date}} को पहले इंपोर्ट हुआ था; दोबारा इंपोर्ट करने पर नए पेज बनते हैं",
+    alreadyImported:
+      "{{date}} को पहले इंपोर्ट हुआ था; दोबारा इंपोर्ट करने पर नए पेज बनते हैं",
     zipTooLarge: "{{name}} {{max}} MB से बड़ी है",
     zipTooManyFiles: "{{name}} में {{max}} से ज़्यादा फ़ाइलें हैं",
     zipExpandsTooLarge: "{{name}} अनज़िप होने पर {{max}} MB से बड़ी हो जाती है",
     zipUnreadable: "{{name}} को zip फ़ाइल के रूप में नहीं खोला जा सकता",
-    markdownTooLarge: "इन फ़ाइलों में {{max}} MB से ज़्यादा Markdown है। इन्हें छोटे समूहों में इंपोर्ट करें।",
+    markdownTooLarge:
+      "इन फ़ाइलों में {{max}} MB से ज़्यादा Markdown है। इन्हें छोटे समूहों में इंपोर्ट करें।",
   },
   "ar-SA": {
     menuItem: "استيراد…",
@@ -946,26 +985,29 @@ const translations: Record<
     noteTextNotLanded: "نص غير موجود في الصفحة",
     noteStructureChangedOnSave: "تغيّرت البنية عند الحفظ",
     noteCalloutIconReplaced: "استُبدلت الأيقونات المخصصة لمربعات التمييز",
-    noteExpiringLinkRehosted: "رُفعت الملفات التي تشير إليها روابط تنتهي صلاحيتها",
+    noteExpiringLinkRehosted:
+      "رُفعت الملفات التي تشير إليها روابط تنتهي صلاحيتها",
     notePropertiesNotShown: "حُفظت خصائص الصفحة مع الاستيراد دون عرضها",
     noteExpiringLinkNotRehosted: "تعذّر رفع ملفات من روابط تنتهي صلاحيتها",
     skipUnusedFile: "لا ترتبط أي صفحة بهذا الملف",
     skipNestedArchive: "لا تُفتح ملفات zip الموجودة داخل ملف zip",
     databasesNotImported: "قواعد البيانات، لم تُستورد بعد",
     databaseRows_zero: "{{count}} صف",
-    databaseRows_one: "صف واحد",
-    databaseRows_two: "صفّان",
+    databaseRows_one: "{{count}} صف",
+    databaseRows_two: "{{count}} صف",
     databaseRows_few: "{{count}} صفوف",
     databaseRows_many: "{{count}} صفًا",
     databaseRows_other: "{{count}} صف",
     databaseCsvKept: "احتُفظ بملف CSV",
     databaseCsvNotKept: "لا ترتبط أي صفحة بملف CSV الخاص بها",
-    alreadyImported: "استُورد من قبل في {{date}}؛ الاستيراد مرة أخرى ينشئ صفحات جديدة",
+    alreadyImported:
+      "استُورد من قبل في {{date}}؛ الاستيراد مرة أخرى ينشئ صفحات جديدة",
     zipTooLarge: "حجم {{name}} أكبر من {{max}} ميغابايت",
     zipTooManyFiles: "يحتوي {{name}} على أكثر من {{max}} ملف",
     zipExpandsTooLarge: "يتجاوز حجم {{name}} بعد فك ضغطه {{max}} ميغابايت",
     zipUnreadable: "تعذّر فتح {{name}} كملف zip",
-    markdownTooLarge: "تحتوي هذه الملفات على أكثر من {{max}} ميغابايت من Markdown. استوردها على دفعات أصغر.",
+    markdownTooLarge:
+      "تحتوي هذه الملفات على أكثر من {{max}} ميغابايت من Markdown. استوردها على دفعات أصغر.",
   },
 };
 
