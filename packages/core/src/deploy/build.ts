@@ -4884,13 +4884,37 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
 const NITRO_AGENT_NATIVE_SERVER_CHUNK_RE =
   /@agent-native[\\/](?:core|creative-context)(?:[\\/]|$)/;
 
+// Packages whose modules extend classes defined in their own other modules.
+// Split across chunks, they can import each other in a cycle, and whichever
+// chunk an app reaches first evaluates `class X extends Y` before Y exists:
+// "Class extends value undefined is not a constructor or null" at module load.
+// On 11/16 drizzle-orm was split into seven `_libs/drizzle-orm*.mjs` chunks
+// once the Core group became entries-aware, and four workspace apps crashed
+// on every request. Each of these packages stays in one chunk.
+const NITRO_SINGLE_CHUNK_SERVER_PACKAGES = ["drizzle-orm"] as const;
+
+function nodeModulesPackageRe(packageName: string): RegExp {
+  const escaped = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`[\\\\/]node_modules[\\\\/]${escaped}[\\\\/]`);
+}
+
 export function nitroServerCodeSplittingGroupsForPreset(targetPreset: string) {
   return shouldBundleYjsRuntimeForPreset(targetPreset) ||
     isAwsAmplifyPreset(targetPreset)
     ? [
+        ...NITRO_SINGLE_CHUNK_SERVER_PACKAGES.map((packageName) => ({
+          test: nodeModulesPackageRe(packageName),
+          name: () => `_libs/${packageName}`,
+          // Names the group in the bundler timing report; `name` is a function.
+          debugName: packageName,
+          // Above Nitro's per-package `_libs` group and the Core group, so
+          // nothing else claims part of the package.
+          priority: 20,
+        })),
         {
           test: NITRO_AGENT_NATIVE_SERVER_CHUNK_RE,
           name: () => "agent-native-core",
+          debugName: "agent-native-core",
           // Preserve dynamic-import boundaries. A package-wide chunk pulls
           // optional agent, integration and rendering code into every cold
           // request, even when that request only reads application data.
