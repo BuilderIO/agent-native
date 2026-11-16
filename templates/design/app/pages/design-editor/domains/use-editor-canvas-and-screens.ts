@@ -67,6 +67,7 @@ import {
   getFreshActiveFileContent,
   getFreshScreenContent,
 } from "../editor-state";
+import { applySameTabEditorCommands } from "../effects/apply-same-tab-editor-commands";
 import { insertAtFileOrderIndex, MAX_DESIGN_UNDO_STACK } from "../history";
 import {
   autoHeightScreenIds,
@@ -332,6 +333,15 @@ export function useEditorCanvasAndScreens({
     canEditDesign,
     id,
   ]);
+
+  useEffect(() => {
+    if (!id || !canEditDesign) return;
+    return applySameTabEditorCommands({
+      designId: id,
+      browserTabId,
+      apply: applyDesignEditorCommand,
+    });
+  }, [applyDesignEditorCommand, browserTabId, canEditDesign, id]);
 
   const optimisticallyInsertCreatedFile = useCallback(
     (args: {
