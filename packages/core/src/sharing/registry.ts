@@ -1,8 +1,8 @@
 import { registerDbDependency } from "../db/readiness.js";
 import type { EmailCta, EmailLinkBlock } from "../server/email-template.js";
 import type { UserProfile } from "../user-profile/shared.js";
-import type { AccessProjectedResource } from "./access.js";
 import { ensureWorkspaceUserGroupsTable } from "../workspace-connections/groups.js";
+import type { AccessProjectedResource } from "./access.js";
 
 export interface ShareEmailExtras {
   paragraphs?: string[];
