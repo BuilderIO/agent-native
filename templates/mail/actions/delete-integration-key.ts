@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -19,7 +19,12 @@ export default defineAction({
   http: { method: "POST" },
   run: async ({ provider }) => {
     const ctx = getCredentialContext();
-    if (!ctx) throw new Error("no authenticated user");
+    if (!ctx) {
+      fail("no authenticated user", {
+        errorCode: "authentication_required",
+        statusCode: 401,
+      });
+    }
     await deleteIntegrationKey(provider, ctx);
     return { deleted: true as const };
   },

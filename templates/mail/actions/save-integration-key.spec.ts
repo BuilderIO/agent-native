@@ -65,7 +65,11 @@ describe("save-integration-key", () => {
         { provider: "gong", apiKey: "example-gong-key" },
         { caller: "frontend" },
       ),
-    ).rejects.toThrow("no authenticated user");
+    ).rejects.toMatchObject({
+      message: "no authenticated user",
+      errorCode: "authentication_required",
+      statusCode: 401,
+    });
     expect(mocks.saveIntegrationKey).not.toHaveBeenCalled();
   });
 });
