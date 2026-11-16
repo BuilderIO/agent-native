@@ -23,6 +23,7 @@ import {
   type LiveFigmaSvgSource,
 } from "@/lib/figma-svg-copy";
 
+import { composeApplyHandoff } from "../apply-handoff";
 import { elementInfoFromCodeLayerNode } from "../code-layer-state";
 import type { CodingHandoffResult } from "../command-types";
 import { runApplyPendingVisualStylesWithAgent } from "../commands/apply-pending-visual-styles-with-agent";
@@ -64,7 +65,6 @@ import {
   shouldShowPendingVisualStyleApply,
 } from "../pending-edits";
 import { PngCaptureError, type PngCaptureScope } from "../png-export-render";
-import { formatTweakHandoffPrompt } from "../tweak-handoff";
 import {
   NativeLocalExportClientError,
   useNativeLocalExportRequests,
@@ -408,23 +408,18 @@ export function useEditorExportAndHandoff({
   );
   const pendingVisualStylePrompt = useMemo(
     () =>
-      withFullAppApplyInstructions(
-        isFullAppDesign,
-        id,
-        formatPendingVisualStylePrompt({
-          designId: id,
-          designTitle: design?.title,
-          activeFileId: activeFile?.id,
-          activeFilename: activeFile?.filename,
-          localhostConnectionId: activeOverviewScreen?.connectionId,
-          edits: pendingVisualStyleEdits,
-          liveEdits: pendingLiveNonStyleEdits,
-          audience: "coding-agent",
-          screenRoutes: screenRoutesById,
-        }),
-      ),
+      formatPendingVisualStylePrompt({
+        designId: id ?? null,
+        designTitle: design?.title ?? null,
+        activeFileId: activeFile?.id ?? null,
+        activeFilename: activeFile?.filename ?? null,
+        localhostConnectionId: activeOverviewScreen?.connectionId ?? null,
+        edits: pendingVisualStyleEdits,
+        liveEdits: pendingLiveNonStyleEdits,
+        audience: "coding-agent",
+        screenRoutes: screenRoutesById,
+      }),
     [
-      isFullAppDesign,
       activeFile?.filename,
       activeFile?.id,
       activeOverviewScreen?.connectionId,
@@ -435,24 +430,38 @@ export function useEditorExportAndHandoff({
       screenRoutesById,
     ],
   );
-  const pendingTweakPrompt = useMemo(
+  const localVisualEditHandoff = useMemo(() => {
+    const ids = [
+      ...pendingVisualStyleEdits.map(
+        (edit) => `style:${edit.screenId}:${edit.selector}:${edit.updatedAt}`,
+      ),
+      ...pendingLiveNonStyleEdits.map(
+        (edit) =>
+          `live:${edit.kind}:${edit.screenId}:${edit.selector}:${edit.updatedAt}`,
+      ),
+    ];
+    return ids.map((id, index) => ({
+      id,
+      prompt: index === 0 ? pendingVisualStylePrompt : "",
+    }));
+  }, [
+    pendingLiveNonStyleEdits,
+    pendingVisualStyleEdits,
+    pendingVisualStylePrompt,
+  ]);
+  const localApplyHandoff = useMemo(
     () =>
-      formatTweakHandoffPrompt({
-        designId: id ?? "",
-        changes: pendingTweakChanges,
-        sourceFiles: files
-          .filter((file) => file.fileType !== "asset")
-          .map((file) => file.filename),
+      composeApplyHandoff({
+        localVisualEdits: localVisualEditHandoff,
+        localTweakChanges: pendingTweakChanges,
+        fullApp: {
+          enabled: isFullAppDesign,
+          ...(id ? { designId: id } : {}),
+        },
       }),
-    [files, id, pendingTweakChanges],
+    [id, isFullAppDesign, localVisualEditHandoff, pendingTweakChanges],
   );
-  const pendingApplyPrompt = useMemo(
-    () =>
-      [pendingVisualStylePrompt, pendingTweakPrompt]
-        .filter((prompt): prompt is string => Boolean(prompt))
-        .join("\n\n"),
-    [pendingTweakPrompt, pendingVisualStylePrompt],
-  );
+  const pendingApplyPrompt = localApplyHandoff.prompt;
   const visualEditPromptResult = useCallback<
     () => VisualEditPromptResult
   >(() => {
@@ -505,14 +514,44 @@ export function useEditorExportAndHandoff({
     pendingTweakChanges.length,
   ]);
   const handleApplyPendingVisualStylesWithAgent = useCallback(
-    async (promptOverride?: string) =>
-      runApplyPendingVisualStylesWithAgent({
+    async (remote?: {
+      prompt: string;
+      revision?: number;
+      reviewOnly?: boolean;
+    }) => {
+      const handoff = remote?.reviewOnly
+        ? {
+            prompt: remote.prompt,
+            includes: { remote: false, visualEditIds: [], tweakIds: [] },
+          }
+        : composeApplyHandoff({
+            ...(remote
+              ? {
+                  remote: {
+                    trusted: true as const,
+                    prompt: remote.prompt,
+                    ...(remote.revision !== undefined
+                      ? { revision: remote.revision }
+                      : {}),
+                  },
+                }
+              : {}),
+            localVisualEdits: localVisualEditHandoff,
+            localTweakChanges: pendingTweakChanges,
+            fullApp: {
+              enabled: isFullAppDesign,
+              ...(id ? { designId: id } : {}),
+            },
+          });
+      return runApplyPendingVisualStylesWithAgent({
         cancelPendingStructureVerification,
         clearPendingLiveEditState,
         id,
         overviewScreens,
         pendingAgentHandoffBusyRef,
-        pendingLiveNonStyleEdits,
+        pendingLiveNonStyleEdits: remote?.reviewOnly
+          ? []
+          : pendingLiveNonStyleEdits,
         stagedHandoffStartTimerRef,
         stagedSourceHandoffRef,
         pendingStructureVerificationRevisionRef,
@@ -520,25 +559,15 @@ export function useEditorExportAndHandoff({
         pendingStructureVerificationSnapshotsRef,
         pendingLiveNonStyleEditsRef,
         pendingStructureVerificationStatus,
-        pendingVisualStyleEdits,
-        // A server-held handoff (another tab or session) was formatted without
-        // the full-app routing; local prompts already carry it.
-        pendingVisualStylePrompt:
-          promptOverride !== undefined
-            ? withFullAppApplyInstructions(isFullAppDesign, id, promptOverride)
-            : pendingVisualStylePrompt,
-        hasPendingTweakChanges: pendingTweakChanges.length > 0,
-        allowPromptOnly: promptOverride !== undefined,
-        onHandoffDelivered: () => {
-          if (!id) return;
-          enqueueFrameGeometryDataSave([
-            {
-              op: "set",
-              path: ["tweakSourceBaseline"],
-              value: tweakSelections,
-            },
-          ]);
-        },
+        pendingVisualStyleEdits: remote?.reviewOnly
+          ? []
+          : pendingVisualStyleEdits,
+        pendingVisualStylePrompt: handoff.prompt,
+        includedVisualEditIds: handoff.includes.visualEditIds,
+        hasStandalonePrompt:
+          handoff.includes.remote || Boolean(remote?.reviewOnly),
+        hasPendingTweakChanges:
+          !remote?.reviewOnly && pendingTweakChanges.length > 0,
         setActiveLeftPanel,
         setApplyingViaHost,
         setPendingAgentHandoffBusy,
@@ -549,7 +578,8 @@ export function useEditorExportAndHandoff({
         setPendingVisualStyleRevertRequest,
         setRuntimeStructureVerificationRequest,
         t,
-      }),
+      });
+    },
     [
       cancelPendingStructureVerification,
       clearPendingLiveEditState,
@@ -560,20 +590,16 @@ export function useEditorExportAndHandoff({
       pendingStructureVerificationStatus,
       pendingVisualStyleEdits,
       pendingVisualStylePrompt,
-      enqueueFrameGeometryDataSave,
-      tweakSelections,
+      localVisualEditHandoff,
+      pendingTweakChanges,
       t,
     ],
   );
   const handleCopyPendingVisualStylePrompt = useCallback(
-    async (promptOverride?: string, fullPrompt = true) => {
-      if (
-        promptOverride === undefined &&
-        pendingVisualStyleEdits.length === 0 &&
-        pendingLiveNonStyleEdits.length === 0
-      ) {
-        return;
-      }
+    async (
+      remote?: { prompt: string; revision?: number; reviewOnly?: boolean },
+      fullPrompt = true,
+    ) => {
       try {
         await pendingVisualEditPublicationQueueRef.current;
         const host =
@@ -583,12 +609,38 @@ export function useEditorExportAndHandoff({
             : pageHasWebMcpHost()
               ? "webmcp"
               : null;
-        const clipboardPrompt = formatVisualEditClipboardPrompt(
-          promptOverride ?? pendingVisualStylePrompt,
-          host,
-          fullPrompt,
-          id,
-        );
+        const handoff = remote?.reviewOnly
+          ? {
+              prompt: remote.prompt,
+              includes: { remote: false, visualEditIds: [], tweakIds: [] },
+            }
+          : composeApplyHandoff({
+              ...(remote
+                ? {
+                    remote: {
+                      trusted: true as const,
+                      prompt: remote.prompt,
+                      ...(remote.revision !== undefined
+                        ? { revision: remote.revision }
+                        : {}),
+                    },
+                  }
+                : {}),
+              localVisualEdits: localVisualEditHandoff,
+              localTweakChanges: pendingTweakChanges,
+              fullApp: {
+                enabled: isFullAppDesign,
+                ...(id ? { designId: id } : {}),
+              },
+            });
+        const clipboardPrompt = remote?.reviewOnly
+          ? handoff.prompt
+          : formatVisualEditClipboardPrompt(
+              handoff.prompt,
+              host,
+              fullPrompt,
+              id,
+            );
         if (!(await writeClipboardText(clipboardPrompt))) {
           toast.error(t("designEditor.toasts.clipboardBlocked"));
           return;
@@ -605,7 +657,10 @@ export function useEditorExportAndHandoff({
     [
       pendingLiveNonStyleEdits.length,
       pendingVisualStyleEdits.length,
+      pendingTweakChanges,
+      isFullAppDesign,
       pendingVisualStylePrompt,
+      localVisualEditHandoff,
       externalAgentHost,
       id,
       t,
@@ -1497,21 +1552,3 @@ export type EditorExportAndHandoff = ReturnType<
  * Say so in the handoff itself, so applying never depends on the agent
  * inferring it from the prompt's localhost-oriented steps.
  */
-function withFullAppApplyInstructions(
-  isFullAppDesign: boolean,
-  designId: string | undefined,
-  prompt: string,
-): string {
-  if (!isFullAppDesign || !prompt) return prompt;
-  if (prompt.includes("Apply these edits by calling send-builder-message")) {
-    return prompt;
-  }
-  return [
-    `This is a full-app design${designId ? ` (designId "${designId}")` : ""}: its screens run from a Builder branch container.`,
-    "Apply these edits by calling send-builder-message with the designId and a prompt that describes every edit below precisely. It delegates to Builder and returns when the change is done.",
-    "If this handoff has a revision (from get-visual-edit-pending, or named below), pass it as visualEditRevision so the handoff clears once the change lands.",
-    "Do not use apply-visual-edit, localhost source tools or write consent. Those only exist for connected localhost apps.",
-    "",
-    prompt,
-  ].join("\n");
-}

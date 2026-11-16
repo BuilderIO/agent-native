@@ -62,11 +62,16 @@ const mocks = vi.hoisted(() => {
       clientRevision: "pending.clientRevision",
       updatedAt: "pending.updatedAt",
     },
-    designs: {},
+    designs: { id: "designs.id", data: "designs.data" },
     getDb: vi.fn(() => ({
       insert: vi.fn(() => insertChain),
       update: vi.fn(() => updateChain),
       select: vi.fn(() => selectChain),
+      transaction: (callback: (tx: unknown) => Promise<unknown>) =>
+        callback({
+          update: () => updateChain,
+          select: () => selectChain,
+        }),
     })),
     insertChain,
     updateChain,
@@ -734,6 +739,29 @@ describe("visual-edit pending handoff", () => {
         prompt: "",
       }),
     );
+  });
+
+  it("advances only acknowledged tweak ids and values after source verification", async () => {
+    mocks.updateChain.returning
+      .mockResolvedValueOnce([{ designId: "design_public" }])
+      .mockResolvedValueOnce([{ id: "design_public" }]);
+    mocks.selectChain.limit.mockResolvedValueOnce([
+      {
+        data: JSON.stringify({
+          tweakSourceBaseline: { speed: 1, color: "red" },
+        }),
+      },
+    ]);
+
+    await acknowledgePendingAction.run({
+      designId: "design_public",
+      revision: 7,
+      appliedTweaks: [{ id: "speed", value: 3 }],
+    });
+
+    expect(mocks.updateChain.set).toHaveBeenLastCalledWith({
+      data: JSON.stringify({ tweakSourceBaseline: { speed: 3, color: "red" } }),
+    });
   });
 
   it("rejects a plain public viewer from acknowledging a handoff", async () => {

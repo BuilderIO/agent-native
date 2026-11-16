@@ -57,8 +57,8 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   pendingVisualStyleEdits: PendingVisualStyleEdit[];
   pendingVisualStylePrompt: string;
   hasPendingTweakChanges?: boolean;
-  onHandoffDelivered?: () => void;
-  allowPromptOnly?: boolean;
+  includedVisualEditIds: string[];
+  hasStandalonePrompt: boolean;
   setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setApplyingViaHost: Dispatch<SetStateAction<boolean>>;
   setPendingAgentHandoffBusy: Dispatch<SetStateAction<boolean>>;
@@ -106,8 +106,8 @@ export async function runApplyPendingVisualStylesWithAgent({
   pendingVisualStyleEdits,
   pendingVisualStylePrompt,
   hasPendingTweakChanges = false,
-  onHandoffDelivered,
-  allowPromptOnly = false,
+  includedVisualEditIds,
+  hasStandalonePrompt,
   setActiveLeftPanel,
   setApplyingViaHost,
   setPendingAgentHandoffBusy,
@@ -123,7 +123,7 @@ export async function runApplyPendingVisualStylesWithAgent({
     pendingVisualStyleEdits.length === 0 &&
     pendingLiveNonStyleEdits.length === 0 &&
     !hasPendingTweakChanges &&
-    !allowPromptOnly
+    !hasStandalonePrompt
   ) {
     return;
   }
@@ -188,7 +188,8 @@ export async function runApplyPendingVisualStylesWithAgent({
         }
         return;
       }
-      onHandoffDelivered?.();
+      if (includedVisualEditIds.length > 0)
+        finalizeWithoutStructureVerification();
       if (delivery.awaitingHostTurn) {
         stagedSourceHandoffRef.current = "awaiting-start";
         setApplyingViaHost(true);
@@ -201,7 +202,7 @@ export async function runApplyPendingVisualStylesWithAgent({
             t("designEditor.pendingVisualStyles.agentHandoffFailedToast"),
           );
         }, HOST_TURN_START_TIMEOUT_MS);
-      } else if (!allowPromptOnly) finalizeWithoutStructureVerification();
+      }
       if (delivery.target === "local") setActiveLeftPanel("agent");
       toast.success(t("designEditor.pendingVisualStyles.sentToast"));
       return;
@@ -320,7 +321,6 @@ export async function runApplyPendingVisualStylesWithAgent({
         );
         return;
       }
-      onHandoffDelivered?.();
 
       const screenIds = Array.from(
         new Set(structureEdits.map((edit) => edit.screenId)),

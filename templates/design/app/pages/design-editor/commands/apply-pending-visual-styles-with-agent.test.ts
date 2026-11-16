@@ -24,6 +24,7 @@ vi.mock("@agent-native/toolkit/clipboard", () => ({
 
 import type { PendingStructureVerificationSession } from "@/pages/design-editor/command-types";
 import type { PendingLiveStructureEdit } from "@/pages/design-editor/pending-edits";
+import type { PendingVisualStyleEdit } from "@/pages/design-editor/pending-edits";
 
 import {
   PENDING_STRUCTURE_HARD_TIMEOUT_MS,
@@ -142,6 +143,8 @@ function argsFor(
       pendingStructureVerificationStatus: "idle" as const,
       pendingVisualStyleEdits: [],
       pendingVisualStylePrompt: "Apply the pending structure edits.",
+      includedVisualEditIds: edits.length ? ["local-visual-edits"] : [],
+      hasStandalonePrompt: false,
       setActiveLeftPanel: vi.fn(),
       setApplyingViaHost: vi.fn(),
       setPendingAgentHandoffBusy: vi.fn(),
@@ -197,13 +200,11 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
       delivered: true,
     });
     const setup = argsFor([], new Map());
-    const onHandoffDelivered = vi.fn();
 
     await runApplyPendingVisualStylesWithAgent({
       ...setup.args,
       pendingVisualStylePrompt: tweakPrompt,
       hasPendingTweakChanges: true,
-      onHandoffDelivered,
     });
 
     expect(sendDesignSourceHandoffAndConfirmMock).toHaveBeenCalledWith(
@@ -216,8 +217,7 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
       { timeoutMs: 10_000 },
     );
     expect(writeClipboardTextMock).not.toHaveBeenCalled();
-    expect(setup.clearPendingLiveEditState).toHaveBeenCalledOnce();
-    expect(onHandoffDelivered).toHaveBeenCalledOnce();
+    expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
   });
 
   it("copies the Apply prompt when no host or agent chat takes it", async () => {
@@ -231,15 +231,46 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     await runApplyPendingVisualStylesWithAgent({
       ...setup.args,
       pendingVisualStylePrompt: tweakPrompt,
-      allowPromptOnly: true,
+      hasPendingTweakChanges: true,
+      includedVisualEditIds: [],
     });
 
     expect(writeClipboardTextMock).toHaveBeenCalledExactlyOnceWith(tweakPrompt);
+    expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
+  });
+
+  it("finalizes included local visual edits once with remote instructions", async () => {
+    const setup = argsFor([], new Map());
+    const localEdit = {
+      screenId: "screen-1",
+      filename: "index.html",
+      screenName: "Home",
+      selector: "button",
+      classes: [],
+      styles: { color: "red" },
+      originalStyles: { color: "blue" },
+      updatedAt: 1,
+    } satisfies PendingVisualStyleEdit;
+
+    await runApplyPendingVisualStylesWithAgent({
+      ...setup.args,
+      pendingVisualStyleEdits: [localEdit],
+      pendingVisualStylePrompt: "Remote instructions\n\nLocal visual edits",
+      includedVisualEditIds: ["local-visual-edits"],
+      hasStandalonePrompt: true,
+    });
+
+    expect(sendDesignSourceHandoffAndConfirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.stringContaining("Remote instructions"),
+      }),
+      { timeoutMs: 10_000 },
+    );
+    expect(setup.clearPendingLiveEditState).toHaveBeenCalledOnce();
   });
 
   it("records the tweak baseline only after confirmed delivery", async () => {
     const setup = argsFor([], new Map());
-    const onHandoffDelivered = vi.fn();
     sendDesignSourceHandoffAndConfirmMock.mockResolvedValueOnce({
       target: "host",
       delivered: false,
@@ -250,10 +281,9 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
       ...setup.args,
       pendingVisualStylePrompt: tweakPrompt,
       hasPendingTweakChanges: true,
-      onHandoffDelivered,
     });
 
-    expect(onHandoffDelivered).not.toHaveBeenCalled();
+    expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
   });
 
   it("hands off a shared prompt without clearing it before source acknowledgement", async () => {
@@ -262,7 +292,8 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     await runApplyPendingVisualStylesWithAgent({
       ...setup.args,
       pendingVisualStylePrompt: "Shared canvas changes",
-      allowPromptOnly: true,
+      includedVisualEditIds: [],
+      hasStandalonePrompt: true,
     });
 
     expect(sendDesignSourceHandoffAndConfirmMock).toHaveBeenCalledWith(
