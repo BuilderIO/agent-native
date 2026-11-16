@@ -986,6 +986,71 @@ describe("integrations plugin routes", () => {
     expect(state).toMatchObject({ ok: true, app: "agent-native:slack:user" });
   });
 
+  it("lets a non-admin org member start a user-only Slack install without a signing secret", async () => {
+    vi.stubEnv("SLACK_INTERNAL_TEAM_IDS", "T0INTERNAL1");
+    resetAppConfigForTests();
+    getSessionMock.mockResolvedValue({
+      email: "alice+qa@agent-native.test",
+      authUserId: "auth-user-alice",
+    });
+    getOrgContextMock.mockResolvedValue({ orgId: "org-team", role: "member" });
+    resolveSecretMock.mockImplementation((key: string) =>
+      key === "SLACK_SIGNING_SECRET" ? undefined : `configured-${key}`,
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/oauth/install?mode=user",
+    );
+
+    const authorize = new URL(slackRedirectHref(result));
+    expect(authorize.origin + authorize.pathname).toBe(
+      "https://slack.com/oauth/v2/authorize",
+    );
+    const state = decodeOAuthState(
+      authorize.searchParams.get("state") ?? undefined,
+      "https://app.test/_agent-native/integrations/slack/oauth/callback",
+    );
+    expect(state).toMatchObject({
+      ok: true,
+      flowId: "principal:auth-user-alice",
+    });
+  });
+
+  it("refuses a user-only Slack callback started by a different account", async () => {
+    vi.stubEnv("SLACK_INTERNAL_TEAM_IDS", "T0INTERNAL1");
+    resetAppConfigForTests();
+    getSessionMock.mockResolvedValue({
+      email: "alice+qa@agent-native.test",
+      authUserId: "auth-user-mallory",
+    });
+    getOrgContextMock.mockResolvedValue({ orgId: null, role: null });
+    resolveSecretMock.mockImplementation((key: string) => `configured-${key}`);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const state = encodeOAuthState({
+      redirectUri:
+        "https://app.test/_agent-native/integrations/slack/oauth/callback",
+      owner: "alice+qa@agent-native.test",
+      app: "agent-native:slack:user",
+      addAccount: true,
+      returnUrl: "/messaging",
+      flowId: "principal:auth-user-alice",
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    await dispatch(
+      nitroApp,
+      `/_agent-native/integrations/slack/oauth/callback?code=fake-code&state=${encodeURIComponent(state)}`,
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(installSlackUserGrantMock).not.toHaveBeenCalled();
+  });
+
   it("stores a user-only Slack callback as a personal grant, never a bot installation", async () => {
     vi.stubEnv("SLACK_INTERNAL_TEAM_IDS", "T0INTERNAL1");
     resetAppConfigForTests();
@@ -1040,6 +1105,7 @@ describe("integrations plugin routes", () => {
       app: "agent-native:slack:user",
       addAccount: true,
       returnUrl: "/messaging",
+      flowId: "principal:auth-user-alice",
     });
     const nitroApp = createNitroApp();
     await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);

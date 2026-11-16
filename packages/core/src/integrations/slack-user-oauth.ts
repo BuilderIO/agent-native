@@ -182,6 +182,12 @@ export function mapSlackUserOAuthResponse(
 
   const scopes = parseScopeList(response.authed_user?.scope);
   if (!scopes) throw new Error(USER_OAUTH_ERROR);
+  // Slack can return scopes this app was granted earlier. A token with any
+  // scope outside the read-only set would let a consumer write unknowingly.
+  const allowed = new Set<string>(SLACK_USER_READ_SCOPES);
+  if (!scopes.every((scope) => allowed.has(scope))) {
+    throw new Error(USER_OAUTH_ERROR);
+  }
 
   const bundle: SlackUserTokenBundle = {
     accessToken,

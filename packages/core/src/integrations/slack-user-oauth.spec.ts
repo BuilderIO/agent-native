@@ -10,7 +10,7 @@ const authArgs = () => ({
   clientId: "1234567890.1234567890",
   redirectUri: "https://example.com/slack/oauth/callback",
   state: "st_" + MARK,
-  userScopes: ["chat:write", "users:read"],
+  userScopes: ["channels:read", "users:read"],
 });
 const response = () => ({
   ok: true,
@@ -18,7 +18,7 @@ const response = () => ({
   team: { id: "T12345678", name: "DO_NOT_COPY_TEAM_NAME" },
   authed_user: {
     id: "U12345678",
-    scope: "chat:write,users:read",
+    scope: "channels:read,users:read",
     access_token: "xoxp-user-" + MARK,
     token_type: "user",
   },
@@ -41,7 +41,7 @@ describe("buildSlackUserAuthorizeUrl", () => {
       "https://example.com/slack/oauth/callback",
     );
     expect(u.searchParams.get("state")).toBe("st_" + MARK);
-    expect(u.searchParams.get("user_scope")).toBe("chat:write,users:read");
+    expect(u.searchParams.get("user_scope")).toBe("channels:read,users:read");
     expect(u.searchParams.has("scope")).toBe(false);
     expect(u.searchParams.has("team")).toBe(false);
   });
@@ -49,12 +49,12 @@ describe("buildSlackUserAuthorizeUrl", () => {
     const u = new URL(
       buildSlackUserAuthorizeUrl({
         ...authArgs(),
-        userScopes: ["users:read", "chat:write", "users:read", "im:write"],
+        userScopes: ["users:read", "channels:read", "users:read", "im:read"],
         teamId: "T12345678",
       }),
     );
     expect(u.searchParams.get("user_scope")).toBe(
-      "chat:write,im:write,users:read",
+      "channels:read,im:read,users:read",
     );
     expect(u.searchParams.get("team")).toBe("T12345678");
   });
@@ -109,7 +109,7 @@ describe("mapSlackUserOAuthResponse", () => {
     ]);
     expect(out.bundle.accessToken).toBe("xoxp-user-" + MARK);
     expect(out.bundle.tokenType).toBe("user");
-    expect(out.bundle.scopes).toEqual(["chat:write", "users:read"]);
+    expect(out.bundle.scopes).toEqual(["channels:read", "users:read"]);
     expect("refreshToken" in out.bundle).toBe(false);
     expect("expiresAt" in out.bundle).toBe(false);
     expect(JSON.stringify(out)).not.toContain("DO_NOT_COPY_TEAM_NAME");
@@ -117,11 +117,15 @@ describe("mapSlackUserOAuthResponse", () => {
   });
   it("dedupes/sorts scopes and maps a rotating bundle", () => {
     const r = response();
-    r.authed_user.scope = "users:read,chat:write,users:read,im:write";
+    r.authed_user.scope = "users:read,channels:read,users:read,im:read";
     r.authed_user.refresh_token = "xoxe-refresh-" + MARK;
     r.authed_user.expires_in = 3600;
     const out = mapSlackUserOAuthResponse(r, NOW);
-    expect(out.bundle.scopes).toEqual(["chat:write", "im:write", "users:read"]);
+    expect(out.bundle.scopes).toEqual([
+      "channels:read",
+      "im:read",
+      "users:read",
+    ]);
     expect(Object.keys(out.bundle).sort()).toEqual([
       "accessToken",
       "expiresAt",
@@ -174,6 +178,11 @@ describe("mapSlackUserOAuthResponse", () => {
     cases.push(r);
     for (const c of cases)
       expect(() => mapSlackUserOAuthResponse(c, NOW)).toThrow();
+  });
+  it("rejects a response carrying a scope outside the read-only set", () => {
+    const r = response();
+    r.authed_user.scope = "channels:read,chat:write";
+    expect(() => mapSlackUserOAuthResponse(r, NOW)).toThrow();
   });
   it("rejects invalid tokens, ids, and expiry", () => {
     const muts = [

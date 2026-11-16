@@ -3114,12 +3114,17 @@ export function createIntegrationsPlugin(
           return { error: "Sign in before connecting Slack." };
         }
         const org = await getIntegrationOrgContext(event);
+        const userOnlyRequest = getQuery(event).mode === "user";
         try {
-          assertSlackInstallAccess({
-            email: session.email,
-            orgId: org.orgId ?? null,
-            orgRole: org?.role ?? null,
-          });
+          // A personal grant belongs to the signed-in member, so only bot
+          // installs need an org owner or admin.
+          if (!userOnlyRequest) {
+            assertSlackInstallAccess({
+              email: session.email,
+              orgId: org.orgId ?? null,
+              orgRole: org?.role ?? null,
+            });
+          }
         } catch (err) {
           setResponseStatus(event, 403);
           return {
@@ -3135,12 +3140,17 @@ export function createIntegrationsPlugin(
           async () => {
             const clientId = await resolveSecret("SLACK_CLIENT_ID");
             const clientSecret = await resolveSecret("SLACK_CLIENT_SECRET");
-            const signingSecret = await resolveSecret("SLACK_SIGNING_SECRET");
+            // Only a bot install registers event and interactivity webhooks,
+            // which is what the signing secret verifies.
+            const signingSecret = userOnlyRequest
+              ? true
+              : await resolveSecret("SLACK_SIGNING_SECRET");
             if (!clientId || !clientSecret || !signingSecret) {
               setResponseStatus(event, 503);
               return {
-                error:
-                  "Slack OAuth is not configured. Add the Slack client id, client secret, and signing secret first.",
+                error: userOnlyRequest
+                  ? "Slack OAuth is not configured. Add the Slack client id and client secret first."
+                  : "Slack OAuth is not configured. Add the Slack client id, client secret, and signing secret first.",
               };
             }
             const redirectUri = resolveOAuthRedirectUri(
@@ -3152,7 +3162,7 @@ export function createIntegrationsPlugin(
               return { error: "Slack OAuth redirect URL is not allowed." };
             }
             const query = getQuery(event);
-            const userOnly = query.mode === "user";
+            const userOnly = userOnlyRequest;
             // Fail closed: user-only installs exist only for workspaces the
             // deployment explicitly allows.
             const gate = userOnly ? resolveSlackUserInstallGate() : null;
@@ -3176,6 +3186,11 @@ export function createIntegrationsPlugin(
               orgId: org.orgId ?? undefined,
               app: userOnly ? SLACK_USER_INSTALL_APP : "agent-native:slack",
               addAccount: true,
+              // Bind a personal grant to the initiating auth principal, not
+              // only its email, which another principal could later reuse.
+              ...(userOnly
+                ? { flowId: `principal:${session.authUserId}` }
+                : {}),
               returnUrl:
                 typeof query.return === "string" ? query.return : "/messaging",
             });
@@ -3251,12 +3266,23 @@ export function createIntegrationsPlugin(
         }
         const code = typeof query.code === "string" ? query.code : null;
         if (!code) return oauthErrorPage("Slack did not return an OAuth code.");
+        if (
+          userOnlyInstall &&
+          (session.authUserId === undefined ||
+            state.flowId !== `principal:${session.authUserId}`)
+        ) {
+          return oauthErrorPage(
+            "Your Slack install session expired or changed. Sign in and start again.",
+          );
+        }
         try {
-          const access = assertSlackInstallAccess({
-            email: session.email,
-            orgId: org.orgId ?? null,
-            orgRole: org?.role ?? null,
-          });
+          const access = userOnlyInstall
+            ? userOnlyAccess(session.email, org.orgId)
+            : assertSlackInstallAccess({
+                email: session.email,
+                orgId: org.orgId ?? null,
+                orgRole: org?.role ?? null,
+              });
           const requestScope = verifiedRequestScope(access.orgId);
           return await runWithRequestContext(
             {
@@ -3955,4 +3981,23 @@ function stringifyValue(value: unknown): string {
   )
     return String(value);
   return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
+/** A personal grant needs the signed-in member, not an org owner or admin. */
+function userOnlyAccess(email: string, orgId: string | null | undefined) {
+  const ownerEmail = email.trim().toLowerCase();
+  const org = orgId?.trim() || null;
+  return org
+    ? {
+        ownerEmail,
+        orgId: org,
+        secretScope: "org" as const,
+        secretScopeId: org,
+      }
+    : {
+        ownerEmail,
+        orgId: null,
+        secretScope: "user" as const,
+        secretScopeId: ownerEmail,
+      };
 }
