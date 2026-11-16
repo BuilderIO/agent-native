@@ -86,6 +86,7 @@ import { withDbExec, type DbExec } from "../db/client.js";
 import { isTransientDatabaseError } from "../db/errors.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
+import { McpOAuthRefreshUnavailableError } from "../mcp-client/oauth-client.js";
 import { isFrameworkRuntimeAction } from "../mcp/action-eligibility.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
@@ -502,17 +503,29 @@ async function assertLlmCredentialsUsable(input: {
   apiKey: string | undefined;
   ownerEmail: string;
   orgId?: string;
+  deferBuilderRefreshFailure: boolean;
 }): Promise<void> {
   let usable:
     | Awaited<ReturnType<typeof isResolvedEngineUsableForRequest>>
-    | import("../mcp-client/oauth-client.js").McpOAuthRefreshUnavailableError;
+    | McpOAuthRefreshUnavailableError;
   try {
-    usable = await isResolvedEngineUsableForRequest(input.engine, {
+    const options = {
       apiKey: input.apiKey,
       credentialIdentity: { userEmail: input.ownerEmail, orgId: input.orgId },
-      deferBuilderRefreshFailure: true,
-    });
+    };
+    usable = input.deferBuilderRefreshFailure
+      ? await isResolvedEngineUsableForRequest(input.engine, {
+          ...options,
+          deferBuilderRefreshFailure: true,
+        })
+      : await isResolvedEngineUsableForRequest(input.engine, options);
   } catch (error) {
+    if (error instanceof McpOAuthRefreshUnavailableError) {
+      throw new BackgroundAutomationRunError(
+        error.message,
+        `http_${error.statusCode}`,
+      );
+    }
     if (
       error instanceof CredentialStoreUnavailableError ||
       error instanceof BuilderCredentialLookupError
@@ -1389,6 +1402,7 @@ async function resolveUsableBackgroundEngine(
   identity: { ownerEmail: string; orgId?: string },
   deps: BackgroundAutomationDeps,
   assertDeadline: () => void,
+  deferBuilderRefreshFailure: boolean,
 ): Promise<AgentEngine> {
   const { ownerEmail, orgId } = identity;
   assertDeadline();
@@ -1409,7 +1423,13 @@ async function resolveUsableBackgroundEngine(
       appId: deps.appId,
       credentialIdentity: { userEmail: ownerEmail, orgId },
     }));
-  await assertLlmCredentialsUsable({ engine, apiKey, ownerEmail, orgId });
+  await assertLlmCredentialsUsable({
+    engine,
+    apiKey,
+    ownerEmail,
+    orgId,
+    deferBuilderRefreshFailure,
+  });
   return engine;
 }
 
@@ -1461,6 +1481,7 @@ export async function checkBackgroundAutomationCredentials(
           identity,
           deps,
           () => undefined,
+          false,
         );
         const model = await resolveBackgroundAutomationModel(
           engine,
@@ -1572,6 +1593,7 @@ async function executeBackgroundAutomation(
         { ownerEmail, orgId },
         deps,
         () => assertHardDeadline(options.hardDeadlineAt),
+        true,
       );
       assertHardDeadline(options.hardDeadlineAt);
       const model = await resolveBackgroundAutomationModel(

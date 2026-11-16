@@ -920,6 +920,32 @@ describe("integration webhook handler engine resolution", () => {
     },
   );
 
+  it("routes a temporarily unavailable configured Builder grant to the retry-aware engine", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { McpOAuthRefreshUnavailableError } =
+      await import("../mcp-client/oauth-client.js");
+    getConfiguredEngineNameForRequestMock.mockRejectedValueOnce(
+      new McpOAuthRefreshUnavailableError(),
+    );
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+
+    await processIntegrationTask(pendingTask(), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "",
+      ownerEmail: "integration@fake",
+      orgId: "org-qa",
+      principalType: "service",
+      appId: "dispatch",
+    });
+
+    expect(resolveEngineMock).toHaveBeenCalledWith(
+      expect.objectContaining({ engineOption: "builder" }),
+    );
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
+  });
+
   it(
     "re-resolves a rejected service-principal credential before any agent output",
     { timeout: 15_000 },

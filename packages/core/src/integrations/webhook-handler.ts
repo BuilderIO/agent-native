@@ -61,6 +61,7 @@ import {
   setThreadSourceIfMissing,
 } from "../chat-threads/store.js";
 import { updateThreadData } from "../chat-threads/store.js";
+import { McpOAuthRefreshUnavailableError } from "../mcp-client/oauth-client.js";
 import { getOrgA2ASecret } from "../org/context.js";
 import { preloadJevContextWithStatus } from "../server/agent-chat/prompt-resources.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -308,7 +309,12 @@ async function resolveIntegrationEngineOption(
 ): Promise<WebhookHandlerOptions["engine"]> {
   if (engineOption && typeof engineOption === "object") return engineOption;
   if (!includeConfiguredSelection) return engineOption ?? "builder";
-  return (await getConfiguredEngineNameForRequest({ appId })) ?? engineOption;
+  try {
+    return (await getConfiguredEngineNameForRequest({ appId })) ?? engineOption;
+  } catch (error) {
+    if (error instanceof McpOAuthRefreshUnavailableError) return "builder";
+    throw error;
+  }
 }
 
 function isMeaningfulIntegrationAgentEvent(event: AgentChatEvent): boolean {

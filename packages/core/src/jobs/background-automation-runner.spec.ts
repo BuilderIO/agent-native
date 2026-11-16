@@ -138,6 +138,7 @@ vi.mock("../secrets/storage.js", async (importOriginal) => ({
 const {
   BACKGROUND_RUN_HARD_TIMEOUT_MS,
   backgroundRunTerminalError,
+  checkBackgroundAutomationCredentials,
   resolveBackgroundAutomationIdentity,
   validateAutomationRunIdentity,
   runBackgroundAutomation,
@@ -2799,6 +2800,56 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
     const engineIndex = await import("../agent/engine/index.js");
     return vi.mocked(engineIndex.isResolvedEngineUsableForRequest);
   }
+
+  it("keeps a credential-paused automation paused when the selected Builder grant cannot refresh", async () => {
+    const { McpOAuthRefreshUnavailableError } =
+      await import("../mcp-client/oauth-client.js");
+    const usable = await usableCheck();
+    usable.mockImplementationOnce(async (_engine, options) => {
+      const error = new McpOAuthRefreshUnavailableError();
+      if (options?.deferBuilderRefreshFailure) return error;
+      throw error;
+    });
+
+    await expect(
+      checkBackgroundAutomationCredentials(
+        { ownerEmail: "alice@agent-native.test" },
+        standardDeps,
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      failure: { code: "http_503", precondition: false },
+    });
+  });
+
+  it("accepts a usable alternate provider during a readiness check", async () => {
+    const usable = await usableCheck();
+    usable.mockResolvedValueOnce(true);
+    await expect(
+      checkBackgroundAutomationCredentials(
+        { ownerEmail: "alice@agent-native.test" },
+        standardDeps,
+      ),
+    ).resolves.toMatchObject({ ok: true, engine: testEngine });
+  });
+
+  it("allows a deferred refresh failure through to the running engine", async () => {
+    const { McpOAuthRefreshUnavailableError } =
+      await import("../mcp-client/oauth-client.js");
+    const usable = await usableCheck();
+    usable.mockResolvedValueOnce(new McpOAuthRefreshUnavailableError());
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const agent = vi.mocked(runAgentLoopDirectWithSoftTimeout);
+    const callsBefore = agent.mock.calls.length;
+    await expect(
+      runBackgroundAutomation(
+        runOptions(precondition("refresh-dispatch")),
+        standardDeps,
+      ),
+    ).resolves.toMatchObject({ status: "success" });
+    expect(agent.mock.calls.length).toBeGreaterThan(callsBefore);
+  });
 
   it("records missing_credentials with its real cause and creates no thread or run", async () => {
     const usable = await usableCheck();
