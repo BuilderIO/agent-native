@@ -23,7 +23,10 @@ import {
 } from "../server/lib/dashboard-panel-verification";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
+  createDashboardOutcome,
+  DashboardConflictError,
   getDashboard,
+  requireDashboardAccess,
   upsertDashboard,
   upsertDashboardWithRetryOutcome,
 } from "../server/lib/dashboards-store";
@@ -36,6 +39,12 @@ import {
   type MetricWindow,
   usesFirstPartyDashboardFilters,
 } from "../server/lib/first-party-metric-catalog";
+import {
+  expectedUpdatedAtArg,
+  guardWrite,
+  idempotencyKeyArg,
+  type WriteReplay,
+} from "../server/lib/guarded-writes";
 import {
   withNewDashboardTrafficFilter,
   withTrafficFilterOf,
@@ -171,7 +180,10 @@ export default defineAction({
       .describe(
         "Agent calls only. Set true only when the user expects a composed panel to have no rows right now (for example a brand-new workspace); the save then reports verified:false.",
       ),
+    expectedUpdatedAt: expectedUpdatedAtArg("dashboard"),
+    idempotencyKey: idempotencyKeyArg,
   }),
+  mcpTool: true,
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
@@ -200,11 +212,51 @@ export default defineAction({
         ? (JSON.parse(args.metrics) as unknown[])
         : [];
 
+    const guard = guardWrite({
+      action: "compose-dashboard",
+      target: { kind: "dashboard", id: args.dashboardId },
+      caller: actionContext?.caller,
+      scope: ctx,
+      idempotencyKey: args.idempotencyKey,
+      expectedUpdatedAt: args.expectedUpdatedAt,
+      request: {
+        title: args.title?.trim() || null,
+        metrics: rawMetrics,
+        overwrite: args.overwrite === true,
+        refreshExisting: args.refreshExisting === true,
+        allowEmptyResult: args.allowEmptyResult === true,
+      },
+    });
+    guard.requireKey();
     // Composing into an existing dashboard needs edit rights before any SQL
     // is validated or run for it.
     const existing = await getDashboard(args.dashboardId, ctx);
-    if (existing)
+    const replayed = await guard.preflight(async () => {
+      if (existing) {
+        await requireDashboardAccess(args.dashboardId, ctx, "editor");
+      }
+    });
+    if (replayed) {
+      return {
+        id: args.dashboardId,
+        dashboardId: args.dashboardId,
+        ...replayed,
+      };
+    }
+    if (existing) {
       await requireEditableDashboard(args.dashboardId, ctx, existing);
+      guard.requireFence();
+    }
+    if (
+      guard.expectedUpdatedAt !== undefined &&
+      existing?.updatedAt !== guard.expectedUpdatedAt
+    ) {
+      throw new DashboardConflictError(
+        args.dashboardId,
+        existing ? existing.updatedAt : null,
+        guard.expectedUpdatedAt,
+      );
+    }
 
     const requests: NormalizedRequest[] = [];
     for (const raw of rawMetrics) {
@@ -283,6 +335,13 @@ export default defineAction({
     let changed = true;
     let appended = existing !== null && !args.overwrite;
 
+    // A write that loses to a concurrent request with the same key answers
+    // with that request's receipt.
+    let duplicate: WriteReplay | undefined;
+    const recover = async (error: unknown) => {
+      duplicate = await guard.recover(error);
+      return null;
+    };
     const appendToExisting = async () => {
       appended = true;
       const saved = await upsertDashboardWithRetryOutcome(
@@ -353,7 +412,10 @@ export default defineAction({
           }
           return { kind: "sql" as const, body: merged };
         },
-      );
+        undefined,
+        guard.store,
+      ).catch(recover);
+      if (!saved) return;
       finalConfig = saved.dashboard.config as Record<string, unknown>;
       updatedAt = saved.dashboard.updatedAt;
       changed = saved.didWrite;
@@ -387,7 +449,13 @@ export default defineAction({
       // created this dashboard since `existing` was read.
       const latest = await getDashboard(args.dashboardId, ctx);
       if (latest) await requireEditableDashboard(args.dashboardId, ctx, latest);
-      if (latest && !args.overwrite) {
+      if (latest && !existing && guard.active) {
+        // Created by someone else while the panels were checked; a guarded
+        // create never lands on another writer's dashboard.
+        await recover(
+          new DashboardConflictError(args.dashboardId, latest.updatedAt),
+        );
+      } else if (latest && !args.overwrite) {
         await appendToExisting();
       } else if (latest) {
         const composed = withTrafficFilterOf(latest.config, finalConfig);
@@ -395,10 +463,24 @@ export default defineAction({
           args.dashboardId,
           ctx,
           () => ({ kind: "sql" as const, body: composed }),
-        );
-        finalConfig = saved.dashboard.config as Record<string, unknown>;
-        updatedAt = saved.dashboard.updatedAt;
-        changed = saved.didWrite;
+          undefined,
+          guard.store,
+        ).catch(recover);
+        if (saved) {
+          finalConfig = saved.dashboard.config as Record<string, unknown>;
+          updatedAt = saved.dashboard.updatedAt;
+          changed = saved.didWrite;
+        }
+      } else if (guard.active) {
+        finalConfig = withNewDashboardTrafficFilter(finalConfig);
+        const saved = await createDashboardOutcome(
+          args.dashboardId,
+          "sql",
+          finalConfig,
+          ctx,
+          guard.onCommit,
+        ).catch(recover);
+        if (saved) updatedAt = saved.dashboard.updatedAt;
       } else {
         finalConfig = withNewDashboardTrafficFilter(finalConfig);
         const saved = await upsertDashboard(
@@ -409,6 +491,13 @@ export default defineAction({
         );
         updatedAt = saved.updatedAt;
       }
+    }
+    if (duplicate) {
+      return {
+        id: args.dashboardId,
+        dashboardId: args.dashboardId,
+        ...duplicate,
+      };
     }
 
     const panelCount = Array.isArray(finalConfig.panels)
@@ -480,6 +569,7 @@ export default defineAction({
       unknownMetrics,
       invalidMetrics,
       skippedExistingIds,
+      ...guard.resultFields({ updatedAt }),
       ...verdictFields(verdict),
       ...(agentCaller && changed
         ? {
