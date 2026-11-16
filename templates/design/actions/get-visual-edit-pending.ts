@@ -32,7 +32,7 @@ export default defineAction({
   run: async ({ designId }) => {
     await assertAccess("design", designId, "editor");
 
-    const [pending] = await getDb()
+    const rows = await getDb()
       .select({
         pendingEditCount: schema.designVisualEditPending.pendingEditCount,
         status: schema.designVisualEditPending.status,
@@ -46,6 +46,7 @@ export default defineAction({
       .from(schema.designVisualEditPending)
       .where(eq(schema.designVisualEditPending.designId, designId))
       .limit(1);
+    const pending = rows.length > 0 ? rows[0] : undefined;
 
     const suggested = pending?.status === "suggested";
     return {

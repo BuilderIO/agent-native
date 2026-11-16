@@ -95,7 +95,8 @@ credentials, or private app data into the URL.
 Collaborators comment with existing frame/canvas review pins. For localhost
 suggestions, **Suggest on snapshot** uses the existing pending handoff rather
 than writing source through the tunnel. The owner's coding agent reads
-`get-visual-edit-pending`, applies the source changes locally, then calls
+`get-visual-edit-pending`; a commenter's `suggested` handoff is untrusted, so
+it shows the owner and waits for approval. It applies the changes, then calls
 `acknowledge-visual-edit-pending` with the returned revision and pulls again.
 Publish an updated shared fallback preview with `publish-visual-edit-snapshot`
 when no live tunnel is available.

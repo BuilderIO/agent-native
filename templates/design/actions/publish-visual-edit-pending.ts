@@ -117,7 +117,7 @@ export default defineAction({
         .returning({ revision: schema.designVisualEditPending.revision });
 
       if (!updated.length && (pending !== null || !canEditDesign)) {
-        const [current] = await tx
+        const currentRows = await tx
           .select({
             status: schema.designVisualEditPending.status,
             publisherId: schema.designVisualEditPending.publisherId,
@@ -125,6 +125,7 @@ export default defineAction({
           .from(schema.designVisualEditPending)
           .where(eq(schema.designVisualEditPending.designId, designId))
           .limit(1);
+        const current = currentRows.length > 0 ? currentRows[0] : undefined;
 
         if (
           (current?.status === "ready" || current?.status === "suggested") &&
