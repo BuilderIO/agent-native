@@ -1,6 +1,7 @@
 import {
   Fragment,
   type Node as ProseMirrorNode,
+  type NodeType,
   type Schema,
   Slice,
 } from "@tiptap/pm/model";
@@ -26,15 +27,15 @@ export function parseSpreadsheetText(text: string): string[][] | null {
     const cell = readCell(text, index);
     row.push(cell.value);
     index = cell.end;
-    const delimiter = text[index];
+    const delimiter = text.charAt(index);
     if (delimiter === "\t") {
       index += 1;
       continue;
     }
     rows.push(row);
     row = [];
-    if (delimiter === undefined) break;
-    index += delimiter === "\r" && text[index + 1] === "\n" ? 2 : 1;
+    if (delimiter === "") break;
+    index += text.startsWith("\r\n", index) ? 2 : 1;
     // A line break at the very end closes the last row; it isn't a new one.
     if (index === text.length) break;
   }
@@ -47,32 +48,34 @@ export function parseSpreadsheetText(text: string): string[][] | null {
 }
 
 function readCell(text: string, start: number) {
-  if (text[start] === '"') {
+  if (text.charAt(start) === '"') {
     let value = "";
     let index = start + 1;
     while (index < text.length) {
-      if (text[index] !== '"') {
-        value += text[index];
+      const character = text.charAt(index);
+      if (character !== '"') {
+        value += character;
         index += 1;
-      } else if (text[index + 1] === '"') {
+      } else if (text.charAt(index + 1) === '"') {
         value += '"';
         index += 2;
       } else {
         index += 1;
-        if (isDelimiter(text[index])) return { value, end: index };
+        if (isDelimiter(text.charAt(index))) return { value, end: index };
         break;
       }
     }
     // Not a quoted cell after all, such as `"Quoted" word`: read it as written.
   }
   let end = start;
-  while (!isDelimiter(text[end])) end += 1;
+  while (!isDelimiter(text.charAt(end))) end += 1;
   return { value: text.slice(start, end), end };
 }
 
-function isDelimiter(character: string | undefined) {
+/** A tab, a line break, or the end of the text, where charAt gives "". */
+function isDelimiter(character: string) {
   return (
-    character === undefined ||
+    character === "" ||
     character === "\t" ||
     character === "\n" ||
     character === "\r"
@@ -84,7 +87,8 @@ export function spreadsheetTableSlice(
   schema: Schema,
   rows: string[][],
 ): Slice | null {
-  const { table, tableRow, tableCell, paragraph, hardBreak } = schema.nodes;
+  const { table, tableRow, tableCell, paragraph, hardBreak } =
+    nodeTypes(schema);
   if (!table || !tableRow || !tableCell || !paragraph) return null;
 
   const cellContent = (text: string) => {
@@ -122,42 +126,38 @@ export function spreadsheetTextForSlice(
   slice: Slice,
   schema: Schema,
 ): string | null {
-  const { content } = slice;
-  const only = content.childCount === 1 ? content.firstChild : null;
-  let table: ProseMirrorNode | null = null;
-  if (only?.type.spec.tableRole === "table") {
-    table = only;
-  } else if (
-    content.childCount > 0 &&
-    schema.nodes.table &&
-    allChildren(content).every((node) => node.type.spec.tableRole === "row")
-  ) {
-    table = schema.nodes.table.create(null, content);
-  }
+  const table = copiedTable(slice.content, schema);
   if (!table) return null;
 
-  let map: TableMap;
-  try {
-    map = TableMap.get(table);
-  } catch {
-    return null;
-  }
+  // The map lists each grid position's cell in reading order, so a merged
+  // cell's first position is its top-left one.
+  const map = TableMap.get(table);
   const written = new Set<number>();
+  const cells = map.map.map((position) => {
+    if (written.has(position)) return "";
+    written.add(position);
+    const cell = table.nodeAt(position);
+    return cell ? quoteCell(cellText(cell)) : "";
+  });
   const lines: string[] = [];
   for (let row = 0; row < map.height; row++) {
-    const cells: string[] = [];
-    for (let column = 0; column < map.width; column++) {
-      const position = map.map[row * map.width + column];
-      const cell =
-        position === undefined || written.has(position)
-          ? null
-          : table.nodeAt(position);
-      if (position !== undefined) written.add(position);
-      cells.push(cell ? quoteCell(cellText(cell)) : "");
-    }
-    lines.push(cells.join("\t"));
+    lines.push(cells.slice(row * map.width, (row + 1) * map.width).join("\t"));
   }
   return lines.join("\n");
+}
+
+function copiedTable(content: Fragment, schema: Schema) {
+  const only = content.childCount === 1 ? content.firstChild : null;
+  if (only?.type.spec.tableRole === "table") return only;
+  const rows = allChildren(content);
+  if (rows.length === 0) return null;
+  if (!rows.every((node) => node.type.spec.tableRole === "row")) return null;
+  return nodeTypes(schema).table?.create(null, content) ?? null;
+}
+
+/** The schema's node types, any of which a schema may leave out. */
+function nodeTypes(schema: Schema) {
+  return schema.nodes as Partial<Record<string, NodeType>>;
 }
 
 function allChildren(fragment: Fragment) {

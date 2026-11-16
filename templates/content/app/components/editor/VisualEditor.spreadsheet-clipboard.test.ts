@@ -6,7 +6,7 @@ import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { AllSelection, NodeSelection, TextSelection } from "@tiptap/pm/state";
-import { CellSelection } from "@tiptap/pm/tables";
+import { CellSelection, TableMap } from "@tiptap/pm/tables";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { parseSpreadsheetText } from "./spreadsheet-clipboard";
@@ -125,6 +125,13 @@ function tables(target: Editor) {
   return found;
 }
 
+function onlyTable(target: Editor) {
+  const found = tables(target);
+  expect(found).toHaveLength(1);
+  for (const table of found) return table;
+  throw new Error("The document has no table");
+}
+
 // Each cell's text, with a hard break read as a line break.
 function cellTexts(table: ProseMirrorNode) {
   const rows: string[][] = [];
@@ -152,8 +159,10 @@ function markNames(node: ProseMirrorNode) {
 
 function copiedText(target: Editor) {
   const slice = target.state.selection.content();
-  return target.view.someProp("clipboardTextSerializer", (serialize) =>
-    serialize(slice, target.view),
+  return (
+    target.view.someProp("clipboardTextSerializer", (serialize) =>
+      serialize(slice, target.view),
+    ) ?? ""
   );
 }
 
@@ -189,44 +198,37 @@ describe("pasting cells from a spreadsheet", () => {
     const target = createEditor();
     paste(target, { "text/html": html, "text/plain": text });
 
-    const [table] = tables(target);
-    expect(table).toBeDefined();
+    const table = onlyTable(target).node;
     expect(
-      cellTexts(table!.node).map((row) => row.map((cell) => cell.trim())),
+      cellTexts(table).map((row) => row.map((cell) => cell.trim())),
     ).toEqual(ROWS);
     // The sheet's font and cell styles stay behind; bold headers may come along.
-    expect(markNames(table!.node).filter((name) => name !== "bold")).toEqual(
-      [],
-    );
+    expect(markNames(table).filter((name) => name !== "bold")).toEqual([]);
   });
 
   it("makes a table from tab-separated text with no HTML", () => {
     const target = createEditor();
     paste(target, { "text/plain": SHEETS_TEXT });
 
-    const [table] = tables(target);
-    expect(table).toBeDefined();
-    expect(cellTexts(table!.node)).toEqual(ROWS);
+    expect(cellTexts(onlyTable(target).node)).toEqual(ROWS);
 
     const reloaded = createEditor(docToNfm(target.state.doc.toJSON()));
-    expect(cellTexts(tables(reloaded)[0]!.node)).toEqual(ROWS);
+    expect(cellTexts(onlyTable(reloaded).node)).toEqual(ROWS);
   });
 
   it("fills the table under the caret instead of nesting a new one", () => {
     const target = createEditor(
       "<table>\n<tr>\n<td>a</td>\n<td>b</td>\n</tr>\n<tr>\n<td>c</td>\n<td>d</td>\n</tr>\n</table>",
     );
-    const [table] = tables(target);
     // The caret in the first cell's text.
     target.view.dispatch(
       target.state.tr.setSelection(
-        TextSelection.create(target.state.doc, table!.pos + 4),
+        TextSelection.create(target.state.doc, onlyTable(target).pos + 4),
       ),
     );
     paste(target, { "text/plain": "x\ty\nz\tw" });
 
-    expect(tables(target)).toHaveLength(1);
-    expect(cellTexts(tables(target)[0]!.node)).toEqual([
+    expect(cellTexts(onlyTable(target).node)).toEqual([
       ["x", "y"],
       ["z", "w"],
     ]);
@@ -252,10 +254,9 @@ describe("copying a table", () => {
   it("gives tab-separated text for the whole table", () => {
     const target = createEditor();
     paste(target, { "text/plain": SHEETS_TEXT });
-    const [table] = tables(target);
     target.view.dispatch(
       target.state.tr.setSelection(
-        NodeSelection.create(target.state.doc, table!.pos),
+        NodeSelection.create(target.state.doc, onlyTable(target).pos),
       ),
     );
 
@@ -263,28 +264,20 @@ describe("copying a table", () => {
     expect(text).toBe(
       'Name\tScore\tNotes\nAda "the first"\t1234.5\t"line one\nline two"\nGrace\t42\t',
     );
-    expect(parseSpreadsheetText(text!)).toEqual(ROWS);
+    expect(parseSpreadsheetText(text)).toEqual(ROWS);
   });
 
   it("gives tab-separated text for selected cells", () => {
     const target = createEditor();
     paste(target, { "text/plain": SHEETS_TEXT });
-    const [table] = tables(target);
-    const cellPositions: number[] = [];
-    table!.node.descendants((node, pos) => {
-      if (node.type.spec.tableRole === "cell") {
-        cellPositions.push(table!.pos + 1 + pos);
-      }
-      return node.type.spec.tableRole !== "cell";
-    });
+    const table = onlyTable(target);
+    const map = TableMap.get(table.node);
+    const cellAt = (row: number, column: number) =>
+      table.pos + 1 + map.positionAt(row, column, table.node);
     // From "Score" in the first row to "42" in the last.
     target.view.dispatch(
       target.state.tr.setSelection(
-        CellSelection.create(
-          target.state.doc,
-          cellPositions[1]!,
-          cellPositions[7]!,
-        ),
+        CellSelection.create(target.state.doc, cellAt(0, 1), cellAt(2, 1)),
       ),
     );
 
