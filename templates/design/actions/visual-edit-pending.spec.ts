@@ -741,6 +741,26 @@ describe("visual-edit pending handoff", () => {
     );
   });
 
+  it("reports zero persisted tweaks when the acknowledgement revision is stale", async () => {
+    mocks.updateChain.returning.mockResolvedValueOnce([]);
+    mocks.selectChain.limit.mockResolvedValueOnce([
+      { status: "ready", pendingEditCount: 2 },
+    ]);
+
+    await expect(
+      acknowledgePendingAction.run({
+        designId: "design_public",
+        revision: 7,
+        appliedTweaks: [{ id: "speed", value: 3 }],
+      }),
+    ).resolves.toMatchObject({
+      status: "stale",
+      stale: true,
+      tweakAcknowledgedCount: 0,
+    });
+    expect(mocks.selectChain.limit).toHaveBeenCalledTimes(1);
+  });
+
   it("advances only acknowledged tweak ids and values after source verification", async () => {
     mocks.updateChain.returning
       .mockResolvedValueOnce([{ designId: "design_public" }])

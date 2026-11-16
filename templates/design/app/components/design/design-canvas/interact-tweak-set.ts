@@ -7,13 +7,17 @@ import {
 
 const parsedDocuments = new Map<string, Document | null>();
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function parsedScreenDocument(html: string | undefined): Document | null {
   if (!html) return null;
   if (!parsedDocuments.has(html)) {
     parsedDocuments.set(html, parseScreenDocument(html));
     if (parsedDocuments.size > 8) {
-      const oldest = parsedDocuments.keys().next().value;
-      if (oldest !== undefined) parsedDocuments.delete(oldest);
+      const oldestHtml = parsedDocuments.keys().next().value;
+      if (oldestHtml !== undefined) parsedDocuments.delete(oldestHtml);
     }
   }
   return parsedDocuments.get(html) ?? null;
@@ -36,19 +40,12 @@ export function resolveInteractTweakSet(
   screenId: string,
   screenHtml: string | undefined,
 ): InteractTweakSet | null {
-  if (!data || typeof data !== "object") return null;
-  const message = data as {
-    type?: unknown;
-    id?: unknown;
-    cssVar?: unknown;
-    value?: unknown;
-  };
-  if (message.type !== "tweak-set") return null;
+  if (!isRecord(data) || data.type !== "tweak-set") return null;
   const tweak =
-    typeof message.id === "string"
-      ? tweaks.find((candidate) => candidate.id === message.id)
-      : typeof message.cssVar === "string"
-        ? tweaks.find((candidate) => candidate.cssVar === message.cssVar)
+    typeof data.id === "string"
+      ? tweaks.find((candidate) => candidate.id === data.id)
+      : typeof data.cssVar === "string"
+        ? tweaks.find((candidate) => candidate.cssVar === data.cssVar)
         : undefined;
   if (!tweak) return null;
   const scopes = Array.isArray(tweak.scope)
@@ -66,7 +63,7 @@ export function resolveInteractTweakSet(
   ) {
     return null;
   }
-  const value = coerceTweakValue(tweak, message.value);
+  const value = coerceTweakValue(tweak, data.value);
   return value === null ? null : { tweakId: tweak.id, value };
 }
 
@@ -148,9 +145,8 @@ export function createInteractTweakSetListener(options: {
     );
     if (
       resolved &&
-      event.data !== null &&
-      typeof event.data === "object" &&
-      (event.data as { capability?: unknown }).capability === capability
+      isRecord(event.data) &&
+      event.data.capability === capability
     ) {
       options.onTweakSet(resolved.tweakId, resolved.value);
     }

@@ -1,4 +1,5 @@
 import type { TweakDefinition } from "@shared/api";
+import { isSafeCssVarName } from "@shared/resolve-tweaks";
 import type { TweakSelections } from "@shared/resolve-tweaks";
 
 export interface TweakHandoffChange {
@@ -7,6 +8,14 @@ export interface TweakHandoffChange {
   oldValue: string | number | boolean;
   newValue: string | number | boolean;
   cssVar?: string;
+}
+
+function getSelectionValue(
+  selections: TweakSelections,
+  key: string,
+): string | number | boolean | undefined {
+  if (!Object.prototype.hasOwnProperty.call(selections, key)) return undefined;
+  return selections[key];
 }
 
 export function getTweakHandoffChanges(args: {
@@ -31,15 +40,19 @@ export function getTweakHandoffChanges(args: {
   const declaredVars = new Set(
     args.tweaks.flatMap((tweak) => (tweak.cssVar ? [tweak.cssVar] : [])),
   );
-  const before = args.before as Record<
-    string,
-    TweakSelections[string] | undefined
-  >;
   const direct = Object.entries(args.after).flatMap(([cssVar, newValue]) => {
-    if (declaredVars.has(cssVar)) return [];
-    const oldValue = before[cssVar];
-    if (oldValue === undefined || Object.is(oldValue, newValue)) return [];
-    return [{ id: cssVar, label: cssVar, oldValue, newValue, cssVar }];
+    if (!isSafeCssVarName(cssVar) || declaredVars.has(cssVar)) return [];
+    const oldValue = getSelectionValue(args.before, cssVar);
+    if (oldValue !== undefined && Object.is(oldValue, newValue)) return [];
+    return [
+      {
+        id: cssVar,
+        label: cssVar,
+        oldValue: oldValue ?? "(source default)",
+        newValue,
+        cssVar,
+      },
+    ];
   });
   return [...declared, ...direct];
 }

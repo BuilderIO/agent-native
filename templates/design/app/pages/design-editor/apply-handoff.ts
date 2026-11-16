@@ -23,7 +23,7 @@ export function composeApplyHandoff(input: ApplyHandoffInput): ApplyHandoff {
     .join("\n\n");
   const tweakPrompt = formatTweakChanges(
     input.localTweakChanges,
-    input.fullApp.designId,
+    input.fullApp.enabled ? input.fullApp.designId : undefined,
   );
   const sections = [
     input.fullApp.enabled

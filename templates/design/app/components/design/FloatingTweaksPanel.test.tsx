@@ -98,7 +98,7 @@ describe("FloatingTweaksPanel", () => {
       root.render(
         <TooltipProvider>
           <FloatingTweaksPanel
-            tweaks={[TWEAKS[0]!]}
+            tweaks={TWEAKS.slice(0, 1)}
             values={{}}
             onChange={vi.fn()}
             open

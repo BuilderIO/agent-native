@@ -121,6 +121,11 @@ export default defineAction({
         .limit(1);
       return {
         acknowledged,
+        tweakAcknowledgedCount:
+          (revision === undefined || acknowledged.length > 0) &&
+          appliedTweaks.length > 0
+            ? appliedTweaks.length
+            : 0,
         pending: pending[0] ?? { status: "empty", pendingEditCount: 0 },
       };
     });
@@ -139,7 +144,8 @@ export default defineAction({
         : revision === undefined
           ? updated.pending.pendingEditCount
           : null,
-      tweakAcknowledgedCount: appliedTweaks.length,
+      tweakAcknowledgedCount: updated.tweakAcknowledgedCount,
+      stale: revision !== undefined && !cleared,
       next:
         cleared || revision === undefined
           ? "Call get-visual-edit-pending again to verify the handoff is empty."
