@@ -1661,7 +1661,9 @@ describe("GitHub folder source", () => {
     await syncGitHubSource({ sourceId: id, budgetMs: 30_000 });
     expect(github.state.uploads).toBe(1);
     expect(github.state.storageOrgIds.length).toBeGreaterThan(1);
-    expect(new Set(github.state.storageOrgIds)).toEqual(new Set(["org-linker"]));
+    expect(new Set(github.state.storageOrgIds)).toEqual(
+      new Set(["org-linker"]),
+    );
     expect(github.state.mediaOrgIds).toEqual([null]);
   });
 
