@@ -1133,6 +1133,57 @@ describe("createGetDb — lazy proxy before init resolves", () => {
     );
   });
 
+  it.each([
+    "union",
+    "unionAll",
+    "intersect",
+    "intersectAll",
+    "except",
+    "exceptAll",
+  ] as const)("materializes cold %s operands like Drizzle", async (method) => {
+    const db = (await getLazyDbFactory())();
+    const reference = drizzle.mock();
+    const makeSubquery = (source: typeof reference) => {
+      const left = source.select({ id: meetings.id }).from(meetings);
+      const right = source.select({ id: meetings.recordingId }).from(meetings);
+      return left[method](right).as("combined");
+    };
+    const outer = (subquery: ReturnType<typeof makeSubquery>) =>
+      new QueryBuilder().select().from(subquery).toSQL();
+    expect(outer(makeSubquery(db))).toEqual(outer(makeSubquery(reference)));
+  });
+
+  it("resolves nested and callback cold set operands without hiding Drizzle errors", async () => {
+    const db = (await getLazyDbFactory())();
+    const reference = drizzle.mock();
+    const makeSubquery = (source: typeof reference) => {
+      const select = () => source.select({ id: meetings.id }).from(meetings);
+      return select()
+        .union(() => select().except(select()))
+        .as("combined");
+    };
+    const outer = (subquery: ReturnType<typeof makeSubquery>) =>
+      new QueryBuilder().select().from(subquery).toSQL();
+    expect(outer(makeSubquery(db))).toEqual(outer(makeSubquery(reference)));
+    const invalid = () =>
+      db
+        .select({ id: meetings.id })
+        .from(meetings)
+        .union(db.select({ other: meetings.id }).from(meetings))
+        .as("bad");
+    expect(invalid).toThrow(/selected fields are not the same/);
+    const callbackError = new Error("set callback failed");
+    expect(() =>
+      db
+        .select()
+        .from(meetings)
+        .union(() => {
+          throw callbackError;
+        })
+        .as("bad"),
+    ).toThrow(callbackError);
+  });
+
   it("materializes a CTE from a cold select and builds a cold outer query", async () => {
     const db = (await getLazyDbFactory())();
     const reference = drizzle.mock();
@@ -1273,6 +1324,13 @@ describe("createGetDb — lazy proxy before init resolves", () => {
       .as((qb) => qb.select({ id: meetings.id }).from(meetings));
     const outer = db.with(cte).select().from(cte);
     const write = db.insert(meetings).values({ id: "1" });
+    expect(() =>
+      db
+        .select({ id: meetings.id })
+        .from(meetings)
+        .union(write as never)
+        .as("invalid"),
+    ).toThrow(/await the database handle/i);
     expect(select).not.toHaveBeenCalled();
     expect(insert).not.toHaveBeenCalled();
     await Promise.resolve();
@@ -1310,6 +1368,28 @@ describe("createGetDb — lazy proxy before init resolves", () => {
           .from(meetings),
       );
       const coldOuter = db.with(cte).select().from(cte).where(eq(cte.id, "1"));
+      const coldUnion = db
+        .select({ id: meetings.id })
+        .from(meetings)
+        .where(eq(meetings.id, "1"))
+        .union(
+          db
+            .select({ id: meetings.id })
+            .from(meetings)
+            .where(eq(meetings.id, "2")),
+        );
+      const callback = vi.fn(() =>
+        db
+          .select({ id: meetings.id })
+          .from(meetings)
+          .where(eq(meetings.id, "2")),
+      );
+      const coldCallbackUnion = db
+        .select({ id: meetings.id })
+        .from(meetings)
+        .where(eq(meetings.id, "1"))
+        .union(callback);
+      expect(callback).not.toHaveBeenCalled();
       await db.execute(sql`create table meetings (id text, recording_id text)`);
       await db.insert(meetings).values([
         { id: "1", recordingId: "abc" },
@@ -1331,6 +1411,25 @@ describe("createGetDb — lazy proxy before init resolves", () => {
         .where(eq(expectedCte.id, "1"));
       expect(await coldOuter).toEqual(expected);
       expect(expected).toEqual([{ id: "1", label: "ABC" }]);
+      const expectedUnion = await ready
+        .select({ id: meetings.id })
+        .from(meetings)
+        .where(eq(meetings.id, "1"))
+        .union(
+          ready
+            .select({ id: meetings.id })
+            .from(meetings)
+            .where(eq(meetings.id, "2")),
+        );
+      const expectedIds = expectedUnion.map((row) => row.id).sort();
+      expect((await coldUnion).map((row) => row.id).sort()).toEqual(
+        expectedIds,
+      );
+      expect((await coldCallbackUnion).map((row) => row.id).sort()).toEqual(
+        expectedIds,
+      );
+      expect(callback).toHaveBeenCalledTimes(1);
+      expect(expectedIds).toEqual(["1", "2"]);
     } finally {
       await closeDbExec();
       vi.unstubAllEnvs();
@@ -1347,6 +1446,9 @@ describe("createGetDb — lazy proxy before init resolves", () => {
     }
     expect(() => db.$with("inserted").as(insertChain)).toThrow(
       /unresolved|await/i,
+    );
+    expect(() => db.$with("inserted").as(insertChain)).toThrow(
+      /await (?:the )?database handle/i,
     );
   });
 });

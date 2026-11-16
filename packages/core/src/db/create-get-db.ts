@@ -1150,6 +1150,59 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     });
   }
 
+  function isSelectChain(
+    chain: Array<{ prop: string | symbol; args?: unknown[] }>,
+  ): boolean {
+    const first = chain[0]?.prop;
+    const select = first === "with" ? chain[1]?.prop : first;
+    return (
+      select === "select" ||
+      select === "selectDistinct" ||
+      select === "selectDistinctOn"
+    );
+  }
+
+  function resolveOfflineQuery(query: unknown): unknown {
+    const lazyChain =
+      (typeof query === "function" || (typeof query === "object" && query)) &&
+      lazyQueryChains.get(query);
+    if (!lazyChain) return query;
+    const replayed = replayChainOffline(lazyChain);
+    if (replayed) return replayed;
+    throw new Error(
+      "getDb(): accessed an unresolved query chain synchronously. " +
+        "Only select-style query chains can be embedded as a subquery " +
+        "before the database is ready; await the database handle " +
+        "(await getDb()) before constructing the query.",
+    );
+  }
+
+  function resolveQueryArgument(query: unknown): unknown {
+    const resolved = resolveOfflineQuery(query);
+    return typeof resolved === "function"
+      ? (...args: unknown[]) => resolveOfflineQuery(resolved(...args))
+      : resolved;
+  }
+
+  function resolveSetOperatorArgs(
+    chain: Array<{ prop: string | symbol; args?: unknown[] }>,
+    step: { prop: string | symbol; args?: unknown[] },
+  ): unknown[] {
+    const args = step.args ?? [];
+    if (
+      isSelectChain(chain) &&
+      (step.prop === "union" ||
+        step.prop === "unionAll" ||
+        step.prop === "intersect" ||
+        step.prop === "intersectAll" ||
+        step.prop === "except" ||
+        step.prop === "exceptAll")
+    ) {
+      return [resolveQueryArgument(args[0]), ...args.slice(1)];
+    }
+    return args;
+  }
+
   // A select chain embedded as a subquery only needs its SQL, which a
   // connection-less QueryBuilder of the same dialect can build. Anything else
   // (inserts, relational queries, ...) cannot be answered offline.
@@ -1158,32 +1211,11 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   ): Record<string | symbol, unknown> | undefined {
     const first = chain[0]?.prop;
     if (
-      first !== "select" &&
-      first !== "selectDistinct" &&
-      first !== "selectDistinctOn" &&
-      !(
-        first === "with" &&
-        (chain[1]?.prop === "select" ||
-          chain[1]?.prop === "selectDistinct" ||
-          chain[1]?.prop === "selectDistinctOn")
-      ) &&
+      !isSelectChain(chain) &&
       !(first === "$with" && chain.length === 2 && chain[1]?.prop === "as")
     ) {
       return undefined;
     }
-    const resolveCteQuery = (query: unknown): unknown => {
-      const lazyChain =
-        (typeof query === "function" || (typeof query === "object" && query)) &&
-        lazyQueryChains.get(query);
-      if (!lazyChain) return query;
-      const replayed = replayChainOffline(lazyChain);
-      if (replayed) return replayed;
-      throw new Error(
-        "getDb(): accessed an unresolved query chain synchronously. " +
-          "Only select-style query chains can be embedded as a subquery " +
-          "before the database is ready; await this chain before using its result.",
-      );
-    };
     // QueryBuilder.with() drops the WITH list for distinct selects; PgDatabase's
     // builders preserve it and remain connection-less until execution.
     let result: unknown =
@@ -1195,14 +1227,9 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
       if (result == null || !(step.prop in Object(result))) return undefined;
       const target = result as Record<string | symbol, unknown>;
       const val = target[step.prop];
-      let args = step.args ?? [];
+      let args = resolveSetOperatorArgs(chain, step);
       if (first === "$with" && step.prop === "as") {
-        const query = resolveCteQuery(args[0]);
-        args = [
-          typeof query === "function"
-            ? (builder: QueryBuilder) => resolveCteQuery(query(builder))
-            : query,
-        ];
+        args = [resolveQueryArgument(args[0]), ...args.slice(1)];
       }
       result = typeof val === "function" ? val.apply(target, args) : val;
     }
@@ -1221,7 +1248,9 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
             for (const step of chain) {
               const val = result[step.prop];
               result =
-                typeof val === "function" ? val.apply(result, step.args) : val;
+                typeof val === "function"
+                  ? val.apply(result, resolveSetOperatorArgs(chain, step))
+                  : val;
             }
             return result;
           });
@@ -1238,7 +1267,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
             "getDb(): accessed an unresolved query chain synchronously " +
               `(reading '${String(prop)}'). Only select-style query chains ` +
               "can be embedded as a subquery before the database is ready; " +
-              "await this chain before using its result.",
+              "await the database handle (await getDb()) before constructing the query.",
           );
         }
         return createLazyProxy(ready, [...chain, { prop }]);
