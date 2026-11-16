@@ -9,7 +9,10 @@ import { AllSelection, NodeSelection, TextSelection } from "@tiptap/pm/state";
 import { CellSelection, TableMap } from "@tiptap/pm/tables";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { parseSpreadsheetText } from "./spreadsheet-clipboard";
+import {
+  isSpreadsheetPicture,
+  parseSpreadsheetText,
+} from "./spreadsheet-clipboard";
 import { createVisualEditorExtensions } from "./VisualEditor";
 
 // Clipboards in the shapes Google Sheets and Excel write for a 3 by 3 range: a
@@ -93,9 +96,9 @@ afterEach(() => {
   editor = null;
 });
 
-function createEditor(content = "") {
+function createEditor(content = "", isSuggesting = () => false) {
   editor = new Editor({
-    extensions: createVisualEditorExtensions(),
+    extensions: createVisualEditorExtensions({ isSuggesting }),
     content: content
       ? nfmToDoc(content)
       : { type: "doc", content: [{ type: "paragraph" }] },
@@ -194,6 +197,7 @@ describe("reading tab-separated text", () => {
     ["no tabs", "Name\nScore"],
     ["ragged rows", "a\tb\nc"],
     ["tab-indented lines", "\tfirst()\n\tsecond()"],
+    ["lines indented with spaces and a tab", "  \tfirst()\n  \tsecond()"],
     ["one column", "a\nb"],
   ])("leaves %s as text", (_case, text) => {
     expect(parseSpreadsheetText(text)).toBeNull();
@@ -231,6 +235,26 @@ describe("pasting cells from a spreadsheet", () => {
     expect(cellTexts(onlyTable(reloaded).node)).toEqual(ROWS);
   });
 
+  it("keeps Markdown characters in cells as typed", () => {
+    const target = createEditor();
+    paste(target, { "text/plain": "**bold**\tx\n~~strike~~\t`code`" });
+
+    const table = onlyTable(target).node;
+    expect(cellTexts(table)).toEqual([
+      ["**bold**", "x"],
+      ["~~strike~~", "`code`"],
+    ]);
+    expect(markNames(table)).toEqual([]);
+  });
+
+  it("pastes cells as text while suggesting, which can't add a table", () => {
+    const target = createEditor("", () => true);
+    paste(target, { "text/plain": "x\ty\nz\tw" });
+
+    expect(tables(target)).toHaveLength(0);
+    expect(target.state.doc.textContent).toBe("x\tyz\tw");
+  });
+
   it("fills the table under the caret instead of nesting a new one", () => {
     const target = createEditor(
       "<table>\n<tr>\n<td>a</td>\n<td>b</td>\n</tr>\n<tr>\n<td>c</td>\n<td>d</td>\n</tr>\n</table>",
@@ -262,6 +286,36 @@ describe("pasting cells from a spreadsheet", () => {
 
     expect(tables(target)).toHaveLength(0);
     expect(target.state.doc.textContent).toBe("x\tyz\tw");
+  });
+});
+
+describe("a picture pasted beside cells", () => {
+  const png = new File(["png"], "cells.png", { type: "image/png" });
+  const clipboard = (html: string, files: File[]) =>
+    ({
+      getData: (format: string) => (format === "text/html" ? html : ""),
+      files,
+    }) as unknown as DataTransfer;
+
+  it("is Excel's picture of the cells when the HTML is only a table", () => {
+    expect(isSpreadsheetPicture(clipboard(EXCEL_HTML, [png]))).toBe(true);
+  });
+
+  it.each([
+    [
+      "HTML with an image of its own",
+      clipboard('<table><tr><td>a</td></tr></table><img src="a.png">', [png]),
+    ],
+    ["a table only in an HTML comment", clipboard("<!-- <table> -->", [png])],
+    [
+      "a video file",
+      clipboard(EXCEL_HTML, [
+        new File(["mp4"], "clip.mp4", { type: "video/mp4" }),
+      ]),
+    ],
+    ["no file", clipboard(EXCEL_HTML, [])],
+  ])("is real media, or none, with %s", (_case, data) => {
+    expect(isSpreadsheetPicture(data)).toBe(false);
   });
 });
 
@@ -297,6 +351,22 @@ describe("copying a table", () => {
     );
 
     expect(copiedText(target)).toBe("Score\n1234.5\n42");
+  });
+
+  it("keeps Markdown for text selected inside a cell", () => {
+    const target = createEditor();
+    paste(target, { "text/plain": SHEETS_TEXT });
+    // "Score", the text of the first row's second cell.
+    const table = onlyTable(target);
+    const cell =
+      table.pos + 1 + TableMap.get(table.node).positionAt(0, 1, table.node);
+    target.view.dispatch(
+      target.state.tr.setSelection(
+        TextSelection.create(target.state.doc, cell + 2, cell + 7),
+      ),
+    );
+
+    expect(copiedText(target)).toBe("| Score |\n| --- |\n");
   });
 
   it("keeps Markdown for a table copied with other blocks", () => {

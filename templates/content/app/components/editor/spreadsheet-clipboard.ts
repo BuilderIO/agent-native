@@ -8,14 +8,15 @@ import {
 import { TableMap } from "@tiptap/pm/tables";
 
 // Sheets, Excel and Numbers copy cells as tab-separated text: rows end in a
-// line break, and a cell holding a tab, line break or quote is wrapped in
-// double quotes with its own quotes doubled. This reads that text into a table
-// and writes a copied table back out the same way.
+// line break, and a cell holding a tab or line break is wrapped in double
+// quotes with its own quotes doubled. This reads that text into a table and
+// writes a copied table back out the same way, also quoting a cell that starts
+// with a quote so it isn't read back as a quoted one.
 
 /**
  * The rows of tab-separated text, or null unless it is a grid of at least two
  * rows and two columns with the same number of cells in every row. Prose with
- * a stray tab and tab-indented lines stay text.
+ * a stray tab and indented lines stay text.
  */
 export function parseSpreadsheetText(text: string): string[][] | null {
   if (!text.includes("\t")) return null;
@@ -43,8 +44,14 @@ export function parseSpreadsheetText(text: string): string[][] | null {
   const width = rows[0]?.length ?? 0;
   if (rows.length < 2 || width < 2) return null;
   if (rows.some((cells) => cells.length !== width)) return null;
-  if (rows.every((cells) => cells[0] === "")) return null;
+  if (rows.every(startsBlank)) return null;
   return rows;
+}
+
+/** Whether a row's first cell is empty or only spaces, as indentation is. */
+function startsBlank(cells: string[]) {
+  for (const cell of cells) return cell.trim() === "";
+  return true;
 }
 
 function readCell(text: string, start: number) {
@@ -134,20 +141,40 @@ export function expandColumnSpans(html: string): string {
   return template.innerHTML;
 }
 
-/** Whether a clipboard's HTML holds a table, as a spreadsheet's copy does. */
-export function clipboardHtmlHasTable(clipboardData: DataTransfer) {
-  return /<table[\s>]/i.test(clipboardData.getData("text/html"));
+/**
+ * Whether a paste's files are only a picture of the table in its HTML, as
+ * Excel puts beside the cells it copies. HTML with media of its own, such as
+ * a table and an image copied from Word, keeps its files.
+ */
+export function isSpreadsheetPicture(clipboardData: DataTransfer) {
+  const files = Array.from(clipboardData.files);
+  if (files.length === 0) return false;
+  if (!files.every((file) => file.type.startsWith("image/"))) return false;
+  // A template's content is inert: nothing in it loads or runs.
+  const template = document.createElement("template");
+  template.innerHTML = clipboardData.getData("text/html");
+  const html = template.content;
+  return (
+    html.querySelector("table") !== null &&
+    html.querySelector(
+      "img, picture, video, audio, svg, object, embed, iframe",
+    ) === null
+  );
 }
 
 /**
  * Tab-separated text for a copied slice that is one table, or rows of one
- * table as a cell selection copies them; null for anything else. A merged
- * cell's text goes in its first position and the rest stay empty.
+ * table as a cell selection copies them; null for anything else, such as text
+ * selected inside a cell. A merged cell's text goes in its first position and
+ * the rest stay empty.
  */
 export function spreadsheetTextForSlice(
   slice: Slice,
   schema: Schema,
 ): string | null {
+  // A cell selection's slice is open one level, into its table. Text selected
+  // inside a cell comes with the table, row and cell around it, open deeper.
+  if (slice.openStart > 1 || slice.openEnd > 1) return null;
   const table = copiedTable(slice.content, schema);
   if (!table) return null;
 
