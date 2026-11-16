@@ -113,12 +113,20 @@ describe("resourceStoredPathsTaken", () => {
           [
             "AGENTS.md",
             "skills/review/SKILL.md",
+            // The same skill, spelled with the other skill root.
+            ".agent/skills/review/SKILL.md",
             "skills/draft/SKILL.md",
             "notes/todo.md",
           ],
           { localFiles: true },
         ),
-      ).resolves.toEqual(new Set(["AGENTS.md", "skills/review/SKILL.md"]));
+      ).resolves.toEqual(
+        new Set([
+          "AGENTS.md",
+          "skills/review/SKILL.md",
+          ".agent/skills/review/SKILL.md",
+        ]),
+      );
 
       // A rename's create-only write leaves a file that is already there.
       await expect(
@@ -142,6 +150,16 @@ describe("resourceStoredPathsTaken", () => {
           "utf8",
         ),
       ).toBe("# Review");
+      // Nor does it add a second copy of that skill in the other skill root.
+      await expect(
+        resourcePutIfSnapshot({
+          previous: null,
+          owner: WORKSPACE_OWNER,
+          path: ".agent/skills/review/SKILL.md",
+          content: "# Moved here",
+        }),
+      ).resolves.toBeNull();
+      expect(fs.existsSync(path.join(root, ".agent"))).toBe(false);
 
       // A free path is claimed whole, with no temp file left beside it.
       const created = await resourcePutIfSnapshot({
