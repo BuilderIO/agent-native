@@ -1971,6 +1971,7 @@ const NO_DETAIL_PROVIDER_ERROR_CODES = new Set([
   "overloaded_error",
   "rate_limited",
   "rate_limit_exceeded",
+  "too_many_concurrent_requests",
   "invalid_request",
   "invalid_request_error",
   "provider_internal_error",

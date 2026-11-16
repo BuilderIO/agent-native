@@ -3040,6 +3040,10 @@ describe("createBuilderEngine", () => {
     { code: "overloaded_error", classification: "overloaded_error" },
     { code: "rate_limited", classification: "rate_limited" },
     { code: "rate_limit_exceeded", classification: "rate_limit_exceeded" },
+    {
+      code: "too_many_concurrent_requests",
+      classification: "too_many_concurrent_requests",
+    },
     { code: "invalid_request", classification: "invalid_request" },
     { code: "invalid_request_error", classification: "invalid_request_error" },
     {
