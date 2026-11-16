@@ -21,6 +21,7 @@ export function renderRightRail({
   interactFloatingBar,
   rightSidebarVisible,
   editPanelProps,
+  floatingTweaksPanel,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
@@ -36,6 +37,7 @@ export function renderRightRail({
     import("react").ComponentProps<typeof EditPanel>,
     "width"
   >;
+  floatingTweaksPanel: ReactElement | null;
 }) {
   const { t, mode, hostOwnsChrome } = editorCore;
   const {
@@ -99,6 +101,8 @@ export function renderRightRail({
           {interactFloatingBar}
         </div>
       ) : null}
+
+      {floatingTweaksPanel}
 
       {minimalUi && !hostOwnsChrome ? (
         <div

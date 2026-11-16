@@ -3833,6 +3833,7 @@ describe("setAppCreationSettings", () => {
     expect(mocks.putSetting).toHaveBeenCalledWith(
       "dispatch-app-creation-settings:org:builder_io",
       { builderProjectId: projectId },
+      { orgId },
     );
     expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
@@ -3854,9 +3855,11 @@ describe("setAppCreationSettings", () => {
     expect(mocks.settings.get(settingsKey)).toEqual({
       builderProjectId: projectId,
     });
-    expect(mocks.putSetting).toHaveBeenCalledWith(settingsKey, {
-      builderProjectId: projectId,
-    });
+    expect(mocks.putSetting).toHaveBeenCalledWith(
+      settingsKey,
+      { builderProjectId: projectId },
+      { owner: "dev@example.test" },
+    );
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
   });
 
@@ -3869,6 +3872,7 @@ describe("setAppCreationSettings", () => {
     expect(mocks.putSetting).toHaveBeenCalledWith(
       "dispatch-app-creation-settings:org:builder_io",
       { builderProjectId: null },
+      { orgId },
     );
     expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();

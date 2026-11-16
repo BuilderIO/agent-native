@@ -342,12 +342,21 @@ function isImportedSqlIdentifier(
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
 ): boolean {
+  return isImportedCoreDbValue(identifier, "sql", checker, sourceFile);
+}
+
+function isImportedCoreDbValue(
+  identifier: ts.Identifier,
+  importedValue: string,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): boolean {
   const symbol = checker.getSymbolAtLocation(identifier);
   return (
     symbol?.declarations?.some((declaration) => {
       if (!ts.isImportSpecifier(declaration)) return false;
       const importedName = declaration.propertyName ?? declaration.name;
-      if (importedName.text !== "sql") return false;
+      if (importedName.text !== importedValue) return false;
       const importClause = declaration.parent.parent;
       if (!ts.isImportClause(importClause)) return false;
       const importDeclaration = importClause.parent;
@@ -360,6 +369,58 @@ function isImportedSqlIdentifier(
         )
       );
     }) ?? false
+  );
+}
+
+function isTrustedBudgetCall(
+  call: ts.CallExpression,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): boolean {
+  return isTrustedBudgetExpression(call.expression, checker, sourceFile);
+}
+
+function isTrustedBudgetExpression(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+  seen: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const callee = unwrapExecuteExpression(expression);
+  if (ts.isIdentifier(callee)) {
+    if (isImportedCoreDbValue(callee, "withSqlBudget", checker, sourceFile))
+      return true;
+    const symbol = checker.getSymbolAtLocation(callee);
+    if (!symbol || seen.has(symbol)) return false;
+    const nextSeen = new Set(seen);
+    nextSeen.add(symbol);
+    return (
+      symbol.declarations?.some(
+        (declaration) =>
+          ts.isVariableDeclaration(declaration) &&
+          ts.isVariableDeclarationList(declaration.parent) &&
+          (declaration.parent.flags & ts.NodeFlags.Const) !== 0 &&
+          declaration.initializer !== undefined &&
+          isTrustedBudgetExpression(
+            declaration.initializer,
+            checker,
+            sourceFile,
+            nextSeen,
+          ),
+      ) ?? false
+    );
+  }
+  const name = ts.isPropertyAccessExpression(callee)
+    ? callee.name.text
+    : ts.isElementAccessExpression(callee)
+      ? staticStringPropertyName(callee.argumentExpression)
+      : undefined;
+  return (
+    (ts.isPropertyAccessExpression(callee) ||
+      ts.isElementAccessExpression(callee)) &&
+    name === "withSqlBudget" &&
+    ts.isIdentifier(callee.expression) &&
+    isImportedSqlNamespace(callee.expression, checker, sourceFile)
   );
 }
 
@@ -1068,7 +1129,8 @@ function isImportedSqlFragmentType(
       }
       if (!ts.isImportSpecifier(declaration)) return false;
       const importedName = declaration.propertyName ?? declaration.name;
-      if (importedName.text !== "SqlFragment") return false;
+      if (!["SqlFragment", "BudgetedSqlFragment"].includes(importedName.text))
+        return false;
       const importClause = declaration.parent.parent;
       if (!ts.isImportClause(importClause)) return false;
       const importDeclaration = importClause.parent;
@@ -2173,6 +2235,18 @@ function computeUnsafeSqlSources(
   }
   if (ts.isCallExpression(current)) {
     const sourceFile = current.getSourceFile();
+    if (isTrustedBudgetCall(current, analysis.checker, sourceFile)) {
+      const fragment = current.arguments[0];
+      return fragment
+        ? findUnsafeSqlSources(
+            fragment,
+            analysis,
+            seenSymbols,
+            seenFunctions,
+            traceTemplateSpans,
+          )
+        : new Set([current]);
+    }
     if (isPostgresParameterFormatterCall(current, analysis.checker)) {
       const originalSql = current.arguments[0];
       return originalSql

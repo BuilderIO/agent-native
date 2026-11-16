@@ -313,7 +313,12 @@ function hasFreshSessionCache(): boolean {
 function publishSessionIdentity(session: AuthSessionResponse | null): void {
   const identity = session?.userId ?? session?.email ?? null;
   const authUserId = session?.authUserId;
-  recordSessionIdentity(identity);
+  recordSessionIdentity(
+    identity,
+    session?.orgId ?? null,
+    session?.authUserId ?? session?.userId,
+    session?.email,
+  );
   notifySessionIdentityPublished(
     session
       ? [identity, authUserId ?? "", session.orgId ?? ""].join("\n")

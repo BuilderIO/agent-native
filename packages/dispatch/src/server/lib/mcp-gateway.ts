@@ -891,7 +891,7 @@ async function isEligibleWorkspaceSsoApp(
 ): Promise<boolean> {
   return isWorkspaceSsoAppUrl(candidate, {
     nodeEnv: process.env.NODE_ENV,
-    registryRaw: process.env.IDENTITY_SSO_APP_REGISTRY_JSON,
+    registryRaw: getAppConfig().auth.identitySsoAppRegistryJson,
     environmentLane: requestEnvironmentLane(),
   });
 }
@@ -1338,6 +1338,8 @@ async function callTargetCreateEmbedSession(input: {
   token: string;
   url: string;
   chrome?: "full" | "minimal";
+  runtime?: "workspace-app-chat";
+  firstPartyMcp?: boolean;
 }): Promise<unknown> {
   const serverId = "target";
   const deadline = Date.now() + TARGET_EMBED_SESSION_BUDGET_MS;
@@ -1374,6 +1376,7 @@ async function callTargetCreateEmbedSession(input: {
         {
           url: input.url,
           chrome: input.chrome ?? "full",
+          ...(input.runtime ? { runtime: input.runtime } : {}),
         },
       );
     } catch (error) {
@@ -1411,15 +1414,31 @@ async function createTargetMcpUserCredentials(input: {
   ownerEmail: string;
   orgId?: string;
   firstPartyMcp?: boolean;
+  runtime?: "workspace-app-chat";
 }): Promise<{
   credentials: TargetMcpCredential[];
   loadOrgMemberCredential: () => Promise<TargetMcpCredential | undefined>;
 }> {
   const audience = canonicalA2AAudience(input.mcpUrl);
+  if (input.runtime) {
+    const authenticatedAtMs = getRequestContext()?.identityAuthenticatedAtMs;
+    if (
+      !input.firstPartyMcp ||
+      !Number.isSafeInteger(authenticatedAtMs) ||
+      typeof authenticatedAtMs !== "number" ||
+      authenticatedAtMs <= 0 ||
+      authenticatedAtMs > Date.now()
+    )
+      throw new Error(
+        "App chat requires a verified first-party sign-in grant.",
+      );
+    if (!getGlobalA2ASecret())
+      throw new Error("App chat requires a deployment A2A credential.");
+  }
   const orgDomain = input.orgId
     ? (await getOrgDomain(input.orgId))?.trim().toLowerCase() || undefined
     : undefined;
-  if (input.firstPartyMcp && input.orgId && !orgDomain) {
+  if ((input.firstPartyMcp || input.runtime) && input.orgId && !orgDomain) {
     throw new Error("Workspace organization domain is unavailable.");
   }
   const credentials: TargetMcpCredential[] = [];
@@ -1429,18 +1448,30 @@ async function createTargetMcpUserCredentials(input: {
       ...(input.firstPartyMcp ? { firstPartyMcp: true } : {}),
       token: await signA2AToken(
         input.ownerEmail,
-        input.firstPartyMcp ? orgDomain : undefined,
+        input.firstPartyMcp || input.runtime ? orgDomain : undefined,
         undefined,
         {
           expiresIn: "5m",
           audience,
           preferGlobalSecret: true,
-          ...(input.firstPartyMcp
+          ...(input.firstPartyMcp || input.runtime
             ? {
                 extraClaims: {
-                  jti: globalThis.crypto.randomUUID(),
-                  scope: "mcp-connect",
-                  agent_native_first_party_mcp: true,
+                  ...(input.firstPartyMcp
+                    ? {
+                        jti: globalThis.crypto.randomUUID(),
+                        scope: "mcp-connect",
+                        agent_native_first_party_mcp: true,
+                      }
+                    : {}),
+                  ...(input.runtime
+                    ? {
+                        agent_native_workspace_app_chat: true,
+                        agent_native_chat_grant_issued_at_ms:
+                          getRequestContext()?.identityAuthenticatedAtMs,
+                        ...(!input.orgId ? { org_id: null } : {}),
+                      }
+                    : {}),
                 },
               }
             : {}),
@@ -1450,6 +1481,7 @@ async function createTargetMcpUserCredentials(input: {
   }
 
   const loadOrgMemberCredential = async () => {
+    if (input.runtime) return undefined;
     if (!input.orgId || !orgDomain) return undefined;
     const orgSecret = await getOrgA2ASecret(input.orgId);
     if (!orgSecret) return undefined;
@@ -1568,12 +1600,15 @@ async function createDispatchSelfEmbedSession(input: {
   path: string;
   baseUrl: string;
   chrome?: "full" | "minimal";
+  runtime?: "workspace-app-chat";
 }): Promise<{
   startUrl: string;
   targetPath?: string;
   expiresAt?: number;
   app: string;
 }> {
+  if (input.runtime)
+    throw new Error("Host self chat requires its own browser session.");
   const ticket = await createEmbedSessionTicket({
     ownerEmail: input.ownerEmail,
     orgId: input.orgId,
@@ -1590,7 +1625,8 @@ async function createDispatchSelfEmbedSession(input: {
 }
 
 type InternalEmbedSession = {
-  startUrl: string;
+  startUrl?: string;
+  chatToken?: string;
   targetPath?: string;
   expiresAt?: number;
   app: string;
@@ -1603,6 +1639,8 @@ function publicEmbedSession({
   expiresAt,
   app,
 }: InternalEmbedSession) {
+  if (!startUrl)
+    throw new Error("Document embed requires a browser start URL.");
   return {
     startUrl,
     ...(targetPath ? { targetPath } : {}),
@@ -1617,6 +1655,7 @@ async function createGrantedDispatchMcpEmbedSessionResult(input: {
   url?: string;
   path?: string;
   chrome?: "full" | "minimal";
+  runtime?: "workspace-app-chat";
 }): Promise<InternalEmbedSession> {
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
@@ -1627,6 +1666,7 @@ async function createGrantedDispatchMcpEmbedSessionResult(input: {
     orgId: getRequestOrgId(),
     target,
     chrome: input.chrome,
+    runtime: input.runtime,
   });
 }
 
@@ -1666,13 +1706,30 @@ async function createEmbedSessionForResolvedGrantedApp(input: {
 
 export async function createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat(
   appId: string,
-): Promise<{ startUrl: string; appBaseUrl: string }> {
+): Promise<{
+  token: string;
+  appBaseUrl: string;
+  targetPath: string;
+  expiresAt: number;
+}> {
   const session = await createGrantedDispatchMcpEmbedSessionResult({
     app: appId,
     path: "/",
     chrome: "minimal",
+    runtime: "workspace-app-chat",
   });
-  return { startUrl: session.startUrl, appBaseUrl: session.appBaseUrl };
+  if (
+    !session.chatToken ||
+    !session.targetPath ||
+    typeof session.expiresAt !== "number"
+  )
+    throw new Error("Target app did not return a private chat credential.");
+  return {
+    token: session.chatToken,
+    appBaseUrl: session.appBaseUrl,
+    targetPath: session.targetPath,
+    expiresAt: session.expiresAt,
+  };
 }
 
 async function createEmbedSessionForResolvedApp(input: {
@@ -1680,14 +1737,9 @@ async function createEmbedSessionForResolvedApp(input: {
   orgId?: string;
   target: { app: DispatchMcpAccessibleApp; path: string; url: string };
   chrome?: "full" | "minimal";
+  runtime?: "workspace-app-chat";
   workspaceSso?: boolean;
-}): Promise<{
-  startUrl: string;
-  targetPath?: string;
-  expiresAt?: number;
-  app: string;
-  appBaseUrl: string;
-}> {
+}): Promise<InternalEmbedSession> {
   const { ownerEmail, orgId, target, chrome } = input;
 
   if (target.app.id === DISPATCH_APP_ID) {
@@ -1698,6 +1750,7 @@ async function createEmbedSessionForResolvedApp(input: {
         path: target.path,
         baseUrl: appBaseUrl(target.app),
         ...(chrome !== undefined ? { chrome } : {}),
+        ...(input.runtime ? { runtime: input.runtime } : {}),
       })),
       appBaseUrl: appBaseUrl(target.app),
     };
@@ -1705,15 +1758,24 @@ async function createEmbedSessionForResolvedApp(input: {
 
   const targetMcpUrl = appMcpUrl(target.app);
   const firstPartyMcp =
-    input.workspaceSso === true &&
+    (input.workspaceSso === true || input.runtime === "workspace-app-chat") &&
     isWorkspaceSsoAppUrl(
       { id: target.app.id, url: targetMcpUrl },
-      { nodeEnv: "production", environmentLane: requestEnvironmentLane() },
+      {
+        nodeEnv: "production",
+        environmentLane: requestEnvironmentLane(),
+        ...(input.runtime
+          ? { registryRaw: getAppConfig().auth.identitySsoAppRegistryJson }
+          : {}),
+      },
     );
+  if (input.runtime && !firstPartyMcp)
+    throw new Error("App chat requires a first-party workspace target.");
   const targetCredentials = await createTargetMcpUserCredentials({
     mcpUrl: targetMcpUrl,
     ownerEmail,
     ...(firstPartyMcp ? { firstPartyMcp: true } : {}),
+    ...(input.runtime ? { runtime: input.runtime } : {}),
     ...(orgId !== undefined ? { orgId } : {}),
   });
   const targetDetails = targetMcpRequestDetails({
@@ -1724,6 +1786,8 @@ async function createEmbedSessionForResolvedApp(input: {
   let parsed:
     | {
         startUrl?: string;
+        runtime?: string;
+        token?: string;
         targetPath?: string;
         expiresAt?: number;
       }
@@ -1740,9 +1804,12 @@ async function createEmbedSessionForResolvedApp(input: {
         token: credential.token,
         url: target.url,
         ...(chrome !== undefined ? { chrome } : {}),
+        ...(input.runtime ? { runtime: input.runtime } : {}),
       });
       parsed = parseMcpToolTextResult(result) as {
         startUrl?: string;
+        runtime?: string;
+        token?: string;
         targetPath?: string;
         expiresAt?: number;
       };
@@ -1778,7 +1845,29 @@ async function createEmbedSessionForResolvedApp(input: {
     }
   }
   if (!parsed) throw new Error("Target app did not return an embed session.");
-  if (!parsed.startUrl) {
+  if (input.runtime) {
+    if (
+      parsed.runtime !== input.runtime ||
+      typeof parsed.token !== "string" ||
+      !parsed.token ||
+      typeof parsed.targetPath !== "string" ||
+      !safeAppPath(parsed.targetPath) ||
+      typeof parsed.expiresAt !== "number" ||
+      !Number.isFinite(parsed.expiresAt) ||
+      parsed.expiresAt <= Date.now() ||
+      parsed.startUrl
+    ) {
+      throw new Error("Target app did not return a private chat credential.");
+    }
+    return {
+      chatToken: parsed.token,
+      targetPath: parsed.targetPath,
+      expiresAt: parsed.expiresAt,
+      app: target.app.id,
+      appBaseUrl: appChatBaseUrl(target.app),
+    };
+  }
+  if (!parsed.startUrl || parsed.token) {
     throw new Error("Target app did not return an embed start URL.");
   }
   const startUrl = resolveGrantedAppEmbedStartUrl(target.app, parsed.startUrl);
@@ -1790,13 +1879,7 @@ async function createEmbedSessionForResolvedApp(input: {
     returnedTargetPath: typeof parsed.targetPath === "string",
     returnedExpiry: typeof parsed.expiresAt === "number",
   });
-  const output: {
-    startUrl: string;
-    targetPath?: string;
-    expiresAt?: number;
-    app: string;
-    appBaseUrl: string;
-  } = {
+  const output: InternalEmbedSession = {
     startUrl,
     app: target.app.id,
     appBaseUrl: appChatBaseUrl(target.app),
@@ -1807,10 +1890,11 @@ async function createEmbedSessionForResolvedApp(input: {
 }
 
 async function createWorkspaceSsoEmbedSessionResult(input: {
-  app?: string;
-  url?: string;
-  path?: string;
-  chrome?: "full" | "minimal";
+  app?: string | undefined;
+  url?: string | undefined;
+  path?: string | undefined;
+  chrome?: "full" | "minimal" | undefined;
+  runtime?: "workspace-app-chat" | undefined;
 }): Promise<InternalEmbedSession> {
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) {
@@ -1850,6 +1934,7 @@ async function createWorkspaceSsoEmbedSessionResult(input: {
     orgId: getRequestOrgId(),
     target,
     chrome: input.chrome,
+    runtime: input.runtime,
     workspaceSso: true,
   });
 }
@@ -1865,16 +1950,36 @@ export async function createWorkspaceSsoEmbedSession(input: {
   expiresAt?: number;
   app: string;
 }> {
-  return publicEmbedSession(await createWorkspaceSsoEmbedSessionResult(input));
+  const { app, url, path, chrome } = input;
+  return publicEmbedSession(
+    await createWorkspaceSsoEmbedSessionResult({ app, url, path, chrome }),
+  );
 }
 
 export async function createWorkspaceSsoEmbedSessionForWorkspaceAppChat(
   appId: string,
-): Promise<{ startUrl: string; appBaseUrl: string }> {
+): Promise<{
+  token: string;
+  appBaseUrl: string;
+  targetPath: string;
+  expiresAt: number;
+}> {
   const session = await createWorkspaceSsoEmbedSessionResult({
     app: appId,
     path: "/",
     chrome: "minimal",
+    runtime: "workspace-app-chat",
   });
-  return { startUrl: session.startUrl, appBaseUrl: session.appBaseUrl };
+  if (
+    !session.chatToken ||
+    !session.targetPath ||
+    typeof session.expiresAt !== "number"
+  )
+    throw new Error("Target app did not return a private chat credential.");
+  return {
+    token: session.chatToken,
+    appBaseUrl: session.appBaseUrl,
+    targetPath: session.targetPath,
+    expiresAt: session.expiresAt,
+  };
 }

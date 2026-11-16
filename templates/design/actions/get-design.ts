@@ -250,7 +250,9 @@ export default defineAction({
       designSystemId: row.designSystemId,
       liveCollaborationEnabled: row.liveCollaborationEnabled === true,
       designSystem,
-      data: designDataForAccessRole(row.data ?? null, access.role),
+      data: designDataForAccessRole(row.data ?? null, access.role, {
+        liveCollaborationEnabled: row.liveCollaborationEnabled === true,
+      }),
       visibility: row.visibility,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

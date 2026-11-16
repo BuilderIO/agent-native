@@ -39,6 +39,7 @@ import { isMutationScopePath } from "./lib/mutation-scope.ts";
 import {
   aggregateShardReceipts,
   createShardReceipt,
+  type ExpectedShard,
 } from "./lib/mutation-shard-reports.ts";
 import { parseMutationShard } from "./lib/mutation-shard-runner.mts";
 
@@ -69,6 +70,7 @@ function installStryker(withVitestPeer = true): string | null {
       path.join(STRYKER_DIR, "package.json"),
       `${JSON.stringify({ private: true }, null, 2)}\n`,
     );
+    // guard:allow-bare-pnpm — mutation testing runs on Linux and macOS: the Stryker launcher it starts is a shell script
     const install = spawnSync(
       "npm",
       [
@@ -286,12 +288,16 @@ export function namedSpecs(
  * specs (worker builds, docs scans) that cannot run inside Stryker's sandbox
  * copy, and one failing dry-run test aborts the whole run.
  */
-function writeVitestConfig(specs: readonly string[]): string | null {
-  const { include, missing } = namedSpecs(
+function selectSpecs(specs: readonly string[]) {
+  return namedSpecs(
     specs,
     (directory) => readdirSync(path.join(CORE_ROOT, directory)),
     (file) => readFileSync(path.join(CORE_ROOT, file), "utf8"),
   );
+}
+
+function writeVitestConfig(specs: readonly string[]): string | null {
+  const { include, missing } = selectSpecs(specs);
   if (missing.length > 0) {
     return `no fast spec named after or importing ${missing.map((file) => `${CORE_DIR}/${file}`).join(", ")}, so no test can kill a mutant there`;
   }
@@ -315,22 +321,109 @@ function readReport(): MutationReport {
   return JSON.parse(readFileSync(REPORT_PATH, "utf8")) as MutationReport;
 }
 
+function rangeLines(spec: string): number {
+  const range = /:(\d+)-(\d+)$/.exec(spec);
+  if (!range) throw new Error(`Invalid mutation range: ${spec}`);
+  const start = Number(range[1]);
+  const end = Number(range[2]);
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    start < 1 ||
+    end < start
+  )
+    throw new Error(`Invalid mutation range: ${spec}`);
+  return end - start + 1;
+}
+
 export function mutationShardCount(specs: readonly string[]): number {
-  const lines = specs.reduce((total, spec) => {
-    const range = /:(\d+)-(\d+)$/.exec(spec);
-    if (!range) throw new Error(`Invalid mutation range: ${spec}`);
-    const start = Number(range[1]);
-    const end = Number(range[2]);
-    if (
-      !Number.isSafeInteger(start) ||
-      !Number.isSafeInteger(end) ||
-      start < 1 ||
-      end < start
-    )
-      throw new Error(`Invalid mutation range: ${spec}`);
-    return total + end - start + 1;
-  }, 0);
+  const lines = specs.reduce((total, spec) => total + rangeLines(spec), 0);
   return Math.max(1, Math.min(64, Math.ceil(lines / 32)));
+}
+
+/** One matrix worker: its group's ranges, and which of its mutants it runs. */
+export interface MutationShardPlanEntry {
+  group: number;
+  part: number;
+  parts: number;
+  specs: string[];
+}
+
+/**
+ * Splits the ranges into groups of whole files, balanced by changed lines. A
+ * group's workers instrument only its files and dry-run only their specs.
+ * Stryker's dry run executes specs one at a time, so a worker that dry-ran
+ * every spec selected for a wide branch outran the dry-run limit. A file with
+ * at least two workers' share of lines gets a group of its own with several
+ * workers, which split its mutants by id. Ranges are never cut: Stryker mutates only nodes
+ * that fit inside one range, so a cut would drop the nodes spanning it.
+ */
+export function mutationShardPlan(
+  specs: readonly string[],
+): MutationShardPlanEntry[] {
+  const lines = new Map<string, number>();
+  for (const spec of specs) {
+    const file = specFile(spec);
+    lines.set(file, (lines.get(file) ?? 0) + rangeLines(spec));
+  }
+  if (lines.size === 0) return [{ group: 0, part: 0, parts: 1, specs: [] }];
+  const workers = mutationShardCount(specs);
+  const total = [...lines.values()].reduce((sum, size) => sum + size, 0);
+  const ordered = [...lines].sort(
+    ([a, x], [b, y]) => y - x || a.localeCompare(b),
+  );
+  type Group = {
+    files: string[];
+    lines: number;
+    parts: number;
+    specs: string[];
+  };
+  const heavy: Group[] = ordered
+    .filter(([, size]) => size * workers >= 2 * total)
+    .map(([file, size]) => ({
+      files: [file],
+      lines: size,
+      parts: Math.floor((size * workers) / total),
+      specs: [],
+    }));
+  const light = ordered.filter(([, size]) => size * workers < 2 * total);
+  const used = heavy.reduce((sum, group) => sum + group.parts, 0);
+  const bins: Group[] = Array.from(
+    { length: Math.min(light.length, workers - used) },
+    () => ({ files: [], lines: 0, parts: 1, specs: [] }),
+  );
+  for (const [file, size] of light) {
+    const lightest = bins.reduce((min, bin) =>
+      bin.lines < min.lines ? bin : min,
+    );
+    lightest.files.push(file);
+    lightest.lines += size;
+  }
+  for (let spare = workers - used - bins.length; spare > 0; spare -= 1) {
+    if (heavy.length === 0) break;
+    const busiest = heavy.reduce((max, group) =>
+      group.lines / group.parts > max.lines / max.parts ? group : max,
+    );
+    busiest.parts += 1;
+  }
+  const groups = [...heavy, ...bins];
+  const owner = new Map<string, Group>();
+  for (const group of groups) {
+    for (const file of group.files) owner.set(file, group);
+  }
+  for (const spec of specs) {
+    const group = owner.get(specFile(spec));
+    if (!group) throw new Error(`Mutation range has no shard: ${spec}`);
+    group.specs.push(spec);
+  }
+  return groups.flatMap((group, index) =>
+    Array.from({ length: group.parts }, (_, part) => ({
+      group: index,
+      part,
+      parts: group.parts,
+      specs: group.specs,
+    })),
+  );
 }
 
 function digest(value: string): string {
@@ -372,7 +465,7 @@ function readStrykerConfiguration() {
   };
 }
 
-function shardMetadata(specs: readonly string[], shardCount: number) {
+function runMetadata() {
   const base = diffBaseCommit(REPO_ROOT);
   if (!base) throw new Error("Mutation diff base could not be resolved");
   const config = readFileSync(
@@ -401,11 +494,18 @@ function shardMetadata(specs: readonly string[], shardCount: number) {
     configHash: digest(
       JSON.stringify([STRYKER_VERSION, config, plugin, runner, runId]),
     ),
-    scopeHash: digest(JSON.stringify(specs)),
-    testScopeHash: digest(
-      readFileSync(path.join(CORE_ROOT, VITEST_CONFIG), "utf8"),
-    ),
-    shardCount,
+  };
+}
+
+/** The ranges, specs, and files one worker of the plan covers. */
+function shardExpectation(entry: MutationShardPlanEntry): ExpectedShard {
+  return {
+    group: entry.group,
+    part: entry.part,
+    parts: entry.parts,
+    scopeHash: digest(JSON.stringify(entry.specs)),
+    testScopeHash: digest(JSON.stringify(selectSpecs(entry.specs).include)),
+    files: [...new Set(entry.specs.map(specFile))],
   };
 }
 
@@ -440,7 +540,7 @@ export function selectMutationShardArtifacts(names: readonly string[]) {
 
 async function aggregateReports(
   directory: string,
-  specs: readonly string[],
+  plan: readonly MutationShardPlanEntry[],
 ): Promise<number> {
   const entries = readdirSync(directory);
   const selected = selectMutationShardArtifacts(entries);
@@ -462,10 +562,10 @@ async function aggregateReports(
   console.log(
     `mutation-changed: selected ${selected.length} newest worker receipts; ${entries.length - selected.length} superseded artifacts are not used.`,
   );
-  const merged = aggregateShardReceipts(
-    receipts,
-    shardMetadata(specs, mutationShardCount(specs)),
-  );
+  const merged = aggregateShardReceipts(receipts, {
+    ...runMetadata(),
+    shards: plan.map(shardExpectation),
+  });
   const installFailure = installStryker(false);
   if (installFailure) throw new Error(installFailure);
   const require = createRequire(path.join(STRYKER_DIR, "package.json"));
@@ -541,8 +641,9 @@ async function main(): Promise<number> {
     throw new Error(
       "Expected --plan, --shard <index> <count>, or --aggregate <directory>",
     );
+  const plan = mutationShardPlan(specs);
   if (planMode) {
-    const count = mutationShardCount(specs);
+    const count = plan.length;
     const matrix = {
       include: Array.from({ length: count }, (_, index) => ({ index, count })),
     };
@@ -570,27 +671,36 @@ async function main(): Promise<number> {
     return GUARD_EXIT_COULD_NOT_RUN;
   }
 
+  if (shard && shard.count !== plan.length)
+    throw new Error("Mutation shard count differs from the current plan");
+  const entry = shard ? plan[shard.index] : undefined;
+  if (shard && !entry)
+    throw new Error("Mutation shard is not in the current plan");
+  const runSpecs = entry ? entry.specs : specs;
+
   // A report left by an earlier run would let a crashed run look like a
   // completed one, so the report must come from this run.
   rmSync(REPORT_DIR, { recursive: true, force: true });
-  console.log(`mutation-changed: ${specs.length} range(s):`);
-  for (const spec of specs) console.log(`  ${spec}`);
+  console.log(
+    shard && entry
+      ? `mutation-changed: shard ${shard.index + 1}/${shard.count} (group ${entry.group}, part ${entry.part + 1}/${entry.parts}) covers ${runSpecs.length} of ${specs.length} range(s):`
+      : `mutation-changed: ${specs.length} range(s):`,
+  );
+  for (const spec of runSpecs) console.log(`  ${spec}`);
 
-  const untested = writeVitestConfig(specs);
+  const untested = writeVitestConfig(runSpecs);
   if (untested) {
     console.error(`mutation-changed: ${untested}.`);
     return 1;
   }
-  if (aggregateMode) return aggregateReports(path.resolve(args[1]), specs);
+  if (aggregateMode) return aggregateReports(path.resolve(args[1]), plan);
   const installFailure = installStryker();
   if (installFailure) {
     console.error(`mutation-changed: ${installFailure}`);
     return GUARD_EXIT_COULD_NOT_RUN;
   }
   let configFile = "stryker.config.json";
-  if (shard) {
-    if (shard.count !== mutationShardCount(specs))
-      throw new Error("Mutation shard count differs from the current plan");
+  if (entry) {
     mkdirSync(path.join(STRYKER_DIR, "lib"), { recursive: true });
     copyFileSync(
       path.join(REPO_ROOT, "scripts/mutation-shard-plugin.mts"),
@@ -624,16 +734,16 @@ async function main(): Promise<number> {
   }
   const run = spawnSync(
     STRYKER_BIN,
-    ["run", configFile, "--mutate", specs.join(",")],
+    ["run", configFile, "--mutate", runSpecs.join(",")],
     {
       cwd: CORE_ROOT,
       stdio: "inherit",
-      ...(shard
+      ...(entry
         ? {
             env: {
               ...process.env,
-              MUTATION_SHARD_INDEX: String(shard.index),
-              MUTATION_SHARD_COUNT: String(shard.count),
+              MUTATION_SHARD_INDEX: String(entry.part),
+              MUTATION_SHARD_COUNT: String(entry.parts),
             },
           }
         : {}),
@@ -656,12 +766,19 @@ async function main(): Promise<number> {
     return GUARD_EXIT_COULD_NOT_RUN;
   }
 
-  if (shard) {
+  if (shard && entry) {
     if (run.status !== 0)
       throw new Error(`Mutation report shard failed with exit ${run.status}`);
+    const {
+      files: _files,
+      group: _group,
+      ...expectation
+    } = shardExpectation(entry);
     const receipt = createShardReceipt(report, {
-      ...shardMetadata(specs, shard.count),
+      ...runMetadata(),
+      ...expectation,
       shardIndex: shard.index,
+      shardCount: shard.count,
     });
     const directory = path.join(REPO_ROOT, ".tmp/mutation-shards");
     mkdirSync(directory, { recursive: true });

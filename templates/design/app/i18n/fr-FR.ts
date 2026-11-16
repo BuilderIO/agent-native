@@ -1052,6 +1052,37 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Partager l’aperçu en direct",
+      instructions:
+        "Collez une URL HTTPS publique d’aperçu pour votre application, par exemple un tunnel ngrok ou cloudflared. Votre machine conserve localhost ; les autres peuvent voir l’aperçu public ou suggérer des modifications sur la capture publiée.",
+      tunnelUrl: "URL publique d’aperçu",
+      enableCollaboration:
+        "Activer la collaboration en direct pour toutes les personnes ayant accès au design",
+      save: "Enregistrer",
+      unavailable: "Aperçu en direct indisponible — instantané affiché",
+      live: "Aperçu en direct",
+      openLive: "Ouvrir l’aperçu en direct sur {{hostname}}",
+      suggest: "Suggérer sur la capture",
+      localOnly: "Aperçu en direct uniquement sur la machine du propriétaire",
+    },
+    referenceCopy: {
+      staticNotice:
+        "JavaScript est désactivé ; le contenu dynamique peut manquer.",
+      captureAction: "Capturer une image statique",
+      capturePrompt:
+        "Capturez l’écran et le DOM de cette URL de référence publique et ajoutez-les comme écran de référence statique à ce canevas. Indiquez qu’il s’agit d’une capture, pas d’une page en direct.",
+      unavailable: "Cette page peut bloquer les cadres ou ne pas avoir chargé.",
+      load: "Charger une copie de référence",
+      label: "Copie de référence · page publique, lecture seule",
+      noBridge: "Connectez un pont local pour charger une copie publique.",
+      snapshot: "Utiliser la capture publiée",
+      capture: "Demandez à l’agent une capture d’écran et du DOM.",
+      failed: "Échec de la copie. Capturez l’écran et le DOM.",
+      loading: "Chargement de la copie de référence…",
+      original: "Essayer la page originale",
+    },
+
     sourceLoadFailed: "Impossible de charger cet écran.",
     selectionPublishFailed:
       "L'agent ne verra peut-être pas votre dernière sélection. Sélectionnez-la à nouveau.",
@@ -1103,6 +1134,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Sélectionner un calque",
+      layerKinds: {
+        webgl: "Canevas · WebGL",
+        canvas: "Canevas",
+        video: "Vidéo",
+        image: "Image",
+        svg: "Graphique SVG",
+        embed: "Intégration",
+        background: "Arrière-plan",
+        effect: "Effet",
+      },
       goToMain: "Accéder au composant principal",
       restore: "Restaurer le composant",
       swap: "Permuter l’instance",
@@ -2070,6 +2111,9 @@ export default {
     addTweaks: "Ajouter des ajustements",
     addTweakControls: "Ajouter des contrôles de réglage",
     closeTweaks: "Fermer les réglages",
+    showFloatingTweaks: "Afficher les réglages flottants",
+    collapseTweaks: "Réduire les réglages",
+    expandTweaks: "Développer les réglages",
     tweaksHelp:
       "Les ajustements sont des surcharges visuelles propres aux points d’arrêt et aux états, superposées au design de base. Réinitialisez un contrôle pour revenir à la valeur héritée.",
     tweaksDocs: "En savoir plus.",
@@ -2136,6 +2180,7 @@ export default {
       applyAria: "Appliquer les modifications visuelles de style en attente",
       applyButton: "Appliquer les styles",
       applySharedEdits: "Appliquer les modifications",
+      reviewSuggestion: "Examiner la suggestion",
       previewLabel: "Aperçu visuel en attente",
       applyDesignUpdates: "Appliquer les mises à jour du design",
       applying: "Application…",
@@ -2241,6 +2286,9 @@ export default {
       annotationSendError:
         "Impossible d’envoyer les annotations. Votre dessin est toujours là ; réessayez.",
       codingHandoffError: "Impossible de créer le transfert de code",
+      unknownCollaborator: "un collaborateur",
+      supersededVisualEditSuggestion:
+        "Une suggestion précédente de {{authorEmail}} a été remplacée. Texte d’origine : {{text}}",
       visualEditPendingConflict:
         "Un autre collaborateur a des modifications en attente. Appliquez-les ou effacez-les avant d’en envoyer de nouvelles.",
       codingHandoffCopied: "Transfert de code copié",
@@ -2333,6 +2381,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Les réglages ont été modifiés ailleurs. Actualisez le design avant de réessayer.",
+      tweakBaselineUnreadable:
+        "La référence enregistrée des réglages est illisible. Les modifications sont suspendues jusqu’à la réparation des données du design.",
+      resetTweakBaseline: "Réinitialiser la référence",
       tweakSaveNotDurable:
         "Les réglages ne sont pas encore enregistrés. Gardez cet onglet ouvert et réessayez.",
       undoSkippedConcurrentEdit:
@@ -3496,6 +3547,10 @@ export default {
     markedUnread: "Marqué comme non lu",
     markUnreadFailed: "Impossible de marquer comme non lu",
     attachImage: "Joindre une image",
+    removeImage: "Retirer l’image",
+    imageUploadFailed: "Impossible d’envoyer l’image",
+    editChanged:
+      "Ce commentaire a changé depuis que vous avez commencé à le modifier. Enregistrez à nouveau pour le remplacer.",
     searching: "Recherche…",
     reactionFailed: "Impossible de modifier la réaction",
     moveFailed: "Impossible de déplacer le commentaire",

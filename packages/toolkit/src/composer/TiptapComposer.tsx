@@ -13,14 +13,16 @@ import {
   IconLoader2,
   IconRefresh,
 } from "@tabler/icons-react";
-import type { Editor } from "@tiptap/core";
+import type { Editor, JSONContent } from "@tiptap/core";
 import Placeholder from "@tiptap/extension-placeholder";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, type UseEditorOptions } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import React, {
+  createContext,
+  useContext,
   useState,
   useRef,
   useEffect,
@@ -72,6 +74,7 @@ import { MentionReference } from "./extensions/MentionReference.js";
 import { SkillReference } from "./extensions/SkillReference.js";
 import { MentionItemMedia } from "./MentionItemMedia.js";
 import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
+import { modelMenuRoom } from "./model-menu-room.js";
 import {
   curateModelPickerRows,
   filterModelGroupsForAgent,
@@ -247,6 +250,7 @@ export interface ComposerTextReference {
 }
 
 export type ComposerSubmitIntent = "immediate" | "queued";
+export type ComposerEnterSubmitMode = "default" | "plain";
 
 export const DEFAULT_VOICE_DICTATION_ENABLED = false;
 
@@ -316,6 +320,35 @@ export function canRemoveVoicePreview(options: {
     return false;
   }
   return options.currentText === options.previewText;
+}
+
+// The editor can be cleared or edited (message sent, draft replaced) while
+// dictation is live, leaving the stored anchor past the end of the document.
+function isVoicePreviewIntact(
+  ed: Editor,
+  anchor: number,
+  previewText: string,
+): boolean {
+  const documentSize = ed.state.doc.content.size;
+  if (!previewText) {
+    return (
+      anchor >= 1 &&
+      anchor <= documentSize &&
+      ed.state.selection.empty &&
+      ed.state.selection.from === anchor
+    );
+  }
+  const end = anchor + previewText.length;
+  const currentText =
+    anchor >= 1 && end <= documentSize
+      ? ed.state.doc.textBetween(anchor, end, "", "\n")
+      : "";
+  return canRemoveVoicePreview({
+    documentSize,
+    anchor,
+    previewText,
+    currentText,
+  });
 }
 
 export function getComposerSendTooltipKey(
@@ -651,16 +684,23 @@ export function getOversizedDocumentAttachmentError(
   return null;
 }
 
+/** What a plain Enter does in the composer; Mod+Enter always sends. */
+export type ComposerEnterKey = "send" | "newline";
+
+export const ComposerEnterKeyContext = createContext<ComposerEnterKey>("send");
+
 export function getComposerSubmitIntentForEnterKey(
   event: Pick<KeyboardEvent, "key" | "shiftKey" | "metaKey" | "ctrlKey">,
   isMac: boolean,
+  enterKey: ComposerEnterKey = "send",
 ): ComposerSubmitIntent | null {
   if (event.key !== "Enter" || event.shiftKey) return null;
 
   const queuedModifierPressed = isMac ? event.metaKey : event.ctrlKey;
   if (queuedModifierPressed) return "immediate";
 
-  if (!event.metaKey && !event.ctrlKey) return "immediate";
+  if (enterKey === "send" && !event.metaKey && !event.ctrlKey)
+    return "immediate";
 
   return null;
 }
@@ -769,6 +809,45 @@ function readComposerDraft(value: string): {
   return { html: parsed.html, slotReferences: parsed.slotReferences };
 }
 
+/**
+ * Drafts are written to localStorage so a refresh keeps the prompt. They are
+ * only read back inside the browser-tab session that wrote them: sessionStorage
+ * survives a reload, so a refresh restores the prompt, while a new tab, a later
+ * session or another account sharing the profile starts empty. Without that
+ * boundary a draft typed once resurfaced as somebody else's text in a fresh
+ * panel.
+ */
+const COMPOSER_DRAFT_SESSION_PREFIX = "an-composer-draft-session:";
+
+function composerDraftSessionKey(draftKey: string): string {
+  return `${COMPOSER_DRAFT_SESSION_PREFIX}${draftKey}`;
+}
+
+function markComposerDraftSession(draftKey: string): void {
+  try {
+    sessionStorage.setItem(composerDraftSessionKey(draftKey), "1");
+  } catch {
+    // coercion-ok: without sessionStorage the draft still restores (see below).
+  }
+}
+
+function forgetComposerDraftSession(draftKey: string): void {
+  try {
+    sessionStorage.removeItem(composerDraftSessionKey(draftKey));
+  } catch {
+    // coercion-ok: nothing to forget when sessionStorage is unavailable.
+  }
+}
+
+function composerDraftBelongsToThisSession(draftKey: string): boolean {
+  try {
+    return sessionStorage.getItem(composerDraftSessionKey(draftKey)) === "1";
+  } catch {
+    // coercion-ok: a browser without sessionStorage keeps the old restore.
+    return true;
+  }
+}
+
 function writeComposerDraft(
   draftKey: string | null,
   html: string,
@@ -778,6 +857,7 @@ function writeComposerDraft(
   try {
     if (!html.trim() && slotReferences.length === 0) {
       localStorage.removeItem(draftKey);
+      forgetComposerDraftSession(draftKey);
     } else if (slotReferences.length > 0) {
       localStorage.setItem(
         draftKey,
@@ -790,6 +870,8 @@ function writeComposerDraft(
     } else {
       localStorage.setItem(draftKey, html);
     }
+    if (html.trim() || slotReferences.length > 0)
+      markComposerDraftSession(draftKey);
   } catch {
     // coercion-ok: Browser storage is optional and can be unavailable or full.
   }
@@ -861,6 +943,7 @@ function clearComposerDraft(
       return;
     }
     localStorage.removeItem(draftKey);
+    forgetComposerDraftSession(draftKey);
   } catch {
     // coercion-ok: browser storage is optional and can be unavailable or full.
   }
@@ -1175,6 +1258,10 @@ export interface TiptapComposerProps {
   conversationStarted?: boolean;
   /** Accessible name for the editable prompt surface. */
   ariaLabel?: string;
+  /** Enable inline rich-text marks and links. Defaults to false. */
+  richTextEnabled?: boolean;
+  /** Text inserted between blocks and hard breaks when submitting. Defaults to a newline. */
+  textBlockSeparator?: string;
   disabled?: boolean;
   /** Unset preserves generic references; false excludes inactive chats; true reports sidebar readiness. */
   isReferenceTarget?: boolean;
@@ -1182,6 +1269,8 @@ export interface TiptapComposerProps {
   contextControlsDisabled?: boolean;
   /** Prevent submission without making the editable surface lose focus. */
   submissionDisabled?: boolean;
+  /** `plain` submits only an unmodified Enter; the default keeps generic chat key behavior. */
+  enterSubmitMode?: ComposerEnterSubmitMode;
   /** Disable only the send control while the submission is being accepted. */
   sendButtonDisabled?: boolean;
   /** Show progress in the send control while a pre-submit check is running. */
@@ -1315,6 +1404,11 @@ export interface TiptapComposerProps {
   planCommand?: boolean;
   /** Show the microphone button for voice dictation. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
+  /**
+   * Give dictation a global mod+d accelerator (default false). Hosts that bind Cmd+D to their own
+   * action leave it off, since an unconditional window listener would swallow that shortcut.
+   */
+  dictationShortcut?: boolean;
   /** Let an empty draft turn Send into the voice-chat button (default: true). Dictation is unaffected. */
   voiceChatEnabled?: boolean;
   /** Starts voice chat from the empty Send slot in place of the provider's default start. */
@@ -1341,6 +1435,17 @@ export interface TiptapComposerProps {
   }>;
   /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
+  /**
+   * Show the chevron after the model name (default true). A host with a compact trigger
+   * can turn it off without losing the menu.
+   */
+  modelSelectorChevron?: boolean;
+  /**
+   * Name the selection in the trigger even while the selected provider is unset (default false).
+   * The picker keeps the connect rows, so setup is still reachable, but the trigger keeps the
+   * model name instead of a setup label.
+   */
+  modelTriggerNamesSelectionOnly?: boolean;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks an effort */
@@ -1406,7 +1511,7 @@ export interface TiptapComposerProps {
    * host-context launcher without full-mode actions. `"hidden"` suppresses
    * the launcher unless the host explicitly provides `contextMenuItems`.
    */
-  plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
+  plusMenuMode?: "full" | "upload-only" | "attach-only" | "terminal" | "hidden";
   /** Controls the terminal-specific plus menu when `plusMenuMode` is terminal. */
   terminalModeControl?: ComposerTerminalModeControl;
   /**
@@ -1530,26 +1635,49 @@ export function focusComposerEditorWhenVisible(
 
 export function createTiptapComposerExtensions(
   getPlaceholder: () => string | undefined,
+  richTextEnabled = false,
 ) {
+  const blockTextExtensions = new Set([
+    "blockquote",
+    "bulletList",
+    "code",
+    "heading",
+    "orderedList",
+  ]);
+  const starterKit = richTextEnabled
+    ? StarterKit.extend({
+        addExtensions() {
+          return (this.parent?.() ?? []).map((extension) =>
+            blockTextExtensions.has(extension.name)
+              ? extension.extend({
+                  addKeyboardShortcuts: () => ({}),
+                })
+              : extension,
+          );
+        },
+      })
+    : StarterKit;
   return [
-    StarterKit.configure({
-      heading: false,
+    starterKit.configure({
+      heading: richTextEnabled ? { levels: [1, 2, 3, 4, 5, 6] } : false,
       horizontalRule: false,
-      bulletList: false,
-      orderedList: false,
-      listItem: false,
-      listKeymap: false,
-      blockquote: false,
+      bulletList: richTextEnabled ? {} : false,
+      orderedList: richTextEnabled ? {} : false,
+      listItem: richTextEnabled ? {} : false,
+      listKeymap: richTextEnabled ? {} : false,
+      blockquote: richTextEnabled ? {} : false,
       codeBlock: false,
-      strike: false,
-      italic: false,
-      bold: false,
-      code: false,
+      strike: richTextEnabled ? {} : false,
+      italic: richTextEnabled ? {} : false,
+      bold: richTextEnabled ? {} : false,
+      code: richTextEnabled ? {} : false,
       dropcursor: false,
       gapcursor: false,
-      link: false,
+      link: richTextEnabled
+        ? { markdownLinks: true, openOnClick: false }
+        : false,
       trailingNode: false,
-      underline: false,
+      underline: richTextEnabled ? {} : false,
     }),
     Placeholder.configure({
       placeholder: () => getPlaceholder() ?? "",
@@ -1561,6 +1689,91 @@ export function createTiptapComposerExtensions(
     SkillReference,
     MentionReference,
   ];
+}
+
+function normalizeComposerContentForProfile(
+  content: JSONContent,
+  richTextEnabled: boolean,
+): JSONContent {
+  if (richTextEnabled) return content;
+
+  const paragraphs: JSONContent[] = [];
+  const textBlockNames = new Set(["paragraph", "heading", "codeBlock"]);
+  const inlineNodeNames = new Set([
+    "hardBreak",
+    "fileReference",
+    "mentionReference",
+    "skillReference",
+  ]);
+
+  const collectInline = (node: JSONContent): JSONContent[] => {
+    if (node.type === "text") {
+      return node.text ? [{ type: "text", text: node.text }] : [];
+    }
+    if (node.type && inlineNodeNames.has(node.type)) {
+      return [
+        {
+          type: node.type,
+          ...(node.attrs ? { attrs: node.attrs } : {}),
+        },
+      ];
+    }
+    return (node.content ?? []).flatMap(collectInline);
+  };
+
+  const collectBlocks = (node: JSONContent) => {
+    if (node.type && textBlockNames.has(node.type)) {
+      paragraphs.push({
+        type: "paragraph",
+        content: (node.content ?? []).flatMap(collectInline),
+      });
+      return;
+    }
+    for (const child of node.content ?? []) collectBlocks(child);
+  };
+
+  collectBlocks(content);
+  return {
+    type: "doc",
+    content: paragraphs.length > 0 ? paragraphs : [{ type: "paragraph" }],
+  };
+}
+
+type ComposerProfileHandoff = {
+  content: JSONContent;
+  ownerKey: string;
+  targetRichTextEnabled: boolean;
+  sourceEditor: Editor;
+};
+
+type MigratedComposerProfile = {
+  editor: Editor;
+  ownerKey: string;
+};
+
+function getComposerProfileOwnerKey(options: {
+  draftKey: string | null;
+  initialText?: string | undefined;
+  initialTextKey?: string | number | undefined;
+}): string {
+  return JSON.stringify([
+    options.draftKey,
+    options.initialTextKey ?? options.initialText ?? null,
+  ]);
+}
+
+function useRichTextProfileEditor(
+  options: UseEditorOptions,
+  richTextEnabled: boolean,
+) {
+  const editor = useEditor(options, [richTextEnabled]);
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    // Tiptap skips its default setOptions pass when deps are nonempty and
+    // unchanged, so refresh event handlers and editorProps on host rerenders.
+    editor.setOptions({ ...options, editable: editor.isEditable });
+  });
+  return editor;
 }
 
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
@@ -1883,12 +2096,14 @@ function ModelSelector({
   hostedHarness = false,
   showAutoModelOption = true,
   modelListLoading = false,
+  modelSelectorChevron = true,
   open: controlledOpen,
   onChange,
   onEffortChange,
   onAgentChange,
   onModelSelectorOpenChange,
   providerConnectStatusEnabled = true,
+  modelTriggerNamesSelectionOnly = false,
   onConnectProvider,
   onConnectLocalRuntime,
   terminalModeControl,
@@ -1914,10 +2129,12 @@ function ModelSelector({
   agentOnly?: boolean;
   showAutoModelOption?: boolean;
   modelListLoading?: boolean;
+  modelSelectorChevron?: boolean;
   onChange: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
   onAgentChange?: (agent: string) => void;
   providerConnectStatusEnabled?: boolean;
+  modelTriggerNamesSelectionOnly?: boolean;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
   terminalModeControl?: ComposerTerminalModeControl;
@@ -2044,6 +2261,38 @@ function ModelSelector({
   );
   const selectedAgentLabel = selectedAgentOption?.label ?? "Default";
 
+  // The model menu sits above its trigger, but the reply box extends further up than the trigger
+  // does, so a 6px offset let the menu cover the box. On open, clear the whole
+  // composer root instead of only the button.
+  const [modelMenuOffset, setModelMenuOffset] = useState(6);
+  // The space above the trigger is what the menu may occupy. A menu taller than that overflows back
+  // over the reply box (re-measured at 102px of overlap with a hit test landing
+  // inside the menu), so the room is measured on open and the menu is capped to it: it scrolls inside
+  // the cap instead of covering the box or flipping underneath it.
+  const [modelMenuMaxHeight, setModelMenuMaxHeight] = useState<number | null>(
+    null,
+  );
+  const modelTriggerRef = useRef<HTMLButtonElement | null>(null);
+  // Measured on every open, whichever path opened it: the keyboard and screen-reader path flips the
+  // controlled `open` prop with a bare click, so Radix's onOpenChange never fires for it.
+  const measureModelMenuRoom = useCallback(() => {
+    const trigger = modelTriggerRef.current;
+    if (!trigger) return;
+    const root = trigger.closest(".agent-composer-root");
+    const room = modelMenuRoom({
+      triggerTop: trigger.getBoundingClientRect().top,
+      composerTop: root ? root.getBoundingClientRect().top : null,
+    });
+    setModelMenuOffset(room.offset);
+    setModelMenuMaxHeight(room.maxHeight);
+  }, []);
+  const handleModelMenuOpenChange = (next: boolean) => {
+    setPickerOpen(next);
+    if (next) measureModelMenuRoom();
+  };
+  useEffect(() => {
+    if (open) measureModelMenuRoom();
+  }, [open, measureModelMenuRoom]);
   const [openSection, setOpenSection] = useState<ModelPickerSection | null>(
     null,
   );
@@ -2217,13 +2466,21 @@ function ModelSelector({
   );
   // One connect label on every surface: hosts differ in which connect paths
   // they offer, and the picker lists those paths.
-  const selectedModelButtonLabel = selectedModelNeedsConnection
-    ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
-    : model === "auto" && autoRow
-      ? autoRow.label
-      : (selectedModelDisplayName ??
-        selectedModelDescription?.shortName ??
-        selectedModelFriendlyName);
+  // An empty selection is "no override", which is the engine default the picker
+  // lists as Auto; reading it through the model description instead printed the
+  // catalogue's generic "Default model" entry while a host resolved its
+  // selection. Both spellings of "nothing chosen" read Auto here, and the Auto
+  // row's own label wins when it has one.
+  // `modelTriggerNamesSelectionOnly` opts out of the setup label; the picker keeps its setup rows.
+  const selectedModelButtonLabel =
+    selectedModelNeedsConnection && !modelTriggerNamesSelectionOnly
+      ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
+      : model === "auto" || model === ""
+        ? (autoRow?.label ??
+          t("agentChat.composer.auto", { defaultValue: "Auto" }))
+        : (selectedModelDisplayName ??
+          selectedModelDescription?.shortName ??
+          selectedModelFriendlyName);
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -2699,10 +2956,11 @@ function ModelSelector({
     effectiveEffort !== "auto";
 
   return (
-    <DropdownMenu open={open} onOpenChange={setPickerOpen}>
+    <DropdownMenu open={open} onOpenChange={handleModelMenuOpenChange}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
+          ref={modelTriggerRef}
           data-agent-composer-slot="model-button"
           // Screen readers in browse mode activate with a bare click,
           // which the menu trigger ignores because it opens on pointer
@@ -2754,20 +3012,29 @@ function ModelSelector({
               {effortLabel(effectiveEffort)}
             </span>
           )}
-          <IconChevronDown
-            aria-hidden="true"
-            className="h-4 w-4 shrink-0 opacity-60"
-          />
+          {modelSelectorChevron && (
+            <IconChevronDown
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 opacity-60"
+            />
+          )}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         side="top"
         align="end"
-        sideOffset={6}
+        sideOffset={modelMenuOffset}
         collisionPadding={8}
         data-agent-native-composer-popover="true"
         className={MODEL_SELECTOR_MENU_CLASS}
-        style={MODEL_SELECTOR_POPOVER_STYLE}
+        style={
+          modelMenuMaxHeight === null
+            ? MODEL_SELECTOR_POPOVER_STYLE
+            : {
+                ...MODEL_SELECTOR_POPOVER_STYLE,
+                maxHeight: `${modelMenuMaxHeight}px`,
+              }
+        }
         onKeyDown={(event) => {
           if (
             event.altKey ||
@@ -2878,10 +3145,13 @@ function TiptapComposerSurface({
   replyPlaceholder,
   conversationStarted = false,
   ariaLabel,
+  richTextEnabled = false,
+  textBlockSeparator = "\n",
   disabled = false,
   isReferenceTarget,
   contextControlsDisabled = false,
   submissionDisabled = false,
+  enterSubmitMode = "default",
   sendButtonDisabled = false,
   sendButtonBusy = false,
   submitting = false,
@@ -2924,6 +3194,7 @@ function TiptapComposerSurface({
   onSlashCommand,
   planCommand = false,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
+  dictationShortcut = false,
   voiceChatEnabled = true,
   onVoiceChatStart,
   selectedModel,
@@ -2933,6 +3204,7 @@ function TiptapComposerSurface({
   modelSelectorOpen,
   availableModels,
   modelListLoading,
+  modelSelectorChevron = true,
   onModelChange,
   onEffortChange,
   availableAgents,
@@ -2942,6 +3214,7 @@ function TiptapComposerSurface({
   onAgentChange,
   onModelSelectorOpenChange,
   providerConnectStatusEnabled,
+  modelTriggerNamesSelectionOnly,
   onConnectProvider,
   onConnectLocalRuntime,
   setupCardVisible = false,
@@ -3140,6 +3413,8 @@ function TiptapComposerSurface({
   onAttachmentErrorRef.current = onAttachmentError ?? setAttachmentError;
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
+  const enterSubmitModeRef = useRef(enterSubmitMode);
+  enterSubmitModeRef.current = enterSubmitMode;
   const onSubmitStartRef = useRef(onSubmitStart);
   onSubmitStartRef.current = onSubmitStart;
   const onOptimisticAttachmentsChangeRef = useRef(
@@ -3150,6 +3425,9 @@ function TiptapComposerSurface({
   onEscapeRef.current = onEscape;
   const onRecallLastMessageRef = useRef(onRecallLastMessage);
   onRecallLastMessageRef.current = onRecallLastMessage;
+  const enterKey = useContext(ComposerEnterKeyContext);
+  const enterKeyRef = useRef(enterKey);
+  enterKeyRef.current = enterKey;
 
   const {
     items: mentionItems,
@@ -3374,6 +3652,15 @@ function TiptapComposerSurface({
     hasDraftScope || initialText === undefined
       ? getComposerDraftKey(draftScope)
       : null;
+  const profileOwnerKey = getComposerProfileOwnerKey({
+    draftKey,
+    initialText,
+    initialTextKey,
+  });
+  const profileOwnerKeyRef = useRef(profileOwnerKey);
+  profileOwnerKeyRef.current = profileOwnerKey;
+  const editorContentOwnerKeyRef = useRef(profileOwnerKey);
+  const editorContentDraftKeyRef = useRef(draftKey);
   const draftKeyRef = useRef(draftKey);
   const draftScopeGenerationRef = useRef(0);
   const attachmentCleanupRef = useRef<Promise<void>>(Promise.resolve());
@@ -3622,6 +3909,9 @@ function TiptapComposerSurface({
         if (draftKeyRef.current !== key || draftEditorRef.current !== ed) {
           return;
         }
+        if (profileEditorRef.current !== ed || !isComposerEditorUsable(ed)) {
+          return;
+        }
         persistComposerDraft(key, ed, slotReferencesRef.current);
       }, COMPOSER_DRAFT_SAVE_DELAY_MS);
     },
@@ -3649,11 +3939,62 @@ function TiptapComposerSurface({
   const applyingInitialContentRef = useRef(false);
   const editorReferenceSignatureRef = useRef("[]");
   const initialTextSyncCompleteRef = useRef(false);
+  const richTextEnabledRef = useRef(richTextEnabled);
+  richTextEnabledRef.current = richTextEnabled;
+  const editorProfileRef = useRef(richTextEnabled);
+  const profileEditorRef = useRef<Editor | null>(null);
+  const profileChangeContentRef = useRef<ComposerProfileHandoff | null>(null);
+  const profileMigratedEditorRef = useRef<MigratedComposerProfile | null>(null);
 
-  const editor = useEditor({
-    extensions: createTiptapComposerExtensions(() => placeholderRef.current),
+  const editorOptions = {
+    extensions: createTiptapComposerExtensions(
+      () => placeholderRef.current,
+      richTextEnabled,
+    ),
+    ...(richTextEnabled
+      ? { enableInputRules: ["bold", "italic", "link", "strike"] }
+      : {}),
+    ...(richTextEnabled ? { enablePasteRules: false } : {}),
     immediatelyRender: false,
     editable: !editorLocked,
+    onDestroy: () => {
+      profileEditorRef.current = null;
+    },
+    onBeforeCreate: ({ editor: createdEditor }) => {
+      profileMigratedEditorRef.current = null;
+      const handoff = profileChangeContentRef.current;
+      profileChangeContentRef.current = null;
+      const canMigrate = Boolean(
+        !handoff ||
+        (handoff.ownerKey === profileOwnerKeyRef.current &&
+          handoff.targetRichTextEnabled === richTextEnabledRef.current &&
+          handoff.sourceEditor !== createdEditor &&
+          editorProfileRef.current !== richTextEnabledRef.current),
+      );
+      if (handoff && canMigrate) {
+        createdEditor.setOptions({
+          content: normalizeComposerContentForProfile(
+            handoff.content,
+            richTextEnabledRef.current,
+          ),
+        });
+        editorContentOwnerKeyRef.current = handoff.ownerKey;
+        editorContentDraftKeyRef.current = draftKeyRef.current;
+        profileMigratedEditorRef.current = {
+          editor: createdEditor,
+          ownerKey: handoff.ownerKey,
+        };
+      } else {
+        editorContentOwnerKeyRef.current = profileOwnerKeyRef.current;
+        editorContentDraftKeyRef.current = draftKeyRef.current;
+      }
+      profileEditorRef.current = createdEditor;
+      editorProfileRef.current = richTextEnabledRef.current;
+    },
+    onCreate: ({ editor: createdEditor }) => {
+      profileEditorRef.current = createdEditor;
+      editorProfileRef.current = richTextEnabledRef.current;
+    },
     onUpdate: ({ editor: ed }) => {
       // Drive the send button's enabled state from the actual editor contents;
       // the composer runtime is only synced on submit, so its isEmpty lags.
@@ -3696,8 +4037,8 @@ function TiptapComposerSurface({
         setSelectedContextItemKey(null);
       }
     },
-    onFocus,
-    onBlur,
+    ...(onFocus ? { onFocus } : {}),
+    ...(onBlur ? { onBlur } : {}),
     editorProps: {
       attributes: {
         "aria-label": ariaLabel ?? resolvedPlaceholder,
@@ -3761,9 +4102,11 @@ function TiptapComposerSurface({
         if (!attachmentsEnabled) {
           if (event.clipboardData?.files.length) {
             event.preventDefault();
-            const pastedText = readClipboardPaste(event.clipboardData).text;
-            if (pastedText) {
-              view.pasteText(pastedText, new Event("paste") as ClipboardEvent);
+            const paste = readClipboardPaste(event.clipboardData);
+            if (richTextEnabled && paste.html) {
+              view.pasteHTML(paste.html, new Event("paste") as ClipboardEvent);
+            } else if (paste.text) {
+              view.pasteText(paste.text, new Event("paste") as ClipboardEvent);
             }
             return true;
           }
@@ -4008,12 +4351,35 @@ function TiptapComposerSurface({
         // Submit on Enter. Shift+Enter inserts a newline and keeps the
         // composer scrolled to the caret.
         // Cmd+Enter on macOS / Ctrl+Enter elsewhere steers the active run.
-        if (event.key === "Enter" && event.shiftKey) {
+        if (
+          event.key === "Enter" &&
+          (event.shiftKey ||
+            (enterKeyRef.current === "newline" &&
+              !event.metaKey &&
+              !event.ctrlKey))
+        ) {
           event.preventDefault();
           return insertComposerHardBreakAndScrollIntoView(view);
         }
 
-        const submitIntent = getComposerSubmitIntentForEnterKey(event, isMac);
+        if (
+          event.key === "Enter" &&
+          enterSubmitModeRef.current === "plain" &&
+          (event.altKey || event.ctrlKey || event.metaKey) &&
+          !(
+            enterKeyRef.current === "newline" &&
+            !event.altKey &&
+            (isMac ? event.metaKey : event.ctrlKey)
+          )
+        ) {
+          return false;
+        }
+
+        const submitIntent = getComposerSubmitIntentForEnterKey(
+          event,
+          isMac,
+          enterKeyRef.current,
+        );
         if (submitIntent) {
           event.preventDefault();
           void submitComposer(
@@ -4101,14 +4467,61 @@ function TiptapComposerSurface({
         return false;
       },
     },
-  });
+  } satisfies UseEditorOptions;
+  const editor = useRichTextProfileEditor(editorOptions, richTextEnabled);
+  useLayoutEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    if (
+      profileEditorRef.current === editor &&
+      editorContentOwnerKeyRef.current !== profileOwnerKeyRef.current
+    ) {
+      // Save against the previous owner's key before a profile change can
+      // destroy this editor and its pending debounce. The next scope's normal
+      // initializer will then load its own draft without receiving this one.
+      persistComposerDraft(
+        editorContentDraftKeyRef.current,
+        editor,
+        slotReferencesRef.current,
+      );
+    }
+    if (editorProfileRef.current === richTextEnabled) {
+      profileChangeContentRef.current = null;
+      return;
+    }
+    if (
+      profileEditorRef.current === editor &&
+      editorContentOwnerKeyRef.current === profileOwnerKeyRef.current
+    ) {
+      profileChangeContentRef.current = {
+        content: editor.getJSON(),
+        ownerKey: profileOwnerKeyRef.current,
+        targetRichTextEnabled: richTextEnabled,
+        sourceEditor: editor,
+      };
+    } else {
+      profileChangeContentRef.current = null;
+    }
+  }, [editor, profileOwnerKey, richTextEnabled]);
+
+  // Tiptap builds its decorations once, so a placeholder that changes while the composer is mounted
+  // (an instructional hint that cycles, or a mode/thread switch) keeps painting the old string.
+  // An empty transaction re-runs the decorations without touching the document.
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    editor.view.dispatch(editor.state.tr);
+  }, [editor, resolvedPlaceholder]);
 
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
     draftEditorRef.current = editor;
     const flush = () => {
       cancelScheduledDraftPersist();
-      persistComposerDraft(draftKey, editor, slotReferencesRef.current);
+      if (
+        profileEditorRef.current === editor &&
+        isComposerEditorUsable(editor)
+      ) {
+        persistComposerDraft(draftKey, editor, slotReferencesRef.current);
+      }
     };
     window.addEventListener("pagehide", flush);
     window.addEventListener("beforeunload", flush);
@@ -4116,7 +4529,13 @@ function TiptapComposerSurface({
       window.removeEventListener("pagehide", flush);
       window.removeEventListener("beforeunload", flush);
       cancelScheduledDraftPersist();
-      persistComposerDraft(draftKey, editor, slotReferencesRef.current);
+      if (
+        profileEditorRef.current === editor &&
+        editorProfileRef.current === richTextEnabledRef.current &&
+        isComposerEditorUsable(editor)
+      ) {
+        persistComposerDraft(draftKey, editor, slotReferencesRef.current);
+      }
       if (draftEditorRef.current === editor) draftEditorRef.current = null;
     };
   }, [cancelScheduledDraftPersist, draftKey, editor]);
@@ -4540,11 +4959,22 @@ function TiptapComposerSurface({
   // --- Live voice transcription: text appears in the editor as the user speaks ---
   const voiceAnchorRef = useRef<number | null>(null);
   const prevVoiceInsertRef = useRef("");
-
   const handleLiveUpdate = useCallback(
     (finalText: string, interimText: string) => {
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return;
+
+      if (
+        voiceAnchorRef.current != null &&
+        !isVoicePreviewIntact(
+          ed,
+          voiceAnchorRef.current,
+          prevVoiceInsertRef.current,
+        )
+      ) {
+        voiceAnchorRef.current = null;
+        prevVoiceInsertRef.current = "";
+      }
 
       if (voiceAnchorRef.current == null) {
         const { from } = ed.state.selection;
@@ -4577,9 +5007,14 @@ function TiptapComposerSurface({
     (text: string) => {
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return;
+      let anchor = voiceAnchorRef.current;
+      if (
+        anchor != null &&
+        !isVoicePreviewIntact(ed, anchor, prevVoiceInsertRef.current)
+      ) {
+        anchor = null;
+      }
       const formattedText = formatVoiceTranscriptForComposer(text);
-
-      const anchor = voiceAnchorRef.current;
       if (anchor != null) {
         const prevLen = prevVoiceInsertRef.current.length;
         if (formattedText) {
@@ -4593,8 +5028,6 @@ function TiptapComposerSurface({
             .deleteRange({ from: anchor, to: anchor + prevLen })
             .run();
         }
-        voiceAnchorRef.current = null;
-        prevVoiceInsertRef.current = "";
       } else if (formattedText) {
         const { from } = ed.state.selection;
         const prevChar =
@@ -4605,6 +5038,8 @@ function TiptapComposerSurface({
           .insertContent((needsLead ? " " : "") + formattedText)
           .run();
       }
+      voiceAnchorRef.current = null;
+      prevVoiceInsertRef.current = "";
     },
     [editor],
   );
@@ -4701,19 +5136,7 @@ function TiptapComposerSurface({
       const anchor = voiceAnchorRef.current;
       const prevLen = prevVoiceInsertRef.current.length;
       if (isComposerEditorUsable(editor) && prevLen > 0) {
-        const documentSize = editor.state.doc.content.size;
-        const currentText =
-          anchor >= 1 && anchor + prevLen <= documentSize
-            ? editor.state.doc.textBetween(anchor, anchor + prevLen, "", "\n")
-            : "";
-        if (
-          canRemoveVoicePreview({
-            documentSize,
-            anchor,
-            previewText: prevVoiceInsertRef.current,
-            currentText,
-          })
-        ) {
+        if (isVoicePreviewIntact(editor, anchor, prevVoiceInsertRef.current)) {
           editor
             .chain()
             .deleteRange({ from: anchor, to: anchor + prevLen })
@@ -4728,18 +5151,21 @@ function TiptapComposerSurface({
   const voiceChatActiveRef = useRef(false);
   voiceChatActiveRef.current = voiceChat !== null;
 
-  // Global shortcut: Cmd/Ctrl + Shift + M toggles dictation. Escape cancels
-  // while recording. Scoped to avoid firing when focus is outside the app.
+  // Global shortcut: Cmd/Ctrl + D toggles dictation (taking the browser's
+  // bookmark accelerator). Opt-in through `dictationShortcut`, because a host
+  // can bind Cmd+D to its own action (for example duplicating blocks) and this
+  // listener would take the key from it. Escape below is not part of that
+  // opt-in: it only ends a recording the person chose to start.
   useEffect(() => {
-    if (!voiceEnabled || !voice.supported) return;
+    if (!voiceEnabled || !voice.supported || !dictationShortcut) return;
     const handler = (e: KeyboardEvent) => {
       // e.key can be undefined on some trusted keydown events (autofill/IME
       // quirks) — seen crashing in production (AGENT-NATIVE-BROWSER-S).
       const isToggleCombo =
         typeof e.key === "string" &&
-        e.key.toLowerCase() === "m" &&
-        e.shiftKey &&
+        e.key.toLowerCase() === "d" &&
         (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
         !e.altKey;
       if (isToggleCombo) {
         // A page that has already used the key keeps it.
@@ -4753,6 +5179,15 @@ function TiptapComposerSurface({
         }
         return;
       }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [voiceEnabled, voice, dictationShortcut]);
+
+  // Escape cancels a dictation or its start, on every host that shows dictation.
+  useEffect(() => {
+    if (!voiceEnabled || !voice.supported) return;
+    const handler = (e: KeyboardEvent) => {
       if (
         e.key === "Escape" &&
         (voice.state === "recording" || voice.state === "starting")
@@ -4795,13 +5230,13 @@ function TiptapComposerSurface({
       } else if (node.type.name === "skillReference") {
         textParts.push(`/${node.attrs.name}`);
       } else if (node.type.name === "hardBreak") {
-        textParts.push("\n");
+        textParts.push(textBlockSeparator);
       } else if (
-        node.type.name === "paragraph" &&
+        node.isTextblock &&
         textParts.length > 0 &&
-        textParts[textParts.length - 1] !== "\n"
+        textParts[textParts.length - 1] !== textBlockSeparator
       ) {
-        textParts.push("\n");
+        textParts.push(textBlockSeparator);
       }
     });
     const rawText = textParts.join("").trim();
@@ -4831,7 +5266,7 @@ function TiptapComposerSurface({
     });
 
     return { text, references };
-  }, [editor]);
+  }, [editor, textBlockSeparator]);
 
   const referencesSignatureRef = useRef("");
   useEffect(() => {
@@ -6219,6 +6654,7 @@ function TiptapComposerSurface({
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
     if (initialText !== undefined) return;
+    if (profileMigratedEditorRef.current?.editor === editor) return;
     if (previousDraftKeyRef.current !== draftKey) return;
     if (composerText !== "") return;
     if (editor.isEmpty) return;
@@ -6228,6 +6664,14 @@ function TiptapComposerSurface({
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
     initialTextSyncCompleteRef.current = true;
+    const pendingMigration = profileMigratedEditorRef.current;
+    if (
+      pendingMigration?.editor === editor &&
+      pendingMigration.ownerKey !== profileOwnerKeyRef.current
+    ) {
+      editor.commands.clearContent(false);
+      profileMigratedEditorRef.current = null;
+    }
     const draftKeyChanged = previousDraftKeyRef.current !== draftKey;
     previousDraftKeyRef.current = draftKey;
     if (draftKeyChanged) {
@@ -6257,9 +6701,31 @@ function TiptapComposerSurface({
         });
       if (!suppressInitialTextChange) onTextChangeRef.current?.("");
     }
+    const migratedProfile = profileMigratedEditorRef.current;
+    if (
+      migratedProfile?.editor === editor &&
+      migratedProfile.ownerKey === profileOwnerKeyRef.current
+    ) {
+      const { text } = extractComposerPayload();
+      initialTextKeyRef.current = initialTextKey ?? initialText;
+      hasCheckedInitialDraftRef.current = true;
+      editorContentOwnerKeyRef.current = profileOwnerKeyRef.current;
+      editorContentDraftKeyRef.current = draftKey;
+      setEditorHasText(
+        composerDocumentHasContent(editor.state.doc) ||
+          slotReferencesRef.current.length > 0,
+      );
+      composerRuntime.setText(text);
+      if (!suppressInitialTextChange) onTextChangeRef.current?.(text);
+      scheduleComposerDraftPersist(editor);
+      profileMigratedEditorRef.current = null;
+      return;
+    }
+    editorContentOwnerKeyRef.current = profileOwnerKeyRef.current;
+    editorContentDraftKeyRef.current = draftKey;
     const key = initialTextKey ?? initialText;
     let saved: string | null = null;
-    if (draftKey) {
+    if (draftKey && composerDraftBelongsToThisSession(draftKey)) {
       try {
         saved = localStorage.getItem(draftKey);
       } catch {
@@ -6339,6 +6805,7 @@ function TiptapComposerSurface({
     composerRuntime,
     draftKey,
     editor,
+    extractComposerPayload,
     initialText,
     initialTextKey,
     initialTextOverridesSavedDraft,
@@ -6879,11 +7346,13 @@ function TiptapComposerSurface({
             hostedHarness={hostedHarness}
             showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
+            modelSelectorChevron={modelSelectorChevron}
             onChange={onModelChange!}
             onEffortChange={onEffortChange}
             onAgentChange={onAgentChange}
             onModelSelectorOpenChange={onModelSelectorOpenChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}
+            modelTriggerNamesSelectionOnly={modelTriggerNamesSelectionOnly}
             onConnectProvider={onConnectProvider}
             onConnectLocalRuntime={onConnectLocalRuntime}
             terminalModeControl={terminalModeControl}
@@ -6903,6 +7372,7 @@ function TiptapComposerSurface({
                 isMac={isMac}
                 disabled={disabled}
                 voiceChat={voiceChatEnabled}
+                showShortcut={dictationShortcut}
               />
             )}
             {stopButton ? (
