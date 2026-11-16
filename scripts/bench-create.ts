@@ -13,6 +13,7 @@ import { pnpmCommand, type PnpmCommand } from "./lib/pnpm-command.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const WORKSPACE_NAME = "bench-ws";
+const ADDED_APP_NAME = "bench-app";
 const PHASE_TIMEOUT_MS = 20 * 60_000;
 
 const HELP = `Measure how long a first-time \`create\` takes and how many bytes it moves.
@@ -23,7 +24,10 @@ Each run starts cold: a fresh npm cache, pnpm store, and temp folder, with all
 traffic tunneled through a local proxy that counts bytes per host. Phases:
 
   install       npm installs the target, as npx does before running it
-  create        the CLI scaffolds a workspace, downloading templates
+  create        the CLI scaffolds a workspace, or one app with --standalone,
+                downloading templates
+  add-app       the same CLI adds an app to the new workspace (only with
+                --add-app)
   pnpm-install  pnpm installs the new workspace (only with --pnpm-install)
 
 Targets (default: @agent-native/core@latest and local):
@@ -34,11 +38,14 @@ Targets (default: @agent-native/core@latest and local):
 The first target is the baseline the others are compared against.
 
 Options:
-  --template <names>  templates to scaffold (default: dispatch)
-  --runs <n>          runs per target; times are medians (default: 1)
-  --pnpm-install      also time pnpm install in the new workspace
-  --out <file>        results JSON (default: .tmp/bench/create-<time>.json)
-  --keep              keep each run's folder instead of deleting it
+  --template <names>    templates to scaffold (default: dispatch, or chat
+                        with --standalone)
+  --standalone          scaffold one standalone app, as Getting Started does
+  --add-app <template>  then add an app from this template to the workspace
+  --runs <n>            runs per target; times are medians (default: 1)
+  --pnpm-install        also time pnpm install in the new workspace
+  --out <file>          results JSON (default: .tmp/bench/create-<time>.json)
+  --keep                keep each run's folder instead of deleting it
 
 A local or .tgz target skips the package's own registry metadata and tarball,
 so its install phase undercounts by about that much (11.9 MB of metadata for
@@ -166,7 +173,43 @@ export function median(values: readonly number[]): number {
   return middle.reduce((sum, value) => sum + value, 0) / middle.length;
 }
 
-type PhaseName = "install" | "create" | "pnpm-install";
+export interface ScaffoldOptions {
+  template: string;
+  standalone: boolean;
+  addApp: string | undefined;
+}
+
+/** The CLI arguments for create and add-app, given the installed package. */
+export function scaffoldArgs(
+  packageName: string,
+  { template, standalone, addApp }: ScaffoldOptions,
+): { create: string[]; addApp: string[] | undefined } {
+  // Core's bin is the whole CLI; a dedicated create package's bin is `create`.
+  const isCore = packageName === "@agent-native/core";
+  if (addApp !== undefined && !isCore) {
+    throw new Error(
+      `--add-app runs @agent-native/core's add-app command, which ${packageName} doesn't have.`,
+    );
+  }
+  // Without a terminal, `create` with one template makes a standalone app, so
+  // a workspace needs the `create-workspace` alias, which forces one.
+  const coreCommand = standalone ? "create" : "create-workspace";
+  return {
+    create: [
+      ...(isCore ? [coreCommand] : []),
+      WORKSPACE_NAME,
+      "--template",
+      template,
+      ...(standalone ? ["--standalone"] : []),
+    ],
+    addApp:
+      addApp === undefined
+        ? undefined
+        : ["add-app", ADDED_APP_NAME, "--template", addApp],
+  };
+}
+
+type PhaseName = "install" | "create" | "add-app" | "pnpm-install";
 
 interface PhaseResult {
   ms: number;
@@ -324,7 +367,7 @@ function countFiles(dir: string): { files: number; bytes: number } {
 async function benchRun(
   proxy: CountingProxy,
   target: Target,
-  options: { template: string; pnpmInstall: boolean; keep: boolean },
+  options: ScaffoldOptions & { pnpmInstall: boolean; keep: boolean },
 ): Promise<RunResult> {
   const runDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-bench-"));
   const env = isolatedEnv(runDir, proxy.url);
@@ -358,20 +401,13 @@ async function benchRun(
     );
   }
   const pkg = installedPackage(cliDir);
-  // Core's bin is the whole CLI; a dedicated create package's bin is `create`.
-  const createArgs = pkg.name === "@agent-native/core" ? ["create"] : [];
+  const args = scaffoldArgs(pkg.name, options);
   phases.create = await runPhase(
     proxy,
     path.join(runDir, "create.log"),
     {
       command: process.execPath,
-      args: [
-        pkg.bin,
-        ...createArgs,
-        WORKSPACE_NAME,
-        "--template",
-        options.template,
-      ],
+      args: [pkg.bin, ...args.create],
       shell: false,
     },
     { cwd: workDir, env },
@@ -379,6 +415,24 @@ async function benchRun(
   const workspaceDir = path.join(workDir, WORKSPACE_NAME);
   if (!fs.existsSync(workspaceDir)) {
     throw new Error(`create exited 0 but wrote no ${workspaceDir}.`);
+  }
+  if (args.addApp) {
+    // Users run the workspace's own CLI through `pnpm exec`, which works only
+    // after a pnpm install. This is the same command without that wait.
+    phases["add-app"] = await runPhase(
+      proxy,
+      path.join(runDir, "add-app.log"),
+      {
+        command: process.execPath,
+        args: [pkg.bin, ...args.addApp],
+        shell: false,
+      },
+      { cwd: workspaceDir, env },
+    );
+    const appDir = path.join(workspaceDir, "apps", ADDED_APP_NAME);
+    if (!fs.existsSync(appDir) || countFiles(appDir).files === 0) {
+      throw new Error(`add-app exited 0 but wrote nothing to ${appDir}.`);
+    }
   }
   const written = countFiles(workspaceDir);
   if (written.files === 0) {
@@ -516,7 +570,9 @@ async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       target: { type: "string", multiple: true },
-      template: { type: "string", default: "dispatch" },
+      template: { type: "string" },
+      standalone: { type: "boolean", default: false },
+      "add-app": { type: "string" },
       runs: { type: "string", default: "1" },
       "pnpm-install": { type: "boolean", default: false },
       out: { type: "string" },
@@ -532,6 +588,18 @@ async function main(): Promise<void> {
   if (!Number.isInteger(runs) || runs < 1) {
     throw new Error(`--runs must be a positive integer, got ${values.runs}.`);
   }
+  const { standalone } = values;
+  const addApp = values["add-app"];
+  if (standalone && addApp !== undefined) {
+    throw new Error(
+      "--add-app adds to a workspace, so it can't be combined with --standalone.",
+    );
+  }
+  const scaffold: ScaffoldOptions = {
+    template: values.template ?? (standalone ? "chat" : "dispatch"),
+    standalone,
+    addApp,
+  };
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const outFile = path.resolve(
     values.out ?? path.join(repoRoot, ".tmp/bench", `create-${stamp}.json`),
@@ -570,7 +638,7 @@ async function main(): Promise<void> {
         console.error(`[bench] ${result.target.label}: run ${round}/${runs}…`);
         result.runs.push(
           await benchRun(proxy, result.target, {
-            template: values.template,
+            ...scaffold,
             pnpmInstall: values["pnpm-install"],
             keep: values.keep,
           }),
@@ -586,7 +654,7 @@ async function main(): Promise<void> {
     await proxy.close();
   }
 
-  const phases: PhaseName[] = ["install", "create", "pnpm-install"];
+  const phases: PhaseName[] = ["install", "create", "add-app", "pnpm-install"];
   fs.writeFileSync(
     outFile,
     `${JSON.stringify(
@@ -594,7 +662,7 @@ async function main(): Promise<void> {
         startedAt: new Date().toISOString(),
         node: process.version,
         platform: `${process.platform}-${process.arch}`,
-        template: values.template,
+        ...scaffold,
         runsPerTarget: runs,
         targets: results.map(({ target, runs: targetRuns }) => ({
           ...target,
@@ -611,8 +679,14 @@ async function main(): Promise<void> {
       2,
     )}\n`,
   );
+  const scenario = [
+    standalone
+      ? `standalone ${scaffold.template} app`
+      : `workspace with ${scaffold.template}`,
+    ...(addApp === undefined ? [] : [`then add-app ${addApp}`]),
+  ].join(", ");
   console.log(
-    `Template: ${values.template} · ${runs} run(s) per target, times are medians · Node ${process.version} · ${process.platform}\n`,
+    `${scenario} · ${runs} run(s) per target, times are medians · Node ${process.version} · ${process.platform}\n`,
   );
   console.log(report(results, phases));
   if (results.some(({ target }) => target.local)) {

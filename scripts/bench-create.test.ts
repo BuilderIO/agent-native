@@ -6,6 +6,7 @@ import { after, describe, it } from "node:test";
 import {
   diffTraffic,
   median,
+  scaffoldArgs,
   startCountingProxy,
   type CountingProxy,
 } from "./bench-create.ts";
@@ -94,6 +95,67 @@ describe("bench-create counting proxy", () => {
     });
     assert.equal(status, 501);
     assert.equal(proxy.plainRequests(), 1);
+  });
+});
+
+describe("scaffoldArgs", () => {
+  it("passes --standalone to create and skips add-app", () => {
+    assert.deepEqual(
+      scaffoldArgs("@agent-native/core", {
+        template: "chat",
+        standalone: true,
+        addApp: undefined,
+      }),
+      {
+        create: ["create", "bench-ws", "--template", "chat", "--standalone"],
+        addApp: undefined,
+      },
+    );
+  });
+
+  it("forces a workspace, which create alone won't make without a terminal", () => {
+    assert.deepEqual(
+      scaffoldArgs("@agent-native/core", {
+        template: "dispatch",
+        standalone: false,
+        addApp: undefined,
+      }).create,
+      ["create-workspace", "bench-ws", "--template", "dispatch"],
+    );
+  });
+
+  it("adds the app under its own name so it can't collide with create's", () => {
+    assert.deepEqual(
+      scaffoldArgs("@agent-native/core", {
+        template: "dispatch",
+        standalone: false,
+        addApp: "dispatch",
+      }).addApp,
+      ["add-app", "bench-app", "--template", "dispatch"],
+    );
+  });
+
+  it("drops the create subcommand for a dedicated create package", () => {
+    assert.deepEqual(
+      scaffoldArgs("create-agent-native", {
+        template: "dispatch",
+        standalone: false,
+        addApp: undefined,
+      }).create,
+      ["bench-ws", "--template", "dispatch"],
+    );
+  });
+
+  it("refuses add-app for a package without core's CLI", () => {
+    assert.throws(
+      () =>
+        scaffoldArgs("create-agent-native", {
+          template: "dispatch",
+          standalone: false,
+          addApp: "content",
+        }),
+      /create-agent-native doesn't have/,
+    );
   });
 });
 
