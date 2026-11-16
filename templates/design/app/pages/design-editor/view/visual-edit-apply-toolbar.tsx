@@ -115,7 +115,10 @@ export function renderVisualEditApplyToolbar({
               }
               onClick={
                 canApplyPendingVisualEditsFromToolbar
-                  ? () => handleApplyPendingVisualStylesWithAgent(applyPrompt)
+                  ? () =>
+                      remoteVisualEditPrompt
+                        ? handleApplyPendingVisualStylesWithAgent(applyPrompt)
+                        : handleApplyPendingVisualStylesWithAgent()
                   : () => handleCopyPendingVisualStylePrompt(applyPrompt, true)
               }
             >

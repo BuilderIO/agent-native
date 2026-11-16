@@ -201,7 +201,7 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     await runApplyPendingVisualStylesWithAgent({
       ...setup.args,
       pendingVisualStylePrompt: tweakPrompt,
-      allowPromptOnly: true,
+      hasPendingTweakChanges: true,
     });
 
     expect(sendDesignSourceHandoffAndConfirmMock).toHaveBeenCalledWith(
@@ -214,6 +214,7 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
       { timeoutMs: 10_000 },
     );
     expect(writeClipboardTextMock).not.toHaveBeenCalled();
+    expect(setup.clearPendingLiveEditState).toHaveBeenCalledOnce();
   });
 
   it("copies the Apply prompt when no host or agent chat takes it", async () => {

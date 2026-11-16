@@ -56,6 +56,7 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   pendingStructureVerificationStatus: PendingStructureVerificationStatus;
   pendingVisualStyleEdits: PendingVisualStyleEdit[];
   pendingVisualStylePrompt: string;
+  hasPendingTweakChanges?: boolean;
   allowPromptOnly?: boolean;
   setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setApplyingViaHost: Dispatch<SetStateAction<boolean>>;
@@ -103,6 +104,7 @@ export async function runApplyPendingVisualStylesWithAgent({
   pendingStructureVerificationStatus,
   pendingVisualStyleEdits,
   pendingVisualStylePrompt,
+  hasPendingTweakChanges = false,
   allowPromptOnly = false,
   setActiveLeftPanel,
   setApplyingViaHost,
@@ -118,6 +120,7 @@ export async function runApplyPendingVisualStylesWithAgent({
   if (
     pendingVisualStyleEdits.length === 0 &&
     pendingLiveNonStyleEdits.length === 0 &&
+    !hasPendingTweakChanges &&
     !allowPromptOnly
   ) {
     return;
