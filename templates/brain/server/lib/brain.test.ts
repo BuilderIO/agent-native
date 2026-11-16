@@ -636,6 +636,10 @@ const mocks = vi.hoisted(() => {
     track,
     userEmail: "owner@example.test",
     orgId: "org-1" as string | null,
+    workerContext: {} as Row,
+    workerResolveKey: vi.fn(),
+    workerResolveEngine: vi.fn(),
+    workerRunAgent: vi.fn(),
     settings: {
       requireApprovalForCompanyKnowledge: true,
       autoRedactEmails: true,
@@ -726,8 +730,15 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => mocks.userEmail,
   getRequestOrgId: () => mocks.orgId,
   getRequestContext: () => undefined,
-  runWithRequestContext: async (_context: Row, fn: () => Promise<unknown>) =>
-    fn(),
+  runWithRequestContext: async (context: Row, fn: () => Promise<unknown>) => {
+    const previous = mocks.workerContext;
+    mocks.workerContext = context;
+    try {
+      return await fn();
+    } finally {
+      mocks.workerContext = previous;
+    }
+  },
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -740,8 +751,16 @@ vi.mock("@agent-native/core/server", () => ({
       mocks.orgRoles.get(`${orgId}:${email.toLowerCase()}`) ?? null,
   ),
   resolveSecret: vi.fn(async () => null),
+  loadActionsFromStaticRegistry: () => [],
+  actionsToEngineTools: () => [],
+  resolveOwnerEngineApiKey: mocks.workerResolveKey,
+  resolveEngine: mocks.workerResolveEngine,
+  getStoredModelForEngine: async () => null,
+  runAgentLoop: mocks.workerRunAgent,
   readBody: vi.fn(async (event: { body?: unknown }) => event.body),
 }));
+
+vi.mock("../../.generated/actions-registry.js", () => ({ default: {} }));
 
 vi.mock("h3", () => ({
   createError: (input: { statusCode: number; statusMessage?: string }) =>
@@ -968,6 +987,10 @@ function resetMocks() {
   mocks.audienceHook.value = null;
   mocks.userEmail = "owner@example.test";
   mocks.orgId = "org-1";
+  mocks.workerContext = {};
+  mocks.workerResolveKey.mockReset();
+  mocks.workerResolveEngine.mockReset();
+  mocks.workerRunAgent.mockReset();
   mocks.settings = {
     requireApprovalForCompanyKnowledge: true,
     autoRedactEmails: true,
@@ -2930,6 +2953,68 @@ describe("Brain knowledge quality gates", () => {
     });
     expect(mocks.rows.captures[0]).toMatchObject({ status: "distilled" });
   });
+
+  it.each([null, "org-1"])(
+    "runs the default distillation runner with source scope %s",
+    async (orgId) => {
+      const now = "2026-05-15T12:00:00.000Z";
+      const source = seedSource({ orgId });
+      const capture = seedCapture({ status: "distilling" });
+      mocks.rows.ingestQueue.push({
+        id: "queue-1",
+        sourceId: source.id,
+        captureId: capture.id,
+        operation: "distill",
+        status: "queued",
+        priority: 50,
+        attempts: 0,
+        payloadJson: "{}",
+        error: null,
+        runAfter: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      let seenOwnerContext: Row | undefined;
+      mocks.workerResolveKey.mockImplementation(async () => {
+        seenOwnerContext = { ...mocks.workerContext };
+        if (
+          !mocks.workerContext.orgId &&
+          mocks.workerContext.orgScope !== "personal"
+        ) {
+          throw new Error("Unable to read the active agent engine setting.");
+        }
+        return { apiKey: undefined, apiKeyEnvVar: undefined };
+      });
+      mocks.workerResolveEngine.mockResolvedValue({
+        name: "builder",
+        defaultModel: "model",
+      });
+      mocks.workerRunAgent.mockImplementation(async () => {
+        mocks.rows.ingestQueue[0]!.status = "done";
+      });
+
+      const result = await processBrainIngestQueueOnce({
+        limit: 1,
+        runDistillation: true,
+      });
+      expect(result).toMatchObject({
+        processed: ["queue-1"],
+        deferred: [],
+        failed: [],
+      });
+      expect(mocks.workerResolveKey).toHaveBeenCalledOnce();
+      expect(seenOwnerContext).toEqual({
+        userEmail: source.ownerEmail,
+        ...(orgId ? { orgId } : { orgScope: "personal" }),
+      });
+      expect(mocks.workerResolveEngine).toHaveBeenCalledWith(
+        expect.objectContaining({
+          credentialIdentity: { userEmail: source.ownerEmail, orgId },
+        }),
+      );
+      expect(mocks.workerRunAgent).toHaveBeenCalledOnce();
+    },
+  );
 
   it("runs headless distillation and treats mark-capture completion as processed", async () => {
     const now = "2026-05-15T12:00:00.000Z";

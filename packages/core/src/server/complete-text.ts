@@ -1,5 +1,6 @@
 import { withoutWriteObservation } from "../action-frame.js";
 import {
+  listAgentEngines,
   getStoredModelForEngine,
   normalizeModelForEngine,
   registerBuiltinEngines,
@@ -15,11 +16,15 @@ import {
 } from "../agent/engine/private-completion-error.js";
 import { EngineError } from "../agent/engine/types.js";
 import {
+  engineToProvider,
+  getOwnerApiKeyForEngine,
   resolveOwnerEngineApiKey,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+import { getAppConfig } from "../app-config/index.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
-import { getRequestUserEmail } from "./request-context.js";
+import { readDeployCredentialEnv } from "./credential-provider.js";
+import { getRequestContext, getRequestUserEmail } from "./request-context.js";
 
 export interface CompleteTextMessage {
   role: "user" | "assistant";
@@ -147,9 +152,69 @@ function createCompletionAbortSignal(
 
 async function resolveCompletionApiKey(
   options: CompleteTextOptions,
-): Promise<ResolvedOwnerApiKey> {
+): Promise<ResolvedOwnerApiKey & { pinnedEngine?: string }> {
   if (options.apiKey && options.engine) {
     return { apiKey: options.apiKey, apiKeyEnvVar: undefined };
+  }
+  const configuredEngine = getAppConfig().agent.engine;
+  if (
+    options.apiKey &&
+    configuredEngine &&
+    getRequestContext()?.isSyntheticTraffic !== true
+  ) {
+    // An explicit deployment engine pins an opaque caller key to that engine.
+    // First recognize stored provider keys, including inactive legacy keys, so
+    // a known credential cannot be reinterpreted as belonging to the pin.
+    let lookupFailed = false;
+    const entries = listAgentEngines();
+    const providers = new Set([
+      "anthropic",
+      ...entries
+        .filter((entry) =>
+          entry.requiredEnvVars.some((name) => name.endsWith("_API_KEY")),
+        )
+        .map((entry) => engineToProvider(entry.name)),
+    ]);
+    const matches: ResolvedOwnerApiKey[] = [];
+    for (const provider of providers) {
+      matches.push(
+        await getOwnerApiKeyForEngine(provider, getRequestUserEmail(), {
+          allowDeploymentFallback: false,
+          onLookupFailure: () => {
+            lookupFailed = true;
+          },
+        }),
+      );
+    }
+    if (lookupFailed)
+      throw new Error("Unable to identify the completion API key.");
+    const matching = matches.filter(
+      (key) => key.apiKey === options.apiKey && key.apiKeyEnvVar,
+    );
+    const deployKeyNames = new Set([
+      "ANTHROPIC_API_KEY",
+      ...entries.flatMap((entry) =>
+        entry.requiredEnvVars.filter((name) => name.endsWith("_API_KEY")),
+      ),
+    ]);
+    for (const apiKeyEnvVar of deployKeyNames) {
+      if (readDeployCredentialEnv(apiKeyEnvVar) === options.apiKey) {
+        matching.push({
+          apiKey: options.apiKey,
+          apiKeyEnvVar,
+          credentialProvenance: { scope: "deployment", source: "env" },
+        });
+      }
+    }
+    if (new Set(matching.map((key) => key.apiKeyEnvVar)).size > 1) {
+      throw new Error("Unable to identify the completion API key provider.");
+    }
+    if (matching[0]) return matching[0];
+    return {
+      apiKey: options.apiKey,
+      apiKeyEnvVar: undefined,
+      pinnedEngine: configuredEngine,
+    };
   }
   const ownerKey = await resolveOwnerEngineApiKey({
     engineOption: options.engine,
@@ -175,9 +240,10 @@ async function runCompleteText(
     apiKey,
     apiKeyEnvVar,
     credentialProvenance: apiKeyProvenance,
+    pinnedEngine,
   } = await resolveCompletionApiKey(options);
   const engine = await resolveEngine({
-    engineOption: options.engine,
+    engineOption: options.engine ?? pinnedEngine,
     apiKey,
     apiKeyEnvVar,
     apiKeyProvenance,

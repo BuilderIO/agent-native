@@ -415,7 +415,9 @@ export async function processBrainIngestQueueOnce(
           await runWithRequestContext(
             {
               userEmail: contextRows.source.ownerEmail,
-              orgId: contextRows.source.orgId ?? undefined,
+              ...(contextRows.source.orgId
+                ? { orgId: contextRows.source.orgId }
+                : { orgScope: "personal" as const }),
             },
             () =>
               runner({

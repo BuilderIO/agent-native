@@ -1322,15 +1322,24 @@ describe("AgentEngine registry", () => {
   });
 
   it("does not send a legacy Anthropic setting to an automatically selected OpenAI engine", async () => {
+    let synthetic = false;
+    let activeEngine: string | undefined;
+    let duplicateKey = false;
+    let lookupFailure = false;
     vi.doMock("../../server/request-context.js", () => ({
-      getRequestContext: () => ({ orgScope: "personal" }),
+      getRequestContext: () => ({
+        orgScope: "personal",
+        isSyntheticTraffic: synthetic,
+      }),
       getRequestUserEmail: () => "member@example.com",
       getRequestOrgId: () => "org-example",
       getRequestBuilderStorageCredentialOrgId: () => undefined,
     }));
     vi.doMock("../default-agent-engine.js", async (original) => ({
       ...(await original<typeof import("../default-agent-engine.js")>()),
-      readDefaultAgentEngineSetting: vi.fn(async () => null),
+      readDefaultAgentEngineSetting: vi.fn(async () =>
+        activeEngine ? { engine: activeEngine } : null,
+      ),
     }));
     vi.doMock(
       "../../server/personal-provider-key-policy.js",
@@ -1356,6 +1365,9 @@ describe("AgentEngine registry", () => {
       >()),
       getProviderCredentialAuthFailure: vi.fn(async () => null),
       prefetchSecrets: vi.fn(async () => {}),
+      readDeployCredentialEnv: vi.fn((key: string) =>
+        key === "ANTHROPIC_API_KEY" ? "example-host-anthropic" : undefined,
+      ),
       resolveSecretDetailed: vi.fn(async (key: string) =>
         key === "OPENAI_API_KEY"
           ? {
@@ -1367,9 +1379,13 @@ describe("AgentEngine registry", () => {
           : { value: null, lookupFailed: false },
       ),
     }));
-    const readAppSecret = vi.fn(async ({ key }: { key: string }) =>
-      key === "OPENAI_API_KEY" ? { key, value: "example-openai" } : null,
-    );
+    const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
+      if (lookupFailure) throw new Error("credential store unavailable");
+      if (key === "OPENAI_API_KEY") return { key, value: "example-openai" };
+      if (key === "ANTHROPIC_API_KEY" && duplicateKey)
+        return { key, value: "example-openai" };
+      return null;
+    });
     vi.doMock("../../secrets/storage.js", () => ({
       readAppSecret,
       readAppSecrets: readAppSecretsFromSingles(readAppSecret),
@@ -1470,6 +1486,58 @@ describe("AgentEngine registry", () => {
     expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe(
       "example-opaque-openai",
     );
+    vi.stubEnv("AGENT_ENGINE", "ai-sdk:openai");
+    await completeText({ apiKey: "example-deployment-opaque", input: "go" });
+    expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe(
+      "example-deployment-opaque",
+    );
+    activeEngine = "ai-sdk:openai";
+    await completeText({ apiKey: legacyKey, input: "go" });
+    expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe("example-openai");
+    await completeText({ apiKey: "example-host-anthropic", input: "go" });
+    expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe("example-openai");
+    const beforeAmbiguous = openaiCreate.mock.calls.length;
+    duplicateKey = true;
+    const { getOwnerApiKeyForEngine } = await import("../production-agent.js");
+    expect(
+      await getOwnerApiKeyForEngine("anthropic", "member@example.com", {
+        allowDeploymentFallback: false,
+      }),
+    ).toMatchObject({
+      apiKey: "example-openai",
+      apiKeyEnvVar: "ANTHROPIC_API_KEY",
+    });
+    expect(
+      await getOwnerApiKeyForEngine("openai", "member@example.com", {
+        allowDeploymentFallback: false,
+      }),
+    ).toMatchObject({
+      apiKey: "example-openai",
+      apiKeyEnvVar: "OPENAI_API_KEY",
+    });
+    await expect(
+      completeText({ apiKey: "example-openai", input: "go" }),
+    ).rejects.toThrow(/identify.*provider/i);
+    duplicateKey = false;
+    lookupFailure = true;
+    await expect(
+      completeText({ apiKey: "example-opaque", input: "go" }),
+    ).rejects.toThrow(/identify/i);
+    lookupFailure = false;
+    expect(openaiCreate).toHaveBeenCalledTimes(beforeAmbiguous);
+    synthetic = true;
+    const beforeSynthetic = openaiCreate.mock.calls.length;
+    await expect(
+      completeText({ apiKey: "example-opaque", input: "go" }),
+    ).rejects.toThrow(/explicit engine/i);
+    expect(openaiCreate).toHaveBeenCalledTimes(beforeSynthetic);
+    synthetic = false;
+    vi.stubEnv("AGENT_ENGINE", "missing-engine");
+    const beforeUnknownEngine = openaiCreate.mock.calls.length;
+    await expect(
+      completeText({ apiKey: "example-opaque", input: "go" }),
+    ).rejects.toThrow();
+    expect(openaiCreate).toHaveBeenCalledTimes(beforeUnknownEngine);
   });
 
   it.each(["app", "stored"])(
