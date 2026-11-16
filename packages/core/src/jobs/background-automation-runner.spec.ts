@@ -2801,6 +2801,91 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
     return vi.mocked(engineIndex.isResolvedEngineUsableForRequest);
   }
 
+  it("does not give a host Anthropic credential to an automatically selected OpenAI provider", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    const { resetAppConfigForTests } = await import("../app-config/index.js");
+    resetAppConfigForTests();
+    const engines = await import("../agent/engine/index.js");
+    const defaults = await import("../agent/app-model-defaults.js");
+    const credentials = await import("../server/credential-provider.js");
+    const create = vi.fn().mockReturnValue({
+      name: "automation-openai",
+      defaultModel: "test-model",
+      supportedModels: [],
+      stream: vi.fn(),
+    });
+    engines.registerAgentEngine({
+      name: "automation-openai",
+      label: "OpenAI",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "test-model",
+      supportedModels: [],
+      requiredEnvVars: ["OPENAI_API_KEY"],
+      create,
+    });
+    const appDefault = vi
+      .spyOn(defaults, "getAgentAppModelDefaultForCurrentRequest")
+      .mockResolvedValue({ engine: "automation-openai", model: "test-model" });
+    const resolveSecret = vi
+      .spyOn(credentials, "resolveSecretDetailed")
+      .mockImplementation(async (key) =>
+        key === "OPENAI_API_KEY"
+          ? {
+              value: "example-openai",
+              source: "user",
+              scopeId: "alice@agent-native.test",
+              lookupFailed: false,
+            }
+          : { value: null, lookupFailed: false },
+      );
+    const authFailure = vi
+      .spyOn(credentials, "getProviderCredentialAuthFailure")
+      .mockResolvedValue(null);
+    const usable = await usableCheck();
+    try {
+      const result = await checkBackgroundAutomationCredentials(
+        { ownerEmail: "alice@agent-native.test", orgScope: "personal" },
+        {
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          apiKey: "example-host-anthropic",
+        },
+      );
+      expect(result).toMatchObject({
+        ok: true,
+        engine: { name: "automation-openai" },
+      });
+      expect(create.mock.calls[0]?.[0].apiKey).toBe("example-openai");
+      expect(usable.mock.calls.at(-1)?.[1]).not.toMatchObject({
+        apiKey: "example-host-anthropic",
+      });
+    } finally {
+      const { unregisterAgentEngine } =
+        await import("../agent/engine/registry.js");
+      unregisterAgentEngine("automation-openai");
+      appDefault.mockRestore();
+      resolveSecret.mockRestore();
+      authFailure.mockRestore();
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    }
+  });
+
+  it("preserves an opaque key for an explicitly supplied automation engine", async () => {
+    const usable = await usableCheck();
+    usable.mockResolvedValueOnce(true);
+    await expect(
+      checkBackgroundAutomationCredentials(
+        { ownerEmail: "alice@agent-native.test" },
+        { ...standardDeps, apiKey: "example-opaque-key" },
+      ),
+    ).resolves.toMatchObject({ ok: true, engine: testEngine });
+    expect(usable.mock.calls.at(-1)?.[1]).toMatchObject({
+      apiKey: "example-opaque-key",
+    });
+  });
+
   it("keeps a credential-paused automation paused when the selected Builder grant cannot refresh", async () => {
     const { McpOAuthRefreshUnavailableError } =
       await import("../mcp-client/oauth-client.js");

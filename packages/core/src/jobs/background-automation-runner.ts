@@ -6,6 +6,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
 import {
+  getAgentEngineEntry,
   getStoredModelForEngine,
   isResolvedEngineUsableForRequest,
   normalizeModelForEngine,
@@ -510,8 +511,11 @@ async function assertLlmCredentialsUsable(input: {
     | McpOAuthRefreshUnavailableError;
   try {
     const options = {
-      apiKey: input.apiKey,
-      credentialIdentity: { userEmail: input.ownerEmail, orgId: input.orgId },
+      ...(input.apiKey !== undefined ? { apiKey: input.apiKey } : {}),
+      credentialIdentity: {
+        userEmail: input.ownerEmail,
+        ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
+      },
     };
     usable = input.deferBuilderRefreshFailure
       ? await isResolvedEngineUsableForRequest(input.engine, {
@@ -1409,6 +1413,11 @@ async function resolveUsableBackgroundEngine(
   const ownerApiKey = await resolveOwnerEngineApiKey({ ownerEmail });
   assertDeadline();
   const apiKey = ownerApiKey.apiKey ?? deps.apiKey;
+  const apiKeyEnvVar = ownerApiKey.apiKey
+    ? ownerApiKey.apiKeyEnvVar
+    : deps.engine || !deps.apiKey
+      ? undefined
+      : "ANTHROPIC_API_KEY";
   const apiKeyProvenance = ownerApiKey.apiKey
     ? ownerApiKey.credentialProvenance
     : deps.apiKey
@@ -1418,16 +1427,21 @@ async function resolveUsableBackgroundEngine(
     deps.engine ??
     (await resolveEngine({
       apiKey,
-      apiKeyEnvVar: ownerApiKey.apiKey ? ownerApiKey.apiKeyEnvVar : undefined,
+      apiKeyEnvVar,
       apiKeyProvenance,
       appId: deps.appId,
       credentialIdentity: { userEmail: ownerEmail, orgId },
     }));
+  const entry = getAgentEngineEntry(engine.name);
+  const preflightApiKey =
+    apiKeyEnvVar && entry && !entry.requiredEnvVars.includes(apiKeyEnvVar)
+      ? undefined
+      : apiKey;
   await assertLlmCredentialsUsable({
     engine,
-    apiKey,
+    apiKey: preflightApiKey,
     ownerEmail,
-    orgId,
+    ...(orgId !== undefined ? { orgId } : {}),
     deferBuilderRefreshFailure,
   });
   return engine;

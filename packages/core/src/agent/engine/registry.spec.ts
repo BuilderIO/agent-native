@@ -1957,90 +1957,113 @@ describe("AgentEngine registry", () => {
       expect(await detectEngineFromEnvForRequest()).toBeNull();
     });
 
-    it("lets synthetic requests resolve a user engine when the env engine is unusable", async () => {
-      vi.stubEnv("AGENT_ENGINE", "builder");
-      vi.doUnmock("../../server/request-context.js");
-      vi.doMock(
-        "../../server/credential-provider.js",
-        async (importOriginal) => ({
-          ...(await importOriginal<
-            typeof import("../../server/credential-provider.js")
-          >()),
-          canUseDeployCredentialFallbackForRequest: () => false,
-          getProviderCredentialAuthFailure: vi.fn(async () => null),
-          resolveBuilderCredentialsDetailed: vi.fn(async () => ({
-            privateKey: null,
-            publicKey: null,
-            lookupFailed: false,
-            lane: null,
-          })),
-          resolveBuilderGatewayCredentialsDetailed: vi.fn(async () => ({
-            privateKey: null,
-            publicKey: null,
-            lookupFailed: false,
-            lane: null,
-          })),
-          resolveSecret: vi.fn(async (key: string) =>
-            key === "OPENAI_API_KEY" ? "sk-openai-user" : null,
-          ),
-          resolveSecretDetailed: vi.fn(async (key: string) =>
-            key === "OPENAI_API_KEY"
-              ? {
-                  value: "sk-openai-user",
-                  lookupFailed: false,
-                  source: "user",
-                  scopeId: "visitor@example.com",
-                }
-              : { value: null, lookupFailed: false },
-          ),
-        }),
-      );
+    it.each(["missing", "transient"])(
+      "lets synthetic requests resolve a user engine when the env engine is %s",
+      async (failure) => {
+        vi.stubEnv("AGENT_ENGINE", "builder");
+        if (failure === "transient") {
+          const { McpOAuthRefreshUnavailableError } =
+            await import("../../mcp-client/oauth-client.js");
+          const oauth = await import("../../server/builder-oauth.js");
+          vi.mocked(
+            oauth.resolveBuilderOAuthRequestAccessState,
+          ).mockRejectedValue(new McpOAuthRefreshUnavailableError());
+        }
+        vi.doUnmock("../../server/request-context.js");
+        vi.doMock(
+          "../../server/credential-provider.js",
+          async (importOriginal) => ({
+            ...(await importOriginal<
+              typeof import("../../server/credential-provider.js")
+            >()),
+            canUseDeployCredentialFallbackForRequest: () => false,
+            getProviderCredentialAuthFailure: vi.fn(async () => null),
+            resolveBuilderCredentialsDetailed: vi.fn(async () => ({
+              privateKey: null,
+              publicKey: null,
+              lookupFailed: false,
+              lane: null,
+            })),
+            resolveBuilderGatewayCredentialsDetailed: vi.fn(async () => ({
+              privateKey: null,
+              publicKey: null,
+              lookupFailed: false,
+              lane: null,
+            })),
+            resolveSecret: vi.fn(async (key: string) =>
+              key === "OPENAI_API_KEY" ? "sk-openai-user" : null,
+            ),
+            resolveSecretDetailed: vi.fn(async (key: string) =>
+              key === "OPENAI_API_KEY"
+                ? {
+                    value: "sk-openai-user",
+                    lookupFailed: false,
+                    source: "user",
+                    scopeId: "visitor@example.com",
+                  }
+                : { value: null, lookupFailed: false },
+            ),
+          }),
+        );
 
-      const { registerAgentEngine, resolveEngine } =
-        await import("./registry.js");
-      const { runWithRequestContext } =
-        await import("../../server/request-context.js");
-      const builderCreate = vi.fn().mockReturnValue({
-        name: "builder",
-        stream: vi.fn(),
-      } as any);
-      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
-      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+        const { registerAgentEngine, resolveEngine } =
+          await import("./registry.js");
+        const { runWithRequestContext } =
+          await import("../../server/request-context.js");
+        const builderCreate = vi.fn().mockReturnValue({
+          name: "builder",
+          stream: vi.fn(),
+        } as any);
+        const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+        const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
 
-      registerAgentEngine({
-        name: "builder",
-        label: "Builder",
-        description: "",
-        capabilities: {} as any,
-        defaultModel: "builder-model",
-        supportedModels: ["builder-model"],
-        requiredEnvVars: ["BUILDER_GATEWAY_TOKEN", "BUILDER_GATEWAY_SPACE_ID"],
-        create: builderCreate,
-      });
-      registerAgentEngine({
-        name: "ai-sdk:openai",
-        label: "OpenAI",
-        description: "",
-        capabilities: {} as any,
-        defaultModel: "gpt-5.6-luna",
-        supportedModels: ["gpt-5.6-luna"],
-        requiredEnvVars: ["OPENAI_API_KEY"],
-        create: openAiCreate,
-      });
+        registerAgentEngine({
+          name: "builder",
+          label: "Builder",
+          description: "",
+          capabilities: {} as any,
+          defaultModel: "builder-model",
+          supportedModels: ["builder-model"],
+          requiredEnvVars: [
+            "BUILDER_GATEWAY_TOKEN",
+            "BUILDER_GATEWAY_SPACE_ID",
+          ],
+          create: builderCreate,
+        });
+        registerAgentEngine({
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          description: "",
+          capabilities: {} as any,
+          defaultModel: "gpt-5.6-luna",
+          supportedModels: ["gpt-5.6-luna"],
+          requiredEnvVars: ["OPENAI_API_KEY"],
+          create: openAiCreate,
+        });
 
-      const resolved = await runWithRequestContext(
-        { userEmail: "visitor@example.com", isSyntheticTraffic: true },
-        () => resolveEngine({}),
-      );
+        const resolved = await runWithRequestContext(
+          { userEmail: "visitor@example.com", isSyntheticTraffic: true },
+          () => resolveEngine({}),
+        );
 
-      expect(resolved).toBe(openAiEngine);
-      expect(builderCreate).not.toHaveBeenCalled();
-      expect(openAiCreate).toHaveBeenCalledWith({
-        apiKey: "sk-openai-user",
-        baseUrl: "https://api.openai.com/v1",
-        allowEnvFallback: false,
-      });
-    });
+        expect(resolved).toBe(openAiEngine);
+        expect(builderCreate).not.toHaveBeenCalled();
+        expect(openAiCreate).toHaveBeenCalledWith({
+          apiKey: "sk-openai-user",
+          baseUrl: "https://api.openai.com/v1",
+          allowEnvFallback: false,
+        });
+        if (failure === "transient") {
+          const { unregisterAgentEngine } = await import("./registry.js");
+          unregisterAgentEngine("ai-sdk:openai");
+          const retryEngine = await runWithRequestContext(
+            { userEmail: "visitor@example.com", isSyntheticTraffic: true },
+            () => resolveEngine({}),
+          );
+          expect(retryEngine.name).toBe("builder");
+        }
+      },
+    );
 
     it("does not select builder from a gateway token without its space id", async () => {
       vi.stubEnv("NODE_ENV", "production");
@@ -2337,10 +2360,12 @@ describe("AgentEngine registry", () => {
           credentialIdentity: identity,
         }),
       ).resolves.toBe(true);
+      expect(resolveBuilderOAuthRequestAccessState).toHaveBeenCalledTimes(2);
       expect(resolveBuilderOAuthRequestAccessState).toHaveBeenCalledWith(
         expect.objectContaining({
           ownerEmail: identity.userEmail,
           orgId: identity.orgId,
+          requiredScope: "builder:ai:invoke",
         }),
       );
     });

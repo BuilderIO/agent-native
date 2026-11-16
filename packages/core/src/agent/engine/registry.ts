@@ -1507,7 +1507,7 @@ export async function resolveEngine(
     entry: AgentEngineEntry,
   ): Promise<boolean> => {
     const result = await isStoredEngineUsableForRequest(stored, entry, {
-      credentialIdentity,
+      ...(credentialIdentity !== undefined ? { credentialIdentity } : {}),
       deferBuilderRefreshFailure: true,
     });
     if (result instanceof McpOAuthRefreshUnavailableError) {
@@ -1531,10 +1531,7 @@ export async function resolveEngine(
       // the dedicated user-scoped credential they install for the request.
       const canUseConfiguredEngine =
         getRequestContext()?.isSyntheticTraffic !== true ||
-        (await isStoredEngineUsableForRequest({ engine: entry.name }, entry, {
-          credentialIdentity,
-          deferBuilderRefreshFailure: true,
-        })) !== false;
+        (await usableAutomaticDefault({ engine: entry.name }, entry));
       if (canUseConfiguredEngine) {
         return await createEngineForEntry(
           entry,

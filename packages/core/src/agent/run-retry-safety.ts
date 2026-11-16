@@ -31,7 +31,12 @@ export async function canRetryRunWithoutReplayingWork(input: {
     input.threadId,
     input.turnId,
     {
-      recoverCompletedExecutionSteps: input.recoverCompletedExecutionSteps,
+      ...(input.recoverCompletedExecutionSteps !== undefined
+        ? {
+            recoverCompletedExecutionSteps:
+              input.recoverCompletedExecutionSteps,
+          }
+        : {}),
     },
   );
   if (journal.status === "unreadable") return "unreadable";

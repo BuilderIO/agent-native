@@ -690,9 +690,14 @@ export async function runAgentLoopDirectWithSoftTimeout(
       retrySafety: lastResumableError
         ? await canRetryRunWithoutReplayingWork({
             events: localTurnEvents,
-            threadId: opts.threadId,
-            turnId: opts.turnId,
-            recoverCompletedExecutionSteps: opts.recoverCompletedExecutionSteps,
+            ...(opts.threadId !== undefined ? { threadId: opts.threadId } : {}),
+            ...(opts.turnId !== undefined ? { turnId: opts.turnId } : {}),
+            ...(opts.recoverCompletedExecutionSteps !== undefined
+              ? {
+                  recoverCompletedExecutionSteps:
+                    opts.recoverCompletedExecutionSteps,
+                }
+              : {}),
           })
         : undefined,
     });

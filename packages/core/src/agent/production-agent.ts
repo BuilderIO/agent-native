@@ -12675,9 +12675,14 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       retrySafety: lastResumableError
         ? await canRetryRunWithoutReplayingWork({
             events: localTurnEvents,
-            threadId: opts.threadId,
-            turnId: opts.turnId,
-            recoverCompletedExecutionSteps: opts.recoverCompletedExecutionSteps,
+            ...(opts.threadId !== undefined ? { threadId: opts.threadId } : {}),
+            ...(opts.turnId !== undefined ? { turnId: opts.turnId } : {}),
+            ...(opts.recoverCompletedExecutionSteps !== undefined
+              ? {
+                  recoverCompletedExecutionSteps:
+                    opts.recoverCompletedExecutionSteps,
+                }
+              : {}),
           })
         : undefined,
     });
@@ -15976,9 +15981,10 @@ export function createProductionAgentHandler(
     workerStep("apikey_done");
 
     workerStep("engine_start");
+    const credentialOrgId = getRequestOrgId();
     const credentialIdentity = {
-      userEmail: ownerEmail,
-      orgId: getRequestOrgId(),
+      ...(ownerEmail !== undefined ? { userEmail: ownerEmail } : {}),
+      ...(credentialOrgId !== undefined ? { orgId: credentialOrgId } : {}),
     };
     const engine = await resolveChatEngine({
       engineOption,
@@ -16117,7 +16123,7 @@ export function createProductionAgentHandler(
 
     if (
       (await isResolvedEngineUsableForRequest(engine, {
-        apiKey: effectiveApiKey,
+        ...(effectiveApiKey !== undefined ? { apiKey: effectiveApiKey } : {}),
         credentialIdentity,
         deferBuilderRefreshFailure: true,
       })) === false

@@ -312,7 +312,7 @@ async function resolveIntegrationEngineOption(
   try {
     return (
       (await getConfiguredEngineNameForRequest({
-        appId,
+        ...(appId !== undefined ? { appId } : {}),
         deferBuilderRefreshFailure: true,
       })) ?? engineOption
     );
