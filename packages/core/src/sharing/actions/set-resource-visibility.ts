@@ -518,7 +518,8 @@ export default defineAction({
     // They are what the change does, not what was asked for, so the result
     // counts them apart. A widget grant pinned to the resource covers taking
     // them back from public, which only narrows access, but not carrying
-    // them public, which would share more than the one resource it names.
+    // them public or giving the organization more than view access to them,
+    // which would share more than the one resource it names.
     const followers: PreparedChange[] = [];
     const seenFollowers = new Set(ids);
     // Counted across every resource in the call, so a batch can't carry
@@ -581,15 +582,19 @@ export default defineAction({
           for (const follower of checked) if (follower) found.push(follower);
         }
       }
-      if (
-        found.length > 0 &&
-        args.visibility === "public" &&
-        ctx?.caller === "mcp-widget-write"
-      ) {
-        fail(
-          "Making this public would make its sub-pages public too. Do it in the app, where the share dialog shows them.",
-          { errorCode: "followers_need_app", statusCode: 403 },
-        );
+      if (found.length > 0 && ctx?.caller === "mcp-widget-write") {
+        if (args.visibility === "public") {
+          fail(
+            "Making this public would make its sub-pages public too. Do it in the app, where the share dialog shows them.",
+            { errorCode: "followers_need_app", statusCode: 403 },
+          );
+        }
+        if (args.role && args.role !== "viewer") {
+          fail(
+            `Giving the organization ${args.role} access here would give it to its sub-pages too. Do it in the app, where the share dialog shows them.`,
+            { errorCode: "followers_need_app", statusCode: 403 },
+          );
+        }
       }
       return found;
     };

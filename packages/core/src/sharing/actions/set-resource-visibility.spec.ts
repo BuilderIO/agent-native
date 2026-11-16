@@ -1790,10 +1790,13 @@ describe("set-resource-visibility public followers", () => {
   });
 
   // A widget ticket granted on the parent alone.
-  const setFromWidget = (visibility: Visibility) =>
+  const setFromWidget = (
+    visibility: Visibility,
+    role?: "viewer" | "commenter" | "editor",
+  ) =>
     as({ userEmail: ownerEmail, orgId }, () =>
       setResourceVisibility.run(
-        { resourceType, resourceId: parent, visibility },
+        { resourceType, resourceId: parent, visibility, role },
         {
           caller: "mcp-widget-write",
           mcpDirectoryWidgetWrite: {
@@ -1840,6 +1843,32 @@ describe("set-resource-visibility public followers", () => {
       [parent]: "private",
       "doc-child": "private",
       "doc-grandchild": "private",
+    });
+    expect(result.followersChanged).toBe(2);
+  });
+
+  it("won't let a widget grant give followers more than view access", async () => {
+    const allPublic = {
+      [parent]: "public",
+      "doc-child": "public",
+      "doc-grandchild": "public",
+    } as const;
+    await insertFamily(allPublic);
+
+    for (const role of ["editor", "commenter"] as const) {
+      await expect(setFromWidget("org", role)).rejects.toThrow(
+        "would give it to its sub-pages too",
+      );
+      expect(await visibilities()).toEqual(allPublic);
+      expect(await db.select().from(docShares)).toEqual([]);
+    }
+
+    // View access only narrows what the public link gave them.
+    const result = await setFromWidget("org", "viewer");
+    expect(await visibilities()).toEqual({
+      [parent]: "org",
+      "doc-child": "org",
+      "doc-grandchild": "org",
     });
     expect(result.followersChanged).toBe(2);
   });
