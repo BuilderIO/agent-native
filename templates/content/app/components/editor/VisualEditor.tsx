@@ -241,6 +241,7 @@ import { imageDisplaySrc } from "./private-media-src";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import {
   clipboardHtmlHasTable,
+  expandColumnSpans,
   parseSpreadsheetText,
   spreadsheetTableSlice,
   spreadsheetTextForSlice,
@@ -477,6 +478,7 @@ const MarkdownPasteDetection = Extension.create({
       new Plugin({
         key: new PluginKey("markdownPasteDetection"),
         props: {
+          transformPastedHTML: expandColumnSpans,
           clipboardTextParser(text, _context, plainText) {
             if (!plainText) {
               const rows = parseSpreadsheetText(text);

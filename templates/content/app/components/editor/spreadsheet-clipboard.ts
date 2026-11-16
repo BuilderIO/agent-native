@@ -112,6 +112,28 @@ export function spreadsheetTableSlice(
   return new Slice(Fragment.from(node), 0, 0);
 }
 
+/**
+ * Excel writes one `<col span="3">` for three columns of the same width, and
+ * a pasted cell takes its width from the `<col>` at its own column's index, so
+ * every column after the first lost its width. One `<col>` per column keeps
+ * them all.
+ */
+export function expandColumnSpans(html: string): string {
+  if (!/<col\b[^>]*\bspan\s*=/i.test(html)) return html;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  for (const col of Array.from(
+    template.content.querySelectorAll("col[span]"),
+  )) {
+    // Browsers cap a column span at 1000. A span that isn't a number adds no
+    // columns.
+    const span = Math.min(Number(col.getAttribute("span")), 1000);
+    col.removeAttribute("span");
+    for (let copy = 1; copy < span; copy++) col.after(col.cloneNode());
+  }
+  return template.innerHTML;
+}
+
 /** Whether a clipboard's HTML holds a table, as a spreadsheet's copy does. */
 export function clipboardHtmlHasTable(clipboardData: DataTransfer) {
   return /<table[\s>]/i.test(clipboardData.getData("text/html"));

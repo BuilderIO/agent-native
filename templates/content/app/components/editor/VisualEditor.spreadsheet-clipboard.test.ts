@@ -149,6 +149,16 @@ function cellTexts(table: ProseMirrorNode) {
   return rows;
 }
 
+function columnWidths(table: ProseMirrorNode) {
+  const rows: unknown[][] = [];
+  table.forEach((row) => {
+    const widths: unknown[] = [];
+    row.forEach((cell) => widths.push(cell.attrs.colwidth));
+    rows.push(widths);
+  });
+  return rows;
+}
+
 function markNames(node: ProseMirrorNode) {
   const names = new Set<string>();
   node.descendants((child) => {
@@ -192,9 +202,10 @@ describe("reading tab-separated text", () => {
 
 describe("pasting cells from a spreadsheet", () => {
   it.each([
-    ["Google Sheets", SHEETS_HTML, SHEETS_TEXT],
-    ["Excel", EXCEL_HTML, EXCEL_TEXT],
-  ])("makes a table from %s", (_source, html, text) => {
+    ["Google Sheets", SHEETS_HTML, SHEETS_TEXT, 100],
+    // Excel gives its three columns one <col span=3>.
+    ["Excel", EXCEL_HTML, EXCEL_TEXT, 64],
+  ])("makes a table from %s", (_source, html, text, columnWidth) => {
     const target = createEditor();
     paste(target, { "text/html": html, "text/plain": text });
 
@@ -204,6 +215,10 @@ describe("pasting cells from a spreadsheet", () => {
     ).toEqual(ROWS);
     // The sheet's font and cell styles stay behind; bold headers may come along.
     expect(markNames(table).filter((name) => name !== "bold")).toEqual([]);
+    // Every column keeps the sheet's width, so they share the page alike.
+    expect(columnWidths(table)).toEqual(
+      ROWS.map((row) => row.map(() => [columnWidth])),
+    );
   });
 
   it("makes a table from tab-separated text with no HTML", () => {
