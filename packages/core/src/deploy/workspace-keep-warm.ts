@@ -49,7 +49,7 @@ export function renderWorkspaceKeepWarmEntry(options: {
   concurrency: number;
   schedule: string;
   /** The workspace's public framework route prefix, `/_agent-native` by default. */
-  frameworkRoutePrefix?: string;
+  frameworkRoutePrefix?: string | undefined;
 }): string {
   return `const HEALTH_PATHS = ${JSON.stringify(workspaceKeepWarmHealthPaths(options.apps, options.frameworkRoutePrefix))};
 // Parallel health requests per app. Requests that overlap land on separate
