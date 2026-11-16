@@ -1753,8 +1753,8 @@ type MigratedComposerProfile = {
 
 function getComposerProfileOwnerKey(options: {
   draftKey: string | null;
-  initialText?: string;
-  initialTextKey?: string | number;
+  initialText?: string | undefined;
+  initialTextKey?: string | number | undefined;
 }): string {
   return JSON.stringify([
     options.draftKey,
@@ -4037,8 +4037,8 @@ function TiptapComposerSurface({
         setSelectedContextItemKey(null);
       }
     },
-    onFocus,
-    onBlur,
+    ...(onFocus ? { onFocus } : {}),
+    ...(onBlur ? { onBlur } : {}),
     editorProps: {
       attributes: {
         "aria-label": ariaLabel ?? resolvedPlaceholder,

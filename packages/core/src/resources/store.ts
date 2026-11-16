@@ -3597,7 +3597,14 @@ export async function resourceMoveIfCurrent(
   } catch (error) {
     // A concurrent insert can win the destination's unique (owner, path) key
     // after the statement snapshot; PostgreSQL then rejects this whole update.
-    if ((error as { code?: unknown })?.code === "23505") return null;
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "23505"
+    ) {
+      return null;
+    }
     throw error;
   }
 

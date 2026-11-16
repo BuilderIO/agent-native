@@ -64,7 +64,9 @@ describe("explicit connector inline apps", () => {
           // oracle-change(packages/core/src/mcp/__snapshots__/hidden-inline-apps.spec.ts.snap): every inline tool now carries its UI resource outside a directory listing.
           catalogs[app.appId] = INLINE_ACTIONS[app.appId]!.map((name) => {
             const tool = tools.find((candidate) => candidate.name === name);
+            // oracle-change: every inline tool now carries its UI resource outside a directory listing, so the scoped-target branch is gone.
             expect(tool, `${app.appId}/${name}`).toBeDefined();
+            // oracle-change: every inline tool now carries its UI resource outside a directory listing, so the scoped-target branch is gone.
             expect(tool?._meta?.ui, `${app.appId}/${name}`).toMatchObject({
               resourceUri: expect.stringMatching(/^ui:\/\//),
             });

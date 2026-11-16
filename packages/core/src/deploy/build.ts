@@ -4522,7 +4522,7 @@ function bareRuntimeImportSpecifiers(
     ...source.matchAll(staticModuleReference),
     ...source.matchAll(dynamicImport),
   ]
-    .map((match) => match[2])
+    .map((match) => match.at(2))
     .filter((specifier): specifier is string => specifier !== undefined);
 }
 
