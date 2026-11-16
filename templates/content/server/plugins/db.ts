@@ -1782,6 +1782,11 @@ export const runContentMigrations = runMigrations(
       // (iso-time-defaults.db.test.ts checks every column).
       sql: isoTimeDefaultsSql(DATABASE_STAMPED_TIMES),
     },
+    {
+      version: 139,
+      name: "content-comment-attachments",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS attachments_json TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

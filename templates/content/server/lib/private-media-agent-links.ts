@@ -47,7 +47,7 @@ export interface PrivateMediaAgentLinks {
   expiresAt: string;
   /**
    * Each private image the page shows, in its body, a property value or a
-   * Blocks field, by the link stored there.
+   * Blocks field, or on one of its comments, by the link stored there.
    */
   links: Array<{ src: string; url: string }>;
   /** How many more of its images got no link: one read links at most 200. */
@@ -96,10 +96,47 @@ export async function privateMediaAgentLinks(input: {
       ),
     );
   const bound = new Set(rows.map((row) => row.mediaId));
-  const shown = ids.filter((id) => bound.has(id));
+  return agentLinksTo(
+    ids.filter((id) => bound.has(id)),
+    input.origin,
+  );
+}
+
+/**
+ * Expiring links to the images on a page's comments, for a reader that can't
+ * send Content's sign-in cookie. The caller must already have checked that
+ * the reader can read `documentId`. Links come only while the page is live,
+ * as the browser would load them only then.
+ */
+export async function commentImageAgentLinks(input: {
+  documentId: string;
+  mediaIds: Iterable<string>;
+  origin?: string;
+}): Promise<PrivateMediaAgentLinks | undefined> {
+  const ids = [...new Set(input.mediaIds)];
+  if (ids.length === 0) return undefined;
+  // guard:allow-unscoped — the caller checked the reader can read the page; this reads only whether it is live.
+  const live = await getDb()
+    .select({ id: schema.documents.id })
+    .from(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.id, input.documentId),
+        isNull(schema.documents.trashedAt),
+        ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
+      ),
+    )
+    .limit(1);
+  return live.length ? agentLinksTo(ids, input.origin) : undefined;
+}
+
+function agentLinksTo(
+  shown: readonly string[],
+  requestOrigin: string | undefined,
+): PrivateMediaAgentLinks | undefined {
   if (shown.length === 0) return undefined;
   const linked = shown.slice(0, MAX_AGENT_LINKS);
-  const origin = input.origin ?? getRequestContext()?.requestOrigin;
+  const origin = requestOrigin ?? getRequestContext()?.requestOrigin;
   const basePath = getConfiguredAppBasePath();
   const expiresAt = new Date(
     Date.now() + PRIVATE_MEDIA_AGENT_LINK_TTL_SECONDS * 1000,

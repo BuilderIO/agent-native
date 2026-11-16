@@ -1845,6 +1845,18 @@ const overrides = {
     agentBadge: "एजेंट",
     addEmoji: "इमोजी जोड़ें",
     mentionSomeone: "किसी का उल्लेख करें",
+    attachImage: "इमेज जोड़ें",
+    removeImage: "इमेज हटाएं",
+    uploadingImage: "इमेज अपलोड हो रही है…",
+    imageUploadFailed: "इमेज अपलोड नहीं हो सकी। फिर से कोशिश करें।",
+    imageTypeUnsupported:
+      "टिप्पणी में PNG, JPEG, GIF या WebP इमेज ही जोड़ी जा सकती हैं।",
+    imageTooLarge: "हर इमेज 10 MB तक की हो सकती है।",
+    imageLimit: "एक टिप्पणी में अधिकतम {{count}} इमेज हो सकती हैं।",
+    imagesNeedStorage:
+      "इमेज के लिए निजी फ़ाइल स्टोरेज चाहिए, जो इस वर्कस्पेस ने कनेक्ट नहीं किया है।",
+    commentImages: "इमेज",
+    openImage: "इमेज खोलें: {{name}}",
     mentionPeople: "लोग",
     mentionPeopleLoadFailed: "लोगों को लोड नहीं किया जा सका।",
     mentionAgents: "एजेंट",

@@ -6,19 +6,15 @@ import {
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
-  IconArrowsMinimize,
   IconCopy,
   IconDownload,
   IconDots,
   IconHierarchy2,
   IconLoader2,
   IconMessageCircle,
-  IconMinus,
   IconPhoto,
-  IconPlus,
   IconRefresh,
   IconTrash,
   IconX,
@@ -35,13 +31,7 @@ import { toast } from "sonner";
 
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -63,6 +53,7 @@ import {
   useFinishedImageUpload,
   useImageUploadPreview,
 } from "../image-upload-previews";
+import { downloadImage, ImageLightbox } from "../ImageLightbox";
 import { imageDisplaySrc } from "../private-media-src";
 import { storedBodyImageFailed } from "../stored-body-images";
 import type { ContentImageOptions } from "./ImageNode";
@@ -222,55 +213,6 @@ function normalizedImageWidth(value: unknown): number | null {
 
 function clampImageWidth(width: number, maxWidth: number): number {
   return Math.round(Math.min(Math.max(width, MIN_IMAGE_WIDTH), maxWidth));
-}
-
-function imageDownloadName(src: string, alt: string): string {
-  const cleanAlt = alt.trim().replace(/[^a-z0-9._-]+/gi, "-");
-  if (cleanAlt) return cleanAlt.toLowerCase();
-
-  try {
-    const pathname = new URL(src).pathname;
-    const name = pathname.split("/").filter(Boolean).pop();
-    if (name) return decodeURIComponent(name);
-  } catch {}
-
-  return "image";
-}
-
-async function downloadImage(
-  src: string,
-  alt: string,
-  copy: {
-    started: string;
-    opened: string;
-  },
-) {
-  const filename = imageDownloadName(src, alt);
-
-  try {
-    const response = await fetch(src);
-    if (!response.ok) throw new Error("Download failed");
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-    toast.success(copy.started);
-  } catch {
-    const anchor = document.createElement("a");
-    anchor.href = src;
-    anchor.download = filename;
-    anchor.target = "_blank";
-    anchor.rel = "noopener noreferrer";
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    toast.info(copy.opened);
-  }
 }
 
 async function blobToPng(blob: Blob): Promise<Blob> {
@@ -549,12 +491,10 @@ export function ImageBlock({
   const [altDraft, setAltDraft] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [lightboxZoomed, setLightboxZoomed] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [isGeneratingAlt, setIsGeneratingAlt] = useState(false);
   const altInputRef = useRef<HTMLInputElement>(null);
   const emptyBlockRef = useRef<HTMLDivElement>(null);
-  const lightboxImageRef = useRef<HTMLImageElement>(null);
   const mediaBlockRef = useRef<HTMLDivElement>(null);
   const resizeStateRef = useRef<ImageResizeState | null>(null);
   const assetsPickerRef = useRef<EmbeddedAppRef | null>(null);
@@ -684,39 +624,9 @@ export function ImageBlock({
     setSourcePanelDismissed(true);
   }
 
-  function handleLightboxOpenChange(open: boolean) {
-    setLightboxOpen(open);
-    if (!open) {
-      setLightboxZoomed(false);
-    }
-  }
-
   function openLightbox() {
     setSourcePanelOpen(false);
-    setLightboxZoomed(false);
     setLightboxOpen(true);
-  }
-
-  function handleLightboxViewportPointerDown(
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
-    const image = lightboxImageRef.current;
-    if (!image) return;
-
-    const imageRect = image.getBoundingClientRect();
-    const rootFontSize = Number.parseFloat(
-      window.getComputedStyle(document.documentElement).fontSize,
-    );
-    const closeBuffer = 4 * (Number.isFinite(rootFontSize) ? rootFontSize : 16);
-    const isFarOutsideImage =
-      event.clientX < imageRect.left - closeBuffer ||
-      event.clientX > imageRect.right + closeBuffer || // i18n-ignore non-copy geometry expression
-      event.clientY < imageRect.top - closeBuffer ||
-      event.clientY > imageRect.bottom + closeBuffer;
-
-    if (isFarOutsideImage) {
-      handleLightboxOpenChange(false);
-    }
   }
 
   function updateAltText(nextAlt: string) {
@@ -1742,95 +1652,12 @@ export function ImageBlock({
         {isEditable && sourcePanelOpen ? renderSourcePanel(true) : null}
         {renderAssetsPickerDialog()}
 
-        <Dialog open={lightboxOpen} onOpenChange={handleLightboxOpenChange}>
-          <DialogPortal>
-            <DialogOverlay className="media-lightbox__overlay" />
-            <DialogPrimitive.Content
-              className="media-lightbox"
-              aria-describedby={undefined}
-              onOpenAutoFocus={(event) => event.preventDefault()}
-            >
-              <DialogTitle className="sr-only">
-                {t("editor.media.imagePreview")}
-              </DialogTitle>
-              <div
-                className="media-lightbox__viewport"
-                onPointerDown={handleLightboxViewportPointerDown}
-              >
-                <button
-                  type="button"
-                  className="media-lightbox__image-button"
-                  data-zoomed={lightboxZoomed ? "true" : undefined}
-                  aria-label={
-                    lightboxZoomed
-                      ? t("editor.media.zoomImageOut")
-                      : t("editor.media.zoomImageIn")
-                  }
-                  aria-pressed={lightboxZoomed}
-                  onClick={() => setLightboxZoomed((zoomed) => !zoomed)}
-                >
-                  <img
-                    ref={lightboxImageRef}
-                    src={displaySrc}
-                    alt={alt || ""}
-                    className="media-lightbox__image"
-                    draggable={false}
-                  />
-                </button>
-              </div>
-
-              <div
-                className="media-lightbox__toolbar"
-                aria-label={t("editor.media.imageView")}
-              >
-                <button
-                  type="button"
-                  className="media-lightbox__toolbar-btn"
-                  aria-label={t("editor.media.zoomOut")}
-                  disabled={!lightboxZoomed}
-                  onClick={() => setLightboxZoomed(false)}
-                >
-                  <IconMinus size={17} />
-                </button>
-                <span className="media-lightbox__zoom-value">
-                  {lightboxZoomed ? "150%" : "100%"}
-                </span>
-                <button
-                  type="button"
-                  className="media-lightbox__toolbar-btn"
-                  aria-label={t("editor.media.zoomIn")}
-                  disabled={lightboxZoomed}
-                  onClick={() => setLightboxZoomed(true)}
-                >
-                  <IconPlus size={17} />
-                </button>
-                <span className="media-lightbox__separator" aria-hidden />
-                <button
-                  type="button"
-                  className="media-lightbox__toolbar-btn"
-                  aria-label={t("editor.media.downloadImage")}
-                  onClick={() =>
-                    void downloadImage(displaySrc, alt, {
-                      started: t("editor.media.imageDownloadStarted"),
-                      opened: t("editor.media.openedImageInNewTab"),
-                    })
-                  }
-                >
-                  <IconDownload size={17} />
-                </button>
-                <span className="media-lightbox__separator" aria-hidden />
-                <button
-                  type="button"
-                  className="media-lightbox__toolbar-btn"
-                  aria-label={t("editor.media.closeImagePreview")}
-                  onClick={() => handleLightboxOpenChange(false)}
-                >
-                  <IconArrowsMinimize size={17} />
-                </button>
-              </div>
-            </DialogPrimitive.Content>
-          </DialogPortal>
-        </Dialog>
+        <ImageLightbox
+          open={lightboxOpen}
+          onOpenChange={setLightboxOpen}
+          src={displaySrc}
+          alt={alt || ""}
+        />
       </div>
     </NodeViewWrapper>
   );

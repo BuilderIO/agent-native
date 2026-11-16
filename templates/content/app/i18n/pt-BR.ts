@@ -1930,6 +1930,18 @@ const overrides = {
     agentBadge: "Agente",
     addEmoji: "Adicionar emoji",
     mentionSomeone: "Mencionar alguém",
+    attachImage: "Adicionar imagem",
+    removeImage: "Remover imagem",
+    uploadingImage: "Enviando imagem…",
+    imageUploadFailed: "Não foi possível enviar a imagem. Tente de novo.",
+    imageTypeUnsupported:
+      "Um comentário aceita imagens PNG, JPEG, GIF ou WebP.",
+    imageTooLarge: "Cada imagem pode ter até 10 MB.",
+    imageLimit: "Um comentário comporta até {{count}} imagens.",
+    imagesNeedStorage:
+      "Imagens precisam de armazenamento privado de arquivos, que este espaço de trabalho não conectou.",
+    commentImages: "Imagens",
+    openImage: "Abrir imagem: {{name}}",
     mentionPeople: "Pessoas",
     mentionPeopleLoadFailed: "Não foi possível carregar as pessoas.",
     mentionAgents: "Agentes",

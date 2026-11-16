@@ -322,11 +322,12 @@ async function uploadMediaFile(
 /**
  * Uploads an image. With a target page, the image is stored privately and
  * only that page's readers can load it; without one it goes to the
- * workspace's file storage at a public URL.
+ * workspace's file storage at a public URL. A comment's image (`purpose:
+ * "comment"`) needs only comment access to the page.
  */
 export async function uploadImageFile(
   file: File,
-  target?: { documentId: string } | null,
+  target?: { documentId: string; purpose?: "comment" } | null,
 ): Promise<string> {
   const normalized = normalizeImageFile(file);
   if (!normalized) throw new Error("Only image files can be uploaded.");
@@ -335,6 +336,7 @@ export async function uploadImageFile(
   const form = new FormData();
   form.append("file", normalized, normalized.name || "image");
   form.append("documentId", target.documentId);
+  if (target.purpose) form.append("purpose", target.purpose);
   const response = await fetch(appApiPath("/api/private-media"), {
     method: "POST",
     credentials: "include",

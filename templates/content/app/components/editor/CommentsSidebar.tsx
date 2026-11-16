@@ -35,6 +35,7 @@ import type { DocumentProperty } from "@shared/api";
 import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import type { CommentAiRequest } from "@shared/comment-ai";
 import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
+import type { CommentImage } from "@shared/comment-images";
 import {
   commentMentionsForText,
   findCommentMentions,
@@ -87,6 +88,7 @@ import {
   commentThreadQuote,
 } from "./comment-block-anchors";
 import {
+  draftImages,
   draftMention,
   useCommentDraft,
   useCommentDraftContext,
@@ -973,6 +975,8 @@ export function useCommentReplyDrafts(
     },
     setMentions: (threadId: string, mentions: MentionEntry[]) =>
       update(threadId, (draft) => ({ ...draft, mentions })),
+    setImages: (threadId: string, images: CommentImage[]) =>
+      update(threadId, (draft) => ({ ...draft, images })),
     setAiDraft: (threadId: string, aiDraft: CommentAiDraft | null) =>
       update(threadId, (draft) => ({ ...draft, aiDraft })),
     clear: (threadId: string) =>
@@ -1069,6 +1073,7 @@ export function usePendingCommentDraft(documentId: string) {
           current.current.submitting ||
           text.trim() ||
           mentions.length ||
+          draftImages(pendingDraftRef.current.draft).length ||
           aiDraft
         )
           return;
@@ -2329,6 +2334,7 @@ export function CommentsSidebar({
                       : {}),
                   }),
             mentions: mentionsJsonFor(pendingText, pendingMentions, agent),
+            attachments: draftImages(pendingDraft.draft),
           });
       pendingDraft.finishSubmission(clientOperationId);
       setPendingHandoff(null);
@@ -2432,6 +2438,7 @@ export function CommentsSidebar({
         documentId,
         content: text,
         mentions,
+        attachments: draftImages(pageDraft.draft),
       });
       pageDraft.finishSubmission(clientOperationId);
       keepPostedThread(result.threadId);
@@ -2477,8 +2484,9 @@ export function CommentsSidebar({
       agent,
     }: { holdDraft?: boolean; agent?: CommentAiSelection } = {},
   ): Promise<{ id: string; operationId: string } | null> => {
-    const { text: replyText, mentions: replyMentions } =
-      replyDrafts.get(threadId);
+    const replyDraft = replyDrafts.get(threadId);
+    const { text: replyText, mentions: replyMentions } = replyDraft;
+    const replyImages = draftImages(replyDraft);
     if (!canComment) return null;
     if (
       !replyText.trim() ||
@@ -2498,7 +2506,10 @@ export function CommentsSidebar({
       content: replyText.trim(),
       ...(thread.clip
         ? {}
-        : { mentions: mentionsJsonFor(replyText, replyMentions, agent) }),
+        : {
+            mentions: mentionsJsonFor(replyText, replyMentions, agent),
+            ...(replyImages.length ? { attachments: replyImages } : {}),
+          }),
     });
     const retryId = replyDrafts.retryOperationId(threadId, payload);
     const clientOperationId = retryId ?? crypto.randomUUID();
@@ -2518,6 +2529,7 @@ export function CommentsSidebar({
             threadId,
             parentId: thread.comments[0]?.id,
             mentions: mentionsJsonFor(replyText, replyMentions, agent),
+            attachments: replyImages,
           });
       if (!holdDraft) replyDrafts.finishSubmission(clientOperationId);
       return { id: created.id, operationId: clientOperationId };
@@ -3502,6 +3514,12 @@ export function CommentsSidebar({
         isReplySubmitting={replyDrafts.isSubmitting(thread.threadId)}
         replyText={replyDrafts.get(thread.threadId).text}
         replyMentions={replyDrafts.get(thread.threadId).mentions}
+        replyImages={draftImages(replyDrafts.get(thread.threadId))}
+        onReplyImagesChange={
+          thread.clip
+            ? undefined
+            : (images) => replyDrafts.setImages(thread.threadId, images)
+        }
         aiDraft={replyDrafts.get(thread.threadId).aiDraft}
         onHoverChange={(hovered) =>
           onHoveredThreadChange?.(hovered ? thread.threadId : null)
@@ -4090,6 +4108,9 @@ export function CommentsSidebar({
           onChange={pageDraft.setText}
           mentions={pageDraft.draft.mentions}
           onMentionsChange={pageDraft.setMentions}
+          documentId={documentId}
+          images={draftImages(pageDraft.draft)}
+          onImagesChange={pageDraft.setImages}
           aiDraft={pageDraft.draft.aiDraft}
           onAiDraftChange={pageDraft.setAiDraft}
           aiModelStorageKey={aiModelStorageKey}
@@ -4361,6 +4382,13 @@ export function CommentsSidebar({
                       mentions,
                     }))
                   }
+                  images={draftImages(pendingDraft.draft)}
+                  onImagesChange={
+                    displayedPendingComment.clip
+                      ? undefined
+                      : pendingDraft.setImages
+                  }
+                  imageDocumentId={documentId}
                   onSubmit={() => void handlePendingSubmit()}
                   onAiSubmit={
                     commentAi && !displayedPendingComment.clip
@@ -4373,7 +4401,11 @@ export function CommentsSidebar({
                   aiSuggestOnly={Boolean(displayedPendingComment.fieldId)}
                   onCancel={handlePendingCancel}
                   onEscape={handlePendingCancel}
-                  confirmEscape={pendingText.trim() ? "comment" : false}
+                  confirmEscape={
+                    pendingText.trim() || draftImages(pendingDraft.draft).length
+                      ? "comment"
+                      : false
+                  }
                   onFocus={() => {
                     const selection = pendingInputRef.current?.getSelection();
                     if (selection && pendingFocus)
@@ -5295,6 +5327,8 @@ function ThreadView({
   timeLabel,
   replyText,
   replyMentions,
+  replyImages,
+  onReplyImagesChange,
   aiDraft,
   onHoverChange,
   onExpand,
@@ -5360,6 +5394,9 @@ function ThreadView({
   timeLabel?: string;
   replyText: string;
   replyMentions: readonly MentionEntry[];
+  /** The reply's images; with `onReplyImagesChange`, the box takes them. */
+  replyImages?: readonly CommentImage[];
+  onReplyImagesChange?: (images: CommentImage[]) => void;
   aiDraft?: CommentAiDraft | null;
   onHoverChange: (hovered: boolean) => void;
   onExpand: () => void;
@@ -5845,6 +5882,9 @@ function ThreadView({
             onChange={onReplyChange}
             mentions={replyMentions}
             onMentionsChange={onReplyMentionsChange}
+            images={replyImages}
+            onImagesChange={onReplyImagesChange}
+            imageDocumentId={documentId}
             onSubmit={() => void submitReply()}
             onAiSubmit={onAiSubmit}
             aiDraft={aiDraft}
@@ -5858,7 +5898,9 @@ function ThreadView({
               requestAnimationFrame(() => cardRef.current?.focus());
             }}
             confirmEscape={
-              replyText.trim() && !isReplySubmitting ? "reply" : false
+              (replyText.trim() || replyImages?.length) && !isReplySubmitting
+                ? "reply"
+                : false
             }
             onFocus={() => {
               const selection = replyInputRef.current?.getSelection();

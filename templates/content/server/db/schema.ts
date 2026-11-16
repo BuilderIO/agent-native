@@ -332,6 +332,12 @@ export const documentComments = table(
      * `claude-code`, on a comment it posted over MCP.
      */
     authorClient: text("author_client"),
+    /**
+     * The comment's images, as a JSON list of `{ url, name, contentType }`
+     * in the shape the shared Comments & Review Kit keeps. Each link is a
+     * private image the author uploaded to this page; null means none.
+     */
+    attachmentsJson: text("attachments_json"),
     resolved: integer("resolved").notNull().default(0),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),

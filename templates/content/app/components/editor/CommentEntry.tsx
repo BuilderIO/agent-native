@@ -25,10 +25,11 @@ import {
 } from "@/hooks/use-comments";
 
 import { AgentAvatar, modelDisplayName } from "./agent-identity";
-import { draftMention, useCommentDraft } from "./comment-drafts";
+import { draftImages, draftMention, useCommentDraft } from "./comment-drafts";
 import { CommentComposer } from "./CommentComposer";
 import { CommentConfirmDialog } from "./CommentConfirmDialog";
 import type { CommentIdentity } from "./CommentIdentity";
+import { CommentImages } from "./CommentImages";
 import { AddReactionButton, CommentReactionChips } from "./CommentReactions";
 import {
   CommentAgentBadge,
@@ -210,10 +211,12 @@ export function CommentEntry({
   );
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const savedImages = comment.attachments ?? [];
   const initialDraft = {
     text: comment.content,
     mentions: comment.mentions,
     aiDraft: null,
+    images: savedImages,
   };
   const draft = useCommentDraft(`edit:${comment.id}`, initialDraft);
   const inputRef = useRef<TiptapComposerHandle>(null);
@@ -359,6 +362,7 @@ export function CommentEntry({
         anchorSuffix: comment.anchor_suffix ?? undefined,
         anchorStartOffset: comment.anchor_start_offset ?? undefined,
         mentions: JSON.stringify(comment.mentions),
+        attachments: comment.attachments,
       });
       setCheckedUnresolvedOperationId(null);
       onCreatedCommentConfirmed?.(operationId);
@@ -381,8 +385,11 @@ export function CommentEntry({
   };
   // Compared as a save would store them: the editor reports a mention per
   // pill, the stored comment one per name.
+  const imagesEdited =
+    JSON.stringify(draftImages(draft.draft)) !== JSON.stringify(savedImages);
   const edited =
     draft.draft.text.trim() !== comment.content.trim() ||
+    imagesEdited ||
     commentMentionsForText(
       draft.draft.text,
       draft.draft.mentions.map(draftMention),
@@ -407,6 +414,8 @@ export function CommentEntry({
                 submitted.text,
                 submitted.mentions.map(draftMention),
               ) ?? "[]",
+            // Sent only when they changed, so a text edit never touches them.
+            ...(imagesEdited ? { attachments: draftImages(submitted) } : {}),
           },
           {
             onSuccess: close,
@@ -641,6 +650,9 @@ export function CommentEntry({
             onChange={draft.setText}
             mentions={draft.draft.mentions}
             onMentionsChange={draft.setMentions}
+            images={draftImages(draft.draft)}
+            onImagesChange={draft.setImages}
+            imageDocumentId={documentId}
             onSubmit={save}
             onEscape={cancel}
             confirmEscape={edited && !edit.isPending ? "edit" : false}
@@ -651,7 +663,10 @@ export function CommentEntry({
           />
         </div>
       ) : (
-        (body ?? renderCommentBody(comment.content, comment.mentions))
+        <>
+          {body ?? renderCommentBody(comment.content, comment.mentions)}
+          <CommentImages images={savedImages} />
+        </>
       )}
     </CommentRow>
   );

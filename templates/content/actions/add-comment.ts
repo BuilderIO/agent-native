@@ -18,6 +18,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveCommentBlocksField } from "../server/lib/comment-blocks-field.js";
+import { attachableCommentImages } from "../server/lib/comment-images.js";
 import {
   assertMentionsInText,
   submittedCommentMentions,
@@ -30,6 +31,10 @@ import {
   nfmCommentAnchorBlocks,
   type CommentAnchorBlockType,
 } from "../shared/comment-block-anchor.js";
+import {
+  MAX_COMMENT_IMAGES,
+  serializeStoredCommentImages,
+} from "../shared/comment-images.js";
 import {
   personMentions,
   readStoredCommentMentions,
@@ -138,6 +143,13 @@ const commentSchema = z.object({
     .optional()
     .describe(
       'JSON-encoded mentions, one per @name in text order (one entry covers a person named again). People: {"email":"a@x.com","name":"A"}; agents: {"kind":"agent","model":"<model id>","name":"<label>"}. A malformed list, or an entry no @name in the text reaches, is rejected with a 400.',
+    ),
+  attachments: z
+    .array(z.unknown())
+    .max(MAX_COMMENT_IMAGES)
+    .optional()
+    .describe(
+      `Up to ${MAX_COMMENT_IMAGES} images, each { url, name, contentType } as uploaded to this page through the comment box, which only a signed-in person can do. Each must be one the caller uploaded to this page.`,
     ),
 });
 
@@ -374,6 +386,13 @@ export async function addCommentWithGuard(
   const mentions = submittedCommentMentions(args.mentions ?? []);
   assertMentionsInText(content, mentions);
   const mentionsJson = serializeStoredCommentMentions(mentions);
+  const images = args.attachments?.length
+    ? await attachableCommentImages({
+        documentId,
+        userEmail: email,
+        images: args.attachments,
+      })
+    : [];
   const submissionSource = commentSubmissionSource(ctx?.caller);
   const submissionRunId = ctx?.runId ?? null;
   const submissionThreadId =
@@ -503,6 +522,7 @@ export async function addCommentWithGuard(
     blockId: blockId ?? null,
     blockType,
     mentionsJson,
+    attachmentsJson: serializeStoredCommentImages(images),
     authorEmail: email,
     authorName: name,
     submissionSource,
@@ -675,6 +695,7 @@ export async function addCommentWithGuard(
     submissionSource,
     content,
     mentions: personMentions(mentions),
+    imageCount: images.length,
     isReply: Boolean(parentId ?? args.threadId),
   });
 

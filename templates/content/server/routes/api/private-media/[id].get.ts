@@ -17,13 +17,15 @@ import {
   setResponseHeader,
 } from "h3";
 
+import { canReadPrivateMediaThroughComment } from "../../../lib/comment-images.js";
 import { agentLinkOpensPrivateMedia } from "../../../lib/private-media-agent-links.js";
 import { canReadPrivateMediaThroughDocument } from "../../../lib/private-media-references.js";
 
 /**
  * Serves a private image to someone who can view a live page that carries it,
- * to its uploader, or to anyone holding an unexpired agent link to it. Every
- * refusal is the same 404, so the route never says whether an image exists.
+ * in its content or on one of its comments, to its uploader, or to anyone
+ * holding an unexpired agent link to it. Every refusal is the same 404, so
+ * the route never says whether an image exists.
  */
 const RESPONSE_HEADERS = {
   "Cache-Control": "private, no-store",
@@ -54,6 +56,7 @@ export default defineEventHandler(async (event) => {
       const readable =
         (typeof token === "string" && agentLinkOpensPrivateMedia(token, id)) ||
         (await canReadPrivateMediaThroughDocument(id)) ||
+        (await canReadPrivateMediaThroughComment(id)) ||
         (await ownsPrivateMedia(id, session?.email));
       if (!readable) throw notFound();
       const opened = await openPrivateMediaForAuthorizedReader(id);

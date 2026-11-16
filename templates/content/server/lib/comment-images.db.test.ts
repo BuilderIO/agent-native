@@ -1,0 +1,349 @@
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import {
+  privateMedia,
+  privateMediaStore,
+} from "@agent-native/core/private-media";
+import { runWithRequestContext } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
+import { H3 } from "h3";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+const owners = vi.hoisted(() => new Map<string, string>());
+const session = vi.hoisted(() => ({ email: "" }));
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
+  getSession: async () => (session.email ? { email: session.email } : null),
+}));
+vi.mock("@agent-native/core/private-media", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/private-media")
+  >()),
+  ownsPrivateMedia: async (id: string, email: string | null | undefined) =>
+    !!email && owners.get(id) === email.trim().toLowerCase(),
+  openPrivateMediaForAuthorizedReader: async (id: string) => {
+    const ownerEmail = owners.get(id);
+    if (!ownerEmail) return null;
+    return {
+      kind: "bytes",
+      media: {
+        id,
+        ownerEmail,
+        orgId: null,
+        mimeType: "image/png",
+        filename: null,
+        size: 3,
+        createdAt: 0,
+      },
+      data: new Uint8Array([1, 2, 3]),
+    };
+  },
+}));
+vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/creative-context/server")
+  >()),
+  getGenerationCreativeContext: vi.fn(async () => null),
+}));
+vi.mock("./comment-notifications.js", () => ({
+  notifyDocumentComment: vi.fn(async () => undefined),
+  notifyEditedCommentMentions: vi.fn(async () => undefined),
+}));
+
+const TEST_DB_PATH = join(
+  tmpdir(),
+  `content-comment-images-${process.pid}-${Date.now()}.pglite`,
+);
+const OWNER = "page-owner@example.test";
+const COMMENTER = "page-commenter@example.test";
+const VIEWER = "page-viewer@example.test";
+const OTHER = "someone-else@example.test";
+
+let db: ReturnType<typeof import("../db/index.js").getDb>;
+let schema: typeof import("../db/schema.js");
+let images: typeof import("./comment-images.js");
+let bindUploadedPrivateMedia: typeof import("./private-media-references.js").bindUploadedPrivateMedia;
+let addComment: typeof import("../../actions/add-comment.js").default;
+let updateComment: typeof import("../../actions/update-comment.js").default;
+let listComments: typeof import("../../actions/list-comments.js").default;
+let readMedia: H3["request"];
+let count = 0;
+
+function mediaId() {
+  return `21111111-1111-4111-8111-2${String(++count).padStart(11, "0")}`;
+}
+
+function image(id: string) {
+  return {
+    url: `/api/private-media/${id}`,
+    name: "shot.png",
+    contentType: "image/png",
+  };
+}
+
+/** An upload by `ownerEmail` through the comment box of `documentId`. */
+async function uploaded(ownerEmail: string, documentId: string) {
+  const id = mediaId();
+  owners.set(id, ownerEmail);
+  await db.insert(privateMedia).values({
+    id,
+    ownerEmail,
+    mimeType: "image/png",
+    size: 3,
+    sha256: "0",
+    blobHandleJson: "{}",
+    createdAt: 0,
+  });
+  await bindUploadedPrivateMedia({ documentId, mediaId: id });
+  return id;
+}
+
+async function page() {
+  const id = `comment-images-doc-${++count}`;
+  await db.insert(schema.documents).values({
+    id,
+    ownerEmail: OWNER,
+    orgId: null,
+    title: "Comment images",
+    content: "Some text",
+    visibility: "private",
+  });
+  for (const [principalId, role] of [
+    [COMMENTER, "commenter"],
+    [VIEWER, "viewer"],
+  ] as const) {
+    await db.insert(schema.documentShares).values({
+      id: `comment-images-share-${++count}`,
+      resourceId: id,
+      principalType: "user",
+      principalId,
+      role,
+      createdBy: OWNER,
+    });
+  }
+  return id;
+}
+
+async function as<T>(userEmail: string, run: () => T | Promise<T>): Promise<T> {
+  return runWithRequestContext(
+    { userEmail, requestOrigin: "https://content.test" },
+    run,
+  );
+}
+
+function comment(
+  userEmail: string,
+  documentId: string,
+  attachments: unknown[],
+) {
+  return as(userEmail, () =>
+    addComment.run({
+      documentId,
+      content: "Here's what I see",
+      attachments,
+    }),
+  );
+}
+
+async function storedImages(commentId: string) {
+  const [row] = await db
+    .select({ attachmentsJson: schema.documentComments.attachmentsJson })
+    .from(schema.documentComments)
+    .where(eq(schema.documentComments.id, commentId));
+  return row.attachmentsJson;
+}
+
+async function status(id: string, email = "") {
+  session.email = email;
+  try {
+    return (await readMedia(`http://content.test/media/${id}`)).status;
+  } finally {
+    session.email = "";
+  }
+}
+
+beforeAll(async () => {
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
+  const module = await import("../db/index.js");
+  db = module.getDb();
+  schema = module.schema;
+  images = await import("./comment-images.js");
+  ({ bindUploadedPrivateMedia } =
+    await import("./private-media-references.js"));
+  addComment = (await import("../../actions/add-comment.js")).default;
+  updateComment = (await import("../../actions/update-comment.js")).default;
+  listComments = (await import("../../actions/list-comments.js")).default;
+  const plugin = (await import("../plugins/db.js")).default;
+  await plugin(undefined as never);
+  await privateMediaStore.ready();
+  const route = (await import("../routes/api/private-media/[id].get.js"))
+    .default;
+  const app = new H3();
+  app.get("/media/:id", route);
+  readMedia = app.request.bind(app);
+}, 60_000);
+
+afterAll(() => rmSync(TEST_DB_PATH, { recursive: true, force: true }));
+
+describe("comment images", () => {
+  it("shows a commenter's screenshot to the page's readers and no one else", async () => {
+    const doc = await page();
+    const id = await uploaded(COMMENTER, doc);
+    // Before the comment is posted, only the uploader can load it.
+    expect(await status(id, VIEWER)).toBe(404);
+    expect(await status(id, COMMENTER)).toBe(200);
+
+    const created = await comment(COMMENTER, doc, [image(id)]);
+    expect(await status(id, VIEWER)).toBe(200);
+    expect(await status(id, OWNER)).toBe(200);
+    expect(await status(id, OTHER)).toBe(404);
+    expect(await status(id)).toBe(404);
+
+    const listed = await as(VIEWER, () =>
+      listComments.run({ documentId: doc }, { caller: "frontend" }),
+    );
+    expect(
+      listed.comments.find((row: { id: string }) => row.id === created.id)
+        ?.attachments,
+    ).toEqual([image(id)]);
+    expect(listed.privateMediaLinks).toBeUndefined();
+  });
+
+  it("gives an agent reading the comments a link that opens each image", async () => {
+    const doc = await page();
+    const id = await uploaded(COMMENTER, doc);
+    await comment(COMMENTER, doc, [image(id)]);
+    const listed = await as(VIEWER, () =>
+      listComments.run({ documentId: doc }, { caller: "mcp" }),
+    );
+    expect(listed.privateMediaLinks.links).toEqual([
+      {
+        src: `/api/private-media/${id}`,
+        url: expect.stringContaining(`/api/private-media/${id}?`),
+      },
+    ]);
+  });
+
+  it("stops showing it once the comment is deleted or the page is in Trash", async () => {
+    const deleted = await page();
+    const gone = await uploaded(COMMENTER, deleted);
+    const created = await comment(COMMENTER, deleted, [image(gone)]);
+    expect(await status(gone, VIEWER)).toBe(200);
+    await db
+      .delete(schema.documentComments)
+      .where(eq(schema.documentComments.id, created.id));
+    expect(await status(gone, VIEWER)).toBe(404);
+    expect(await status(gone, COMMENTER)).toBe(200);
+
+    const trashed = await page();
+    const hidden = await uploaded(COMMENTER, trashed);
+    await comment(COMMENTER, trashed, [image(hidden)]);
+    await db
+      .update(schema.documents)
+      .set({ trashedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, trashed));
+    expect(await status(hidden, VIEWER)).toBe(404);
+    expect(await status(hidden, OWNER)).toBe(404);
+  });
+
+  it("opens nothing through a comment row filed under another owner", async () => {
+    const doc = await page();
+    const id = await uploaded(OTHER, doc);
+    await db.insert(schema.documentComments).values({
+      id: `comment-images-forged-${++count}`,
+      documentId: doc,
+      threadId: `comment-images-forged-${count}`,
+      content: "Forged",
+      authorEmail: OTHER,
+      ownerEmail: OTHER,
+      attachmentsJson: JSON.stringify([image(id)]),
+    });
+    expect(await status(id, VIEWER)).toBe(404);
+  });
+
+  it("attaches only images the writer uploaded to this page", async () => {
+    const doc = await page();
+    const elsewhere = await page();
+    const ownersImage = await uploaded(OWNER, doc);
+    const otherPagesImage = await uploaded(COMMENTER, elsewhere);
+    for (const attachments of [
+      [image(ownersImage)],
+      [image(otherPagesImage)],
+      [image(mediaId())],
+    ]) {
+      await expect(comment(COMMENTER, doc, attachments)).rejects.toMatchObject({
+        errorCode: "comment_image_not_attachable",
+      });
+    }
+    await expect(
+      comment(COMMENTER, doc, [{ url: "https://tracker.test/pixel.png" }]),
+    ).rejects.toMatchObject({ errorCode: "comment_image_invalid" });
+    expect(await status(ownersImage, COMMENTER)).toBe(404);
+
+    // Repeats count once; more than five is refused.
+    const repeated = await uploaded(COMMENTER, doc);
+    const own = [
+      repeated,
+      ...(await Promise.all(
+        Array.from({ length: 5 }, () => uploaded(COMMENTER, doc)),
+      )),
+    ];
+    await expect(
+      as(COMMENTER, () =>
+        images.attachableCommentImages({
+          documentId: doc,
+          userEmail: COMMENTER,
+          images: [image(repeated), image(repeated)],
+        }),
+      ),
+    ).resolves.toEqual([image(repeated)]);
+    await expect(
+      images.attachableCommentImages({
+        documentId: doc,
+        userEmail: COMMENTER,
+        images: own.map(image),
+      }),
+    ).rejects.toMatchObject({ errorCode: "comment_too_many_images" });
+  });
+
+  it("keeps a comment's images through an edit and takes only the editor's own new ones", async () => {
+    const doc = await page();
+    const kept = await uploaded(COMMENTER, doc);
+    const added = await uploaded(COMMENTER, doc);
+    const ownersImage = await uploaded(OWNER, doc);
+    const created = await comment(COMMENTER, doc, [image(kept)]);
+    const edit = (attachments: unknown[]) =>
+      as(COMMENTER, () =>
+        updateComment.run({
+          id: created.id,
+          documentId: doc,
+          attachments,
+        }),
+      );
+
+    await edit([image(kept), image(added)]);
+    expect(JSON.parse((await storedImages(created.id)) ?? "[]")).toEqual([
+      image(kept),
+      image(added),
+    ]);
+    await expect(edit([image(kept), image(ownersImage)])).rejects.toMatchObject(
+      { errorCode: "comment_image_not_attachable" },
+    );
+    // A text edit leaves the images alone.
+    await as(COMMENTER, () =>
+      updateComment.run({
+        id: created.id,
+        documentId: doc,
+        content: "Edited",
+      }),
+    );
+    expect(JSON.parse((await storedImages(created.id)) ?? "[]")).toHaveLength(
+      2,
+    );
+    await edit([]);
+    expect(await storedImages(created.id)).toBeNull();
+    expect(await status(kept, VIEWER)).toBe(404);
+  });
+});

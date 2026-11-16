@@ -9,6 +9,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { attachableCommentImages } from "../server/lib/comment-images.js";
 import {
   assertMentionsInText,
   submittedCommentMentions,
@@ -17,6 +18,11 @@ import { notifyEditedCommentMentions } from "../server/lib/comment-notifications
 import { commentSubmissionSource } from "../server/lib/comment-submission-source.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { firstRow } from "../server/lib/first-row.js";
+import {
+  MAX_COMMENT_IMAGES,
+  readStoredCommentImages,
+  serializeStoredCommentImages,
+} from "../shared/comment-images.js";
 import {
   personMentions,
   readStoredCommentMentions,
@@ -30,7 +36,7 @@ import {
 
 export default defineAction({
   description:
-    "Update one exact document comment by ID. Provide content, mentions, resolved, or a combination; calls without a mutation fail. Comment text supports inline Markdown without headings. Resolving or reopening applies to the full thread; include documentId to fail closed on a mismatched pair.",
+    "Update one exact document comment by ID. Provide content, mentions, attachments, resolved, or a combination; calls without a mutation fail. Comment text supports inline Markdown without headings. Resolving or reopening applies to the full thread; include documentId to fail closed on a mismatched pair.",
   mcpTool: true,
   schema: z.object({
     id: z.string().describe("Comment ID"),
@@ -42,16 +48,24 @@ export default defineAction({
       .describe(
         'JSON-encoded mentions, one per @name in the final text in text order; omitted, the stored mentions must still match it. People: {"email","name"}; agents: {"kind":"agent","model","name"}. A malformed list, or an entry no @name in the final text reaches, is rejected with a 400. People the edit newly mentions are emailed.',
       ),
+    attachments: z
+      .array(z.unknown())
+      .max(MAX_COMMENT_IMAGES)
+      .optional()
+      .describe(
+        `The comment's images after the edit, up to ${MAX_COMMENT_IMAGES}, each { url, name, contentType }: the ones list-comments shows it keeping, plus any the caller uploaded to this page through the comment box. An empty list removes them all.`,
+      ),
     resolved: z.coerce.boolean().optional().describe("Resolved state"),
   }),
   run: async (args, ctx) => {
     if (
       args.content === undefined &&
       args.mentions === undefined &&
+      args.attachments === undefined &&
       args.resolved === undefined
     ) {
       throw new Error(
-        "Provide content, mentions, or resolved to update a comment",
+        "Provide content, mentions, attachments, or resolved to update a comment",
       );
     }
 
@@ -63,6 +77,7 @@ export default defineAction({
         authorEmail: schema.documentComments.authorEmail,
         content: schema.documentComments.content,
         mentionsJson: schema.documentComments.mentionsJson,
+        attachmentsJson: schema.documentComments.attachmentsJson,
       })
       .from(schema.documentComments)
       .where(eq(schema.documentComments.id, args.id))
@@ -110,6 +125,17 @@ export default defineAction({
     const addedMentions = personMentions(mentions ?? []).filter(
       (mention) => !alreadyMentioned.has(mention.email.trim().toLowerCase()),
     );
+    // Images the comment has stay; new ones must be the caller's own uploads
+    // to this page.
+    const images =
+      args.attachments === undefined
+        ? undefined
+        : await attachableCommentImages({
+            documentId: comment.documentId,
+            userEmail,
+            images: args.attachments,
+            kept: readStoredCommentImages(comment.attachmentsJson),
+          });
     const contentUpdates: Partial<typeof schema.documentComments.$inferInsert> =
       {
         updatedAt,
@@ -119,7 +145,14 @@ export default defineAction({
               mentionsJson: serializeStoredCommentMentions(mentions),
             }
           : {}),
+        ...(images !== undefined
+          ? { attachmentsJson: serializeStoredCommentImages(images) }
+          : {}),
       };
+    const changesComment =
+      args.content !== undefined ||
+      args.mentions !== undefined ||
+      images !== undefined;
 
     let webhookEvents = 0;
     if (args.resolved !== undefined) {
@@ -142,7 +175,7 @@ export default defineAction({
             .limit(1)
             .for("update"),
         );
-        if (args.content !== undefined || args.mentions !== undefined) {
+        if (changesComment) {
           await tx
             .update(schema.documentComments)
             .set(contentUpdates)

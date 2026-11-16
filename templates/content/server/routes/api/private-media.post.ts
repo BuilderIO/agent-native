@@ -13,15 +13,21 @@ import {
   setResponseStatus,
 } from "h3";
 
-import { resolveEditablePrivateIconOrgId } from "../../lib/private-icon-target.js";
+import { isCommentImageType } from "../../../shared/comment-images.js";
+import {
+  resolveCommentablePrivateMediaOrgId,
+  resolveEditablePrivateIconOrgId,
+} from "../../lib/private-icon-target.js";
 import {
   bindUploadedPrivateMedia,
   privateMediaPath,
 } from "../../lib/private-media-references.js";
 
 /**
- * Uploads an image into a page the caller can edit. The image is stored
- * privately and only the page's readers (and the uploader) can load it.
+ * Uploads an image into a page the caller can edit, or, with
+ * `purpose=comment`, a PNG, JPEG, GIF or WebP for a comment on a page they can
+ * comment on. The image is stored privately and only the page's readers (and
+ * the uploader) can load it.
  */
 export default defineEventHandler(async (event) => {
   setResponseHeader(event, "Cache-Control", "no-store");
@@ -50,13 +56,22 @@ export default defineEventHandler(async (event) => {
         statusMessage: "No image uploaded",
       });
     }
+    const forComment = form.get("purpose") === "comment";
+    if (forComment && !isCommentImageType(file.type)) {
+      throw createError({
+        statusCode: 415,
+        statusMessage: "A comment takes PNG, JPEG, GIF or WebP images",
+      });
+    }
     return await runWithRequestContext(
       {
         userEmail: session.email,
         ...(session.orgId ? { orgId: session.orgId } : {}),
       },
       async () => {
-        const orgId = await resolveEditablePrivateIconOrgId(documentId);
+        const orgId = forComment
+          ? await resolveCommentablePrivateMediaOrgId(documentId)
+          : await resolveEditablePrivateIconOrgId(documentId);
         const media = await putPrivateMedia({
           ownerEmail: session.email,
           orgId,

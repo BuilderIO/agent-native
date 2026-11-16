@@ -66,7 +66,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { filter?: string }) =>
     options?.filter === undefined ? key : `${key}:${options.filter}`,
 }));
-vi.mock("@agent-native/toolkit/app/review", () => ({
+vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/review")
+  >()),
   CommentBody: ({ body }: { body: string }) => body,
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));

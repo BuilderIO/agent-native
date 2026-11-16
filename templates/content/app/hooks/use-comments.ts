@@ -3,6 +3,7 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
+import type { CommentImage } from "@shared/comment-images";
 import {
   parseCommentMentions,
   type CommentMention,
@@ -58,6 +59,8 @@ export interface Comment {
   block_id?: string | null;
   block_type?: string | null;
   mentions: CommentMention[];
+  /** The comment's images, each a private image on its page. */
+  attachments?: CommentImage[];
   author_email: string;
   author_name: string | null;
   actorKind?: "human" | "agent" | null;
@@ -173,6 +176,7 @@ export interface CreateCommentVariables {
   blockId?: string;
   blockType?: CommentAnchorBlockType;
   mentions?: string | undefined;
+  attachments?: CommentImage[] | undefined;
 }
 
 export interface EditCommentVariables {
@@ -180,6 +184,8 @@ export interface EditCommentVariables {
   documentId: string;
   content: string;
   mentions?: string;
+  /** The comment's images after the edit; omitted, they stay as they are. */
+  attachments?: CommentImage[];
 }
 
 export interface ResolveCommentVariables {
@@ -212,6 +218,7 @@ type ActiveCommentOperation =
       targetId: string;
       content: string;
       mentions?: CommentMention[];
+      attachments?: CommentImage[];
     }
   | {
       operationId: string;
@@ -344,6 +351,7 @@ function applyOperationOverlays(
             ...comment,
             content: operation.content,
             mentions: operation.mentions ?? comment.mentions,
+            attachments: operation.attachments ?? comment.attachments,
             mutation: mutationState(operation),
           }
         : {
@@ -564,6 +572,7 @@ export function useCreateComment(author: CommentAuthor = {}) {
           variables.mentions === undefined
             ? []
             : parseCommentMentions(variables.mentions),
+        attachments: variables.attachments ?? [],
         author_email: author.email?.trim() ?? "",
         author_name: authorName(author),
         actorKind: "human",
@@ -788,6 +797,7 @@ function useOptimisticCommentUpdate<
               editVariables.mentions === undefined
                 ? undefined
                 : parseCommentMentions(editVariables.mentions),
+            attachments: editVariables.attachments,
           });
         } else {
           const resolveVariables = variables as ResolveCommentVariables;
@@ -855,6 +865,8 @@ function useOptimisticCommentUpdate<
                         ...comment,
                         content: operation.content,
                         mentions: operation.mentions ?? comment.mentions,
+                        attachments:
+                          operation.attachments ?? comment.attachments,
                       }
                     : { ...comment, resolved: operation.resolved };
                 return comment.mutation?.operationId === context.operationId
@@ -906,7 +918,10 @@ function useOptimisticCommentUpdate<
                     ? comment.content === operation.content &&
                       (operation.mentions === undefined ||
                         JSON.stringify(comment.mentions) ===
-                          JSON.stringify(operation.mentions))
+                          JSON.stringify(operation.mentions)) &&
+                      (operation.attachments === undefined ||
+                        JSON.stringify(comment.attachments) ===
+                          JSON.stringify(operation.attachments))
                     : comment.resolved === operation.resolved;
                 if (newerSameKind || !stillOwnsFields) return comment;
                 const restored =
@@ -915,6 +930,7 @@ function useOptimisticCommentUpdate<
                         ...comment,
                         content: prior.content,
                         mentions: prior.mentions,
+                        attachments: prior.attachments,
                       }
                     : { ...comment, resolved: prior.resolved };
                 return {
@@ -948,6 +964,7 @@ export function useEditComment() {
         variables.mentions === undefined
           ? comment.mentions
           : parseCommentMentions(variables.mentions),
+      attachments: variables.attachments ?? comment.attachments,
       updated_at: new Date().toISOString(),
     }),
   );
