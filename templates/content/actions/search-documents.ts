@@ -106,6 +106,15 @@ export default defineAction({
         .datetime()
         .optional()
         .describe("Modified before this UTC timestamp"),
+      updatedBy: z
+        .string()
+        .trim()
+        .min(1)
+        .max(320)
+        .optional()
+        .describe(
+          "Only documents last edited by this person: their email, in any case",
+        ),
       limit: z.coerce
         .number()
         .int()
@@ -213,6 +222,9 @@ export default defineAction({
               sql`${schema.documents.updatedAt}::timestamptz`,
               args.modifiedBefore,
             )
+          : undefined,
+        args.updatedBy
+          ? sql`lower(${schema.documents.updatedBy}) = ${args.updatedBy.toLowerCase()}`
           : undefined,
       ),
     });

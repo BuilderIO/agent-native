@@ -317,4 +317,48 @@ describe("SearchPage: instant lane + server convergence", () => {
       [...container.querySelectorAll("mark")].map((mark) => mark.textContent),
     ).toEqual(["Billing"]);
   });
+
+  it("asks the server for pages the chosen person last edited", async () => {
+    const queryClient = new QueryClient();
+    const fetchMock = vi.fn((_input: RequestInfo | URL) =>
+      Promise.resolve(
+        jsonResponse(
+          searchDocumentsResponse([
+            { id: "edited-plan", title: "Plan they edited" },
+          ]),
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <SearchPage
+            liveQuery="plan"
+            debouncedQuery="plan"
+            needles={[]}
+            searchFields="all"
+            updatedBy="teammate@example.com"
+            onOpenChange={() => {}}
+            renderList={(results?: ReactNode) => results}
+            staticItems={null}
+            titleIndex={[]}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+
+    await waitFor(() => container.textContent.includes("Plan they edited"));
+    const searches = fetchMock.mock.calls
+      .map(([input]) => new URL(String(input), "http://localhost"))
+      .filter((url) => url.searchParams.get("query") === "plan");
+    expect(searches.length).toBeGreaterThan(0);
+    for (const url of searches) {
+      expect(url.searchParams.get("updatedBy")).toBe("teammate@example.com");
+    }
+  });
 });

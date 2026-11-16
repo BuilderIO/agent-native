@@ -1,5 +1,6 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { useShareOrgMemberSearch } from "@agent-native/core/client/sharing";
 import {
   CommandMenu,
   useCommandMenuNestedDialog,
@@ -11,6 +12,7 @@ import {
   type NormalizedTitleCandidate,
 } from "@shared/search-title-ranking";
 import {
+  IconCheck,
   IconDatabase,
   IconFileText,
   IconFolderOpen,
@@ -47,6 +49,14 @@ import {
 } from "./sidebar/select-content-space";
 import { Button } from "./ui/button";
 import { Calendar } from "./ui/calendar";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "./ui/command";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -322,6 +332,183 @@ export function DateSearchChoice({
   );
 }
 
+/** The person whose last edit a search keeps pages to. */
+export interface SearchEditor {
+  email: string;
+  name: string | null;
+}
+
+const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+$/;
+
+/**
+ * Picks who last edited the pages a search returns: anyone, the signed-in
+ * person, or someone found by name or email. People are searched on the
+ * server, as in the organization's other person pickers, so no one past a
+ * first page of members is out of reach; a typed email also counts, for
+ * guests who aren't members.
+ */
+export function EditorSearchChoice({
+  value,
+  currentUserEmail,
+  onChange,
+  focusInput,
+}: {
+  value: SearchEditor | null;
+  currentUserEmail: string | null;
+  onChange: (editor: SearchEditor | null) => void;
+  focusInput: () => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  useCommandMenuNestedDialog(open ? () => setOpen(false) : null);
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
+    null,
+  );
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const search = useShareOrgMemberSearch(query, open, { limit: 20 });
+  const me = currentUserEmail?.toLowerCase() ?? null;
+  const typed = query.trim();
+  const showMe = Boolean(me && (!typed || me.includes(typed.toLowerCase())));
+  const people = useMemo(() => {
+    const seen = new Set<string>(me ? [me] : []);
+    const list: SearchEditor[] = [];
+    for (const member of search.members) {
+      const email = member.email.toLowerCase();
+      if (seen.has(email)) continue;
+      seen.add(email);
+      list.push({ email: member.email, name: member.name?.trim() || null });
+    }
+    if (LOOKS_LIKE_EMAIL.test(typed) && !seen.has(typed.toLowerCase())) {
+      list.push({ email: typed, name: null });
+    }
+    return list;
+  }, [search.members, me, typed]);
+  const selected = value?.email.toLowerCase() ?? null;
+  const triggerLabel = !value
+    ? t("root.searchAnyEditor")
+    : selected === me
+      ? t("root.searchEditedByMe")
+      : t("root.searchEditedBy", { name: value.name ?? value.email });
+  const choose = (editor: SearchEditor | null) => {
+    onChange(editor);
+    setOpen(false);
+    setQuery("");
+  };
+  const check = (on: boolean) => (
+    <IconCheck
+      aria-hidden="true"
+      className={on ? "ms-auto opacity-100" : "ms-auto opacity-0"}
+    />
+  );
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) {
+          setPortalContainer(
+            triggerRef.current?.closest<HTMLElement>('[role="dialog"]') ?? null,
+          );
+        } else {
+          setQuery("");
+        }
+        setOpen(nextOpen);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          ref={triggerRef}
+          variant="outline"
+          size="sm"
+          className="max-w-full"
+          aria-label={t("root.searchEditor")}
+        >
+          <span className="truncate">{triggerLabel}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        container={portalContainer}
+        className="w-72 p-0"
+        align="start"
+        aria-label={t("root.searchEditor")}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          focusInput();
+        }}
+      >
+        <Command shouldFilter={false}>
+          <CommandInput
+            value={query}
+            onValueChange={setQuery}
+            placeholder={t("root.searchPeoplePlaceholder")}
+            aria-label={t("root.searchPeoplePlaceholder")}
+          />
+          <CommandList aria-busy={search.isLoading}>
+            {search.error ? (
+              <div role="alert" className="p-3 text-sm text-muted-foreground">
+                {t("root.searchPeopleUnavailable")}
+              </div>
+            ) : null}
+            {search.isLoading && people.length === 0 && !showMe ? (
+              <div className="flex justify-center py-6">
+                <Spinner />
+              </div>
+            ) : (
+              <CommandEmpty>{t("root.searchNoPeople")}</CommandEmpty>
+            )}
+            <CommandGroup>
+              {typed ? null : (
+                <CommandItem
+                  value="__any-editor__"
+                  onSelect={() => choose(null)}
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {t("root.searchAnyEditor")}
+                  </span>
+                  {check(!value)}
+                </CommandItem>
+              )}
+              {showMe && currentUserEmail ? (
+                <CommandItem
+                  value={`me:${currentUserEmail}`}
+                  onSelect={() =>
+                    choose({ email: currentUserEmail, name: null })
+                  }
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {t("root.searchMe")}
+                    <span className="ms-2 text-muted-foreground">
+                      {currentUserEmail}
+                    </span>
+                  </span>
+                  {check(selected === me)}
+                </CommandItem>
+              ) : null}
+              {people.map((person) => (
+                <CommandItem
+                  key={person.email}
+                  value={person.email}
+                  onSelect={() => choose(person)}
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {person.name ?? person.email}
+                    {person.name ? (
+                      <span className="ms-2 text-muted-foreground">
+                        {person.email}
+                      </span>
+                    ) : null}
+                  </span>
+                  {check(selected === person.email.toLowerCase())}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function renderSearchResultItem({
   document,
   needles,
@@ -490,6 +677,7 @@ export function SearchPage({
   searchFields,
   documentType,
   modifiedAfter,
+  updatedBy,
   onOpenChange,
   renderList,
   staticItems,
@@ -505,6 +693,8 @@ export function SearchPage({
   searchFields: "all" | "title";
   documentType?: "page" | "database";
   modifiedAfter?: string;
+  /** Email of the person who last edited each result. */
+  updatedBy?: string | undefined;
   onOpenChange: (open: boolean) => void;
   renderList: (results?: ReactNode) => ReactNode;
   staticItems: ReactNode;
@@ -525,6 +715,7 @@ export function SearchPage({
     searchFields,
     documentType,
     modifiedAfter,
+    updatedBy,
   ]);
 
   // Instant lane: reranked on every keystroke straight from the precomputed
@@ -546,6 +737,7 @@ export function SearchPage({
     searchFields,
     documentType,
     modifiedAfter,
+    updatedBy,
     limit: 20,
   };
   // No `placeholderData`: a query-key change (a new debounced query, or a
@@ -775,6 +967,9 @@ export function ContentCommandSearchResults({
   const [modifiedDate, setModifiedDate] = useState<ModifiedDateFilter>({
     kind: "any",
   });
+  const [editor, setEditor] = useState<SearchEditor | null>(null);
+  const updatedBy = editor?.email;
+  const { session } = useSession();
   const [debouncedQuery, setDebouncedQuery] = useState(query.trim());
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 200);
@@ -861,6 +1056,9 @@ export function ContentCommandSearchResults({
     [documents, titleEntries, pageScopeId],
   );
   const candidateDocuments = useMemo(() => {
+    // The title lists don't say who last edited each page, so only the
+    // server can answer an editor filter.
+    if (updatedBy) return [];
     if (documents) {
       return documents
         .filter(
@@ -892,6 +1090,7 @@ export function ContentCommandSearchResults({
     scopeId,
     resolvedDocumentType,
     modifiedAfter,
+    updatedBy,
   ]);
   const titleIndex = useMemo(
     () => buildTitleSearchIndex(candidateDocuments),
@@ -984,6 +1183,12 @@ export function ContentCommandSearchResults({
               });
             }}
           />
+          <EditorSearchChoice
+            value={editor}
+            currentUserEmail={session?.email?.trim() || null}
+            onChange={setEditor}
+            focusInput={focusPickerInput}
+          />
         </div>
       ) : null}
       {!searchingAll && (spaces.error || (!spaces.isLoading && !scopeId)) ? (
@@ -1008,6 +1213,7 @@ export function ContentCommandSearchResults({
           searchFields={searchFields as "all" | "title"}
           documentType={resolvedDocumentType}
           modifiedAfter={modifiedAfter}
+          updatedBy={updatedBy}
           onOpenChange={onOpenChange}
           renderList={renderList}
           staticItems={staticItems}
