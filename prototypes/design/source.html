@@ -8120,7 +8120,7 @@ $("#brand-sel").addEventListener("change", e => setBrand(e.target.value));
   addEventListener("resize", placeModes);
   // The panels are flush now, so the frame, mode bar, tool column and Interact's page measure from their edges.
   const baseLayout = layoutIslands;
-  layoutIslands = () => { baseLayout(); const lc = app.classList.contains("no-panel"), pw = parseInt(getComputedStyle(app).getPropertyValue("--panel-w")) || 240, l = lc ? 8 : pw;
+  layoutIslands = () => { baseLayout(); const lc = app.classList.contains("no-panel"), pw = parseInt(getComputedStyle(app).getPropertyValue("--panel-w")) || 320, l = lc ? 0 : pw;
     if (S.mode === "interact") { app.style.setProperty("--occ-l", (lc ? 8 : pw + 8) + "px"); app.style.setProperty("--occ-r", "8px"); }
     else { app.style.setProperty("--occ-l", l + 16 + "px"); app.style.setProperty("--occ-r", inspW() + 16 + "px"); } };
   requestAnimationFrame(() => { islandsChanged(); render(); });
@@ -9681,34 +9681,18 @@ requestAnimationFrame(() => { wsSide(); hyFitZoom(); islandsChanged(); render();
   decorate();
 }
 /* ───────── minimal UI ───────── */
-// Hiding the file panel in Design is a canvas focus mode: the top bar dissolves into two floating islands (the file
-// and its page on the left, people and Share on the right), the inspector floats in only while something is
-// selected, and the toolbar stays at the bottom. Showing the file panel again restores the full shell.
+// Hiding the file panel in Design is minimal UI: the file and its page float as an island top left, and the canvas
+// runs to the window's left edge. The inspector stays a docked column with its head, exactly as it is otherwise, so
+// nothing on the right moves or appears and disappears with the selection.
 {
   const on = () => app.classList.contains("no-panel") && S.mode === "design";
-  let rcBefore = null;
   const sync = () => {
-    const m = on(); app.classList.toggle("minimal", m);
-    if (m && rcBefore === null) { rcBefore = HY.rc; HY.minSel = false; }
-    if (!m && rcBefore !== null) { HY.rc = rcBefore; rcBefore = null; }
-    if (m) HY.rc = !HY.minSel;
-    app.classList.toggle("nosel", m && !HY.minSel);
+    app.classList.toggle("minimal", on());
     const fid = document.querySelector(".gbar .file-head .file-id");
     if (fid && !fid.querySelector("#min-page")) fid.insertAdjacentHTML("beforeend", `<button class="min-page" id="min-page" aria-haspopup="menu" aria-expanded="false" data-tip="Pages"></button>`);
     const mp = document.getElementById("min-page"); if (mp) mp.innerHTML = `<span>${screenOf(S.route).screen}</span>${ic("chevron-down", "s12")}`;
   };
-  // The frame and toolbar centre in the canvas the islands leave: the full width until the inspector floats in.
-  layoutIslands = (base => function (...a) { sync(); const r = base.apply(this, a); if (on()) app.style.setProperty("--occ-r", HY.minSel ? inspW() + 16 + "px" : "24px"); return r; })(layoutIslands);
-  const chrome = ".gbar, .isl-r, #dock, .menu, .scrim, .tkp, .fpk, .cpk, #cm-layer, .tool-tip, [role=dialog]";
-  document.addEventListener("pointerdown", e => {
-    if (!on() || e.target.closest?.(chrome)) return;
-    if (e.target.closest?.(".page [data-node]")) { if (!HY.minSel) { HY.minSel = true; setTimeout(islandsChanged); } }
-    else if (e.target.closest?.("#canvas") && HY.minSel) { HY.minSel = false; setTimeout(islandsChanged); }
-  }, true);
-  document.addEventListener("keydown", e => {
-    if (!on() || e.key !== "Escape" || !HY.minSel || e.target.closest?.("input, textarea, [contenteditable]") || document.querySelector(".menu, .tkp, .fpk, .cpk")) return;
-    HY.minSel = false; islandsChanged();
-  });
+  layoutIslands = (base => function (...a) { sync(); return base.apply(this, a); })(layoutIslands);
   document.addEventListener("click", e => { const b = e.target.closest?.("#min-page"); if (b) { e.preventDefault(); e.stopPropagation(); openRouteMenu(b); } }, true);
 }
 kitChangesInit($("#changes-btn"));
@@ -9870,21 +9854,13 @@ render();
 #tokens .tk-pick.empty { background: var(--rx-a3, var(--color-muted)); color: var(--color-foreground); font-weight: 400; }
 #tokens .row.au .icon-btn { flex: none; margin-right: -4px; }
 
-/* Minimal UI: the top bar's two ends float as islands over a full-window canvas; the inspector floats in on the right
-   only while something is selected. */
-.app.minimal .gbar { height: 64px; background: none; box-shadow: none !important; pointer-events: none; }
-.app.minimal .gbar .gb-l, .app.minimal .gbar .gb-r { pointer-events: auto; }
-.app.minimal .gbar .gb-c { visibility: hidden; }
+/* Minimal UI: the file and its page float as an island top left; the inspector keeps its docked column. */
 .app.minimal .gbar .file-head { align-self: start; margin: 8px 0 0 8px; height: 48px; padding: 8px; border-radius: 12px; background: var(--color-background); box-shadow: var(--isl-shadow); }
 .app.minimal .gbar .file-head .file-id { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; }
 .app.minimal .gbar .file-name { height: 16px; line-height: 16px; }
 .min-page { display: none; }
 .app.minimal .min-page { display: inline-flex; align-items: center; gap: 2px; height: 16px; padding: 0; font-size: 11px; line-height: 16px; color: var(--color-muted-foreground); }
 .app.minimal .min-page:hover { color: var(--color-foreground); }
-.app.minimal .gbar :is(.gb-l, .gb-r) { align-self: start; }
-.app.minimal .gbar .gb-r #insp-head { margin: 8px 8px 0 0; width: auto; min-width: 0; height: 48px; padding-inline: 8px; border-radius: 12px; background: var(--color-background); box-shadow: var(--isl-shadow); }
-.app.minimal .isl-r { top: 64px; right: 8px; bottom: 8px; border-radius: 12px; box-shadow: var(--isl-shadow); }
-.app.minimal .isl-r::before { display: none; }
 .app.nosel .page .sel { outline: none !important; box-shadow: none !important; }
 .app.nosel .page :is(.sel-tag, .sel-size) { display: none !important; }
 
@@ -9931,20 +9907,20 @@ render();
 
 /* No top bar: each end of the bar is the top of its column, flat and on the column's colour with the column's
    hairline; the canvas runs up to the window edge between them. */
-.app.no-gbar:not(.minimal) .gbar { align-items: flex-start; height: 64px; background: none; box-shadow: none !important; pointer-events: none; }
-.app.no-gbar:not(.minimal) .gbar .gb-l { height: 48px; }
-.app.no-gbar:not(.minimal) .gbar .gb-c { display: none; }
-.app.no-gbar:not(.minimal) .gbar :is(.gb-l, .gb-r) { pointer-events: auto; background: var(--color-background); }
-.app.no-gbar:not(.minimal) .gbar .gb-l { box-shadow: inset -1px 0 0 var(--color-border); }
-.app.no-gbar:not(.minimal) .gbar .gb-r { margin-left: auto; box-shadow: inset 1px 0 0 var(--color-border); }
+.app.no-gbar .gbar { align-items: flex-start; height: 64px; background: none; box-shadow: none !important; pointer-events: none; }
+.app.no-gbar .gbar .gb-l { height: 48px; }
+.app.no-gbar .gbar .gb-c { display: none; }
+.app.no-gbar .gbar :is(.gb-l, .gb-r) { pointer-events: auto; background: var(--color-background); }
+.app.no-gbar .gbar .gb-l { box-shadow: inset -1px 0 0 var(--color-border); }
+.app.no-gbar .gbar .gb-r { margin-left: auto; box-shadow: inset 1px 0 0 var(--color-border); }
 .app.no-gbar:not(.preview) .canvas-inner { padding-top: 32px; }
 .app.no-gbar.preview #canvas, .app.no-gbar.preview::after { top: 8px; }
 /* A hidden column leaves its head floating as an island: the file when the left panel is hidden in Interact, and
    comments, people and Share in Interact, which has no inspector. */
-.app.no-gbar:not(.minimal).no-panel .gbar .gb-l, .app.no-gbar.preview:not(.minimal) .gbar .gb-r { align-self: start; background: none; box-shadow: none; }
-.app.no-gbar:not(.minimal).no-panel .gbar .file-head, .app.no-gbar.preview:not(.minimal) .gbar #insp-head { height: 48px; border-radius: 12px; background: var(--color-background); box-shadow: var(--isl-shadow); }
-.app.no-gbar:not(.minimal).no-panel .gbar .file-head { margin: 8px 0 0 8px; padding: 8px; width: auto; }
-.app.no-gbar.preview:not(.minimal) .gbar #insp-head { margin: 8px 8px 0 0; width: auto; min-width: 0; padding-inline: 8px; }
+.app.no-gbar.no-panel .gbar .gb-l, .app.no-gbar.preview .gbar .gb-r { align-self: start; background: none; box-shadow: none; }
+.app.no-gbar.no-panel .gbar .file-head, .app.no-gbar.preview .gbar #insp-head { height: 48px; border-radius: 12px; background: var(--color-background); box-shadow: var(--isl-shadow); }
+.app.no-gbar.no-panel .gbar .file-head { margin: 8px 0 0 8px; padding: 8px; width: auto; }
+.app.no-gbar.preview .gbar #insp-head { margin: 8px 8px 0 0; width: auto; min-width: 0; padding-inline: 8px; }
 /* Interact's browser controls lead the floating toolbar: back, forward, reload, the address, the size, then the tools. */
 #fbar > .mb { position: static; display: flex; align-items: center; gap: 4px; height: 32px; margin: 0; padding: 0; background: none; box-shadow: none; border-radius: 0; transform: none !important; }
 #fbar > .mb .icon-btn:not(.sm) { width: 32px; height: 32px; border-radius: 8px; }

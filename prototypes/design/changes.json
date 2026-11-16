@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-16",
+    "text": "Minimal UI keeps the inspector docked: hiding the file panel floats only the file and its page top left, and the inspector, Comments, people and Share stay exactly where they were, whatever is selected."
+  },
+  {
+    "date": "2026-11-16",
     "text": "The left panel opens at 320px and the inspector at 280px, so the two columns balance around the canvas. The inspector resizes from its inner edge in 8px steps from 240 to 400px (arrow keys work on the handle, double-click resets), and every row's fields share the width so they stay on the 4px grid and aligned at any size: 104px each at the default."
   },
   {
