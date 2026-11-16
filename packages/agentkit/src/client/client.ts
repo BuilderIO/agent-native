@@ -5599,7 +5599,15 @@ export class AgentKitClient implements AgentKitController {
     const steeringRowsPending = terminalThread.queuedMessages.some(
       (message) => message.delivery === "steering",
     );
+    // Steering rows are settled against the transcript, so a failed or cancelled run settles them
+    // only once that transcript is known to be current.
+    let transcriptCurrent =
+      completed ||
+      Boolean(options.projectionAlreadyCaughtUp) ||
+      !(this.transport.getThreadSnapshot || this.transport.getThread);
     if (completed || steeringRowsPending) {
+      // A load already in flight is not awaited (it can be waiting on this run); a failed or
+      // cancelled run then leaves its steering rows unsettled.
       const shouldRefreshProjection =
         !options.projectionAlreadyCaughtUp &&
         !this.threadLoads.has(threadId) &&
@@ -5611,6 +5619,7 @@ export class AgentKitClient implements AgentKitController {
             this.createRequestContext(),
             true,
           );
+          transcriptCurrent = true;
         } catch (error) {
           // History hydration reports its own failure; it cannot undo a terminal run.
           if (this.disposed) throw error;
@@ -5648,7 +5657,7 @@ export class AgentKitClient implements AgentKitController {
     const rowsChanged = <T>(before: T[], after: T[]) =>
       after.length !== before.length ||
       after.some((row, i) => row !== before[i]);
-    if (!hasActiveAgentRuns(settledThread)) {
+    if (transcriptCurrent && !hasActiveAgentRuns(settledThread)) {
       const keptQueued = settledThread.queuedMessages
         .map(settleRow)
         .filter((message) => message.delivery !== "steering");
@@ -5660,7 +5669,11 @@ export class AgentKitClient implements AgentKitController {
       }
     }
     const queueOverride = this.queuedMessageOverrides.get(threadId);
-    if (queueOverride && !hasActiveAgentRuns(settledThread)) {
+    if (
+      transcriptCurrent &&
+      queueOverride &&
+      !hasActiveAgentRuns(settledThread)
+    ) {
       const remaining = queueOverride.messages
         .map(settleRow)
         .filter((message) => message.delivery !== "steering");
