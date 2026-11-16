@@ -56,8 +56,7 @@ const mocks = vi.hoisted(() => {
       pendingEditCount: "pending.pendingEditCount",
       status: "pending.status",
       prompt: "pending.prompt",
-      includedVisualEditIds: "pending.includedVisualEditIds",
-      includedTweakIds: "pending.includedTweakIds",
+      handoffRecords: "pending.handoffRecords",
       authorEmail: "pending.authorEmail",
       revision: "pending.revision",
       publisherId: "pending.publisherId",
@@ -260,8 +259,14 @@ describe("visual-edit pending handoff", () => {
             pendingEditCount: 1,
             status: "ready",
             prompt: "Adjust heading spacing",
-            includedVisualEditIds: ["visual-1"],
-            includedTweakIds: ["spacing"],
+            records: [
+              {
+                kind: "style",
+                key: "visual-1",
+                value: "v1",
+                prompt: "Adjust heading spacing",
+              },
+            ],
           },
         },
         { caller: "frontend", requestHeaders: new Headers() },
@@ -270,8 +275,14 @@ describe("visual-edit pending handoff", () => {
     expect(mocks.insertChain.values).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "ready",
-        includedVisualEditIds: '["visual-1"]',
-        includedTweakIds: '["spacing"]',
+        handoffRecords: JSON.stringify([
+          {
+            kind: "style",
+            key: "visual-1",
+            value: "v1",
+            prompt: "Adjust heading spacing",
+          },
+        ]),
       }),
     );
   });
@@ -728,6 +739,7 @@ describe("visual-edit pending handoff", () => {
   });
 
   it("acknowledges only the exact applied handoff revision", async () => {
+    mocks.selectChain.limit.mockResolvedValueOnce([{ handoffRecords: "[]" }]);
     mocks.updateChain.returning.mockResolvedValueOnce([
       { designId: "design_public" },
     ]);
@@ -745,15 +757,15 @@ describe("visual-edit pending handoff", () => {
         pendingEditCount: 0,
         status: "empty",
         prompt: "",
+        handoffRecords: "[]",
       }),
     );
   });
 
   it("reports zero persisted tweaks when the acknowledgement revision is stale", async () => {
-    mocks.updateChain.returning.mockResolvedValueOnce([]);
-    mocks.selectChain.limit.mockResolvedValueOnce([
-      { status: "ready", pendingEditCount: 2 },
-    ]);
+    mocks.selectChain.limit
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "ready", pendingEditCount: 2 }]);
 
     await expect(
       acknowledgePendingAction.run({
@@ -765,8 +777,9 @@ describe("visual-edit pending handoff", () => {
       status: "stale",
       stale: true,
       tweakAcknowledgedCount: 0,
+      notAcknowledgedTweaks: [{ id: "speed", value: 3 }],
     });
-    expect(mocks.selectChain.limit).toHaveBeenCalledTimes(1);
+    expect(mocks.updateChain.set).not.toHaveBeenCalled();
   });
 
   it("requires an exact handoff revision before acknowledging tweaks", async () => {
@@ -783,13 +796,21 @@ describe("visual-edit pending handoff", () => {
     mocks.updateChain.returning
       .mockResolvedValueOnce([{ designId: "design_public" }])
       .mockResolvedValueOnce([{ id: "design_public" }]);
-    mocks.selectChain.limit.mockResolvedValueOnce([
-      {
-        data: JSON.stringify({
-          tweakSourceBaseline: { speed: 1, color: "red" },
-        }),
-      },
-    ]);
+    mocks.selectChain.limit
+      .mockResolvedValueOnce([
+        {
+          handoffRecords: JSON.stringify([
+            { kind: "tweak", key: "speed", value: 3, prompt: "speed 1 → 3" },
+          ]),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          data: JSON.stringify({
+            tweakSourceBaseline: { speed: 1, color: "red" },
+          }),
+        },
+      ]);
 
     await acknowledgePendingAction.run({
       designId: "design_public",
@@ -834,11 +855,14 @@ describe("visual-edit pending handoff", () => {
         pendingEditCount: 1,
         status: "ready",
         prompt: "x".repeat(64 * 1024 + 1),
+        records: [{ kind: "style", key: "visual-1", value: "v1", prompt: "" }],
       },
     });
 
     expect(parsed.success).toBe(false);
-    expect(getPendingAction.maxResultChars).toBe(64 * 1024);
+    expect(parsed.error?.issues.map((issue) => issue.path.join("."))).toEqual([
+      "pending.prompt",
+    ]);
   });
 
   it("bounds browser-local revisions to their database column range", () => {

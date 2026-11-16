@@ -87,6 +87,7 @@ import { findDesignFileByScreenTarget } from "../screen-command-utils";
 import { nextBoldFontWeight, nextItalicFontStyle } from "../text-style-toggle";
 import { annotationHotkeyHandlers } from "../tool-state";
 import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "../types";
+import { writeVisualEditPublisherSession } from "../visual-edit-publisher-session";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorClipboard } from "./use-editor-clipboard";
@@ -354,7 +355,7 @@ export function useEditorSourceAndSync({
     handleFindLayers,
     pendingApplyPrompt,
     pendingApplyEditCount,
-    pendingApplyIncludes,
+    pendingApplyRecords,
     handleCopyAsPng,
   } = editorExportAndHandoff;
   const {
@@ -1016,6 +1017,10 @@ export function useEditorSourceAndSync({
     const publish = async () => {
       const revision = pendingVisualEditPublicationRevisionRef.current + 1;
       pendingVisualEditPublicationRevisionRef.current = revision;
+      writeVisualEditPublisherSession(id, {
+        publisherId: pendingVisualEditPublisherIdRef.current,
+        revision,
+      });
       const pending =
         pendingEditCount > 0
           ? {
@@ -1027,8 +1032,7 @@ export function useEditorSourceAndSync({
                 pendingEditCount,
                 status: "ready" as const,
                 prompt: pendingPrompt,
-                includedVisualEditIds: pendingApplyIncludes.visualEditIds,
-                includedTweakIds: pendingApplyIncludes.tweakIds,
+                records: pendingApplyRecords,
               },
             }
           : {
@@ -1075,6 +1079,10 @@ export function useEditorSourceAndSync({
                   pendingVisualEditPublicationRevisionRef.current,
                   localRevision,
                 );
+                writeVisualEditPublisherSession(id, {
+                  publisherId: pendingVisualEditPublisherIdRef.current,
+                  revision: pendingVisualEditPublicationRevisionRef.current,
+                });
                 pendingVisualEditBridgeRevisionSyncKeyRef.current =
                   bridgeRevisionSyncKey;
                 return localRevision;
@@ -1182,7 +1190,7 @@ export function useEditorSourceAndSync({
     id,
     pendingApplyEditCount,
     pendingApplyPrompt,
-    pendingApplyIncludes,
+    pendingApplyRecords,
     t,
   ]);
   useEffect(() => {

@@ -1,3 +1,4 @@
+import type { VisualEditHandoffRecord } from "@shared/visual-edit-handoff";
 import type { RefObject } from "react";
 
 export interface PendingVisualEditHandoff {
@@ -9,8 +10,7 @@ export interface PendingVisualEditHandoff {
     pendingEditCount: number;
     status: "ready";
     prompt: string;
-    includedVisualEditIds?: string[];
-    includedTweakIds?: string[];
+    records: VisualEditHandoffRecord[];
   } | null;
 }
 

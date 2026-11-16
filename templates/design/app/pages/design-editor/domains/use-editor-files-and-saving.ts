@@ -25,6 +25,7 @@ import {
 } from "@shared/node-rewrite";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
+import type { VisualEditHandoffRecord } from "@shared/visual-edit-handoff";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -1706,7 +1707,7 @@ export function useEditorFilesAndSaving({
     pendingEditCount: number;
     status: "ready" | "suggested" | "empty";
     prompt: string;
-    includes: { visualEditIds: string[]; tweakIds: string[] };
+    records: VisualEditHandoffRecord[];
     suggestion: {
       trusted: false;
       authorEmail: string | null;

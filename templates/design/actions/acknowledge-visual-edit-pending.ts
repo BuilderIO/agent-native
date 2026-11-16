@@ -5,10 +5,14 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js";
+import {
+  parseHandoffRecords,
+  sameHandoffRecordValue,
+} from "../shared/visual-edit-handoff.js";
 
 export default defineAction({
   description:
-    "KEY HANDOFF: Acknowledge source changes only after verification. A remote visual-edit revision is cleared by exact revision; applied tweak IDs and values advance their source baseline only when included in this verified acknowledgement. Stale revisions are rejected without clearing newer edits.",
+    "KEY HANDOFF: Acknowledge source changes only after verification. A remote visual-edit revision is cleared by exact revision; an applied tweak advances its source baseline only when that revision contains a tweak record with the same id and value. Tweaks that do not match are returned in notAcknowledgedTweaks and stay pending. Stale revisions are rejected without clearing newer edits.",
   schema: z.object({
     designId: z.string().describe("Visual-edit design ID."),
     revision: z
@@ -56,8 +60,24 @@ export default defineAction({
     }
 
     const updated = await getDb().transaction(async (tx) => {
-      const acknowledged =
+      const rows =
         revision === undefined
+          ? []
+          : await tx
+              .select({
+                handoffRecords: schema.designVisualEditPending.handoffRecords,
+              })
+              .from(schema.designVisualEditPending)
+              .where(
+                and(
+                  eq(schema.designVisualEditPending.designId, designId),
+                  eq(schema.designVisualEditPending.revision, revision),
+                ),
+              )
+              .limit(1);
+      const handoff = rows.shift();
+      const acknowledged =
+        handoff === undefined || revision === undefined
           ? []
           : await tx
               .update(schema.designVisualEditPending)
@@ -65,6 +85,7 @@ export default defineAction({
                 pendingEditCount: 0,
                 status: "empty",
                 prompt: "",
+                handoffRecords: "[]",
                 updatedAt: new Date().toISOString(),
               })
               .where(
@@ -73,11 +94,27 @@ export default defineAction({
                   eq(schema.designVisualEditPending.revision, revision),
                 ),
               )
-              .returning({
-                designId: schema.designVisualEditPending.designId,
-              });
+              .returning({ designId: schema.designVisualEditPending.designId });
 
-      if (acknowledged.length > 0 && appliedTweaks.length > 0) {
+      const parsedRecords =
+        acknowledged.length > 0 && handoff
+          ? parseHandoffRecords(handoff.handoffRecords)
+          : null;
+      const revisionTweaks =
+        parsedRecords?.status === "readable"
+          ? parsedRecords.records.filter((record) => record.kind === "tweak")
+          : [];
+      const acknowledgedTweaks = appliedTweaks.filter((tweak) =>
+        revisionTweaks.some(
+          (record) =>
+            record.key === tweak.id &&
+            sameHandoffRecordValue(record.value, tweak.value),
+        ),
+      );
+      const notAcknowledgedTweaks = appliedTweaks.filter(
+        (tweak) => !acknowledgedTweaks.includes(tweak),
+      );
+      if (acknowledgedTweaks.length > 0) {
         const rows = await tx
           .select({ data: schema.designs.data })
           .from(schema.designs)
@@ -95,7 +132,8 @@ export default defineAction({
           baseline && typeof baseline === "object" && !Array.isArray(baseline)
             ? { ...(baseline as Record<string, unknown>) }
             : {};
-        for (const tweak of appliedTweaks) nextBaseline[tweak.id] = tweak.value;
+        for (const tweak of acknowledgedTweaks)
+          nextBaseline[tweak.id] = tweak.value;
         const saved = await tx
           .update(schema.designs)
           .set({
@@ -127,10 +165,8 @@ export default defineAction({
         .limit(1);
       return {
         acknowledged,
-        tweakAcknowledgedCount:
-          acknowledged.length > 0 && appliedTweaks.length > 0
-            ? appliedTweaks.length
-            : 0,
+        acknowledgedTweaks,
+        notAcknowledgedTweaks,
         pending: pending[0] ?? { status: "empty", pendingEditCount: 0 },
       };
     });
@@ -149,11 +185,14 @@ export default defineAction({
         : revision === undefined
           ? updated.pending.pendingEditCount
           : null,
-      tweakAcknowledgedCount: updated.tweakAcknowledgedCount,
+      tweakAcknowledgedCount: updated.acknowledgedTweaks.length,
+      notAcknowledgedTweaks: updated.notAcknowledgedTweaks,
       stale: revision !== undefined && !cleared,
       next:
         cleared || revision === undefined
-          ? "Call get-visual-edit-pending again to verify the handoff is empty."
+          ? updated.notAcknowledgedTweaks.length > 0
+            ? "Some tweaks were not part of this revision with these values, so they stay pending. Call get-visual-edit-pending again and apply its latest revision."
+            : "Call get-visual-edit-pending again to verify the handoff is empty."
           : "A newer handoff replaced this revision; call get-visual-edit-pending and apply the latest revision instead.",
     };
   },

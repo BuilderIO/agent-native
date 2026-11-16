@@ -6,6 +6,10 @@ import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
+import {
+  MAX_HANDOFF_RECORDS,
+  visualEditHandoffRecordSchema,
+} from "../shared/visual-edit-handoff.js";
 import { isSameOriginVisualEditBrowserRequest } from "./visual-edit-browser-request.js";
 
 const MAX_PROMPT_LENGTH = 64 * 1024;
@@ -17,8 +21,14 @@ const pendingSchema = z
     pendingEditCount: z.number().int().positive(),
     status: z.literal("ready"),
     prompt: z.string().min(1).max(MAX_PROMPT_LENGTH),
-    includedVisualEditIds: z.array(z.string()).default([]),
-    includedTweakIds: z.array(z.string()).default([]),
+    records: z
+      .array(visualEditHandoffRecordSchema)
+      .min(1)
+      .max(MAX_HANDOFF_RECORDS),
+  })
+  .refine((pending) => pending.pendingEditCount === pending.records.length, {
+    message: "pendingEditCount must equal the number of handoff records.",
+    path: ["pendingEditCount"],
   })
   .nullable();
 
@@ -29,7 +39,8 @@ export default defineAction({
   agentTool: false,
   mcpTool: false,
   capabilityScopes: ["visual-edit"],
-  maxBodyBytes: MAX_PROMPT_LENGTH + 8_192,
+  // The composed prompt plus the per-record prompts it was composed from.
+  maxBodyBytes: 2 * MAX_PROMPT_LENGTH + 16_384,
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     publisherId: z.string().uuid().describe("This browser's handoff identity."),
@@ -98,10 +109,7 @@ export default defineAction({
         pendingEditCount: pending?.pendingEditCount ?? 0,
         status,
         prompt: pending?.prompt ?? "",
-        includedVisualEditIds: JSON.stringify(
-          pending?.includedVisualEditIds ?? [],
-        ),
-        includedTweakIds: JSON.stringify(pending?.includedTweakIds ?? []),
+        handoffRecords: JSON.stringify(pending?.records ?? []),
         authorEmail: pending ? (getRequestUserEmail() ?? null) : null,
         updatedAt: now,
         visibility: design.visibility,
@@ -122,8 +130,7 @@ export default defineAction({
             pendingEditCount: values.pendingEditCount,
             status: values.status,
             prompt: values.prompt,
-            includedVisualEditIds: values.includedVisualEditIds,
-            includedTweakIds: values.includedTweakIds,
+            handoffRecords: values.handoffRecords,
             authorEmail: values.authorEmail,
             revision: sql`${schema.designVisualEditPending.revision} + 1`,
             publisherId: values.publisherId,

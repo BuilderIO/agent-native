@@ -617,9 +617,8 @@ CREATE INDEX IF NOT EXISTS design_motion_bridge_receipt_challenges_chain_idx
   },
   {
     version: 50,
-    name: "design-visual-edit-pending-included-ids",
-    sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS included_visual_edit_ids TEXT NOT NULL DEFAULT '[]';
-ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS included_tweak_ids TEXT NOT NULL DEFAULT '[]'`,
+    name: "design-visual-edit-pending-handoff-records",
+    sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS handoff_records TEXT NOT NULL DEFAULT '[]'`,
   },
 ];
 
