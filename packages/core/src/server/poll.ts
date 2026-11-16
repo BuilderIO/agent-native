@@ -1338,10 +1338,14 @@ export class AppSyncState {
         // others get their answers. The rest stay unchecked for a later read,
         // so a failing batch costs a few single checks, not one per resource.
         // Each goes through the same batch resolver, so the same rules decide
-        // it.
-        const unanswered = ids.filter((id) => !answeredIds.has(id));
+        // it. These checks start now, whatever the batch reported, so the
+        // deadline counts against them; the rest go back without a miss.
+        const retried = ids
+          .filter((id) => !answeredIds.has(id))
+          .slice(0, ACCESS_RETRY_LIMIT);
+        starting(retried);
         await Promise.all(
-          unanswered.slice(0, ACCESS_RETRY_LIMIT).map(async (id) => {
+          retried.map(async (id) => {
             let allowed: boolean | "unreadable";
             try {
               allowed = (

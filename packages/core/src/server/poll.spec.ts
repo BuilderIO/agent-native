@@ -777,6 +777,53 @@ describe("AppSyncState read through other people's resources", () => {
     expect(visibilityOf("slow-8")).toBe("pending");
   });
 
+  it("counts a missed deadline for a failed batch's retry the batch never reported", async () => {
+    vi.useFakeTimers();
+    const rows = durableRows([
+      { resourceType: "document", resourceId: "a" },
+      { resourceType: "document", resourceId: "b" },
+    ]);
+    // The batch reports that it started "a", then fails; every retry hangs.
+    const resolveAccessMany = vi.fn(
+      (
+        _type: string,
+        ids: string[],
+        _ctx: unknown,
+        _answered?: unknown,
+        starting?: (resourceIds: readonly string[]) => void,
+      ): Promise<Set<string>> => {
+        if (ids.length === 1) return new Promise(() => {});
+        starting?.(ids.slice(0, 1));
+        return Promise.reject(new Error("Builder unavailable"));
+      },
+    );
+    const state = stateReading(rows, { resolveAccessMany });
+    const read = () =>
+      state.getDurableChangesSinceForUser(5, "reader@example.com", undefined, {
+        version: 5,
+        id: "",
+      });
+
+    // Two batches in a row fail, and their retries miss the deadline.
+    await read();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await read();
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    // "b" was checked by its retries, so it counts as failed, as "a" does.
+    expect(
+      state.getChangeVisibilityForUser(
+        {
+          owner: "writer@example.com",
+          resourceType: "document",
+          resourceId: "b",
+        },
+        "reader@example.com",
+        undefined,
+      ),
+    ).toBe("unreadable");
+  });
+
   it("counts no missed deadline for a resource its batch answered, once the cache drops the answer", async () => {
     vi.useFakeTimers();
     const never = () => new Promise(() => {});
