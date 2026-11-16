@@ -313,7 +313,9 @@ each one an editable layer. Add:
 - Margin notes, not stickies: small grey Inter (about 34 px) under the header
   rule, each line led by a serif-italic note number. Use the source
   URL, "Only colors, fonts and icons changed" and "Each explainer reads
-  the remix's own knobs".
+  the remix's own knobs". On an Explain board, which has no Remix, the last
+  note says the explainers share one set of knobs, and the Original too
+  when it is inline.
 - A serif-italic step index ("01"…) on a hairline above each explainer.
   Design's screen label carries the step name, so name screens plainly.
 - Thin ink connectors (3 px, dark warm grey, small triangle head): Original to
@@ -374,8 +376,12 @@ flowchart of labelled boxes and arrows.
   script, so a click in Edit selects that part. Scope each knob to the Remix's
   node and to the parts that embody it: selecting a part shows only its knobs,
   selecting the frame shows them all. In Interact, dragging a dial or slider
-  part sets its CSS variable on the frame's `:root` for instant feedback;
-  that value stays in the frame and is not saved to the design.
+  part sets its CSS variable on the frame's `:root` for instant feedback,
+  then saves it with `window.__anInteract.setTweak(id, value)` (an id or the
+  tweak's cssVar) when present. Design saves only a tweak scoped to that
+  screen, clamped to its min, max and step, as if set in the inspector, so
+  the other frames follow and Apply lists the change. Throttle calls to about
+  one per animation frame while dragging.
 - Small and self-contained: framework-free JS and inline SVG, at most one
   webfont, never embedded images or base64 fonts; a design has a size limit.
 
@@ -392,8 +398,9 @@ with images:
 
 ## Report
 
-Report source-versus-result captures (clips for motion), knobs and defaults,
+Every finish reports the changed files and the verification: checks run and
+the original-colors fidelity side by side with the source. Then add
+source-versus-result captures (clips for motion), knobs and defaults,
 swappable assets, and unverified behavior or remaining differences. With a
-board, lead with its link and, in Design mode, hand off source edits the
-visual-edit way. Without Design, include the three image sets above, changed
-files, and verification; there is no board link.
+board, give its link, and in Design mode hand off source edits the
+visual-edit way. Without Design, include the three image sets above.
