@@ -2,6 +2,8 @@ import * as Sentry from "@sentry/electron/main";
 import { resolveDesktopSentryConfig } from "@shared/sentry-config";
 import { app, type WebContents } from "electron";
 
+import { redactBreadcrumb } from "./log-redaction";
+
 type WebContentsRole =
   | "shell-renderer"
   | "quick-prompt-renderer"
@@ -97,6 +99,7 @@ export function initializeDesktopSentry(): boolean {
     attachScreenshot: false,
     sendDefaultPii: false,
     tracesSampleRate: 0,
+    beforeBreadcrumb: redactBreadcrumb,
     beforeSend(event, hint) {
       if (shouldDropMainProcessError(hint)) return null;
       return event;

@@ -23,6 +23,31 @@ describe("redactArgsToJson", () => {
     expect(parsed.nested.keep).toBe("ok");
   });
 
+  it("redacts connection, DSN and OAuth code fields, and credentials inside URLs and prose", () => {
+    const parsed = JSON.parse(
+      redactArgsToJson({
+        databaseUrl: "postgres://u:CANARYDBPW01@h.example.com/db",
+        dsn: "https://CANARYDSNKEY0123@o1.ingest.example.com/1",
+        connection: "postgres://u:CANARYDBPW02@h.example.com/db",
+        code: "4/0ACANARYAUTHCODE0123456789",
+        statusCode: 404,
+        zipCode: "94103",
+        url: "https://x.example.com/cb?access_token=CANARYURLTOKEN01&z=1",
+        note: `use ${["sk-ant-api03-", "CANARYPROSE0123456789abcdef"].join("")} for this`,
+      })!,
+    );
+    expect(JSON.stringify(parsed)).not.toContain("CANARY");
+    expect(parsed).toMatchObject({
+      databaseUrl: "[redacted]",
+      dsn: "[redacted]",
+      code: "[redacted]",
+      statusCode: 404,
+      zipCode: "94103",
+      connection: "postgres://[redacted]@h.example.com/db",
+      url: "https://x.example.com/cb?access_token=[redacted]&z=1",
+    });
+  });
+
   it("redacts bearer tokens and long opaque strings by value", () => {
     expect(__test.looksSecret("Bearer abcdef....")).toBe(true);
     expect(__test.looksSecret("abcdefghij".repeat(4))).toBe(true);

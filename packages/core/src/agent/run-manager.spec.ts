@@ -2467,6 +2467,36 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("stores and streams a run error with its credentials redacted", async () => {
+    const key = ["sk-ant-api03-", "CANARYRUNERRORKEY0123456789"].join("");
+    const events: string[] = [];
+    vi.mocked(insertRunEvent).mockImplementation(async (_id, _seq, data) => {
+      events.push(data);
+    });
+    const run = startRun(
+      "run-error-redaction",
+      "thread-error-redaction",
+      async () => {
+        throw new Error(
+          `401 invalid x-api-key ${key} for https://u:CANARYUSERINFO@gw.example.com/v1?api_key=CANARYQUERY`,
+        );
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await run.finalized;
+
+    expect(setRunError).toHaveBeenCalledWith(
+      "run-error-redaction",
+      expect.any(String),
+      expect.stringContaining("[REDACTED]"),
+    );
+    expect(JSON.stringify(vi.mocked(setRunError).mock.calls)).not.toContain(
+      "CANARY",
+    );
+    expect(events.join("\n")).not.toContain("CANARY");
+  });
+
   it("resolves finalized only after the terminal event and status are durable", async () => {
     let persistFinalStatus: ((updated: boolean) => void) | undefined;
     vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(

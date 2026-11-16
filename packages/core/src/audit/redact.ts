@@ -14,7 +14,10 @@
 import { redactSecretsInText } from "../shared/secret-redaction.js";
 
 const SENSITIVE_KEY =
-  /(?:pass(?:word|phrase)?|secret|token|api[_-]?key|apikey|authorization|bearer|credential|cookie|session[_-]?(?:id|token)|private[_-]?key|client[_-]?secret|signing[_-]?secret|access[_-]?key|refresh[_-]?token|webhook[_-]?(?:url|secret))/i;
+  /(?:pass(?:word|phrase)?|secret|token|api[_-]?key|apikey|authorization|bearer|credential|cookie|session[_-]?(?:id|token)|private[_-]?key|client[_-]?secret|signing[_-]?secret|access[_-]?key|refresh[_-]?token|webhook[_-]?(?:url|secret)|dsn|(?:database|db|connection)[_-]?(?:url|uri|string))/i;
+// An OAuth code is a credential only as a whole name: `statusCode` and
+// `zipCode` are not.
+const SENSITIVE_KEY_EXACT = /^code$/i;
 
 const REDACTED = "[redacted]";
 // What a cut leaves behind. `redactedArgsWereCut` reads these back.
@@ -170,7 +173,10 @@ function redact(
         break;
       }
       n += 1;
-      out[k] = SENSITIVE_KEY.test(k) ? REDACTED : redact(v, depth + 1, limits);
+      out[k] =
+        SENSITIVE_KEY.test(k) || SENSITIVE_KEY_EXACT.test(k)
+          ? REDACTED
+          : redact(v, depth + 1, limits);
     }
     return out;
   }
