@@ -406,7 +406,9 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
         const afterMention = from + 1;
         const next = tr.doc.resolve(afterMention).nodeAfter?.text ?? "";
         const separator =
-          isReviewAgentMention(mention) && !/^\s/.test(next) ? " " : "";
+          isReviewAgentMention(mention) && !/^[\s.,!?;:)}\]»”’]/u.test(next)
+            ? " "
+            : "";
         if (separator) tr.insertText(separator, afterMention);
         tr.setSelection(
           TextSelection.create(tr.doc, afterMention + separator.length),
