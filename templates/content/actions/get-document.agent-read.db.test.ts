@@ -14,7 +14,7 @@ const TEST_DB_PATH = join(
 const OWNER = "agent-read-owner@example.com";
 const BODY = "First paragraph of the row.\nSecond paragraph of the row.";
 
-let getDb: () => any;
+let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
 let createContentDatabase: typeof import("./create-content-database.js").default;
 let configureDocumentProperty: typeof import("./configure-document-property.js").default;
@@ -36,7 +36,7 @@ beforeAll(async () => {
   addDatabaseItem = (await import("./add-database-item.js")).default;
   setDocumentProperty = (await import("./set-document-property.js")).default;
   getDocumentAction = (await import("./get-document.js")).default;
-  await (await import("../server/plugins/db.js")).default(undefined as any);
+  await (await import("../server/plugins/db.js")).default(undefined as never);
 }, 60000);
 
 afterAll(() => {
@@ -45,6 +45,12 @@ afterAll(() => {
 
 function as<T>(run: () => Promise<T>) {
   return runWithRequestContext({ userEmail: OWNER }, run);
+}
+
+/** The item a lookup found, failing the test when it found none. */
+function found<T>(item: T | undefined, what: string): T {
+  if (item === undefined) throw new Error(`No ${what} in the read.`);
+  return item;
 }
 
 /**
@@ -83,9 +89,12 @@ async function seedRow(suffix: string) {
       },
     });
     const byName = (name: string) =>
-      configured.properties.find(
-        (property) => property.definition.name === name,
-      )!.definition;
+      found(
+        configured.properties.find(
+          (property) => property.definition.name === name,
+        ),
+        name,
+      ).definition;
     const read = await getContentDatabase.run({ databaseId });
     if (!("database" in read) || !read.mutationContract)
       throw new Error("Fixture Collection has no mutation contract.");
@@ -139,9 +148,15 @@ describe("get-document agent read", () => {
     );
 
     const fullById = (id: string) =>
-      fullProperties.find((property) => property.definition.id === id)!;
+      found(
+        fullProperties.find((property) => property.definition.id === id),
+        id,
+      );
     const agentById = (id: string) =>
-      agentProperties.find((property) => property.definition.id === id)!;
+      found(
+        agentProperties.find((property) => property.definition.id === id),
+        id,
+      );
 
     const stage = agentById(stageId);
     expect(stage).toEqual({
@@ -169,15 +184,19 @@ describe("get-document agent read", () => {
     const notes = agentById(notesId);
     const fullNotes = fullById(notesId);
     expect(notes.value).toBe(fullNotes.value);
-    expect(fullNotes.blocksField?.blocks.length).toBeGreaterThan(0);
+    const fullBlocks = found(fullNotes.blocksField, "Notes block map");
+    expect(fullBlocks.blocks.length).toBeGreaterThan(0);
     expect(notes.blocksField).toEqual({
-      fieldId: fullNotes.blocksField!.fieldId,
-      revision: fullNotes.blocksField!.revision,
+      fieldId: fullBlocks.fieldId,
+      revision: fullBlocks.revision,
     });
 
-    const fullBody = fullProperties.find(
-      (property) => property.definition.options.blocks?.primary === true,
-    )!;
+    const fullBody = found(
+      fullProperties.find(
+        (property) => property.definition.options.blocks?.primary === true,
+      ),
+      "body field",
+    );
     expect(fullBody.value).toBe(BODY);
     const body = agentById(fullBody.definition.id);
     expect(body).not.toHaveProperty("value");
