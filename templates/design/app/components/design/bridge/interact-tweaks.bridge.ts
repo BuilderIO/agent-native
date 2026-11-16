@@ -28,6 +28,7 @@
  *   • Wrap everything in a self-executing IIFE.
  */
 (function () {
+  var CAPABILITY = "__INTERACT_TWEAK_CAPABILITY__";
   if ((window as { __anInteractTweaks?: unknown }).__anInteractTweaks) return;
   (window as { __anInteractTweaks?: unknown }).__anInteractTweaks = true;
 
@@ -67,6 +68,7 @@
       if (typeof idOrCssVar !== "string" || window.parent === window) return;
       var message: Record<string, unknown> = {
         type: "tweak-set",
+        capability: CAPABILITY,
         value: value,
       };
       if (NAME.test(idOrCssVar)) message.cssVar = idOrCssVar;

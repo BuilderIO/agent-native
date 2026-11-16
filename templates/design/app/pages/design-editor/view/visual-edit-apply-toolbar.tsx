@@ -43,7 +43,7 @@ export function renderVisualEditApplyToolbar({
     shellMode,
     t,
   } = editorCore;
-  const { hasLocalPendingVisualEdits, applyingViaHost } = editorHistory;
+  const { applyingViaHost } = editorHistory;
   const {
     remoteVisualEditPending,
     remoteVisualEditSuggestion,
@@ -65,13 +65,18 @@ export function renderVisualEditApplyToolbar({
     pendingStructureVerificationStatus === "checking-source" ||
     pendingStructureVerificationStatus === "awaiting-source" ||
     pendingStructureVerificationStatus === "awaiting-runtime";
-  const remoteVisualEditPrompt =
-    !hasLocalPendingVisualEdits && remoteVisualEditPending
-      ? `${visualEditPendingQuery.data!.prompt}\n\nAfter applying and verifying these source changes, acknowledge only revision ${visualEditPendingQuery.data!.revision} with acknowledge-visual-edit-pending, then call get-visual-edit-pending again to verify it cleared.`
-      : !hasLocalPendingVisualEdits && remoteVisualEditSuggestion
-        ? visualEditSuggestionReviewPrompt(remoteVisualEditSuggestion)
-        : undefined;
-  const applyPrompt = remoteVisualEditPrompt ?? pendingApplyPrompt;
+  const remoteVisualEdit = remoteVisualEditPending
+    ? visualEditPendingQuery.data
+    : undefined;
+  const remoteVisualEditPrompt = remoteVisualEdit
+    ? `${remoteVisualEdit.prompt}\n\nAfter applying and verifying these source changes, acknowledge only revision ${remoteVisualEdit.revision} with acknowledge-visual-edit-pending, then call get-visual-edit-pending again to verify it cleared.`
+    : remoteVisualEditSuggestion
+      ? visualEditSuggestionReviewPrompt(remoteVisualEditSuggestion)
+      : undefined;
+  const applyPrompt = mergeRemoteAndLocalApplyPrompt(
+    remoteVisualEditPrompt,
+    pendingApplyPrompt,
+  );
   const showSharedVisualEditApply = Boolean(remoteVisualEditPrompt);
   const showVisualEditApply =
     showPendingVisualStyleApply ||
@@ -115,7 +120,10 @@ export function renderVisualEditApplyToolbar({
               }
               onClick={
                 canApplyPendingVisualEditsFromToolbar
-                  ? () => handleApplyPendingVisualStylesWithAgent(applyPrompt)
+                  ? () =>
+                      remoteVisualEditPrompt
+                        ? handleApplyPendingVisualStylesWithAgent(applyPrompt)
+                        : handleApplyPendingVisualStylesWithAgent()
                   : () => handleCopyPendingVisualStylePrompt(applyPrompt, true)
               }
             >
@@ -195,6 +203,13 @@ export function renderVisualEditApplyToolbar({
       ) : null}
     </>
   );
+}
+
+export function mergeRemoteAndLocalApplyPrompt(
+  remotePrompt: string | undefined,
+  localPrompt: string,
+): string {
+  return [remotePrompt, localPrompt].filter(Boolean).join("\n\n");
 }
 
 /**

@@ -170,6 +170,7 @@ export function useEditorExportAndHandoff({
     designDataJson,
     designSourceType,
     pendingTweakChanges,
+    tweakSelections,
     boardFileId,
     overviewScreens,
     flushPendingFileContentSavesForBackground,
@@ -182,6 +183,7 @@ export function useEditorExportAndHandoff({
     activeOverviewScreenId,
     activeOverviewScreen,
     activeCanvasSourceType,
+    enqueueFrameGeometryDataSave,
   } = editorActiveScreenAndGeometry;
   const {
     exportPreviewScreenIdRef,
@@ -525,7 +527,18 @@ export function useEditorExportAndHandoff({
           promptOverride !== undefined
             ? withFullAppApplyInstructions(isFullAppDesign, id, promptOverride)
             : pendingVisualStylePrompt,
+        hasPendingTweakChanges: pendingTweakChanges.length > 0,
         allowPromptOnly: promptOverride !== undefined,
+        onHandoffDelivered: () => {
+          if (!id) return;
+          enqueueFrameGeometryDataSave([
+            {
+              op: "set",
+              path: ["tweakSourceBaseline"],
+              value: tweakSelections,
+            },
+          ]);
+        },
         setActiveLeftPanel,
         setApplyingViaHost,
         setPendingAgentHandoffBusy,
@@ -547,6 +560,8 @@ export function useEditorExportAndHandoff({
       pendingStructureVerificationStatus,
       pendingVisualStyleEdits,
       pendingVisualStylePrompt,
+      enqueueFrameGeometryDataSave,
+      tweakSelections,
       t,
     ],
   );
@@ -1488,6 +1503,9 @@ function withFullAppApplyInstructions(
   prompt: string,
 ): string {
   if (!isFullAppDesign || !prompt) return prompt;
+  if (prompt.includes("Apply these edits by calling send-builder-message")) {
+    return prompt;
+  }
   return [
     `This is a full-app design${designId ? ` (designId "${designId}")` : ""}: its screens run from a Builder branch container.`,
     "Apply these edits by calling send-builder-message with the designId and a prompt that describes every edit below precisely. It delegates to Builder and returns when the change is done.",

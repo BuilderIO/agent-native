@@ -21,6 +21,7 @@ async function openSandboxedInteractFrame(
   const srcdoc = buildInteractPreviewDocument({
     ...options,
     content: options.content ?? DESIGN,
+    tweakCapability: "test-capability",
     fitBodyToFrame: true,
   });
   await page.setContent(
@@ -124,6 +125,7 @@ describe("Interact tweaks bridge", () => {
         window.addEventListener("message", (event) => {
           if (event.source !== document.querySelector("iframe")!.contentWindow)
             return;
+          if (event.data?.type !== "tweak-set") return;
           (window as { received?: unknown[] }).received!.push(event.data);
         });
       });
@@ -143,8 +145,18 @@ describe("Interact tweaks bridge", () => {
           page.evaluate(() => (window as { received?: unknown[] }).received),
         )
         .toEqual([
-          { type: "tweak-set", id: "twist", value: 1.5 },
-          { type: "tweak-set", cssVar: "--sail-twist", value: "0.4" },
+          {
+            type: "tweak-set",
+            capability: "test-capability",
+            id: "twist",
+            value: 1.5,
+          },
+          {
+            type: "tweak-set",
+            capability: "test-capability",
+            cssVar: "--sail-twist",
+            value: "0.4",
+          },
         ]);
     } finally {
       await browser.close();

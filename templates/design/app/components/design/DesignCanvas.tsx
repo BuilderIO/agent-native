@@ -3657,14 +3657,20 @@ export function DesignCanvas({
   interactTweaksRef.current = tweaks;
   const interactContentRef = useRef(content);
   interactContentRef.current = content;
+  const interactTweakCapabilityRef = useRef<string | undefined>(undefined);
   const onInteractTweakSetRef = useRef(onInteractTweakSet);
   onInteractTweakSetRef.current = onInteractTweakSet;
   const acceptsInteractTweakSet =
-    interactMode && Boolean(screenId) && Boolean(onInteractTweakSet);
+    interactMode &&
+    !rawExternalPreviewUrl &&
+    Boolean(screenId) &&
+    Boolean(onInteractTweakSet);
   useEffect(() => {
     if (!acceptsInteractTweakSet || !screenId) return;
     const listener = createInteractTweakSetListener({
+      isInlineDocument: () => !rawExternalPreviewUrl,
       getFrameWindow: () => iframeRef.current?.contentWindow,
+      getCapability: () => interactTweakCapabilityRef.current,
       getTweaks: () => interactTweaksRef.current ?? [],
       screenId,
       getScreenHtml: () => interactContentRef.current,
@@ -3727,8 +3733,11 @@ export function DesignCanvas({
     // links bridges and none of the editor's, so entering or leaving Interact
     // loads a new document rather than asking one to stand down.
     if (interactMode) {
+      const tweakCapability = crypto.randomUUID();
+      interactTweakCapabilityRef.current = tweakCapability;
       const interactDocument = buildInteractPreviewDocument({
         content: iframeRenderContent,
+        tweakCapability,
         embeddedFrameBackground,
         transparentBackground,
         contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,

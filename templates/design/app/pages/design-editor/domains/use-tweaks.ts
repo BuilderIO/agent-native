@@ -237,6 +237,13 @@ export function useTweaks({
       return {};
     }
   }, [design?.data]);
+  const sourceBaseline: TweakSelections = useMemo(() => {
+    if (!design?.data) return {};
+    const value = JSON.parse(design.data)?.tweakSourceBaseline;
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value
+      : {};
+  }, [design?.data]);
   useLayoutEffect(() => {
     if (
       !tweakSaveActive &&
@@ -261,24 +268,14 @@ export function useTweaks({
       equals: areTweakSelectionsEqual,
     },
   );
-  const initialTweakSelectionsRef = useRef<{
-    designId: string | undefined;
-    selections: TweakSelections;
-  } | null>(null);
-  if (design?.data && initialTweakSelectionsRef.current?.designId !== id) {
-    initialTweakSelectionsRef.current = {
-      designId: id,
-      selections: authoritativeTweakSelections,
-    };
-  }
   const pendingTweakChanges = useMemo(
     () =>
       getTweakHandoffChanges({
         tweaks,
-        before: initialTweakSelectionsRef.current?.selections ?? {},
+        before: sourceBaseline,
         after: tweakSelections,
       }),
-    [tweakSelections, tweaks],
+    [sourceBaseline, tweakSelections, tweaks],
   );
 
   const cssVarValues = useMemo(

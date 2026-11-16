@@ -135,7 +135,9 @@ describe("createInteractTweakSetListener", () => {
     const frameWindow = {} as Window;
     const onTweakSet = vi.fn();
     const listener = createInteractTweakSetListener({
+      isInlineDocument: () => true,
       getFrameWindow: () => frameWindow,
+      getCapability: () => "frame-capability",
       getTweaks: () => TWEAKS,
       screenId: "explainer-2",
       getScreenHtml: () => SCREEN_HTML,
@@ -147,7 +149,12 @@ describe("createInteractTweakSetListener", () => {
   it("writes a tweak-set from its own frame through the tweak setter", () => {
     const { frameWindow, onTweakSet, listener } = setup();
     listener(
-      message(frameWindow, { type: "tweak-set", id: "twist", value: 1.53 }),
+      message(frameWindow, {
+        type: "tweak-set",
+        capability: "frame-capability",
+        id: "twist",
+        value: 1.53,
+      }),
     );
     expect(onTweakSet).toHaveBeenCalledExactlyOnceWith("twist", 1.55);
   });
@@ -156,6 +163,45 @@ describe("createInteractTweakSetListener", () => {
     const { onTweakSet, listener } = setup();
     listener(message({}, { type: "tweak-set", id: "twist", value: 1 }));
     listener(message(null, { type: "tweak-set", id: "twist", value: 1 }));
+    expect(onTweakSet).not.toHaveBeenCalled();
+  });
+
+  it("rejects missing or incorrect capabilities", () => {
+    const { frameWindow, onTweakSet, listener } = setup();
+    listener(
+      message(frameWindow, { type: "tweak-set", id: "twist", value: 1 }),
+    );
+    listener(
+      message(frameWindow, {
+        type: "tweak-set",
+        capability: "wrong",
+        id: "twist",
+        value: 1,
+      }),
+    );
+    expect(onTweakSet).not.toHaveBeenCalled();
+  });
+
+  it("never accepts URL-backed frame messages", () => {
+    const onTweakSet = vi.fn();
+    const frameWindow = {} as Window;
+    const listener = createInteractTweakSetListener({
+      isInlineDocument: () => false,
+      getFrameWindow: () => frameWindow,
+      getCapability: () => "frame-capability",
+      getTweaks: () => TWEAKS,
+      screenId: "explainer-2",
+      getScreenHtml: () => SCREEN_HTML,
+      onTweakSet,
+    });
+    listener(
+      message(frameWindow, {
+        type: "tweak-set",
+        capability: "frame-capability",
+        id: "twist",
+        value: 1,
+      }),
+    );
     expect(onTweakSet).not.toHaveBeenCalled();
   });
 });
