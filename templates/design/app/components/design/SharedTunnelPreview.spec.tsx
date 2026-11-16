@@ -3,9 +3,21 @@
 import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { SharedTunnelPreview } from "./SharedTunnelPreview";
+import { REFERENCE_FRAME_LOAD_TIMEOUT_MS } from "./use-reference-frame-failure";
+
+beforeEach(() => {
+  (
+    window as unknown as {
+      happyDOM: { settings: { disableIframePageLoading: boolean } };
+    }
+  ).happyDOM.settings.disableIframePageLoading = true;
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -41,5 +53,80 @@ it("keeps live tunnel content inert while its snapshot suggestion control stays 
   } finally {
     await act(async () => root.unmount());
     host.remove();
+  }
+});
+
+async function renderPreview() {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () =>
+    root.render(
+      <SharedTunnelPreview url="https://demo.ngrok-free.app/flow" active />,
+    ),
+  );
+  const cleanup = async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  };
+  return { host, cleanup };
+}
+
+const liveLayer = (host: HTMLElement) =>
+  host.querySelector("iframe")?.parentElement as HTMLElement | undefined;
+const advance = (ms: number) =>
+  act(async () => void vi.advanceTimersByTime(ms));
+
+it("reveals the snapshot when the tunnel never finishes loading", async () => {
+  vi.useFakeTimers();
+  const { host, cleanup } = await renderPreview();
+  try {
+    await advance(REFERENCE_FRAME_LOAD_TIMEOUT_MS - 1);
+    expect(liveLayer(host)?.hidden).toBe(false);
+    await advance(1);
+    expect(liveLayer(host)?.hidden).toBe(true);
+    expect(host.querySelector("button")?.textContent).toBe(
+      "designEditor.livePreview.live",
+    );
+    await act(async () =>
+      host.querySelector("iframe")?.dispatchEvent(new Event("load")),
+    );
+    expect(liveLayer(host)?.hidden).toBe(false);
+    expect(host.querySelector("button")?.textContent).toBe(
+      "designEditor.livePreview.suggest",
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+it("keeps a tunnel that loads before the timeout live", async () => {
+  vi.useFakeTimers();
+  const { host, cleanup } = await renderPreview();
+  try {
+    await act(async () =>
+      host.querySelector("iframe")?.dispatchEvent(new Event("load")),
+    );
+    await advance(REFERENCE_FRAME_LOAD_TIMEOUT_MS * 2);
+    expect(liveLayer(host)?.hidden).toBe(false);
+  } finally {
+    await cleanup();
+  }
+});
+
+it("retries a timed-out tunnel with a fresh frame and timer", async () => {
+  vi.useFakeTimers();
+  const { host, cleanup } = await renderPreview();
+  try {
+    await advance(REFERENCE_FRAME_LOAD_TIMEOUT_MS);
+    const stale = host.querySelector("iframe");
+    expect(liveLayer(host)?.hidden).toBe(true);
+    await act(async () => host.querySelector("button")?.click());
+    expect(host.querySelector("iframe")).not.toBe(stale);
+    expect(liveLayer(host)?.hidden).toBe(false);
+    await advance(REFERENCE_FRAME_LOAD_TIMEOUT_MS);
+    expect(liveLayer(host)?.hidden).toBe(true);
+  } finally {
+    await cleanup();
   }
 });
