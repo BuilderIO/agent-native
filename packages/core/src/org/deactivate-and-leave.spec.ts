@@ -231,4 +231,24 @@ describe("deactivating and leaving an organization (real pglite)", () => {
     ).rejects.toMatchObject({ statusCode: 409 });
     expect(await isOrgMember("org-1", MEMBER)).toBe(true);
   }, 30_000);
+
+  it("a refused leave for lack of a successor does not mark the caller pending", async () => {
+    await pglite.exec(
+      `UPDATE org_members SET federation_removal_pending_at = 5 WHERE id = 'm-1'`,
+    );
+    state.ctx = {
+      email: MEMBER,
+      orgId: "org-1",
+      orgName: "Acme",
+      role: "member",
+    };
+    await expect(
+      leaveOrgHandler(event("/_agent-native/org/leave")),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    const row = await pglite.query<{ pending: string | null }>(
+      `SELECT federation_removal_pending_at AS pending FROM org_members WHERE id = 'm-2'`,
+    );
+    expect(row.rows[0]?.pending).toBeNull();
+    expect(await isOrgMember("org-1", MEMBER)).toBe(true);
+  }, 30_000);
 });

@@ -4365,7 +4365,12 @@ function TiptapComposerSurface({
         if (
           event.key === "Enter" &&
           enterSubmitModeRef.current === "plain" &&
-          (event.altKey || event.ctrlKey || event.metaKey)
+          (event.altKey || event.ctrlKey || event.metaKey) &&
+          !(
+            enterKeyRef.current === "newline" &&
+            !event.altKey &&
+            (isMac ? event.metaKey : event.ctrlKey)
+          )
         ) {
           return false;
         }

@@ -7383,7 +7383,15 @@ export class AgentKitClient implements AgentKitController {
       if (!this.disposed) {
         await this.queueMessage({ ...input, queueWhileRunning: true }).catch(
           () => {
-            // The original error below is the one to surface.
+            // Requeueing failed too: keep the row locally so the text and
+            // attachments stay on screen; the original error is still thrown.
+            const thread = this.getThread(threadId);
+            if (!thread.queuedMessages.some((m) => m.id === queued.id)) {
+              this.setThread(threadId, {
+                ...thread,
+                queuedMessages: [...thread.queuedMessages, queued],
+              });
+            }
           },
         );
       }

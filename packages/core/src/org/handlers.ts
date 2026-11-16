@@ -492,6 +492,25 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
   },
 );
 
+async function findSelfRemovalSuccessor(
+  e: Awaited<ReturnType<typeof exec>>,
+  orgId: string,
+  email: string,
+): Promise<string> {
+  const successor = await e.execute({
+    sql: `SELECT email FROM org_members
+          WHERE org_id = ? AND LOWER(email) <> ?
+            AND federation_removal_pending_at IS NULL
+            AND role IN ('owner', 'admin', 'member')
+          ORDER BY CASE WHEN role = 'owner' THEN 0
+                        WHEN role = 'admin' THEN 1 ELSE 2 END,
+                   joined_at ASC, LOWER(email) ASC
+          LIMIT 1`,
+    args: [orgId, email],
+  });
+  return String(successor.rows[0]?.email ?? "").trim();
+}
+
 /**
  * Ends the caller's own membership, whose row is already marked
  * `federation_removal_pending_at`, and moves only the caller's active org.
@@ -508,21 +527,8 @@ async function completeSelfRemoval(
 ): Promise<string | null> {
   const { email, orgId, role, requestedTransferTo } = input;
   const e = await exec();
-  let transferTo = requestedTransferTo;
-  if (!transferTo) {
-    const successor = await e.execute({
-      sql: `SELECT email FROM org_members
-            WHERE org_id = ? AND LOWER(email) <> ?
-              AND federation_removal_pending_at IS NULL
-              AND role IN ('owner', 'admin', 'member')
-            ORDER BY CASE WHEN role = 'owner' THEN 0
-                          WHEN role = 'admin' THEN 1 ELSE 2 END,
-                     joined_at ASC, LOWER(email) ASC
-            LIMIT 1`,
-      args: [orgId, email],
-    });
-    transferTo = String(successor.rows[0]?.email ?? "").trim();
-  }
+  const transferTo =
+    requestedTransferTo || (await findSelfRemovalSuccessor(e, orgId, email));
   if (!transferTo) {
     throw createError({
       statusCode: 409,
@@ -619,6 +625,15 @@ export const leaveOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
+  // Resolved before the row is marked pending: a 409 afterwards would leave
+  // the caller locked out of an org they never left.
+  const successor = await findSelfRemovalSuccessor(e, ctx.orgId, email);
+  if (!successor) {
+    throw createError({
+      statusCode: 409,
+      message: "An active organization member is required as a successor",
+    });
+  }
   await e.execute({
     sql: `UPDATE org_members SET federation_removal_pending_at = ?
           WHERE org_id = ? AND LOWER(email) = ?
@@ -629,7 +644,7 @@ export const leaveOrgHandler = defineEventHandler(async (event: H3Event) => {
     email,
     orgId: ctx.orgId,
     role,
-    requestedTransferTo: "",
+    requestedTransferTo: successor,
     reason: "left organization",
   });
   return { success: true, orgId: ctx.orgId, nextOrgId };

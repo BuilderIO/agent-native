@@ -21,7 +21,9 @@ vi.mock("./useRealtimeVoiceMode.js", () => ({
 import { TooltipProvider } from "../ui/tooltip.js";
 import { PromptComposer, type PromptComposerProps } from "./PromptComposer.js";
 import {
+  ComposerEnterKeyContext,
   TiptapComposer,
+  type ComposerEnterKey,
   type TiptapComposerHandle,
   type TiptapComposerProps,
 } from "./TiptapComposer.js";
@@ -60,20 +62,25 @@ async function mount(
   options: Record<string, unknown> = {},
   seedDraft = true,
 ) {
+  const { enterKey = "send", ...composerOptions } = options as {
+    enterKey?: ComposerEnterKey;
+  } & Record<string, unknown>;
   function Harness() {
     const runtime = useLocalRuntime(emptyChatModelAdapter);
     return (
       <AssistantRuntimeProvider runtime={runtime}>
         <TooltipProvider>
-          <TiptapComposer
-            {...(options as Partial<TiptapComposerProps>)}
-            focusRef={focusRef}
-            onSubmit={onSubmit}
-            placeholder="Ask the agent..."
-            includeDefaultSlashSkills={false}
-            plusMenuMode="hidden"
-            voiceEnabled={false}
-          />
+          <ComposerEnterKeyContext.Provider value={enterKey}>
+            <TiptapComposer
+              {...(composerOptions as Partial<TiptapComposerProps>)}
+              focusRef={focusRef}
+              onSubmit={onSubmit}
+              placeholder="Ask the agent..."
+              includeDefaultSlashSkills={false}
+              plusMenuMode="hidden"
+              voiceEnabled={false}
+            />
+          </ComposerEnterKeyContext.Provider>
         </TooltipProvider>
       </AssistantRuntimeProvider>
     );
@@ -117,6 +124,29 @@ describe("TiptapComposer Enter policy", () => {
       expect(modifiedEditor.textContent).toContain("Enter policy draft");
       await act(async () => root.render(<></>));
     }
+  });
+
+  it("still submits with the platform modifier when plain mode is combined with newline-on-Enter", async () => {
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+    const modifier = isMac ? "metaKey" : "ctrlKey";
+    const other = isMac ? "ctrlKey" : "metaKey";
+
+    const submit = createTiptapSubmitSpy();
+    const editor = await mount(submit, {
+      enterSubmitMode: "plain",
+      enterKey: "newline",
+    });
+    await press(editor, { [modifier]: true });
+    expect(submit).toHaveBeenCalledOnce();
+    await act(async () => root.render(<></>));
+
+    const wrongModifier = createTiptapSubmitSpy();
+    const wrongEditor = await mount(wrongModifier, {
+      enterSubmitMode: "plain",
+      enterKey: "newline",
+    });
+    await press(wrongEditor, { [other]: true });
+    expect(wrongModifier).not.toHaveBeenCalled();
   });
 
   it("keeps Shift+Enter as a hard break and does not submit composing Enter", async () => {
