@@ -2016,7 +2016,7 @@ describe("getOnboardingJourney", () => {
       expect(summary.coverage.truncated).toBe(true);
       expect(summary.notes?.join(" ")).toMatch(/15-second time budget/);
       expect(summary.notes?.join(" ")).toMatch(
-        /stopped at its time budget \(15 seconds for the event read, 22 in all\)\. Call again within a few minutes with the same arguments and observationWatermark="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z"/,
+        /stopped at its time budget \(15 seconds for the event read, 22 in all\)\. Call again within a few minutes with the same arguments and observationWatermark="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z": queries that finished are kept in the query cache and unfinished BigQuery queries keep running/,
       );
       expect(summary.continueWith).toEqual({
         observationWatermark: expect.stringMatching(
@@ -2032,6 +2032,45 @@ describe("getOnboardingJourney", () => {
       vi.useRealTimers();
     }
   });
+
+  it.each(["postgres", "dual"] as const)(
+    "tells a %s-backed read stopped at its deadline to continue from its cached pages",
+    async (sink) => {
+      // Finished pages are cached there too, but nothing is left running.
+      vi.useFakeTimers();
+      mocks.getFirstPartyAnalyticsBackend.mockResolvedValue({
+        sink,
+        table: null,
+      });
+      mocks.queryFirstPartyAnalytics.mockImplementationOnce(async () => {
+        await vi.advanceTimersByTimeAsync(ONBOARDING_EVENT_READ_DEADLINE_MS);
+        return {
+          rows: Array.from({ length: 4_000 }, (_, index) =>
+            eventRow(`deadline-${index}`, "signup", index),
+          ),
+          schema: [],
+        };
+      });
+
+      try {
+        const summary = (await getOnboardingJourney(scope, {
+          ...ARGS,
+          dateTo: "2026-10-09",
+          format: "summary",
+          maxEventRows: 20_000,
+        })) as JourneySummary;
+
+        const notes = summary.notes?.join(" ");
+        expect(notes).toMatch(
+          /queries that finished are kept in the query cache, so the next call continues from them\. Repeat until this note is gone\./,
+        );
+        expect(notes).not.toMatch(/BigQuery/);
+        expect(summary.continueWith).toBeDefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("gives cohort trees the watermark to continue from at the event-read deadline", async () => {
     vi.useFakeTimers();

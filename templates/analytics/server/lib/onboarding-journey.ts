@@ -2619,8 +2619,14 @@ export async function getOnboardingJourney(
     read.truncationReason === "read_deadline" ||
     (followupTimedOut && followupContinues);
   if (stoppedForTime) {
+    // Finished queries are cached on every backend; only BigQuery's
+    // unfinished ones are left running.
+    const carriedOver =
+      read.backendSink === "bigquery"
+        ? "queries that finished are kept in the query cache and unfinished BigQuery queries keep running, so the next call collects them instead of starting over"
+        : "queries that finished are kept in the query cache, so the next call continues from them";
     notes.push(
-      `This request stopped at its time budget (${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000} seconds for the event read, ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000} in all). Call again within a few minutes with the same arguments and observationWatermark="${observation.observationWatermark}": queries that finished are kept in the query cache and unfinished BigQuery queries keep running, so the next call collects them instead of starting over. Repeat until this note is gone.`,
+      `This request stopped at its time budget (${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000} seconds for the event read, ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000} in all). Call again within a few minutes with the same arguments and observationWatermark="${observation.observationWatermark}": ${carriedOver}. Repeat until this note is gone.`,
     );
   } else if (followupTimedOut) {
     notes.push(
