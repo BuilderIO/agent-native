@@ -90,7 +90,9 @@ export {
 } from "./ui-action-capability.js";
 export { getBrowserCookieSession, getSession } from "./auth.js";
 export {
+  FULL_APP_EMBED_SCOPE,
   hasFullAppEmbedSession,
   hasPresentedEmbedSessionCredential,
+  resolveEmbedSessionFromRequest,
 } from "./embed-session.js";
 export { resolveOrgIdForEmailViaEvent } from "../org/context.js";

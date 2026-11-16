@@ -3058,6 +3058,74 @@ export default {
     },
   );
 
+  it.each([
+    ["a full-app panel with the UI capability", "full-app", true, true],
+    ["a full-app panel without the UI capability", "full-app", false, false],
+    ["a scoped widget with the UI capability", "widget", true, false],
+    ["a full-app panel's non-frontend request", "server", true, false],
+  ] as const)(
+    "gives UI-only actions the owner's UI context from %s in generated workers",
+    async (_caller, kind, withCapability, proven) => {
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "ui-action.mjs");
+      fs.writeFileSync(actionPath, "export default { uiOnly: true };");
+      const source = generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "save-view", absPath: actionPath, method: "post" }],
+      );
+      const fnSource = source.match(
+        /  async function getGeneratedUiActionContext\(event, embedded\) \{[\s\S]*?\n  \}\n/,
+      )?.[0];
+      expect(fnSource).toBeTruthy();
+      // The live resolver also checks origin binding and revocation in the
+      // database; here it reports the session the panel's token names.
+      const embedSession = {
+        email: "Panel-Owner@example.com",
+        scope:
+          kind === "widget"
+            ? "capability:visual-edit:design:design-1"
+            : "full-app",
+      };
+      const capabilityOwners: string[] = [];
+      const getContext = new Function(
+        "resolveGeneratedEmbedSession",
+        "GENERATED_FULL_APP_EMBED_SCOPE",
+        "hasGeneratedSameOriginBrowserEvidence",
+        "hasGeneratedUiActionCapability",
+        "resolveGeneratedOrgId",
+        "getGeneratedBrowserCookieSession",
+        `${fnSource}; return getGeneratedUiActionContext;`,
+      )(
+        async () => embedSession,
+        "full-app",
+        () => true,
+        (_event: unknown, owner: string) => {
+          capabilityOwners.push(owner);
+          return withCapability;
+        },
+        async () => "org-1",
+        async () => {
+          throw new Error("A panel is not a browser-cookie session");
+        },
+      ) as (event: unknown, embedded: boolean) => Promise<unknown>;
+      const headers = new Headers(
+        kind === "server" ? {} : { "x-agent-native-frontend": "1" },
+      );
+      const context = await getContext({ req: { headers } }, true);
+      if (proven) {
+        expect(context).toEqual({
+          userEmail: "panel-owner@example.com",
+          orgId: "org-1",
+        });
+        expect(capabilityOwners).toEqual(["panel-owner@example.com"]);
+      } else {
+        expect(context).toBeNull();
+      }
+    },
+  );
+
   it("pre-marks generated plugin slots before running async plugins", () => {
     const dir = makeTempDir();
     const agentChatPlugin = path.join(

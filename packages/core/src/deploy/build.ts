@@ -1633,7 +1633,7 @@ ${["post", "put", "delete"]
   getFrameworkRoutePrefix as getAgentNativeFrameworkRoutePrefix,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
-${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasFullAppEmbedSession as hasGeneratedFullAppEmbedSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
+${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasFullAppEmbedSession as hasGeneratedFullAppEmbedSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  FULL_APP_EMBED_SCOPE as GENERATED_FULL_APP_EMBED_SCOPE,\n  resolveEmbedSessionFromRequest as resolveGeneratedEmbedSession,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
@@ -2639,7 +2639,25 @@ ${pluginCalls.join("\n")}
 ${
   hasActions
     ? `  async function getGeneratedUiActionContext(event, embedded) {
-    if (event.req.headers.has("authorization") || embedded) {
+    if (embedded) {
+      // A full-app panel's own requests carry its owner's UI authority, as in
+      // the Nitro action route; any other embed does not.
+      if (event.req.headers.get("x-agent-native-frontend") !== "1") return null;
+      const embedSession = await resolveGeneratedEmbedSession(event);
+      if (embedSession?.scope !== GENERATED_FULL_APP_EMBED_SCOPE) return null;
+      const userEmail = embedSession.email.trim().toLowerCase();
+      if (
+        !userEmail ||
+        !hasGeneratedSameOriginBrowserEvidence(event) ||
+        !hasGeneratedUiActionCapability(event, userEmail)
+      ) {
+        return null;
+      }
+      const orgId =
+        embedSession.orgId ?? (await resolveGeneratedOrgId(event, userEmail)) ?? undefined;
+      return { userEmail, orgId };
+    }
+    if (event.req.headers.has("authorization")) {
       return null;
     }
     const session = await getGeneratedBrowserCookieSession(event);
