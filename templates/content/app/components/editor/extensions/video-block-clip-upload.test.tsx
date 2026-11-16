@@ -149,6 +149,8 @@ function render(attrs: Record<string, unknown> = {}) {
   const editor = {
     isEditable: true,
     isDestroyed: false,
+    on: () => {},
+    off: () => {},
     chain: () => {
       const chain = {
         focus: () => chain,
