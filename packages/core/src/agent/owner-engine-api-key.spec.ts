@@ -60,6 +60,7 @@ vi.mock(
   }),
 );
 
+import { isPersonalProviderKeyUseRestricted } from "../server/personal-provider-key-policy.js";
 import {
   getOwnerApiKey,
   getOwnerApiKeyForEngine,
@@ -84,6 +85,7 @@ beforeEach(() => {
   requestContextState.orgScope = undefined;
   requestContextState.defaultAgentEngineScope = undefined;
   readOrgMemberRoleMock.mockResolvedValue("member");
+  vi.mocked(isPersonalProviderKeyUseRestricted).mockResolvedValue(false);
 });
 
 describe("getOwnerApiKey scope order", () => {
@@ -109,6 +111,80 @@ describe("getOwnerApiKey scope order", () => {
       "org-1",
       "owner@example.com",
     );
+  });
+
+  it("identifies a lower-priority scoped key even when it has failed authentication", async () => {
+    requestContextState.orgId = "org-1";
+    readOrgMemberRoleMock.mockResolvedValue("owner");
+    readAppSecretMock.mockImplementation(
+      async ({ key, scope }: { key: string; scope: string }) =>
+        key === "ANTHROPIC_API_KEY" && (scope === "org" || scope === "user")
+          ? { value: `test-anthropic-${scope}` }
+          : null,
+    );
+    getProviderCredentialAuthFailureMock.mockResolvedValue({
+      fingerprint: "failed",
+    });
+    await expect(
+      getOwnerApiKeyForEngine("anthropic", "owner@example.com", {
+        matchApiKey: "test-anthropic-user",
+      }),
+    ).resolves.toMatchObject({
+      apiKey: "test-anthropic-user",
+      apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      credentialProvenance: {
+        scope: "user",
+        scopeId: "owner@example.com",
+        source: "app_secrets",
+      },
+    });
+    expect(getProviderCredentialAuthFailureMock).not.toHaveBeenCalled();
+  });
+
+  it("identifies both settings formats behind a current vault key", async () => {
+    ownerSecrets({ ANTHROPIC_API_KEY: "test-current" });
+    getSettingMock.mockImplementation(async (key: string) =>
+      key.startsWith("user-anthropic-api-key:")
+        ? { key: "test-legacy" }
+        : key.startsWith("user-api-key:anthropic:")
+          ? { key: "test-setting" }
+          : undefined,
+    );
+    for (const key of ["test-setting", "test-legacy"]) {
+      await expect(
+        getOwnerApiKeyForEngine("anthropic", "owner@example.com", {
+          matchApiKey: key,
+        }),
+      ).resolves.toMatchObject({
+        apiKey: key,
+        apiKeyEnvVar: "ANTHROPIC_API_KEY",
+        credentialProvenance: { scope: "user", source: "settings" },
+      });
+    }
+    readDeployCredentialEnvMock.mockReturnValue("test-unrelated-deploy");
+    await expect(
+      getOwnerApiKeyForEngine("anthropic", "owner@example.com", {
+        matchApiKey: "test-unknown",
+      }),
+    ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
+    expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed without reading policy-restricted personal keys for identity", async () => {
+    requestContextState.orgId = "org-1";
+    vi.mocked(isPersonalProviderKeyUseRestricted).mockResolvedValue(true);
+    const onLookupFailure = vi.fn();
+    await expect(
+      getOwnerApiKeyForEngine("anthropic", "owner@example.com", {
+        matchApiKey: "test-unknown",
+        onLookupFailure,
+      }),
+    ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
+    expect(onLookupFailure).toHaveBeenCalledOnce();
+    expect(
+      readAppSecretMock.mock.calls.every(([ref]) => ref.scope !== "user"),
+    ).toBe(true);
+    expect(getSettingMock).not.toHaveBeenCalled();
   });
 
   it("does not replace an unreadable owner-key lookup with a deployment key", async () => {

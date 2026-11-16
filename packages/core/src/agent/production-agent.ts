@@ -792,7 +792,7 @@ function ownerProviderSecretKey(provider: string): string {
 async function getOwnerApiKeyDetailed(
   provider: string,
   ownerEmail: string | null | undefined,
-  options?: { onLookupFailure?: () => void },
+  options?: { onLookupFailure?: () => void; matchApiKey?: string },
 ): Promise<
   { apiKey: string; credentialProvenance: CredentialProvenance } | undefined
 > {
@@ -806,6 +806,10 @@ async function getOwnerApiKeyDetailed(
   const secretKey = ownerProviderSecretKey(provider);
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   const orgId = getRequestOrgId();
+  const matchesKey = async (value: string): Promise<boolean> =>
+    options?.matchApiKey !== undefined
+      ? value === options.matchApiKey
+      : !(await getProviderCredentialAuthFailure({ key: secretKey, value }));
   // Restricted members keep their stored keys, but none of the personal rows
   // below (user, solo workspace, legacy settings) may answer. Unknown is a
   // failed lookup, never "not restricted". Keys outside the policy (Jev) are
@@ -843,13 +847,7 @@ async function getOwnerApiKeyDetailed(
           scope: ref.scope,
           scopeId: ref.scopeId,
         });
-        if (
-          fromSecrets?.value &&
-          !(await getProviderCredentialAuthFailure({
-            key: secretKey,
-            value: fromSecrets.value,
-          }))
-        ) {
+        if (fromSecrets?.value && (await matchesKey(fromSecrets.value))) {
           return {
             apiKey: fromSecrets.value,
             credentialProvenance: { ...ref, source: "app_secrets" },
@@ -863,6 +861,9 @@ async function getOwnerApiKeyDetailed(
     return undefined;
   }
   if (syntheticTraffic || personalRestricted) {
+    // An identity check cannot rule out a restricted, unreadable personal key.
+    if (personalRestricted && options?.matchApiKey !== undefined)
+      lookupFailed = true;
     reportLookupFailure();
     return undefined;
   }
@@ -871,10 +872,7 @@ async function getOwnerApiKeyDetailed(
     const stored = await getSetting(`user-api-key:${provider}:${ownerEmail}`);
     const key =
       stored && typeof stored.key === "string" ? stored.key.trim() : "";
-    if (
-      key &&
-      !(await getProviderCredentialAuthFailure({ key: secretKey, value: key }))
-    ) {
+    if (key && (await matchesKey(key))) {
       return {
         apiKey: key,
         credentialProvenance: {
@@ -888,13 +886,7 @@ async function getOwnerApiKeyDetailed(
       const legacy = await getSetting(`user-anthropic-api-key:${ownerEmail}`);
       const legacyKey =
         legacy && typeof legacy.key === "string" ? legacy.key.trim() : "";
-      if (
-        legacyKey &&
-        !(await getProviderCredentialAuthFailure({
-          key: secretKey,
-          value: legacyKey,
-        }))
-      ) {
+      if (legacyKey && (await matchesKey(legacyKey))) {
         return {
           apiKey: legacyKey,
           credentialProvenance: {
@@ -1074,6 +1066,8 @@ export async function getOwnerApiKeyForEngine(
   options?: {
     allowDeploymentFallback?: boolean;
     onLookupFailure?: () => void;
+    /** Identify this exact caller key, even when another stored key has precedence. */
+    matchApiKey?: string;
   },
 ): Promise<ResolvedOwnerApiKey> {
   const lookupState: { failed: boolean } = { failed: false };
@@ -1087,6 +1081,9 @@ export async function getOwnerApiKeyForEngine(
     const envVar = PROVIDER_TO_ENV[provider];
     const ownerKey = await getOwnerApiKeyDetailed(provider, ownerEmail, {
       onLookupFailure: reportLookupFailure,
+      ...(options?.matchApiKey !== undefined
+        ? { matchApiKey: options.matchApiKey }
+        : {}),
     });
     if (ownerKey) {
       return {
@@ -1097,6 +1094,7 @@ export async function getOwnerApiKeyForEngine(
     }
     if (
       lookupState.failed ||
+      options?.matchApiKey !== undefined ||
       options?.allowDeploymentFallback === false ||
       !envVar ||
       !canUseDeployCredentialFallbackForRequest(envVar)

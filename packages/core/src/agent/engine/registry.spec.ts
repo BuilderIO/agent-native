@@ -1325,6 +1325,7 @@ describe("AgentEngine registry", () => {
     let synthetic = false;
     let activeEngine: string | undefined;
     let duplicateKey = false;
+    let shadowLegacy = false;
     let lookupFailure = false;
     vi.doMock("../../server/request-context.js", () => ({
       getRequestContext: () => ({
@@ -1384,6 +1385,8 @@ describe("AgentEngine registry", () => {
       if (key === "OPENAI_API_KEY") return { key, value: "example-openai" };
       if (key === "ANTHROPIC_API_KEY" && duplicateKey)
         return { key, value: "example-openai" };
+      if (key === "ANTHROPIC_API_KEY" && shadowLegacy)
+        return { key, value: "example-current-anthropic" };
       return null;
     });
     vi.doMock("../../secrets/storage.js", () => ({
@@ -1496,6 +1499,34 @@ describe("AgentEngine registry", () => {
     expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe("example-openai");
     await completeText({ apiKey: "example-host-anthropic", input: "go" });
     expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe("example-openai");
+    shadowLegacy = true;
+    const { getOwnerApiKeyForEngine: getKeyForEngine } =
+      await import("../production-agent.js");
+    expect(
+      await getKeyForEngine("anthropic", "member@example.com", {
+        allowDeploymentFallback: false,
+      }),
+    ).toMatchObject({
+      apiKey: "example-current-anthropic",
+      apiKeyEnvVar: "ANTHROPIC_API_KEY",
+    });
+    await completeText({ apiKey: legacyKey, input: "go" });
+    expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe("example-openai");
+    await completeText({
+      engine: "ai-sdk:openai",
+      apiKey: legacyKey,
+      input: "go",
+    });
+    expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe("example-openai");
+    await completeText({
+      engine: "ai-sdk:openai",
+      apiKey: "example-opaque-openai",
+      input: "go",
+    });
+    expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe(
+      "example-opaque-openai",
+    );
+    shadowLegacy = false;
     const beforeAmbiguous = openaiCreate.mock.calls.length;
     duplicateKey = true;
     const { getOwnerApiKeyForEngine } = await import("../production-agent.js");
@@ -1531,7 +1562,17 @@ describe("AgentEngine registry", () => {
       completeText({ apiKey: "example-opaque", input: "go" }),
     ).rejects.toThrow(/explicit engine/i);
     expect(openaiCreate).toHaveBeenCalledTimes(beforeSynthetic);
+    await completeText({
+      engine: "ai-sdk:openai",
+      apiKey: "example-synthetic-opaque",
+      input: "go",
+    });
+    expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe(
+      "example-synthetic-opaque",
+    );
     synthetic = false;
+    await completeText({ apiKey: "example-openai", input: "go" });
+    expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe("example-openai");
     vi.stubEnv("AGENT_ENGINE", "missing-engine");
     const beforeUnknownEngine = openaiCreate.mock.calls.length;
     await expect(

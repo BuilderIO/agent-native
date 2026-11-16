@@ -153,18 +153,21 @@ function createCompletionAbortSignal(
 async function resolveCompletionApiKey(
   options: CompleteTextOptions,
 ): Promise<ResolvedOwnerApiKey & { pinnedEngine?: string }> {
-  if (options.apiKey && options.engine) {
+  if (
+    options.apiKey &&
+    options.engine &&
+    typeof options.engine === "object" &&
+    "stream" in options.engine
+  ) {
+    // An already-constructed engine does not receive this key from resolveEngine.
     return { apiKey: options.apiKey, apiKeyEnvVar: undefined };
   }
   const configuredEngine = getAppConfig().agent.engine;
-  if (
-    options.apiKey &&
-    configuredEngine &&
-    getRequestContext()?.isSyntheticTraffic !== true
-  ) {
-    // An explicit deployment engine pins an opaque caller key to that engine.
-    // First recognize stored provider keys, including inactive legacy keys, so
-    // a known credential cannot be reinterpreted as belonging to the pin.
+  const synthetic = getRequestContext()?.isSyntheticTraffic === true;
+  if (options.apiKey && (options.engine || (configuredEngine && !synthetic))) {
+    // Explicit selection pins an opaque caller key to that engine. Recognize
+    // every accessible matching credential, even one shadowed by another key,
+    // before treating it as opaque.
     let lookupFailed = false;
     const entries = listAgentEngines();
     const providers = new Set([
@@ -180,6 +183,7 @@ async function resolveCompletionApiKey(
       matches.push(
         await getOwnerApiKeyForEngine(provider, getRequestUserEmail(), {
           allowDeploymentFallback: false,
+          matchApiKey: options.apiKey,
           onLookupFailure: () => {
             lookupFailed = true;
           },
@@ -198,7 +202,10 @@ async function resolveCompletionApiKey(
       ),
     ]);
     for (const apiKeyEnvVar of deployKeyNames) {
-      if (readDeployCredentialEnv(apiKeyEnvVar) === options.apiKey) {
+      if (
+        !synthetic &&
+        readDeployCredentialEnv(apiKeyEnvVar) === options.apiKey
+      ) {
         matching.push({
           apiKey: options.apiKey,
           apiKeyEnvVar,
@@ -213,7 +220,9 @@ async function resolveCompletionApiKey(
     return {
       apiKey: options.apiKey,
       apiKeyEnvVar: undefined,
-      pinnedEngine: configuredEngine,
+      ...(!options.engine && configuredEngine
+        ? { pinnedEngine: configuredEngine }
+        : {}),
     };
   }
   const ownerKey = await resolveOwnerEngineApiKey({
