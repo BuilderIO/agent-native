@@ -165,6 +165,29 @@ describe("parseConnectArgs", () => {
     const p = parseConnectArgs(["https://plan.agent-native.com"]);
     expect(p.fullCatalog).toBeUndefined();
   });
+
+  it("accepts only user and project as a scope", () => {
+    expect(parseConnectArgs(["--scope", "project"]).scope).toBe("project");
+    expect(parseConnectArgs(["--scope=user"]).scope).toBe("user");
+    for (const scope of ["usr", "Project", "", "--client"]) {
+      expect(() =>
+        parseConnectArgs(["https://x.com", "--scope", scope]),
+      ).toThrow(`Unknown --scope "${scope}". Use: user, project`);
+    }
+  });
+
+  it("parses --token-stdin as a flag that takes no value", () => {
+    const p = parseConnectArgs([
+      "https://x.com",
+      "--token-stdin",
+      "--client",
+      "codex",
+    ]);
+    expect(p.tokenStdin).toBe(true);
+    expect(p.token).toBeUndefined();
+    expect(p.client).toBe("codex");
+    expect(parseConnectArgs(["https://x.com"]).tokenStdin).toBeUndefined();
+  });
 });
 
 describe("normalizeUrl", () => {
@@ -888,6 +911,315 @@ describe("runConnect", () => {
       headers: {
         Authorization: "Bearer tok-fallback",
       },
+    });
+  });
+
+  describe("token hygiene", () => {
+    const MAIL = "https://mail.agent-native.com";
+
+    function capture() {
+      const errors: string[] = [];
+      return {
+        errors,
+        deps: { logErr: (m: string) => errors.push(m), logOut: () => {} },
+        text: () => errors.join("\n"),
+      };
+    }
+
+    it("rejects an unknown --scope before writing or minting anything", async () => {
+      const root = tmpDir();
+      process.chdir(root);
+      const fetchImpl = makeFetch([]);
+      const invocations = [
+        [MAIL, "--client", "claude-code", "--token", "tok"],
+        ["dev", "--apps", "mail", "--client", "claude-code"],
+        ["prod", "--apps", "mail", "--client", "claude-code"],
+        ["reconnect", MAIL, "--client", "claude-code"],
+      ];
+
+      for (const invocation of invocations) {
+        process.exitCode = undefined;
+        const out = capture();
+        await runConnect([...invocation, "--scope", "usr"], {
+          fetchImpl,
+          profilesFile: path.join(root, "profiles.json"),
+          ...out.deps,
+        });
+        expect(process.exitCode).toBe(1);
+        expect(out.text()).toContain('Unknown --scope "usr"');
+      }
+
+      expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+      expect(fs.existsSync(path.join(root, ".gitignore"))).toBe(false);
+      expect(fs.existsSync(path.join(os.homedir(), ".claude.json"))).toBe(
+        false,
+      );
+      expect(fs.existsSync(path.join(root, "profiles.json"))).toBe(false);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it("warns and gitignores the project file when a token is written there", async () => {
+      const root = tmpDir();
+      process.chdir(root);
+      const out = capture();
+
+      await runConnect(
+        [MAIL, "--client", "claude-code", "--scope", "project", "--token", "t"],
+        { fetchImpl: makeFetch([]), ...out.deps },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      expect(fs.readFileSync(path.join(root, ".gitignore"), "utf-8")).toBe(
+        "/.mcp.json\n",
+      );
+      expect(out.text()).toContain("bearer token");
+      expect(out.text()).toContain(".mcp.json");
+      expect(out.text()).toContain(".gitignore now lists /.mcp.json");
+    });
+
+    it("appends to an existing .gitignore once, keeping its content", async () => {
+      const root = tmpDir();
+      process.chdir(root);
+      fs.writeFileSync(path.join(root, ".gitignore"), "node_modules");
+      const args = [
+        MAIL,
+        "--client",
+        "claude-code,cursor",
+        "--scope",
+        "project",
+        "--token",
+        "t",
+      ];
+
+      await runConnect(args, { fetchImpl: makeFetch([]), ...capture().deps });
+      await runConnect(args, { fetchImpl: makeFetch([]), ...capture().deps });
+
+      expect(fs.readFileSync(path.join(root, ".gitignore"), "utf-8")).toBe(
+        "node_modules\n/.mcp.json\n/.cursor/mcp.json\n",
+      );
+    });
+
+    it("says so when .gitignore cannot be updated", async () => {
+      const root = tmpDir();
+      process.chdir(root);
+      fs.mkdirSync(path.join(root, ".gitignore"));
+      const out = capture();
+
+      await runConnect(
+        [MAIL, "--client", "claude-code", "--scope", "project", "--token", "t"],
+        { fetchImpl: makeFetch([]), ...out.deps },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      expect(out.text()).toContain("Could not update .gitignore");
+      expect(out.text()).toContain("Add /.mcp.json yourself");
+    });
+
+    it("leaves .gitignore alone when the token goes to a user-level file", async () => {
+      const root = tmpDir();
+      process.chdir(root);
+      const out = capture();
+
+      await runConnect(
+        [MAIL, "--client", "claude-code", "--scope", "user", "--token", "t"],
+        { fetchImpl: makeFetch([]), ...out.deps },
+      );
+      await runConnect(
+        [MAIL, "--client", "codex", "--scope", "project", "--token", "t"],
+        { fetchImpl: makeFetch([]), ...out.deps },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      expect(fs.existsSync(path.join(root, ".gitignore"))).toBe(false);
+      expect(out.text()).not.toContain("bearer token into");
+    });
+
+    it("warns when --dev writes a bearer header into a project file", async () => {
+      const root = tmpDir();
+      process.chdir(root);
+      fs.writeFileSync(
+        path.join(root, ".env"),
+        "ACCESS_TOKEN=local-dev-token\n",
+      );
+      const out = capture();
+
+      await runConnect(
+        [
+          "dev",
+          "--apps",
+          "mail",
+          "--client",
+          "claude-code",
+          "--scope",
+          "project",
+          "--gateway",
+          "http://127.0.0.1:8080",
+        ],
+        {
+          fetchImpl: makeFetch([]),
+          profilesFile: path.join(root, "profiles.json"),
+          ...out.deps,
+        },
+      );
+
+      expect(fs.readFileSync(path.join(root, ".gitignore"), "utf-8")).toBe(
+        "/.mcp.json\n",
+      );
+      expect(out.text()).toContain("bearer token");
+    });
+
+    it("does not warn when dev writes only an owner-email header", async () => {
+      const root = tmpDir();
+      process.chdir(root);
+      const out = capture();
+
+      await runConnect(
+        [
+          "dev",
+          "--apps",
+          "mail",
+          "--client",
+          "claude-code",
+          "--scope",
+          "project",
+          "--gateway",
+          "http://127.0.0.1:8080",
+          "--owner-email",
+          "u@example.com",
+        ],
+        {
+          fetchImpl: makeFetch([]),
+          profilesFile: path.join(root, "profiles.json"),
+          ...out.deps,
+        },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      expect(fs.existsSync(path.join(root, ".gitignore"))).toBe(false);
+      expect(out.text()).not.toContain("bearer token");
+    });
+
+    it("warns that --token is visible on the command line", async () => {
+      const root = tmpDir();
+      process.chdir(root);
+      const out = capture();
+
+      await runConnect(
+        [MAIL, "--client", "claude-code", "--scope", "user", "--token", "t"],
+        { fetchImpl: makeFetch([]), ...out.deps },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      expect(out.text()).toContain("--token is visible");
+      expect(out.text()).toContain("--token-stdin");
+    });
+
+    it("reads the token from stdin with --token-stdin and does not warn", async () => {
+      const root = tmpDir();
+      process.chdir(root);
+      const out = capture();
+
+      await runConnect(
+        [MAIL, "--client", "claude-code", "--scope", "user", "--token-stdin"],
+        {
+          fetchImpl: makeFetch([]),
+          readStdin: async () => "tok-from-stdin\n",
+          ...out.deps,
+        },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      const cfg = JSON.parse(
+        fs.readFileSync(path.join(os.homedir(), ".claude.json"), "utf-8"),
+      );
+      expect(cfg.mcpServers["agent-native-mail"].headers).toEqual({
+        Authorization: "Bearer tok-from-stdin",
+      });
+      expect(out.text()).not.toContain("--token is visible");
+    });
+
+    it("fails --token-stdin without a token or beside --token", async () => {
+      const root = tmpDir();
+      process.chdir(root);
+
+      for (const [extra, stdin, message] of [
+        [[], "  \n", "received no token"],
+        [["--token", "t"], "tok\n", "not both"],
+      ] as const) {
+        process.exitCode = undefined;
+        const out = capture();
+        await runConnect(
+          [MAIL, "--client", "claude-code", "--token-stdin", ...extra],
+          {
+            fetchImpl: makeFetch([]),
+            readStdin: async () => stdin,
+            ...out.deps,
+          },
+        );
+        expect(process.exitCode).toBe(1);
+        expect(out.text()).toContain(message);
+      }
+
+      expect(fs.existsSync(path.join(os.homedir(), ".claude.json"))).toBe(
+        false,
+      );
+      expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+    });
+
+    it("creates new config and profile files owner-only and keeps an existing file's mode", async () => {
+      if (process.platform === "win32") return; // Windows reports 0666 for every file
+      const root = tmpDir();
+      process.chdir(root);
+      const profilesFile = path.join(root, "profiles.json");
+      const existing = path.join(root, ".cursor", "mcp.json");
+      fs.mkdirSync(path.dirname(existing));
+      fs.writeFileSync(existing, "{}\n");
+      fs.chmodSync(existing, 0o644);
+      const previousUmask = process.umask(0o022);
+      try {
+        await runConnect(
+          [
+            MAIL,
+            "--client",
+            "claude-code,cursor",
+            "--scope",
+            "project",
+            "--token",
+            "t",
+          ],
+          { fetchImpl: makeFetch([]), ...capture().deps },
+        );
+        await runConnect(
+          [MAIL, "--client", "claude-code", "--scope", "user", "--token", "t"],
+          { fetchImpl: makeFetch([]), ...capture().deps },
+        );
+        await runConnect(
+          [
+            "dev",
+            "--apps",
+            "mail",
+            "--client",
+            "claude-code",
+            "--scope",
+            "user",
+            "--owner-email",
+            "u@example.com",
+          ],
+          {
+            fetchImpl: makeFetch([]),
+            profilesFile,
+            ...capture().deps,
+          },
+        );
+      } finally {
+        process.umask(previousUmask);
+      }
+
+      const mode = (file: string) => fs.statSync(file).mode & 0o777;
+      expect(mode(path.join(root, ".mcp.json"))).toBe(0o600);
+      expect(mode(path.join(os.homedir(), ".claude.json"))).toBe(0o600);
+      expect(mode(profilesFile)).toBe(0o600);
+      expect(mode(existing)).toBe(0o644);
     });
   });
 

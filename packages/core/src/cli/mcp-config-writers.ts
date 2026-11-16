@@ -247,12 +247,14 @@ export function writeFileAtomic(file: string, data: string): void {
   let mode: number | undefined;
   try {
     mode = fs.statSync(file).mode & 0o777;
-  } catch {
-    // Target doesn't exist yet — let the default creation mode apply.
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   const tmp = path.join(dir, `.${path.basename(file)}.tmp-${process.pid}`);
   try {
-    fs.writeFileSync(tmp, data, "utf-8");
+    // Created owner-only: chmodding after the write would leave the token
+    // readable at the process umask for the moment in between.
+    fs.writeFileSync(tmp, data, { encoding: "utf-8", mode: 0o600 });
     if (mode !== undefined) fs.chmodSync(tmp, mode);
     fs.renameSync(tmp, file);
   } catch (err) {

@@ -16,6 +16,7 @@ import {
   removeCodexSameUrlDuplicates,
   removeJsonSameUrlDuplicates,
   writeCodexBlock,
+  writeFileAtomic,
   writeHttpEntryForClient,
   writeJsonMcpEntry,
 } from "./mcp-config-writers.js";
@@ -37,6 +38,63 @@ function tmpDir(): string {
   tmpRoots.push(root);
   return root;
 }
+
+describe("writeFileAtomic modes", () => {
+  // The temp file holds the token before it is renamed into place, so it must
+  // never exist at the process umask's mode, even for an instant.
+  function withUmask022<T>(run: () => T): T {
+    const previous = process.umask(0o022);
+    try {
+      return run();
+    } finally {
+      process.umask(previous);
+    }
+  }
+
+  function tempModesDuring(write: () => void): number[] {
+    const real = fs.writeFileSync;
+    const modes: number[] = [];
+    vi.spyOn(fs, "writeFileSync").mockImplementation(((
+      ...args: Parameters<typeof fs.writeFileSync>
+    ) => {
+      real(...args);
+      modes.push(fs.statSync(String(args[0])).mode & 0o777);
+    }) as typeof fs.writeFileSync);
+    try {
+      write();
+    } finally {
+      vi.restoreAllMocks();
+    }
+    return modes;
+  }
+
+  it("creates a new file readable only by its owner", () => {
+    if (process.platform === "win32") return; // Windows reports 0666 for every file
+    const file = path.join(tmpDir(), "nested", "mcp.json");
+
+    const modes = withUmask022(() =>
+      tempModesDuring(() => writeFileAtomic(file, "{}\n")),
+    );
+
+    expect(modes).toEqual([0o600]);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  it("keeps an existing file's mode but never exposes the temp file", () => {
+    if (process.platform === "win32") return;
+    const file = path.join(tmpDir(), "mcp.json");
+    fs.writeFileSync(file, "{}\n");
+    fs.chmodSync(file, 0o644);
+
+    const modes = withUmask022(() =>
+      tempModesDuring(() => writeFileAtomic(file, '{"a":1}\n')),
+    );
+
+    expect(modes).toEqual([0o600]);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o644);
+    expect(fs.readFileSync(file, "utf-8")).toBe('{"a":1}\n');
+  });
+});
 
 describe("writeJsonMcpEntry", () => {
   it("creates a fresh file when the target does not exist", () => {

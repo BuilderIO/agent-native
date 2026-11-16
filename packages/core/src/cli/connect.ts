@@ -9,6 +9,7 @@ import {
 import { findWorkspaceRoot } from "../mcp/workspace-resolve.js";
 import { PLAIN_MCP_SERVER_NAME } from "../shared/mcp-connect-content.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { writeJsonFileAtomically } from "./atomic-json-file.js";
 import {
   CLIENTS,
   ClientId,
@@ -98,6 +99,7 @@ export interface ParsedConnectArgs {
   scope: string;
   name?: string;
   token?: string;
+  tokenStdin?: boolean;
   serviceToken?: string;
   ttlDays?: number;
   all: boolean;
@@ -137,6 +139,7 @@ export function parseConnectArgs(argv: string[]): ParsedConnectArgs {
     else if ((v = eat("--service-token")) !== undefined) out.serviceToken = v;
     else if ((v = eat("--ttl-days")) !== undefined) out.ttlDays = Number(v);
     else if ((v = eat("--token")) !== undefined) out.token = v;
+    else if (a === "--token-stdin") out.tokenStdin = true;
     else if (a === "--full-catalog") out.fullCatalog = true;
     else if (!a.startsWith("-") && !out.url) {
       if (
@@ -146,6 +149,9 @@ export function parseConnectArgs(argv: string[]): ParsedConnectArgs {
         out.mode = a;
       } else out.url = a;
     }
+  }
+  if (out.scope !== "user" && out.scope !== "project") {
+    throw new Error(`Unknown --scope "${out.scope}". Use: user, project`);
   }
   return out;
 }
@@ -605,6 +611,7 @@ export interface ConnectDeps {
   ) => Promise<string[] | null>;
   preferencesFile?: string;
   profilesFile?: string;
+  readStdin?: () => Promise<string>;
   logOut?: (message: string) => void;
   logErr?: (message: string) => void;
 }
@@ -1021,6 +1028,78 @@ function projectBaseDir(): string {
   return findWorkspaceRoot(cwd) ?? path.resolve(cwd);
 }
 
+function carriesCredential(
+  token: string | undefined,
+  headers: Record<string, string> | undefined,
+): boolean {
+  return (
+    Boolean(token) ||
+    Object.keys(headers ?? {}).some(
+      (name) => name.toLowerCase() === "authorization",
+    )
+  );
+}
+
+// A client's project file is the one that differs from its user-level file;
+// Codex and Cowork only have the latter, so they never touch the project.
+function protectProjectTokenFiles(
+  baseDir: string,
+  written: { client: ClientId; file: string }[],
+): void {
+  const entries = [
+    ...new Set(
+      written
+        .filter(
+          ({ client, file }) => file !== configPathFor(client, baseDir, "user"),
+        )
+        .map(({ file }) =>
+          path.relative(baseDir, file).split(path.sep).join("/"),
+        ),
+    ),
+  ].map((relative) => `/${relative}`);
+  if (entries.length === 0) return;
+
+  logErr("");
+  logErr(
+    `  Warning: wrote a bearer token into ${entries.map((e) => e.slice(1)).join(", ")} (project scope).`,
+  );
+  const gitignore = path.join(baseDir, ".gitignore");
+  try {
+    const current = fs.existsSync(gitignore)
+      ? fs.readFileSync(gitignore, "utf-8")
+      : "";
+    const lines = new Set(current.split(/\r?\n/).map((line) => line.trim()));
+    const missing = entries.filter(
+      (entry) => !lines.has(entry) && !lines.has(entry.slice(1)),
+    );
+    if (missing.length > 0) {
+      const separator = current && !current.endsWith("\n") ? "\n" : "";
+      fs.appendFileSync(gitignore, `${separator}${missing.join("\n")}\n`);
+    }
+    logErr(
+      `  .gitignore now lists ${entries.join(", ")} so it is not committed. ` +
+        "If git already tracks a file, untrack it with `git rm --cached <file>`.",
+    );
+  } catch (err) {
+    logErr(
+      `  Could not update .gitignore (${err instanceof Error ? err.message : String(err)}). ` +
+        `Add ${entries.join(", ")} yourself so it is not committed.`,
+    );
+  }
+}
+
+async function readStdin(): Promise<string> {
+  if (process.stdin.isTTY) {
+    throw new Error(
+      "--token-stdin reads the token from piped input, e.g. " +
+        '`printf %s "$TOKEN" | npx @agent-native/core@latest connect <url> --token-stdin`.',
+    );
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf-8");
+}
+
 export function writeConfigs(
   clients: ClientId[],
   serverName: string,
@@ -1100,8 +1179,7 @@ function readConnectProfiles(file: string): ConnectProfiles {
 function writeConnectProfiles(file: string, profiles: ConnectProfiles): void {
   profiles.version = CONNECT_PROFILES_VERSION;
   profiles.updatedAt = new Date().toISOString();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(profiles, null, 2) + "\n", "utf-8");
+  writeJsonFileAtomically(file, profiles, { mode: 0o600 });
 }
 
 function savedProfileEntry(
@@ -1649,13 +1727,14 @@ async function connectDevProfile(
   if (!apps || apps.length === 0) return true;
 
   const baseDir = projectBaseDir();
-  const scope = parsed.scope === "project" ? "project" : "user";
+  const scope = parsed.scope;
   const gatewayUrl = normalizeDevGateway(parsed);
   const gatewayUrls = await gatewayAppUrls(gatewayUrl, deps);
   const profilesFile = deps.profilesFile ?? connectProfilesPath();
   const profiles = readConnectProfiles(profilesFile);
   const rows: { app: string; client: string; status: string; file: string }[] =
     [];
+  const tokenFiles: { client: ClientId; file: string }[] = [];
   const ownerWarnings = new Set<string>();
 
   for (const app of apps) {
@@ -1700,6 +1779,8 @@ async function connectDevProfile(
         scope,
         headers,
       );
+      if (carriesCredential(undefined, headers))
+        tokenFiles.push({ client, file });
       rows.push({
         app: app.name,
         client,
@@ -1710,6 +1791,7 @@ async function connectDevProfile(
   }
 
   writeConnectProfiles(profilesFile, profiles);
+  if (scope === "project") protectProjectTokenFiles(baseDir, tokenFiles);
 
   logOut("");
   logOut(`  Switched ${apps.length} app(s) to dev via ${gatewayUrl}`);
@@ -1737,7 +1819,7 @@ async function connectProdProfile(
   if (!apps || apps.length === 0) return true;
 
   const baseDir = projectBaseDir();
-  const scope = parsed.scope === "project" ? "project" : "user";
+  const scope = parsed.scope;
   const profilesFile = deps.profilesFile ?? connectProfilesPath();
   const profiles = readConnectProfiles(profilesFile);
   const restored: { app: string; client: string; file: string }[] = [];
@@ -1835,7 +1917,7 @@ async function resolveReconnectTarget(
   deps: ConnectDeps,
 ): Promise<ReconnectTarget | null> {
   const baseDir = projectBaseDir();
-  const scope = parsed.scope === "user" ? "user" : "project";
+  const scope = parsed.scope;
   const entries = readExistingMcpEntries(clients, baseDir, scope);
 
   if (parsed.url) {
@@ -2045,7 +2127,7 @@ async function connectOne(
   const baseUrl = stripMcpPath(normalizedUrl);
   const normalizedMcpUrl = mcpUrlForBaseUrl(normalizedUrl);
   const appSlug = appSlugFromUrl(baseUrl);
-  const scope = parsed.scope === "user" ? "user" : "project";
+  const scope = parsed.scope;
   const baseDir = projectBaseDir();
   const allWritten: { client: ClientId; file: string }[] = [];
   let oauthClients = parsed.token
@@ -2068,7 +2150,7 @@ async function connectOne(
     mcpUrl = normalizedMcpUrl;
     serverName = name;
     logOut("");
-    logOut(`  Using supplied --token for ${baseUrl} (skipping browser flow).`);
+    logOut(`  Using supplied token for ${baseUrl} (skipping browser flow).`);
   } else if (deviceFlowClients.length === 0) {
     const name = parsed.name ?? (await serverNameFromServer(baseUrl, deps));
     if (!name) return { ok: false };
@@ -2128,17 +2210,19 @@ async function connectOne(
   }
 
   if (deviceFlowClients.length > 0) {
-    allWritten.push(
-      ...writeConfigs(
-        deviceFlowClients,
-        serverName,
-        mcpUrl,
-        token,
-        scope,
-        baseDir,
-        headers,
-      ),
+    const written = writeConfigs(
+      deviceFlowClients,
+      serverName,
+      mcpUrl,
+      token,
+      scope,
+      baseDir,
+      headers,
     );
+    allWritten.push(...written);
+    if (scope === "project" && carriesCredential(token, headers)) {
+      protectProjectTokenFiles(baseDir, written);
+    }
   }
 
   if (oauthClients.length > 0) {
@@ -2500,7 +2584,11 @@ Usage:
 
   npx @agent-native/core@latest connect <url> --token <token>
       No-browser fallback. Skip the device flow and write the entry with
-      the supplied token (get it from the app's Connect page).
+      the supplied token (get it from the app's Connect page). The token is
+      visible in shell history and process listings; prefer --token-stdin.
+
+  printf %s "$TOKEN" | npx @agent-native/core@latest connect <url> --token-stdin
+      Same as --token, reading the token from stdin.
 
   npx @agent-native/core@latest connect <url> --service-token <name> [--ttl-days <1-3650>]
       Mint an ORG service token for CI (e.g. the PLAN_RECAP_TOKEN secret for
@@ -2531,7 +2619,8 @@ Developer:
       Restore production MCP entries saved before the dev switch.
 
 Clients:  all (default), claude-code, codex, cowork, cursor, opencode, github-copilot
-Scope:    user (default, ~/.claude.json) or project (.mcp.json)`;
+Scope:    user (default, ~/.claude.json) or project (.mcp.json). A token written
+          at project scope also adds that file to the project's .gitignore.`;
 
 export async function runConnect(
   args: string[],
@@ -2563,6 +2652,26 @@ export async function runConnect(
       logErr("  --name needs a value: the name to save the MCP server under.");
       process.exitCode = 1;
       return;
+    }
+
+    if (parsed.tokenStdin) {
+      if (parsed.token !== undefined) {
+        logErr("  Pass the token with --token or --token-stdin, not both.");
+        process.exitCode = 1;
+        return;
+      }
+      const token = (await (deps.readStdin ?? readStdin)()).trim();
+      if (!token) {
+        logErr("  --token-stdin received no token on stdin.");
+        process.exitCode = 1;
+        return;
+      }
+      parsed.token = token;
+    } else if (parsed.token) {
+      logErr(
+        "  Warning: --token is visible in your shell history and process list. " +
+          "Pipe the token to --token-stdin instead.",
+      );
     }
 
     if (parsed.mode) {
