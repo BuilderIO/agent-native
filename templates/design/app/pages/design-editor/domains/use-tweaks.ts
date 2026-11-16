@@ -67,6 +67,7 @@ export interface UseTweaksResult {
   tweakSelections: TweakSelections;
   tweaks: TweakDefinition[];
   pendingTweakChanges: ReturnType<typeof getTweakHandoffChanges>;
+  tweakMutationsEnabled: boolean;
 }
 
 export function useTweaks({
@@ -298,14 +299,21 @@ export function useTweaks({
 
   const handleTweakChange = useCallback(
     (tweakId: string, value: string | number | boolean) => {
+      if (sourceBaseline.status === "unreadable") {
+        return {
+          accepted: false as const,
+          reason: "baseline_unreadable" as const,
+        };
+      }
       setTweakSelections((prev) => {
         if (!canEditDesign) return prev;
         const next = { ...prev, [tweakId]: value };
         queueTweakSave(next);
         return next;
       });
+      return { accepted: true as const };
     },
-    [canEditDesign, queueTweakSave],
+    [canEditDesign, queueTweakSave, sourceBaseline.status],
   );
 
   return {
@@ -316,5 +324,6 @@ export function useTweaks({
     tweakSelections,
     tweaks,
     pendingTweakChanges,
+    tweakMutationsEnabled: sourceBaseline.status === "readable",
   };
 }

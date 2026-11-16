@@ -162,13 +162,19 @@ describe("useTweaks save scheduling", () => {
   });
 
   it("keeps pending changes unknown and warns when the baseline data is malformed", async () => {
-    const { result } = mountTweaks({ data: "{" });
+    const { result, saves } = mountTweaks({ data: "{" });
     await flushMicrotasks();
 
     expect(result.current.pendingTweakChanges).toEqual([]);
     expect(toast.warning).toHaveBeenCalledWith(
       "designEditor.toasts.tweakBaselineUnreadable",
     );
+    expect(result.current.tweakMutationsEnabled).toBe(false);
+    expect(result.current.handleTweakChange("speed", 4)).toEqual({
+      accepted: false,
+      reason: "baseline_unreadable",
+    });
+    expect(saves).toHaveLength(0);
   });
 
   it("coalesces changes made during an in-flight save into one latest-values save", async () => {
