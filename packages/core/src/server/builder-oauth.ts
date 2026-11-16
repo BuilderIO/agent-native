@@ -777,14 +777,27 @@ export async function resolveBuilderOAuthRequestAccessState(input: {
   let storedGrant = input.connectionId !== undefined;
   let unreadable = false;
   let unusable = false;
+  let transientRefreshFailure = false;
 
   for (const candidate of candidates) {
     const resolved = await resolveMcpOAuthCredentialAccess({
       ...candidate,
       forceRefresh: input.forceRefresh ?? false,
+      shouldMarkReconnectRequiredOnRefreshFailure:
+        shouldMarkBuilderReconnectRequiredOnRefreshFailure,
     });
     if (resolved.state.kind === "missing") continue;
     storedGrant = true;
+    if (
+      resolved.refreshFailure === "transient" &&
+      (resolved.state.kind === "connected" ||
+        resolved.state.kind === "expired") &&
+      isBuilderCredential(resolved.state.credential) &&
+      scopesFrom(resolved.state.credential).includes(input.requiredScope)
+    ) {
+      transientRefreshFailure = true;
+      continue;
+    }
     if (
       resolved.state.kind === "malformed" &&
       resolved.state.reason === "unreadable"
@@ -821,6 +834,7 @@ export async function resolveBuilderOAuthRequestAccessState(input: {
     };
   }
 
+  if (transientRefreshFailure) throw new McpOAuthRefreshUnavailableError();
   if (!storedGrant) return { kind: "not_connected" };
   return unreadable && !unusable
     ? { kind: "unreadable" }

@@ -1,4 +1,5 @@
 import { isTransientDatabaseError } from "../../db/client.js";
+import { McpOAuthRefreshUnavailableError } from "../../mcp-client/oauth-client.js";
 import {
   BUILDER_OAUTH_SCOPE,
   markBuilderOAuthReconnectRequired,
@@ -255,6 +256,12 @@ class BuilderEngine implements AgentEngine {
           orgId,
         });
       } catch (error) {
+        if (error instanceof McpOAuthRefreshUnavailableError) {
+          yield privateContent
+            ? builderPrivateStop(error.statusCode)
+            : builderOAuthRefreshUnavailableStop(error);
+          return;
+        }
         if (privateContent) {
           yield builderPrivateStop(500);
           return;
@@ -574,8 +581,14 @@ class BuilderEngine implements AgentEngine {
             connectionId: oauthAccess.connectionId,
           });
         } catch (error) {
+          await response.body?.cancel().catch(() => {});
+          if (error instanceof McpOAuthRefreshUnavailableError) {
+            yield privateContent
+              ? builderPrivateStop(error.statusCode)
+              : builderOAuthRefreshUnavailableStop(error, requestShape);
+            return;
+          }
           if (privateContent) {
-            await response.body?.cancel().catch(() => {});
             yield builderPrivateAuthStop();
             return;
           }
@@ -762,6 +775,22 @@ interface GatewayErrorStopDetails {
   statusCode?: number;
   providerRetryable?: boolean;
   retryAfterMs?: number;
+}
+
+function builderOAuthRefreshUnavailableStop(
+  error: McpOAuthRefreshUnavailableError,
+  requestShape?: EngineRequestShape,
+): EngineEvent {
+  return gatewayErrorStop(
+    {
+      error: error.message,
+      errorCode: `http_${error.statusCode}`,
+      statusCode: error.statusCode,
+      providerRetryable: true,
+    },
+    false,
+    requestShape,
+  );
 }
 
 const RETRYABLE_GATEWAY_STATUSES = new Set([408, 429, 500, 502, 503, 504, 529]);
