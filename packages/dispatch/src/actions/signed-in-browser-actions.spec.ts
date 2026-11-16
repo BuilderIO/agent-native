@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import approveDispatchChange from "./approve-dispatch-change.js";
 import approveVaultRequest from "./approve-vault-request.js";
 import claimWorkspaceAppOrganization from "./claim-workspace-app-organization.js";
 import connectExternalAgent from "./connect-external-agent.js";
@@ -12,9 +13,11 @@ import deleteVaultSecret from "./delete-vault-secret.js";
 import denyVaultRequest from "./deny-vault-request.js";
 import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
 import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
+import rejectDispatchChange from "./reject-dispatch-change.js";
 import requestVaultSecret from "./request-vault-secret.js";
 import revokeVaultGrant from "./revoke-vault-grant.js";
 import revokeWorkspaceResourceGrant from "./revoke-workspace-resource-grant.js";
+import setDispatchApprovalPolicy from "./set-dispatch-approval-policy.js";
 import setMcpAppAccess from "./set-mcp-app-access.js";
 import setVaultAccessSettings from "./set-vault-access-settings.js";
 import updateVaultSecret from "./update-vault-secret.js";
@@ -24,6 +27,9 @@ import upsertDestination from "./upsert-destination.js";
 // apps and agents can do as the owner, so a full-app panel hands them to a
 // signed-in browser.
 const actions = [
+  ["set-dispatch-approval-policy", setDispatchApprovalPolicy],
+  ["reject-dispatch-change", rejectDispatchChange],
+  ["approve-dispatch-change", approveDispatchChange],
   ["approve-vault-request", approveVaultRequest],
   ["deny-vault-request", denyVaultRequest],
   ["create-vault-grant", createVaultGrant],

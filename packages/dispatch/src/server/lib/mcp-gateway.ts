@@ -620,11 +620,9 @@ function appBaseUrl(app: DispatchMcpAccessibleApp): string {
 
 // The owner-bound bearer for a cross-app session goes to this endpoint, so it
 // must not travel over plain HTTP beyond the developer's own machine.
-function targetEndpointKeepsCredentialsPrivate(
-  app: DispatchMcpAccessibleApp,
-): boolean {
+function targetEndpointKeepsCredentialsPrivate(endpoint: string): boolean {
   try {
-    const url = new URL(app.mcpUrl ?? app.url);
+    const url = new URL(endpoint);
     if (url.protocol === "https:") return true;
     const host = url.hostname.replace(/^\[|\]$/g, "");
     return (
@@ -1168,11 +1166,7 @@ export async function openGrantedDispatchMcpApp(input: {
   let embedSession: Awaited<
     ReturnType<typeof createGrantedDispatchMcpEmbedSession>
   > | null = null;
-  if (input.embed && !targetEndpointKeepsCredentialsPrivate(target)) {
-    console.warn(
-      `[dispatch] Not pre-minting an MCP embed session for ${target.id}: its endpoint is plain HTTP.`,
-    );
-  } else if (input.embed) {
+  if (input.embed) {
     try {
       embedSession = await createEmbedSessionForResolvedGrantedApp({
         app: target.id,
@@ -1367,6 +1361,11 @@ async function callTargetCreateEmbedSession(input: {
   runtime?: "workspace-app-chat";
   firstPartyMcp?: boolean;
 }): Promise<unknown> {
+  if (!targetEndpointKeepsCredentialsPrivate(input.mcpUrl)) {
+    throw new Error(
+      "Cross-app embed sessions need an HTTPS target endpoint; this one is plain HTTP.",
+    );
+  }
   const serverId = "target";
   const deadline = Date.now() + TARGET_EMBED_SESSION_BUDGET_MS;
   for (let attempt = 1; ; attempt += 1) {

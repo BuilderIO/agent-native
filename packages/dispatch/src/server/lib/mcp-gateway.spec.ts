@@ -1670,6 +1670,28 @@ describe("openGrantedDispatchMcpApp", () => {
     expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
   });
 
+  it("sends no delegated credential to a plain-HTTP target off this machine", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "http://analytics.example.test" },
+    ]);
+    mocks.managerCallTool.mockClear();
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/HTTPS target endpoint/);
+    expect(mocks.managerCallTool).not.toHaveBeenCalled();
+  });
+
   it("returns the normal open URL when embed preminting fails", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.managerCallTool.mockRejectedValueOnce(

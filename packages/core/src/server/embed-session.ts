@@ -952,7 +952,16 @@ export function fullAppEmbedAllowsRequest(
 ): boolean {
   // A dot segment or backslash could step from an allowed path to a denied one.
   if (/(^|\/)\.\.?(\/|$)|\\|%2e|%2f|%5c/i.test(pathname)) return false;
-  const route = pathname.replace(/\/+$/, "") || "/";
+  // The router decodes escapes and folds repeated slashes, so the policy
+  // matches the route it will serve, not the spelling it was sent in.
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+    // coercion-ok: a path that does not decode is refused, not allowed.
+  } catch {
+    return false;
+  }
+  const route = decoded.replace(/\/{2,}/g, "/").replace(/\/+$/, "") || "/";
   if (FULL_APP_DENIED_PREFIXES.some((prefix) => underPrefix(route, prefix)))
     return false;
   if (
