@@ -8,7 +8,7 @@ import { schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
-    "Get a Design shared-canvas link, public preview URL mappings, and whether shared live previews are enabled. Requires viewer access; use get-visual-edit-pending for source suggestions.",
+    "Get a Design shared-canvas link, public preview URL mappings, and whether shared live previews are enabled. Requires viewer access; viewers get mappings only while live previews are enabled. Use get-visual-edit-pending for source suggestions.",
   schema: z.object({
     designId: z.string().min(1).describe("Design project ID."),
   }),
@@ -18,6 +18,10 @@ export default defineAction({
   run: async ({ designId }) => {
     const access = await assertAccess("design", designId, "viewer");
     const design = access.resource as typeof schema.designs.$inferSelect;
+    const enabled = design.liveCollaborationEnabled === true;
+    // Disabling live previews revokes them; editors keep theirs to manage.
+    const showPreviews =
+      enabled || ["owner", "admin", "editor"].includes(access.role);
     const data = JSON.parse(design.data) as {
       screenMetadata?: Record<string, { tunnelUrl?: string }>;
     };
@@ -32,10 +36,15 @@ export default defineAction({
         }),
         getRequestContext()?.requestOrigin ?? "https://design.agent-native.com",
       ),
-      previews: Object.entries(data.screenMetadata ?? {})
-        .filter(([, screen]) => typeof screen.tunnelUrl === "string")
-        .map(([fileId, screen]) => ({ fileId, tunnelUrl: screen.tunnelUrl })),
-      enabled: design.liveCollaborationEnabled === true,
+      previews: showPreviews
+        ? Object.entries(data.screenMetadata ?? {})
+            .filter(([, screen]) => typeof screen.tunnelUrl === "string")
+            .map(([fileId, screen]) => ({
+              fileId,
+              tunnelUrl: screen.tunnelUrl,
+            }))
+        : [],
+      enabled,
     };
   },
 });

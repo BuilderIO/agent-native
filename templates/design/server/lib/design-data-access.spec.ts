@@ -44,6 +44,49 @@ describe("design data access policy", () => {
     );
   });
 
+  describe("public preview URLs", () => {
+    const mapped = JSON.stringify({
+      screenMetadata: {
+        home: {
+          url: "http://localhost:5173/",
+          tunnelUrl: "https://demo.ngrok-free.app",
+        },
+      },
+    });
+
+    it("hides a tunnel URL from viewers while live collaboration is off", () => {
+      expect(String(designDataForAccessRole(mapped, "viewer"))).not.toContain(
+        "tunnelUrl",
+      );
+      expect(
+        String(
+          designDataForAccessRole(mapped, "viewer", {
+            liveCollaborationEnabled: false,
+          }),
+        ),
+      ).not.toContain("tunnelUrl");
+    });
+
+    it("shows it to viewers once live collaboration is on", () => {
+      expect(
+        String(
+          designDataForAccessRole(mapped, "viewer", {
+            liveCollaborationEnabled: true,
+          }),
+        ),
+      ).toContain("https://demo.ngrok-free.app");
+    });
+
+    it.each(["owner", "admin", "editor"])(
+      "keeps it for a %s so they can manage the mapping",
+      (role) => {
+        expect(String(designDataForAccessRole(mapped, role))).toContain(
+          "https://demo.ngrok-free.app",
+        );
+      },
+    );
+  });
+
   it("fails closed for malformed persisted strings", () => {
     expect(
       designDataForAccessRole(

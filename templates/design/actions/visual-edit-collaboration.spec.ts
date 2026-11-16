@@ -158,6 +158,34 @@ describe("visual-edit collaboration preference", () => {
     );
   });
 
+  it("returns tunnel mappings to viewers only while live previews are enabled", async () => {
+    const data = JSON.stringify({
+      screenMetadata: {
+        home: { tunnelUrl: "https://demo.ngrok-free.app" },
+        inline: { title: "No mapping" },
+      },
+    });
+    const run = async (role: string, enabled: boolean) => {
+      mocks.assertAccess.mockResolvedValueOnce({
+        role,
+        resource: { liveCollaborationEnabled: enabled, data },
+      });
+      return (
+        await getCollaborationAction.run(
+          { designId: "design-one" },
+          { caller: "frontend" },
+        )
+      ).previews;
+    };
+    const mapping = [
+      { fileId: "home", tunnelUrl: "https://demo.ngrok-free.app" },
+    ];
+    expect(await run("viewer", false)).toEqual([]);
+    expect(await run("viewer", true)).toEqual(mapping);
+    expect(await run("owner", false)).toEqual(mapping);
+    expect(await run("editor", false)).toEqual(mapping);
+  });
+
   it("returns an absolute link targeting the shared visual-edit canvas", async () => {
     const result = await getCollaborationAction.run(
       { designId: "design-one" },
