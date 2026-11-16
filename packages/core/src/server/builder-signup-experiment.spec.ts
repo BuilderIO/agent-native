@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   appId: "agent-native-clips" as string | undefined,
   enabled: true,
+  automaticPercent: 50,
+  assignmentRoll: 0,
   experimentId: "design_builder_signup_v1",
   failTerminalWrites: 0,
   waitUntil: undefined as ((work: Promise<unknown>) => void) | undefined,
@@ -12,11 +14,16 @@ const mocks = vi.hoisted(() => ({
   settings: new Map<string, Record<string, unknown>>(),
   track: vi.fn(),
 }));
+vi.mock("node:crypto", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:crypto")>()),
+  randomInt: () => mocks.assignmentRoll,
+}));
 vi.mock("../app-config/index.js", () => ({
   getAppConfig: () => ({
     app: { id: mocks.appId, slug: "clips" },
     onboarding: {
       builderSignupExperiment: mocks.enabled,
+      builderSignupAutomaticPercent: mocks.automaticPercent,
       builderSignupExperimentId: mocks.experimentId,
       builderSignupExperimentOverride: mocks.override,
     },
@@ -143,6 +150,8 @@ beforeEach(() => {
   testTime = Date.now();
   mocks.appId = "agent-native-clips";
   mocks.enabled = true;
+  mocks.automaticPercent = 50;
+  mocks.assignmentRoll = 0;
   mocks.experimentId = "design_builder_signup_v1";
   mocks.failTerminalWrites = 0;
   mocks.waitUntil = undefined;
@@ -162,6 +171,40 @@ beforeEach(() => {
 });
 
 describe("pre-signup Builder experiment", () => {
+  it.each([
+    [49, "automatic"],
+    [50, "control"],
+  ])(
+    "assigns a roll of %s to %s at the default allocation",
+    async (roll, variant) => {
+      mocks.assignmentRoll = roll;
+      expect(await (await request()).json()).toMatchObject({ variant });
+    },
+  );
+
+  it("assigns new Clips visitors to automatic and honors existing control assignments", async () => {
+    mocks.experimentId = "clips_builder_signup_v1";
+    mocks.automaticPercent = 100;
+    mocks.assignmentRoll = 99;
+
+    expect(await (await request()).json()).toMatchObject({
+      experimentId: "clips_builder_signup_v1",
+      variant: "automatic",
+    });
+
+    const control = {
+      id: "b".repeat(32),
+      variant: "control" as const,
+      issuedAt: testTime,
+      policy: BUILDER_SIGNUP_POLICY,
+    };
+    const response = await request(
+      undefined,
+      encodeBuilderSignupAssignment(control),
+    );
+    expect(await response.json()).toMatchObject(control);
+  });
+
   it("keeps assignment cookie names independent across same-origin apps", async () => {
     const names = new Set<string>();
     for (const app of ["design", "clips", "slides"]) {
@@ -455,16 +498,29 @@ describe("pre-signup Builder experiment", () => {
     },
   );
 
-  it("does not emit a replayed outcome when a completed user returns", async () => {
+  it("signals readiness only for a recently completed startup without replaying outcomes", async () => {
     session = signedSession();
     mocks.waitUntil = () => {};
-    mocks.settings.set("design_builder_signup_v1:new-user", {
+    const key = "design_builder_signup_v1:new-user";
+    mocks.settings.set(key, { status: "connected", completedAt: Date.now() });
+    expect(await (await request({ operation: "start" })).json()).toEqual({
       status: "connected",
     });
+    mocks.waitUntil = undefined;
     expect(await (await request({ operation: "start" })).json()).toEqual({
-      status: "disabled",
-      code: "already_completed",
+      status: "connected",
     });
+    mocks.settings.set(key, {
+      status: "connected",
+      completedAt: Date.now() - 60_001,
+    });
+    for (const waitUntil of [undefined, () => {}]) {
+      mocks.waitUntil = waitUntil;
+      expect(await (await request({ operation: "start" })).json()).toEqual({
+        status: "disabled",
+        code: "already_completed",
+      });
+    }
     expect(await (await request({ operation: "activate" })).json()).toEqual({
       status: "connected",
     });

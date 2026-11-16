@@ -324,6 +324,7 @@ the recorder recreates it on every start.
 | ------------------------------ | ------------------------------------------------------------------------------------- |
 | Permission denied              | Mark the recording row `status: "failed"`, `failureReason: "permission"`.             |
 | Transient chunk upload failure | Pause delivery; replay the in-memory source only while the current tab remains open.  |
+| Gateway 502/503/504 at upload start or finalize | The Builder gateway calls retry with bounded backoff (3 attempts at start, 4 at finalize; never after finalize's own timeout), then fail as `BuilderGatewayError`; the `recording_failed` event carries `gateway_step`, `gateway_attempts` and `gateway_trace_id`, which finds the request in the upload function's logs. |
 | `IndexedDB` write failure      | Continue capture and upload; the local backup is unavailable for that specific chunk. |
 | `MediaRecorder` error event    | Stop, finalize what we have, set `failureReason`; let the user retry.                 |
 | User closes tab mid-recording  | No background resend or closed-tab recovery is promised.                              |

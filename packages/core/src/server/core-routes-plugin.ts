@@ -373,6 +373,7 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
+import { loadRequiredEnv } from "./required-env-config.js";
 import { startSandboxExecutionSweep } from "./sandbox-execution-sweep.js";
 import {
   findUnsupportedScopedKeyNames,
@@ -535,21 +536,7 @@ export async function resolveBuilderOrgMutation(
   deny: string | null;
   whoCanFix?: CredentialFixer;
 }> {
-  let orgCtx: Awaited<ReturnType<typeof getOrgContext>>;
-  try {
-    orgCtx = await getOrgContext(event);
-  } catch (error) {
-    console.warn(
-      "[builder-connect] could not read organization membership:",
-      error instanceof Error ? error.message : error,
-    );
-    return {
-      orgId: null,
-      role: null,
-      deny: BUILDER_ORG_MEMBERSHIP_UNREADABLE,
-      whoCanFix: "self",
-    };
-  }
+  const orgCtx = await getOrgContext(event);
   const orgId = orgCtx.orgId ?? null;
   const role = orgCtx.role ?? null;
   if (options.allowMemberInitiation) {
@@ -579,8 +566,6 @@ export const BUILDER_CONNECT_NEEDS_ORGANIZATION =
   "Builder.io access is managed through an organization. Switch to one you belong to, or ask an organization owner or admin to invite you, then set up Builder.io again.";
 export const BUILDER_CONNECT_SESSION_NOT_SHARED =
   "This window can't see your sign-in, which happens in previews and embedded browsers. Open the app in its own browser tab, sign in, then set up Builder.io there.";
-export const BUILDER_ORG_MEMBERSHIP_UNREADABLE =
-  "Couldn't check your organization membership. Try starting Builder.io setup again in a moment.";
 export const BUILDER_ORG_ALREADY_CONNECTED =
   "Your organization already has a Builder.io connection, and a new account would take its place. An organization owner or admin can sign in to Builder.io again in Settings.";
 export const BUILDER_ORG_RECONNECT_BY_LOGIN =
@@ -772,18 +757,6 @@ export async function decideBuilderActivation(
   const member =
     input.member ??
     (await resolveBuilderOrgMutation(event, { allowMemberInitiation: true }));
-  // Without the membership the org's connection cannot be seen, and a new
-  // personal account would shadow it (reads try personal first).
-  if (member.deny === BUILDER_ORG_MEMBERSHIP_UNREADABLE) {
-    return {
-      refuse: {
-        status: 503,
-        message: BUILDER_ORG_MEMBERSHIP_UNREADABLE,
-        reason: "membership_unreadable",
-        code: "membership_unreadable",
-      },
-    };
-  }
   const write = resolveBuilderActivationWrite({
     requestedScope: input.requestedScope,
     orgId: member.orgId,
@@ -1304,6 +1277,9 @@ export async function runDbHealthProbe(
   if (db && options.schema) {
     schema = await runDatabaseSchemaHealthCheck({
       exec: dbExec as ReturnType<typeof getDbExec>,
+      // D210: `?schema=1` is the publish step's read-back, so it carries the
+      // migration ledgers too. Opt-in only — the plain health poll stays cheap.
+      migrations: true,
     });
   }
   // Same bounded-read pattern as the `SELECT 1` above, and reuses this exact
@@ -1705,6 +1681,11 @@ function parseBuilderCallbackBoolean(
 // attributes that execute when the browser renders them as an <img> src or
 // inlines them in the DOM. Mirrors SAFE_DATA_IMAGE in sanitize-html.ts.
 export const AVATAR_RASTER_MIME = /^data:image\/(png|jpe?g|gif|webp);/i;
+// The client crops the photo to a 64x64 JPEG before uploading, which lands far
+// under this. The cap is here because the write is a straight data URI from the
+// browser: without it one request could put any size of base64 in the settings
+// row that every page reads.
+export const AVATAR_MAX_DATA_URL_LENGTH = 256 * 1024;
 
 export function resolveAvatarEmailParam(
   pathname: string,
@@ -2547,13 +2528,12 @@ export async function reconcileBuilderSignupActivation(
   session: AuthSession,
   owner: { experimentId: string; attempt: string; startedAt: number },
 ): Promise<boolean> {
+  // Activation permits solo users at personal scope, so a deny here is not a
+  // refusal. Do not refuse an existing org connection either: that completed
+  // write is precisely what we are recovering.
   const member = await resolveBuilderOrgMutation(event, {
     allowMemberInitiation: true,
   });
-  // Activation permits solo users at personal scope; only an unreadable
-  // membership prevents determining custody. Do not refuse an existing org
-  // connection here: that completed write is precisely what we are recovering.
-  if (member.deny === BUILDER_ORG_MEMBERSHIP_UNREADABLE) return false;
   return hasCompletedAutomaticBuilderSignup(
     session.email,
     `${owner.experimentId}:${owner.attempt}`,
@@ -3174,11 +3154,24 @@ export function createOAuthPopupWaitingHandler() {
     if (completingWorkspaceConnection) {
       setResponseHeader(event, "Content-Language", locale);
     }
-    // Keep the opener alive until the client replaces this inert page with the
-    // provider URL. This only works while every opener document sends no COOP
-    // or `same-origin-allow-popups` (security-headers.ts); an opener sending
-    // `same-origin` severs the popup here and leaves it blank.
-    setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
+    // The inert waiting page opts out of COOP (`unsafe-none`) so the opener can
+    // replace it with the provider URL; that only works while the opener sends
+    // no COOP or `same-origin-allow-popups` (security-headers.ts), because an
+    // opener sending `same-origin` severs the popup here and leaves it blank.
+    //
+    // The completion page must not opt out: its script posts the
+    // `agent-native:workspace-connection-complete` message to `window.opener`,
+    // and a COOP value that differs from the opener's severs that handle first
+    // (the popup reaches "Connection done" with `window.opener === null`, so
+    // the add-account dialog never closes). Match
+    // the framework pages instead.
+    setResponseHeader(
+      event,
+      "Cross-Origin-Opener-Policy",
+      completingWorkspaceConnection
+        ? "same-origin-allow-popups"
+        : "unsafe-none",
+    );
     return completingWorkspaceConnection
       ? oauthPopupCompletionHtml(
           locale,
@@ -3514,7 +3507,7 @@ export function createCoreRoutesPlugin(
       if (!options.disablePing) {
         getH3App(nitroApp).use(
           `${P}/ping`,
-          defineEventHandler((event) => {
+          defineEventHandler(async (event) => {
             const message = getAppConfig().app.pingMessage;
             const configuration =
               event.url?.searchParams.get("configuration") === "1" ||
@@ -3528,6 +3521,7 @@ export function createCoreRoutesPlugin(
               ...(event.url?.searchParams.get("database") === "0"
                 ? { databaseRequired: false }
                 : {}),
+              requiredEnv: await loadRequiredEnv(),
             };
             return {
               message,
@@ -3884,9 +3878,11 @@ export function createCoreRoutesPlugin(
               for (const [k, v] of Object.entries(persistedEnvVars)) {
                 if (!builderKeys.has(k)) cleaned[k] = v;
               }
-              await putSetting("persisted-env-vars", cleaned);
+              await putSetting("persisted-env-vars", cleaned, {
+                global: true,
+              });
               console.warn(
-                `[core] Removed ${scrubbed} legacy BUILDER_* key(s) from persisted-env-vars (cross-tenant leak fix).`,
+                `[core] Removed ${scrubbed} legacy BUILDER_* key(s) from persisted-env-vars.`,
               );
             } catch {
               // Couldn't rewrite the row — the skip-on-rehydrate above
@@ -4035,7 +4031,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
@@ -4313,7 +4309,7 @@ export function createCoreRoutesPlugin(
         `${P}/debug/runtime`,
         defineEventHandler(async (event) => {
           setResponseHeader(event, "cache-control", "no-store");
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const productionLike =
             process.env.NODE_ENV?.trim() === "production" ||
             isProductionServerlessFunctionRuntime();
@@ -5200,7 +5196,7 @@ export function createCoreRoutesPlugin(
               error: error instanceof Error ? error.message : "Invalid context",
             };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
@@ -5284,7 +5280,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const body = ((await readBody(event).catch(() => ({}))) ??
             {}) as BuilderWaitlistBody;
           const waitlistEmail = resolveWaitlistEmail(
@@ -5690,7 +5686,7 @@ export function createCoreRoutesPlugin(
             pending.tracking && typeof pending.tracking === "object"
               ? (pending.tracking as BuilderConnectTrackingParams)
               : {};
-          const session = await getSession(event).catch(() => null); // coercion-ok: callback treats session read failure as unauthenticated
+          const session = await getSession(event);
           const expiresAt =
             typeof pending.expiresAt === "number" ? pending.expiresAt : 0;
           const encryptedOAuthFlow =
@@ -5933,7 +5929,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 403);
             return { error: "Cross-origin request rejected" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -5960,21 +5956,20 @@ export function createCoreRoutesPlugin(
             return { error: "Unknown Builder.io connection." };
           }
 
+          let orgId: string | null = null;
+          let role: string | null = null;
+          try {
+            const orgCtx = await getOrgContext(event);
+            orgId = orgCtx.orgId ?? null;
+            role = orgCtx.role ?? null;
+          } catch (error) {
+            if (!isMissingOrganizationTableError(error)) throw error;
+          }
           try {
             const {
               deleteBuilderCredentials,
               resolveBuilderCredentialsDetailed,
             } = await import("./credential-provider.js");
-            let orgId: string | null = null;
-            let role: string | null = null;
-            try {
-              const { getOrgContext } = await import("../org/context.js");
-              const orgCtx = await getOrgContext(event);
-              orgId = orgCtx.orgId ?? null;
-              role = orgCtx.role ?? null;
-            } catch (error) {
-              if (!isMissingOrganizationTableError(error)) throw error;
-            }
             if (requestedConnectionScope) {
               const result = await disconnectBuilderConnectionAtScope({
                 email: session.email,
@@ -6100,13 +6095,7 @@ export function createCoreRoutesPlugin(
                 reason: "credential_delete_failed",
               },
             );
-            setResponseStatus(event, 500);
-            return {
-              ok: false,
-              error:
-                "Could not fully remove Builder credentials. Please retry.",
-              cause: err instanceof Error ? err.message : String(err),
-            };
+            throw err;
           }
         }),
       );
@@ -6120,7 +6109,7 @@ export function createCoreRoutesPlugin(
             return { error: "Method not allowed" };
           }
 
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -6201,7 +6190,7 @@ export function createCoreRoutesPlugin(
         getH3App(nitroApp).use(
           `${P}/env-status`,
           defineEventHandler(async (event) => {
-            const session = await getSession(event).catch(() => null);
+            const session = await getSession(event);
             const userEmail = session?.email;
             let orgId: string | undefined;
             if (userEmail) {
@@ -6277,8 +6266,7 @@ export function createCoreRoutesPlugin(
                 setResponseStatus(event, err.statusCode);
                 return { error: err.message };
               }
-              setResponseStatus(event, 500);
-              return { error: "Failed to save keys" };
+              throw err;
             }
           }),
         );
@@ -6377,7 +6365,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const userEmail = session?.email;
           if (!userEmail) {
             setResponseStatus(event, 401);
@@ -6481,7 +6469,7 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/agent-loop-settings`,
         defineEventHandler(async (event: H3Event) => {
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -6576,7 +6564,7 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/usage`,
         defineEventHandler(async (event: H3Event) => {
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -6615,7 +6603,7 @@ export function createCoreRoutesPlugin(
           // (DB), which requires request context (AsyncLocalStorage) to know which
           // user to scope by. Without runWithRequestContext() the ALS store is empty
           // and it falls back to process.env only — missing OAuth-connected users.
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const userEmail = session?.email;
 
           return userEmail
@@ -6855,7 +6843,10 @@ export function createCoreRoutesPlugin(
       // GET    /_agent-native/runs[?active&limit]
       // GET    /_agent-native/runs/:id
       // DELETE /_agent-native/runs/:id
-      getH3App(nitroApp).use(`${P}/runs`, createProgressHandler());
+      getH3App(nitroApp).use(
+        `${P}/runs`,
+        createProgressHandler({ localApp: true }),
+      );
 
       // ─── Automations API ──────────────────────────────────────────────
       // GET  /_agent-native/automations — list all automations (parsed triggers)
@@ -6946,6 +6937,18 @@ export function createCoreRoutesPlugin(
             const data = await getSetting(
               `avatar:${decodeURIComponent(emailParam)}`,
             );
+            // Removing a photo is a decision about this account, not about the
+            // sign-in provider: the provider's picture must not come back and
+            // make the remove control look like it did nothing.
+            const removedOverride = await getSetting(
+              `avatarRemoved:${decodeURIComponent(emailParam)}`,
+            );
+            if (
+              (removedOverride as { removed?: boolean } | null)?.removed ===
+              true
+            ) {
+              return { image: null };
+            }
             const storedImage = (data as any)?.image;
             // A silhouette saved before it was recognized is not a photo either.
             if (
@@ -6989,7 +6992,46 @@ export function createCoreRoutesPlugin(
                   "image must be a data URI with a raster MIME type (png, jpeg, gif, or webp)",
               };
             }
-            await putSetting(`avatar:${session.email}`, { image });
+            if (image.length > AVATAR_MAX_DATA_URL_LENGTH) {
+              setResponseStatus(event, 413);
+              return {
+                error: `image must be at most ${AVATAR_MAX_DATA_URL_LENGTH} bytes`,
+              };
+            }
+            const avatarOwner = session.email.trim().toLowerCase();
+            // The photo is the one setting that is a small raster image by
+            // design, so this write carries the inline-bytes exemption; the
+            // MIME allowlist and the size cap above are what bound it.
+            await putSetting(
+              `avatar:${session.email}`,
+              { image },
+              { owner: avatarOwner, allowInlineImageBytes: true },
+            );
+            await deleteSetting(`avatarRemoved:${session.email}`, {
+              owner: avatarOwner,
+              requestSource: "avatar",
+            });
+            return { ok: true };
+          }
+
+          // DELETE /_agent-native/avatar — drop the current user's photo, so the
+          // initials fallback shows again (auth required).
+          if (method === "DELETE") {
+            const session = await getSession(event);
+            if (!session?.email) {
+              setResponseStatus(event, 401);
+              return { error: "unauthorized" };
+            }
+            const avatarOwner = session.email.trim().toLowerCase();
+            await deleteSetting(`avatar:${session.email}`, {
+              owner: avatarOwner,
+              requestSource: "avatar",
+            });
+            await putSetting(
+              `avatarRemoved:${session.email}`,
+              { removed: true, at: Date.now() },
+              { owner: avatarOwner, requestSource: "avatar" },
+            );
             return { ok: true };
           }
 

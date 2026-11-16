@@ -850,7 +850,11 @@ const editorPropertiesMessages = {
   imageUploaded_other: "Images uploaded",
   includeTime: "Include time",
   loadingProperties: "Loading properties",
-  content: "Content",
+  pageDetails: "Page details",
+  createdOn: "Created {{date}}",
+  editedAgo: "Edited {{time}}",
+  editedOn: "Edited {{date}}",
+  editedJustNow: "Edited just now",
   loadingContent: "Loading content",
   wordCount_zero: "{{count}} words",
   wordCount_one: "{{count}} word",
@@ -994,12 +998,15 @@ const editorMediaMessages = {
   generatingAltText: "Generating alt text...",
   image: "Image",
   imageAdded: "Image added",
+  imagesAdded: "Images added",
   imageBroken: "Image could not be loaded",
   imageCopied: "Image copied.",
   imageDownloadStarted: "Image download started.",
   imageLinkHint: "Works with any image from the web",
   imagePreview: "Image preview",
   imageUnavailable: "Image not available",
+  imageUploadFailed: "Couldn’t upload this image",
+  imageUploadsFailed: "{{failed}} of {{total}} image uploads failed.",
   imageView: "Image view",
   link: "Link",
   loadingAssetsPicker: "Loading Assets picker",
@@ -1016,6 +1023,7 @@ const editorMediaMessages = {
   pasteValidImageUrl: "Paste a valid image URL.",
   pasteValidVideoUrl: "Paste a valid video URL.",
   pasteVideoLink: "Paste the video link...",
+  removeImage: "Remove",
   replace: "Replace",
   replaceAudio: "Replace audio",
   replaceImage: "Replace image",
@@ -1024,6 +1032,7 @@ const editorMediaMessages = {
   resizeAudioFromRight: "Resize audio from right",
   resizeImageFromLeft: "Resize image from left",
   resizeImageFromRight: "Resize image from right",
+  retryImageUpload: "Retry",
   resizeVideoFromLeft: "Resize video from left",
   resizeVideoFromRight: "Resize video from right",
   transcribe: "Transcribe",
@@ -1294,6 +1303,14 @@ const editorSlashMessages = {
   videoDescription: "Upload or embed video",
 };
 
+const mermaidMessages = {
+  source: "Mermaid",
+  done: "Done",
+  doneShortcut: "Close the source (Esc)",
+  editDiagram: "Edit diagram",
+  cantDraw: "Can't draw this diagram",
+};
+
 const localFilesMessages = {
   interruptedPicker:
     "The folder picker did not finish last time, so it has been disabled in this browser profile. Use Agent-Native Desktop, Chrome, Edge, or another Chromium browser.",
@@ -1418,9 +1435,20 @@ const enUS = {
     commandDatabasesHeading: "Collections",
     commandLocalFilesHeading: "Local files",
     commandDatabaseResultDescription: "Open collection page",
-    commandAppearance: "Appearance",
     openAgent: "Open Agent",
     toggleTheme: "Toggle theme",
+    commandOnPage: "On “{{title}}”",
+    commandSearchInPage: "Search in this page",
+    commandSearchInPageDescription: "Only this page and the pages inside it",
+    commandScopeChip: "In “{{title}}”",
+    commandClearScope: "Search the whole workspace",
+    commandAskAgent: "Ask the agent: “{{query}}”",
+    commandAskAgentDescription:
+      "The agent can search, read and summarize for you",
+    commandPreview: "Preview",
+    commandHintNavigate: "Navigate",
+    commandHintOpen: "Open",
+    commandHintClose: "Close",
     metaTitle:
       "Agent-Native Content - Open Source, agent-friendly Obsidian alternative",
     metaDescription:
@@ -1545,6 +1573,7 @@ const enUS = {
     suggestionAmendmentResolved:
       "This suggestion changed elsewhere. Your unsaved draft is still here.",
     discardSuggestionDraft: "Discard draft",
+    mermaid: mermaidMessages,
     bold: "Bold",
     underline: "Underline",
     italic: "Italic",
@@ -2793,6 +2822,7 @@ function mergeMessagesForLocale(
       suggestionFormattingBaselineUnsupported:
         suggestionFormattingMessagesByLocale[locale][1]!,
       removeLink: removeLinkMessagesByLocale[locale],
+      mermaid: { ...base.editor.mermaid },
       media: { ...base.editor.media, ...rawLiteralOverrides.editor?.media },
       properties: base.editor.properties,
       reference: {

@@ -19,6 +19,7 @@ import {
 } from "../server/lib/design-template-data.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import { BOARD_FILENAME } from "../shared/board-file.js";
+import { designBriefsSchema } from "../shared/design-briefs.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designTemplateRetryKey } from "../shared/design-template-retry.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
@@ -183,6 +184,11 @@ export default defineAction({
       .max(128)
       .optional()
       .describe("Request fingerprint used to distinguish changed retries"),
+    briefs: designBriefsSchema
+      .optional()
+      .describe(
+        "Content pages the copy is built from, each with its id and http(s) link. The Design UI sets this when a Content page is attached to the prompt.",
+      ),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -208,6 +214,7 @@ export default defineAction({
       targetDesignId,
       newId,
       retryKey,
+      briefs,
     },
     ctx,
   ) => {
@@ -303,6 +310,7 @@ export default defineAction({
       title: createdTitle,
       designSystemId,
       prompt,
+      briefs,
     });
     if (retryKey !== undefined && retryKey !== expectedRetryKey) {
       return templateCopyConflict();
@@ -352,6 +360,7 @@ export default defineAction({
       fonts: extractTemplateFonts(files.map((file) => file.content).join("\n")),
     };
     if (prompt) data.templatePrompt = prompt;
+    if (briefs?.length) data.briefs = briefs;
 
     const persistedFiles = files.map((file) => ({
       ...file,

@@ -391,6 +391,22 @@ describe("ssrfSafeFetch per-hop policies", () => {
     );
   });
 
+  it("reports a same-origin redirect that requires replaying a stream", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(null, { status: 307, headers: { location: "/next" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      ssrfSafeFetch(httpsOrigin, {
+        method: "POST",
+        body: new Blob(["example upload"]).stream(),
+      }),
+    ).rejects.toThrow("Cannot replay a one-shot streamed request body");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     { status: 301, method: "POST" },
     { status: 302, method: "POST" },

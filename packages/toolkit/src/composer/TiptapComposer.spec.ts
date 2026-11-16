@@ -59,9 +59,21 @@ const emptyChatModelAdapter: ChatModelAdapter = {
 let container: HTMLDivElement;
 let root: Root;
 
+/**
+ * A draft written by this tab session: the composer stores it in localStorage
+ * and marks the browser-tab session, which is what lets a reload restore it.
+ * Seeding only localStorage models a draft left behind by an earlier session.
+ */
+function seedDraftForThisSession(scope: string | undefined, html: string) {
+  const key = getComposerDraftKey(scope);
+  localStorage.setItem(key, html);
+  sessionStorage.setItem(`an-composer-draft-session:${key}`, "1");
+}
+
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
+  sessionStorage.clear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -346,7 +358,7 @@ describe("createTiptapComposerExtensions", () => {
       extensions: createTiptapComposerExtensions(() => "Message agent..."),
     });
     draftEditor.commands.setContent("<p>Saved prompt</p>");
-    localStorage.setItem(getComposerDraftKey(scope), draftEditor.getHTML());
+    seedDraftForThisSession(scope, draftEditor.getHTML());
     draftEditor.destroy();
     expect(localStorage.getItem(getComposerDraftKey(scope))).toContain(
       "Saved prompt",
@@ -386,7 +398,7 @@ describe("createTiptapComposerExtensions", () => {
     }
 
     await act(async () => {
-      localStorage.setItem(getComposerDraftKey(), "<p>Legacy prompt</p>");
+      seedDraftForThisSession(undefined, "<p>Legacy prompt</p>");
       root.render(React.createElement(Harness, { currentScope: undefined }));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -497,7 +509,7 @@ describe("createTiptapComposerExtensions", () => {
 
   it("lets a first-paint handoff override a saved prompt when requested", async () => {
     const scope = "draft-recovery:first-paint";
-    localStorage.setItem(getComposerDraftKey(scope), "<p>Saved prompt</p>");
+    seedDraftForThisSession(scope, "<p>Saved prompt</p>");
     const focusRef = React.createRef<TiptapComposerHandle>();
 
     function Harness() {
@@ -569,7 +581,7 @@ describe("createTiptapComposerExtensions", () => {
 
   it("does not restore a stale draft after the composer is cleared", async () => {
     const scope = "draft-recovery:clear";
-    localStorage.setItem(getComposerDraftKey(scope), "<p>d</p>");
+    seedDraftForThisSession(scope, "<p>d</p>");
     const focusRef = React.createRef<TiptapComposerHandle>();
 
     function Harness({ initialText }: { initialText: string }) {
@@ -607,7 +619,7 @@ describe("createTiptapComposerExtensions", () => {
     ).toBe("");
 
     // Model the debounced draft write still holding the final character.
-    localStorage.setItem(getComposerDraftKey(scope), "<p>d</p>");
+    seedDraftForThisSession(scope, "<p>d</p>");
     await act(async () => {
       root.render(React.createElement(Harness, { initialText: "" }));
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -615,6 +627,53 @@ describe("createTiptapComposerExtensions", () => {
     expect(
       container.querySelector(".agent-composer-prosemirror")?.textContent,
     ).toBe("");
+  });
+
+  it("does not hand a draft from another session to a fresh composer", async () => {
+    // a previous run's draft appeared in the agent composer on
+    // first open, in a new tab of the same signed-in profile. A draft belongs to
+    // the browser-tab session that wrote it: restore within that session (a
+    // reload), never into a new one.
+    const scope = "draft-recovery:another-session";
+    const key = getComposerDraftKey(scope);
+    localStorage.setItem(key, "<p>QA-m5-624 probe draft - not sent</p>");
+    // No session marker: this text was written by a tab that no longer exists.
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: scope,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("");
+
+    // Typing here marks this tab session, so a reload of this tab can restore it
+    // (the scoped-draft test above covers the restore itself).
+    act(() => focusRef.current?.setText("Typed in this tab"));
+    expect(localStorage.getItem(key)).toContain("Typed in this tab");
+    expect(sessionStorage.getItem(`an-composer-draft-session:${key}`)).toBe(
+      "1",
+    );
   });
 
   it("applies handle calls a host makes from its mount effects", async () => {
@@ -2993,6 +3052,54 @@ describe("createTiptapComposerExtensions", () => {
     expect(shouldRenderModelSelector([], () => {})).toBe(true);
     expect(shouldRenderModelSelector(unconfigured, undefined)).toBe(false);
     expect(shouldRenderModelSelector(undefined, () => {})).toBe(false);
+  });
+
+  it("can drop the chevron when the host's trigger carries no glyph", () => {
+    // A host can render the control as a bare "Auto" (aria-label "Chosen model:
+    // Auto", zero svg children). The default stays a chevron so other hosts are
+    // untouched.
+    function Harness({ chevron }: { chevron?: boolean }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            availableModels: [
+              {
+                engine: "openai",
+                label: "OpenAI",
+                models: ["gpt-5.6-luna"],
+                configured: true,
+              },
+            ],
+            modelSelectorChevron: chevron,
+            selectedModel: "auto",
+            onModelChange: vi.fn(),
+            agentOnly: false,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            providerConnectStatusEnabled: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness, { chevron: false })));
+    const bare = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    );
+    expect(bare?.textContent).toContain("Auto");
+    expect(bare?.querySelectorAll("svg").length).toBe(0);
+
+    act(() => root.render(React.createElement(Harness, { chevron: true })));
+    const withChevron = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    );
+    expect(withChevron?.querySelectorAll("svg").length).toBe(1);
   });
 
   it("shows friendly selected names and full versioned model names", () => {

@@ -1466,11 +1466,19 @@ describe("createAgentNativeChatRuntime", () => {
       String(fetchMock.mock.calls[1]?.[1]?.body),
     );
     const initialBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    // The payload's `id` is no longer forwarded verbatim: it is derived from the body's
+    // message id, because the server rejects a start whose payload id differs from the
+    // body's agentKitMessageId ("submissionPayload does not match this message",
+    // production-agent.ts). This fixture used to store an unrelated id
+    // ("submission-image-approval"), which is precisely the disagreement the derivation
+    // removes; threadId and text are unchanged, and the derivation itself is pinned in
+    // submission-payload-derivation.spec.ts.
     expect(initialBody.submissionPayload).toEqual({
-      id: "submission-image-approval",
+      id: initialBody.agentKitMessageId,
       threadId: "thread-approval-image-history",
       text: "Review this image before publishing.",
     });
+    expect(initialBody.agentKitMessageId).toBeTypeOf("string");
     expect(continuationBody.message).toBe(
       "The approved action has run. Do not repeat it; use its result in your reply.",
     );
@@ -1636,6 +1644,8 @@ describe("createAgentNativeChatRuntime", () => {
     await expect(
       session.startTurn({ prompt: "Blocked" }),
     ).rejects.toBeInstanceOf(AgentChatAiSetupRequiredError);
+    // A definitive answer is one probe: only an unanswered probe is retried
+    //.
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
       "/_agent-native/agent-engine/status",
@@ -1737,10 +1747,13 @@ describe("createAgentNativeChatRuntime", () => {
       name: "AgentChatAiSetupRequiredError",
       state: "unavailable",
     });
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
-      "/_agent-native/agent-engine/status",
-    );
+    // Still blocked: the probe retries a bounded number of times and a
+    // sustained 503 is still an outage, and every probe
+    // went to the readiness route.
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    for (const call of fetchMock.mock.calls) {
+      expect(String(call[0])).toContain("/_agent-native/agent-engine/status");
+    }
   });
 
   it("bounds asynchronous auth-header resolution and permits a later retry", async () => {

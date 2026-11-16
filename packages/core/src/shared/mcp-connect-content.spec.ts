@@ -348,7 +348,7 @@ describe("MCP client hosts", () => {
 
   it("labels a host by its id", () => {
     expect(mcpConnectHostLabel("claude-code")).toBe("Claude Code");
-    expect(mcpConnectHostLabel("codex")).toBe("Codex");
+    expect(mcpConnectHostLabel("codex")).toBe("Codex CLI");
     expect(mcpConnectHostLabel("unknown")).toBeUndefined();
     expect(mcpConnectHostLabel(null)).toBeUndefined();
   });

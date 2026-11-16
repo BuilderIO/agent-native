@@ -101,6 +101,10 @@ export function isSqlQueryAccessDenied(error: unknown): error is Error {
   );
 }
 
+/**
+ * Sources whose server keeps a cache that a panel's Refresh can skip: BigQuery
+ * results, and the run cache of a program panel's data program.
+ */
 export function supportsSqlQueryCacheBypass(source: string): boolean {
-  return source === "bigquery";
+  return source === "bigquery" || source === "program";
 }

@@ -5,6 +5,7 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import type { CommentThread } from "@/hooks/use-comments";
 import type { DocumentUpdateResult } from "@/hooks/use-documents";
 import { documentQueryKey } from "@/lib/document-query";
 import {
@@ -30,8 +31,11 @@ import {
   observeAcceptedCanonicalSettlement,
   documentEditorReservesInlineReviewSpace,
   documentEditorReviewReadsSettled,
+  documentEditorHasFreshAiResolution,
   documentEditorShowsInlineComments,
   documentPagePanelTab,
+  infoPropertyCommentStart,
+  pendingCommentHeld,
   dismissDocumentCommentFocus,
   documentEditorLoadState,
   collabDocHasText,
@@ -1352,6 +1356,59 @@ describe("document editor layout", () => {
     ).toBe(true);
   });
 
+  it("keeps the margin for a thread AI just resolved, even the page's last", () => {
+    const resolved = {
+      threadId: "quoted",
+      resolved: true,
+      quotedText: "soft labels",
+    } as CommentThread;
+    const onPage = {
+      threadId: "page",
+      resolved: true,
+      quotedText: null,
+    } as CommentThread;
+    const fresh = new Map([
+      ["quoted", {}],
+      ["page", {}],
+    ]);
+    expect(documentEditorHasFreshAiResolution([resolved], null, fresh)).toBe(
+      true,
+    );
+    // Once its Resolved by AI mark fades, it no longer holds the margin.
+    expect(
+      documentEditorHasFreshAiResolution([resolved], null, new Map()),
+    ).toBe(false);
+    // A comment on the whole page lives in Discussion, not the margin.
+    expect(documentEditorHasFreshAiResolution([onPage], null, fresh)).toBe(
+      false,
+    );
+    expect(documentEditorHasFreshAiResolution(undefined, null, fresh)).toBe(
+      false,
+    );
+  });
+
+  it("holds the margin only for a thread AI just resolved in the open tab", () => {
+    const inNotes = {
+      threadId: "notes",
+      resolved: true,
+      quotedText: "soft labels",
+      field: { fieldId: "notes-field", fieldName: "Notes" },
+    } as CommentThread;
+    const inBody = {
+      threadId: "body",
+      resolved: true,
+      quotedText: "soft labels",
+    } as CommentThread;
+    const fresh = new Map([["body", {}]]);
+    const threads = [inNotes, inBody];
+    expect(documentEditorHasFreshAiResolution(threads, null, fresh)).toBe(true);
+    // In another tab its mark isn't on screen to fade, so it would hold an
+    // empty margin until the body's tab came back.
+    expect(
+      documentEditorHasFreshAiResolution(threads, "notes-field", fresh),
+    ).toBe(false);
+  });
+
   it("does not clip a printed page at the root's screen height", () => {
     const css = readFileSync("app/global.css", { encoding: "utf8" });
     const printRoot = css.match(
@@ -1361,6 +1418,60 @@ describe("document editor layout", () => {
     expect(printRoot).toContain("overflow: visible !important");
     expect(printRoot).toContain("height: auto !important");
     expect(printRoot).toContain("inset: 0 0 auto !important");
+  });
+
+  describe("infoPropertyCommentStart", () => {
+    it("starts one with none started, or over an empty one elsewhere", () => {
+      expect(infoPropertyCommentStart(null, "a")).toBe("start");
+      expect(
+        infoPropertyCommentStart({ propertyId: "b", written: false }, "a"),
+      ).toBe("start");
+      expect(infoPropertyCommentStart({ written: false }, "a")).toBe("start");
+    });
+
+    it("opens one already started on the Property as it was", () => {
+      expect(
+        infoPropertyCommentStart({ propertyId: "a", written: true }, "a"),
+      ).toBe("reopen");
+      expect(
+        infoPropertyCommentStart({ propertyId: "a", written: false }, "a"),
+      ).toBe("reopen");
+    });
+
+    it("goes back to words under another Property or beside the Page's text", () => {
+      expect(
+        infoPropertyCommentStart({ propertyId: "b", written: true }, "a"),
+      ).toBe("returnToProperty");
+      expect(infoPropertyCommentStart({ written: true }, "a")).toBe(
+        "returnToPage",
+      );
+    });
+  });
+
+  describe("pendingCommentHeld", () => {
+    const properties = [{ definition: { id: "a" } }];
+
+    it("holds words under a Property on the Page, or beside its text", () => {
+      expect(
+        pendingCommentHeld({ propertyId: "a", written: true }, properties),
+      ).toBe(true);
+      expect(pendingCommentHeld({ written: true }, properties)).toBe(true);
+    });
+
+    it("lets go of one with no words, or whose Property was deleted", () => {
+      expect(
+        pendingCommentHeld({ propertyId: "a", written: false }, properties),
+      ).toBe(false);
+      expect(
+        pendingCommentHeld({ propertyId: "b", written: true }, properties),
+      ).toBe(false);
+    });
+
+    it("holds one while the Properties aren't read yet", () => {
+      expect(
+        pendingCommentHeld({ propertyId: "a", written: true }, undefined),
+      ).toBe(true);
+    });
   });
 
   describe("documentPagePanelTab", () => {

@@ -41,7 +41,9 @@ export default defineAction({
     "radius, dark-mode, etc.) for a design. Merges the selections into " +
     "designs.data.tweakSelections so the tuned design survives reload and " +
     "is what get-design-snapshot / export-coding-handoff hand off. Other " +
-    "design data keys (tweaks, lastPrompt, ...) are left intact.",
+    "design data keys (tweaks, lastPrompt, ...) are left intact. Read the " +
+    "definitions (with their element `scope`) and current values with " +
+    "get-design-snapshot.",
   schema: z.object({
     designId: z.string().describe("Design project ID to apply tweaks to"),
     selections: z
@@ -69,8 +71,19 @@ export default defineAction({
       .describe(
         "Optimistic-concurrency hash of the persisted tweak selection map this full snapshot was based on.",
       ),
+    inFlightSelectionsHash: z
+      .string()
+      .min(1)
+      .max(128)
+      .optional()
+      .describe(
+        "Second accepted base: the persisted selections hash once the caller's own earlier apply-tweaks call, still in flight, lands.",
+      ),
   }),
-  run: async ({ designId, selections, expectedSelectionsHash }, context) => {
+  run: async (
+    { designId, selections, expectedSelectionsHash, inFlightSelectionsHash },
+    context,
+  ) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
 
@@ -90,9 +103,11 @@ export default defineAction({
       mutate: (prevData, { updatedAt }) => {
         const persistedSelections = readSelections(prevData);
         const alreadyApplied = selectionsAreApplied(persistedSelections);
+        const persistedHash = tweakSelectionsHash(persistedSelections);
         if (
           expectedSelectionsHash !== undefined &&
-          tweakSelectionsHash(persistedSelections) !== expectedSelectionsHash &&
+          persistedHash !== expectedSelectionsHash &&
+          persistedHash !== inFlightSelectionsHash &&
           !alreadyApplied
         ) {
           throw new TweakSelectionsConflictError();

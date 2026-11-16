@@ -378,7 +378,12 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(true);
   });
 
-  it("refreshes an open row page after a batch row patch", () => {
+  it.each([
+    "patch-database-items",
+    "update-database-item",
+    "update-database-items",
+    "upsert-database-item-by-key",
+  ])("refreshes an open row page after %s", (action) => {
     const predicate = contentActionInvalidatePredicate("/page/row");
     for (const name of ["get-document", "list-document-properties"]) {
       expect(
@@ -387,7 +392,7 @@ describe("contentActionInvalidatePredicate", () => {
             queryKey: ["action", name, { id: "row", documentId: "row" }],
             isActive: () => true,
           },
-          [{ source: "action", key: "patch-database-items" }],
+          [{ source: "action", key: action }],
         ),
       ).toBe(true);
     }

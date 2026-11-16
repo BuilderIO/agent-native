@@ -275,6 +275,39 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
     ).resolves.toEqual(["https://api.github.com"]);
   });
 
+  it("gives a previously saved Figma key its registered API origin", async () => {
+    mockReadAppSecretMeta.mockResolvedValue({ urlAllowlist: null });
+    await expect(
+      getResolvedKeyAllowlist({
+        name: "FIGMA_ACCESS_TOKEN",
+        scope: "user",
+        scopeId: "owner@example.test",
+      }),
+    ).resolves.toEqual(["https://api.figma.com"]);
+  });
+
+  it("keeps the legacy Gemini key on the same fixed Google API origin", async () => {
+    const ref = {
+      name: "GEMINI_API_KEY",
+      scope: "user" as const,
+      scopeId: "owner@example.test",
+    };
+    mockReadAppSecretMeta.mockResolvedValueOnce({ urlAllowlist: null });
+    await expect(getResolvedKeyAllowlist(ref)).resolves.toEqual([
+      "https://generativelanguage.googleapis.com",
+    ]);
+
+    mockReadAppSecretMeta.mockResolvedValueOnce({
+      urlAllowlist: [
+        "https://generativelanguage.googleapis.com",
+        "https://other.example.test",
+      ],
+    });
+    await expect(getResolvedKeyAllowlist(ref)).resolves.toEqual([
+      "https://generativelanguage.googleapis.com",
+    ]);
+  });
+
   it("intersects a saved provider policy with its fixed destinations", async () => {
     mockReadAppSecretMeta.mockResolvedValue({
       urlAllowlist: ["https://api.github.com", "https://other.example.test"],
@@ -520,6 +553,20 @@ describe("getKeyAllowlist", () => {
     await expect(
       getKeyAllowlist("OPENAI_API_KEY", "user", "alice@example.test"),
     ).resolves.toEqual(["https://api.openai.com"]);
+  });
+
+  it.each([
+    ["JEV_API_KEY", "https://api.typesafe.ai"],
+    ["OPENROUTER_API_KEY", "https://openrouter.ai"],
+    ["GROQ_API_KEY", "https://api.groq.com"],
+    ["COHERE_API_KEY", "https://api.cohere.com"],
+    ["BRAVE_SEARCH_API_KEY", "https://api.search.brave.com"],
+  ])("uses the approved request origin for %s", async (key, origin) => {
+    const allowlist = await getKeyAllowlist(key, "user", "alice@example.test");
+    expect(validateUrlAllowlist(`${origin}/v1/query`, allowlist)).toBe(true);
+    expect(
+      validateUrlAllowlist("https://other.example.test/v1/query", allowlist),
+    ).toBe(false);
   });
 
   it("does not inherit a policy from an object prototype property", async () => {

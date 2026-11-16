@@ -40,6 +40,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAliases } from "@/hooks/use-aliases";
+import { useCanManageStorage } from "@/hooks/use-can-manage-storage";
 import { draftRevisionPromptArg } from "@/hooks/use-compose-state";
 import {
   useSendEmail,
@@ -47,11 +48,12 @@ import {
   useArchiveEmail,
   useSettings,
 } from "@/hooks/use-emails";
+import { useStorageSetupLabels } from "@/hooks/use-storage-setup-labels";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
 import {
-  toastStorageSetupFailure,
+  reportImageUploadFailure,
   toastUploadFailure,
 } from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
@@ -102,6 +104,8 @@ export const InlineReplyComposer = forwardRef<
   ref,
 ) {
   const t = useT();
+  const canManageStorage = useCanManageStorage();
+  const storageSetupLabels = useStorageSetupLabels();
   const [showQuoted, setShowQuoted] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
@@ -424,15 +428,6 @@ export const InlineReplyComposer = forwardRef<
     </>
   );
 
-  const storageSetupLabels = {
-    builderRefused: t("mail.toasts.storageBuilderRefused"),
-    storageRefused: t("mail.toasts.storageRefused"),
-    storageNotConfigured: t("mail.toasts.storageNotConfigured"),
-    openStorageSettings: t("mail.toasts.openStorageSettings"),
-    reconnectBuilder: t("mail.toasts.reconnectBuilderStorage"),
-    useOwnStorage: t("mail.toasts.useOwnStorage"),
-  };
-
   const handleAttachFiles = async (files: File[]) => {
     if (files.length === 0) return;
     try {
@@ -444,6 +439,7 @@ export const InlineReplyComposer = forwardRef<
         error,
         t("mail.toasts.failedToAttachFile"),
         storageSetupLabels,
+        canManageStorage,
       );
     }
   };
@@ -453,11 +449,12 @@ export const InlineReplyComposer = forwardRef<
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      if (!toastStorageSetupFailure(err, storageSetupLabels)) {
-        reportWriteFailure(err, {
-          label: t("mail.toasts.failedToUploadImage"),
-        });
-      }
+      reportImageUploadFailure(
+        err,
+        t("mail.toasts.failedToUploadImage"),
+        storageSetupLabels,
+        canManageStorage,
+      );
       throw err;
     }
   };

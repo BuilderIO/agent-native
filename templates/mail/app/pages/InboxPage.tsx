@@ -3,6 +3,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { AI_PRIORITY_MAX_EMAILS, type MailSortMode } from "@shared/ai-priority";
 import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
 import { inboxTabHref } from "@shared/inbox-threads";
+import { openThreadPath } from "@shared/mail-routes";
 import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage } from "@shared/types";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
@@ -934,7 +935,7 @@ export function InboxPage() {
     } else if (targetFilter) {
       void navigate(`/inbox?filter=${encodeURIComponent(targetFilter)}`);
     } else if (targetThread) {
-      void navigate(`/${targetView}/${targetThread}`);
+      void navigate(openThreadPath(targetView, targetThread));
     } else if (targetView !== view) {
       void navigate(`/${targetView}`);
     }

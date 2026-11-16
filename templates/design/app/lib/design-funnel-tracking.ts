@@ -33,6 +33,7 @@ export type DesignPromptReferenceType =
   | "url"
   | "design"
   | "slides"
+  | "content"
   | "integration"
   | "image"
   | "file";
@@ -41,6 +42,7 @@ const HOME_REFERENCE_KEY_PREFIX = "design-home-reference:";
 const HOME_REFERENCE_TYPES: Record<string, DesignPromptReferenceType> = {
   design: "design",
   slides: "slides",
+  content: "content",
   figma: "figma",
   website: "url",
   integration: "integration",

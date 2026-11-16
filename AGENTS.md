@@ -1,10 +1,7 @@
 # Agent-Native Framework
 
-This repository builds apps where the AI agent and UI are equal partners:
-everything the UI can do, the agent can do through the same SQL data and action
-surface. Keep this file small: the rules below are the invariants, and
-`.agents/skills/*` carries the workflow. Read the relevant skill before changing
-that area.
+The agent and UI are equal partners: everything the UI can do, the agent can do
+through the same SQL data and actions.
 
 ## Skills
 
@@ -31,12 +28,16 @@ Use `/sidecar <task>` for read-only investigations.
 
 ## Always-On Rules
 
+- Own the assigned outcome within scope. Fix what it depends on, preserve
+  unrelated and peer work, and verify the result. Diagnose failures and retry
+  when safe; check whether an uncertain write landed before repeating it.
+  Respect access limits and finish independent work. See `reporting-progress`
+  for updates and blocker reports.
 - Scale effort: for small changes, read briefly, edit, and run existing checks;
   skip surveys, unrequested tests, and browser automation. Explore deeply only
   for ambiguous or cross-cutting work.
-- Keep routine replies concise: lead with the answer in 1–2 short sentences.
-  Include only the requested detail and any essential result, blocker, or next
-  step; omit recaps, process narration, and filler unless more detail is needed.
+- Lead routine replies with the answer. Include only requested details and any
+  essential result, blocker, or next step.
 - Before finishing or handoff, close opened browser tabs/app sessions and stop
   started processes. Honor keep-open requests; stop only owned resources; report
   failures.
@@ -76,7 +77,6 @@ Use `/sidecar <task>` for read-only investigations.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
 - Keep the chat title accurate.
-- Follow `reporting-progress` for updates and mid-task stops.
 - When adding package dependencies or framework integrations, verify the current
   latest version first with `npm view`/`pnpm view` or current docs. Do not rely
   on remembered versions.

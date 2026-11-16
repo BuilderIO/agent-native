@@ -63,7 +63,6 @@
     "start-context-enrichment",
     "start-context-import",
     "start-workspace-app-creation",
-    "sync-vault-to-app",
     "unarchive-workspace-app",
     "update-vault-secret",
     "update-workspace-app-metadata",

@@ -3,6 +3,16 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-12
+
+### Improved
+
+- New Clips users can set up Builder automatically during signup.
+
+### Fixed
+
+- Recordings now retry automatically when the upload service has a brief hiccup at the start or end of an upload, instead of failing.
+
 ## 2026-11-10
 
 ### Fixed
@@ -13,10 +23,29 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Sharing controls now match other apps, with password protection available for public links.
 - More save failures now say why, such as being offline or lacking permission.
 - Some new accounts now connect to Builder automatically during signup, with the Builder terms and privacy notice shown before signup.
 
+### Fixed
+
+- Mac app: opening Clips before Screen Recording is allowed no longer risks a macOS permission prompt; Clips asks when you start recording.
+- Rewind now starts when the screen is still, instead of timing out and falling back to slower capture.
+- Starting meeting notes from the notification now opens only the notes widget, the widget stays up until you stop notes, and hovering it reliably shows the live transcript.
+
+## 2026-11-07
+
+### Fixed
+
+- Inspect frames from large recordings stored in S3-compatible storage.
+- Restarting notes on a meeting no longer adds what they already saved a second time.
+- Shared meetings and clips now say a transcript couldn't be read when its saved lines are damaged, instead of showing no transcript, no speech, or lines with made-up speakers. On your own clip, a Regenerate transcript button sits under the message.
+
 ## 2026-11-06
+
+### Added
+
+- Agents working for a recording's owner can now get a link that downloads its video file for 10 minutes, including private recordings.
 
 ### Fixed
 
@@ -1431,49 +1460,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Long desktop Clips now preserve complete playback, synced audio, full transcripts, and local recovery copies until upload verification succeeds.
 - Long recording lists keep Stitch actions and selected-library actions visible.
 - Transcripts now appear from native browser speech sooner, with automatic recovery when transcription stalls.
-
-## 2026-07-15
-
-### Improved
-
-- AI workflow generation now stays visible, avoids duplicate requests, and reports completion correctly.
-- Clip playback and CTA controls remain interactive through editing and replay.
-- Clip titles no longer describe the product as a Loom alternative.
-- Description regeneration now opens the agent chat so progress is easy to follow.
-- Folders now expose rename and delete actions directly in the library sidebar
-- Public clip links are labeled Share with humans for clarity.
-- Recording pages now explain sign-in access and avoid showing the same public link twice.
-- The Clips extension quick-actions toolbar can be moved out of the way.
-- The editor now skips cut sections during preview and keeps the full clip selection visible.
-- Thumbnail capture now updates previews while scrubbing and lets uploaded files be removed.
-
-### Fixed
-
-- Disconnecting a calendar now clears unrecorded synced meeting placeholders.
-- Folders and sidebar links are clickable again immediately after creating or renaming a folder.
-- Hovering a truncated folder name now shows the full name.
-- Space creation controls are now shown only to organization admins and owners.
-- Vocabulary terms can now be deleted from the dictation dictionary.
-- Windows permission links now open the matching system settings page.
-
-### Security
-
-- Direct recording URLs now respect share-link and password access controls
-
-## 2026-07-14
-
-### Added
-
-- Rewind can keep recent screen context local, make it searchable on your Mac, and explicitly include the previous 30 seconds or 5 minutes in a Clip without starting another recorder
-
-### Improved
-
-- Desktop app prompts stay hidden after you download the installer
-- The Share dialog once again makes separate links for people and agents easy to find.
-
-### Fixed
-
-- Clips now distinguishes transcript previews from incomplete transcriptions and queues agent-triggered retries reliably.
-- Paused time no longer counts toward Chrome extension recording durations.
 
 For the full list of updates, see the [changelog folder](./changelog/).

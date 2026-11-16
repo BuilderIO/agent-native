@@ -254,9 +254,14 @@ export default defineEventHandler(async (event) => {
           if (!url || !token)
             return { ok: false, error: "Missing credentials" };
           assertCredentialCanReachEndpoint(url, token, "GRAFANA_API_TOKEN");
-          const res = await fetchConfiguredEndpoint(url.value, "/api/org", {
-            headers: { Authorization: `Bearer ${token.value}` },
-          });
+          const res = await fetchConfiguredEndpoint(
+            "grafana",
+            url.value,
+            "/api/org",
+            {
+              headers: { Authorization: `Bearer ${token.value}` },
+            },
+          );
           if (!res.ok) return { ok: false, error: "Connection failed" };
           return { ok: true };
         }
@@ -342,6 +347,7 @@ export default defineEventHandler(async (event) => {
             `${credentials.accessKey}:${credentials.accessSecret}`,
           ).toString("base64")}`;
           const res = await fetchConfiguredEndpoint(
+            "gong",
             endpoint.value,
             "/users?limit=1",
             {

@@ -3,6 +3,16 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-12
+
+### Improved
+
+- Automatic Builder setup is available to more new Design users during signup.
+
+### Fixed
+
+- Pasting too many files, or a file over 15 MB, now tells you how many were left out instead of dropping them silently.
+
 ## 2026-11-10
 
 ### Fixed
@@ -13,11 +23,13 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Share controls use a consistent compact layout.
 - More save failures now say why, such as being offline or lacking permission.
 - Automatic Builder setup now has bounded retries and a visible retry action when status is unavailable.
 
 ### Fixed
 
+- Edits that couldn't be saved right away are merged into the latest version of the screen instead of being discarded, and a Not saved indicator shows while a save is still being retried
 - Fixed designs being written twice when a prompt used attached photos or references.
 - Automatic Builder setup starts sooner and continues if you leave the page during setup.
 
@@ -2109,58 +2121,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Security
 
 - Rich Design clipboard markers are now accepted only from the current browser installation.
-
-## 2026-07-09
-
-### Added
-
-- Typography properties now include underline, strikethrough, and text case controls.
-- Component instances can now be detached (⌥⌘B) into plain, independently-editable elements.
-- Export any design screen as a real vector SVG for Figma, with copy-to-clipboard and drag-import support
-- Import Figma frames as editable Design screens via a shared file or branch link
-- The Component inspector panel and canvas context menu can now jump to a component's earliest instance ("Go to main component").
-- Keyboard shortcuts are discoverable in a bottom panel from the app menu or Ctrl+Shift+?.
-- Right-click overlapping or nested objects to choose the visible unlocked layer from the Select layer submenu
-- Component instances can now be swapped for a different component from the design, keeping matching prop overrides.
-
-### Improved
-
-- Editor sidebars use consistent default widths for a roomier canvas.
-- Drawing annotations sent to the agent now include a rendered screenshot with the drawing composited on top, not just coordinates
-- Editor sidebars now use consistent default widths for a roomier canvas.
-- Design keyboard shortcuts, drawing annotations, and cross-screen drag interactions are now faster and more reliable.
-- Inspect Code now hides internal styling metadata and wraps long attribute lists for easier reading.
-- Local preview URLs now live in the inspector instead of taking space above the canvas
-- Local React layers now keep exact source provenance and support safe same-screen reorder, reparent, group, ungroup, and Auto layout editing through the coding agent.
-- Paste from Figma (Cmd+V) now imports exact, editable nodes when possible, with a clear fallback and hint when it can't
-- Screen rows can now be reordered in Layers with matching canvas stack order, undo, and persistence.
-- Screen selection stays responsive in designs with hundreds of screens and thousands of layers.
-- Shift+A now enables Auto layout on a selected screen with flash-free undo, redo, and persistence.
-
-### Fixed
-
-- Annotate now draws across the All Screens canvas without switching views or reloading screen previews.
-- Auto-layout children can now be dragged into freeform screens, other layouts, and absolute frames without jumping or losing their position.
-- Board shapes now stay visible and nest correctly across the All screens canvas without iframe flashes.
-- Component source navigation now opens reliably from the inspector and component interactions.
-- Cross-screen local React layer moves now hand off exact source anchors safely instead of silently refusing the drop.
-- Cross-screen moves, undo, and redo now keep both screens stable without preview flashes or lost selection
-- Design edits, canvas positions, tools, and tab context now persist reliably across navigation and reloads.
-- Dragging layers into auto layout now respects Ignore auto layout and stays visually stable during reparenting
-- Empty frames and rectangles now expose full Auto layout controls, and promoted containers show the correct Layers icon.
-- Grid auto layout now uses true responsive rows and columns with track sizing, independent gaps, and fluid canvas reordering.
-- Hand and Scale tools now keep their active toolbar identity and show their keyboard shortcuts.
-- Hidden and locked screens now behave consistently between Layers and the overview canvas.
-- Image fills now preserve valid URLs and layered fit settings across page and layer edits.
-- Inspector effects preserve sibling filters and fractional values, linking padding no longer overwrites asymmetric sides, and mixed layout or constraint selections now display honestly.
-- Large multi-screen designs now stay responsive during long canvas sessions without accumulating hidden previews.
-- Layer drags now land exactly where the insertion indicator shows, including multi-selection reorders.
-- Layer selection now keeps Cmd or Ctrl toggles and Shift ranges intact in All screens view
-- Layers dropped into Auto layout now participate correctly in ordering, spacing, and alignment.
-- Local live-edit screens now enter and leave Full view without blank, URL-only, or duplicate-loading flashes.
-- Local React layers can now be hidden and locked from Layers with source-backed persistence.
-- Local React visual editing now loads reliably and shows live component layers with exact development source locations.
-- Pressing Escape after selecting a screen now reveals Page properties instead of immediately reselecting the active screen.
-- Scale, edge, stretch, and center constraints now preserve layer geometry when nested or auto-layout frames resize
 
 For the full list of updates, see the [changelog folder](./changelog/).

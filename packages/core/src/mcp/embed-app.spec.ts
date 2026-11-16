@@ -2354,6 +2354,290 @@ return requestFullscreenOnFirstInteraction;`;
     });
   });
 
+  describe("app tools on the open view", () => {
+    const viewToolsFor = (options: {
+      href: string;
+      pageHelper?: unknown;
+      frameSrc?: string;
+      modelContext?: unknown;
+      app?: unknown;
+    }) => {
+      const resource = embedApp({ title: "Mail" });
+      const html =
+        typeof resource.html === "function"
+          ? resource.html({ actionName: "open_app", appId: "mail" })
+          : resource.html;
+      const source = html.match(
+        /const readViewToolName = [\s\S]*?(?=\n    function createNativeMcpAppsBridge\(\))/,
+      )?.[0];
+      expect(source).toBeTruthy();
+      const { window } = parseHTML(
+        "<html><head><title>Inbox</title></head><body><main>Invoice from Acme   due Friday</main></body></html>",
+      );
+      const pushed: Array<{ state: unknown; url: string }> = [];
+      const popstates: unknown[] = [];
+      const fakeWindow = {
+        location: { href: options.href },
+        history: {
+          state: { usr: null, key: "a", idx: 3 },
+          pushState(state: unknown, _title: string, url: string) {
+            pushed.push({ state, url });
+            this.state = state;
+          },
+        },
+        dispatchEvent(event: { type: string }) {
+          popstates.push(event.type);
+          return true;
+        },
+        getSelection: () => "",
+        __agentNativeWebMcp: options.pageHelper,
+      };
+      const objectValue = (value: unknown) =>
+        value && typeof value === "object" && !Array.isArray(value)
+          ? value
+          : {};
+      const localPathFromUrl = (url: URL) =>
+        url.pathname + url.search + url.hash;
+      class FakePopStateEvent {
+        constructor(readonly type: string) {}
+      }
+      if (options.modelContext) {
+        Object.assign(window.document, { modelContext: options.modelContext });
+      }
+      const appFrame = options.frameSrc ? { src: options.frameSrc } : null;
+      return new Function(
+        "window",
+        "document",
+        "objectValue",
+        "localPathFromUrl",
+        "PopStateEvent",
+        "appFrame",
+        "lastFrameSrc",
+        "app",
+        `${source}; return { listViewTools, callViewTool, watchPageTools };`,
+      )(
+        fakeWindow,
+        window.document,
+        objectValue,
+        localPathFromUrl,
+        FakePopStateEvent,
+        appFrame,
+        "https://labs.example.com/_agent-native/embed/start?t=1",
+        options.app ?? null,
+      ) as {
+        watchPageTools(): void;
+        listViewTools(): Promise<Array<{ name: string }>>;
+        callViewTool(params: unknown): Promise<{
+          isError?: boolean;
+          content: Array<{ text: string }>;
+          structuredContent?: Record<string, unknown>;
+        }>;
+      } & { pushed: typeof pushed; popstates: typeof popstates };
+    };
+
+    it("lists read and navigate tools plus the page's own tools", async () => {
+      const pageHelper = {
+        tools: async () => [
+          {
+            name: "select_thread",
+            description: "Select a thread",
+            required: ["id"],
+            readOnly: false,
+          },
+        ],
+        describe: async () => ({
+          name: "select_thread",
+          description: "Select a thread in the list",
+          inputSchema: {
+            type: "object",
+            properties: { id: { type: "string" } },
+            required: ["id"],
+          },
+        }),
+        call: async (name: string, args: unknown) => ({
+          id: "1",
+          state: "done",
+          ok: true,
+          tool: name,
+          attempts: 1,
+          result: { selected: args },
+        }),
+      };
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+        pageHelper,
+      });
+
+      const listed = await tools.listViewTools();
+      expect(listed.map((tool) => tool.name)).toEqual([
+        "read_view",
+        "navigate_view",
+        "select_thread",
+      ]);
+      expect(listed[2]).toMatchObject({
+        description: "Select a thread in the list",
+        inputSchema: { required: ["id"] },
+      });
+
+      const called = await tools.callViewTool({
+        name: "select_thread",
+        arguments: { id: "t1" },
+      });
+      expect(called.isError).toBeUndefined();
+      expect(called.structuredContent).toEqual({ selected: { id: "t1" } });
+    });
+
+    it("calls a page tool on the origin it was listed from", async () => {
+      const calls: unknown[] = [];
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+        pageHelper: {
+          tools: async () => [
+            { name: "archive", origin: "https://labs.example.com" },
+            { name: "archive", origin: "https://widgets.example.com" },
+          ],
+          call: async (name: string, _args: unknown, options: unknown) => {
+            calls.push(options);
+            return { state: "done", ok: true, tool: name, result: "ok" };
+          },
+        },
+      });
+
+      const listed = await tools.listViewTools();
+      expect(listed.filter((tool) => tool.name === "archive")).toHaveLength(1);
+      await tools.callViewTool({ name: "archive", arguments: {} });
+      expect(calls).toEqual([
+        { waitMs: 40000, origin: "https://labs.example.com" },
+      ]);
+    });
+
+    it("re-announces its tools once the page registers them", async () => {
+      vi.useFakeTimers();
+      try {
+        let notified = 0;
+        const listeners: Array<() => void> = [];
+        const tools = viewToolsFor({
+          href: "https://labs.example.com/mail/inbox",
+          app: { sendToolListChanged: () => notified++ },
+          modelContext: {
+            addEventListener: (_type: string, listener: () => void) =>
+              listeners.push(listener),
+          },
+        });
+
+        tools.watchPageTools();
+        expect(notified).toBe(1);
+        expect(listeners).toHaveLength(1);
+
+        listeners[0]!();
+        await vi.advanceTimersByTimeAsync(300);
+        expect(notified).toBe(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("reads what the open page shows", async () => {
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox?q=acme",
+      });
+      const read = await tools.callViewTool({ name: "read_view" });
+      expect(read.structuredContent).toEqual({
+        path: "/mail/inbox?q=acme",
+        title: "Inbox",
+        visibleText: "Invoice from Acme due Friday",
+      });
+    });
+
+    it("moves the transplanted app in place and refuses other origins", async () => {
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+      });
+      const moved = await tools.callViewTool({
+        name: "navigate_view",
+        arguments: { path: "/mail/inbox?q=invoice" },
+      });
+      expect(moved.structuredContent).toEqual({
+        path: "/mail/inbox?q=invoice",
+      });
+
+      for (const path of ["//evil.example/x", "https://evil.example/x", ""]) {
+        const refused = await tools.callViewTool({
+          name: "navigate_view",
+          arguments: { path },
+        });
+        expect(refused.isError).toBe(true);
+      }
+    });
+
+    it("leaves a nested app frame where its session started", async () => {
+      const tools = viewToolsFor({
+        href: "https://sandbox.example/shell",
+        frameSrc: "https://labs.example.com/calendar/week",
+      });
+      const moved = await tools.callViewTool({
+        name: "navigate_view",
+        arguments: { path: "/calendar/event/e1" },
+      });
+      expect(moved.isError).toBe(true);
+      expect(moved.content[0]!.text).toContain("nested frame");
+      const read = await tools.callViewTool({ name: "read_view" });
+      expect(read.isError).toBe(true);
+      expect(read.content[0]!.text).toContain("nested frame");
+      expect(await tools.listViewTools()).toEqual([]);
+    });
+
+    it("tells the host its tool list changed when a nested frame mounts", () => {
+      const resource = embedApp({ title: "Mail" });
+      const html =
+        typeof resource.html === "function"
+          ? resource.html({ actionName: "open_app", appId: "mail" })
+          : resource.html;
+      const renderFrameSource = html.match(
+        /    function renderFrame\([^)]*\) \{[\s\S]*?\n    \}\n/,
+      )?.[0];
+      expect(renderFrameSource).toBeTruthy();
+      let notified = 0;
+      const mount = new Function(
+        "document",
+        "body",
+        "stage",
+        "notifyViewToolsChanged",
+        `let appFrame = null;
+let appFrameReady = true;
+let lastFrameSrc = "";
+let appFrameLoadTimer = null;
+const appFrameDocumentState = { loadGeneration: 0 };
+const frameLoadTimeoutMs = 1000;
+const noop = () => {};
+const rememberActiveEmbedSessionTicket = noop;
+const clearFrameReadyTimer = noop;
+const clearFrameLoadTimer = noop;
+const notifyHostHeight = noop;
+const renderFrameFallback = noop;
+const setTimeout = () => 0;
+${renderFrameSource}
+return (src) => { renderFrame(src); return appFrame; };`,
+      )(
+        { createElement: () => ({ addEventListener() {} }) },
+        { dataset: {} },
+        { replaceChildren() {} },
+        () => notified++,
+      ) as (src: string) => { src: string } | null;
+
+      const frame = mount("https://labs.example.com/calendar/week");
+      expect(frame?.src).toBe("https://labs.example.com/calendar/week");
+      expect(notified).toBe(1);
+    });
+
+    it("asks Claude to open the view in its side panel", () => {
+      const resource = embedApp({ title: "Mail" });
+      expect(resource._meta).toEqual({
+        ui: { preferredDisplayMode: "fullscreen" },
+      });
+    });
+  });
+
   it("provides a local MCP App payload fixture for renderer tests", async () => {
     const fixture = await createLocalMcpAppEmbedHarness({
       actionName: "open_app",

@@ -552,6 +552,8 @@ vi.mock("../db/client.js", async () => {
       if (!dbAvailable.value) throw new Error("db not configured");
       return exec;
     },
+    dbConnectGateRemainingMs: () => 0,
+    dbRecentTimeoutMs: () => Infinity,
   };
 });
 

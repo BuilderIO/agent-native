@@ -1394,6 +1394,56 @@ describe("realtime voice tool route", () => {
     });
   });
 
+  it.each([
+    {
+      results: [{ name: "rare-action" }, { name: "invented-action" }],
+      expected: ["rare-action"],
+    },
+    { results: [], expected: [] },
+  ])(
+    "grants only returned registry tools for task-only search: $expected",
+    async ({ results, expected }) => {
+      const executeTool = vi.fn(async (request: { name: string }) =>
+        request.name === "tool-search"
+          ? {
+              status: "completed" as const,
+              output: JSON.stringify({ results }),
+            }
+          : { status: "completed" as const, output: "done" },
+      );
+      const { handlers } = mount({ actions: discoveryActions(), executeTool });
+      const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+      let capability = await issueToolCapability(handlers);
+      const search = (await handler(
+        toolEvent(
+          {
+            name: "tool-search",
+            args: { task: "find a rare capability" },
+            callId: "task_search",
+          },
+          withToolCapability(capability),
+        ),
+      )) as Record<string, unknown>;
+      expect(
+        ((search.expandedTools ?? []) as Array<{ name: string }>).map(
+          (tool) => tool.name,
+        ),
+      ).toEqual(expected);
+      capability = adoptCapability(capability, search);
+      const event = toolEvent(
+        { name: "rare-action", args: {}, callId: "task_call" },
+        withToolCapability(capability),
+      );
+      const result = await handler(event);
+      if (expected.length) {
+        expect(result).toMatchObject({ status: "completed", output: "done" });
+      } else {
+        expect(result).toEqual({ error: "Unknown realtime voice tool" });
+        expect(event.statusCode).toBe(404);
+      }
+    },
+  );
+
   it("expands tools discovered through queries or names, not only a single query", async () => {
     const actions = discoveryActions();
     const executeTool = vi.fn(

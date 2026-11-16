@@ -130,6 +130,7 @@ import { shouldRenderDesignShareControl } from "./mcp-widget-write-capabilities"
 import {
   hasMinimalInspectorSelection,
   isRightInspectorVisible,
+  rightInspectorCanvasInset,
 } from "./minimal-inspector";
 import {
   addMotionMarkers,
@@ -171,7 +172,6 @@ import {
 } from "./view/responsive-interact-toolbar";
 import { renderRightRail } from "./view/right-rail";
 import { renderRightSidebarActions } from "./view/right-sidebar-actions";
-import { ShareCopyLinkButton } from "./view/share-copy-link-button";
 import { renderSignedOutPersistenceActions } from "./view/signed-out-persistence-actions";
 import { renderZoomMenu } from "./view/zoom-menu";
 import { VisualEditWebMcp } from "./VisualEditWebMcp";
@@ -355,6 +355,9 @@ export function renderDesignEditorView({
     getComponentExpectedFiles,
     pendingNodeRewriteByFile,
     documentColorFiles,
+    tweaks,
+    tweakSelections,
+    handleTweakChange,
     designSourceType,
     overviewScreens,
     layoutGrids,
@@ -1348,7 +1351,7 @@ export function renderDesignEditorView({
         })
       : canRenderAuthenticatedShare);
   const nextStepShareActionEvent = "design:first-output-next-step-share";
-  const renderShareControl = (dense: boolean, actionEvent?: string) => {
+  const renderShareControl = (_dense: boolean, actionEvent?: string) => {
     if (hostEmbeddedEditor) return null;
     if (widgetEmbed) {
       if (
@@ -1383,24 +1386,7 @@ export function renderDesignEditorView({
           shareTabs={designShareTabs}
           sendTo={designShareSendTo}
           popoverClassName="z-[100010]"
-          triggerClassName={cn(
-            dense
-              ? "h-[var(--design-control-height)] px-[var(--design-baseline-unit)] text-xs"
-              : "h-[var(--design-row-height)] px-[calc(var(--design-baseline-unit)*1.5)] text-sm",
-            "rounded-r-none",
-            shareSegmentClassName,
-          )}
-        />
-        <ShareCopyLinkButton
-          editorCore={editorCore}
-          shareUrl={editorShareUrl}
-          className={cn(
-            dense
-              ? "h-[var(--design-control-height)]"
-              : "h-[var(--design-row-height)]",
-            "relative rounded-l-none before:absolute before:inset-y-0 before:left-0 before:w-px before:bg-primary-foreground",
-            shareSegmentClassName,
-          )}
+          triggerClassName={shareSegmentClassName}
         />
       </div>
     );
@@ -1605,6 +1591,11 @@ export function renderDesignEditorView({
     mode,
     canEdit: canEditActiveVisualScreen,
   });
+  const questionFlowInsetRight = rightInspectorCanvasInset({
+    visible: rightSidebarVisible,
+    width: rightSidebarWidth,
+    minimalUi,
+  });
   const chromeInsetLeft = leftSidebarVisible
     ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
     : 0;
@@ -1708,6 +1699,9 @@ export function renderDesignEditorView({
     viewMode,
     mode,
     files: documentColorFiles,
+    tweaks,
+    tweakValues: tweakSelections,
+    onTweakChange: canEditDesign ? handleTweakChange : undefined,
     activeTool,
     scaleToolControls: canEditDesign ? scaleToolControls : undefined,
     onCreateScreenFromPreset: canEditDesign
@@ -2309,7 +2303,10 @@ export function renderDesignEditorView({
         {questionFlowActive ? (
           <div
             className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-panel-bg)]"
-            style={{ paddingLeft: leftChromeOverlayInset }}
+            style={{
+              paddingLeft: leftChromeOverlayInset,
+              paddingRight: questionFlowInsetRight,
+            }}
           >
             <QuestionFlow
               questions={pendingQuestions ?? []}

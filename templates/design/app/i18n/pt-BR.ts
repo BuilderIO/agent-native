@@ -1097,6 +1097,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Selecionar camada",
+      layerKinds: {
+        webgl: "Tela · WebGL",
+        canvas: "Tela",
+        video: "Vídeo",
+        image: "Imagem",
+        svg: "Gráfico SVG",
+        embed: "Incorporação",
+        background: "Fundo",
+        effect: "Efeito",
+      },
       goToMain: "Ir para o componente principal",
       restore: "Restaurar componente",
       swap: "Trocar instância",
@@ -1760,7 +1770,6 @@ export default {
     signInToRequestAccessTitle: "Entre para solicitar acesso",
     signInToRequestAccessDescription:
       "Entre ou crie uma conta para solicitar acesso ao proprietário.",
-    signInOrSignUp: "Entrar ou criar conta",
     accessCheckFailed: "Não foi possível verificar o acesso a este design.",
     retryAccessCheck: "Tentar novamente",
     saveAsTemplate: "Salvar como modelo…",
@@ -1794,6 +1803,8 @@ export default {
         "Aplique ou descarte suas edições visuais pendentes antes de duplicar.",
       allDesigns: "Todos os designs",
       rename: "Renomear",
+      builtFrom: "Criado a partir de {{title}}",
+      builtFromPage: "Criado a partir de uma página do Content",
       duplicate: "Duplicar",
       versionHistory: "Histórico de versões",
       import: "Importar…",
@@ -2229,6 +2240,18 @@ export default {
         "Há alterações de outro colaborador aguardando aplicação. Aplique ou limpe-as antes de enviar novas alterações.",
       codingHandoffCopied: "Handoff de código copiado",
       clipboardBlocked: "Área de transferência bloqueada",
+      pasteMediaTooMany_one:
+        "{{count}} arquivo não foi colado. Você pode colar até {{limit}} arquivos de uma vez.",
+      pasteMediaTooMany_many:
+        "{{count}} arquivos não foram colados. Você pode colar até {{limit}} arquivos de uma vez.",
+      pasteMediaTooMany_other:
+        "{{count}} arquivos não foram colados. Você pode colar até {{limit}} arquivos de uma vez.",
+      pasteMediaTooLarge_one:
+        "{{count}} arquivo não foi colado porque tem mais de {{limitMb}} MB.",
+      pasteMediaTooLarge_many:
+        "{{count}} arquivos não foram colados porque têm mais de {{limitMb}} MB.",
+      pasteMediaTooLarge_other:
+        "{{count}} arquivos não foram colados porque têm mais de {{limitMb}} MB.",
       htmlCreateError: "Não foi possível criar o download HTML",
       htmlDownloaded: "HTML baixado",
       htmlExportError: "Não foi possível exportar HTML",
@@ -2666,6 +2689,7 @@ export default {
     searchSystems: "Buscar sistemas de design…",
     searchDesigns: "Buscar designs…",
     searchPresentations: "Buscar apresentações…",
+    searchPages: "Buscar páginas…",
     searchDesign: "Buscar design…",
     useDesignSystem: "Usar um sistema de design",
     notReady:
@@ -2678,6 +2702,7 @@ export default {
     design: "Referências de design",
     slides: "Slides",
     referenceDesign: "Usar um design como referência",
+    contentPage: "Página do Content",
     connectFigma: "Conectar Figma",
     figmaReference: "Design do Figma…",
     figmaDialogTitle: "Adicionar design do Figma",
@@ -3418,6 +3443,18 @@ export default {
     addEmoji: "Adicionar emoji",
     mention: "Mencionar alguém",
     noMentions: "Nenhuma pessoa encontrada",
+    format: {
+      toolbar: "Formatação",
+      bold: "Negrito",
+      italic: "Itálico",
+      strike: "Tachado",
+      code: "Código",
+      link: "Inserir link",
+      linkField: "Endereço do link",
+      linkPlaceholder: "Cole um link",
+      applyLink: "Aplicar link",
+      removeLink: "Remover link",
+    },
     mentionsFailed: "Não foi possível carregar as pessoas",
     reopen: "Reabrir",
     reopening: "Reabrindo…",
