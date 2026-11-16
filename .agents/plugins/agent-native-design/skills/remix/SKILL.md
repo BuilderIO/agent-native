@@ -256,23 +256,32 @@ one board, left to right, at the same viewport size:
    when its dev server runs, else an inline screen of the rebuilt section.
 3. **How it works**: a row of 3-5 small inline screens beneath, one stage of
    the technique each (geometry, motion, camera, shading, palette), each a
-   live machine card (see **How It Works Frames**) driven by the remix's knobs.
+   live isometric card (see **How It Works Frames**) driven by the remix's
+   knobs.
 
 Title screens with `rename-screen` ("Original · stripe.com", "Remix",
 "Folded plane"), then size and place them in one `update-design` call:
 `screenMetadata.<id>` `{ width, height, heightMode: "fixed" }` and
-`canvasFrames.<id>` `{ x, y, width, height }`. A layout that reads well:
-Original at (0, 0), Remix 400 px to its right, and the explainer row centered
-with its top at y 1860, 160 px between frames.
+`canvasFrames.<id>` `{ x, y, width, height }`. Lay out in canvas pixels, every
+gap edge to edge (numbers for 1440×900 screens and 600×460 explainers):
+
+- Top row: a 420 px band from y 0 to 420 holds the headers, notes and
+  Design's screen labels, so Original and Remix start at y 420. Original x =
+  0; Remix x = Original x + Original width + 400 (1840), a 400 px gap.
+- How it works: its 600 px band starts 280 px below the top row's bottom
+  (420 + 900 + 280 = 1600), so explainers start at y 2200, 160 px apart, the
+  row centred under the top row: first x = (3280 − row width) / 2, where 3280
+  is the top row's width.
+- The board title and technique line sit above y 0.
 
 **Explain board** (`remix explain`): the same board with no Remix group, so
 Original then How it works. Keep the same layout, regions, headers, notes,
-connectors and machine frames; leave out the Remix screen, its region and
+connectors and explainer frames; leave out the Remix screen, its region and
 header, and the Original-to-Remix connector, and draw one connector from
 Original down to How it works. Number the sections "01" and "02", drop the
 "Only colors, fonts and icons changed" note, and scope each knob to the
 explainer screens and, when inline, the Original. Center the explainer row
-under Original.
+under Original: first x = Original x + (Original width − row width) / 2.
 
 ### Annotate The Canvas
 
@@ -298,8 +307,8 @@ each one an editable layer. Add:
   full-width hairline.
 - Margin notes, not stickies: small grey Inter (about 34 px) under the header
   rule, each line led by a serif-italic note number. Use the source
-  URL, "Only colors, fonts and icons changed" and "Each machine reads the
-  remix's own knobs".
+  URL, "Only colors, fonts and icons changed" and "Each explainer reads
+  the remix's own knobs".
 - A serif-italic step index ("01"…) on a hairline above each explainer.
   Design's screen label carries the step name, so name screens plainly.
 - Thin ink connectors (3 px, dark warm grey, small triangle head): Original to
@@ -308,8 +317,7 @@ each one an editable layer. Add:
   L 192 0" stroke-width="3" marker-end="url(#id)">` and a triangle
   `<marker id="id">` in its `<defs>`.
 
-Leave about 420 px of band above Original and Remix (header, notes, then
-Design's own screen label) and about 600 px above the explainers. Inside a
+Keep each header and its notes inside its band from the layout above. Inside a
 `style` attribute, quote font names with single quotes; a double quote ends
 the attribute.
 
@@ -322,11 +330,19 @@ knobs in Edit.
 
 ### How It Works Frames
 
-The object is the explanation. Each frame is a small, well-made machine whose
-moving parts behave the way that stage works: strips folding over a roller for
-a folded plane, a shaft of blades each turned further than the last for a
-twist, a beam bending through one glass rod for refraction. No boxes and
-arrows, floating labels or leader lines.
+Draw the software itself as isometric constructs whose parts behave the way
+the code does, using the data the stage works on:
+
+- geometry as a mesh with a visible vertex grid;
+- coordinate spaces (UV, screen) as grids with axis ticks;
+- buffers, render targets and layers as stacked slabs with pixel tiles on top;
+- shader stages and functions as modules joined by thin ink traces carrying
+  data packets, with uniforms as small dial or slider blocks plugged in;
+- fragments and noise fields as tile grids that light or rise as they run;
+- timelines and springs as tracks with keyframe pegs.
+
+No hardware metaphors (cranks, plinths, gears, clocks, looms), and no
+flowchart of labelled boxes and arrows.
 
 - One camera: isometric, 30° from a corner, no perspective. Every part is a
   filled solid painted back to front, so nothing shows through.
@@ -334,17 +350,27 @@ arrows, floating labels or leader lines.
   off-white paper with thin near-black ink outlines. Exactly one part is
   lit in the destination's accent, the part to watch. Colors the stage is
   about (palette stops, a painted field) may appear as content.
-- Many small parts, 40 or more (plinth, feet, screws, ticks, frame, mechanism,
-  a crank), so the drawing still rewards a 4× zoom.
+- Many small parts, 40 or more (vertices, tiles, ticks, pins, packets), so
+  the drawing still rewards a 4× zoom.
 - A 600×460 card with number, title, a short interaction hint and the live
   readout in its four corners (Inter; numbers in serif italic). No words
-  inside the drawing.
+  inside the drawing. Optionally, a 1-3 line monospace snippet in the margin
+  names what the lit part computes, in our own words.
 - Calm and live: a time-based idle tour that pauses on hover or focus, drag to
   scrub, a key to slow (S) or pull apart (E), and stillness under
   `prefers-reduced-motion`.
 - One model of true values drives motion and readout: read the shared tweak
   CSS variables from `:root` every frame, with the spec's real parameter names
   and formulas.
+- Parts are layers. Give each part a knob drives (a twist module, a uniform
+  dial, a noise grid) its own absolutely positioned HTML element over the
+  drawing, with `data-agent-native-node-id` and
+  `data-agent-native-layer-name`, present in the static HTML and moved by the
+  script, so a click in Edit selects that part. Scope each knob to the Remix's
+  node and to the parts that embody it: selecting a part shows only its knobs,
+  selecting the frame shows them all. In Interact, dragging a dial or slider
+  part sets its CSS variable on the frame's `:root` for instant feedback;
+  that value stays in the frame and is not saved to the design.
 - Small and self-contained: framework-free JS and inline SVG, at most one
   webfont, never embedded images or base64 fonts; a design has a size limit.
 
