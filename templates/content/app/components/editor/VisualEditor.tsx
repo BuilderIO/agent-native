@@ -239,6 +239,12 @@ import {
 } from "./live-body-parity";
 import { imageDisplaySrc } from "./private-media-src";
 import { SlashCommandMenu } from "./SlashCommandMenu";
+import {
+  clipboardHtmlHasTable,
+  parseSpreadsheetText,
+  spreadsheetTableSlice,
+  spreadsheetTextForSlice,
+} from "./spreadsheet-clipboard";
 import { StaticDocumentBody } from "./StaticDocumentBody";
 import { suggestionPlacements } from "./suggestion-placement";
 import { caretAfterPageSwap } from "./suggestions/keep-caret";
@@ -473,6 +479,9 @@ const MarkdownPasteDetection = Extension.create({
         props: {
           clipboardTextParser(text, _context, plainText) {
             if (!plainText) {
+              const rows = parseSpreadsheetText(text);
+              const table = rows && spreadsheetTableSlice(editor.schema, rows);
+              if (table) return table;
               const markdown = parseMarkdownClipboardSlice(
                 editor,
                 text,
@@ -481,6 +490,23 @@ const MarkdownPasteDetection = Extension.create({
               if (markdown) return markdown;
             }
             return parsePlainTextClipboardSlice(editor, text, _context);
+          },
+          // A copied table, or cells of one, goes out as tab-separated text,
+          // which spreadsheets paste as cells; anything else as Markdown.
+          // This is the only copy serializer: tiptap-markdown's own copy
+          // transform is off, since its plugin would run ahead of this one.
+          clipboardTextSerializer(slice) {
+            const { serializer } = (
+              editor.storage as unknown as {
+                markdown: {
+                  serializer: { serialize(content: Fragment): string };
+                };
+              }
+            ).markdown;
+            return (
+              spreadsheetTextForSlice(slice, editor.schema) ??
+              serializer.serialize(slice.content)
+            );
           },
           handlePaste(view, event) {
             const context = view.state.selection.$from;
@@ -498,6 +524,10 @@ const MarkdownPasteDetection = Extension.create({
 
             const html = clipboardData.getData("text/html");
             const plainText = clipboardData.getData("text/plain");
+
+            // Cells copied as text alone: ProseMirror pastes the table that
+            // clipboardTextParser made, into the table at the caret if any.
+            if (!html && parseSpreadsheetText(plainText)) return false;
 
             if (!html && plainText && !looksLikeMarkdown(plainText)) {
               const slice = parsePlainTextClipboardSlice(
@@ -3407,7 +3437,9 @@ export function createVisualEditorExtensions({
       Markdown.configure({
         html: true,
         transformPastedText: false,
-        transformCopiedText: true,
+        // MarkdownPasteDetection writes copied text, as Markdown or as
+        // tab-separated cells.
+        transformCopiedText: false,
       }),
     ],
   });
@@ -4488,6 +4520,9 @@ export function VisualEditor({
       handlePaste(view, event) {
         if (view.editable) markUserEditIntent();
         if (!view.editable || !event.clipboardData) return false;
+        // Excel puts a picture of the copied cells beside them: paste the
+        // cells as a table, not the picture.
+        if (clipboardHtmlHasTable(event.clipboardData)) return false;
 
         const imageFiles = getImageFiles(event.clipboardData.files);
         const videoFiles = getVideoFiles(event.clipboardData.files);
