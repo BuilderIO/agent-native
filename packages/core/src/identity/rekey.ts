@@ -168,6 +168,7 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "tool_hidden_extensions", column: "owner_email" },
   { table: "tool_consents", column: "viewer_email", mode: "viewer-consent" },
   { table: "integration_identity_links", column: "user_email" },
+  { table: "integration_user_grants", column: "owner_email" },
   {
     table: "workspace_user_groups",
     column: "member_emails_json",

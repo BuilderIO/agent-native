@@ -97,6 +97,7 @@ const guards = [
   "guard:no-bare-pnpm-spawn",
   "guard:no-deferred-server-counts",
   "guard:no-oracle-loosening",
+  "guard:no-wall-clock-assertions",
   "guard:no-new-legacy-mcp-hints",
   "guard:action-output-schema",
   "guard:no-new-escape-hatches",

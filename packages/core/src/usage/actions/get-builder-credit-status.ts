@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
 import {
   describeChatCredentialState,
   type CredentialState,
@@ -37,8 +37,12 @@ export default defineAction({
   run: async ({ orgId, engine: chosenEngine }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
     const activeOrgId = getRequestOrgId() ?? null;
-    if (orgId !== undefined && orgId !== activeOrgId) {
-      throw new Error("The active organization changed. Please retry.");
+    const requestedOrgId = orgId === "" ? null : orgId;
+    if (requestedOrgId !== undefined && requestedOrgId !== activeOrgId) {
+      fail("The active organization changed. Please retry.", {
+        errorCode: "builder_credit_org_mismatch",
+        statusCode: 409,
+      });
     }
 
     const canViewWorkspace = await canViewWorkspaceUsage({

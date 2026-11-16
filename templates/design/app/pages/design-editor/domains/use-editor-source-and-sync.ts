@@ -1146,6 +1146,16 @@ export function useEditorSourceAndSync({
             { id: "design-visual-edit-pending-publication" },
           );
         },
+        onSupersededSuggestion: ({ authorEmail, text }) => {
+          toast.info(
+            t("designEditor.toasts.supersededVisualEditSuggestion", {
+              authorEmail:
+                authorEmail ?? t("designEditor.toasts.unknownCollaborator"),
+              text,
+            }),
+            { id: "design-visual-edit-pending-publication" },
+          );
+        },
       });
     };
     pendingVisualEditPublicationQueueRef.current =

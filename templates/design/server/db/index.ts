@@ -6,6 +6,7 @@ import {
   DESIGN_AGENT_CONTEXT_ENDPOINT,
   DESIGN_AGENT_RESOURCE_KIND,
 } from "../../shared/agent-readable.js";
+import { designSharePath } from "../../shared/visual-edit-preview.js";
 import { publicDesignAccessRole } from "../lib/design-data-access.js";
 import * as schema from "./schema.js";
 
@@ -34,7 +35,7 @@ registerShareableResource({
   sharesTable: schema.designShares,
   displayName: "Design",
   titleColumn: "title",
-  getResourcePath: (design) => `/design/${design.id}`,
+  getResourcePath: (design) => designSharePath(String(design.id), design.data),
   agentReadable: {
     resourceKind: DESIGN_AGENT_RESOURCE_KIND,
     getContextPath: () => DESIGN_AGENT_CONTEXT_ENDPOINT,

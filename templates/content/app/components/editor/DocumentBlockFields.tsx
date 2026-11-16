@@ -427,6 +427,9 @@ export function DocumentBlockFields({
     propertiesData?.canManageSchema === true &&
     databaseId !== null &&
     databaseDocumentId !== null;
+  // A tab is a property, which a system collection such as Files refuses.
+  const canAddFields =
+    canManageFields && propertiesData.canAddProperties !== false;
   const properties = propertiesData?.properties ?? [];
   const blockFields = useMemo(
     () => blockFieldsFromProperties(properties),
@@ -560,6 +563,7 @@ export function DocumentBlockFields({
           canEdit={canEditFields && !suggesting}
           allowPendingSave={canEditFields && enteringSuggestion}
           canManageFields={canManageFields}
+          canAddFields={canAddFields}
           blockFields={state.fields}
           primaryEditor={primaryEditor}
           primaryContent={primaryContent}
@@ -624,6 +628,7 @@ function MultiBlockFields({
   canEdit,
   allowPendingSave,
   canManageFields,
+  canAddFields,
   blockFields,
   primaryEditor,
   primaryContent,
@@ -638,6 +643,7 @@ function MultiBlockFields({
   canEdit: boolean;
   allowPendingSave: boolean;
   canManageFields: boolean;
+  canAddFields: boolean;
   blockFields: DocumentProperty[];
   primaryEditor: ReactNode;
   primaryContent?: string;
@@ -1392,7 +1398,7 @@ function MultiBlockFields({
               );
             })}
           </div>
-          {canManageFields ? (
+          {canAddFields ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
