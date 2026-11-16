@@ -11,9 +11,9 @@ File:line inventories: `/Users/steve/Projects/builder/agent-native/.tmp/replica-
 
 ## Current continuation — 02:20 PT, 2026-11-16
 
-- The public candidate is pushed at `1339b05412603c5f28c14394277683d21f9c0409` on `job/ship-no-rotate-1115`. There is no PR; the latest instruction routes fleet-tooling jobs through the steward queue. The checkout is clean.
+- The public code candidate is at `1339b05412603c5f28c14394277683d21f9c0409`; this report update is pushed at `8ce3cc92f95adc0fec96183c6353986533f776ab` on `job/ship-no-rotate-1115`. There is no PR; the latest instruction routes fleet-tooling jobs through the steward queue. The checkout is clean.
 - `pnpm guards` passed all 107 checks. The focused public test `pnpm exec tsx --test scripts/guard-rule-one-file.test.ts` passed 2/2, including the planted mismatch check.
-- The broadcaster source candidate is pushed at `773088ef0ca22e2d5e1cd78bab7a1ac16910da32` on `job/rule-broadcast-1115`; `node --experimental-strip-types --test fleet/bin/rule-broadcast.test.ts` exercises the planted missing-receipt red case and covered-receipt green case (4/4).
+- The broadcaster source candidate is pushed at `773088ef0ca22e2d5e1cd78bab7a1ac16910da32` on `job/rule-broadcast-1115`; `node --experimental-strip-types --test fleet/bin/rule-broadcast.test.ts` exercises the planted missing-receipt red case and covered-receipt green case (4/4). `python3 fleet/audit/audit-wave.py selftest` passed. An attempted `check-rule-files` subcommand was unsupported by this branch's CLI (exit 2); the supported selftest is green.
 - The retained sweep has 478 distinct M4 paths and 783 distinct M5 paths. It records exact matching files and line numbers. The prior summary's M5 count of 782 was off by one; this report follows the inventory.
 - M4 and M5 installed broadcaster sources differ from the fleet branch source (and from each other). Reconcile both using the tracked fleet source with `.prev-shipnorotate-1115` backups and temp-file replacement only after landing.
 - Do not send the real broadcast until the public rule change and fleet broadcaster have landed. Then enumerate and message all live targets once, write the TSV receipt, and have the coordinator append Claude Desktop session ids after manual delivery.
