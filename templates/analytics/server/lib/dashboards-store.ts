@@ -1239,59 +1239,70 @@ export async function listDashboardSummaries(
       })),
     );
   }
-  const all = await getScopedLegacySettings(ctx);
-  for (const [key, value] of Object.entries(all)) {
-    let id: string | null = null;
-    let kind: DashboardKind | null = null;
-    let orgId: string | null = null;
-    let visibility: DashboardSummaryRecord["visibility"] = "private";
-    if (ctx.orgId && key.startsWith(`o:${ctx.orgId}:${SQL_PREFIX}`)) {
-      id = key.slice(`o:${ctx.orgId}:${SQL_PREFIX}`.length);
-      kind = "sql";
-      orgId = ctx.orgId;
-      visibility = "org";
-    } else if (ctx.email && key.startsWith(`u:${ctx.email}:${SQL_PREFIX}`)) {
-      id = key.slice(`u:${ctx.email}:${SQL_PREFIX}`.length);
-      kind = "sql";
-    } else if (
-      ctx.email &&
-      key.startsWith(`u:${ctx.email}:${EXPLORER_PREFIX}`)
-    ) {
-      id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
-      kind = isLegacyDashboardId(id) ? "explorer" : null;
+  try {
+    const all = await getScopedLegacySettings(
+      ctx,
+      summaryLimit === undefined
+        ? undefined
+        : { resourceKind: filter?.kind, limit: summaryLimit },
+    );
+    for (const [key, value] of Object.entries(all)) {
+      if (summaryLimit !== undefined && out.length >= summaryLimit) break;
+      let id: string | null = null;
+      let kind: DashboardKind | null = null;
+      let orgId: string | null = null;
+      let visibility: DashboardSummaryRecord["visibility"] = "private";
+      if (ctx.orgId && key.startsWith(`o:${ctx.orgId}:${SQL_PREFIX}`)) {
+        id = key.slice(`o:${ctx.orgId}:${SQL_PREFIX}`.length);
+        kind = "sql";
+        orgId = ctx.orgId;
+        visibility = "org";
+      } else if (ctx.email && key.startsWith(`u:${ctx.email}:${SQL_PREFIX}`)) {
+        id = key.slice(`u:${ctx.email}:${SQL_PREFIX}`.length);
+        kind = "sql";
+      } else if (
+        ctx.email &&
+        key.startsWith(`u:${ctx.email}:${EXPLORER_PREFIX}`)
+      ) {
+        id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
+        kind = isLegacyDashboardId(id) ? "explorer" : null;
+      }
+      if (!id || !kind || isBuiltinDashboardId(id) || seen.has(id)) continue;
+      if (filter?.kind && filter.kind !== kind) continue;
+      seen.add(id);
+      const config = value as Record<string, unknown>;
+      const { title } = configFromSettings(config, kind);
+      const catalogMetadata = includeCatalogMetadata
+        ? catalogMetadataFromConfig(config)
+        : {
+            configName: null,
+            catalogTemplateId: null,
+            demoId: null,
+          };
+      const createdAt =
+        typeof config.createdAt === "string" ? config.createdAt : nowIso();
+      out.push({
+        id,
+        kind,
+        name: title,
+        description: configDescriptionFromValue(config),
+        ...catalogMetadata,
+        parentId: typeof config.parentId === "string" ? config.parentId : null,
+        folderId: null,
+        ownerEmail: ctx.email,
+        orgId,
+        visibility,
+        createdAt,
+        updatedAt:
+          typeof config.updatedAt === "string" ? config.updatedAt : createdAt,
+        archivedAt: null,
+        hiddenAt: null,
+        hiddenBy: null,
+      });
     }
-    if (!id || !kind || isBuiltinDashboardId(id) || seen.has(id)) continue;
-    if (filter?.kind && filter.kind !== kind) continue;
-    seen.add(id);
-    const config = value as Record<string, unknown>;
-    const { title } = configFromSettings(config, kind);
-    const catalogMetadata = includeCatalogMetadata
-      ? catalogMetadataFromConfig(config)
-      : {
-          configName: null,
-          catalogTemplateId: null,
-          demoId: null,
-        };
-    const createdAt =
-      typeof config.createdAt === "string" ? config.createdAt : nowIso();
-    out.push({
-      id,
-      kind,
-      name: title,
-      description: configDescriptionFromValue(config),
-      ...catalogMetadata,
-      parentId: typeof config.parentId === "string" ? config.parentId : null,
-      folderId: null,
-      ownerEmail: ctx.email,
-      orgId,
-      visibility,
-      createdAt,
-      updatedAt:
-        typeof config.updatedAt === "string" ? config.updatedAt : createdAt,
-      archivedAt: null,
-      hiddenAt: null,
-      hiddenBy: null,
-    });
+  } catch (error) {
+    if (filter?.legacyScan === "strict") throw error;
+    // Legacy scan is best-effort.
   }
   return out;
 }

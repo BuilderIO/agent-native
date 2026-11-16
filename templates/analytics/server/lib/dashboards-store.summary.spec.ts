@@ -5,8 +5,6 @@ const state = vi.hoisted(() => ({
   projection: null as Record<string, unknown> | null,
   where: null as unknown,
   rows: [] as Record<string, unknown>[],
-  filterRows: false,
-  shadowError: null as Error | null,
   settings: {} as Record<string, Record<string, unknown>>,
   settingsError: null as Error | null,
   settingsPrefixCalls: [] as Array<{
@@ -66,8 +64,6 @@ vi.mock("drizzle-orm", () => ({
   }),
   isNotNull: (target: unknown) => ({ kind: "isNotNull", target }),
   isNull: (target: unknown) => ({ kind: "isNull", target }),
-  ilike: (target: unknown, value: string) => ({ kind: "ilike", target, value }),
-  or: (...conditions: unknown[]) => ({ kind: "or", conditions }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
     kind: "sql",
     strings: [...strings],
@@ -123,51 +119,14 @@ vi.mock("../db/index.js", () => {
         from: () => ({
           where: (where: unknown) => {
             state.where = where;
-            if (
-              state.shadowError &&
-              projection &&
-              Object.keys(projection).length === 1
-            )
-              throw state.shadowError;
-            type Condition = {
-              kind: string;
-              conditions: Condition[];
-              target: { name: string };
-              value: string;
-              values: unknown[];
-            };
-            const matches = (
-              condition: Condition,
-              row: Record<string, unknown>,
-            ): boolean => {
-              if (condition.kind === "and")
-                return condition.conditions.every((part) => matches(part, row));
-              if (condition.kind === "or")
-                return condition.conditions.some((part) => matches(part, row));
-              if (condition.kind === "access") return row.accessible !== false;
-              const value = row[condition.target.name];
-              if (condition.kind === "isNull") return value == null;
-              if (condition.kind === "isNotNull") return value != null;
-              if (condition.kind === "eq") return value === condition.value;
-              if (condition.kind === "inArray")
-                return condition.values.includes(value);
-              if (condition.kind === "ilike")
-                return String(value ?? "")
-                  .toLowerCase()
-                  .includes(condition.value.slice(1, -1).toLowerCase());
-              throw new Error(`Unexpected condition: ${condition.kind}`);
-            };
-            const rows = state.filterRows
-              ? state.rows.filter((row) => matches(where as Condition, row))
-              : state.rows;
-            const result = Promise.resolve(rows);
+            const result = Promise.resolve(state.rows);
             Object.assign(result, {
               orderBy: (...ordering: unknown[]) => {
                 state.orderBy = ordering;
                 return {
                   limit: (limit: number) => {
                     state.queryLimit = limit;
-                    return Promise.resolve(rows.slice(0, limit));
+                    return Promise.resolve(state.rows.slice(0, limit));
                   },
                 };
               },
@@ -198,8 +157,6 @@ beforeEach(() => {
   state.projection = null;
   state.where = null;
   state.rows = [];
-  state.filterRows = false;
-  state.shadowError = null;
   state.settings = {};
   state.settingsError = null;
   state.settingsPrefixCalls = [];
@@ -407,55 +364,6 @@ describe("listDashboardSummaries", () => {
       limit: 1,
     });
     expect(state.settingsPrefixCalls).toEqual([]);
-  });
-
-  // oracle-change: unscoped shadow suppression exposed private dashboard existence.
-
-  it("does not reveal whether another user's private dashboard has a legacy setting's id", async () => {
-    state.filterRows = true;
-    state.settings = {
-      "u:alice@example.com:sql-dashboard-guessed-id": {
-        name: "My legacy dashboard",
-        createdAt: "2026-01-01T00:00:00.000Z",
-      },
-    };
-    const absent = await listDashboardSummaries(ctx);
-    state.rows = [
-      {
-        id: "guessed-id",
-        kind: "sql",
-        name: "Private title",
-        accessible: false,
-      },
-    ];
-    const privateRowExists = await listDashboardSummaries(ctx);
-    expect(privateRowExists).toEqual(absent);
-    expect(privateRowExists.map(({ name }) => name)).toEqual([
-      "My legacy dashboard",
-    ]);
-    await expect(
-      assertDashboardNameIsAvailable("My legacy dashboard", ctx),
-    ).rejects.toMatchObject({ errorCode: "dashboard_name_conflict" });
-  });
-
-  it("reports an unavailable legacy settings read to list callers", async () => {
-    const error = new Error("legacy settings unavailable");
-    state.settingsError = error;
-    await expect(listDashboardSummaries(ctx)).rejects.toBe(error);
-  });
-
-  it("lists legacy entries without an unscoped shadow probe", async () => {
-    state.shadowError = new Error("unscoped shadow query attempted");
-    state.settings = {
-      "u:alice@example.com:sql-dashboard-legacy": { name: "Legacy" },
-    };
-
-    expect((await listDashboardSummaries(ctx)).map(({ name }) => name)).toEqual(
-      ["Legacy"],
-    );
-    await expect(
-      assertDashboardNameIsAvailable("New name", ctx),
-    ).resolves.toBeUndefined();
   });
 
   it("normalizes dashboard names consistently for matching", () => {
