@@ -491,6 +491,29 @@ describe("CommandMenu", () => {
     expect(document.body.textContent).not.toContain("Create a project");
   });
 
+  it("shows an app's own Settings hint in place of the platform chord", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          settingsShortcutHint={
+            <>
+              <kbd>G</kbd>
+              <kbd>S</kbd>
+            </>
+          }
+        />,
+      );
+    });
+
+    const settingsItem = [
+      ...document.querySelectorAll<HTMLElement>("[cmdk-item]"),
+    ].find((item) => item.textContent?.startsWith("Settings"));
+    expect(settingsItem?.textContent).toBe("SettingsGS");
+  });
+
   it("closes the menu and opens Settings from the Settings row", () => {
     const onOpenChange = vi.fn();
     const requests: Array<{ page?: string }> = [];

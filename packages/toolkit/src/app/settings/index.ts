@@ -60,6 +60,11 @@ export {
 } from "./api-keys/ApiKeyDialogs.js";
 export type { ApiKeyEntry, ApiKeysListing } from "./api-keys/api-keys-state.js";
 export {
+  removeApiKeyValue,
+  saveApiKeyValue,
+  type SaveApiKeyValueInput,
+} from "./api-keys/api-keys-client.js";
+export {
   StorageSettingsForm,
   type StorageSettingsFormProps,
 } from "./StorageSettingsForm.js";

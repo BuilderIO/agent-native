@@ -53,6 +53,7 @@ const DIRECT_MCP_READS = [
   "get-first-party-analytics-health",
   "get-onboarding-journey",
   "get-session-replay-summary",
+  "get-session-report",
   "get-session-replay-timeline",
   "get-sql-dashboard",
   "gong-calls",
