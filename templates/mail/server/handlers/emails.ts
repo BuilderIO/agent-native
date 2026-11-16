@@ -11,7 +11,10 @@ import {
   ACTION_BROWSER_PERSIST_ALLOW,
   ACTION_BROWSER_PERSIST_HEADER,
 } from "@agent-native/core/shared";
-import { composeAttachmentLink } from "@shared/compose-attachments.js";
+import {
+  composeAttachmentLink,
+  moveGmailAttachments,
+} from "@shared/compose-attachments.js";
 import {
   gmailReadState,
   GMAIL_QUOTA_COOLDOWN_ERROR_CODE,
@@ -56,6 +59,7 @@ import {
   type TrackingContext,
 } from "../lib/email-tracking.js";
 import {
+  savedDraftAttachmentReader,
   updateSavedGmailDraft,
   withSavedGmailDraft,
 } from "../lib/gmail-drafts.js";
@@ -1557,18 +1561,6 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     return { error: "Invalid recipient address" };
   }
 
-  let attachments;
-  try {
-    attachments = await resolveEmailComposeAttachments(
-      reqBody.attachments,
-      email,
-      accountEmail,
-    );
-  } catch {
-    setResponseStatus(event, 400);
-    return { error: "One or more attachments could not be read" };
-  }
-
   if (
     draftId !== undefined &&
     draftId !== null &&
@@ -1616,6 +1608,25 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     );
     if (!gmailAccess.ok) return gmailAccess.response;
     const { accountEmail: acct, accessToken } = gmailAccess;
+    const reader = savedDraftAttachmentReader(
+      accessToken,
+      savedDraftId,
+      reqBody.attachments,
+      (attachment) =>
+        readGmailComposeAttachment(email, accountEmail, attachment),
+    );
+    let attachments;
+    try {
+      attachments = moveGmailAttachments(
+        await resolveComposeAttachments(reqBody.attachments, email, {
+          readGmailAttachment: reader.readGmailAttachment,
+        }),
+        reader.moved,
+      );
+    } catch {
+      setResponseStatus(event, 400);
+      return { error: "One or more attachments could not be read" };
+    }
     try {
       const draftFrom = draftAccountEmail || "me";
       const raw = buildOutgoingRawEmail({
@@ -1634,7 +1645,18 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
           savedDraftId,
           { raw },
           attachments,
+          reader.moved,
         );
+        if (updated?.attachmentsError) {
+          setResponseStatus(event, 502);
+          return {
+            error: updated.attachmentsError.message,
+            errorCode: "draft_attachments_unconfirmed",
+            draftId: updated.draftId,
+            backend: "gmail" as const,
+            accountEmail: acct,
+          };
+        }
         if (updated) {
           return {
             draftId: updated.draftId,
@@ -1668,6 +1690,18 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 500);
       return { error: error.message };
     }
+  }
+
+  let attachments;
+  try {
+    attachments = await resolveEmailComposeAttachments(
+      reqBody.attachments,
+      email,
+      accountEmail,
+    );
+  } catch {
+    setResponseStatus(event, 400);
+    return { error: "One or more attachments could not be read" };
   }
 
   return withLocalEmailMutationLock(email, async () => {

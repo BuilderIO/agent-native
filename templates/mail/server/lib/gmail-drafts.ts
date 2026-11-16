@@ -1,6 +1,10 @@
 import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 
-import type { MovedGmailAttachment } from "../../shared/compose-attachments.js";
+import {
+  moveGmailAttachments,
+  type GmailAttachmentRef,
+  type MovedGmailAttachment,
+} from "../../shared/compose-attachments.js";
 import type { ComposeAttachment } from "../../shared/types.js";
 import {
   gmailGetAttachment,
@@ -128,6 +132,157 @@ export async function withSavedGmailDraft<T>(
 const gmailDraftUrl = (draftId: string, query?: Record<string, string>) =>
   `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(draftId)}${query ? `?${new URLSearchParams(query)}` : ""}`;
 
+type GmailFilePart = {
+  filename?: unknown;
+  body?: { attachmentId?: unknown; size?: unknown };
+};
+
+const draftPartsQuery = {
+  format: "full",
+  fields: "message(id,payload(parts(filename,body(attachmentId,size))))",
+};
+
+const fitsBelow = (value: string, limit: number) =>
+  Array.from(value).every((char) => char.charCodeAt(0) < limit);
+
+/** UTF-8 a header decoder read as Latin-1, and RFC 2047 encoded words. */
+function decodedFilenames(reported: string): string[] {
+  const names = [reported];
+  if (fitsBelow(reported, 0x100)) {
+    names.push(Buffer.from(reported, "latin1").toString("utf8"));
+  }
+  const words = /=\?utf-8\?([bq])\?([^?]*)\?=/gi;
+  if (words.test(reported)) {
+    names.push(
+      reported.replace(words, (_word, encoding: string, text: string) =>
+        encoding.toLowerCase() === "b"
+          ? Buffer.from(text, "base64").toString("utf8")
+          : Buffer.from(
+              text
+                .replace(/_/g, " ")
+                .replace(/=([0-9a-f]{2})/gi, (_match, hex: string) =>
+                  String.fromCharCode(parseInt(hex, 16)),
+                ),
+              "latin1",
+            ).toString("utf8"),
+      ),
+    );
+  }
+  return names;
+}
+
+/**
+ * Whether Gmail's name for a part is the name Mail wrote into it. Mail writes
+ * non-ASCII names as raw UTF-8, which Gmail may report back normalized or
+ * re-encoded, so only an ASCII name has to come back byte for byte.
+ */
+function isSentFilename(reported: unknown, sent: string): boolean {
+  if (typeof reported !== "string") return false;
+  if (reported === sent) return true;
+  if (fitsBelow(sent, 0x80)) return false;
+  const expected = sent.normalize("NFC");
+  return decodedFilenames(reported).some(
+    (name) => name.normalize("NFC") === expected,
+  );
+}
+
+/**
+ * Reads a save's Gmail files with `read`, and finds a file whose ref no longer
+ * reads in the current message of the Gmail draft the save names. A save that
+ * Gmail accepted but whose new refs Mail never learned leaves the draft's
+ * files pointing at the message Gmail dropped; the next save reports where
+ * they are in `moved`. Only a file read fails on costs a Gmail request.
+ */
+export function savedDraftAttachmentReader(
+  accessToken: string,
+  savedDraftId: string | undefined,
+  attachments: unknown,
+  read: (attachment: ComposeAttachment) => Promise<Buffer | null>,
+): {
+  readGmailAttachment: (
+    attachment: ComposeAttachment,
+  ) => Promise<Buffer | null>;
+  moved: MovedGmailAttachment[];
+} {
+  const moved: MovedGmailAttachment[] = [];
+  const saved = Array.isArray(attachments)
+    ? (attachments as ComposeAttachment[])
+    : [];
+  let draft: ReturnType<typeof readDraftParts> | undefined;
+  const readDraftParts = (draftId: string) =>
+    withSavedGmailDraft(accessToken, draftId, (id) =>
+      googleFetch(gmailDraftUrl(id, draftPartsQuery), accessToken),
+    );
+
+  const findInDraft = async (
+    draftId: string,
+    attachment: ComposeAttachment,
+  ): Promise<Buffer | null> => {
+    const { gmailMessageId, gmailAttachmentId } = attachment;
+    if (!gmailMessageId || !gmailAttachmentId) return null;
+    const found = await (draft ??= readDraftParts(draftId));
+    const messageId: unknown = found?.result?.message?.id;
+    const parts: unknown = found?.result?.message?.payload?.parts;
+    if (typeof messageId !== "string" || messageId === gmailMessageId) {
+      return null;
+    }
+    const sentName = mimeAttachmentFilename(attachment);
+    const sameFile = (other: ComposeAttachment) =>
+      mimeAttachmentFilename(other) === sentName &&
+      other.size === attachment.size;
+    const matches = (
+      Array.isArray(parts) ? (parts as (GmailFilePart | null)[]) : []
+    ).flatMap((part) => {
+      const attachmentId = part?.body?.attachmentId;
+      return typeof attachmentId === "string" &&
+        isSentFilename(part?.filename, sentName) &&
+        part?.body?.size === attachment.size
+        ? [{ attachmentId, size: attachment.size }]
+        : [];
+    });
+    const match = matches.length === 1 ? matches[0] : undefined;
+    if (!match || saved.filter(sameFile).length !== 1) {
+      throw new Error(
+        `Mail couldn't tell which file in the Gmail draft is "${attachment.filename}".`,
+      );
+    }
+    const result = await gmailGetAttachment(
+      accessToken,
+      messageId,
+      match.attachmentId,
+    );
+    const data =
+      typeof result?.data === "string"
+        ? Buffer.from(result.data, "base64url")
+        : null;
+    if (!data || data.length !== match.size) {
+      throw new Error(
+        `Mail couldn't read "${attachment.filename}" from the Gmail draft.`,
+      );
+    }
+    moved.push({
+      from: { gmailMessageId, gmailAttachmentId },
+      to: { gmailMessageId: messageId, gmailAttachmentId: match.attachmentId },
+    });
+    return data;
+  };
+
+  return {
+    moved,
+    readGmailAttachment: async (attachment) => {
+      let data: Buffer | null;
+      try {
+        data = await read(attachment);
+      } catch (error) {
+        if (!savedDraftId || !isNotFound(error)) throw error;
+        data = null;
+      }
+      if (data || !savedDraftId) return data;
+      return findInDraft(savedDraftId, attachment);
+    },
+  };
+}
+
 /**
  * Where each attachment Mail copied out of the draft's replaced message now
  * lives. Mail built the new message, so its parts after the body are the
@@ -139,20 +294,10 @@ async function readMovedDraftAttachments(
   attachments: ResolvedComposeAttachment[],
   replacedMessageId: string,
 ): Promise<MovedGmailAttachment[]> {
-  let draft;
-  try {
-    draft = await googleFetch(
-      gmailDraftUrl(draftId, {
-        format: "full",
-        fields: "message(id,payload(parts(filename,body(attachmentId,size))))",
-      }),
-      accessToken,
-    );
-  } catch (error) {
-    throw new Error(
-      `Gmail saved the draft, but Mail couldn't read where its attachments moved: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
+  const draft = await googleFetch(
+    gmailDraftUrl(draftId, draftPartsQuery),
+    accessToken,
+  );
   const messageId: unknown = draft?.message?.id;
   const parts: unknown = draft?.message?.payload?.parts;
   const fileParts = Array.isArray(parts) ? parts.slice(1) : [];
@@ -160,9 +305,7 @@ async function readMovedDraftAttachments(
     typeof messageId !== "string" ||
     fileParts.length !== attachments.length
   ) {
-    throw new Error(
-      "Gmail saved the draft, but its attachments don't match the ones Mail sent.",
-    );
+    throw new Error("its attachments don't match the ones Mail sent");
   }
   return attachments.flatMap((attachment, index) => {
     if (
@@ -172,19 +315,14 @@ async function readMovedDraftAttachments(
     ) {
       return [];
     }
-    const part:
-      | {
-          filename?: unknown;
-          body?: { attachmentId?: unknown; size?: unknown };
-        }
-      | undefined = fileParts[index];
+    const part: GmailFilePart | undefined = fileParts[index];
     if (
-      part?.filename !== mimeAttachmentFilename(attachment) ||
-      part.body?.size !== attachment.data.length ||
+      !isSentFilename(part?.filename, mimeAttachmentFilename(attachment)) ||
+      part?.body?.size !== attachment.data.length ||
       typeof part.body.attachmentId !== "string"
     ) {
       throw new Error(
-        `Gmail saved the draft, but its copy of "${attachment.filename}" doesn't match the one Mail sent.`,
+        `its copy of "${attachment.filename}" doesn't match the one Mail sent`,
       );
     }
     return [
@@ -202,20 +340,49 @@ async function readMovedDraftAttachments(
   });
 }
 
+const sameRef = (a: GmailAttachmentRef, b: GmailAttachmentRef) =>
+  a.gmailMessageId === b.gmailMessageId &&
+  a.gmailAttachmentId === b.gmailAttachmentId;
+
+/**
+ * Moves `then` made after `first`, from the refs before `first`. Nothing
+ * outside the save held a ref in between, so those moves aren't reported.
+ */
+function followMoves(
+  first: readonly MovedGmailAttachment[],
+  then: readonly MovedGmailAttachment[],
+): MovedGmailAttachment[] {
+  return [
+    ...first.map((move) => {
+      const next = then.find(({ from }) => sameRef(from, move.to));
+      return next ? { from: move.from, to: next.to } : move;
+    }),
+    ...then.filter(({ from }) => !first.some(({ to }) => sameRef(to, from))),
+  ];
+}
+
 /**
  * Replaces the message of the Gmail draft `savedDraftId` names, or returns null
  * when Gmail has no such draft. Gmail drops the old message and its parts, so
  * attachments read from that message come back as `movedAttachments`, and the
- * next save or send must use those refs instead.
+ * next save or send must use those refs instead. `found` are the moves
+ * `savedDraftAttachmentReader` made, which `attachments` already follow.
+ *
+ * Once Gmail accepts the update, the draft is saved: a failure to read where
+ * its files went comes back as `attachmentsError` with the draft's ID, so the
+ * next save updates this draft, and finds the files again, rather than making
+ * another.
  */
 export async function updateSavedGmailDraft(
   accessToken: string,
   savedDraftId: string,
   message: { raw: string; threadId?: string },
   attachments: ResolvedComposeAttachment[],
+  found: readonly MovedGmailAttachment[] = [],
 ): Promise<{
   draftId: string;
   movedAttachments: MovedGmailAttachment[];
+  attachmentsError?: Error;
 } | null> {
   const readsGmail = attachments.some(
     (attachment) => attachment.source === "gmail",
@@ -252,17 +419,31 @@ export async function updateSavedGmailDraft(
         attachment.source === "gmail" &&
         attachment.gmailMessageId === replacedMessageId,
     );
-  return {
-    draftId,
-    movedAttachments: movesAttachments
-      ? await readMovedDraftAttachments(
+  if (!movesAttachments) {
+    return { draftId, movedAttachments: [...found] };
+  }
+  try {
+    return {
+      draftId,
+      movedAttachments: followMoves(
+        found,
+        await readMovedDraftAttachments(
           accessToken,
           draftId,
           attachments,
           replacedMessageId,
-        )
-      : [],
-  };
+        ),
+      ),
+    };
+  } catch (error) {
+    return {
+      draftId,
+      movedAttachments: [],
+      attachmentsError: new Error(
+        `Gmail saved the draft, but Mail couldn't confirm where its attachments moved (${error instanceof Error ? error.message : String(error)}). Saving the draft again finds them.`,
+      ),
+    };
+  }
 }
 
 export async function findGmailDraftAccount(args: {
@@ -333,6 +514,7 @@ export async function saveGmailDraft(args: {
   created: boolean;
   updated?: boolean;
   movedAttachments?: MovedGmailAttachment[];
+  attachmentsError?: Error;
 } | null> {
   const accountEmail = await resolveAccountEmail(
     args.accountEmail,
@@ -343,32 +525,40 @@ export async function saveGmailDraft(args: {
   const accessToken = await getAccessToken(accountEmail, args.ownerEmail);
   if (!accessToken) return null;
 
-  const attachments = await resolveComposeAttachments(
+  const reader = savedDraftAttachmentReader(
+    accessToken,
+    args.draftId,
     args.attachments,
-    args.ownerEmail,
-    {
-      readGmailAttachment: async (attachment) => {
-        const attachmentAccountEmail = await resolveAccountEmail(
-          attachment.accountEmail ?? accountEmail,
-          args.ownerEmail,
-          "attachment",
-        );
-        if (!attachmentAccountEmail) return null;
-        const attachmentAccessToken =
-          attachmentAccountEmail === accountEmail
-            ? accessToken
-            : await getAccessToken(attachmentAccountEmail, args.ownerEmail);
-        if (!attachmentAccessToken) return null;
-        const result = await gmailGetAttachment(
-          attachmentAccessToken,
-          attachment.gmailMessageId!,
-          attachment.gmailAttachmentId!,
-        );
-        return typeof result?.data === "string"
-          ? Buffer.from(result.data, "base64url")
-          : null;
-      },
+    async (attachment) => {
+      const attachmentAccountEmail = await resolveAccountEmail(
+        attachment.accountEmail ?? accountEmail,
+        args.ownerEmail,
+        "attachment",
+      );
+      if (!attachmentAccountEmail) return null;
+      const attachmentAccessToken =
+        attachmentAccountEmail === accountEmail
+          ? accessToken
+          : await getAccessToken(attachmentAccountEmail, args.ownerEmail);
+      const { gmailMessageId, gmailAttachmentId } = attachment;
+      if (!attachmentAccessToken || !gmailMessageId || !gmailAttachmentId) {
+        return null;
+      }
+      const result = await gmailGetAttachment(
+        attachmentAccessToken,
+        gmailMessageId,
+        gmailAttachmentId,
+      );
+      return typeof result?.data === "string"
+        ? Buffer.from(result.data, "base64url")
+        : null;
     },
+  );
+  const attachments = moveGmailAttachments(
+    await resolveComposeAttachments(args.attachments, args.ownerEmail, {
+      readGmailAttachment: reader.readGmailAttachment,
+    }),
+    reader.moved,
   );
 
   let threadId = args.replyToThreadId;
@@ -416,6 +606,7 @@ export async function saveGmailDraft(args: {
       args.draftId,
       message,
       attachments,
+      reader.moved,
     );
     if (updated) {
       return {
@@ -425,6 +616,9 @@ export async function saveGmailDraft(args: {
         updated: true,
         ...(updated.movedAttachments.length
           ? { movedAttachments: updated.movedAttachments }
+          : {}),
+        ...(updated.attachmentsError
+          ? { attachmentsError: updated.attachmentsError }
           : {}),
       };
     }

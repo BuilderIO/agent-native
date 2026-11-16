@@ -335,6 +335,45 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
       });
     });
 
+    it("names the Gmail draft it saved when it can't say where the file moved", async () => {
+      const gmail = mocks.googleFetch.getMockImplementation();
+      mocks.googleFetch.mockImplementation(
+        async (url: string, token: string, options?: RequestInit) => {
+          if (new URL(url).searchParams.get("format") === "full") {
+            throw new Error("Google API error (503): Backend Error");
+          }
+          return gmail?.(url, token, options);
+        },
+      );
+      mocks.readBody.mockResolvedValue({
+        to: "recipient@example.com",
+        subject: "Edited draft",
+        body: "Edited body",
+        draftId: "message-of-draft",
+        savedDraftBackend: "gmail",
+        accountEmail: managedAccountEmail,
+        attachments: [draftFile],
+      });
+      mocks.resolveComposeAttachments.mockResolvedValue([
+        { ...draftFile, data: Buffer.from("draft file") },
+      ]);
+
+      const result = await (saveDraft as (event: unknown) => Promise<unknown>)(
+        {},
+      );
+
+      expect(mocks.setResponseStatus).toHaveBeenCalledWith({}, 502);
+      expect(result).toEqual({
+        error: expect.stringContaining(
+          "couldn't confirm where its attachments moved",
+        ),
+        errorCode: "draft_attachments_unconfirmed",
+        draftId: "r-draft-7",
+        backend: "gmail",
+        accountEmail: managedAccountEmail,
+      });
+    });
+
     it("asks Gmail nothing more when the save carries only uploads", async () => {
       const upload = {
         id: "upload.pdf",

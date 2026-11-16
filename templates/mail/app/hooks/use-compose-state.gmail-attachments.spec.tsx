@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyDraftSaveResult,
+  DRAFT_SAVE_FAILED_EVENT,
   getDraftSaveMetadataUpdate,
   useComposeState,
 } from "./use-compose-state";
@@ -257,5 +258,106 @@ describe("useComposeState with a reopened Gmail draft's file", () => {
       attachments: [{ ...draftFile, ...moveOfDraftFile.to }],
     });
     expect(saves).toEqual([{ status: 200, refs: ["message-of-draft/part-1"] }]);
+  });
+
+  it("updates the same Gmail draft and finds the file after Mail lost where a save moved it", async () => {
+    const saves: { draftId?: string; refs: string[] }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          const next = JSON.parse(String(init.body)).next;
+          return asJson({ value: next, revision: `rev-${Date.now()}` });
+        }
+        if (url.endsWith("/application-state/compose")) {
+          return asJson([
+            { ...reopened([draftFile]), savedDraftId: "message-of-draft" },
+          ]);
+        }
+        if (url.endsWith("/api/emails/draft")) {
+          const sent = JSON.parse(String(init?.body));
+          saves.push({
+            draftId: sent.draftId,
+            refs: (sent.attachments as ComposeAttachment[]).map(
+              (file) => `${file.gmailMessageId}/${file.gmailAttachmentId}`,
+            ),
+          });
+          // Gmail took the first update, then Mail couldn't read its parts.
+          if (saves.length === 1) {
+            return Response.json(
+              {
+                error:
+                  "Gmail saved the draft, but Mail couldn't confirm where its attachments moved (Backend Error). Saving the draft again finds them.",
+                errorCode: "draft_attachments_unconfirmed",
+                draftId: "r-draft-7",
+                backend: "gmail",
+                accountEmail: "owner@example.com",
+              },
+              { status: 502 },
+            );
+          }
+          // A save naming the draft finds the file in its current message.
+          if (sent.draftId !== "r-draft-7") {
+            return asJson({ error: "Saved Gmail draft was not found" }, 409);
+          }
+          return asJson({
+            draftId: "r-draft-7",
+            backend: "gmail",
+            accountEmail: "owner@example.com",
+            updated: true,
+            movedAttachments: [
+              {
+                from: moveOfDraftFile.from,
+                to: {
+                  gmailMessageId: "message-3",
+                  gmailAttachmentId: "part-3",
+                },
+              },
+            ],
+          });
+        }
+        throw new Error(`Unexpected request ${url}`);
+      }),
+    );
+    const failures: string[] = [];
+    const onFailure = (event: Event) =>
+      failures.push((event as CustomEvent<{ draftId: string }>).detail.draftId);
+    window.addEventListener(DRAFT_SAVE_FAILED_EVENT, onFailure);
+    const qc = new QueryClient();
+    const { result } = renderHook(() => useComposeState(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+      ),
+    });
+    await waitFor(() => expect(result.current.drafts).toHaveLength(1));
+    const local = () =>
+      qc
+        .getQueryData<ComposeState[]>(["compose-drafts"])
+        ?.find((one) => one.id === "reopened");
+
+    act(() => result.current.update("reopened", { body: "First edit" }));
+    await autosave();
+    await waitFor(() => expect(local()?.savedDraftId).toBe("r-draft-7"));
+    expect(failures).toEqual(["reopened"]);
+    expect(local()?.attachments).toEqual([draftFile]);
+
+    act(() => result.current.update("reopened", { body: "Second edit" }));
+    await autosave();
+    await waitFor(() =>
+      expect(local()?.attachments?.[0]?.gmailMessageId).toBe("message-3"),
+    );
+    window.removeEventListener(DRAFT_SAVE_FAILED_EVENT, onFailure);
+
+    expect(saves).toEqual([
+      { draftId: "message-of-draft", refs: ["message-of-draft/part-1"] },
+      { draftId: "r-draft-7", refs: ["message-of-draft/part-1"] },
+    ]);
+    expect(local()?.attachments).toEqual([
+      {
+        ...draftFile,
+        gmailMessageId: "message-3",
+        gmailAttachmentId: "part-3",
+      },
+    ]);
   });
 });

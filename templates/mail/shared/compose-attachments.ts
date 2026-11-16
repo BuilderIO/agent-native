@@ -50,10 +50,10 @@ export type MovedGmailAttachment = {
  * save sent, so a file added or removed while the save ran keeps its place.
  * Returns `attachments` itself when nothing moved.
  */
-export function moveGmailAttachments(
-  attachments: ComposeAttachment[],
+export function moveGmailAttachments<T extends ComposeAttachment>(
+  attachments: T[],
   moved: readonly MovedGmailAttachment[],
-): ComposeAttachment[] {
+): T[] {
   const unused = [...moved];
   const next = attachments.map((attachment) => {
     const move = unused.find(

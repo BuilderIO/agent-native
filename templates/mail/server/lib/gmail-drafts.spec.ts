@@ -799,8 +799,154 @@ describe("attachments of a Gmail draft updated in place", () => {
       return result;
     });
 
-    await expect(save("r-draft-7", [draftFile])).rejects.toThrow(
+    const result = await save("r-draft-7", [draftFile]);
+
+    expect(result?.draftId).toBe("r-draft-7");
+    expect(result?.attachmentsError?.message).toContain(
       "its attachments don't match",
+    );
+    expect(result).not.toHaveProperty("movedAttachments");
+  });
+
+  /** Fails the first read of the draft's parts after Gmail took an update. */
+  function failReadAfterUpdate() {
+    const gmail = mocks.googleFetch.getMockImplementation();
+    let updated = false;
+    let failed = false;
+    mocks.googleFetch.mockImplementation(
+      async (url: string, token: string, options?: RequestInit) => {
+        if (options?.method === "PUT") updated = true;
+        else if (
+          updated &&
+          !failed &&
+          new URL(url).searchParams.get("format") === "full"
+        ) {
+          failed = true;
+          throw new Error("Google API error (503): Backend Error");
+        }
+        return gmail?.(url, token, options);
+      },
+    );
+  }
+
+  it("keeps the draft and its file when Mail can't read where an update moved it", async () => {
+    const draft = fakeGmail();
+    failReadAfterUpdate();
+
+    const first = await save("message-of-draft", [draftFile]);
+
+    expect(first?.draftId).toBe("r-draft-7");
+    expect(first?.attachmentsError?.message).toContain(
+      "couldn't confirm where its attachments moved",
+    );
+    expect(first).not.toHaveProperty("movedAttachments");
+    expect(draft.messageId).toBe("message-2");
+
+    // The caller still holds the refs of the message Gmail dropped.
+    const second = await save(first?.draftId ?? "", [draftFile]);
+
+    expect(second).toMatchObject({ draftId: "r-draft-7", updated: true });
+    expect(second?.attachmentsError).toBeUndefined();
+    expect(second?.movedAttachments).toEqual([
+      {
+        from: {
+          gmailMessageId: "message-of-draft",
+          gmailAttachmentId: "part-1-0",
+        },
+        to: { gmailMessageId: "message-3", gmailAttachmentId: "part-3-0" },
+      },
+    ]);
+    expect(draft.parts).toEqual([
+      { filename: "brief.pdf", data: "draft file", attachmentId: "part-3-0" },
+    ]);
+  });
+
+  it("won't guess which of two same-named files a stale ref meant", async () => {
+    const draft = fakeGmail();
+    draft.parts = [
+      { filename: "brief.pdf", data: "draft file", attachmentId: "part-1-0" },
+      { filename: "brief.pdf", data: "other file", attachmentId: "part-1-1" },
+    ];
+    const stale = { ...draftFile, gmailMessageId: "message-gone" };
+
+    await expect(save("r-draft-7", [stale])).rejects.toThrow(
+      `couldn't tell which file in the Gmail draft is "brief.pdf"`,
+    );
+    expect(draft.messageId).toBe("message-of-draft");
+  });
+
+  // Mail writes a non-ASCII filename into the MIME as raw UTF-8.
+  const resumeFile: ComposeAttachment = {
+    ...draftFile,
+    filename: "Résumé.pdf",
+    originalName: "Résumé.pdf",
+  };
+  it.each([
+    ["decomposed", (name: string) => name.normalize("NFD")],
+    [
+      "as an RFC 2047 encoded word",
+      (name: string) =>
+        `=?UTF-8?B?${Buffer.from(name, "utf8").toString("base64")}?=`,
+    ],
+    [
+      "as UTF-8 read as Latin-1",
+      (name: string) => Buffer.from(name, "utf8").toString("latin1"),
+    ],
+  ])(
+    "matches a non-ASCII filename Gmail reports %s",
+    async (_form, reported) => {
+      const draft = fakeGmail();
+      draft.parts = [
+        {
+          filename: reported("Résumé.pdf"),
+          data: "draft file",
+          attachmentId: "part-1-0",
+        },
+      ];
+      const gmail = mocks.googleFetch.getMockImplementation();
+      mocks.googleFetch.mockImplementation(async (...args: unknown[]) => {
+        const result = await gmail?.(...args);
+        draft.parts = draft.parts.map((part) => ({
+          ...part,
+          filename: reported(part.filename.normalize("NFC")),
+        }));
+        return result;
+      });
+
+      const result = await save("message-of-draft", [resumeFile]);
+
+      expect(result?.attachmentsError).toBeUndefined();
+      expect(result?.movedAttachments).toEqual([
+        {
+          from: {
+            gmailMessageId: "message-of-draft",
+            gmailAttachmentId: "part-1-0",
+          },
+          to: { gmailMessageId: "message-2", gmailAttachmentId: "part-2-0" },
+        },
+      ]);
+    },
+  );
+
+  it("still tells a different non-ASCII filename apart", async () => {
+    const draft = fakeGmail();
+    draft.parts = [
+      { filename: "Résumé.pdf", data: "draft file", attachmentId: "part-1-0" },
+    ];
+    const gmail = mocks.googleFetch.getMockImplementation();
+    mocks.googleFetch.mockImplementation(async (...args: unknown[]) => {
+      const result = await gmail?.(...args);
+      draft.parts = draft.parts.map((part) => ({
+        ...part,
+        filename: "Resume.pdf",
+      }));
+      return result;
+    });
+
+    const result = await save("message-of-draft", [resumeFile]);
+
+    expect(result?.attachmentsError?.message).toContain(
+      `its copy of "Résumé.pdf" doesn't match`,
     );
   });
 });

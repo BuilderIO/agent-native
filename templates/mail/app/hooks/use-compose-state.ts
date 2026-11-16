@@ -65,9 +65,31 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   );
   if (!res.ok) {
     if (res.status === 404) return undefined as T;
-    throw new Error(`Request failed (${res.status})`);
+    const body: unknown = res.headers
+      .get("content-type")
+      ?.includes("application/json")
+      ? await res.json()
+      : await res.text();
+    throw Object.assign(new Error(`Request failed (${res.status})`), {
+      status: res.status,
+      body,
+    });
   }
   return res.json();
+}
+
+/**
+ * A save Gmail kept, as the draft `savedDraft` names, that still failed: the
+ * next save must update that draft, and the failure must still be reported.
+ */
+export class DraftSaveIncompleteError extends Error {
+  constructor(
+    message: string,
+    readonly savedDraft: SavedDraftMetadata,
+  ) {
+    super(message);
+    this.name = "DraftSaveIncompleteError";
+  }
 }
 
 /** Sends one draft save, checked against the revision it started from. */
@@ -262,28 +284,49 @@ async function saveDraftToEmails(
       `Draft recipients use unknown aliases: ${unresolved.join(", ")}`,
     );
   }
-  const result = await apiFetch<{
-    draftId?: string;
-    backend?: "gmail" | "local";
-    accountEmail?: string;
-    movedAttachments?: MovedGmailAttachment[];
-  }>("/api/emails/draft", {
-    method: "POST",
-    body: JSON.stringify({
-      to: expandAliasTokens(draft.to, aliases),
-      cc: expandAliasTokens(draft.cc ?? "", aliases),
-      bcc: expandAliasTokens(draft.bcc ?? "", aliases),
-      subject: draft.subject,
-      body: draft.body,
-      draftId: draft.savedDraftId,
-      savedDraftBackend: draft.savedDraftBackend,
-      replyToId: draft.replyToId,
-      replyToThreadId: draft.replyToThreadId,
-      accountEmail: draft.savedDraftAccountEmail ?? draft.accountEmail,
-      attachments: draft.attachments,
-    }),
-  });
+  let result;
+  try {
+    result = await apiFetch<SavedDraftResponse>("/api/emails/draft", {
+      method: "POST",
+      body: JSON.stringify({
+        to: expandAliasTokens(draft.to, aliases),
+        cc: expandAliasTokens(draft.cc ?? "", aliases),
+        bcc: expandAliasTokens(draft.bcc ?? "", aliases),
+        subject: draft.subject,
+        body: draft.body,
+        draftId: draft.savedDraftId,
+        savedDraftBackend: draft.savedDraftBackend,
+        replyToId: draft.replyToId,
+        replyToThreadId: draft.replyToThreadId,
+        accountEmail: draft.savedDraftAccountEmail ?? draft.accountEmail,
+        attachments: draft.attachments,
+      }),
+    });
+  } catch (error) {
+    const body =
+      error instanceof Error && "body" in error
+        ? (error.body as
+            | (SavedDraftResponse & { error?: unknown; errorCode?: unknown })
+            | undefined)
+        : undefined;
+    if (body?.errorCode !== "draft_attachments_unconfirmed") throw error;
+    throw new DraftSaveIncompleteError(
+      typeof body.error === "string" ? body.error : String(error),
+      savedDraftMetadata(body),
+    );
+  }
   if (!result) return undefined;
+  return savedDraftMetadata(result);
+}
+
+type SavedDraftResponse = {
+  draftId?: string;
+  backend?: "gmail" | "local";
+  accountEmail?: string;
+  movedAttachments?: MovedGmailAttachment[];
+};
+
+function savedDraftMetadata(result: SavedDraftResponse): SavedDraftMetadata {
   if (
     typeof result.draftId !== "string" ||
     !result.draftId ||
@@ -307,7 +350,7 @@ async function saveDraftToEmails(
 export type DraftSaveResult =
   | ({ status: "saved" } & SavedDraftMetadata)
   | { status: "unavailable" }
-  | { status: "failed"; error: unknown };
+  | { status: "failed"; error: unknown; savedDraft?: SavedDraftMetadata };
 
 export type DraftSaveQueueResult =
   | ({ status: "saved" } & SavedDraftMetadata)
@@ -360,7 +403,7 @@ export function enqueueDraftSave(
     const result = await save(nextDraft);
     return result.status === "saved"
       ? result
-      : { ...result, ...(savedDraft ? { savedDraft } : {}) };
+      : { ...(savedDraft ? { savedDraft } : {}), ...result };
   })();
   pending.set(draft.id, next);
   const clear = () => {
@@ -468,16 +511,23 @@ export function getDraftSaveMetadataUpdate(
   result: DraftSaveQueueResult,
   isRemoved: boolean,
 ): ComposeState | undefined {
-  if (isRemoved || !draft || result.status !== "saved") return undefined;
-  if (
-    result.draftId === draft.savedDraftId &&
-    result.backend === draft.savedDraftBackend &&
-    result.accountEmail === draft.savedDraftAccountEmail &&
-    !result.movedAttachments?.length
-  ) {
-    return undefined;
-  }
-  return applyDraftSaveResult(draft, result);
+  const metadata =
+    result.status === "saved"
+      ? result
+      : result.status === "failed"
+        ? result.savedDraft
+        : undefined;
+  if (isRemoved || !draft || !metadata) return undefined;
+  const updated = applyDraftSaveResult(draft, {
+    status: "saved",
+    ...metadata,
+  });
+  return updated.savedDraftId === draft.savedDraftId &&
+    updated.savedDraftBackend === draft.savedDraftBackend &&
+    updated.savedDraftAccountEmail === draft.savedDraftAccountEmail &&
+    updated.attachments === draft.attachments
+    ? undefined
+    : updated;
 }
 
 export async function deleteSavedDraftAfterPendingSave(
@@ -524,7 +574,13 @@ export async function saveDraftToEmailsBestEffort(
       ? { status: "saved", ...savedDraft }
       : { status: "unavailable" };
   } catch (error) {
-    return { status: "failed", error };
+    return {
+      status: "failed",
+      error,
+      ...(error instanceof DraftSaveIncompleteError
+        ? { savedDraft: error.savedDraft }
+        : {}),
+    };
   }
 }
 

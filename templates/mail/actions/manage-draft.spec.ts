@@ -1700,4 +1700,100 @@ describe("manage-draft updates of a reopened Gmail draft with its own file", () 
     ]);
     expect(second.draft.savedDraftId).toBe("r-draft-7");
   });
+
+  const failure = (run: Promise<unknown>) =>
+    run.then(
+      () => {
+        throw new Error("expected the update to fail");
+      },
+      (error: {
+        errorCode?: string;
+        details?: { current?: unknown; currentRevision?: string };
+      }) => error,
+    );
+
+  it("keeps the file when the person's edit wins the store after Gmail took the update", async () => {
+    const save = mocks.saveGmailDraft.getMockImplementation();
+    mocks.saveGmailDraft.mockImplementationOnce(async (args) => {
+      const result = await save?.(args);
+      appState.set("compose-reopened", {
+        ...(appState.get("compose-reopened") as object),
+        body: "Person's edit",
+      });
+      return result;
+    });
+
+    const conflict = await failure(
+      action.run({
+        action: "update",
+        id: "reopened",
+        expectedRevision: revisionOf("reopened"),
+        subject: "Agent subject",
+      }),
+    );
+
+    expect(conflict.errorCode).toBe("save_conflict");
+    const moved = {
+      ...draftFile,
+      gmailMessageId: "message-2",
+      gmailAttachmentId: "part-2",
+    };
+    expect(conflict.details?.current).toMatchObject({
+      body: "Person's edit",
+      subject: "Brief",
+      savedDraftId: "r-draft-7",
+      attachments: [moved],
+    });
+
+    const retry = await action.run({
+      action: "update",
+      id: "reopened",
+      expectedRevision: conflict.details?.currentRevision,
+      subject: "Agent subject",
+    });
+
+    expect(retry.draft).toMatchObject({
+      body: "Person's edit",
+      subject: "Agent subject",
+      savedDraftId: "r-draft-7",
+      attachments: [
+        {
+          ...draftFile,
+          gmailMessageId: "message-3",
+          gmailAttachmentId: "part-3",
+        },
+      ],
+    });
+  });
+
+  it("stores the Gmail draft's ID before failing on files it couldn't confirm", async () => {
+    mocks.saveGmailDraft.mockResolvedValueOnce({
+      draftId: "r-draft-7",
+      accountEmail: "owner@example.com",
+      created: false,
+      updated: true,
+      attachmentsError: new Error(
+        "Gmail saved the draft, but Mail couldn't confirm where its attachments moved (Backend Error). Saving the draft again finds them.",
+      ),
+    });
+
+    const error = await failure(
+      action.run({
+        action: "update",
+        id: "reopened",
+        expectedRevision: revisionOf("reopened"),
+        body: "Agent edit",
+      }),
+    );
+
+    expect(error).toMatchObject({
+      errorCode: "draft_attachments_unconfirmed",
+      details: { id: "reopened", revision: revisionOf("reopened") },
+    });
+    expect(appState.get("compose-reopened")).toMatchObject({
+      body: "Agent edit",
+      savedDraftId: "r-draft-7",
+      attachments: [draftFile],
+    });
+  });
 });

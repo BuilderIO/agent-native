@@ -34,7 +34,10 @@ import {
 } from "../server/lib/local-email-store.js";
 import { attachmentFromUpload } from "../server/lib/media-upload.js";
 import { resolveExistingSavedDraftOwnership } from "../server/lib/saved-draft-ownership.js";
-import { moveGmailAttachments } from "../shared/compose-attachments.js";
+import {
+  moveGmailAttachments,
+  type MovedGmailAttachment,
+} from "../shared/compose-attachments.js";
 import { appendSignatureToBody } from "../shared/signature.js";
 import type { ComposeAttachment, ComposeState } from "../shared/types.js";
 
@@ -395,6 +398,50 @@ async function storeComposeDraft(
       );
     }
     throw error;
+  }
+}
+
+/**
+ * Gives the draft that beat this call to the store what this call's Gmail
+ * update left it: Gmail dropped the message the draft's files and a reopened
+ * draft's message ID named, so the record a redo starts from has to name the
+ * Gmail draft and its files where they are now. The other save's edits stay.
+ */
+async function followGmailDraftUpdate(
+  key: string,
+  stored: Record<string, unknown>,
+  savedDraftId: unknown,
+  update: { draftId: string; movedAttachments?: MovedGmailAttachment[] },
+): Promise<Record<string, unknown>> {
+  if (
+    stored.savedDraftId !== savedDraftId ||
+    stored.savedDraftBackend === "local"
+  ) {
+    return stored;
+  }
+  const attachments =
+    Array.isArray(stored.attachments) && update.movedAttachments
+      ? moveGmailAttachments(
+          stored.attachments as ComposeAttachment[],
+          update.movedAttachments,
+        )
+      : stored.attachments;
+  if (
+    stored.savedDraftId === update.draftId &&
+    attachments === stored.attachments
+  ) {
+    return stored;
+  }
+  const next = {
+    ...stored,
+    savedDraftId: update.draftId,
+    ...(attachments === undefined ? {} : { attachments }),
+  };
+  try {
+    return (await compareAndSetAppState(key, stored, next)) ? next : stored;
+  } catch (error) {
+    console.error(`[manage-draft] ${key} kept its replaced Gmail refs:`, error);
+    return stored;
   }
 }
 
@@ -829,7 +876,16 @@ export default defineAction({
         // Nothing points at a Gmail draft this call made, and a redo makes another.
         const discarded =
           !newGmailDraft || (await discardUnstoredGmailDraft(newGmailDraft));
-        const latest = await readAppState(`compose-${safeId}`);
+        const stored = await readAppState(`compose-${safeId}`);
+        const latest =
+          stored && savedGmailDraft?.updated
+            ? await followGmailDraftUpdate(
+                `compose-${safeId}`,
+                stored,
+                storedDraft.savedDraftId,
+                savedGmailDraft,
+              )
+            : stored;
         throw saveConflict(
           "draft",
           latest,
@@ -840,6 +896,13 @@ export default defineAction({
         );
       }
       countSaveOutcome("draft", "written");
+      if (savedGmailDraft?.attachmentsError) {
+        fail(savedGmailDraft.attachmentsError.message, {
+          errorCode: "draft_attachments_unconfirmed",
+          statusCode: 502,
+          details: { id: safeId, revision: saveRevisionOf(draft) },
+        });
+      }
       const deepLink = composeDeepLink(draft);
       return {
         id: safeId,
