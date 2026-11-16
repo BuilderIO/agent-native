@@ -443,10 +443,25 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       };
       const projectedRawResult = project(rawResult);
       const projectedResultForClient = project(resultForClient);
+      let appResourceUnresolved = false;
       const mcpAppResourceCandidate =
         requestMeta?.inlineMcpApps &&
         mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
-          ? await resolveMcpAppResourceSafely(config, name, entry, requestMeta)
+          ? await resolveMcpAppResourceSafely(
+              config,
+              name,
+              entry,
+              requestMeta,
+            ).catch((error: unknown) => {
+              if (directoryCatalog) throw error;
+              // The action already ran: report that its app cannot open
+              // rather than fail a call whose change was saved.
+              appResourceUnresolved = true;
+              console.warn(
+                `[mcp] ${name} completed, but the server cannot open its app here: ${describeThrownForLog(error)}`,
+              );
+              return null;
+            })
           : null;
       const trustedCredentialIssuedAtMs =
         effectiveIdentity?.mcpCredentialIssuedAtMs;
@@ -496,13 +511,27 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         directoryCatalog && !hasVerifiedMcpUserIdentity(effectiveIdentity);
       // Outside the directory catalog, a resource with no scoped widget
       // mounts the whole app, as the desktop side panel does.
-      const fullAppEmbedResult =
+      const fullAppCandidate =
         !directoryCatalog &&
         requiresEmbedSession &&
-        !!getEmbedSessionOrigin() &&
         !!mcpAppResourceCandidate &&
         directoryWidget === undefined &&
-        !mcpResultIsError &&
+        !mcpResultIsError;
+      // The action already ran, so an origin the allowlist rejects only keeps
+      // its app from opening; it must not turn the call into a failure.
+      let fullAppOrigin: "none" | "valid" | "rejected" = "none";
+      if (fullAppCandidate) {
+        try {
+          fullAppOrigin = getEmbedSessionOrigin() ? "valid" : "none";
+        } catch (error) {
+          fullAppOrigin = "rejected";
+          console.warn(
+            `[mcp] ${name} completed, but the server cannot open its app here: ${describeThrownForLog(error)}`,
+          );
+        }
+      }
+      const fullAppEmbedResult =
+        fullAppOrigin === "valid" &&
         hasVerifiedMcpUserIdentity(effectiveIdentity) &&
         typeof trustedCredentialIssuedAtMs === "number" &&
         Number.isSafeInteger(trustedCredentialIssuedAtMs)
@@ -582,16 +611,12 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         !embedHasContent;
       // The host mounts this tool's app from its descriptor, so a full-app call
       // that has no session must say so rather than leave an empty frame.
+      // An `embed: false` result opts out of the frame, not of this signal.
       const fullAppNotOpened =
-        !directoryCatalog &&
-        requiresEmbedSession &&
-        !!getEmbedSessionOrigin() &&
-        !Object.hasOwn(config.directoryProfile?.widgetTargets ?? {}, name) &&
-        !!mcpAppResourceCandidate &&
-        directoryWidget === undefined &&
-        !mcpResultIsError &&
-        metadataObject(projectedRawResult).embed !== false &&
-        !mcpAppResource;
+        (appResourceUnresolved && !mcpResultIsError) ||
+        (fullAppCandidate && fullAppOrigin !== "none" && !mcpAppResource);
+      const fullAppOptedOut =
+        metadataObject(projectedRawResult).embed === false;
       const mcpAppOpenLinkMeta = mcpAppResource
         ? mcpAppEmbedOpenLinkMeta(
             actionResultForClient,
@@ -725,7 +750,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
             embedProducedNothing && isWrite
               ? `${name} completed; its change was saved, but it produced no widget content.`
               : fullAppNotOpened
-                ? `${name} completed${isWrite ? "; its change was saved" : ""}, but its app could not open here. Use the link to open it. ${text}`
+                ? `${name} completed${isWrite ? "; its change was saved" : ""}, but ${fullAppOptedOut ? "it opens as a link, not here" : "its app could not open here"}. Use the link to open it. ${text}`
                 : upstream === "unknown"
                   ? `${upstreamStatusText(name, upstream)} ${text}`
                   : text,

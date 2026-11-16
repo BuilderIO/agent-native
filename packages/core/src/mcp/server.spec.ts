@@ -11622,6 +11622,56 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       }
     });
 
+    it("keeps a completed call when the server rejects its embed origin", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { run, serverConfig } = unsupportedCardConfig(
+        "unsupported-card",
+        "startUrl",
+      );
+      const server = await createMCPServerForRequest(
+        serverConfig,
+        {
+          userEmail: "oauth@example.com",
+          orgId: null,
+          orgDomain: undefined,
+          identityAssurance: "user",
+          mcpCredentialIssuedAtMs: Date.now(),
+        },
+        {
+          resolveEmbedRequestOrigin: () => {
+            throw new Error("Invalid embed request origin");
+          },
+          inlineMcpApps: true,
+          transport: "http",
+        },
+      );
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "rejected-origin", version: "1.0.0" });
+      await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+      ]);
+      try {
+        const result = await client.callTool({
+          name: "unsupported-card",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        expect((result.content as Array<{ text: string }>)[0]!.text).toContain(
+          "unsupported-card completed, but its app could not open here.",
+        );
+        expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining("the server cannot open its app here"),
+        );
+        expect(run).toHaveBeenCalledOnce();
+      } finally {
+        await Promise.all([client.close(), server.close()]);
+        warn.mockRestore();
+      }
+    });
+
     // oracle-change: main excludes context runtime tools before link fallback;
     // retain that denial instead of restoring their previous MCP exposure.
     it.each([

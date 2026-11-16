@@ -3056,7 +3056,16 @@ describe("direct tools/call full-app embeds", () => {
   };
   const fullAppConfig = {
     ...config,
+    directoryProfile: {
+      widgetTargets: { "open-unused-target": () => undefined },
+    },
     actions: {
+      "open-unused-target": act({
+        description: "A widget target that names nothing to open",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => ({ id: "t-10", title: "Thread" }),
+      }),
       "open-thread": act({
         description: "Open a thread",
         readOnly: true,
@@ -3202,9 +3211,13 @@ describe("direct tools/call full-app embeds", () => {
     expect(minted()).toEqual([]);
   });
 
-  it("returns an embed opt-out as a plain full-app link", async () => {
+  it("flags an embed opt-out so the host mounts no frame for its link", async () => {
     const result = await call("open-plain");
-    expect(result.isError).not.toBe(true);
+    // oracle-change: the descriptor mounts a frame, so an opt-out must flag the call.
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain(
+      "open-plain completed, but it opens as a link, not here.",
+    );
     expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
     expect(minted()).toEqual([]);
   });
@@ -3221,7 +3234,8 @@ describe("direct tools/call full-app embeds", () => {
 
   it("drops the ticket of a result that opts out of the embed", async () => {
     const result = await call("open-opt-out-ticket");
-    expect(result.isError).not.toBe(true);
+    // oracle-change: the descriptor mounts a frame, so an opt-out must flag the call.
+    expect(result.isError).toBe(true);
     expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain("opt-out-ticket");
     expect(minted()).toEqual([]);
@@ -3237,6 +3251,15 @@ describe("direct tools/call full-app embeds", () => {
         targetPath: "/inbox/t-8?__an_mcp_chat_bridge=1",
       }),
     ]);
+  });
+
+  it("flags a call whose widget target produced no widget", async () => {
+    const result = await call("open-unused-target");
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain(
+      "open-unused-target completed, but its app could not open here.",
+    );
+    expect(minted()).toEqual([]);
   });
 
   it("reports a link that throws when it is the only target", async () => {
