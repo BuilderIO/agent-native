@@ -61,6 +61,7 @@ function tweakValuesStyle(tweakValues: Record<string, string> | undefined) {
  */
 export function buildInteractPreviewDocument(args: {
   content: string;
+  tweakCapability: string;
   embeddedFrameBackground?: string;
   transparentBackground?: boolean;
   contentOffsetX?: number;
@@ -80,7 +81,10 @@ export function buildInteractPreviewDocument(args: {
   });
   const bridges =
     tweakValuesStyle(args.tweakValues) +
-    INTERACT_PREVIEW_BRIDGES +
+    INTERACT_PREVIEW_BRIDGES.replace(
+      "__INTERACT_TWEAK_CAPABILITY__",
+      args.tweakCapability,
+    ) +
     (args.heightMode === "hug" ? contentSizeReportBridge(args.heightMode) : "");
   if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
     return injectSessionReplayIframeBootstrap(

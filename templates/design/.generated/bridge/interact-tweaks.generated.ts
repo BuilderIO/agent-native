@@ -6,6 +6,7 @@ export const interactTweaksBridgeScript: string = `"use strict";
 (() => {
   // app/components/design/bridge/interact-tweaks.bridge.ts
   (function() {
+    var CAPABILITY = "__INTERACT_TWEAK_CAPABILITY__";
     if (window.__anInteractTweaks) return;
     window.__anInteractTweaks = true;
     var ATTRIBUTE = "data-agent-native-interact-tweaks";
@@ -35,6 +36,7 @@ export const interactTweaksBridgeScript: string = `"use strict";
         if (typeof idOrCssVar !== "string" || window.parent === window) return;
         var message = {
           type: "tweak-set",
+          capability: CAPABILITY,
           value
         };
         if (NAME.test(idOrCssVar)) message.cssVar = idOrCssVar;

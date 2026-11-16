@@ -106,21 +106,33 @@ function stepDecimals(step: number): number {
  * frame's own window.
  */
 export function createInteractTweakSetListener(options: {
+  isInlineDocument: () => boolean;
   getFrameWindow: () => Window | null | undefined;
+  getCapability: () => string | undefined;
   getTweaks: () => readonly TweakDefinition[];
   screenId: string;
   getScreenHtml: () => string | undefined;
   onTweakSet: (tweakId: string, value: string | number | boolean) => void;
 }): (event: MessageEvent) => void {
   return (event) => {
+    if (!options.isInlineDocument()) return;
     const frameWindow = options.getFrameWindow();
     if (!frameWindow || event.source !== frameWindow) return;
+    const capability = options.getCapability();
+    if (!capability) return;
     const resolved = resolveInteractTweakSet(
       event.data,
       options.getTweaks(),
       options.screenId,
       options.getScreenHtml(),
     );
-    if (resolved) options.onTweakSet(resolved.tweakId, resolved.value);
+    if (
+      resolved &&
+      event.data !== null &&
+      typeof event.data === "object" &&
+      (event.data as { capability?: unknown }).capability === capability
+    ) {
+      options.onTweakSet(resolved.tweakId, resolved.value);
+    }
   };
 }
