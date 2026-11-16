@@ -318,7 +318,9 @@ function annotateAssistantMessage(
 
 export function useAgentChat(
   settings: AgentChatSettings,
-  options: { onOpenApp?: (event: MobileAppOpenEvent) => void } = {},
+  options: {
+    onOpenApp?: ((event: MobileAppOpenEvent) => void) | undefined;
+  } = {},
 ): AgentChatController {
   const onOpenAppRef = useRef(options.onOpenApp);
   onOpenAppRef.current = options.onOpenApp;

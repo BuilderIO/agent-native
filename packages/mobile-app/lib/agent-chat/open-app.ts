@@ -9,8 +9,10 @@ export type MobileAppOpenEvent =
   | { kind: "open"; detail: ChatFirstOpenAppDetail }
   | { kind: "notice"; message: string };
 
+const UNAVAILABLE_EN = "The requested app could not be opened.";
+
 const unavailableCopy: Record<string, string> = {
-  en: "The requested app could not be opened.",
+  en: UNAVAILABLE_EN,
   es: "No se pudo abrir la aplicación solicitada.",
   fr: "Impossible d’ouvrir l’application demandée.",
   de: "Die angeforderte App konnte nicht geöffnet werden.",
@@ -28,14 +30,15 @@ export function mobileAppPanelUnavailable(
 ): string {
   const key = /^zh-(TW|HK|Hant)/i.test(locale)
     ? "zh-TW"
-    : locale.toLowerCase().split(/[-_]/)[0];
-  return unavailableCopy[key] ?? unavailableCopy.en;
+    : (locale.toLowerCase().split(/[-_]/)[0] ?? "en");
+  return unavailableCopy[key] ?? UNAVAILABLE_EN;
 }
 
 function record(value: unknown): Record<string, unknown> | null {
   if (typeof value === "string") {
     try {
       return record(JSON.parse(value));
+      // coercion-ok: unparseable output is null, which the caller reports as a failure notice
     } catch {
       return null;
     }
@@ -74,11 +77,15 @@ export function readMobileOpenAppEvent(
   ) {
     return { kind: "notice", message: mobileAppPanelUnavailable() };
   }
+  const app = text(result.app ?? result.appId ?? result.application);
+  const path = text(result.path ?? result.targetPath);
+  const url = text(result.url ?? result.href);
+  const view = text(result.view);
   const detail: ChatFirstOpenAppDetail = {
-    app: text(result.app ?? result.appId ?? result.application),
-    path: text(result.path ?? result.targetPath),
-    url: text(result.url ?? result.href),
-    view: text(result.view),
+    ...(app ? { app } : {}),
+    ...(path ? { path } : {}),
+    ...(url ? { url } : {}),
+    ...(view ? { view } : {}),
   };
   if (
     !(detail.app || detail.url) ||

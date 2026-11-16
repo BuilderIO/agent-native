@@ -128,7 +128,7 @@ export function activateMobileTab({
   navigate,
 }: {
   routeName: string;
-  appId?: string;
+  appId?: string | undefined;
   routes: readonly { name: string; key: string }[];
   currentIndex: number;
   emit: (key: string) => { defaultPrevented?: boolean };
