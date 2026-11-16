@@ -236,6 +236,121 @@ describe("end-to-end: gateway timeout → resume", () => {
     },
   );
 
+  it.each(["private-text", "private-thinking", "unreadable"] as const)(
+    "fails closed for %s history on real main-chat exhaustion",
+    async (history) => {
+      const journal = await import("./engine/tool-call-journal-seed.js");
+      const { persistedRunEventData } = await import("./run-store.js");
+      let dispatched = false;
+      const events =
+        history === "unreadable"
+          ? []
+          : [
+              JSON.parse(
+                persistedRunEventData(
+                  JSON.stringify({
+                    type: history === "private-text" ? "text" : "thinking",
+                    text: "sensitive output",
+                    omitFromPersistedHistory: true,
+                  }),
+                ),
+              ),
+            ];
+      const read = vi
+        .spyOn(journal, "loadPriorTurnToolCallJournal")
+        .mockImplementation(async () =>
+          history === "unreadable" && dispatched
+            ? { status: "unreadable", error: "sensitive storage detail" }
+            : {
+                status: "read",
+                events,
+                toolCallJournal: null,
+                priorToolCalls: [],
+                priorToolResults: [],
+                priorToolCallSequence: [],
+              },
+        );
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        const engine: AgentEngine = {
+          name: "builder",
+          label: "Builder",
+          defaultModel: "test-model",
+          supportedModels: ["test-model"],
+          supportsPrivateContent: true,
+          capabilities: {
+            thinking: false,
+            promptCaching: false,
+            vision: false,
+            computerUse: false,
+            parallelToolCalls: false,
+          },
+          async *stream(opts): AsyncIterable<EngineEvent> {
+            dispatched = true;
+            opts.onModelDispatchStarted?.();
+            yield {
+              type: "stop",
+              reason: "error",
+              error: "The private completion failed.",
+              errorCode: "http_503",
+              statusCode: 503,
+              providerRetryable: true,
+            };
+          },
+        };
+        const outcomes: Array<{
+          state: string;
+          code?: string;
+          retryable?: boolean;
+        }> = [];
+        const run = runAgentLoopWithMainChatInternalContinuations({
+          engine,
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+          historyPrivacyState: { private: true },
+          maxContinuations: 1,
+          resumeResumableErrorsInProcess: true,
+          onOutcome: (outcome) => outcomes.push(outcome),
+        }).catch((error: unknown) => error);
+        await vi.runAllTimersAsync();
+        const failure = await run;
+        const code =
+          history === "unreadable"
+            ? "tool_call_journal_unreadable"
+            : "run_budget_exhausted";
+        expect(failure).toMatchObject({
+          errorCode: code,
+          providerRetryable: false,
+        });
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as Error).message).not.toContain(
+          "sensitive storage detail",
+        );
+        expect((failure as Error).message).not.toContain("sensitive output");
+        expect(dispatched).toBe(true);
+        expect(outcomes.at(-1)).toMatchObject({
+          state: "failed",
+          code,
+          retryable: false,
+        });
+        expect(JSON.stringify({ failure, outcomes })).not.toContain(
+          "sensitive output",
+        );
+        expect(JSON.stringify({ failure, outcomes })).not.toContain(
+          "sensitive storage detail",
+        );
+      } finally {
+        read.mockRestore();
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("recovers a chat where the engine's transport interruption is not engine-level retryable", async () => {
     let calls = 0;
     const engine: AgentEngine = {

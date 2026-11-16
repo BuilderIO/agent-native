@@ -689,14 +689,14 @@ export async function runAgentLoopDirectWithSoftTimeout(
       ),
       reason: "continuation_limit",
       lastResumableError,
-      safeToRetry: lastResumableError
+      retrySafety: lastResumableError
         ? await canRetryRunWithoutReplayingWork({
             events: localTurnEvents,
             threadId: opts.threadId,
             turnId: opts.turnId,
             recoverCompletedExecutionSteps: opts.recoverCompletedExecutionSteps,
           })
-        : false,
+        : undefined,
     });
     reportFinalOutcome({
       state: "failed",

@@ -1344,6 +1344,125 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     },
   );
 
+  it.each(["text", "thinking"] as const)(
+    "does not retry after persisted private %s was redacted",
+    async (type) => {
+      const { persistedRunEventData } = await import("./run-store.js");
+      const stored = persistedRunEventData(
+        JSON.stringify({
+          type,
+          text: "sensitive output",
+          omitFromPersistedHistory: true,
+        }),
+      );
+      expect(JSON.parse(stored)).toEqual({
+        type,
+        text: "",
+        omitFromPersistedHistory: true,
+      });
+      mockGetCurrentTurnEventsForThread.mockResolvedValue([JSON.parse(stored)]);
+      const outcomes: AgentLoopOutcome[] = [];
+      mockRunAgentLoop.mockImplementation(async (opts) => {
+        opts.onModelDispatchStarted?.();
+        throw new EngineError("The private completion failed.", {
+          errorCode: "http_503",
+          statusCode: 503,
+          providerRetryable: true,
+        });
+      });
+      const failure = await runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+          undefined,
+          "thread-private",
+          outcomes,
+        ),
+        60_000,
+      ).catch((error: unknown) => error);
+      expect(failure).toMatchObject({
+        errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+        providerRetryable: false,
+      });
+      expect(outcomes.at(-1)).toMatchObject({
+        state: "failed",
+        retryable: false,
+      });
+      expect(JSON.stringify({ failure, outcomes })).not.toContain(
+        "sensitive output",
+      );
+    },
+  );
+
+  it.each([
+    { dispatched: false, priorWork: false, privateHistory: false },
+    { dispatched: true, priorWork: false, privateHistory: false },
+    { dispatched: true, priorWork: true, privateHistory: true },
+  ])(
+    "reports an unreadable history on 503 exhaustion without exposing its details (%o)",
+    async ({ dispatched, priorWork, privateHistory }) => {
+      const journal = await import("./engine/tool-call-journal-seed.js");
+      const read = vi
+        .spyOn(journal, "loadPriorTurnToolCallJournal")
+        .mockResolvedValue({
+          status: "unreadable",
+          error: "sensitive storage detail",
+          ...(privateHistory
+            ? { code: "private_history_unrecoverable" as const }
+            : {}),
+        });
+      const outcomes: AgentLoopOutcome[] = [];
+      let attempts = 0;
+      mockRunAgentLoop.mockImplementation(async (opts) => {
+        if (dispatched) opts.onModelDispatchStarted?.();
+        if (priorWork && attempts++ === 0) {
+          opts.send({ type: "tool_start", tool: "write", input: {} });
+          opts.send({
+            type: "tool_done",
+            tool: "write",
+            result: "done",
+            completedSideEffect: true,
+          });
+        }
+        throw new EngineError("The private completion failed.", {
+          errorCode: "http_503",
+          statusCode: 503,
+          providerRetryable: true,
+        });
+      });
+      try {
+        const failure = await runAgentLoopDirectWithSoftTimeout(
+          makeOpts(
+            [{ role: "user", content: [{ type: "text", text: "go" }] }],
+            new AbortController().signal,
+            undefined,
+            "thread-private",
+            outcomes,
+          ),
+          60_000,
+        ).catch((error: unknown) => error);
+        expect(failure).toMatchObject({
+          errorCode: "tool_call_journal_unreadable",
+          providerRetryable: false,
+        });
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as Error).message).not.toContain(
+          "sensitive storage detail",
+        );
+        expect(outcomes.at(-1)).toMatchObject({
+          state: "failed",
+          code: "tool_call_journal_unreadable",
+          retryable: false,
+        });
+        expect(JSON.stringify({ failure, outcomes })).not.toContain(
+          "sensitive storage detail",
+        );
+      } finally {
+        read.mockRestore();
+      }
+    },
+  );
+
   it("does not carry a prior 503 over a later no-output continuation", async () => {
     let attempts = 0;
     mockRunAgentLoop.mockImplementation(async (opts) => {

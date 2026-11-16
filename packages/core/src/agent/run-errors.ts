@@ -34,6 +34,9 @@ export const RUN_RATE_LIMITED_MESSAGE =
 export const AGENT_RUN_NO_OUTPUT_ERROR_CODE = "agent_run_no_output";
 export const AGENT_RUN_NO_OUTPUT_MESSAGE =
   "The agent run ended without producing a response.";
+export const RUN_JOURNAL_UNREADABLE_MESSAGE =
+  "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
+  "Retrying would risk repeating a step that already completed. Please send the request again.";
 
 interface IncompleteAgentRunFailure {
   code: string;
@@ -47,11 +50,11 @@ export async function canRetryRunWithoutReplayingWork(input: {
   threadId?: string;
   turnId?: string;
   recoverCompletedExecutionSteps?: boolean;
-}): Promise<boolean> {
+}): Promise<"safe" | "prior_work" | "unreadable"> {
   const hasOutputOrToolActivity = (events: readonly AgentChatEvent[]) =>
     events.some((event) =>
       event.type === "text" || event.type === "thinking"
-        ? event.text.length > 0
+        ? event.text.length > 0 || event.omitFromPersistedHistory === true
         : event.type === "tool_start" ||
           event.type === "tool_done" ||
           event.type === "tool_input_start" ||
@@ -68,7 +71,6 @@ export async function canRetryRunWithoutReplayingWork(input: {
           event.type === "agent_task_update" ||
           event.type === "agent_task_complete",
     );
-  if (hasOutputOrToolActivity(input.events)) return false;
   const journal = await loadPriorTurnToolCallJournal(
     input.threadId,
     input.turnId,
@@ -76,7 +78,11 @@ export async function canRetryRunWithoutReplayingWork(input: {
       recoverCompletedExecutionSteps: input.recoverCompletedExecutionSteps,
     },
   );
-  return journal.status === "read" && !hasOutputOrToolActivity(journal.events);
+  if (journal.status === "unreadable") return "unreadable";
+  return hasOutputOrToolActivity(input.events) ||
+    hasOutputOrToolActivity(journal.events)
+    ? "prior_work"
+    : "safe";
 }
 
 export function incompleteAgentRunFailure(input: {
@@ -84,14 +90,21 @@ export function incompleteAgentRunFailure(input: {
   hasVisibleText: boolean;
   hasSuccessfulToolOutput: boolean;
   lastResumableError?: unknown;
-  safeToRetry?: boolean;
+  retrySafety?: "safe" | "prior_work" | "unreadable";
   reason?:
     | "continuation_limit"
     | Exclude<AgentLoopContinuationReason, "max_tokens">;
 }): IncompleteAgentRunFailure {
   const error = input.lastResumableError;
+  if (input.retrySafety === "unreadable") {
+    return {
+      code: "tool_call_journal_unreadable",
+      message: RUN_JOURNAL_UNREADABLE_MESSAGE,
+      providerRetryable: false,
+    };
+  }
   if (
-    input.safeToRetry === true &&
+    input.retrySafety === "safe" &&
     !input.hasVisibleText &&
     !input.hasSuccessfulToolOutput &&
     error instanceof EngineError &&

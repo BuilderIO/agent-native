@@ -425,6 +425,7 @@ import {
   IncompleteAgentRunError,
   canRetryRunWithoutReplayingWork,
   incompleteAgentRunFailure,
+  RUN_JOURNAL_UNREADABLE_MESSAGE,
   RUN_RATE_LIMITED_MESSAGE,
 } from "./run-errors.js";
 import {
@@ -8351,9 +8352,7 @@ export async function runAgentLoop(opts: {
       internalContinuationTurn ||
       opts.recoverCompletedExecutionSteps === true)
       ? {
-          message:
-            "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
-            "Retrying would risk repeating a step that already completed. Please send the request again.",
+          message: RUN_JOURNAL_UNREADABLE_MESSAGE,
           errorCode: "tool_call_journal_unreadable",
           details: journalRead.error,
         }
@@ -12677,14 +12676,14 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       hasSuccessfulToolOutput: producedToolOutput,
       reason: "continuation_limit",
       lastResumableError,
-      safeToRetry: lastResumableError
+      retrySafety: lastResumableError
         ? await canRetryRunWithoutReplayingWork({
             events: localTurnEvents,
             threadId: opts.threadId,
             turnId: opts.turnId,
             recoverCompletedExecutionSteps: opts.recoverCompletedExecutionSteps,
           })
-        : false,
+        : undefined,
     });
     try {
       opts.onOutcome?.({

@@ -52,9 +52,41 @@ describe("retry safety for an incomplete run", () => {
   ] as const)(
     "refuses to replay local output or tool work",
     async ({ events }) => {
-      expect(await canRetryRunWithoutReplayingWork({ events })).toBe(false);
+      expect(await canRetryRunWithoutReplayingWork({ events })).toBe(
+        "prior_work",
+      );
     },
   );
+
+  it("distinguishes a failed ledger read even when local side effects are known", async () => {
+    const store = await import("./run-store.js");
+    const read = vi
+      .spyOn(store, "getCurrentTurnEventsForThread")
+      .mockRejectedValue(new Error("sensitive storage detail"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.useFakeTimers();
+    try {
+      const safety = canRetryRunWithoutReplayingWork({
+        events: [
+          {
+            type: "tool_done",
+            tool: "write",
+            result: "done",
+            completedSideEffect: true,
+          },
+        ],
+        threadId: "thread-test",
+        turnId: "turn-test",
+      });
+      await vi.runAllTimersAsync();
+      await expect(safety).resolves.toBe("unreadable");
+      expect(read).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+      read.mockRestore();
+      warn.mockRestore();
+    }
+  });
 
   it("fails closed when persisted turn work exists or cannot be read", async () => {
     const journal = await import("./engine/tool-call-journal-seed.js");
@@ -78,14 +110,14 @@ describe("retry safety for an incomplete run", () => {
           threadId: "thread-test",
           turnId: "turn-test",
         }),
-      ).resolves.toBe(false);
+      ).resolves.toBe("prior_work");
       await expect(
         canRetryRunWithoutReplayingWork({
           events: [],
           threadId: "thread-test",
           turnId: "turn-test",
         }),
-      ).resolves.toBe(false);
+      ).resolves.toBe("unreadable");
     } finally {
       read.mockRestore();
     }
@@ -139,7 +171,7 @@ describe("incompleteAgentRunFailure", () => {
         hasVisibleText: false,
         hasSuccessfulToolOutput: false,
         reason: "continuation_limit",
-        safeToRetry: true,
+        retrySafety: "safe",
         lastResumableError: new EngineError("rejected", {
           errorCode: "http_503",
           statusCode: 503,
@@ -159,7 +191,7 @@ describe("incompleteAgentRunFailure", () => {
         hasVisibleText: true,
         hasSuccessfulToolOutput: true,
         reason: "continuation_limit",
-        safeToRetry: true,
+        retrySafety: "safe",
         lastResumableError: new EngineError("unavailable", {
           errorCode: "http_503",
           statusCode: 503,
