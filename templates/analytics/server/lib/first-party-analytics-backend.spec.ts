@@ -107,6 +107,28 @@ describe("first-party BigQuery execution metadata", () => {
       expect(execute).not.toHaveBeenCalled();
     },
   );
+
+  it("passes a resumable query's deadline to runQuery", async () => {
+    runQuery.mockResolvedValue({ rows: [], schema: [] });
+    const deadline = new AbortController();
+    await queryFirstPartyAnalyticsInBigQuery(
+      "SELECT 1 AS n",
+      [],
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "example_events",
+        fullyQualified: "example-project.analytics.example_events",
+      },
+      { timeoutMs: 20_000, resumeAfter: deadline.signal },
+    );
+    const resumeAfter = runQuery.mock.calls[0]?.[1]?.resumeAfter as
+      | AbortSignal
+      | undefined;
+    expect(resumeAfter?.aborted).toBe(false);
+    deadline.abort();
+    expect(resumeAfter?.aborted).toBe(true);
+  });
 });
 
 beforeEach(() => {
