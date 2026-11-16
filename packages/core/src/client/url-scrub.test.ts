@@ -4,6 +4,7 @@ import { measureCpuMs } from "../testing/cpu-time";
 import {
   normalizePathSegments,
   scrubLocationHash,
+  scrubLocationState,
   scrubUrl,
 } from "./url-scrub";
 
@@ -421,5 +422,87 @@ describe("scrubLocationHash", () => {
     ["#/verify?token=canary", "#/verify?token=%3Credacted%3E"],
   ])("%s -> %s", (hash, expected) => {
     expect(scrubLocationHash(hash)).toBe(expected);
+  });
+});
+
+describe("scrubLocationState", () => {
+  const canary = "canary-secret-value";
+
+  it("keeps only the declared query keys, exact and prefix, and redacts the rest", () => {
+    expect(
+      scrubLocationState(
+        {
+          pathname: "/sessions",
+          search: `?token=${canary}&range=7d&f_region=emea&other=1`,
+          hash: "",
+        },
+        ["range", "f_*"],
+      ),
+    ).toEqual({
+      pathname: "/sessions",
+      search:
+        "?token=%3Credacted%3E&range=7d&f_region=emea&other=%3Credacted%3E",
+      hash: "",
+      searchParams: {
+        token: "<redacted>",
+        range: "7d",
+        f_region: "emea",
+        other: "<redacted>",
+      },
+    });
+  });
+
+  it("redacts every value, keeping the key names, when no key is declared", () => {
+    const state = scrubLocationState({
+      pathname: "/inbox",
+      search: `?q=private&code=${canary}`,
+      hash: `#access_token=${canary}`,
+    });
+
+    expect(state.searchParams).toEqual({
+      q: "<redacted>",
+      code: "<redacted>",
+    });
+    expect(state.hash).toBe("#access_token=%3Credacted%3E");
+    expect(JSON.stringify(state)).not.toContain(canary);
+  });
+
+  it("redacts a declared key whose value is a URL carrying an undeclared one", () => {
+    const state = scrubLocationState(
+      {
+        pathname: "/x",
+        search: `?next=${encodeURIComponent(`/y?token=${canary}`)}&range=7d`,
+        hash: "",
+      },
+      ["next", "range"],
+    );
+
+    expect(state.searchParams).toEqual({ next: "<redacted>", range: "7d" });
+  });
+
+  it("leaves the path and plain anchors alone", () => {
+    expect(
+      scrubLocationState({
+        pathname: "/search/QA%20test",
+        search: "",
+        hash: "#overview",
+      }),
+    ).toEqual({
+      pathname: "/search/QA%20test",
+      search: "",
+      hash: "#overview",
+      searchParams: {},
+    });
+  });
+});
+
+describe("scrubUrl keepParams", () => {
+  it("keeps exact and prefix patterns, and lets an extra sensitive name win", () => {
+    expect(
+      scrubUrl("/x?a=1&b=2&f_x=3&f_y=4&c=5", {
+        keepParams: ["a", "f_*"],
+        additionalSensitiveParams: ["f_y"],
+      }),
+    ).toBe("/x?a=1&b=%3Credacted%3E&f_x=3&f_y=%3Credacted%3E&c=%3Credacted%3E");
   });
 });

@@ -4,7 +4,7 @@ import {
 } from "@agent-native/core/client/api-path";
 import { readClientAppState } from "@agent-native/core/client/application-state";
 import { useScreenRefreshKey } from "@agent-native/core/client/hooks";
-import { scrubLocationHash } from "@agent-native/core/client/url-scrub";
+import { scrubLocationState } from "@agent-native/core/client/url-scrub";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import React from "react";
 import { useInRouterContext, useLocation, useNavigate } from "react-router";
@@ -29,7 +29,14 @@ function RecordSettingsReturnPath() {
   return null;
 }
 
-export function URLSync({ browserTabId }: { browserTabId?: string }) {
+export function URLSync({
+  browserTabId,
+  queryKeys,
+}: {
+  browserTabId?: string;
+  /** Query keys whose values the agent may read; see `scrubLocationState`. */
+  queryKeys?: readonly string[];
+}) {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -48,19 +55,18 @@ export function URLSync({ browserTabId }: { browserTabId?: string }) {
     [normalizedBrowserTabId],
   );
 
+  // An inline array would change identity every render and rewrite the state.
+  const queryKeysSignature = (queryKeys ?? []).join("\n");
+
   React.useEffect(() => {
-    const searchParams: Record<string, string> = {};
-    for (const [k, v] of new URLSearchParams(location.search).entries()) {
-      searchParams[k] = v;
-    }
-    const body = {
-      pathname: location.pathname,
-      search: location.search,
-      // The agent reads filters from the query, so only the hash, where
-      // OAuth redirects land their tokens, is scrubbed.
-      hash: scrubLocationHash(location.hash),
-      searchParams,
-    };
+    const body = scrubLocationState(
+      {
+        pathname: location.pathname,
+        search: location.search,
+        hash: location.hash,
+      },
+      queryKeysSignature ? queryKeysSignature.split("\n") : [],
+    );
     const write = (key: string) =>
       fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
         method: "PUT",
@@ -75,6 +81,7 @@ export function URLSync({ browserTabId }: { browserTabId?: string }) {
     location.pathname,
     location.search,
     location.hash,
+    queryKeysSignature,
     normalizedBrowserTabId,
   ]);
 

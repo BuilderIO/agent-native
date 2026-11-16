@@ -88,7 +88,7 @@ const navigation = await readAppState("navigation");
 Keep text-selection ranges and excerpts in the tab-scoped `selection` key, not
 in `navigation`.
 
-Raw URL query params are already synced by the framework to `__url__` and shown to the built-in agent as `<current-url>`. Keep shareable filters in URL state, then use `view-screen` to summarize important query params as `activeFilters` when helpful.
+The framework syncs the URL to `__url__` and shows it to the built-in agent as `<current-url>`, but a query value reaches the agent only when the app declares its key: pass `urlQueryKeys` to `AgentSidebar` (exact names and `prefix*` patterns, for example `["range", "f_*"]`) for every key `view-screen` reads. The agent still sees the name of any other key, with its value redacted. Keep shareable filters in URL state, then use `view-screen` to summarize important query params as `activeFilters` when helpful.
 
 Keep `application_state` values small. Do not store pasted files, base64 images,
 recording chunks, screenshots, or other large blobs in navigation or app-state
@@ -162,7 +162,7 @@ mode must skip with `data-agent-select-ignore`.
 
 ### 2. Current URL (`__url__` key)
 
-`AgentPanel` automatically writes `__url__` with `{ pathname, search, hash, searchParams }`. The built-in agent sees it as a `<current-url>` block in every turn.
+`AgentPanel` automatically writes `__url__` with `{ pathname, search, hash, searchParams }`. The built-in agent sees it as a `<current-url>` block in every turn. Query values are redacted unless the app declares their keys with `urlQueryKeys`, and the hash is scrubbed.
 
 Use this for URL-reachable filters and search state. The agent can update it with the built-in `set-search-params` and `set-url-path` tools; do not duplicate the whole query string into `navigation`.
 

@@ -38,22 +38,38 @@ function normalizeQueryParamName(key: string): string {
   return key.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function shouldRedactQueryParam(
-  key: string,
-  additionalSensitiveParams: readonly string[],
-): boolean {
-  if (!ATTRIBUTION_QUERY_PARAMS.has(key) && !UTM_QUERY_PARAM.test(key)) {
+interface ParamPolicy {
+  /** Attribution parameters to redact anyway. */
+  redact: readonly string[];
+  /** Further parameters whose values stay readable: exact names and `prefix*`. */
+  keep: readonly string[];
+}
+
+function isKeptQueryParam(key: string, keep: readonly string[]): boolean {
+  return keep.some((pattern) =>
+    pattern.endsWith("*")
+      ? key.startsWith(pattern.slice(0, -1))
+      : key === pattern,
+  );
+}
+
+function shouldRedactQueryParam(key: string, policy: ParamPolicy): boolean {
+  if (
+    !ATTRIBUTION_QUERY_PARAMS.has(key) &&
+    !UTM_QUERY_PARAM.test(key) &&
+    !isKeptQueryParam(key, policy.keep)
+  ) {
     return true;
   }
   const normalized = normalizeQueryParamName(key);
-  return additionalSensitiveParams.some(
+  return policy.redact.some(
     (name) => normalizeQueryParamName(name) === normalized,
   );
 }
 
 function hasSensitiveNestedQuery(
   value: string,
-  additionalSensitiveParams: readonly string[],
+  policy: ParamPolicy,
   depth = 0,
 ): boolean {
   if (depth >= MAX_QUERY_DECODE_DEPTH) return true;
@@ -68,17 +84,11 @@ function hasSensitiveNestedQuery(
         : value.slice(index + 1);
     const params = new URLSearchParams(query);
     for (const key of new Set(params.keys())) {
-      if (shouldRedactQueryParam(key, additionalSensitiveParams)) return true;
+      if (shouldRedactQueryParam(key, policy)) return true;
       if (
         params
           .getAll(key)
-          .some((nested) =>
-            hasSensitiveNestedQuery(
-              nested,
-              additionalSensitiveParams,
-              depth + 1,
-            ),
-          )
+          .some((nested) => hasSensitiveNestedQuery(nested, policy, depth + 1))
       ) {
         return true;
       }
@@ -89,7 +99,7 @@ function hasSensitiveNestedQuery(
       const decoded = decodeURIComponent(value);
       if (
         decoded !== value &&
-        hasSensitiveNestedQuery(decoded, additionalSensitiveParams, depth + 1)
+        hasSensitiveNestedQuery(decoded, policy, depth + 1)
       ) {
         return true;
       }
@@ -102,21 +112,17 @@ function hasSensitiveNestedQuery(
 
 function redactSensitiveQueryParams(
   params: URLSearchParams,
-  additionalSensitiveParams: readonly string[],
+  policy: ParamPolicy,
 ): boolean {
   let mutated = false;
   for (const key of new Set(params.keys())) {
-    if (shouldRedactQueryParam(key, additionalSensitiveParams)) {
+    if (shouldRedactQueryParam(key, policy)) {
       params.set(key, "<redacted>");
       mutated = true;
       continue;
     }
     if (
-      params
-        .getAll(key)
-        .some((value) =>
-          hasSensitiveNestedQuery(value, additionalSensitiveParams),
-        )
+      params.getAll(key).some((value) => hasSensitiveNestedQuery(value, policy))
     ) {
       params.set(key, "<redacted>");
       mutated = true;
@@ -128,6 +134,11 @@ function redactSensitiveQueryParams(
 export interface ScrubUrlOptions {
   /** Attribution parameters to redact anyway, for apps with their own. */
   additionalSensitiveParams?: readonly string[];
+  /**
+   * Parameters besides the attribution ones whose values stay readable, as exact
+   * names and `prefix*` patterns. For a page URL the agent reads filters from.
+   */
+  keepParams?: readonly string[];
   /**
    * Report the route that rendered the path (`/share/:shareId`) instead of the
    * path itself, so a token or record id in it never leaves the page. Without a
@@ -185,11 +196,17 @@ export function scrubUrl(
   options: readonly string[] | ScrubUrlOptions = {},
 ): string | undefined {
   if (!url || typeof url !== "string") return url;
-  const { additionalSensitiveParams = [], routePath = false } = isParameterList(
-    options,
-  )
+  const {
+    additionalSensitiveParams = [],
+    keepParams = [],
+    routePath = false,
+  } = isParameterList(options)
     ? { additionalSensitiveParams: options }
     : options;
+  const policy: ParamPolicy = {
+    redact: additionalSensitiveParams,
+    keep: keepParams,
+  };
   try {
     const unescaped = decodeAmpersandEntities(url);
     const u = new URL(unescaped, "http://placeholder.local");
@@ -217,9 +234,7 @@ export function scrubUrl(
         mutated = true;
       }
     }
-    mutated =
-      redactSensitiveQueryParams(u.searchParams, additionalSensitiveParams) ||
-      mutated;
+    mutated = redactSensitiveQueryParams(u.searchParams, policy) || mutated;
     const hash = u.hash.slice(1);
     const encodedRouteQueryIndex = hash.search(ENCODED_ROUTE_QUERY_DELIMITER);
     const routePathBeforeEncodedQuery =
@@ -231,10 +246,7 @@ export function scrubUrl(
       (hash.startsWith("/") ||
         (routePathBeforeEncodedQuery.length > 0 &&
           !routePathBeforeEncodedQuery.includes("=")));
-    if (
-      hasEncodedRouteQuery &&
-      hasSensitiveNestedQuery(hash, additionalSensitiveParams)
-    ) {
+    if (hasEncodedRouteQuery && hasSensitiveNestedQuery(hash, policy)) {
       mutated = true;
       u.hash = "<redacted>";
     } else {
@@ -251,7 +263,7 @@ export function scrubUrl(
         hash.startsWith("/") ||
         (routePrefixPath.length > 0 && !routePrefixPath.includes("=")) ||
         (routePrefixParam !== undefined &&
-          !shouldRedactQueryParam(routePrefixParam, additionalSensitiveParams));
+          !shouldRedactQueryParam(routePrefixParam, policy));
       const hashUsesRouteQuery =
         hashRouteQueryIndex > 0 &&
         (hasHashRoutePathPrefix || !hashRoutePrefix.includes("="));
@@ -277,12 +289,7 @@ export function scrubUrl(
         const routePrefixParams = new URLSearchParams(
           hashRoutePrefix.slice(routePrefixParamsIndex + 1),
         );
-        if (
-          redactSensitiveQueryParams(
-            routePrefixParams,
-            additionalSensitiveParams,
-          )
-        ) {
+        if (redactSensitiveQueryParams(routePrefixParams, policy)) {
           mutated = true;
           hashRoutePrefixMutated = true;
           scrubbedHashRoutePrefix = `${routePrefixPath}&${routePrefixParams.toString()}`;
@@ -292,7 +299,7 @@ export function scrubUrl(
       let hashQueryMutated = false;
       if (hashQuery.includes("=")) {
         const hashParams = new URLSearchParams(hashQuery);
-        if (redactSensitiveQueryParams(hashParams, additionalSensitiveParams)) {
+        if (redactSensitiveQueryParams(hashParams, policy)) {
           mutated = true;
           hashQueryMutated = true;
           scrubbedHashQuery = hashParams.toString();
@@ -320,13 +327,43 @@ export function scrubUrl(
 }
 
 /**
- * A `location.hash` scrubbed like the hash of a URL, for sinks that carry the
- * hash apart from the URL. The query is left to the sink: the agent reads
- * filters from it.
+ * A `location.hash` scrubbed like the hash of a URL, for a reader that gets the
+ * hash apart from the query.
  */
 export function scrubLocationHash(hash: string): string {
   if (!hash) return "";
   const withMark = hash.startsWith("#") ? hash : `#${hash}`;
   const scrubbed = scrubUrl(`/${withMark}`)?.slice(1) ?? "";
   return hash.startsWith("#") ? scrubbed : scrubbed.slice(1);
+}
+
+/**
+ * The `__url__` application state the agent reads: the path, and the query and
+ * hash scrubbed. Only the query keys in `keepQueryKeys` (exact names and
+ * `prefix*` patterns) keep their values, so an app declares the filters its
+ * agent reads and nothing else rides along; the other keys stay, redacted.
+ */
+export function scrubLocationState(
+  location: { pathname: string; search: string; hash: string },
+  keepQueryKeys: readonly string[] = [],
+): {
+  pathname: string;
+  search: string;
+  hash: string;
+  searchParams: Record<string, string>;
+} {
+  const scrubbed = new URL(
+    scrubUrl(`/${location.search}${location.hash}`, {
+      keepParams: keepQueryKeys,
+    }) ?? "/",
+    "http://placeholder.local",
+  );
+  const searchParams: Record<string, string> = {};
+  for (const [key, value] of scrubbed.searchParams) searchParams[key] = value;
+  return {
+    pathname: location.pathname,
+    search: scrubbed.search,
+    hash: scrubbed.hash,
+    searchParams,
+  };
 }
