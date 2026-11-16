@@ -7375,23 +7375,38 @@ export class AgentKitClient implements AgentKitController {
       ...(queued.metadata ? { metadata: queued.metadata } : {}),
       queueWhileRunning: false,
     };
+    const messageIdsBeforeSend = new Set(
+      this.getThread(threadId).messages.map((message) => message.id),
+    );
     try {
       await this.sendMessage(input);
     } catch (error) {
       // The row was removed before the send; a refusal before any transcript
-      // message exists must not lose the user's text and attachments.
-      if (!this.disposed) {
+      // message exists must not lose the user's text and attachments. Once
+      // sendMessage has kept the text as an errored transcript entry, queueing
+      // it again would send it twice.
+      const retainedAsError = this.getThread(threadId).messages.some(
+        (message) =>
+          !messageIdsBeforeSend.has(message.id) &&
+          message.role === "user" &&
+          message.status === "error",
+      );
+      if (!this.disposed && !retainedAsError) {
         await this.queueMessage({ ...input, queueWhileRunning: true }).catch(
           () => {
-            // Requeueing failed too: keep the row locally so the text and
-            // attachments stay on screen; the original error is still thrown.
+            // Requeueing failed too: keep the row, and tell the override the
+            // row is wanted again, or the next snapshot filters it out as removed.
             const thread = this.getThread(threadId);
-            if (!thread.queuedMessages.some((m) => m.id === queued.id)) {
-              this.setThread(threadId, {
-                ...thread,
-                queuedMessages: [...thread.queuedMessages, queued],
-              });
-            }
+            if (thread.queuedMessages.some((m) => m.id === queued.id)) return;
+            const queuedMessages = [...thread.queuedMessages, queued];
+            this.setThread(threadId, { ...thread, queuedMessages });
+            const previous = this.queuedMessageOverrides.get(threadId);
+            const removedIds = new Set(previous?.removedIds);
+            removedIds.delete(queued.id);
+            this.queuedMessageOverrides.set(threadId, {
+              messages: queuedMessages,
+              removedIds,
+            });
           },
         );
       }

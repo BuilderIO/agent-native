@@ -4190,6 +4190,70 @@ describe("AgentKitClient", () => {
     expect(client.getThread("thread-1").queuedMessages).toEqual([]);
   });
 
+  it("does not requeue a promoted row whose turn failed to start and is kept as an errored message", async () => {
+    const { promise: terminal, resolve: resolveTerminal } =
+      Promise.withResolvers<void>();
+    let starts = 0;
+    const queued: string[] = [];
+    const transport: AgentTransport = {
+      capabilities: { messageQueue: true },
+      async startRun() {
+        starts += 1;
+        if (starts > 1) throw new Error("Run could not start.");
+        return { runId: "run-1" };
+      },
+      async *subscribeToRun({ runId }) {
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        await terminal;
+        yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+      },
+      async getThreadSnapshot() {
+        return {
+          id: "thread-1",
+          createdAt: "2026-08-29T00:00:00.000Z",
+          updatedAt: "2026-08-29T00:00:00.000Z",
+          messages: [],
+          queuedMessages: [],
+        };
+      },
+      async queueMessage(input) {
+        queued.push(input.text);
+        return {
+          message: {
+            id: `queued-${queued.length}`,
+            threadId: input.threadId,
+            text: input.text,
+            createdAt: "2026-08-29T00:00:01.000Z",
+          },
+        };
+      },
+      async steerQueuedMessage() {
+        throw new Error("No live run accepts this queued message.");
+      },
+      async removeQueuedMessage() {},
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+    await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").activeRunIds).toContain("run-1"),
+    );
+    await client.queueMessage({ threadId: "thread-1", text: "Follow up" });
+    expect(queued).toEqual(["Follow up"]);
+
+    resolveTerminal();
+    await vi.waitFor(() => expect(starts).toBe(2), { timeout: 3000 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(queued).toEqual(["Follow up"]);
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    expect(
+      client
+        .getThread("thread-1")
+        .messages.filter((message) => message.status === "error"),
+    ).toHaveLength(1);
+  });
+
   it("sends a Send now row as a turn when its run ends without taking it", async () => {
     // A steer that lands while the run is still active answers "steering". If the run ends without
     // consuming that row, nothing else sends it: the row must still reach the transcript as the next turn.

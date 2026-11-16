@@ -167,6 +167,7 @@ import {
   setWorkspaceAppDefaultVisibilityHandler,
   createOrgHandler,
   switchOrgHandler,
+  leaveOrgHandler,
 } from "./handlers.js";
 import {
   cachedMemberships,
@@ -1596,6 +1597,116 @@ describe("org handlers", () => {
       expect(mockExecute.mock.calls[0][0].sql).toContain("LIMIT 2");
       expect(mockVerifyA2AToken).not.toHaveBeenCalled();
       expect(mockExecute).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("leaveOrgHandler", () => {
+    function leaveScript(rows: {
+      role?: string;
+      other?: boolean;
+      successor?: string;
+      nextOrg?: string;
+    }) {
+      mockGetOrgContext.mockResolvedValue({
+        email: "Member@Example.test",
+        orgId: "org-1",
+        orgName: "Example",
+        role: rows.role ?? "member",
+      });
+      mockExecute.mockImplementation(async ({ sql }: { sql: string }) => {
+        if (sql.includes("SELECT role FROM org_members"))
+          return {
+            rows: rows.role === "none" ? [] : [{ role: rows.role ?? "member" }],
+          };
+        if (sql.includes("SELECT 1 FROM org_members"))
+          return { rows: rows.other === false ? [] : [{ 1: 1 }] };
+        if (sql.includes("SELECT email FROM org_members"))
+          return {
+            rows: rows.successor ? [{ email: ` ${rows.successor} ` }] : [],
+          };
+        if (sql.includes('AS "orgId"'))
+          return { rows: rows.nextOrg ? [{ orgId: rows.nextOrg }] : [] };
+        return { rows: [], rowsAffected: 1 };
+      });
+    }
+    const updates = () =>
+      mockExecute.mock.calls.filter(([q]) =>
+        String(q.sql).includes("UPDATE org_members"),
+      );
+
+    it("rejects a caller with no live membership", async () => {
+      leaveScript({ role: "none" });
+      await expect(
+        leaveOrgHandler(makeEvent("/_agent-native/org/leave")),
+      ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it("rejects the owner", async () => {
+      leaveScript({ role: "owner" });
+      await expect(
+        leaveOrgHandler(makeEvent("/_agent-native/org/leave")),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(updates()).toHaveLength(0);
+    });
+
+    it("rejects leaving the only organization", async () => {
+      leaveScript({ other: false, successor: "owner@example.test" });
+      await expect(
+        leaveOrgHandler(makeEvent("/_agent-native/org/leave")),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect(updates()).toHaveLength(0);
+    });
+
+    it("finds a successor before marking the caller pending", async () => {
+      leaveScript({});
+      await expect(
+        leaveOrgHandler(makeEvent("/_agent-native/org/leave")),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect(updates()).toHaveLength(0);
+      expect(mockRevokeFederatedOrganizationMember).not.toHaveBeenCalled();
+    });
+
+    it("transfers to the successor and returns the next org", async () => {
+      leaveScript({ successor: "owner@example.test", nextOrg: "org-2" });
+      await expect(
+        leaveOrgHandler(makeEvent("/_agent-native/org/leave")),
+      ).resolves.toEqual({ success: true, orgId: "org-1", nextOrgId: "org-2" });
+      expect(updates()).toHaveLength(1);
+      expect(mockRevokeFederatedOrganizationMember).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          orgId: "org-1",
+          actorEmail: "member@example.test",
+          memberEmail: "member@example.test",
+        }),
+      );
+      expect(mockOffboardMember).toHaveBeenCalledWith(
+        expect.anything(),
+        "member@example.test",
+        expect.objectContaining({
+          transferTo: "owner@example.test",
+          orgId: "org-1",
+        }),
+      );
+    });
+
+    it("keeps the removal pending when the identity authority fails", async () => {
+      leaveScript({ successor: "owner@example.test", nextOrg: "org-2" });
+      mockRevokeFederatedOrganizationMember.mockRejectedValueOnce(
+        new Error("down"),
+      );
+      await expect(
+        leaveOrgHandler(makeEvent("/_agent-native/org/leave")),
+      ).rejects.toMatchObject({ statusCode: 503 });
+      expect(mockOffboardMember).not.toHaveBeenCalled();
+    });
+
+    it("reports pending cleanup when local offboarding fails", async () => {
+      leaveScript({ successor: "owner@example.test", nextOrg: "org-2" });
+      mockOffboardMember.mockRejectedValueOnce(new Error("db"));
+      await expect(
+        leaveOrgHandler(makeEvent("/_agent-native/org/leave")),
+      ).rejects.toMatchObject({ statusCode: 503 });
     });
   });
 
