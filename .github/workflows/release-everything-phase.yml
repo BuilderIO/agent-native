@@ -952,10 +952,20 @@ jobs:
                     lastMergeRunState = mergeRunState;
                   }
                   if (mergeRun?.status === "completed" && mergeRun.conclusion !== "success") {
-                    const reason = await releaseMergeRunFailureReason(mergeRun);
-                    throw new Error(
-                      `Stable release PR #${pr.number} will not merge: its merge run ended ${mergeRun.conclusion}${reason ? ` (${reason})` : ""}: ${mergeRun.html_url}`,
-                    );
+                    // A new head cancels the old head's merge run, possibly between the
+                    // PR read above and the run read, so only the still-current head's
+                    // run is final.
+                    const latest = (await github.rest.pulls.get({
+                      owner,
+                      repo,
+                      pull_number: pr.number,
+                    })).data;
+                    if (!latest.merged && latest.head?.sha === current.head.sha) {
+                      const reason = await releaseMergeRunFailureReason(mergeRun);
+                      throw new Error(
+                        `Stable release PR #${pr.number} will not merge: its merge run ended ${mergeRun.conclusion}${reason ? ` (${reason})` : ""}: ${mergeRun.html_url}`,
+                      );
+                    }
                   }
                 }
                 const remaining = deadline - Date.now();

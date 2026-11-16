@@ -1435,6 +1435,70 @@ return waitForReleaseMerge;`,
     }
   });
 
+  it("keeps waiting when the release PR head moves while its old merge run is cancelled", async () => {
+    const realNow = Date.now;
+    let now = 0;
+    Date.now = () => now;
+    const movedHeadSha = "c".repeat(40);
+    let pullReads = 0;
+    const github = {
+      rest: {
+        pulls: {
+          get: async () => {
+            pullReads += 1;
+            if (pullReads === 1) {
+              return {
+                data: {
+                  merged: false,
+                  state: "open",
+                  head: { sha: releaseHeadSha },
+                },
+              };
+            }
+            return {
+              data:
+                now >= 10 * 60_000
+                  ? { merged: true, merge_commit_sha: "a".repeat(40) }
+                  : {
+                      merged: false,
+                      state: "open",
+                      head: { sha: movedHeadSha },
+                    },
+            };
+          },
+        },
+        actions: {
+          listWorkflowRuns: async ({ head_sha }: { head_sha: string }) => ({
+            data: {
+              workflow_runs:
+                head_sha === releaseHeadSha
+                  ? [releaseMergeRun(1, "completed", "cancelled")]
+                  : [
+                      {
+                        ...releaseMergeRun(2, "in_progress", null),
+                        head_sha: movedHeadSha,
+                      },
+                    ],
+            },
+          }),
+        },
+      },
+    };
+    try {
+      const waitForReleaseMerge = await loadWaitForReleaseMerge({
+        github,
+        sleep: async (ms) => {
+          now += ms;
+        },
+        pollIntervalMs: 15_000,
+      });
+      assert.equal(await waitForReleaseMerge({ number: 9132 }), "a".repeat(40));
+      assert.equal(now, 10 * 60_000);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   it("recovers only a hosted-runner failure after stable npm publication", () => {
     const source = String((coordinator.with as Workflow).script);
     const AsyncFunction = Object.getPrototypeOf(
