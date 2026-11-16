@@ -2612,6 +2612,14 @@ body {
 /* Radix SegmentedControl (surface, size 1 = 24px, size 2 = 32px, medium radius: root radius-2, indicator radius-2 minus 1px) */
 body { --seg-bg: rgba(0,0,0,.051); --seg-ind: #ffffff; --seg-ring: rgba(0,0,0,.078); --seg-hover: rgba(0,0,0,.02); }
 :root[data-theme="dark"] body { --seg-bg: #353535; --seg-ind: #3f3f3f; --seg-ring: rgba(255,255,255,.098); --seg-hover: rgba(255,255,255,.035); }
+@media (prefers-color-scheme: dark) {
+:root:not([data-theme="light"]) body {
+  --brand: #0a6fe0; --brand-hover: #2f86f0; --brand-ink: #70b8ff;
+  --brand-soft: color-mix(in srgb, #3b9eff 26%, transparent); --brand-row: color-mix(in srgb, #3b9eff 18%, transparent); --brand-sub: color-mix(in srgb, #3b9eff 9%, transparent);
+  --brand-chip: rgba(59, 158, 255, 0.22); --color-ring: #3b9eff;
+}
+:root:not([data-theme="light"]) body { --seg-bg: #353535; --seg-ind: #3f3f3f; --seg-ring: rgba(255,255,255,.098); --seg-hover: rgba(255,255,255,.035); }
+}
 .kit-seg, .topbar .kit-seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; align-items: stretch; padding: 1px; height: 24px; box-sizing: border-box; border-radius: 4px; background: var(--seg-bg); isolation: isolate; min-width: max-content; flex: none; }
 .kit-seg button, .topbar .kit-seg button { display: flex; align-items: center; justify-content: center; gap: 4px; height: auto; padding-inline: 12px; margin: 0; border-radius: 3px; background: transparent; box-shadow: none; color: var(--color-foreground); font-size: 12px; line-height: 16px; font-weight: 450; letter-spacing: 0; }
 .kit-seg button:not([aria-pressed="true"]):hover { background: var(--seg-hover); }
@@ -9119,6 +9127,25 @@ requestAnimationFrame(() => { wsSide(); hyFitZoom(); islandsChanged(); render();
   addEventListener("resize", fit);
   for (const name of ["renderTopbar", "renderDock"]) { const base = eval(name); eval(`${name} = function (...a) { const r = base.apply(this, a); sync(); return r; }`); }
 }
+/* ───────── no top bar ───────── */
+// The top bar's ends become the tops of their columns: the file and its panel toggle head the left panel, comments,
+// people and Share head the inspector, and the canvas runs up to the window edge between them. Interact's browser chrome
+// joins its tools in the floating toolbar. A column that's hidden leaves its head floating as an island, as minimal UI
+// does. renderTopbar and renderDock rebuild the chrome, so the browser controls are moved after every render.
+{
+  app.classList.add("no-gbar");
+  const fbar = $("#fbar"), dock = $("#dock");
+  const place = () => {
+    fbar.querySelectorAll(":scope > .mb, :scope > .fb-psep").forEach(e => e.remove());
+    const mb = $("#modebar .mb");
+    if (S.mode !== "interact" || !mb || !mb.children.length) return;
+    mb.querySelectorAll(":scope > .vsep").forEach(v => v.remove());
+    mb.querySelector(".pv-size")?.insertAdjacentHTML("beforebegin", '<span class="vsep"></span>');
+    dock.before(mb); dock.insertAdjacentHTML("beforebegin", '<span class="vsep fb-psep"></span>');
+  };
+  for (const name of ["renderTopbar", "renderDock"]) { const base = eval(name); eval(`${name} = function (...a) { const r = base.apply(this, a); place(); return r; }`); }
+  requestAnimationFrame(() => { renderTopbar(); islandsChanged(); });
+}
 /* ───────── Spacing (G): a measured grid over the chrome ───────── */
 // Draws from the live layout, never from assumed numbers: an 8px grid anchored to each chrome region, the panel's tree
 // columns, the inspector's real control columns, and a box around every row, head and control. Any box whose size or
@@ -9877,4 +9904,28 @@ render();
 /* Rotate and both flips are one transform group across the two field columns. */
 #insp .segc.xf { width: 100%; }
 #insp .segc.xf > button { flex: 1 1 0; }
+
+/* No top bar: each end of the bar is the top of its column, flat and on the column's colour with the column's
+   hairline; the canvas runs up to the window edge between them. */
+.app.no-gbar:not(.minimal) .gbar { align-items: flex-start; height: 64px; background: none; box-shadow: none !important; pointer-events: none; }
+.app.no-gbar:not(.minimal) .gbar .gb-l { height: 48px; }
+.app.no-gbar:not(.minimal) .gbar .gb-c { display: none; }
+.app.no-gbar:not(.minimal) .gbar :is(.gb-l, .gb-r) { pointer-events: auto; background: var(--color-background); }
+.app.no-gbar:not(.minimal) .gbar .gb-l { box-shadow: inset -1px 0 0 var(--color-border); }
+.app.no-gbar:not(.minimal) .gbar .gb-r { margin-left: auto; box-shadow: inset 1px 0 0 var(--color-border); }
+.app.no-gbar:not(.preview) .canvas-inner { padding-top: 32px; }
+.app.no-gbar.preview #canvas, .app.no-gbar.preview::after { top: 8px; }
+/* A hidden column leaves its head floating as an island: the file when the left panel is hidden in Interact, and
+   comments, people and Share in Interact, which has no inspector. */
+.app.no-gbar:not(.minimal).no-panel .gbar .gb-l, .app.no-gbar.preview:not(.minimal) .gbar .gb-r { align-self: start; background: none; box-shadow: none; }
+.app.no-gbar:not(.minimal).no-panel .gbar .file-head, .app.no-gbar.preview:not(.minimal) .gbar #insp-head { height: 48px; border-radius: 12px; background: var(--color-background); box-shadow: var(--isl-shadow); }
+.app.no-gbar:not(.minimal).no-panel .gbar .file-head { margin: 8px 0 0 8px; padding: 8px; width: auto; }
+.app.no-gbar.preview:not(.minimal) .gbar #insp-head { margin: 8px 8px 0 0; width: auto; min-width: 0; padding-inline: 8px; }
+/* Interact's browser controls lead the floating toolbar: back, forward, reload, the address, the size, then the tools. */
+#fbar > .mb { position: static; display: flex; align-items: center; gap: 4px; height: 32px; margin: 0; padding: 0; background: none; box-shadow: none; border-radius: 0; transform: none !important; }
+#fbar > .mb .icon-btn:not(.sm) { width: 32px; height: 32px; border-radius: 8px; }
+#fbar > .mb .icon-btn.sm { width: 16px; height: 32px; border-radius: 6px; }
+#fbar > .mb #route-btn { height: 32px; width: 160px; border-radius: 8px; }
+#fbar > .mb .tb-seg { height: 32px; }
+#fbar > .mb .vsep, #fbar > .fb-psep { flex: none; width: 1px; height: 24px; margin-inline: 4px; background: var(--color-border); }
 </style>
