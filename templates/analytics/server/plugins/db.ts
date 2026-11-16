@@ -1908,6 +1908,40 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       sql: `CREATE INDEX IF NOT EXISTS analytics_bigquery_usage_started_idx
         ON analytics_bigquery_usage (started_at, project_id, job_id)`,
     },
+    {
+      version: 185,
+      name: "analytics-session-reports",
+      sql: `CREATE TABLE IF NOT EXISTS session_reports (
+      id TEXT PRIMARY KEY,
+      recording_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      key_moments TEXT NOT NULL DEFAULT '[]',
+      repro_steps TEXT NOT NULL DEFAULT '[]',
+      error_issue_id TEXT,
+      build TEXT,
+      from_ms INTEGER,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    );
+    CREATE INDEX IF NOT EXISTS session_reports_recording_idx
+      ON session_reports (recording_id);
+    CREATE TABLE IF NOT EXISTS session_report_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      notified_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS session_report_shares_resource_idx
+      ON session_report_shares (resource_id)`,
+    },
   ],
   { table: "analytics_migrations" },
 );
