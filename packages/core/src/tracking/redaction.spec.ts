@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { measureCpuMs } from "../testing/cpu-time";
 import { redact } from "./redaction";
 
 describe("redact", () => {
@@ -23,18 +24,19 @@ describe("redact", () => {
 
   it("stays linear on 8 KB of repeated key-looking text", () => {
     const run = "token_".repeat(1400);
-    const timed = (value: string) => {
-      const start = performance.now();
-      const result = redact(value);
-      return { result, ms: performance.now() - start };
-    };
+    let plain = "";
+    let assigned = "";
 
-    const plain = timed(run);
-    const assigned = timed(`${run}=abc`);
+    const plainCpuMs = measureCpuMs(() => {
+      plain = redact(run);
+    });
+    const assignedCpuMs = measureCpuMs(() => {
+      assigned = redact(`${run}=abc`);
+    });
 
-    expect(plain.result).toBe(run);
-    expect(assigned.result).toBe(`${run}=<redacted>`);
-    expect(plain.ms).toBeLessThan(250);
-    expect(assigned.ms).toBeLessThan(250);
+    expect(plain).toBe(run);
+    expect(assigned).toBe(`${run}=<redacted>`);
+    expect(plainCpuMs).toBeLessThan(250);
+    expect(assignedCpuMs).toBeLessThan(250);
   });
 });

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { measureCpuMs } from "../testing/cpu-time";
 import {
   captureException,
   captureMessage,
@@ -85,13 +86,11 @@ describe("exception message redaction", () => {
     const dispose = installErrorCapture({ send });
     const run = "token_".repeat(1400);
 
-    const start = performance.now();
-    captureMessage(run);
-    const elapsed = performance.now() - start;
+    const cpuMs = measureCpuMs(() => captureMessage(run));
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0][0].message).toBe(run.slice(0, 1000));
-    expect(elapsed).toBeLessThan(250);
+    expect(cpuMs).toBeLessThan(250);
     dispose();
   });
 });
