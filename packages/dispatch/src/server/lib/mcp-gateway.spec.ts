@@ -1757,7 +1757,17 @@ describe("openGrantedDispatchMcpApp", () => {
     vi.useFakeTimers();
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      mocks.managerCallTool.mockImplementationOnce(() => new Promise(() => {}));
+      let rejectCall: (error: Error) => void = () => {};
+      mocks.managerCallTool.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectCall = reject;
+          }),
+      );
+      // Stopping the client fails its pending call, as the SDK transport does.
+      mocks.managerStop.mockImplementation(async () =>
+        rejectCall(new Error("Connection closed")),
+      );
       const pending = runWithRequestContext(
         {
           userEmail: "owner@example.test",
@@ -1775,7 +1785,13 @@ describe("openGrantedDispatchMcpApp", () => {
         url: "http://localhost:8086/dashboards",
         embedUnavailable: expect.stringContaining("within 15s"),
       });
+      await vi.advanceTimersByTimeAsync(60_000);
+      // The abandoned request was stopped, not retried in the background.
+      expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+      expect(mocks.managerStop).toHaveBeenCalled();
     } finally {
+      mocks.managerStop.mockReset();
+      mocks.managerStop.mockResolvedValue(undefined);
       warnSpy.mockRestore();
       vi.useRealTimers();
     }

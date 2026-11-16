@@ -1491,6 +1491,7 @@ describe("requestMatchesEmbedTarget", () => {
     ["/_agent-native/settings/theme", "GET"],
     ["/_agent-native/agent-chat", "GET"],
     ["/_agent-native/agent-chat/runs/run-1", "GET"],
+    ["/_agent-native/automations", "GET"],
   ])(
     "lets a full-app session act as its owner: %s %s",
     async (path, method) => {
@@ -1544,6 +1545,10 @@ describe("requestMatchesEmbedTarget", () => {
     ["/_agent-native/agent-chat/", "POST"],
     ["/_agent-native/agent-chat/threads", "POST"],
     ["/_agent-native/agent-chat/threads/t-1/queued", "POST"],
+    ["/_agent-native/automations", "PATCH"],
+    ["/_agent-native/automations/fire-test", "POST"],
+    ["/mcp", "POST"],
+    ["/mcp/oauth/authorize", "GET"],
     ["/_agent-native/%6dcp", "POST"],
     ["/_agent-native/s%65crets", "GET"],
     ["/_agent-native//secrets", "GET"],

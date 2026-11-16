@@ -122,6 +122,7 @@ import {
 import {
   FULL_APP_EMBED_SCOPE,
   hasEmbedSessionRequestMarker,
+  hasFullAppEmbedSession,
   hasPresentedEmbedSessionCredential,
   isExpiredMcpDirectoryWidgetSessionRequest,
   resolveEmbedSessionFromRequest,
@@ -1399,7 +1400,8 @@ function mountActionRoutesInternal(
         }
         if (
           entry.requiresSignedInBrowser === true &&
-          embedSession?.scope === FULL_APP_EMBED_SCOPE
+          (embedSession?.scope === FULL_APP_EMBED_SCOPE ||
+            hasFullAppEmbedSession(event))
         ) {
           setResponseStatus(event, 403);
           return {

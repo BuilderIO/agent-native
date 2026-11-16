@@ -154,6 +154,8 @@ vi.mock("./embed-session.js", () => ({
   FULL_APP_EMBED_SCOPE: "full-app",
   hasEmbedSessionRequestMarker: (event: any) =>
     mockHasEmbedSessionRequestMarker(event),
+  hasFullAppEmbedSession: (event: any) =>
+    event._hasFullAppEmbedSession ?? false,
   hasLiveEmbedCapabilityCookie: (event: any) =>
     event._hasLiveEmbedCapabilityCookie ?? false,
   hasPresentedEmbedSessionCredential: (event: any) =>
@@ -566,6 +568,7 @@ describe("mountActionRoutes", () => {
 
   it.each([
     ["a full-app panel", "refused"],
+    ["an expired full-app panel", "refused"],
     ["the signed-in browser", "runs"],
   ] as const)(
     "runs a signed-in-browser action from %s: %s",
@@ -614,6 +617,8 @@ describe("mountActionRoutes", () => {
               : {}),
           },
           req: { json: async () => ({}) },
+          // A lapsed panel token no longer resolves, but it is still signed.
+          _hasFullAppEmbedSession: caller !== "the signed-in browser",
         };
         const result = await mounted[0]!.handler(event);
         if (outcome === "runs") {

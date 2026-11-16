@@ -884,6 +884,7 @@ export const FULL_APP_EMBED_SCOPE = "full-app";
 const FULL_APP_DENIED_PREFIXES = [
   // Approvals and the MCP surface: the host's agent can steer the panel, so
   // it must never approve its own calls or mint more credentials there.
+  "/mcp",
   "/_agent-native/mcp",
   "/_agent-native/a2a",
   "/_agent-native/oauth",
@@ -936,6 +937,8 @@ const FULL_APP_READ_ONLY_PREFIXES = [
   "/_agent-native/settings",
   "/_agent-native/env-status",
   "/_agent-native/credential-probe",
+  // Automations run later as the owner, outside this panel.
+  "/_agent-native/automations",
   // The app's own agent runs as the owner, and its runs, queued prompts and
   // background continuations carry no mark of this panel; the host's agent
   // works the panel instead.
