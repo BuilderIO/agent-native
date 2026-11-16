@@ -67,6 +67,7 @@ describe("CommentImages", () => {
     });
 
     expect(document.querySelector(".media-lightbox")).toBeNull();
-    expect(document.activeElement).toBe(thumbnail);
+    // Radix hands focus on once the viewer has unmounted, a task later.
+    await vi.waitFor(() => expect(document.activeElement).toBe(thumbnail));
   });
 });
