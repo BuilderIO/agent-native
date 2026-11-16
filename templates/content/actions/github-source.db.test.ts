@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,14 +39,15 @@ const github = vi.hoisted(() => {
     storageDown: false,
     /** Uploads of a file with this name throw, as storage rejecting one file does. */
     rejectFilename: null as string | null,
-    /**
-     * Uploads left that return nothing while storage is set up, as
-     * `uploadFile` does when its Builder credential check throws.
-     */
-    emptyUploads: 0,
+    /** Uploads of files with these names aren't the image their type says. */
+    invalidFilenames: new Set<string>(),
     uploadFailures: 0,
     /** The file name of every upload tried, in order. */
     uploadAttempts: [] as string[],
+    /** Every stored image a sync deleted, in order. */
+    deletedMedia: [] as string[],
+    /** Deleting this stored image throws, as storage refusing it would. */
+    failDeleteId: null as string | null,
     /** Runs once, during the next blob read, to race something against a sync. */
     duringBlobRead: null as null | (() => Promise<void>),
     /** Runs once, right after the next upload succeeds. */
@@ -81,10 +83,21 @@ const github = vi.hoisted(() => {
     storageOrgIds: [] as Array<string | undefined>,
   };
   let commitCount = 0;
+  let resets = 0;
+  /**
+   * The ID private storage gives the nth image stored since the reset. Each
+   * test's IDs are new, as real ones are, since bindings outlive a test.
+   */
+  const mediaId = (upload: number) =>
+    `00000000-0000-4000-8000-${resets.toString(16).padStart(6, "0")}${upload.toString(16).padStart(6, "0")}`;
   return {
     state,
     blobSha,
+    mediaId,
+    /** The link a page shows the nth stored image by. */
+    uploadedPath: (upload: number) => `/api/private-media/${mediaId(upload)}`,
     reset() {
+      resets += 1;
       state.commits.clear();
       state.head = "";
       state.renames = [];
@@ -94,9 +107,11 @@ const github = vi.hoisted(() => {
       state.noStorage = false;
       state.storageDown = false;
       state.rejectFilename = null;
-      state.emptyUploads = 0;
+      state.invalidFilenames.clear();
       state.uploadFailures = 0;
       state.uploadAttempts = [];
+      state.deletedMedia = [];
+      state.failDeleteId = null;
       state.duringBlobRead = null;
       state.afterUpload = null;
       state.hangAfterBlobReads = null;
@@ -319,38 +334,70 @@ vi.mock("./_github-source.js", async (importOriginal) => {
   };
 });
 
-vi.mock("@agent-native/core/file-upload", async () => {
+vi.mock("@agent-native/core/private-blob", async (importOriginal) => {
   const { getRequestOrgId } =
     await import("@agent-native/core/server/request-context");
   return {
-    getActiveFileUploadProviderForRequest: async () => {
+    ...(await importOriginal<
+      typeof import("@agent-native/core/private-blob")
+    >()),
+    isPrivateBlobConfiguredForRequest: async () => {
       github.state.storageOrgIds.push(getRequestOrgId());
-      return github.state.noStorage ? null : { id: "test" };
+      return !github.state.noStorage;
     },
-    uploadFile: async (input: { filename: string }) => {
-      if (github.state.noStorage) return null;
-      github.state.uploadAttempts.push(input.filename);
-      github.state.storageOrgIds.push(getRequestOrgId());
-      if (github.state.emptyUploads > 0) {
-        github.state.emptyUploads -= 1;
-        return null;
+  };
+});
+
+vi.mock("@agent-native/core/private-media", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/private-media")>();
+  const { getRequestOrgId } =
+    await import("@agent-native/core/server/request-context");
+  return {
+    ...actual,
+    putPrivateMedia: async (
+      input: Parameters<typeof actual.putPrivateMedia>[0],
+    ) => {
+      if (github.state.noStorage) {
+        throw new actual.PrivateMediaStorageUnavailableError();
       }
+      const filename = input.filename ?? "";
+      github.state.uploadAttempts.push(filename);
+      github.state.storageOrgIds.push(getRequestOrgId());
       if (github.state.storageDown) {
         github.state.uploadFailures += 1;
         throw new Error("S3 PutObject failed (503): Service Unavailable");
       }
-      if (input.filename === github.state.rejectFilename) {
+      if (filename === github.state.rejectFilename) {
         github.state.uploadFailures += 1;
         throw new Error("S3 PutObject failed (400): EntityTooLarge");
+      }
+      if (github.state.invalidFilenames.has(filename)) {
+        throw new actual.PrivateMediaValidationError(
+          "The file's contents don't match its image type.",
+          415,
+        );
       }
       github.state.uploads += 1;
       const after = github.state.afterUpload;
       github.state.afterUpload = null;
       after?.();
       return {
-        url: `https://files.example.test/${github.state.uploads}/${input.filename}`,
-        provider: "test",
+        id: github.mediaId(github.state.uploads),
+        ownerEmail: input.ownerEmail,
+        orgId: input.orgId ?? null,
+        mimeType: "image/png" as const,
+        filename,
+        size: input.data.byteLength,
+        createdAt: Date.now(),
       };
+    },
+    deletePrivateMedia: async (id: string) => {
+      if (id === github.state.failDeleteId) {
+        throw new Error("S3 DeleteObject failed (503): Service Unavailable");
+      }
+      github.state.deletedMedia.push(id);
+      return true;
     },
   };
 });
@@ -562,6 +609,15 @@ async function history(documentId: string) {
     .where(eq(schema.documentVersions.documentId, documentId));
 }
 
+/** The private images bound to a page, which its readers can load. */
+async function boundImages(documentId: string) {
+  const references = await getDb()
+    .select({ mediaId: schema.privateMediaReferences.mediaId })
+    .from(schema.privateMediaReferences)
+    .where(eq(schema.privateMediaReferences.documentId, documentId));
+  return references.map((reference) => reference.mediaId).sort();
+}
+
 async function sourceId(databaseId: string) {
   const [source] = await getDb()
     .select({ id: schema.contentDatabaseSources.id })
@@ -708,8 +764,11 @@ describe("GitHub folder source", () => {
     )!;
     const faq = pages.find((page) => page.sourcePath === "docs/faq.md")!;
     expect(guide.content).toContain(`/page/${faq.documentId}`);
-    expect(guide.content).toContain("https://files.example.test/1/diagram.png");
+    expect(guide.content).toContain(github.uploadedPath(1));
     expect(github.state.uploads).toBe(1);
+    // The image is stored privately and bound to the page that shows it.
+    expect(await boundImages(guide.documentId)).toEqual([github.mediaId(1)]);
+    expect(await boundImages(faq.documentId)).toEqual([]);
 
     const byName = Object.fromEntries(
       (await columns(database.id)).map((column) => [column.name, column]),
@@ -1287,7 +1346,9 @@ describe("GitHub folder source", () => {
       );
       expect(followed?.documentId).not.toBe(faq.documentId);
       expect(followed?.content).toContain("Answers moved to the forum.");
-      expect(followed?.content).toContain("chart.png");
+      expect(followed?.content).toContain(
+        `![Chart](${github.uploadedPath(uploads + 1)})`,
+      );
       const [released] = await getDb()
         .select({ content: schema.documents.content })
         .from(schema.documents)
@@ -1893,7 +1954,7 @@ describe("GitHub folder source", () => {
     const guideBefore = (await liveRows(database.id)).find(
       (row) => row.sourcePath === "docs/getting-started.md",
     )!;
-    expect(guideBefore.content).not.toContain("files.example.test");
+    expect(guideBefore.content).not.toContain("/api/private-media/");
     const waiting = await as(() => getSource.run({ databaseId: database.id }));
     expect(waiting.source?.metadata.github).toMatchObject({
       imagesWaiting: 1,
@@ -1920,7 +1981,7 @@ describe("GitHub folder source", () => {
       (row) => row.sourcePath === "docs/getting-started.md",
     )!;
     expect(guide.documentId).toBe(guideBefore.documentId);
-    expect(guide.content).toContain("https://files.example.test/1/diagram.png");
+    expect(guide.content).toContain(github.uploadedPath(1));
     const healthy = await as(() => getSource.run({ databaseId: database.id }));
     expect(healthy.source?.metadata.github).toMatchObject({
       imagesWaiting: 0,
@@ -1968,7 +2029,7 @@ describe("GitHub folder source", () => {
       const before = await liveRows(database.id);
       expect(before).toHaveLength(6);
       for (const row of before) {
-        expect(row.content).not.toContain("files.example.test");
+        expect(row.content).not.toContain("/api/private-media/");
       }
       const waiting = await as(() =>
         getSource.run({ databaseId: database.id }),
@@ -2011,12 +2072,8 @@ describe("GitHub folder source", () => {
         before.map((row) => row.documentId).sort(),
       );
       const content = after.map((row) => row.content).join("\n");
-      expect(content).toMatch(
-        /https:\/\/files\.example\.test\/\d+\/diagram\.png/,
-      );
-      expect(content).toMatch(
-        /https:\/\/files\.example\.test\/\d+\/chart\.png/,
-      );
+      expect(content).toContain(`![Diagram](${github.uploadedPath(4)})`);
+      expect(content).toContain(`![Chart](${github.uploadedPath(3)})`);
       const healthy = await as(() =>
         getSource.run({ databaseId: database.id }),
       );
@@ -2056,9 +2113,9 @@ describe("GitHub folder source", () => {
       const rows = await liveRows(database.id);
       const page = (path: string) =>
         rows.find((row) => row.sourcePath === path)!.content;
-      expect(page("docs/chart.md")).toContain("files.example.test");
-      expect(page("docs/getting-started.md")).toContain("files.example.test");
-      expect(page("docs/a-poster.md")).not.toContain("files.example.test");
+      expect(page("docs/chart.md")).toContain("/api/private-media/");
+      expect(page("docs/getting-started.md")).toContain("/api/private-media/");
+      expect(page("docs/a-poster.md")).not.toContain("/api/private-media/");
 
       // Storage still rejects it: the next sync tries that page alone again.
       const still = await as(() => syncFolder.run({ databaseId: database.id }));
@@ -2081,9 +2138,7 @@ describe("GitHub folder source", () => {
       const poster = (await liveRows(database.id)).find(
         (row) => row.sourcePath === "docs/a-poster.md",
       )!;
-      expect(poster.content).toMatch(
-        /https:\/\/files\.example\.test\/\d+\/poster\.png/,
-      );
+      expect(poster.content).toContain(`![Poster](${github.uploadedPath(3)})`);
     } finally {
       warn.mockRestore();
     }
@@ -2121,14 +2176,14 @@ describe("GitHub folder source", () => {
       const rows = await liveRows(database.id);
       const page = (path: string) =>
         rows.find((row) => row.sourcePath === path)!.content;
-      expect(page("docs/chart.md")).toContain("files.example.test");
-      expect(page("docs/getting-started.md")).toContain("files.example.test");
+      expect(page("docs/chart.md")).toContain("/api/private-media/");
+      expect(page("docs/getting-started.md")).toContain("/api/private-media/");
       for (const path of [
         "docs/a-one.md",
         "docs/a-two.md",
         "docs/a-three.md",
       ]) {
-        expect(page(path)).not.toContain("files.example.test");
+        expect(page(path)).not.toContain("/api/private-media/");
       }
 
       // The next sync tries the three pages again, and the logo once.
@@ -2332,7 +2387,7 @@ describe("GitHub folder source", () => {
     expect(github.state.uploadAttempts).toEqual(["y.png", "x.png"]);
   });
 
-  it("keeps counting an image whose page failed to save after it uploaded", async () => {
+  it("keeps counting an image whose page failed to save after it uploaded, and deletes that copy", async () => {
     github.state.storageDown = true;
     github.commit({
       "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
@@ -2365,6 +2420,8 @@ describe("GitHub folder source", () => {
       });
       const status = await as(() => getSource.run({ databaseId: database.id }));
       expect(status.source?.metadata.github?.imagesWaiting).toBe(1);
+      // No saved page shows the copy that run stored, so it's gone.
+      expect(github.state.deletedMedia).toEqual([github.mediaId(1)]);
 
       const filled = await as(() =>
         syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
@@ -2374,6 +2431,49 @@ describe("GitHub folder source", () => {
         updated: 1,
         imagesWaiting: 0,
       });
+      // The copy the saved page shows stays.
+      const [poster] = await liveRows(database.id);
+      assert(poster);
+      expect(await boundImages(poster.documentId)).toEqual([github.mediaId(2)]);
+      expect(github.state.deletedMedia).toEqual([github.mediaId(1)]);
+    } finally {
+      (failWrite as { mockRestore(): void } | null)?.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it("keeps deleting the images no page took after storage refuses one", async () => {
+    github.state.storageDown = true;
+    github.commit({
+      "docs/charts.md":
+        "# Charts\n\n![One](images/one.png)\n\n![Two](images/two.png)\n",
+      "docs/images/one.png": "PNGONE",
+      "docs/images/two.png": "PNGTWO",
+    });
+    const database = await newCollection();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let failWrite: { mockRestore(): void } | null = null;
+    try {
+      await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+
+      // Both images upload, saving their page fails, and storage refuses to
+      // delete the first.
+      github.state.storageDown = false;
+      github.state.failDeleteId = github.mediaId(1);
+      github.state.afterUpload = () => {
+        failWrite = vi
+          .spyOn(getDb(), "transaction")
+          .mockRejectedValueOnce(new Error("database is locked"));
+      };
+      const id = await sourceId(database.id);
+      const failed = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+      );
+      expect(failed).toMatchObject({ state: "error", updated: 0 });
+      expect(github.state.uploads).toBe(2);
+      expect(github.state.deletedMedia).toEqual([github.mediaId(2)]);
     } finally {
       (failWrite as { mockRestore(): void } | null)?.mockRestore();
       warn.mockRestore();
@@ -2452,32 +2552,232 @@ describe("GitHub folder source", () => {
     expect(filled.sync).toMatchObject({ imagesWaiting: 0, problem: null });
   });
 
-  it("counts an empty upload as a failure while storage is still set up", async () => {
-    github.state.emptyUploads = 1;
+  it("leaves out an image that isn't what its type says, without waiting on storage", async () => {
+    github.state.invalidFilenames.add("poster.png");
+    github.state.invalidFilenames.add("chart.jpg");
     github.commit({
       "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
+      "docs/b-poster-again.md": "# Again\n\n![Poster](images/poster.png)\n",
       "docs/images/poster.png": "PNGPOSTER",
-      "docs/b-chart.md": "# Chart\n\n![Chart](images/chart.png)\n",
+      "docs/c-chart.md": "# Chart\n\n![Chart](images/chart.png)\n",
+      "docs/images/chart.png": "PNGCHART",
+      "docs/d-poster-jpeg.md": "# JPEG\n\n![Poster](images/poster.jpg)\n",
+      "docs/images/poster.jpg": "PNGPOSTER",
+      "docs/e-chart-jpeg.md": "# JPEG\n\n![Chart](images/chart.jpg)\n",
+      "docs/images/chart.jpg": "PNGCHART",
+    });
+    const database = await newCollection();
+    const linked = await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    // The poster is tried once for both pages, and the chart still uploads.
+    // No later sync could store the poster, so nothing waits on storage. The
+    // same bytes named as another type are checked again, whichever came
+    // first: the poster's copy stores, and the chart's doesn't reuse its PNG.
+    expect(github.state.uploadAttempts).toEqual([
+      "poster.png",
+      "chart.png",
+      "poster.jpg",
+      "chart.jpg",
+    ]);
+    expect(linked.sync).toMatchObject({
+      state: "synced",
+      imagesWaiting: 0,
+      problem: null,
+    });
+    const pages = await liveRows(database.id);
+    const content = (path: string) => {
+      const page = pages.find((row) => row.sourcePath === path);
+      assert(page);
+      return page.content;
+    };
+    expect(content("docs/a-poster.md")).not.toContain("/api/private-media/");
+    expect(content("docs/b-poster-again.md")).not.toContain(
+      "/api/private-media/",
+    );
+    expect(content("docs/c-chart.md")).toContain(github.uploadedPath(1));
+    expect(content("docs/d-poster-jpeg.md")).toContain(github.uploadedPath(2));
+    expect(content("docs/e-chart-jpeg.md")).not.toContain(
+      "/api/private-media/",
+    );
+  });
+
+  it("rebuilds a page when an image it left out is fixed or added, though its file is the same", async () => {
+    github.state.invalidFilenames.add("poster.png");
+    const pagesFiles = {
+      "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
+      "docs/b-later.md": "# Later\n\n![Later](images/later.png)\n",
+    };
+    github.commit({ ...pagesFiles, "docs/images/poster.png": "NOTAPNG" });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    expect(github.state.uploadAttempts).toEqual(["poster.png"]);
+
+    // A commit that changes neither image rebuilds neither page.
+    github.commit({
+      ...pagesFiles,
+      "docs/images/poster.png": "NOTAPNG",
+      "docs/images/unused.png": "PNGUNUSED",
+    });
+    const quiet = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(quiet.sync).toMatchObject({ updated: 0, unchanged: 2 });
+    expect(github.state.uploadAttempts).toEqual(["poster.png"]);
+
+    github.state.invalidFilenames.clear();
+    github.commit({
+      ...pagesFiles,
+      "docs/images/poster.png": "PNGPOSTER",
+      "docs/images/later.png": "PNGLATER",
+    });
+    const fixed = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(fixed.sync).toMatchObject({ updated: 2, unchanged: 0 });
+    const pages = await liveRows(database.id);
+    const page = (path: string) => {
+      const found = pages.find((row) => row.sourcePath === path);
+      assert(found);
+      return found;
+    };
+    expect(page("docs/a-poster.md").content).toContain(github.uploadedPath(1));
+    expect(page("docs/b-later.md").content).toContain(github.uploadedPath(2));
+    expect(await boundImages(page("docs/a-poster.md").documentId)).toEqual([
+      github.mediaId(1),
+    ]);
+
+    // Once shown, the images don't rebuild their pages again.
+    github.commit({
+      ...pagesFiles,
+      "docs/images/poster.png": "PNGPOSTER",
+      "docs/images/later.png": "PNGLATER",
+      "docs/images/unused.png": "PNGUNUSED",
+    });
+    const after = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(after.sync).toMatchObject({ updated: 0, unchanged: 2 });
+  });
+
+  it("binds only the images it stored, not a private image a file links itself", async () => {
+    const stranger = "11111111-1111-4111-8111-111111111111";
+    github.commit({
+      "docs/chart.md": `# Chart\n\n![Chart](images/chart.png)\n\n![Not ours](/api/private-media/${stranger})\n`,
       "docs/images/chart.png": "PNGCHART",
     });
     const database = await newCollection();
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      const linked = await as(() =>
-        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
-      );
-      // The chart still uploads, and the poster waits on a retry, not setup.
-      expect(github.state.uploadAttempts).toEqual(["poster.png", "chart.png"]);
-      expect(linked.sync).toMatchObject({
-        state: "synced",
-        imagesWaiting: 1,
-        problem: { code: "storage_failed" },
-      });
-    } finally {
-      warn.mockRestore();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    const [chart] = await liveRows(database.id);
+    assert(chart);
+    expect(await boundImages(chart.documentId)).toEqual([github.mediaId(1)]);
+
+    // An edit that adds the link to a page already there binds nothing new.
+    github.commit({
+      "docs/chart.md": `# Chart, edited\n\n![Chart](images/chart.png)\n\n![Not ours](/api/private-media/${stranger})\n`,
+      "docs/images/chart.png": "PNGCHART",
+    });
+    await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(await boundImages(chart.documentId)).toEqual([github.mediaId(1)]);
+  });
+
+  it("lets readers of a new page load an image an earlier sync stored for another", async () => {
+    github.commit({
+      "docs/a.md": "# A\n\n![Diagram](images/diagram.png)\n",
+      "docs/images/diagram.png": "PNGDATA",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+
+    // The image moves to a new page in the commit that deletes the old one,
+    // so only the new page can let anyone load it.
+    github.commit({
+      "docs/c.md": "# C\n\n![Diagram](images/diagram.png)\n",
+      "docs/images/diagram.png": "PNGDATA",
+    });
+    await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(github.state.uploads).toBe(1);
+    const live = await liveRows(database.id);
+    expect(live.map((row) => row.sourcePath)).toEqual(["docs/c.md"]);
+    expect(live.map((row) => row.content).join("\n")).toContain(
+      github.uploadedPath(1),
+    );
+    const { canReadPrivateMediaThroughDocument } =
+      await import("../server/lib/private-media-references.js");
+    expect(
+      await as(() => canReadPrivateMediaThroughDocument(github.mediaId(1))),
+    ).toBe(true);
+    const stranger = `github-stranger-${Date.now()}@example.com`;
+    expect(
+      await runWithRequestContext({ userEmail: stranger }, () =>
+        canReadPrivateMediaThroughDocument(github.mediaId(1)),
+      ),
+    ).toBe(false);
+  });
+
+  it("gives a rebuilt page a private copy of an image an earlier sync stored publicly", async () => {
+    github.commit({
+      "docs/a.md": "# A\n\n![Diagram](images/diagram.png)\n",
+      "docs/b.md": "# B\n\n![Diagram](images/diagram.png)\n",
+      "docs/images/diagram.png": "PNGDATA",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    expect(github.state.uploads).toBe(1);
+    // Pages and rows as a sync from before images went private left them:
+    // public links in the bodies and the row bookkeeping, and no bindings.
+    const legacyUrl = "https://files.example.test/1/diagram.png";
+    for (const row of await liveRows(database.id)) {
+      await getDb()
+        .update(schema.documents)
+        .set({
+          content: row.content.replaceAll(github.uploadedPath(1), legacyUrl),
+        })
+        .where(eq(schema.documents.id, row.documentId));
+      await getDb()
+        .delete(schema.privateMediaReferences)
+        .where(eq(schema.privateMediaReferences.documentId, row.documentId));
     }
-    const filled = await as(() => syncFolder.run({ databaseId: database.id }));
-    expect(filled.sync).toMatchObject({ imagesWaiting: 0, problem: null });
+    const id = await sourceId(database.id);
+    const sourceRows = await getDb()
+      .select({
+        id: schema.contentDatabaseSourceRows.id,
+        sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+      })
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, id));
+    for (const row of sourceRows) {
+      assert(row.sourceValuesJson);
+      await getDb()
+        .update(schema.contentDatabaseSourceRows)
+        .set({
+          sourceValuesJson: row.sourceValuesJson.replaceAll(
+            github.uploadedPath(1),
+            legacyUrl,
+          ),
+        })
+        .where(eq(schema.contentDatabaseSourceRows.id, row.id));
+    }
+
+    github.commit({
+      "docs/a.md": "# A, edited\n\n![Diagram](images/diagram.png)\n",
+      "docs/b.md": "# B\n\n![Diagram](images/diagram.png)\n",
+      "docs/images/diagram.png": "PNGDATA",
+    });
+    await as(() => syncFolder.run({ databaseId: database.id }));
+    // The edited page stores the image again, privately, rather than reusing
+    // the public copy; the page that didn't change keeps what it had.
+    expect(github.state.uploads).toBe(2);
+    const [a, b] = await liveRows(database.id);
+    assert(a);
+    assert(b);
+    expect(a.content).toContain(github.uploadedPath(2));
+    expect(a.content).not.toContain(legacyUrl);
+    expect(await boundImages(a.documentId)).toEqual([github.mediaId(2)]);
+    expect(b.content).toContain(legacyUrl);
+    expect(await boundImages(b.documentId)).toEqual([]);
   });
 
   it("stops saying storage failed once a sync found it gone before another problem stopped it", async () => {
@@ -2658,9 +2958,7 @@ describe("GitHub folder source", () => {
       const poster = (await liveRows(database.id)).find(
         (row) => row.sourcePath === "docs/a-poster.md",
       )!;
-      expect(poster.content).toMatch(
-        /https:\/\/files\.example\.test\/\d+\/poster\.png/,
-      );
+      expect(poster.content).toContain(`![Poster](${github.uploadedPath(2)})`);
     } finally {
       warn.mockRestore();
     }

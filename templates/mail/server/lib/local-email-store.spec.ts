@@ -182,5 +182,11 @@ describe("withLocalEmailMutationLock", () => {
       { id: "ours" },
     ]);
     expect(mocks.emit).toHaveBeenCalledTimes(1);
+    expect(mocks.emit).toHaveBeenCalledWith("settings", {
+      source: "settings",
+      type: "change",
+      key: "u:owner@example.com:local-emails",
+      owner: "owner@example.com",
+    });
   });
 });

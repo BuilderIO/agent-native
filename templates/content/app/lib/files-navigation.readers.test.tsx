@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { setAgentNativeApiDisabled } from "@agent-native/core/client/api-surface";
 import type { ContentDatabaseNavigationPageResponse } from "@shared/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
@@ -64,6 +65,230 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   queryClient.clear();
+  setAgentNativeApiDisabled(null);
+});
+
+describe("a Files read", () => {
+  async function mountBreadcrumb() {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <BreadcrumbReader />
+        </QueryClientProvider>,
+      );
+    });
+  }
+
+  it("drops the rows it showed once a reread is refused", async () => {
+    callActionWithRetry.mockImplementation(async () => ({
+      ...empty(),
+      items: [{ documentId: "page-1", type: "page" }],
+    }));
+    await mountBreadcrumb();
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(ROOT)),
+    ).toBeDefined();
+
+    callActionWithRetry.mockRejectedValue(
+      Object.assign(new Error("Forbidden"), { status: 403 }),
+    );
+    await act(async () => {
+      await queryClient.refetchQueries({
+        queryKey: filesNavigationQueryKey(ROOT),
+        exact: true,
+      });
+    });
+
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(ROOT)),
+    ).toBeUndefined();
+  });
+
+  it("drops a folder's cached page once the top level is refused, for a breadcrumb that reads it alone", async () => {
+    const folder = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: "folder",
+    });
+    const otherDatabase = filesNavigationPageParams({
+      databaseId: "other-files-db",
+      parentId: null,
+    });
+    queryClient.setQueryData(filesNavigationQueryKey(folder), {
+      ...empty(),
+      items: [{ documentId: "child", type: "page" }],
+    });
+    queryClient.setQueryData(filesNavigationQueryKey(otherDatabase), empty());
+    function FolderReader() {
+      useFilesNavigationPage(folder);
+      return null;
+    }
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <BreadcrumbReader />
+          <FolderReader />
+        </QueryClientProvider>,
+      );
+    });
+
+    callActionWithRetry.mockRejectedValue(
+      Object.assign(new Error("Forbidden"), { status: 403 }),
+    );
+    await act(async () => {
+      await queryClient.refetchQueries({
+        queryKey: filesNavigationQueryKey(ROOT),
+        exact: true,
+      });
+    });
+
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(folder)),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(otherDatabase)),
+    ).toBeDefined();
+  });
+
+  it("drops every cached page of the database once a folder read is refused", async () => {
+    const folder = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: "folder",
+    });
+    const sibling = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: "other-folder",
+    });
+    const otherDatabase = filesNavigationPageParams({
+      databaseId: "other-files-db",
+      parentId: null,
+    });
+    callActionWithRetry.mockImplementation(async () => ({
+      ...empty(),
+      items: [{ documentId: "page-1", type: "page" }],
+    }));
+    queryClient.setQueryData(filesNavigationQueryKey(sibling), {
+      ...empty(),
+      items: [{ documentId: "sibling-child", type: "page" }],
+    });
+    queryClient.setQueryData(filesNavigationQueryKey(otherDatabase), empty());
+    function FolderReader() {
+      useFilesNavigationPage(folder);
+      return null;
+    }
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <BreadcrumbReader />
+          <FolderReader />
+        </QueryClientProvider>,
+      );
+    });
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(ROOT)),
+    ).toBeDefined();
+
+    callActionWithRetry.mockRejectedValue(
+      Object.assign(new Error("Not found"), { status: 404 }),
+    );
+    await act(async () => {
+      await queryClient.refetchQueries({
+        queryKey: filesNavigationQueryKey(folder),
+        exact: true,
+      });
+    });
+
+    for (const page of [ROOT, folder, sibling]) {
+      expect(
+        queryClient.getQueryData(filesNavigationQueryKey(page)),
+      ).toBeUndefined();
+    }
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(otherDatabase)),
+    ).toBeDefined();
+  });
+
+  it("stops a folder read under way once the top level is refused, so neither the folder's old rows nor its late answer come back", async () => {
+    const folder = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: "folder",
+    });
+    const subfolder = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: "subfolder",
+    });
+    function FolderReader() {
+      useFilesNavigationPage(folder);
+      return null;
+    }
+    callActionWithRetry.mockImplementation(async () => ({
+      ...empty(),
+      items: [{ documentId: "old-child", type: "page" }],
+    }));
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <BreadcrumbReader />
+          <FolderReader />
+        </QueryClientProvider>,
+      );
+    });
+    // The folder's earlier rows are what cancelling its reread reverts to.
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(folder)),
+    ).toMatchObject({ items: [{ documentId: "old-child" }] });
+
+    let answerFolder: (page: unknown) => void = () => {};
+    callActionWithRetry.mockImplementation(
+      async (_action, params: typeof ROOT) =>
+        params.navigation.parentId === "folder"
+          ? new Promise((resolve) => {
+              answerFolder = resolve;
+            })
+          : Promise.reject(
+              Object.assign(new Error("Forbidden"), { status: 403 }),
+            ),
+    );
+    let folderRead: Promise<void> = Promise.resolve();
+    await act(async () => {
+      folderRead = queryClient.refetchQueries({
+        queryKey: filesNavigationQueryKey(folder),
+        exact: true,
+      });
+    });
+    await act(async () => {
+      await queryClient.refetchQueries({
+        queryKey: filesNavigationQueryKey(ROOT),
+        exact: true,
+      });
+    });
+    await act(async () => {
+      answerFolder({
+        ...empty(),
+        items: [{ documentId: "child", type: "page" }],
+        branches: {
+          subfolder: {
+            ...empty(),
+            items: [{ documentId: "grandchild", type: "page" }],
+          },
+        },
+      });
+      await folderRead;
+    });
+
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(folder)),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(subfolder)),
+    ).toBeUndefined();
+  });
+
+  it("isn't made while the app's API is off", async () => {
+    setAgentNativeApiDisabled("builder shell canvas");
+    await mountBreadcrumb();
+
+    expect(callActionWithRetry).not.toHaveBeenCalled();
+  });
 });
 
 describe("readers of one Files page", () => {

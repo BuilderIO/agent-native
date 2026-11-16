@@ -1268,6 +1268,18 @@ export function dbOpTimeoutMs(): number {
   return isServerlessRuntime() ? 8_000 : 30_000;
 }
 
+/**
+ * When the database last timed out a query, so background work can stand down for a
+ * moment instead of retrying into a slow database. 11/5 evening: with the pool no
+ * longer exhausted, ~6 query timeouts a minute remained, each one a sweep handler
+ * failing against a database that had just timed out another one.
+ */
+let lastDbTimeoutAt = 0;
+
+export function dbRecentTimeoutMs(): number {
+  return lastDbTimeoutAt ? Date.now() - lastDbTimeoutAt : Infinity;
+}
+
 class DbTimeoutError extends Error {
   code = "CONNECT_TIMEOUT";
   constructor(op: string, ms: number) {
@@ -1349,6 +1361,7 @@ export async function withDbTimeout<T>(
         await runCleanup();
         recordQueryResult();
         finishTelemetry("timeout");
+        lastDbTimeoutAt = Date.now();
         reject(new DbTimeoutError(op, ms));
       })();
     }, ms);
@@ -1571,6 +1584,22 @@ export class DbConnectCooldownError extends Error {
     );
     this.name = "DbConnectCooldownError";
   }
+}
+
+/**
+ * How long the process must still wait before it will attempt a database connect,
+ * or 0 when connects are allowed. Exposed so background work can stand down while a
+ * saturated database is in cooldown instead of piling on: the hosted database pooler
+ * answered "Too many connections" to hundreds of requests a minute, and every sweep
+ * handler retried it independently.
+ */
+export function dbConnectGateRemainingMs(): number {
+  let remaining = 0;
+  const now = Date.now();
+  for (const gate of connectCooldowns.values()) {
+    if (gate.until > now) remaining = Math.max(remaining, gate.until - now);
+  }
+  return remaining;
 }
 
 const connectCooldowns = new Map<
@@ -2457,6 +2486,12 @@ export function getScopedTransactionDbExec(): DbExec | undefined {
   return scoped && callback?.active && callback.executors.has(scoped)
     ? scoped
     : undefined;
+}
+
+/** Whether an executor is the live handle supplied to the active transaction callback. */
+export function isActiveTransactionExec(exec: DbExec): boolean {
+  const callback = transactionCallbacks.getStore();
+  return callback?.active === true && callback.executors.has(exec);
 }
 
 /**

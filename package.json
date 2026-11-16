@@ -193,6 +193,7 @@
     "guard:no-bare-pnpm-spawn": "tsx scripts/guard-no-bare-pnpm-spawn.ts",
     "guard:no-deferred-server-counts": "tsx scripts/guard-no-deferred-server-counts.ts",
     "guard:no-oracle-loosening": "tsx scripts/guard-no-oracle-loosening.ts",
+    "guard:no-wall-clock-assertions": "tsx scripts/guard-no-wall-clock-assertions.ts",
     "guard:workflow-engine-layering": "tsx scripts/guard-workflow-engine-layering.ts",
     "guard:no-new-legacy-mcp-hints": "tsx scripts/guard-no-new-legacy-mcp-hints.ts",
     "guard:action-output-schema": "tsx scripts/guard-action-output-schema.ts",

@@ -10,6 +10,7 @@ import {
   getTemplateGatewayUrl,
 } from "@agent-native/shared-app-config";
 import { focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { DESKTOP_DOWNLOAD_URL } from "@agent-native/toolkit/app/desktop-download";
 import {
   type CSSProperties,
   useState,
@@ -38,7 +39,6 @@ const SIDEBAR_OPEN_KEY = "frame-sidebar-open";
 const SIDEBAR_STATE_CHANGE_EVENT = "agent-panel:state-change";
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
 const OPEN_DESKTOP_URL = "agentnative://open";
-const DOWNLOAD_DESKTOP_URL = "https://www.agent-native.com/download";
 const SIDEBAR_ANIMATION_MS = 260;
 
 function getAppId(): string {
@@ -666,7 +666,7 @@ export function App() {
                     unavailableCtaLabel: "Open Desktop",
                     unavailableCtaHref: OPEN_DESKTOP_URL,
                     unavailableSecondaryCtaLabel: "Download",
-                    unavailableSecondaryCtaHref: DOWNLOAD_DESKTOP_URL,
+                    unavailableSecondaryCtaHref: DESKTOP_DOWNLOAD_URL,
                   }}
                 />
               </Suspense>

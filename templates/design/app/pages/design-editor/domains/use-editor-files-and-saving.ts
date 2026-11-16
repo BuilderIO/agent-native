@@ -25,6 +25,7 @@ import {
 } from "@shared/node-rewrite";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
+import type { VisualEditHandoffRecord } from "@shared/visual-edit-handoff";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -880,6 +881,8 @@ export function useEditorFilesAndSaving({
     setTweakSelections,
     tweakSelections,
     tweaks,
+    pendingTweakChanges,
+    tweakMutationsEnabled,
   } = useTweaks({
     acknowledgeOutboxEntry,
     applyTweaksAsync,
@@ -1702,8 +1705,14 @@ export function useEditorFilesAndSaving({
   const visualEditPendingQuery = useActionQuery<{
     designId: string;
     pendingEditCount: number;
-    status: "ready" | "empty";
+    status: "ready" | "suggested" | "empty";
     prompt: string;
+    records: VisualEditHandoffRecord[];
+    suggestion: {
+      trusted: false;
+      authorEmail: string | null;
+      text: string;
+    } | null;
     revision: number | null;
     updatedAt: string | null;
   }>(
@@ -1727,6 +1736,15 @@ export function useEditorFilesAndSaving({
     visualEditPendingQuery.data?.status === "ready" &&
     visualEditPendingQuery.data.pendingEditCount > 0 &&
     Boolean(visualEditPendingQuery.data.prompt);
+  const remoteVisualEditSuggestion =
+    canEditDesign &&
+    visualEditPendingQuery.data?.status === "suggested" &&
+    visualEditPendingQuery.data.suggestion?.text
+      ? {
+          ...visualEditPendingQuery.data.suggestion,
+          revision: visualEditPendingQuery.data.revision,
+        }
+      : null;
   useEffect(() => {
     const marker = pendingVisualEditReloadedHandoffRef.current;
     if (
@@ -1977,6 +1995,8 @@ export function useEditorFilesAndSaving({
     handleTweakChange,
     tweakSelections,
     tweaks,
+    pendingTweakChanges,
+    tweakMutationsEnabled,
     designSystemsLoading,
     designSystemOptions,
     editorPreferences,
@@ -2025,6 +2045,7 @@ export function useEditorFilesAndSaving({
     editorShareUrl,
     visualEditPendingQuery,
     remoteVisualEditPending,
+    remoteVisualEditSuggestion,
     handleScreenExternalContentSnapshot,
     handleScreenRuntimeLayerSnapshot,
     getScreenRootComputedStylesCallback,

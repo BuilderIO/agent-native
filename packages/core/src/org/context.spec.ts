@@ -56,6 +56,7 @@ import {
   resolveA2AOrganizationMetadataByDomain,
   isSoleOrgDomain,
   lookupOrgByDomain,
+  listOrgMemberships,
   listOrgMembershipsForEvent,
   markActiveOrgSelectionChanged,
   resolveOrgByDomain,
@@ -96,6 +97,21 @@ function queueSelect(...rows: any[][]) {
     mockExecute.mockResolvedValueOnce({ rows: r });
   }
 }
+
+describe("fresh membership reads", () => {
+  it("bypasses a cached membership after revocation", async () => {
+    mockExecute.mockReset();
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ orgId: "org-1", role: "member", orgName: "Org" }],
+    });
+    mockExecute.mockResolvedValueOnce({ rows: [] });
+    expect(await listOrgMemberships("alice@example.test")).toHaveLength(1);
+    expect(
+      await listOrgMemberships("alice@example.test", { fresh: true }),
+    ).toEqual([]);
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe("getOrgContext", () => {
   beforeEach(() => {
@@ -593,7 +609,11 @@ describe("getOrgContext", () => {
 
     const calls = mockExecute.mock.calls.map((c) => c[0]);
     expect(calls[1].sql).toContain("LOWER(o.allowed_domain)");
-    expect(calls[1].args).toEqual(["existing@builder.io", "builder.io"]);
+    expect(calls[1].args).toEqual([
+      "existing@builder.io",
+      "existing@builder.io",
+      "builder.io",
+    ]);
     expect(calls[2].sql).toContain("INSERT INTO org_members");
     expect(calls.some((c) => c.sql.includes("INSERT INTO organizations"))).toBe(
       false,

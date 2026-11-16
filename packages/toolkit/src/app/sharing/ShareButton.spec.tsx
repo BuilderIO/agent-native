@@ -370,6 +370,115 @@ describe("ShareButton", () => {
     ).toBeTruthy();
   });
 
+  it("with staged invites, Enter makes a chip and Share invites every chip", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="document"
+            resourceId="doc-1"
+            stagedInvites
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const input = container.querySelector(
+      'input[role="combobox"]',
+    ) as HTMLInputElement;
+    for (const email of ["First@example.com", "second@example.com"]) {
+      setInputValue(input, email);
+      act(() => {
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        );
+      });
+    }
+
+    expect(shareMutate).not.toHaveBeenCalled();
+    expect(input.value).toBe("");
+    expect(
+      container.querySelector('button[aria-label="Remove first@example.com"]'),
+    ).toBeTruthy();
+    expect(buttonWithText(container, "Invite")).toBeUndefined();
+
+    const share = Array.from(container.querySelectorAll("button"))
+      .filter((button) => button.textContent?.trim() === "Share")
+      .at(-1);
+    act(() => share?.click());
+
+    expect(
+      shareMutate.mock.calls.map(
+        ([variables]) => (variables as { principalId: string }).principalId,
+      ),
+    ).toEqual(["first@example.com", "second@example.com"]);
+    expect(
+      container.querySelector('button[aria-label="Remove first@example.com"]'),
+    ).toBeNull();
+  });
+
+  it("with a role menu, a person's role offers the other role by its action and saves it", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "private",
+      role: "owner",
+      shares: [
+        {
+          id: "share-1",
+          principalType: "user",
+          principalId: "dana@example.com",
+          role: "viewer",
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="document"
+            resourceId="doc-1"
+            roleMenu
+            allowedRoles={["viewer", "editor"]}
+            roleCopy={{
+              viewer: { label: "Viewer", action: "Make viewer" },
+              editor: { label: "Collaborator", action: "Make collaborator" },
+            }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const role = container.querySelector<HTMLButtonElement>(
+      'button[data-testid="member-role"]',
+    );
+    expect(role?.textContent).toBe("Viewer");
+    await act(async () => {
+      role?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(menuItems().map((item) => item.textContent?.trim())).toEqual([
+      "Make collaborator",
+      "Remove",
+    ]);
+    act(() => menuItem("Make collaborator").click());
+
+    expect(shareMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalId: "dana@example.com",
+        role: "editor",
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("uses commenter role copy overrides and persists the commenter role", async () => {
     await act(async () => {
       root.render(

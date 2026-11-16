@@ -1,6 +1,8 @@
+import { registerDbDependency } from "../db/readiness.js";
 import type { EmailCta, EmailLinkBlock } from "../server/email-template.js";
 import type { UserProfile } from "../user-profile/shared.js";
 import type { AccessProjectedResource } from "./access.js";
+import { ensureWorkspaceUserGroupsTable } from "../workspace-connections/groups.js";
 
 export interface ShareEmailExtras {
   paragraphs?: string[];
@@ -71,7 +73,11 @@ export interface ShareableResourceRegistration {
     resource: any;
     change:
       | { kind: "visibility"; visibility: "private" | "org" | "public" }
-      | { kind: "grant" };
+      | {
+          kind: "grant";
+          principalType: string;
+          principalId: string;
+        };
   }) => void | Promise<void>;
   allowPublic?: boolean;
   /**
@@ -241,6 +247,9 @@ export function registerShareableResource(
   entry: ShareableResourceRegistration,
 ): void {
   if (!isTestRuntime() && registrationCameFromTestFile()) return;
+  if (entry.supportsGroupShares) {
+    registerDbDependency(entry.getDb, ensureWorkspaceUserGroupsTable);
+  }
   getRegistry().set(entry.type, entry);
 }
 

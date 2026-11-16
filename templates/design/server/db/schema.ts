@@ -290,10 +290,12 @@ export const designReviewSnapshot = table("design_review_snapshot", {
 export const designVisualEditPending = table("design_visual_edit_pending", {
   designId: text("design_id").primaryKey(),
   pendingEditCount: integer("pending_edit_count").notNull().default(0),
-  status: text("status", { enum: ["ready", "empty"] })
+  status: text("status", { enum: ["ready", "suggested", "empty"] })
     .notNull()
     .default("empty"),
   prompt: text("prompt").notNull().default(""),
+  handoffRecords: text("handoff_records").notNull().default("[]"),
+  authorEmail: text("author_email"),
   revision: bigint("revision", { mode: "number" }).notNull().default(0),
   publisherId: text("publisher_id").notNull().default(""),
   clientRevision: bigint("client_revision", { mode: "number" })

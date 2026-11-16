@@ -244,7 +244,10 @@ setSchedulingContext({
 registerCalendarProvider(createGoogleCalendarProvider({
   clientId: process.env.GOOGLE_CLIENT_ID!,
   clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-  getAccessToken: fetchGoogleToken, // your implementation
+  getAccessToken: async (credentialId) =>
+    (await readCalendarCredential(credentialId)).accessToken,
+  getAccountIdentity: async (credentialId) =>
+    (await readCalendarCredential(credentialId))?.externalEmail,
 }));
 
 registerVideoProvider(createDailyVideoProvider({

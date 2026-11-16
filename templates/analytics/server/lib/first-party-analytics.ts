@@ -146,6 +146,12 @@ export interface AnalyticsQueryOptions {
    * callers that need events newer than the model's last build.
    */
   eventsSource?: "raw";
+  /**
+   * Lets a later identical call collect this query's BigQuery job: stopped by
+   * this call's timeout or by `deadline`, the job keeps running instead of
+   * being cancelled. See RunQueryOptions.resumeAfter.
+   */
+  resumable?: { deadline?: AbortSignal };
 }
 
 export class FirstPartyAnalyticsQueryTimeoutError extends Error {
@@ -1973,6 +1979,14 @@ export async function queryFirstPartyAnalyticsWithBackend(
           scopedEventsProjection: options.scopedEventsProjection,
           scopedEventsSourceProjections: options.scopedEventsSourceProjections,
         };
+        const resumeAfter = options.resumable
+          ? options.resumable.deadline
+            ? AbortSignal.any([
+                options.resumable.deadline,
+                timeoutController.signal,
+              ])
+            : timeoutController.signal
+          : undefined;
         const result = await raceWithAbort(
           queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table, {
             ...renderOptions,
@@ -1983,6 +1997,7 @@ export async function queryFirstPartyAnalyticsWithBackend(
             maxBytesBilled: options.maxBytesBilled,
             timeoutMs: remainingTime(),
             signal,
+            ...(resumeAfter ? { resumeAfter } : {}),
           }),
           signal,
         );

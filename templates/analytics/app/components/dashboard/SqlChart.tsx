@@ -1368,8 +1368,16 @@ function ChartPointLimitNote({ limit }: { limit: ChartPointLimit }) {
 
 export interface ChartDatum {
   x: string;
+  /** Set when the row's x is null, which `x` alone can't tell from ''. */
+  xIsNull?: true;
   series?: string;
   value?: unknown;
+}
+
+function datumX(value: unknown): Pick<ChartDatum, "x" | "xIsNull"> {
+  return value == null
+    ? { x: "", xIsNull: true }
+    : { x: stringifyValue(value) };
 }
 
 type DatumClickHandler = (datum: ChartDatum) => void;
@@ -1377,7 +1385,7 @@ type DatumClickHandler = (datum: ChartDatum) => void;
 interface AccessibleDrilldownItem {
   datum: ChartDatum;
   label: string;
-  valueLabel?: string;
+  valueLabel?: string | undefined;
 }
 
 interface AccessibleDrilldownPage {
@@ -1404,39 +1412,46 @@ function chartDrilldownItems(
   const end = Math.min(offset + limit, total);
   const items: AccessibleDrilldownItem[] = [];
 
-  for (let index = offset; index < end; index += 1) {
-    const row = rows[Math.floor(index / seriesPerRow)];
-    const series =
-      seriesKeys.length > 0 ? seriesKeys[index % seriesPerRow] : null;
-    const x = stringifyValue(row[xKey]);
-    const label = formatXLabel(row[xKey]);
-    items.push(
-      series !== null
-        ? {
-            datum: { x, series, value: row[series] },
-            label: `${label} · ${formatSeriesLabel(series)}`,
-            valueLabel: formatValue(row[series], series),
-          }
-        : {
-            datum: {
-              x,
-              value: valueKeys.length === 1 ? row[valueKeys[0]] : undefined,
+  const firstRow = Math.floor(offset / seriesPerRow);
+  const slots: (string | null)[] = seriesKeys.length > 0 ? seriesKeys : [null];
+  const onlyValueKey = valueKeys.length === 1 ? valueKeys[0] : undefined;
+
+  for (const [rowOffset, row] of rows.slice(firstRow).entries()) {
+    for (const [slot, series] of slots.entries()) {
+      const index = (firstRow + rowOffset) * seriesPerRow + slot;
+      if (index < offset) continue;
+      if (index >= end) return { items, total };
+      const x = datumX(row[xKey]);
+      const label = formatXLabel(row[xKey]);
+      items.push(
+        series !== null
+          ? {
+              datum: { ...x, series, value: row[series] },
+              label: `${label} · ${formatSeriesLabel(series)}`,
+              valueLabel: formatValue(row[series], series),
+            }
+          : {
+              datum: {
+                ...x,
+                value:
+                  onlyValueKey === undefined ? undefined : row[onlyValueKey],
+              },
+              label:
+                valueKeys.length > 1
+                  ? `${label} · ${formatList(
+                      valueKeys.map(
+                        (key) =>
+                          `${formatSeriesLabel(key)}: ${formatValue(row[key], key)}`,
+                      ),
+                    )}`
+                  : label,
+              valueLabel:
+                onlyValueKey === undefined
+                  ? undefined
+                  : formatValue(row[onlyValueKey], onlyValueKey),
             },
-            label:
-              valueKeys.length > 1
-                ? `${label} · ${formatList(
-                    valueKeys.map(
-                      (key) =>
-                        `${formatSeriesLabel(key)}: ${formatValue(row[key], key)}`,
-                    ),
-                  )}`
-                : label,
-            valueLabel:
-              valueKeys.length === 1
-                ? formatValue(row[valueKeys[0]], valueKeys[0])
-                : undefined,
-          },
-    );
+      );
+    }
   }
 
   return { items, total };
@@ -1624,7 +1639,7 @@ function rowDatum(
       : undefined;
   if (!row) return null;
   return {
-    x: stringifyValue(row[xKey]),
+    ...datumX(row[xKey]),
     series,
     value: valueKey ? row[valueKey] : undefined,
   };

@@ -404,7 +404,14 @@ export default defineAction({
         ...change.update,
         visibility: args.visibility,
       };
-      await reg.assertSharingChange?.({ resource, change: { kind: "grant" } });
+      await reg.assertSharingChange?.({
+        resource,
+        change: {
+          kind: "grant",
+          principalType: grant.principalType,
+          principalId: grant.principalId,
+        },
+      });
       const id = generalAccessShareId(grant.principalType, change.resourceId);
       await db
         .insert(reg.sharesTable)
@@ -433,7 +440,14 @@ export default defineAction({
         .where(and(grantRows(change, grant), ne(reg.sharesTable.id, id)));
       // The checks before the write miss a change that commits in between; a
       // refusal or a newer visibility here is undone by the rollback.
-      await reg.assertSharingChange?.({ resource, change: { kind: "grant" } });
+      await reg.assertSharingChange?.({
+        resource,
+        change: {
+          kind: "grant",
+          principalType: grant.principalType,
+          principalId: grant.principalId,
+        },
+      });
       const [current] = await db
         .select({ visibility: reg.resourceTable.visibility })
         .from(reg.resourceTable)
