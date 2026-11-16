@@ -393,18 +393,13 @@ describe("listDashboardSummaries", () => {
       assertDashboardNameIsAvailable(" revenue  dashboard ", ctx),
     ).rejects.toMatchObject({
       statusCode: 409,
-      errorCode: "name_taken",
-      message: expect.stringContaining(
-        'The visible dashboard is "Revenue Dashboard"',
-      ),
-      details: {
-        name: "revenue  dashboard",
-        suggestion: "revenue  dashboard-2",
-      },
+      errorCode: "dashboard_name_conflict",
+      message: expect.stringContaining('visible dashboard "Revenue Dashboard"'),
+      details: undefined,
     });
   });
 
-  it("checks legacy names when suggesting a name and excludes the updated dashboard", async () => {
+  it("checks legacy names and excludes the updated dashboard", async () => {
     state.rows = [
       { id: "existing", kind: "sql", name: "Revenue" },
       { id: "self", kind: "sql", name: "Revenue-3" },
@@ -414,12 +409,16 @@ describe("listDashboardSummaries", () => {
     };
 
     await expect(
-      assertDashboardNameIsAvailable("Revenue", ctx, "self"),
+      assertDashboardNameIsAvailable("Revenue-2", ctx, "self"),
     ).rejects.toMatchObject({
       statusCode: 409,
-      errorCode: "name_taken",
-      details: { name: "Revenue", suggestion: "Revenue-3" },
+      errorCode: "dashboard_name_conflict",
+      message: expect.stringContaining('visible dashboard " REVENUE-2 "'),
+      details: undefined,
     });
+    await expect(
+      assertDashboardNameIsAvailable("Revenue-3", ctx, "self"),
+    ).resolves.toBeUndefined();
   });
 
   it("allows the dashboard being updated to keep its current name", async () => {
