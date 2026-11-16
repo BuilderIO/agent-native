@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  floatingTweaksPositionAfterDrag,
   resolveFloatingTweaksPosition,
   shouldAutoCollapseFloatingTweaks,
 } from "./floating-tweaks-layout";
@@ -43,6 +44,34 @@ describe("floating tweaks layout", () => {
         position: { x: 400, y: 250 },
       }),
     ).toEqual({ x: 812, y: 430 });
+  });
+
+  it("moves a small drag from the default rendered position by the same delta", () => {
+    const rendered = resolveFloatingTweaksPosition({
+      canvas: { left: 80, top: 40, right: 1260, bottom: 840 },
+      panel,
+      viewport,
+      position: { x: 16, y: 64 },
+    });
+    const initialRect = {
+      right: rendered.x + panel.width,
+      bottom: rendered.y + panel.height,
+      ...panel,
+    };
+
+    const draggedPosition = floatingTweaksPositionAfterDrag({
+      panel: initialRect,
+      viewport,
+      delta: { x: 5, y: 3 },
+    });
+    expect(
+      resolveFloatingTweaksPosition({
+        canvas: { left: 80, top: 40, right: 1260, bottom: 840 },
+        panel,
+        viewport,
+        position: draggedPosition,
+      }),
+    ).toEqual({ x: rendered.x + 5, y: rendered.y + 3 });
   });
 });
 

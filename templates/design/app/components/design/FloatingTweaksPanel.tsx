@@ -11,7 +11,10 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 
 import { TweakProperties } from "./edit-panel/tweak-properties";
-import { resolveFloatingTweaksPosition } from "./floating-tweaks-layout";
+import {
+  floatingTweaksPositionAfterDrag,
+  resolveFloatingTweaksPosition,
+} from "./floating-tweaks-layout";
 
 type TweakValue = string | number | boolean;
 
@@ -21,6 +24,7 @@ export function FloatingTweaksPanel({
   onChange,
   open,
   collapsed,
+  autoCollapse,
   position,
   onOpenChange,
   onCollapsedChange,
@@ -31,6 +35,7 @@ export function FloatingTweaksPanel({
   onChange: (id: string, value: TweakValue) => void;
   open: boolean;
   collapsed: boolean;
+  autoCollapse: boolean;
   position: { x: number; y: number };
   onOpenChange: (open: boolean) => void;
   onCollapsedChange: (collapsed: boolean) => void;
@@ -38,9 +43,16 @@ export function FloatingTweaksPanel({
 }) {
   const t = useT();
   const panelRef = useRef<HTMLDivElement>(null);
+  const wasAutoCollapseActive = useRef(false);
   const [dragPosition, setDragPosition] = useState(position);
   const [layoutPosition, setLayoutPosition] = useState({ x: 16, y: 16 });
   useEffect(() => setDragPosition(position), [position.x, position.y]);
+  useEffect(() => {
+    if (autoCollapse && !wasAutoCollapseActive.current) {
+      onCollapsedChange(true);
+    }
+    wasAutoCollapseActive.current = autoCollapse;
+  }, [autoCollapse, onCollapsedChange]);
   useEffect(() => {
     if (!open) return;
     const updatePosition = () => {
@@ -103,28 +115,20 @@ export function FloatingTweaksPanel({
     if (event.button !== 0) return;
     event.preventDefault();
     const start = { x: event.clientX, y: event.clientY };
-    const origin = dragPosition;
-    let next = origin;
+    const initialRect = panelRef.current?.getBoundingClientRect();
+    if (!initialRect) return;
+    let next = dragPosition;
     const move = (moveEvent: PointerEvent) => {
-      const rect = panelRef.current?.getBoundingClientRect();
       const width = document.documentElement.clientWidth;
       const height = document.documentElement.clientHeight;
-      next = {
-        x: Math.max(
-          8,
-          Math.min(
-            width - (rect?.width ?? 280) - 8,
-            origin.x + start.x - moveEvent.clientX,
-          ),
-        ),
-        y: Math.max(
-          8,
-          Math.min(
-            height - (rect?.height ?? 220) - 8,
-            origin.y + start.y - moveEvent.clientY,
-          ),
-        ),
-      };
+      next = floatingTweaksPositionAfterDrag({
+        panel: initialRect,
+        viewport: { width, height },
+        delta: {
+          x: moveEvent.clientX - start.x,
+          y: moveEvent.clientY - start.y,
+        },
+      });
       setDragPosition(next);
     };
     const end = () => {
