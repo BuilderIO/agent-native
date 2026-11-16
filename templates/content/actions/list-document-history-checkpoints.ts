@@ -43,7 +43,7 @@ function encodeCursor(cursor: CheckpointCursor) {
 
 export default defineAction({
   description:
-    "List metadata for the recoverable checkpoints in one document history group.",
+    "List metadata for the recoverable checkpoints in one History entry of a page, newest first: each change records the page before it (checkpointKind before, unless the entry before it already ends there) and after it. Read one checkpoint's full body with get-document-history-checkpoint.",
   schema: z.object({
     documentId: z.string().min(1).describe("Document ID"),
     groupId: z.string().min(1).describe("History group ID"),
@@ -61,6 +61,12 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args): Promise<DocumentHistoryCheckpointPage> => {
     const access = await assertAccess("document", args.documentId, "viewer");
     const ownerEmail = access.resource.ownerEmail as string;

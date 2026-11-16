@@ -110,6 +110,7 @@ describe("Content agent chat plugin", () => {
     );
     expect(options.mcp?.instructions).toContain("returns the last saved body");
     expect(options.mcp?.instructions).toContain("pull-document");
+    expect(options.mcp?.instructions).toContain("undo-document-change");
   });
 
   it("keeps only injected tools in the centralized starter list", async () => {

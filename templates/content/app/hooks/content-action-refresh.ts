@@ -69,6 +69,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "sync-manifest-local-folder-source",
   "transcribe-media",
   "undo-content-import",
+  "undo-document-change",
   // Row writes edit the row's page, which may be open.
   "update-database-item",
   "update-database-items",
@@ -181,6 +182,8 @@ const SEARCH_PLACEMENT_MUTATIONS = new Set([
   "share-resource",
   "submit-content-database-form",
   "undo-content-import",
+  // So can an undone change.
+  "undo-document-change",
   "unshare-resource",
   "upsert-database-item-by-key",
 ]);

@@ -63,6 +63,8 @@ the markdown.
 `list-document-versions` / `restore-document-version` operate on saved
 document versions. There is no diff view — restoring replaces the current
 content with the selected version's content wholesale.
+`undo-document-change` takes back one History entry instead, such as one
+agent's edits, and keeps every change made since; see SKILL.md.
 
 ## Image blocks
 

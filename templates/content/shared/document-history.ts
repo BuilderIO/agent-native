@@ -52,6 +52,26 @@ export interface DocumentHistoryCheckpointDetail extends DocumentHistoryCheckpoi
   content: string;
 }
 
+/** A page state one History checkpoint holds. */
+export interface DocumentHistoryPageState {
+  checkpointId: string;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
+/** One change a History entry recorded: the page before it, and after. */
+export interface DocumentHistoryChange {
+  before: DocumentHistoryPageState;
+  after: DocumentHistoryPageState;
+}
+
+export interface DocumentHistoryChanges {
+  groupId: string;
+  changes: DocumentHistoryChange[];
+  hasMore: boolean;
+}
+
 export interface DocumentHistoryCheckpointPage {
   checkpoints: DocumentHistoryCheckpoint[];
   nextCursor: string | null;

@@ -36,7 +36,7 @@ function encodeCursor(cursor: HistoryCursor) {
 
 export default defineAction({
   description:
-    "List one metadata-only page of a document's history groups, newest first.",
+    "List one metadata-only page of a page's History entries, newest first. Each entry is one person's editing session, one agent run, or one operation, with who made it (actorKind, actorEmail), its origin and its time span. Read an entry's checkpoints with list-document-history-checkpoints, and undo an entry, keeping later changes, with undo-document-change.",
   schema: z.object({
     documentId: z.string().min(1).describe("Document ID"),
     limit: z.coerce
@@ -53,6 +53,12 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args): Promise<DocumentHistoryPage> => {
     const access = await assertAccess("document", args.documentId, "viewer");
     const ownerEmail = access.resource.ownerEmail as string;

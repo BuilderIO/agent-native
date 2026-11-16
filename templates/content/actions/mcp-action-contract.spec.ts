@@ -27,6 +27,8 @@ import getBlocksFieldWordCount from "./get-blocks-field-word-count.js";
 import getContentDatabaseSource from "./get-content-database-source.js";
 import getContentDatabase from "./get-content-database.js";
 import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
+import getDocumentHistoryChange from "./get-document-history-change.js";
+import getDocumentHistoryCheckpoint from "./get-document-history-checkpoint.js";
 import getDocument from "./get-document.js";
 import linkGitHubFolder from "./link-github-folder.js";
 import listComments from "./list-comments.js";
@@ -35,6 +37,8 @@ import listContentDatabaseComments from "./list-content-database-comments.js";
 import listContentDatabases from "./list-content-databases.js";
 import listContentSpaces from "./list-content-spaces.js";
 import listContentTrash from "./list-content-trash.js";
+import listDocumentHistoryCheckpoints from "./list-document-history-checkpoints.js";
+import listDocumentHistory from "./list-document-history.js";
 import listDocuments from "./list-documents.js";
 import listTrashedContentDatabases from "./list-trashed-content-databases.js";
 import manageContentDatabaseMigration from "./manage-content-database-migration.js";
@@ -51,6 +55,7 @@ import searchDocuments from "./search-documents.js";
 import setDocumentProperty from "./set-document-property.js";
 import shareLocalFileDocument from "./share-local-file-document.js";
 import syncGitHubFolder from "./sync-github-folder.js";
+import undoDocumentChange from "./undo-document-change.js";
 import updateComment from "./update-comment.js";
 import updateContentDatabaseView from "./update-content-database-view.js";
 import updateDatabaseItem from "./update-database-item.js";
@@ -83,6 +88,11 @@ describe("Content action-owned agent catalogs", () => {
     "create-document": createDocument,
     "edit-document": editDocument,
     "update-document": updateDocument,
+    "list-document-history": listDocumentHistory,
+    "list-document-history-checkpoints": listDocumentHistoryCheckpoints,
+    "get-document-history-checkpoint": getDocumentHistoryCheckpoint,
+    "get-document-history-change": getDocumentHistoryChange,
+    "undo-document-change": undoDocumentChange,
     "list-comments": listComments,
     "list-content-database-comments": listContentDatabaseComments,
     "add-comment": addComment,

@@ -19,7 +19,10 @@ import {
 } from "../server/lib/document-body-intents.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { rebuildDocumentBodyBase } from "../server/lib/document-body-steps.js";
-import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import {
+  documentHistoryGrouping,
+  recordDocumentHistoryTransition,
+} from "../server/lib/document-history.js";
 import {
   documentContentHash,
   documentRevisionToken,
@@ -200,6 +203,11 @@ export interface DocumentEditMutationResult {
       | "displaced-preserved"
       | "preservation-required";
     displacedCheckpointId?: string;
+    /**
+     * The History entry the edit's change joined, when it changed the body;
+     * undo-document-change takes the entry back.
+     */
+    historyGroupId?: string;
     documentId: string;
     revisions: { before: string; after: string };
     bodyRevision: { before: number; after: number };
@@ -620,6 +628,10 @@ async function performDocumentBodyMutation(
         ? document.bodyRevision + 1
         : document.bodyRevision;
       const afterHash = documentContentHash(merged.content);
+      const historyGrouping = documentHistoryGrouping({
+        ctx: args.ctx,
+        operation: "edit-document",
+      });
       if (changed) {
         const primaryBlocksFields = await lockPrimaryBlocksFields(
           tx,
@@ -695,7 +707,11 @@ async function performDocumentBodyMutation(
           after: { title: document.title, content: merged.content },
           beforeBodyRevision: document.bodyRevision,
           afterBodyRevision: afterRevision,
-          cause: { ctx: args.ctx, operation: "edit-document" },
+          cause: {
+            ctx: args.ctx,
+            operation: "edit-document",
+            ...historyGrouping,
+          },
           now,
         });
         if (creativeContext) {
@@ -752,6 +768,7 @@ async function performDocumentBodyMutation(
               ? "applied"
               : "unchanged",
           ...(displacedCheckpointId ? { displacedCheckpointId } : {}),
+          ...(changed ? { historyGroupId: historyGrouping.groupId } : {}),
           documentId: document.id,
           revisions: {
             before: documentRevisionToken(
@@ -920,12 +937,17 @@ async function mutateLiveCopyDocumentBody(input: {
     authored: resolved.ranges,
   };
   const creativeContext = await input.resolveCreativeContext();
+  const historyGrouping = documentHistoryGrouping({
+    ctx: input.ctx,
+    operation: "edit-document",
+  });
   let result: DocumentEditMutationResult | undefined;
   try {
     await editContentLiveCopy(documentId, {
       cause: {
         ctx: input.ctx,
         operation: "edit-document",
+        historyGrouping,
         intent: {
           intent: {
             writerId: `${input.scope}:edit-document`,
@@ -1009,6 +1031,7 @@ async function mutateLiveCopyDocumentBody(input: {
           receipt: {
             receiptId,
             outcome: changed ? "applied" : "unchanged",
+            ...(changed ? { historyGroupId: historyGrouping.groupId } : {}),
             documentId,
             revisions: {
               before: documentRevisionToken(beforeRevision, before),

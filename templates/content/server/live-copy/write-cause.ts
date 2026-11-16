@@ -4,6 +4,7 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import type { DbExec } from "@agent-native/core/db";
 
 import type { DocumentBodyIntent } from "../../shared/document-intent-order.js";
+import type { DocumentHistoryGrouping } from "../lib/document-history.js";
 
 export interface ContentBodyIntentRecord {
   /**
@@ -37,6 +38,8 @@ export interface ContentBodyWriteCause {
   operation: string;
   origin?: string;
   historySessionId?: string;
+  /** The History group the writer fixed before writing; it wins over the rest. */
+  historyGrouping?: DocumentHistoryGrouping;
   intent?: ContentBodyIntentRecord;
   /** A title the write sets with the body, as a version restore does. */
   title?: string;

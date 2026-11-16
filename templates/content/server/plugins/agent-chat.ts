@@ -31,6 +31,7 @@ const INJECTED_INITIAL_TOOL_NAMES = [
 const DOCUMENT_EDIT_TOOLS = new Set([
   "edit-document",
   "restore-document-version",
+  "undo-document-change",
   "update-document",
 ]);
 
@@ -198,7 +199,7 @@ export default createAgentChatPlugin({
     connectorCatalog: [],
     externalAgents: { writes: "allowlisted" },
     instructions:
-      "Find documents with list-documents or search-documents; read with get-document, which returns the last saved body. If the page may be open in an editor, read it with pull-document, which saves live edits first. Author and persist content with create-document. For body changes use revision-guarded edit-document; pass initializeContent only when get-document returns an empty body. Use update-document for metadata and browser rewrites. delete-document moves pages and sub-pages to recoverable Trash; to restore one, find its Trash root with list-content-trash, then call restore-document with that root's id, its exact trashedAt as expectedTrashedAt, and a new idempotencyKey. Permanent deletion is not offered over MCP.",
+      "Find documents with list-documents or search-documents; read with get-document, which returns the last saved body. If the page may be open in an editor, read it with pull-document, which saves live edits first. Author and persist content with create-document. For body changes use revision-guarded edit-document; pass initializeContent only when get-document returns an empty body. Use update-document for metadata and browser rewrites. To undo one change, such as an agent's edit, while keeping every change made since, take the historyGroupId its edit-document receipt returns, or find the entry with list-document-history, then call undo-document-change with a new idempotencyKey. delete-document moves pages and sub-pages to recoverable Trash; to restore one, find its Trash root with list-content-trash, then call restore-document with that root's id, its exact trashedAt as expectedTrashedAt, and a new idempotencyKey. Permanent deletion is not offered over MCP.",
     directoryProfile: CHATGPT_DIRECTORY_PROFILE,
   },
   anonymousOwner: resolvePublicViewerOwner,
