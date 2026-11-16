@@ -42,6 +42,7 @@ describe("composeApplyHandoff", () => {
     expect(result.prompt).toContain("acknowledge-visual-edit-pending");
     expect(result.includes.tweakIds).toEqual(["speed"]);
     expect(result.includes.remote).toBe(false);
+    expect(result.prompt).toContain("revision: <exact-handoff-revision>");
     expect(getDurableApplyHandoff(result, 0)).toEqual({
       pendingEditCount: 1,
       prompt: result.prompt,
@@ -76,6 +77,31 @@ describe("composeApplyHandoff", () => {
     expect(prompt).toContain("send-builder-message");
     expect(prompt).not.toContain("Locate the source files");
     expect(prompt).not.toContain("verify the running page");
+  });
+
+  it("does not repeat local changes already covered by the durable handoff", () => {
+    const result = composeApplyHandoff({
+      remote: {
+        trusted: true,
+        prompt: "Published local prompt",
+        revision: 9,
+        includes: { visualEditIds: ["v1"], tweakIds: ["gap"] },
+      },
+      localVisualEdits: [{ id: "v1", prompt: "Same visual instruction" }],
+      localTweakChanges: [
+        { id: "gap", label: "Gap", oldValue: 1, newValue: 2 },
+      ],
+      fullApp: { enabled: true, designId: "d1" },
+    });
+
+    expect(result.prompt.match(/Published local prompt/g)).toHaveLength(1);
+    expect(result.prompt).not.toContain("Same visual instruction");
+    expect(result.prompt).not.toContain("Changed tweaks");
+    expect(result.includes).toEqual({
+      remote: true,
+      visualEditIds: [],
+      tweakIds: [],
+    });
   });
 
   it("keeps localhost source instructions when a disabled full app has an id", () => {

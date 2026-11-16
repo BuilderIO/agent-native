@@ -56,6 +56,8 @@ const mocks = vi.hoisted(() => {
       pendingEditCount: "pending.pendingEditCount",
       status: "pending.status",
       prompt: "pending.prompt",
+      includedVisualEditIds: "pending.includedVisualEditIds",
+      includedTweakIds: "pending.includedTweakIds",
       authorEmail: "pending.authorEmail",
       revision: "pending.revision",
       publisherId: "pending.publisherId",
@@ -258,13 +260,19 @@ describe("visual-edit pending handoff", () => {
             pendingEditCount: 1,
             status: "ready",
             prompt: "Adjust heading spacing",
+            includedVisualEditIds: ["visual-1"],
+            includedTweakIds: ["spacing"],
           },
         },
         { caller: "frontend", requestHeaders: new Headers() },
       ),
     ).resolves.toMatchObject({ status: "ready" });
     expect(mocks.insertChain.values).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "ready" }),
+      expect.objectContaining({
+        status: "ready",
+        includedVisualEditIds: '["visual-1"]',
+        includedTweakIds: '["spacing"]',
+      }),
     );
   });
 
@@ -759,6 +767,16 @@ describe("visual-edit pending handoff", () => {
       tweakAcknowledgedCount: 0,
     });
     expect(mocks.selectChain.limit).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires an exact handoff revision before acknowledging tweaks", async () => {
+    await expect(
+      acknowledgePendingAction.run({
+        designId: "design_public",
+        appliedTweaks: [{ id: "speed", value: 3 }],
+      }),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_revision_required" });
+    expect(mocks.updateChain.set).not.toHaveBeenCalled();
   });
 
   it("advances only acknowledged tweak ids and values after source verification", async () => {

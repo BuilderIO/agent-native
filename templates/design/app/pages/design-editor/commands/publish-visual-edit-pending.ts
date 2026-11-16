@@ -9,6 +9,8 @@ export interface PendingVisualEditHandoff {
     pendingEditCount: number;
     status: "ready";
     prompt: string;
+    includedVisualEditIds?: string[];
+    includedTweakIds?: string[];
   } | null;
 }
 

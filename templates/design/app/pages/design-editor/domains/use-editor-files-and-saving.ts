@@ -881,6 +881,7 @@ export function useEditorFilesAndSaving({
     tweakSelections,
     tweaks,
     pendingTweakChanges,
+    tweakMutationsEnabled,
   } = useTweaks({
     acknowledgeOutboxEntry,
     applyTweaksAsync,
@@ -1705,6 +1706,7 @@ export function useEditorFilesAndSaving({
     pendingEditCount: number;
     status: "ready" | "suggested" | "empty";
     prompt: string;
+    includes: { visualEditIds: string[]; tweakIds: string[] };
     suggestion: {
       trusted: false;
       authorEmail: string | null;
@@ -1993,6 +1995,7 @@ export function useEditorFilesAndSaving({
     tweakSelections,
     tweaks,
     pendingTweakChanges,
+    tweakMutationsEnabled,
     designSystemsLoading,
     designSystemOptions,
     editorPreferences,

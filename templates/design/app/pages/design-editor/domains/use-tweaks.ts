@@ -1,4 +1,7 @@
-import { useReconciledState } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  useReconciledState,
+} from "@agent-native/core/client/hooks";
 import type { TweakDefinition } from "@shared/api";
 import {
   resolveTweaksToCssVars,
@@ -62,11 +65,14 @@ export interface UseTweaksResult {
   handleTweakChange: (
     tweakId: string,
     value: string | number | boolean,
-  ) => void;
+  ) =>
+    | { accepted: true }
+    | { accepted: false; reason: "baseline_unreadable" | "not_editable" };
   setTweakSelections: Dispatch<SetStateAction<TweakSelections>>;
   tweakSelections: TweakSelections;
   tweaks: TweakDefinition[];
   pendingTweakChanges: ReturnType<typeof getTweakHandoffChanges>;
+  tweakMutationsEnabled: boolean;
 }
 
 export function useTweaks({
@@ -255,9 +261,17 @@ export function useTweaks({
   }, [design?.data]);
   useEffect(() => {
     if (sourceBaseline.status === "unreadable") {
-      toast.warning(t("designEditor.toasts.tweakBaselineUnreadable"));
+      toast.warning(t("designEditor.toasts.tweakBaselineUnreadable"), {
+        action: {
+          label: t("designEditor.toasts.resetTweakBaseline"),
+          onClick: () => {
+            if (id)
+              void callAction("reset-tweak-source-baseline", { designId: id });
+          },
+        },
+      });
     }
-  }, [sourceBaseline.status, t]);
+  }, [id, sourceBaseline.status, t]);
   useLayoutEffect(() => {
     if (
       !tweakSaveActive &&
@@ -298,14 +312,23 @@ export function useTweaks({
 
   const handleTweakChange = useCallback(
     (tweakId: string, value: string | number | boolean) => {
+      if (sourceBaseline.status === "unreadable") {
+        return {
+          accepted: false as const,
+          reason: "baseline_unreadable" as const,
+        };
+      }
+      if (!canEditDesignRef.current) {
+        return { accepted: false as const, reason: "not_editable" as const };
+      }
       setTweakSelections((prev) => {
-        if (!canEditDesign) return prev;
         const next = { ...prev, [tweakId]: value };
         queueTweakSave(next);
         return next;
       });
+      return { accepted: true as const };
     },
-    [canEditDesign, queueTweakSave],
+    [canEditDesignRef, queueTweakSave, sourceBaseline.status],
   );
 
   return {
@@ -316,5 +339,6 @@ export function useTweaks({
     tweakSelections,
     tweaks,
     pendingTweakChanges,
+    tweakMutationsEnabled: sourceBaseline.status === "readable",
   };
 }

@@ -2367,6 +2367,7 @@ export default {
         "調整内容が別の場所で変更されました。デザインを更新してからもう一度お試しください。",
       tweakBaselineUnreadable:
         "保存された調整の基準値を読み取れませんでした。デザインデータが修復されるまで調整の変更を一時停止します。",
+      resetTweakBaseline: "ベースラインをリセット",
       tweakSaveNotDurable:
         "調整内容はまだ保存されていません。このタブを開いたまま、もう一度お試しください。",
       undoSkippedConcurrentEdit:

@@ -45,6 +45,15 @@ export default defineAction({
   maxBodyBytes: 16 * 1_024,
   run: async ({ designId, revision, appliedTweaks = [] }) => {
     await assertAccess("design", designId, "editor");
+    if (appliedTweaks.length > 0 && revision === undefined) {
+      fail(
+        "A tweak acknowledgement requires the exact pending handoff revision.",
+        {
+          errorCode: "visual_edit_revision_required",
+          statusCode: 400,
+        },
+      );
+    }
 
     const updated = await getDb().transaction(async (tx) => {
       const acknowledged =
@@ -68,10 +77,7 @@ export default defineAction({
                 designId: schema.designVisualEditPending.designId,
               });
 
-      if (
-        (revision === undefined || acknowledged.length > 0) &&
-        appliedTweaks.length > 0
-      ) {
+      if (acknowledged.length > 0 && appliedTweaks.length > 0) {
         const rows = await tx
           .select({ data: schema.designs.data })
           .from(schema.designs)
@@ -122,8 +128,7 @@ export default defineAction({
       return {
         acknowledged,
         tweakAcknowledgedCount:
-          (revision === undefined || acknowledged.length > 0) &&
-          appliedTweaks.length > 0
+          acknowledged.length > 0 && appliedTweaks.length > 0
             ? appliedTweaks.length
             : 0,
         pending: pending[0] ?? { status: "empty", pendingEditCount: 0 },

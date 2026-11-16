@@ -211,6 +211,7 @@ export function useEditorScreenRendering({
   const {
     navigate,
     cssVarValues,
+    tweakMutationsEnabled,
     tweaks,
     handleTweakChange,
     files,
@@ -1186,7 +1187,11 @@ export function useEditorScreenRendering({
           }
           tweakValues={cssVarValues}
           tweaks={tweaks}
-          onInteractTweakSet={canEditDesign ? handleTweakChange : undefined}
+          onInteractTweakSet={
+            canEditDesign && tweakMutationsEnabled
+              ? handleTweakChange
+              : undefined
+          }
           drawMode={false}
           pinMode={screenIsActive && pinMode}
           commentPinsHidden={commentPinsHidden || !screenIsActive}
