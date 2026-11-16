@@ -185,7 +185,7 @@ beforeEach(() => {
 describe("update-comment (action) — reopen permission", () => {
   it("rejects an update without a mutation", async () => {
     await expect(run({ id: "c-1" })).rejects.toThrow(
-      "Provide content, mentions, or resolved to update a comment",
+      "Provide content, mentions, attachments, or resolved to update a comment",
     );
     expect(mockAssertAccess).not.toHaveBeenCalled();
   });

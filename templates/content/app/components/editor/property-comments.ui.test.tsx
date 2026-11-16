@@ -58,6 +58,11 @@ vi.mock("@/hooks/use-mention-members", () => ({
   useMentionMembers: () => ({ data: [] }),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+// These count the box's requests; its storage check isn't one of them.
+vi.mock("./comment-images", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./comment-images")>()),
+  useCommentImageStorage: () => true,
+}));
 
 const score = (value: number): DocumentProperty =>
   ({
