@@ -40,12 +40,12 @@ describe("DesignEditor pending source handoff", () => {
     expect(chatState).toContain(
       'if (stagedSourceHandoffRef.current === "running")',
     );
-    expect(chatState).toContain("clearPendingLiveEditStateRef.current();");
+    // The host turn starting finalizes exactly the delivered edits; settling
+    // it must not clear edits made after the handoff.
+    expect(chatState).toContain("stagedHandoffStartedRef.current?.();");
+    expect(chatState).not.toContain("clearPendingLiveEditStateRef.current();");
     expect(chatState.indexOf("reloadRunningAppPreviewFrames();")).toBeLessThan(
-      chatState.indexOf("clearPendingLiveEditStateRef.current();"),
-    );
-    expect(chatState.indexOf("setApplyingViaHost(false);")).toBeLessThan(
-      chatState.indexOf('if (next === "idle")'),
+      chatState.indexOf("setApplyingViaHost(false);"),
     );
   });
 
