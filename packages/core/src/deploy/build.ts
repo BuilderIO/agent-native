@@ -4879,7 +4879,11 @@ export function resolveCoreUndiciPackageDir(
         return packageDir;
       }
     } catch {
-      // Try the next resolution form; a missing resolution is handled below.
+      // coercion-ok: the two specifiers are alternative resolution probes, so
+      // a failure here is expected. The null return is a typed "absent" value:
+      // copyInstalledExternalSsrPackages() rejects it with an explicit error
+      // instead of silently shipping a different undici version. Try the next
+      // resolution form; a total failure is reported by the caller below.
     }
   }
   return null;
