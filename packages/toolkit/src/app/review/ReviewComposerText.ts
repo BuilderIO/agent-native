@@ -26,11 +26,10 @@ function withAgentMentionBoundaries(content: CommentDocNode): CommentDocNode {
   const visit = (node: CommentDocNode) => {
     const children = node.content;
     if (!children) return;
-    for (let index = 0; index < children.length; index += 1) {
-      const child = children[index];
-      const next = children[index + 1];
+    for (const [index, child] of children.entries()) {
+      const next = children.at(index + 1);
       if (
-        child?.type === REVIEW_MENTION_NODE_NAME &&
+        child.type === REVIEW_MENTION_NODE_NAME &&
         (child.attrs?.kind === "agent" ||
           (typeof child.attrs?.id === "string" &&
             child.attrs.id.startsWith("agent:"))) &&
@@ -40,7 +39,7 @@ function withAgentMentionBoundaries(content: CommentDocNode): CommentDocNode {
       ) {
         next.text = ` ${next.text}`;
       }
-      if (child) visit(child);
+      visit(child);
     }
   };
   visit(content);
