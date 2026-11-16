@@ -1640,7 +1640,11 @@ export async function setAgentChatContextItemAndPersist(
   });
 }
 
-/** Save a state, noting the keys a synchronous call removed meanwhile. */
+/**
+ * Save a state, noting the keys a synchronous call removed meanwhile. It goes
+ * in a request of its own, so a synchronous save made while it waits can't
+ * replace what it saves.
+ */
 async function writeAgentChatContextState(
   state: AgentChatContextState,
 ): Promise<{
@@ -1652,6 +1656,7 @@ async function writeAgentChatContextState(
     const persistedState = normalizeAgentChatContextState(
       await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, state, {
         keepalive: true,
+        ownRequest: true,
       }),
     );
     return { persistedState, removedMidWrite: agentChatContextRemovedMidWrite };

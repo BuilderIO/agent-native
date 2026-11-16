@@ -915,6 +915,38 @@ describe("client application-state helpers", () => {
     );
   });
 
+  it("keeps a write sent as its own request out of a later one", async () => {
+    const releases: Array<() => void> = [];
+    const fetchMock = vi.fn(
+      (_: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          releases.push(() =>
+            resolve(jsonResponse(JSON.parse(String(init?.body)))),
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = writeClientAppState("selection", { step: 1 });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const own = writeClientAppState(
+      "selection",
+      { step: 2 },
+      { ownRequest: true },
+    );
+    const later = writeClientAppState("selection", { step: 3 });
+    for (let sent = 1; sent <= 3; sent += 1) {
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(sent));
+      releases[sent - 1]();
+    }
+    await Promise.all([first, later]);
+
+    await expect(own).resolves.toEqual({ step: 2 });
+    expect(fetchMock.mock.calls.map(([, init]) => init?.body)).toEqual(
+      [1, 2, 3].map((step) => JSON.stringify({ step })),
+    );
+  });
+
   it("sends keepalive writes with the rest of their tick", async () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve(

@@ -28,6 +28,12 @@ export interface ClientAppStateWriteOptions {
   keepalive?: boolean;
   requestSource?: string;
   signal?: AbortSignal;
+  /**
+   * Send this value in a request of its own. Otherwise a write still waiting
+   * on an earlier one takes the value of a later write of the key, and
+   * resolves with that. A write with a `signal` always has its own request.
+   */
+  ownRequest?: boolean;
 }
 
 function appStateUrl(key: string): string {
@@ -123,10 +129,10 @@ function runClientAppStateMutation<T>(
   return mutation;
 }
 
-// Compare-and-sets and writes with an abort signal keep their own requests.
-// A write queued behind one never goes ahead of it when the page hides (see
-// flushOnPageHide): the server doesn't order compare-and-sets, and a signalled
-// write may yet be aborted. Counts these per key until they settle.
+// Compare-and-sets and writes with an abort signal or `ownRequest` keep their
+// own requests. A write queued behind one never goes ahead of it when the page
+// hides (see flushOnPageHide): the server doesn't order compare-and-sets, and a
+// signalled write may yet be aborted. Counts these per key until they settle.
 const unsettledBarriers = new Map<string, number>();
 
 function runBarrierMutation<T>(
@@ -787,9 +793,10 @@ export async function writeClientAppState<T = unknown>(
   options: ClientAppStateWriteOptions = {},
 ): Promise<T> {
   assertAgentNativeApiEnabled(`write application state "${key}"`);
+  const ownRequest = !!options.signal || options.ownRequest === true;
   // Numbered now, in the order it was made, like a queued write.
-  const seq = options.signal ? nextWriteSeq() : 0;
-  const write = options.signal
+  const seq = ownRequest ? nextWriteSeq() : 0;
+  const write = ownRequest
     ? runBarrierMutation(key, async () => {
         const body = jsonBody(value);
         const keepalive = keepaliveRequest(options.keepalive, body);

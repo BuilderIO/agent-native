@@ -893,6 +893,19 @@ describe("BlockActionsMenu", () => {
       expect(target.state.doc.child(0).attrs.color).toBe("blue");
     });
 
+    it("shows every colour in Color's view when a search led there", () => {
+      onPhone();
+      open(mount(), 0);
+
+      search("label");
+      tap("editor.color.label");
+
+      expect(rowLabels()).toContain("Aeditor.color.defaultText=true");
+      expect(rowLabels()).toContain(
+        "Aeditor.color.textChoice(editor.color.blue)=false",
+      );
+    });
+
     it("filters its rows as the menu does", () => {
       onPhone();
       const { request } = open(mount(), 0);

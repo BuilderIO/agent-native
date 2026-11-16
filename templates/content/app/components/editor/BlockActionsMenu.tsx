@@ -660,45 +660,47 @@ export function BlockActionsMenu({
     );
 
     // A block has one colour, so each group's default stands for "not one of
-    // mine".
+    // mine". Search results show the colours that match; Color's own view, which
+    // a search for "Color" itself reaches, shows them all.
     const background = !!color?.endsWith("_bg");
-    const colorGroups = (
-      [
+    const colorGroups = (shown: (label: string) => boolean) =>
+      (
         [
-          "text",
-          t("editor.textColor"),
-          colorChoices.text,
-          color && !background ? color : "default",
-        ],
-        [
-          "background",
-          t("editor.backgroundColor"),
-          colorChoices.background,
-          background ? color : "default_bg",
-        ],
-      ] as const
-    ).map(([group, label, choices, chosen]) => {
-      const found = choices.filter((choice) => matches(choice.label));
-      if (found.length === 0) return null;
-      return (
-        <div key={group} aria-label={label} role="radiogroup">
-          <p aria-hidden="true" className={sheetLabelClass}>
-            {label}
-          </p>
-          {found.map(({ color: choice, label: choiceLabel }) =>
-            sheetChoice(
-              choice,
-              <>
-                <ColorSwatch color={choice} />
-                {choiceLabel}
-              </>,
-              chosen === choice,
-              () => setColor(chosenColor(color, choice)),
-            ),
-          )}
-        </div>
-      );
-    });
+          [
+            "text",
+            t("editor.textColor"),
+            colorChoices.text,
+            color && !background ? color : "default",
+          ],
+          [
+            "background",
+            t("editor.backgroundColor"),
+            colorChoices.background,
+            background ? color : "default_bg",
+          ],
+        ] as const
+      ).map(([group, label, choices, chosen]) => {
+        const found = choices.filter((choice) => shown(choice.label));
+        if (found.length === 0) return null;
+        return (
+          <div key={group} aria-label={label} role="radiogroup">
+            <p aria-hidden="true" className={sheetLabelClass}>
+              {label}
+            </p>
+            {found.map(({ color: choice, label: choiceLabel }) =>
+              sheetChoice(
+                choice,
+                <>
+                  <ColorSwatch color={choice} />
+                  {choiceLabel}
+                </>,
+                chosen === choice,
+                () => setColor(chosenColor(color, choice)),
+              ),
+            )}
+          </div>
+        );
+      });
 
     const opensView = (label: string, view: Exclude<SheetView, "menu">) => (
       <button
@@ -736,7 +738,7 @@ export function BlockActionsMenu({
             </>
           );
         case "found-color":
-          return colorGroups;
+          return colorGroups(matches);
         case "style":
           return (
             <>
@@ -776,7 +778,7 @@ export function BlockActionsMenu({
       sheetView === "turn-into" && turnTargets.length > 0
         ? { label: turnIntoLabel, body: turnIntoChoices(turnTargets) }
         : sheetView === "color" && colorable
-          ? { label: colorLabel, body: colorGroups }
+          ? { label: colorLabel, body: colorGroups(() => true) }
           : null;
 
     return (

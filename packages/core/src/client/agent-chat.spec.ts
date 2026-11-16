@@ -151,8 +151,12 @@ describe("sendToAgentChat", () => {
     _resetAgentChatSubmitBufferForTests();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
+    // Sends the save a synchronous context change queued, so a later test's
+    // persisted write, which waits behind it, isn't handed its response.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await flushMicrotasks();
   });
 
   it("returns a non-empty tabId string", () => {
@@ -1871,6 +1875,8 @@ describe("sendToAgentChat", () => {
     status: 200,
     text: async () => (typeof body === "string" ? body : ""),
   });
+  const echo = (_url: unknown, init?: RequestInit) =>
+    Promise.resolve(saved(init?.body));
   const keysIn = (body: unknown) =>
     (JSON.parse(body as string).items as { key: string }[]).map(
       ({ key }) => key,
@@ -1883,6 +1889,7 @@ describe("sendToAgentChat", () => {
       Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
     fetchSpy
       .mockImplementationOnce(() => write.promise)
+      .mockImplementationOnce(echo)
       .mockImplementationOnce(() => addedBack.promise);
     const persistence = setAgentChatContextItemAndPersist({
       key: "prefill:thread-1",
@@ -1904,8 +1911,10 @@ describe("sendToAgentChat", () => {
     expect(fetchSpy).toHaveBeenCalledOnce();
     write.resolve(saved(requestState));
 
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
-    const addedBackState = fetchSpy.mock.calls[1]?.[1]?.body;
+    // Then that save goes, and the item is added back in a save after it.
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(3));
+    expect(keysIn(fetchSpy.mock.calls[1]?.[1]?.body)).toEqual(["resource"]);
+    const addedBackState = fetchSpy.mock.calls[2]?.[1]?.body;
     expect(keysIn(addedBackState)).toEqual(["resource", "prefill:thread-1"]);
     // Shown only once that's saved.
     expect(listedKeys()).toEqual(["resource"]);
@@ -1923,6 +1932,7 @@ describe("sendToAgentChat", () => {
     const write = Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
     fetchSpy
       .mockImplementationOnce(() => write.promise)
+      .mockImplementationOnce(echo)
       .mockImplementationOnce(() =>
         Promise.resolve({ ok: false, status: 500, text: async () => "" }),
       );
@@ -1944,6 +1954,47 @@ describe("sendToAgentChat", () => {
 
     await expect(persistence).rejects.toThrow();
     expect(listedKeys()).toEqual(["resource"]);
+  });
+
+  it("keeps a persisted write apart from a synchronous save made while it waits", async () => {
+    const inFlight =
+      Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy
+      .mockImplementationOnce(() => inFlight.promise)
+      .mockImplementationOnce(echo)
+      .mockImplementationOnce(echo)
+      .mockImplementationOnce(echo);
+    setAgentChatContextItem({
+      key: "resource",
+      title: "Document",
+      context: "The open document",
+    });
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+
+    // Staged while that save is on the wire, so it waits behind it, and a
+    // synchronous change lands while it waits.
+    const persistence = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-1",
+      title: "Text",
+      context: "The block",
+      targetThreadId: "thread-1",
+    });
+    await flushMicrotasks();
+    setAgentChatContextItem({
+      key: "selection",
+      title: "Selection",
+      context: "The selected text",
+    });
+    inFlight.resolve(saved(fetchSpy.mock.calls[0]?.[1]?.body));
+    await persistence;
+
+    expect(fetchSpy.mock.calls.map(([, init]) => keysIn(init?.body))).toEqual([
+      ["resource"],
+      ["resource", "prefill:thread-1"],
+      ["resource", "selection"],
+      ["resource", "selection", "prefill:thread-1"],
+    ]);
+    expect(listedKeys()).toEqual(["resource", "selection", "prefill:thread-1"]);
   });
 
   it("leaves a key that a synchronous set replaced during the write", async () => {
@@ -2013,6 +2064,7 @@ describe("sendToAgentChat", () => {
       Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
     fetchSpy
       .mockImplementationOnce(() => firstWrite.promise)
+      .mockImplementationOnce(echo)
       .mockImplementationOnce(() => addedBack.promise)
       .mockImplementationOnce(() => secondWrite.promise);
     const first = setAgentChatContextItemAndPersist({
@@ -2036,21 +2088,21 @@ describe("sendToAgentChat", () => {
     });
 
     firstWrite.resolve(saved(firstState));
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(3));
     await new Promise((resolve) => setTimeout(resolve, 0));
     // The second write waits for the first's save, so the server can't get
     // them out of order.
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    addedBack.resolve(saved(fetchSpy.mock.calls[1]?.[1]?.body));
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    addedBack.resolve(saved(fetchSpy.mock.calls[2]?.[1]?.body));
     await first;
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(4));
     expect(
-      fetchSpy.mock.calls.slice(1).map(([, init]) => keysIn(init?.body)),
+      fetchSpy.mock.calls.slice(2).map(([, init]) => keysIn(init?.body)),
     ).toEqual([
       ["resource", "prefill:thread-1"],
       ["resource", "prefill:thread-1", "prefill:thread-2"],
     ]);
-    secondWrite.resolve(saved(fetchSpy.mock.calls[2]?.[1]?.body));
+    secondWrite.resolve(saved(fetchSpy.mock.calls[3]?.[1]?.body));
     await second;
 
     expect(listedKeys()).toEqual([
@@ -2077,6 +2129,7 @@ describe("sendToAgentChat", () => {
       Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
     fetchSpy
       .mockImplementationOnce(() => write.promise)
+      .mockImplementationOnce(echo)
       .mockImplementationOnce(() => repair.promise);
     const removal = removeAgentChatContextItemAndPersist("prefill:thread-1");
     await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
@@ -2088,8 +2141,8 @@ describe("sendToAgentChat", () => {
       context: "The open document",
     });
     write.resolve(saved(requestState));
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
-    const repairState = fetchSpy.mock.calls[1]?.[1]?.body;
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(3));
+    const repairState = fetchSpy.mock.calls[2]?.[1]?.body;
     expect(keysIn(repairState)).toEqual(["resource"]);
     repair.resolve(saved(repairState));
     await removal;
