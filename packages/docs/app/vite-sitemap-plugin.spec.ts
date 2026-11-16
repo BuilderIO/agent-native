@@ -13,6 +13,7 @@ import {
   type ArticleEntry,
 } from "../lib/site-content";
 import { loadSiteContentFromDisk } from "../lib/site-content-node";
+import { inventoryPublicAssets } from "../nitro.config";
 import { DOCS_LOCALES, sitePathForLocale } from "./components/docs-locale";
 import {
   SITE_URL,
@@ -333,6 +334,33 @@ describe("docs agent web generation", () => {
     afterAll(() => {
       fs.rmSync(outputRoot, { recursive: true, force: true });
     });
+
+    it(
+      "inventories every generated and public Markdown asset",
+      () => {
+        fs.cpSync(path.join(rootDir, "public"), clientDir, { recursive: true });
+        const inventory = new Set(inventoryPublicAssets(clientDir));
+        function markdownFiles(dir: string, base = dir): string[] {
+          return fs
+            .readdirSync(dir, { withFileTypes: true })
+            .flatMap((entry) => {
+              const name = path.join(dir, entry.name);
+              if (entry.isDirectory()) return markdownFiles(name, base);
+              return entry.isFile() && name.endsWith(".md")
+                ? [path.relative(base, name).split(path.sep).join("/")]
+                : [];
+            });
+        }
+        const assets = [
+          ...markdownFiles(clientDir),
+          ...markdownFiles(path.join(rootDir, "public")),
+        ];
+        expect(assets.length).toBeGreaterThan(0);
+        expect(assets.filter((asset) => !inventory.has(asset))).toEqual([]);
+        expect(inventory.has("mcp.md")).toBe(false);
+      },
+      AGENT_WEB_GENERATION_TIMEOUT_MS,
+    );
 
     it("includes standalone Chat app creation guidance in generated llms.txt", () => {
       const llms = fs.readFileSync(path.join(clientDir, "llms.txt"), "utf8");

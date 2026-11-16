@@ -65,6 +65,7 @@ import {
 import type { MotionDockEasingSegment } from "@/components/design/MotionDock";
 import { NudgeAmountDialog } from "@/components/design/NudgeAmountDialog";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
+import { ShareLivePreview } from "@/components/design/ShareLivePreview";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
 import {
@@ -130,6 +131,7 @@ import { shouldRenderDesignShareControl } from "./mcp-widget-write-capabilities"
 import {
   hasMinimalInspectorSelection,
   isRightInspectorVisible,
+  rightInspectorCanvasInset,
 } from "./minimal-inspector";
 import {
   addMotionMarkers,
@@ -354,6 +356,9 @@ export function renderDesignEditorView({
     getComponentExpectedFiles,
     pendingNodeRewriteByFile,
     documentColorFiles,
+    tweaks,
+    tweakSelections,
+    handleTweakChange,
     designSourceType,
     overviewScreens,
     layoutGrids,
@@ -373,6 +378,7 @@ export function renderDesignEditorView({
     handleResponsiveEditScopeChange,
     activeScreenBaseWidthPx,
     activeScreenSnapshotOnly,
+    activeOverviewScreen,
     activeCanvasSourceType,
     handleBreakpointBarRemove,
   } = editorActiveScreenAndGeometry;
@@ -1365,6 +1371,15 @@ export function renderDesignEditorView({
 
     return (
       <div className="flex items-center">
+        {canEditDesign && activeOverviewScreen?.sourceType === "localhost" ? (
+          <ShareLivePreview
+            key={activeOverviewScreen.id}
+            designId={id}
+            fileId={activeOverviewScreen.id}
+            tunnelUrl={activeOverviewScreen.tunnelUrl}
+            liveCollaborationEnabled={liveCollaborationEnabled}
+          />
+        ) : null}
         <ShareButton
           resourceType="design"
           resourceId={id}
@@ -1587,6 +1602,11 @@ export function renderDesignEditorView({
     mode,
     canEdit: canEditActiveVisualScreen,
   });
+  const questionFlowInsetRight = rightInspectorCanvasInset({
+    visible: rightSidebarVisible,
+    width: rightSidebarWidth,
+    minimalUi,
+  });
   const chromeInsetLeft = leftSidebarVisible
     ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
     : 0;
@@ -1690,6 +1710,9 @@ export function renderDesignEditorView({
     viewMode,
     mode,
     files: documentColorFiles,
+    tweaks,
+    tweakValues: tweakSelections,
+    onTweakChange: canEditDesign ? handleTweakChange : undefined,
     activeTool,
     scaleToolControls: canEditDesign ? scaleToolControls : undefined,
     onCreateScreenFromPreset: canEditDesign
@@ -2291,7 +2314,10 @@ export function renderDesignEditorView({
         {questionFlowActive ? (
           <div
             className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-panel-bg)]"
-            style={{ paddingLeft: leftChromeOverlayInset }}
+            style={{
+              paddingLeft: leftChromeOverlayInset,
+              paddingRight: questionFlowInsetRight,
+            }}
           >
             <QuestionFlow
               questions={pendingQuestions ?? []}

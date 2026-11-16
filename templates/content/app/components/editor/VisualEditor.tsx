@@ -79,7 +79,7 @@ import {
   TextSelection,
   type Transaction,
 } from "@tiptap/pm/state";
-import { CellSelection, cellAround } from "@tiptap/pm/tables";
+import { CellSelection, cellAround, isInTable } from "@tiptap/pm/tables";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
   useEditor,
@@ -141,6 +141,7 @@ import {
   type CommentBlockTarget,
 } from "./comment-block-anchors";
 import { buildContentSelectionPayload } from "./content-selection";
+import { DrawDiagramsContext } from "./draw-diagrams";
 import {
   isEditorDraftSaveAccepted,
   type EditorDraftSaveResult,
@@ -154,7 +155,7 @@ import {
 } from "./editor-transaction-meta";
 import { AudioNode } from "./extensions/AudioNode";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
-import { CodeBlock } from "./extensions/CodeBlockNode";
+import { CodeBlock, DrawingCodeBlock } from "./extensions/CodeBlockNode";
 import {
   CommentHighlight,
   type CommentHighlightOptions,
@@ -238,6 +239,13 @@ import {
 } from "./live-body-parity";
 import { imageDisplaySrc } from "./private-media-src";
 import { SlashCommandMenu } from "./SlashCommandMenu";
+import {
+  expandColumnSpans,
+  isSpreadsheetPicture,
+  parseSpreadsheetText,
+  spreadsheetTableSlice,
+  spreadsheetTextForSlice,
+} from "./spreadsheet-clipboard";
 import { StaticDocumentBody } from "./StaticDocumentBody";
 import { suggestionPlacements } from "./suggestion-placement";
 import { caretAfterPageSwap } from "./suggestions/keep-caret";
@@ -245,7 +253,10 @@ import {
   resolveSuggestionPresentationRange,
   type SuggestionPresentationTransition,
 } from "./suggestions/presentation-rebase";
-import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
+import {
+  isSuggestingEdits,
+  SuggestingReadOnlyBlocks,
+} from "./suggestions/read-only-blocks";
 import { ContentTableView, contentTableColumnSizing } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
 import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
@@ -462,6 +473,14 @@ function dispatchLiteralPaste(view: EditorView, slice: Slice): void {
   }
 }
 
+// A table for cells copied as tab-separated text. Suggesting can't add a
+// table, so while suggesting the cells paste as text.
+function spreadsheetTable(editor: CoreEditor, text: string): Slice | null {
+  if (isSuggestingEdits(editor.state)) return null;
+  const rows = parseSpreadsheetText(text);
+  return rows && spreadsheetTableSlice(editor.schema, rows);
+}
+
 const MarkdownPasteDetection = Extension.create({
   name: "markdownPasteDetection",
   addProseMirrorPlugins() {
@@ -470,8 +489,11 @@ const MarkdownPasteDetection = Extension.create({
       new Plugin({
         key: new PluginKey("markdownPasteDetection"),
         props: {
+          transformPastedHTML: expandColumnSpans,
           clipboardTextParser(text, _context, plainText) {
             if (!plainText) {
+              const table = spreadsheetTable(editor, text);
+              if (table) return table;
               const markdown = parseMarkdownClipboardSlice(
                 editor,
                 text,
@@ -480,6 +502,23 @@ const MarkdownPasteDetection = Extension.create({
               if (markdown) return markdown;
             }
             return parsePlainTextClipboardSlice(editor, text, _context);
+          },
+          // A copied table, or cells of one, goes out as tab-separated text,
+          // which spreadsheets paste as cells; anything else as Markdown.
+          // This is the only copy serializer: tiptap-markdown's own copy
+          // transform is off, since its plugin would run ahead of this one.
+          clipboardTextSerializer(slice) {
+            const { serializer } = (
+              editor.storage as unknown as {
+                markdown: {
+                  serializer: { serialize(content: Fragment): string };
+                };
+              }
+            ).markdown;
+            return (
+              spreadsheetTextForSlice(slice, editor.schema) ??
+              serializer.serialize(slice.content)
+            );
           },
           handlePaste(view, event) {
             const context = view.state.selection.$from;
@@ -497,6 +536,18 @@ const MarkdownPasteDetection = Extension.create({
 
             const html = clipboardData.getData("text/html");
             const plainText = clipboardData.getData("text/plain");
+
+            // Cells copied as text alone. ProseMirror's table plugin fills a
+            // table at the caret from the table clipboardTextParser made;
+            // anywhere else the table goes in literally, so Markdown paste
+            // rules leave the cells' text as it was.
+            const table = html ? null : spreadsheetTable(editor, plainText);
+            if (table) {
+              if (isInTable(view.state)) return false;
+              event.preventDefault();
+              dispatchLiteralPaste(view, table);
+              return true;
+            }
 
             if (!html && plainText && !looksLikeMarkdown(plainText)) {
               const slice = parsePlainTextClipboardSlice(
@@ -611,6 +662,13 @@ const TypographyReplacements = Extension.create({
         props: {
           handleTextInput(view, from, to, text) {
             const { state } = view;
+            // Code keeps what was typed: `-->` is a Mermaid edge, not an arrow.
+            const $from = state.doc.resolve(from);
+            if (
+              $from.parent.type.spec.code ||
+              $from.marks().some((mark) => mark.type.spec.code)
+            )
+              return false;
             for (const [trigger, replacement] of ARROW_REPLACEMENTS) {
               const lastChar = trigger[trigger.length - 1];
               if (text !== lastChar) continue;
@@ -1821,6 +1879,11 @@ interface VisualEditorProps {
   privateImageUploads?: boolean;
   localFilePath?: string | null;
   referenceDepth?: number;
+  /**
+   * Draw Mermaid code blocks as diagrams. Public pages turn it off: they
+   * never run document source.
+   */
+  drawDiagrams?: boolean;
   onComment?: (
     quotedText: string,
     offsetTop: number,
@@ -2228,6 +2291,7 @@ interface VisualEditorExtensionOptions {
   resolveNotionPageLink?: (id: string) => ContentLinkTarget | null;
   localFilePath?: string | null;
   referenceDepth?: number;
+  drawDiagrams?: boolean;
   emptyBlockPlaceholder?: string;
   onMediaSourceCommitted?: (
     editor: CoreEditor,
@@ -3277,6 +3341,7 @@ export function createVisualEditorExtensions({
   resolveNotionPageLink,
   localFilePath,
   referenceDepth = 0,
+  drawDiagrams = true,
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
   onMediaSourceCommitted,
   findCommentQuote,
@@ -3306,7 +3371,7 @@ export function createVisualEditorExtensions({
       CompatibleCode,
       EmptyLineParagraph,
       NotionBlockquote,
-      CodeBlock,
+      drawDiagrams ? DrawingCodeBlock : CodeBlock,
       VisualEditorPlaceholder.configure({
         emptyBlockPlaceholder,
       }),
@@ -3392,7 +3457,9 @@ export function createVisualEditorExtensions({
       Markdown.configure({
         html: true,
         transformPastedText: false,
-        transformCopiedText: true,
+        // MarkdownPasteDetection writes copied text, as Markdown or as
+        // tab-separated cells.
+        transformCopiedText: false,
       }),
     ],
   });
@@ -3732,6 +3799,7 @@ export function VisualEditor({
   privateImageUploads = false,
   localFilePath,
   referenceDepth,
+  drawDiagrams = true,
   onComment,
   onBlockComment,
   commentThreads,
@@ -4166,6 +4234,7 @@ export function VisualEditor({
         resolveNotionPageLink,
         localFilePath,
         referenceDepth,
+        drawDiagrams,
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
         findCommentQuote,
@@ -4246,6 +4315,7 @@ export function VisualEditor({
       resolveNotionPageLink,
       localFilePath,
       referenceDepth,
+      drawDiagrams,
       t,
       onMediaSourceCommitted,
       findCommentQuote,
@@ -4470,6 +4540,9 @@ export function VisualEditor({
       handlePaste(view, event) {
         if (view.editable) markUserEditIntent();
         if (!view.editable || !event.clipboardData) return false;
+        // Excel puts a picture of the copied cells beside them: paste the
+        // cells as a table, not the picture.
+        if (isSpreadsheetPicture(event.clipboardData)) return false;
 
         const imageFiles = getImageFiles(event.clipboardData.files);
         const videoFiles = getVideoFiles(event.clipboardData.files);
@@ -6003,7 +6076,9 @@ export function VisualEditor({
             documentId={referenceDepth ? undefined : documentId}
           />
         ) : null}
-        <EditorContent editor={editor} hidden={showStoredBody} />
+        <DrawDiagramsContext.Provider value={drawDiagrams}>
+          <EditorContent editor={editor} hidden={showStoredBody} />
+        </DrawDiagramsContext.Provider>
       </RegistryBlockDataProvider>
       {collabState.initialSeedFailed ? (
         <div

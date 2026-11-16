@@ -216,6 +216,7 @@
     "./deploy/netlify-static-headers": [
       "dist/deploy/netlify-static-headers.js"
     ],
+    "./deploy/served-build": ["dist/deploy/served-build.js"],
     "./guards": ["dist/guards/index.d.ts", "dist/guards/index.js"],
     "./application-state": ["dist/application-state/index.js"],
     "./settings": ["dist/settings/index.js"],
@@ -520,6 +521,10 @@
       "dist/cli/agent-plugin.js"
     ],
     "./testing": ["dist/testing.d.ts", "dist/testing.js"],
+    "./testing/cpu-time": [
+      "dist/testing/cpu-time.d.ts",
+      "dist/testing/cpu-time.js"
+    ],
     "./router": ["dist/router/index.js"],
     "./collab": ["dist/collab/index.js"],
     "./a2a": ["dist/a2a/index.js"],

@@ -1353,6 +1353,8 @@ export default {
     resetFilters: "필터 초기화",
     collapseFilters: "필터 접기",
     expandFilters: "필터 확장",
+    collapseDescription: "설명 접기",
+    expandDescription: "설명 펼치기",
     drilldownChartPoints: "차트 데이터 포인트",
     drilldownPreviousPage: "차트 데이터 포인트 이전 페이지",
     drilldownNextPage: "차트 데이터 포인트 다음 페이지",
@@ -1372,6 +1374,8 @@ export default {
       "차트에는 {{chart}}이(가) 표시되지만 {{total}}개 레코드가 일치했습니다",
     drilldownAggregateOnly:
       "이 패널에는 집계된 행만 있습니다. 클릭한 지점과 일치하는 행이 강조 표시됩니다.",
+    drilldownNoXValueAggregateOnly:
+      "이 패널은 값이 없는 지점의 레코드를 열 수 없어 집계된 행을 표시합니다. 클릭한 지점과 일치하는 행이 강조 표시됩니다.",
     drilldownNoRecords: "일치하는 레코드가 없습니다",
     drilldownNoRecordsIncomplete:
       "불러온 레코드가 없습니다. 결과가 불완전하므로 일치하는 레코드가 있을 수 있습니다.",

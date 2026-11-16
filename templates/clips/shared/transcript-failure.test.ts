@@ -12,6 +12,7 @@ const ALL: TranscriptFailureCode[] = [
   "FFMPEG_UNAVAILABLE",
   "EXTRACTION_FAILED",
   "TIMEOUT",
+  "MEDIA_TOO_LARGE",
   "NO_AUDIO_SAVED",
   "CLOUD_FAILED",
   "CLOUD_UNCONFIGURED",
@@ -31,6 +32,7 @@ describe("transcript failure taxonomy", () => {
     expect(isRetryableTranscriptFailure("EXTRACTION_FAILED")).toBe(true);
     expect(isRetryableTranscriptFailure("NO_AUDIO_SAVED")).toBe(false);
     expect(isRetryableTranscriptFailure("NO_AUDIO_TRACK")).toBe(false);
+    expect(isRetryableTranscriptFailure("MEDIA_TOO_LARGE")).toBe(false);
     expect(isRetryableTranscriptFailure("CLOUD_UNCONFIGURED")).toBe(false);
     expect(isRetryableTranscriptFailure(null)).toBe(false);
   });

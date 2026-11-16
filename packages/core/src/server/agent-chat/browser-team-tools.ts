@@ -588,6 +588,17 @@ export function createTeamTools(deps: {
       task = await getTask(taskId, scope);
       signal?.throwIfAborted();
     }
+    // The run only learns a task finished here, so the chat's task row does too.
+    if (task && task.status !== "running") {
+      deps.getSend()?.({
+        type: "agent_task",
+        taskId: task.taskId,
+        threadId: task.threadId,
+        description: task.description,
+        ...(task.name ? { name: task.name } : {}),
+        status: task.status,
+      });
+    }
     return task;
   };
   return frameworkMcpTools({

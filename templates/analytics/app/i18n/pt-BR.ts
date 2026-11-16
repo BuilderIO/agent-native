@@ -1392,6 +1392,8 @@ export default {
     resetFilters: "Redefinir filtros",
     collapseFilters: "Recolher filtros",
     expandFilters: "Expandir filtros",
+    collapseDescription: "Recolher descrição",
+    expandDescription: "Expandir descrição",
     drilldownChartPoints: "Pontos do gráfico",
     drilldownPreviousPage: "Página anterior dos pontos do gráfico",
     drilldownNextPage: "Página seguinte dos pontos do gráfico",
@@ -1411,6 +1413,8 @@ export default {
       "O gráfico mostra {{chart}}, mas {{total}} registros correspondem",
     drilldownAggregateOnly:
       "Este painel tem apenas linhas agregadas. As linhas do ponto clicado estão destacadas.",
+    drilldownNoXValueAggregateOnly:
+      "Este painel não consegue abrir registros de um ponto sem valor, então mostra linhas agregadas. As linhas do ponto clicado estão destacadas.",
     drilldownNoRecords: "Nenhum registro correspondente",
     drilldownNoRecordsIncomplete:
       "Nenhum registro foi carregado. O resultado está incompleto, então ainda pode haver registros correspondentes.",

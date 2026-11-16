@@ -272,7 +272,7 @@ describe("AgentKit recoverable failure notices", () => {
     expect(row()?.textContent).toContain("Connection to the agent was lost.");
   });
 
-  it("keeps red for a final run failure and amber for a recoverable one", async () => {
+  it("marks final and recoverable run failures amber with a triangle", async () => {
     const failures: Record<string, AgentError> = {
       "thread-retryable": {
         code: "runtime_error",
@@ -307,13 +307,13 @@ describe("AgentKit recoverable failure notices", () => {
       () => <AgentKitChat composer={false} />,
       "thread-retryable",
     );
+    // oracle-change: final run failures are amber like retryable ones, so the tone checks merged into one.
     const row = () =>
       view.container.querySelector<HTMLElement>(".agentkit-run-failure");
-    expect(row()?.dataset.tone).toBe("warning");
     expect(row()?.querySelector(".tabler-icon-alert-triangle")).not.toBeNull();
 
     await view.rerender("thread-final");
-    expect(row()?.dataset.tone).toBe("danger");
-    expect(row()?.querySelector(".tabler-icon-alert-circle")).not.toBeNull();
+    expect(row()?.querySelector(".tabler-icon-alert-triangle")).not.toBeNull();
+    expect(row()?.querySelector(".tabler-icon-alert-circle")).toBeNull();
   });
 });
