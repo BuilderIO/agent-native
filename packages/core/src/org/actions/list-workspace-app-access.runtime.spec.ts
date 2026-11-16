@@ -4,6 +4,7 @@ const boundary = vi.hoisted(() => ({
   execute: vi.fn(),
   configured: vi.fn(),
   unbuilt: vi.fn(),
+  inventory: vi.fn(),
 }));
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => ({ execute: boundary.execute }),
@@ -12,6 +13,7 @@ vi.mock("../actions.js", () => ({ requireOrgMember: boundary.access }));
 vi.mock("../workspace-app-access.js", () => ({
   listConfiguredWorkspaceApps: boundary.configured,
   unbuiltWorkspaceAppIds: boundary.unbuilt,
+  currentWorkspaceAppIdsForAccessList: boundary.inventory,
 }));
 import action from "./list-workspace-app-access.js";
 const ctx = { caller: "frontend" } as const;
@@ -22,6 +24,7 @@ describe("workspace access listing runtime", () => {
     boundary.execute.mockResolvedValue({ rows: [] });
     boundary.configured.mockReturnValue([]);
     boundary.unbuilt.mockReturnValue([]);
+    boundary.inventory.mockResolvedValue(null);
   });
   it("refuses unauthorized callers before touching app data", async () => {
     const refusal = new Error("Organization membership required");
@@ -79,6 +82,39 @@ describe("workspace access listing runtime", () => {
       },
     ]);
   });
+  it("uses the verified mounted inventory to hide retired org rows", async () => {
+    boundary.inventory.mockResolvedValue(new Set(["shared"]));
+    boundary.execute.mockResolvedValue({
+      rows: [
+        { id: "retired", name: "Retired", path: "/retired" },
+        { id: "shared", name: "Shared", path: "/shared" },
+      ],
+    });
+    boundary.configured.mockReturnValue([]);
+    const result = await action.run({}, ctx);
+    expect(result.apps.map((app) => app.id)).toEqual(["shared"]);
+    expect(boundary.unbuilt).not.toHaveBeenCalled();
+  });
+
+  it("lists a verified shared mounted app without a row in the current org", async () => {
+    boundary.inventory.mockResolvedValue(new Set(["shared"]));
+    boundary.execute.mockResolvedValue({ rows: [] });
+    boundary.configured.mockReturnValue([
+      { id: "shared", name: "Shared", description: null, path: "/shared" },
+      { id: "retired", name: "Retired", description: null, path: "/retired" },
+    ]);
+    const result = await action.run({}, ctx);
+    expect(result.apps).toEqual([
+      {
+        id: "shared",
+        name: "Shared",
+        description: null,
+        path: "/shared",
+        mode: "all",
+      },
+    ]);
+  });
+
   it.each([false, 0, "false", "0"])(
     "keeps disabled policy represented by %j",
     async (org_enabled) => {
