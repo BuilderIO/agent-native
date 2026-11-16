@@ -159,13 +159,51 @@ describe("AgentKitAgentCallApproval", () => {
     expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
   });
 
-  it("closes on Cancel without continuing the task", async () => {
+  it("closes on Dismiss without continuing the task", async () => {
     await renderCard(await threadClient());
 
-    await press("cancel");
+    await press("dismiss");
 
     expect(container.textContent).toBe("");
     expect(sendToAgentChatMock).not.toHaveBeenCalled();
+  });
+
+  it("comes back when a newer call finds the approval still waiting", async () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    const firstCall: AgentParticipant = {
+      id: "call-1",
+      name: "Slides",
+      status: "waiting",
+      activeTaskId: "task-child",
+    };
+    await renderCard(await threadClient([], [firstCall]));
+    await press("review");
+    await press("continue");
+    expect(container.textContent).toBe("");
+
+    // Continue came before the approval: the continuation is still running.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await renderCard(
+      await threadClient(
+        [],
+        [firstCall, { ...firstCall, id: "call-2", status: "working" }],
+      ),
+    );
+    expect(container.textContent).toBe("");
+
+    // The peer answers with the same approval still waiting.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await renderCard(
+      await threadClient(
+        [],
+        [firstCall, { ...firstCall, id: "call-2", status: "waiting" }],
+      ),
+    );
+    expect(container.textContent).toContain("Slides needs your approval");
+    expect(action("review")).not.toBeNull();
+    expect(action("continue")).toBeNull();
   });
 
   it("shows nothing for a saved approval whose link is not a web page", async () => {

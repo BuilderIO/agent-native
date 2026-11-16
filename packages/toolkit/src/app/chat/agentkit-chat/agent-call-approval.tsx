@@ -46,19 +46,26 @@ function readApproval(value: unknown): AgentCallApprovalWidgetData | undefined {
 const SETTLED_PREFIX = "agent-native:agent-call-approval:";
 
 // A reload renders the same widget again, so a card the person already
-// continued or dismissed stays closed for the rest of the session.
-function isSettled(id: string): boolean {
+// continued or dismissed stays closed for the rest of the session. It records
+// the calls that were waiting then, so a newer call that finds the approval
+// still waiting shows the card again.
+function readSettled(id: string): readonly string[] | undefined {
   try {
-    return window.sessionStorage.getItem(SETTLED_PREFIX + id) === "settled";
+    const saved: unknown = JSON.parse(
+      window.sessionStorage.getItem(SETTLED_PREFIX + id) ?? "null",
+    );
+    return Array.isArray(saved)
+      ? saved.filter((call): call is string => typeof call === "string")
+      : undefined;
   } catch {
-    // coercion-ok: without session storage the card just shows again on reload.
-    return false;
+    // coercion-ok: an unreadable marker shows the card again.
+    return undefined;
   }
 }
 
-function rememberSettled(id: string): void {
+function rememberSettled(id: string, calls: readonly string[]): void {
   try {
-    window.sessionStorage.setItem(SETTLED_PREFIX + id, "settled");
+    window.sessionStorage.setItem(SETTLED_PREFIX + id, JSON.stringify(calls));
   } catch {
     // coercion-ok: without session storage the card just shows again on reload.
   }
@@ -76,44 +83,69 @@ export function AgentKitAgentCallApproval({
   const thread = useAgentThread(threadId);
   const approval = readApproval(widget.data);
   if (!approval) return null;
+  const calls = Object.values(thread.agents).filter(
+    (agent) => agent.activeTaskId === approval.taskId,
+  );
   // A later call on the same task that finished means the approved action
   // already ran, or the task ended. The task's own status can't tell: the chat
   // settles a paused task as soon as its own turn ends.
-  const finished = Object.values(thread.agents).some(
-    (agent) =>
-      agent.activeTaskId === approval.taskId &&
-      (agent.status === "completed" || agent.status === "failed"),
+  if (
+    calls.some(
+      (call) => call.status === "completed" || call.status === "failed",
+    )
+  ) {
+    return null;
+  }
+  return (
+    <AgentCallApprovalCard
+      key={approval.id}
+      approval={approval}
+      waitingCalls={calls
+        .filter((call) => call.status === "waiting")
+        .map((call) => call.id)}
+    />
   );
-  if (finished) return null;
-  return <AgentCallApprovalCard key={approval.id} approval={approval} />;
 }
 
 function AgentCallApprovalCard({
   approval,
+  waitingCalls,
 }: {
   approval: AgentCallApprovalWidgetData;
+  waitingCalls: readonly string[];
 }) {
   const t = useT();
   const { agent } = approval;
-  const [phase, setPhase] = useState<"review" | "continue" | "settled">(() =>
-    typeof window !== "undefined" && isSettled(approval.id)
-      ? "settled"
-      : "review",
+  const [phase, setPhase] = useState<"review" | "continue">("review");
+  const [settledCalls, setSettledCalls] = useState<
+    readonly string[] | undefined
+  >(() =>
+    typeof window !== "undefined" ? readSettled(approval.id) : undefined,
   );
-  if (phase === "settled") return null;
+  // Continue can come before the approval: the peer then answers with the same
+  // approval still waiting, on a newer call, and the card comes back for it.
+  if (
+    settledCalls &&
+    waitingCalls.every((call) => settledCalls.includes(call))
+  ) {
+    return null;
+  }
 
   const settle = () => {
-    rememberSettled(approval.id);
-    setPhase("settled");
+    rememberSettled(approval.id, waitingCalls);
+    setSettledCalls(waitingCalls);
+    setPhase("review");
   };
   const review = () => {
     window.open(approval.url, "_blank", "noopener,noreferrer");
     setPhase("continue");
   };
   const reviewLabel = t("agentChat.tool.agentApprovalReview", { agent });
-  const cancel: ApprovalCardAction = {
-    id: "cancel",
-    label: t("agentChat.common.cancel"),
+  // Dismissing only closes the card: the approval stays pending in the peer
+  // app, and nothing runs unless the person approves it there.
+  const dismiss: ApprovalCardAction = {
+    id: "dismiss",
+    label: t("agentChat.common.dismiss"),
     onPress: settle,
   };
   const actions: ApprovalCardAction[] =
@@ -125,7 +157,7 @@ function AgentCallApprovalCard({
             intent: "primary",
             onPress: review,
           },
-          cancel,
+          dismiss,
         ]
       : [
           {
@@ -147,7 +179,7 @@ function AgentCallApprovalCard({
             },
           },
           { id: "review", label: reviewLabel, onPress: review },
-          cancel,
+          dismiss,
         ];
   return (
     <ApprovalCard
