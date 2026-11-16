@@ -1,0 +1,184 @@
+[
+ {
+  "file": "asks.py",
+  "mutant": "canary started by evidence (probe tag ignored)",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_canary_is_never_started_by_evidence (test_canary_report.CanaryTest)"
+  ]
+ },
+ {
+  "file": "notify.py",
+  "mutant": "notify canary suppression deleted",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_notify_keeps_a_canary_off_telegram_even_as_steve_action (test_canary_report.CanaryTest)"
+  ]
+ },
+ {
+  "file": "notify.py",
+  "mutant": "notify canary=1 record tag deleted",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_notify_keeps_a_canary_off_telegram_even_as_steve_action (test_canary_report.CanaryTest)",
+   "FAIL: test_plant_then_flagged_by_the_real_alert_path_then_verified_on_time (test_canary_report.CanaryTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "canary alert not its own tagged alert",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "ERROR: test_plant_then_flagged_by_the_real_alert_path_then_verified_on_time (test_canary_report.CanaryTest)",
+   "FAIL: test_missing_sent_json_at_0830_raises_report_not_sent (test_canary_report.DutyTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "on-time window deleted (any flag is on time)",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_flag_before_the_threshold_is_not_on_time (test_canary_report.CanaryTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "verify never closes the canary",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_plant_then_flagged_by_the_real_alert_path_then_verified_on_time (test_canary_report.CanaryTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "canary-missed rule deleted",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_not_flagged_30_min_after_due_raises_canary_missed_once (test_canary_report.CanaryMissedTest)",
+   "FAIL: test_subject_prefix_line_cap_and_three_sections (test_canary_report.ReportTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "canary-missed once-guard deleted",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_not_flagged_30_min_after_due_raises_canary_missed_once (test_canary_report.CanaryMissedTest)",
+   "FAIL: test_subject_prefix_line_cap_and_three_sections (test_canary_report.ReportTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "canary watch reads unreachable Mac as no canary",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_flagged_canary_is_not_missed_and_unreadable_mac_is_blind (test_canary_report.CanaryMissedTest)",
+   "FAIL: test_subject_prefix_line_cap_and_three_sections (test_canary_report.ReportTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "duty alert text deleted (grouped as a plain ask)",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_missing_sent_json_at_0830_raises_report_not_sent (test_canary_report.DutyTest)",
+   "FAIL: test_subject_prefix_line_cap_and_three_sections (test_canary_report.ReportTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "duty not started at plant (queued-2h fires)",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_missing_sent_json_at_0830_raises_report_not_sent (test_canary_report.DutyTest)",
+   "FAIL: test_subject_prefix_line_cap_and_three_sections (test_canary_report.ReportTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "duty planted twice",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_missing_sent_json_at_0830_raises_report_not_sent (test_canary_report.DutyTest)",
+   "FAIL: test_subject_prefix_line_cap_and_three_sections (test_canary_report.ReportTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "send never marks the duty done",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_sent_json_present_closes_the_duty_silently (test_canary_report.DutyTest)",
+   "FAIL: test_subject_prefix_line_cap_and_three_sections (test_canary_report.ReportTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "line caps removed",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_subject_prefix_line_cap_and_three_sections (test_canary_report.ReportTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "canary section dropped from the body",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_subject_prefix_line_cap_and_three_sections (test_canary_report.ReportTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "subject prefix changed",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_subject_prefix_line_cap_and_three_sections (test_canary_report.ReportTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "receipt written without a response id",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_mailer_is_stubbed_and_receipt_needs_its_response_id (test_canary_report.ReportTest)",
+   "FAIL: test_subject_prefix_line_cap_and_three_sections (test_canary_report.ReportTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "recipient guard deleted",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_mailer_is_stubbed_and_receipt_needs_its_response_id (test_canary_report.ReportTest)",
+   "FAIL: test_subject_prefix_line_cap_and_three_sections (test_canary_report.ReportTest)"
+  ]
+ },
+ {
+  "file": "asks.py",
+  "mutant": "mailer reachable under test",
+  "rc": 1,
+  "red": true,
+  "failing": [
+   "FAIL: test_mailer_is_stubbed_and_receipt_needs_its_response_id (test_canary_report.ReportTest)"
+  ]
+ }
+]
