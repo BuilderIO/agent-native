@@ -40,8 +40,8 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 | `create-design-from-template` | Copy template; source screens stay locked |
 | `get-design-snapshot` / `get-design-template` | Inspect designs/templates |
 | `open-visual-edit` | Open localhost screens |
-| `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Share link, tunnels / opt-in |
-| `update-visual-edit-preview` | Set/remove public tunnel per screen |
+| `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Share link, public previews / opt-in |
+| `update-visual-edit-preview` | Set/remove public preview URL per screen |
 | `add-localhost-screens` / `update-screen-source` | Add screens; change source mode |
 | `add-session-replay-screenshots-to-board` | Place private replay captures |
 | `stage-journey-canvas-frames` | Stage storyboard PNGs |

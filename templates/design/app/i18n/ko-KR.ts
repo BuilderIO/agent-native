@@ -1041,8 +1041,8 @@ export default {
     livePreview: {
       share: "실시간 미리보기 공유",
       instructions:
-        "앱에 ngrok 또는 cloudflared tunnel --url을 실행하고 공개 HTTPS URL을 붙여 넣으세요. 내 기기는 localhost를 유지하고 다른 사람은 터널을 보거나 게시된 스냅샷에 수정을 제안할 수 있습니다.",
-      tunnelUrl: "터널 URL",
+        "앱의 공개 HTTPS 미리보기 URL(예: ngrok 또는 cloudflared 터널)을 붙여 넣으세요. 내 기기는 localhost를 유지하고 다른 사람은 공개 미리보기를 보거나 게시된 스냅샷에 수정을 제안할 수 있습니다.",
+      tunnelUrl: "공개 미리보기 URL",
       save: "저장",
       live: "실시간 미리보기",
       suggest: "스냅샷에 제안",

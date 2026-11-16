@@ -12,11 +12,11 @@ import { normalizeVisualEditTunnelUrl } from "../shared/visual-edit-preview.js";
 
 export default defineAction({
   description:
-    "Set or remove a public HTTPS tunnel for a localhost screen's shared live preview. Signed-in editors only; sharing permissions remain unchanged.",
+    "Set or remove a public HTTPS preview URL (for example an ngrok or cloudflared tunnel) for a localhost screen's shared live preview. Any public HTTPS origin the editor chooses is accepted. Signed-in editors only; sharing permissions remain unchanged.",
   requiresAuth: true,
   mcpAnnotations: {
     readOnlyHint: false,
-    // Replaces or clears the screen's existing tunnel mapping.
+    // Replaces or clears the screen's existing public preview mapping.
     destructiveHint: true,
     openWorldHint: false,
   },
@@ -27,7 +27,7 @@ export default defineAction({
       .string()
       .nullable()
       .describe(
-        "Public HTTPS ngrok/cloudflared base URL, or null to use the published snapshot.",
+        "Public HTTPS preview base URL, such as an ngrok or cloudflared tunnel, or null to use the published snapshot.",
       ),
   }),
   outputSchema: z.object({
@@ -48,7 +48,7 @@ export default defineAction({
       normalized &&
       new URL(normalized).origin === new URL(designOrigin).origin
     )
-      fail("The tunnel must use a different origin from Design.", {
+      fail("The public preview URL must use a different origin from Design.", {
         statusCode: 400,
         errorCode: "invalid_tunnel_origin",
       });

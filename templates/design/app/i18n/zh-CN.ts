@@ -1026,8 +1026,8 @@ export default {
     livePreview: {
       share: "分享实时预览",
       instructions:
-        "为应用运行 ngrok 或 cloudflared tunnel --url，然后粘贴公开 HTTPS 地址。你的设备继续加载 localhost；其他人可查看隧道或在已发布快照上提出修改。",
-      tunnelUrl: "隧道地址",
+        "粘贴应用的公开 HTTPS 预览地址，例如 ngrok 或 cloudflared 隧道。你的设备继续加载 localhost；其他人可查看公开预览或在已发布快照上提出修改。",
+      tunnelUrl: "公开预览地址",
       save: "保存",
       live: "实时预览",
       suggest: "在快照上建议",

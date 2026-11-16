@@ -1053,8 +1053,8 @@ export default {
     livePreview: {
       share: "ライブプレビューを共有",
       instructions:
-        "アプリ用に ngrok または cloudflared tunnel --url を実行し、公開 HTTPS URL を貼り付けます。自分の端末は localhost のまま、他の人はトンネルを表示したり、公開スナップショットに変更を提案できます。",
-      tunnelUrl: "トンネル URL",
+        "アプリの公開 HTTPS プレビュー URL（ngrok や cloudflared のトンネルなど）を貼り付けます。自分の端末は localhost のまま、他の人は公開プレビューを表示したり、公開スナップショットに変更を提案できます。",
+      tunnelUrl: "公開プレビュー URL",
       save: "保存",
       live: "ライブプレビュー",
       suggest: "スナップショットに提案",

@@ -1051,8 +1051,8 @@ export default {
     livePreview: {
       share: "Compartilhar prévia ao vivo",
       instructions:
-        "Execute ngrok ou cloudflared tunnel --url para seu app e cole a URL HTTPS pública. Sua máquina continua usando localhost; outras pessoas podem ver o túnel ou sugerir alterações na captura publicada.",
-      tunnelUrl: "URL do túnel",
+        "Cole uma URL HTTPS pública de prévia para seu app, como um túnel ngrok ou cloudflared. Sua máquina continua usando localhost; outras pessoas podem ver a prévia pública ou sugerir alterações na captura publicada.",
+      tunnelUrl: "URL pública de prévia",
       save: "Salvar",
       live: "Prévia ao vivo",
       suggest: "Sugerir na captura",

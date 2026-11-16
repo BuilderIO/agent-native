@@ -1058,8 +1058,8 @@ export default {
     livePreview: {
       share: "Live-Vorschau teilen",
       instructions:
-        "Starte ngrok oder cloudflared tunnel --url für deine App und füge die öffentliche HTTPS-URL ein. Dein Rechner nutzt weiter localhost; andere sehen den Tunnel oder schlagen Änderungen am veröffentlichten Abbild vor.",
-      tunnelUrl: "Tunnel-URL",
+        "Füge eine öffentliche HTTPS-Vorschau-URL für deine App ein, etwa einen ngrok- oder cloudflared-Tunnel. Dein Rechner nutzt weiter localhost; andere sehen die öffentliche Vorschau oder schlagen Änderungen am veröffentlichten Abbild vor.",
+      tunnelUrl: "Öffentliche Vorschau-URL",
       save: "Speichern",
       live: "Live-Vorschau",
       suggest: "Am Abbild vorschlagen",

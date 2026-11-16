@@ -972,8 +972,8 @@ export default {
     livePreview: {
       share: "Share live preview",
       instructions:
-        "Run ngrok or cloudflared tunnel --url for your app, then paste its public HTTPS URL. Your machine keeps loading localhost; others can view the tunnel or suggest edits on the published snapshot.",
-      tunnelUrl: "Tunnel URL",
+        "Paste a public HTTPS preview URL for your app, such as an ngrok or cloudflared tunnel. Your machine keeps loading localhost; others can view the public preview or suggest edits on the published snapshot.",
+      tunnelUrl: "Public preview URL",
       save: "Save",
       live: "Live preview",
       suggest: "Suggest on snapshot",

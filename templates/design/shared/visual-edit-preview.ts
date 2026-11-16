@@ -17,7 +17,7 @@ export function normalizeVisualEditTunnelUrl(value: string): string {
     /^[\d.]+$/.test(host) ||
     host.includes(":")
   ) {
-    throw new Error("Use a public HTTPS tunnel hostname without credentials.");
+    throw new Error("Use a public HTTPS preview hostname without credentials.");
   }
   url.hash = "";
   url.search = "";

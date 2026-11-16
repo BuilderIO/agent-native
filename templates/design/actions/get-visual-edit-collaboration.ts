@@ -8,7 +8,7 @@ import { schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
-    "Get a Design shared-canvas link, public tunnel mappings, and whether shared live previews are enabled. Requires viewer access; use get-visual-edit-pending for source suggestions.",
+    "Get a Design shared-canvas link, public preview URL mappings, and whether shared live previews are enabled. Requires viewer access; use get-visual-edit-pending for source suggestions.",
   schema: z.object({
     designId: z.string().min(1).describe("Design project ID."),
   }),
