@@ -2720,6 +2720,18 @@ describe("runQuery cancellation", () => {
       fetchMock.mock.calls.filter(([input]) =>
         String(input).includes("/cancel"),
       );
+    const jobTimeouts = (fetchMock: ReturnType<typeof vi.fn>) =>
+      fetchMock.mock.calls
+        .filter(
+          ([input, init]) =>
+            String(input).endsWith("/jobs") &&
+            (init as RequestInit | undefined)?.method === "POST",
+        )
+        .map(
+          ([, init]) =>
+            JSON.parse(String((init as RequestInit).body)).configuration
+              .jobTimeoutMs as string | undefined,
+        );
     const failedJob = {
       status: { state: "DONE", errorResult: { reason: "stopped" } },
     };
@@ -2843,6 +2855,8 @@ describe("runQuery cancellation", () => {
       expect(cancellations(fetchMock)).toHaveLength(0);
       const [jobId] = submissions(fetchMock);
       expect(jobId).toMatch(/^agent_native_r_[a-f0-9]{64}$/);
+      // BigQuery stops it once it is too old to collect.
+      expect(jobTimeouts(fetchMock)).toEqual(["3600000"]);
 
       complete = true;
       const collected = await runQuery(sql, {
@@ -3077,6 +3091,7 @@ describe("runQuery cancellation", () => {
 
       const [jobId] = submissions(fetchMock);
       expect(jobId).toMatch(/^agent_native_[a-f0-9]{32}$/);
+      expect(jobTimeouts(fetchMock)).toEqual([undefined]);
       expect(cancellations(fetchMock)).toHaveLength(1);
     });
   });

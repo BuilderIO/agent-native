@@ -1687,6 +1687,11 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
                 maximumBytesBilled: String(maxBytesBilled),
                 ...(forceRefresh ? { useQueryCache: false } : {}),
               },
+              // A job left running stops once it is too old to collect, so
+              // it never runs beside its replacement.
+              ...(jobId === resumableId
+                ? { jobTimeoutMs: String(RESUMABLE_JOB_MAX_AGE_MS) }
+                : {}),
             },
           }),
         });
