@@ -64,6 +64,7 @@ import {
   shouldShowPendingVisualStyleApply,
 } from "../pending-edits";
 import { PngCaptureError, type PngCaptureScope } from "../png-export-render";
+import { formatTweakHandoffPrompt } from "../tweak-handoff";
 import {
   NativeLocalExportClientError,
   useNativeLocalExportRequests,
@@ -168,6 +169,7 @@ export function useEditorExportAndHandoff({
     runtimeLayerSnapshotsByIdRef,
     designDataJson,
     designSourceType,
+    pendingTweakChanges,
     boardFileId,
     overviewScreens,
     flushPendingFileContentSavesForBackground,
@@ -382,6 +384,7 @@ export function useEditorExportAndHandoff({
   }, [designDataJson]);
   const showPendingVisualStyleApply = useMemo(
     () =>
+      pendingTweakChanges.length > 0 ||
       shouldShowPendingVisualStyleApply({
         edits: pendingVisualStyleEdits,
         liveEdits: pendingLiveNonStyleEdits,
@@ -393,6 +396,7 @@ export function useEditorExportAndHandoff({
       designSourceType,
       pendingLiveNonStyleEdits,
       pendingVisualStyleEdits,
+      pendingTweakChanges,
       pendingVisualStyleScreenSourceTypes,
     ],
   );
@@ -429,15 +433,33 @@ export function useEditorExportAndHandoff({
       screenRoutesById,
     ],
   );
+  const pendingTweakPrompt = useMemo(
+    () =>
+      formatTweakHandoffPrompt({
+        designId: id ?? "",
+        changes: pendingTweakChanges,
+        sourceFiles: files
+          .filter((file) => file.fileType !== "asset")
+          .map((file) => file.filename),
+      }),
+    [files, id, pendingTweakChanges],
+  );
+  const pendingApplyPrompt = useMemo(
+    () =>
+      [pendingVisualStylePrompt, pendingTweakPrompt]
+        .filter((prompt): prompt is string => Boolean(prompt))
+        .join("\n\n"),
+    [pendingTweakPrompt, pendingVisualStylePrompt],
+  );
   const visualEditPromptResult = useCallback<
     () => VisualEditPromptResult
   >(() => {
-    if (pendingVisualEditCount > 0) {
+    if (pendingVisualEditCount > 0 || pendingTweakChanges.length > 0) {
       return {
         designId: id ?? null,
-        pendingEditCount: pendingVisualEditCount,
+        pendingEditCount: pendingVisualEditCount + pendingTweakChanges.length,
         status: "ready",
-        prompt: pendingVisualStylePrompt,
+        prompt: pendingApplyPrompt,
       };
     }
     const recoveryMarker = pendingEditSessionRecoveryMarker;
@@ -470,14 +492,15 @@ export function useEditorExportAndHandoff({
       designId: id ?? null,
       pendingEditCount: 0,
       status: "empty",
-      prompt: pendingVisualStylePrompt,
+      prompt: pendingApplyPrompt,
     };
   }, [
     id,
     pendingEditSessionMarker,
     pendingEditSessionRecoveryMarker,
     pendingVisualEditCount,
-    pendingVisualStylePrompt,
+    pendingApplyPrompt,
+    pendingTweakChanges.length,
   ]);
   const handleApplyPendingVisualStylesWithAgent = useCallback(
     async (promptOverride?: string) =>
@@ -1431,6 +1454,7 @@ export function useEditorExportAndHandoff({
     handleSendCodingHandoff,
     showPendingVisualStyleApply,
     pendingVisualStylePrompt,
+    pendingApplyPrompt,
     visualEditPromptResult,
     handleApplyPendingVisualStylesWithAgent,
     handleCopyPendingVisualStylePrompt,

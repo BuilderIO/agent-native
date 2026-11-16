@@ -880,6 +880,7 @@ export function useEditorFilesAndSaving({
     setTweakSelections,
     tweakSelections,
     tweaks,
+    pendingTweakChanges,
   } = useTweaks({
     acknowledgeOutboxEntry,
     applyTweaksAsync,
@@ -1991,6 +1992,7 @@ export function useEditorFilesAndSaving({
     handleTweakChange,
     tweakSelections,
     tweaks,
+    pendingTweakChanges,
     designSystemsLoading,
     designSystemOptions,
     editorPreferences,

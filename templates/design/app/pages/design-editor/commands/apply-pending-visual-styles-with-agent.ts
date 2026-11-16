@@ -1,4 +1,5 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -171,9 +172,15 @@ export async function runApplyPendingVisualStylesWithAgent({
         { timeoutMs: 10_000 },
       );
       if (!delivery.delivered) {
-        toast.error(
-          t("designEditor.pendingVisualStyles.agentHandoffFailedToast"),
-        );
+        if (await writeClipboardText(pendingVisualStylePrompt)) {
+          toast.success(t("designEditor.pendingVisualStyles.copiedToast"), {
+            description: t(
+              "designEditor.pendingVisualStyles.copiedToastDescription",
+            ),
+          });
+        } else {
+          toast.error(t("designEditor.toasts.clipboardBlocked"));
+        }
         return;
       }
       if (delivery.awaitingHostTurn) {

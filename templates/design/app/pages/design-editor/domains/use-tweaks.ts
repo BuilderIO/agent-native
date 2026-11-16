@@ -32,6 +32,7 @@ import {
   areTweakSelectionsEqual,
   buildAuthoritativeTweakSelections,
 } from "@/pages/design-editor/design-data-geometry-utils";
+import { getTweakHandoffChanges } from "@/pages/design-editor/tweak-handoff";
 import {
   createQueuedTweakSave,
   type ConfirmedTweakSelections,
@@ -64,6 +65,7 @@ export interface UseTweaksResult {
   setTweakSelections: Dispatch<SetStateAction<TweakSelections>>;
   tweakSelections: TweakSelections;
   tweaks: TweakDefinition[];
+  pendingTweakChanges: ReturnType<typeof getTweakHandoffChanges>;
 }
 
 export function useTweaks({
@@ -259,6 +261,25 @@ export function useTweaks({
       equals: areTweakSelectionsEqual,
     },
   );
+  const initialTweakSelectionsRef = useRef<{
+    designId: string | undefined;
+    selections: TweakSelections;
+  } | null>(null);
+  if (design?.data && initialTweakSelectionsRef.current?.designId !== id) {
+    initialTweakSelectionsRef.current = {
+      designId: id,
+      selections: authoritativeTweakSelections,
+    };
+  }
+  const pendingTweakChanges = useMemo(
+    () =>
+      getTweakHandoffChanges({
+        tweaks,
+        before: initialTweakSelectionsRef.current?.selections ?? {},
+        after: tweakSelections,
+      }),
+    [tweakSelections, tweaks],
+  );
 
   const cssVarValues = useMemo(
     () => resolveTweaksToCssVars(tweaks, tweakSelections),
@@ -284,5 +305,6 @@ export function useTweaks({
     setTweakSelections,
     tweakSelections,
     tweaks,
+    pendingTweakChanges,
   };
 }
