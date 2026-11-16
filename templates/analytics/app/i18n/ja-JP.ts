@@ -1398,6 +1398,8 @@ export default {
       "グラフは {{chart}} ですが、一致したレコードは {{total}} 件です",
     drilldownAggregateOnly:
       "このパネルには集計行しかありません。クリックしたポイントに一致する行を強調表示しています。",
+    drilldownNoXValueAggregateOnly:
+      "このパネルでは値なしのポイントのレコードを開けないため、集計行を表示しています。クリックしたポイントに一致する行を強調表示しています。",
     drilldownNoRecords: "一致するレコードがありません",
     drilldownNoRecordsIncomplete:
       "レコードは読み込まれませんでした。結果が不完全なため、一致するレコードがある可能性があります。",

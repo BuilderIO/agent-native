@@ -185,17 +185,19 @@ describe("nitroServerCodeSplittingGroupsForPreset", () => {
       "awsAmplify",
     ]) {
       const groups = nitroServerCodeSplittingGroupsForPreset(preset);
-      expect(groups).toHaveLength(1);
+      const coreGroup = groups.find(
+        (group) => group.name("") === "agent-native-core",
+      );
       expect(
-        groups[0]?.test.test("/node_modules/@agent-native/core/server.js"),
+        coreGroup?.test.test("/node_modules/@agent-native/core/server.js"),
       ).toBe(true);
       expect(
-        groups[0]?.test.test(
+        coreGroup?.test.test(
           "/node_modules/@agent-native/creative-context/server.js",
         ),
       ).toBe(true);
       expect(
-        groups[0]?.test.test("/node_modules/@agent-native/toolkit/server.js"),
+        coreGroup?.test.test("/node_modules/@agent-native/toolkit/server.js"),
       ).toBe(false);
     }
     expect(nitroServerCodeSplittingGroupsForPreset("cloudflare-pages")).toEqual(
@@ -203,10 +205,40 @@ describe("nitroServerCodeSplittingGroupsForPreset", () => {
     );
   });
 
-  it("passes the group through Nitro's Rolldown configuration", () => {
+  it("keeps drizzle-orm in one chunk, above every other group", () => {
+    const groups = nitroServerCodeSplittingGroupsForPreset("netlify");
+    const drizzle = groups.find(
+      (group) => group.name("") === "_libs/drizzle-orm",
+    );
+    expect(
+      drizzle?.test.test(
+        "/repo/node_modules/.pnpm/drizzle-orm@0.45.2/node_modules/drizzle-orm/pg-core/query-builders/delete.js",
+      ),
+    ).toBe(true);
+    expect(
+      drizzle?.test.test("C:\\repo\\node_modules\\drizzle-orm\\index.js"),
+    ).toBe(true);
+    expect(
+      drizzle?.test.test("/repo/node_modules/drizzle-orm-extras/index.js"),
+    ).toBe(false);
+    expect(drizzle && "entriesAware" in drizzle).toBe(false);
+    const otherPriorities = groups
+      .filter((group) => group !== drizzle)
+      .map((group) => ("priority" in group ? Number(group.priority) : 0));
+    expect(Math.max(0, ...otherPriorities)).toBeLessThan(
+      Number(drizzle && "priority" in drizzle ? drizzle.priority : 0),
+    );
+  });
+
+  it("passes the groups through Nitro's Rolldown configuration", () => {
     const config = nitroServerCodeSplittingConfigForPreset("vercel");
 
-    expect(config.output?.codeSplitting?.groups).toHaveLength(1);
+    expect(
+      config.output?.codeSplitting?.groups.map((group) => group.name("")),
+    ).toEqual(["_libs/drizzle-orm", "agent-native-core"]);
+    expect(
+      config.output?.codeSplitting?.groups.map((group) => group.debugName),
+    ).toEqual(["drizzle-orm", "agent-native-core"]);
   });
 });
 

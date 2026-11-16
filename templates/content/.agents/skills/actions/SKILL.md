@@ -99,10 +99,11 @@ Outcomes are counted (`save_outcome_counts`, and `save_conflict_prompt` in the b
 
 ## Names That Must Stay Unique
 
-When a record's name must be unique in its parent (a file in a design, say), back the rule with a unique index and pick names with `nextFreeName` from `@agent-native/core/free-name`: `name.html`, then `name-2.html`, `name-3.html`. Don't write another copy of that loop.
+When a record's name must be unique in its parent (a file in a design, say), back the rule with a unique index and pick names with `nextFreeName` from `@agent-native/core/free-name`: `name.html`, then `name-2.html`, `name-3.html` (a slug whose alphabet has no `-` passes `{ separator: "_" }`). Don't write another copy of that loop.
 
 - **Refusing:** throw `nameTaken(record, name, suggestion)` from `@agent-native/core/free-name/server`. It is a 409 `name_taken` whose `details.suggestion` is free; pass `{ noWrite: true }` from an action that declares it as a no-write error. Don't put internal ids in the message.
 - **Creating from the UI:** let the caller ask for the next free name instead of a refusal (Design's `create-file` takes `ifNameTaken: "next-free"`), pick it on the server under the same lock as the insert, and return the saved name. Two tabs that both pick `x-copy.html` from their own list then both save.
+- **When the picker can't see every name** the index covers (other members' private records, say), let the insert claim it: on `isUniqueViolation` from `@agent-native/core/db`, mark that name taken, pick again and retry a few times, then refuse. CRM's `create-crm-list` does this for list slugs.
 - **Agents** get the refusal and retry with `details.suggestion`, or edit the existing record if that was the intent.
 
 ## Return Values

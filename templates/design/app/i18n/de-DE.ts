@@ -3553,6 +3553,10 @@ export default {
     markedUnread: "Als ungelesen markiert",
     markUnreadFailed: "Konnte nicht als ungelesen markiert werden",
     attachImage: "Bild anhängen",
+    removeImage: "Bild entfernen",
+    imageUploadFailed: "Das Bild konnte nicht hochgeladen werden",
+    editChanged:
+      "Dieser Kommentar wurde geändert, nachdem Sie mit dem Bearbeiten begonnen haben. Speichern Sie erneut, um ihn zu ersetzen.",
     searching: "Suche…",
     reactionFailed: "Reaktion konnte nicht aktualisiert werden",
     moveFailed: "Kommentar konnte nicht verschoben werden",
