@@ -1,20 +1,23 @@
 /**
  * guard-no-bare-pnpm-spawn.ts
  *
- * On Windows, pnpm is usually a `pnpm.cmd` shim. Node refuses to start a
- * `.cmd` file without a shell (CVE-2024-27980, Node 18.20.2 and 20.12.2 on),
- * and without a shell it only finds `.exe` and `.com` files on PATH. So
- * `spawn("pnpm.cmd", args)` fails with `spawn EINVAL`, and `spawn("pnpm", args)`
- * fails with `spawn pnpm ENOENT` unless a real `pnpm.exe` happens to be on
- * PATH. That broke the root `pnpm typecheck`, `pnpm test` and `pnpm lint` on
- * Windows, and the workspace gateway behind `pnpm dev` (issue #8348).
+ * On Windows, pnpm and npm are usually `pnpm.cmd` and `npm.cmd` shims. Node
+ * refuses to start a `.cmd` file without a shell (CVE-2024-27980, Node 18.20.2
+ * and 20.12.2 on), and without a shell it only finds `.exe` and `.com` files on
+ * PATH. So `spawn("pnpm.cmd", args)` fails with `spawn EINVAL`, and
+ * `spawn("pnpm", args)` fails with `spawn pnpm ENOENT` unless a real `pnpm.exe`
+ * happens to be on PATH. That broke the root `pnpm typecheck`, `pnpm test` and
+ * `pnpm lint` on Windows, the workspace gateway behind `pnpm dev` (issue
+ * #8348), and `agent-native create` from a local framework checkout, which
+ * packed local packages with `npm.cmd`.
  *
  * This guard scans lines ADDED on this branch (via scripts/lib/changed-lines.mjs)
  * and flags a `spawn`, `spawnSync`, `execFile` or `execFileSync` call that
- * starts pnpm (or pnpx) without a shell on Windows. Root scripts start pnpm
- * through scripts/lib/pnpm-command.ts; elsewhere, pass
+ * starts pnpm, pnpx, npm or npx without a shell on Windows. Root scripts start
+ * pnpm through scripts/lib/pnpm-command.ts, and core's CLI uses
+ * `shimSpawnTarget` from packages/core/src/cli/process.ts; elsewhere, pass
  * `shell: process.platform === "win32"` (or run the joined command line with
- * `shell: true` on Windows, as the helper does).
+ * `shell: true` on Windows, as the helpers do).
  *
  * The command is found on a best-effort basis: through literals, ternaries,
  * `??`/`||`/`&&` fallbacks, variables, destructuring, a local zero-argument
@@ -63,8 +66,9 @@ const PRAGMA_LINE = /^\s*(?:\/\/|\/\*)\s*guard:allow-bare-pnpm\b/;
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 const SKIPPED = /(?:^|\/)(?:node_modules|dist|build)\//;
 const SPAWNERS = new Set(["spawn", "spawnSync", "execFile", "execFileSync"]);
-const PNPM = /^pnp[mx](?:\.cmd)?$/i;
-const CMD_SHIM = /^pnp[mx]\.cmd$/i;
+// pnpm, pnpx, npm and npx, with or without the `.cmd` of their Windows shims.
+const PNPM = /^p?np[mx](?:\.cmd)?$/i;
+const CMD_SHIM = /^p?np[mx]\.cmd$/i;
 const CHILD_PROCESS = /^(?:node:)?child_process$/;
 const COMMAND_HELPERS = new Set(["pnpmCommand", "startCommand"]);
 const LOGICAL_OPERATORS = new Set([
@@ -649,14 +653,17 @@ function main() {
   }
 
   console.error(
-    `${GUARD_NAME}: ${findings.length} pnpm start(s) that fail on Windows.`,
+    `${GUARD_NAME}: ${findings.length} pnpm or npm start(s) that fail on Windows.`,
   );
   console.error(
-    "\nOn Windows pnpm is a pnpm.cmd shim, which Node starts only through a\n" +
-      "shell: without one, spawning it fails with EINVAL or ENOENT. In a root\n" +
+    "\nOn Windows pnpm and npm are .cmd shims, which Node starts only through a\n" +
+      "shell: without one, spawning them fails with EINVAL or ENOENT. In a root\n" +
       "script, start pnpm with scripts/lib/pnpm-command.ts:\n\n" +
       '  const pnpm = pnpmCommand(["run", "build"]);\n' +
       "  spawn(pnpm.command, pnpm.args, { ...options, shell: pnpm.shell });\n\n" +
+      "In core's CLI, use shimSpawnTarget from packages/core/src/cli/process.ts:\n\n" +
+      '  const [command, args, shell] = shimSpawnTarget("npm", ["pack"]);\n' +
+      "  execFileSync(command, args, { ...options, shell });\n\n" +
       'Elsewhere, pass shell: process.platform === "win32". A call that never\n' +
       "runs on Windows can say so on the call or the line above it:\n\n" +
       "  // guard:allow-bare-pnpm — <why>\n",

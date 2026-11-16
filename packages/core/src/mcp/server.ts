@@ -358,7 +358,7 @@ async function handleMcpRequestInternal(
   const requestMeta = deriveRequestMeta(event);
   const requestOrigin = getRequestHeader(event, "origin");
   const directLocalRequest =
-    isDirectLoopbackRequest(event) &&
+    isDirectLoopbackRequest(event, { behindDevProxy: true }) &&
     (requestOrigin === undefined || requestOrigin === requestMeta.origin);
   const localOwnerHint = directLocalRequest ? ownerEmailHeader : undefined;
   const hasLocalOwnerHint = Boolean(localOwnerHint?.trim());

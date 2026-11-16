@@ -1702,8 +1702,13 @@ export function useEditorFilesAndSaving({
   const visualEditPendingQuery = useActionQuery<{
     designId: string;
     pendingEditCount: number;
-    status: "ready" | "empty";
+    status: "ready" | "suggested" | "empty";
     prompt: string;
+    suggestion: {
+      trusted: false;
+      authorEmail: string | null;
+      text: string;
+    } | null;
     revision: number | null;
     updatedAt: string | null;
   }>(
@@ -1727,6 +1732,15 @@ export function useEditorFilesAndSaving({
     visualEditPendingQuery.data?.status === "ready" &&
     visualEditPendingQuery.data.pendingEditCount > 0 &&
     Boolean(visualEditPendingQuery.data.prompt);
+  const remoteVisualEditSuggestion =
+    canEditDesign &&
+    visualEditPendingQuery.data?.status === "suggested" &&
+    visualEditPendingQuery.data.suggestion?.text
+      ? {
+          ...visualEditPendingQuery.data.suggestion,
+          revision: visualEditPendingQuery.data.revision,
+        }
+      : null;
   useEffect(() => {
     const marker = pendingVisualEditReloadedHandoffRef.current;
     if (
@@ -2025,6 +2039,7 @@ export function useEditorFilesAndSaving({
     editorShareUrl,
     visualEditPendingQuery,
     remoteVisualEditPending,
+    remoteVisualEditSuggestion,
     handleScreenExternalContentSnapshot,
     handleScreenRuntimeLayerSnapshot,
     getScreenRootComputedStylesCallback,

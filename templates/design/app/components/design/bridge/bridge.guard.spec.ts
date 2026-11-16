@@ -605,6 +605,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "../../../../shared/relative-position-containing-block",
     "../../../../shared/source-equivalent-selector",
     "../../../../shared/svg-shape-offset",
+    "../../../../shared/visual-layers",
   ],
   // The source-equivalent selector walker is shared with the parent canvas, which resolves
   // the selectors the bridge builds, so both sides skip the same siblings.
@@ -1516,6 +1517,13 @@ describe("generated bridge modules", () => {
   const bridgeFiles = getBridgeFiles();
 
   for (const filename of bridgeFiles) {
+    it(`${filename} generated script has no literal closing script tag`, () => {
+      // source-read-ok: The bridge is injected as an inline <script>; a literal closing tag in its text ends it early.
+      expect(readFileSync(generatedPath(filename), "utf-8")).not.toMatch(
+        /<\/script/i,
+      );
+    });
+
     it(`${filename} → .generated/bridge/${filename.replace(".bridge.ts", ".generated.ts")} is up to date`, async () => {
       const outPath = generatedPath(filename);
 

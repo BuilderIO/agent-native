@@ -1,344 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => {
-  function makeWhereResult(rows: unknown[]) {
-    const promise = Promise.resolve(rows) as Promise<unknown[]> & {
-      limit: (n: number) => Promise<unknown[]>;
-      for: (strength: string) => Promise<unknown[]>;
-      orderBy: (...columns: unknown[]) => {
-        limit: (n: number) => Promise<unknown[]>;
-      };
-    };
-    promise.limit = vi.fn().mockResolvedValue(rows);
-    promise.for = vi.fn().mockResolvedValue(rows);
-    promise.orderBy = vi.fn().mockReturnValue(promise);
-    return promise;
-  }
-
-  let fileRows: Array<Record<string, unknown>> = [];
-  let designRows: Array<Record<string, unknown>> = [
-    { id: "design-1", data: null },
-  ];
-  let designData: Record<string, unknown> = {};
-
-  const fileSelectChain = { from: vi.fn(), where: vi.fn() };
-  fileSelectChain.from.mockReturnValue(fileSelectChain);
-  fileSelectChain.where.mockImplementation(
-    (predicate?: { left?: unknown; right?: unknown }) => {
-      if (predicate && predicate.left === "designFiles.id") {
-        return makeWhereResult(
-          fileRows.filter((row) => row.id === predicate.right),
-        );
-      }
-      if (predicate && predicate.left === "designFiles.designId") {
-        return makeWhereResult(
-          fileRows.filter((row) => row.designId === predicate.right),
-        );
-      }
-      return makeWhereResult(fileRows);
-    },
-  );
-
-  const designSelectChain = { from: vi.fn(), where: vi.fn() };
-  designSelectChain.from.mockReturnValue(designSelectChain);
-  designSelectChain.where.mockImplementation(
-    (predicate?: { left?: unknown; right?: unknown }) => {
-      if (predicate && predicate.left === "designs.id") {
-        return makeWhereResult(
-          designRows.filter((row) => row.id === predicate.right),
-        );
-      }
-      return makeWhereResult(designRows);
-    },
-  );
-
-  const select = vi.fn((projection?: Record<string, unknown>) => {
-    if (projection && "data" in projection) return designSelectChain;
-    return fileSelectChain;
-  });
-
-  const insert = vi.fn(() => ({
-    values: vi.fn().mockResolvedValue(undefined),
-  }));
-
-  const fileUpdateChain = { set: vi.fn(), where: vi.fn() };
-  fileUpdateChain.set.mockReturnValue(fileUpdateChain);
-  fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
-
-  const designUpdateChain = { set: vi.fn(), where: vi.fn() };
-  designUpdateChain.set.mockReturnValue(designUpdateChain);
-  designUpdateChain.where.mockResolvedValue(undefined);
-
-  const update = vi.fn((table: unknown) => {
-    if (table === schemaRef.designs) return designUpdateChain;
-    return fileUpdateChain;
-  });
-
-  const schemaRef: { designFiles?: unknown; designs?: unknown } = {};
-
-  const tx = {
-    select,
-    insert,
-    update,
-    execute: vi.fn().mockResolvedValue({ rows: [] }),
-  };
-
-  const transaction = vi.fn(async (fn: (tx: typeof tx) => Promise<void>) => {
-    await fn(tx);
-  });
-
-  const db = {
-    select,
-    insert,
-    update,
-    transaction,
-  };
-
-  const seededCollabText = new Map<string, string>();
-
-  return {
-    db,
-    schemaRef,
-    fileSelectChain,
-    designSelectChain,
-    fileUpdateChain,
-    designUpdateChain,
-    insert,
-    transaction,
-    seededCollabText,
-    setFileRows: (next: Array<Record<string, unknown>>) => {
-      fileRows = next;
-    },
-    setDesignRows: (next: Array<Record<string, unknown>>) => {
-      designRows = next;
-    },
-    setDesignData: (next: Record<string, unknown>) => {
-      designData = next;
-    },
-    getDesignData: () => designData,
-    mutateDesignData: vi.fn(),
-    snapshotDesignBeforeAgentEdit: vi.fn().mockResolvedValue(null),
-    designAccess: async () => ({
-      role: "editor",
-      resource: { id: "design-1", data: JSON.stringify(designData) },
-    }),
-    assertAccess: vi.fn(async () => ({
-      role: "editor",
-      resource: { id: "design-1", data: JSON.stringify(designData) },
-    })),
-    and: vi.fn((...conditions) => ({ conditions })),
-    inArray: vi.fn((column, values) => ({ column, values })),
-    eq: vi.fn((left, right) => ({ left, right })),
-    isNull: vi.fn((value) => ({ isNull: value })),
-    readAppState: vi.fn().mockResolvedValue(null),
-    writeAppState: vi.fn().mockResolvedValue(undefined),
-    getGenerationCreativeContext: vi.fn().mockResolvedValue(null),
-    isCreativeContextOffForUser: vi.fn().mockResolvedValue(false),
-    recordGenerationCreativeContext: vi.fn().mockResolvedValue(undefined),
-    resolveGenerationCreativeContext: vi.fn().mockResolvedValue({
-      contextMode: "auto",
-      contextPackId: null,
-      reuseLabels: [],
-      results: [],
-    }),
-    validateGenerationCreativeContext: vi.fn(
-      async (input: {
-        contextPackId?: string | null;
-        contextModeOverride?: "off";
-        reuseLabels?: Array<Record<string, unknown>>;
-      }) => ({
-        contextMode:
-          input.contextModeOverride === "off"
-            ? "off"
-            : input.contextPackId
-              ? "pinned"
-              : "auto",
-        contextPackId:
-          input.contextModeOverride === "off"
-            ? null
-            : (input.contextPackId ?? null),
-        reuseLabels: input.reuseLabels ?? [],
-        results: [],
-      }),
-    ),
-  };
-});
-
-vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: mocks.assertAccess,
-}));
-
-const track = vi.hoisted(() => vi.fn());
-vi.mock("@agent-native/core/tracking", () => ({ track }));
-
-vi.mock("drizzle-orm", () => ({
-  and: mocks.and,
-  eq: mocks.eq,
-  inArray: mocks.inArray,
-  gt: vi.fn((left, right) => ({ left, right })),
-  isNull: mocks.isNull,
-  sql: vi.fn((strings, ...values) => ({ strings, values })),
-}));
-
-vi.mock("@agent-native/core/application-state", () => ({
-  readAppState: mocks.readAppState,
-  writeAppState: mocks.writeAppState,
-}));
-
-vi.mock("@agent-native/core/collab", () => {
-  const seeded = mocks.seededCollabText;
-  const hasCollabState = vi.fn(async (docId: string) => seeded.has(docId));
-  const getText = vi.fn(async (docId: string) => seeded.get(docId) ?? "");
-  return {
-    CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
-    hasCollabState,
-    getText,
-    applyText: vi.fn(async (docId: string, text: string) => {
-      seeded.set(docId, text);
-      return text;
-    }),
-    seedFromText: vi.fn(async (docId: string, text: string) => {
-      if (!seeded.has(docId)) seeded.set(docId, text);
-    }),
-    applyTextToYDoc: vi.fn(
-      (doc: { content: string }, _fieldName: string, text: string) => {
-        doc.content = text;
-      },
-    ),
-    withPreparedYDocMutation: vi.fn(
-      async (
-        docId: string,
-        _requestSource: string | undefined,
-        run: (lease: {
-          doc: { content: string; getText: () => { toString: () => string } };
-          baseVersion: number | null;
-          persist: (_tx: unknown, text: string) => Promise<void>;
-        }) => Promise<unknown>,
-      ) => {
-        const hasLiveDoc = await hasCollabState(docId);
-        const doc = {
-          content: hasLiveDoc ? await getText(docId) : "",
-          getText: () => ({ toString: () => doc.content }),
-        };
-        const result = await run({
-          doc,
-          baseVersion: hasLiveDoc ? 0 : null,
-          persist: async (_tx, text) => {
-            seeded.set(docId, text);
-          },
-        });
-        return result;
-      },
-    ),
-    agentEnterDocument: vi.fn(),
-    agentLeaveDocument: vi.fn(),
-    agentUpdateSelection: vi.fn(),
-  };
-});
-
-vi.mock("../server/db/index.js", () => {
-  const schema = {
-    designFiles: {
-      id: "designFiles.id",
-      designId: "designFiles.designId",
-      filename: "designFiles.filename",
-      fileType: "designFiles.fileType",
-      content: "designFiles.content",
-    },
-    designs: {
-      id: "designs.id",
-      title: "designs.title",
-      data: "designs.data",
-    },
-  };
-  mocks.schemaRef.designFiles = schema.designFiles;
-  mocks.schemaRef.designs = schema.designs;
-  return {
-    getDb: () => mocks.db,
-    schema,
-  };
-});
-
-vi.mock("../server/lib/design-data-mutation.js", () => ({
-  mutateDesignData: mocks.mutateDesignData,
-}));
-
-vi.mock("../server/lib/design-versions.js", () => ({
-  snapshotDesignBeforeAgentEdit: mocks.snapshotDesignBeforeAgentEdit,
-}));
-
-vi.mock("@agent-native/creative-context/server", () => ({
-  getGenerationCreativeContext: mocks.getGenerationCreativeContext,
-  isCreativeContextOffForUser: mocks.isCreativeContextOffForUser,
-  recordGenerationCreativeContext: mocks.recordGenerationCreativeContext,
-  resolveGenerationCreativeContext: mocks.resolveGenerationCreativeContext,
-  validateGenerationCreativeContext: mocks.validateGenerationCreativeContext,
-  validateCreativeContextReuseLabels: (
-    labels: Array<Record<string, unknown>>,
-  ) => labels,
-  mergeCreativeContextReuseLabels: (
-    previous: Array<Record<string, unknown>>,
-    next: Array<Record<string, unknown>>,
-  ) => [...previous, ...next],
-  replaceCreativeContextElementProvenance: (
-    previous: Array<{ elementId: string }>,
-    next: Array<{ elementId: string }>,
-  ) => {
-    const replaced = new Set(next.map((entry) => entry.elementId));
-    return [
-      ...previous.filter((entry) => !replaced.has(entry.elementId)),
-      ...next,
-    ];
-  },
-}));
-
 import {
   executeAgentToolCall,
   type ActionEntry,
 } from "../../../packages/core/src/agent/production-agent.js";
 import { MAX_SANE_FRAME_DIMENSION_PX } from "../shared/responsive-frame-layout.js";
-import action from "./generate-design.js";
+import { placementTestFixtures } from "./_generate-design.test-fixtures.js";
 
-function resetDesignDataMutation() {
-  mocks.setDesignData({ concurrentSibling: { keep: true } });
-  mocks.mutateDesignData.mockImplementation(
-    async (options: {
-      mutate: (
-        current: Record<string, unknown>,
-        context: { updatedAt: string },
-      ) => Record<string, unknown>;
-      isApplied: (current: Record<string, unknown>) => boolean;
-    }) => {
-      const updatedAt = "2026-07-09T12:00:00.000Z";
-      const next = options.mutate(mocks.getDesignData(), { updatedAt });
-      mocks.setDesignData(next);
-      expect(options.isApplied(next)).toBe(true);
-      return { data: next, updatedAt };
-    },
-  );
-}
-
-function setExistingFile(
-  content: string,
-  overrides: Partial<{
-    id: string;
-    designId: string;
-    filename: string;
-    fileType: string;
-  }> = {},
-) {
-  mocks.setFileRows([
-    {
-      id: overrides.id ?? "file-1",
-      designId: overrides.designId ?? "design-1",
-      filename: overrides.filename ?? "index.html",
-      fileType: overrides.fileType ?? "html",
-      content,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    },
-  ]);
-}
+const { action, mocks, resetDesignDataMutation, setExistingFile, track } =
+  placementTestFixtures;
 
 describe("generate-design action tool schema", () => {
   const html = "<!doctype html><html><body>Hello</body></html>";
@@ -386,6 +56,7 @@ describe("generate-design action tool schema", () => {
     const run = vi.fn(async (input: unknown) => input);
     const padded = {
       ...validInput(),
+      files: [{ ...validInput().files[0], frameType: "unspecified" }],
       designSystemId: null,
       projectType: "prototype",
       tweaks: [],
@@ -405,6 +76,7 @@ describe("generate-design action tool schema", () => {
       reuseLabels: [],
       primaryViewport: null,
       devices: [],
+      fixedCanvas: false,
     };
 
     const result = await executeAgentToolCall({
@@ -418,7 +90,11 @@ describe("generate-design action tool schema", () => {
 
     expect(result.status).toBe("completed");
     const received = run.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(received).toMatchObject({ devices: [], reuseLabels: [] });
+    expect(received).toMatchObject({
+      devices: [],
+      fixedCanvas: false,
+      reuseLabels: [],
+    });
     for (const dropped of [
       "designSystemId",
       "tweaks",
@@ -428,6 +104,9 @@ describe("generate-design action tool schema", () => {
     }
     expect(received.canvasFrames).toEqual([
       { filename: "index.html", x: 0, y: 0, width: 1440, height: 900 },
+    ]);
+    expect(received.files).toEqual([
+      expect.objectContaining({ frameType: undefined }),
     ]);
   });
 
@@ -445,6 +124,9 @@ describe("generate-design action tool schema", () => {
       "filename",
       "frameType",
     ]);
+    expect(
+      parameters.properties.files?.items?.properties?.frameType?.enum,
+    ).toEqual(["unspecified", "hubspot-email"]);
   });
 
   it("keeps the placement and routing guidance in the field descriptions", () => {
@@ -594,6 +276,103 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
   });
+
+  it.each([undefined, "unspecified"] as const)(
+    "keeps existing web metadata with frameType %s",
+    async (frameType) => {
+      setExistingFile("<html><body>old</body></html>");
+      mocks.setDesignData({
+        screenMetadata: { "file-1": { frameType: "web" } },
+      });
+      const input = action.schema.parse({
+        designId: "design-1",
+        prompt: "Update artwork",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>new artwork</body></html>",
+            ...(frameType ? { frameType } : {}),
+          },
+        ],
+      });
+      const result = await action.run(input);
+      expect(result.savedFiles).toEqual([
+        { id: "file-1", filename: "index.html", fileType: "html" },
+      ]);
+      expect(mocks.getDesignData()).toMatchObject({
+        screenMetadata: { "file-1": { frameType: "web" } },
+      });
+      expect(mocks.seededCollabText.get("file-1")).toContain("new artwork");
+    },
+  );
+
+  it.each([undefined, "unspecified"] as const)(
+    "does not clear an existing email type with frameType %s",
+    async (frameType) => {
+      setExistingFile("<html><body>old email</body></html>");
+      mocks.setDesignData({
+        screenMetadata: { "file-1": { frameType: "hubspot-email" } },
+      });
+      const input = action.schema.parse({
+        designId: "design-1",
+        prompt: "Update email",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>new email</body></html>",
+            ...(frameType ? { frameType } : {}),
+          },
+        ],
+      });
+      await action.run(input);
+      expect(mocks.getDesignData()).toMatchObject({
+        screenMetadata: { "file-1": { frameType: "hubspot-email" } },
+      });
+    },
+  );
+
+  it.each(["stored", "legacy"] as const)(
+    "rejects a non-HTML replacement of an existing %s email despite neutral padding",
+    async (origin) => {
+      setExistingFile(
+        origin === "legacy"
+          ? '<html><head><meta name="agent-native:frame-type" content="hubspot-email"></head><body>old</body></html>'
+          : "<html><body>old email</body></html>",
+      );
+      if (origin === "stored") {
+        mocks.setDesignData({
+          screenMetadata: { "file-1": { frameType: "hubspot-email" } },
+        });
+      }
+      const input = action.schema.parse({
+        designId: "design-1",
+        prompt: "Create an asset",
+        files: [
+          {
+            filename: "other.html",
+            fileType: "html",
+            content: "<html><body>Other screen</body></html>",
+          },
+          {
+            filename: "index.html",
+            fileType: "asset",
+            frameType: "unspecified",
+            content: "<svg></svg>",
+          },
+        ],
+      });
+      await expect(action.run(input)).rejects.toMatchObject({
+        errorCode: "hubspot_email_html_required",
+        noWrite: true,
+        message: expect.stringMatching(/update-file[\s\S]*frameType "web"/i),
+      });
+      expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+      expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+      expect(mocks.insert).not.toHaveBeenCalled();
+    },
+  );
 
   it("stores an existing file's requested frame type in its source write", async () => {
     setExistingFile("<html><body>old</body></html>");
@@ -1012,6 +791,195 @@ describe("generate-design: new-file creation path", () => {
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
   });
+
+  it.each([undefined, "unspecified"] as const)(
+    "saves new non-email artwork without frame metadata for frameType %s",
+    async (frameType) => {
+      const input = action.schema.parse({
+        designId: "design-1",
+        prompt: "Create fixed artwork, 1080x1080",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>Artwork</body></html>",
+            ...(frameType ? { frameType } : {}),
+          },
+        ],
+      });
+      const result = await action.run(input);
+      const fileId = result.savedFiles[0]!.id;
+      expect(result.savedFiles[0]).toMatchObject({
+        filename: "index.html",
+        fileType: "html",
+      });
+      expect(mocks.seededCollabText.get(fileId)).toContain("Artwork");
+      const metadata = mocks.getDesignData().screenMetadata as Record<
+        string,
+        { frameType?: string }
+      >;
+      expect(metadata[fileId]?.frameType).toBeUndefined();
+    },
+  );
+
+  it("rejects the model's email-typed artwork and saves the corrected HTML", async () => {
+    const files = [
+      {
+        filename: "artwork.html",
+        fileType: "asset",
+        frameType: "hubspot-email",
+        content: "<html><body>Fixed artwork</body></html>",
+      },
+    ];
+    const call = (input: unknown, callId: string) =>
+      executeAgentToolCall({
+        actions: { "generate-design": action as unknown as ActionEntry },
+        name: "generate-design",
+        callId,
+        input,
+      });
+    const base = {
+      designId: "design-1",
+      prompt: "Create fixed artwork",
+      files,
+    };
+    const rejected = await call(base, "invalid-artwork");
+    expect(rejected).toMatchObject({
+      status: "failed",
+      output: expect.stringMatching(/hubspot_email_html_required/),
+      completedSideEffect: false,
+    });
+    expect(rejected.output).toMatch(/non-email artwork[\s\S]*renderable HTML/i);
+    expect(rejected.output).toMatch(/omit frameType[\s\S]*unspecified/i);
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.designUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.seededCollabText.size).toBe(0);
+
+    const corrected = await call(
+      {
+        ...base,
+        files: [{ ...files[0], fileType: "html", frameType: "unspecified" }],
+      },
+      "corrected-artwork",
+    );
+    expect(corrected.status).toBe("completed");
+    expect(mocks.insert).toHaveBeenCalledTimes(1);
+    const values = mocks.insert.mock.results[0]?.value.values;
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filename: "artwork.html",
+        fileType: "html",
+        content: expect.stringContaining("Fixed artwork"),
+      }),
+    );
+    expect(Array.from(mocks.seededCollabText.values())).toEqual([
+      expect.stringContaining("Fixed artwork"),
+    ]);
+  });
+
+  it("explains how to correct an asset marked as a HubSpot email before saving", async () => {
+    const email = {
+      filename: "email.html",
+      fileType: "html" as const,
+      frameType: "hubspot-email" as const,
+      content:
+        '<!doctype html><html><head></head><body><table role="presentation"><tr><td>Hello</td></tr></table></body></html>',
+    };
+    const asset = {
+      filename: "logo.svg",
+      fileType: "asset" as const,
+      content: '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+    };
+    const input = {
+      designId: "design-1",
+      prompt: "Create a sample email and logo",
+      files: [email, { ...asset, frameType: "hubspot-email" as const }],
+    };
+
+    const error = await action.run(input).then(
+      () => null,
+      (rejection: unknown) => rejection,
+    );
+
+    expect(error).toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "hubspot_email_html_required",
+      statusCode: 422,
+    });
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.designUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.seededCollabText.size).toBe(0);
+
+    const result = await action.run({ ...input, files: [email, asset] });
+    expect(result.savedFiles).toEqual([
+      { id: expect.any(String), filename: "email.html", fileType: "html" },
+      { id: expect.any(String), filename: "logo.svg", fileType: "asset" },
+    ]);
+    for (const [index, file] of [email, asset].entries()) {
+      const values = mocks.insert.mock.results[index]?.value.values;
+      expect(values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: result.savedFiles[index]?.id,
+          designId: "design-1",
+          filename: file.filename,
+          fileType: file.fileType,
+          content: expect.stringContaining(file === email ? "Hello" : "<svg"),
+        }),
+      );
+    }
+    expect(mocks.getDesignData()).toMatchObject({
+      screenMetadata: {
+        [result.savedFiles[0]!.id]: { frameType: "hubspot-email", width: 600 },
+      },
+    });
+
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toMatch(/fileType[\s\S]{0,80}html/i);
+    expect(message).toMatch(
+      /(?:omit|remove|unset|leave out)[\s\S]{0,80}frameType|frameType[\s\S]{0,80}(?:omit|remove|unset|leave out)/i,
+    );
+    expect(message).toMatch(/non-email artwork[\s\S]*renderable HTML/i);
+    expect(message).toMatch(/non-email asset[\s\S]*unspecified/i);
+    expect(message).toMatch(/do not clear existing email metadata/i);
+  });
+
+  it.each([undefined, "unspecified"] as const)(
+    "rejects an inferred legacy email on an asset with frameType %s",
+    async (frameType) => {
+      const input = action.schema.parse({
+        designId: "design-1",
+        prompt: "Create artwork and an asset",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>Artwork</body></html>",
+          },
+          {
+            filename: "asset.svg",
+            fileType: "asset",
+            content:
+              '<meta name="agent-native:frame-type" content="hubspot-email">',
+            ...(frameType ? { frameType } : {}),
+          },
+        ],
+      });
+      await expect(action.run(input)).rejects.toMatchObject({
+        errorCode: "hubspot_email_html_required",
+        message: expect.stringMatching(/legacy email markers/i),
+        noWrite: true,
+      });
+      expect(mocks.insert).not.toHaveBeenCalled();
+    },
+  );
 
   it("gives semantic email output a fluid email viewport without generated web breakpoints", async () => {
     const result = await action.run({
@@ -1736,7 +1704,7 @@ describe("generate-design: new-file creation path", () => {
     await action.run({
       designId: "design-1",
       prompt: "Update the Instagram post background color",
-      devices: [],
+      fixedCanvas: true,
       files: [
         {
           filename: "post.html",
@@ -3707,6 +3675,56 @@ describe("generate-design: rejected input in the agent loop", () => {
     expect(mocks.resolveGenerationCreativeContext).not.toHaveBeenCalled();
   });
 
+  it("lets a corrected call run after an unknown canvas frame is rejected", async () => {
+    const { runAgentLoop } = await import("@agent-native/core/server");
+    const base = {
+      designId: "design-1",
+      prompt: "Make a design",
+      files: JSON.stringify([
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<main>Hi</main>",
+        },
+      ]),
+    };
+    const events: Array<Record<string, unknown>> = [];
+    await runAgentLoop({
+      engine: scriptedEngine([
+        {
+          ...base,
+          canvasFrames: JSON.stringify([{ fileId: "missing", x: 0 }]),
+        },
+        {
+          ...base,
+          canvasFrames: JSON.stringify([{ filename: "index.html", x: 0 }]),
+        },
+      ]) as never,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Make a design" }] },
+      ],
+      actions: { "generate-design": action as never },
+      send: (event) => events.push(event as unknown as Record<string, unknown>),
+      signal: new AbortController().signal,
+    });
+
+    const done = events.filter((event) => event.type === "tool_done");
+    expect(done[0]).toMatchObject({
+      isError: true,
+      completedSideEffect: false,
+      errorClass: "rejected",
+      result: expect.stringContaining(
+        "canvasFrames entry did not match a design file: missing",
+      ),
+    });
+    expect(done[1]).toMatchObject({ completedSideEffect: true });
+    expect(events.some((event) => event.outcomeUnknown === true)).toBe(false);
+    expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
+  });
+
   it("preflights locked layers in every file before checkpointing or saving any file", async () => {
     setExistingFile(
       '<html><body><section data-agent-native-node-id="section"><div data-agent-native-locked="true" data-agent-native-node-id="locked">Legal</div></section></body></html>',
@@ -3771,5 +3789,130 @@ describe("generate-design: rejected input in the agent loop", () => {
 
     expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
     expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+  });
+});
+
+// GPT-6 Luna sends every field it isn't using: `null`, `[]` for lists and
+// `false` for booleans. None of those may turn an app screen into a fixed canvas.
+describe("generate-design: a padded call keeps app screens responsive", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  const padded = (overrides: Record<string, unknown> = {}) => ({
+    designId: "design-1",
+    prompt: "Create a task manager",
+    files: [
+      {
+        filename: "index.html",
+        fileType: "html",
+        content: "<!doctype html><html><body>Tasks</body></html>",
+      },
+    ],
+    designSystemId: null,
+    projectType: "prototype",
+    tweaks: [],
+    canvasFrames: [],
+    contextPackId: null,
+    reuseLabels: [],
+    primaryViewport: null,
+    devices: [],
+    fixedCanvas: false,
+    ...overrides,
+  });
+  const runAsAgent = (input: Record<string, unknown>) =>
+    executeAgentToolCall({
+      actions: { "generate-design": action as unknown as ActionEntry },
+      name: "generate-design",
+      callId: "padded-by-model",
+      input,
+    });
+  const appScreenWithMobileBreakpoint = () => {
+    setExistingFile("<html><body>Old tasks</body></html>");
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "generated-responsive",
+        breakpoints: [{ id: "generated-390", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: { "file-1": { x: 0, y: 0, width: 1440, height: 900 } },
+      screenMetadata: {
+        "file-1": { width: 1440, height: 900, breakpointWidths: [390] },
+      },
+    });
+  };
+  const breakpointWidthsOf = (fileId: string) =>
+    (
+      mocks.getDesignData().screenMetadata as Record<
+        string,
+        { breakpointWidths?: number[] }
+      >
+    )[fileId]?.breakpointWidths;
+
+  it("gives a new app screen its Mobile breakpoint", async () => {
+    const result = await runAsAgent(padded());
+
+    expect(result.status).toBe("completed");
+    expect(mocks.getDesignData().breakpointSet).toMatchObject({
+      breakpoints: [expect.objectContaining({ label: "Mobile", widthPx: 390 })],
+    });
+  });
+
+  it("keeps an app screen's breakpoints on a content edit", async () => {
+    appScreenWithMobileBreakpoint();
+
+    const result = await runAsAgent(
+      padded({ prompt: "Make the header bolder" }),
+    );
+
+    expect(result.status).toBe("completed");
+    expect(breakpointWidthsOf("file-1")).toEqual([390]);
+  });
+
+  it("makes a new screen one fixed canvas when fixedCanvas is true", async () => {
+    const result = await runAsAgent(padded({ fixedCanvas: true }));
+
+    expect(result.status).toBe("completed");
+    const data = mocks.getDesignData();
+    expect(data.breakpointSet).toBeUndefined();
+    expect(Object.values(data.screenMetadata as object)).toEqual([
+      expect.objectContaining({ breakpointWidths: [] }),
+    ]);
+  });
+
+  it("drops an app screen's breakpoints when fixedCanvas is true", async () => {
+    appScreenWithMobileBreakpoint();
+
+    const result = await runAsAgent(
+      padded({ prompt: "Make the header bolder", fixedCanvas: true }),
+    );
+
+    expect(result.status).toBe("completed");
+    expect(breakpointWidthsOf("file-1")).toEqual([]);
+  });
+
+  it("lists the devices fixedCanvas overrides as ignored", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a task manager",
+      devices: ["desktop", "mobile"],
+      fixedCanvas: true,
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Tasks</body></html>",
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({ ignoredDevices: ["desktop", "mobile"] });
+    expect(mocks.getDesignData().breakpointSet).toBeUndefined();
   });
 });

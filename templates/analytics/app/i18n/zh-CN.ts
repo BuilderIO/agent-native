@@ -1299,6 +1299,8 @@ export default {
     resetFilters: "重置筛选器",
     collapseFilters: "折叠过滤器",
     expandFilters: "展开过滤器",
+    collapseDescription: "折叠说明",
+    expandDescription: "展开说明",
     drilldownChartPoints: "图表数据点",
     drilldownPreviousPage: "上一页图表数据点",
     drilldownNextPage: "下一页图表数据点",
@@ -1317,6 +1319,8 @@ export default {
     drilldownCountMismatch: "图表显示 {{chart}}，但匹配到 {{total}} 条记录",
     drilldownAggregateOnly:
       "此面板只有聚合行。与所点击数据点匹配的行已高亮显示。",
+    drilldownNoXValueAggregateOnly:
+      "此面板无法打开无值数据点的记录，因此显示聚合行。与所点击数据点匹配的行已高亮显示。",
     drilldownNoRecords: "没有匹配的记录",
     drilldownNoRecordsIncomplete:
       "未加载任何记录。结果不完整，因此仍可能有匹配的记录。",

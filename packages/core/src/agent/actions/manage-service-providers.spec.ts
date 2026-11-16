@@ -5,7 +5,12 @@ const mocks = vi.hoisted(() => ({
   roles: new Map<string, "owner" | "admin" | "member">(),
   // key name -> { shared, personal } values; "fail" marks an unreadable store.
   keys: new Map<string, { shared?: string; personal?: string; fail?: true }>(),
-  builder: { source: null as string | null, lookupFailed: false },
+  builder: {
+    source: null as string | null,
+    lookupFailed: false,
+    // A Builder.io OAuth connection (no bpk- key pair): org-shared or personal.
+    oauth: { org: false, personal: false },
+  },
   recordActionAudit: vi.fn(async (_input: unknown) => {}),
   forgetSemanticSearchForOrg: vi.fn(async (_orgId: string) => {}),
   requeueSemanticSearchForOrg: vi.fn(async (_orgId: string) => {}),
@@ -29,6 +34,17 @@ vi.mock("../../settings/store.js", async (importOriginal) => ({
 vi.mock("../../server/personal-provider-key-policy.js", () => ({
   readOrgMemberRole: async (orgId: string, email: string) =>
     mocks.roles.get(`${orgId}:${email}`) ?? null,
+}));
+
+vi.mock("../../server/builder-oauth.js", () => ({
+  hasBuilderOAuthSession: async (
+    _email: string,
+    _orgId: string | null | undefined,
+    access: { orgOnly?: boolean } = {},
+  ) =>
+    access.orgOnly
+      ? mocks.builder.oauth.org
+      : mocks.builder.oauth.org || mocks.builder.oauth.personal,
 }));
 
 vi.mock("../../server/credential-provider.js", () => ({
@@ -100,6 +116,8 @@ beforeEach(() => {
   mocks.keys.clear();
   mocks.builder.source = null;
   mocks.builder.lookupFailed = false;
+  mocks.builder.oauth.org = false;
+  mocks.builder.oauth.personal = false;
   mocks.recordActionAudit.mockClear();
   mocks.forgetSemanticSearchForOrg.mockClear();
   mocks.requeueSemanticSearchForOrg.mockClear();
@@ -143,6 +161,35 @@ describe("manage-service-providers", () => {
       keyState: "unavailable",
     });
     expect(mocks.recordActionAudit).not.toHaveBeenCalled();
+  });
+
+  it("counts a connected Builder.io org OAuth grant that has no key pair", async () => {
+    // The hosted connection is an OAuth grant; its routes answer through
+    // resolveBuilderGatewayAuth(), so the status must not report "not set up".
+    mocks.builder.oauth.org = true;
+
+    const result = await action.run({}, ctx(ADMIN));
+
+    expect(service(result, "voice")).toMatchObject({
+      provider: null,
+      effectiveProvider: "builder",
+    });
+    expect(service(result, "voice").options[0]).toEqual({
+      provider: "builder",
+      keyState: "org",
+    });
+    expect(service(result, "images").effectiveProvider).toBe("builder");
+  });
+
+  it("counts the caller's personal Builder OAuth grant", async () => {
+    mocks.builder.oauth.personal = true;
+
+    const result = await action.run({}, ctx(ADMIN));
+
+    expect(service(result, "voice").options[0]).toEqual({
+      provider: "builder",
+      keyState: "personal",
+    });
   });
 
   it("lets owners and admins choose a provider, and puts it first", async () => {

@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToolSearchEntry } from "../agent/tool-search.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
   createMCPServerForRequest,
@@ -10,6 +11,14 @@ import {
 } from "./build-server.js";
 
 const evaluateServicePrincipalMock = vi.fn();
+const jevMocks = vi.hoisted(() => ({ credentials: vi.fn(), rank: vi.fn() }));
+vi.mock("../agent/production-agent.js", () => ({
+  getJevContextCredentials: jevMocks.credentials,
+}));
+vi.mock("../agent/jev-tool-prefetch.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/jev-tool-prefetch.js")>()),
+  rankJevCandidatesWithStatus: jevMocks.rank,
+}));
 vi.mock("../org/service-principal-policy.js", async (importActual) => ({
   ...(await importActual<
     typeof import("../org/service-principal-policy.js")
@@ -82,7 +91,7 @@ function config(): MCPConfig {
 async function clientFor(
   identity: MCPCallerIdentity,
   mcpConfig: MCPConfig = config(),
-  requestMeta: { inlineMcpApps?: boolean } = {},
+  requestMeta: { inlineMcpApps?: boolean; fullCatalog?: boolean } = {},
 ) {
   const server = await createMCPServerForRequest(mcpConfig, identity, {
     origin: "http://localhost:8100",
@@ -196,6 +205,331 @@ describe("MCP tools/list for a service principal", () => {
 });
 
 describe("MCP tools/call for a service principal", () => {
+  it("propagates a failed policy read during task search", async () => {
+    activeWithGrant(["tool-search", "list-docs"]);
+    const cfg = config();
+    const actions = cfg.actions!;
+    actions["tool-search"] = createToolSearchEntry(() => actions);
+    cfg.connectorCatalog = ["tool-search", "list-docs"];
+    const client = await clientFor(serviceIdentity, cfg, {
+      fullCatalog: false,
+    });
+    evaluateServicePrincipalMock.mockClear();
+    evaluateServicePrincipalMock
+      .mockResolvedValueOnce({
+        status: "active",
+        policy: {
+          lifecycle: "active",
+          allowedActions: ["tool-search", "list-docs"],
+        },
+      })
+      .mockResolvedValue({ status: "unavailable" });
+    await expect(
+      client.callTool({
+        name: "tool-search",
+        arguments: { task: "list docs" },
+      }),
+    ).rejects.toThrow(/could not be verified/i);
+    expect(
+      evaluateServicePrincipalMock.mock.calls.length,
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("aborts task ranking when the MCP caller cancels", async () => {
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
+    const cfg = config();
+    const actions = cfg.actions!;
+    actions["tool-search"] = createToolSearchEntry(() => actions);
+    cfg.connectorCatalog = ["tool-search", "list-docs"];
+    jevMocks.credentials.mockResolvedValue({
+      personalApiKey: "synthetic",
+      builderAuth: null,
+    });
+    let started!: () => void;
+    let aborted!: () => void;
+    const rankStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const rankAborted = new Promise<void>((resolve) => {
+      aborted = resolve;
+    });
+    jevMocks.rank.mockImplementation(({ signal }: { signal: AbortSignal }) => {
+      started();
+      return new Promise((resolve) => {
+        signal.addEventListener(
+          "abort",
+          () => {
+            aborted();
+            resolve({ status: "timed_out", ids: [] });
+          },
+          { once: true },
+        );
+      });
+    });
+    const client = await clientFor(
+      {
+        userEmail: "alice@example.com",
+        identityAssurance: "user",
+        orgId: "org_1",
+      },
+      cfg,
+      { fullCatalog: false },
+    );
+    // Freeze the ranking deadline: only the SDK cancellation can abort it.
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const call = client.callTool(
+        { name: "tool-search", arguments: { task: "list docs" } },
+        { signal: controller.signal },
+      );
+      const rejected = expect(call).rejects.toThrow();
+      await rankStarted;
+      controller.abort();
+      await rejected;
+      await rankAborted;
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 10000);
+
+  it("rechecks a task recommendation's grant when the action is called", async () => {
+    activeWithGrant(["tool-search", "read-doc"]);
+    const cfg = config();
+    const actions = cfg.actions!;
+    actions["tool-search"] = createToolSearchEntry(() => actions);
+    cfg.connectorCatalog = ["tool-search", "read-doc"];
+    const client = await clientFor(serviceIdentity, cfg, {
+      fullCatalog: false,
+    });
+    const result = await client.callTool({
+      name: "tool-search",
+      arguments: { task: "read-doc" },
+    });
+    expect(JSON.parse(textOf(result)).recommendations).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "read-doc" })]),
+    );
+    activeWithGrant(["tool-search"]);
+    const call = await client.callTool({ name: "read-doc", arguments: {} });
+    expect(call.isError).toBe(true);
+    expect(textOf(call)).toContain("not permitted for this service principal");
+    expect(runs).not.toContain("read-doc");
+  });
+
+  it("uses a resolved Jev credential when the other lookup fails", async () => {
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
+    const cfg = config();
+    const actions = cfg.actions!;
+    actions["tool-search"] = createToolSearchEntry(() => actions);
+    cfg.connectorCatalog = ["tool-search", "list-docs"];
+    const client = await clientFor(
+      {
+        userEmail: "alice@example.com",
+        identityAssurance: "user",
+        orgId: "org_1",
+      },
+      cfg,
+      { fullCatalog: false },
+    );
+    jevMocks.rank.mockResolvedValue({ status: "selected", ids: ["list-docs"] });
+    for (const credentials of [
+      {
+        personalApiKey: "synthetic",
+        builderAuth: null,
+        builderAuthLookupFailed: true,
+      },
+      { builderAuth: { token: "synthetic" }, apiKeyLookupFailed: true },
+    ]) {
+      jevMocks.credentials.mockResolvedValue(credentials);
+      jevMocks.rank.mockClear();
+      const result = await client.callTool({
+        name: "tool-search",
+        arguments: { task: "list docs" },
+      });
+      expect(JSON.parse(textOf(result))).toMatchObject({
+        ranking: "jev",
+        status: "selected",
+      });
+      expect(jevMocks.rank).toHaveBeenCalledOnce();
+    }
+    jevMocks.credentials.mockResolvedValue({
+      builderAuth: null,
+      builderAuthLookupFailed: true,
+    });
+    jevMocks.rank.mockClear();
+    const failed = await client.callTool({
+      name: "tool-search",
+      arguments: { task: "list docs" },
+    });
+    expect(JSON.parse(textOf(failed))).toMatchObject({
+      ranking: "bm25",
+      status: "failed",
+    });
+    expect(jevMocks.rank).not.toHaveBeenCalled();
+  });
+
+  it("ranks task search only for verified user identities with credentials", async () => {
+    await import("../agent/production-agent.js");
+    await import("../agent/jev-tool-prefetch.js");
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
+    const cfg = config();
+    const actions = cfg.actions!;
+    actions["tool-search"] = createToolSearchEntry(() => actions);
+    cfg.connectorCatalog = ["tool-search", "list-docs", "read-doc"];
+    jevMocks.credentials.mockResolvedValue({
+      personalApiKey: "synthetic",
+      builderAuth: null,
+    });
+    jevMocks.rank.mockResolvedValue({ status: "selected", ids: ["read-doc"] });
+    const user = {
+      userEmail: "alice@example.com",
+      identityAssurance: "user" as const,
+      orgId: "org_1",
+    };
+    const client = await clientFor(user, cfg, { fullCatalog: false });
+    const ranked = await client.callTool({
+      name: "tool-search",
+      arguments: { task: "read documents" },
+    });
+    expect(jevMocks.credentials).toHaveBeenCalledWith(user.userEmail);
+    expect(JSON.parse(textOf(ranked))).toMatchObject({
+      ranking: "jev",
+      status: "selected",
+      recommendations: [{ name: "read-doc" }],
+    });
+    expect(jevMocks.rank).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: "read documents",
+        timeoutMs: expect.any(Number),
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(jevMocks.rank.mock.calls[0]![0].timeoutMs).toBeLessThanOrEqual(750);
+
+    jevMocks.credentials.mockResolvedValue({ builderAuth: null });
+    jevMocks.rank.mockClear();
+    const unavailable = await client.callTool({
+      name: "tool-search",
+      arguments: { task: "list documents" },
+    });
+    expect(JSON.parse(textOf(unavailable))).toMatchObject({
+      ranking: "bm25",
+      status: "unavailable",
+    });
+    expect(jevMocks.rank).not.toHaveBeenCalled();
+
+    jevMocks.credentials.mockClear();
+    activeWithGrant(["tool-search", "list-docs"]);
+    const service = await clientFor(serviceIdentity, cfg, {
+      fullCatalog: false,
+    });
+    const degraded = await service.callTool({
+      name: "tool-search",
+      arguments: { task: "list documents" },
+    });
+    expect(JSON.parse(textOf(degraded))).toMatchObject({
+      ranking: "bm25",
+      status: "unavailable",
+    });
+    expect(jevMocks.credentials).not.toHaveBeenCalled();
+  });
+
+  it("uses the server candidate source only for verified users and supplies current callable names", async () => {
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
+    const cfg = config();
+    const actions = cfg.actions!;
+    actions["tool-search"] = createToolSearchEntry(() => actions);
+    cfg.connectorCatalog = ["tool-search", "list-docs"];
+    const provider = vi.fn<NonNullable<MCPConfig["taskCandidates"]>>(
+      async () => [],
+    );
+    cfg.taskCandidates = provider;
+    jevMocks.credentials.mockResolvedValue({ builderAuth: null });
+    const user = await clientFor(
+      {
+        userEmail: "alice@example.com",
+        identityAssurance: "user",
+        orgId: "org_1",
+      },
+      cfg,
+      { fullCatalog: false },
+    );
+    await user.callTool({
+      name: "tool-search",
+      arguments: { task: "list docs" },
+    });
+    expect(provider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        callableActionNames: expect.arrayContaining(["list-docs"]),
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(provider.mock.calls[0]![0].callableActionNames).not.toContain(
+      "read-doc",
+    );
+
+    provider.mockClear();
+    jevMocks.credentials.mockClear();
+    const unverified = await clientFor(
+      {
+        userEmail: "alice@example.com",
+        identityAssurance: "organization",
+        orgId: "org_1",
+      },
+      cfg,
+      { fullCatalog: false },
+    );
+    const result = await unverified.callTool({
+      name: "tool-search",
+      arguments: { task: "list docs" },
+    });
+    expect(JSON.parse(textOf(result))).toMatchObject({
+      ranking: "bm25",
+      status: "unavailable",
+    });
+    expect(provider).not.toHaveBeenCalled();
+    expect(jevMocks.credentials).not.toHaveBeenCalled();
+  });
+
+  it("removes a revoked action from tool-search on the next call", async () => {
+    activeWithGrant(["tool-search", "list-docs", "read-doc"]);
+    const cfg = config();
+    const actions = cfg.actions!;
+    actions["tool-search"] = createToolSearchEntry(() => actions);
+    cfg.connectorCatalog = ["tool-search", "list-docs", "read-doc"];
+    const client = await clientFor(serviceIdentity, cfg, {
+      fullCatalog: false,
+    });
+
+    const before = await client.callTool({
+      name: "tool-search",
+      arguments: {},
+    });
+    expect(textOf(before)).toContain("read-doc");
+
+    activeWithGrant(["tool-search", "list-docs"]);
+    const after = await client.callTool({ name: "tool-search", arguments: {} });
+    expect(textOf(after)).toContain("list-docs");
+    expect(textOf(after)).not.toContain("read-doc");
+  });
+
+  it("does not reveal actions outside the current grant through tool-search", async () => {
+    activeWithGrant(["tool-search", "list-docs"]);
+    const cfg = config();
+    const actions = cfg.actions!;
+    actions["tool-search"] = createToolSearchEntry(() => actions);
+    cfg.connectorCatalog = ["tool-search", "list-docs", "read-doc"];
+    const client = await clientFor(serviceIdentity, cfg, {
+      fullCatalog: false,
+    });
+    const result = await client.callTool({
+      name: "tool-search",
+      arguments: {},
+    });
+    expect(textOf(result)).toContain("list-docs");
+    expect(textOf(result)).not.toContain("read-doc");
+  });
+
   it("carries verified service identity into the tool request context", async () => {
     activeWithGrant(["list-docs"]);
     const client = await clientFor(serviceIdentity);

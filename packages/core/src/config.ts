@@ -6,6 +6,7 @@ export const AGENT_NATIVE_CONFIG_VERSION = 1 as const;
 
 export type AgentNativeFirstRunOnboardingMode =
   | "off"
+  | "app"
   | "connect"
   | "connect-and-integrations";
 
@@ -16,6 +17,7 @@ export type AgentNativeFirstRunOnboardingSetting =
     });
 
 export interface AgentNativeOnboardingConfig {
+  /** "app" uses the AppProviders.firstRunOnboarding surface with the same eligibility gate. */
   firstRun?: AgentNativeFirstRunOnboardingSetting;
 }
 
@@ -60,6 +62,7 @@ export type AgentNativeWorkspaceRootPage = "redirect" | "directory";
 
 export interface AgentNativeWorkspaceDeploymentConfig {
   appsDirectory?: string;
+  appInclude?: string[];
   authMode?: AgentNativeWorkspaceAuthMode;
   rootPage?: AgentNativeWorkspaceRootPage;
 }
@@ -96,6 +99,7 @@ export type AgentNativeHarnessSetting = boolean | AgentNativeHarnessConfig;
 export interface AgentNativeThemeFamilyConfig {
   families: ThemeFamily[];
   defaultFamily?: ThemeFamily;
+  accountDefaultsByEmailDomain?: Record<string, ThemeFamily>;
 }
 
 export interface AgentNativeConfig {
@@ -199,6 +203,7 @@ const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
   { path: ["themeFamily"], kind: "object" },
   { path: ["themeFamily", "families"], kind: "array" },
   { path: ["themeFamily", "defaultFamily"], kind: "string" },
+  { path: ["themeFamily", "accountDefaultsByEmailDomain"], kind: "object" },
 ];
 
 function agentNativeConfigEnvSegment(segment: string): string {
@@ -279,9 +284,43 @@ function normalizeThemeFamilyConfig(
     throw new Error(`${source}.defaultFamily must be included in families`);
   }
 
+  let accountDefaultsByEmailDomain: Record<string, ThemeFamily> | undefined;
+  if (value.accountDefaultsByEmailDomain !== undefined) {
+    if (!isRecord(value.accountDefaultsByEmailDomain)) {
+      throw new Error(
+        `${source}.accountDefaultsByEmailDomain must be an object`,
+      );
+    }
+    accountDefaultsByEmailDomain = {};
+    for (const [rawDomain, family] of Object.entries(
+      value.accountDefaultsByEmailDomain,
+    )) {
+      const domain = rawDomain.trim().toLowerCase();
+      if (!domain || domain.includes("@")) {
+        throw new Error(
+          `${source}.accountDefaultsByEmailDomain keys must be email domains`,
+        );
+      }
+      if (!isThemeFamily(family)) {
+        throw new Error(
+          `${source}.accountDefaultsByEmailDomain values must be registered theme families`,
+        );
+      }
+      if (families.length > 0 && !families.includes(family)) {
+        throw new Error(
+          `${source}.accountDefaultsByEmailDomain values must be included in families`,
+        );
+      }
+      accountDefaultsByEmailDomain[domain] = family;
+    }
+  }
+
   return {
     ...(value.families === undefined ? {} : { families }),
     ...(defaultFamily === undefined ? {} : { defaultFamily }),
+    ...(accountDefaultsByEmailDomain === undefined
+      ? {}
+      : { accountDefaultsByEmailDomain }),
   };
 }
 
@@ -650,6 +689,13 @@ export function mergeAgentNativeConfigs(
     themeFamilies?.includes(inheritedThemeFamilyDefault)
       ? inheritedThemeFamilyDefault
       : undefined);
+  const accountDefaultsByEmailDomain = {
+    ...base.themeFamily?.accountDefaultsByEmailDomain,
+    ...override.themeFamily?.accountDefaultsByEmailDomain,
+  };
+  const hasAccountDefaultsByEmailDomain =
+    base.themeFamily?.accountDefaultsByEmailDomain !== undefined ||
+    override.themeFamily?.accountDefaultsByEmailDomain !== undefined;
 
   return {
     ...(base.version === undefined && override.version === undefined
@@ -760,6 +806,9 @@ export function mergeAgentNativeConfigs(
             {
               families: themeFamilies,
               defaultFamily: themeFamilyDefault,
+              ...(hasAccountDefaultsByEmailDomain
+                ? { accountDefaultsByEmailDomain }
+                : {}),
             },
             "merged Agent-Native config.themeFamily",
           )
@@ -803,7 +852,9 @@ export function resolveFirstRunOnboardingMode(
 export function isFirstRunOnboardingModeActive(
   mode: AgentNativeFirstRunOnboardingMode | undefined,
 ): boolean {
-  return mode === "connect" || mode === "connect-and-integrations";
+  return (
+    mode === "app" || mode === "connect" || mode === "connect-and-integrations"
+  );
 }
 
 export const FIRST_RUN_ONBOARDING_ENV_OVERRIDE_KEY =
@@ -818,7 +869,7 @@ export function resolveEffectiveFirstRunOnboardingMode(
       envOverride === true ||
       (typeof envOverride === "string" &&
         ["1", "true"].includes(envOverride.trim().toLowerCase()));
-    return enabled ? "connect" : "off";
+    return enabled ? (configuredMode === "app" ? "app" : "connect") : "off";
   }
   if (
     configuredMode !== undefined &&
@@ -837,7 +888,7 @@ function normalizeFirstRunSetting(
   if (typeof value === "string") {
     if (!isFirstRunMode(value)) {
       throw new Error(
-        `${source} must be "off", "connect", or "connect-and-integrations"`,
+        `${source} must be "off", "app", "connect", or "connect-and-integrations"`,
       );
     }
     return value;
@@ -850,7 +901,7 @@ function normalizeFirstRunSetting(
   for (const [key, mode] of Object.entries(value)) {
     if (!isFirstRunMode(mode)) {
       throw new Error(
-        `${source}.${key} must be "off", "connect", or "connect-and-integrations"`,
+        `${source}.${key} must be "off", "app", "connect", or "connect-and-integrations"`,
       );
     }
     result[key] = mode;
@@ -932,6 +983,16 @@ function normalizeDeploymentConfig(
       throw new Error(`${source}.workspace must be an object`);
     }
     const appsDirectory = workspace.appsDirectory;
+    const appInclude = workspace.appInclude;
+    if (
+      appInclude !== undefined &&
+      (!Array.isArray(appInclude) ||
+        !appInclude.every((value) => typeof value === "string"))
+    ) {
+      throw new Error(
+        `${source}.workspace.appInclude must be an array of strings`,
+      );
+    }
     const authMode = workspace.authMode;
     const rootPage = workspace.rootPage;
     if (appsDirectory !== undefined && typeof appsDirectory !== "string") {
@@ -964,6 +1025,7 @@ function normalizeDeploymentConfig(
               `${source}.workspace.appsDirectory`,
             ),
           }),
+      ...(appInclude === undefined ? {} : { appInclude }),
       ...(authMode === undefined ? {} : { authMode }),
       ...(rootPage === undefined ? {} : { rootPage }),
     };
@@ -1153,6 +1215,7 @@ function isFirstRunMode(
 ): value is AgentNativeFirstRunOnboardingMode {
   return (
     value === "off" ||
+    value === "app" ||
     value === "connect" ||
     value === "connect-and-integrations"
   );

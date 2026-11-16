@@ -1,3 +1,4 @@
+import { composeAttachmentLink } from "@shared/compose-attachments.js";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import type {
   ComposeAttachment,
@@ -69,7 +70,7 @@ export async function updateLocalSavedDraft(args: {
               filename: attachment.originalName,
               mimeType: attachment.mimeType,
               size: attachment.size,
-              url: attachment.url,
+              url: composeAttachmentLink(attachment),
             })),
           }
         : {}),

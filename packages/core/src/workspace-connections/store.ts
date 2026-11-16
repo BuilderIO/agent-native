@@ -26,6 +26,7 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { credentialKeyMatches } from "./credential-key-aliases.js";
+import { CONNECTION_CREDENTIAL_REF_MARKER } from "./credential-profile.js";
 import {
   assertWorkspaceUserGroupIds,
   normalizeWorkspaceUserGroupIds,
@@ -36,6 +37,7 @@ import {
   WORKSPACE_CONNECTIONS_MIGRATIONS,
   WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
 } from "./migrations.js";
+import { WORKSPACE_CREDENTIAL_MARKER } from "./workspace-credential-marker.js";
 
 export type WorkspaceConnectionStatus =
   | "connected"
@@ -49,6 +51,12 @@ export interface WorkspaceConnectionCredentialRef {
   scope?: "user" | "org" | "workspace";
   provider?: string;
   label?: string;
+  /**
+   * Optional marker for a personal connection's own vault namespace. The only
+   * valid value is `"connection"`; any other present value is malformed and
+   * fails closed at resolution. `undefined` preserves the legacy path.
+   */
+  ref?: string;
   [key: string]: unknown;
 }
 
@@ -104,18 +112,24 @@ export interface ListWorkspaceConnectionsOptions {
   provider?: string;
   appId?: string;
   includeDisabled?: boolean;
+  /** Owner to scope to when there is no request context (cron, agent runs). */
+  ownerEmail?: string;
 }
 
 export interface ListWorkspaceConnectionGrantsOptions {
   connectionId?: string;
   appId?: string;
   provider?: string;
+  /** Owner to scope to when there is no request context (cron, agent runs). */
+  ownerEmail?: string;
 }
 
 export interface ListWorkspaceConnectionsForAppOptions {
   appId: string;
   provider?: string;
   includeDisabled?: boolean;
+  /** Owner to scope to when there is no request context (cron, agent runs). */
+  ownerEmail?: string;
 }
 
 export interface ResolveWorkspaceConnectionForAppOptions extends ListWorkspaceConnectionsForAppOptions {
@@ -192,6 +206,8 @@ export interface WorkspaceConnectionPublicCredentialRef {
   scope?: string;
   provider?: string;
   label?: string;
+  /** Only supported native markers; malformed stored values are not projected. */
+  ref?: "connection" | "workspace-connection";
   source: "connection" | "grant";
 }
 
@@ -579,11 +595,13 @@ export function ensureWorkspaceConnectionsTable(): Promise<void> {
   return workspaceConnectionsStore.ready();
 }
 
-function requireWorkspaceConnectionScope(): {
+function requireWorkspaceConnectionScope(explicitOwnerEmail?: string): {
   ownerEmail: string;
   orgId: string | null;
 } {
-  const ownerEmail = getRequestUserEmail()?.trim().toLowerCase();
+  const ownerEmail =
+    explicitOwnerEmail?.trim().toLowerCase() ||
+    getRequestUserEmail()?.trim().toLowerCase();
   if (!ownerEmail) {
     throw new Error("Workspace connections require an authenticated user.");
   }
@@ -624,11 +642,24 @@ export function normalizeWorkspaceConnectionAllowedUsers(
 function workspaceConnectionHasDirectUserAccess(
   connection: Pick<
     SerializedWorkspaceConnection,
-    "allowedUsers" | "allowedUserGroups"
+    "allowedUsers" | "allowedUserGroups" | "ownerEmail" | "config"
   >,
   userEmail: string,
 ): boolean {
   const allowedUserGroups = connection.allowedUserGroups ?? [];
+  const normalizedEmail = userEmail.trim().toLowerCase();
+  const scope = connection.config.workspaceConnectionScope;
+  // A personal (user-scoped) connection belongs to exactly one member. Never
+  // grant it to another member just because its audience list is empty; that
+  // is how a member resolved another member's mailbox, calendar or drive.
+  if (scope === "user") {
+    return (
+      connection.ownerEmail.trim().toLowerCase() === normalizedEmail ||
+      connection.allowedUsers.some(
+        (allowedUser) => allowedUser.trim().toLowerCase() === normalizedEmail,
+      )
+    );
+  }
   return (
     (connection.allowedUsers.length === 0 && allowedUserGroups.length === 0) ||
     connection.allowedUsers.includes(userEmail)
@@ -778,6 +809,25 @@ function sanitizeCredentialRef(
   return sanitized;
 }
 
+function parseRestrictionArray(value: unknown): string[] {
+  if (value == null) return [];
+  let parsed: unknown;
+  try {
+    parsed = typeof value === "string" ? JSON.parse(value) : value;
+  } catch {
+    throw new Error("Invalid workspace connection restrictions");
+  }
+  if (
+    !Array.isArray(parsed) ||
+    !parsed.every(
+      (entry) => typeof entry === "string" && entry.trim().length > 0,
+    )
+  ) {
+    throw new Error("Invalid workspace connection restrictions");
+  }
+  return parsed;
+}
+
 function parseRow(row: Record<string, unknown>): WorkspaceConnection {
   return serializeWorkspaceConnection({
     id: stringValue(row.id),
@@ -790,13 +840,13 @@ function parseRow(row: Record<string, unknown>): WorkspaceConnection {
     scopes: normalizeStringArray(safeJsonParse<unknown>(row.scopes_json, [])),
     config: normalizeObject(safeJsonParse<unknown>(row.config_json, {})),
     allowedApps: normalizeStringArray(
-      safeJsonParse<unknown>(row.allowed_apps_json, []),
+      parseRestrictionArray(row.allowed_apps_json),
     ),
     allowedUsers: normalizeWorkspaceConnectionAllowedUsers(
-      safeJsonParse<unknown>(row.allowed_users_json, []),
+      parseRestrictionArray(row.allowed_users_json),
     ),
     allowedUserGroups: normalizeWorkspaceUserGroupIds(
-      safeJsonParse<unknown>(row.allowed_user_groups_json, []),
+      parseRestrictionArray(row.allowed_user_groups_json),
     ),
     credentialRefs: normalizeCredentialRefs(
       safeJsonParse<unknown>(row.credential_refs_json, []),
@@ -963,6 +1013,10 @@ function publicCredentialRefs(
     scope: ref.scope,
     provider: ref.provider,
     label: ref.label,
+    ...(ref.ref === CONNECTION_CREDENTIAL_REF_MARKER ||
+    ref.ref === WORKSPACE_CREDENTIAL_MARKER
+      ? { ref: ref.ref }
+      : {}),
     source,
   }));
 }
@@ -1437,6 +1491,7 @@ export async function listWorkspaceConnectionsForApp({
   appId,
   provider,
   includeDisabled = false,
+  ownerEmail,
 }: ListWorkspaceConnectionsForAppOptions): Promise<
   WorkspaceConnectionForApp[]
 > {
@@ -1449,8 +1504,13 @@ export async function listWorkspaceConnectionsForApp({
       provider,
       appId: normalizedAppId,
       includeDisabled,
+      ...(ownerEmail ? { ownerEmail } : {}),
     }),
-    listWorkspaceConnectionGrants({ provider, appId: normalizedAppId }),
+    listWorkspaceConnectionGrants({
+      ...(provider === undefined ? {} : { provider }),
+      appId: normalizedAppId,
+      ...(ownerEmail ? { ownerEmail } : {}),
+    }),
   ]);
 
   return connections
@@ -1647,7 +1707,7 @@ export async function listWorkspaceConnections(
   await ensureWorkspaceConnectionsTable();
   const client = getDbExec();
   const table = workspaceConnectionsTable();
-  const scope = requireWorkspaceConnectionScope();
+  const scope = requireWorkspaceConnectionScope(options.ownerEmail);
   const where = scopedWhere(scope);
   const clauses = [where.sql];
   const args: unknown[] = [...where.args];
@@ -1880,7 +1940,7 @@ export async function listWorkspaceConnectionGrants(
   await ensureWorkspaceConnectionsTable();
   const client = getDbExec();
   const table = workspaceConnectionGrantsTable();
-  const scope = requireWorkspaceConnectionScope();
+  const scope = requireWorkspaceConnectionScope(options.ownerEmail);
   const where = scopedWhere(scope);
   const clauses = [where.sql];
   const args: unknown[] = [...where.args];

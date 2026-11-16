@@ -88,6 +88,7 @@ import {
 } from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { useReportImageUploadFailure } from "@/hooks/use-storage-setup-labels";
 import { openFilePicker, uploadFile } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
@@ -985,6 +986,7 @@ function AutomationsSection() {
 
 function DraftingSection() {
   const t = useT();
+  const reportSignatureImageFailure = useReportImageUploadFailure();
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const queryClient = useQueryClient();
@@ -1035,9 +1037,10 @@ function DraftingSection() {
           `${current.slice(0, start)}${markdown}${current.slice(end)}`,
       );
     } catch (error) {
-      reportWriteFailure(error, {
-        label: t("settings.signatureImageUploadFailed"),
-      });
+      reportSignatureImageFailure(
+        error,
+        t("settings.signatureImageUploadFailed"),
+      );
     }
   };
 
