@@ -46,8 +46,9 @@ export function composeApplyHandoff(input: ApplyHandoffInput): ApplyHandoff {
     .join("\n\n");
   const tweakPrompt = formatTweakChanges(
     localTweakChanges,
-    input.fullApp.enabled ? input.fullApp.designId : undefined,
+    input.fullApp.designId,
     input.remote?.revision,
+    input.fullApp.enabled,
   );
   const sections = [
     input.fullApp.enabled
@@ -76,8 +77,10 @@ function formatTweakChanges(
   changes: TweakHandoffChange[],
   designId?: string,
   revision?: number,
+  fullAppRouting = false,
 ): string {
   if (!changes.length) return "";
+  const useBuilderRouting = fullAppRouting && Boolean(designId);
   const values = changes
     .map(
       (change) =>
@@ -85,10 +88,10 @@ function formatTweakChanges(
     )
     .join("\n");
   return [
-    designId
+    useBuilderRouting
       ? `Include these remix board tweaks in the send-builder-message prompt for Design ${designId}. Do not use localhost source tools.`
       : "Apply the remix board changes to source code and verify the running page.",
-    ...(designId
+    ...(useBuilderRouting
       ? []
       : [
           "Locate the source files that define or consume the changed CSS variables; update their defaults without changing unrelated styles.",

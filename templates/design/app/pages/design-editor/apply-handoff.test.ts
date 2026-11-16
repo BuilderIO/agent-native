@@ -116,4 +116,27 @@ describe("composeApplyHandoff", () => {
     expect(prompt).toContain("Locate the source files");
     expect(prompt).not.toContain("send-builder-message");
   });
+
+  it("uses the current design ID in local tweak acknowledgement instructions", () => {
+    const handoff = composeApplyHandoff({
+      localVisualEdits: [],
+      localTweakChanges: [
+        {
+          id: "radius",
+          label: "Corner radius",
+          oldValue: "8px",
+          newValue: "12px",
+        },
+      ],
+      fullApp: { enabled: false, designId: "design-123" },
+    });
+
+    expect(handoff.prompt).toContain(
+      'acknowledge-visual-edit-pending with { designId: "design-123",',
+    );
+    expect(handoff.prompt).toContain(
+      "Apply the remix board changes to source code and verify the running page.",
+    );
+    expect(handoff.prompt).not.toContain("send-builder-message");
+  });
 });
