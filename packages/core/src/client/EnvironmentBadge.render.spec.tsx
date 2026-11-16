@@ -384,6 +384,8 @@ describe("EnvironmentBadge render", () => {
       value: {
         hostname: "plan.agent-native.com",
         href: "https://plan.agent-native.com/inbox?tab=all#runs",
+        origin: "https://plan.agent-native.com",
+        pathname: "/inbox",
         replace,
       },
     });

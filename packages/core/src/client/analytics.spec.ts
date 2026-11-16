@@ -548,6 +548,61 @@ describe("browser analytics pageviews", () => {
     expect(sent).not.toContain("canary-hash");
   });
 
+  it("keeps the real path for an app that turns route templates off, and still scrubs query and hash", async () => {
+    const { cookieJson } = installBrowser(
+      "https://docs.example.test/docs/getting-started?utm_source=news&p-key=canary-secret#access_token=canary-hash",
+    );
+    (window as any).__reactRouterManifest = {
+      routes: {
+        root: { id: "root", path: "" },
+        "routes/docs.$slug": {
+          id: "routes/docs.$slug",
+          parentId: "root",
+          path: "docs/:slug",
+        },
+      },
+    };
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/track",
+    );
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      routeTemplates: false,
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        app: "agent-native-docs",
+      }),
+    });
+    await tick();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    const bodies = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    expect(
+      bodies.find((body) => body.event === "pageview")?.properties,
+    ).toMatchObject({
+      url: "https://docs.example.test/docs/getting-started?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E",
+      path: "/docs/getting-started",
+      search: "?utm_source=news&p-key=%3Credacted%3E",
+    });
+    expect(
+      bodies.find((body) => body.event === "app_entered")?.properties,
+    ).toMatchObject({ entry_path: "/docs/getting-started" });
+    expect(cookieJson("an_ft")).toMatchObject({
+      landing_path: "/docs/getting-started",
+      utm_source: "news",
+    });
+    const sent = JSON.stringify(bodies);
+    expect(sent).not.toContain("/docs/:slug");
+    expect(sent).not.toContain("canary-secret");
+    expect(sent).not.toContain("canary-hash");
+  });
+
   it("captures the source forwarded by the marketing site", async () => {
     const params = new URLSearchParams({
       site_referrer: "github.com",

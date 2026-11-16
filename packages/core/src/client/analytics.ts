@@ -194,6 +194,12 @@ export type ConfigureTrackingOptions = {
   authSessionRefresh?: boolean;
   pageviewTracking?: boolean;
   webVitals?: boolean;
+  /**
+   * Report each page by its route template (`/share/:shareId`) instead of its
+   * path. Defaults to true; a public content site whose slugs are the point of
+   * its analytics sets it to false. Query and hash values are scrubbed either way.
+   */
+  routeTemplates?: boolean;
   sessionReplay?: boolean | SessionReplayOptions;
   errorCapture?: boolean | ErrorCaptureConfigOptions;
 };
@@ -256,6 +262,7 @@ let _sessionReplayModuleForCapture:
   | null = null;
 let _trackingContentCaptureEnabled = true;
 let _contentCaptureForPath: ((pathname: string) => boolean) | null = null;
+let _routeTemplates = true;
 let _pendingSentryUser: TrackingIdentityUser | null | undefined = undefined;
 let _pendingSentryOrgId: string | null | undefined = undefined;
 
@@ -704,6 +711,10 @@ export function getAnalyticsSessionId(): string | undefined {
   return getOrCreateSessionId();
 }
 
+function pagePath(pathname: string): string {
+  return _routeTemplates ? routePathname(pathname) : pathname;
+}
+
 function truncateFirstTouchField(value: string | null | undefined): string {
   if (!value) return "";
   const trimmed = value.trim();
@@ -745,7 +756,7 @@ function buildFirstTouchAttribution(
       if (value) attribution[field] = value;
     }
   }
-  const landingPath = truncateFirstTouchField(routePathname(landingPathname));
+  const landingPath = truncateFirstTouchField(pagePath(landingPathname));
   if (landingPath) attribution.landing_path = landingPath;
   const landingReferrer =
     typeof document !== "undefined" ? scrubReferrerHost(document.referrer) : "";
@@ -1538,20 +1549,22 @@ function ensureSentry(loadWithoutDsn = false): void {
           }
           if (event.request?.url) {
             event.request.url =
-              scrubUrl(event.request.url, { routePath: true }) ?? "";
+              scrubUrl(event.request.url, { routePath: _routeTemplates }) ?? "";
           }
           if (Array.isArray(event.breadcrumbs)) {
             for (const crumb of event.breadcrumbs) {
               if (crumb && typeof crumb === "object" && "data" in crumb) {
                 const data = crumb.data as Record<string, unknown> | undefined;
                 if (data && typeof data.url === "string") {
-                  data.url = scrubUrl(data.url, { routePath: true });
+                  data.url = scrubUrl(data.url, { routePath: _routeTemplates });
                 }
                 if (data && typeof data.from === "string") {
-                  data.from = scrubUrl(data.from, { routePath: true });
+                  data.from = scrubUrl(data.from, {
+                    routePath: _routeTemplates,
+                  });
                 }
                 if (data && typeof data.to === "string") {
-                  data.to = scrubUrl(data.to, { routePath: true });
+                  data.to = scrubUrl(data.to, { routePath: _routeTemplates });
                 }
               }
             }
@@ -1803,6 +1816,7 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
   if (options.getDefaultProps) {
     _getDefaultProps = options.getDefaultProps;
   }
+  _routeTemplates = options.routeTemplates !== false;
   _contentCaptureForPath = options.contentCaptureForPath ?? null;
   _trackingContentCaptureEnabled =
     _contentCaptureForPath && typeof window !== "undefined"
@@ -2367,7 +2381,7 @@ function resolveProps(
   }
   if (typeof window === "undefined") return { ...params };
   const base: Record<string, unknown> = {
-    url: window.location.origin + routePathname(window.location.pathname),
+    url: window.location.origin + pagePath(window.location.pathname),
     app: window.location.hostname.split(".")[0] || "localhost",
     ...params,
   };
@@ -2442,11 +2456,11 @@ type PageviewSnapshot = {
 function snapshotPageview(reason: string): PageviewSnapshot {
   const { href, origin, pathname, hostname, search } = window.location;
   const contentCaptureEnabled = _trackingContentCaptureEnabled;
-  const path = routePathname(pathname);
+  const path = pagePath(pathname);
   const properties: Record<string, unknown> = {
     url: !contentCaptureEnabled
       ? origin + path
-      : scrubUrl(href, { routePath: true }),
+      : scrubUrl(href, { routePath: _routeTemplates }),
     path,
     hostname,
     navigation_type: reason,
@@ -2458,7 +2472,9 @@ function snapshotPageview(reason: string): PageviewSnapshot {
   }
   if (contentCaptureEnabled && typeof document !== "undefined") {
     if (document.referrer) {
-      properties.referrer = scrubUrl(document.referrer, { routePath: true });
+      properties.referrer = scrubUrl(document.referrer, {
+        routePath: _routeTemplates,
+      });
     }
     if (document.title) {
       properties.title = document.title;
@@ -2530,7 +2546,7 @@ function emitAppEntered(entryPath?: string): void {
   if (typeof window === "undefined" || !_getDefaultProps) return;
   const scheduledEntryPath = entryPath ?? window.location.pathname;
   if (waitForTrackingIdentityBeforeAppEntry(scheduledEntryPath)) return;
-  const entryRoute = routePathname(scheduledEntryPath);
+  const entryRoute = pagePath(scheduledEntryPath);
   const properties = resolveProps(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
     entry_path: entryRoute,
   });
