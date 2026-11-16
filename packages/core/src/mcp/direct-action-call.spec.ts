@@ -3060,6 +3060,11 @@ describe("direct tools/call full-app embeds", () => {
       widgetTargets: { "open-unused-target": () => undefined },
     },
     actions: {
+      "save-nowhere": act({
+        description: "A write with no page to open",
+        mcpApp: fullApp,
+        run: async () => ({ id: "t-11", saved: true }),
+      }),
       "open-unused-target": act({
         description: "A widget target that names nothing to open",
         readOnly: true,
@@ -3251,6 +3256,15 @@ describe("direct tools/call full-app embeds", () => {
         targetPath: "/inbox/t-8?__an_mcp_chat_bridge=1",
       }),
     ]);
+  });
+
+  it("says a write's change was saved when its app cannot open", async () => {
+    const result = await call("save-nowhere");
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain(
+      "save-nowhere completed; its change was saved, but its app could not open here.",
+    );
+    expect(minted()).toEqual([]);
   });
 
   it("opens no full app for a tool whose widget target produced no widget", async () => {
