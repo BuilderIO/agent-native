@@ -71,6 +71,7 @@ import {
   mergeLocalContentHistoryFallback,
   removeRecentUndoRedoOrderKinds,
 } from "../history";
+import { handleHostChatState } from "../host-chat-state";
 import { scopedLayerStateId } from "../layer-state-scope";
 import { DEFAULT_LEFT_SIDEBAR_WIDTH } from "../left-sidebar-width";
 import {
@@ -776,28 +777,20 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       }
 
       if (data.type === "design:chatState") {
-        const next = data.data?.state;
-        if (
-          next === "generating" &&
-          stagedSourceHandoffRef.current === "awaiting-start"
-        ) {
-          stagedSourceHandoffRef.current = "running";
-          stagedHandoffStartedRef.current?.();
-          stagedHandoffStartedRef.current = undefined;
-          if (stagedHandoffStartTimerRef.current !== undefined) {
-            window.clearTimeout(stagedHandoffStartTimerRef.current);
-            stagedHandoffStartTimerRef.current = undefined;
-          }
-        }
-        if (hostChatGeneratingRef.current && next !== "generating") {
-          reloadRunningAppPreviewFrames();
-          if (stagedSourceHandoffRef.current === "running") {
-            stagedSourceHandoffRef.current = "idle";
-            stagedHandoffStartedRef.current = undefined;
-            setApplyingViaHost(false);
-          }
-        }
-        hostChatGeneratingRef.current = next === "generating";
+        handleHostChatState({
+          next: data.data?.state,
+          hostChatGeneratingRef,
+          stagedSourceHandoffRef,
+          stagedHandoffStartedRef,
+          clearStartTimer: () => {
+            if (stagedHandoffStartTimerRef.current !== undefined) {
+              window.clearTimeout(stagedHandoffStartTimerRef.current);
+              stagedHandoffStartTimerRef.current = undefined;
+            }
+          },
+          setApplyingViaHost,
+          reloadRunningAppPreviewFrames,
+        });
       }
     }
 

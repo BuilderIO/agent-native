@@ -855,6 +855,20 @@ export function pendingLiveEditFrameTargets(
   return targets;
 }
 
+export function discardPendingLiveEditCollections<TStyle, TLive>({
+  stylesRef,
+  liveRef,
+  clearState,
+}: {
+  stylesRef: { current: TStyle[] };
+  liveRef: { current: TLive[] };
+  clearState: () => void;
+}) {
+  clearState();
+  stylesRef.current = [];
+  liveRef.current = [];
+}
+
 export function shouldClearPendingLiveEditsAfterReload(
   pendingTargets: ReadonlyMap<string, ReadonlySet<string>>,
   reloadedTargets: ReadonlySet<string>,

@@ -30,6 +30,7 @@ import {
   PENDING_STRUCTURE_HARD_TIMEOUT_MS,
   PENDING_STRUCTURE_RUNTIME_POLL_MS,
 } from "../editor-constants";
+import { handleHostChatState } from "../host-chat-state";
 import { formatTweakHandoffPrompt } from "../tweak-handoff";
 import { runApplyPendingVisualStylesWithAgent } from "./apply-pending-visual-styles-with-agent";
 
@@ -147,7 +148,7 @@ function argsFor(
       pendingVisualStyleEditsRef: pendingStyleEditsRef,
       pendingStructureVerificationSnapshotsRef: { current: snapshots },
       pendingStructureVerificationStatus: "idle" as const,
-      pendingVisualStyleEdits: [],
+      pendingVisualStyleEdits: [] as PendingVisualStyleEdit[],
       pendingVisualStylePrompt: "Apply the pending structure edits.",
       includedVisualEditIds: edits.length ? ["local-visual-edits"] : [],
       finalizeIncludedHistory: vi.fn(),
@@ -247,6 +248,77 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
 
     expect(writeClipboardTextMock).toHaveBeenCalledExactlyOnceWith(tweakPrompt);
     expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
+  });
+
+  it("finalizes only delivered edits after the host turn starts", async () => {
+    sendDesignSourceHandoffAndConfirmMock.mockResolvedValueOnce({
+      target: "host",
+      delivered: true,
+      awaitingHostTurn: true,
+    } as never);
+    const setup = argsFor([], new Map());
+    const edits: PendingVisualStyleEdit[] = [
+      {
+        screenId: "screen-1",
+        filename: "screen.html",
+        screenName: "Screen",
+        selector: ".delivered",
+        classes: [],
+        styles: { color: "red" },
+        originalStyles: {},
+        updatedAt: 1,
+      },
+      {
+        screenId: "screen-1",
+        filename: "screen.html",
+        screenName: "Screen",
+        selector: ".later",
+        classes: [],
+        styles: { color: "blue" },
+        originalStyles: {},
+        updatedAt: 2,
+      },
+    ];
+    setup.pendingStyleEditsRef.current = edits;
+    setup.args.pendingVisualStyleEdits = edits;
+    setup.args.includedVisualEditIds = ["style:screen-1:.delivered:1"];
+    setup.args.pendingVisualStylePrompt = "Apply delivered edit.";
+
+    await runApplyPendingVisualStylesWithAgent(setup.args);
+    expect(setup.args.setPendingVisualStyleEdits).not.toHaveBeenCalled();
+
+    const hostChatGeneratingRef = { current: false };
+    const applyingStates: boolean[] = [];
+    handleHostChatState({
+      next: "generating",
+      hostChatGeneratingRef,
+      stagedSourceHandoffRef: setup.args.stagedSourceHandoffRef,
+      stagedHandoffStartedRef: setup.stagedHandoffStartedRef,
+      clearStartTimer: vi.fn(),
+      setApplyingViaHost: (value) => {
+        if (typeof value === "boolean") applyingStates.push(value);
+      },
+      reloadRunningAppPreviewFrames: vi.fn(),
+    });
+
+    expect(setup.pendingStyleEditsRef.current).toEqual([edits[1]]);
+    expect(setup.args.setPendingVisualStyleEdits).toHaveBeenLastCalledWith([
+      edits[1],
+    ]);
+
+    handleHostChatState({
+      next: "idle",
+      hostChatGeneratingRef,
+      stagedSourceHandoffRef: setup.args.stagedSourceHandoffRef,
+      stagedHandoffStartedRef: setup.stagedHandoffStartedRef,
+      clearStartTimer: vi.fn(),
+      setApplyingViaHost: (value) => {
+        if (typeof value === "boolean") applyingStates.push(value);
+      },
+      reloadRunningAppPreviewFrames: vi.fn(),
+    });
+    expect(applyingStates).toEqual([false]);
+    expect(setup.args.stagedSourceHandoffRef.current).toBe("idle");
   });
 
   it("waits for host start and removes only included local visual edits", async () => {
