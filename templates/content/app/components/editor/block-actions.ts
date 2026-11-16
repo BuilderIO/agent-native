@@ -6,6 +6,7 @@ import type { Node as ProseMirrorNode, NodeType } from "@tiptap/pm/model";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import { findWrapping } from "@tiptap/pm/transform";
 
+import { blockMenuEntry } from "./block-menu-registry";
 import { isSourceComponentNode } from "./extensions/registryBlocks";
 import { isSuggestingEdits } from "./suggestions/read-only-blocks";
 
@@ -32,7 +33,7 @@ const WRAPPERS: Partial<Record<TurnIntoTarget, string>> = {
 
 /** Whether the block menu can turn this block into another kind. */
 export function canTurnInto(node: ProseMirrorNode) {
-  return node.type.name === "paragraph" || node.type.name === "heading";
+  return blockMenuEntry(node).turnInto === true;
 }
 
 export function currentTurnIntoTarget(
@@ -105,42 +106,6 @@ export function turnBlockInto(
   if (target === "text") return setType(schema.nodes.paragraph);
   if (target === "codeBlock") return setType(schema.nodes.codeBlock);
   return setType(schema.nodes.heading, { level: Number(target.slice(-1)) });
-}
-
-/** The menu title for a block: what kind of block it is. */
-export function blockTitleKey(node: ProseMirrorNode): string {
-  switch (node.type.name) {
-    case "paragraph":
-      return "editor.slash.text";
-    case "heading":
-      return `editor.heading${node.attrs.level}`;
-    case "bulletList":
-      return "editor.slash.bulletedList";
-    case "orderedList":
-      return "editor.slash.numberedList";
-    case "taskList":
-      return "editor.slash.todoList";
-    case "blockquote":
-      return "editor.slash.quote";
-    case "codeBlock":
-      return "editor.slash.codeBlock";
-    case "notionCallout":
-      return "editor.slash.callout";
-    case "notionToggle":
-      return "editor.slash.toggle";
-    case "table":
-      return "editor.slash.table";
-    case "horizontalRule":
-      return "editor.slash.divider";
-    case "image":
-      return "editor.slash.image";
-    case "video":
-      return "editor.slash.video";
-    case "audio":
-      return "editor.slash.audio";
-    default:
-      return "editor.blockMenu.block";
-  }
 }
 
 /** The text a comment on this block quotes, or null when it has none. */

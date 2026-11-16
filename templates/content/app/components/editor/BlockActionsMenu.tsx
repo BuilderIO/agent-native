@@ -1,6 +1,13 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import type { DragHandleMenuRequest } from "@agent-native/toolkit/editor";
-import { IconCheck, IconSearch } from "@tabler/icons-react";
+import { docToNfm, longestRun } from "@shared/nfm";
+import {
+  IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
+  IconSearch,
+} from "@tabler/icons-react";
 import { TextSelection, type Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import {
@@ -27,13 +34,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import { isApplePlatform } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 
 import {
   blockActionLocks,
   blockCommentRange,
-  blockTitleKey,
   canTurnInto,
   currentTurnIntoTarget,
   TURN_INTO_TARGETS,
@@ -41,18 +50,23 @@ import {
   type BlockLock,
   type TurnIntoTarget,
 } from "./block-actions";
+import {
+  blockMenuEntry,
+  type BlockAt,
+  type BlockMenuSwitch,
+} from "./block-menu-registry";
 import { startCommentOnRange, type BubbleToolbarProps } from "./BubbleToolbar";
-import { blockColorChoices, ColorChoices, ColorSubmenu } from "./ColorSubmenu";
+import {
+  blockColorChoices,
+  chosenColor,
+  ColorChoices,
+  ColorSubmenu,
+  ColorSwatch,
+} from "./ColorSubmenu";
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { takesBlockColor } from "./extensions/NotionFidelity";
 import { instantCloseMenuClass } from "./menu-classes";
 import { MenuSwitchItem } from "./MenuSwitchItem";
-import {
-  getTableHeaders,
-  setTableFitWidth,
-  setTableHeaders,
-  type TableAt,
-} from "./table-commands";
 
 interface BlockMenuHost {
   editor: Editor;
@@ -81,10 +95,29 @@ const LOCK_REASON_KEYS: Record<BlockLock, string> = {
   page: "editor.blockMenu.lockedPage",
 };
 
-const ENABLED_ITEMS = '[role^="menuitem"]:not([data-disabled])';
+const SHEET_ITEM = "data-block-sheet-item";
+const ENABLED_ITEMS = `[role^="menuitem"]:not([data-disabled]), [${SHEET_ITEM}]:not(:disabled)`;
 
 // A touch screen has no keys to press.
 const hintClass = "pointer-coarse:hidden";
+
+// A row a finger can hit: 44 px, as phones' own sheets have.
+const sheetRowClass =
+  "flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-start text-sm outline-none focus-visible:bg-accent active:bg-accent disabled:pointer-events-none disabled:opacity-50";
+const sheetLabelClass =
+  "px-3 pt-2 pb-1 text-xs font-medium text-muted-foreground";
+
+// Enough of a long block for the agent to see what it is; it can read the
+// rest from the page, and the composer refuses an oversized attachment.
+const ASK_AGENT_MAX_CHARS = 16_000;
+
+/** A phone gets the menu as a sheet from the bottom of the screen. */
+function opensAsSheet() {
+  return (
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse) and (max-width: 767px)").matches
+  );
+}
 
 /**
  * The drag handle's `openMenu`: the editor's mounted BlockActionsMenu opens
@@ -105,18 +138,48 @@ export function openBlockActionsMenu(request: DragHandleMenuRequest) {
   return null;
 }
 
+/** One of the actions every block's menu lists. */
+interface BlockMenuAction {
+  id: string;
+  label: string;
+  onSelect: () => void;
+  /** Why the block refuses this action, which the menu shows beneath it. */
+  lock?: BlockLock | null;
+  destructive?: boolean;
+  /** The shortcut as the menu shows it, and as `aria-keyshortcuts` names it. */
+  shortcut?: { hint: string; aria: string };
+}
+
+/**
+ * The menu's groups, in order. The dropdown and the phone's sheet both draw
+ * them, so the two always offer the same things.
+ */
+type BlockMenuSection =
+  | { key: "switches"; switches: BlockMenuSwitch[] }
+  | { key: "found-turn-into"; targets: readonly TurnIntoTarget[] }
+  | { key: "found-color" }
+  | { key: "style"; turnInto: boolean; color: boolean }
+  | { key: "insert" | "block" | "assist"; actions: BlockMenuAction[] };
+
+type SheetView = "menu" | "turn-into" | "color";
+
 export function BlockActionsMenu({
   editor,
   suggesting,
   onComment,
+  documentId,
 }: {
   editor: Editor;
-  /** Suggested edits can't change a block's kind, colour, or table settings. */
+  /** Suggested edits can't change a block's kind, colour, or settings. */
   suggesting: boolean;
   onComment?: BubbleToolbarProps["onComment"];
+  /** The page, named to the agent a block is attached to. */
+  documentId?: string | null;
 }) {
   const t = useT();
   const [request, setRequest] = useState<DragHandleMenuRequest | null>(null);
+  const [sheet, setSheet] = useState(false);
+  const [sheetView, setSheetView] = useState<SheetView>("menu");
   const [query, setQuery] = useState("");
   const [, setRevision] = useState(0);
   const escapedRef = useRef(false);
@@ -146,6 +209,8 @@ export function BlockActionsMenu({
       editor,
       open: (next) => {
         setQuery("");
+        setSheet(opensAsSheet());
+        setSheetView("menu");
         setRequest(next);
         return () =>
           setRequest((current) => (current === next ? null : current));
@@ -183,13 +248,14 @@ export function BlockActionsMenu({
 
   const block = request.getBlock();
   const node = block?.node ?? null;
-  const table: TableAt | null =
-    !suggesting && node?.type.name === "table" ? block : null;
-  const headers = table ? getTableHeaders(table.node) : null;
+  const entry = node ? blockMenuEntry(node) : null;
+  const title =
+    node && entry ? entry.title(node, t) : t("editor.blockMenu.block");
   const turnTargets =
     !suggesting && node && canTurnInto(node) ? TURN_INTO_TARGETS : [];
   const currentTarget = node ? currentTurnIntoTarget(node) : null;
   const colorable = !suggesting && !!node && takesBlockColor(node.type.name);
+  const color: string | null = node?.attrs.color ?? null;
   const commentRange =
     onComment && block ? blockCommentRange(block.node, block.pos) : null;
   const locks = block
@@ -202,22 +268,25 @@ export function BlockActionsMenu({
   const matches = (label: string) =>
     !needle || label.toLocaleLowerCase().includes(needle);
   const turnIntoLabel = t("editor.slash.turnInto");
+  const colorLabel = t("editor.color.label");
   const foundTargets =
     needle && !matches(turnIntoLabel)
       ? turnTargets.filter((target) => matches(t(TURN_INTO[target].labelKey)))
       : turnTargets;
 
   const apple = isApplePlatform();
-  const hint = (key: string, shift = false) =>
-    apple
+  const shortcut = (key: string, shift = false) => ({
+    hint: apple
       ? `${shift ? "⇧" : ""}⌘${key}`
       : [
           t("editor.blockMenu.keyCtrl"),
           ...(shift ? [t("editor.blockMenu.keyShift")] : []),
           key,
-        ].join("+");
-  const ariaShortcut = (key: string, shift = false) =>
-    [apple ? "Meta" : "Control", ...(shift ? ["Shift"] : []), key].join("+");
+        ].join("+"),
+    aria: [apple ? "Meta" : "Control", ...(shift ? ["Shift"] : []), key].join(
+      "+",
+    ),
+  });
 
   const close = () => {
     setRequest(null);
@@ -225,10 +294,11 @@ export function BlockActionsMenu({
   };
 
   // The menu holds focus, and Content saves an unfocused change only when it
-  // is marked as the user's.
-  const editTable = (edit: (tr: Transaction, table: TableAt) => void) => {
+  // is marked as the user's. A setting applies while the block is still the
+  // kind the menu opened on.
+  const editBlock = (edit: (tr: Transaction, block: BlockAt) => void) => {
     const latest = request.getBlock();
-    if (latest?.node.type.name !== "table") return;
+    if (!node || latest?.node.type !== node.type) return;
     const tr = request.view.state.tr;
     edit(tr, latest);
     request.dispatch(tr.setMeta(LOCAL_FILE_USER_EDIT_META, true));
@@ -258,10 +328,10 @@ export function BlockActionsMenu({
   const turnInto = (target: TurnIntoTarget) =>
     restyleBlock((tr, pos) => turnBlockInto(tr, pos, target));
 
-  const setColor = (color: string | null) =>
+  const setColor = (next: string | null) =>
     restyleBlock((tr, pos) => {
       if (!takesBlockColor(tr.doc.nodeAt(pos)?.type.name ?? "")) return false;
-      tr.setNodeAttribute(pos, "color", color);
+      tr.setNodeAttribute(pos, "color", next);
       return true;
     });
 
@@ -269,6 +339,42 @@ export function BlockActionsMenu({
     const latest = request.getBlock();
     const range = latest && blockCommentRange(latest.node, latest.pos);
     if (onComment && range) startCommentOnRange(editor, onComment, range);
+  };
+
+  // The agent gets the block as the page stores it, and the person says what
+  // to do with it: nothing is sent until they do.
+  const askAgent = () => {
+    const latest = request.getBlock();
+    if (!latest) return;
+    const { doc } = request.view.state;
+    let index = 0;
+    doc.forEach((_child, offset, childIndex) => {
+      if (offset === latest.pos) index = childIndex;
+    });
+    const nfm = docToNfm({ type: "doc", content: [latest.node.toJSON()] });
+    const excerpt = nfm.slice(0, ASK_AGENT_MAX_CHARS);
+    const fence = "~".repeat(Math.max(3, longestRun(excerpt, /~+/g) + 1));
+    sendToAgentChat({
+      message: "",
+      submit: false,
+      openSidebar: true,
+      contextLabel: blockMenuEntry(latest.node).title(latest.node, t),
+      context: [
+        "The user attached this block from the Content page they are editing, and will say what they want done with it.",
+        documentId ? `Document ID: ${documentId}` : null,
+        `Block type: ${latest.node.type.name}`,
+        `Block position: ${index + 1} of ${doc.childCount} top-level blocks`,
+        "",
+        excerpt === nfm
+          ? "The block as NFM:"
+          : `The first ${ASK_AGENT_MAX_CHARS} characters of the block as NFM; read the document for the rest:`,
+        fence,
+        excerpt,
+        fence,
+      ]
+        .filter((line) => line !== null)
+        .join("\n"),
+    });
   };
 
   // The grip selected the whole block, which typing would replace, so Escape
@@ -378,6 +484,342 @@ export function BlockActionsMenu({
     }
   };
 
+  const lockReasonId = (lock: BlockLock | null | undefined) =>
+    lock ? `${reasonId}-${lock}` : undefined;
+
+  const switches =
+    !suggesting && node && entry?.switches
+      ? entry.switches(node, t).filter((option) => matches(option.label))
+      : [];
+  const showColor = colorable && matches(colorLabel);
+  const colorChoices = blockColorChoices(t);
+  const foundColor =
+    colorable &&
+    !!needle &&
+    !showColor &&
+    [...colorChoices.text, ...colorChoices.background].some(({ label }) =>
+      matches(label),
+    );
+  const showTurnInto = !needle && turnTargets.length > 0;
+
+  const shownActions = (actions: (BlockMenuAction | false)[]) =>
+    block
+      ? actions.filter(
+          (action): action is BlockMenuAction =>
+            !!action && matches(action.label),
+        )
+      : [];
+  const insertActions = shownActions([
+    {
+      id: "insert-above",
+      label: t("editor.blockMenu.insertAbove"),
+      onSelect: request.insertAbove,
+    },
+    {
+      id: "insert-below",
+      label: t("editor.blockMenu.insertBelow"),
+      onSelect: request.insertBelow,
+    },
+  ]);
+  const blockActions = shownActions([
+    {
+      id: "duplicate",
+      label: t("editor.blockMenu.duplicate"),
+      onSelect: request.duplicate,
+      lock: locks.duplicate,
+      shortcut: shortcut("D"),
+    },
+    {
+      id: "delete",
+      label: t("editor.blockMenu.delete"),
+      onSelect: request.remove,
+      lock: locks.remove,
+      destructive: true,
+      shortcut: { hint: t("editor.blockMenu.keyDelete"), aria: "Delete" },
+    },
+  ]);
+  const assistActions = shownActions([
+    !!commentRange && {
+      id: "comment",
+      label: t("editor.comment"),
+      onSelect: comment,
+      shortcut: shortcut("M", true),
+    },
+    {
+      id: "ask-agent",
+      label: t("editor.blockMenu.askAgent"),
+      onSelect: askAgent,
+    },
+  ]);
+
+  const sections: BlockMenuSection[] = [];
+  if (switches.length > 0) sections.push({ key: "switches", switches });
+  if (needle && foundTargets.length > 0) {
+    sections.push({ key: "found-turn-into", targets: foundTargets });
+  }
+  if (foundColor) sections.push({ key: "found-color" });
+  if (showTurnInto || showColor) {
+    sections.push({ key: "style", turnInto: showTurnInto, color: showColor });
+  }
+  for (const [key, actions] of [
+    ["insert", insertActions],
+    ["block", blockActions],
+    ["assist", assistActions],
+  ] as const) {
+    if (actions.length > 0) sections.push({ key, actions });
+  }
+
+  // Each refused action's reason, once, after its group.
+  const lockNotes = (actions: BlockMenuAction[]) =>
+    [
+      ...new Set(
+        actions.flatMap((action) => (action.lock ? [action.lock] : [])),
+      ),
+    ].map((lock) => (
+      <p
+        key={lock}
+        className="px-2 py-1 text-xs text-muted-foreground"
+        id={lockReasonId(lock)}
+      >
+        {t(LOCK_REASON_KEYS[lock])}
+      </p>
+    ));
+
+  const noResults =
+    sections.length === 0 ? (
+      <p className="px-2 py-1.5 text-xs text-muted-foreground">
+        {t("editor.blockMenu.noResults")}
+      </p>
+    ) : null;
+
+  if (sheet) {
+    const sheetItem = { [SHEET_ITEM]: "" };
+
+    const runAndClose = (action: () => void) => () => {
+      action();
+      close();
+    };
+
+    const sheetChoice = (
+      key: string,
+      label: ReactNode,
+      checked: boolean,
+      onSelect: () => void,
+    ) => (
+      <button
+        key={key}
+        {...sheetItem}
+        aria-checked={checked}
+        className={sheetRowClass}
+        onClick={runAndClose(onSelect)}
+        role="radio"
+        type="button"
+      >
+        {label}
+        {checked ? <IconCheck className="ms-auto size-4 shrink-0" /> : null}
+      </button>
+    );
+
+    const turnIntoChoices = (targets: readonly TurnIntoTarget[]) => (
+      <div aria-label={turnIntoLabel} role="radiogroup">
+        {targets.map((target) =>
+          sheetChoice(
+            target,
+            t(TURN_INTO[target].labelKey),
+            target === currentTarget,
+            () => turnInto(target),
+          ),
+        )}
+      </div>
+    );
+
+    // A block has one colour, so each group's default stands for "not one of
+    // mine".
+    const background = !!color?.endsWith("_bg");
+    const colorGroups = (
+      [
+        [
+          "text",
+          t("editor.textColor"),
+          colorChoices.text,
+          color && !background ? color : "default",
+        ],
+        [
+          "background",
+          t("editor.backgroundColor"),
+          colorChoices.background,
+          background ? color : "default_bg",
+        ],
+      ] as const
+    ).map(([group, label, choices, chosen]) => {
+      const found = choices.filter((choice) => matches(choice.label));
+      if (found.length === 0) return null;
+      return (
+        <div key={group} aria-label={label} role="radiogroup">
+          <p aria-hidden="true" className={sheetLabelClass}>
+            {label}
+          </p>
+          {found.map(({ color: choice, label: choiceLabel }) =>
+            sheetChoice(
+              choice,
+              <>
+                <ColorSwatch color={choice} />
+                {choiceLabel}
+              </>,
+              chosen === choice,
+              () => setColor(chosenColor(color, choice)),
+            ),
+          )}
+        </div>
+      );
+    });
+
+    const opensView = (label: string, view: Exclude<SheetView, "menu">) => (
+      <button
+        {...sheetItem}
+        className={sheetRowClass}
+        onClick={() => setSheetView(view)}
+        type="button"
+      >
+        {label}
+        <IconChevronRight className="ms-auto size-4 shrink-0 text-muted-foreground rtl:-scale-x-100" />
+      </button>
+    );
+
+    const sheetSection = (section: BlockMenuSection): ReactNode => {
+      switch (section.key) {
+        case "switches":
+          return section.switches.map((option) => (
+            <label key={option.id} className={sheetRowClass}>
+              {option.label}
+              <Switch
+                {...sheetItem}
+                checked={option.checked}
+                className="ms-auto"
+                onCheckedChange={() => editBlock(option.toggle)}
+              />
+            </label>
+          ));
+        case "found-turn-into":
+          return (
+            <>
+              <p aria-hidden="true" className={sheetLabelClass}>
+                {turnIntoLabel}
+              </p>
+              {turnIntoChoices(section.targets)}
+            </>
+          );
+        case "found-color":
+          return colorGroups;
+        case "style":
+          return (
+            <>
+              {section.turnInto ? opensView(turnIntoLabel, "turn-into") : null}
+              {section.color ? opensView(colorLabel, "color") : null}
+            </>
+          );
+        default:
+          return (
+            <>
+              {section.actions.map((action) => (
+                <button
+                  key={action.id}
+                  {...sheetItem}
+                  aria-describedby={lockReasonId(action.lock)}
+                  className={cn(
+                    sheetRowClass,
+                    action.destructive && "text-destructive",
+                  )}
+                  disabled={!!action.lock}
+                  onClick={runAndClose(action.onSelect)}
+                  type="button"
+                >
+                  {action.label}
+                </button>
+              ))}
+              {lockNotes(section.actions)}
+            </>
+          );
+      }
+    };
+
+    const subView =
+      sheetView === "turn-into" && turnTargets.length > 0
+        ? { label: turnIntoLabel, body: turnIntoChoices(turnTargets) }
+        : sheetView === "color" && colorable
+          ? { label: colorLabel, body: colorGroups }
+          : null;
+
+    return (
+      <Sheet
+        onOpenChange={(open) => {
+          if (open) return;
+          close();
+        }}
+        open
+      >
+        <SheetContent
+          ref={contentRef}
+          aria-describedby={undefined}
+          className="flex max-h-[85dvh] flex-col gap-0 rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)]"
+          // The block's actions focus the editor themselves.
+          onCloseAutoFocus={(event) => event.preventDefault()}
+          // The phone's keyboard stays down until the search is tapped.
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          showClose={false}
+          side="bottom"
+        >
+          <SheetTitle className="sr-only">
+            {t("editor.blockMenu.label")}
+          </SheetTitle>
+          {subView ? (
+            <>
+              <div className="flex items-center gap-1 border-b border-border/70 p-1">
+                <button
+                  aria-label={t("database.back")}
+                  className="flex size-11 shrink-0 items-center justify-center rounded-md outline-none focus-visible:bg-accent active:bg-accent"
+                  onClick={() => setSheetView("menu")}
+                  type="button"
+                >
+                  <IconChevronLeft className="size-5 rtl:-scale-x-100" />
+                </button>
+                <p className="text-sm font-medium">{subView.label}</p>
+              </div>
+              <div className="overflow-y-auto p-2">{subView.body}</div>
+            </>
+          ) : (
+            <>
+              <div className="border-b border-border/70 p-2">
+                <div className="flex min-h-11 items-center gap-2 px-3">
+                  <IconSearch className="size-4 shrink-0 text-muted-foreground" />
+                  <Input
+                    ref={searchInput}
+                    aria-label={t("editor.blockMenu.search")}
+                    className="h-8 border-0 bg-transparent px-0 text-base shadow-none focus-visible:ring-0"
+                    onChange={(event) => setQuery(event.target.value)}
+                    onKeyDown={handleSearchKeyDown}
+                    placeholder={t("editor.blockMenu.search")}
+                    value={query}
+                  />
+                </div>
+              </div>
+              <div className="overflow-y-auto p-2">
+                <p className={sheetLabelClass}>{title}</p>
+                {sections.map((section, index) => (
+                  <Fragment key={section.key}>
+                    {index > 0 ? <Separator className="my-1" /> : null}
+                    {sheetSection(section)}
+                  </Fragment>
+                ))}
+                {noResults}
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
   const turnIntoItem = (target: TurnIntoTarget) => {
     const { labelKey } = TURN_INTO[target];
     const checked = target === currentTarget;
@@ -394,187 +836,85 @@ export function BlockActionsMenu({
     );
   };
 
-  const tableSwitches =
-    table && headers
-      ? [
-          {
-            label: t("database.headerRow"),
-            checked: headers.row,
-            edit: (tr: Transaction, target: TableAt) =>
-              setTableHeaders(tr, target, {
-                row: !getTableHeaders(target.node).row,
-              }),
-          },
-          {
-            label: t("database.headerColumn"),
-            checked: headers.column,
-            edit: (tr: Transaction, target: TableAt) =>
-              setTableHeaders(tr, target, {
-                column: !getTableHeaders(target.node).column,
-              }),
-          },
-          {
-            label: t("database.fitToWidth"),
-            checked: table.node.attrs.fitPageWidth === true,
-            edit: (tr: Transaction, target: TableAt) =>
-              setTableFitWidth(
-                tr,
-                target,
-                target.node.attrs.fitPageWidth !== true,
-              ),
-          },
-        ].filter((option) => matches(option.label))
-      : [];
-
-  const showColor = colorable && matches(t("editor.color.label"));
-  const colorChoices = blockColorChoices(t);
-  const foundColor =
-    colorable &&
-    !!needle &&
-    !showColor &&
-    [...colorChoices.text, ...colorChoices.background].some(({ label }) =>
-      matches(label),
-    );
-  const showComment = !!commentRange && matches(t("editor.comment"));
-  const showDuplicate = !!block && matches(t("editor.blockMenu.duplicate"));
-  const showRemove = !!block && matches(t("editor.blockMenu.delete"));
-  const showInsert = !!block && matches(t("editor.blockMenu.insertBelow"));
-  const lockReasons = [
-    ...new Set(
-      [
-        showDuplicate ? locks.duplicate : null,
-        showRemove ? locks.remove : null,
-      ].filter((lock): lock is BlockLock => !!lock),
-    ),
-  ];
-  const lockReasonId = (lock: BlockLock | null) =>
-    lock ? `${reasonId}-${lock}` : undefined;
-
-  const sections: [string, ReactNode][] = [];
-  if (tableSwitches.length > 0) {
-    sections.push([
-      "table",
-      tableSwitches.map((option) => (
-        <MenuSwitchItem
-          key={option.label}
-          checked={option.checked}
-          onToggle={() => editTable(option.edit)}
-        >
-          {option.label}
-        </MenuSwitchItem>
-      )),
-    ]);
-  }
-  if (needle && foundTargets.length > 0) {
-    sections.push([
-      "turn-into",
-      <>
-        <DropdownMenuLabel>{turnIntoLabel}</DropdownMenuLabel>
-        {foundTargets.map(turnIntoItem)}
-      </>,
-    ]);
-  }
-  if (foundColor) {
-    sections.push([
-      "color",
-      <ColorChoices
-        value={node.attrs.color ?? null}
-        onChange={setColor}
-        shows={matches}
-      />,
-    ]);
-  }
-  if ((!needle && turnTargets.length > 0) || showColor) {
-    sections.push([
-      "style",
-      <>
-        {!needle && turnTargets.length > 0 ? (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>{turnIntoLabel}</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent
-              className={cn(
-                "max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto",
-                instantCloseMenuClass,
-              )}
-              collisionPadding={8}
-              onEscapeKeyDown={markEscaped}
-            >
-              {turnTargets.map(turnIntoItem)}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        ) : null}
-        {showColor ? (
-          <ColorSubmenu
-            value={node.attrs.color ?? null}
-            onChange={setColor}
-            onEscapeKeyDown={markEscaped}
-          />
-        ) : null}
-      </>,
-    ]);
-  }
-  if (showDuplicate || showRemove || showInsert) {
-    sections.push([
-      "block",
-      <>
-        {showDuplicate ? (
-          <DropdownMenuItem
-            aria-describedby={lockReasonId(locks.duplicate)}
-            aria-keyshortcuts={ariaShortcut("D")}
-            disabled={!canDuplicate}
-            onSelect={request.duplicate}
+  const menuSection = (section: BlockMenuSection): ReactNode => {
+    switch (section.key) {
+      case "switches":
+        return section.switches.map((option) => (
+          <MenuSwitchItem
+            key={option.id}
+            checked={option.checked}
+            onToggle={() => editBlock(option.toggle)}
           >
-            {t("editor.blockMenu.duplicate")}
-            <DropdownMenuShortcut className={hintClass}>
-              {hint("D")}
-            </DropdownMenuShortcut>
-          </DropdownMenuItem>
-        ) : null}
-        {showRemove ? (
-          <DropdownMenuItem
-            aria-describedby={lockReasonId(locks.remove)}
-            aria-keyshortcuts="Delete"
-            className="text-destructive focus:text-destructive"
-            disabled={!canRemove}
-            onSelect={request.remove}
-          >
-            {t("editor.blockMenu.delete")}
-            <DropdownMenuShortcut className={hintClass}>
-              {t("editor.blockMenu.keyDelete")}
-            </DropdownMenuShortcut>
-          </DropdownMenuItem>
-        ) : null}
-        {showInsert ? (
-          <DropdownMenuItem onSelect={request.insertBelow}>
-            {t("editor.blockMenu.insertBelow")}
-          </DropdownMenuItem>
-        ) : null}
-        {lockReasons.map((lock) => (
-          <p
-            key={lock}
-            className="px-2 py-1 text-xs text-muted-foreground"
-            id={lockReasonId(lock)}
-          >
-            {t(LOCK_REASON_KEYS[lock])}
-          </p>
-        ))}
-      </>,
-    ]);
-  }
-  if (showComment) {
-    sections.push([
-      "comment",
-      <DropdownMenuItem
-        aria-keyshortcuts={ariaShortcut("M", true)}
-        onSelect={comment}
-      >
-        {t("editor.comment")}
-        <DropdownMenuShortcut className={hintClass}>
-          {hint("M", true)}
-        </DropdownMenuShortcut>
-      </DropdownMenuItem>,
-    ]);
-  }
+            {option.label}
+          </MenuSwitchItem>
+        ));
+      case "found-turn-into":
+        return (
+          <>
+            <DropdownMenuLabel>{turnIntoLabel}</DropdownMenuLabel>
+            {section.targets.map(turnIntoItem)}
+          </>
+        );
+      case "found-color":
+        return (
+          <ColorChoices value={color} onChange={setColor} shows={matches} />
+        );
+      case "style":
+        return (
+          <>
+            {section.turnInto ? (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>{turnIntoLabel}</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent
+                  className={cn(
+                    "max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto",
+                    instantCloseMenuClass,
+                  )}
+                  collisionPadding={8}
+                  onEscapeKeyDown={markEscaped}
+                >
+                  {turnTargets.map(turnIntoItem)}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ) : null}
+            {section.color ? (
+              <ColorSubmenu
+                value={color}
+                onChange={setColor}
+                onEscapeKeyDown={markEscaped}
+              />
+            ) : null}
+          </>
+        );
+      default:
+        return (
+          <>
+            {section.actions.map((action) => (
+              <DropdownMenuItem
+                key={action.id}
+                aria-describedby={lockReasonId(action.lock)}
+                aria-keyshortcuts={action.shortcut?.aria}
+                className={
+                  action.destructive
+                    ? "text-destructive focus:text-destructive"
+                    : undefined
+                }
+                disabled={!!action.lock}
+                onSelect={action.onSelect}
+              >
+                {action.label}
+                {action.shortcut ? (
+                  <DropdownMenuShortcut className={hintClass}>
+                    {action.shortcut.hint}
+                  </DropdownMenuShortcut>
+                ) : null}
+              </DropdownMenuItem>
+            ))}
+            {lockNotes(section.actions)}
+          </>
+        );
+    }
+  };
 
   const { anchorRect } = request;
 
@@ -639,20 +979,14 @@ export function BlockActionsMenu({
             />
           </div>
         </div>
-        <DropdownMenuLabel>
-          {t(node ? blockTitleKey(node) : "editor.blockMenu.block")}
-        </DropdownMenuLabel>
-        {sections.map(([key, section], index) => (
-          <Fragment key={key}>
+        <DropdownMenuLabel>{title}</DropdownMenuLabel>
+        {sections.map((section, index) => (
+          <Fragment key={section.key}>
             {index > 0 ? <DropdownMenuSeparator /> : null}
-            {section}
+            {menuSection(section)}
           </Fragment>
         ))}
-        {sections.length === 0 ? (
-          <p className="px-2 py-1.5 text-xs text-muted-foreground">
-            {t("editor.blockMenu.noResults")}
-          </p>
-        ) : null}
+        {noResults}
       </DropdownMenuContent>
     </DropdownMenu>
   );
