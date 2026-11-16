@@ -2720,15 +2720,19 @@ describe("runQuery cancellation", () => {
       fetchMock.mock.calls.filter(([input]) =>
         String(input).includes("/cancel"),
       );
+    const failedJob = {
+      status: { state: "DONE", errorResult: { reason: "stopped" } },
+    };
 
     /** Remembers created jobs and refuses a repeated job ID, as BigQuery does. */
     function fakeBigQuery(
       options: {
         complete?: () => boolean;
-        lookup?: (job: { jobId: string; query: string }) => unknown;
+        /** Overrides fields of a jobs.get answer, or answers with a status. */
+        lookup?: (job: { jobId: string; query: string }) => object | number;
       } = {},
     ) {
-      const jobs = new Map<string, string>();
+      const jobs = new Map<string, { query: string; createdAt: number }>();
       const fetchMock = vi
         .fn<typeof globalThis.fetch>()
         .mockImplementation(async (input, init) => {
@@ -2754,7 +2758,10 @@ describe("runQuery cancellation", () => {
                 text: async () => body,
               } as Response;
             }
-            jobs.set(jobId, request.configuration.query.query);
+            jobs.set(jobId, {
+              query: request.configuration.query.query,
+              createdAt: Date.now(),
+            });
             return jsonResponse({
               jobReference: { ...request.jobReference, location: "US" },
             });
@@ -2763,18 +2770,29 @@ describe("runQuery cancellation", () => {
           const lookup = /\/jobs\/([^/?]+)\?/.exec(url);
           if (lookup?.[1]) {
             const jobId = lookup[1];
-            const query = jobs.get(jobId) ?? "";
-            return jsonResponse(
-              options.lookup?.({ jobId, query }) ?? {
-                jobReference: {
-                  projectId: "test-project",
-                  jobId,
-                  location: "US",
-                },
-                configuration: { query: { query } },
-                status: { state: "RUNNING" },
+            const job = jobs.get(jobId);
+            const answer = options.lookup?.({ jobId, query: job?.query ?? "" });
+            if (typeof answer === "number") {
+              const body = JSON.stringify({
+                error: { code: answer, errors: [{ reason: "backendError" }] },
+              });
+              return {
+                ok: false,
+                status: answer,
+                text: async () => body,
+              } as Response;
+            }
+            return jsonResponse({
+              jobReference: {
+                projectId: "test-project",
+                jobId,
+                location: "US",
               },
-            );
+              configuration: { query: { query: job?.query ?? "" } },
+              status: { state: "RUNNING" },
+              statistics: { creationTime: String(job?.createdAt ?? 0) },
+              ...answer,
+            });
           }
           return (options.complete?.() ?? true)
             ? jsonResponse({
@@ -2802,13 +2820,9 @@ describe("runQuery cancellation", () => {
       await vi.advanceTimersByTimeAsync(0);
     }
 
-    it("leaves a job its deadline stopped running, and the same query's next call collects it", async () => {
-      vi.useFakeTimers();
-      let complete = false;
-      const { fetchMock, jobs } = fakeBigQuery({ complete: () => complete });
-      vi.stubGlobal("fetch", fetchMock);
+    /** One call its deadline stops while the job runs. */
+    async function callUntilDeadline() {
       const deadline = new AbortController();
-
       await stopWhilePolling(
         deadline,
         runQuery(sql, {
@@ -2816,6 +2830,15 @@ describe("runQuery cancellation", () => {
           resumeAfter: deadline.signal,
         }),
       );
+    }
+
+    it("leaves a job its deadline stopped running, and the same query's next call collects it", async () => {
+      vi.useFakeTimers();
+      let complete = false;
+      const { fetchMock, jobs } = fakeBigQuery({ complete: () => complete });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await callUntilDeadline();
 
       expect(cancellations(fetchMock)).toHaveLength(0);
       const [jobId] = submissions(fetchMock);
@@ -2863,24 +2886,16 @@ describe("runQuery cancellation", () => {
     });
 
     it.each([
-      {
-        name: "failed",
-        lookup: ({ jobId, query }: { jobId: string; query: string }) => ({
-          jobReference: { projectId: "test-project", jobId, location: "US" },
-          configuration: { query: { query } },
-          status: { state: "DONE", errorResult: { reason: "stopped" } },
-        }),
-      },
+      { name: "failed", lookup: () => failedJob },
       {
         name: "ran other SQL",
-        lookup: ({ jobId }: { jobId: string; query: string }) => ({
-          jobReference: { projectId: "test-project", jobId, location: "US" },
+        lookup: () => ({
           configuration: { query: { query: "SELECT 'planted'" } },
           status: { state: "DONE" },
         }),
       },
     ])(
-      "runs the query again under a fresh ID when the existing job $name",
+      "runs the query again under the next resumable ID when the existing job $name",
       async ({ lookup }) => {
         vi.useFakeTimers();
         let complete = false;
@@ -2889,59 +2904,131 @@ describe("runQuery cancellation", () => {
           lookup,
         });
         vi.stubGlobal("fetch", fetchMock);
-        const deadline = new AbortController();
-        await stopWhilePolling(
-          deadline,
-          runQuery(sql, {
-            signal: deadline.signal,
-            resumeAfter: deadline.signal,
-          }),
-        );
+        await callUntilDeadline();
 
         complete = true;
         const rerun = await runQuery(sql, {
           resumeAfter: new AbortController().signal,
         });
 
-        const [resumableId, repeated, fresh] = submissions(fetchMock);
+        const [resumableId, repeated, next] = submissions(fetchMock);
         expect(repeated).toBe(resumableId);
-        expect(fresh).toMatch(/^agent_native_[a-f0-9]{32}$/);
+        expect(next).toMatch(/^agent_native_r_[a-f0-9]{64}$/);
+        expect(next).not.toBe(resumableId);
         expect(rerun.rows).toEqual([{ value: 7 }]);
-        expect(rerun.usageAccounting?.jobId).toBe(fresh);
+        expect(rerun.usageAccounting?.jobId).toBe(next);
         expect(finalizeUsage.mock.calls.map(([usage]) => usage.jobId)).toEqual([
           resumableId,
           resumableId,
-          fresh,
+          next,
         ]);
+        // The abandoned job's usage is read where it ran.
+        expect(present(finalizeUsage.mock.calls[1])[0]).toMatchObject({
+          jobId: resumableId,
+          location: "US",
+        });
       },
     );
 
-    it("names a new job once the clock hour turns", async () => {
+    it("leaves a replacement job its deadline stopped running for the next call", async () => {
+      vi.useFakeTimers();
+      let complete = false;
+      let first: string | undefined;
+      const { fetchMock, jobs } = fakeBigQuery({
+        complete: () => complete,
+        lookup: ({ jobId }) => (jobId === first ? failedJob : {}),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      await callUntilDeadline();
+      [first] = submissions(fetchMock);
+
+      await callUntilDeadline();
+      complete = true;
+      const collected = await runQuery(sql, {
+        resumeAfter: new AbortController().signal,
+      });
+
+      const replacement = submissions(fetchMock)[2];
+      expect(submissions(fetchMock)).toEqual([
+        first,
+        first,
+        replacement,
+        first,
+        replacement,
+      ]);
+      expect(jobs.size).toBe(2);
+      expect(cancellations(fetchMock)).toHaveLength(0);
+      expect(collected.usageAccounting?.jobId).toBe(replacement);
+    });
+
+    it("runs under a random ID, cancelled as usual, once every resumable ID is used", async () => {
+      vi.useFakeTimers();
+      const { fetchMock } = fakeBigQuery({
+        complete: () => false,
+        lookup: () => failedJob,
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      for (let call = 0; call < 4; call++) await callUntilDeadline();
+
+      const ids = submissions(fetchMock);
+      const last = ids[ids.length - 1];
+      const resumableIds = [...new Set(ids.slice(0, -1))];
+      expect(resumableIds).toHaveLength(3);
+      expect(
+        resumableIds.every((id) => /^agent_native_r_[a-f0-9]{64}$/.test(id)),
+      ).toBe(true);
+      expect(last).toMatch(/^agent_native_[a-f0-9]{32}$/);
+      expect(cancellations(fetchMock).map(([input]) => String(input))).toEqual([
+        expect.stringContaining(`/jobs/${last}/cancel`),
+      ]);
+    });
+
+    it("fails without starting another job or cancelling the existing one when that job can't be read", async () => {
+      vi.useFakeTimers();
+      let lookupStatus: number | undefined;
+      const { fetchMock } = fakeBigQuery({
+        complete: () => false,
+        lookup: () => lookupStatus ?? {},
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      await callUntilDeadline();
+
+      lookupStatus = 503;
+      await expect(
+        runQuery(sql, { resumeAfter: new AbortController().signal }),
+      ).rejects.toMatchObject({
+        name: "BigQueryBackendError",
+        operation: "job",
+        backendStatus: 503,
+      });
+
+      const [jobId, ...rest] = submissions(fetchMock);
+      expect(rest).toEqual([jobId]);
+      expect(cancellations(fetchMock)).toHaveLength(0);
+      expect(present(finalizeUsage.mock.calls[1])[0]).toMatchObject({
+        jobId,
+        location: "US",
+      });
+    });
+
+    it("collects a job across the clock hour, but not one that started over an hour ago", async () => {
       vi.useFakeTimers({ now: new Date("2026-11-16T10:59:58.000Z") });
       const { fetchMock } = fakeBigQuery({ complete: () => false });
       vi.stubGlobal("fetch", fetchMock);
-      const firstDeadline = new AbortController();
-      await stopWhilePolling(
-        firstDeadline,
-        runQuery(sql, {
-          signal: firstDeadline.signal,
-          resumeAfter: firstDeadline.signal,
-        }),
-      );
+      await callUntilDeadline();
 
       vi.setSystemTime(new Date("2026-11-16T11:00:01.000Z"));
-      const secondDeadline = new AbortController();
-      await stopWhilePolling(
-        secondDeadline,
-        runQuery(sql, {
-          signal: secondDeadline.signal,
-          resumeAfter: secondDeadline.signal,
-        }),
-      );
-
+      await callUntilDeadline();
       const [first, second] = submissions(fetchMock);
-      expect(second).toMatch(/^agent_native_r_/);
-      expect(second).not.toBe(first);
+      expect(second).toBe(first);
+
+      vi.setSystemTime(new Date("2026-11-16T12:00:00.000Z"));
+      await callUntilDeadline();
+      const [, , third, fourth] = submissions(fetchMock);
+      expect(third).toBe(first);
+      expect(fourth).toMatch(/^agent_native_r_[a-f0-9]{64}$/);
+      expect(fourth).not.toBe(first);
       expect(cancellations(fetchMock)).toHaveLength(0);
     });
 

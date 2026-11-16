@@ -1005,19 +1005,22 @@ export interface RunQueryOptions {
   sourceGeneration?: SourceGenerationResult;
   /**
    * Lets a later identical call collect this query's job instead of running
-   * it again. The job is named after the query, its caller and the hour, so a
-   * repeat within the hour attaches to it; and once this signal has aborted,
-   * an unfinished job is left running (still capped by maxBytesBilled)
-   * instead of cancelled. Ignored on a forced refresh.
+   * it again. The job is named after the query and its caller, so a repeat
+   * attaches to it while it started within the last hour; and once this signal
+   * has aborted, an unfinished job is left running (still capped by
+   * maxBytesBilled) instead of cancelled. Ignored on a forced refresh.
    */
   resumeAfter?: AbortSignal;
 }
 
 /** How long a result read while its source generation was unknown is reused. */
 export const UNKNOWN_SOURCE_GENERATION_REUSE_MS = 60 * 60_000;
-// A resumable job is collected only within the window its ID names, so an
-// attached result is never older than the app cache would serve.
-const RESUMABLE_JOB_WINDOW_MS = UNKNOWN_SOURCE_GENERATION_REUSE_MS;
+// A resumable job is collected only while this young, so an attached result
+// is never older than the app cache would serve.
+const RESUMABLE_JOB_MAX_AGE_MS = UNKNOWN_SOURCE_GENERATION_REUSE_MS;
+// A query whose resumable job can't be collected runs under the next of these
+// IDs, so its replacement can still be collected; past the last, a random one.
+const RESUMABLE_JOB_IDS = 3;
 
 function sourceGenerationCacheKey(result: SourceGenerationResult): string {
   return result.status === "ok"
@@ -1109,10 +1112,10 @@ function resumableJobId(
   cacheKey: string,
   ownerEmail: string,
   maxBytesBilled: number,
-  windowStart: number,
+  index: number,
 ): string {
   return `agent_native_r_${createHash("sha256")
-    .update(`${cacheKey}\n${ownerEmail}\n${maxBytesBilled}\n${windowStart}`)
+    .update(`${cacheKey}\n${ownerEmail}\n${maxBytesBilled}\n${index}`)
     .digest("hex")}`;
 }
 
@@ -1140,27 +1143,31 @@ function duplicateJobLocation(body: string, jobId: string): string | undefined {
 }
 
 /**
- * Where the job a resumable submission collided with runs, when that job ran
- * this same SQL and has not failed or been cancelled. Null means the query
- * runs again under a fresh job ID.
+ * Whether the job a resumable submission collided with can be collected: it
+ * ran this same SQL, started within RESUMABLE_JOB_MAX_AGE_MS, and has not
+ * failed or been cancelled. Throws when the job can't be read, since that
+ * doesn't show it can't be collected.
  */
-async function resumableJobLocation(
+async function resumableJobState(
   projectId: string,
   jobId: string,
   token: string,
   sql: string,
   knownLocation: string | undefined,
-  createdAfter: number,
   signal?: AbortSignal,
-): Promise<{ location: string | undefined } | null> {
+): Promise<{ collectable: boolean; location: string | undefined }> {
+  const createdAfter = Date.now() - RESUMABLE_JOB_MAX_AGE_MS;
   try {
     const location =
       knownLocation ??
       (await findQueryJobLocation(projectId, jobId, token, createdAfter));
+    // Every job of the last hour is listed, so this one is older.
+    if (!location) return { collectable: false, location: undefined };
     const params = new URLSearchParams({
-      fields: "jobReference,configuration(query(query)),status",
+      fields:
+        "jobReference,configuration(query(query)),status,statistics(creationTime)",
+      location,
     });
-    if (location) params.set("location", location);
     const timeout = AbortSignal.timeout(CACHE_CANCEL_TIMEOUT_MS);
     const response = await fetch(
       `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs/${jobId}?${params}`,
@@ -1172,24 +1179,35 @@ async function resumableJobLocation(
         },
       },
     );
-    if (!response.ok) return null;
+    if (!response.ok) {
+      const text = await response.text();
+      throw new BigQueryBackendError(
+        "job",
+        response.status,
+        bigQueryReasonFromResponse(text),
+        bigQueryProviderDetailFromResponse(text),
+      );
+    }
     const job = (await response.json()) as {
       jobReference?: { jobId?: string; location?: string };
       configuration?: { query?: { query?: string } };
       status?: { errorResult?: unknown };
+      statistics?: { creationTime?: string };
     };
-    if (
-      job.jobReference?.jobId !== jobId ||
-      job.configuration?.query?.query !== sql ||
-      job.status?.errorResult
-    ) {
-      return null;
+    const createdAt = Number(job.statistics?.creationTime);
+    if (job.jobReference?.jobId !== jobId || !Number.isFinite(createdAt)) {
+      throw new BigQueryBackendError("job", null, "other");
     }
-    return { location: job.jobReference.location ?? location };
-  } catch {
+    return {
+      collectable:
+        job.configuration?.query?.query === sql &&
+        !job.status?.errorResult &&
+        createdAt >= createdAfter,
+      location: job.jobReference.location ?? location,
+    };
+  } catch (error) {
     throwIfAborted(signal);
-    // coercion-ok: a job that cannot be looked up is not collected; the caller runs the query again.
-    return null;
+    throw error;
   }
 }
 
@@ -1617,22 +1635,24 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     const credentialContext = requireRequestCredentialContext(
       "BIGQUERY_PROJECT_ID",
     );
-    const windowStart =
-      Math.floor(Date.now() / RESUMABLE_JOB_WINDOW_MS) *
-      RESUMABLE_JOB_WINDOW_MS;
-    resumableId = resumable
-      ? resumableJobId(
-          cacheKey,
-          credentialContext.userEmail,
-          maxBytesBilled,
-          windowStart,
-        )
-      : null;
+    let resumableIndex = 0;
+    const nextResumableId = () =>
+      resumable && resumableIndex < RESUMABLE_JOB_IDS
+        ? resumableJobId(
+            cacheKey,
+            credentialContext.userEmail,
+            maxBytesBilled,
+            resumableIndex,
+          )
+        : null;
+    resumableId = nextResumableId();
     // A resumable submission whose job already exists collects that job; when
-    // it cannot be collected, the query runs again under a fresh ID.
+    // it can't be collected, the query runs again under the next ID.
     for (;;) {
       jobId = resumableId ?? `agent_native_${randomUUID().replace(/-/g, "")}`;
-      jobCreatedAfter = resumableId ? windowStart : Date.now();
+      jobCreatedAfter = resumableId
+        ? Date.now() - RESUMABLE_JOB_MAX_AGE_MS
+        : Date.now();
       usage = newBigQueryJobUsage(projectId, jobId, credentialContext);
       usageStarted = await persistBigQueryJobUsage(usage);
       const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
@@ -1727,21 +1747,31 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
         jobLocation = insertedJob?.jobReference?.location;
         break;
       }
-      const existing = await resumableJobLocation(
-        projectId,
-        jobId,
-        token,
-        cacheableSql,
-        duplicateJobLocation(duplicateResponse, jobId),
-        windowStart,
-        signal,
-      );
-      if (existing) {
+      const knownLocation = duplicateJobLocation(duplicateResponse, jobId);
+      let existing: Awaited<ReturnType<typeof resumableJobState>>;
+      try {
+        existing = await resumableJobState(
+          projectId,
+          jobId,
+          token,
+          cacheableSql,
+          knownLocation,
+          signal,
+        );
+      } catch (error) {
+        // Another call's job: it keeps running for a later call to collect.
+        jobLocation = knownLocation;
+        jobId = null;
+        throw error;
+      }
+      if (existing.collectable) {
         jobLocation = existing.location;
         break;
       }
+      usage.location = existing.location;
       await finalizeBigQueryJobUsage(usage, token, usageStarted, signal);
-      resumableId = null;
+      resumableIndex += 1;
+      resumableId = nextResumableId();
     }
     jobSubmissionResponseReceived = true;
     usage.submissionState = "accepted";

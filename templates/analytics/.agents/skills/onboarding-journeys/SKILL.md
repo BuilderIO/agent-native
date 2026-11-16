@@ -160,8 +160,8 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   query cache (writing to it is best-effort), and the BigQuery jobs that were
   still running keep running, so the next call collects them instead of
   starting over, even a query that needs longer than one call. Each call gets
-  further; repeat until the note is gone. A job is collected only within the
-  clock hour it started in, so a call after the hour turns runs it again. In
+  further; repeat until the note is gone. A job is collected only within an
+  hour of when it started; after that, a call runs the query again. In
   session mode the watermark pins event time but not receive time, so an event
   that arrives between calls can still change pages; the read then reports
   `may_have_shifted`. A truncated event sample skips replay reads and
