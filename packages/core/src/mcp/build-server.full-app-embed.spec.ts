@@ -169,16 +169,20 @@ describe("withServerMintedFullAppEmbedStart", () => {
   });
 
   it.each([
-    `${ORIGIN}/calendar/_agent-native/embed/start?ticket=own`,
-    "/_agent-native/embed/start?ticket=own",
-  ])("keeps a session the action minted on this server: %s", async (url) => {
+    ["this app, for the caller", "/_agent-native/embed/start?ticket=own", true],
+    [
+      "another app on this origin",
+      `${ORIGIN}/calendar/_agent-native/embed/start?ticket=theirs`,
+      false,
+    ],
+  ])("keeps a session minted by %s", async (_label, url, checkedHere) => {
     const record = { embedStartUrl: url };
     await expect(
       inRequest(() =>
         withServerMintedFullAppEmbedStart(record, entry(), {}, ANCHOR),
       ),
     ).resolves.toBe(record);
-    expect(ticketOwner).toHaveBeenCalledWith("own", "owner@example.com");
+    expect(ticketOwner).toHaveBeenCalledTimes(checkedHere ? 1 : 0);
     expect(mint).not.toHaveBeenCalled();
   });
 

@@ -103,4 +103,32 @@ describe("open_app MCP App metadata", () => {
       chrome: "minimal",
     });
   });
+
+  it.each([
+    ["an MCP host", "mcp", undefined, true],
+    ["an MCP host that opts out", "mcp", false, false],
+    ["the app's own agent", "tool", undefined, undefined],
+  ] as const)(
+    "asks the target app for a session when %s opens it",
+    async (_label, caller, embed, expected) => {
+      mocks.openGrantedDispatchMcpApp.mockReset();
+      mocks.openGrantedDispatchMcpApp.mockResolvedValue({
+        app: "mail",
+        view: "inbox",
+        url: "https://mail.agent-native.com/inbox",
+      });
+
+      await openAppAction.run(
+        {
+          app: "mail",
+          view: "inbox",
+          ...(embed === undefined ? {} : { embed }),
+        },
+        { caller } as any,
+      );
+
+      const [input] = mocks.openGrantedDispatchMcpApp.mock.calls[0]!;
+      expect(input.embed).toBe(expected);
+    },
+  );
 });

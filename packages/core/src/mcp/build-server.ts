@@ -1561,14 +1561,15 @@ export async function withServerMintedMcpAppEmbedStart(
   };
 }
 
-function sameOriginEmbedStartTicket(
+function sameOriginEmbedStart(
   value: string,
   origin: string,
-): string | null {
+): { ticket: string; pathname: string } | null {
   try {
     const url = new URL(value, origin);
     if (url.origin !== origin || !isEmbedStartUrl(url.href)) return null;
-    return url.searchParams.get("ticket") || null;
+    const ticket = url.searchParams.get("ticket");
+    return ticket ? { ticket, pathname: url.pathname } : null;
     // coercion-ok: an unparsable URL is not one this server issued; the caller warns and drops it.
   } catch {
     return null;
@@ -1596,28 +1597,31 @@ export async function withServerMintedFullAppEmbedStart(
   const ownerEmail = ctx?.userEmail?.trim();
   const requestOrigin = getEmbedSessionOrigin();
   if (!ownerEmail || !requestOrigin) return withoutMcpAppEmbedTicket(record);
-  // Only an unredeemed ticket this server issued to this caller, such as
-  // another mounted app's open, is kept; anything else may be data the action
-  // passed through or another user's session.
+  // A ticket for this app must be an unredeemed one issued to this caller.
+  // Another mounted app on this origin keeps its own tickets, so one it
+  // minted for a cross-app open cannot be checked here and is kept.
   const {
     normalizeEmbedTargetPath,
     createEmbedSessionTicket,
     embedSessionTicketBelongsTo,
     FULL_APP_EMBED_SCOPE,
   } = await import("../server/embed-session.js");
+  const { buildEmbedStartPath } = await import("../server/embed-route.js");
   if (typeof record.embedStartUrl === "string") {
-    const ticket = sameOriginEmbedStartTicket(
-      record.embedStartUrl,
-      requestOrigin,
-    );
-    if (ticket && (await embedSessionTicketBelongsTo(ticket, ownerEmail))) {
+    const start = sameOriginEmbedStart(record.embedStartUrl, requestOrigin);
+    const ownStartPath = new URL(buildEmbedStartPath("x"), requestOrigin)
+      .pathname;
+    if (
+      start &&
+      (start.pathname !== ownStartPath ||
+        (await embedSessionTicketBelongsTo(start.ticket, ownerEmail)))
+    ) {
       return result;
     }
     console.warn(
       "[mcp] Dropping an embed start URL that this server did not issue to this caller.",
     );
   }
-  const { buildEmbedStartPath } = await import("../server/embed-route.js");
   const embedTarget = (value: unknown) =>
     typeof value === "string" &&
     value !== HIDDEN_EMBED_URL &&

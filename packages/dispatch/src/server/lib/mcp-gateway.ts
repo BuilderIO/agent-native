@@ -1110,11 +1110,11 @@ export async function getGrantedDispatchMcpAppTask(
 
 export async function openGrantedDispatchMcpApp(input: {
   app: string;
-  view?: string;
-  path?: string;
-  params?: Record<string, string | number | boolean>;
-  embed?: boolean;
-  chrome?: "full" | "minimal";
+  view?: string | undefined;
+  path?: string | undefined;
+  params?: Record<string, string | number | boolean> | undefined;
+  embed?: boolean | undefined;
+  chrome?: "full" | "minimal" | undefined;
 }): Promise<{
   app: string;
   view?: string;

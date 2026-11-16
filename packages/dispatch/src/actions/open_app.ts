@@ -134,7 +134,14 @@ export default defineAction({
   readOnly: true,
   parallelSafe: true,
   run: async (args, ctx) => {
-    const result = await openGrantedDispatchMcpApp(normalizeOpenAppArgs(args));
+    const normalized = normalizeOpenAppArgs(args);
+    // An MCP host shows the app from the session the target app mints, so
+    // ask for one unless the caller opted out.
+    const result = await openGrantedDispatchMcpApp(
+      normalized.embed == null && ctx?.caller === "mcp"
+        ? { ...normalized, embed: true }
+        : normalized,
+    );
     const targetApp = normalizeTrackingDimension(result.app) ?? result.app;
     if (targetApp !== "dispatch") {
       track(
