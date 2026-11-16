@@ -22,7 +22,7 @@ describe("composeApplyHandoff", () => {
     expect(result.prompt.indexOf("Visual instructions")).toBeLessThan(
       result.prompt.indexOf("Changed tweaks"),
     );
-    expect(result.prompt.match(/send-builder-message/g)).toHaveLength(1);
+    expect(result.prompt.match(/send-builder-message/g)).toHaveLength(2);
     expect(result.includes).toEqual({
       remote: true,
       visualEditIds: ["visual-1"],
@@ -42,5 +42,18 @@ describe("composeApplyHandoff", () => {
     expect(result.prompt).toContain("acknowledge-visual-edit-pending");
     expect(result.includes.tweakIds).toEqual(["speed"]);
     expect(result.includes.remote).toBe(false);
+  });
+
+  it("routes full-app tweaks through Builder without local source instructions", () => {
+    const { prompt } = composeApplyHandoff({
+      localVisualEdits: [],
+      localTweakChanges: [
+        { id: "gap", label: "Gap", oldValue: 1, newValue: 2 },
+      ],
+      fullApp: { enabled: true, designId: "d1" },
+    });
+    expect(prompt).toContain("send-builder-message");
+    expect(prompt).not.toContain("Locate the source files");
+    expect(prompt).not.toContain("verify the running page");
   });
 });

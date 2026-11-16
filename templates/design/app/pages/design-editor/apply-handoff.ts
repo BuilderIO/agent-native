@@ -60,8 +60,14 @@ function formatTweakChanges(
     )
     .join("\n");
   return [
-    `Apply the remix board changes${designId ? ` from Design ${designId}` : ""} to source code and verify the running page.`,
-    "Locate the source files that define or consume the changed CSS variables; update their defaults without changing unrelated styles.",
+    designId
+      ? `Include these remix board tweaks in the send-builder-message prompt for Design ${designId}. Do not use localhost source tools.`
+      : "Apply the remix board changes to source code and verify the running page.",
+    ...(designId
+      ? []
+      : [
+          "Locate the source files that define or consume the changed CSS variables; update their defaults without changing unrelated styles.",
+        ]),
     "Changed tweaks:",
     values,
     `After source verification, call acknowledge-visual-edit-pending with { designId: ${JSON.stringify(designId ?? "<design-id>")}, appliedTweaks: [${changes.map((change) => `{ id: ${JSON.stringify(change.id)}, value: ${JSON.stringify(change.newValue)} }`).join(", ")}] }. Include only tweak ids and values confirmed in source; omit any tweak that was not applied.`,
