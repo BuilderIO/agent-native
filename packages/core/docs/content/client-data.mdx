@@ -227,7 +227,7 @@ mutate({ ticketId, body: draft });
 
 ### Resource-scoped invalidation {#resource-scoped-invalidation}
 
-Both hooks accept an optional `resources` array. A query names the resources it reads and a mutation names the resources it changes. Use `type` for a whole resource type or `type:id` for one specific ID.
+Both hooks accept an optional `resources` array. A query names the resources it reads and a mutation names the resources it changes. Use `type` for a whole resource type or `type:id` for one specific ID. For local mutation matching, the first colon in a `type:id` tag separates the type from the ID. The type must not contain a colon, but the ID may contain colons. Sync events carry the type and ID separately.
 
 ```ts
 import {

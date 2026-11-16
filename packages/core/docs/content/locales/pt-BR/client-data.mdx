@@ -228,7 +228,7 @@ mutate({ ticketId, body: draft });
 
 ### Invalidação por recurso {#resource-scoped-invalidation}
 
-Ambos os hooks aceitam um array opcional `resources`. Uma consulta informa os recursos que lê e uma mutação informa os recursos que altera. Use `type` para um tipo de recurso inteiro ou `type:id` para um ID específico.
+Ambos os hooks aceitam um array opcional `resources`. Uma consulta informa os recursos que lê e uma mutação informa os recursos que altera. Use `type` para um tipo de recurso inteiro ou `type:id` para um ID específico. Na correspondência de mutações locais, os primeiros dois-pontos em uma tag `type:id` separam o tipo do ID. O tipo não deve conter dois-pontos, mas o ID pode contê-los. Eventos de sincronização transportam o tipo e o ID separadamente.
 
 ```ts
 import {

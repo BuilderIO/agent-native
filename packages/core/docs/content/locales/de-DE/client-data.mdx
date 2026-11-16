@@ -228,7 +228,7 @@ mutate({ ticketId, body: draft });
 
 ### Ressourcenbezogene Invalidierung {#resource-scoped-invalidation}
 
-Beide Hooks akzeptieren ein optionales `resources`-Array. Eine Abfrage nennt die gelesenen Ressourcen, eine Mutation die geänderten Ressourcen. Verwenden Sie `type` für einen ganzen Ressourcentyp oder `type:id` für eine bestimmte ID.
+Beide Hooks akzeptieren ein optionales `resources`-Array. Eine Abfrage nennt die gelesenen Ressourcen, eine Mutation die geänderten Ressourcen. Verwenden Sie `type` für einen ganzen Ressourcentyp oder `type:id` für eine bestimmte ID. Beim Abgleich lokaler Mutationen trennt der erste Doppelpunkt in einem `type:id`-Tag den Typ von der ID. Der Typ darf keinen Doppelpunkt enthalten, die ID darf Doppelpunkte enthalten. Sync-Ereignisse übertragen Typ und ID getrennt.
 
 ```ts
 import {

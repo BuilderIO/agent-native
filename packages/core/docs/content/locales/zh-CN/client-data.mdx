@@ -225,7 +225,7 @@ mutate({ ticketId, body: draft });
 
 ### 按资源限定失效范围 {#resource-scoped-invalidation}
 
-两个钩子都接受可选的 `resources` 数组。查询指定它读取的资源，变更指定它修改的资源。使用 `type` 表示整个资源类型，使用 `type:id` 表示特定 ID。
+两个钩子都接受可选的 `resources` 数组。查询指定它读取的资源，变更指定它修改的资源。使用 `type` 表示整个资源类型，使用 `type:id` 表示特定 ID。匹配本地变更时，`type:id` 标签中的第一个冒号用于分隔类型和 ID。类型不能包含冒号，但 ID 可以包含冒号。同步事件分别携带类型和 ID。
 
 ```ts
 import {

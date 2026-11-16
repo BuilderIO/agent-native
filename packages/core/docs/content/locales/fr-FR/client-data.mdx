@@ -228,7 +228,7 @@ mutate({ ticketId, body: draft });
 
 ### Invalidation par ressource {#resource-scoped-invalidation}
 
-Les deux hooks acceptent un tableau facultatif `resources`. Une requête indique les ressources qu’elle lit et une mutation celles qu’elle modifie. Utilisez `type` pour tout un type de ressource ou `type:id` pour un ID précis.
+Les deux hooks acceptent un tableau facultatif `resources`. Une requête indique les ressources qu’elle lit et une mutation celles qu’elle modifie. Utilisez `type` pour tout un type de ressource ou `type:id` pour un ID précis. Lors de la comparaison des mutations locales, le premier deux-points d’une étiquette `type:id` sépare le type de l’ID. Le type ne doit pas contenir de deux-points, mais l’ID peut en contenir. Les événements de synchronisation transmettent le type et l’ID séparément.
 
 ```ts
 import {

@@ -225,7 +225,7 @@ mutate({ ticketId, body: draft });
 
 ### 依資源限定失效範圍 {#resource-scoped-invalidation}
 
-兩個掛鉤都接受選用的 `resources` 陣列。查詢指定它讀取的資源，變異指定它修改的資源。使用 `type` 表示整個資源類型，使用 `type:id` 表示特定 ID。
+兩個掛鉤都接受選用的 `resources` 陣列。查詢指定它讀取的資源，變異指定它修改的資源。使用 `type` 表示整個資源類型，使用 `type:id` 表示特定 ID。比對本機變異時，`type:id` 標籤中的第一個冒號用來分隔類型與 ID。類型不能包含冒號，但 ID 可以包含冒號。同步事件分別攜帶類型與 ID。
 
 ```ts
 import {
