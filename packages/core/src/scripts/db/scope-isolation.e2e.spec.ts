@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { frameworkTables } from "./framework-columns.test-helpers.js";
 import {
   createPostgresScriptClient,
   type PostgresScriptClient,
@@ -166,6 +167,117 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
     await expect(runQuery(`SELECT body FROM ${table}`)).rejects.toThrow(
       new RegExp(`Sensitive framework table "${table}"`),
     );
+  });
+
+  // The scoping views alone, with the db-query blocklist out of the picture:
+  // what member B sees of the framework tables that carry org_id but no
+  // owner_email, in an org shared with member A.
+  async function seedOrgTable(table: string): Promise<void> {
+    const { createSql, columns } = frameworkTables().get(table)!;
+    await withClient(async (c) => {
+      await c.execute(createSql);
+      for (const column of columns) {
+        await c.execute(
+          `ALTER TABLE "${table}" ALTER COLUMN "${column}" DROP NOT NULL`,
+        );
+      }
+      const ownerColumn = ["owner", "user_id"].find((column) =>
+        columns.includes(column),
+      );
+      const rows = ownerColumn
+        ? [
+            ["a@x.com", "org-1"],
+            ["b@x.com", "org-1"],
+            ["b@x.com", "org-2"],
+          ]
+        : [
+            [null, "org-1"],
+            [null, "org-1"],
+            [null, "org-2"],
+          ];
+      for (const [owner, org] of rows) {
+        await c.execute({
+          sql: ownerColumn
+            ? `INSERT INTO "${table}" ("${ownerColumn}", "org_id") VALUES (?, ?)`
+            : `INSERT INTO "${table}" ("org_id") VALUES (?)`,
+          args: ownerColumn ? [owner, org] : [org],
+        });
+      }
+    });
+  }
+
+  async function rowsVisibleToMemberB(table: string): Promise<number> {
+    vi.stubEnv("AGENT_USER_EMAIL", "b@x.com");
+    vi.stubEnv("AGENT_ORG_ID", "org-1");
+    const { buildScopingPostgres } = await import("./scoping.js");
+    const client = await createPostgresScriptClient(url);
+    try {
+      let visible = -1;
+      await client.begin(async (tx) => {
+        const scoping = await buildScopingPostgres(tx);
+        for (const setup of scoping.setup) await tx.unsafe(setup);
+        const rows = await tx.unsafe(
+          `SELECT count(*)::int AS n FROM "${table}"`,
+        );
+        visible = Number(rows[0].n);
+      });
+      return visible;
+    } finally {
+      await client.end();
+    }
+  }
+
+  it.each([
+    ["agent_feedback", 1],
+    ["agent_instruction_updates", 1],
+    ["agent_trace_spans", 1],
+    ["agent_trace_summaries", 1],
+    ["org_scim_memberships", 1],
+    ["automation_runs", 1],
+    ["sandbox_executions", 1],
+    ["sync_events", 1],
+    ["app_permission_overrides", 2],
+    ["agent_human_review_summaries", 0],
+    ["agent_turn_initiators", 0],
+    ["app_member_roles", 0],
+    ["automation_scheduler_health", 0],
+    ["email_log", 0],
+    ["integration_identity_links", 0],
+    ["org_invitations", 0],
+    ["org_members", 0],
+    ["workspace_user_groups", 0],
+  ])(
+    "shows member B %s rows: %i of the 2 in B's org",
+    async (table, visible) => {
+      await seedOrgTable(table);
+      expect(await rowsVisibleToMemberB(table)).toBe(visible);
+    },
+  );
+
+  it("lets the org read the allowlisted table through db-query and nothing from an unlisted one", async () => {
+    await seedOrgTable("app_permission_overrides");
+    await seedOrgTable("workspace_user_groups");
+    vi.stubEnv("AGENT_USER_EMAIL", "b@x.com");
+    vi.stubEnv("AGENT_ORG_ID", "org-1");
+    const shared = await runQuery(
+      "SELECT org_id FROM app_permission_overrides",
+    );
+    expect(shared.rows.map((r: any) => r.org_id)).toEqual(["org-1", "org-1"]);
+    const hidden = await runQuery("SELECT org_id FROM workspace_user_groups");
+    expect(hidden.rows).toEqual([]);
+  });
+
+  it("does not let member B delete an unlisted org table's rows", async () => {
+    await seedOrgTable("email_log");
+    vi.stubEnv("AGENT_USER_EMAIL", "b@x.com");
+    vi.stubEnv("AGENT_ORG_ID", "org-1");
+    await runExec("DELETE FROM email_log");
+    const remaining = await withClient((c) =>
+      c
+        .execute(`SELECT count(*)::int AS n FROM email_log`)
+        .then((r) => r as any[]),
+    );
+    expect(remaining[0].n).toBe(3);
   });
 
   it("rejects a schema-qualified write", async () => {

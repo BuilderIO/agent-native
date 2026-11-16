@@ -18,6 +18,14 @@ const OWNER_COLUMN = "owner_email";
 const ORG_COLUMN = "org_id";
 const DEV_FALLBACK_EMAIL = "local@localhost"; // guard:allow-localhost-fallback — sentinel is rejected below so DB scripts cannot silently scope to the dev fallback tenant
 
+// Tables with `org_id` and no owner column that every org member may read in
+// full. A raw view returns every column, so a table whose action hides columns
+// from non-admins (`workspace_user_groups` blanks its member emails) does not
+// belong here. Any other such table is hidden.
+export const ORG_SHARED_TABLES: ReadonlySet<string> = new Set([
+  "app_permission_overrides", // every member reads these role grants through list-app-permissions
+]);
+
 interface ScopedTable {
   name: string;
   viewSql: string;
@@ -48,6 +56,18 @@ function getOrgId(): string | null {
 interface TableColumn {
   table: string;
   column: string;
+}
+
+// `owner` and `user_id` name the owner only where `org_id` also exists, the
+// tables the org-wide view used to expose. Without `org_id` they stay hidden:
+// that is where credentials and ledgers only an action may touch live
+// (`integration_configs`, `twoFactor`, `clips_hosted_clip_allowances`).
+function ownerColumnOf(columns: string[]): string | null {
+  if (columns.includes(OWNER_COLUMN)) return OWNER_COLUMN;
+  if (!columns.includes(ORG_COLUMN)) return null;
+  return (
+    ["owner", "user_id"].find((column) => columns.includes(column)) ?? null
+  );
 }
 
 async function discoverColumns(client: {
@@ -149,21 +169,21 @@ function buildScopedTables(
       continue;
     }
 
-    const hasOwner = columns.includes(OWNER_COLUMN);
+    const ownerColumn = ownerColumnOf(columns);
     const hasOrg = columns.includes(ORG_COLUMN);
 
-    if (hasOwner) {
+    if (ownerColumn) {
       const orgClause =
         hasOrg && safeOrgId
           ? ` AND ("${ORG_COLUMN}" = '${safeOrgId}' OR "${ORG_COLUMN}" IS NULL)`
           : "";
       scoped.push(
-        viewFor(table, `"${OWNER_COLUMN}" = '${safeEmail}'${orgClause}`),
+        viewFor(table, `"${ownerColumn}" = '${safeEmail}'${orgClause}`),
       );
       continue;
     }
 
-    if (hasOrg) {
+    if (hasOrg && ORG_SHARED_TABLES.has(table)) {
       scoped.push(
         viewFor(
           table,
