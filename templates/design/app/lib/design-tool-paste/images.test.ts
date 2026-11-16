@@ -118,4 +118,18 @@ describe("hostRemoteImages", () => {
     expect(mirror).toHaveBeenCalledTimes(9);
     expect(peak).toBeLessThanOrEqual(6);
   });
+
+  it("hosts only the first hundred images and reports the rest as kept", async () => {
+    const urls = Array.from(
+      { length: 101 },
+      (_, i) => `https://cdn.example.test/${i}.png`,
+    );
+    const { layers } = emitFrames([frame(...urls)], []);
+    const mirror = vi.fn(async (url: string, _key: string) => `${url}.hosted`);
+    const result = await hostRemoteImages(layers, urls, mirror, "p:image:");
+    expect(mirror).toHaveBeenCalledTimes(100);
+    expect(mirror.mock.calls.some(([url]) => url === urls[100])).toBe(false);
+    expect(result.kept).toBe(1);
+    expect(result.reason).toBe("only the first 100 images are copied");
+  });
 });

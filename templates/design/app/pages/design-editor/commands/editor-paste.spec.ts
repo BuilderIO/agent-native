@@ -206,6 +206,9 @@ describe("runEditorPaste", () => {
     await Promise.resolve();
     expect(h.imported).toEqual([]);
     expect(h.args.designToolPasteBusyRef.current).toBe(false);
+    expect(toastInfo).toHaveBeenCalledWith(
+      "designEditor.import.pasteNeedsEditAccess",
+    );
   });
 
   it("leaves a Figma paste to a composer that claims pastes as context", () => {

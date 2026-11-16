@@ -91,6 +91,8 @@ const UNITLESS = new Set([
 // backslashes, angle brackets) could end the declaration or the attribute.
 const VALUE_GRAMMAR = /^[\w\s.,%#()/+*-]+$/;
 const RESOURCE_FUNCTION = /(?:url|expression|image-set|attr)\s*\(/i;
+// CSS drops comments before it tokenizes, so `url/**/(...)` is still a url().
+const CSS_COMMENT = /\/\*|\*\//;
 const HTTPS_URL = /^https:\/\/[^\s"'()\\<>]+$/;
 
 export function escapeHtml(value: string): string {
@@ -102,6 +104,14 @@ export function escapeHtml(value: string): string {
         : char === ">"
           ? "&gt;"
           : "&quot;",
+  );
+}
+
+function isSafeValue(text: string): boolean {
+  return (
+    VALUE_GRAMMAR.test(text) &&
+    !RESOURCE_FUNCTION.test(text) &&
+    !CSS_COMMENT.test(text)
   );
 }
 
@@ -122,7 +132,7 @@ function declaration(
     typeof value === "number" && !UNITLESS.has(name)
       ? `${value}px`
       : String(value);
-  if (!VALUE_GRAMMAR.test(text) || RESOURCE_FUNCTION.test(text)) {
+  if (!isSafeValue(text)) {
     warnings.push(inexact(`Skipped an unsafe ${name} value.`));
     return null;
   }
@@ -158,6 +168,9 @@ interface Walk {
   fonts: Set<string>;
   imageUrls: Set<string>;
   nodes: number;
+  /** Bytes of HTML emitted so far, and the most this frame may emit. */
+  bytes: number;
+  byteLimit: number;
   truncated: boolean;
 }
 
@@ -251,6 +264,38 @@ function allowedTag(tag: string | undefined, fallback: string, walk: Walk) {
   return fallback;
 }
 
+function utf8Length(text: string): number {
+  let bytes = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    bytes +=
+      code < 0x80
+        ? 1
+        : code < 0x800
+          ? 2
+          : code >= 0xd800 && code < 0xdc00
+            ? 2
+            : 3;
+  }
+  return bytes;
+}
+
+/**
+ * Counts what a node writes against the frame's budget before its children
+ * are visited. Over budget, the rest of the frame is dropped and reported.
+ */
+function charge(walk: Walk, ...parts: string[]): boolean {
+  for (const part of parts) walk.bytes += utf8Length(part);
+  if (walk.bytes <= walk.byteLimit) return true;
+  if (!walk.truncated) {
+    walk.warnings.push(
+      inexact(`Stopped at the ${walk.byteLimit} byte limit for one frame.`),
+    );
+    walk.truncated = true;
+  }
+  return false;
+}
+
 function nodeHtml(node: PasteNode, depth: number, walk: Walk): string {
   if (walk.truncated) return "";
   if (depth > PASTE_LIMITS.depth || walk.nodes >= PASTE_LIMITS.nodes) {
@@ -273,17 +318,24 @@ function nodeHtml(node: PasteNode, depth: number, walk: Walk): string {
           inexact(`Drew an unsupported "${node.tag}" shape as a path.`),
         );
       }
-      return `<${tag}${attributes(node.attrs, walk)}></${tag}>`;
+      const open = `<${tag}${attributes(node.attrs, walk)}>`;
+      const close = `</${tag}>`;
+      return charge(walk, open, close) ? open + close : "";
     }
     case "svg": {
+      const open = `<svg data-agent-native-layer-name="${escapeHtml(node.label)}"${attributes(node.attrs, walk)}${styleAttribute(node.style, [], walk)} xmlns="http://www.w3.org/2000/svg">`;
+      if (!charge(walk, open, "</svg>")) return "";
       const inner = node.children
         .map((child) => nodeHtml(child, depth + 1, walk))
         .join("");
-      return `<svg data-agent-native-layer-name="${escapeHtml(node.label)}"${attributes(node.attrs, walk)}${styleAttribute(node.style, [], walk)} xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
+      return `${open}${inner}</svg>`;
     }
     case "text": {
       const tag = allowedTag(node.tag, "span", walk);
-      return `<${tag} data-agent-native-layer-name="${escapeHtml(node.label)}"${styleAttribute(node.style, fontDeclaration(node.font, walk), walk)}>${escapeHtml(node.text)}</${tag}>`;
+      const open = `<${tag} data-agent-native-layer-name="${escapeHtml(node.label)}"${styleAttribute(node.style, fontDeclaration(node.font, walk), walk)}>`;
+      const text = escapeHtml(node.text);
+      const close = `</${tag}>`;
+      return charge(walk, open, text, close) ? open + text + close : "";
     }
     case "box": {
       const tag = allowedTag(node.tag, "div", walk);
@@ -291,10 +343,13 @@ function nodeHtml(node: PasteNode, depth: number, walk: Walk): string {
         ...fontDeclaration(node.font, walk),
         ...(node.images ? imageDeclarations(node.images, walk) : []),
       ];
+      const open = `<${tag} data-agent-native-layer-name="${escapeHtml(node.label)}"${styleAttribute(node.style, extra, walk)}>`;
+      const close = `</${tag}>`;
+      if (!charge(walk, open, close)) return "";
       const inner = node.children
         .map((child) => nodeHtml(child, depth + 1, walk))
         .join("");
-      return `<${tag} data-agent-native-layer-name="${escapeHtml(node.label)}"${styleAttribute(node.style, extra, walk)}>${inner}</${tag}>`;
+      return `${open}${inner}${close}`;
     }
   }
 }
@@ -315,15 +370,19 @@ export function emitFrames(
   warnings: PasteWarnings,
 ): EmittedPaste {
   const imageUrls = new Set<string>();
+  let remaining: number = PASTE_LIMITS.totalBytes;
   const layers = frames.map((frame) => {
     const walk: Walk = {
       warnings,
       fonts: new Set(),
       imageUrls,
       nodes: 0,
+      bytes: 0,
+      byteLimit: Math.max(0, Math.min(PASTE_LIMITS.frameBytes, remaining)),
       truncated: false,
     };
     const body = nodeHtml(frame.root, 0, walk);
+    remaining -= walk.bytes;
     return {
       title: frame.title,
       width: size(frame.width),

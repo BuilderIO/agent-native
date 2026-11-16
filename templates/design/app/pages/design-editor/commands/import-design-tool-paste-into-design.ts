@@ -15,6 +15,7 @@ import { hostRemoteImages } from "@/lib/design-tool-paste/images";
 import {
   frameFilename,
   framePositions,
+  packBatches,
 } from "@/lib/design-tool-paste/placement";
 import { describePasteWarnings } from "@/lib/design-tool-paste/warnings";
 import { browserImportId } from "@/lib/fig-client-import";
@@ -62,8 +63,18 @@ export function designToolPasteFailureTitle(
 /** A failure whose message is already localized and safe to show as it is. */
 class ShownPasteError extends Error {}
 
-// import-design-source accepts at most this many frames per request.
+// import-design-source accepts at most this many frames per request, and its
+// body limit is 4 MiB; frames are packed under both, leaving headroom for JSON.
 const MAX_FRAMES_PER_REQUEST = 32;
+const MAX_REQUEST_BYTES = 3 * 1024 * 1024;
+const FRAME_REQUEST_OVERHEAD = 2048;
+
+/** The batch import failed and clearing it failed too, so screens may remain. */
+class PartialImportError extends Error {
+  constructor(readonly original: unknown) {
+    super("could not remove a partial import");
+  }
+}
 
 /**
  * Creates one screen per frame through the batch import: each request is one
@@ -95,17 +106,18 @@ async function createScreens(
       clientImportBatchId: batchId,
       ...body,
     }) as Promise<{ error?: string; files?: Array<{ id: string }> }>;
+  const batches = packBatches(
+    layers,
+    (layer) => utf8ByteLength(layer.content) + FRAME_REQUEST_OVERHEAD,
+    MAX_FRAMES_PER_REQUEST,
+    MAX_REQUEST_BYTES,
+  );
   try {
-    for (
-      let start = 0;
-      start < layers.length;
-      start += MAX_FRAMES_PER_REQUEST
-    ) {
-      const chunk = layers.slice(start, start + MAX_FRAMES_PER_REQUEST);
+    for (const [batchIndex, batch] of batches.entries()) {
       const result = await importFrames({
-        clientImportFinalBatch: start + MAX_FRAMES_PER_REQUEST >= layers.length,
-        frames: chunk.map((layer, offset) => {
-          const position = positions[start + offset];
+        clientImportFinalBatch: batchIndex === batches.length - 1,
+        frames: batch.map(({ item: layer, index }) => {
+          const position = positions[index];
           return {
             content: layer.content,
             originalName: frameFilename(layer.title),
@@ -113,7 +125,7 @@ async function createScreens(
             ...(layer.width !== null ? { frameWidth: layer.width } : {}),
             ...(layer.height !== null ? { frameHeight: layer.height } : {}),
             ...(position ? { frameX: position.x, frameY: position.y } : {}),
-            clientImportId: `${batchId}:${start + offset}`,
+            clientImportId: `${batchId}:${index}`,
           };
         }),
       });
@@ -121,12 +133,19 @@ async function createScreens(
       ids.push(...(result.files ?? []).map((file) => file.id));
     }
   } catch (error) {
-    await importFrames({ abort: true }).catch((abortError: unknown) => {
+    let cleared = true;
+    try {
+      const aborted = await importFrames({ abort: true });
+      if (aborted.error) cleared = false;
+    } catch (abortError) {
+      cleared = false;
       console.error(
         "[design-paste] could not remove a partial import:",
         abortError,
       );
-    });
+    }
+    // Earlier batches may have committed; the user has to hear that.
+    if (!cleared) throw new PartialImportError(error);
     throw error;
   }
   return ids;
@@ -248,6 +267,11 @@ export async function runImportDesignToolPasteIntoDesign(
     await settleHostedImages("delete");
     if (error instanceof ShownPasteError) {
       failed(error.message);
+      return;
+    }
+    if (error instanceof PartialImportError) {
+      console.error(`[design-paste] ${tool} import failed:`, error.original);
+      failed(t("designEditor.import.pastePartialImport"));
       return;
     }
     console.error(`[design-paste] ${tool} import failed:`, error);

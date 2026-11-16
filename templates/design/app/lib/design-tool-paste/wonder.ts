@@ -208,6 +208,11 @@ function boundsViolation(roots: unknown): string | null {
         ? (node as { children?: unknown }).children
         : undefined;
     if (Array.isArray(children)) {
+      // Counted before they are queued, so one huge child array cannot
+      // allocate millions of entries ahead of the limit.
+      if (count + stack.length + children.length > PASTE_LIMITS.nodes) {
+        return `more than ${PASTE_LIMITS.nodes} layers`;
+      }
       for (const child of children) stack.push([child, depth + 1]);
     }
   }

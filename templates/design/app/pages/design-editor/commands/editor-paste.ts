@@ -125,9 +125,13 @@ export async function runDesignToolPaste(
   source: DesignToolSource,
   args: Pick<
     EditorPasteArgs,
-    "designToolPasteBusyRef" | "importDesignToolPaste" | "t"
+    "canEditDesign" | "designToolPasteBusyRef" | "importDesignToolPaste" | "t"
   >,
 ): Promise<void> {
+  if (!args.canEditDesign) {
+    toast.info(args.t("designEditor.import.pasteNeedsEditAccess"));
+    return;
+  }
   if (args.designToolPasteBusyRef.current) {
     toast.info(args.t("designEditor.import.figUploadProcessing"));
     return;
@@ -193,13 +197,12 @@ export function runEditorPaste(
   const designTool = findDesignToolPaste(event.clipboardData);
   if (designTool) {
     event.preventDefault();
-    if (canEditDesign) {
-      void runDesignToolPaste(designTool, {
-        designToolPasteBusyRef,
-        importDesignToolPaste,
-        t,
-      });
-    }
+    void runDesignToolPaste(designTool, {
+      canEditDesign,
+      designToolPasteBusyRef,
+      importDesignToolPaste,
+      t,
+    });
     return;
   }
   if (isDesignHotkeyEditableTarget(event.target)) return;

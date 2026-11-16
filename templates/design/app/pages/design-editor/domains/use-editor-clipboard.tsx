@@ -1056,13 +1056,12 @@ export function useEditorClipboard({
       }
       const designTool = findDesignToolPasteHtml(content || html);
       if (designTool) {
-        if (canEditDesign) {
-          void runDesignToolPaste(designTool, {
-            designToolPasteBusyRef,
-            importDesignToolPaste,
-            t,
-          });
-        }
+        void runDesignToolPaste(designTool, {
+          canEditDesign,
+          designToolPasteBusyRef,
+          importDesignToolPaste,
+          t,
+        });
         return;
       }
       if (

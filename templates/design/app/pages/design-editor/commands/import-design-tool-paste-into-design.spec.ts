@@ -418,6 +418,54 @@ describe("a design-tool paste with no screen to land in", () => {
     );
   });
 
+  it("packs frames under the request byte limit, not just the frame count", async () => {
+    callAction.mockImplementation(async (_name: string, body: unknown) => ({
+      files: (body as { frames: unknown[] }).frames.map((_, i) => ({
+        id: `f${i}`,
+      })),
+    }));
+    const big = (title: string) => ({
+      ...layer(title),
+      content: `<!DOCTYPE html><html><body>${"x".repeat(1_700_000)}</body></html>`,
+    });
+    const { args } = setup(noTarget);
+    await runImportDesignToolPasteIntoDesign(
+      args,
+      paste({ layers: [big("A"), big("B"), big("C")] }),
+    );
+    const batches = callAction.mock.calls.map(
+      ([, body]) =>
+        (body as { frames: Array<{ clientImportId: string }> }).frames.length,
+    );
+    expect(batches).toEqual([1, 1, 1]);
+    const finals = callAction.mock.calls.map(
+      ([, body]) =>
+        (body as { clientImportFinalBatch: boolean }).clientImportFinalBatch,
+    );
+    expect(finals).toEqual([false, false, true]);
+  });
+
+  it("tells the user screens may remain when clearing the batch also fails", async () => {
+    callAction
+      .mockResolvedValueOnce({ files: [{ id: "f1" }] })
+      .mockRejectedValueOnce(new Error("second batch failed"))
+      .mockRejectedValueOnce(new Error("abort failed"));
+    const big = (title: string) => ({
+      ...layer(title),
+      content: `<!DOCTYPE html><html><body>${"x".repeat(1_700_000)}</body></html>`,
+    });
+    const { args, navigate } = setup(noTarget);
+    await runImportDesignToolPasteIntoDesign(
+      args,
+      paste({ layers: [big("A"), big("B")] }),
+    );
+    expect(navigate).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.import.errors.wonderPasteFailed",
+      { description: "designEditor.import.pastePartialImport" },
+    );
+  });
+
   it("keeps the overview route when no created file has an id", async () => {
     callAction.mockResolvedValue({ files: [] });
     const { args, navigate } = setup(noTarget);
@@ -472,7 +520,9 @@ describe("a design-tool paste with no screen to land in", () => {
   });
 
   it("names the failing tool when screens cannot be created", async () => {
-    callAction.mockResolvedValue({ error: "name_taken" });
+    callAction
+      .mockResolvedValueOnce({ error: "name_taken" })
+      .mockResolvedValueOnce({ deletedFileIds: [] });
     const { args } = setup(noTarget);
     await runImportDesignToolPasteIntoDesign(args, paste({ tool: "paper" }));
     expect(toastError).toHaveBeenCalledWith(

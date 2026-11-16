@@ -1685,6 +1685,9 @@ export default {
         "Images pasted as placeholders: {{count}}. {{tool}} does not copy image data.",
       pasteImagesLinked:
         "Images still linked to {{tool}}: {{count}}. They could not be copied into your file storage.",
+      pasteNeedsEditAccess: "You need edit access to paste into this design.",
+      pastePartialImport:
+        "The paste failed and some screens may have been created. Check your screens.",
       figmaSuccess: "Figma paste imported",
       htmlSuccess: "HTML imported",
       uploadSuccess: "File imported",

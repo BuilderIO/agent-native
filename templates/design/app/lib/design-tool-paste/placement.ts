@@ -39,6 +39,36 @@ export function framePositions(
   });
 }
 
+/**
+ * Groups items into requests that stay under both the item and byte limits,
+ * keeping each item's original index. An item over the byte limit goes alone.
+ */
+export function packBatches<T>(
+  items: readonly T[],
+  sizeOf: (item: T) => number,
+  maxItems: number,
+  maxBytes: number,
+): Array<Array<{ item: T; index: number }>> {
+  const batches: Array<Array<{ item: T; index: number }>> = [];
+  let current: Array<{ item: T; index: number }> = [];
+  let bytes = 0;
+  items.forEach((item, index) => {
+    const size = sizeOf(item);
+    if (
+      current.length > 0 &&
+      (current.length >= maxItems || bytes + size > maxBytes)
+    ) {
+      batches.push(current);
+      current = [];
+      bytes = 0;
+    }
+    current.push({ item, index });
+    bytes += size;
+  });
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
 const MAX_FILENAME_LENGTH = 80;
 
 /**

@@ -1776,6 +1776,10 @@ export default {
         "Images collées comme espaces réservés : {{count}}. {{tool}} ne copie pas les données d’image.",
       pasteImagesLinked:
         "Images toujours liées à {{tool}} : {{count}}. Elles n’ont pas pu être copiées dans votre stockage de fichiers.",
+      pasteNeedsEditAccess:
+        "Vous avez besoin d’un accès en modification pour coller dans ce design.",
+      pastePartialImport:
+        "Le collage a échoué et certains écrans ont peut-être été créés. Vérifiez vos écrans.",
       figmaSuccess: "Collage Figma importé",
       htmlSuccess: "HTML importé",
       uploadSuccess: "Fichier importé",

@@ -6,6 +6,7 @@ import type { DesignToolRead } from "./index";
 import {
   firstIssue,
   hexColor,
+  inexact,
   lookup,
   PASTE_LIMITS,
   uniqueWarnings,
@@ -131,6 +132,14 @@ const Payload = z
     {
       message: `more than ${PASTE_LIMITS.nodes} layers`,
     },
+  )
+  .refine(
+    (payload) =>
+      Object.values(payload.parentToChildrenIndex).reduce(
+        (total, children) => total + children.length,
+        0,
+      ) <= PASTE_LIMITS.nodes,
+    { message: "more child references than the paste limit" },
   )
   .refine(
     (payload) =>
@@ -293,7 +302,18 @@ interface Walk {
   placeholders: number;
 }
 
-function toNode(id: string, walk: Walk, isRoot: boolean): PasteNode | null {
+function toNode(
+  id: string,
+  walk: Walk,
+  isRoot: boolean,
+  depth = 0,
+): PasteNode | null {
+  if (depth > PASTE_LIMITS.depth) {
+    walk.warnings.push(
+      inexact(`Stopped at ${PASTE_LIMITS.depth} nested layers.`),
+    );
+    return null;
+  }
   const node = lookup(walk.payload.nodes, id);
   if (!node || walk.seen.has(id)) return null;
   walk.seen.add(id);

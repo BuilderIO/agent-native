@@ -1735,6 +1735,8 @@ export default {
         "الصور الملصقة كعناصر نائبة: {{count}}. لا ينسخ {{tool}} بيانات الصور.",
       pasteImagesLinked:
         "الصور التي ما زالت مرتبطة بـ {{tool}}: {{count}}. تعذّر نسخها إلى مساحة تخزين ملفاتك.",
+      pasteNeedsEditAccess: "تحتاج إلى صلاحية التعديل للصق في هذا التصميم.",
+      pastePartialImport: "فشل اللصق وربما أُنشئت بعض الشاشات. تحقق من شاشاتك.",
       figmaSuccess: "تم استيراد لصق Figma",
       htmlSuccess: "تم استيراد HTML",
       uploadSuccess: "تم استيراد الملف",

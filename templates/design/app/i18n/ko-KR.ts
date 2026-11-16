@@ -1751,6 +1751,9 @@ export default {
         "자리 표시자로 붙여넣은 이미지: {{count}}. {{tool}}은(는) 이미지 데이터를 복사하지 않습니다.",
       pasteImagesLinked:
         "{{tool}}에 계속 연결된 이미지: {{count}}. 파일 저장소로 복사할 수 없었습니다.",
+      pasteNeedsEditAccess: "이 디자인에 붙여넣으려면 편집 권한이 필요합니다.",
+      pastePartialImport:
+        "붙여넣기에 실패했으며 일부 화면이 생성되었을 수 있습니다. 화면을 확인해 주세요.",
       figmaSuccess: "Figma 붙여넣기를 가져왔습니다",
       htmlSuccess: "HTML을 가져왔습니다",
       uploadSuccess: "파일을 가져왔습니다",

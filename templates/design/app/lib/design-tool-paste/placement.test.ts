@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { frameFilename, framePositions } from "./placement";
+import { frameFilename, framePositions, packBatches } from "./placement";
 
 const layer = (
   origin: { x: number; y: number } | null,
@@ -76,5 +76,36 @@ describe("frameFilename", () => {
     const name = frameFilename(`${"word ".repeat(40)}end`);
     expect(name.length).toBeLessThanOrEqual(80);
     expect(name.endsWith("-")).toBe(false);
+  });
+});
+
+describe("packBatches", () => {
+  const size = (n: number) => n;
+
+  it("keeps each item's original index across batches", () => {
+    const batches = packBatches([5, 5, 5, 5], size, 10, 10);
+    expect(batches.map((batch) => batch.map(({ index }) => index))).toEqual([
+      [0, 1],
+      [2, 3],
+    ]);
+  });
+
+  it("splits on the item limit and on the byte limit", () => {
+    expect(packBatches([1, 1, 1], size, 2, 100).map((b) => b.length)).toEqual([
+      2, 1,
+    ]);
+    expect(packBatches([6, 6, 6], size, 10, 10).map((b) => b.length)).toEqual([
+      1, 1, 1,
+    ]);
+  });
+
+  it("sends an item over the byte limit on its own", () => {
+    expect(packBatches([1, 50, 1], size, 10, 10).map((b) => b.length)).toEqual([
+      1, 1, 1,
+    ]);
+  });
+
+  it("makes no batches for no items", () => {
+    expect(packBatches([], size, 10, 10)).toEqual([]);
   });
 });

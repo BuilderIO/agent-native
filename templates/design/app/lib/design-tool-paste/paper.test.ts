@@ -198,6 +198,52 @@ describe("Paper clipboard hardening", () => {
     });
   });
 
+  it("stops a very deep tree at the depth limit instead of overflowing the stack", async () => {
+    const depth = 400;
+    const nodes: Record<string, unknown> = {};
+    const index: Record<string, string[]> = {};
+    for (let i = 0; i < depth; i += 1) {
+      nodes[`d${i}`] = {
+        id: `d${i}`,
+        label: `d${i}`,
+        component: "Frame",
+        styles: {},
+      };
+      if (i + 1 < depth) index[`d${i}`] = [`d${i + 1}`];
+    }
+    const deep = JSON.stringify({
+      topLevelNodeIds: ["d0"],
+      nodes,
+      parentToChildrenIndex: index,
+    });
+    const read = await readDesignToolPasteHtml(
+      html.replace(JSON.stringify(embed), deep),
+    );
+    expect(read.status).toBe("ok");
+    expect(read.status === "ok" && read.warnings).toContainEqual({
+      kind: "inexact",
+      detail: "Stopped at 200 nested layers.",
+    });
+  });
+
+  it("refuses more child references than the paste limit, duplicates included", async () => {
+    const crowded = JSON.stringify({
+      ...embed,
+      parentToChildrenIndex: {
+        ...embed.parentToChildrenIndex,
+        [ROOT]: Array.from({ length: 50_001 }, () => "temp_A_1"),
+      },
+    });
+    const read = await readDesignToolPasteHtml(
+      html.replace(JSON.stringify(embed), crowded),
+    );
+    expect(read).toMatchObject({
+      status: "invalid",
+      tool: "paper",
+      reason: expect.stringContaining("child references"),
+    });
+  });
+
   it("warns instead of silently flattening an unknown layer type", async () => {
     const read = await readDesignToolPasteHtml(
       html.replace('"component":"Rectangle"', '"component":"Ellipse"'),

@@ -1,3 +1,4 @@
+import { MAX_FIG_FRAME_HTML_BYTES } from "@shared/import-limits";
 import type { ZodError } from "zod";
 
 /**
@@ -13,6 +14,15 @@ export const PASTE_LIMITS = {
   nodes: 50_000,
   depth: 200,
   frames: 50,
+  /**
+   * Emitted HTML per frame. Under the import action's limit by a margin for
+   * the document wrapper, font links and the server's own annotations.
+   */
+  frameBytes: MAX_FIG_FRAME_HTML_BYTES - 256 * 1024,
+  /** Emitted HTML across all frames of one paste. */
+  totalBytes: 16 * 1024 * 1024,
+  /** Remote images hosted for one paste; the rest keep their link. */
+  hostedImages: 100,
 } as const;
 
 /**

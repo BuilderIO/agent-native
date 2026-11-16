@@ -1,6 +1,7 @@
 import type { FigmaPasteLayer } from "@shared/figma-paste-plan";
 
 import { escapeHtml } from "./emit";
+import { PASTE_LIMITS } from "./ir";
 
 const MAX_CONCURRENT_UPLOADS = 6;
 
@@ -30,8 +31,11 @@ export async function hostRemoteImages(
 ): Promise<HostedImages> {
   const hosted = new Map<string, string>();
   const keys: string[] = [];
-  let reason: string | null = null;
-  const queue = urls.map((url, index) => ({
+  let reason: string | null =
+    urls.length > PASTE_LIMITS.hostedImages
+      ? `only the first ${PASTE_LIMITS.hostedImages} images are copied`
+      : null;
+  const queue = urls.slice(0, PASTE_LIMITS.hostedImages).map((url, index) => ({
     url,
     key: `${keyPrefix}${index}`,
   }));

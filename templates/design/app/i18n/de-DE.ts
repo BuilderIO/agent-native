@@ -1779,6 +1779,10 @@ export default {
         "Als Platzhalter eingefügte Bilder: {{count}}. {{tool}} kopiert keine Bilddaten.",
       pasteImagesLinked:
         "Weiterhin mit {{tool}} verknüpfte Bilder: {{count}}. Sie konnten nicht in deinen Dateispeicher kopiert werden.",
+      pasteNeedsEditAccess:
+        "Zum Einfügen in dieses Design brauchst du Bearbeitungszugriff.",
+      pastePartialImport:
+        "Das Einfügen ist fehlgeschlagen, und einige Screens wurden möglicherweise erstellt. Prüfe deine Screens.",
       figmaSuccess: "Figma-Einfügung importiert",
       htmlSuccess: "HTML importiert",
       uploadSuccess: "Datei importiert",

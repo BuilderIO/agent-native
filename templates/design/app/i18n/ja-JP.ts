@@ -1771,6 +1771,9 @@ export default {
         "プレースホルダーとして貼り付けた画像: {{count}}。{{tool}}は画像データをコピーしません。",
       pasteImagesLinked:
         "{{tool}}にリンクされたままの画像: {{count}}。ファイルストレージにコピーできませんでした。",
+      pasteNeedsEditAccess: "このデザインに貼り付けるには編集権限が必要です。",
+      pastePartialImport:
+        "貼り付けに失敗しました。一部の画面が作成された可能性があります。画面を確認してください。",
       figmaSuccess: "Figma 貼り付けをインポートしました",
       htmlSuccess: "HTML をインポートしました",
       uploadSuccess: "ファイルをインポートしました",

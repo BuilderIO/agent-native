@@ -1773,6 +1773,10 @@ export default {
         "Imágenes pegadas como marcadores de posición: {{count}}. {{tool}} no copia los datos de imagen.",
       pasteImagesLinked:
         "Imágenes aún vinculadas a {{tool}}: {{count}}. No se pudieron copiar a tu almacenamiento de archivos.",
+      pasteNeedsEditAccess:
+        "Necesitas acceso de edición para pegar en este diseño.",
+      pastePartialImport:
+        "El pegado falló y es posible que se hayan creado algunas pantallas. Revisa tus pantallas.",
       figmaSuccess: "Pegado de Figma importado",
       htmlSuccess: "HTML importado",
       uploadSuccess: "Archivo importado",

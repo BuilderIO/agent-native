@@ -1743,6 +1743,9 @@ export default {
         "प्लेसहोल्डर के रूप में पेस्ट की गई छवियाँ: {{count}}। {{tool}} छवि डेटा कॉपी नहीं करता।",
       pasteImagesLinked:
         "अब भी {{tool}} से जुड़ी छवियाँ: {{count}}। उन्हें आपके फ़ाइल स्टोरेज में कॉपी नहीं किया जा सका।",
+      pasteNeedsEditAccess: "इस डिज़ाइन में पेस्ट करने के लिए संपादन की अनुमति चाहिए।",
+      pastePartialImport:
+        "पेस्ट विफल रहा और कुछ स्क्रीन बन गई हो सकती हैं। अपनी स्क्रीन जाँचें।",
       figmaSuccess: "Figma paste import हो गया",
       htmlSuccess: "HTML import हो गया",
       uploadSuccess: "File import हो गई",

@@ -1765,6 +1765,10 @@ export default {
         "Imagens coladas como marcadores: {{count}}. O {{tool}} não copia dados de imagem.",
       pasteImagesLinked:
         "Imagens ainda vinculadas ao {{tool}}: {{count}}. Não foi possível copiá-las para o seu armazenamento de arquivos.",
+      pasteNeedsEditAccess:
+        "Você precisa de acesso de edição para colar neste design.",
+      pastePartialImport:
+        "A colagem falhou e algumas telas podem ter sido criadas. Confira suas telas.",
       figmaSuccess: "Colagem do Figma importada",
       htmlSuccess: "HTML importado",
       uploadSuccess: "Arquivo importado",
