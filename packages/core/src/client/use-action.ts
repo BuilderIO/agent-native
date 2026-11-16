@@ -1975,17 +1975,22 @@ export function useActionQuery<
     if (interactive)
       finishActionQueryOpening(queryClient.getQueryCache().get<R>(queryHash));
   });
+  // Held in a ref so the wrapper keeps one identity across renders and never reads a result field.
+  const latestResult = useRef(result);
+  latestResult.current = result;
+  const foregroundRefetchFn = useCallback(
+    (refetchOptions?: Parameters<typeof result.refetch>[0]) =>
+      refetchActionQueryInForeground(
+        queryClient.getQueryCache().get<R>(queryHash),
+        () => latestResult.current.refetch(refetchOptions),
+      ),
+    [queryClient, queryHash],
+  );
   if (!interactive || !foregroundRefetch) return result;
   // Proxy, not spread: React Query tracks which result fields a component reads.
   return new Proxy(result, {
     get: (target, key) =>
-      key === "refetch"
-        ? (refetchOptions?: Parameters<typeof result.refetch>[0]) =>
-            refetchActionQueryInForeground(
-              queryClient.getQueryCache().get<R>(queryHash),
-              () => target.refetch(refetchOptions),
-            )
-        : Reflect.get(target, key),
+      key === "refetch" ? foregroundRefetchFn : Reflect.get(target, key),
   });
 }
 

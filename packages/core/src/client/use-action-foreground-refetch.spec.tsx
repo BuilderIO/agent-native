@@ -6,7 +6,7 @@ import {
   QueryClient,
   QueryClientProvider,
 } from "@tanstack/react-query";
-import React, { act } from "react";
+import React, { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -137,6 +137,32 @@ it("an opted-in explicit refetch of a foreground query is interactive; a backgro
     expect(retried).toHaveLength(1);
     expect(retried[0]?.headers.get(INTERACTIVE)).toBe(interactive ? "1" : null);
   }
+});
+
+it("keeps one refetch identity across renders for an opted-in query", async () => {
+  const seen = new Set<unknown>();
+  let rerender: () => void = () => undefined;
+  function Probe() {
+    const [, setTick] = useState(0);
+    rerender = () => setTick((tick) => tick + 1);
+    const query = useActionQuery(
+      "synthetic-retry",
+      { stable: true },
+      { interactive: true, foregroundRefetch: true },
+    );
+    seen.add(query.refetch);
+    return null;
+  }
+  await render(<Probe />);
+  await vi.waitFor(() =>
+    expect(
+      client.getQueryState(["action", "synthetic-retry", { stable: true }])
+        ?.status,
+    ).toBe("success"),
+  );
+  await act(async () => rerender());
+  await act(async () => rerender());
+  expect(seen.size).toBe(1);
 });
 
 it("an explicit refetch stays background unless the query opts in", async () => {
