@@ -504,6 +504,11 @@ function normalizeUrl(url: string): string {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw badRequest("Monitor URL must use http or https");
   }
+  if (parsed.username || parsed.password) {
+    throw badRequest(
+      "Monitor URL must not include a username or password; send credentials in a request header instead",
+    );
+  }
   return normalized;
 }
 
@@ -1505,11 +1510,32 @@ export async function saveMonitor(
   const updatedAt = nowIso();
   const id = input.id || randomUUID();
 
+  const existing = input.id ? await getMonitor(input.id, ctx) : null;
+  if (input.id && !existing) {
+    throw Object.assign(new Error("Monitor not found"), { statusCode: 404 });
+  }
+  // Callers other than the app UI never see headers, bodies or webhook URLs,
+  // so leaving one out of an update keeps the stored value; null or {} clears.
+  const stored = existing?.monitor;
+
   const name = normalizeName(input.name);
-  const url = normalizeUrl(input.url);
+  // A URL saved before credentials were refused stays editable as long as the
+  // URL itself is unchanged.
+  const url =
+    stored && (input.url ?? "").trim() === stored.url
+      ? stored.url
+      : normalizeUrl(input.url);
   const method = normalizeMethod(input.method);
-  const requestHeaders = normalizeHeaders(input.requestHeaders);
-  const requestBody = input.requestBody?.trim() ? input.requestBody : null;
+  const requestHeaders =
+    stored && input.requestHeaders === undefined
+      ? stored.requestHeaders
+      : normalizeHeaders(input.requestHeaders);
+  const requestBody =
+    stored && input.requestBody === undefined
+      ? stored.requestBody
+      : input.requestBody?.trim()
+        ? input.requestBody
+        : null;
   if (requestBody && byteLength(requestBody) > MAX_REQUEST_BODY_BYTES) {
     throw badRequest(
       `Monitor request bodies are limited to ${MAX_REQUEST_BODY_BYTES} bytes`,
@@ -1533,11 +1559,14 @@ export async function saveMonitor(
   const severity = input.severity === "warning" ? "warning" : "critical";
   const emailRecipients = normalizeEmailRecipients(input.emailRecipients);
   const channels = normalizeChannels(input.channels, emailRecipients);
-  const slackWebhookUrl = normalizeOptionalHttpUrl(
-    input.slackWebhookUrl,
-    "Slack webhook URL",
-  );
-  const webhookUrl = normalizeOptionalHttpUrl(input.webhookUrl, "Webhook URL");
+  const slackWebhookUrl =
+    stored && input.slackWebhookUrl === undefined
+      ? stored.slackWebhookUrl
+      : normalizeOptionalHttpUrl(input.slackWebhookUrl, "Slack webhook URL");
+  const webhookUrl =
+    stored && input.webhookUrl === undefined
+      ? stored.webhookUrl
+      : normalizeOptionalHttpUrl(input.webhookUrl, "Webhook URL");
   const cooldownMinutes = clampInt(input.cooldownMinutes ?? 15, 0, 24 * 60, 15);
   const enabled = input.enabled ?? true;
 
@@ -1562,10 +1591,6 @@ export async function saveMonitor(
   };
 
   if (input.id) {
-    const existing = await getMonitor(input.id, ctx);
-    if (!existing) {
-      throw Object.assign(new Error("Monitor not found"), { statusCode: 404 });
-    }
     await db
       .update(schema.monitors)
       .set({ ...shared, updatedAt })

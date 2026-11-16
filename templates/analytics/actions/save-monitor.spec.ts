@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const saveMonitorLib = vi.fn(
   (input: { id?: string; name: string; url: string }) => ({
     id: input.id ?? "monitor-1",
+    requestHeaders: {},
+    requestBody: null,
+    slackWebhookUrl: null,
+    webhookUrl: null,
     ...input,
   }),
 );
@@ -94,6 +98,50 @@ describe("save-monitor action name defaulting", () => {
       id: "monitor-1",
       monitorAppUrl:
         "https://analytics.agent-native.test/monitoring?view=uptime&monitor=monitor-1",
+    });
+  });
+});
+
+describe("save-monitor result", () => {
+  const saved = {
+    id: "monitor-1",
+    name: "Prod",
+    url: "https://api.example.com/h?api_key=key-fixture",
+    requestHeaders: { Authorization: "Bearer bearer-fixture" },
+    requestBody: "body-fixture",
+    slackWebhookUrl: "https://hooks.example.test/services/slack-fixture",
+    webhookUrl: null,
+  };
+
+  it("gives the agent no stored header values, body or webhook URL", async () => {
+    saveMonitorLib.mockReturnValueOnce(saved as never);
+    const result = await saveMonitorAction.run(
+      { url: saved.url } as never,
+      { caller: "tool" } as never,
+    );
+
+    const text = JSON.stringify(result);
+    for (const secret of [
+      "key-fixture",
+      "bearer-fixture",
+      "body-fixture",
+      "slack-fixture",
+    ]) {
+      expect(text).not.toContain(secret);
+    }
+    expect(result).toMatchObject({ id: "monitor-1", hasAuthHeader: true });
+  });
+
+  it("keeps the stored values for the app UI", async () => {
+    saveMonitorLib.mockReturnValueOnce(saved as never);
+    const result = await saveMonitorAction.run(
+      { url: saved.url } as never,
+      { caller: "frontend" } as never,
+    );
+
+    expect(result).toMatchObject({
+      requestHeaders: saved.requestHeaders,
+      requestBody: "body-fixture",
     });
   });
 });
