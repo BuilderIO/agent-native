@@ -2444,6 +2444,7 @@ export class AgentKitClient implements AgentKitController {
   private readonly threadLoads = new Map<ThreadId, Promise<AgentThreadState>>();
   private readonly missingThreadStates = new WeakSet<AgentThreadState>();
   private readonly threadLeaseCounts = new Map<ThreadId, number>();
+  private readonly promotionRetries = new Set<string>();
   private readonly queuedMessageOverrides = new Map<
     ThreadId,
     QueuedMessageOverride
@@ -5650,7 +5651,7 @@ export class AgentKitClient implements AgentKitController {
       }
     }
     const queueOverride = this.queuedMessageOverrides.get(threadId);
-    if (queueOverride) {
+    if (queueOverride && !hasActiveAgentRuns(settledThread)) {
       const remaining = queueOverride.messages
         .map(settleRow)
         .filter((message) => message.delivery !== "steering");
@@ -7382,8 +7383,10 @@ export class AgentKitClient implements AgentKitController {
     const messageIdsBeforeSend = new Set(
       this.getThread(threadId).messages.map((message) => message.id),
     );
+    const retryKey = `${threadId}\u0000${queued.text}`;
     try {
       await this.sendMessage(input);
+      this.promotionRetries.delete(retryKey);
     } catch (error) {
       // The row was removed before the send; a refusal before any transcript
       // message exists must not lose the user's text and attachments. Once
@@ -7404,8 +7407,12 @@ export class AgentKitClient implements AgentKitController {
           () => false,
         );
         if (requeued) {
-          // The thread is idle, so nothing else would deliver the restored row.
-          this.scheduleQueuePromotionIfIdle(threadId);
+          // The thread is idle, so nothing else would deliver the restored row. One automatic retry:
+          // a failure that persists leaves the row queued for the user instead of looping.
+          if (!this.promotionRetries.has(retryKey)) {
+            this.promotionRetries.add(retryKey);
+            this.scheduleQueuePromotionIfIdle(threadId);
+          }
         } else {
           // Requeueing failed too: keep the row, and tell the override the
           // row is wanted again, or the next snapshot filters it out as removed.
