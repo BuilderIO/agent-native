@@ -33,7 +33,7 @@ const layer = (title: string) => ({
   title,
   width: 100,
   height: 80,
-  content: `<!DOCTYPE html><html><head></head><body><div data-name="${title}"></div></body></html>`,
+  content: `<!DOCTYPE html><html><head></head><body><div data-agent-native-layer-name="${title}"></div></body></html>`,
   wrapsLooseNode: false,
   origin: { x: 0, y: 0 },
   sourceOffset: null,
@@ -81,6 +81,9 @@ function setup(
   );
   const navigate = vi.fn();
   const showPastedImagesNotice = vi.fn();
+  const settleImage = vi.fn(
+    async (_key: string, _mode: "release" | "delete") => {},
+  );
   const args: ImportDesignToolPasteArgs = {
     boardFileId: "board",
     canEditDesign: true,
@@ -92,11 +95,18 @@ function setup(
     navigate,
     queryClient: { invalidateQueries: vi.fn() } as never,
     resolvePasteScene: () => scene,
+    settleImage,
     showPastedImagesNotice,
     t: (key) => key,
     ...over,
   };
-  return { args, insertPasteLayers, navigate, showPastedImagesNotice };
+  return {
+    args,
+    insertPasteLayers,
+    navigate,
+    settleImage,
+    showPastedImagesNotice,
+  };
 }
 
 beforeEach(() => {
@@ -201,6 +211,52 @@ describe("a design-tool paste that links remote images", () => {
     );
   });
 
+  it("releases the upload receipts once the layers are inserted", async () => {
+    const keys: string[] = [];
+    const { args, settleImage } = setup(insideScreen, {
+      mirrorImage: async (_url, key) => {
+        keys.push(key);
+        return "https://files.test/a.png";
+      },
+    });
+    await runImportDesignToolPasteIntoDesign(args, withImage());
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toMatch(/:image:0$/);
+    expect(settleImage).toHaveBeenCalledWith(keys[0], "release");
+    expect(settleImage).not.toHaveBeenCalledWith(keys[0], "delete");
+  });
+
+  it("deletes the hosted uploads when the layers cannot be inserted", async () => {
+    const { args, settleImage } = setup(insideScreen, {
+      mirrorImage: async () => "https://files.test/a.png",
+      insertPasteLayers: () => false,
+    });
+    await runImportDesignToolPasteIntoDesign(args, withImage());
+    expect(settleImage).toHaveBeenCalledWith(
+      expect.stringMatching(/:image:0$/),
+      "delete",
+    );
+    expect(settleImage).not.toHaveBeenCalledWith(expect.anything(), "release");
+  });
+
+  it("scopes the screen batch to the same id as the upload receipts", async () => {
+    callAction.mockResolvedValueOnce({ files: [{ id: "f1" }] });
+    const keys: string[] = [];
+    const { args, settleImage } = setup(noTarget, {
+      mirrorImage: async (_url, key) => {
+        keys.push(key);
+        return "https://files.test/a.png";
+      },
+    });
+    await runImportDesignToolPasteIntoDesign(args, withImage());
+    const [, body] = callAction.mock.calls[0] ?? [];
+    const batchId = (body as { clientImportBatchId: string })
+      .clientImportBatchId;
+    expect(keys[0]?.startsWith(`${batchId}:`)).toBe(true);
+    // The server commits receipts under the batch id on the final batch.
+    expect(settleImage).not.toHaveBeenCalled();
+  });
+
   it("still inserts when hosting fails and logs the reason", async () => {
     const { args, insertPasteLayers } = setup(insideScreen, {
       mirrorImage: async () => {
@@ -230,7 +286,7 @@ describe("a design-tool paste of loose layers onto the board", () => {
           {
             ...layer("Loose"),
             content:
-              '<!DOCTYPE html><html><head></head><body><div><div data-name="Loose"></div></div></body></html>',
+              '<!DOCTYPE html><html><head></head><body><div><div data-agent-native-layer-name="Loose"></div></div></body></html>',
             wrapsLooseNode: true,
           },
         ],
@@ -386,6 +442,33 @@ describe("a design-tool paste with no screen to land in", () => {
       count: 2,
       fileIds: ["f1", "f2"],
     });
+  });
+
+  it("asks the server to clear the batch even when no response arrived", async () => {
+    callAction
+      .mockRejectedValueOnce(new Error("network dropped"))
+      .mockResolvedValueOnce({ deletedFileIds: [] });
+    const { args } = setup(noTarget);
+    await runImportDesignToolPasteIntoDesign(args, paste());
+    expect(callAction).toHaveBeenCalledTimes(2);
+    expect(callAction.mock.calls[1]?.[1]).toMatchObject({ abort: true });
+  });
+
+  it("refuses a frame the server would reject before creating anything", async () => {
+    const { args } = setup(noTarget);
+    const huge = {
+      ...layer("Huge"),
+      content: `<!DOCTYPE html><html><body>${"x".repeat(2 * 1024 * 1024)}</body></html>`,
+    };
+    await runImportDesignToolPasteIntoDesign(
+      args,
+      paste({ layers: [layer("Small"), huge] }),
+    );
+    expect(callAction).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.import.errors.wonderPasteFailed",
+      { description: "common.genericError" },
+    );
   });
 
   it("names the failing tool when screens cannot be created", async () => {

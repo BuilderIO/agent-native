@@ -926,16 +926,27 @@ export function useEditorClipboard({
   const designToolPasteBusyRef = useRef(false);
 
   const mirrorPastedImage = useCallback(
-    async (url: string): Promise<string> => {
+    async (url: string, key: string): Promise<string> => {
       if (!canUploadDesignMedia) throw new Error("file storage is not set up");
-      const result = (await callAction("upload-image", { url })) as {
-        url?: string;
-        error?: string;
-      };
+      const result = (await callAction("upload-image", {
+        url,
+        idempotencyKey: key,
+      })) as { url?: string; error?: string };
       if (!result.url) throw new Error(result.error ?? "the upload failed");
       return result.url;
     },
     [canUploadDesignMedia],
+  );
+
+  const settlePastedImage = useCallback(
+    async (key: string, mode: "release" | "delete"): Promise<void> => {
+      const result = (await callAction("upload-image", {
+        idempotencyKey: key,
+        cleanup: mode,
+      })) as { error?: string };
+      if (result.error) throw new Error(result.error);
+    },
+    [],
   );
 
   const importDesignToolPaste = useCallback(
@@ -947,6 +958,7 @@ export function useEditorClipboard({
           id,
           insertPasteLayers: insertFigmaPasteLayers,
           mirrorImage: mirrorPastedImage,
+          settleImage: settlePastedImage,
           navigate,
           queryClient,
           resolvePasteScene: resolveFigmaPasteSceneForEditor,
@@ -961,6 +973,7 @@ export function useEditorClipboard({
       id,
       insertFigmaPasteLayers,
       mirrorPastedImage,
+      settlePastedImage,
       navigate,
       queryClient,
       resolveFigmaPasteSceneForEditor,

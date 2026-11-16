@@ -32,6 +32,16 @@ describe("framePositions", () => {
     ]);
   });
 
+  it("places a frame with no origin past the ones that have one", () => {
+    const positions = framePositions(
+      [layer(null, 50), layer({ x: 500, y: 700 }, 300)],
+      { x: 10, y: 20 },
+    );
+    expect(positions[1]).toEqual({ x: 10, y: 20 });
+    // Past the known frame's right edge (10 + 300) plus the gap, never on it.
+    expect(positions[0]).toEqual({ x: 406, y: 20 });
+  });
+
   it("lays frames with no source position out left to right", () => {
     expect(
       framePositions([layer(null, 100), layer(null, 200)], { x: 0, y: 0 }),

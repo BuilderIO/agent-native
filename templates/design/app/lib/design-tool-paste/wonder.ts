@@ -1,3 +1,4 @@
+import { hasWonderClipboardMarker } from "@shared/design-tool-markers";
 import { z } from "zod";
 
 import { emitFrames } from "./emit";
@@ -6,6 +7,7 @@ import {
   firstIssue,
   hexColor,
   inexact,
+  PASTE_LIMITS,
   uniqueWarnings,
   type PasteFont,
   type PasteFrame,
@@ -167,7 +169,7 @@ const Clipboard = z.object({
 });
 
 export function detectWonder(html: string): boolean {
-  return COMMENT.test(html);
+  return hasWonderClipboardMarker(html);
 }
 
 type WonderParse =
@@ -181,16 +183,57 @@ function decodeBase64Json(encoded: string): unknown {
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 
+/**
+ * Walks the raw tree iteratively, so a payload built to be huge or deeply
+ * nested is refused before validation and conversion recurse over it.
+ */
+function boundsViolation(roots: unknown): string | null {
+  if (!Array.isArray(roots)) return null;
+  if (roots.length > PASTE_LIMITS.frames) {
+    return `more than ${PASTE_LIMITS.frames} frames`;
+  }
+  const stack: Array<[unknown, number]> = roots.map((root) => [root, 1]);
+  let count = 0;
+  for (let item = stack.pop(); item; item = stack.pop()) {
+    const [node, depth] = item;
+    count += 1;
+    if (count > PASTE_LIMITS.nodes) {
+      return `more than ${PASTE_LIMITS.nodes} layers`;
+    }
+    if (depth > PASTE_LIMITS.depth) {
+      return `layers nested more than ${PASTE_LIMITS.depth} deep`;
+    }
+    const children =
+      typeof node === "object" && node !== null
+        ? (node as { children?: unknown }).children
+        : undefined;
+    if (Array.isArray(children)) {
+      for (const child of children) stack.push([child, depth + 1]);
+    }
+  }
+  return null;
+}
+
 function parseWonder(html: string): WonderParse {
   const encoded = COMMENT.exec(html)?.[1];
-  if (!encoded)
-    return { status: "invalid", reason: "clipboard data is missing" };
+  if (!encoded) {
+    return { status: "invalid", reason: "clipboard data is unreadable" };
+  }
+  if (encoded.length > PASTE_LIMITS.encodedChars) {
+    return { status: "invalid", reason: "clipboard data is too large" };
+  }
   let json: unknown;
   try {
     json = decodeBase64Json(encoded);
   } catch {
     return { status: "invalid", reason: "clipboard data is not valid JSON" };
   }
+  const roots =
+    typeof json === "object" && json !== null
+      ? (json as { payload?: { nodes?: unknown } }).payload?.nodes
+      : undefined;
+  const violation = boundsViolation(roots);
+  if (violation) return { status: "invalid", reason: violation };
   const parsed = Clipboard.safeParse(json);
   if (!parsed.success) {
     return { status: "invalid", reason: firstIssue(parsed.error) };

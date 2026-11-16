@@ -1,3 +1,4 @@
+import { hasPaperClipboardMarker } from "@shared/design-tool-markers";
 import { z } from "zod";
 
 import { emitFrames } from "./emit";
@@ -6,6 +7,7 @@ import {
   firstIssue,
   hexColor,
   lookup,
+  PASTE_LIMITS,
   uniqueWarnings,
   type PasteFrame,
   type PasteNode,
@@ -21,7 +23,6 @@ import {
  */
 const EMBED_OPEN = 'data-embed="';
 const EMBED_CLOSE = '"></paper-paste-start>';
-const MAX_NODES = 100_000;
 
 const Color = z.object({
   value: z.object({
@@ -118,16 +119,19 @@ type Node = z.infer<typeof Node>;
 
 const Payload = z
   .object({
-    topLevelNodeIds: z.array(z.string()).min(1),
+    topLevelNodeIds: z.array(z.string()).min(1).max(PASTE_LIMITS.frames),
     nodes: z.record(z.string(), Node),
     parentToChildrenIndex: z.record(z.string(), z.array(z.string())),
     positions: z
       .record(z.string(), z.tuple([z.number(), z.number()]))
       .default({}),
   })
-  .refine((payload) => Object.keys(payload.nodes).length <= MAX_NODES, {
-    message: `more than ${MAX_NODES} layers`,
-  })
+  .refine(
+    (payload) => Object.keys(payload.nodes).length <= PASTE_LIMITS.nodes,
+    {
+      message: `more than ${PASTE_LIMITS.nodes} layers`,
+    },
+  )
   .refine(
     (payload) =>
       payload.topLevelNodeIds.every((id) => lookup(payload.nodes, id)),
@@ -146,7 +150,7 @@ const KNOWN_COMPONENTS = new Set([
 ]);
 
 export function detectPaper(html: string): boolean {
-  return html.includes("<paper-paste-start");
+  return hasPaperClipboardMarker(html);
 }
 
 type PaperParse =
@@ -158,6 +162,9 @@ function parsePaper(html: string): PaperParse {
   const end = html.lastIndexOf(EMBED_CLOSE);
   if (start < 0 || end <= start) {
     return { status: "invalid", reason: "embed is truncated" };
+  }
+  if (end - start > PASTE_LIMITS.encodedChars) {
+    return { status: "invalid", reason: "embed is too large" };
   }
   let json: unknown;
   try {

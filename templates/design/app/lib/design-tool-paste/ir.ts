@@ -6,6 +6,15 @@ import type { ZodError } from "zod";
  * emitter owns HTML, escaping and safety. Colors are CSS hex by this point.
  */
 
+/** Bounds enforced on an untrusted copy before any large or recursive work. */
+export const PASTE_LIMITS = {
+  /** Characters of encoded clipboard data a copy may carry. */
+  encodedChars: 32 * 1024 * 1024,
+  nodes: 50_000,
+  depth: 200,
+  frames: 50,
+} as const;
+
 /**
  * Something a converter could not carry over. Structured so the editor can
  * localize it; `detail` and `reason` are technical text for the console only.

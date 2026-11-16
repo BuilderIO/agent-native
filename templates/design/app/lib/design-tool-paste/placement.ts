@@ -13,16 +13,27 @@ export function framePositions(
   placeAt: { x: number; y: number } | null,
 ): Array<{ x: number; y: number } | null> {
   if (!placeAt) return layers.map(() => null);
-  const origins = layers.map((layer) => layer.origin);
-  const known = origins.filter((origin) => origin !== null);
-  const minX = Math.min(...known.map((origin) => origin.x));
-  const minY = Math.min(...known.map((origin) => origin.y));
-  let stackedX = placeAt.x;
-  return layers.map((layer, index) => {
-    const origin = origins[index];
-    const position = origin
-      ? { x: placeAt.x + origin.x - minX, y: placeAt.y + origin.y - minY }
-      : { x: stackedX, y: placeAt.y };
+  const known = layers.flatMap((layer) =>
+    layer.origin ? [{ origin: layer.origin, width: layer.width ?? 0 }] : [],
+  );
+  const minX = Math.min(...known.map(({ origin }) => origin.x));
+  const minY = Math.min(...known.map(({ origin }) => origin.y));
+  // Frames without a source position start past the right edge of the ones
+  // that have one, so they cannot land on top of them.
+  let stackedX =
+    known.length > 0
+      ? placeAt.x +
+        Math.max(...known.map(({ origin, width }) => origin.x - minX + width)) +
+        FRAME_GAP
+      : placeAt.x;
+  return layers.map((layer) => {
+    if (layer.origin) {
+      return {
+        x: placeAt.x + layer.origin.x - minX,
+        y: placeAt.y + layer.origin.y - minY,
+      };
+    }
+    const position = { x: stackedX, y: placeAt.y };
     stackedX += (layer.width ?? 0) + FRAME_GAP;
     return position;
   });

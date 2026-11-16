@@ -1,10 +1,11 @@
+import { hasFigmaClipboardMarkers } from "@shared/design-tool-markers";
 import { base64ToBytes } from "@shared/fig-bytes";
 import {
   decodeFigmaClipboardFrames,
+  MAX_CLIPBOARD_BUFFER_BYTES,
   type DecodedFigmaClipboard,
 } from "@shared/figma-clipboard-decode";
 
-import { hasFigmaClipboardPayload } from "@/lib/design-import";
 import { extractFigmaBuffer } from "@/lib/figma-clipboard";
 
 import type { FigmaPasteWorkerResponse } from "./figma-paste.worker";
@@ -15,6 +16,9 @@ import { inexact } from "./ir";
 const UNRESOLVED_IMAGE_WARNING =
   /could not be loaded without a Figma access token/;
 const WORKER_TIMEOUT_MS = 30_000;
+// Checked before decoding: base64 expands the bytes by a third, and decoding
+// allocates them all before the decoder's own cap applies.
+const MAX_ENCODED_CHARS = Math.ceil(MAX_CLIPBOARD_BUFFER_BYTES / 3) * 4 + 8;
 
 function wrapDocument(html: string): string {
   return /<html[\s>]/i.test(html)
@@ -69,7 +73,7 @@ function decode(bytes: Uint8Array): Promise<DecodedFigmaClipboard> {
 }
 
 export function detectFigma(html: string): boolean {
-  return hasFigmaClipboardPayload(html);
+  return hasFigmaClipboardMarkers(html);
 }
 
 /** Figma's clipboard carries the whole scene as a `fig-kiwi` buffer. */
@@ -77,6 +81,13 @@ export async function readFigma(html: string): Promise<DesignToolRead> {
   const base64 = extractFigmaBuffer(html);
   if (!base64) {
     return { status: "invalid", tool: "figma", reason: "no scene buffer" };
+  }
+  if (base64.length > MAX_ENCODED_CHARS) {
+    return {
+      status: "invalid",
+      tool: "figma",
+      reason: "the copy is larger than the paste limit",
+    };
   }
   try {
     const decoded = await decode(base64ToBytes(base64));

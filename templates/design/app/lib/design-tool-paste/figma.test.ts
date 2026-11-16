@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const decode = vi.fn();
 vi.mock("@shared/figma-clipboard-decode", () => ({
+  MAX_CLIPBOARD_BUFFER_BYTES: 8 * 1024 * 1024,
   decodeFigmaClipboardFrames: (bytes: Uint8Array) => decode(bytes),
 }));
 
@@ -89,6 +90,19 @@ describe("Figma clipboard", () => {
       tool: "figma",
       reason: "Figma clipboard has too many nodes",
     });
+  });
+
+  it("refuses an oversized buffer before decoding it", async () => {
+    const huge = "A".repeat(Math.ceil((8 * 1024 * 1024) / 3) * 4 + 16);
+    const read = await readDesignToolPasteHtml(
+      `<!--(figmeta)ZXhhbXBsZQ==(/figmeta)--><!--(figma)${huge}(/figma)-->`,
+    );
+    expect(read).toEqual({
+      status: "invalid",
+      tool: "figma",
+      reason: "the copy is larger than the paste limit",
+    });
+    expect(decode).not.toHaveBeenCalled();
   });
 
   it("reports a copy with metadata but no scene buffer as invalid", async () => {

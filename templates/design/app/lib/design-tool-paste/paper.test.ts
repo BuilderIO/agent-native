@@ -168,6 +168,36 @@ describe("Paper clipboard hardening", () => {
     });
   });
 
+  it("drops an SVG paint that points at an external resource", async () => {
+    const hostile = html.replace(
+      '"viewBox":"0 0 38 22"',
+      '"viewBox":"0 0 38 22","fill":"url(https://example.test/paint.svg#p)"',
+    );
+    const read = await readDesignToolPasteHtml(hostile);
+    expect(read.status === "ok" && read.layers[0]?.content).not.toContain(
+      "example.test",
+    );
+    expect(read.status === "ok" && read.warnings).toContainEqual({
+      kind: "inexact",
+      detail: "Skipped an unsafe fill attribute value.",
+    });
+  });
+
+  it("refuses a copy with more frames than the paste limit", async () => {
+    const many = JSON.stringify({
+      ...embed,
+      topLevelNodeIds: Array.from({ length: 51 }, () => ROOT),
+    });
+    const read = await readDesignToolPasteHtml(
+      html.replace(JSON.stringify(embed), many),
+    );
+    expect(read).toMatchObject({
+      status: "invalid",
+      tool: "paper",
+      reason: expect.stringContaining("topLevelNodeIds"),
+    });
+  });
+
   it("warns instead of silently flattening an unknown layer type", async () => {
     const read = await readDesignToolPasteHtml(
       html.replace('"component":"Rectangle"', '"component":"Ellipse"'),
@@ -221,7 +251,11 @@ describe("Paper conversion", () => {
   });
 
   it("renders text runs escaped, with color and font from styleMeta", async () => {
-    const text = must(root.querySelector<HTMLElement>('[data-name="Heading"]'));
+    const text = must(
+      root.querySelector<HTMLElement>(
+        '[data-agent-native-layer-name="Heading"]',
+      ),
+    );
     expect(text.textContent).toBe("Hello <world> again");
     expect(text.style.fontFamily).toContain("IBM Plex Mono");
     expect(text.style.color).not.toBe("");
@@ -229,7 +263,9 @@ describe("Paper conversion", () => {
   });
 
   it("keeps unitless properties unitless and adds shadow and border", async () => {
-    const card = must(root.querySelector<HTMLElement>('[data-name="Card"]'));
+    const card = must(
+      root.querySelector<HTMLElement>('[data-agent-native-layer-name="Card"]'),
+    );
     expect(card.style.flexShrink).toBe("0");
     expect(card.style.boxShadow).toContain("2px");
     expect(layer.content).toContain("#00000033");

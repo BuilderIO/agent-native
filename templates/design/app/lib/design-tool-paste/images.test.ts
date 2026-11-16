@@ -32,7 +32,12 @@ describe("hostRemoteImages", () => {
     const mirror = vi.fn(
       async (url: string) => `https://files.test/${url.length}`,
     );
-    const result = await hostRemoteImages(layers, imageUrls, mirror);
+    const result = await hostRemoteImages(
+      layers,
+      imageUrls,
+      mirror,
+      "p:image:",
+    );
     expect(mirror).toHaveBeenCalledTimes(2);
     expect(result.kept).toBe(0);
     expect(result.layers[0]?.content).not.toContain("cdn.example.test");
@@ -41,26 +46,54 @@ describe("hostRemoteImages", () => {
 
   it("hosts what it can and counts the rest as kept", async () => {
     const { layers, imageUrls } = emitFrames([frame(A, B)], []);
-    const result = await hostRemoteImages(layers, imageUrls, async (url) => {
-      if (url === A) return "https://files.test/a";
-      throw new Error("storage rejected it");
-    });
+    const result = await hostRemoteImages(
+      layers,
+      imageUrls,
+      async (url) => {
+        if (url === A) return "https://files.test/a";
+        throw new Error("storage rejected it");
+      },
+      "p:image:",
+    );
     expect(result.kept).toBe(1);
     expect(result.reason).toBe("storage rejected it");
+    expect(result.keys).toEqual(["p:image:0"]);
     expect(result.layers[0]?.content).toContain("https://files.test/a");
     expect(result.layers[0]?.content).toContain(B);
   });
 
   it("keeps the layers untouched when nothing can be hosted", async () => {
     const { layers, imageUrls } = emitFrames([frame(A)], []);
-    const result = await hostRemoteImages(layers, imageUrls, async () => {
-      throw new Error("file storage is not set up");
-    });
+    const result = await hostRemoteImages(
+      layers,
+      imageUrls,
+      async () => {
+        throw new Error("file storage is not set up");
+      },
+      "p:image:",
+    );
     expect(result).toEqual({
       layers,
       kept: 1,
       reason: "file storage is not set up",
+      keys: [],
     });
+  });
+
+  it("gives each upload a receipt key so it can be released or deleted", async () => {
+    const { layers, imageUrls } = emitFrames([frame(A, B)], []);
+    const mirror = vi.fn(async (url: string, key: string) => `${url}#${key}`);
+    const result = await hostRemoteImages(
+      layers,
+      imageUrls,
+      mirror,
+      "run:image:",
+    );
+    expect(mirror.mock.calls.map(([, key]) => key).sort()).toEqual([
+      "run:image:0",
+      "run:image:1",
+    ]);
+    expect(result.keys.sort()).toEqual(["run:image:0", "run:image:1"]);
   });
 
   it("hosts each distinct image once and never exceeds six at a time", async () => {
@@ -81,7 +114,7 @@ describe("hostRemoteImages", () => {
       active -= 1;
       return `${url}.hosted`;
     });
-    await hostRemoteImages(layers, imageUrls, mirror);
+    await hostRemoteImages(layers, imageUrls, mirror, "p:image:");
     expect(mirror).toHaveBeenCalledTimes(9);
     expect(peak).toBeLessThanOrEqual(6);
   });

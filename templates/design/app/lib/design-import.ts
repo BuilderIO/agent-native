@@ -1,4 +1,5 @@
 import { actionErrorMessage } from "@agent-native/core/client/hooks";
+import { hasFigmaClipboardMarkers } from "@shared/design-tool-markers";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import {
   STORED_SCREEN_FRAME_TYPES,
@@ -134,31 +135,7 @@ export const VISUAL_EDIT_CONNECT_COMMAND =
 export const VISUAL_EDIT_INSTALL_COMMAND =
   "npx @agent-native/core@latest skills add visual-edit";
 
-// Runs on every paste in the paste event, so each scan below is one linear
-// pass: a lazy `[\s\S]*?` from every opening marker is quadratic on a large
-// page that mentions "(figma)" without ever closing it.
-export function hasFigmaClipboardPayload(value: string): boolean {
-  const open = /\((?:figmeta|figma)\)/i.exec(value);
-  if (open) {
-    const close = /\(\/(?:figmeta|figma)\)/gi;
-    close.lastIndex = open.index + open[0].length;
-    if (close.test(value)) return true;
-  }
-  const attribute = /\sdata-(?:metadata|buffer)=(["'])/gi;
-  for (
-    let match = attribute.exec(value);
-    match;
-    match = attribute.exec(value)
-  ) {
-    const start = attribute.lastIndex;
-    const end = value.indexOf(match[0].endsWith("'") ? "'" : '"', start);
-    const slice = value.slice(start, end < 0 ? undefined : end);
-    if (/\((?:figmeta|figma)\)/i.test(slice)) return true;
-    if (end < 0) break;
-    attribute.lastIndex = end + 1;
-  }
-  return false;
-}
+export const hasFigmaClipboardPayload = hasFigmaClipboardMarkers;
 
 export function looksLikeStandaloneHtml(value: string): boolean {
   return /<(html|body|main|section|div|article|header|footer|button|img)\b/i.test(

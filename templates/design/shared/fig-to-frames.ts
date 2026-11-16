@@ -16,6 +16,7 @@ import {
   type FigNode,
   type SkippedRenderFrame,
 } from "./fig-file-to-html.js";
+import { MAX_FIG_FRAME_HTML_BYTES } from "./import-limits.js";
 import type { ImportedDesignFile } from "./imported-design-file.js";
 
 const MAX_FRAME_HTML_BYTES = 4 * 1024 * 1024;
@@ -24,7 +25,7 @@ const YIELD_AFTER_MS = 16;
 export function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
-export const MAX_FIG_FRAME_HTML_BYTES = 2 * 1024 * 1024;
+export { MAX_FIG_FRAME_HTML_BYTES };
 const IMAGE_UPLOAD_CONCURRENCY = 4;
 const MAX_DURABLE_IMAGE_URL_CHARS = 2_048;
 

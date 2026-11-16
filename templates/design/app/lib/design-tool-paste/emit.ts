@@ -2,6 +2,7 @@ import type { FigmaPasteLayer } from "@shared/figma-paste-plan";
 
 import {
   inexact,
+  PASTE_LIMITS,
   type PasteFont,
   type PasteFrame,
   type PasteImage,
@@ -9,9 +10,6 @@ import {
   type PasteStyle,
   type PasteWarnings,
 } from "./ir";
-
-const MAX_DEPTH = 200;
-const MAX_NODES = 100_000;
 
 // Names, tags and attributes outside these sets are dropped with a warning:
 // the payload is another app's data, so only what Design renders is allowed.
@@ -193,6 +191,17 @@ function attributes(attrs: Record<string, string>, walk: Walk): string {
         );
         return "";
       }
+      // Escaping does not stop SVG resolving `fill="url(https://...)"`, so a
+      // value gets the same grammar and no-resource rule as a style value.
+      if (
+        value !== "" &&
+        !(VALUE_GRAMMAR.test(value) && !RESOURCE_FUNCTION.test(value))
+      ) {
+        walk.warnings.push(
+          inexact(`Skipped an unsafe ${name} attribute value.`),
+        );
+        return "";
+      }
       return ` ${name}="${escapeHtml(value)}"`;
     })
     .join("");
@@ -244,12 +253,12 @@ function allowedTag(tag: string | undefined, fallback: string, walk: Walk) {
 
 function nodeHtml(node: PasteNode, depth: number, walk: Walk): string {
   if (walk.truncated) return "";
-  if (depth > MAX_DEPTH || walk.nodes >= MAX_NODES) {
+  if (depth > PASTE_LIMITS.depth || walk.nodes >= PASTE_LIMITS.nodes) {
     walk.warnings.push(
       inexact(
-        depth > MAX_DEPTH
-          ? `Stopped at ${MAX_DEPTH} nested layers.`
-          : `Stopped after ${MAX_NODES} layers.`,
+        depth > PASTE_LIMITS.depth
+          ? `Stopped at ${PASTE_LIMITS.depth} nested layers.`
+          : `Stopped after ${PASTE_LIMITS.nodes} layers.`,
       ),
     );
     walk.truncated = true;
@@ -270,11 +279,11 @@ function nodeHtml(node: PasteNode, depth: number, walk: Walk): string {
       const inner = node.children
         .map((child) => nodeHtml(child, depth + 1, walk))
         .join("");
-      return `<svg data-name="${escapeHtml(node.label)}"${attributes(node.attrs, walk)}${styleAttribute(node.style, [], walk)} xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
+      return `<svg data-agent-native-layer-name="${escapeHtml(node.label)}"${attributes(node.attrs, walk)}${styleAttribute(node.style, [], walk)} xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
     }
     case "text": {
       const tag = allowedTag(node.tag, "span", walk);
-      return `<${tag} data-name="${escapeHtml(node.label)}"${styleAttribute(node.style, fontDeclaration(node.font, walk), walk)}>${escapeHtml(node.text)}</${tag}>`;
+      return `<${tag} data-agent-native-layer-name="${escapeHtml(node.label)}"${styleAttribute(node.style, fontDeclaration(node.font, walk), walk)}>${escapeHtml(node.text)}</${tag}>`;
     }
     case "box": {
       const tag = allowedTag(node.tag, "div", walk);
@@ -285,7 +294,7 @@ function nodeHtml(node: PasteNode, depth: number, walk: Walk): string {
       const inner = node.children
         .map((child) => nodeHtml(child, depth + 1, walk))
         .join("");
-      return `<${tag} data-name="${escapeHtml(node.label)}"${styleAttribute(node.style, extra, walk)}>${inner}</${tag}>`;
+      return `<${tag} data-agent-native-layer-name="${escapeHtml(node.label)}"${styleAttribute(node.style, extra, walk)}>${inner}</${tag}>`;
     }
   }
 }

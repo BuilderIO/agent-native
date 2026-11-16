@@ -5,11 +5,14 @@ import {
   guidKey,
   renderHtmlTemplates,
 } from "./fig-file-to-html.js";
+import { MAX_FIG_FRAME_HTML_BYTES } from "./import-limits.js";
 
 export const MAX_CLIPBOARD_BUFFER_BYTES = 8 * 1024 * 1024;
 const MAX_CLIPBOARD_NODES = 75_000;
 const MAX_CLIPBOARD_FRAMES = 50;
-const MAX_FRAME_HTML_BYTES = 4 * 1024 * 1024;
+// A frame over the import action's limit would fail the whole paste after the
+// decode, so it is rejected here instead.
+const MAX_FRAME_HTML_BYTES = MAX_FIG_FRAME_HTML_BYTES;
 const MAX_TOTAL_HTML_BYTES = 24 * 1024 * 1024;
 
 export interface DecodedClipboardFrame {

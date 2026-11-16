@@ -152,7 +152,9 @@ function layerContent(result: { layers: Array<{ content: string }> }): string {
 
 function part(content: string, name: string): HTMLElement {
   return must(
-    rootOf(content).querySelector<HTMLElement>(`[data-name="${name}"]`),
+    rootOf(content).querySelector<HTMLElement>(
+      `[data-agent-native-layer-name="${name}"]`,
+    ),
   );
 }
 
@@ -179,8 +181,11 @@ describe("Wonder clipboard", () => {
   it("reports absent for other clipboards and invalid for damaged ones", async () => {
     expect((await readDesignToolPasteHtml("<p>hi</p>")).status).toBe("absent");
     expect(
-      (await readDesignToolPasteHtml("<!-- wonder-clipboard:%%%% -->")).status,
-    ).toBe("absent");
+      await readDesignToolPasteHtml("<!-- wonder-clipboard:%%%% -->"),
+    ).toMatchObject({
+      status: "invalid",
+      tool: "wonder",
+    });
     expect(
       await readDesignToolPasteHtml("<!-- wonder-clipboard:AAAA -->"),
     ).toMatchObject({ status: "invalid", tool: "wonder" });
@@ -285,6 +290,48 @@ describe("Wonder clipboard", () => {
       status: "invalid",
       tool: "wonder",
     });
+  });
+
+  it("refuses a deeply nested copy before converting it", async () => {
+    let deep: unknown = node({ label: "leaf", style: {} });
+    for (let i = 0; i < 250; i += 1) {
+      deep = node({ label: `n${i}`, style: {} }, [deep]);
+    }
+    expect(await readDesignToolPasteHtml(clipboard(deep))).toEqual({
+      status: "invalid",
+      tool: "wonder",
+      reason: "layers nested more than 200 deep",
+    });
+  });
+
+  it("refuses a copy with more layers than the paste limit", async () => {
+    const children = Array.from({ length: 50_001 }, () =>
+      node({ label: "x", style: {} }),
+    );
+    expect(
+      await readDesignToolPasteHtml(
+        clipboard(node({ label: "Root", style: {} }, children)),
+      ),
+    ).toMatchObject({
+      status: "invalid",
+      tool: "wonder",
+      reason: "more than 50000 layers",
+    });
+  });
+
+  it("refuses a copy with more frames than the paste limit", async () => {
+    const roots = Array.from({ length: 51 }, () =>
+      node({ label: "x", style: {} }),
+    );
+    const json = JSON.stringify({ version: "1", payload: { nodes: roots } });
+    const base64 = btoa(
+      Array.from(new TextEncoder().encode(json), (b) =>
+        String.fromCharCode(b),
+      ).join(""),
+    );
+    expect(
+      await readDesignToolPasteHtml(`<!-- wonder-clipboard:${base64} -->`),
+    ).toMatchObject({ status: "invalid", reason: "more than 50 frames" });
   });
 
   it("reports what it could not carry over rather than hiding it", async () => {

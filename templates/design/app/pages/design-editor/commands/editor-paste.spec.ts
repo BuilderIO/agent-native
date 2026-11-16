@@ -4,6 +4,7 @@ import type { RefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@shared/figma-clipboard-decode", () => ({
+  MAX_CLIPBOARD_BUFFER_BYTES: 8 * 1024 * 1024,
   decodeFigmaClipboardFrames: () => ({
     frames: [
       {

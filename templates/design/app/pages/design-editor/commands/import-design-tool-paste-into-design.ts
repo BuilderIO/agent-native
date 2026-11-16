@@ -1,9 +1,11 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { utf8ByteLength } from "@shared/fig-bytes";
 import type {
   FigmaPasteLayer,
   FigmaPasteScene,
 } from "@shared/figma-paste-plan";
 import { planFigmaPaste } from "@shared/figma-paste-plan";
+import { MAX_FIG_FRAME_HTML_BYTES } from "@shared/import-limits";
 import type { QueryClient } from "@tanstack/react-query";
 import type { NavigateFunction } from "react-router";
 import { toast } from "sonner";
@@ -31,8 +33,13 @@ export interface ImportDesignToolPasteArgs {
   ) => boolean;
   navigate: NavigateFunction;
   queryClient: QueryClient;
-  /** Hosts a remote image in our storage, or throws with the reason it could not. */
-  mirrorImage: (url: string) => Promise<string>;
+  /**
+   * Hosts a remote image in our storage under a receipt `key`, or throws with
+   * the reason it could not.
+   */
+  mirrorImage: (url: string, key: string) => Promise<string>;
+  /** Keeps (release) or removes (delete) an upload made by `mirrorImage`. */
+  settleImage: (key: string, mode: "release" | "delete") => Promise<void>;
   resolvePasteScene: () => FigmaPasteScene;
   showPastedImagesNotice: (args: { count: number; fileIds: string[] }) => void;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -60,15 +67,25 @@ const MAX_FRAMES_PER_REQUEST = 32;
 
 /**
  * Creates one screen per frame through the batch import: each request is one
- * transaction, retries are idempotent, and a later failure removes the screens
- * an earlier request already created.
+ * transaction, retries are idempotent, and a failure removes whatever the
+ * batch created, including when the response that reported it was lost. The
+ * batch id also scopes the receipts of images hosted for this paste, so the
+ * server commits them with the final batch and deletes them on abort.
  */
 async function createScreens(
   designId: string,
   layers: FigmaPasteLayer[],
   placeAt: { x: number; y: number } | null,
+  batchId: string,
 ): Promise<string[]> {
-  const batchId = browserImportId();
+  for (const layer of layers) {
+    // The server refuses an oversized frame after the earlier ones are made.
+    if (utf8ByteLength(layer.content) > MAX_FIG_FRAME_HTML_BYTES) {
+      throw new Error(
+        `frame "${layer.title}" is over the ${MAX_FIG_FRAME_HTML_BYTES} byte import limit`,
+      );
+    }
+  }
   const positions = framePositions(layers, placeAt);
   const ids: string[] = [];
   const importFrames = (body: Record<string, unknown>) =>
@@ -104,14 +121,12 @@ async function createScreens(
       ids.push(...(result.files ?? []).map((file) => file.id));
     }
   } catch (error) {
-    if (ids.length > 0) {
-      await importFrames({ abort: true }).catch((abortError: unknown) => {
-        console.error(
-          "[design-paste] could not remove a partial import:",
-          abortError,
-        );
-      });
-    }
+    await importFrames({ abort: true }).catch((abortError: unknown) => {
+      console.error(
+        "[design-paste] could not remove a partial import:",
+        abortError,
+      );
+    });
     throw error;
   }
   return ids;
@@ -127,6 +142,7 @@ export async function runImportDesignToolPasteIntoDesign(
     navigate,
     queryClient,
     resolvePasteScene,
+    settleImage,
     showPastedImagesNotice,
     t,
   }: ImportDesignToolPasteArgs,
@@ -155,6 +171,19 @@ export async function runImportDesignToolPasteIntoDesign(
       description: lines.join(" "),
     });
   };
+  const pasteId = browserImportId();
+  let hostedKeys: string[] = [];
+  const settleHostedImages = (mode: "release" | "delete") =>
+    Promise.all(
+      hostedKeys.map((key) =>
+        settleImage(key, mode).catch((settleError: unknown) => {
+          console.error(
+            `[design-paste] could not ${mode} an upload:`,
+            settleError,
+          );
+        }),
+      ),
+    );
   try {
     let layers = pastedLayers;
     if (remoteImages.length > 0) {
@@ -166,8 +195,10 @@ export async function runImportDesignToolPasteIntoDesign(
           pastedLayers,
           remoteImages,
           mirrorImage,
+          `${pasteId}:image:`,
         );
         layers = hosted.layers;
+        hostedKeys = hosted.keys;
         if (hosted.kept > 0) {
           warnings.push({
             kind: "images-linked",
@@ -181,7 +212,7 @@ export async function runImportDesignToolPasteIntoDesign(
     }
     const plan = planFigmaPaste(layers, resolvePasteScene());
     if (plan.kind === "screens") {
-      const createdIds = await createScreens(id, layers, plan.placeAt);
+      const createdIds = await createScreens(id, layers, plan.placeAt, pasteId);
       await queryClient.invalidateQueries({ queryKey: ["action"] });
       const overviewPath = `/design/${id}?editorView=overview`;
       const firstFileId = createdIds[0];
@@ -211,8 +242,10 @@ export async function runImportDesignToolPasteIntoDesign(
     ) {
       throw new ShownPasteError(t("designEditor.toasts.primitiveInsertFailed"));
     }
+    await settleHostedImages("release");
     announceOutcome([fileId]);
   } catch (error) {
+    await settleHostedImages("delete");
     if (error instanceof ShownPasteError) {
       failed(error.message);
       return;
