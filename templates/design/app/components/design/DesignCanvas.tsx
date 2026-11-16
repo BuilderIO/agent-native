@@ -3733,7 +3733,16 @@ export function DesignCanvas({
     // links bridges and none of the editor's, so entering or leaving Interact
     // loads a new document rather than asking one to stand down.
     if (interactMode) {
-      const tweakCapability = crypto.randomUUID();
+      const capabilityBytes = new Uint8Array(16);
+      if (typeof crypto?.getRandomValues !== "function") {
+        throw new Error(
+          "Secure randomness is required for Interact capability.",
+        );
+      }
+      crypto.getRandomValues(capabilityBytes);
+      const tweakCapability = Array.from(capabilityBytes, (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("");
       interactTweakCapabilityRef.current = tweakCapability;
       const interactDocument = buildInteractPreviewDocument({
         content: iframeRenderContent,
