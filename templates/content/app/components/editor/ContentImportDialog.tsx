@@ -854,8 +854,11 @@ function ImportPageRow({
       <IconFileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <div className="grid min-w-0 flex-1 gap-1">
         <div className="flex min-w-0 items-baseline gap-2">
-          <span className="truncate text-sm font-medium">{page.title}</span>
-          <span className="ms-auto shrink-0 truncate text-xs text-muted-foreground">
+          {/* A Notion export's paths are long, so the path gives way first. */}
+          <span className="max-w-[65%] shrink-0 truncate text-sm font-medium">
+            {page.title}
+          </span>
+          <span className="ms-auto min-w-0 truncate text-xs text-muted-foreground">
             {page.sourceName}
           </span>
         </div>
