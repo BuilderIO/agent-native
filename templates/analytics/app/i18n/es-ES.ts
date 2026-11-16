@@ -2166,6 +2166,10 @@ export default {
     flagsUnavailable: "Los indicadores de funciones no están disponibles",
     flagsUnreachable:
       "No se pudo acceder al directorio del espacio de trabajo. Inténtalo de nuevo cuando esté disponible.",
+    verifiedFlagChangeOrg:
+      "Verificado a las {{time}}: {{flag}} en {{app}} está configurado como {{availability}} para esta organización.",
+    verifiedFlagChangeGlobal:
+      "Verificado a las {{time}}: {{flag}} en {{app}} está configurado como {{availability}} para todas las organizaciones.",
     flagsEmpty: "Ninguna aplicación informó indicadores",
     flagsEmptyDetail:
       "Los indicadores registrados aparecerán aquí cuando las aplicaciones conectadas estén listas.",

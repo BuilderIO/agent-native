@@ -1211,6 +1211,10 @@ export default {
     loading: "載入中",
     flagsUnavailable: "功能旗標無法使用",
     flagsUnreachable: "無法連線到工作區目錄。連線可用後請重試。",
+    verifiedFlagChangeOrg:
+      "已於 {{time}} 驗證：{{app}} 中的 {{flag}} 已為此組織設定為 {{availability}}。",
+    verifiedFlagChangeGlobal:
+      "已於 {{time}} 驗證：{{app}} 中的 {{flag}} 已為所有組織設定為 {{availability}}。",
     flagsEmpty: "沒有應用程式回報功能旗標",
     flagsEmptyDetail: "連線的應用程式準備就緒後，已註冊旗標會顯示在這裡。",
     flagsNotReady: "此應用程式為 {{status}}，不會假定旗標已關閉。",
