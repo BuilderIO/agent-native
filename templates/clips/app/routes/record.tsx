@@ -130,6 +130,7 @@ import {
   decideRecordingVisibilityAction,
   isMobileRecorderRuntime,
 } from "@/lib/recording-visibility";
+import { reportFailedFetchWrite } from "@/lib/report-failed-fetch-write";
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 import {
@@ -1264,11 +1265,13 @@ export function RecordingErrorCard({
 export function shouldRedirectToStorageSetupHome({
   storageSetupRequested,
   storageConfigured,
+  hostedStorage,
   hasPendingUpload,
   uiState,
 }: {
   storageSetupRequested: boolean;
   storageConfigured: boolean | null;
+  hostedStorage: boolean;
   hasPendingUpload: boolean;
   uiState: UiState;
 }): boolean {
@@ -1276,7 +1279,8 @@ export function shouldRedirectToStorageSetupHome({
     storageSetupRequested &&
     !hasPendingUpload &&
     uiState === "idle" &&
-    storageConfigured === true
+    storageConfigured === true &&
+    !hostedStorage
   );
 }
 
@@ -3610,11 +3614,13 @@ export default function RecordRoute() {
         }).catch(() => {});
       } else {
         // The abort handler owns hosted allowance release after confirming cleanup.
-        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: pendingId, skipIfReady: true }),
-        }).catch(() => {});
+        reportFailedFetchWrite(
+          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: pendingId, skipIfReady: true }),
+          }),
+        );
       }
     }
     if (uploadRecordingId) {
@@ -3628,11 +3634,13 @@ export default function RecordRoute() {
           }),
         }).catch(() => {});
       } else {
-        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
-        }).catch(() => {});
+        reportFailedFetchWrite(
+          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
+          }),
+        );
       }
     }
     setCameraStream(null);
@@ -4100,9 +4108,14 @@ export default function RecordRoute() {
   // to finish it.
   const showBackButton =
     uiState === "idle" || uiState === "error" || uiState === "pendingUpload";
+  // Free hosted clips count as configured, but a connect request still means
+  // the user wants their own Builder storage.
+  const hostedStorage = !clipIntake && storageQuery.data?.mode === "hosted";
   const showStorageSetupFirst =
     storageSetupRequested &&
-    (storageConfigured === false || storageStatusUnavailable);
+    (storageConfigured === false ||
+      storageStatusUnavailable ||
+      (hostedStorage && connectStorageRequested));
   const showStorageStatusUnavailable =
     storageStatusUnavailable && storageSetupRequested;
   const configureFirstRunStorage = (status?: VideoStorageStatus) => {
@@ -4114,6 +4127,7 @@ export default function RecordRoute() {
     shouldRedirectToStorageSetupHome({
       storageSetupRequested,
       storageConfigured,
+      hostedStorage,
       hasPendingUpload: pendingUploadFile,
       uiState,
     })

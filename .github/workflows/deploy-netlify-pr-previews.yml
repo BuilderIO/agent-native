@@ -20,19 +20,19 @@ concurrency:
       ) &&
       github.event.comment.user.type == 'User' &&
       (
-        github.event.comment.body == '/preview analytics' && 'authorized-analytics' ||
-        github.event.comment.body == '/preview assets' && 'authorized-assets' ||
-        github.event.comment.body == '/preview calendar' && 'authorized-calendar' ||
-        github.event.comment.body == '/preview clips' && 'authorized-clips' ||
-        github.event.comment.body == '/preview content' && 'authorized-content' ||
-        github.event.comment.body == '/preview design' && 'authorized-design' ||
-        github.event.comment.body == '/preview dispatch' && 'authorized-dispatch' ||
-        github.event.comment.body == '/preview forms' && 'authorized-forms' ||
-        github.event.comment.body == '/preview mail' && 'authorized-mail' ||
-        github.event.comment.body == '/preview plan' && 'authorized-plan' ||
-        github.event.comment.body == '/preview slides' && 'authorized-slides' ||
-        github.event.comment.body == '/preview starter' && 'authorized-starter' ||
-        github.event.comment.body == '/preview fw' && 'authorized-fw' ||
+        contains(fromJSON('["/preview analytics","/preview analytics\n","/preview analytics\r\n"]'), github.event.comment.body) && 'authorized-analytics' ||
+        contains(fromJSON('["/preview assets","/preview assets\n","/preview assets\r\n"]'), github.event.comment.body) && 'authorized-assets' ||
+        contains(fromJSON('["/preview calendar","/preview calendar\n","/preview calendar\r\n"]'), github.event.comment.body) && 'authorized-calendar' ||
+        contains(fromJSON('["/preview clips","/preview clips\n","/preview clips\r\n"]'), github.event.comment.body) && 'authorized-clips' ||
+        contains(fromJSON('["/preview content","/preview content\n","/preview content\r\n"]'), github.event.comment.body) && 'authorized-content' ||
+        contains(fromJSON('["/preview design","/preview design\n","/preview design\r\n"]'), github.event.comment.body) && 'authorized-design' ||
+        contains(fromJSON('["/preview dispatch","/preview dispatch\n","/preview dispatch\r\n"]'), github.event.comment.body) && 'authorized-dispatch' ||
+        contains(fromJSON('["/preview forms","/preview forms\n","/preview forms\r\n"]'), github.event.comment.body) && 'authorized-forms' ||
+        contains(fromJSON('["/preview mail","/preview mail\n","/preview mail\r\n"]'), github.event.comment.body) && 'authorized-mail' ||
+        contains(fromJSON('["/preview plan","/preview plan\n","/preview plan\r\n"]'), github.event.comment.body) && 'authorized-plan' ||
+        contains(fromJSON('["/preview slides","/preview slides\n","/preview slides\r\n"]'), github.event.comment.body) && 'authorized-slides' ||
+        contains(fromJSON('["/preview starter","/preview starter\n","/preview starter\r\n"]'), github.event.comment.body) && 'authorized-starter' ||
+        contains(fromJSON('["/preview fw","/preview fw\n","/preview fw\r\n"]'), github.event.comment.body) && 'authorized-fw' ||
         format('unrecognized-{0}', github.run_id)
       ) ||
       format('ignored-{0}', github.run_id)

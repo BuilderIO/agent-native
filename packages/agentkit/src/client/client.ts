@@ -1,4 +1,6 @@
 import type {
+  AgentUploadFile,
+  AgentUploadDriver,
   AgentActionInvocation,
   AgentActionResult,
   AgentAnnotationSnapshot,
@@ -132,12 +134,7 @@ export interface AgentKitClientOptions {
   upload?: AgentKitUploadDriver;
 }
 
-export interface AgentKitUploadFile {
-  name: string;
-  mediaType: string;
-  size: number;
-  body: Blob;
-}
+export type AgentKitUploadFile = AgentUploadFile;
 
 const MAX_QUEUED_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024;
 
@@ -180,11 +177,7 @@ function requestAttachmentFile(
   };
 }
 
-export type AgentKitUploadDriver = (
-  target: AgentUploadTarget,
-  file: AgentKitUploadFile,
-  context?: AgentRequestContext,
-) => Promise<void>;
+export type AgentKitUploadDriver = AgentUploadDriver;
 
 /**
  * Creates the deterministic AgentKit controller used by every UI binding.
@@ -2496,7 +2489,8 @@ export class AgentKitClient implements AgentKitController {
       ((attempt) => Math.min(250 * 2 ** attempt, 4_000));
     this.onError = options.onError;
     this.onIntegrityReport = options.onIntegrityReport;
-    this.upload = options.upload ?? defaultUploadDriver;
+    this.upload =
+      options.upload ?? options.transport.upload ?? defaultUploadDriver;
     this.snapshot = {
       connection: "idle",
       capabilities: options.transport.capabilities ?? {},

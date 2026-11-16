@@ -272,6 +272,10 @@ export const recordingTranscripts = table("recording_transcripts", {
   // New on every import, even of the same file in the same millisecond, so a
   // regenerate replaces only the import it started from.
   importId: text("import_id"),
+  // Set once the owner removes audio recovered from before they started
+  // recording. A capture still running re-sends its whole transcript, so its
+  // later saves drop that audio again.
+  earlierAudioRemovedAt: text("earlier_audio_removed_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });

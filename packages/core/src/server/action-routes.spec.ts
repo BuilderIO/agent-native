@@ -7948,12 +7948,26 @@ describe("mountWebMcpActionRoutes", () => {
     expect(revalidation._status).toBe(304);
     expect(revalidation._responseHeaders?.etag).toBe(etag);
 
+    const compressed: any = {
+      _method: "GET",
+      _headers: { "if-none-match": etag.replace(/"$/, '-df"') },
+    };
+    await expect(handler(compressed)).resolves.toBeNull();
+    expect(compressed._status).toBe(304);
+
     const stale: any = {
       _method: "GET",
       _headers: { "if-none-match": '"stale"' },
     };
     await expect(handler(stale)).resolves.toEqual(body);
     expect(stale._status).toBeUndefined();
+
+    const staleCompressed: any = {
+      _method: "GET",
+      _headers: { "if-none-match": '"stale-df"' },
+    };
+    await expect(handler(staleCompressed)).resolves.toEqual(body);
+    expect(staleCompressed._status).toBeUndefined();
 
     const other: any = { _method: "GET", _headers: {} };
     await manifestHandler({

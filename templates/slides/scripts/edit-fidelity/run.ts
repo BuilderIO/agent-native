@@ -663,6 +663,7 @@ async function startServer(): Promise<{
       "slides-edit-fidelity",
       "--dir",
       "templates/slides",
+      "--ephemeral",
       "--env",
       "AUTH_MODE=local",
       "--env",

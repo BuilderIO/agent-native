@@ -13,6 +13,8 @@ import {
   retainLatestFailedTweakSave,
 } from "@/pages/design-editor/tweak-save";
 
+import { designMetadataQueryKey } from "../design-query-key";
+
 export interface PersistTweakSaveArgs {
   acknowledgeOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<void>;
   applyTweaksAsync: ReturnType<
@@ -85,10 +87,11 @@ export function runPersistTweakSave(
         confirmedTweakSelectionsHashRef.current = confirmedHash;
         if (result?.appliedTweaks) {
           queryClient.setQueryData(
-            ["action", "get-design", { id }],
-            (old: any) => {
+            designMetadataQueryKey(id),
+            (old: Record<string, unknown> | undefined) => {
               if (!old || typeof old !== "object") return old;
               let data: Record<string, unknown>;
+              if (old.data != null && typeof old.data !== "string") return old;
               try {
                 const parsed = JSON.parse(old.data ?? "{}");
                 data =

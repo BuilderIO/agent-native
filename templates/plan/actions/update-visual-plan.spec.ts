@@ -1479,11 +1479,9 @@ describe("update-visual-plan comments", () => {
           consumedCommentIds: [],
         }),
       ).rejects.toMatchObject({
-        message: expect.stringContaining(
-          "prepared from an outdated plan revision",
-        ),
-        errorCode: "plan_revision_conflict",
+        errorCode: "save_conflict",
         statusCode: 409,
+        details: { currentRevision: expect.any(String) },
       });
       expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
     },
@@ -1825,7 +1823,7 @@ describe("update-visual-plan comments", () => {
       }),
     ).rejects.toMatchObject({
       actionContractError: true,
-      errorCode: "plan_revision_conflict",
+      errorCode: "save_conflict",
       statusCode: 409,
     });
   });
@@ -1926,6 +1924,33 @@ describe("update-visual-plan comments", () => {
     });
   });
 
+  it("returns a typed conflict for a granular patch that sent a stale revision", async () => {
+    request.email = "editor@example.com";
+    const { updateWhereMock } = useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        expectedRevision: "2020-01-01T00:00:00.000Z",
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: "intro",
+            markdown: "Updated intro.",
+          },
+        ],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      statusCode: 409,
+    });
+    expect(updateWhereMock).not.toHaveBeenCalled();
+  });
+
   it("returns a typed conflict when another writer wins the revision CAS", async () => {
     request.email = "editor@example.com";
     const { returningMock } = useSuccessfulDb();
@@ -1947,9 +1972,9 @@ describe("update-visual-plan comments", () => {
         consumedCommentIds: [],
       }),
     ).rejects.toMatchObject({
-      message: expect.stringContaining("updated by someone else"),
-      errorCode: "plan_revision_conflict",
+      errorCode: "save_conflict",
       statusCode: 409,
+      details: { currentRevision: expect.any(String) },
     });
   });
 

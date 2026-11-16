@@ -1047,6 +1047,129 @@ export function postgresStatementTimeoutMs(clientTimeoutMs: number): number {
   return Math.max(1, safeTimeoutMs - headroomMs);
 }
 
+// The CTE is materialized so the previous value is read before set_config
+// replaces it; inlined, both calls share one projection with no order. A
+// stricter cap the transaction already holds is kept; 0 means none.
+const BOUND_STATEMENT_TIMEOUT_SQL = `WITH previous AS MATERIALIZED (
+    SELECT current_setting('statement_timeout') AS value,
+           setting::bigint AS ms
+    FROM pg_settings
+    WHERE name = 'statement_timeout'
+  )
+  SELECT value AS previous, ms AS previous_ms,
+         set_config(
+           'statement_timeout',
+           CASE WHEN ms > 0 AND ms <= CAST(? AS BIGINT) THEN value ELSE ? END,
+           true
+         )
+  FROM previous
+  LIMIT 1`;
+const SET_STATEMENT_TIMEOUT_SQL =
+  "SELECT set_config('statement_timeout', ?, true)";
+
+/**
+ * Runs one budgeted statement inside a transaction under a server-side
+ * timeout. A client-side timeout only abandons the promise, so without it the
+ * statement keeps its row locks and its connection. The transaction's previous
+ * setting is put back once the statement succeeds, or the cap would apply to
+ * every later statement and override a stricter one set earlier; a statement
+ * that fails aborts the transaction, which leaves nothing to put back.
+ */
+async function withTransactionStatementTimeout<T>(
+  runSetting: (
+    setting: DbExecQuery,
+    timeoutMs: number,
+  ) => Promise<readonly unknown[]>,
+  timeoutMs: number,
+  statement: (remainingMs: number) => Promise<T>,
+): Promise<T> {
+  const startedAt = Date.now();
+  const remainingMs = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
+  const serverTimeout = () => postgresStatementTimeoutMs(remainingMs());
+  const applied = serverTimeout();
+  const bound = await runSetting(
+    { sql: BOUND_STATEMENT_TIMEOUT_SQL, args: [applied, `${applied}ms`] },
+    remainingMs(),
+  );
+  const row = bound[0] as
+    | { previous?: unknown; previous_ms?: unknown }
+    | undefined;
+  const previous = row?.previous;
+  const previousMs = Number(row?.previous_ms);
+  if (typeof previous !== "string" || !Number.isFinite(previousMs)) {
+    throw new Error(
+      "Could not read the transaction's statement_timeout before bounding a statement",
+    );
+  }
+  let installed =
+    previousMs > 0 && previousMs <= applied ? previousMs : applied;
+  // A slow round trip above leaves less of the budget than the server was
+  // given, so the statement could outlive its caller holding its locks.
+  // Tightening is itself a round trip, so a budget it also outruns is spent:
+  // the statement never starts.
+  if (installed >= remainingMs()) {
+    installed = serverTimeout();
+    await runSetting(
+      { sql: SET_STATEMENT_TIMEOUT_SQL, args: [`${installed}ms`] },
+      remainingMs(),
+    );
+    if (installed >= remainingMs()) {
+      // A caller may catch this and keep using the transaction.
+      await runSetting(
+        { sql: SET_STATEMENT_TIMEOUT_SQL, args: [previous] },
+        POSTGRES_STATEMENT_TIMEOUT_RESET_MS,
+      );
+      throw Object.assign(
+        new Error(
+          `The ${timeoutMs}ms statement budget ran out while setting its server timeout`,
+        ),
+        { code: "STATEMENT_BUDGET_EXHAUSTED" },
+      );
+    }
+  }
+  const result = await statement(remainingMs());
+  await runSetting(
+    { sql: SET_STATEMENT_TIMEOUT_SQL, args: [previous] },
+    POSTGRES_STATEMENT_TIMEOUT_RESET_MS,
+  );
+  return result;
+}
+
+type PostgresJsRows = ArrayLike<unknown> & { count?: number };
+
+function postgresJsTransactionExec(txSql: {
+  unsafe(query: string, args?: unknown[]): Promise<PostgresJsRows>;
+}): DbExec {
+  const query = (sql: DbExecInput, timeoutMs: number) => {
+    // raw-sql-ok: forwards a statement its caller already built and bound.
+    const { rawSql, args } = sqlAndArgs(sql);
+    const pgSql = postgresSqlForStatement(sql, rawSql);
+    return withDbTimeout<PostgresJsRows>(
+      "query",
+      () => txSql.unsafe(pgSql, args),
+      timeoutMs,
+      undefined,
+      { sql: rawSql },
+    );
+  };
+  return {
+    async execute(sql) {
+      const { timeoutMs } = dbExecQueryBudget(sql);
+      const result = hasExplicitDbTimeout(sql)
+        ? await withTransactionStatementTimeout(
+            async (setting, ms) => Array.from(await query(setting, ms)),
+            timeoutMs,
+            (remainingMs) => query(sql, remainingMs),
+          )
+        : await query(sql, timeoutMs);
+      return {
+        rows: Array.from(result),
+        rowsAffected: result.count ?? 0,
+      };
+    },
+  };
+}
+
 export function dbExecQueryBudget(statement: DbExecInput): {
   timeoutMs: number;
   maxAttempts: number;
@@ -2121,18 +2244,12 @@ async function createDbExecInternal(
               if (!hasExplicitDbTimeout(sql)) {
                 return queryNeonClient(client, sql);
               }
-              const { timeoutMs } = dbExecQueryBudget(sql);
-              const startedAt = Date.now();
-              const remainingMs = () =>
-                Math.max(1, timeoutMs - (Date.now() - startedAt));
-              const statementTimeoutMs =
-                postgresStatementTimeoutMs(remainingMs());
-              await queryNeonClient(
-                client,
-                `SET LOCAL statement_timeout = ${statementTimeoutMs}`,
-                remainingMs(),
+              return withTransactionStatementTimeout(
+                async (setting, ms) =>
+                  (await queryNeonClient(client, setting, ms)).rows,
+                dbExecQueryBudget(sql).timeoutMs,
+                (remainingMs) => queryNeonClient(client, sql, remainingMs),
               );
-              return queryNeonClient(client, sql, remainingMs());
             },
           };
           try {
@@ -2225,29 +2342,7 @@ async function createDbExecInternal(
         });
         try {
           const result = await conn.begin(async (txSql: any) => {
-            const tx: DbExec = {
-              async execute(sql) {
-                const { rawSql, args } = sqlAndArgs(sql);
-                const { timeoutMs } = dbExecQueryBudget(sql);
-                const pgSql = postgresSqlForStatement(sql, rawSql);
-                const result = await withDbTimeout<
-                  ArrayLike<unknown> & { count?: number }
-                >(
-                  "query",
-                  () =>
-                    txSql.unsafe(pgSql, args as any[]) as Promise<
-                      ArrayLike<unknown> & { count?: number }
-                    >,
-                  timeoutMs,
-                  undefined,
-                  { sql: rawSql },
-                );
-                return {
-                  rows: Array.from(result),
-                  rowsAffected: result.count ?? 0,
-                };
-              },
-            };
+            const tx = postgresJsTransactionExec(txSql);
             return fn(tx);
           });
           return result as T;
@@ -2310,29 +2405,7 @@ async function createDbExecInternal(
       async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
         const activePool = getPool();
         const result = await activePool.begin(async (txSql: any) => {
-          const tx: DbExec = {
-            async execute(sql) {
-              const { rawSql, args } = sqlAndArgs(sql);
-              const { timeoutMs } = dbExecQueryBudget(sql);
-              const pgSql = postgresSqlForStatement(sql, rawSql);
-              const result = await withDbTimeout<
-                ArrayLike<unknown> & { count?: number }
-              >(
-                "query",
-                () =>
-                  txSql.unsafe(pgSql, args as any[]) as Promise<
-                    ArrayLike<unknown> & { count?: number }
-                  >,
-                timeoutMs,
-                undefined,
-                { sql: rawSql },
-              );
-              return {
-                rows: Array.from(result),
-                rowsAffected: result.count ?? 0,
-              };
-            },
-          };
+          const tx = postgresJsTransactionExec(txSql);
           return runHoldingPoolConnection(activePool, () => fn(tx));
         });
         return result as T;

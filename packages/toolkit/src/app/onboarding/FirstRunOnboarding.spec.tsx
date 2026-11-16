@@ -1913,7 +1913,11 @@ describe("FirstRunOnboarding", () => {
     });
     expect(mocks.useActionMutation).toHaveBeenCalledWith(
       "record-first-run-builder-credits-v2-exposure",
-      { uiOnly: true, skipActionQueryInvalidation: true },
+      {
+        uiOnly: true,
+        skipActionQueryInvalidation: true,
+        errorNotification: "caller",
+      },
     );
     expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(2);
     expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(1, {});

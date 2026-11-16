@@ -577,6 +577,20 @@ export interface OnboardingJourneyEventPageRequest {
   eventDateRange: { startDate: string; endDate: string };
 }
 
+/**
+ * How every journey event read is scoped: one scan of each raw source, with
+ * only the projected columns. The read, its cost estimate and the tests share
+ * this, so a column the SQL names but the projection leaves out fails in tests.
+ */
+export const ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS = {
+  scopedEventsSingleScan: true,
+  scopedEventsProjection: "onboarding_journey",
+  scopedEventsSourceProjections: {
+    e: "onboarding_journey",
+    r: "onboarding_journey_response_identity",
+  },
+} as const;
+
 export function buildOnboardingJourneyEventPageRequest(
   filters: OnboardingJourneyEventsFilters,
   maxEventRows: number,
@@ -678,12 +692,7 @@ async function readJourneyEvents(
           timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
           maxBytesBilled: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
           eventDateRange: request.eventDateRange,
-          scopedEventsSingleScan: true,
-          scopedEventsProjection: "onboarding_journey",
-          scopedEventsSourceProjections: {
-            e: "onboarding_journey",
-            r: "onboarding_journey_response_identity",
-          },
+          ...ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
           signal: querySignal,
         });
       } catch (error) {

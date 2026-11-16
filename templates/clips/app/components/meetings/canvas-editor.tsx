@@ -141,37 +141,47 @@ function RichContentBlock({
 }) {
   const [draft, setDraft] = useState(value);
   const draftRef = useRef(value);
-  const focusedRef = useRef(false);
+  const enteredRef = useRef(false);
+  const editedRef = useRef(false);
 
   useEffect(() => {
-    if (focusedRef.current) return;
+    if (editedRef.current) return;
     draftRef.current = value;
     setDraft(value);
   }, [value]);
 
   const commit = () => {
-    focusedRef.current = false;
+    editedRef.current = false;
     const next = draftRef.current;
     if (next !== value) onChange(next);
   };
 
   return (
-    <SharedRichEditor
-      value={draft}
-      onChange={(next) => {
-        focusedRef.current = true;
-        draftRef.current = next;
-        setDraft(next);
+    <div
+      onFocusCapture={() => {
+        enteredRef.current = true;
       }}
-      onBlur={commit}
-      editable={!readOnly}
-      dialect="nfm"
-      preset="content"
-      placeholder={placeholder}
-      ariaLabel={ariaLabel}
-      className="-mx-1 rounded-md px-1"
-      editorClassName={cn("min-h-[2rem]", editorClassName)}
-    />
+    >
+      <SharedRichEditor
+        value={draft}
+        onChange={(next) => {
+          // The editor also emits when it mounts. Counting that as an edit would
+          // freeze this block on its first value and save that value on blur.
+          if (!enteredRef.current) return;
+          editedRef.current = true;
+          draftRef.current = next;
+          setDraft(next);
+        }}
+        onBlur={commit}
+        editable={!readOnly}
+        dialect="nfm"
+        preset="content"
+        placeholder={placeholder}
+        ariaLabel={ariaLabel}
+        className="-mx-1 rounded-md px-1"
+        editorClassName={cn("min-h-[2rem]", editorClassName)}
+      />
+    </div>
   );
 }
 

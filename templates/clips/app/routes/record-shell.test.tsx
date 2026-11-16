@@ -191,6 +191,7 @@ describe("record route lifecycle shell", () => {
       shouldRedirectToStorageSetupHome({
         storageSetupRequested: true,
         storageConfigured: true,
+        hostedStorage: false,
         hasPendingUpload: true,
         uiState: "idle",
       }),
@@ -204,6 +205,7 @@ describe("record route lifecycle shell", () => {
         shouldRedirectToStorageSetupHome({
           storageSetupRequested: true,
           storageConfigured: true,
+          hostedStorage: false,
           hasPendingUpload: false,
           uiState,
         }),
@@ -216,10 +218,23 @@ describe("record route lifecycle shell", () => {
       shouldRedirectToStorageSetupHome({
         storageSetupRequested: true,
         storageConfigured: true,
+        hostedStorage: false,
         hasPendingUpload: false,
         uiState: "idle",
       }),
     ).toBe(true);
+  });
+
+  it("keeps a free hosted account on the storage setup card", () => {
+    expect(
+      shouldRedirectToStorageSetupHome({
+        storageSetupRequested: true,
+        storageConfigured: true,
+        hostedStorage: true,
+        hasPendingUpload: false,
+        uiState: "idle",
+      }),
+    ).toBe(false);
   });
 
   it("names why the storage card is showing", () => {

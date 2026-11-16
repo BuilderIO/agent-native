@@ -66,7 +66,10 @@ export interface DiscoveredAgent {
 export interface DiscoverAgentsOptions {
   preferLocalUrls?: boolean;
   requireReadableAgentSources?: boolean;
+  requireResolvableWorkspaceUrls?: boolean;
   includePersonalAgents?: boolean;
+  /** Reuse a previously loaded manifest for consistent workspace discovery. */
+  workspaceAppsManifest?: WorkspaceAppManifestEntry[] | null;
 }
 
 export interface DiscoverOrgDirectoryAgentsOptions {
@@ -1364,7 +1367,21 @@ async function readWorkspaceAppsFromFilesystem(
     .readdirSync(appsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())) {
     const appDir = path.join(appsDir, entry.name);
-    const pkg = readJson(path.join(appDir, "package.json"));
+    const packagePath = path.join(appDir, "package.json");
+    if (strict) {
+      try {
+        fs.lstatSync(packagePath);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "ENOENT"
+        )
+          continue;
+        throw error;
+      }
+    }
+    const pkg = readJson(packagePath);
     if (!pkg) {
       if (strict) throw new Error(`Invalid workspace package: ${entry.name}`);
       continue;
@@ -1465,10 +1482,17 @@ function workspaceAppUrl(
 
 async function discoverWorkspaceAgents(
   selfAppId?: string,
-  options?: { preferLocalUrls?: boolean },
+  options?: {
+    preferLocalUrls?: boolean;
+    workspaceAppsManifest?: WorkspaceAppManifestEntry[] | null;
+    requireResolvableWorkspaceUrls?: boolean;
+  },
   strict = false,
 ): Promise<DiscoveredAgent[]> {
-  const workspaceApps = await loadWorkspaceAppsManifest(strict);
+  const workspaceApps =
+    options?.workspaceAppsManifest !== undefined
+      ? options.workspaceAppsManifest
+      : await loadWorkspaceAppsManifest(strict);
   if (!workspaceApps) return [];
 
   const metadataSettings =
@@ -1490,7 +1514,12 @@ async function discoverWorkspaceAgents(
         options?.preferLocalUrls && builtin
           ? resolveAgentUrl(builtin, true)
           : workspaceAppUrl(withOverride, builtin?.url);
-      if (strict && (!url || !isAbsoluteHttpUrl(url))) {
+      if (
+        (strict || options?.requireResolvableWorkspaceUrls) &&
+        (!url ||
+          !isAbsoluteHttpUrl(url) ||
+          (options?.requireResolvableWorkspaceUrls && /[?#]/.test(url)))
+      ) {
         throw new Error(`Invalid workspace app URL: ${withOverride.id}`);
       }
       if (!url) return null;

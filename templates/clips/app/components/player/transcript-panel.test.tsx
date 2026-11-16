@@ -82,6 +82,33 @@ describe("TranscriptPanel no-audio failures", () => {
     expect(container.querySelector(".text-destructive")).toBeNull();
   });
 
+  it("shows captured segments with a partial marker when a transcript failed after capturing text", () => {
+    for (const audience of ["creator", "viewer"] as const) {
+      act(() => {
+        root.render(
+          <TooltipProvider>
+            <TranscriptPanel
+              segments={[{ startMs: 0, endMs: 2000, text: "captured words" }]}
+              currentMs={0}
+              onSeek={vi.fn()}
+              status="failed"
+              failureReason="Recording ended before the transcript finished."
+              audience={audience}
+            />
+          </TooltipProvider>,
+        );
+      });
+
+      expect(container.textContent).toContain("captured words");
+      expect(container.textContent).toContain(
+        "transcriptPanel.partialTranscript",
+      );
+      expect(container.textContent).not.toContain(
+        "transcriptPanel.noTranscriptCaptured",
+      );
+    }
+  });
+
   it("keeps every viewer transcript failure neutral", () => {
     for (const failureReason of [
       "No transcription provider configured.",

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { DocumentProperty } from "@shared/api";
-import { useState } from "react";
+import { act, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -157,7 +157,14 @@ async function chooseMenuItem(text: string) {
     if (!item) throw new Error(`menu item "${text}" was not found`);
     return item;
   });
+  const menu = item.closest('[role="menu"]');
   await click(item);
+  // A closed menu queues its focus return to its trigger as a zero-delay
+  // task. If the next non-modal menu opens first, that focus lands outside it
+  // and dismisses it, so let the queued task run before the next step.
+  if (menu && !menu.isConnected) {
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+  }
 }
 
 describe("filter chips", () => {

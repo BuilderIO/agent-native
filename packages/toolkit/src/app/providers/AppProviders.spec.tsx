@@ -42,8 +42,10 @@ vi.mock("@agent-native/toolkit/ui/sonner", () => ({
   ),
 }));
 
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { encodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 import { SsrSessionBootstrapContext } from "@agent-native/core/shared/ssr-session-bootstrap-slot";
+import { toast } from "sonner";
 
 import { AppProviders } from "./AppProviders.js";
 
@@ -238,6 +240,44 @@ describe("AppProviders session gate", () => {
     expect(useThemeFamilyMock).toHaveBeenCalledOnce();
   });
 
+  it("renders next-themes' script as a data block inside the client-only shell", async () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+
+    renderProviders({ skipFirstRunOnboarding: true });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // React 19 logs "Encountered a script tag" for any executable <script> it
+    // creates on the client; the early head script already applies the theme.
+    const themeScripts = [...container.querySelectorAll("script")].filter(
+      (script) => script.textContent?.includes("prefers-color-scheme"),
+    );
+    expect(themeScripts.length).toBeGreaterThan(0);
+    for (const script of themeScripts) {
+      expect(script.getAttribute("type")).toBe("application/json");
+    }
+  });
+
+  it("keeps next-themes' executable script on public routes", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    const html = renderToStaticMarkup(
+      <AppProviders
+        queryClient={new QueryClient()}
+        i18n={false}
+        toaster={null}
+        isPublicPath
+      >
+        <div />
+      </AppProviders>,
+    );
+
+    expect(html).toMatch(
+      /<script(?![^>]*type=)[^>]*>[^<]*prefers-color-scheme/,
+    );
+  });
+
   it("allows an authenticated app shell to disable theme-family sync", () => {
     useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
 
@@ -274,6 +314,55 @@ describe("AppProviders session gate", () => {
     expect(toaster?.getAttribute("data-mobile-offset")).toBe(
       JSON.stringify({ bottom: 44, left: 16 }),
     );
+  });
+
+  it.each([
+    ["without the i18n provider", false],
+    ["inside the i18n provider", undefined],
+  ] as const)(
+    "shows a reported write failure %s when a toaster is present",
+    (_label, i18n) => {
+      useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+      const error = vi.spyOn(toast, "error").mockImplementation(() => "");
+
+      act(() => {
+        root.render(
+          <AppProviders
+            queryClient={new QueryClient()}
+            i18n={i18n}
+            isPublicPath
+          >
+            <div>content</div>
+          </AppProviders>,
+        );
+      });
+      act(() => reportWriteFailure(new Error("boom")));
+
+      expect(error).toHaveBeenCalledTimes(1);
+      error.mockRestore();
+    },
+  );
+
+  it("still reports a write failure when the app renders its own toaster", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    const error = vi.spyOn(toast, "error").mockImplementation(() => "");
+
+    act(() => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          i18n={false}
+          isPublicPath
+          toaster={null}
+        >
+          <div>content</div>
+        </AppProviders>,
+      );
+    });
+    act(() => reportWriteFailure(new Error("boom")));
+
+    expect(error).toHaveBeenCalledTimes(1);
+    error.mockRestore();
   });
 
   it("preserves a custom toaster without adding default offsets", () => {

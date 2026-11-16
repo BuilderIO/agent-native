@@ -149,6 +149,10 @@
     {
       "name": "retained-private-thread-runs",
       "checksum": "985f2cb44c16174a"
+    },
+    {
+      "name": "thread-projection-retry-order-backfill-repair",
+      "checksum": null
     }
   ],
   "agent_team_run_queue": [
@@ -433,6 +437,10 @@
     {
       "name": "viewer-state",
       "checksum": "12d60e0fc4587fc5"
+    },
+    {
+      "name": "chat-thread-inbox-runtime-schema",
+      "checksum": null
     }
   ],
   "checkpoints": [
@@ -878,6 +886,12 @@
     }
   ],
   "pending_tasks": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
+  "private_media": [
     {
       "name": "baseline",
       "checksum": null

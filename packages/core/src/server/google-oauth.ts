@@ -568,6 +568,7 @@ export interface OAuthStatePayload {
   desktopVerifierHash?: string;
   desktopBrowserBindingHash?: string;
   desktopWebview?: boolean;
+  builderSignupAttemptId?: string;
   signupAttribution?: Record<string, string | undefined>;
   signupAnonymousId?: string;
   signupSessionId?: string;
@@ -630,6 +631,7 @@ export interface EncodeOAuthStateOptions {
   desktopVerifierHash?: string;
   desktopBrowserBindingHash?: string;
   desktopWebview?: boolean;
+  builderSignupAttemptId?: string;
   signupAttribution?: Record<string, string | undefined>;
   signupAnonymousId?: string;
   signupSessionId?: string;
@@ -705,6 +707,7 @@ export function encodeOAuthState(
   if (opts.desktopBrowserBindingHash)
     payload.bh = opts.desktopBrowserBindingHash;
   if (opts.desktopWebview) payload.dw = true;
+  if (opts.builderSignupAttemptId) payload.bs = opts.builderSignupAttemptId;
   if (opts.signupAttribution) payload.ft = opts.signupAttribution;
   const signupAnonymousId = normalizeAnalyticsAnonymousId(
     opts.signupAnonymousId,
@@ -785,6 +788,10 @@ export function decodeOAuthState(
       desktopBrowserBindingHash:
         typeof parsed.bh === "string" ? parsed.bh : undefined,
       desktopWebview: parsed.dw === true,
+      builderSignupAttemptId:
+        typeof parsed.bs === "string" && parsed.bs.length <= 128
+          ? parsed.bs
+          : undefined,
       signupAttribution: sanitizeStateAttribution(parsed.ft),
       signupAnonymousId: sanitizeStateAnonymousId(parsed.ai),
       signupSessionId: normalizeAnalyticsSessionId(parsed.si),

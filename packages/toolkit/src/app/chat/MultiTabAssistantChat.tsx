@@ -139,6 +139,7 @@ interface PendingSend {
   actionScope?: AgentActionScope;
   /** See `AgentChatMessage.approvedToolCalls`. */
   approvedToolCalls?: string[];
+  references?: AgentChatMessage["references"];
   /** See `AssistantChatSendOptions.surface`. */
   surface?: string;
 }
@@ -270,6 +271,7 @@ function deliverPendingSend(
     ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
     ...(send.requestMode ? { requestMode: send.requestMode } : {}),
     ...(send.attachments ? { attachments: send.attachments } : {}),
+    ...(send.references ? { references: send.references } : {}),
     ...(send.submitMessageId ? { submitMessageId: send.submitMessageId } : {}),
     ...(send.submissionExpiresAt !== undefined
       ? { submissionExpiresAt: send.submissionExpiresAt }
@@ -2554,6 +2556,7 @@ export function MultiTabAssistantChat({
         submit,
         images,
         attachments,
+        references,
         submitMessageId,
         usageLabel,
         actionScope,
@@ -2608,6 +2611,7 @@ export function MultiTabAssistantChat({
         ...(prefillContext ? { prefillContext } : {}),
         images,
         attachments,
+        references,
         submit,
         ...(background ? { trackInRunsTray: true } : {}),
         ...(requestMode ? { requestMode } : {}),

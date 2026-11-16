@@ -1,7 +1,10 @@
 import { defineAppConfig } from "@agent-native/core/server";
 
 export default defineAppConfig({
-  onboarding: { firstRunCreditsExperiment: "v2" },
+  onboarding: {
+    firstRunCreditsExperiment: "v2",
+    builderSignupExperiment: true,
+  },
   analytics: { authSessionReplay: true },
   agent: {
     questionIntake: {

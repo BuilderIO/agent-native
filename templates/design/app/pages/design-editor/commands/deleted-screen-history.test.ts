@@ -1134,7 +1134,7 @@ describe("screen deletion history identity", () => {
     expect(onFileHistoryMutationSettled).toHaveBeenCalledOnce();
     expect(designDataJsonRef.current.canvasFrames).toEqual(initialCanvasFrames);
     expect(queryClient.setQueryData).toHaveBeenLastCalledWith(
-      ["action", "get-design", { id: "design" }],
+      ["action", "get-design", { id: "design", includeFileContent: false }],
       originalDesignQuery,
     );
     expect(fileDeletionUndoStackRef.current).toHaveLength(1);
@@ -1489,7 +1489,7 @@ describe("screen deletion history identity", () => {
     expect(selectedLayerIdsRef.current).toEqual(["rejected-screen-layer"]);
     expect(overviewSelectedScreenIdsRef.current).toEqual([file.id]);
     expect(queryClient.setQueryData).toHaveBeenLastCalledWith(
-      ["action", "get-design", { id: "design" }],
+      ["action", "get-design", { id: "design", includeFileContent: false }],
       originalDesignQuery,
     );
   });

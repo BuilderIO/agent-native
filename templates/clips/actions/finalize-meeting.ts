@@ -7,6 +7,7 @@ import { and, eq, inArray, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { readEarlierAudioRemovedAt } from "../server/lib/earlier-audio-removal.js";
 import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../shared/meeting-finalization.js";
@@ -15,7 +16,10 @@ import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 
 export function skippedFinalizeResult(
   meetingId: string,
-  reason: "no-transcript" | "transcript-pending" = "no-transcript",
+  reason:
+    | "no-transcript"
+    | "transcript-pending"
+    | "transcript-changed" = "no-transcript",
 ) {
   return {
     meetingId,
@@ -62,6 +66,11 @@ export default defineAction({
       .where(eq(schema.meetings.id, args.meetingId))
       .limit(1);
     if (!meeting) throw new Error(`Meeting not found: ${args.meetingId}`);
+
+    const earlierAudioRemovedAt = await readEarlierAudioRemovedAt(
+      db,
+      meeting.recordingId,
+    );
 
     const linked = await loadMeetingRecordingContent(
       meeting,
@@ -248,7 +257,38 @@ export default defineAction({
     const actionItems = result.actionItems ?? [];
 
     let persistedActionItems = actionItems;
-    await db.transaction(async (tx) => {
+    const transcriptChanged = await db.transaction(async (tx) => {
+      // The removal rewrites this row, so holding it means the stamp read next
+      // is either final or this write lands first and gets cleared by it.
+      await tx
+        .select({ id: schema.meetings.id })
+        .from(schema.meetings)
+        .where(eq(schema.meetings.id, args.meetingId))
+        .for("update");
+      // A summary of audio removed since the read above must not land, even
+      // over the newer claim the removal's own rebuild holds.
+      if (
+        (await readEarlierAudioRemovedAt(tx, meeting.recordingId)) !==
+        earlierAudioRemovedAt
+      ) {
+        // Still holding this claim means it was taken after the removal cleared
+        // the meeting, where it would block the removal's own rebuild.
+        await tx
+          .update(schema.meetings)
+          .set({
+            transcriptStatus: "ready",
+            updatedAt: new Date().toISOString(),
+          })
+          .where(
+            and(
+              eq(schema.meetings.id, args.meetingId),
+              eq(schema.meetings.transcriptStatus, "pending"),
+              eq(schema.meetings.updatedAt, claimUpdatedAt),
+            ),
+          );
+        return true;
+      }
+
       const finalNow = new Date().toISOString();
       const written = await tx
         .update(schema.meetings)
@@ -315,6 +355,9 @@ export default defineAction({
         );
       }
     });
+    if (transcriptChanged) {
+      return skippedFinalizeResult(args.meetingId, "transcript-changed");
+    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

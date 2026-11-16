@@ -1,3 +1,4 @@
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -141,7 +142,9 @@ export function FileTree({
           providerKey.slice("localhost:".length),
           () => {},
         );
+        return;
       }
+      reportWriteFailure(error);
     },
     [onRequestLocalWriteConsent, providerKey],
   );

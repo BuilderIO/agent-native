@@ -3,10 +3,14 @@
  *
  * On Windows pnpm is usually a `pnpm.cmd` shim. Node refuses to start a `.cmd`
  * file without a shell (CVE-2024-27980) and, without one, only finds `.exe`
- * and `.com` files on PATH. So there pnpm runs through cmd.exe as one command
- * line with every argument quoted. Passing that line with no separate
- * arguments also avoids Node's DEP0190 warning about unescaped shell
- * arguments. Everywhere else pnpm starts directly with its argument array.
+ * and `.com` files on PATH. So a script that pnpm started (`pnpm run`, an
+ * install script) starts that same pnpm from `npm_execpath`, with no shell.
+ * Looking `pnpm` up by name can find a different one: on GitHub's Windows
+ * runners it finds a launcher for a `pnpm.cjs` that doesn't exist.
+ * Any other script runs pnpm through cmd.exe as one command line with every
+ * argument quoted. Passing that line with no separate arguments also avoids
+ * Node's DEP0190 warning about unescaped shell arguments. Everywhere else pnpm
+ * starts directly with its argument array.
  *
  *   const pnpm = pnpmCommand(["run", "build"]);
  *   spawn(pnpm.command, pnpm.args, { cwd, stdio: "inherit", shell: pnpm.shell });
@@ -18,6 +22,7 @@
  */
 
 import { spawnSync, type ChildProcess } from "node:child_process";
+import path from "node:path";
 
 export type PnpmCommand = {
   command: string;
@@ -35,17 +40,53 @@ export const WINDOWS_COMMAND_LINE_LIMIT = 8191 - 260 - ' /d /s /c ""'.length;
 export function pnpmCommand(
   args: readonly string[],
   platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
 ): PnpmCommand {
   if (platform !== "win32") {
     return { command: "pnpm", args: [...args], shell: false };
   }
+  const running = runningWindowsPnpm(env);
+  if (running) {
+    return {
+      command: running.command,
+      args: [...running.args, ...args],
+      shell: false,
+    };
+  }
+  return { command: windowsCommandLine(args), args: [], shell: true };
+}
+
+/**
+ * The cmd.exe line pnpmCommand falls back to on Windows. It is the longest
+ * form a pnpm start takes there, so batching measures against it.
+ */
+export function windowsCommandLine(args: readonly string[]): string {
   const command = ["pnpm", ...args].map(quoteForCmd).join(" ");
   if (command.length > WINDOWS_COMMAND_LINE_LIMIT) {
     throw new Error(
       `The pnpm command line is ${command.length} characters, over the ${WINDOWS_COMMAND_LINE_LIMIT} that fit cmd.exe's limit. Pass fewer arguments per call.`,
     );
   }
-  return { command, args: [], shell: true };
+  return command;
+}
+
+/**
+ * The pnpm that started this script, when it can start again without a shell.
+ * npm and Yarn set `npm_execpath` too, so only pnpm's own entry counts: its
+ * `pnpm.cjs` under Node, or the standalone `pnpm.exe`. `pnpm exec` sets
+ * nothing, and a `pnpm.cmd` shim needs cmd.exe, so both fall back.
+ */
+function runningWindowsPnpm(
+  env: NodeJS.ProcessEnv,
+): { command: string; args: string[] } | null {
+  const execPath = env.npm_execpath;
+  if (!execPath) return null;
+  const name = path.win32.basename(execPath).toLowerCase();
+  if (/^pnpm\.(?:c|m)?js$/.test(name)) {
+    return { command: process.execPath, args: [execPath] };
+  }
+  if (name === "pnpm.exe") return { command: execPath, args: [] };
+  return null;
 }
 
 /** pnpm goes through pnpmCommand; any other command starts as given. */

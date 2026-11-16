@@ -163,7 +163,7 @@ export function DocumentEditorSkeleton({
   title?: string | null;
   iconRow?: DocumentEditorIconRow | "startup";
   shape?: DocumentEditorShape | "startup";
-  stalledLoad?: { stage: string; action: string };
+  stalledLoad?: { stage: string; action: string } | undefined;
 }) {
   const sidebarTrigger = useSidebarTrigger();
   const skeleton = (

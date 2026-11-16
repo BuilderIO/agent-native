@@ -488,6 +488,17 @@ export function SearchPage({
     [visibleOffset, pageOneMerged, pagedResults.data, pageOneShownIds],
   );
 
+  // When the server matched a mistyped word as other words, highlight those
+  // too, so a result shows why it matched.
+  const correctedNeedles = serverIsCurrent
+    ? (activeResults.data?.spellingCorrections ?? []).flatMap(
+        (correction) => correction.replacements,
+      )
+    : [];
+  const resultNeedles = correctedNeedles.length
+    ? [...needles, ...correctedNeedles]
+    : needles;
+
   const hasResults = displayedDocuments.length > 0;
   const isFetchingActive = !serverIsCurrent || activeResults.isFetching;
   const serverError = serverIsCurrent ? activeResults.error : null;
@@ -541,7 +552,7 @@ export function SearchPage({
             {displayedDocuments.map((document) =>
               renderSearchResultItem({
                 document,
-                needles,
+                needles: resultNeedles,
                 onOpenChange,
                 navigate,
                 formatDate,

@@ -20,6 +20,7 @@ import {
   useShareQuery,
 } from "./share-controller-helpers.js";
 import {
+  ShareVisibilityNotSavedError,
   useShareVisibilityTransition,
   type ShareVisibilityTransition,
 } from "./useShareVisibilityTransition.js";
@@ -56,6 +57,8 @@ export interface ShareButtonSharesResponse {
   role?: "owner" | ShareButtonRole;
   agentReadable?: boolean;
   shares: ShareButtonShare[];
+  /** What anyone with the link can do; present while visibility is `public`. */
+  linkRole?: ShareButtonRole;
   /** Present for managers inside the resource's org. */
   agents?: ShareButtonAgent[];
   /** The org's agents could not be read; distinct from having none. */
@@ -72,6 +75,7 @@ export interface ShareButtonSharesResponse {
     allowPublic: boolean;
     requireOrgMemberForUserShares: boolean;
     supportsGroupShares?: boolean;
+    confirmOrgVisibility?: boolean;
   };
 }
 
@@ -137,6 +141,7 @@ export interface ShareButtonController {
     allowPublic: boolean;
     requireOrgMemberForUserShares: boolean;
     supportsGroupShares?: boolean;
+    confirmOrgVisibility?: boolean;
   };
   visibility: ShareButtonVisibility;
   triggerVisibility: ShareButtonVisibility | null;
@@ -163,7 +168,23 @@ export interface ShareButtonController {
   selectGroup: (group: ShareButtonGroup) => void;
   selectedAgent: ShareButtonAgent | null;
   selectAgent: (agent: ShareButtonAgent) => void;
+  /**
+   * People, groups and agents with access. While visibility is `org`, the
+   * grant to the resource's own organization is not listed here: it is
+   * `generalAccessRole`.
+   */
   shares: ShareButtonShare[];
+  /**
+   * What the people general access opens to can do: everyone in the
+   * organization at `org`, anyone with the link at `public`.
+   */
+  generalAccessRole: ShareButtonRole;
+  /**
+   * The viewer can change `generalAccessRole`. A resource kept at `org`
+   * without an organization attached has no organization to give a role.
+   */
+  canSetGeneralAccessRole: boolean;
+  handleGeneralAccessRole: (role: ShareButtonRole) => void;
   handleVisibility: (visibility: ShareButtonVisibility) => void;
   handleHideInSearch: () => void;
   handleAdd: () => void;
@@ -225,6 +246,13 @@ export function useShareButtonController(
   );
   const { setVisibility, share, unshare } = useShareMutations();
   const visibilityGuard = useShareMutationGuard(resourceKey);
+  const generalAccessRoleGuard = useShareMutationGuard(resourceKey);
+  const [generalAccessRoleOverrideState, setGeneralAccessRoleOverrideState] =
+    useState<{
+      resourceKey: string;
+      token: object;
+      value: ShareButtonRole;
+    } | null>(null);
   const data = sharesQuery.data;
   const canManage = data?.role === "owner" || data?.role === "admin";
   const [shareError, setShareError] = useState<string | null>(null);
@@ -282,6 +310,24 @@ export function useShareButtonController(
           next,
         );
       setVisibilityOverrideState({ resourceKey, token, value: next });
+      // Leaving org removes the organization's grant on the server; dropping
+      // it now keeps it from showing up as a person row while that saves.
+      const orgKey = data.orgId ? `org:${data.orgId}` : null;
+      if (visibility === "org" && next !== "org" && orgKey) {
+        optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+          queryClient,
+          shareQueryKey,
+          (cached) =>
+            cached
+              ? {
+                  ...cached,
+                  shares: cached.shares.filter(
+                    (share) => keyOf(share) !== orgKey,
+                  ),
+                }
+              : cached,
+        );
+      }
       let result: unknown;
       try {
         // Settles for this call alone: per-call mutate callbacks are skipped
@@ -335,6 +381,7 @@ export function useShareButtonController(
       visibility,
       resourceKey,
       clearVisibilityOverride,
+      data?.orgId,
     ],
   );
 
@@ -400,7 +447,26 @@ export function useShareButtonController(
       staleTime: 30_000,
     },
   );
-  const serverShares = data?.shares ?? [];
+  const ownOrgKey = data?.orgId ? `org:${data.orgId}` : null;
+  const ownOrgShare = ownOrgKey
+    ? data?.shares.find((share) => keyOf(share) === ownOrgKey)
+    : undefined;
+  const generalAccessRoleOverride =
+    generalAccessRoleOverrideState?.resourceKey === resourceKey
+      ? generalAccessRoleOverrideState.value
+      : null;
+  const generalAccessRole: ShareButtonRole =
+    visibility === "private"
+      ? "viewer"
+      : (generalAccessRoleOverride ??
+        (visibility === "org" ? ownOrgShare?.role : data?.linkRole) ??
+        "viewer");
+  const canSetGeneralAccessRole =
+    canManage &&
+    ((visibility === "org" && Boolean(data.orgId)) || visibility === "public");
+  const serverShares = (data?.shares ?? []).filter(
+    (share) => visibility !== "org" || keyOf(share) !== ownOrgKey,
+  );
   const shares: ShareButtonShare[] = [
     ...serverShares
       .filter((share) => !pendingRemoves.has(keyOf(share)))
@@ -465,6 +531,7 @@ export function useShareButtonController(
     resourceId: options.resourceId,
     current: visibility,
     orgId: data?.orgId ?? null,
+    confirmOrgVisibility: policy.confirmOrgVisibility === true,
     canManage,
     active: open,
     apply: applyVisibility,
@@ -494,6 +561,67 @@ export function useShareButtonController(
       return requestVisibility(next);
     },
     [canManage, requestVisibility],
+  );
+
+  const handleGeneralAccessRole = useCallback(
+    (next: ShareButtonRole) => {
+      if (!canSetGeneralAccessRole || next === generalAccessRole) return;
+      setShareError(null);
+      const requestId = generalAccessRoleGuard.begin();
+      const token = {};
+      const key = resourceKey;
+      const clear = () =>
+        setGeneralAccessRoleOverrideState((state) =>
+          state?.resourceKey === key && state.token === token ? null : state,
+        );
+      setGeneralAccessRoleOverrideState({
+        resourceKey: key,
+        token,
+        value: next,
+      });
+      void visibilityTransition
+        .runExclusive(async () => {
+          await setVisibility.mutateAsync({
+            resourceType: options.resourceType,
+            resourceId: options.resourceId,
+            visibility,
+            expectedVisibility: visibility,
+            role: next,
+          } as never);
+        })
+        .then(
+          async () => {
+            notifyShareChanged(options.resourceType);
+            try {
+              if (generalAccessRoleGuard.isLatest(requestId)) {
+                await sharesQuery.refetch();
+              }
+            } finally {
+              clear();
+            }
+          },
+          (error: unknown) => {
+            clear();
+            // Another save on the resource was running; nothing was sent.
+            if (error instanceof ShareVisibilityNotSavedError) return;
+            if (!generalAccessRoleGuard.isLatest(requestId)) return;
+            setShareError(extractShareErrorMessage(error));
+            void sharesQuery.refetch();
+          },
+        );
+    },
+    [
+      canSetGeneralAccessRole,
+      generalAccessRole,
+      generalAccessRoleGuard,
+      options.resourceId,
+      options.resourceType,
+      resourceKey,
+      setVisibility,
+      sharesQuery,
+      visibility,
+      visibilityTransition,
+    ],
   );
 
   const handleHideInSearch = useCallback(() => {
@@ -847,6 +975,9 @@ export function useShareButtonController(
     memberSuggestions,
     knownMembers,
     shares,
+    generalAccessRole,
+    canSetGeneralAccessRole,
+    handleGeneralAccessRole,
     handleVisibility,
     handleHideInSearch,
     handleAdd,

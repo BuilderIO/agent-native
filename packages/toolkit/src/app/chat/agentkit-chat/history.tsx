@@ -787,7 +787,7 @@ export function AgentKitHistoryProvider<
   >(history.restore.action);
   const createMutation = useActionMutation<unknown, Record<string, unknown>>(
     history.createVersion?.action ?? "create-resource-version",
-    { skipActionQueryInvalidation: true },
+    { skipActionQueryInvalidation: true, errorNotification: "caller" },
   );
   const [isRestoring, setIsRestoring] = useState(false);
   const restoreInFlightRef = useRef(false);

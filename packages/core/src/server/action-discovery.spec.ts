@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { isActionDefinitionError } from "../action.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -53,6 +54,166 @@ describe("action discovery", () => {
       await expect(registry.hello.run({})).resolves.toEqual({
         message: "Hello from TS",
       });
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
+  it(
+    "fails discovery on malformed searchHints but still skips a module that cannot import",
+    async () => {
+      const actionsDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-actions-"),
+      );
+      tmpDirs.push(actionsDir);
+      fs.writeFileSync(
+        path.join(actionsDir, "cli-script.ts"),
+        'throw new Error("CLI scripts run at import");\n',
+      );
+      fs.writeFileSync(
+        path.join(actionsDir, "manage-rules.ts"),
+        [
+          "export default {",
+          '  tool: { description: "Rules", parameters: { type: "object", properties: {} } },',
+          '  searchHints: ["inbox rule", 7],',
+          "  run: async () => ({}),",
+          "};",
+          "",
+        ].join("\n"),
+      );
+
+      await expect(autoDiscoverActions(actionsDir)).rejects.toSatisfy(
+        (error) =>
+          isActionDefinitionError(error) &&
+          error.actionName === "manage-rules" &&
+          /Action "manage-rules": searchHints/.test(error.message),
+      );
+
+      fs.rmSync(path.join(actionsDir, "manage-rules.ts"));
+      const registry = await autoDiscoverActions(actionsDir);
+      expect(registry).not.toHaveProperty("cli-script");
+      expect(registry).not.toHaveProperty("manage-rules");
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
+  it(
+    "fails merging core actions when one defines itself wrongly",
+    async () => {
+      vi.resetModules();
+      vi.doMock("../sharing/actions/share-resource.js", () => ({
+        get default() {
+          throw Object.assign(new TypeError("searchHints must be valid."), {
+            name: "ActionDefinitionError",
+            actionDefinitionError: true,
+          });
+        },
+      }));
+      try {
+        const discovery = await import("./action-discovery.js");
+        await expect(discovery.mergeCoreSharingActions({})).rejects.toSatisfy(
+          (error) =>
+            isActionDefinitionError(error) &&
+            error.actionName === "share-resource",
+        );
+      } finally {
+        vi.doUnmock("../sharing/actions/share-resource.js");
+        vi.resetModules();
+      }
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
+  it(
+    "fails discovery on a bad definition in workspace-core or the core actions",
+    async () => {
+      const appActions = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-actions-"),
+      );
+      const workspaceActions = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-workspace-actions-"),
+      );
+      tmpDirs.push(appActions, workspaceActions);
+      fs.writeFileSync(
+        path.join(workspaceActions, "shared-rules.ts"),
+        [
+          "export default {",
+          '  tool: { description: "Rules", parameters: { type: "object", properties: {} } },',
+          '  searchHints: "inbox rule",',
+          "  run: async () => ({}),",
+          "};",
+          "",
+        ].join("\n"),
+      );
+      const rejectsNamed = async (actionName: string) => {
+        const discovery = await import("./action-discovery.js");
+        await expect(
+          discovery.autoDiscoverActions(appActions),
+        ).rejects.toSatisfy(
+          (error) =>
+            isActionDefinitionError(error) && error.actionName === actionName,
+        );
+      };
+
+      try {
+        vi.resetModules();
+        vi.doMock("../deploy/workspace-core.js", () => ({
+          getWorkspaceCoreExports: async () => ({
+            actionsDir: workspaceActions,
+          }),
+        }));
+        await rejectsNamed("shared-rules");
+
+        vi.doUnmock("../deploy/workspace-core.js");
+        vi.resetModules();
+        vi.doMock("../sharing/actions/share-resource.js", () => ({
+          get default() {
+            throw Object.assign(new TypeError("searchHints must be valid."), {
+              name: "ActionDefinitionError",
+              actionDefinitionError: true,
+            });
+          },
+        }));
+        await rejectsNamed("share-resource");
+      } finally {
+        vi.doUnmock("../deploy/workspace-core.js");
+        vi.doUnmock("../sharing/actions/share-resource.js");
+        vi.resetModules();
+      }
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
+  it(
+    "fails on malformed searchHints in the generated registry a bundle falls back to",
+    async () => {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-bundle-"),
+      );
+      tmpDirs.push(root);
+      fs.mkdirSync(path.join(root, "actions"));
+      fs.mkdirSync(path.join(root, ".generated"));
+      const writeRegistry = (searchHints: string) =>
+        fs.writeFileSync(
+          path.join(root, ".generated", `actions-registry.js`),
+          [
+            "export default {",
+            '  "manage-rules": { default: {',
+            '    tool: { description: "Rules", parameters: { type: "object", properties: {} } },',
+            `    searchHints: ${searchHints},`,
+            "    run: async () => ({}),",
+            "  } },",
+            "};",
+            "",
+          ].join("\n"),
+        );
+
+      writeRegistry('["inbox rule", 7]');
+      await expect(
+        autoDiscoverActions(path.join(root, "actions")),
+      ).rejects.toSatisfy(
+        (error) =>
+          isActionDefinitionError(error) && error.actionName === "manage-rules",
+      );
     },
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );

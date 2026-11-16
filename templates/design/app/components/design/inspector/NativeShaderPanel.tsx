@@ -1,6 +1,7 @@
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { resolveCodeLayerTarget } from "@shared/code-layer";
+import { memoizeByContent } from "@shared/memoize-by-content";
 import { nativeEffectAnimationCapability } from "@shared/native-effect-animation-capability";
 import {
   editNativeEffectHtml,
@@ -458,6 +459,8 @@ export async function persistNativeShaderEdit(
   });
 }
 
+const parsedNativeEffects = memoizeByContent(4, parseEffectsFromHtml);
+
 export function selectedNativeInstances(
   content: string | undefined,
   nodeId: string | undefined,
@@ -470,19 +473,24 @@ export function selectedNativeInstances(
 } {
   if (!content || (!nodeId && !selector))
     return { instances: [], definitions: [], errors: [] };
-  const parsed = parseEffectsFromHtml(content);
-  const resolved = selector
-    ? resolveCodeLayerTarget(content, { selector }).resolution
-    : null;
+  const parsed = parsedNativeEffects(content);
+  const placed = (parsed.document?.instances ?? []).filter(
+    (instance) => instance.placement === placement,
+  );
+  // Resolving a selector scans every layer of the screen, and the inspector
+  // asks on every render: only pay for it when an instance could still match.
+  const resolved =
+    selector && placed.some((instance) => instance.nodeId !== nodeId)
+      ? resolveCodeLayerTarget(content, { selector }).resolution
+      : null;
   const authoredId =
     resolved?.status === "resolved" && resolved.node
       ? resolved.node.dataAttributes["data-agent-native-node-id"]
       : undefined;
   return {
-    instances: (parsed.document?.instances ?? []).filter(
+    instances: placed.filter(
       (instance) =>
-        (instance.nodeId === nodeId || instance.nodeId === authoredId) &&
-        instance.placement === placement,
+        instance.nodeId === nodeId || instance.nodeId === authoredId,
     ),
     definitions: parsed.document?.definitions ?? [],
     errors: parsed.errors,

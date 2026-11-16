@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { readEarlierAudioRemovedAt } from "../server/lib/earlier-audio-removal.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
@@ -161,6 +162,15 @@ export default defineAction({
     );
 
     const db = getDb();
+    // Read before anything the model sees: a removal after this read fails the
+    // checks below, and one before it has already reset what is read next.
+    const earlierAudioRemovedAt = await readEarlierAudioRemovedAt(
+      db,
+      args.recordingId,
+    );
+    const earlierAudioRemovedSinceRead = async () =>
+      (await readEarlierAudioRemovedAt(db, args.recordingId)) !==
+      earlierAudioRemovedAt;
     const [rec] = await db
       .select({
         id: schema.recordings.id,
@@ -197,6 +207,14 @@ export default defineAction({
     const includeFullVideoInAi = await readIncludeFullVideoInAi();
 
     if (includeFullVideoInAi) {
+      if (await earlierAudioRemovedSinceRead()) {
+        return {
+          updated: false,
+          skipped: true,
+          reason: "title_changed",
+          recordingId: args.recordingId,
+        };
+      }
       const queuedRequest = await queueTitleRegenerationRequest({
         recordingId: args.recordingId,
         currentTitle: rec.title,
@@ -243,6 +261,9 @@ export default defineAction({
       title: string,
       titleSource: "context" | "ai",
     ) => {
+      // `fresh` was read first and a removal also changes `updatedAt`, so one
+      // that lands after this read fails the compare below.
+      if (await earlierAudioRemovedSinceRead()) return false;
       const rows = await db
         .update(schema.recordings)
         .set({ title, titleSource, updatedAt: new Date().toISOString() })
@@ -434,6 +455,15 @@ export default defineAction({
         updated: false,
         skipped: true,
         reason: "builder_credits_paused",
+        recordingId: args.recordingId,
+      };
+    }
+
+    if (await earlierAudioRemovedSinceRead()) {
+      return {
+        updated: false,
+        skipped: true,
+        reason: "title_changed",
         recordingId: args.recordingId,
       };
     }

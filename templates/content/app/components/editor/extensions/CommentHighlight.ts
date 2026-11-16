@@ -200,6 +200,19 @@ function mapBlock(
   return { from: block.pos, to: block.pos + block.nodeSize, blockId };
 }
 
+/** The emphasis a thread's highlight shows, as its card is open or pointed at. */
+export function commentHighlightEmphasis(
+  threadIds: readonly string[],
+  activeId: string | null,
+  hoveredId: string | null,
+): string {
+  return activeId && threadIds.includes(activeId)
+    ? " comment-highlight--active"
+    : hoveredId && threadIds.includes(hoveredId)
+      ? " comment-highlight--hovered"
+      : "";
+}
+
 function buildDecorations(
   doc: ProseMirrorNode,
   specs: CommentHighlightSpec[],
@@ -223,12 +236,11 @@ function buildDecorations(
     }
     const r = clampRange(spec.from, spec.to, size);
     if (!r) continue;
-    const emphasisClass =
-      activeId === spec.threadId
-        ? " comment-highlight--active"
-        : hoveredId === spec.threadId
-          ? " comment-highlight--hovered"
-          : "";
+    const emphasisClass = commentHighlightEmphasis(
+      [spec.threadId],
+      activeId,
+      hoveredId,
+    );
     decos.push(
       Decoration.inline(r.from, r.to, {
         class: `comment-highlight${emphasisClass}`,
@@ -239,12 +251,11 @@ function buildDecorations(
   for (const [from, { to, threadIds }] of blocks) {
     const r = clampRange(from, to, size);
     if (!r) continue;
-    const emphasisClass =
-      activeId && threadIds.includes(activeId)
-        ? " comment-highlight--active"
-        : hoveredId && threadIds.includes(hoveredId)
-          ? " comment-highlight--hovered"
-          : "";
+    const emphasisClass = commentHighlightEmphasis(
+      threadIds,
+      activeId,
+      hoveredId,
+    );
     decos.push(
       Decoration.node(r.from, r.to, {
         class: `comment-highlight comment-highlight--block${emphasisClass}`,

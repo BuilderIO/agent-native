@@ -53,6 +53,7 @@ import {
   UnsupportedDeviceGate,
   type UnsupportedDeviceGateProps,
 } from "../shared/UnsupportedDeviceGate.js";
+import { WriteFailureToaster } from "../shared/WriteFailureToaster.js";
 
 export interface AppProvidersProps {
   queryClient: QueryClient;
@@ -466,6 +467,10 @@ function McpApprovalReviewBoundary({
   );
 }
 
+// Under ClientOnly the script is created by the client, where it never runs
+// and React 19 logs an error for it; the document's head script applies the theme.
+const CLIENT_ONLY_THEME_SCRIPT_PROPS = { type: "application/json" } as const;
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -482,9 +487,11 @@ function ProvidersInner({
   showEnvironmentBadge,
   settingsShortcut,
   ownsDocument = true,
+  clientOnly = false,
   children,
 }: {
   ownsDocument?: boolean;
+  clientOnly?: boolean;
   queryClient: QueryClient;
   defaultTheme?: string;
   themeAttribute?: Attribute | Attribute[];
@@ -501,17 +508,20 @@ function ProvidersInner({
   settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
-  // The banner reads the app's locale, so it sits inside the same provider.
+  // The banner and the failure toasts read the app's locale, so they sit
+  // inside the same provider.
   const localizedChildren =
     i18n === false ? (
       <>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
+        <WriteFailureToaster />
       </>
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
+        <WriteFailureToaster />
       </AgentNativeI18nProvider>
     );
 
@@ -544,6 +554,7 @@ function ProvidersInner({
           defaultTheme={defaultTheme}
           enableSystem
           disableTransitionOnChange={disableThemeTransitions}
+          scriptProps={clientOnly ? CLIENT_ONLY_THEME_SCRIPT_PROPS : undefined}
         >
           <EmbeddedThemeSync />
           {content}
@@ -691,6 +702,7 @@ export function AppProviders({
           showEnvironmentBadge={showEnvironmentBadge}
           settingsShortcut={!sessionBypass}
           ownsDocument={ownsDocument}
+          clientOnly
         >
           {sessionBypass ? (
             gated

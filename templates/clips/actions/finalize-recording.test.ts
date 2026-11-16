@@ -157,6 +157,8 @@ vi.mock("@agent-native/core/server", () => ({
     clips: { hostedStorage: { maxClipBytes: mockHostedMaxClipBytes.value } },
   }),
   getRequestOrgId: vi.fn(() => undefined),
+  resolveHasBuilderGatewayCredential: vi.fn(async () => true),
+  BuilderCredentialLookupError: class BuilderCredentialLookupError extends Error {},
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -1917,6 +1919,70 @@ describe("finalize-recording media serve verification", () => {
     expect(mockInsertOnConflictDoNothing).toHaveBeenCalledWith({
       target: "recordingTranscripts.recordingId",
     });
+  });
+
+  it("records the setup-needed failure instead of a pending row when no Builder credential is connected", async () => {
+    const { resolveHasBuilderGatewayCredential } =
+      await import("@agent-native/core/server");
+    vi.mocked(resolveHasBuilderGatewayCredential).mockResolvedValueOnce(false);
+    seedBufferedRecording();
+    mockUploadFile.mockResolvedValue({ url: "/api/uploads/rec_1/blob" });
+    mockState.transcriptRows = [];
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(expect.objectContaining({ status: "ready" }));
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1", status: "failed" }),
+    );
+    expect(mockInsertValues).not.toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1", status: "pending" }),
+    );
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "transcript" }),
+    );
+  });
+
+  it("queues the transcript job behind a pending row when the Builder credential lookup is unavailable", async () => {
+    const { resolveHasBuilderGatewayCredential, BuilderCredentialLookupError } =
+      await import("@agent-native/core/server");
+    vi.mocked(resolveHasBuilderGatewayCredential).mockRejectedValueOnce(
+      new BuilderCredentialLookupError(),
+    );
+    seedBufferedRecording();
+    mockUploadFile.mockResolvedValue({ url: "/api/uploads/rec_1/blob" });
+    mockState.transcriptRows = [];
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(expect.objectContaining({ status: "ready" }));
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1", status: "pending" }),
+    );
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1", kind: "transcript" }),
+    );
+  });
+
+  it("fails finalization on an unexpected credential error", async () => {
+    const { resolveHasBuilderGatewayCredential } =
+      await import("@agent-native/core/server");
+    vi.mocked(resolveHasBuilderGatewayCredential).mockRejectedValueOnce(
+      new Error("unexpected"),
+    );
+    seedBufferedRecording();
+    mockUploadFile.mockResolvedValue({ url: "/api/uploads/rec_1/blob" });
+    mockState.transcriptRows = [];
+
+    await expect(
+      finalizeRecording.run({ id: "rec_1", mimeType: "video/webm" }),
+    ).rejects.toThrow("unexpected");
   });
 
   it("parks a recording waiting for storage on a days-long lease", async () => {

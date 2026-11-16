@@ -120,10 +120,10 @@ Cada recurso que se puede compartir tiene un botón para compartir en su encabez
 
 - Un campo de invitación para personas, grupos de la organización y los agentes de la organización, con un selector de rol e Invitar. Un correo escrito también muestra la casilla `Notify people`.
 - Personas con acceso: el propietario, las personas, los grupos y los agentes en una lista. Los roles son Puede ver, Puede comentar, Puede editar y Puede administrar el acceso. Quitar acceso es el último elemento del menú de rol de cada fila.
-- Acceso general: Solo personas invitadas / Cualquier persona de la organización / Cualquier persona con el enlace.
+- Acceso general: Solo personas invitadas / Cualquier persona de la organización / Cualquier persona con el enlace. Cualquier persona de la organización tiene un selector de rol (Puede ver, Puede comentar, Puede editar), y Cualquier persona con el enlace también (Puede ver, Puede comentar).
 - Copiar enlace y un menú Enviar a: Abrir en Claude, Claude Code o Codex, Copiar prompt del agente, Copiar enlace para agentes, Configuración del servidor MCP y los destinos que añada la app.
 
-Pasar un recurso de `Private` a `Organization` pide confirmación primero. No cambia nada hasta que la persona confirma. Cancelar o Escape mantiene el acceso actual. Si falla el guardado, el cuadro de diálogo muestra el error y se puede volver a intentar. Los demás cambios de visibilidad se guardan de inmediato. La confirmación existe solo en la UI de uso compartido. `set-resource-visibility` no cambia, así que el agente y cualquier otro llamador siguen cambiando la visibilidad directamente y la política de uso compartido del recurso sigue decidiendo qué está permitido.
+Los cambios de visibilidad se guardan de inmediato. Un tipo de recurso cuyo contenido es fácil de pasar por alto puede pedir confirmación primero: los chats definen `confirmOrgVisibility: true` en su registro, así que pasar un chat de `Private` a `Organization` espera hasta que la persona confirma. Cancelar o Escape mantiene el acceso actual. Si falla el guardado, el cuadro de diálogo muestra el error y se puede volver a intentar. La confirmación existe solo en la UI de uso compartido, así que el agente y cualquier otro llamador siguen cambiando la visibilidad directamente con `set-resource-visibility` y la política de uso compartido del recurso sigue decidiendo qué está permitido.
 
 El botón de compartir es una importación única:
 
@@ -180,13 +180,13 @@ Los chats se fijan de forma personal: `pinnedAt` es la marca de quien consulta, 
 
 El marco monta automáticamente estos actions en cada plantilla: el agente los llama como herramientas y el UI los llama a través de `useActionQuery`/`useActionMutation`:
 
-| Acción                       | Qué hace                                                                                                                                       |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `share-resource`             | Otorgar acceso a un usuario u organización en una función específica. El `notify` opcional controla las notificaciones por correo electrónico. |
-| `unshare-resource`           | Revocar el acceso a un usuario u organización.                                                                                                 |
-| `list-resource-shares`       | Mostrar visibilidad actual más todas las subvenciones explícitas.                                                                              |
-| `set-resource-visibility`    | Cambiar a `private`, `org` o `public`.                                                                                                         |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                        |
+| Acción                       | Qué hace                                                                                                                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | Otorgar acceso a un usuario u organización en una función específica. El `notify` opcional controla las notificaciones por correo electrónico.                              |
+| `unshare-resource`           | Revocar el acceso a un usuario u organización.                                                                                                                              |
+| `list-resource-shares`       | Mostrar visibilidad actual más todas las subvenciones explícitas.                                                                                                           |
+| `set-resource-visibility`    | Cambiar a `private`, `org` o `public`. El `role` opcional define qué puede hacer la organización (ver, comentar, editar) o cualquier persona con el enlace (ver, comentar). |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                                                     |
 
 Dígale al agente "comparta este diseño con el equipo de marketing como editores" y llamará a `share-resource` contra el mismo punto final que utiliza UI. El resultado aparece en el cuadro de diálogo para compartir en el siguiente renderizado.
 

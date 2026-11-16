@@ -177,6 +177,20 @@ describe("scrubUrl", () => {
     expect(`${absolute}${relative}`).not.toContain(secret);
   });
 
+  it.each(["__an_embed_token", "clip_intake"])(
+    "redacts the signed %s token from pageview and replay URLs",
+    (param) => {
+      const secret = "signed.link.token";
+      const url = scrubUrl(
+        `https://clips.agent-native.com/record?clip_intake_id=intake_1&${param}=${secret}`,
+      );
+
+      expect(url).toBe(
+        `https://clips.agent-native.com/record?clip_intake_id=intake_1&${param}=%3Credacted%3E`,
+      );
+    },
+  );
+
   it("leaves other apps' q parameters unchanged by default", () => {
     const url = "https://example.com/search?q=public-topic";
     expect(scrubUrl(url)).toBe(url);

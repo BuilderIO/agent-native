@@ -53,10 +53,16 @@ import {
 import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { FirstPartyAnalyticsUnsupportedSqlError } from "../server/lib/first-party-analytics-backend.js";
 import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
+import { builtinDashboardIdFor } from "../shared/builtin-dashboard-ids.js";
 import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import { dashboardAnnotationsIssue } from "../shared/key-dates";
 import { panelLabel, stableStringify } from "../shared/panel-render-contract";
+import {
+  isTrafficFilterValue,
+  TRAFFIC_FILTER_ID,
+  withNewDashboardTrafficFilter,
+} from "../shared/traffic-environment";
 import {
   applyPanelOrder,
   compactDashboardResult,
@@ -356,6 +362,17 @@ function collectDashboardConfigIssues(
       }
       if (f.default !== undefined && typeof f.default !== "string") {
         return dashboardIssue(`config.filters[${i}].default must be a string`);
+      }
+      // A traffic default the filter doesn't offer can't be read: the page would
+      // show all traffic, and reports and save checks would fail on it.
+      if (
+        id === TRAFFIC_FILTER_ID &&
+        typeof f.default === "string" &&
+        !isTrafficFilterValue(f.default)
+      ) {
+        return dashboardIssue(
+          `config.filters[${i}].default must be all, production or beta on the traffic filter`,
+        );
       }
       if (f.type === "multi-select") {
         if (typeof f.default === "string" && f.default !== "") {
@@ -1096,6 +1113,10 @@ export default defineAction({
       // A dashboard that does not exist yet has no base, so every panel is new.
       const before = await getDashboard(dashboardId, ctx);
       if (before) await requireEditableDashboard(dashboardId, ctx, before);
+      // A built-in's first saved copy isn't a new dashboard: it keeps its traffic.
+      if (!before && !builtinDashboardIdFor(dashboardId)) {
+        args.config = withNewDashboardTrafficFilter(args.config);
+      }
       assertValidDashboardConfig(args.config, {
         baseline: before ? before.config : null,
       });

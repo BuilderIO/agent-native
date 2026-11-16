@@ -295,6 +295,13 @@ async function storeComposeDraft(
 }
 
 export default defineAction({
+  searchHints: [
+    "reply",
+    "write an email",
+    "compose",
+    "forward",
+    "respond to an email",
+  ],
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,

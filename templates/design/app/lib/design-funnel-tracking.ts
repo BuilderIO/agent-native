@@ -107,7 +107,6 @@ type ReadyViewFile = {
   id: string;
   filename?: string;
   fileType?: string;
-  content: string;
   updatedAt?: string | null;
 };
 

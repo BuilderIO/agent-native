@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "選択したファイルをアップロードできませんでした。",
+    reference: "ダッシュボードを参照…",
+    group: "ダッシュボード",
+    authentication: "参照を追加するにはログインしてください。",
+    invalid: "送信する前に有効な参照を選択してください。",
+    unavailable:
+      "選択した参照は利用できなくなりました。削除するか、もう一度選択してください。",
+  },
   root: {
     whatsNew: "新着情報",
   },
@@ -1401,6 +1410,10 @@ export default {
     hide: "Hide",
     show: "Show",
     saveAsView: "ビューとして保存",
+    unknownTraffic: "不明 {{count}}",
+    unknownTrafficUnavailable: "不明の件数を取得できません",
+    unknownTrafficTip:
+      "過去 {{days}} 日間のイベントのうち、ホストがなく、既知の環境も記録されていないもの。本番としてカウントされます。",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
@@ -1688,6 +1701,10 @@ export default {
     hideEmptySessions: "空のセッションを非表示",
     networkErrors: "ネットワークエラー",
     rageClicksFilter: "連続クリック",
+    traffic: "トラフィック",
+    allTraffic: "すべてのトラフィック",
+    productionTraffic: "本番",
+    betaTraffic: "ベータ",
     visitors: "訪問者",
     allVisitors: "すべての訪問者",
     internalVisitors: "内部",

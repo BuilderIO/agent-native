@@ -2,7 +2,15 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 
 import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
 import {
@@ -11,6 +19,10 @@ import {
   type ChatThreadSnapshot,
   type ChatThreadSummary,
 } from "./use-chat-threads.js";
+import {
+  WRITE_FAILURE_EVENT,
+  type WriteFailureDetail,
+} from "./write-failure-event.js";
 
 function jsonResponse(data: unknown) {
   return new Response(JSON.stringify(data), {
@@ -561,6 +573,53 @@ describe("useChatThreads", () => {
       "app-one-other-thread",
     ]);
     expect(hook!.activeThreadId).toBe("app-one-other-thread");
+  });
+
+  it("announces a failed delete but not a chat that was never saved", async () => {
+    const deleteStatuses = new Map([
+      ["server-down", 500],
+      ["never-saved", 404],
+    ]);
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      const id = url.split("/").pop() ?? "";
+      if (init?.method === "DELETE" && deleteStatuses.has(id)) {
+        return new Response("{}", { status: deleteStatuses.get(id) });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const failures: unknown[] = [];
+    const onFailure = (event: Event) =>
+      failures.push((event as CustomEvent<WriteFailureDetail>).detail.error);
+    window.addEventListener(WRITE_FAILURE_EVENT, onFailure);
+    onTestFinished(() =>
+      window.removeEventListener(WRITE_FAILURE_EVENT, onFailure),
+    );
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "analytics-project");
+      return null;
+    }
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await hook!.deleteThread("never-saved");
+    });
+    expect(failures).toEqual([]);
+
+    await act(async () => {
+      await hook!.deleteThread("server-down");
+    });
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ status: 500 });
   });
 
   it("fetches fresh chat history when a sidebar remounts", async () => {

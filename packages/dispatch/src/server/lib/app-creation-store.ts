@@ -56,7 +56,7 @@ import {
   parseAgentProfileMetadata,
   type ConnectRequiredCard,
 } from "@agent-native/core/shared";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { resolveAccessMany } from "@agent-native/core/sharing";
 
 import { getDb } from "../../db/index.js";
 import { workspaceAppRoute } from "../../shared/workspace-app-route.js";
@@ -96,7 +96,6 @@ const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
 const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 2_500;
-const WORKSPACE_APP_ACCESS_CONCURRENCY = 8;
 const MAX_PENDING_APPS = 50;
 const PENDING_WORKSPACE_APP_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const AGENT_CARD_PATH = "/.well-known/agent-card.json";
@@ -279,9 +278,9 @@ interface FinalizeWorkspaceAppsOptions {
   persist?: boolean;
 }
 
-interface WorkspaceAppDiscovery {
-  apps: WorkspaceAppSummary[];
-}
+type WorkspaceAppDiscovery =
+  | { kind: "apps"; apps: WorkspaceAppSummary[] }
+  | { kind: "domainless" };
 
 export interface ListWorkspaceAppsOptions {
   includeAgentCards?: boolean;
@@ -1890,33 +1889,17 @@ async function filterWorkspaceAppsByAccess(
     candidates.push(app);
   }
 
-  for (
-    let start = 0;
-    start < candidates.length;
-    start += WORKSPACE_APP_ACCESS_CONCURRENCY
-  ) {
-    const batch = candidates.slice(
-      start,
-      start + WORKSPACE_APP_ACCESS_CONCURRENCY,
-    );
-    const decisions = await Promise.all(
-      batch.map(async (app) => {
-        try {
-          const access = await resolveAccess(
-            "workspace-app",
-            app.id,
-            { userEmail, orgId },
-            { skipResourceBody: true },
-          );
-          return { app, allowed: Boolean(access) };
-        } catch (error) {
-          console.warn("[dispatch] workspace app access lookup failed", error);
-          return { app, allowed: false };
-        }
-      }),
-    );
-    for (const decision of decisions) {
-      if (decision.allowed) visibleIds.add(decision.app.id);
+  if (candidates.length > 0) {
+    try {
+      const access = await resolveAccessMany(
+        "workspace-app",
+        candidates.map((app) => app.id),
+        { userEmail, ...(orgId ? { orgId } : {}) },
+        { skipResourceBody: true },
+      );
+      for (const id of access.keys()) visibleIds.add(id);
+    } catch (error) {
+      console.warn("[dispatch] workspace app access lookup failed", error);
     }
   }
 
@@ -2100,13 +2083,10 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         );
       }
     }
-    if (requestContext.orgId && !orgDomain) {
-      throw new WorkspaceAppsGatewayAuthorizationError(
-        401,
-        "workspace_gateway_org_domain_missing",
-        "Workspace apps gateway cannot authenticate without a resolved organization domain.",
-      );
-    }
+    // The hosted registry is keyed by organization domain, so an org that has
+    // none (a new Builder-connected account) has no hosted workspace to read.
+    // A failed domain lookup still throws above.
+    if (requestContext.orgId && !orgDomain) return { kind: "domainless" };
     if (requestContext.orgId) {
       try {
         orgSecret =
@@ -2212,7 +2192,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         },
       );
     }
-    return { apps };
+    return { kind: "apps" as const, apps };
   };
 
   try {
@@ -2592,13 +2572,14 @@ async function listWorkspaceAppsWithPrincipal(
     if (!(error instanceof WorkspaceAppsGatewayAuthorizationError)) throw error;
     gatewayDenial = error;
   }
-  if (gatewayApps) {
+  if (gatewayApps?.kind === "apps") {
     return finalize(gatewayApps.apps);
   }
   if (gatewayDenial && gatewayDenial.statusCode >= 500) {
     throw gatewayDenial;
   }
-  const unverified = gatewayDenial !== null;
+  const unverified =
+    gatewayDenial !== null || gatewayApps?.kind === "domainless";
 
   const workspaceRoot = findWorkspaceRoot();
   const localFilesystemApps =

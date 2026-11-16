@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import net from "node:net";
 
 import {
   A2AClient,
@@ -14,6 +15,7 @@ import {
 } from "@agent-native/core/a2a";
 
 import { normalizeReferenceUrls } from "../../shared/api.js";
+import { isPrivateAddress } from "./image-proxy-url.js";
 
 const ASSETS_AGENT_TARGET = "assets";
 const SELF_APP_ID = "slides";
@@ -152,6 +154,13 @@ function delegationIdempotencyKey(
   return "slides-" + digest.slice(0, 32);
 }
 
+function isPrivateLiteralHost(url: URL): boolean {
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return (
+    host === "localhost" || (net.isIP(host) !== 0 && isPrivateAddress(host))
+  );
+}
+
 function taskText(task: Task): string {
   const parts = task.status.message?.parts ?? [];
   return parts
@@ -166,11 +175,21 @@ export async function delegateImageGenerationToAssets(
   const requestedTarget = resolveAssetsUrlOverride() || ASSETS_AGENT_TARGET;
 
   let targetUrl: string;
+  let allowedPrivateOrigins: string[];
   try {
     const resolved = await resolveAgentInvocationTarget(requestedTarget, {
       selfAppId: SELF_APP_ID,
     });
     targetUrl = resolved.url;
+    // Only the operator-set override URL may reach a private origin; a
+    // discovered agent URL can be user-registered. A public hostname must
+    // stay subject to the resolved-IP check, or DNS rebinding could reach a
+    // private or metadata address.
+    const resolvedUrl = new URL(resolved.url);
+    allowedPrivateOrigins =
+      resolved.kind === "url" && isPrivateLiteralHost(resolvedUrl)
+        ? [resolvedUrl.origin]
+        : [];
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     console.warn(
@@ -186,6 +205,7 @@ export async function delegateImageGenerationToAssets(
     const tokens = await buildCallerTokens(targetUrl, auth);
     const client = new A2AClient(targetUrl, tokens[0], {
       fallbackApiKeys: tokens.slice(1),
+      allowedPrivateOrigins,
     });
 
     const task = await client.sendAndWait(

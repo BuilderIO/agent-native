@@ -21,6 +21,7 @@ import {
   type OnboardingJourneyPersonMember,
   type OnboardingJourneyTerminalStep,
 } from "./first-party-metric-catalog.js";
+import { ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS } from "./onboarding-journey.js";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -154,7 +155,14 @@ describe("onboarding journey events SQL", () => {
       page,
       window,
     );
-    const scoped = scopedAnalyticsSql(sql, SCOPE);
+    // Read through the production projection, so a column the SQL names but
+    // the projection leaves out fails here as it would in BigQuery.
+    const scoped = scopedAnalyticsSql(
+      sql,
+      SCOPE,
+      undefined,
+      ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
+    );
     const result = (await client.query(scoped.sql, scoped.args)) as {
       rows: Array<Record<string, unknown>>;
     };

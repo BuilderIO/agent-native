@@ -310,7 +310,11 @@ L’hôte peut préparer un contexte déjà autorisé et recevoir un instantané
 />
 ```
 
-Les sources de contexte déclarent `picker` sur un `ComposerContextMenuItem`. `ComposerContextMenu` gère des sous-menus en cascade shadcn/Radix connectés, pas des panneaux de remplacement : la racine propose le téléversement de fichiers, puis Ajouter du contexte → catégories de l’hôte → sélecteurs de sources. Ajouter du contexte est masqué si l’hôte ne fournit aucune entrée. Les flèches et Échap parcourent la hiérarchie. Dans un sélecteur de lien, Retour ramène uniquement des résultats à la saisie du lien dans le même sous-menu. Le sélecteur partagé gère la recherche, les lignes, les états de chargement, de liste vide et d’erreur, les nouvelles tentatives, la pagination et la saisie de liens. Les applications fournissent des données autorisées et des callbacks de sélection, pas leur propre JSX de sélection.
+Les sources enregistrent des actions directes nommées dans `ComposerContextMenuItem`. Le menu partagé présente Ajouter du contexte, Intégrations et Commandes comme des groupes accessibles distincts. Un seul choix ouvre le dialogue de sélection. Les intégrations de l’espace ont leur propre groupe et Commandes contient les modes de tâche rares. Les données chargent dans le dialogue et les lignes racines restent stables. Le menu conserve les flèches, la recherche par saisie et Échap. Les dialogues gèrent recherche, résultats groupés, chargement, listes vides, erreurs, nouvelles tentatives et restauration du focus.
+
+Les contributions utilisent `section: "context" | "integrations" | "commands"` et `order` croissant, puis le libellé et l’id en cas d’égalité. `renderLink(children)` conserve la navigation native. Les applications ayant un fournisseur de mentions limité à un périmètre enregistrent `referencePicker: { source, referenceType }`. La sélection insère une référence normale du composeur. `referenceType` exclut les types propres à l’application du dialogue partagé de recherche de l’espace pour éviter les doublons. L’espace enregistre via `resources.useWorkspaceMenu({ enabled, onSelectIntegration })`. Son `scopeKey` réinitialise les sélecteurs et interrompt les requêtes lors d’un changement d’identité. Les échecs des fournisseurs restent des erreurs, pas des résultats vides.
+
+Une source comme Figma reste visible pendant la vérification de l’accès. Son dialogue affiche le chargement ou une erreur avec nouvelle tentative, un vrai lien de connexion si elle est déconnectée ou le sélecteur d’URL autorisé si elle est connectée. Créer une compétence sélectionne directement le mode compétence. Téléverser un fichier de compétence ouvre un dialogue de vérification et d’enregistrement après le sélecteur de fichiers natif.
 
 La configuration du sélecteur accepte :
 
@@ -333,6 +337,7 @@ const contextMenuItems: ComposerContextMenuItem[] = [
     label: labels.references,
     picker: {
       searchPlaceholder: labels.searchReferences,
+      presentation: { type: "dialog", mode: "single" },
       items: authorizedReferences,
       selectedIds,
       onSelect: stageReference,
@@ -406,7 +411,7 @@ Les entrées de sélection ne définissent pas aussi `render` ou `onSelect` au n
 
 Le `footerAction` facultatif reste sous les résultats, même pendant le chargement, une erreur ou une liste vide. Il accepte un `label` traduit, éventuellement `icon` et `disabled`, et soit `onSelect()`, soit `renderLink(children)`. Utilisez un callback pour une fenêtre modale ou un autre parcours avec état : `false` garde le menu ouvert, `true` ou `void` le ferme, et un rejet affiche une erreur avec une nouvelle tentative. Pour une navigation simple, `renderLink` renvoie un vrai `Link` React Router ou un lien HTML ; le menu partagé fournit la ligne via `asChild`, en conservant son `href` et les comportements de navigation du navigateur. Branchez des parcours existants et autorisés, pas des actions factices.
 
-Transmettre `addAttachment` à `ComposerContextMenu` place l’action standard de téléversement en premier et conserve le callback de fichiers de l’hôte.
+Transmettre `addAttachment` à `ComposerContextMenu` ajoute Fichiers et images à la section des pièces jointes et conserve le callback de fichiers de l’hôte.
 
 `PromptComposer` et `AgentKitComposer` acceptent `attachmentAdapter`, du type public `AttachmentAdapter` de `@assistant-ui/react`. Cet adaptateur fournit les règles de l’hôte pour les fichiers acceptés, la taille et la préparation ; omettez-le pour conserver les adaptateurs par défaut. Le compositeur partagé garde la responsabilité du contrôle de téléversement, du sélecteur de fichiers, du sélecteur de contexte et des pastilles de pièces jointes. Ne remplacez pas ces contrôles pour personnaliser la préparation des fichiers.
 

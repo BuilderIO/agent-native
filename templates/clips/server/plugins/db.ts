@@ -1411,6 +1411,11 @@ export const migrations = runMigrations(
       CREATE UNIQUE INDEX IF NOT EXISTS recording_comments_idempotency_key_unique_idx
         ON recording_comments (author_email, idempotency_key)`,
     },
+    {
+      version: 102,
+      name: "recording-transcript-earlier-audio-removed-at",
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_removed_at TEXT`,
+    },
   ]),
   { table: "clips_migrations" },
 );

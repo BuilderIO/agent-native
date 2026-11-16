@@ -171,7 +171,11 @@ vi.mock("next-themes", () => ({
   useTheme: () => ({ resolvedTheme: clientState.theme }),
 }));
 
-import { WorkspaceAppFrame, WorkspaceAppKeepAlive } from "./workspace-app-host";
+import {
+  WorkspaceAppFrame,
+  WorkspaceAppHost,
+  WorkspaceAppKeepAlive,
+} from "./workspace-app-host";
 
 describe("WorkspaceAppKeepAlive", () => {
   let container: HTMLDivElement;
@@ -386,7 +390,14 @@ describe("WorkspaceAppKeepAlive", () => {
     ["coach", "/", "/"],
     ["onboarding", "/accounts", "/accounts"],
   ])(
-    "embeds %s by its own home path when its registry url is this Dispatch's page",
+    // Retired deliberately: this used to require a same-origin app to be
+    // framed through an embed session at its home path. That session is an
+    // ordinary embed scope, which may only read its own document and static
+    // assets, so the framed app could not call a single action (measured on
+    // Labs 11/5: 0 of 16 action calls returned 200 and the app rendered
+    // "Couldn't load content"; the same app framed directly returned 16 of 16).
+    // A same-origin app shares the workspace cookie, so it now loads directly.
+    "loads %s directly at its own home path when its registry url is this Dispatch's page",
     async (id, homePath, expectedPath) => {
       await act(async () => {
         root.render(
@@ -404,13 +415,40 @@ describe("WorkspaceAppKeepAlive", () => {
         await Promise.resolve();
       });
 
-      expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
-        app: id,
-        path: expectedPath,
-        chrome: "minimal",
-      });
+      expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+      expect(
+        document
+          .querySelector("[data-chat-first-app-embed-url]")
+          ?.getAttribute("data-chat-first-app-embed-url"),
+      ).toBe(`/${id}${expectedPath}`.replace(/\/+$/, ""));
     },
   );
+
+  it("keeps a same-origin app's deep route when it loads it directly", async () => {
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "docs",
+            name: "Docs",
+            path: "/docs",
+            homePath: "/home",
+            url: `${window.location.origin}/dispatch/apps/docs`,
+          }}
+          initialPath="/settings/integrations/notion"
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+    expect(
+      document
+        .querySelector("[data-chat-first-app-embed-url]")
+        ?.getAttribute("data-chat-first-app-embed-url"),
+    ).toBe("/docs/settings/integrations/notion");
+  });
 
   it("never falls back to framing this Dispatch's own page for the app", async () => {
     clientState.legacyMutateError = new Error("Embed failed");
@@ -928,5 +966,115 @@ describe("WorkspaceAppKeepAlive", () => {
       container.querySelectorAll("[data-dispatch-workspace-app-cache-entry]"),
     ).toHaveLength(3);
     expect(container.querySelectorAll("iframe")).toHaveLength(3);
+  });
+
+  it("keeps a same-origin app's deep route through the host, not just the frame", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "docs",
+        name: "Docs",
+        path: "/docs",
+        homePath: "/home",
+        url: `${window.location.origin}/dispatch/apps/docs`,
+        status: "ready",
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <WorkspaceAppHost
+          appId="docs"
+          initialPath="/settings/integrations/notion"
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+    expect(
+      container
+        .querySelector("[data-chat-first-app-embed-url]")
+        ?.getAttribute("data-chat-first-app-embed-url"),
+    ).toBe("/docs/settings/integrations/notion");
+  });
+
+  it("gives the kept-alive pane the deep route it is showing", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "docs",
+        name: "Docs",
+        path: "/docs",
+        homePath: "/home",
+        url: `${window.location.origin}/dispatch/apps/docs`,
+        status: "ready",
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <WorkspaceAppKeepAlive
+          activeAppId="docs"
+          initialPath="/settings/integrations/notion"
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector("[data-chat-first-app-embed-url]")
+        ?.getAttribute("data-chat-first-app-embed-url"),
+    ).toBe("/docs/settings/integrations/notion");
+  });
+
+  it("keeps a neighbour's route when another app becomes active", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "docs",
+        name: "Docs",
+        path: "/docs",
+        homePath: "/home",
+        url: `${window.location.origin}/dispatch/apps/docs`,
+        status: "ready",
+      },
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        homePath: "/inbox",
+        url: `${window.location.origin}/dispatch/apps/mail`,
+        status: "ready",
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <WorkspaceAppKeepAlive
+          activeAppId="docs"
+          initialPath="/settings/integrations/notion"
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      root.render(
+        <WorkspaceAppKeepAlive activeAppId="mail" initialPath="/threads/42" />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const urls = Array.from(
+      container.querySelectorAll("[data-dispatch-workspace-app-cache-entry]"),
+    ).map((entry) =>
+      [
+        entry.getAttribute("data-dispatch-workspace-app-cache-entry"),
+        entry
+          .querySelector("[data-chat-first-app-embed-url]")
+          ?.getAttribute("data-chat-first-app-embed-url"),
+      ].join("="),
+    );
+    expect(urls).toContain("docs=/docs/settings/integrations/notion");
+    expect(urls).toContain("mail=/mail/threads/42");
   });
 });

@@ -2368,7 +2368,7 @@ return { desktopVersion, clipsVersion };`,
     assert.match(desktopSourceText, /get_tag_sha\(\)/);
     assert.match(desktopSourceText, /\.draft/);
     assert.match(desktopSourceText, /TAG_SHA[\s\S]*needs\.resolve-version/);
-    assert.match(clipsSourceText, /\.draft/);
+    assert.match(clipsSourceText, /\.isDraft/);
     assert.match(clipsSourceText, /get_tag_sha\(\)/);
     assert.match(clipsSourceText, /TAG_SHA[\s\S]*RELEASE_SOURCE_REF/);
     assert.match(clipsSourceText, /SOURCE_REF,,/);
@@ -2378,8 +2378,8 @@ return { desktopVersion, clipsVersion };`,
     assert.match(clipsSource, /resolve-source-ref/);
     assert.match(clipsSource, /full 40-character commit SHA/);
     assert.match(clipsSource, /needs\.resolve-source-ref\.outputs\.source_ref/);
-    assert.match(clipsSource, /needs\.build-tauri\.outputs\.source_ref/);
+    assert.match(clipsSource, /needs\.prepare-release\.outputs\.release_id/);
     assert.match(desktopSource, /--target \\"\$\{\{ needs\.resolve-version/);
-    assert.match(clipsSource, /releaseCommitish/);
+    assert.match(clipsSourceText, /--target "\$RELEASE_SOURCE_REF"/);
   });
 });

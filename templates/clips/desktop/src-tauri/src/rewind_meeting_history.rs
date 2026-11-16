@@ -1,4 +1,3 @@
-
 use crate::capture_graph::{CaptureConsumer, CaptureSource};
 use crate::config::RewindCaptureMode;
 use crate::screen_memory::{self, ScreenMemoryRuntimeState, ScreenMemorySegmentMetadata};
@@ -27,7 +26,6 @@ pub struct RewindMeetingHistoryState {
     requests: Mutex<HashMap<String, PreparedMeetingHistory>>,
 }
 
-#[derive(Clone)]
 struct PreparedMeetingHistory {
     scheduled_start: DateTime<Utc>,
     captured_until: DateTime<Utc>,
@@ -140,16 +138,9 @@ pub async fn rewind_meeting_history_collect(
     app: AppHandle,
     token: String,
 ) -> Result<RewindMeetingHistoryResult, String> {
-    let prepared = app
-        .state::<RewindMeetingHistoryState>()
-        .requests
-        .lock()
-        .map_err(|error| error.to_string())?
-        .get(&token)
-        .cloned()
-        .ok_or_else(|| {
-            "This prepared meeting-history request is no longer available.".to_string()
-        })?;
+    let prepared = take_prepared_request(&app, &token)?.ok_or_else(|| {
+        "This prepared meeting-history request is no longer available.".to_string()
+    })?;
 
     let result = async {
         wait_for_local_indexes(&app, &prepared.segments).await?;
@@ -170,9 +161,6 @@ pub async fn rewind_meeting_history_collect(
     }
     .await;
 
-    if let Ok(mut requests) = app.state::<RewindMeetingHistoryState>().requests.lock() {
-        requests.remove(&token);
-    }
     for segment in &prepared.segments {
         let _ = screen_memory::unpin_segment(&app, &segment.id, &prepared.pin_id);
     }
@@ -181,18 +169,31 @@ pub async fn rewind_meeting_history_collect(
 
 #[tauri::command]
 pub fn rewind_meeting_history_cancel(app: AppHandle, token: String) -> Result<(), String> {
-    let prepared = app
-        .state::<RewindMeetingHistoryState>()
-        .requests
-        .lock()
-        .map_err(|error| error.to_string())?
-        .remove(&token);
-    if let Some(prepared) = prepared {
+    if let Some(prepared) = take_prepared_request(&app, &token)? {
         for segment in &prepared.segments {
             let _ = screen_memory::unpin_segment(&app, &segment.id, &prepared.pin_id);
         }
     }
     Ok(())
+}
+
+fn take_prepared_request(
+    app: &AppHandle,
+    token: &str,
+) -> Result<Option<PreparedMeetingHistory>, String> {
+    take_from_requests(&app.state::<RewindMeetingHistoryState>().requests, token)
+}
+
+// Whoever takes a request owns its pins, so a concurrent collect or cancel cannot unpin segments
+// out from under a collector that is still reading them.
+fn take_from_requests(
+    requests: &Mutex<HashMap<String, PreparedMeetingHistory>>,
+    token: &str,
+) -> Result<Option<PreparedMeetingHistory>, String> {
+    Ok(requests
+        .lock()
+        .map_err(|error| error.to_string())?
+        .remove(token))
 }
 
 fn parse_scheduled_start(value: &str) -> Result<DateTime<Utc>, String> {
@@ -539,6 +540,28 @@ fn parse_time(value: &str) -> Result<DateTime<Utc>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_one_caller_can_take_a_prepared_request() {
+        let start = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let requests = Mutex::new(HashMap::from([(
+            "token".to_string(),
+            PreparedMeetingHistory {
+                scheduled_start: start,
+                captured_until: start,
+                segments: Vec::new(),
+                pin_id: "token-segments".to_string(),
+            },
+        )]));
+
+        let first = take_from_requests(&requests, "token").unwrap();
+        let second = take_from_requests(&requests, "token").unwrap();
+
+        assert_eq!(first.unwrap().pin_id, "token-segments");
+        assert!(second.is_none());
+    }
 
     #[test]
     fn maps_rows_to_scheduled_meeting_timeline() {

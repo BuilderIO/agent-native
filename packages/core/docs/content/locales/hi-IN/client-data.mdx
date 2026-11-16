@@ -307,6 +307,57 @@ await callAction(
 
 हर `useActionQuery()`, `useActionMutation()`, और `callAction()` रिक्वेस्ट 60 सेकंड के टाइमआउट से बंधी है, और टाइमआउट बिना साइलेंट रीट्राई के त्रुटियों के रूप में सामने आते हैं। `useActionQuery()` React Query के एबॉर्ट सिग्नल का उपयोग करते हुए सुपरसीडेड रिक्वेस्ट को भी स्वचालित रूप से कैंसल करता है।
 
+### विफल डेटा लेखन {#write-failures}
+
+जब उपयोगकर्ता द्वारा शुरू किया गया सेव विफल होता है, तो ऐप कुछ न दिखाने के बजाय एक साझा टोस्ट दिखाता है। `useActionMutation()` यह अपने-आप करता है। विफल `mutate()` टोस्ट दिखाता है, जब तक कोई `onError` उस विफलता को न संभाले, चाहे वह हुक के विकल्पों में हो या `mutate()` कॉल में। विफल `mutateAsync()` टोस्ट तभी दिखाता है जब अस्वीकृति अनहैंडल्ड रह जाए, जैसे किसी `await` के ऊपर `try/catch` न हो। जो `catch` मूल त्रुटि की जगह नई `Error` फेंकता है, उसकी रिपोर्ट नहीं की जाती।
+
+`errorNotification` विकल्प इस डिफ़ॉल्ट व्यवहार को बदलता है:
+
+| मान                 | व्यवहार                                                                                                                         |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `"auto"` (डिफ़ॉल्ट) | टोस्ट केवल तब दिखाता है जब विफलता को कोई और न संभाल रहा हो।                                                                     |
+| `"shared"`          | हर विफलता पर टोस्ट दिखाता है, भले ही आपका अपना `onError` मौजूद हो। इसका उपयोग तब करें जब हैंडलर केवल रोलबैक या लॉग करता हो।     |
+| `"caller"`          | कभी टोस्ट नहीं दिखाता। इसका उपयोग बैकग्राउंड सेव, जानबूझकर अनदेखी की गई विफलता, या ऐसी जगह के लिए करें जो त्रुटि खुद दिखाती है। |
+
+`errorLabel` टोस्ट के शीर्षक को आपके अपने पहले से अनूदित पाठ से बदल देता है। नीचे दिए उदाहरण में, असाइनमेंट विफल होने पर सामान्य शीर्षक के बजाय यही शीर्षक दिखता है।
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const assign = useActionMutation("update-ticket", {
+  errorLabel: t("tickets.assignFailed"),
+});
+
+assign.mutate({ ticketId, assignedToEmail: "jordan@example.com" });
+```
+
+अगले बदलाव पर फिर से प्रयास करने वाले ऑटोसेव को उपयोगकर्ता का काम नहीं रोकना चाहिए, इसलिए वह इससे बाहर रहता है।
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const saveDraft = useActionMutation("save-ticket-draft", {
+  errorNotification: "caller",
+});
+```
+
+`useActionMutation()` के अलावा कोई भी लिखने का काम, जैसे अपलोड के लिए `fetch` या ऐसा `catch` जो त्रुटि निगल लेता है, `reportWriteFailure()` से अपनी विफलता बताता है। सादे `fetch` की त्रुटि में स्टेटस नहीं होता, इसलिए टोस्ट में आपका लेबल या सामान्य शीर्षक दिखता है। सादा `useMutation()` `meta: surfaceMutationError(label)` पास करके इसमें शामिल होता है, जो वही वैकल्पिक लेबल लेता है।
+
+```ts
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+
+try {
+  const response = await fetch(uploadUrl, { method: "PUT", body: file });
+  if (!response.ok) throw new Error(`Upload failed with ${response.status}`);
+} catch (error) {
+  reportWriteFailure(error, { label: t("tickets.uploadFailed") });
+}
+```
+
+टोस्ट का पाठ विफलता पर निर्भर करता है। `401` और रद्द किए गए अनुरोध पर कुछ नहीं दिखता, क्योंकि सेशन जाँच पहले ही `401` संभाल लेती है। ऑफ़लाइन होना, टाइमआउट और `403` में से हर एक शीर्षक के नीचे एक छोटा अनूदित संदेश दिखाता है। `5xx` पर केवल शीर्षक दिखता है, क्योंकि सर्वर अपना त्रुटि पाठ छिपा देता है। जब कोई action `fail()` से टाइप्ड `4xx` त्रुटि के साथ मना करता है, तो टोस्ट वही संदेश दिखाता है जो action ने लिखा था; देखें [action विफल करना](/docs/actions-defining#failing)। `403` पर सर्वर का पाठ कभी नहीं दिखता।
+
+`AppProviders` उन विफलताओं को सुनने वाला कंपोनेंट `WriteFailureToaster` तब माउंट करता है जब उसका `toaster` प्रॉप `null` न हो। जो ऐप `AppProviders` इस्तेमाल नहीं करता, या `toaster={null}` पास करता है, वह `QueryClientProvider` के अंदर और अपने `Toaster` के बगल में `@agent-native/toolkit/app/shared` से `<WriteFailureToaster />` रेंडर करता है। इसके बिना कोई टोस्ट नहीं दिखता।
+
 ## useDbSync {#usedbsync}
 
 <Signature

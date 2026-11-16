@@ -1,5 +1,75 @@
 # @agent-native/toolkit
 
+## 0.226.0
+
+### Patch Changes
+
+- 5e251c0: Preserve Builder connection cancellation checks across asynchronous operations.
+- 5ee10e8: Separate app context from scoped workspace integration contributions in the shared composer, preserve references through app handoffs, and revalidate integration access before engine dispatch. Preserve bounded app-owned source identifiers in composer draft metadata. Support transport-owned binary uploads in AgentKit and provide the native file-storage upload lifecycle across shared composers.
+- 9aabcfb: Add a pre-signup experiment for automatic Builder account activation with recorded acceptance, verified identity checks, and a new-account-only provisioning contract.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5ee10e8]
+- Updated dependencies
+  - @agent-native/agentkit@0.226.0
+
+## 0.225.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [1a62c08]
+- Updated dependencies
+  - @agent-native/agentkit@0.225.1
+
+## 0.225.0
+
+### Minor Changes
+
+- aeb3d12: Let the share panel choose what general access allows. Anyone at the organization gets a role picker for Can view, Can comment, or Can edit, and Anyone with the link gets one for Can view or Can comment. `set-resource-visibility` takes an optional `role` with `visibility: "org"` or `"public"`. The organization's role is stored as the share grant to the resource's own organization, and the link's role as a share row for the new `link` principal, which only signed-in callers receive and which is never listed or shared as a person. Each is removed when the resource leaves that visibility, and raising the link role needs the same approval as making a resource public. `list-resource-shares` returns `linkRole` for a public resource. `useShareButtonController` adds `generalAccessRole`, `canSetGeneralAccessRole` and `handleGeneralAccessRole`, and while visibility is `org` its `shares` no longer lists the organization grant. `ShareGeneralAccessRow` takes `roleCopy` and `allowedRoles`.
+
+  Going from private to the organization no longer opens a confirmation for every resource type. A registration opts in with `confirmOrgVisibility: true`, which chat threads set; `useShareVisibilityTransition` takes the matching `confirmOrgVisibility` option.
+
+### Patch Changes
+
+- 9108a0b: Keep a reply box expanded until a press outside it has finished, so collapsing it can't move a Resolve button or other control out from under the pointer.
+- 59b8c47: Stop the composer from re-rendering on every editor update, which could hit React's maximum update depth.
+- Release all public npm packages with a patch version bump.
+- 7557e39: The composer's @ menu lists an exact name or alias match first, so typing "@ai" picks the agent that answers to "AI". A host that passes its own mention list without the default search keeps that list's section order, even for a section named "Agents".
+- bce674a: Stop AppProviders logging React 19's "Encountered a script tag" error in dev on every private page load.
+- Updated dependencies
+  - @agent-native/agentkit@0.225.0
+
+## 0.224.0
+
+### Minor Changes
+
+- 6552f04: Let organizations hide Agent-Native.com hosted apps in Dispatch, group Dispatch's app pages into Pinned apps, Apps, and Agent-Native.com hosted apps, and keep the sidebar to pinned apps.
+  - Organization owners and admins get a "Show Agent-Native.com hosted apps" switch under Settings › Organization › Apps, backed by the new `get-hosted-apps-settings` and `set-hosted-apps-settings` actions (recorded in Dispatch's audit log, on by default). When it is off, Agent-Native.com hosted apps leave Dispatch's app lists, `list_apps`, and the Dispatch agent's app context; `list-connected-agents` still returns them marked `hiddenFromLaunchers`, and `call-agent` by name still reaches them. An unreadable stored value hides Agent-Native.com hosted apps and Settings offers to repair it.
+  - Core adds `registerAgentContextAgentFilter` and `discoverAgentContextAgents` so an app can narrow the peers its own agent is shown (`<available-apps>`, relevant apps, @-mention Connected Agents, `describe-workspace-apps`) without changing `discoverAgents` routing.
+  - Home, New chat, and All apps show Pinned apps, Apps, and Agent-Native.com hosted apps sections. The sidebar shows pinned apps, or until something is pinned, three suggested apps, above an All apps link. Every app row has a visible pin button, and pins stay in sync across surfaces. The toolkit apps rail accepts optional `sections` and `onTogglePinned` (pin changes go to the host instead of a whole layout); without them it renders as before.
+
+- 810b9e0: Two writers changing one record no longer silently overwrite each other. Core adds `saveIfCurrent` in `@agent-native/core/save-conflict/server`, which writes only when the record still has the revision the caller read and otherwise throws a typed `save_conflict` carrying the current value, and `saveWithMerge` in `@agent-native/core/save-conflict`, which merges and saves again before asking anyone. Toolkit adds `useSaveConflictPrompt` in `@agent-native/toolkit/app/save-conflict`, the one prompt for when both writers changed the same field. Forms, Clips and Mail use them first.
+
+### Patch Changes
+
+- aa0b323: Keep the caret on a block dragged downward with the drag handle, instead of the block after it.
+- Release all public npm packages with a patch version bump.
+- 7abe86d: New-workspace-app instructions now tell the agent to keep `configureClientRouterBasename()` in `app/entry.client.tsx`, matching the shipped templates.
+- Updated dependencies
+  - @agent-native/agentkit@0.224.0
+
+## 0.223.1
+
+### Patch Changes
+
+- 0d88792: Restore the feedback form on negative chat ratings.
+- 10735e3: Point to the Connect AI card when clicking anywhere in its chat field.
+- 70c5c8f: Keep the Connect AI setup card inside narrow chat panels and phone screens: its buttons wrap onto a second line instead of overflowing, a connect error wraps under the buttons instead of pushing Custom keys out of the card, and a long "Connected to" workspace name truncates. The Waiting, Cancel, and Custom keys buttons now share one size while a Builder.io connection is in progress. `BuilderConnectPopover` accepts `cancelSize` so the Cancel button can match its trigger.
+- Release all public npm packages with a patch version bump.
+- 110efd1: Add Content creator, Student and Educator to the onboarding role question.
+- Updated dependencies
+  - @agent-native/agentkit@0.223.1
+
 ## 0.223.0
 
 ### Minor Changes
@@ -1538,41 +1608,5 @@
 ### Patch Changes
 
 - 81fb79e: Keep shared composer labels theme-safe and translatable.
-
-## 0.16.2
-
-### Patch Changes
-
-- 43fa797: Keep shared composer labels theme-safe and translatable.
-
-## 0.16.1
-
-### Patch Changes
-
-- fb18771: Keep shared composer labels theme-safe and translatable.
-
-## 0.16.0
-
-### Minor Changes
-
-- 9e21e1b: Add a Core-free data grid kit with keyboard navigation, selection, resizing, typed editor slots, and app-owned persistence callbacks.
-
-### Patch Changes
-
-- 9e21e1b: Align chat history rail overflow actions with trailing timestamps.
-- 9e21e1b: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
-
-## 0.15.1
-
-### Patch Changes
-
-- 73c4a97: Align chat history rail overflow actions with trailing timestamps.
-- 73c4a97: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
-
-## 0.15.0
-
-### Minor Changes
-
-- f07ec04: Localize the Core agent-chat interface and Toolkit composer across every supported locale, provide built-in Core translations with app-level catalog overrides, and guard the complete chat surface against new raw visible strings.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

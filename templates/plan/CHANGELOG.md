@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Plan are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-03
+
+### Fixed
+
+- After you drag a block down by its handle, the caret stays on that block instead of landing in the one below it.
+
 ## 2026-11-01
 
 ### Fixed

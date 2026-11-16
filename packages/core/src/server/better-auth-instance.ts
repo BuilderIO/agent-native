@@ -1433,6 +1433,7 @@ export interface BetterAuthInternalAdapter {
       image?: string | null;
       emailVerified?: boolean;
       onboardingRole?: string | null;
+      createdAt?: Date | string;
     };
     accounts: Array<{ id: string; providerId: string; accountId: string }>;
   } | null>;

@@ -152,6 +152,7 @@ import {
 import {
   MCP_APP_MIME_TYPE,
   type ActionAuthorize,
+  type ActionMcpToolAnnotations,
   type ActionRunContext,
 } from "../action.js";
 import type { EngineToolResultImagePart } from "../agent/engine/types.js";
@@ -215,6 +216,30 @@ export function syncMcpActionEntries(
   }
 }
 
+/**
+ * The upstream server's hints, so `tool-search` marks a destructive tool
+ * whatever it is called. Hints the server leaves out take the MCP spec's
+ * defaults: "destructiveHint: If true, the tool may perform destructive
+ * updates to its environment. ... Default: true", meaningful only when the
+ * tool is not read-only. Our own actions do not get this default.
+ */
+function upstreamMcpAnnotations(tool: McpTool): {
+  mcpAnnotations: ActionMcpToolAnnotations;
+} {
+  const hints = tool.annotations ?? {};
+  const readOnlyHint = hints.readOnlyHint === true;
+  return {
+    mcpAnnotations: {
+      readOnlyHint,
+      destructiveHint: !readOnlyHint && hints.destructiveHint !== false,
+      openWorldHint: hints.openWorldHint !== false,
+      ...(typeof hints.idempotentHint === "boolean"
+        ? { idempotentHint: hints.idempotentHint }
+        : {}),
+    },
+  };
+}
+
 function mcpToolToActionEntry(
   manager: McpClientManager,
   tool: McpTool,
@@ -236,6 +261,7 @@ function mcpToolToActionEntry(
         "Plan mode allows MCP calls classified as read-only from annotations, operation names, and runtime arguments.",
     },
     ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}),
+    ...upstreamMcpAnnotations(tool),
     ...resolvedEntry,
     run: async (args: Record<string, unknown>, context?: ActionRunContext) => {
       // Defense-in-depth: even if a cross-scope MCP tool somehow makes it

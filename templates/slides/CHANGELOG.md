@@ -3,10 +3,57 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-05
+
+### Improved
+
+- Attach Google Slides, decks, and websites as chat context directly from the composer, with workspace integrations grouped separately.
+
+### Fixed
+
+- Fixed a crash when selecting slide text after the editor updates.
+- Presenter view is no longer offered on shared links, and a blocked popup now shows a message instead of failing silently.
+
+## 2026-11-04
+
+### Improved
+
+- Outside agents like Claude, Codex, and the Agent-Native desktop app now get the slide canvas size and a content budget when they create a deck, so their slides spill off the bottom far less often.
+- The agent finds the right Slides action more often, for example image generation when you ask for a picture.
+- view-screen lists the 20 most recent decks on Home and says how many more there are.
+
+### Fixed
+
+- PDF, PowerPoint, and Google Slides export from the editor now work for long decks instead of failing with a 'slide is not currently rendered' error.
+- Building slides from PDFs or notes no longer stops with a placeholder error on some models
+- Pasting a copied slide from the thumbnail rail now works even if you wait a while after copying.
+- PowerPoint imports preserve rounded rectangle corner radii.
+- Presentation links open correctly again
+- Undo no longer fails silently when an earlier change has already been applied; it now says the step was skipped.
+
+## 2026-11-03
+
+### Fixed
+
+- Deleting an asset now removes its stored file and reports a real error when the asset is missing, owned by someone else, or its file cannot be deleted.
+- Fewer failed slide edits when the agent quotes spacing that differs from the stored HTML.
+- HTML and text references stay attached in chat and remain readable beyond their previews.
+- Restore now says when a version was already current, and reports an error instead of success when the deck fails to reload.
+- Slides actions now report failures instead of success when they skip a change: unknown or taken slide IDs are rejected, a duplicated slide keeps its background, transition, and skipped flag, notes save with update-slide, navigate fails without a browser tab, and generate-slides-ai warns when the slide count is capped.
+- The agent now recovers when a PowerPoint import produced no slides, instead of stopping mid-run.
+
+## 2026-11-02
+
+### Fixed
+
+- Exports now include slide text you just typed, even before it has auto-saved.
+- Agent edits to slide comment text no longer get silently dropped when the comment is also resolved or reopened.
+
 ## 2026-10-30
 
 ### Fixed
 
+- Viewers no longer see Rename, Delete, or Set as workspace default on deck cards, and a refused delete, rename, or upload now reports an error instead of looking successful.
 - Agents on read-only connections can now read decks and design systems, so the share dialog's Open in Claude prompt works for them.
 - Asking to import a file you attached earlier in the chat now finds it, instead of stopping with a setup error.
 - Stars on Home now stay after a reload.

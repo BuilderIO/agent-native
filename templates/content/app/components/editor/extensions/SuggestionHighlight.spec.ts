@@ -34,6 +34,10 @@ vi.mock("@shared/nfm", async (importOriginal) => {
 });
 
 import {
+  createCommentHighlightPlugin,
+  setCommentHighlights,
+} from "./CommentHighlight";
+import {
   createSuggestionHighlightPlugin,
   isProvisionalDraftSpec,
   suggestionDecisionHoldsHistory,
@@ -972,6 +976,90 @@ describe("SuggestionHighlight", () => {
         }
       });
 
+      // The spot ProseMirror hands the browser for a caret at this position.
+      // Chrome types before the line break when the widget comes after it.
+      function caretFollowsWidget(view: EditorView, position: number) {
+        const { node, offset } = view.domAtPos(position, -1);
+        const before = node.childNodes[offset - 1];
+        return (
+          before instanceof HTMLElement &&
+          before.classList.contains("suggestion-inline-widget")
+        );
+      }
+
+      it.each<[string, Partial<SuggestionHighlightSpec>]>([
+        ["a new line", { kind: "insert", insertedText: "\n" }],
+        ["an insertion", { kind: "insert", insertedText: "y = 2\n" }],
+        [
+          "an accepted line",
+          { kind: "insert", insertedText: "y = 2\n", settling: true },
+        ],
+        ["a deletion", { kind: "delete", deletedText: "y = 2\n" }],
+      ])(
+        "keeps the caret after %s at the start of a code line",
+        (_label, spec) => {
+          const { view } = mounted(
+            [code("x = 1\nz = 3"), prose("After.")],
+            [
+              {
+                suggestionId: "line-start",
+                from: 7,
+                to: 7,
+                kind: "insert",
+                ...spec,
+              },
+            ],
+          );
+          try {
+            expect(caretFollowsWidget(view, 7)).toBe(true);
+          } finally {
+            view.destroy();
+          }
+        },
+      );
+
+      it("keeps the caret before a widget inside a code line", () => {
+        const { view } = mounted(
+          [code("x = 1\nz = 3"), prose("After.")],
+          [
+            {
+              suggestionId: "mid-line",
+              kind: "insert",
+              from: 8,
+              to: 8,
+              insertedText: "y",
+            },
+          ],
+        );
+        try {
+          expect(caretFollowsWidget(view, 8)).toBe(false);
+        } finally {
+          view.destroy();
+        }
+      });
+
+      it("moves a widget when the line break before it goes away", () => {
+        const { view } = mounted(
+          [code("x = 1\nz = 3"), prose("After.")],
+          [
+            {
+              suggestionId: "line-start",
+              kind: "insert",
+              from: 7,
+              to: 7,
+              insertedText: "y",
+            },
+          ],
+        );
+        try {
+          expect(caretFollowsWidget(view, 7)).toBe(true);
+          view.dispatch(view.state.tr.insertText("-", 6, 7));
+          expect(caretFollowsWidget(view, 7)).toBe(false);
+        } finally {
+          view.destroy();
+        }
+      });
+
       it.each(["```", "~~~", "$$"])(
         "keeps the lines of a new %s block out of block widgets",
         (fence) => {
@@ -1035,6 +1123,25 @@ describe("SuggestionHighlight", () => {
         expect(list.children[1]!.firstElementChild?.getAttribute("role")).toBe(
           "button",
         );
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("spells out where a link on a suggested line points", () => {
+      const flat = [list("bulletList", listItem("One"))];
+      const { view, mount } = mounted(flat, [
+        lineAfter(
+          flat,
+          "One",
+          "- One\n- [Docs](https://docs.test)",
+          "\n- [Docs](https://docs.test)",
+        ),
+      ]);
+      try {
+        expect(
+          mount.querySelector(".suggestion-block-widget")?.textContent,
+        ).toBe("Docs (https://docs.test)");
       } finally {
         view.destroy();
       }
@@ -1499,6 +1606,35 @@ describe("SuggestionHighlight", () => {
     );
   });
 
+  it("lights up every piece decided together with the active one", () => {
+    const editorState = setSpecs(
+      state("Hello world again"),
+      [
+        { suggestionId: "active", kind: "delete", from: 1, to: 6 },
+        {
+          suggestionId: "same-unit",
+          kind: "delete",
+          from: 7,
+          to: 12,
+          inActiveUnit: true,
+        },
+        { suggestionId: "other", kind: "delete", from: 13, to: 18 },
+      ],
+      "active",
+    );
+    const classes = new Map(
+      (suggestionHighlightKey.getState(editorState) as any).decorations
+        .find()
+        .map((deco: any) => [
+          deco.type.attrs["data-suggestion-id"],
+          deco.type.attrs.class,
+        ]),
+    );
+    expect(classes.get("active")).toContain("suggestion-highlight--active");
+    expect(classes.get("same-unit")).toContain("suggestion-highlight--active");
+    expect(classes.get("other")).not.toContain("suggestion-highlight--active");
+  });
+
   it("maps persisted ranges across document transactions and preserves stable ids", () => {
     let editorState = setSpecs(state("Hello world"), [
       { suggestionId: "stable", kind: "delete", from: 7, to: 12 },
@@ -1930,6 +2066,82 @@ describe("settling suggestions", () => {
     ).toBe("Before after");
   });
 
+  it("keeps the comment highlight of the words it replaces on the new words", () => {
+    const view = new EditorView(document.createElement("div"), {
+      state: EditorState.create({
+        doc: doc("Before after"),
+        plugins: [
+          createCommentHighlightPlugin(),
+          createSuggestionHighlightPlugin(),
+        ],
+      }),
+    });
+    try {
+      setCommentHighlights(view, {
+        specs: [{ threadId: "thread", from: 1, to: 13 }],
+        activeId: "thread",
+      });
+      view.dispatch(
+        view.state.tr.setMeta(suggestionHighlightKey, {
+          specs: [settling],
+          activeId: null,
+        }),
+      );
+      const highlight = view.dom.querySelector(
+        ".suggestion-settling-text .comment-highlight",
+      );
+      expect(highlight?.textContent).toBe("Later");
+      expect(highlight?.className).toBe(
+        "comment-highlight comment-highlight--active",
+      );
+      expect(highlight?.getAttribute("data-comment-thread")).toBe("thread");
+
+      setCommentHighlights(view, { activeId: null, hoveredId: "thread" });
+      expect(
+        view.dom.querySelector(".suggestion-settling-text .comment-highlight")
+          ?.className,
+      ).toBe("comment-highlight comment-highlight--hovered");
+    } finally {
+      view.destroy();
+    }
+  });
+
+  it("draws the open card's thread when several highlight the words it replaces", () => {
+    const view = new EditorView(document.createElement("div"), {
+      state: EditorState.create({
+        doc: doc("Before after"),
+        plugins: [
+          createCommentHighlightPlugin(),
+          createSuggestionHighlightPlugin(),
+        ],
+      }),
+    });
+    try {
+      setCommentHighlights(view, {
+        specs: [
+          { threadId: "first", from: 1, to: 7 },
+          { threadId: "second", from: 1, to: 7 },
+        ],
+        activeId: "second",
+      });
+      view.dispatch(
+        view.state.tr.setMeta(suggestionHighlightKey, {
+          specs: [settling],
+          activeId: null,
+        }),
+      );
+      const highlight = view.dom.querySelector(
+        ".suggestion-settling-text .comment-highlight",
+      );
+      expect(highlight?.getAttribute("data-comment-thread")).toBe("second");
+      expect(highlight?.className).toBe(
+        "comment-highlight comment-highlight--active",
+      );
+    } finally {
+      view.destroy();
+    }
+  });
+
   it("holds undo and redo while a decision saves", () => {
     expect(suggestionDecisionHoldsHistory(state())).toBe(false);
     expect(
@@ -2042,6 +2254,29 @@ describe("drafts while the author types", () => {
     expect(struckText(editorState)).toEqual(["azdy"]);
     expect(specsOf(editorState)).toHaveLength(1);
   });
+
+  it.each([
+    { label: "more line breaks", insert: "\n", at: 3, to: 3, lineBreak: true },
+    { label: "text after it", insert: "x", at: 3, to: 3, lineBreak: false },
+    { label: "text over it", insert: "x", at: 2, to: 3, lineBreak: false },
+  ])(
+    "shows a draft line break's arrow only while it holds no ink: $label",
+    ({ insert, at, to, lineBreak }) => {
+      const editorState = drafting("a\nb", [
+        {
+          suggestionId: "draft-4",
+          kind: "mark",
+          from: 2,
+          to: 3,
+          editableText: true,
+          draft: true,
+          lineBreak: true,
+        },
+      ]);
+      const next = editorState.apply(editorState.tr.insertText(insert, at, to));
+      expect(specsOf(next)).toMatchObject([{ lineBreak }]);
+    },
+  );
 
   it("turns a draft deletion into a replacement when the author types there", () => {
     const deletion: SuggestionHighlightSpec = {

@@ -617,12 +617,17 @@
   z-index: 20;
 }
 
+/* A collaborator's selection: a tint in their colour behind text left at full
+   strength. */
 .collaboration-carets__selection,
 .collaboration-cursor__selection,
 .ProseMirror-yjs-selection {
-  background-color: currentColor !important;
+  background-color: color-mix(
+    in srgb,
+    var(--collaboration-color, currentColor) 20%,
+    transparent
+  ) !important;
   border-radius: 2px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
-  opacity: 0.16;
 }

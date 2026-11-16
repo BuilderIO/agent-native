@@ -1,4 +1,15 @@
+import { EMBED_TOKEN_QUERY_PARAM } from "./embed-auth.js";
+
 export const AGENT_ACCESS_PARAM = "agent_access";
+/**
+ * Each grants access to whoever holds the URL. Clips owns `clip_intake`; core
+ * can't import from a template.
+ */
+export const SIGNED_LINK_PARAMS = [
+  AGENT_ACCESS_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+  "clip_intake",
+] as const;
 export const DEFAULT_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
 
 export interface AgentAccessResourceScope {

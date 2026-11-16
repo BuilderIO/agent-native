@@ -20,6 +20,7 @@ export {
 export {
   accessFilter,
   resolveAccess,
+  resolveAccessMany,
   assertAccess,
   currentAccess,
   ForbiddenError,

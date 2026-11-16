@@ -33,7 +33,7 @@ export {
   parseDocumentRevisionToken,
 } from "../server/lib/document-revision.js";
 import { liveBodyWriterGate } from "../server/lib/live-body-writer.js";
-import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
+import { syncPrivateBodyReferences } from "../server/lib/private-icon-references.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
 import { drizzleOverExec } from "../server/live-copy/exec-db.js";
 import { persistedContentBodyCommit } from "../server/live-copy/persist.js";
@@ -650,7 +650,7 @@ async function performDocumentBodyMutation(
             },
           );
         }
-        await syncPrivateCalloutReferences(tx, {
+        await syncPrivateBodyReferences(tx, {
           documentId: document.id,
           before: document.content,
           after: merged.content,

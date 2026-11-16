@@ -44,7 +44,7 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
@@ -408,6 +408,7 @@ function parseDocumentCreationProvenance(
 }
 
 export default defineAction({
+  searchHints: ["new page", "write a doc", "notes page"],
   description:
     "Create and persist a new Markdown document in Content. Use parentId to nest it, or spaceId/spaceName to choose the workspace for a top-level page; with none of them the page is created in the caller's Personal workspace. Returns the stable document ID and resolved spaceId for subsequent get-document or edit-document calls. If creativeContextProjectionStatus is pending, the document is committed; retry the same arguments with the returned id to repair its projection without creating a duplicate.",
   deferLoading: false,
@@ -834,7 +835,7 @@ export default defineAction({
               orgId,
             },
           );
-          await syncPrivateCalloutReferences(
+          await syncPrivateBodyReferences(
             tx as unknown as ReturnType<typeof getDb>,
             {
               documentId: id,

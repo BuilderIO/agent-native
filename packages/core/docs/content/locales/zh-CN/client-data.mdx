@@ -305,6 +305,57 @@ await callAction(
 
 每个 `useActionQuery()`、`useActionMutation()` 和 `callAction()` 请求都受 60 秒超时限制，超时会以错误的形式呈现，而不会静默重试。`useActionQuery()` 还会使用 React Query 的 abort signal 自动取消被替代的请求。
 
+### 失败的写入 {#write-failures}
+
+当用户发起的保存失败时，应用会显示一个共享的 toast 提示，而不是毫无反应。`useActionMutation()` 会自动完成这一步。失败的 `mutate()` 会显示 toast，除非 `onError` 处理了该失败（无论是在 hook 选项中还是在 `mutate()` 调用中）。失败的 `mutateAsync()` 只有在拒绝未被处理时才会显示 toast，例如上层没有 `try/catch` 的 `await`。如果 `catch` 抛出了新的 `Error` 来替代原始错误，则不会被报告。
+
+`errorNotification` 选项会改变这一默认行为：
+
+| 值               | 行为                                                                               |
+| ---------------- | ---------------------------------------------------------------------------------- |
+| `"auto"`（默认） | 仅当没有其他代码处理该失败时才显示 toast。                                         |
+| `"shared"`       | 即使您自己有 `onError`，每次失败都会显示 toast。当处理函数只回滚或记录日志时使用。 |
+| `"caller"`       | 从不显示 toast。用于后台保存、您有意忽略的失败，或由页面自行渲染错误的位置。       |
+
+`errorLabel` 会用您已翻译好的文本替换 toast 的标题。在下面的示例中，分配失败时会显示该标题，而不是通用标题。
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const assign = useActionMutation("update-ticket", {
+  errorLabel: t("tickets.assignFailed"),
+});
+
+assign.mutate({ ticketId, assignedToEmail: "jordan@example.com" });
+```
+
+在下次修改时自动重试的自动保存不应打断用户，因此将其关闭。
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const saveDraft = useActionMutation("save-ticket-draft", {
+  errorNotification: "caller",
+});
+```
+
+不是 `useActionMutation()` 的写入操作，例如用于上传的 `fetch`，或吞掉错误的 `catch`，应使用 `reportWriteFailure()` 报告失败。原始 `fetch` 的错误不包含状态码，因此 toast 会显示您设置的标签或通用标题。原始的 `useMutation()` 可以通过传入 `meta: surfaceMutationError(label)` 参与其中，该函数接受同样可选的标签。
+
+```ts
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+
+try {
+  const response = await fetch(uploadUrl, { method: "PUT", body: file });
+  if (!response.ok) throw new Error(`Upload failed with ${response.status}`);
+} catch (error) {
+  reportWriteFailure(error, { label: t("tickets.uploadFailed") });
+}
+```
+
+toast 的文本取决于失败类型。`401` 和被取消的请求不会显示任何内容，因为会话检查已经处理了 `401`。离线、超时和 `403` 各自会在标题下方显示一条简短的翻译消息。`5xx` 只显示标题，因为服务器会隐藏其自身的错误文本。当 action 通过 `fail()` 返回类型化的 `4xx` 错误时，toast 会显示 action 编写的消息；参见 [Action 失败](/docs/actions-defining#failing)。`403` 永远不会显示服务器文本。
+
+`AppProviders` 会在 `toaster` 属性不为 `null` 时挂载监听这些失败的组件 `WriteFailureToaster`。不使用 `AppProviders`、或传入 `toaster={null}` 的应用，需要在 `QueryClientProvider` 内、自己的 `Toaster` 旁边渲染来自 `@agent-native/toolkit/app/shared` 的 `<WriteFailureToaster />`。否则不会显示任何 toast。
+
 ## useDbSync {#usedbsync}
 
 <Signature

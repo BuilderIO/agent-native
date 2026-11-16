@@ -11,7 +11,11 @@ const composerContextDraftSchema = z.object({
   references: z
     .array(
       z.object({
-        source: z.enum(["design", "slides", "figma", "website", "integration"]),
+        source: z
+          .string()
+          .min(1)
+          .max(128)
+          .regex(/^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$/i),
         id: z.string().min(1).max(2048),
         title: z.string().max(2048),
         url: composerWebsiteUrlSchema.optional(),

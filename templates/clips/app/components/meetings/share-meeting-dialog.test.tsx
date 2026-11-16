@@ -25,11 +25,10 @@ describe("meeting sharing adoption", () => {
         <button>Share meeting</button>
       </ShareMeetingPopover>,
     );
-  it("confirms organization access before saving and defaults invites to notified Viewer", async () => {
+  it("shares with the organization at once and defaults invites to notified Viewer", async () => {
     await render();
     await select(button("General access"), "Anyone in your organization");
-    expect(mocks.visibility).not.toHaveBeenCalled();
-    await click(button("Share with organization"));
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
     expect(mocks.visibility).toHaveBeenCalledWith({
       resourceType: "meeting",
       resourceId: "meeting-test",

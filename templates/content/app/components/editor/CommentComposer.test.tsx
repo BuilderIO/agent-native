@@ -57,6 +57,76 @@ describe("CommentComposer", () => {
     );
   });
 
+  describe("when collapsible", () => {
+    function renderCollapsible() {
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      const composerRoot = createRoot(container);
+      root = composerRoot;
+      act(() => {
+        composerRoot.render(
+          createElement(CommentComposer, {
+            value: "",
+            onChange: vi.fn(),
+            onSubmit: vi.fn(),
+            mentions: [],
+            onMentionsChange: vi.fn(),
+            collapsible: true,
+          }),
+        );
+      });
+      const composer = container.querySelector(
+        "[data-comment-composer]",
+      ) as HTMLElement;
+      const editor = container.querySelector(".ProseMirror") as HTMLElement;
+      act(() => {
+        editor.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+      });
+      return { composer, editor };
+    }
+
+    const blur = (editor: HTMLElement) =>
+      act(() => {
+        editor.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      });
+    const press = (type: "pointerdown" | "pointerup") =>
+      act(() => {
+        document.body.dispatchEvent(new Event(type, { bubbles: true }));
+      });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("rests at once when focus leaves without a press", () => {
+      const { composer, editor } = renderCollapsible();
+      expect(composer.getAttribute("data-state")).toBe("expanded");
+
+      blur(editor);
+
+      expect(composer.getAttribute("data-state")).toBe("resting");
+    });
+
+    // Collapsing mid-press moves the card, so the press on Resolve misses and
+    // reads as a click away from the comment.
+    it("stays expanded until a press outside it has finished", () => {
+      vi.useFakeTimers();
+      const { composer, editor } = renderCollapsible();
+
+      press("pointerdown");
+      blur(editor);
+      expect(composer.getAttribute("data-state")).toBe("expanded");
+
+      press("pointerup");
+      expect(composer.getAttribute("data-state")).toBe("expanded");
+
+      act(() => {
+        vi.runOnlyPendingTimers();
+      });
+      expect(composer.getAttribute("data-state")).toBe("resting");
+    });
+  });
+
   it("keeps Cancel on one line beside the Send to AI control", () => {
     container = document.createElement("div");
     document.body.appendChild(container);

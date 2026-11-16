@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
+import { Button } from "@/components/ui/button";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
 
@@ -18,10 +19,22 @@ interface Asset {
   createdAt: string;
 }
 
+function isAsset(value: unknown): value is Asset {
+  const row = value as Partial<Asset> | null;
+  return (
+    typeof row === "object" &&
+    row !== null &&
+    typeof row.id === "string" &&
+    typeof row.url === "string" &&
+    typeof row.filename === "string" &&
+    typeof row.type === "string"
+  );
+}
+
 interface AssetLibraryPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSelectAsset?: (url: string) => void;
+  onSelectAsset: (url: string) => boolean;
   deckId?: string;
   anchorRef?: React.RefObject<HTMLElement | null>;
 }
@@ -41,8 +54,10 @@ export default function AssetLibraryPanel({
     storageQuery.data?.configured === true && !storageQuery.isError;
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [storagePromptOpen, setStoragePromptOpen] = useState(false);
+  const latestFetch = useRef(0);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -65,13 +80,22 @@ export default function AssetLibraryPanel({
   }, [open, onOpenChange]);
 
   const fetchAssets = useCallback(async () => {
+    const seq = ++latestFetch.current;
+    const isLatest = () => seq === latestFetch.current;
     setLoading(true);
+    setLoadFailed(false);
     try {
       const res = await fetch(appApiPath("/api/assets"));
-      if (res.ok) setAssets(await res.json());
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body: unknown = await res.json();
+      if (!Array.isArray(body) || !body.every(isAsset)) {
+        throw new Error("Unexpected assets response");
+      }
+      if (isLatest()) setAssets(body);
     } catch {
+      if (isLatest()) setLoadFailed(true);
     } finally {
-      setLoading(false);
+      if (isLatest()) setLoading(false);
     }
   }, []);
 
@@ -177,8 +201,11 @@ export default function AssetLibraryPanel({
   };
 
   const handleSelect = (url: string) => {
-    onSelectAsset?.(url);
-    onOpenChange(false);
+    if (onSelectAsset(url)) {
+      onOpenChange(false);
+      return;
+    }
+    toast.error(t("raw.assetSelectNoChange"));
   };
 
   if (!open) return null;
@@ -270,6 +297,18 @@ export default function AssetLibraryPanel({
           <div className="flex items-center justify-center py-8">
             <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
           </div>
+        ) : loadFailed ? (
+          <div className="flex flex-col items-center gap-2 py-8 text-center text-xs text-muted-foreground">
+            <span>{t("raw.assetLoadFailed")}</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void fetchAssets()}
+            >
+              {t("raw.retry")}
+            </Button>
+          </div>
         ) : assets.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground text-xs">
             {t("raw.noAssetsYet")}
@@ -291,10 +330,8 @@ export default function AssetLibraryPanel({
                   />
                 ) : (
                   <button
-                    onClick={
-                      onSelectAsset ? () => handleSelect(asset.url) : undefined
-                    }
-                    className={`w-full h-full ${onSelectAsset ? SELECTABLE_TILE : "cursor-default"}`}
+                    onClick={() => handleSelect(asset.url)}
+                    className={`w-full h-full ${SELECTABLE_TILE}`}
                   >
                     <img
                       src={asset.url}

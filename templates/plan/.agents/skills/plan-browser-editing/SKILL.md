@@ -16,9 +16,10 @@ description: >-
   and `expectedUpdatedAt`. The live Yjs document `plan:<planId>` is the source of
   truth for text: autosave sends pending Yjs updates first (`flushUpdates`), then
   reads the blocks from the document, not from the last keystroke. A
-  `plan_revision_conflict` three-way merges those blocks onto the newest saved
-  ones by block id (`shared/plan-blocks-merge.ts`) and retries; only overlapping
-  edits reach the "Couldn't save" pill. `seed-plan-collab` seeds the empty live
+  `save_conflict` carries the newest saved content, so the save three-way merges
+  those blocks onto it by block id (core's `saveWithMerge`) and retries. Only
+  overlapping edits ask the person, with the shared prompt, and the version they
+  choose goes into the live document. `seed-plan-collab` seeds the empty live
   document once, so two editors opening together cannot duplicate the content.
 - Local `/local-plans/:slug` folders opened from `PLAN_LOCAL_DIR` or a
   repo-relative `?path=...` use the same Notion-style browser editor, but

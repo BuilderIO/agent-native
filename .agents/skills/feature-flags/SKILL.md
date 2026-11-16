@@ -150,6 +150,17 @@ Unknown definitions, missing state, malformed state, storage errors, and
 evaluation errors all return the code default (`false` in v1). Explicit Off
 wins over every target; Everyone enables every authenticated caller.
 
+## Reversible experience presets
+
+For an app with documented deviations, `@agent-native/core/experience-profiles/server`
+provides `createExperienceProfileActions`. It reuses the app's existing flag definitions
+and DEVIATIONS.md, and persists one user-scoped profile choice. This is a presentation
+preset, not a change to the fleet's global rollout rules. Reference sets every declared
+deviation to false; Agent-Native uses the promoted values declared by the app. Read
+`packages/core/src/experience-profiles/README.md` for the action, authorization,
+lazy-loading and QA contract. Keep app-specific views and deviation entries in the
+owning app repository.
+
 ## Remove a flag
 
 After a rollout is permanent:

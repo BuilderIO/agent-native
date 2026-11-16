@@ -5,6 +5,7 @@ import { readBody, runWithRequestContext } from "@agent-native/core/server";
 import { defineEventHandler, setResponseStatus } from "h3";
 
 import exportPptxAction from "../../../../actions/export-pptx.js";
+import { EXPORT_WARNINGS_HEADER } from "../../../../shared/export-warnings.js";
 import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
 import { asGoogleSlidesBuildStep } from "../../../lib/deck-export-tracking.js";
 
@@ -78,6 +79,13 @@ export default defineEventHandler(async (event) => {
         )}"`,
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
+        ...(result.warnings
+          ? {
+              [EXPORT_WARNINGS_HEADER]: encodeURIComponent(
+                JSON.stringify(result.warnings),
+              ),
+            }
+          : {}),
       },
     });
   } catch (error) {

@@ -15,8 +15,10 @@ import {
   foldAssistantTurn,
   foldThreadRunSuggestions,
   foldUnstartedTurnFailure,
+  hasPrivateRunProjections,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
+  sanitizeThreadDataForPrivateActions,
   threadDataToEngineMessages,
   upsertAssistantMessage,
   upsertUserMessage,
@@ -7330,5 +7332,43 @@ describe("live-client marker", () => {
       ]);
 
     expect(INTERRUPTED_TOOL_RESULT_MARKER).toBe(INTERRUPTED_TOOL_RESULT);
+  });
+});
+
+describe("private run projections survive snapshot sanitizing", () => {
+  it("still attributes a redacted server-projected reply to its private run", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 1,
+          event: {
+            type: "tool_start",
+            tool: "private-action",
+            input: {},
+            omitFromPersistedHistory: true,
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "text",
+            text: "done",
+            omitFromPersistedHistory: true,
+          },
+        },
+      ] as RunEvent[],
+      "run-1",
+    );
+    const repo = {
+      messages: [
+        { message: { id: "u1", role: "user", content: [] }, parentId: null },
+        { message, parentId: "u1" },
+      ],
+    };
+    const sanitized = sanitizeThreadDataForPrivateActions(
+      JSON.parse(JSON.stringify(repo)),
+      new Set(["private-action"]),
+    );
+    expect(hasPrivateRunProjections(sanitized, ["run-1"])).toBe(true);
   });
 });

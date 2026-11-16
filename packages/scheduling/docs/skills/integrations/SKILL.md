@@ -33,8 +33,19 @@ description: Calendar + video provider integrations — Google Calendar, Office 
 ## Busy-time aggregation
 
 `aggregateBusy({userEmail, rangeStart, rangeEnd})` merges:
+
 - Confirmed bookings hosted by the user
 - External busy from each `selected_calendars` entry via the provider
+
+If any selected calendar can't be read (its `getBusy` throws, its provider
+isn't registered, or its credential is `invalid`), `aggregateBusy`,
+`getAvailableSlots`, and `assertSlotAvailable` throw
+`CalendarAvailabilityUnavailableError` (`errorCode:
+"calendar_availability_unavailable"`, status 503, or 429 with Retry-After
+when every failure was a provider throttle) naming the calendar,
+instead of treating it as free. Show "Couldn't check <calendar>" and offer no
+times; tell the host to reconnect when the reason is `credential_invalid`.
+Credentials with no selected calendars are not checked.
 
 Cached in `calendar_cache` (short TTL, default 5 min). Busted on any
 booking write for that host.
@@ -45,14 +56,14 @@ See `docs/providers.md` for the full interface.
 
 ## Common tasks
 
-| User | Action |
-|---|---|
-| "Connect Google Calendar" | `connect-calendar --kind google_calendar --redirectUri ...` → redirect to returned `authUrl` |
-| "Stop checking my vacation calendar" | `toggle-selected-calendar --include false` for that externalId |
-| "Default to Zoom for new bookings" | `set-default-conferencing-app --credentialId <zoom-cred>` |
-| "Connect Microsoft Teams" | `connect-video --kind teams_video --redirectUri ...` → complete the callback with `completeVideoOAuth()` |
-| "Default to Teams for new bookings" | `set-default-conferencing-app --credentialId <teams-cred>` |
-| "Refresh calendar cache" | `refresh-busy-times` |
+| User                                 | Action                                                                                                   |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| "Connect Google Calendar"            | `connect-calendar --kind google_calendar --redirectUri ...` → redirect to returned `authUrl`             |
+| "Stop checking my vacation calendar" | `toggle-selected-calendar --include false` for that externalId                                           |
+| "Default to Zoom for new bookings"   | `set-default-conferencing-app --credentialId <zoom-cred>`                                                |
+| "Connect Microsoft Teams"            | `connect-video --kind teams_video --redirectUri ...` → complete the callback with `completeVideoOAuth()` |
+| "Default to Teams for new bookings"  | `set-default-conferencing-app --credentialId <teams-cred>`                                               |
+| "Refresh calendar cache"             | `refresh-busy-times`                                                                                     |
 
 ## Microsoft Teams setup
 

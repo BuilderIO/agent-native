@@ -34,6 +34,7 @@ import {
 } from "./DatabaseView";
 import { ListItemLayoutPresets } from "./ListItemLayout";
 import { DatabaseLayoutListRow, type ListItemRowLayout } from "./ListItemRow";
+import { databaseRowOpenTarget } from "./row-open-target";
 
 export function DatabaseListView({
   properties,
@@ -381,11 +382,13 @@ function DatabaseListRow({
     <div className="group flex min-h-10 items-center gap-2 border-t border-border px-1 py-1 hover:bg-muted/40">
       <div
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-accent/60"
+        {...databaseRowOpenTarget(item.document.id)}
         onClick={openDatabaseItemOnClick(onPreview)}
       >
         <button
           type="button"
           className="flex min-w-0 items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          {...databaseRowOpenTarget(item.document.id)}
           onClick={onPreview}
         >
           <DatabaseItemPageIcon

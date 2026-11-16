@@ -1,4 +1,8 @@
-import { defineAction } from "@agent-native/core/action";
+import {
+  ActionContractError,
+  defineAction,
+  defineActionErrors,
+} from "@agent-native/core/action";
 import {
   applyText,
   hasCollabState,
@@ -27,9 +31,19 @@ const MAX_CONTENT_OVERRIDE_BYTES = 2_000_000;
 const MAX_TOTAL_CONTENT_OVERRIDE_BYTES = 4_000_000;
 const renameLocks = new Map<string, Promise<unknown>>();
 
-class ScreenRenameConflictError extends Error {
+const errors = defineActionErrors(
+  "invalid_filename",
+  "screen_not_found",
+  "design_not_found",
+  "screen_not_renameable",
+  "invalid_content_override",
+  "filename_taken",
+  "screen_changed",
+);
+
+class ScreenRenameConflictError extends ActionContractError {
   constructor(message = "Screen content changed during rename. Please retry.") {
-    super(message);
+    super(message, { errorCode: "screen_changed", statusCode: 409 });
     this.name = "ScreenRenameConflictError";
   }
 }
@@ -88,7 +102,10 @@ function assertValidFilename(filename: string): void {
     filename.includes("\\") ||
     containsControlCharacter
   ) {
-    throw new Error("Invalid filename: use a plain name without path segments");
+    return errors.noWrite(
+      "Invalid filename: use a plain name without path segments",
+      "invalid_filename",
+    );
   }
 }
 
@@ -110,6 +127,7 @@ type RenamedFileResult = {
 export default defineAction({
   description:
     "Atomically rename one Design screen and rewrite exact data-screen links in every HTML screen.",
+  errors,
   schema: z
     .object({
       id: z.string().min(1).max(256).describe("design_files.id to rename"),
@@ -153,7 +171,7 @@ export default defineAction({
   run: async ({ id, name, requestSource, contentOverrides }) => {
     const db = getDb();
 
-    const [scopedFile] = await db
+    const scopedFiles = await db
       .select({
         id: schema.designFiles.id,
         designId: schema.designFiles.designId,
@@ -170,14 +188,22 @@ export default defineAction({
         ),
       )
       .limit(1);
-    if (!scopedFile) throw new Error(`Screen not found: ${id}`);
+    const scopedFile = scopedFiles.length > 0 ? scopedFiles[0] : undefined;
+    if (!scopedFile) {
+      return errors.noWrite(`Screen not found: ${id}`, "screen_not_found", {
+        statusCode: 404,
+      });
+    }
 
     await assertAccess("design", scopedFile.designId, "editor");
 
     const overrideIds = new Set<string>();
     for (const override of contentOverrides) {
       if (overrideIds.has(override.fileId)) {
-        throw new Error(`Duplicate content override: ${override.fileId}`);
+        return errors.noWrite(
+          `Duplicate content override: ${override.fileId}`,
+          "invalid_content_override",
+        );
       }
       overrideIds.add(override.fileId);
     }
@@ -197,7 +223,11 @@ export default defineAction({
               .where(eq(schema.designs.id, scopedFile.designId))
               .limit(1);
             if (!design) {
-              throw new Error(`Design not found: ${scopedFile.designId}`);
+              return errors.noWrite(
+                `Design not found: ${scopedFile.designId}`,
+                "design_not_found",
+                { statusCode: 404 },
+              );
             }
 
             const currentFiles = await tx
@@ -213,9 +243,20 @@ export default defineAction({
               .where(eq(schema.designFiles.designId, scopedFile.designId))
               .for("update");
             const target = currentFiles.find((file) => file.id === id);
-            if (!target) throw new Error(`Screen not found: ${id}`);
+            if (!target) {
+              return errors.noWrite(
+                `Screen not found: ${id}`,
+                "screen_not_found",
+                {
+                  statusCode: 404,
+                },
+              );
+            }
             if (target.fileType !== "html") {
-              throw new Error(`File is not a renameable HTML screen: ${id}`);
+              return errors.noWrite(
+                `File is not a renameable HTML screen: ${id}`,
+                "screen_not_renameable",
+              );
             }
 
             const nextFilename = renameFilenamePreservingExtension(
@@ -227,8 +268,10 @@ export default defineAction({
               (file) => file.id !== id && file.filename === nextFilename,
             );
             if (collision) {
-              throw new Error(
+              return errors.noWrite(
                 `File "${nextFilename}" already exists in design ${scopedFile.designId}`,
+                "filename_taken",
+                { statusCode: 409 },
               );
             }
 
@@ -241,21 +284,24 @@ export default defineAction({
             for (const override of contentOverrides) {
               const file = fileById.get(override.fileId);
               if (!file) {
-                throw new Error(
+                return errors.noWrite(
                   `Content override does not belong to this design: ${override.fileId}`,
+                  "invalid_content_override",
                 );
               }
               if (file.fileType !== "html") {
-                throw new Error(
+                return errors.noWrite(
                   `Content overrides are only supported for HTML screens: ${override.fileId}`,
+                  "invalid_content_override",
                 );
               }
               if (
                 file.content !== override.content &&
                 !isProbablyHtmlDocumentContent(file.content)
               ) {
-                throw new Error(
+                return errors.noWrite(
                   `URL-backed screen "${file.filename}" cannot be replaced with inline HTML during rename.`,
+                  "invalid_content_override",
                 );
               }
               const persistedHash = sourceContentHash(file.content);
@@ -263,8 +309,10 @@ export default defineAction({
                 file.content !== override.content &&
                 persistedHash !== override.expectedVersionHash
               ) {
-                throw new Error(
+                return errors.noWrite(
                   `Screen "${file.filename}" changed before the rename. Refresh and retry.`,
+                  "screen_changed",
+                  { statusCode: 409 },
                 );
               }
             }

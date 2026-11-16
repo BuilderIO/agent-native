@@ -476,6 +476,7 @@ describe("create-recording policy", () => {
     expect(calls.releaseReservation).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "user-1",
+      reason: "create_failed",
     });
     expect(calls.insert).not.toHaveBeenCalled();
   });
@@ -582,6 +583,7 @@ describe("create-recording policy", () => {
     expect(calls.releaseReservation).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "user-1",
+      reason: "create_failed",
     });
   });
 
@@ -674,6 +676,7 @@ describe("create-recording policy", () => {
     expect(calls.releaseReservation).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "user-1",
+      reason: "create_failed",
     });
   });
 
@@ -784,6 +787,7 @@ describe("create-recording policy", () => {
     expect(calls.releaseReservation).toHaveBeenCalledWith({
       recordingId: "rec-1",
       userId: "user-1",
+      reason: "create_failed",
     });
   });
 

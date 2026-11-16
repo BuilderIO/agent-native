@@ -35,7 +35,10 @@ type HeaderAgentRun = {
 };
 
 function DesignTitle({ id }: { id: string }) {
-  const { data } = useActionQuery<{ title?: string }>("get-design", { id });
+  const { data } = useActionQuery<{ title?: string }>("get-design", {
+    id,
+    includeFileContent: false,
+  });
   const title = data?.title ?? "Design";
   return (
     <h1 className="text-lg font-semibold tracking-tight truncate">{title}</h1>

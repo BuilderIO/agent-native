@@ -9,10 +9,10 @@ import {
   useAgentThread,
 } from "./context.js";
 
-// Once a draft brings Send back beside Stop, Send keeps the primary fill and
-// Stop steps down to secondary, so the row never shows two identical
-// primaries.
-const STOP_BESIDE_SEND =
+// During voice chat, End voice chat holds the primary slot beside Stop (it
+// renders as the send-button slot), so Stop steps down to secondary and the
+// row never shows two identical primaries. A draft hides Stop instead.
+const STOP_BESIDE_PRIMARY =
   "[[data-agent-composer-slot=toolbar]:has([data-agent-composer-slot=send-button])_&]:bg-secondary [[data-agent-composer-slot=toolbar]:has([data-agent-composer-slot=send-button])_&]:text-secondary-foreground";
 
 // Stands in for the run key while a submission has no run id yet, so the
@@ -89,7 +89,7 @@ export function useAgentKitStopButton(options: {
           aria-busy={stopping || undefined}
           disabled={stopping}
           data-agent-composer-slot="stop-button"
-          className={`flex size-[var(--agentkit-composer-primary-control-size,2rem)] shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-[opacity,background-color,color] duration-150 hover:opacity-90 disabled:cursor-default disabled:opacity-35 ${STOP_BESIDE_SEND}`}
+          className={`flex size-[var(--agentkit-composer-primary-control-size,2rem)] shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-[opacity,background-color,color] duration-150 hover:opacity-90 disabled:cursor-default disabled:opacity-35 ${STOP_BESIDE_PRIMARY}`}
         >
           <IconPlayerStopFilled aria-hidden="true" className="size-4" />
         </button>

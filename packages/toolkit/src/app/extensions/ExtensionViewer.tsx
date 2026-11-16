@@ -4,6 +4,10 @@ import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import { buildExtensionHtml } from "@agent-native/core/extensions/html-shell";
 import {
   extensionPath,
@@ -560,7 +564,9 @@ function ExtensionHistoryPopover({
         ),
         { method: "POST" },
       );
-      if (!res.ok) throw new Error("Failed to restore extension version");
+      if (!res.ok) {
+        throw writeFailureFromResponse(res);
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["extension", extensionId] }),
         queryClient.invalidateQueries({ queryKey: ["extensions"] }),
@@ -572,6 +578,8 @@ function ExtensionHistoryPopover({
         }),
       ]);
       onRestored?.();
+    } catch (error) {
+      reportWriteFailure(error);
     } finally {
       setRestoringVersion(null);
     }
@@ -1159,16 +1167,23 @@ export function ExtensionViewer({
     );
     setIsRenaming(false);
     try {
-      await fetch(agentNativePath(`/_agent-native/extensions/${extensionId}`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed }),
-      });
+      const res = await fetch(
+        agentNativePath(`/_agent-native/extensions/${extensionId}`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: trimmed }),
+        },
+      );
+      if (!res.ok) {
+        reportWriteFailure(writeFailureFromResponse(res));
+      }
       void queryClient.invalidateQueries({
         queryKey: ["extension", extensionId],
       });
       void queryClient.invalidateQueries({ queryKey: ["extensions"] });
-    } catch {
+    } catch (error) {
+      reportWriteFailure(error);
       void queryClient.invalidateQueries({
         queryKey: ["extension", extensionId],
       });
@@ -1433,12 +1448,17 @@ function ToolMoreMenu({
 
   const removeFromSlot = async (slotId: string) => {
     try {
-      await fetch(
+      const res = await fetch(
         agentNativePath(
           `/_agent-native/slots/${encodeURIComponent(slotId)}/install/${encodeURIComponent(extensionId)}`,
         ),
         { method: "DELETE" },
       );
+      if (!res.ok) {
+        reportWriteFailure(writeFailureFromResponse(res));
+      }
+    } catch (error) {
+      reportWriteFailure(error);
     } finally {
       void queryClient.invalidateQueries({
         queryKey: ["slot-installs", slotId],

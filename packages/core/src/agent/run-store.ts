@@ -60,6 +60,7 @@ import {
   ExecutionFenceError,
   MissingExecutionFenceError,
   lockAndAssertCurrentExecutionFences,
+  ownsLapsedTurnLease,
   StaleExecutionFenceError,
   type ExecutionFence,
   withFencedExecutionWrite,
@@ -435,7 +436,24 @@ export const agentRunsStore = defineStore({
     ...fromMigrationEntries(AGENT_RUN_MIGRATIONS_TABLE, AGENT_RUN_MIGRATIONS),
     {
       name: "thread-projection-retry-quarantine-runtime-schema",
+      // Stands in for legacy v9–v11, which a local boot skips: a database
+      // whose baseline was already recorded never re-runs the baseline's
+      // column ensures either, so this entry must create every column it
+      // touches before the index that reads them. The retry_order backfill
+      // does not belong here: a database that already recorded this entry
+      // never runs an edited body again, so the backfill lives in the
+      // append-only repair entry at the end of this list.
       run: async (exec) => {
+        await ensureColumnExists(
+          "agent_runs",
+          "thread_projection_pending",
+          "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE",
+        );
+        await ensureColumnExists(
+          "agent_runs",
+          "thread_projection_retry_order",
+          "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_retry_order BIGINT",
+        );
         await exec.execute({
           sql: "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_error_code TEXT",
         });
@@ -567,6 +585,59 @@ export const agentRunsStore = defineStore({
       )`,
       ],
     },
+    {
+      name: "thread-projection-retry-order-backfill-repair",
+      kind: "data",
+      // Append-only repair for databases that recorded
+      // thread-projection-retry-quarantine-runtime-schema before its
+      // column ensures existed: the ledger skips that entry forever, so
+      // the retry_order backfill legacy v10 performed for pending rows
+      // has to land here instead of in an edited body. Marked data so
+      // hosted replays skip it entirely. The self-check makes the body
+      // once-only even for a runtime whose ledger view is unavailable:
+      // re-running the backfill against live rows would re-impose queue
+      // order on projections that are still being written.
+      run: async (exec) => {
+        const alreadyApplied = await exec.execute({
+          // Literal name of STORE_MIGRATIONS_TABLE, kept interpolation-free.
+          sql: "SELECT 1 FROM _an_store_migrations WHERE store_id = 'agent_runs' AND name = ? LIMIT 1",
+          args: ["thread-projection-retry-order-backfill-repair"],
+        });
+        if (alreadyApplied.rows.length > 0) return;
+        await ensureColumnExists(
+          "agent_runs",
+          "thread_projection_pending",
+          "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE",
+        );
+        await ensureColumnExists(
+          "agent_runs",
+          "thread_projection_retry_order",
+          "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_retry_order BIGINT",
+        );
+        await exec.execute({
+          sql: "CREATE SEQUENCE IF NOT EXISTS agent_run_projection_retry_order_seq",
+        });
+        await exec.execute({
+          sql: `CREATE INDEX IF NOT EXISTS agent_runs_thread_projection_retry_order_idx
+                ON agent_runs (thread_projection_retry_order ASC NULLS FIRST, completed_at ASC, id ASC)
+                WHERE thread_projection_pending IS TRUE`,
+        });
+        const unassigned = await exec.execute({
+          sql: `SELECT 1 FROM agent_runs
+                WHERE thread_projection_pending IS TRUE
+                  AND thread_projection_retry_order IS NULL
+                LIMIT 1`,
+          args: [],
+        });
+        if (unassigned.rows.length === 0) return;
+        await exec.execute({
+          sql: `UPDATE agent_runs
+                SET thread_projection_retry_order = nextval('agent_run_projection_retry_order_seq')
+                WHERE thread_projection_pending IS TRUE
+                  AND thread_projection_retry_order IS NULL`,
+        });
+      },
+    },
   ],
 });
 
@@ -575,6 +646,12 @@ export function ensureRunTables(): Promise<void> {
 }
 
 export const TURN_EXECUTION_LEASE_MS = 15_000;
+
+// A hung renewal holds the worker's only heartbeat slot, so the database gives
+// up on each of its statements well inside the lease and the next tick tries
+// again. Set once for the renewal's own short transaction: it runs every
+// 1.5 s per active run, so a per-statement setting would triple its queries.
+const LEASE_RENEWAL_STATEMENT_TIMEOUT_MS = 4_000;
 
 function truthySqlValue(value: unknown): boolean {
   return value === true || value === "t" || value === 1 || value === "1";
@@ -728,23 +805,37 @@ async function renewExecutionLease(
     throw new Error("Turn execution leases require transaction support");
   }
   await client.transaction(async (tx) => {
-    const renewed = await tx.execute({
-      sql: `UPDATE agent_execution_leases
-            SET lease_expires_at = clock_timestamp() +
-                  (CAST(? AS BIGINT) * INTERVAL '1 millisecond'),
-                updated_at = clock_timestamp()
-            WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
-              AND generation = CAST(? AS BIGINT)
-              AND lease_expires_at > clock_timestamp()`,
-      args: [
-        TURN_EXECUTION_LEASE_MS,
-        fence.threadId,
-        fence.turnId,
-        fence.runId,
-        fence.generation,
-      ],
+    await tx.execute({
+      sql: "SELECT set_config('statement_timeout', ?, true)",
+      args: [`${LEASE_RENEWAL_STATEMENT_TIMEOUT_MS}ms`],
     });
-    if (renewed.rowsAffected !== 1) throw new StaleExecutionFenceError(fence);
+    const renew = (requireLive: boolean) =>
+      tx.execute({
+        sql: `UPDATE agent_execution_leases
+              SET lease_expires_at = clock_timestamp() +
+                    (CAST(? AS BIGINT) * INTERVAL '1 millisecond'),
+                  updated_at = clock_timestamp()
+              WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
+                AND generation = CAST(? AS BIGINT)
+                AND (lease_expires_at > clock_timestamp() OR NOT CAST(? AS BOOLEAN))`,
+        args: [
+          TURN_EXECUTION_LEASE_MS,
+          fence.threadId,
+          fence.turnId,
+          fence.runId,
+          fence.generation,
+          requireLive,
+        ],
+      });
+    if ((await renew(true)).rowsAffected !== 1) {
+      if (
+        !renewRunLiveness ||
+        !(await ownsLapsedTurnLease(tx, fence)) ||
+        (await renew(false)).rowsAffected !== 1
+      ) {
+        throw new StaleExecutionFenceError(fence);
+      }
+    }
     if (renewRunLiveness) {
       await tx.execute({
         sql: `UPDATE agent_runs
@@ -6858,11 +6949,20 @@ async function retryPendingStaleRunThreadProjections(
     };
     if (projection.thread_projection_error_code != null) {
       failed += 1;
+      console.error(
+        `[run-store] stale projection stuck for run ${String(projection.id)}:`,
+        projection.thread_projection_error_code,
+      );
       continue;
     }
     const runId = projection.id;
     if (typeof runId !== "string") continue;
-    if (!(await finalizeStaleRun(runId, "stale-projection-retry"))) failed += 1;
+    if (!(await finalizeStaleRun(runId, "stale-projection-retry"))) {
+      failed += 1;
+      console.error(
+        `[run-store] stale projection retry failed for run ${runId}`,
+      );
+    }
   }
   return { failed, truncated };
 }

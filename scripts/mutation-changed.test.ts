@@ -106,9 +106,13 @@ test("leaves type-level proofs (.test-d.ts) out of mutation scope", () => {
   assert.deepEqual(mutateSpecs(added), ["src/state-machine/index.ts:1-1"]);
 });
 
-test("leaves test workers, fixtures, and generated files out of mutation scope", () => {
+test("leaves test workers, fixtures, harnesses, and generated files out of mutation scope", () => {
   const added = new Map([
     [absolute("packages/core/src/agent/run-store.ts"), new Set([1])],
+    [
+      absolute("packages/core/src/agent/tool-search-benchmark.harness.ts"),
+      new Set([1]),
+    ],
     [
       absolute("packages/core/src/agent/run-store.fencing.worker.ts"),
       new Set([1]),
@@ -214,6 +218,26 @@ test("skips specs that import the repo-root catalog harness", () => {
   assert.deepEqual(
     namedSpecs(["src/plugin.ts:1-2"], () => listing, readFrom(files)),
     { include: ["src/plugin.spec.ts"], missing: [] },
+  );
+});
+
+test("skips the tool-search benchmark, which loads repo-root templates", () => {
+  const listing = [
+    "tool-search.spec.ts",
+    "tool-search.benchmark.spec.ts",
+    "tool-search.ts",
+  ];
+  const files = {
+    "src/agent/tool-search.spec.ts": `import { search } from "./tool-search";`,
+    "src/agent/tool-search.benchmark.spec.ts": `import { runCase } from "./tool-search-benchmark.harness.js";`,
+  };
+  assert.deepEqual(
+    namedSpecs(
+      ["src/agent/tool-search.ts:1-2"],
+      () => listing,
+      readFrom(files),
+    ),
+    { include: ["src/agent/tool-search.spec.ts"], missing: [] },
   );
 });
 

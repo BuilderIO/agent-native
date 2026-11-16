@@ -25,6 +25,7 @@ import {
   noteExternalWrite,
   type ActionRunContext,
 } from "../action.js";
+import * as integrationCapabilities from "../agentkit/capabilities.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
@@ -70,7 +71,10 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import * as settingsStore from "../settings/store.js";
-import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
+import {
+  assertNoInlineImageBytes,
+  stripInlineBytes,
+} from "../shared/inline-bytes.js";
 import { warnAgent } from "./action-warnings.js";
 import {
   approvalKeyForHistory,
@@ -1659,6 +1663,95 @@ describe("serializeDurableDispatchPayload", () => {
       }),
     ).toThrow(DurableAttachmentReferenceRequiredError);
   });
+
+  it("keeps the download URL Builder storage returns for a non-image upload", () => {
+    const attachment = {
+      type: "file",
+      name: "report.pdf",
+      mediaType: "application/pdf",
+      url: "https://cdn.builder.io/o/assets%2Ffake-space%2F0123456789abcdef0123456789abcdef?alt=media&token=fake-download-token&apiKey=fake-space",
+      fileId: "0123456789abcdef0123456789abcdef",
+    };
+
+    const payload = serializeDurableDispatchPayload({
+      attachments: [attachment],
+    });
+
+    expect(JSON.parse(payload).attachments[0]).toEqual(attachment);
+  });
+
+  it.each([
+    {
+      label: "inline bytes beside a file id",
+      attachment: {
+        type: "file",
+        name: "notes.txt",
+        mediaType: "text/plain",
+        fileId: "file-1",
+        data: "data:text/plain;base64,aGVsbG8=",
+      },
+      durable: false,
+    },
+    {
+      label: "a non-image upload to Builder storage",
+      attachment: {
+        type: "file",
+        name: "notes.txt",
+        mediaType: "text/plain",
+        fileId: "file-1",
+        data: "data:text/plain;base64,aGVsbG8=",
+        url: "https://cdn.builder.io/o/assets%2Ffake-space%2Ffake-id?alt=media&token=fake-download-token",
+      },
+      durable: true,
+    },
+    {
+      label: "an image upload to Builder storage",
+      attachment: {
+        type: "image",
+        name: "chart.png",
+        contentType: "image/png",
+        fileId: "file-2",
+        data: `data:image/png;base64,${PNG_BASE64}`,
+        url: "https://cdn.builder.io/api/v1/image/assets%2Ffake-space%2Ffake-id",
+      },
+      durable: true,
+    },
+  ])(
+    "gives $label the same verdict as thread storage",
+    ({ attachment, durable }) => {
+      const payload = { attachments: [attachment] };
+      const store = () => stripInlineBytes(payload, "reject");
+      const dispatch = () => serializeDurableDispatchPayload(payload);
+
+      if (durable) {
+        const { data: _data, ...reference } = attachment;
+        expect(store()).toEqual({ attachments: [reference] });
+        expect(JSON.parse(dispatch()).attachments[0]).toMatchObject({
+          url: attachment.url,
+          fileId: attachment.fileId,
+        });
+      } else {
+        expect(store).toThrow(DurableAttachmentReferenceRequiredError);
+        expect(dispatch).toThrow(DurableAttachmentReferenceRequiredError);
+      }
+    },
+  );
+
+  it.each([
+    "https://cdn.builder.io/o/assets%2Fspace%2Ffile?alt=media&token=fake&X-Amz-Signature=fake",
+    "https://cdn.builder.io/o/assets%2Fspace%2Ffile?token=fake",
+    "https://cdn.builder.io/api/v1/image/assets%2Fspace%2Ffile?alt=media&token=fake",
+    "https://files.example.test/o/file?alt=media&token=fake",
+  ])(
+    "still rejects a query that is not a storage download token: %s",
+    (url) => {
+      expect(() =>
+        serializeDurableDispatchPayload({
+          attachments: [{ type: "file", name: "report.pdf", url }],
+        }),
+      ).toThrow(DurableAttachmentReferenceRequiredError);
+    },
+  );
 });
 
 describe("queuedPromotionAttachments", () => {
@@ -4802,6 +4895,62 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("rejects revoked workspace integration references before app preparation or engine dispatch", async () => {
+    const engine = engineWithUncalledStream();
+    const prepareRequest = vi.fn();
+    const revalidate = vi
+      .spyOn(integrationCapabilities, "resolveAgentKitIntegrationReferences")
+      .mockRejectedValue(
+        Object.assign(new Error("Integration unavailable"), {
+          statusCode: 403,
+          errorCode: "workspace_integration_unavailable",
+        }),
+      );
+    onTestFinished(() => revalidate.mockRestore());
+    const references = [
+      {
+        type: "mention",
+        path: "github",
+        name: "GitHub",
+        source: "workspace-integration",
+        refType: "integration",
+        refId: "github",
+      },
+    ];
+    const handler = createProductionAgentHandler({
+      appId: "chat",
+      systemPrompt: "Test",
+      engine,
+      prepareRequest,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.test/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Use GitHub", references }),
+      }),
+    );
+    await expect(
+      runWithRequestContext(
+        { userEmail: "member@example.test", orgId: "org-1", run: {} },
+        () => handler(event),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: "workspace_integration_unavailable",
+    });
+    expect(revalidate).toHaveBeenCalledWith(
+      "chat",
+      references,
+      expect.objectContaining({
+        userEmail: "member@example.test",
+        orgId: "org-1",
+      }),
+    );
+    expect(prepareRequest).not.toHaveBeenCalled();
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
   function authorizePublicThreadHistory() {
     const access = vi
       .spyOn(chatThreadStore, "resolveThreadAccess")
@@ -6737,14 +6886,15 @@ describe("createProductionAgentHandler", () => {
       expectsUpload: false,
     },
     {
-      label: "a durable file ID",
+      label: "a text file that carries its attachment id",
       attachment: {
         type: "file",
-        name: "notes.txt",
+        name: "brief.txt",
         contentType: "text/plain",
-        fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+        id: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+        text: "Remember the agreed deadline",
       },
-      expectsUpload: false,
+      expectsUpload: true,
     },
     {
       label: "a file with mediaType only",
@@ -6869,25 +7019,17 @@ describe("createProductionAgentHandler", () => {
               url: expect.any(String),
             });
           } else {
-            expect(saved.message.attachments?.[0]).toMatchObject(
-              attachment.fileId
+            expect(saved.message.attachments?.[0]).toMatchObject({
+              type: "file",
+              name: attachment.name,
+              ...(attachment.mediaType || attachment.contentType
                 ? {
-                    type: "file",
-                    name: attachment.name,
-                    fileId: attachment.fileId,
+                    mediaType: attachment.mediaType ?? attachment.contentType,
                   }
-                : {
-                    type: "file",
-                    name: attachment.name,
-                    ...(attachment.mediaType || attachment.contentType
-                      ? {
-                          mediaType:
-                            attachment.mediaType ?? attachment.contentType,
-                        }
-                      : {}),
-                    url: expect.any(String),
-                  },
-            );
+                : {}),
+              ...("id" in attachment ? { fileId: attachment.id } : {}),
+              url: expect.any(String),
+            });
           }
           expect(JSON.stringify(saved.message)).not.toContain("data:");
           expect(saved.message.attachments?.[0]?.text).toBeUndefined();
@@ -6904,6 +7046,182 @@ describe("createProductionAgentHandler", () => {
       }
     },
   );
+
+  it("refuses to queue a file whose only reference is its file id", async () => {
+    const threadId = "thread-attachment-file-id-only";
+    const messageId = "message-attachment-file-id-only";
+    const attachment = {
+      type: "file",
+      name: "notes.txt",
+      contentType: "text/plain",
+      fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+    };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Use this attachment later",
+      attachments: [
+        {
+          type: "file" as const,
+          name: attachment.name,
+          mediaType: attachment.contentType,
+          fingerprint: fingerprintAgentSubmissionAttachment(attachment),
+        },
+      ],
+    };
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const append = vi.spyOn(chatThreadStore, "mutateThreadQueuedMessages");
+    const readReceipt = vi
+      .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+      .mockResolvedValue(null);
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue("run-active");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: submissionPayload.text,
+          threadId,
+          turnId: "turn-attachment-file-id-only",
+          agentKitMessageId: messageId,
+          submissionPayload,
+          attachments: [attachment],
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(event.res.status).toBe(503);
+      expect(result).toMatchObject({
+        code: "attachment_storage_required",
+        retryable: false,
+      });
+      expect(append).not.toHaveBeenCalled();
+    } finally {
+      preUpload.mockRestore();
+      append.mockRestore();
+      readReceipt.mockRestore();
+      resolveThreadAccess.mockRestore();
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
+  it("keeps a queued file with an id retryable when its upload fails", async () => {
+    const threadId = "thread-attachment-upload-failed";
+    const messageId = "message-attachment-upload-failed";
+    const attachment = {
+      type: "file",
+      name: "notes.txt",
+      contentType: "text/plain",
+      text: "Remember the agreed deadline",
+      fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+    };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Use this attachment later",
+      attachments: [
+        {
+          type: "file" as const,
+          name: attachment.name,
+          mediaType: attachment.contentType,
+          fingerprint: fingerprintAgentSubmissionAttachment(attachment),
+        },
+      ],
+    };
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const upload = vi
+      .spyOn(fileUploadRegistry, "uploadFile")
+      .mockResolvedValue(null as never);
+    const append = vi.spyOn(chatThreadStore, "mutateThreadQueuedMessages");
+    const readReceipt = vi
+      .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+      .mockResolvedValue(null);
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue("run-active");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: submissionPayload.text,
+          threadId,
+          turnId: "turn-attachment-upload-failed",
+          agentKitMessageId: messageId,
+          submissionPayload,
+          attachments: [attachment],
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(event.res.status).toBe(503);
+      expect(result).toMatchObject({
+        code: "queued_attachment_reference_unavailable",
+        retryable: true,
+      });
+      expect(append).not.toHaveBeenCalled();
+    } finally {
+      preUpload.mockRestore();
+      upload.mockRestore();
+      append.mockRestore();
+      readReceipt.mockRestore();
+      resolveThreadAccess.mockRestore();
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
 
   it.each([
     [

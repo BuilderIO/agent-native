@@ -1043,12 +1043,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       return;
     }
     dismissEmail(targetEmail.id);
-    reportSpam.mutate({
-      id: targetEmail.id,
-      threadId: targetEmail.threadId || targetEmail.id,
-      accountEmail: targetEmail.accountEmail,
-    });
-    toast(t("mail.toasts.reportedSpam"));
+    reportSpam.mutate(
+      {
+        id: targetEmail.id,
+        threadId: targetEmail.threadId || targetEmail.id,
+        accountEmail: targetEmail.accountEmail,
+      },
+      { onSuccess: () => toast(t("mail.toasts.reportedSpam")) },
+    );
   }, [targetEmail, reportSpam, dismissEmail, t]);
 
   const handleBlockSender = useCallback(() => {
@@ -1057,14 +1059,21 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       return;
     }
     dismissEmail(targetEmail.id);
-    blockSender.mutate({
-      id: targetEmail.id,
-      threadId: targetEmail.threadId || targetEmail.id,
-      senderEmail: targetEmail.from.email,
-      accountEmail: targetEmail.accountEmail,
-    });
-    toast(
-      t("mail.toasts.reportedSpamBlocked", { email: targetEmail.from.email }),
+    blockSender.mutate(
+      {
+        id: targetEmail.id,
+        threadId: targetEmail.threadId || targetEmail.id,
+        senderEmail: targetEmail.from.email,
+        accountEmail: targetEmail.accountEmail,
+      },
+      {
+        onSuccess: () =>
+          toast(
+            t("mail.toasts.reportedSpamBlocked", {
+              email: targetEmail.from.email,
+            }),
+          ),
+      },
     );
   }, [targetEmail, blockSender, dismissEmail, t]);
 
@@ -1077,11 +1086,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       return;
     }
     if (targetEmail) dismissEmail(targetEmail.id);
-    muteThread.mutate({
-      threadId: tid,
-      accountEmail: targetEmail?.accountEmail,
-    });
-    toast(t("mail.toasts.threadMuted"));
+    muteThread.mutate(
+      {
+        threadId: tid,
+        accountEmail: targetEmail?.accountEmail,
+      },
+      { onSuccess: () => toast(t("mail.toasts.threadMuted")) },
+    );
   }, [threadId, targetEmail, muteThread, dismissEmail, t]);
 
   const togglePinned = useCallback(

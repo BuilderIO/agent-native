@@ -696,6 +696,185 @@ writeFileSync(process.env.NETLIFY_TEST_RESULT, JSON.stringify({
 });
 
 describe("Netlify PR preview workflow guard", () => {
+  it("admits exact commands and serializes every accepted spelling without sharing ignored groups", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-pr-previews.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const group = String((workflow.concurrency as Workflow).group);
+    const admission = String(jobs.authorize.if);
+
+    // Evaluate the workflow's expression subset with GitHub's case-insensitive
+    // comparisons. This intentionally reads the actual YAML expressions.
+    const evaluate = (expression: string, github: Workflow): unknown => {
+      const operand = "(?:[a-zA-Z_][\\w.]*|'(?:[^']|'')*')";
+      const comparisons = new RegExp(`(${operand})\\s*==\\s*(${operand})`, "g");
+      const javascript = expression
+        .replace(comparisons, "equal($1, $2)")
+        .replace(/'(?:[^']|'')*'/g, (literal) =>
+          JSON.stringify(literal.slice(1, -1).replaceAll("''", "'")),
+        );
+      const equal = (left: unknown, right: unknown) =>
+        typeof left === "string" && typeof right === "string"
+          ? left.toLowerCase() === right.toLowerCase()
+          : left === right;
+      return runInNewContext(javascript, {
+        github,
+        equal,
+        fromJSON: JSON.parse,
+        contains: (collection: unknown, value: unknown) =>
+          Array.isArray(collection)
+            ? collection.some((item) => equal(item, value))
+            : String(collection)
+                .toLowerCase()
+                .includes(String(value).toLowerCase()),
+        startsWith: (value: string, prefix: string) =>
+          value.toLowerCase().startsWith(prefix.toLowerCase()),
+        format: (template: string, ...args: unknown[]) =>
+          template.replace(/\{(\d+)\}/g, (_, index: string) =>
+            String(args[Number(index)]),
+          ),
+      });
+    };
+    const event = (
+      body: string,
+      association = "MEMBER",
+      type = "User",
+      run = 101,
+    ): Workflow => ({
+      event_name: "issue_comment",
+      run_id: run,
+      event: {
+        action: "created",
+        issue: { number: 42, pull_request: {} },
+        comment: { body, author_association: association, user: { type } },
+      },
+    });
+    const groupFor = (github: Workflow) =>
+      group.replace(/\$\{\{([\s\S]*?)\}\}/g, (_, expression: string) =>
+        String(evaluate(expression, github)),
+      );
+
+    assert.equal(
+      groupFor(event("/preview content\n")),
+      "netlify-pr-preview-42-authorized-content",
+    );
+    for (const site of previewEligibleSiteNames()) {
+      for (const command of [
+        `/preview ${site}`,
+        `/PREVIEW ${site.toUpperCase()}`,
+        `/PrEvIeW ${site.toUpperCase()}`,
+      ]) {
+        for (const ending of ["", "\n", "\r\n"]) {
+          for (const association of ["OWNER", "MEMBER"]) {
+            const github = event(command + ending, association);
+            assert.equal(
+              evaluate(admission, github),
+              true,
+              JSON.stringify(github),
+            );
+            assert.equal(
+              groupFor(github),
+              `netlify-pr-preview-42-authorized-${site}`,
+              JSON.stringify(github),
+            );
+          }
+        }
+      }
+      for (const suffix of [
+        "\r",
+        "\n\n",
+        "\r\n\r\n",
+        "\n\r\n",
+        " ",
+        "\t",
+        "\u2028",
+        "\u2029",
+        "\nmore",
+      ]) {
+        const github = event(`/preview ${site}${suffix}`);
+        assert.equal(
+          groupFor(github),
+          "netlify-pr-preview-42-unrecognized-101",
+          JSON.stringify(github),
+        );
+        assert.equal(
+          groupFor(event(`/preview ${site}${suffix}`, "MEMBER", "User", 102)),
+          "netlify-pr-preview-42-unrecognized-102",
+        );
+      }
+    }
+    for (const body of [
+      "/preview unknown",
+      "/preview  analytics",
+      " /preview analytics",
+      "/preview analytics extra",
+      "/preview analytics\n/preview content",
+    ]) {
+      assert.equal(
+        groupFor(event(body)),
+        "netlify-pr-preview-42-unrecognized-101",
+        JSON.stringify(body),
+      );
+    }
+    for (const [association, type] of [
+      ["CONTRIBUTOR", "User"],
+      ["NONE", "User"],
+      ["MEMBER", "Bot"],
+      ["OWNER", "Bot"],
+    ]) {
+      const github = event("/preview content\n", association, type);
+      assert.equal(evaluate(admission, github), false, JSON.stringify(github));
+      assert.equal(
+        groupFor(github),
+        "netlify-pr-preview-42-ignored-101",
+        JSON.stringify(github),
+      );
+      assert.equal(
+        groupFor(event("/preview content\n", association, type, 102)),
+        "netlify-pr-preview-42-ignored-102",
+      );
+    }
+    const anotherPr = event("/preview content\n");
+    ((anotherPr.event as Workflow).issue as Workflow).number = 43;
+    assert.equal(
+      groupFor(anotherPr),
+      "netlify-pr-preview-43-authorized-content",
+    );
+    for (const change of [
+      { event_name: "pull_request_target" },
+      {
+        event: {
+          action: "edited",
+          issue: { pull_request: {} },
+          comment: {
+            body: "/preview content",
+            author_association: "MEMBER",
+            user: { type: "User" },
+          },
+        },
+      },
+      {
+        event: {
+          action: "created",
+          issue: { pull_request: null },
+          comment: {
+            body: "/preview content",
+            author_association: "MEMBER",
+            user: { type: "User" },
+          },
+        },
+      },
+    ]) {
+      assert.equal(
+        Boolean(
+          evaluate(admission, { ...event("/preview content"), ...change }),
+        ),
+        false,
+      );
+    }
+  });
+
   it("requires an internal PR comment to manually deploy one secret-free prebuilt app", () => {
     assert.deepEqual(
       validateNetlifyPrPreviewWorkflow(
@@ -739,16 +918,6 @@ describe("Netlify PR preview workflow guard", () => {
       (preview.concurrency as Workflow)["cancel-in-progress"],
       false,
     );
-    const previewConcurrencyGroup = String(
-      (preview.concurrency as Workflow).group,
-    );
-    for (const site of previewEligibleSiteNames()) {
-      assert.ok(
-        previewConcurrencyGroup.includes(
-          `github.event.comment.body == '/preview ${site}' && 'authorized-${site}'`,
-        ),
-      );
-    }
     assert.equal(previewDeploy.concurrency, undefined);
     assert.deepEqual(previewDeploy.permissions, { contents: "read" });
     assert.deepEqual(previewRevalidate.permissions, {
@@ -907,8 +1076,14 @@ describe("Netlify PR preview workflow guard", () => {
       ],
       ["issue_comment:", "workflow_dispatch:"],
       [
-        "github.event.comment.body == '/preview analytics' && 'authorized-analytics'",
-        "github.event.comment.body == '/preview analytics' && 'authorized-assets'",
+        `contains(fromJSON('["/preview analytics","/preview analytics\\n","/preview analytics\\r\\n"]'), github.event.comment.body) && 'authorized-analytics'`,
+        `contains(fromJSON('["/preview analytics","/preview analytics\\n","/preview analytics\\r\\n"]'), github.event.comment.body) && 'authorized-assets'`,
+      ],
+      [`"/preview analytics\\n",`, ""],
+      [`,"/preview analytics\\r\\n"`, ""],
+      [
+        "github.event.comment.user.type == 'User'",
+        "github.event.comment.user.type == 'Bot'",
       ],
       [
         "github.event.comment.author_association == 'MEMBER'",
@@ -1439,21 +1614,27 @@ describe("production Netlify site concurrency guard", () => {
     assert.equal(betaMigration?.env?.BUILD_CONTEXT, "production");
     assert.equal(
       betaMigration?.env?.NETLIFY_MIGRATION_SITE_ID,
-      "${{ steps.target.outputs.migration_site_id }}",
+      "${{ steps.target.outputs.site_id }}",
     );
     assert.equal(
       betaMigration?.env?.BETA_DATABASE_URL_SECRET,
-      "${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}",
+      "${{ secrets[format('BETA_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}",
     );
-    assert.match(String(betaMigration?.run), /netlify api getEnvVars/);
-    assert.match(String(betaMigration?.run), /netlify api getSiteDatabase/);
-    assert.match(String(betaMigration?.run), /BETA_DATABASE_URL_SECRET/);
-    assert.doesNotMatch(String(betaMigration?.run), /relying on the strict/);
+    assert.doesNotMatch(String(betaMigration?.run), /netlify api getEnvVars/);
+    assert.doesNotMatch(
+      String(betaMigration?.run),
+      /netlify api getSiteDatabase/,
+    );
+    assert.match(String(betaMigration?.run), /BETA_DATABASE_URL_SECRET:\?/);
+    assert.doesNotMatch(
+      String(betaMigration?.run),
+      /NETLIFY_PREVIEW_DATABASE_URL/,
+    );
     assert.match(
       String(betaMigration?.run),
-      /refusing to publish without migrating/,
+      /No beta PostgreSQL migration URL/,
     );
-    assert.match(String(betaMigration?.run), /@agent-native\/docs/);
+    assert.doesNotMatch(String(betaMigration?.run), /@agent-native\/docs/);
     assert.match(String(betaMigration?.run), /migrate:production/);
     const validation = (
       ((reusable.jobs as Workflow).deploy as Workflow).steps as Array<Workflow>

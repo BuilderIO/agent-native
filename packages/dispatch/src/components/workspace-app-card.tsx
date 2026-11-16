@@ -178,38 +178,28 @@ export function WorkspaceAppCard({
   }, [app.description, app.name, app.whenToUse, editOpen]);
 
   const archive = useActionMutation("archive-workspace-app", {
-    onError: (err) =>
-      toast.error(`Could not hide ${app.name}: ${stringifyError(err)}`),
+    onSuccess: () => toast.success(`Hid ${app.name} from the Apps list`),
+    errorLabel: `Could not hide ${app.name}`,
   });
   const unarchive = useActionMutation("unarchive-workspace-app", {
-    onError: (err) =>
-      toast.error(`Could not restore ${app.name}: ${stringifyError(err)}`),
+    onSuccess: () => toast.success(`Restored ${app.name} to the Apps list`),
+    errorLabel: `Could not restore ${app.name}`,
   });
   const removePending = useActionMutation("remove-pending-workspace-app", {
-    onError: (err) =>
-      toast.error(`Could not remove ${app.name}: ${stringifyError(err)}`),
+    onSuccess: () => toast.success(`Removed pending ${app.name}`),
+    errorLabel: `Could not remove ${app.name}`,
   });
   const updateMetadata = useActionMutation("update-workspace-app-metadata", {
     onSuccess: () => {
       toast.success(`Updated ${draftName.trim() || app.name}`);
       setEditOpen(false);
     },
-    onError: (err) =>
-      toast.error(`Could not update ${app.name}: ${stringifyError(err)}`),
+    errorLabel: `Could not update ${app.name}`,
   });
 
-  const handleArchive = () => {
-    archive.mutate({ appId: app.id });
-    toast.success(`Hid ${app.name} from the Apps list`);
-  };
-  const handleUnarchive = () => {
-    unarchive.mutate({ appId: app.id });
-    toast.success(`Restored ${app.name} to the Apps list`);
-  };
-  const handleRemovePending = () => {
-    removePending.mutate({ appId: app.id });
-    toast.success(`Removed pending ${app.name}`);
-  };
+  const handleArchive = () => archive.mutate({ appId: app.id });
+  const handleUnarchive = () => unarchive.mutate({ appId: app.id });
+  const handleRemovePending = () => removePending.mutate({ appId: app.id });
   const handleMetadataSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = draftName.trim();
@@ -870,9 +860,4 @@ function AppResourcesDialog({
       </DialogContent>
     </Dialog>
   );
-}
-
-function stringifyError(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
 }

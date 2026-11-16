@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "Impossible de télécharger le fichier sélectionné.",
+    reference: "Référencer un tableau de bord…",
+    group: "Tableaux de bord",
+    authentication: "Connectez-vous pour ajouter une référence.",
+    invalid: "Choisissez une référence valide avant l’envoi.",
+    unavailable:
+      "Une référence sélectionnée n’est plus disponible. Supprimez-la ou sélectionnez-la à nouveau.",
+  },
   root: {
     whatsNew: "Nouveautés",
   },
@@ -1429,6 +1438,10 @@ export default {
     hide: "Hide",
     show: "Show",
     saveAsView: "Enregistrer sous vue",
+    unknownTraffic: "Inconnu {{count}}",
+    unknownTrafficUnavailable: "Décompte des inconnus indisponible",
+    unknownTrafficTip:
+      "Événements des {{days}} derniers jours sans hôte ni environnement reconnu. Ils comptent comme production.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
@@ -1723,6 +1736,10 @@ export default {
     hideEmptySessions: "Masquer les sessions vides",
     networkErrors: "Erreurs réseau",
     rageClicksFilter: "Clics répétés",
+    traffic: "Trafic",
+    allTraffic: "Tout le trafic",
+    productionTraffic: "Production",
+    betaTraffic: "Bêta",
     visitors: "Visiteurs",
     allVisitors: "Tous les visiteurs",
     internalVisitors: "Internes",

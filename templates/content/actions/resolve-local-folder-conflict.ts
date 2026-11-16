@@ -11,7 +11,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { assertLocalFileLinkable } from "../server/lib/live-body-writer.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
@@ -417,7 +417,7 @@ export default defineAction({
             orgId: currentDocument.orgId,
           });
         }
-        await syncPrivateCalloutReferences(tx as ReturnType<typeof getDb>, {
+        await syncPrivateBodyReferences(tx as ReturnType<typeof getDb>, {
           documentId: currentDocument.id,
           before: currentDocument.content,
           after: sourceContent!,

@@ -187,6 +187,8 @@ export interface DuplicateSelectionArgs {
   setOverviewSelectedScreenIds: Dispatch<SetStateAction<string[]>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
+  /** Loads selected screens whose source is not loaded, then duplicates again. */
+  loadUnloadedScreens?: (screenIds: string[]) => void;
   t: (key: string, options?: Record<string, unknown>) => string;
   undoManagerRef: RefObject<Y.UndoManager | null>;
   viewModeRef: RefObject<"single" | "overview">;
@@ -252,6 +254,7 @@ export function runDuplicateSelection({
   t,
   undoManagerRef,
   viewModeRef,
+  loadUnloadedScreens,
 }: DuplicateSelectionArgs) {
   trace("structure", "duplicate-selection", {
     canEdit: canEditDesign || canEditLiveScreen,
@@ -731,6 +734,14 @@ export function runDuplicateSelection({
       : activeFile
         ? [activeFile.id]
         : [];
+  const unloadedScreenIds = screenIdsToDuplicate.filter(
+    (screenId) => !files.some((file) => file.id === screenId),
+  );
+  if (unloadedScreenIds.length > 0) {
+    if (loadUnloadedScreens) loadUnloadedScreens(unloadedScreenIds);
+    else toast.error(t("designEditor.sourceLoadFailed"));
+    return;
+  }
   const historyBatchId = `duplicate-selection-${++duplicateSelectionBatchSequence}`;
   screenIdsToDuplicate.forEach((screenId) =>
     handleDuplicateScreen(screenId, {

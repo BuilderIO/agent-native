@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import type {
   CalendarEvent,
@@ -825,7 +826,10 @@ export function EventDetailPopover({
               },
               event,
             ),
-            { onSettled: endAction },
+            {
+              onError: (error) => reportWriteFailure(error),
+              onSettled: endAction,
+            },
           );
         } catch {
           endAction();

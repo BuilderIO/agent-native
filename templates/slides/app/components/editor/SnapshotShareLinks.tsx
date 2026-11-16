@@ -7,6 +7,7 @@ import { IconTrash } from "@tabler/icons-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { useDeckRole } from "@/hooks/use-deck-role";
 
 interface SnapshotShareLink {
   token: string;
@@ -15,17 +16,43 @@ interface SnapshotShareLink {
 
 export function SnapshotShareLinks({ deckId }: { deckId: string }) {
   const t = useT();
+  const { role } = useDeckRole(deckId);
+  // Listing needs admin access, so a failure only means something for managers.
+  const canManage = role === "owner" || role === "admin";
   const query = useActionQuery<{ links: SnapshotShareLink[] }>(
     "list-deck-share-links",
     { deckId },
+    { enabled: canManage },
   );
   const revoke = useActionMutation<unknown, { deckId: string; token: string }>(
     "revoke-deck-share-link",
     {
-      onSuccess: () => void query.refetch(),
+      // Refetch on failure too: a 404 means another manager already revoked it.
+      onSettled: () => void query.refetch(),
       onError: () => toast.error(t("share.revokeFailed")),
     },
   );
+
+  if (!canManage) return null;
+  // A failed refetch keeps the last good list, so only show the banner without one.
+  if (query.isError && !query.data) {
+    return (
+      <div
+        role="alert"
+        className="mt-4 flex items-center justify-between gap-2 text-xs text-muted-foreground"
+      >
+        <span>{t("share.snapshotLinksLoadFailed")}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          {t("settings.retry")}
+        </Button>
+      </div>
+    );
+  }
 
   const links = query.data?.links ?? [];
   if (links.length === 0) return null;

@@ -80,9 +80,13 @@ const CONTEXT_FOLDER_PARTS: FolderMenuParts = {
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const m = Math.floor(totalSeconds / 60);
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor(totalSeconds / 60) % 60;
   const s = totalSeconds % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
+  const seconds = s.toString().padStart(2, "0");
+  return h > 0
+    ? `${h}:${m.toString().padStart(2, "0")}:${seconds}`
+    : `${m}:${seconds}`;
 }
 
 function PrivacyIcon({

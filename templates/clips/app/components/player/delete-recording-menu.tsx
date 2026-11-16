@@ -69,8 +69,7 @@ export function RecordingOptionsMenu({
         deletedWhileOpenRef.current = true;
         setOpen(false);
       },
-      onError: (err: any) =>
-        toast.error(err?.message ?? t("deleteRecordingMenu.deleteFailed")),
+      errorLabel: t("deleteRecordingMenu.deleteFailed"),
     },
   );
 

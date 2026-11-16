@@ -174,8 +174,10 @@ describe("Neon through getDbExec()", () => {
   });
 
   it("sees a write sent over Neon HTTP from a background function", async () => {
-    neonPool();
     const query = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+    // The only mock of this module in this test: Vitest resolves queued
+    // doMock calls in parallel, so a second mock of the same module before the
+    // next import does not reliably replace the first.
     vi.doMock("@neondatabase/serverless", () => ({
       Pool: vi.fn(function MockPool() {
         return { end: vi.fn(async () => {}), on: vi.fn() };

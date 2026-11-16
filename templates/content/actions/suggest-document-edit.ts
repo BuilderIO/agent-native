@@ -16,6 +16,10 @@ import { z } from "zod";
 
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import {
+  createWithSavedUnits,
+  modelUnits,
+} from "../server/lib/suggestion-model-units.js";
+import {
   resolveDocumentTextEdits,
   type DocumentTextEdit,
 } from "../shared/document-text-edits.js";
@@ -596,33 +600,51 @@ export default defineAction({
     }
 
     const summary = effectiveSummary;
+    // Unit labels come from the creation key, so a later call that extends this
+    // proposal never joins its units. A retry that reached the receipt above has
+    // already returned; one racing the first call keeps the labels it saved.
+    const creationKey = args.idempotencyKey ?? crypto.randomUUID();
+    const units = await modelUnits({ ownerEmail: ctx?.userEmail, operations });
 
-    const grouped = await createResourceSuggestionProposal.run(
-      {
-        resourceType: "document",
-        resourceId: id,
-        adapterKind: "content.document-markdown",
-        baseRevision:
-          args.baseRevision ||
-          documentRevisionToken(existing.bodyRevision, content),
-        summary,
-        proposalId: args.proposalId,
-        idempotencyKey: args.idempotencyKey ?? crypto.randomUUID(),
-        suggestions: operations.map((operation, index) => ({
-          summary: markdownSuggestionOperationSummary(operation),
-          operations: [{ ...operation, ordinal: 0 }],
-          metadata:
-            index === 0
-              ? {
-                  sourceFind: args.find,
-                  sourceReplace: args.replace ?? "",
-                  sourceProposalId: args.proposalId ?? null,
-                }
-              : undefined,
-        })),
-      },
-      suggestionContext,
-    );
+    const grouped = await createWithSavedUnits({
+      labels: units.map((unit) => `${creationKey}:${unit}`),
+      idempotencyKey: creationKey,
+      ctx: suggestionContext,
+      create: (labels) =>
+        createResourceSuggestionProposal.run(
+          {
+            resourceType: "document",
+            resourceId: id,
+            adapterKind: "content.document-markdown",
+            baseRevision:
+              args.baseRevision ||
+              documentRevisionToken(existing.bodyRevision, content),
+            summary,
+            proposalId: args.proposalId,
+            idempotencyKey: creationKey,
+            suggestions: operations.map((operation, index) => {
+              const unit =
+                operations.length > 1
+                  ? { reviewUnit: labels[index] }
+                  : undefined;
+              return {
+                summary: markdownSuggestionOperationSummary(operation),
+                operations: [{ ...operation, ordinal: 0 }],
+                metadata:
+                  index === 0
+                    ? {
+                        sourceFind: args.find,
+                        sourceReplace: args.replace ?? "",
+                        sourceProposalId: args.proposalId ?? null,
+                        ...unit,
+                      }
+                    : unit,
+              };
+            }),
+          },
+          suggestionContext,
+        ),
+    });
     const first = grouped.suggestions[0]!;
 
     if (isExternalCaller) {

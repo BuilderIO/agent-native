@@ -520,15 +520,8 @@ it("does not query or apply a default system when workflows are disabled", async
   expect(mocks.systemsQuery).toHaveBeenLastCalledWith(false);
   expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
   expect(
-    mocks.promptProps?.contextMenuItems[0].children.map(
-      (item: { id: string }) => item.id,
-    ),
-  ).toEqual([
-    "design-reference",
-    "figma-reference",
-    "website-reference",
-    "integrations",
-  ]);
+    mocks.promptProps?.contextMenuItems.map((item: { id: string }) => item.id),
+  ).toEqual(["figma-reference", "design-reference", "website-reference"]);
   await act(async () => mocks.promptProps?.onSubmit("New design", [], {}));
   expect(mocks.createDesign).toHaveBeenCalledWith(
     expect.objectContaining({ designSystemId: null }),

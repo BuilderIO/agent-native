@@ -307,6 +307,57 @@ await callAction(
 
 Every `useActionQuery()`, `useActionMutation()`, and `callAction()` request is bounded by a 60 second timeout, and timeouts surface as errors instead of retrying silently. `useActionQuery()` also cancels superseded requests automatically, using React Query's abort signal.
 
+### Failed writes {#write-failures}
+
+When a save the user started fails, the app shows one shared toast instead of nothing. `useActionMutation()` does this automatically. A failed `mutate()` shows the toast unless an `onError` handles the failure, either in the hook options or in the `mutate()` call. A failed `mutateAsync()` shows it only when the rejection ends up unhandled, such as an `await` with no `try/catch` above it. A `catch` that throws a new `Error` in place of the original is not reported.
+
+The `errorNotification` option changes that default:
+
+| Value              | Behavior                                                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `"auto"` (default) | Shows the toast only when nothing else handles the failure.                                                                     |
+| `"shared"`         | Shows the toast on every failure, even beside your own `onError`. Use it when the handler only rolls back or logs.              |
+| `"caller"`         | Never shows the toast. Use it for background saves, a failure you swallow on purpose, or a place that renders the error itself. |
+
+`errorLabel` replaces the toast title with your own already-translated text. In the example below, a failed assignment shows that title instead of the generic one.
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const assign = useActionMutation("update-ticket", {
+  errorLabel: t("tickets.assignFailed"),
+});
+
+assign.mutate({ ticketId, assignedToEmail: "jordan@example.com" });
+```
+
+An autosave that retries on the next change should not interrupt the user, so it opts out.
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const saveDraft = useActionMutation("save-ticket-draft", {
+  errorNotification: "caller",
+});
+```
+
+A write that is not a `useActionMutation()`, such as a `fetch` for an upload or a `catch` that swallows an error, announces its failure with `reportWriteFailure()`. The error from a raw `fetch` carries no status, so the toast shows your label or the generic title. A raw `useMutation()` opts in by passing `meta: surfaceMutationError(label)`, which takes the same optional label.
+
+```ts
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+
+try {
+  const response = await fetch(uploadUrl, { method: "PUT", body: file });
+  if (!response.ok) throw new Error(`Upload failed with ${response.status}`);
+} catch (error) {
+  reportWriteFailure(error, { label: t("tickets.uploadFailed") });
+}
+```
+
+The toast text depends on the failure. A `401` and a cancelled request show nothing, because the session check already handles a `401`. Being offline, a timeout, and a `403` each show a short translated message under the title. A `5xx` shows only the title, because the server hides its own error text. When an action refuses with a typed `4xx` error from `fail()`, the toast shows the message the action wrote; see [Failing an action](/docs/actions-defining#failing). A `403` never shows server text.
+
+`AppProviders` mounts the component that listens for these failures, `WriteFailureToaster`, whenever its `toaster` prop is not `null`. An app that does not use `AppProviders`, or that passes `toaster={null}`, renders `<WriteFailureToaster />` from `@agent-native/toolkit/app/shared` inside its `QueryClientProvider` and next to its own `Toaster`. Without it, no toast is shown.
+
 ## useDbSync {#usedbsync}
 
 <Signature

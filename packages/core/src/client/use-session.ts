@@ -23,6 +23,7 @@ import {
 } from "./fetch-transport.js";
 import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
 import {
+  announceSessionInvalidated,
   notifySessionIdentityPublished,
   recordSessionIdentity,
 } from "./session-identity.js";
@@ -525,6 +526,7 @@ function bootstrapInvalidationMissed(): boolean {
  */
 export function notifySessionInvalidated(): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
+  announceSessionInvalidated();
   installSessionInvalidationListeners();
   const reread = invalidateSessionCache();
   try {

@@ -191,6 +191,7 @@ export function useEditorScreenRendering({
     design,
     designAccessRole,
     canEditDesign,
+    sourceMetadata,
     publicVisualEdit,
     canCommentDesign,
     liveCollaborationEnabled,
@@ -465,7 +466,7 @@ export function useEditorScreenRendering({
       sourceFrame: HTMLIFrameElement,
     ) => {
       const target = findInteractLinkTarget(
-        files,
+        sourceMetadata.length ? sourceMetadata : files,
         screen,
         activeFileIdRef.current,
       );
@@ -489,7 +490,7 @@ export function useEditorScreenRendering({
         },
       );
     },
-    [files, handleModeChange],
+    [files, sourceMetadata, handleModeChange],
   );
 
   const handleKScaleStyleBatchChange = useCallback(

@@ -22,6 +22,7 @@ import {
   type DatabaseBoardGroup,
   type DatabaseFilter,
 } from "./DatabaseView";
+import { databaseRowOpenTarget } from "./row-open-target";
 
 export function DatabaseGalleryView({
   properties,
@@ -255,11 +256,13 @@ function DatabaseGalleryCard({
   return (
     <div
       className="group cursor-pointer overflow-hidden rounded-md border border-border bg-background shadow-sm transition-colors hover:bg-accent/40"
+      {...databaseRowOpenTarget(item.document.id)}
       onClick={openDatabaseItemOnClick(onPreview)}
     >
       <button
         type="button"
         className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        {...databaseRowOpenTarget(item.document.id)}
         onClick={onPreview}
       >
         <span className="flex aspect-[5/3] items-center justify-center border-b border-border bg-muted/45">

@@ -33,6 +33,8 @@ import {
 } from "@/pages/design-editor/save-failure";
 import { threeWayMergeContent } from "@/pages/design-editor/three-way-merge";
 
+import { designMetadataQueryKey } from "../design-query-key";
+
 const warnedVersionHistoryDesigns = new Set<string>();
 
 export function __clearVersionHistoryWarningsForTests(): void {
@@ -557,7 +559,7 @@ export function runSaveFileContent(
       // A save the server answered is settled even when it was rejected; a replay gets the same answer.
       if (outboxEntry) void acknowledgeOutboxEntry(outboxEntry).catch(() => {});
       if (persistedContentMatches && designId) {
-        const designQueryKey = ["action", "get-design", { id: designId }];
+        const designQueryKey = designMetadataQueryKey(designId);
         const persistedUpdatedAt =
           typeof resultInfo?.updatedAt === "string"
             ? resultInfo.updatedAt
@@ -572,7 +574,8 @@ export function runSaveFileContent(
               file.id === pending.id
                 ? {
                     ...file,
-                    content: pending.content,
+                    contentBytes: new TextEncoder().encode(pending.content)
+                      .byteLength,
                     ...(persistedUpdatedAt !== undefined
                       ? { updatedAt: persistedUpdatedAt }
                       : {}),

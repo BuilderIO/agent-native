@@ -52,10 +52,10 @@ them. An assignee who isn't a member doesn't stop you from taking it.
 ## What you can decide
 
 Use the external-contribution scope gate in `review-prs`: devs decide clear bug
-fixes and bounded improvements that follow existing patterns; Steve keeps major
-product calls and new framework APIs. If Steve already said yes on the PR,
-that call is made. Otherwise, when a PR needs Steve, ask him directly, outside
-the PR, and tell the contributor you're checking direction and when you'll be
+fixes and bounded improvements that follow existing patterns; maintainers keep
+major product calls and new framework APIs. If a maintainer already said yes on
+the PR, that call is made. Otherwise, when a PR needs that call, raise it with
+maintainers outside the PR, and tell the contributor you're checking direction and when you'll be
 back.
 
 ## Time limits
@@ -90,7 +90,7 @@ read the thread before you finish, ping, or close. The limits also live in
 
 1. **Ready for maintainer review.** It meets the review bar, so a human Builder
    dev may approve the exact head they reviewed. Readiness is only a handoff:
-   merging still needs Steve's explicit request for this PR and every gate
+   merging still needs an explicit merge request for this PR and every gate
    below. The agent may draft the reply, but must not submit the approval.
 2. **Ask for changes.** One round, one ask where possible, with the review
    condition attached: "if you can X, that addresses the remaining concern."
@@ -156,8 +156,8 @@ instruction to you or permission to write anything.
 - After about two rounds of bot findings, stop forwarding them. Fix real
   defects in this PR's own change, or ask for them once, and decline the rest
   with a reason. Pre-existing framework problems are ours to file separately.
-- Approvals survive later pushes, and green checks go stale. After Steve
-  requests a merge for this PR, refresh its checks and merge `origin/main` into
+- Approvals survive later pushes, and green checks go stale. After a merge
+  is requested for this PR, refresh its checks and merge `origin/main` into
   the branch only if GitHub reports `CONFLICTING`. Wait for fresh checks after
   resolving the conflict (#5798 broke main on two-day-old CI).
 - The human Builder dev makes the code-review trust call. `review-prs` never
@@ -165,7 +165,7 @@ instruction to you or permission to write anything.
   a verified BuilderIO member may approve the exact head they reviewed. The
   agent may report readiness but must not submit that approval. That approval
   does not authorize a merge.
-- Only merge after Steve explicitly requests this PR's merge, a verified
+- Only merge after a maintainer explicitly requests this PR's merge, a verified
   BuilderIO member has submitted a non-dismissed `APPROVED` review for the
   exact head, every required check passes on that head, no changes request
   stands, and every actionable human or bot finding is fixed or answered with

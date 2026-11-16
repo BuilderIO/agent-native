@@ -1,3 +1,4 @@
+import { isActionContractError } from "@agent-native/core/action";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
@@ -106,6 +107,12 @@ vi.mock("@agent-native/core/sharing", () => ({
 const snapshotDesignBeforeAgentEditMock = vi.hoisted(() =>
   vi.fn(async () => null as unknown),
 );
+vi.mock("../server/lib/screen-frame-type-store.js", () => ({
+  persistScreenFrameType: vi.fn().mockResolvedValue(undefined),
+  readDesignDataForUpdate: vi.fn(async () => lockedDesignData.value),
+  serializeFrameTypeChange: vi.fn(() => '{"frameTypeChanged":true}'),
+}));
+
 vi.mock("../server/lib/design-versions.js", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("../server/lib/design-versions.js")
@@ -126,8 +133,12 @@ interface FileRow {
 const designFilesStore = vi.hoisted(() => ({
   rows: new Map<string, FileRow>(),
 }));
+const lockedDesignData = vi.hoisted(() => ({
+  value: {} as Record<string, unknown>,
+}));
 const designsStore = vi.hoisted(() => ({
   updatedAt: new Map<string, string>(),
+  data: new Map<string, unknown>(),
 }));
 
 const FILE_ID = "file_mirror_1";
@@ -187,6 +198,7 @@ function matchesDesignFile(row: FileRow, predicate: Predicate): boolean {
   return equalities.every(({ column, value }) => {
     if (column === "id") return row.id === value;
     if (column === "designId") return row.designId === value;
+    if (column === "filename") return row.filename === value;
     return true;
   });
 }
@@ -244,6 +256,7 @@ vi.mock("../server/db/index.js", () => {
               DESIGN_ID,
               (values as { updatedAt?: string }).updatedAt ?? "",
             );
+            if ("data" in values) designsStore.data.set(DESIGN_ID, values.data);
           }
           return Promise.resolve({ rowsAffected: 1 });
         },
@@ -256,12 +269,27 @@ vi.mock("../server/db/index.js", () => {
 import { hasCollabState, applyText } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 
+import {
+  persistScreenFrameType,
+  readDesignDataForUpdate,
+  serializeFrameTypeChange,
+} from "../server/lib/screen-frame-type-store.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
+import { createHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import {
   sourceContentHash,
   sourceContentPatch,
 } from "../shared/source-workspace.js";
 import updateFileAction from "./update-file.js";
+
+async function rejectionFrom(run: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await run();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("Expected run to reject");
+}
 
 function buildDoc(bodyExtra = ""): string {
   return `<!DOCTYPE html>
@@ -280,6 +308,7 @@ beforeEach(() => {
   collabDocs.docs.clear();
   designFilesStore.rows.clear();
   designsStore.updatedAt.clear();
+  designsStore.data.clear();
   snapshotDesignBeforeAgentEditMock.mockReset();
   snapshotDesignBeforeAgentEditMock.mockResolvedValue(null);
   seedFile(buildDoc());
@@ -984,5 +1013,275 @@ describe("update-file: editor-surface checkpoint skip surfaces in the result", (
     );
 
     expect(result).not.toHaveProperty("checkpoint");
+  });
+});
+
+describe("update-file: typed filename refusals", () => {
+  it("rejects a filename already used by another file in the design as a typed 409 and changes no row", async () => {
+    designFilesStore.rows.set("file_taken", {
+      id: "file_taken",
+      designId: DESIGN_ID,
+      filename: "taken.html",
+      fileType: "html",
+      content: buildDoc(" taken "),
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+    const before = [...designFilesStore.rows.values()].map((row) => ({
+      ...row,
+    }));
+
+    const error = await rejectionFrom(() =>
+      updateFileAction.run({
+        id: FILE_ID,
+        filename: "taken.html",
+      } as never),
+    );
+
+    expect(isActionContractError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "filename_taken",
+      statusCode: 409,
+      message: `File "taken.html" already exists in design ${DESIGN_ID}`,
+    });
+    expect([...designFilesStore.rows.values()]).toEqual(before);
+  });
+
+  it("rejects a path-traversal filename as a typed 400 before reading or writing any row", async () => {
+    const before = [...designFilesStore.rows.values()].map((row) => ({
+      ...row,
+    }));
+
+    const error = await rejectionFrom(() =>
+      updateFileAction.run({
+        id: FILE_ID,
+        filename: "../escape.html",
+      } as never),
+    );
+
+    expect(isActionContractError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "invalid_filename",
+      statusCode: 400,
+      message: "Invalid filename: path traversal not allowed",
+    });
+    expect([...designFilesStore.rows.values()]).toEqual(before);
+  });
+});
+
+describe("update-file: frame type", () => {
+  beforeEach(() => {
+    vi.mocked(persistScreenFrameType).mockClear();
+    vi.mocked(readDesignDataForUpdate).mockClear();
+    vi.mocked(serializeFrameTypeChange).mockClear();
+    lockedDesignData.value = {};
+  });
+
+  it("stores an explicit frame type change without rewriting content", async () => {
+    const before = designFilesStore.rows.get(FILE_ID)!.content;
+    await updateFileAction.run({ id: FILE_ID, frameType: "web" } as never);
+
+    // oracle-change: an explicit change now commits in the write transaction with the type's layout.
+    expect(serializeFrameTypeChange).toHaveBeenCalledWith(
+      {},
+      { fileId: FILE_ID, frameType: "web", previousContent: before },
+    );
+    expect(designsStore.data.get(DESIGN_ID)).toBe('{"frameTypeChanged":true}');
+    expect(persistScreenFrameType).not.toHaveBeenCalled();
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
+  });
+
+  it("commits an explicit frame type with the content write", async () => {
+    const before = designFilesStore.rows.get(FILE_ID)!.content;
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: buildDoc(" email-"),
+      frameType: "hubspot-email",
+    } as never);
+
+    expect(serializeFrameTypeChange).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        frameType: "hubspot-email",
+        previousContent: before,
+      }),
+    );
+    expect(designsStore.data.get(DESIGN_ID)).toBe('{"frameTypeChanged":true}');
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(
+      buildDoc(" email-"),
+    );
+  });
+
+  it("leaves the frame type alone when the content write fails", async () => {
+    await applyText(FILE_ID, buildDoc(" live-edit-"), "content", "agent");
+    const before = designFilesStore.rows.get(FILE_ID)!.content;
+
+    await rejectionFrom(() =>
+      updateFileAction.run({
+        id: FILE_ID,
+        content: buildDoc(" email-"),
+        expectedVersionHash: sourceContentHash(buildDoc()),
+        frameType: "hubspot-email",
+      } as never),
+    );
+
+    expect(designsStore.data.has(DESIGN_ID)).toBe(false);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
+  });
+
+  it("drops the frame type of a stale content operation", async () => {
+    const before = buildDoc(" newer-");
+    seedFile(before);
+    Object.assign(designFilesStore.rows.get(FILE_ID)!, {
+      contentOperationSource: "tab-a",
+      contentOperationRevision: 5,
+    });
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: buildDoc(" older-"),
+      expectedVersionHash: sourceContentHash(before),
+      operationSource: "tab-a",
+      operationRevision: 3,
+      frameType: "hubspot-email",
+    } as never);
+
+    expect(serializeFrameTypeChange).not.toHaveBeenCalled();
+    expect(designsStore.data.has(DESIGN_ID)).toBe(false);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
+  });
+
+  it("drops the frame type of a stale mirror write", async () => {
+    await applyText(FILE_ID, buildDoc(" live-edit-"), "content", "agent");
+    designFilesStore.rows.get(FILE_ID)!.content = buildDoc(" mirror-advanced-");
+
+    const result = await updateFileAction.run({
+      id: FILE_ID,
+      content: buildDoc(" caller-stale-mirror-"),
+      syncCollab: false,
+      expectedVersionHash: sourceContentHash(buildDoc()),
+      frameType: "hubspot-email",
+    } as never);
+
+    expect(result).toMatchObject({ skippedStaleMirror: true });
+    expect(serializeFrameTypeChange).not.toHaveBeenCalled();
+    expect(designsStore.data.has(DESIGN_ID)).toBe(false);
+  });
+
+  it("rechecks the stored type under the row lock before a non-HTML write", async () => {
+    lockedDesignData.value = {
+      screenMetadata: { [FILE_ID]: { frameType: "hubspot-email" } },
+    };
+
+    const error = await rejectionFrom(() =>
+      updateFileAction.run({ id: FILE_ID, fileType: "css" } as never),
+    );
+
+    expect(error).toMatchObject({ errorCode: "hubspot_email_html_required" });
+    expect(readDesignDataForUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      DESIGN_ID,
+    );
+    expect(designsStore.updatedAt.has(DESIGN_ID)).toBe(false);
+  });
+
+  it("rechecks with the file type read under the lock", async () => {
+    lockedDesignData.value = {
+      screenMetadata: { [FILE_ID]: { frameType: "hubspot-email" } },
+    };
+    vi.mocked(assertAccess).mockImplementationOnce(async () => {
+      Object.assign(designFilesStore.rows.get(FILE_ID)!, { fileType: "css" });
+      return { role: "editor", resource: {} } as never;
+    });
+
+    const error = await rejectionFrom(() =>
+      updateFileAction.run({
+        id: FILE_ID,
+        content: buildDoc(" saved-"),
+      } as never),
+    );
+
+    expect(error).toMatchObject({ errorCode: "hubspot_email_html_required" });
+  });
+
+  it("rejects email content saved into a file that is not HTML", async () => {
+    Object.assign(designFilesStore.rows.get(FILE_ID)!, { fileType: "css" });
+
+    const error = await rejectionFrom(() =>
+      updateFileAction.run({
+        id: FILE_ID,
+        content: createHubSpotEmailHtml(),
+      } as never),
+    );
+
+    expect(error).toMatchObject({ errorCode: "hubspot_email_html_required" });
+  });
+
+  it("stores a legacy email type before an edit that removes the marker", async () => {
+    const marked = buildDoc().replace(
+      "<title>Doc</title>",
+      '<meta name="agent-native:frame-type" content="hubspot-email">\n<title>Doc</title>',
+    );
+    seedFile(marked);
+    const contentAtBackfill: string[] = [];
+    vi.mocked(persistScreenFrameType).mockImplementationOnce(async () => {
+      contentAtBackfill.push(designFilesStore.rows.get(FILE_ID)!.content);
+    });
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: buildDoc(" unmarked-"),
+    } as never);
+
+    expect(persistScreenFrameType).toHaveBeenCalledTimes(1);
+    expect(persistScreenFrameType).toHaveBeenCalledWith({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      frameType: "hubspot-email",
+      onlyIfAbsent: true,
+    });
+    expect(contentAtBackfill).toEqual([marked]);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(
+      buildDoc(" unmarked-"),
+    );
+  });
+
+  it("rejects a frame type on an identity-only update", async () => {
+    const error = await rejectionFrom(() =>
+      updateFileAction.run({
+        id: FILE_ID,
+        content: buildDoc(),
+        expectedVersionHash: sourceContentHash(buildDoc()),
+        identityOnly: true,
+        operationSource: "tab-1",
+        operationRevision: 1,
+        frameType: "web",
+      } as never),
+    );
+
+    expect(error).toMatchObject({ paths: ["identityOnly"] });
+    expect(serializeFrameTypeChange).not.toHaveBeenCalled();
+  });
+
+  it("does not touch the frame type of an ordinary content save", async () => {
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: buildDoc(" saved-"),
+    } as never);
+
+    expect(persistScreenFrameType).not.toHaveBeenCalled();
+  });
+
+  it("rejects making a non-HTML file an email frame", async () => {
+    const error = await rejectionFrom(() =>
+      updateFileAction.run({
+        id: FILE_ID,
+        fileType: "jsx",
+        frameType: "hubspot-email",
+      } as never),
+    );
+
+    expect(error).toMatchObject({ errorCode: "hubspot_email_html_required" });
+    expect(serializeFrameTypeChange).not.toHaveBeenCalled();
   });
 });

@@ -44,6 +44,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { EXTERNAL_DECK_CHANGE_EVENT } from "@/lib/agent-run-status";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 import type { AnimationTrigger } from "../../shared/api";
@@ -65,6 +66,7 @@ import {
   normalizeSlidePadding,
   normalizeSlidePaddingForWrite,
 } from "../lib/normalize-slide-padding";
+import { revealsAfterEdit } from "../lib/reveal-after-edit";
 import { mergeSlideContent } from "../lib/slide-content-merge";
 import { renderArtifactGrowth } from "../lib/slide-source-map";
 import { undoRevealForOps, type UndoReveal } from "../lib/undo-reveal";
@@ -605,8 +607,15 @@ interface DeckContextType {
     }[],
   ) => void;
   deleteSlide: (deckId: string, slideId: string) => void;
-  /** Returns the history step's token, for an Undo bound to this delete. */
-  deleteSlides: (deckId: string, slideIds: string[]) => string | null;
+  /**
+   * Returns the history step's token, for an Undo bound to this delete.
+   * `onSaveFailed` runs if the save batch carrying this delete fails.
+   */
+  deleteSlides: (
+    deckId: string,
+    slideIds: string[],
+    onSaveFailed?: () => void,
+  ) => string | null;
   duplicateSlide: (deckId: string, slideId: string) => string | undefined;
   pasteSlide: (
     deckId: string,
@@ -924,11 +933,23 @@ export class DeckSaveError extends Error {
   }
 }
 
+// Keyed by op identity so a caller hears only about the batch that carried its
+// own op; deck-wide failure state also covers held conflicts on other slides.
+const opSaveFailureHandlers = new WeakMap<GranularOp, () => void>();
+
 function markDeckSaveFailed(
   deckId: string,
   cause?: unknown,
   message?: string,
 ): void {
+  const failedOpHandlers = new Set<() => void>();
+  for (const op of inFlightOpSlides.get(deckId) ?? []) {
+    const handler = opSaveFailureHandlers.get(op);
+    if (!handler) continue;
+    opSaveFailureHandlers.delete(op);
+    failedOpHandlers.add(handler);
+  }
+  for (const handler of failedOpHandlers) handler();
   const createFailure = deckUnavailableErrors.get(deckId);
   if (createFailure && hasFailedDeckCreate(deckId)) {
     // Every write to a deck that never got created answers 404; that is the
@@ -1489,6 +1510,38 @@ function slideAnimationRefusalSlideId(error: unknown): string | null {
       ? (details as { slideId?: unknown }).slideId
       : undefined;
   return typeof slideId === "string" ? slideId : null;
+}
+
+// Every content edit sends its slide's reveal list, each reveal moved to the
+// element its target became in this one edit. A save collapses a slide's batched
+// ops into one, so without the list the server would pair elements across the
+// combined change, and a later op without a list would keep an earlier op's list
+// for content it no longer matches. An update that sets animations placed them.
+function withRevealsFollowingContent(
+  previousSlide: Slide | undefined,
+  updates: Partial<Omit<Slide, "id">>,
+): Partial<Omit<Slide, "id">> {
+  if (
+    typeof updates.content !== "string" ||
+    updates.animations !== undefined ||
+    !previousSlide?.animations?.length
+  ) {
+    return updates;
+  }
+  return {
+    ...updates,
+    animations: revealsAfterEdit(
+      previousSlide.content,
+      updates.content,
+      previousSlide.animations,
+    ),
+  };
+}
+
+// Reveals ride along with every content edit, so they don't count as a field of
+// their own when deciding whether an op is content-only.
+function fieldNamesWithoutReveals(fields: object): string[] {
+  return Object.keys(fields).filter((key) => key !== "animations");
 }
 
 // Only the refused slide reverts. Other slides' edits in the same batch are re-queued,
@@ -3467,8 +3520,8 @@ function enqueueDeckOp(
       previous?.op === "patch-slide" &&
       op.op === "patch-slide" &&
       previous.slideId === op.slideId &&
-      Object.keys(previous.fields).length === 1 &&
-      Object.keys(op.fields).length === 1 &&
+      fieldNamesWithoutReveals(previous.fields).length === 1 &&
+      fieldNamesWithoutReveals(op.fields).length === 1 &&
       "content" in previous.fields &&
       "content" in op.fields
     ) {
@@ -3556,10 +3609,11 @@ function settleQueuedContentDraft(
       }
     }
     if (index < 0) break;
-    const op = queue[index];
-    if (op.op !== "patch-slide") return false;
+    // `.at()` keeps the read typed `| undefined` under both the slides tsconfig and the strict guard.
+    const op = queue.at(index);
+    if (!op || op.op !== "patch-slide") return false;
     if (op.fields.content === committedContent) return true;
-    if (Object.keys(op.fields).length !== 1) return false;
+    if (fieldNamesWithoutReveals(op.fields).length !== 1) return false;
     queue.splice(index, 1);
   }
   const sent = sentSlideContent.get(deckId)?.get(slideId);
@@ -7427,6 +7481,7 @@ export function DeckProvider({
       pauseWhenHidden: true,
       onEvents: (events) => {
         const changedDeckIds = new Set<string>();
+        let externalDeckChange = false;
         const openId = currentOpenDeckIdFromWindow();
         for (const data of events) {
           if (
@@ -7440,6 +7495,8 @@ export function DeckProvider({
             setDecks((prev) => prev.filter((d) => d.id !== data.deckId));
           } else if (data.type === "deck-changed") {
             changedDeckIds.add(data.deckId);
+            // A write with no browser tab is an API, MCP, or agent-run write.
+            if (!data.requestSource) externalDeckChange = true;
             if (data.deckId !== openId) continue;
             if (pendingOpenDeckChange?.deckId !== openId) {
               pendingOpenDeckChange = { deckId: openId, slideIds: new Set() };
@@ -7451,6 +7508,9 @@ export function DeckProvider({
               pendingOpenDeckChange.slideIds = null;
             }
           }
+        }
+        if (externalDeckChange) {
+          window.dispatchEvent(new Event(EXTERNAL_DECK_CHANGE_EVENT));
         }
         if (changedDeckIds.size === 0) return;
 
@@ -7770,17 +7830,33 @@ export function DeckProvider({
       pendingCreateIdsRef.current.add(newId);
       noteLocalCreate(newId);
 
-      const duplicatePromise = callAction<DuplicateDeckActionResult>(
-        "duplicate-deck",
-        {
+      const sendDuplicate = () =>
+        callAction<DuplicateDeckActionResult>("duplicate-deck", {
           deckId: sourceDeckId,
           newId,
           title,
           ...(optimistic.slides.length > 0
             ? { slideIds: optimistic.slides.map((s) => s.id) }
             : {}),
-        },
-      ).then((created) => {
+        });
+      // A source that is still a local create is not on the server yet; sending now copies nothing and 404s.
+      const sourceNotOnServer =
+        pendingCreatePromisesRef.current.has(sourceDeckId) ||
+        deferredCreateDecksRef.current.has(sourceDeckId);
+      const duplicateRequest = sourceNotOnServer
+        ? ensureDeckPersisted(sourceDeckId).then((persistence) => {
+            if (scopeGeneration !== deckScopeGenerationRef.current) {
+              throw new Error("Duplicate cancelled by workspace change");
+            }
+            if (!persistence.persisted) {
+              throw "error" in persistence
+                ? persistence.error
+                : new Error("Duplicate source deck was not found");
+            }
+            return sendDuplicate();
+          })
+        : sendDuplicate();
+      const duplicatePromise = duplicateRequest.then((created) => {
         rememberDeckServerRevision(newId, created);
       });
       pendingCreatePromisesRef.current.set(newId, duplicatePromise);
@@ -7826,7 +7902,13 @@ export function DeckProvider({
       });
       return { status: "created", deck: optimistic };
     },
-    [decks, noteLocalCreate, setDecksLocal, undoControllerForDeck],
+    [
+      decks,
+      ensureDeckPersisted,
+      noteLocalCreate,
+      setDecksLocal,
+      undoControllerForDeck,
+    ],
   );
 
   const deleteDeck = useCallback(
@@ -8048,7 +8130,10 @@ export function DeckProvider({
           );
           return undefined;
         }
-        normalizedUpdates = { ...updates, content };
+        normalizedUpdates = withRevealsFollowingContent(previousSlide, {
+          ...updates,
+          content,
+        });
       }
       const storedContent = normalizedUpdates.content;
       if (
@@ -8060,7 +8145,7 @@ export function DeckProvider({
       }
       if (
         options?.preserveLocalState &&
-        Object.keys(normalizedUpdates).length === 1 &&
+        fieldNamesWithoutReveals(normalizedUpdates).length === 1 &&
         storedContent !== undefined &&
         storedContent === previousSlide?.content &&
         !hasStaleContentConflict(deckId, slideId) &&
@@ -8176,14 +8261,22 @@ export function DeckProvider({
         before.slides.some((slide) => slide.id === slideId),
       );
       if (validUpdates.length === 0) return;
-      const changedUpdates = validUpdates.filter(({ slideId, updates }) => {
-        const op: PatchDeckOp = {
-          op: "patch-slide",
+      const changedUpdates = validUpdates
+        .map(({ slideId, updates }) => ({
           slideId,
-          fields: updates,
-        };
-        return deriveInverseOp(before, op) !== null;
-      });
+          updates: withRevealsFollowingContent(
+            before.slides.find((slide) => slide.id === slideId),
+            updates,
+          ),
+        }))
+        .filter(({ slideId, updates }) => {
+          const op: PatchDeckOp = {
+            op: "patch-slide",
+            slideId,
+            fields: updates,
+          };
+          return deriveInverseOp(before, op) !== null;
+        });
       if (changedUpdates.length === 0) return;
       for (const { slideId, updates } of changedUpdates) {
         if (typeof updates.content !== "string") continue;
@@ -8305,7 +8398,7 @@ export function DeckProvider({
   );
 
   const deleteSlides = useCallback(
-    (deckId: string, slideIds: string[]) => {
+    (deckId: string, slideIds: string[], onSaveFailed?: () => void) => {
       const before = decksRef.current.find((d) => d.id === deckId);
       if (!before) return null;
       const ids = new Set(slideIds);
@@ -8362,7 +8455,12 @@ export function DeckProvider({
         };
       };
       setDecksLocal((prev) => prev.map(removeSlides));
-      for (const op of ops) enqueueDeckOp(deckId, op);
+      for (const op of ops) {
+        const queued = enqueueDeckOp(deckId, op);
+        if (queued && onSaveFailed) {
+          opSaveFailureHandlers.set(queued, onSaveFailed);
+        }
+      }
       if (placeholder) {
         undoControllerForDeck(deckId).push({
           undo: [

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -603,9 +603,10 @@ async function resolveEditableDesignFile(
   codeLayerSource: CodeLayerSource;
 }> {
   if (!source.fileId && !source.designId) {
-    throw new Error(
-      "source.designId or source.fileId is required for design-file.",
-    );
+    fail("source.designId or source.fileId is required for design-file.", {
+      errorCode: "source_target_missing",
+      statusCode: 400,
+    });
   }
 
   const db = getDb();
@@ -639,19 +640,33 @@ async function resolveEditableDesignFile(
     .limit(1);
 
   if (!file) {
-    throw new Error("Design HTML file not found.");
+    fail("Design HTML file not found.", {
+      errorCode: "source_file_not_found",
+      statusCode: 404,
+    });
   }
   if (file.fileType !== "html") {
-    throw new Error("Visual code-layer edits only support HTML files for now.");
+    fail("Visual code-layer edits only support HTML files for now.", {
+      errorCode: "source_file_not_html",
+      statusCode: 400,
+    });
   }
   if (source.designId && file.designId !== source.designId) {
-    throw new Error(
+    fail(
       `source.designId "${source.designId}" does not match file "${file.id}"`,
+      {
+        errorCode: "source_target_mismatch",
+        statusCode: 400,
+      },
     );
   }
   if (!source.fileId && source.filename && file.filename !== source.filename) {
-    throw new Error(
+    fail(
       `source.filename "${source.filename}" does not match file "${file.id}"`,
+      {
+        errorCode: "source_target_mismatch",
+        statusCode: 400,
+      },
     );
   }
 

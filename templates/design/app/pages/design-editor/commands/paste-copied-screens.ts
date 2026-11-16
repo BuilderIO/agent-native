@@ -95,6 +95,7 @@ export function runPasteCopiedScreens(
         filename,
         content,
         fileType: normalizedDesignFileType(screen.fileType ?? "html"),
+        ...(screen.frameType ? { frameType: screen.frameType } : {}),
       } as any,
       {
         onSuccess: (result: any) => {

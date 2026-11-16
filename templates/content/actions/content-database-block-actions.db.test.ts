@@ -4,11 +4,23 @@ import { join } from "node:path";
 
 import { withMigrationRuntime } from "@agent-native/core/db";
 import {
+  privateMedia,
+  privateMediaStore,
+} from "@agent-native/core/private-media";
+import {
   runFrameworkReleaseMigrations,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { knownLossTest } from "../acceptance/known-loss";
 
@@ -49,6 +61,12 @@ let turnLiveCopyFlagsOff: typeof import("../server/test-support/live-copy-page.j
 const asOwner = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: ownerEmail }, run);
 
+function required<T>(value: T | undefined | null): T {
+  if (value === undefined || value === null)
+    throw new Error("Missing fixture value.");
+  return value;
+}
+
 beforeEach(() => {
   ownerEmail = `block-owner-${++ownerSequence}@example.com`;
 });
@@ -86,6 +104,7 @@ beforeAll(async () => {
   }
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  await privateMediaStore.ready();
 }, 60_000);
 
 afterAll(() => {
@@ -197,269 +216,315 @@ describe("exact Content database block actions", () => {
     });
   });
 
-  it("lists revision-pinned pages and performs every supported operation with verified retry receipts", async () => {
-    const state = await fixture();
-    const [alpha, beta, gamma] = state.listed.blocks;
-    expect(state.listed).toMatchObject({
-      total: 3,
-      identityStatus: "materialized",
-      rowLink: { urlPath: `/page/${state.target.rowDocumentId}` },
-    });
-    const firstPage = await asOwner(() =>
-      listBlocks.run({ target: state.target, limit: 1 }),
-    );
-    expect(firstPage.page.nextCursor).toBeTruthy();
+  it.each([false, true])(
+    "performs every block operation with verified retry receipts (live copy: %s)",
+    async (liveCopy) => {
+      const state = await fixture();
+      if (liveCopy)
+        await putPageOnLiveCopy(state.target.rowDocumentId, { seeded: true });
+      const [alpha, beta, gamma] = state.listed.blocks;
+      expect(state.listed).toMatchObject({
+        total: 3,
+        identityStatus: "materialized",
+        rowLink: { urlPath: `/page/${state.target.rowDocumentId}` },
+      });
+      const firstPage = await asOwner(() =>
+        listBlocks.run({ target: state.target, limit: 1 }),
+      );
+      expect(firstPage.page.nextCursor).toBeTruthy();
 
-    const insertInput = {
-      ...envelope(state, "insert-middle"),
-      operation: "insert" as const,
-      block: { kind: "paragraph" as const, nfm: "Middle" },
-      position: { placement: "before" as const, anchorBlockId: beta!.id },
-    };
-    const inserted = await asOwner(() => mutateBlock.run(insertInput));
-    const insertedId = inserted.receipt.affected.blockIds.find(
-      (id) => !state.listed.order.includes(id),
-    );
-    expect(insertedId).toBeTruthy();
-    expect(inserted.receipt).toMatchObject({
-      operation: "insert",
-      outcome: "inserted",
-      idempotency: { key: "insert-middle", result: "applied" },
-      readback: { verified: true },
-    });
-    expect(inserted.receipt.affected.order).toEqual([
-      alpha!.id,
-      insertedId,
-      beta!.id,
-      gamma!.id,
-    ]);
-
-    const replayed = await asOwner(() => mutateBlock.run(insertInput));
-    expect(replayed.receipt.receiptId).toBe(inserted.receipt.receiptId);
-    expect(replayed.receipt.idempotency.result).toBe("replayed");
-    await expect(
-      asOwner(() =>
-        mutateBlock.run({
-          ...insertInput,
-          block: { kind: "paragraph", nfm: "Different payload" },
-        }),
-      ),
-    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
-    await expect(
-      asOwner(() =>
-        listBlocks.run({
-          target: state.target,
-          limit: 1,
-          cursor: firstPage.page.nextCursor!,
-        }),
-      ),
-    ).rejects.toMatchObject({ errorCode: "FIELD_REVISION_CONFLICT" });
-
-    let current = await asOwner(() =>
-      listBlocks.run({ target: state.target, limit: 100 }),
-    );
-    const updated = await asOwner(() =>
-      mutateBlock.run({
-        target: state.target,
-        expectedSchemaRevision: current.schemaRevision,
-        expectedRowRevision: current.rowRevision,
-        expectedFieldRevision: current.fieldRevision,
-        idempotencyKey: "update-inserted",
-        operation: "update",
-        blockId: insertedId!,
-        block: { kind: "paragraph", nfm: "Middle updated" },
-      }),
-    );
-    expect(
-      updated.receipt.readback.blocks.find((block) => block.id === insertedId)
-        ?.value.nfm,
-    ).toBe("Middle updated");
-
-    current = await asOwner(() =>
-      listBlocks.run({ target: state.target, limit: 100 }),
-    );
-    const reordered = await asOwner(() =>
-      mutateBlock.run({
-        target: state.target,
-        expectedSchemaRevision: current.schemaRevision,
-        expectedRowRevision: current.rowRevision,
-        expectedFieldRevision: current.fieldRevision,
-        idempotencyKey: "reorder-inserted",
-        operation: "reorder",
-        blockId: insertedId!,
-        position: { placement: "after", anchorBlockId: gamma!.id },
-      }),
-    );
-    expect(reordered.receipt.affected.order.at(-1)).toBe(insertedId);
-
-    current = await asOwner(() =>
-      listBlocks.run({ target: state.target, limit: 100 }),
-    );
-    const existingUpsert = await asOwner(() =>
-      mutateBlock.run({
-        target: state.target,
-        expectedSchemaRevision: current.schemaRevision,
-        expectedRowRevision: current.rowRevision,
-        expectedFieldRevision: current.fieldRevision,
-        idempotencyKey: "upsert-existing",
-        operation: "upsert",
-        blockId: beta!.id,
-        block: { kind: "paragraph", nfm: "Beta upserted" },
-        position: { placement: "start" },
-      }),
-    );
-    expect(existingUpsert.receipt.affected.blockIds).toContain(beta!.id);
-    expect(existingUpsert.receipt.affected.order[0]).toBe(beta!.id);
-
-    current = await asOwner(() =>
-      listBlocks.run({ target: state.target, limit: 100 }),
-    );
-    const requestedId = `block_requested_${Date.now()}`;
-    const insertedUpsert = await asOwner(() =>
-      mutateBlock.run({
-        target: state.target,
-        expectedSchemaRevision: current.schemaRevision,
-        expectedRowRevision: current.rowRevision,
-        expectedFieldRevision: current.fieldRevision,
-        idempotencyKey: "upsert-new",
-        operation: "upsert",
-        blockId: requestedId,
-        block: { kind: "paragraph", nfm: "Caller ID" },
-        position: { placement: "start" },
-      }),
-    );
-    expect(insertedUpsert.receipt.affected.order[0]).toBe(requestedId);
-    expect(insertedUpsert.receipt.outcome).toBe("inserted");
-
-    current = await asOwner(() =>
-      listBlocks.run({ target: state.target, limit: 100 }),
-    );
-    const deleted = await asOwner(() =>
-      mutateBlock.run({
-        target: state.target,
-        expectedSchemaRevision: current.schemaRevision,
-        expectedRowRevision: current.rowRevision,
-        expectedFieldRevision: current.fieldRevision,
-        idempotencyKey: "delete-alpha",
-        operation: "delete",
-        blockId: alpha!.id,
-      }),
-    );
-    expect(deleted.receipt.affected.deletedBlockIds).toContain(alpha!.id);
-    current = await asOwner(() =>
-      listBlocks.run({ target: state.target, limit: 100 }),
-    );
-    await asOwner(() =>
-      mutateBlock.run({
-        target: state.target,
-        expectedSchemaRevision: current.schemaRevision,
-        expectedRowRevision: current.rowRevision,
-        expectedFieldRevision: current.fieldRevision,
-        idempotencyKey: "insert-identical-to-tombstone",
+      const insertInput = {
+        ...envelope(state, "insert-middle"),
+        operation: "insert" as const,
+        block: { kind: "paragraph" as const, nfm: "Middle" },
+        position: {
+          placement: "before" as const,
+          anchorBlockId: required(beta).id,
+        },
+      };
+      const attempts = await Promise.all([
+        asOwner(() => mutateBlock.run(insertInput)),
+        asOwner(() => mutateBlock.run(insertInput)),
+      ]);
+      // oracle-change: PostgreSQL may lock either request first; exactly one must apply and the other must replay it.
+      expect(
+        attempts.map((attempt) => attempt.receipt.idempotency.result).sort(),
+      ).toEqual(["applied", "replayed"]);
+      const inserted = required(
+        attempts.find(
+          (attempt) => attempt.receipt.idempotency.result === "applied",
+        ),
+      );
+      const concurrentRetry = required(
+        attempts.find(
+          (attempt) => attempt.receipt.idempotency.result === "replayed",
+        ),
+      );
+      expect(concurrentRetry.receipt.receiptId).toBe(
+        inserted.receipt.receiptId,
+      );
+      expect(concurrentRetry.receipt.idempotency.result).toBe("replayed");
+      const insertedId = inserted.receipt.affected.blockIds.find(
+        (id) => !state.listed.order.includes(id),
+      );
+      expect(insertedId).toBeTruthy();
+      expect(inserted.receipt).toMatchObject({
         operation: "insert",
-        block: { kind: "paragraph", nfm: "Alpha" },
-        position: { placement: "start" },
-      }),
-    );
-    current = await asOwner(() =>
-      listBlocks.run({ target: state.target, limit: 100 }),
-    );
-    await expect(
-      asOwner(() =>
+        outcome: "inserted",
+        idempotency: { key: "insert-middle", result: "applied" },
+        readback: { verified: true },
+      });
+      expect(inserted.receipt.affected.order).toEqual([
+        required(alpha).id,
+        insertedId,
+        required(beta).id,
+        required(gamma).id,
+      ]);
+
+      const replayed = await asOwner(() => mutateBlock.run(insertInput));
+      expect(replayed.receipt.receiptId).toBe(inserted.receipt.receiptId);
+      expect(replayed.receipt.idempotency.result).toBe("replayed");
+      await expect(
+        asOwner(() =>
+          mutateBlock.run({
+            ...insertInput,
+            block: { kind: "paragraph", nfm: "Different payload" },
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
+      await expect(
+        asOwner(() =>
+          listBlocks.run({
+            target: state.target,
+            limit: 1,
+            cursor: required(firstPage.page.nextCursor),
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "FIELD_REVISION_CONFLICT" });
+
+      let current = await asOwner(() =>
+        listBlocks.run({ target: state.target, limit: 100 }),
+      );
+      const updated = await asOwner(() =>
         mutateBlock.run({
           target: state.target,
           expectedSchemaRevision: current.schemaRevision,
           expectedRowRevision: current.rowRevision,
           expectedFieldRevision: current.fieldRevision,
-          idempotencyKey: "restore-tombstone",
+          idempotencyKey: "update-inserted",
+          operation: "update",
+          blockId: required(insertedId),
+          block: { kind: "paragraph", nfm: "Middle updated" },
+        }),
+      );
+      expect(
+        updated.receipt.readback.blocks.find((block) => block.id === insertedId)
+          ?.value.nfm,
+      ).toBe("Middle updated");
+
+      current = await asOwner(() =>
+        listBlocks.run({ target: state.target, limit: 100 }),
+      );
+      const reordered = await asOwner(() =>
+        mutateBlock.run({
+          target: state.target,
+          expectedSchemaRevision: current.schemaRevision,
+          expectedRowRevision: current.rowRevision,
+          expectedFieldRevision: current.fieldRevision,
+          idempotencyKey: "reorder-inserted",
+          operation: "reorder",
+          blockId: required(insertedId),
+          position: { placement: "after", anchorBlockId: required(gamma).id },
+        }),
+      );
+      expect(reordered.receipt.affected.order.at(-1)).toBe(insertedId);
+
+      current = await asOwner(() =>
+        listBlocks.run({ target: state.target, limit: 100 }),
+      );
+      const existingUpsert = await asOwner(() =>
+        mutateBlock.run({
+          target: state.target,
+          expectedSchemaRevision: current.schemaRevision,
+          expectedRowRevision: current.rowRevision,
+          expectedFieldRevision: current.fieldRevision,
+          idempotencyKey: "upsert-existing",
           operation: "upsert",
-          blockId: alpha!.id,
-          block: { kind: "paragraph", nfm: "Not a restore" },
+          blockId: required(beta).id,
+          block: { kind: "paragraph", nfm: "Beta upserted" },
           position: { placement: "start" },
         }),
-      ),
-    ).rejects.toMatchObject({ errorCode: "BLOCK_ID_TOMBSTONED" });
+      );
+      expect(existingUpsert.receipt.affected.blockIds).toContain(
+        required(beta).id,
+      );
+      expect(existingUpsert.receipt.affected.order[0]).toBe(required(beta).id);
 
-    await expect(
-      asOwner(() => mutateBlock.run(insertInput)),
-    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_REPLAY_DRIFT" });
-  });
+      current = await asOwner(() =>
+        listBlocks.run({ target: state.target, limit: 100 }),
+      );
+      const requestedId = `block_requested_${Date.now()}`;
+      const insertedUpsert = await asOwner(() =>
+        mutateBlock.run({
+          target: state.target,
+          expectedSchemaRevision: current.schemaRevision,
+          expectedRowRevision: current.rowRevision,
+          expectedFieldRevision: current.fieldRevision,
+          idempotencyKey: "upsert-new",
+          operation: "upsert",
+          blockId: requestedId,
+          block: { kind: "paragraph", nfm: "Caller ID" },
+          position: { placement: "start" },
+        }),
+      );
+      expect(insertedUpsert.receipt.affected.order[0]).toBe(requestedId);
+      expect(insertedUpsert.receipt.outcome).toBe("inserted");
 
-  it("keeps every primary Blocks identity current when one page belongs to multiple databases", async () => {
-    const first = await fixture("Alpha\nBeta");
-    const secondCreated = await asOwner(() =>
-      createDatabase.run({ title: "Second primary identity" }),
-    );
-    const secondDatabaseId = secondCreated.database.id;
-    const secondRead = await asOwner(() =>
-      getDatabase.run({ databaseId: secondDatabaseId }),
-    );
-    if (!("database" in secondRead) || !secondRead.mutationContract) {
-      throw new Error("Second fixture database has no mutation contract.");
-    }
-    const secondPrimary = secondRead.mutationContract.properties.find(
-      (property) => property.type === "blocks",
-    );
-    if (!secondPrimary)
-      throw new Error("Second fixture has no Blocks property.");
-    const now = new Date().toISOString();
-    const secondItemId = `shared-item-${Date.now()}`;
-    await getDb().insert(schema.contentDatabaseItems).values({
-      id: secondItemId,
-      ownerEmail,
-      orgId: secondRead.database.orgId,
-      databaseId: secondDatabaseId,
-      documentId: first.target.rowDocumentId,
-      position: 0,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const secondTarget = {
-      ...secondRead.mutationContract.target,
-      itemId: secondItemId,
-      rowDocumentId: first.target.rowDocumentId,
-      propertyId: secondPrimary.id,
-    };
-    await asOwner(() =>
-      setProperty.run({
+      current = await asOwner(() =>
+        listBlocks.run({ target: state.target, limit: 100 }),
+      );
+      const deleted = await asOwner(() =>
+        mutateBlock.run({
+          target: state.target,
+          expectedSchemaRevision: current.schemaRevision,
+          expectedRowRevision: current.rowRevision,
+          expectedFieldRevision: current.fieldRevision,
+          idempotencyKey: "delete-alpha",
+          operation: "delete",
+          blockId: required(alpha).id,
+        }),
+      );
+      expect(deleted.receipt.affected.deletedBlockIds).toContain(
+        required(alpha).id,
+      );
+      current = await asOwner(() =>
+        listBlocks.run({ target: state.target, limit: 100 }),
+      );
+      await asOwner(() =>
+        mutateBlock.run({
+          target: state.target,
+          expectedSchemaRevision: current.schemaRevision,
+          expectedRowRevision: current.rowRevision,
+          expectedFieldRevision: current.fieldRevision,
+          idempotencyKey: "insert-identical-to-tombstone",
+          operation: "insert",
+          block: { kind: "paragraph", nfm: "Alpha" },
+          position: { placement: "start" },
+        }),
+      );
+      current = await asOwner(() =>
+        listBlocks.run({ target: state.target, limit: 100 }),
+      );
+      await expect(
+        asOwner(() =>
+          mutateBlock.run({
+            target: state.target,
+            expectedSchemaRevision: current.schemaRevision,
+            expectedRowRevision: current.rowRevision,
+            expectedFieldRevision: current.fieldRevision,
+            idempotencyKey: "restore-tombstone",
+            operation: "upsert",
+            blockId: required(alpha).id,
+            block: { kind: "paragraph", nfm: "Not a restore" },
+            position: { placement: "start" },
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "BLOCK_ID_TOMBSTONED" });
+
+      await expect(
+        asOwner(() => mutateBlock.run(insertInput)),
+      ).rejects.toMatchObject({
+        errorCode: "IDEMPOTENCY_REPLAY_DRIFT",
+        details: { receiptId: inserted.receipt.receiptId },
+      });
+      expect(
+        await asOwner(() =>
+          listBlocks.run({ target: state.target, limit: 100 }),
+        ),
+      ).toEqual(current);
+    },
+  );
+
+  it.each([false, true])(
+    "keeps every primary identity current across databases (live copy: %s)",
+    async (liveCopy) => {
+      const first = await fixture("Alpha\nBeta");
+      const secondCreated = await asOwner(() =>
+        createDatabase.run({ title: "Second primary identity" }),
+      );
+      const secondDatabaseId = secondCreated.database.id;
+      const secondRead = await asOwner(() =>
+        getDatabase.run({ databaseId: secondDatabaseId }),
+      );
+      if (!("database" in secondRead) || !secondRead.mutationContract) {
+        throw new Error("Second fixture database has no mutation contract.");
+      }
+      const secondPrimary = secondRead.mutationContract.properties.find(
+        (property) => property.type === "blocks",
+      );
+      if (!secondPrimary)
+        throw new Error("Second fixture has no Blocks property.");
+      const now = new Date().toISOString();
+      const secondItemId = `shared-item-${Date.now()}`;
+      await getDb().insert(schema.contentDatabaseItems).values({
+        id: secondItemId,
+        ownerEmail,
+        orgId: secondRead.database.orgId,
         databaseId: secondDatabaseId,
         documentId: first.target.rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const secondTarget = {
+        ...secondRead.mutationContract.target,
+        itemId: secondItemId,
+        rowDocumentId: first.target.rowDocumentId,
         propertyId: secondPrimary.id,
-        value: "Alpha\nBeta",
-        expectedBlocksFieldRevision: 0,
-      }),
-    );
-    const firstBefore = await asOwner(() =>
-      listBlocks.run({ target: first.target, limit: 100 }),
-    );
-    const secondBefore = await asOwner(() =>
-      listBlocks.run({ target: secondTarget, limit: 100 }),
-    );
+      };
+      await asOwner(() =>
+        setProperty.run({
+          databaseId: secondDatabaseId,
+          documentId: first.target.rowDocumentId,
+          propertyId: secondPrimary.id,
+          value: "Alpha\nBeta",
+          expectedBlocksFieldRevision: 0,
+        }),
+      );
+      if (liveCopy)
+        await putPageOnLiveCopy(first.target.rowDocumentId, { seeded: true });
+      const firstBefore = await asOwner(() =>
+        listBlocks.run({ target: first.target, limit: 100 }),
+      );
+      const secondBefore = await asOwner(() =>
+        listBlocks.run({ target: secondTarget, limit: 100 }),
+      );
 
-    await asOwner(() =>
-      mutateBlock.run({
-        target: first.target,
-        expectedSchemaRevision: firstBefore.schemaRevision,
-        expectedRowRevision: firstBefore.rowRevision,
-        expectedFieldRevision: firstBefore.fieldRevision,
-        idempotencyKey: "multi-primary-update",
-        operation: "update",
-        blockId: firstBefore.blocks[0]!.id,
-        block: { kind: "paragraph", nfm: "Alpha updated" },
-      }),
-    );
+      await asOwner(() =>
+        mutateBlock.run({
+          target: first.target,
+          expectedSchemaRevision: firstBefore.schemaRevision,
+          expectedRowRevision: firstBefore.rowRevision,
+          expectedFieldRevision: firstBefore.fieldRevision,
+          idempotencyKey: "multi-primary-update",
+          operation: "update",
+          blockId: required(firstBefore.blocks[0]).id,
+          block: { kind: "paragraph", nfm: "Alpha updated" },
+        }),
+      );
 
-    const secondAfter = await asOwner(() =>
-      listBlocks.run({ target: secondTarget, limit: 100 }),
-    );
-    expect(secondAfter.identityStatus).toBe("materialized");
-    expect(secondAfter.fieldRevision).toBe(secondBefore.fieldRevision + 1);
-    expect(secondAfter.blocks.map((block) => block.value.nfm)).toEqual([
-      "Alpha updated",
-      "Beta",
-    ]);
-    expect(secondAfter.order).toEqual(secondBefore.order);
-  });
+      const secondAfter = await asOwner(() =>
+        listBlocks.run({ target: secondTarget, limit: 100 }),
+      );
+      expect(secondAfter.identityStatus).toBe("materialized");
+      expect(secondAfter.fieldRevision).toBe(secondBefore.fieldRevision + 1);
+      expect(secondAfter.blocks.map((block) => block.value.nfm)).toEqual([
+        "Alpha updated",
+        "Beta",
+      ]);
+      expect(secondAfter.order).toEqual(secondBefore.order);
+    },
+  );
 
   it("rejects stale row, field, schema, target, access, and unsupported operations without clobbering", async () => {
     const state = await fixture("- one\n- two\n\nSibling");
@@ -594,6 +659,8 @@ describe("exact Content database block actions", () => {
     const additionalBefore = await asOwner(() =>
       listBlocks.run({ target: additionalTarget, limit: 100 }),
     );
+    await putPageOnLiveCopy(state.target.rowDocumentId, { seeded: true });
+    const primaryBefore = await rowBodyState(state.target.rowDocumentId);
     await asOwner(() =>
       mutateBlock.run({
         target: additionalTarget,
@@ -612,6 +679,9 @@ describe("exact Content database block actions", () => {
     expect(primaryAfter.blocks.map((block) => block.value.nfm)).toEqual([
       "Primary stays",
     ]);
+    expect(await rowBodyState(state.target.rowDocumentId)).toEqual(
+      primaryBefore,
+    );
     const [storedAdditional] = await getDb()
       .select({ content: schema.documentBlockFieldContents.content })
       .from(schema.documentBlockFieldContents)
@@ -652,6 +722,46 @@ describe("exact Content database block actions", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, state.target.rowDocumentId));
     expect(stored?.content).toBe(`Alpha\n${video}`);
+  });
+
+  it("binds a private image that a primary block mutation adds", async () => {
+    const state = await fixture("Before\nSibling");
+    const mediaId = "7b0e8c52-4f8a-4d1e-9c3a-2f6d5e4b3a21";
+    await getDb().insert(privateMedia).values({
+      id: mediaId,
+      ownerEmail,
+      mimeType: "image/png",
+      size: 3,
+      sha256: "0",
+      blobHandleJson: "{}",
+      createdAt: 0,
+    });
+
+    await asOwner(() =>
+      mutateBlock.run({
+        ...envelope(state, "private-image"),
+        operation: "update",
+        blockId: state.listed.blocks[0].id,
+        block: {
+          kind: "paragraph",
+          nfm: `See the [photo](/api/private-media/${mediaId}).`,
+        },
+      }),
+    );
+
+    const bound = await getDb()
+      .select()
+      .from(schema.privateMediaReferences)
+      .where(
+        and(
+          eq(
+            schema.privateMediaReferences.documentId,
+            state.target.rowDocumentId,
+          ),
+          eq(schema.privateMediaReferences.mediaId, mediaId),
+        ),
+      );
+    expect(bound).toHaveLength(1);
   });
 
   it("rejects a direct editor-body race without overwriting the newer body", async () => {
@@ -840,29 +950,281 @@ describe("exact Content database block actions", () => {
     expect(insertedByUi?.content).toBe("UI created this");
   });
 
-  it("refuses a block mutation of a row that takes body writes through its live copy", async () => {
+  it("keeps an unchanged live block mutation from moving the row and refuses a stale field revision", async () => {
     const state = await fixture("Alpha\nBeta");
-    await putPageOnLiveCopy(state.target.rowDocumentId);
-    const before = await rowBodyState(state.target.rowDocumentId);
-
+    await putPageOnLiveCopy(state.target.rowDocumentId, { seeded: true });
+    const page = () =>
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, state.target.rowDocumentId));
+    const before = await page();
+    const liveBefore = await rowBodyState(state.target.rowDocumentId);
+    const input = {
+      ...envelope(state, "unchanged-live-block"),
+      operation: "update" as const,
+      blockId: state.listed.order[0],
+      block: { kind: "paragraph" as const, nfm: "Alpha" },
+    };
+    const result = await asOwner(() => mutateBlock.run(input));
+    expect(result.receipt.outcome).toBe("unchanged");
+    expect(result.receipt.revisions.field).toEqual({
+      before: state.listed.fieldRevision,
+      after: state.listed.fieldRevision,
+    });
     await expect(
       asOwner(() =>
         mutateBlock.run({
-          ...envelope(state, "live-copy-update"),
-          operation: "update",
-          blockId: state.listed.blocks[0]!.id,
-          block: { kind: "paragraph", nfm: "Agent write" },
+          ...input,
+          idempotencyKey: "stale-unchanged-live-block",
+          expectedFieldRevision: state.listed.fieldRevision + 1,
         }),
       ),
-    ).rejects.toMatchObject({
-      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
-      statusCode: 409,
-      details: {
-        documentId: state.target.rowDocumentId,
-        operation: "mutate-content-database-block",
-      },
+    ).rejects.toMatchObject({ errorCode: "FIELD_REVISION_CONFLICT" });
+    expect(await page()).toEqual(before);
+    expect(await rowBodyState(state.target.rowDocumentId)).toEqual(liveBefore);
+  });
+
+  it.each([false, true])(
+    "reorders identical siblings by ID exactly once (live copy: %s)",
+    async (liveCopy) => {
+      const state = await fixture("Same\nSame\nTail");
+      const { getState } = await import("@agent-native/core/collab");
+      await getState(state.target.rowDocumentId);
+      if (liveCopy)
+        await putPageOnLiveCopy(state.target.rowDocumentId, { seeded: true });
+      const before = await rowBodyState(state.target.rowDocumentId);
+      const [first, second, tail] = state.listed.order;
+      const input = {
+        ...envelope(state, "identical-reorder"),
+        operation: "reorder" as const,
+        blockId: second,
+        position: { placement: "before" as const, anchorBlockId: first },
+      };
+      const result = await asOwner(() => mutateBlock.run(input));
+      expect(result.receipt.outcome).toBe("reordered");
+      expect(result.receipt.readback.order).toEqual([second, first, tail]);
+      expect(result.receipt.revisions.field).toEqual({
+        before: state.listed.fieldRevision,
+        after: state.listed.fieldRevision + 1,
+      });
+      const replay = await asOwner(() => mutateBlock.run(input));
+      expect(replay.receipt).toEqual({
+        ...result.receipt,
+        idempotency: { ...result.receipt.idempotency, result: "replayed" },
+      });
+      await expect(
+        asOwner(() =>
+          mutateBlock.run({
+            ...input,
+            idempotencyKey: "stale-after-identical-reorder",
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "FIELD_REVISION_CONFLICT" });
+      expect(await rowBodyState(state.target.rowDocumentId)).toEqual(before);
+      const current = await asOwner(() =>
+        listBlocks.run({ target: state.target, limit: 100 }),
+      );
+      expect(current.order).toEqual([second, first, tail]);
+      expect(current.fieldRevision).toBe(state.listed.fieldRevision + 1);
+    },
+  );
+
+  it.each([false, true])(
+    "refuses an overtaking title edit before a live block commit (changed: %s)",
+    async (changed) => {
+      const state = await fixture("Alpha\nBeta");
+      await putPageOnLiveCopy(state.target.rowDocumentId, { seeded: true });
+      const before = await rowBodyState(state.target.rowDocumentId);
+      const { contentLiveCopy } =
+        await import("../server/live-copy/binding.js");
+      const run = contentLiveCopy.runner.run.bind(contentLiveCopy.runner);
+      const spy = vi
+        .spyOn(contentLiveCopy.runner, "run")
+        .mockImplementationOnce(
+          async <Output>(task: string, input: unknown): Promise<Output> => {
+            const output = await run<Output>(task, input);
+            await getDb()
+              .update(schema.documents)
+              .set({ title: "Title committed first" })
+              .where(eq(schema.documents.id, state.target.rowDocumentId));
+            return output;
+          },
+        );
+      try {
+        await expect(
+          asOwner(() =>
+            mutateBlock.run({
+              ...envelope(state, "overtaking-title"),
+              operation: "update",
+              blockId: state.listed.order[0],
+              block: {
+                kind: "paragraph",
+                nfm: changed ? "Agent write" : "Alpha",
+              },
+            }),
+          ),
+        ).rejects.toMatchObject({ errorCode: "ROW_REVISION_CONFLICT" });
+        expect(await rowBodyState(state.target.rowDocumentId)).toEqual(before);
+        const current = await asOwner(() =>
+          listBlocks.run({ target: state.target, limit: 100 }),
+        );
+        expect(current.rowRevision).not.toBe(state.listed.rowRevision);
+        expect(current.fieldRevision).toBe(state.listed.fieldRevision);
+        expect(current.order).toEqual(state.listed.order);
+        expect(
+          await getDb()
+            .select()
+            .from(schema.contentDatabaseRowMutationReceipts)
+            .where(
+              and(
+                eq(
+                  schema.contentDatabaseRowMutationReceipts.databaseId,
+                  state.databaseId,
+                ),
+                eq(
+                  schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+                  "overtaking-title",
+                ),
+              ),
+            ),
+        ).toHaveLength(0);
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
+
+  // oracle-change: primary block actions now commit through the live copy instead of refusing switched rows.
+  it.each([false, true])(
+    "refuses a primary mapping removed while the worker builds (changed: %s)",
+    async (changed) => {
+      const state = await fixture("Alpha\nBeta");
+      await putPageOnLiveCopy(state.target.rowDocumentId, { seeded: true });
+      const before = await rowBodyState(state.target.rowDocumentId);
+      const fields = () =>
+        getDb()
+          .select()
+          .from(schema.documentBlockFields)
+          .where(
+            eq(
+              schema.documentBlockFields.documentId,
+              state.target.rowDocumentId,
+            ),
+          )
+          .orderBy(schema.documentBlockFields.id);
+      const fieldsBefore = await fields();
+      const { contentLiveCopy } =
+        await import("../server/live-copy/binding.js");
+      const run = contentLiveCopy.runner.run.bind(contentLiveCopy.runner);
+      const spy = vi
+        .spyOn(contentLiveCopy.runner, "run")
+        .mockImplementationOnce(
+          async <Output>(task: string, input: unknown): Promise<Output> => {
+            const result = await run<Output>(task, input);
+            await getDb()
+              .update(schema.contentDatabases)
+              .set({ primaryBlocksPropertyId: null })
+              .where(eq(schema.contentDatabases.id, state.databaseId));
+            return result;
+          },
+        );
+      try {
+        await expect(
+          asOwner(() =>
+            mutateBlock.run({
+              ...envelope(state, "removed-primary"),
+              operation: "update",
+              blockId: state.listed.order[0],
+              block: {
+                kind: "paragraph",
+                nfm: changed ? "Agent write" : "Alpha",
+              },
+            }),
+          ),
+        ).rejects.toMatchObject({
+          errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED",
+        });
+        expect(await rowBodyState(state.target.rowDocumentId)).toEqual(before);
+        expect(await fields()).toEqual(fieldsBefore);
+        expect(
+          await getDb()
+            .select()
+            .from(schema.contentDatabaseRowMutationReceipts)
+            .where(
+              and(
+                eq(
+                  schema.contentDatabaseRowMutationReceipts.databaseId,
+                  state.databaseId,
+                ),
+                eq(
+                  schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+                  "removed-primary",
+                ),
+              ),
+            ),
+        ).toHaveLength(0);
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
+
+  it("commits a primary block mutation through the row's live copy", async () => {
+    const state = await fixture("Alpha\nBeta");
+    await putPageOnLiveCopy(state.target.rowDocumentId, { seeded: true });
+    const before = await rowBodyState(state.target.rowDocumentId);
+    expect(before.history).toBe(0);
+    const result = await asOwner(() =>
+      mutateBlock.run({
+        ...envelope(state, "live-copy-update"),
+        operation: "update",
+        blockId: state.listed.order[0],
+        block: { kind: "paragraph", nfm: "Agent write" },
+      }),
+    );
+    const after = await rowBodyState(state.target.rowDocumentId);
+    expect(after).toEqual({
+      content: "Agent write\nBeta",
+      bodyRevision: before.bodyRevision + 1,
+      liveCopyVersion: required(before.liveCopyVersion) + 1,
+      history: 2,
     });
-    expect(await rowBodyState(state.target.rowDocumentId)).toEqual(before);
+    expect(
+      await getDb()
+        .select({
+          content: schema.documentVersions.content,
+          kind: schema.documentVersions.checkpointKind,
+          revision: schema.documentVersions.bodyRevision,
+        })
+        .from(schema.documentVersions)
+        .where(
+          eq(schema.documentVersions.documentId, state.target.rowDocumentId),
+        )
+        .orderBy(schema.documentVersions.bodyRevision),
+    ).toEqual([
+      {
+        content: before.content,
+        kind: "before",
+        revision: before.bodyRevision,
+      },
+      { content: after.content, kind: "after", revision: after.bodyRevision },
+    ]);
+    const { readLiveCopy } = await import("@agent-native/core/collab");
+    const { contentLiveCopy } = await import("../server/live-copy/binding.js");
+    const stored = await readLiveCopy(
+      contentLiveCopy,
+      state.target.rowDocumentId,
+    );
+    expect(stored).toMatchObject({
+      text: after.content,
+      version: after.liveCopyVersion,
+    });
+    expect(result.receipt.readback.order).toEqual(state.listed.order);
+    expect(result.receipt.revisions.field).toEqual({
+      before: state.listed.fieldRevision,
+      after: state.listed.fieldRevision + 1,
+    });
     expect(
       await getDb()
         .select()
@@ -879,7 +1241,7 @@ describe("exact Content database block actions", () => {
             ),
           ),
         ),
-    ).toHaveLength(0);
+    ).toHaveLength(1);
   });
 
   it("lets a switched row take a block mutation while its flags are off (SF-11)", async () => {

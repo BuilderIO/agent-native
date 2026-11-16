@@ -388,6 +388,7 @@ export const ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS = [
   "session_id",
   "timestamp",
   "path",
+  "hostname",
   "app",
   "template",
   "properties",
@@ -404,6 +405,7 @@ export const ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS = [
   "user_id",
   "user_key",
   "session_id",
+  "hostname",
   "app",
   "template",
   "properties",
@@ -2141,6 +2143,9 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     rows: result.rows,
     schema: result.schema,
     bytesProcessed: result.bytesProcessed,
+    ...(result.usageAccounting
+      ? { usageAccounting: result.usageAccounting }
+      : {}),
     ...(eventsSource ? { eventsSource } : {}),
     ...(result.sourceGeneration !== undefined
       ? { sourceGeneration: result.sourceGeneration }

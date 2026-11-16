@@ -140,6 +140,9 @@ vi.mock("../db/ddl-guard.js", () => ({
 
 const {
   createProviderApiRuntime,
+  registerProviderApiActionRuntime,
+  getRegisteredProviderApiRuntimeOptions,
+  listRegisteredCustomProviderCapabilities,
   getProviderApiConfig,
   isValidProviderApiBaseUrl,
   listProviderApiIdsForTemplateUse,
@@ -284,6 +287,74 @@ describe("provider API runtime", () => {
         headers: { "content-type": "application/json" },
       }),
     );
+  });
+
+  it("advertises only an exposed runtime and preserves scoped custom credential failures", async () => {
+    const appId = "workspace-registry-test";
+    const resolve = vi.fn(
+      async (): Promise<
+        import("./index.js").ProviderApiResolvedCredential | null
+      > => null,
+    );
+    const provider = {
+      id: "custom-review",
+      label: "Review service",
+      scope: "org" as const,
+      scopeId: "org-1",
+      baseUrl: "https://example.test",
+      auth: { type: "bearer" as const, credentialKey: "REVIEW_KEY" },
+      docsUrls: [],
+      allowedHostSuffixes: ["example.test"],
+      defaultHeaders: {},
+      notes: "",
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    const runtime = createProviderApiRuntime({
+      appId,
+      providerIds: ["slack"],
+      resolveCredential: resolve,
+      getCustomProviders: async () => [provider],
+    });
+    expect(getRegisteredProviderApiRuntimeOptions(appId)).toBeUndefined();
+    registerProviderApiActionRuntime(runtime);
+    createProviderApiRuntime({ appId });
+    expect(getRegisteredProviderApiRuntimeOptions(appId)?.providerIds).toEqual([
+      "slack",
+    ]);
+    expect(
+      await listRegisteredCustomProviderCapabilities(appId, credentialContext),
+    ).toEqual([]);
+    expect(resolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId,
+        provider: "custom-review",
+        ctx: credentialContext,
+      }),
+    );
+    resolve.mockResolvedValueOnce({
+      key: "REVIEW_KEY",
+      value: "fake-review-token",
+      source: "vault",
+      provider: "custom-review",
+      scope: "org",
+      scopeId: "org-1",
+    });
+    expect(
+      await listRegisteredCustomProviderCapabilities(appId, credentialContext),
+    ).toEqual([{ id: "custom-review", label: "Review service" }]);
+    resolve.mockRejectedValueOnce(new Error("Vault unreadable"));
+    await expect(
+      listRegisteredCustomProviderCapabilities(appId, credentialContext),
+    ).rejects.toThrow("Vault unreadable");
+    resolve.mockClear();
+    expect(
+      await listRegisteredCustomProviderCapabilities(appId, {
+        ...credentialContext,
+        orgId: "other-org",
+      }),
+    ).toEqual([]);
+    expect(resolve).not.toHaveBeenCalled();
   });
 
   it("enforces provider allowlists for specific catalog lookups", async () => {

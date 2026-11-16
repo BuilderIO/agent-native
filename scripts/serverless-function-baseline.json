@@ -11,6 +11,8 @@
     "analytics-alert-sweep-background": 41943040,
     "analytics-bigquery-backfill-background": 41943040,
     "analytics-bigquery-backfill-cron": 1049,
+    "analytics-bigquery-usage-retention-background": 32613362,
+    "analytics-bigquery-usage-retention-cron": 1192,
     "analytics-rollup-backfill-background": 41943040,
     "analytics-rollup-backfill-cron": 1044,
     "content-metrics-collection-background": 41943040,

@@ -181,7 +181,9 @@ export default function DesignSystems() {
     designSystems: DesignSystem[];
   }>("list-design-systems");
 
-  const setDefaultMutation = useActionMutation("set-default-design-system");
+  const setDefaultMutation = useActionMutation("set-default-design-system", {
+    errorNotification: "shared",
+  });
   const deleteMutation = useActionMutation("delete-design-system");
   const updateMutation = useActionMutation("update-design-system");
   const refreshBuilderSystemMutation = useActionMutation<

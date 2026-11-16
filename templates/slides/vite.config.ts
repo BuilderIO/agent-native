@@ -14,13 +14,7 @@ export default defineConfig({
     ...reactRouterPlugins(),
     ...agentNativePlugins({
       clientCompatibilityVersion: CLIENT_COMPATIBILITY_VERSION,
-      ssrStubs: [
-        "shiki",
-        "mermaid",
-        "dom-to-pptx",
-        "@excalidraw/excalidraw",
-        "@excalidraw/mermaid-to-excalidraw",
-      ],
+      ssrStubs: ["shiki", "mermaid", "dom-to-pptx", "@excalidraw/excalidraw"],
     }),
   ],
   optimizeDeps: {

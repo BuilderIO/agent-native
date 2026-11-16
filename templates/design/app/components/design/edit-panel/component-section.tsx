@@ -149,7 +149,9 @@ function MakeItRealCard({
     },
   });
 
-  const migrateMutation = useActionMutation("migrate-inline-design-to-app");
+  const migrateMutation = useActionMutation("migrate-inline-design-to-app", {
+    errorNotification: "caller",
+  });
 
   if (isLoading || !data) {
     return (
@@ -522,7 +524,9 @@ export function ComponentSection({
   previewFrameId?: string;
   activeContent?: string;
   activeFileUpdatedAt?: string | null;
-  getExpectedFiles?: () => Array<{ fileId: string; versionHash: string }>;
+  getExpectedFiles?: () => Promise<
+    Array<{ fileId: string; versionHash: string }>
+  >;
   componentDetailsReady?: boolean;
   nodeId: string;
   swapPickerRequest?: number;
@@ -856,7 +860,6 @@ export function ComponentSection({
             ...(latestSource.revision
               ? { revision: latestSource.revision }
               : {}),
-            ...(getExpectedFiles ? { expectedFiles: getExpectedFiles() } : {}),
           }
         : undefined;
     const payload = {
@@ -873,8 +876,11 @@ export function ComponentSection({
           : edit,
       ...(mutationSource ? { source: mutationSource } : {}),
     };
-    const submit = (retriedAfterConsent = false) => {
-      applyPropMutation.mutate(payload, {
+    const submit = (
+      retriedAfterConsent = false,
+      request: Parameters<typeof applyPropMutation.mutate>[0] = payload,
+    ) => {
+      applyPropMutation.mutate(request, {
         onSuccess: (result) => {
           const response = result as {
             content?: unknown;
@@ -948,7 +954,7 @@ export function ComponentSection({
           ) {
             requestLocalhostWrite({
               files: [effectiveRuntime.local.path],
-              onGranted: () => submit(true),
+              onGranted: () => submit(true, request),
               onCancel: rollbackPreview,
             });
             return;
@@ -968,7 +974,29 @@ export function ComponentSection({
         },
       });
     };
-    submit();
+    if (
+      !getExpectedFiles ||
+      !mutationSource ||
+      !("currentContent" in mutationSource)
+    ) {
+      submit();
+      return;
+    }
+    getExpectedFiles().then(
+      (expectedFiles) =>
+        submit(false, {
+          ...payload,
+          source: { ...mutationSource, expectedFiles },
+        }),
+      (error: unknown) => {
+        rollbackPreview();
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("designEditor.toasts.componentCreateFailed"),
+        );
+      },
+    );
   };
 
   useEffect(() => {

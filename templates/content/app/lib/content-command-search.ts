@@ -26,6 +26,8 @@ export interface CommandSearchDocumentsResponse {
     hasMore: boolean;
     nextOffset: number | null;
   };
+  /** Mistyped query words the server also matched as these words. */
+  spellingCorrections?: { term: string; replacements: string[] }[];
 }
 
 export function isLocalFileSearchResult(

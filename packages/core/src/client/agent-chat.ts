@@ -3,8 +3,10 @@ import {
   tryNormalizeAgentActionScope,
   type AgentActionScope,
   type AgentChatAttachment,
+  type AgentChatReference,
   type MentionItemMedia,
 } from "../agent/types.js";
+import { parseAgentChatReferences } from "../shared/agent-chat-references.js";
 import { formatAgentSelectionPreamble } from "../shared/agent-selection.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -58,6 +60,7 @@ export interface AgentChatMessage {
   uploadedReferenceImages?: string[];
   images?: string[];
   attachments?: AgentChatAttachment[];
+  references?: AgentChatReference[];
   /** Stable tab identifier — auto-generated if omitted */
   tabId?: string;
   targetTabId?: string;
@@ -899,6 +902,7 @@ function hasMcpAppLocalPayload(
     | "preset"
     | "projectSlug"
     | "referenceImagePaths"
+    | "references"
     | "reuseEmptyTab"
     | "submitMessageId"
     | "tabId"
@@ -912,6 +916,7 @@ function hasMcpAppLocalPayload(
   return Boolean(
     opts.attachments?.length ||
     opts.images?.length ||
+    opts.references?.length ||
     opts.referenceImagePaths?.length ||
     opts.uploadedReferenceImages?.length ||
     opts.usageLabel ||
@@ -1011,6 +1016,7 @@ function hasMcpAppLocalOnlySemantics(
 ): boolean {
   return Boolean(
     content === null ||
+    opts.references?.length ||
     opts.referenceImagePaths?.length ||
     opts.uploadedReferenceImages?.length ||
     opts.usageLabel ||
@@ -1084,6 +1090,7 @@ export interface ParsedSubmitChat {
   targetTabId?: string;
   images?: string[];
   attachments?: AgentChatAttachment[];
+  references?: AgentChatReference[];
   requestMode?: AgentChatRequestMode;
   submitMessageId?: string;
   submissionExpiresAt?: number;
@@ -1222,6 +1229,11 @@ export function parseSubmitChatMessage(
     targetTabId: nonEmptyString(raw.targetTabId),
     images,
     attachments: parseSubmitChatAttachments(raw.attachments),
+    ...(raw.references === undefined
+      ? {}
+      : {
+          references: parseAgentChatReferences(raw.references),
+        }),
     requestMode: normalizeAgentChatRequestMode(raw.requestMode ?? raw.mode),
     submitMessageId:
       typeof raw.submitMessageId === "string" ? raw.submitMessageId : undefined,

@@ -59,6 +59,13 @@ interface MentionPopoverProps {
    * people and agent pickers where the description is an identity (an email).
    */
   density?: "default" | "stacked";
+  /**
+   * Show sections in the order their items arrive. The default search streams
+   * its sections as each source resolves, so they are sorted; a host's own list
+   * already is in the order it wants, and an "Agents" section of its own would
+   * otherwise jump to the top.
+   */
+  keepSectionOrder?: boolean;
 }
 
 const iconProps = { size: 16, className: "shrink-0 text-muted-foreground" };
@@ -192,6 +199,7 @@ export const MentionPopover = forwardRef<
     onSelectCommand,
     onClose,
     density = "default",
+    keepSectionOrder = false,
   } = props;
   const stacked = density === "stacked";
 
@@ -244,6 +252,8 @@ export const MentionPopover = forwardRef<
       if (!groups.has(section)) groups.set(section, []);
       groups.get(section)!.push(item);
     }
+    if (keepSectionOrder)
+      return [...groups].map(([section, items]) => ({ section, items }));
     const sorted: { section: string; items: MentionItem[] }[] = [];
     const knownSections = new Set([
       "Agents",
@@ -274,7 +284,7 @@ export const MentionPopover = forwardRef<
       sorted.push({ section: "Other", items: groups.get("Other")! });
     }
     return sorted;
-  }, [type, mentionItems]);
+  }, [type, mentionItems, keepSectionOrder]);
 
   const flatMentionItems = React.useMemo(() => {
     return groupedMentions.flatMap((g) => g.items);

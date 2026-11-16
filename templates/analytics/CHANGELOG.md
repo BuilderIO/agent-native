@@ -3,6 +3,24 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-05
+
+### Improved
+
+- Reference saved dashboards directly from the composer
+
+## 2026-11-04
+
+### Improved
+
+- The agent finds the dashboard editing action more often when you ask to add or change a chart.
+
+## 2026-10-31
+
+### Improved
+
+- The Content dashboard shows each article's pageviews, search clicks and impressions, and charts pageviews and search clicks per day.
+
 ## 2026-10-29
 
 ### Improved
@@ -1571,47 +1589,5 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Analytics now opens directly to Ask instead of the old Overview page.
 - The sidebar footer no longer shows a sign-out shortcut.
-
-## 2026-06-24
-
-### Added
-
-- Added a language picker and localized app chrome for supported languages.
-- Dashboard traffic tables now show top URLs and shared Clips with clickable links.
-- First-party template dashboards now show key activity, signup, retention, DAU, and WAU trends over time by template.
-- Retention charts now break out 1-day and 7-day return rates by template.
-
-### Improved
-
-- Analytics navigation, command palette, and settings now honor the selected interface language.
-- Dashboard charts now fill sparse template time series, support legend toggles, and sort tooltip values by impact.
-- Dashboard rows now auto-fit panels so one, two, or three charts fill the row naturally.
-- Settings now link directly to Agent settings for model, API key, automation, and voice preferences.
-- SQL panel editors now highlight query syntax and keep one-click formatting available.
-
-### Fixed
-
-- Active-user dashboard panels classify templates more accurately instead of overusing the unknown bucket.
-- Daily dashboard charts now show the in-progress day as a dashed segment.
-- Dashboard filters now apply consistently to first-party traffic panels and unsafe table links render as plain text.
-- Dashboard loading placeholders now span the available page width.
-- Dashboard panel deletes now stay deleted after refresh.
-- First-party dashboard dates now align to Pacific time for daily activity and retention panels.
-- First-party signup and pageview dashboard panels now use the selected time range and email filters consistently.
-
-## 2026-06-23
-
-### Added
-
-- Build large first-party analytics dashboards in one fast call by naming metrics
-- Open any dashboard chart full screen in a modal from the panel's three-dots menu
-
-### Improved
-
-- The Dashboards and Analyses sidebar settings buttons now stay hidden until you hover the section, for a cleaner sidebar
-
-### Fixed
-
-- Long dashboard and analysis names in the sidebar now truncate with an ellipsis instead of being clipped
 
 For the full list of updates, see the [changelog folder](./changelog/).

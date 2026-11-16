@@ -674,6 +674,7 @@ export async function addCommentWithGuard(
 }
 
 export default defineAction({
+  searchHints: ["leave a comment", "comment on text", "annotate"],
   description:
     "Add a comment to a document. Comment text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. To reply, provide both threadId and parentId; omit both to start a thread. A new thread with no quotedText, propertyId, or blockId is a comment on the whole page; it shows in the page's Discussion. Pass blockId to start a thread on a whole video. Pass fieldId to start a thread in a Blocks field tab other than the page body.",
   deferLoading: false,

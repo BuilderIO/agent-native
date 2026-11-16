@@ -9,7 +9,16 @@ import {
 } from "@agent-native/core/server";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { documentRevisionToken } from "../../actions/_document-edit-mutation.js";
@@ -650,38 +659,61 @@ export async function startCommentAiRequest(
         ? `comment-ai-classifier-${crypto.randomUUID()}`
         : null;
     const snapshot = snapshotComments(source.comments);
-    const inserted = await db
-      .insert(schema.commentAiRequests)
-      .values({
-        id: args.requestId,
-        ownerEmail: source.document.ownerEmail,
-        requesterEmail: email,
-        documentId: args.documentId,
-        threadId: args.threadId,
-        rootCommentId: args.rootCommentId,
-        fieldId: "body",
-        intent: resolvedIntent ?? "unresolved",
-        submittedMode: submission.submittedMode,
-        instructions: submission.instructions,
-        submittedProvider: submission.provider,
-        submittedModel: submission.model,
-        submittedEngine: submission.engine,
-        status: resolvedIntent ? "queued" : "classifying",
-        submittedThreadDigest: commentThreadDigest(source.comments),
-        submittedSnapshotJson: JSON.stringify(snapshot),
-        threadDigest: commentThreadDigest(source.comments),
-        snapshotJson: JSON.stringify(snapshot),
-        baseRevision: documentRevisionToken(
-          source.document.bodyRevision,
-          source.document.content,
-        ),
-        suggestionRevision: source.document.updatedAt,
-        agentThreadId,
-        classificationThreadId,
-        continuationOfRequestId: continuation?.id ?? null,
-      })
-      .onConflictDoNothing()
-      .returning();
+    const inserted = await db.transaction(async (tx) => {
+      // Locked as delete-comment locks it, so the thread can't be deleted
+      // between the check that it's still here and the insert.
+      const roots = await tx
+        .select({ id: schema.documentComments.id })
+        .from(schema.documentComments)
+        .where(
+          and(
+            eq(schema.documentComments.id, args.rootCommentId),
+            eq(schema.documentComments.documentId, args.documentId),
+            eq(schema.documentComments.threadId, args.threadId),
+            isNull(schema.documentComments.parentId),
+          ),
+        )
+        .limit(1)
+        .for("update");
+      if (roots.length === 0) {
+        throw operationError(
+          "root_comment_changed",
+          "The selected comment no longer belongs to this Page and thread",
+        );
+      }
+      return tx
+        .insert(schema.commentAiRequests)
+        .values({
+          id: args.requestId,
+          ownerEmail: source.document.ownerEmail,
+          requesterEmail: email,
+          documentId: args.documentId,
+          threadId: args.threadId,
+          rootCommentId: args.rootCommentId,
+          fieldId: "body",
+          intent: resolvedIntent ?? "unresolved",
+          submittedMode: submission.submittedMode,
+          instructions: submission.instructions,
+          submittedProvider: submission.provider,
+          submittedModel: submission.model,
+          submittedEngine: submission.engine,
+          status: resolvedIntent ? "queued" : "classifying",
+          submittedThreadDigest: commentThreadDigest(source.comments),
+          submittedSnapshotJson: JSON.stringify(snapshot),
+          threadDigest: commentThreadDigest(source.comments),
+          snapshotJson: JSON.stringify(snapshot),
+          baseRevision: documentRevisionToken(
+            source.document.bodyRevision,
+            source.document.content,
+          ),
+          suggestionRevision: source.document.updatedAt,
+          agentThreadId,
+          classificationThreadId,
+          continuationOfRequestId: continuation?.id ?? null,
+        })
+        .onConflictDoNothing()
+        .returning();
+    });
     if (inserted[0]) {
       request = inserted[0];
       dispatch = true;

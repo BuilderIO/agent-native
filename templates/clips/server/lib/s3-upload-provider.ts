@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   cancelS3ResponseBody,
@@ -968,8 +968,7 @@ function createS3FileUploadProvider(
       const basename = filename?.slice(0, -(ext.length + 1)) || "file";
       const safeBasename = safeClipFilename(basename);
       const stamp = Date.now();
-      const rand = Math.random().toString(36).slice(2, 10);
-      const objectKey = `clips/${safeBasename}/${stamp}-${rand}.${ext}`;
+      const objectKey = `clips/${safeBasename}/${stamp}-${randomUUID()}.${ext}`;
       const contentType = mimeType || "application/octet-stream";
 
       const bytes =

@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  IMAGE_EXTENSION_BY_MIME,
+  isSupportedImageMimeType,
+} from "./image-signature.js";
+import {
   frameSheetFfmpegArgs,
   frameSheetFpsFromProbe,
   type FrameSheetPlan,
@@ -280,6 +284,33 @@ export async function extractJpegFrame({
     await writeFile(inputPath, mediaBytes);
     return await extractJpegFrameFromFile({ mediaPath: inputPath, atMs });
   } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * A still image as a JPEG at the frame size cap, for a screenshot that is
+ * another type or too large to hand to an agent as it is.
+ */
+export async function convertImageToJpeg({
+  imageBytes,
+  mimeType,
+}: {
+  imageBytes: Uint8Array;
+  mimeType: string;
+}): Promise<Uint8Array> {
+  // observed-write-ok: temp file, removed below
+  const dir = await mkdtemp(join(tmpdir(), "clips-image-input-"));
+  const inputPath = join(
+    dir,
+    `input${isSupportedImageMimeType(mimeType) ? IMAGE_EXTENSION_BY_MIME[mimeType] : ".img"}`,
+  );
+  try {
+    // observed-write-ok: temp file, removed below
+    await writeFile(inputPath, imageBytes);
+    return await extractJpegFrameFromFile({ mediaPath: inputPath, atMs: 0 });
+  } finally {
+    // observed-write-ok: removes this call's temp directory
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 }

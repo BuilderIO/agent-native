@@ -303,7 +303,11 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 />
 ```
 
-컨텍스트 소스는 `ComposerContextMenuItem`의 `picker`에 등록합니다. `ComposerContextMenu`는 기존 화면을 대체하는 패널이 아니라 연결된 shadcn/Radix 계단식 하위 메뉴를 관리합니다. 루트에는 파일 업로드 다음에 컨텍스트 추가 → 호스트 카테고리 → 소스 선택기가 표시됩니다. 호스트 항목이 없으면 컨텍스트 추가를 표시하지 않습니다. 화살표 키와 Escape로 메뉴 계층을 이동합니다. 링크 선택기의 뒤로 가기는 같은 하위 메뉴 안에서 결과에서 링크 입력으로만 돌아갑니다. 공유 선택기가 검색, 목록 행, 로딩·빈 목록·오류 상태, 재시도, 페이지 이동, 링크 입력을 관리합니다. 앱은 자체 선택기 JSX 대신 접근이 확인된 데이터와 선택 콜백을 제공합니다.
+컨텍스트 소스는 `ComposerContextMenuItem`에 이름이 명확한 직접 작업을 등록합니다. 공유 메뉴는 컨텍스트 추가, 통합, 명령을 별도의 접근 가능한 그룹으로 표시합니다. 메뉴에서 한 번 선택하면 소스 선택 대화 상자가 열립니다. 워크스페이스 통합은 별도 그룹에, 드물게 사용하는 작업 모드는 명령에 표시됩니다. 소스 데이터는 대화 상자에서 로드되어 루트 항목은 안정적으로 유지됩니다. 메뉴는 화살표, 문자 검색, Escape를 지원합니다. 대화 상자는 검색, 그룹 결과, 로딩, 빈 결과, 오류, 재시도 및 포커스 복원을 처리합니다.
+
+항목은 `section: "context" | "integrations" | "commands"`와 오름차순 `order`를 사용하며 동순위는 레이블과 id로 정렬합니다. `renderLink(children)`는 기본 링크 탐색을 유지합니다. 범위가 지정된 멘션 공급자가 있는 앱은 `referencePicker: { source, referenceType }`을 등록할 수 있으며 선택하면 일반 작성기 참조가 삽입됩니다. `referenceType`은 공유 워크스페이스 검색 대화 상자에서 앱 소유 리소스 유형을 제외해 중복을 방지합니다. 워크스페이스는 `resources.useWorkspaceMenu({ enabled, onSelectIntegration })`로 등록합니다. ID가 바뀌면 `scopeKey`가 선택기를 재설정하고 요청을 중단합니다. 공급자 실패는 빈 결과로 바뀌지 않고 오류로 유지됩니다.
+
+Figma 같은 소스는 접근 권한을 확인하는 동안에도 표시됩니다. 대화 상자는 로딩 또는 재시도 가능한 오류, 연결되지 않았을 때 실제 연결 링크, 연결되었을 때 승인된 URL 선택기를 보여 줍니다. 스킬 만들기는 스킬 모드를 바로 선택합니다. 스킬 파일 업로드는 기본 파일 선택기 이후 검토 및 저장 대화 상자를 엽니다.
 
 선택기 설정은 다음을 받습니다.
 
@@ -326,6 +330,7 @@ const contextMenuItems: ComposerContextMenuItem[] = [
     label: labels.references,
     picker: {
       searchPlaceholder: labels.searchReferences,
+      presentation: { type: "dialog", mode: "single" },
       items: authorizedReferences,
       selectedIds,
       onSelect: stageReference,
@@ -399,7 +404,7 @@ const websiteContextItem: ComposerContextMenuItem = {
 
 선택적 `footerAction`은 로딩 중이거나 오류 또는 빈 목록 상태여도 결과 아래에 유지됩니다. 번역된 `label`, 선택적 `icon`과 `disabled`, 그리고 `onSelect()` 또는 `renderLink(children)`를 받습니다. 모달이나 상태가 있는 흐름에는 콜백을 사용합니다. `false`는 메뉴를 열린 상태로 유지하고 `true` 또는 `void`는 닫으며, 거부된 Promise는 오류와 재시도를 표시합니다. 단순 페이지 이동에는 `renderLink`에서 실제 React Router `Link` 또는 HTML 링크를 반환합니다. 공유 메뉴가 `asChild`로 행을 제공하므로 `href`와 브라우저 탐색 동작이 유지됩니다. 임시 작업이 아닌 기존의 권한 확인된 흐름에 연결하세요.
 
-`ComposerContextMenu`에 `addAttachment`를 전달하면 표준 업로드 작업이 맨 앞에 표시되고 호스트의 파일 콜백이 유지됩니다.
+`ComposerContextMenu`에 `addAttachment`를 전달하면 첨부 섹션에 파일 및 이미지가 추가되고 호스트의 파일 콜백이 유지됩니다.
 
 `PromptComposer`와 `AgentKitComposer`는 `@assistant-ui/react`의 공개 `AttachmentAdapter` 타입을 사용하는 `attachmentAdapter`를 받습니다. 이 어댑터로 호스트의 허용 파일, 크기 검증, 첨부 준비 정책을 제공합니다. 생략하면 기본 어댑터가 유지됩니다. 업로드 컨트롤, 파일 선택기, 컨텍스트 선택기, 첨부 칩은 계속 공유 컴포저가 관리합니다. 파일 준비를 맞춤 설정하려고 이 컨트롤을 교체하지 마세요.
 

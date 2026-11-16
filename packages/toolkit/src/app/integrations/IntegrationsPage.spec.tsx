@@ -276,6 +276,80 @@ describe("IntegrationsPage", () => {
     expect(container.textContent).toContain("Internal docs");
   });
 
+  it("opens a connected remote MCP server's detail page from its tile", async () => {
+    // Steve, 11/6: the connected "notion" tile had no way in — only a "…" menu — so a
+    // connected remote MCP server could not be viewed, edited or reconnected. A catalog
+    // integration that is connected must open the same page its catalog tile would.
+    mcpMocks.useMcpServers.mockReturnValue({
+      data: {
+        user: [
+          {
+            id: "notion-personal",
+            scope: "user",
+            name: "notion",
+            url: "https://mcp.notion.com/mcp",
+            authMode: "oauth",
+            createdAt: 1,
+            status: { state: "connected", toolCount: 77 },
+          },
+        ],
+        org: [],
+        orgId: "acme",
+        role: "member",
+      },
+      isError: false,
+      isLoading: false,
+    });
+    await render();
+
+    const link = container.querySelector<HTMLAnchorElement>(
+      '[data-connected-server-link="notion"]',
+    );
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("href")).toContain("/integrations/notion");
+    await act(async () => {
+      link?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(navigate).toHaveBeenCalledWith("integrations", "notion");
+  });
+
+  it("opens a custom connected server from its tile too, under its own slug", async () => {
+    mcpMocks.useMcpServers.mockReturnValue({
+      data: {
+        user: [
+          {
+            id: "custom-1",
+            scope: "user",
+            name: "Internal Docs",
+            url: "https://mcp.example.com/mcp",
+            authMode: "headers",
+            createdAt: 1,
+            status: { state: "connected", toolCount: 3 },
+          },
+        ],
+        org: [],
+        orgId: "acme",
+        role: "member",
+      },
+      isError: false,
+      isLoading: false,
+    });
+    await render();
+
+    const link = container.querySelector<HTMLAnchorElement>(
+      '[data-connected-server-link="Internal Docs"]',
+    );
+    expect(link?.getAttribute("href")).toContain("/integrations/internal-docs");
+    await act(async () => {
+      link?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(navigate).toHaveBeenCalledWith("integrations", "internal-docs");
+  });
+
   it("starts Connected from an empty state when nothing is connected", async () => {
     await render();
 
@@ -350,59 +424,85 @@ describe("IntegrationsPage", () => {
     });
   });
 
-  it("offers to reconnect a connected server that held back tools", async () => {
-    const mutateAsync = vi.fn().mockResolvedValue(undefined);
-    mcpMocks.useReconnectMcpServer.mockReturnValue({ mutateAsync });
-    mcpMocks.useMcpServers.mockReturnValue({
-      data: {
-        user: [],
-        org: [
-          {
-            id: "shared-docs",
-            scope: "org",
-            name: "Shared docs",
-            url: "https://mcp.example.com/mcp",
-            authMode: "oauth",
-            createdAt: 1,
-            status: {
-              state: "connected",
-              toolCount: 2,
-              error: 'Tool "broken" is unavailable.',
+  it.each([true, false])(
+    "offers reconnect for a connected server (partial failure: %s)",
+    async (hasError) => {
+      const mutateAsync = vi.fn().mockResolvedValue(undefined);
+      mcpMocks.useReconnectMcpServer.mockReturnValue({ mutateAsync });
+      mcpMocks.useMcpServers.mockReturnValue({
+        data: {
+          user: [],
+          org: [
+            {
+              id: "shared-docs",
+              scope: "org",
+              name: "Shared docs",
+              url: "https://mcp.example.com/mcp",
+              authMode: "oauth",
+              createdAt: 1,
+              status: {
+                state: "connected",
+                toolCount: 2,
+                ...(hasError ? { error: 'Tool "broken" is unavailable.' } : {}),
+              },
             },
-          },
-        ],
-        orgId: "acme",
-        role: "member",
-      },
-      isError: false,
-      isSuccess: true,
-      isLoading: false,
-    });
-    await render();
+          ],
+          orgId: "acme",
+          role: "member",
+        },
+        isError: false,
+        isSuccess: true,
+        isLoading: false,
+      });
+      await render();
 
-    const tile = container.querySelector(
-      '[data-connected-server="Shared docs"]',
-    );
-    expect(tile?.textContent).toContain(
-      'Reason: Tool "broken" is unavailable.',
-    );
-    const trigger = tile!.querySelector<HTMLButtonElement>(
-      'button[aria-label="More actions for Shared docs"]',
-    );
-    expect(trigger).not.toBeNull();
-    await act(async () => {
-      trigger!.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      const tile = container.querySelector(
+        '[data-connected-server="Shared docs"]',
       );
-    });
-    const items = Array.from(document.querySelectorAll('[role="menuitem"]'));
-    expect(items.map((item) => item.textContent)).toEqual(["Reconnect"]);
-    await act(async () => (items[0] as HTMLElement).click());
-    expect(mutateAsync).toHaveBeenCalledWith({
-      id: "shared-docs",
-      scope: "org",
-    });
-  });
+      if (hasError) {
+        expect(tile?.textContent).toContain(
+          'Reason: Tool "broken" is unavailable.',
+        );
+        expect(
+          Array.from(tile?.querySelectorAll("button") ?? []).some(
+            (button) => button.textContent === "Reconnect",
+          ),
+        ).toBe(true);
+      }
+      const trigger = tile!.querySelector<HTMLButtonElement>(
+        'button[aria-label="More actions for Shared docs"]',
+      );
+      expect(trigger).not.toBeNull();
+      await act(async () => {
+        trigger!.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        );
+      });
+      const items = Array.from(document.querySelectorAll('[role="menuitem"]'));
+      expect(items.map((item) => item.textContent)).toEqual(["Reconnect"]);
+      await act(async () => (items[0] as HTMLElement).click());
+      expect(mutateAsync).toHaveBeenCalledWith({
+        id: "shared-docs",
+        scope: "org",
+      });
+      if (!hasError) {
+        mutateAsync.mockRejectedValueOnce(
+          new Error("Reconnect service unavailable"),
+        );
+        await act(async () => {
+          trigger?.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+          );
+        });
+        const reconnect =
+          document.querySelector<HTMLElement>('[role="menuitem"]');
+        await act(async () => reconnect?.click());
+        expect(tile?.textContent).toContain(
+          "Reconnect failed: Reconnect service unavailable",
+        );
+      }
+    },
+  );
 
   it("starts OAuth again for an OAuth server whose connection was refused", async () => {
     const mutateAsync = vi.fn().mockResolvedValue(undefined);

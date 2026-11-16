@@ -18,5 +18,6 @@ export * from "./RouteTransitionIndicator.js";
 export * from "./RuntimeConfigNotice.js";
 export * from "./StarfieldBackground.js";
 export * from "./WaveBackground.js";
+export * from "./WriteFailureToaster.js";
 export * from "./Turnstile.js";
 export * from "./UnsupportedDeviceGate.js";

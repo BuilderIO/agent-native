@@ -9,6 +9,7 @@ import {
   type Reference,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/composer";
+import { useFocusWithinThroughPress } from "@agent-native/toolkit/hooks/use-focus-within-through-press";
 import {
   commentMentionKey,
   findCommentMentions,
@@ -28,16 +29,6 @@ import {
   useState,
 } from "react";
 
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   Popover,
   PopoverAnchor,
@@ -70,6 +61,7 @@ import {
   type CommentAiMode,
   type CommentAiSelection,
 } from "./CommentAiRecipient";
+import { CommentConfirmDialog } from "./CommentConfirmDialog";
 import { agentMentionMedia, personMentionMedia } from "./CommentIdentity";
 import { EmojiPickerPanel } from "./EmojiPicker";
 
@@ -354,7 +346,6 @@ export const CommentComposer = forwardRef<
   // Escape cancels the draft, asking first while it holds unsent text.
   const [confirmingDiscard, setConfirmingDiscard] =
     useState<CommentDiscardKind | null>(null);
-  const discardButtonRef = useRef<HTMLButtonElement>(null);
   const discardedRef = useRef(false);
   // Keep editing puts the cursor back where it was, not at the end.
   const keptSelectionRef =
@@ -375,7 +366,7 @@ export const CommentComposer = forwardRef<
     onEscape?.();
   };
 
-  const [focused, setFocused] = useState(false);
+  const { focused, focusWithinProps } = useFocusWithinThroughPress(wrapperRef);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [modelMenuRect, setModelMenuRect] = useState<DOMRect | null>(null);
   // The Escape that closes the model menu; it must not cancel the draft too.
@@ -470,23 +461,14 @@ export const CommentComposer = forwardRef<
             candidate.engine === models.selectedEngine,
         )
       : undefined;
+    const selectedKey = selected ? commentAiSelectionKey(selected) : null;
+    // "@ai" finds the selected model under its own name, so it is listed once.
     return [
-      ...(selected
-        ? [
-            {
-              ...aiItems.find(
-                (item) => item.refId === commentAiSelectionKey(selected),
-              )!,
-              id: "ai",
-              label: "AI",
-              referenceLabel: modelDisplayName(selected.model),
-              aliases: ["AI"],
-              description: modelDisplayName(selected.model),
-            },
-          ]
-        : []),
-      ...aiItems,
       ...memberItems,
+      ...aiItems
+        .filter((item) => item.refId === selectedKey)
+        .map((item) => ({ ...item, aliases: [...item.aliases, "AI"] })),
+      ...aiItems.filter((item) => item.refId !== selectedKey),
     ];
   }, [
     aiEnabled,
@@ -703,12 +685,7 @@ export const CommentComposer = forwardRef<
         aiDraft && connectedModels.length > 1 ? "" : undefined
       }
       className={cn("relative min-w-0", className)}
-      onFocusCapture={() => setFocused(true)}
-      onBlurCapture={(event) => {
-        const next = event.relatedTarget as Node | null;
-        if (next && wrapperRef.current?.contains(next)) return;
-        setFocused(false);
-      }}
+      {...focusWithinProps}
       onClickCapture={(event) => {
         if (!aiDraft || connectedModels.length < 2) return;
         const pill = (event.target as HTMLElement).closest<HTMLElement>(
@@ -839,89 +816,43 @@ export const CommentComposer = forwardRef<
           />
         </PopoverContent>
       </Popover>
-      {/* The dialog renders in a portal, but React still bubbles its events
-          through this tree, where a thread card would read them as its own. */}
-      <span
-        className="contents"
-        onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => event.stopPropagation()}
-        onPointerDown={(event) => event.stopPropagation()}
-      >
-        {/* Dialog, not AlertDialog: AlertDialog bundles its own focus trap,
-            which the mobile Comments Sheet's trap would fight. It takes
-            AlertDialog's layer instead, above a Collection cell's card. */}
-        <Dialog
-          open={confirmingDiscard !== null}
-          onOpenChange={(open) => {
-            if (!open) setConfirmingDiscard(null);
-          }}
-        >
-          <DialogContent
-            role="alertdialog"
-            hideClose
-            overlayClassName="z-[340]"
-            className="z-[350] max-w-sm gap-0 rounded-lg p-5"
-            onOpenAutoFocus={(event) => {
-              // Escape then Enter discards; a second Escape keeps the draft.
-              event.preventDefault();
-              discardButtonRef.current?.focus();
-            }}
-            onCloseAutoFocus={(event) => {
-              event.preventDefault();
-              // After a discard the caller decides where focus goes.
-              if (discardedRef.current) {
-                discardedRef.current = false;
-                return;
-              }
-              const selection = keptSelectionRef.current;
-              if (selection) {
-                composerRef.current?.setSelection(
-                  selection.start,
-                  selection.end,
-                  selection.direction,
-                );
-              } else {
-                composerRef.current?.focus();
-              }
-            }}
-          >
-            <DialogHeader className="space-y-0 gap-1.5 text-start">
-              <DialogTitle className="text-base leading-tight tracking-tight">
-                {confirmingDiscard === "edit"
-                  ? t("comments.discardEditQuestion")
-                  : confirmingDiscard === "reply"
-                    ? t("comments.discardReplyQuestion")
-                    : t("comments.discardCommentQuestion")}
-              </DialogTitle>
-              <DialogDescription className="leading-normal [text-wrap:pretty]">
-                {confirmingDiscard === "edit"
-                  ? t("comments.discardEditDescription")
-                  : t("comments.discardDescription")}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter className="mt-4 flex-row items-center justify-end gap-2 sm:space-x-0">
-              <DialogClose asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
-                >
-                  {t("comments.keepEditing")}
-                </Button>
-              </DialogClose>
-              <Button
-                ref={discardButtonRef}
-                variant="destructive"
-                size="sm"
-                className="focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
-                onClick={discard}
-              >
-                {t("comments.discard")}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </span>
+      {/* Escape then Enter discards; a second Escape keeps the draft. */}
+      <CommentConfirmDialog
+        open={confirmingDiscard !== null}
+        onCancel={() => setConfirmingDiscard(null)}
+        title={
+          confirmingDiscard === "edit"
+            ? t("comments.discardEditQuestion")
+            : confirmingDiscard === "reply"
+              ? t("comments.discardReplyQuestion")
+              : t("comments.discardCommentQuestion")
+        }
+        description={
+          confirmingDiscard === "edit"
+            ? t("comments.discardEditDescription")
+            : t("comments.discardDescription")
+        }
+        cancelLabel={t("comments.keepEditing")}
+        confirmLabel={t("comments.discard")}
+        onConfirm={discard}
+        onClosed={() => {
+          // After a discard the caller decides where focus goes.
+          if (discardedRef.current) {
+            discardedRef.current = false;
+            return;
+          }
+          const selection = keptSelectionRef.current;
+          if (selection) {
+            composerRef.current?.setSelection(
+              selection.start,
+              selection.end,
+              selection.direction,
+            );
+          } else {
+            composerRef.current?.focus();
+          }
+        }}
+      />
     </div>
   );
 });

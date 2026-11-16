@@ -1,10 +1,22 @@
 import { useComposerRuntime } from "@assistant-ui/react";
-import { IconLoader2 } from "@tabler/icons-react";
+import {
+  IconBolt,
+  IconCalendarTime,
+  IconCode,
+  IconLoader2,
+  IconPlugConnected,
+  IconSchool,
+} from "@tabler/icons-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { uploadedSkillSlug } from "../skill-upload.js";
 import { Button } from "../ui/button.js";
-import { DropdownMenuGroup, DropdownMenuItem } from "../ui/dropdown-menu.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog.js";
 import { Input } from "../ui/input.js";
 import { Label } from "../ui/label.js";
 import { Textarea } from "../ui/textarea.js";
@@ -14,9 +26,11 @@ import {
   ComposerContextMenu,
   type ComposerContextMenuItem,
   type ComposerContextMenuProps,
-  type ComposerContextPageControls,
 } from "./ComposerContextMenu.js";
-import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
+import {
+  useComposerRuntimeAdapters,
+  type AgentComposerReference,
+} from "./runtime-adapters.js";
 import type { ComposerMode } from "./types.js";
 
 export interface ComposerTerminalModeControl {
@@ -29,6 +43,7 @@ interface ComposerPlusMenuProps extends Omit<
   ComposerContextMenuProps,
   "items"
 > {
+  onSelectIntegration?: (reference: AgentComposerReference) => void;
   onSelectMode?: (mode: ComposerMode) => void;
   attachmentsEnabled?: boolean;
   extensionTools?: boolean;
@@ -58,15 +73,46 @@ export function mergeComposerMenuItems(
   defaults: readonly ComposerContextMenuItem[],
   provided: readonly ComposerContextMenuItem[],
 ): ComposerContextMenuItem[] {
-  const ids = new Set<string>();
-  const visit = (items: readonly ComposerContextMenuItem[]) => {
-    for (const item of items) {
-      ids.add(item.id);
-      if (item.children) visit(item.children);
-    }
-  };
-  visit(provided);
-  return [...provided, ...defaults.filter((item) => !ids.has(item.id))];
+  const defaultIds = new Set(defaults.map((item) => item.id));
+  const overrides = new Map<string, ComposerContextMenuItem>();
+  const seen = new Set<string>();
+  const retain = (
+    items: readonly ComposerContextMenuItem[],
+    inheritedDisabled = false,
+  ): ComposerContextMenuItem[] =>
+    items.flatMap((item): ComposerContextMenuItem[] => {
+      if (seen.has(item.id)) return [];
+      seen.add(item.id);
+      if (defaultIds.has(item.id)) {
+        overrides.set(
+          item.id,
+          inheritedDisabled ? { ...item, disabled: true } : item,
+        );
+        return [];
+      }
+      if (!item.children) return [item];
+      const children = retain(
+        item.children,
+        inheritedDisabled || item.disabled === true,
+      );
+      return children.length ? [{ ...item, children }] : [];
+    });
+  const context = retain(provided);
+  return [
+    ...context,
+    ...defaults.map((item) => {
+      const override = overrides.get(item.id);
+      const section = override?.section ?? item.section;
+      return override
+        ? {
+            ...override,
+            ...(item.order === undefined ? {} : { order: item.order }),
+            ...(section === undefined ? {} : { section }),
+            icon: override.icon ?? item.icon,
+          }
+        : item;
+    }),
+  ];
 }
 
 export function useComposerDefaultActions({
@@ -74,16 +120,22 @@ export function useComposerDefaultActions({
   extensionTools = false,
   disabled,
   onRestoreFocus,
+  integrationStatus,
 }: Pick<
   ComposerPlusMenuProps,
-  "onSelectMode" | "extensionTools" | "disabled" | "onRestoreFocus"
+  | "onSelectMode"
+  | "extensionTools"
+  | "disabled"
+  | "onRestoreFocus"
+  | "integrationStatus"
 >) {
   const adapters = useComposerRuntimeAdapters();
-  const t = adapters.translate!;
+  const t = adapters.translate;
   const resources = adapters.resources!;
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
-  const overlayOpen = useRef(false);
-  const showMcpIntegrations = resources.isMcpIntegrationAvailable!();
+  const showMcpIntegrations =
+    !resources.useWorkspaceMenu &&
+    resources.isMcpIntegrationAvailable?.() === true;
   const { data: org } = resources.useOrg!();
   const canCreateOrgMcp =
     !org?.orgId || org.role === "owner" || org.role === "admin";
@@ -91,10 +143,6 @@ export function useComposerDefaultActions({
   const McpIntegrationDialog = resources.McpIntegrationDialog;
   const [view, setView] = useState<View>("menu");
   const skillFileInputRef = useRef<HTMLInputElement>(null);
-  const skillControls = useRef<ComposerContextPageControls | null>(null);
-  const skillFilePickerOpen = useRef(false);
-  const skillPageDismissedWhilePickerOpen = useRef(false);
-  const skillResumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skillEpoch = useRef(0);
   const skillRequest = useRef<AbortController | null>(null);
   const skillCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -114,48 +162,24 @@ export function useComposerDefaultActions({
     if (skillCloseTimer.current !== null) clearTimeout(skillCloseTimer.current);
     skillCloseTimer.current = null;
   }, []);
-  const cancelSkillWork = useCallback(() => {
-    skillFilePickerOpen.current = false;
-    skillPageDismissedWhilePickerOpen.current = false;
-    if (skillResumeTimer.current !== null)
-      clearTimeout(skillResumeTimer.current);
-    skillResumeTimer.current = null;
-    invalidateSkillWork();
-  }, [invalidateSkillWork]);
-  const finishSkillFilePicker = useCallback(() => {
-    skillFilePickerOpen.current = false;
-    if (!skillPageDismissedWhilePickerOpen.current) return;
-    skillPageDismissedWhilePickerOpen.current = false;
-    if (skillResumeTimer.current !== null)
-      clearTimeout(skillResumeTimer.current);
-    skillResumeTimer.current = setTimeout(() => {
-      skillResumeTimer.current = null;
-      skillControls.current?.onResume();
-    }, 0);
-  }, []);
-  const dismissSkillPage = useCallback(() => {
-    if (skillFilePickerOpen.current) {
-      skillPageDismissedWhilePickerOpen.current = true;
-      return;
-    }
-    cancelSkillWork();
-  }, [cancelSkillWork]);
-  useEffect(() => {
-    const input = skillFileInputRef.current;
-    input?.addEventListener("cancel", finishSkillFilePicker);
-    return () => {
-      input?.removeEventListener("cancel", finishSkillFilePicker);
-      if (skillResumeTimer.current !== null)
-        clearTimeout(skillResumeTimer.current);
-    };
-  }, [finishSkillFilePicker]);
+  const cancelSkillWork = invalidateSkillWork;
   useEffect(() => cancelSkillWork, [cancelSkillWork, adapters.resolvePath]);
   useEffect(() => {
     if (!disabled) return;
     cancelSkillWork();
+    setView("menu");
     setMcpDialogOpen(false);
-    overlayOpen.current = false;
   }, [disabled, cancelSkillWork]);
+  useEffect(() => {
+    setView("menu");
+    return cancelSkillWork;
+  }, [integrationStatus?.scopeKey, cancelSkillWork]);
+  useEffect(() => {
+    const input = skillFileInputRef.current;
+    const restore = () => onRestoreFocus?.();
+    input?.addEventListener("cancel", restore);
+    return () => input?.removeEventListener("cancel", restore);
+  }, [onRestoreFocus]);
   const resetSkillUpload = () => {
     cancelSkillWork();
     setView("menu");
@@ -169,6 +193,8 @@ export function useComposerDefaultActions({
     invalidateSkillWork();
     const epoch = skillEpoch.current;
     setSkillUploadStatus(null);
+    setSkillUploadFileName(file.name);
+    setView("skill-upload");
     try {
       const content = await file.text();
       if (skillEpoch.current !== epoch) return;
@@ -238,7 +264,7 @@ export function useComposerDefaultActions({
         }),
       });
       skillCloseTimer.current = setTimeout(() => {
-        if (skillEpoch.current === epoch) skillControls.current?.onClose();
+        if (skillEpoch.current === epoch) resetSkillUpload();
       }, 1200);
     } catch (error) {
       if (skillEpoch.current !== epoch) return;
@@ -262,6 +288,9 @@ export function useComposerDefaultActions({
   const items: ComposerContextMenuItem[] = [
     {
       id: "schedule-task",
+      section: "commands" as const,
+      order: 10,
+      icon: <IconCalendarTime />,
       label: t("agentChat.composer.menu.scheduleTask", {
         defaultValue: "Schedule Task",
       }),
@@ -275,6 +304,9 @@ export function useComposerDefaultActions({
     },
     {
       id: "create-automation",
+      section: "commands" as const,
+      order: 20,
+      icon: <IconBolt />,
       label: t("agentChat.composer.menu.createAutomation", {
         defaultValue: "Create Automation",
       }),
@@ -290,6 +322,9 @@ export function useComposerDefaultActions({
       ? [
           {
             id: "create-extension",
+            section: "commands" as const,
+            order: 40,
+            icon: <IconCode />,
             label: t("agentChat.composer.menu.createExtension", {
               defaultValue: "Create Extension",
             }),
@@ -307,6 +342,10 @@ export function useComposerDefaultActions({
       ? [
           {
             id: "integrations",
+            opensDialog: true,
+            section: "integrations" as const,
+            order: 50,
+            icon: <IconPlugConnected />,
             label: t("agentChat.composer.menu.integrations", {
               defaultValue: "Integrations",
             }),
@@ -316,7 +355,6 @@ export function useComposerDefaultActions({
               }),
             ],
             onSelect: () => {
-              overlayOpen.current = true;
               setMcpDialogOpen(true);
             },
           },
@@ -324,6 +362,9 @@ export function useComposerDefaultActions({
       : []),
     {
       id: "create-skill",
+      section: "commands" as const,
+      order: 30,
+      icon: <IconSchool />,
       label: t("agentChat.composer.menu.createSkill", {
         defaultValue: "Create Skill",
       }),
@@ -335,155 +376,28 @@ export function useComposerDefaultActions({
           defaultValue: "Upload skill file",
         }),
       ],
-      onSelect: resetSkillUpload,
-      onDismiss: dismissSkillPage,
-      render: (controls) => {
-        skillControls.current = controls;
-        return view === "menu" ? (
-          <DropdownMenuGroup>
-            <DropdownMenuItem
-              disabled={!onSelectMode}
-              onSelect={() => {
-                controls.onClose();
-                onSelectMode?.("skill");
-              }}
-            >
-              {t("agentChat.composer.skill.createNew", {
-                defaultValue: "Create new skill",
-              })}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                const input = skillFileInputRef.current;
-                if (!input) return;
-                skillPageDismissedWhilePickerOpen.current = false;
-                skillFilePickerOpen.current = true;
-                controls.onClose({ restoreFocus: false });
-                input.click();
-              }}
-            >
-              {t("agentChat.composer.skill.uploadFile", {
-                defaultValue: "Upload skill file",
-              })}
-            </DropdownMenuItem>
-            {skillUploadStatus && (
-              <div role="alert" className="p-3 text-sm text-destructive">
-                {skillUploadStatus.message}
-              </div>
-            )}
-          </DropdownMenuGroup>
-        ) : (
-          <form
-            className="grid min-w-0 gap-2 p-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void submitSkillUpload();
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== "Escape" && event.key !== "Tab")
-                event.stopPropagation();
-            }}
-          >
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="-ms-3 justify-self-start"
-              onClick={resetSkillUpload}
-            >
-              {t("agentChat.composer.skill.back", { defaultValue: "Back" })}
-            </Button>
-            <p className="break-words text-xs text-muted-foreground">
-              {t("agentChat.composer.skill.review", {
-                name:
-                  skillUploadFileName ||
-                  t("agentChat.composer.skill.selectedFile", {
-                    defaultValue: "the selected file",
-                  }),
-                defaultValue: `Review the content from ${skillUploadFileName || "the selected file"} before saving.`,
-              })}
-            </p>
-            <Label htmlFor={`${formId}-name`}>
-              {t("agentChat.composer.skill.name", {
-                defaultValue: "Skill name",
-              })}
-            </Label>
-            <Input
-              id={`${formId}-name`}
-              autoFocus
-              value={skillUploadSlug}
-              disabled={skillUploadBusy}
-              onChange={(event) => setSkillUploadSlug(event.target.value)}
-              placeholder="my-skill"
-            />
-            <p className="break-words text-xs text-muted-foreground">
-              {t("agentChat.composer.skill.savedAt", {
-                defaultValue: "Saved at",
-              })}{" "}
-              <span className="font-mono">
-                skills/{slugifyName(skillUploadSlug || "uploaded-skill")}
-                /SKILL.md
-              </span>
-            </p>
-            <Label htmlFor={`${formId}-content`}>
-              {t("agentChat.composer.skill.content", {
-                defaultValue: "Content",
-              })}
-            </Label>
-            <Textarea
-              id={`${formId}-content`}
-              value={skillUploadContent}
-              disabled={skillUploadBusy}
-              onChange={(event) => setSkillUploadContent(event.target.value)}
-              rows={10}
-              className="font-mono text-xs"
-            />
-            {skillUploadStatus && (
-              <div
-                role={skillUploadStatus.kind === "err" ? "alert" : "status"}
-                className={cn(
-                  "break-words text-xs",
-                  skillUploadStatus.kind === "err"
-                    ? "text-destructive"
-                    : "text-muted-foreground",
-                )}
-              >
-                {skillUploadStatus.message}
-              </div>
-            )}
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={resetSkillUpload}>
-                {t("agentChat.common.cancel", { defaultValue: "Cancel" })}
-              </Button>
-              <Button
-                type="submit"
-                disabled={
-                  skillUploadBusy ||
-                  skillUploadStatus?.kind === "ok" ||
-                  !skillUploadContent.trim() ||
-                  !skillUploadSlug.trim()
-                }
-              >
-                {skillUploadBusy ? (
-                  <IconLoader2 className="animate-spin" />
-                ) : (
-                  t("agentChat.common.save", { defaultValue: "Save" })
-                )}
-              </Button>
-            </div>
-          </form>
-        );
+      disabled: !onSelectMode,
+      onSelect: () => onSelectMode?.("skill"),
+    },
+    {
+      id: "upload-skill",
+      opensDialog: true,
+      section: "commands",
+      order: 35,
+      icon: <IconSchool />,
+      label: t("agentChat.composer.skill.uploadFile", {
+        defaultValue: "Upload skill file",
+      }),
+      onSelect: () => {
+        resetSkillUpload();
+        skillFileInputRef.current?.click();
       },
     },
   ];
 
   return {
     items,
-    restoreFocus: () => {
-      if (!overlayOpen.current) onRestoreFocus?.();
-    },
+    restoreFocus: onRestoreFocus,
     overlays: (
       <>
         <input
@@ -494,15 +408,133 @@ export function useComposerDefaultActions({
           onChange={(event) => {
             const file = event.target.files?.[0];
             event.target.value = "";
-            finishSkillFilePicker();
             if (file) void handleSkillFileSelected(file);
           }}
         />
+        <Dialog
+          open={view === "skill-upload"}
+          onOpenChange={(open) => {
+            if (!open) resetSkillUpload();
+          }}
+        >
+          <DialogContent
+            aria-describedby={undefined}
+            closeLabel={t("agentChat.common.close", { defaultValue: "Close" })}
+            onCloseAutoFocus={(event) => {
+              if (onRestoreFocus) {
+                event.preventDefault();
+                onRestoreFocus();
+              }
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>
+                {t("agentChat.composer.skill.uploadFile", {
+                  defaultValue: "Upload skill file",
+                })}
+              </DialogTitle>
+            </DialogHeader>
+            <form
+              className="grid min-w-0 gap-2 p-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void submitSkillUpload();
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Escape" && event.key !== "Tab")
+                  event.stopPropagation();
+              }}
+            >
+              <p className="break-words text-xs text-muted-foreground">
+                {t("agentChat.composer.skill.review", {
+                  name:
+                    skillUploadFileName ||
+                    t("agentChat.composer.skill.selectedFile", {
+                      defaultValue: "the selected file",
+                    }),
+                  defaultValue: `Review the content from ${skillUploadFileName || "the selected file"} before saving.`,
+                })}
+              </p>
+              <Label htmlFor={`${formId}-name`}>
+                {t("agentChat.composer.skill.name", {
+                  defaultValue: "Skill name",
+                })}
+              </Label>
+              <Input
+                id={`${formId}-name`}
+                autoFocus
+                value={skillUploadSlug}
+                disabled={skillUploadBusy}
+                onChange={(event) => setSkillUploadSlug(event.target.value)}
+                placeholder="my-skill"
+              />
+              <p className="break-words text-xs text-muted-foreground">
+                {t("agentChat.composer.skill.savedAt", {
+                  defaultValue: "Saved at",
+                })}{" "}
+                <span className="font-mono">
+                  skills/{slugifyName(skillUploadSlug || "uploaded-skill")}
+                  /SKILL.md
+                </span>
+              </p>
+              <Label htmlFor={`${formId}-content`}>
+                {t("agentChat.composer.skill.content", {
+                  defaultValue: "Content",
+                })}
+              </Label>
+              <Textarea
+                id={`${formId}-content`}
+                value={skillUploadContent}
+                disabled={skillUploadBusy}
+                onChange={(event) => setSkillUploadContent(event.target.value)}
+                rows={10}
+                className="font-mono text-xs"
+              />
+              {skillUploadStatus && (
+                <div
+                  role={skillUploadStatus.kind === "err" ? "alert" : "status"}
+                  className={cn(
+                    "break-words text-xs",
+                    skillUploadStatus.kind === "err"
+                      ? "text-destructive"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {skillUploadStatus.message}
+                </div>
+              )}
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={resetSkillUpload}
+                >
+                  {t("agentChat.common.cancel", { defaultValue: "Cancel" })}
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={
+                    skillUploadBusy ||
+                    skillUploadStatus?.kind === "ok" ||
+                    !skillUploadContent.trim() ||
+                    !skillUploadSlug.trim()
+                  }
+                >
+                  {skillUploadBusy ? (
+                    <IconLoader2 className="animate-spin" />
+                  ) : (
+                    t("agentChat.common.save", { defaultValue: "Save" })
+                  )}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
         {McpIntegrationDialog ? (
           <McpIntegrationDialog
             open={mcpDialogOpen}
             onOpenChange={(open: boolean) => {
-              overlayOpen.current = open;
               setMcpDialogOpen(open);
               if (!open) onRestoreFocus?.();
             }}
@@ -524,19 +556,11 @@ function ComposerFullContextMenu(props: ComposerPlusMenuProps) {
     defaults.items,
     props.contextMenuItems ?? [],
   );
-  const defaultActionIds = new Set(defaults.items.map((item) => item.id));
-  const menuActionItems = mergedItems.filter((item) =>
-    defaultActionIds.has(item.id),
-  );
-  const contextItems = mergedItems.filter(
-    (item) => !defaultActionIds.has(item.id),
-  );
   return (
     <>
       <ComposerContextMenu
         {...props}
-        items={contextItems}
-        menuActionItems={menuActionItems}
+        items={mergedItems}
         addAttachment={
           props.attachmentsEnabled === false
             ? undefined
@@ -556,24 +580,72 @@ export function ComposerPlusMenu({
   contextMenuItems = [],
   terminalModeControl,
   attachmentsEnabled = true,
+  onSelectIntegration,
+  addAttachment,
+  onAttachmentRequest,
   ...props
 }: ComposerPlusMenuProps) {
   const runtime = useComposerRuntime();
-  const t = useComposerRuntimeAdapters().translate!;
+  const adapters = useComposerRuntimeAdapters();
+  const t = adapters.translate;
+  const workspace = adapters.resources?.useWorkspaceMenu?.({
+    enabled: props.open === true && mode !== "terminal",
+    ...(props.onRestoreFocus ? { onRestoreFocus: props.onRestoreFocus } : {}),
+    onSelectIntegration: (reference) => {
+      if (!onSelectIntegration)
+        throw new Error(
+          t("agentChat.composer.contextActionFailed", {
+            defaultValue: "Could not add context.",
+          }),
+        );
+      onSelectIntegration(reference);
+    },
+  });
+  const scopeEntries = (
+    entries: readonly ComposerContextMenuItem[],
+  ): ComposerContextMenuItem[] =>
+    entries.map((entry) => {
+      if (
+        entry.picker &&
+        entry.picker.identityScope === "workspace" &&
+        workspace?.scopeKey !== undefined
+      )
+        return {
+          ...entry,
+          picker: { ...entry.picker, scopeKey: workspace.scopeKey },
+        };
+      return entry.children
+        ? { ...entry, children: scopeEntries(entry.children) }
+        : entry;
+    });
+  contextMenuItems = scopeEntries(
+    mode === "terminal"
+      ? contextMenuItems
+      : mergeComposerMenuItems(workspace?.items ?? [], contextMenuItems),
+  );
   if (mode === "full") {
     return (
-      <ComposerFullContextMenu
-        {...props}
-        attachmentsEnabled={attachmentsEnabled}
-        contextMenuItems={contextMenuItems}
-      />
+      <>
+        <ComposerFullContextMenu
+          {...props}
+          {...(workspace ? { integrationStatus: workspace } : {})}
+          {...(addAttachment ? { addAttachment } : {})}
+          {...(onAttachmentRequest ? { onAttachmentRequest } : {})}
+          attachmentsEnabled={attachmentsEnabled}
+          contextMenuItems={contextMenuItems}
+        />
+        {workspace?.overlays}
+      </>
     );
   }
   const terminalItems: ComposerContextMenuItem[] = terminalModeControl
     ? [
         {
           id: "terminal-primary",
-          label: t("agentPanel.newTerminal", { defaultValue: "New terminal" }),
+          order: 10,
+          label: t("agentPanel.newTerminal", {
+            defaultValue: "New terminal",
+          }),
           disabled:
             terminalModeControl.enabled && !terminalModeControl.onNewTerminal,
           onSelect: () => {
@@ -584,6 +656,7 @@ export function ComposerPlusMenu({
         },
         {
           id: "terminal-mode",
+          order: 20,
           label: t("agentPanel.cliTerminalMode", {
             defaultValue: "CLI terminal mode",
           }),
@@ -599,22 +672,34 @@ export function ComposerPlusMenu({
       : contextMenuItems;
   const terminalActionIds = new Set(terminalItems.map((item) => item.id));
   return (
-    <ComposerContextMenu
-      {...props}
-      items={mergedTerminalItems.filter(
-        (item) => !terminalActionIds.has(item.id),
-      )}
-      menuActionItems={mergedTerminalItems.filter((item) =>
-        terminalActionIds.has(item.id),
-      )}
-      addAttachment={
-        mode === "upload-only" && attachmentsEnabled
-          ? (props.addAttachment ?? runtime.addAttachment)
-          : undefined
-      }
-      onAttachmentRequest={
-        mode === "upload-only" ? props.onAttachmentRequest : undefined
-      }
-    />
+    <>
+      <ComposerContextMenu
+        {...props}
+        {...(mode !== "terminal" && workspace
+          ? { integrationStatus: workspace }
+          : {})}
+        items={
+          mode === "terminal"
+            ? mergedTerminalItems.filter(
+                (item) => !terminalActionIds.has(item.id),
+              )
+            : contextMenuItems
+        }
+        menuActionItems={
+          mode === "terminal"
+            ? mergedTerminalItems.filter((item) =>
+                terminalActionIds.has(item.id),
+              )
+            : []
+        }
+        {...(mode === "upload-only" && attachmentsEnabled
+          ? { addAttachment: addAttachment ?? runtime.addAttachment }
+          : {})}
+        {...(mode === "upload-only" && onAttachmentRequest
+          ? { onAttachmentRequest }
+          : {})}
+      />
+      {workspace?.overlays}
+    </>
   );
 }

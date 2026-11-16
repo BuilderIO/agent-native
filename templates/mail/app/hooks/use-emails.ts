@@ -1,6 +1,10 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  reportWriteFailure,
+  surfaceMutationError,
+} from "@agent-native/core/client/write-failure";
 import { archiveFailureToastMessage } from "@shared/archive-errors";
 import {
   gmailCooldownFromError,
@@ -23,7 +27,13 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import { toast } from "sonner";
 
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -2085,6 +2095,7 @@ export function useUnarchiveEmail() {
       qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
       invalidateInboxThreads(qc);
     },
+    meta: surfaceMutationError(),
   });
 }
 
@@ -2124,6 +2135,7 @@ export function useUntrashEmail() {
       qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
       invalidateInboxThreads(qc);
     },
+    meta: surfaceMutationError(),
   });
 }
 
@@ -3113,6 +3125,7 @@ export function useReportSpam() {
         3_000,
         () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
       ),
+    meta: surfaceMutationError(),
   });
 }
 
@@ -3162,6 +3175,7 @@ export function useBlockSender() {
         3_000,
         () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
       ),
+    meta: surfaceMutationError(),
   });
 }
 
@@ -3212,6 +3226,7 @@ export function useMuteThread() {
         3_000,
         () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
       ),
+    meta: surfaceMutationError(),
   });
 }
 
@@ -3362,6 +3377,9 @@ function serializeSavedFiltersUpdate<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/** A preferences write dropped on purpose, not a failure to announce. */
+class PreferencesWriteSkippedError extends Error {}
+
 export function useSettings() {
   return useQuery<UserSettings>({
     queryKey: ["settings"],
@@ -3379,7 +3397,7 @@ export function useUpdateSettings() {
     resetPinnedLabelsState(ownerEmail);
   }, [ownerEmail]);
 
-  return useMutation({
+  const mutation = useMutation({
     mutationFn: (data: Partial<UserSettings>) => {
       if ("savedFilters" in data) {
         const base = savedFiltersBaseByPatch.get(data) ?? [];
@@ -3414,12 +3432,16 @@ export function useUpdateSettings() {
         currentSettings?.email,
       );
       if (settingsLoading || !currentSettings || !currentOwnerEmail) {
-        throw new Error("Mail preferences are still loading");
+        throw new PreferencesWriteSkippedError(
+          "Mail preferences are still loading",
+        );
       }
 
       return serializePinnedLabelsUpdate(() => {
         if (pinnedLabelsOwnerEmail !== currentOwnerEmail) {
-          throw new Error("Mail preferences changed accounts");
+          throw new PreferencesWriteSkippedError(
+            "Mail preferences changed accounts",
+          );
         }
         const intent = pendingPinnedLabelsIntents.shift();
         const confirmed = confirmedPinnedLabels ?? intent?.base ?? [];
@@ -3528,6 +3550,22 @@ export function useUpdateSettings() {
       return Promise.all(invalidations);
     },
   });
+
+  // A call that passes its own `onError` owns the message; any other call
+  // announces a real failure.
+  const { mutateAsync } = mutation;
+  const mutate = useCallback<typeof mutation.mutate>(
+    (variables, options) => {
+      mutateAsync(variables, options).catch((error: unknown) => {
+        if (options?.onError || error instanceof PreferencesWriteSkippedError) {
+          return;
+        }
+        reportWriteFailure(error);
+      });
+    },
+    [mutateAsync],
+  );
+  return { ...mutation, mutate };
 }
 
 export type EmailTrackingStats = {

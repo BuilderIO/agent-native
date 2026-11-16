@@ -310,7 +310,11 @@ Der Host kann bereits autorisierten Kontext bereitstellen und beim Senden einen 
 />
 ```
 
-Kontextquellen registrieren `picker` in einem `ComposerContextMenuItem`. `ComposerContextMenu` verwaltet verbundene kaskadierende shadcn/Radix-Untermenüs statt austauschender Ansichten: Die Wurzel bietet den Datei-Upload, dann Kontext hinzufügen → Host-Kategorien → Quellenauswahl. Ohne Host-Einträge entfällt Kontext hinzufügen. Pfeiltasten und Escape navigieren durch die Menühierarchie. Zurück innerhalb einer Linkauswahl führt nur von den Ergebnissen zur Linkeingabe im selben Untermenü. Die gemeinsame Auswahl verwaltet Suche, Listenzeilen, Lade-, Leer- und Fehlerzustände, Wiederholung, Seitennavigation und Linkeingabe. Apps liefern autorisierte Daten und Auswahl-Callbacks statt eigener Auswahl-JSX.
+Kontextquellen registrieren direkt benannte Aktionen in `ComposerContextMenuItem`. Das gemeinsame Menü zeigt Kontext hinzufügen, Integrationen und Befehle als getrennte zugängliche Gruppen. Eine Menüauswahl öffnet den Quelldialog. Workspace-Integrationen stehen in ihrer eigenen Gruppe, seltene Aufgabenmodi unter Befehle. Quelldaten laden im Dialog, während die Wurzeleinträge stabil bleiben. Pfeiltasten, Texteingabe und Escape bedienen das Menü. Dialoge verwalten Suche, gruppierte Ergebnisse, Laden, leere Ergebnisse, Fehler, Wiederholen und die Fokusrückgabe.
+
+Einträge verwenden `section: "context" | "integrations" | "commands"` und aufsteigendes `order`, bei Gleichstand Label und id. `renderLink(children)` bewahrt die native Linknavigation. Apps mit einem bereichsgebundenen Mention-Provider registrieren `referencePicker: { source, referenceType }`. Die Auswahl fügt eine normale Composer-Referenz ein. `referenceType` schließt app-eigene Ressourcentypen im gemeinsamen Workspace-Suchdialog aus und vermeidet Duplikate. Der Workspace registriert über `resources.useWorkspaceMenu({ enabled, onSelectIntegration })`. Dessen `scopeKey` setzt bei Identitätswechseln Workspace-Auswahlen zurück und bricht Anfragen ab. Providerfehler bleiben Fehler statt leerer Ergebnisse.
+
+Eine Quelle wie Figma bleibt während der Zugriffsprüfung sichtbar. Ihr Dialog zeigt den Ladezustand oder einen Fehler mit Wiederholen, bei fehlender Verbindung einen echten Verbindungslink und bei bestehender Verbindung die autorisierte URL-Auswahl. Skill erstellen wählt direkt den Skill-Modus. Skill-Datei hochladen öffnet nach der nativen Dateiauswahl einen Dialog zum Prüfen und Speichern.
 
 Die Auswahlkonfiguration akzeptiert:
 
@@ -333,6 +337,7 @@ const contextMenuItems: ComposerContextMenuItem[] = [
     label: labels.references,
     picker: {
       searchPlaceholder: labels.searchReferences,
+      presentation: { type: "dialog", mode: "single" },
       items: authorizedReferences,
       selectedIds,
       onSelect: stageReference,
@@ -406,7 +411,7 @@ Auswahleinträge definieren nicht zusätzlich `render` oder ein `onSelect` auf E
 
 Das optionale `footerAction` bleibt unter den Ergebnissen sichtbar, auch beim Laden, bei Fehlern oder einer leeren Liste. Es akzeptiert ein lokalisiertes `label`, optional `icon` und `disabled` sowie entweder `onSelect()` oder `renderLink(children)`. Für einen Dialog oder einen anderen zustandsbehafteten Ablauf dient ein Callback: `false` hält das Menü offen, `true` oder `void` schließt es, und eine Ablehnung zeigt einen Fehler mit Wiederholung. Bei reiner Navigation liefert `renderLink` einen echten React-Router-`Link` oder HTML-Link; das gemeinsame Menü stellt die Zeile über `asChild` bereit und bewahrt deren `href` und Browsernavigation. Binden Sie bestehende autorisierte Abläufe ein, keine Platzhalteraktionen.
 
-Mit `addAttachment` zeigt `ComposerContextMenu` die Standard-Upload-Aktion zuerst und verwendet weiterhin den Datei-Callback des Hosts.
+Mit `addAttachment` ergänzt `ComposerContextMenu` Dateien und Bilder im Anhangsabschnitt und verwendet weiterhin den Datei-Callback des Hosts.
 
 `PromptComposer` und `AgentKitComposer` akzeptieren `attachmentAdapter` mit dem öffentlichen Typ `AttachmentAdapter` aus `@assistant-ui/react`. Der Adapter stellt die Host-Regeln für zulässige Dateien, Größenprüfung und Dateivorbereitung bereit; ohne ihn bleiben die Standardadapter aktiv. Upload-Steuerung, Dateiauswahl, Kontextauswahl und Anhang-Chips bleiben Aufgabe des gemeinsamen Composers. Ersetzen Sie diese Bedienelemente nicht, um die Dateivorbereitung anzupassen.
 

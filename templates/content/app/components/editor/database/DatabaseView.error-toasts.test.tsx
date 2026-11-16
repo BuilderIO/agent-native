@@ -288,6 +288,7 @@ vi.mock("@/hooks/use-documents", async (importOriginal) => ({
     data: documentForId(documentId),
   }),
   seedDatabaseItemDocumentCaches: vi.fn(),
+  startDatabaseItemPreviewReads: vi.fn(),
   useCreateDocument: () => createDocumentMutation,
   useDeleteDocument: () => benignMutation,
   useUpdateDocument: () => benignMutation,

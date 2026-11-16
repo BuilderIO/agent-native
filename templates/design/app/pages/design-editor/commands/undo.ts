@@ -91,6 +91,8 @@ import { pendingEditTargetsSelectedElement } from "@/pages/design-editor/selecti
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { designMetadataQueryKey } from "../design-query-key";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -1721,7 +1723,7 @@ export function runUndo({
       try {
         // A delete-triggered read can finish late and replace restored geometry.
         await queryClient.cancelQueries({
-          queryKey: ["action", "get-design", { id }],
+          queryKey: designMetadataQueryKey(id),
           exact: true,
         });
         preparedFiles = entry.files.map((file) => {

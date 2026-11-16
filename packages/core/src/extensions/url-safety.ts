@@ -217,7 +217,7 @@ const privateSsrfDispatchers = new Map<string, Promise<unknown>>();
 async function createSsrfSafeDispatcherUncached(
   allowedPrivateOrigins: readonly string[] = [],
   destinationUrl?: string,
-  options: { required?: boolean } = {},
+  options: { required?: boolean; loopbackOnly?: boolean } = {},
 ): Promise<unknown> {
   let undici: any;
   let dnsModule: any;
@@ -259,7 +259,7 @@ async function createSsrfSafeDispatcherUncached(
     connect: {
       lookup: (
         hostname: string,
-        options: any,
+        lookupOptions: { all?: boolean },
         callback: (
           err: NodeJS.ErrnoException | null,
           address?: string | { address: string; family: number }[],
@@ -280,15 +280,21 @@ async function createSsrfSafeDispatcherUncached(
               const allowedOrigin = allowedPrivateOriginKeys.has(
                 `${normalizeLookupHostname(hostname)}:${destinationPort}`,
               );
-              if (isPrivateHost(record.address) && !allowedOrigin) {
+              const loopback =
+                record.address === "127.0.0.1" || record.address === "::1";
+              if (
+                options.loopbackOnly
+                  ? !loopback
+                  : isPrivateHost(record.address) && !allowedOrigin
+              ) {
                 const e = new Error(
-                  `Connect blocked: ${hostname} resolved to private address ${record.address}`,
+                  `Connect blocked: ${hostname} resolved to ${options.loopbackOnly ? "non-loopback" : "private"} address ${record.address}`,
                 ) as NodeJS.ErrnoException;
                 e.code = "EAI_BLOCKED";
                 return callback(e);
               }
             }
-            if (options && options.all) {
+            if (lookupOptions.all) {
               return callback(null, list as any);
             }
             const first = list[0];
@@ -303,12 +309,24 @@ async function createSsrfSafeDispatcherUncached(
 export async function createSsrfSafeDispatcher(
   allowedPrivateOrigins: readonly string[] = [],
   destinationUrl?: string,
-  options: { required?: boolean } = {},
+  options: { required?: boolean; loopbackOnly?: boolean } = {},
 ): Promise<unknown> {
   const allowedPrivateOrigin = allowedPrivateOriginForDestination(
     destinationUrl,
     allowedPrivateOrigins,
   );
+  if (options.loopbackOnly) {
+    if (
+      !allowedPrivateOrigin ||
+      new URL(allowedPrivateOrigin).hostname !== "localhost" ||
+      !allowedPrivateOrigins.includes(allowedPrivateOrigin)
+    ) {
+      throw new Error(
+        "SSRF protection requires an exact localhost origin for loopback-only dispatch.",
+      );
+    }
+    options = { ...options, required: true };
+  }
   if (!allowedPrivateOrigin) {
     sharedSsrfDispatcher ??= createSsrfSafeDispatcherUncached();
     const dispatcher = await sharedSsrfDispatcher;
@@ -319,6 +337,7 @@ export async function createSsrfSafeDispatcher(
   const cacheKey = JSON.stringify([
     allowedPrivateOrigin,
     options.required === true,
+    options.loopbackOnly === true,
   ]);
   let dispatcher = privateSsrfDispatchers.get(cacheKey);
   if (!dispatcher) {
@@ -370,6 +389,8 @@ export async function createSsrfSafeDispatcher(
  * example, a credential's origin allowlist) on top of the SSRF checks. It runs
  * before the initial request and before every redirect hop, so sensitive
  * headers and bodies are never forwarded to a destination the caller rejects.
+ * `allowedLocalhostOrigin` permits only that exact localhost origin and requires
+ * a dispatcher that rejects every non-loopback DNS result at connect time.
  */
 export async function ssrfSafeFetch(
   url: string,
@@ -381,6 +402,7 @@ export async function ssrfSafeFetch(
     httpsOnly?: boolean;
     assertUrlAllowed?: (url: string) => void | Promise<void>;
     allowedPrivateOrigins?: readonly string[];
+    allowedLocalhostOrigin?: string;
   } = {},
 ): Promise<Response> {
   const maxRedirects = options.maxRedirects ?? 3;
@@ -403,6 +425,16 @@ export async function ssrfSafeFetch(
 
   let currentUrl = url;
   for (let hop = 0; hop <= maxRedirects; hop++) {
+    const allowedLocalhostOrigin = (() => {
+      if (!options.allowedLocalhostOrigin || !URL.canParse(currentUrl))
+        return undefined;
+      const parsed = new URL(currentUrl);
+      return parsed.hostname === "localhost" &&
+        (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+        options.allowedLocalhostOrigin === parsed.origin
+        ? parsed.origin
+        : undefined;
+    })();
     await options.assertUrlAllowed?.(currentUrl);
     if (options.httpsOnly && new URL(currentUrl).protocol !== "https:") {
       throw new Error(
@@ -410,6 +442,7 @@ export async function ssrfSafeFetch(
       );
     }
     if (
+      !allowedLocalhostOrigin &&
       !isAllowedPrivateOrigin(currentUrl) &&
       (await isBlockedExtensionUrlWithDns(currentUrl))
     ) {
@@ -422,9 +455,14 @@ export async function ssrfSafeFetch(
       redirect: "manual",
     };
     const dispatcher = await createSsrfSafeDispatcher(
-      options.allowedPrivateOrigins,
+      allowedLocalhostOrigin
+        ? [allowedLocalhostOrigin]
+        : options.allowedPrivateOrigins,
       currentUrl,
-      { required: options.requireDispatcher },
+      {
+        required: Boolean(allowedLocalhostOrigin || options.requireDispatcher),
+        loopbackOnly: Boolean(allowedLocalhostOrigin),
+      },
     );
     if (dispatcher) fetchOpts.dispatcher = dispatcher;
 
