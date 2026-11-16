@@ -24,6 +24,7 @@ import { DATA_NOTES_MIGRATION_SQL } from "../lib/data-notes-migration.js";
 import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-migration.js";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs.js";
+import { WRITE_RECEIPTS_MIGRATION_SQL } from "../lib/write-receipts-migration.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -176,6 +177,13 @@ const BIGQUERY_JOB_USAGE_MIGRATION = {
   version: 183,
   name: "analytics-bigquery-job-usage",
   sql: BIGQUERY_USAGE_MIGRATION_SQL,
+};
+
+// raw-sql-ok: static app-owned receipt DDL with no runtime values or interpolation.
+const WRITE_RECEIPTS_MIGRATION = {
+  version: 186,
+  name: "analytics-write-receipts",
+  sql: WRITE_RECEIPTS_MIGRATION_SQL.join(";\n"),
 };
 
 export const runAnalyticsMigrations = runMigrations(
@@ -1942,6 +1950,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
     CREATE INDEX IF NOT EXISTS session_report_shares_resource_idx
       ON session_report_shares (resource_id)`,
     },
+    WRITE_RECEIPTS_MIGRATION,
   ],
   { table: "analytics_migrations" },
 );
