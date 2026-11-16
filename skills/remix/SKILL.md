@@ -10,9 +10,11 @@ metadata:
 
 # Remix
 
-Use **repo mode** for a source-and-change prompt inside a repository; Design is
-not required. Use **Design mode** when the user asks for Design, a canvas or
-selection, or wants to pick visually.
+Use **repo mode** for a source-and-change prompt inside a repository. Use
+**Design mode** when the user asks for Design, a canvas or selection, or wants
+to pick visually. Both modes finish on a **remix board** in Design (below)
+unless the user says no Design, headless, or just the code, or Design is
+unavailable; then use the image finish in **Finish Without Design**.
 
 ## Repo Mode: Run End To End
 
@@ -31,8 +33,8 @@ stack. Follow the repo's instructions and reuse its components and conventions.
    else identical, subject to the original-code and asset rules below.
 4. Expose knobs as typed props or CSS custom properties with explicit defaults.
    Verify source versus rebuild using matched screenshots and motion clips,
-   including the original-colors fidelity check below, then show before/after
-   images of the destination and the source comparison.
+   including the original-colors fidelity check below, then finish on the
+   remix board, or without Design as described below.
 
 ## Design Mode: Choose On The Canvas
 
@@ -51,9 +53,14 @@ names the section and destination, use them; otherwise let the user select.
 
 ### Put Design Beside The Chat
 
-Use `open-visual-edit` with `target: "inline-browser"` (default),
-`"system-browser"`, or `"desktop"`. Inline uses the host's browser or
-MCP App; system browser uses the local opener; desktop reuses
+Use `open-visual-edit` with `target: "inline-browser"` (default) and
+`minimalUi: true`. This is the default for a remix board: layers stay hidden,
+the inspector appears after selecting an item, and the user can turn minimal
+UI off with the existing shortcut. Prefer the MCP App returned by
+`open-visual-edit` in Claude Desktop/Code/claude.ai and Codex when available;
+otherwise use the host's inline browser. Fall back to the desktop app, then the
+system browser, only when inline rendering is unavailable. System browser uses
+the local opener; desktop reuses
 `agentnative://open` through the existing open route. Read the visual-edit
 skill's launch contract: hosted calls return `launch.status: "host-required"`
 with browser and desktop URLs for the local host. Verify the installed protocol
@@ -207,9 +214,9 @@ Say in the report where to swap each one.
 
 Every shader, WebGL, canvas, 3D, or animation effect gets knobs. Expose its
 meaningful parameters (speed, intensity, colors, scale, camera, easing,
-density) as typed props or CSS custom properties with defaults. Repo mode
-needs no inspector. **Only in Design mode**, also expose them through Design's
-tweak system, never a private UI:
+density) as typed props or CSS custom properties with defaults. A headless
+finish needs no inspector. **On a Design board**, also expose them through
+Design's tweak system, never a private UI:
 
 1. Bind each parameter to a CSS custom property on the effect's root and have
    the effect read it every frame (`getComputedStyle(el).getPropertyValue`), so
@@ -221,8 +228,9 @@ tweak system, never a private UI:
    `color-swatches` require `options`, a list of `{ label, value, color? }`
    choices; without it the inspector shows empty controls. Always set
    `scope.screenId`, plus `nodeId` (or `selector` on a URL screen) of the
-   effect's root: `{ screenId, nodeId }` or `{ screenId, selector }`. Keep
-   existing tweaks; append.
+   effect's root: `{ screenId, nodeId }` or `{ screenId, selector }`. A knob
+   that drives several screens takes a list of scopes, one per screen, under
+   one id and cssVar. Keep existing tweaks; append.
 3. Design shows them, already expanded, in the inspector's **Tweaks** section
    whenever the user selects that screen, the effect, or any parent or child of
    it, and never for a sibling.
@@ -233,28 +241,181 @@ tweak system, never a private UI:
 ## Remix Explain
 
 `remix explain <part of a site>` teaches instead of porting. Extract the part as
-above, then build original minimal demos from the spec. In repo mode, provide
-a local explainer page with typed props/CSS knobs and captures. In Design mode,
-lay out an explainer microsite on the canvas beside the source:
-
-- One small inline HTML/CSS screen per idea, left to right: the effect in
-  isolation, then each layer of how it works (geometry, shader, timing, scroll
-  binding), each a live minimal demo with a short caption and the few lines of
-  code that matter.
-- Every demo has knobs registered as above, like a lil-gui or Tweakpane panel in
-  a three.js example, scoped to that screen.
-- For something too heavy for inline HTML, run a tiny dev server and add it as a
-  localhost screen.
+above, then finish on the **Explain board** variant in "Finish On A Remix
+Board". Headless, provide a local explainer page with typed props/CSS knobs and
+captures.
 
 ## Motion
 
 When the user wants to retime a remixed animation, the Motion panel (a Design
 Lab) can edit GSAP-style tracks and keyframes. It is optional; knobs come first.
 
-## Finish
+## Finish On A Remix Board
 
-Show source-versus-result screenshots (and clips for motion) plus destination
-before/after images. List knobs, their defaults, swappable assets, and any
-unverified behavior or remaining differences. In repo mode, report changed
-files and verification directly; in Design mode, hand off source edits the
-visual-edit way for review in the destination repo.
+Open Design as `/visual-edit` does (same launch targets and links) and lay out
+one board, left to right, at the same viewport size:
+
+1. **Original**: the source screen from "Put Both Sites On The Canvas" (live
+   where it frames, else the served capture, else a static snapshot).
+2. **Remix**: the destination with the rebuilt effect, as a localhost screen
+   when its dev server runs, else an inline screen of the rebuilt section.
+3. **How it works**: a row of 3-5 small inline screens beneath, one stage of
+   the technique each (geometry, motion, camera, shading, palette), each a
+   live exploded view of the remix screen's layers (see **How It Works
+   Frames**) driven by the remix's knobs.
+
+Title screens with `rename-screen` ("Original · stripe.com", "Remix",
+"Folded plane"), then size and place them in one `update-design` call:
+`screenMetadata.<id>` `{ width, height, heightMode: "fixed" }` and
+`canvasFrames.<id>` `{ x, y, width, height }`. Lay out in canvas pixels, every
+gap edge to edge (numbers for 1440×900 screens and 600×460 explainers):
+
+- Top row: a 420 px band from y 0 to 420 holds the headers, notes and
+  Design's screen labels, so Original and Remix start at y 420. Original x =
+  0; Remix x = Original x + Original width + 400 (1840), a 400 px gap.
+- How it works: its 600 px band starts 280 px below the top row's bottom
+  (420 + 900 + 280 = 1600), so explainers start at y 2200, 160 px apart, the
+  row centred under the top row: first x = (3280 − row width) / 2, where 3280
+  is the top row's width.
+- The board title and technique line sit above y 0.
+
+**Explain board** (`remix explain`): the same board with no Remix group, so
+Original then How it works. Keep the same layout, regions, headers, notes,
+connectors and explainer frames; leave out the Remix screen, its region and
+header, and the Original-to-Remix connector, and draw one connector from
+Original down to How it works. Number the sections "01" and "02", drop the
+"Only colors, fonts and icons changed" note, and scope each knob to the
+explainer screens and, when inline, the Original. Center the explainer row
+under Original: first x = Original x + (Original width − row width) / 2.
+
+### Annotate The Canvas
+
+Use the board like a whiteboard, styled as an editorial page: paper,
+hairlines and quiet type, not sticky notes or heavy arrows. Canvas annotations
+live in the design's board file, `__board__.html`. Call
+`migrate-board-objects-to-file` once; it is idempotent and creates the file.
+Then find the file's id in `get-design` `files` and write it with
+`update-file`. Each annotation is a direct `<body>` child, absolutely
+positioned in canvas coordinates (the same space as `canvasFrames`), with
+`data-agent-native-node-id`, `data-agent-native-layer-name` and
+`data-an-primitive` (`rectangle`, `text`, `ellipse` or `arrow`). That makes
+each one an editable layer. Add:
+
+- A paper region behind each group (Original, Remix, How it works): warm
+  off-white, a 3 px warm-grey hairline border, 6 px radius, about 100 px past
+  the frames. Set `canvasBackground` to a slightly darker warm grey in the
+  same `update-design` call. Earlier body children paint below later ones; screens paint above.
+- A section header in each region's top band: an Inter title (about 84 px,
+  weight 600), a 3 px hairline running right, and a serif-italic index at its
+  end ("01", "02", "03"; EB Garamond, else Georgia). Above everything, a board
+  title (Inter, about 112 px), a serif-italic one-line technique and a
+  full-width hairline.
+- Margin notes, not stickies: small grey Inter (about 34 px) under the header
+  rule, each line led by a serif-italic note number. Use the source
+  URL, "Only colors, fonts and icons changed" and "Each explainer reads
+  the remix's own knobs". On an Explain board, which has no Remix, the last
+  note says the explainers share one set of knobs, and the Original too
+  when it is inline.
+- A serif-italic step index ("01"…) on a hairline above each explainer.
+  Design's screen label carries the step name, so name screens plainly.
+- Thin ink connectors (3 px, dark warm grey, small triangle head): Original to
+  Remix, Remix down to How it works, and between explainers. An arrow is an
+  `<svg data-an-primitive="arrow" overflow="visible">` with a `<path d="M 0 0
+  L 192 0" stroke-width="3" marker-end="url(#id)">` and a triangle
+  `<marker id="id">` in its `<defs>`.
+
+Keep each header and its notes inside its band from the layout above. Inside a
+`style` attribute, quote font names with single quotes; a double quote ends
+the attribute.
+
+Explainer and Remix knobs are the same tweaks: the explainer's speed knob is
+the remix's speed tweak, scoped to both screens, and both read its one cssVar.
+Turning a knob in any frame updates the remix too. Every frame runs live in
+Interact mode; inline frames keep the knob values there, but a localhost or URL
+screen loads as itself in Interact and shows its source defaults, so judge its
+knobs in Edit.
+
+### How It Works Frames
+
+Explain how the screen works, not the technique in the abstract. The row is a
+left-to-right series of steps; each card is an exploded view of the Remix's
+real screen at that step, its layers pulled apart in depth so you can see what
+each one paints:
+
+- Layers are thin flat planes in the screen's proportions and corner radius,
+  stacked in 3D and spread along the depth axis: `preserve-3d` under a
+  perspective, each plane at `translateZ(i * gap)`, the stage at about
+  `rotateX(55deg) rotateZ(-40deg)` (or the same oblique projection in SVG).
+- Each plane holds that layer's real content: the destination page's text and
+  buttons, the effect canvas at that step (vertex grid, bent grid, grain in
+  greys, palette), the background. Empty, clip and mask layers are dashed
+  outlines; content layers are filled. The front plane is the composited
+  result. At most a tiny source note ("same as stripe.com") in the margin.
+- Label each plane beside it, outside the plane, in tiny uppercase Inter or
+  serif italic ("PAGE", "EFFECT CANVAS", "CLIP", "RESULT"), with a hairline
+  leader where needed.
+- Steps read as one story, for example: the page exploded into text, effect
+  canvas and background; the effect canvas exploded into its passes; the
+  canvas behind the text and its clip; the result collapsed with its knobs.
+- An explode control animates between collapsed (the real screen) and
+  exploded. Idle, the stack breathes or turns slightly; dragging tilts it;
+  hovering a plane lights it in the accent and dims the others.
+- A small config panel in one corner in our paper style, never a dark
+  lil-gui: 3-6 rows with the explode toggle, the step's 1-3 real knobs as
+  sliders and optionally a layer toggle, updating the planes live.
+- Show an in-figure config panel only when `window.__anInteract` exists or the
+  frame is running standalone; hide it in Design Edit so the floating inspector
+  controls remain the only knobs on the canvas.
+- At most one handwritten note per card (Caveat or Gochi Hand, else serif
+  italic) with a hand-drawn arrow to the key plane ("the shader only paints
+  this layer").
+
+Draw on warm paper with a faint grid, thin ink lines and four warm greys, with
+exactly one accent; colors the step is about (a palette, the final hero) appear
+as content, and a dark destination stays dark on its planes. No building-block
+or hardware metaphors and no flowchart of labelled boxes.
+
+- A 600×460 card: number (serif italic) and title at the top, a short
+  interaction hint and the live readout at the bottom. No labels inside a
+  plane; its own headline and buttons are content.
+- Calm and live: idle motion pauses on hover or focus, E toggles explode, S
+  slows, and `prefers-reduced-motion` holds it still.
+- One model of true values drives motion and readout: read the shared tweak
+  CSS variables from `:root` every frame, with the spec's real parameter names
+  and formulas.
+- Parts are layers. Wrap each plane, and each on-figure control, in its own
+  absolutely positioned HTML element with `data-agent-native-node-id` and
+  `data-agent-native-layer-name`, present in the static HTML and moved by the
+  script, so a click in Edit selects that part. Scope each knob to the Remix's
+  node and to the planes that embody it: selecting a plane shows only its
+  knobs, selecting the frame shows them all. In Interact, dragging a panel
+  slider or on-figure control sets its CSS variable on the frame's `:root`
+  for instant feedback, then saves it with
+  `window.__anInteract.setTweak(id, value)` (an id or the tweak's cssVar)
+  when present. Design saves only a tweak scoped to that screen, clamped to
+  its min, max and step, as if set in the inspector, so the other frames
+  follow and Apply lists the change. Throttle calls to about one per
+  animation frame while dragging.
+- Small and self-contained: framework-free JS, CSS 3D and inline SVG, at most
+  two webfonts, never embedded images or base64 fonts; a design has a size
+  limit.
+
+## Finish Without Design
+
+When the user opts out of Design or Design is unavailable, finish in the repo
+with images:
+
+1. Source versus result: matched screenshots at the same viewport, plus clips
+   for motion.
+2. The original-colors fidelity check, side by side with the source.
+3. Destination before and after: the page as it was, then with the remix in
+   its palette.
+
+## Report
+
+Every finish reports the changed files and the verification: checks run and
+the original-colors fidelity side by side with the source. Then add
+source-versus-result captures (clips for motion), knobs and defaults,
+swappable assets, and unverified behavior or remaining differences. With a
+board, give its link, and in Design mode hand off source edits the
+visual-edit way. Without Design, include the three image sets above.

@@ -76,6 +76,7 @@ import {
   type ComposerTextSelection,
   type ComposerImageModelMenu,
   type ComposerSubmitIntent,
+  type ComposerEnterSubmitMode,
   type ComposerDraftSnapshot,
   type TiptapComposerHandle,
   type TiptapComposerProps,
@@ -162,6 +163,10 @@ export interface PromptComposerProps {
   conversationStarted?: boolean;
   /** Accessible name forwarded to the rich text editor. */
   ariaLabel?: string;
+  /** Enable inline rich-text marks and links. Defaults to false. */
+  richTextEnabled?: boolean;
+  /** Text inserted between blocks and hard breaks when submitting. Defaults to a newline. */
+  textBlockSeparator?: string;
   disabled?: boolean;
   isReferenceTarget?: boolean;
   /** Block all submission paths while allowing draft, file, and context staging. */
@@ -210,6 +215,8 @@ export interface PromptComposerProps {
   clearOnSubmitImmediately?: boolean;
   /** Show the model selector (default: true). */
   showModelSelector?: boolean;
+  /** How Enter submits; `plain` ignores modified Enter while preserving the default for other hosts. */
+  enterSubmitMode?: ComposerEnterSubmitMode;
   /** Controlled open state for hosts that resize around the model picker. */
   modelSelectorOpen?: boolean;
   /**
@@ -820,6 +827,8 @@ function PromptComposerInner({
   replyPlaceholder,
   conversationStarted,
   ariaLabel,
+  richTextEnabled,
+  textBlockSeparator,
   disabled,
   isReferenceTarget,
   submissionDisabled,
@@ -843,6 +852,7 @@ function PromptComposerInner({
   preserveDraftOnSubmit = false,
   clearOnSubmitImmediately,
   showModelSelector = true,
+  enterSubmitMode = "default",
   modelSelectorOpen,
   modelTriggerNamesSelectionOnly = false,
   showAutoModelOption = true,
@@ -1081,16 +1091,17 @@ function PromptComposerInner({
       setProviderCheckPending(true);
       try {
         const state = await validateEngineBeforeSubmit();
-        if (state !== "configured") {
-          if (state === "missing") {
-            if (draft) {
-              heldProviderDraftRef.current = draft;
-              setHeldProviderDraftRevision((revision) => revision + 1);
-            }
-            setSetupBouncePulse((pulse) => pulse + 1);
-            onDisabledClick?.();
+        if (state === "missing") {
+          if (draft) {
+            heldProviderDraftRef.current = draft;
+            setHeldProviderDraftRevision((revision) => revision + 1);
           }
+          setSetupBouncePulse((pulse) => pulse + 1);
+          onDisabledClick?.();
           return false;
+        }
+        if (state !== "configured") {
+          throw new Error(t("agentChat.setup.providerStatusUnavailable"));
         }
         heldProviderDraftRef.current = null;
         return onBeforeSubmit ? await onBeforeSubmit(draft) : true;
@@ -1098,7 +1109,7 @@ function PromptComposerInner({
         setProviderCheckPending(false);
       }
     },
-    [onBeforeSubmit, onDisabledClick, validateEngineBeforeSubmit],
+    [onBeforeSubmit, onDisabledClick, t, validateEngineBeforeSubmit],
   );
   useEffect(() => {
     const held = heldProviderDraftRef.current;
@@ -1239,6 +1250,8 @@ function PromptComposerInner({
           onRemoved={focusComposer}
         />
         <TiptapComposer
+          richTextEnabled={richTextEnabled}
+          textBlockSeparator={textBlockSeparator}
           contextItems={contextItems}
           contextMenuItems={contextMenuItems}
           onRemoveContextItem={onRemoveContextItem}
@@ -1254,6 +1267,7 @@ function PromptComposerInner({
           isReferenceTarget={isReferenceTarget}
           contextControlsDisabled={engineSubmissionBlocked}
           submissionDisabled={submissionDisabled}
+          enterSubmitMode={enterSubmitMode}
           sendButtonDisabled={sendButtonDisabled || providerCheckPending}
           sendButtonBusy={submitting || providerCheckPending}
           submitting={submitting}

@@ -2105,6 +2105,9 @@ export default {
     addTweaks: "Agregar ajustes",
     addTweakControls: "Agregar controles de ajuste",
     closeTweaks: "Cerrar ajustes",
+    showFloatingTweaks: "Mostrar ajustes flotantes",
+    collapseTweaks: "Contraer ajustes",
+    expandTweaks: "Expandir ajustes",
     tweaksHelp:
       "Los ajustes son modificaciones visuales por punto de quiebre y estado superpuestas al diseño base. Restablece un control para volver al valor heredado.",
     tweaksDocs: "Más información.",
@@ -2372,6 +2375,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Los ajustes cambiaron en otro lugar. Actualiza el diseño antes de intentarlo de nuevo.",
+      tweakBaselineUnreadable:
+        "No se pudo leer la referencia guardada de los ajustes. Los cambios están en pausa hasta que se reparen los datos del diseño.",
+      resetTweakBaseline: "Restablecer referencia",
       tweakSaveNotDurable:
         "Los ajustes aún no se han guardado. Mantén esta pestaña abierta e inténtalo de nuevo.",
       undoSkippedConcurrentEdit: "Se omitió deshacer: otra persona movió eso",
@@ -3527,6 +3533,10 @@ export default {
     markedUnread: "Marcado como no leído",
     markUnreadFailed: "No se pudo marcar como no leído",
     attachImage: "Adjuntar imagen",
+    removeImage: "Quitar imagen",
+    imageUploadFailed: "No se pudo subir la imagen",
+    editChanged:
+      "Este comentario cambió después de que empezaras a editarlo. Guarda de nuevo para reemplazarlo.",
     searching: "Buscando…",
     reactionFailed: "No se pudo actualizar la reacción",
     moveFailed: "No se pudo mover el comentario",

@@ -24244,6 +24244,7 @@ describe("runAgentLoop", () => {
       expect(events).toContainEqual({
         type: "agent_call",
         agent: "Alpha",
+        agentCallId: expect.any(String),
         status: "done",
         eventId: expect.any(String),
         seq: expect.any(Number),
@@ -24306,6 +24307,7 @@ describe("runAgentLoop", () => {
       expect(events).toContainEqual({
         type: "agent_call",
         agent: "Alpha",
+        agentCallId: expect.any(String),
         status: "error",
         eventId: expect.any(String),
         seq: expect.any(Number),
@@ -24389,6 +24391,7 @@ describe("runAgentLoop", () => {
       expect(events).toContainEqual({
         type: "agent_call",
         agent: "Alpha",
+        agentCallId: expect.any(String),
         status: "error",
         eventId: expect.any(String),
         seq: expect.any(Number),

@@ -2104,6 +2104,9 @@ export default {
     addTweaks: "微調整を追加する",
     addTweakControls: "微調整コントロールを追加する",
     closeTweaks: "微調整を閉じる",
+    showFloatingTweaks: "フローティング微調整を表示",
+    collapseTweaks: "微調整を折りたたむ",
+    expandTweaks: "微調整を展開",
     tweaksHelp:
       "調整はベースデザインに重ねる、ブレークポイントおよび状態固有の視覚的オーバーライドです。コントロールをリセットすると継承値に戻ります。",
     tweaksDocs: "詳細を見る。",
@@ -2362,6 +2365,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "調整内容が別の場所で変更されました。デザインを更新してからもう一度お試しください。",
+      tweakBaselineUnreadable:
+        "保存された調整の基準値を読み取れませんでした。デザインデータが修復されるまで調整の変更を一時停止します。",
+      resetTweakBaseline: "ベースラインをリセット",
       tweakSaveNotDurable:
         "調整内容はまだ保存されていません。このタブを開いたまま、もう一度お試しください。",
       undoSkippedConcurrentEdit:
@@ -3510,6 +3516,10 @@ export default {
     markedUnread: "未読にしました",
     markUnreadFailed: "未読にできませんでした",
     attachImage: "画像を添付",
+    removeImage: "画像を削除",
+    imageUploadFailed: "画像をアップロードできませんでした",
+    editChanged:
+      "編集を始めた後にこのコメントが変更されました。置き換えるにはもう一度保存してください。",
     searching: "検索中…",
     reactionFailed: "リアクションを更新できませんでした",
     moveFailed: "コメントを移動できませんでした",

@@ -1,6 +1,7 @@
 import { FIRST_RUN_ONBOARDING_COOKIE } from "../../shared/first-run-onboarding.js";
 import { getOrCreateAnalyticsSessionId } from "../analytics-session.js";
 import { agentNativePath } from "../api-path.js";
+import { notifySessionInvalidated } from "../use-session.js";
 
 export const FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT =
   "agent-native:first-run-status-resolved";
@@ -137,6 +138,9 @@ export async function completeFirstRunOnboarding(
   ) {
     throw new Error("First-run completion was not acknowledged.");
   }
+  // Setup can provision the workspace after the initial session read. Publish
+  // its current scope before releasing navigation that depends on that scope.
+  await notifySessionInvalidated();
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("agent-native:first-run-completed"));
   }

@@ -2115,6 +2115,9 @@ export default {
     addTweaks: "Fügen Sie Optimierungen hinzu",
     addTweakControls: "Fügen Sie Optimierungssteuerelemente hinzu",
     closeTweaks: "Enge Optimierungen",
+    showFloatingTweaks: "Schwebende Optimierungen anzeigen",
+    collapseTweaks: "Optimierungen einklappen",
+    expandTweaks: "Optimierungen ausklappen",
     tweaksHelp:
       "Anpassungen sind breakpoint- und zustandsspezifische visuelle Überschreibungen über dem Basisdesign. Setzen Sie ein Steuerelement zurück, um den geerbten Wert wiederherzustellen.",
     tweaksDocs: "Mehr erfahren.",
@@ -2385,6 +2388,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Die Anpassungen wurden an anderer Stelle geändert. Aktualisiere das Design, bevor du es erneut versuchst.",
+      tweakBaselineUnreadable:
+        "Die gespeicherte Tweaks-Basis konnte nicht gelesen werden. Änderungen an Tweaks sind pausiert, bis die Designdaten repariert sind.",
+      resetTweakBaseline: "Ausgangswert zurücksetzen",
       tweakSaveNotDurable:
         "Die Anpassungen sind noch nicht gespeichert. Lass diesen Tab geöffnet und versuche es erneut.",
       undoSkippedConcurrentEdit:
@@ -3553,6 +3559,10 @@ export default {
     markedUnread: "Als ungelesen markiert",
     markUnreadFailed: "Konnte nicht als ungelesen markiert werden",
     attachImage: "Bild anhängen",
+    removeImage: "Bild entfernen",
+    imageUploadFailed: "Das Bild konnte nicht hochgeladen werden",
+    editChanged:
+      "Dieser Kommentar wurde geändert, nachdem Sie mit dem Bearbeiten begonnen haben. Speichern Sie erneut, um ihn zu ersetzen.",
     searching: "Suche…",
     reactionFailed: "Reaktion konnte nicht aktualisiert werden",
     moveFailed: "Kommentar konnte nicht verschoben werden",

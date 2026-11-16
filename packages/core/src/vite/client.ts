@@ -4202,7 +4202,9 @@ function nitroDevEnvironmentClosePlugin(): Plugin {
       server.restart = (forceOptimize) => {
         const current = state();
         if (current.restartPromise) return current.restartPromise;
-        current.shutdownRequested = false;
+        // The watcher stays open while an explicit close cleans up, and a
+        // restart that ran then would bring the closed server back.
+        if (current.shutdownRequested) return Promise.resolve();
         current.viteInternalCloseExpected = false;
         clearRestartRetry();
         clearResumeRetry();
@@ -5484,6 +5486,7 @@ export {
   getDefaultOptimizeDeps as _getDefaultOptimizeDeps,
   findCorePackageRoot as _findCorePackageRoot,
   getReactRouterAliases as _getReactRouterAliases,
+  nitroDevEnvironmentClosePlugin as _nitroDevEnvironmentClosePlugin,
   nitroStartupGate as _nitroStartupGate,
   nitroStartupRecovery as _nitroStartupRecovery,
   persistent5xxRecovery as _persistent5xxRecovery,

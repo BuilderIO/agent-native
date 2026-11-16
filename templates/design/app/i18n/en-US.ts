@@ -2018,6 +2018,9 @@ export default {
     addTweaks: "Add tweaks",
     addTweakControls: "Add tweak controls",
     closeTweaks: "Close tweaks",
+    showFloatingTweaks: "Show floating tweaks",
+    collapseTweaks: "Collapse tweaks",
+    expandTweaks: "Expand tweaks",
     tweaksHelp:
       "Tweaks are breakpoint- and state-specific visual overrides layered on the base design. Reset a control to return to the inherited value.",
     tweaksDocs: "Learn more.",
@@ -2268,6 +2271,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Tweaks changed elsewhere. Refresh the design before trying again.",
+      tweakBaselineUnreadable:
+        "The saved tweak baseline could not be read. Tweak changes are paused until the design data is repaired.",
+      resetTweakBaseline: "Reset baseline",
       tweakSaveNotDurable:
         "Tweaks aren't saved yet. Keep this tab open and try again.",
       undoSkippedConcurrentEdit: "Skipped an undo — someone else moved that",
@@ -3411,6 +3417,10 @@ export default {
     markedUnread: "Marked as unread",
     markUnreadFailed: "Could not mark as unread",
     attachImage: "Attach image",
+    removeImage: "Remove image",
+    imageUploadFailed: "Could not upload the image",
+    editChanged:
+      "This comment changed after you started editing. Save again to replace it.",
     searching: "Searching…",
     reactionFailed: "Could not update the reaction",
     moveFailed: "Could not move the comment",
