@@ -839,9 +839,31 @@ describe("dashboards-store concurrency", () => {
         { name: " revenue ", panels: [] },
         { email: "alice@example.com", orgId: "org-1" },
       ),
-    ).rejects.toThrow(
-      'Dashboard name "revenue" is already used by visible dashboard "Revenue"',
-    );
+    ).rejects.toThrow('A dashboard named "revenue" already exists.');
+    expect(state.updateAttempts).toBe(0);
+  });
+
+  it("returns an actionable conflict when a SQL dashboard update uses a visible name", async () => {
+    state.otherDashboards = [
+      { ...baseDashboard(), id: "revenue", title: "Revenue Report" },
+      { ...baseDashboard(), id: "revenue-2", title: "  REVENUE   REPORT-2 " },
+    ];
+    const before = { ...state.dashboard };
+
+    await expect(
+      upsertDashboard(
+        "traffic",
+        "sql",
+        { name: " revenue  report ", panels: [panel("b")] },
+        ctx,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "name_taken",
+      details: { name: "revenue  report", suggestion: "revenue  report-3" },
+      message: expect.stringContaining("revenue  report-3"),
+    });
+    expect(state.dashboard).toEqual(before);
     expect(state.updateAttempts).toBe(0);
   });
 
@@ -863,9 +885,7 @@ describe("dashboards-store concurrency", () => {
         email: "alice@example.com",
         orgId: null,
       }),
-    ).rejects.toThrow(
-      'Dashboard name "Traffic" is already used by visible dashboard "Traffic"',
-    );
+    ).rejects.toThrow('A dashboard named "Traffic" already exists.');
   });
 
   it("rejects promoting a private duplicate to a visible dashboard", async () => {
@@ -885,9 +905,7 @@ describe("dashboards-store concurrency", () => {
         { visibility: "org", orgId: "org-1" },
         { email: "alice@example.com", orgId: "org-1" },
       ),
-    ).rejects.toThrow(
-      'Dashboard name "Traffic" is already used by visible dashboard "Traffic"',
-    );
+    ).rejects.toThrow('A dashboard named "Traffic" already exists.');
     expect(state.dashboard.visibility).toBe("private");
   });
 
