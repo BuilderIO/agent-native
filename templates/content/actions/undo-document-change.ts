@@ -34,6 +34,10 @@ const MAX_UNDO_CHANGES = 100;
 const MAX_UNDO_ATTEMPTS = 3;
 
 type DocumentRow = typeof schema.documents.$inferSelect;
+type ContentDb = ReturnType<typeof getDb>;
+
+// Thrown inside the write when an undo with the same key got there first.
+class UndoAlreadyMade extends Error {}
 
 function undoUnavailable(message: string, statusCode = 409): never {
   throw new ActionContractError(message, {
@@ -55,6 +59,11 @@ function undoChanges(
   const keptBack: KeptBackBlocks[] = [];
   for (const { before, after } of [...changes].reverse()) {
     const reverted = revertBodyEdit(after.content, before.content, content);
+    if (!reverted) {
+      undoUnavailable(
+        "Part of this page is written in a form the undo can't merge without losing it. Restore a checkpoint instead, or make the change by hand.",
+      );
+    }
     content = reverted.content;
     keptBack.unshift(...reverted.keptBack);
     if (title === after.title) title = before.title;
@@ -103,7 +112,7 @@ const undoDocumentChangeSchema = z.object({
     .min(1)
     .max(200)
     .describe(
-      "Caller-generated key; a retry with the same key and entry returns the first undo instead of undoing again",
+      "Caller-generated key; a retry with the same key and entry returns the first undo, and the page as it is now, instead of undoing again. An undo that changed nothing records no entry, so a retry of it runs again",
     ),
 });
 
@@ -187,28 +196,28 @@ export default defineAction({
       documentId,
       groupId: args.groupId,
     };
-    const made = firstRow(
-      await db
-        .select({ id: schema.documentVersions.id })
-        .from(schema.documentVersions)
-        .where(
-          and(
-            eq(schema.documentVersions.ownerEmail, ownerEmail),
-            eq(schema.documentVersions.documentId, documentId),
-            eq(schema.documentVersions.groupId, undoEntry),
-          ),
-        )
-        .limit(1),
-    );
-    if (made) {
-      return {
-        ...base,
-        outcome: "replayed" as const,
-        undoGroupId: undoEntry,
-        ...documentStateResult(await readPage()),
-        idempotency: { key: args.idempotencyKey, result: "replayed" as const },
-      };
-    }
+    const undoMade = async (reader: ContentDb) =>
+      !!firstRow(
+        await reader
+          .select({ id: schema.documentVersions.id })
+          .from(schema.documentVersions)
+          .where(
+            and(
+              eq(schema.documentVersions.ownerEmail, ownerEmail),
+              eq(schema.documentVersions.documentId, documentId),
+              eq(schema.documentVersions.groupId, undoEntry),
+            ),
+          )
+          .limit(1),
+      );
+    const replayed = async () => ({
+      ...base,
+      outcome: "replayed" as const,
+      undoGroupId: undoEntry,
+      ...documentStateResult(await readPage()),
+      idempotency: { key: args.idempotencyKey, result: "replayed" as const },
+    });
+    if (await undoMade(db)) return replayed();
     const { changes, hasMore } = await listHistoryEntryChanges({
       db,
       ownerEmail,
@@ -246,7 +255,11 @@ export default defineAction({
             expectedUpdatedAt: page.updatedAt,
             operation: UNDO_OPERATION,
             historyGrouping,
-            target: async (current) => {
+            target: async (current, writer) => {
+              // Each write calls this just before writing, the legacy one
+              // under the page's lock, so an undo with the same key that
+              // landed first is found here instead of written twice.
+              if (await undoMade(writer)) throw new UndoAlreadyMade();
               prepared.page = current;
               prepared.undone = undoChanges(changes, current);
               return prepared.undone;
@@ -273,11 +286,15 @@ export default defineAction({
             },
           };
         } catch (error) {
+          if (error instanceof UndoAlreadyMade) return replayed();
           if (attempt < MAX_UNDO_ATTEMPTS && isDocumentRestoreConflict(error))
             continue;
           throw error;
         }
       }
+      // The page may read as undone because an undo with the same key just
+      // landed.
+      if (await undoMade(db)) return replayed();
       const { keptBack } = prepared.undone;
       return {
         ...base,

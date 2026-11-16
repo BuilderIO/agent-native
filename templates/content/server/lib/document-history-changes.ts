@@ -6,6 +6,9 @@ import { firstRow } from "./first-row.js";
 
 type ContentDb = ReturnType<typeof getDb>;
 
+// agent-chat's snapshot of the page when a chat starts.
+const CHAT_START_OPERATION = "chat start";
+
 /**
  * The changes a History entry recorded, oldest first, at most `limit`. Each of
  * the entry's "after" checkpoints ends one; the page before it is the
@@ -14,7 +17,10 @@ type ContentDb = ReturnType<typeof getDb>;
  * recovery checkpoint holds an edit that didn't land, not the page, and can
  * share a displaced edit's "before" timestamp, so it is never the page
  * before. The page's first checkpoint records it being made, which is no
- * change. `hasMore` when the entry holds more than `limit`.
+ * change. Nor is a chat's start: it records the page as the agent found it,
+ * with no "before" checkpoint, so whatever someone wrote since History's
+ * latest checkpoint would read as the agent's. It stays the page before the
+ * agent's first change. `hasMore` when the entry holds more than `limit`.
  */
 export async function listHistoryEntryChanges(args: {
   db: ContentDb;
@@ -39,6 +45,10 @@ export async function listHistoryEntryChanges(args: {
         eq(schema.documentVersions.documentId, documentId),
         eq(schema.documentVersions.groupId, args.groupId),
         eq(schema.documentVersions.checkpointKind, "after"),
+        or(
+          isNull(schema.documentVersions.operation),
+          ne(schema.documentVersions.operation, CHAT_START_OPERATION),
+        ),
       ),
     )
     .orderBy(

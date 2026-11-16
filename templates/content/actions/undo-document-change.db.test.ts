@@ -7,6 +7,7 @@ import { putSetting } from "@agent-native/core/settings";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import type { DocumentHistoryCause } from "../server/lib/document-history.js";
 import { firstRow } from "../server/lib/first-row.js";
 
 vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
@@ -44,6 +45,7 @@ let listDocumentHistory: typeof import("./list-document-history.js").default;
 let listDocumentHistoryCheckpoints: typeof import("./list-document-history-checkpoints.js").default;
 let getDocumentHistoryCheckpoint: typeof import("./get-document-history-checkpoint.js").default;
 let getDocumentHistoryChange: typeof import("./get-document-history-change.js").default;
+let recordDocumentHistoryTransition: typeof import("../server/lib/document-history.js").recordDocumentHistoryTransition;
 let sequence = 0;
 
 beforeAll(async () => {
@@ -53,6 +55,8 @@ beforeAll(async () => {
   ({ canonicalizeNfm } = await import("../shared/nfm.js"));
   ({ documentRevisionToken } = await import("./_document-edit-mutation.js"));
   ({ switchPageToLiveCopy } = await import("../server/live-copy/switch.js"));
+  ({ recordDocumentHistoryTransition } =
+    await import("../server/lib/document-history.js"));
   editDocument = (await import("./edit-document.js")).default;
   undoDocumentChange = (await import("./undo-document-change.js")).default;
   listDocumentHistory = (await import("./list-document-history.js")).default;
@@ -171,6 +175,43 @@ for (const path of ["legacy", "live_copy"] as const) {
     );
   }
 
+  /**
+   * Writes a legacy page's body straight to its row, as a save History's
+   * sampling passed over would, and records it in History under `cause`.
+   */
+  async function writeLegacy(
+    id: string,
+    content: string,
+    cause?: DocumentHistoryCause,
+  ) {
+    const current = await page(id);
+    const now = new Date().toISOString();
+    await getDb()
+      .update(schema.documents)
+      .set({ content, updatedAt: now })
+      .where(eq(schema.documents.id, id));
+    if (!cause) return;
+    await recordDocumentHistoryTransition({
+      db: getDb(),
+      ownerEmail: owner,
+      documentId: id,
+      before: { title: current.title, content: current.content },
+      after: { title: current.title, content },
+      cause,
+      now,
+    });
+  }
+  function agentRun(): Omit<DocumentHistoryCause, "operation"> & {
+    groupId: string;
+  } {
+    return {
+      groupId: `agent:${owner}:run-${crypto.randomUUID()}`,
+      groupKind: "agent_run",
+      actorEmail: owner,
+      actorKind: "agent",
+      origin: "agent-chat",
+    };
+  }
   async function undo(
     id: string,
     groupId: string,
@@ -342,6 +383,92 @@ for (const path of ["legacy", "live_copy"] as const) {
       });
       expect(await page(id)).toEqual(before);
     });
+
+    it("returns the first undo to a request with the same key that crossed it", async () => {
+      const id = await seedPage();
+      const entry = await agentEdit(id, [
+        { find: "Four", replace: "Four by agent" },
+      ]);
+
+      const results = await Promise.all([
+        undo(id, entry, "undo-crossed"),
+        undo(id, entry, "undo-crossed"),
+      ]);
+      expect(results.map((result) => result.outcome).sort()).toEqual([
+        "replayed",
+        "undone",
+      ]);
+      expect((await page(id)).content).toBe(PAGE);
+      const undoEntries = new Set(
+        results.map(
+          (result) => (result as { undoGroupId?: string }).undoGroupId,
+        ),
+      );
+      expect(undoEntries.size).toBe(1);
+      const [undoEntry] = [...undoEntries];
+      expect(
+        await getDb()
+          .select({ id: schema.documentVersions.id })
+          .from(schema.documentVersions)
+          .where(
+            and(
+              eq(schema.documentVersions.documentId, id),
+              eq(schema.documentVersions.groupId, undoEntry ?? ""),
+              eq(schema.documentVersions.checkpointKind, "after"),
+            ),
+          ),
+      ).toHaveLength(1);
+    });
+
+    // These write the legacy page row directly, as a save History's sampling
+    // passed over would; a live-copy page's body lives in its live copy.
+    if (path === "legacy") {
+      it("keeps what a person wrote before the agent's chat started", async () => {
+        const id = await seedPage();
+        await personEdit(id, "One", "One by person");
+        const typed = "One by person\nTwo\nThree\nFour\nFive\nTyped since";
+        await writeLegacy(id, typed);
+        const run = agentRun();
+        // A chat's start records the page as the agent found it, with no
+        // "before" checkpoint.
+        await writeLegacy(id, typed, {
+          ...run,
+          operation: "chat start",
+          skipBeforeCheckpoint: true,
+        });
+        await writeLegacy(
+          id,
+          "One by person\nTwo by agent\nThree\nFour\nFive\nTyped since",
+          { ...run, operation: "edit-document" },
+        );
+
+        await expect(undo(id, run.groupId)).resolves.toMatchObject({
+          outcome: "undone",
+          keptBack: [],
+        });
+        expect((await page(id)).content).toBe(typed);
+      });
+
+      it("refuses to merge into a page the parser can't keep in full", async () => {
+        const id = await seedPage();
+        const lossy =
+          "<table>\n<tr><td>Kept cell</td></tr>\nLATER WORDS\n</table>";
+        await writeLegacy(id, `${PAGE}\n${lossy}`);
+        const run = agentRun();
+        const edited = PAGE.replace("Two", "Two by agent");
+        await writeLegacy(id, `${edited}\n${lossy}`, {
+          ...run,
+          operation: "edit-document",
+        });
+        const later = `${edited.replace("Five", "Five by person")}\n${lossy}`;
+        await writeLegacy(id, later);
+
+        await expect(undo(id, run.groupId)).rejects.toMatchObject({
+          errorCode: "DOCUMENT_UNDO_UNAVAILABLE",
+        });
+        expect((await page(id)).content).toBe(later);
+      });
+    }
 
     it("refuses an entry the page has no change for", async () => {
       const id = await seedPage();

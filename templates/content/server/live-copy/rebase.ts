@@ -4,7 +4,12 @@ import DiffMatchPatch, {
   DIFF_INSERT,
 } from "diff-match-patch";
 
-import { docToNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
+import {
+  docToNfm,
+  nfmToDoc,
+  parseNfmWithLosses,
+  type PMNode,
+} from "../../shared/nfm.js";
 
 /** Base blocks `from`..`to` become `insert`, whose keys are `keys`. */
 type BlockHunk = {
@@ -405,17 +410,29 @@ function blocksMarkdown(blocks: readonly PMNode[]): string {
  * `rebaseBodyEdit`'s rules: a change a later one overlaps or borders, or
  * whose place depends on how the diff aligned the bodies, stays as `current`
  * has it and is listed in `keptBack`. A change `current` already takes back
- * is left alone. Every later change stays.
+ * is left alone. Every later change stays. Null when the parser drops part
+ * of a body, since the page the merge writes would lose that part.
  */
 export function revertBodyEdit(
   after: string,
   before: string,
   current: string,
-): { content: string; keptBack: KeptBackBlocks[] } {
+): { content: string; keptBack: KeptBackBlocks[] } | null {
   if (current === after) return { content: before, keptBack: [] };
-  const baseBlocks = nfmToDoc(after).content;
-  const beforeBlocks = nfmToDoc(before).content;
-  const currentBlocks = nfmToDoc(current).content;
+  if (current === before) return { content: current, keptBack: [] };
+  const parsedAfter = parseNfmWithLosses(after);
+  const parsedBefore = parseNfmWithLosses(before);
+  const parsedCurrent = parseNfmWithLosses(current);
+  if (
+    parsedAfter.losses.length ||
+    parsedBefore.losses.length ||
+    parsedCurrent.losses.length
+  ) {
+    return null;
+  }
+  const baseBlocks = parsedAfter.doc.content;
+  const beforeBlocks = parsedBefore.doc.content;
+  const currentBlocks = parsedCurrent.doc.content;
   const baseKeys = baseBlocks.map((block) => JSON.stringify(block));
   const currentKeys = currentBlocks.map((block) => JSON.stringify(block));
   const codes = new Map<string, string>();
@@ -440,7 +457,6 @@ export function revertBodyEdit(
   const otherRanges = others.map((hunk) => slidRange(baseKeys, hunk));
   const shared = sharedHunks(edit, editRanges, others);
   const otherBlocks = hunkBlocks(others, baseKeys, counts);
-  const otherOwnBlocks = hunkBlocks(others, baseKeys, counts, shared);
   const taken: BlockHunk[] = [];
   const keptBack: KeptBackBlocks[] = [];
   for (const hunk of edit) {
@@ -450,7 +466,6 @@ export function revertBodyEdit(
     const overlapped =
       !placedOnce(hunk, baseKeys, counts) ||
       [...blocks].some((key) => otherBlocks.has(key)) ||
-      [...otherOwnBlocks].some((key) => blocks.has(key)) ||
       otherRanges.some((range) => rangesOverlap(editRange, range));
     if (!overlapped) {
       taken.push(hunk);

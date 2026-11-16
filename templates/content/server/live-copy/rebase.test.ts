@@ -240,6 +240,23 @@ describe("revertBodyEdit", () => {
     });
   });
 
+  it("leaves a page already back to the body before the edit", () => {
+    expect(revertBodyEdit("A\nSame\nSame", "A\nSame", "A\nSame")).toEqual({
+      content: "A\nSame",
+      keptBack: [],
+    });
+  });
+
+  it("refuses a page the parser can't keep in full", () => {
+    expect(
+      revertBodyEdit(
+        "A\nB",
+        "a\nB",
+        "A\nB\n<table>\n<tr><td>Kept cell</td></tr>\nLATER WORDS\n</table>",
+      ),
+    ).toBeNull();
+  });
+
   it("keeps back a change to a block that reads the same as another", () => {
     expect(
       revertBodyEdit("A\nSame\nSame", "A\nSame", "A2\nSame\nSame"),

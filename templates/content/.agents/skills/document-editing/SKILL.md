@@ -220,12 +220,15 @@ change touched it or the place it goes back to. Those blocks stay as they are
 and are listed in `keptBack`: `changedTo` is the entry's text, `changedFrom` the
 text before it. `outcome` is `undone`, `partly-undone`, `nothing-undone` (every
 change was kept back), `already-undone` (the page already reads as it did), or
-`replayed`, for a retry with the same key and entry. The undo is a History
-entry of its own, `undoGroupId`, so it can be undone too. It refuses as a
-version restore does: `DOCUMENT_RESTORE_SOURCE_UNSUPPORTED` for a page linked to
-a local file, and `DOCUMENT_RESTORE_CONFLICT` when the page kept changing
-through three tries; read it again and retry. An entry with no change to undo
-refuses with `DOCUMENT_UNDO_UNAVAILABLE`.
+`replayed`, for a retry with the same key and entry, which returns the page as
+it is now. An undo that changed nothing records no entry, so a retry of it runs
+again. The undo is a History entry of its own, `undoGroupId`, so it can be
+undone too. It refuses as a version restore does:
+`DOCUMENT_RESTORE_SOURCE_UNSUPPORTED` for a page linked to a local file, and
+`DOCUMENT_RESTORE_CONFLICT` when the page kept changing through three tries;
+read it again and retry. It refuses with `DOCUMENT_UNDO_UNAVAILABLE` for an
+entry with no change to undo or more than 100, and for a page written in a form
+the merge can't keep in full; restore a checkpoint instead.
 
 ### update-document
 
