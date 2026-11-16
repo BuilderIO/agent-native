@@ -871,16 +871,26 @@ jobs:
             // concurrency group cancels older runs, so the newest pull_request
             // run for the current head is the only merge still coming. Without
             // this, a merge run that fails in minutes leaves this wait idle for
-            // its full window.
+            // its full window. Resolves undefined when a transient failure left the
+            // run unread this poll, and null when no run exists yet.
             async function latestReleaseMergeRun(headSha) {
-              const response = await github.rest.actions.listWorkflowRuns({
-                owner,
-                repo,
-                workflow_id: "auto-merge-version-packages.yml",
-                event: "pull_request",
-                head_sha: headSha,
-                per_page: 100,
-              });
+              let response;
+              try {
+                response = await github.rest.actions.listWorkflowRuns({
+                  owner,
+                  repo,
+                  workflow_id: "auto-merge-version-packages.yml",
+                  event: "pull_request",
+                  head_sha: headSha,
+                  per_page: 100,
+                });
+              } catch (error) {
+                if (!isTransientDispatchFailure(error)) throw error;
+                core.warning(
+                  `Could not read the release PR merge run for ${headSha} (${describeRequestFailure(error)}); retrying.`,
+                );
+                return undefined;
+              }
               const runs = response.data?.workflow_runs;
               if (!Array.isArray(runs)) {
                 throw new Error("GitHub returned no workflow runs for the release PR merge.");
@@ -932,15 +942,7 @@ jobs:
                 if (current.state === "closed") {
                   throw new Error(`Stable release PR #${pr.number} closed without merging: ${pr.html_url}`);
                 }
-                let mergeRun;
-                try {
-                  mergeRun = await latestReleaseMergeRun(current.head.sha);
-                } catch (error) {
-                  if (!isTransientDispatchFailure(error)) throw error;
-                  core.warning(
-                    `Could not read the merge run for stable release PR #${pr.number} (${describeRequestFailure(error)}); retrying.`,
-                  );
-                }
+                const mergeRun = await latestReleaseMergeRun(current.head.sha);
                 if (mergeRun !== undefined) {
                   const mergeRunState = mergeRun
                     ? `${mergeRun.status}/${mergeRun.conclusion || "pending"}`

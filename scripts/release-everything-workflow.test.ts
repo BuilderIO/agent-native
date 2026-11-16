@@ -1499,6 +1499,40 @@ return waitForReleaseMerge;`,
     }
   });
 
+  it("fails at once when GitHub returns a malformed merge run list", async () => {
+    const realNow = Date.now;
+    let now = 0;
+    Date.now = () => now;
+    try {
+      const waitForReleaseMerge = await loadWaitForReleaseMerge({
+        github: {
+          rest: {
+            pulls: {
+              get: async () => ({
+                data: {
+                  merged: false,
+                  state: "open",
+                  head: { sha: releaseHeadSha },
+                },
+              }),
+            },
+            actions: { listWorkflowRuns: async () => ({ data: {} }) },
+          },
+        },
+        sleep: async (ms) => {
+          now += ms;
+        },
+        pollIntervalMs: 15_000,
+      });
+      await assert.rejects(waitForReleaseMerge({ number: 9132 }), {
+        message: "GitHub returned no workflow runs for the release PR merge.",
+      });
+      assert.equal(now, 0);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   it("recovers only a hosted-runner failure after stable npm publication", () => {
     const source = String((coordinator.with as Workflow).script);
     const AsyncFunction = Object.getPrototypeOf(
