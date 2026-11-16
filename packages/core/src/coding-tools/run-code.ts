@@ -44,6 +44,7 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { runCodeStatusLines } from "./run-code-result.js";
 import {
   failExpiredSandboxExecution,
   getSandboxExecutionForOwner,
@@ -268,14 +269,14 @@ export function createRunCodeEntry(
         });
 
       const combined =
-        [stdout ? `stdout:\n${stdout}` : "", stderr ? `stderr:\n${stderr}` : ""]
+        [
+          stdout ? `stdout:\n${stdout.trimEnd()}` : "",
+          stderr ? `stderr:\n${stderr.trimEnd()}` : "",
+        ]
           .filter(Boolean)
           .join("\n\n") || "(no output)";
 
-      const lines: string[] = [];
-      if (timedOut) lines.push(`timedOut: true (${timeoutMs}ms)`);
-      if (exitCode !== 0 && exitCode !== null)
-        lines.push(`exitCode: ${exitCode}`);
+      const lines = runCodeStatusLines({ timedOut, timeoutMs, exitCode });
       if (bridgeToolsUsed.length)
         lines.push(`bridgeToolsUsed: ${bridgeToolsUsed.join(", ")}`);
       lines.push(combined);

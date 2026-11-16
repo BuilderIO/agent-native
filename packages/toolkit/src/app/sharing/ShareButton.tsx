@@ -119,6 +119,12 @@ export interface ShareButtonProps {
    * popover is pinned to the top end of the window.
    */
   anchor?: ReactNode;
+  /**
+   * Extra props for the share popover's content box, for a caller whose surface
+   * anchors the panel itself instead of letting Radix pick the side. The
+   * alignment defaults stay `end`, bottom side.
+   */
+  popoverProps?: Record<string, unknown>;
   /** Override the label of the Send to menu's agent-link item. */
   agentShareLabel?: string;
   /** Destinations in the Send to menu beside Copy link. */
@@ -159,6 +165,8 @@ export interface ShareButtonProps {
   visibilityCopy?: Partial<
     Record<Visibility, { label?: string; description?: string }>
   >;
+  /** Accessible name and tooltip for the trigger, when it names the access state. */
+  triggerLabel?: string;
   /**
    * What is specific to this resource, already translated, added to the
    * confirmation shown before it becomes visible to the organization.
@@ -419,7 +427,10 @@ export function ShareButton(props: ShareButtonProps) {
     controller.handleOpenChange,
     controller.handleShareTabChange,
   ]);
-  const triggerLabel = t("agentChat.share.share", { defaultValue: "Share" });
+  // A caller that names the trigger by its access state (for example "Private")
+  // passes it here, so the accessible name and the visible label agree.
+  const triggerLabel =
+    props.triggerLabel ?? t("agentChat.share.share", { defaultValue: "Share" });
   const shareUrl = props.shareUrl;
   const quickCopy: ShareButtonProps["quickCopy"] =
     props.quickCopy ??
@@ -515,6 +526,7 @@ export function ShareButton(props: ShareButtonProps) {
       <PopoverContent
         align="end"
         sideOffset={6}
+        {...(props.popoverProps ?? {})}
         data-agent-native-share-overlay=""
         className={cn(
           "z-[2000] w-[384px] max-w-[calc(100vw-1rem)] rounded-lg p-4 shadow-lg",
@@ -1249,6 +1261,7 @@ export function SharePeopleInvite({
                   principalType: "agent" as const,
                 })),
               ]}
+              shares={data?.shares ?? []}
               search={memberSearch}
               agentsUnavailable={data?.agentsUnavailable === true}
               trailing={
@@ -1617,6 +1630,8 @@ interface MemberAutocompleteProps {
   onSubmit: () => void;
   placeholder: string;
   suggestions: ShareSuggestion[];
+  /** The principals who already have access, for the two titled result groups. */
+  shares: readonly Share[];
   search: OrgMemberSearch;
   /** The org's agents could not be read, so none are suggested. */
   agentsUnavailable?: boolean;
@@ -1635,6 +1650,45 @@ function suggestionKey(suggestion: ShareSuggestion): string {
     : `${suggestion.principalType}:${suggestion.email}`;
 }
 
+/**
+ * The same principal addressed from the two sides of the dialog: a suggestion carries an
+ * email (or a group id), a share carries a principal id. Lower-cased email keys are the
+ * only thing both can agree on - an org member can be typed with any case.
+ */
+export function suggestionPrincipalKey(suggestion: ShareSuggestion): string {
+  return suggestion.principalType === "group"
+    ? `group:${suggestion.id}`
+    : `${suggestion.principalType}:${suggestion.email.trim().toLowerCase()}`;
+}
+
+export function sharePrincipalKey(share: Share): string {
+  if (share.principalType === "group") return `group:${share.principalId}`;
+  return `${share.agent ? "agent" : "user"}:${share.principalId.trim().toLowerCase()}`;
+}
+
+/**
+ * Splits invite results into two titled groups - "Already invited" and "Not invited
+ * to page". Order inside each group is the caller's, so the list stays stable while a
+ * reader types.
+ */
+export function groupSuggestionsByShareState(
+  suggestions: readonly ShareSuggestion[],
+  shares: readonly Share[],
+): Array<{ key: "already" | "not"; rows: ShareSuggestion[] }> {
+  const shared = new Set(shares.map(sharePrincipalKey));
+  const already: ShareSuggestion[] = [];
+  const rest: ShareSuggestion[] = [];
+  for (const suggestion of suggestions) {
+    (shared.has(suggestionPrincipalKey(suggestion)) ? already : rest).push(
+      suggestion,
+    );
+  }
+  return [
+    ...(already.length ? [{ key: "already" as const, rows: already }] : []),
+    ...(rest.length ? [{ key: "not" as const, rows: rest }] : []),
+  ];
+}
+
 function MemberAutocomplete({
   value,
   open,
@@ -1644,6 +1698,7 @@ function MemberAutocomplete({
   onSubmit,
   placeholder,
   suggestions,
+  shares,
   search,
   agentsUnavailable,
   trailing,
@@ -1680,6 +1735,70 @@ function MemberAutocomplete({
       .getElementById(optionId(listboxId, activeIndex))
       ?.scrollIntoView({ block: "nearest" });
   }, [activeIndex, listboxId]);
+
+  /**
+   * One row of the list. The index comes from the flat suggestion list, so keyboard
+   * navigation keeps working across the two titled groups.
+   */
+  function renderSuggestion(suggestion: ShareSuggestion) {
+    const index = suggestions.indexOf(suggestion);
+    const active = index === activeIndex;
+    return (
+      <div
+        key={suggestionKey(suggestion)}
+        id={optionId(listboxId, index)}
+        role="option"
+        aria-selected={active}
+        onMouseDown={(event) => event.preventDefault()}
+        onMouseEnter={() => setActiveIndex(index)}
+        onClick={() => chooseSuggestion(suggestion)}
+        className={cn(
+          "flex cursor-pointer select-none flex-col rounded-sm px-2 py-1.5 text-sm outline-none",
+          active
+            ? "bg-accent text-accent-foreground"
+            : "text-foreground hover:bg-accent hover:text-accent-foreground",
+        )}
+      >
+        <span className="flex items-center gap-2 truncate font-medium">
+          {suggestion.principalType === "group" ? (
+            <IconUsersGroup
+              aria-hidden
+              size={14}
+              strokeWidth={1.8}
+              className="shrink-0 text-muted-foreground"
+            />
+          ) : suggestion.principalType === "agent" ? (
+            <Avatar label={suggestion.name} agent className="size-6" />
+          ) : (
+            <Avatar
+              email={suggestion.email}
+              image={suggestion.image}
+              label={suggestion.name?.trim() || suggestion.email}
+              className="size-6"
+            />
+          )}
+          <span className="truncate">
+            {suggestion.principalType === "user"
+              ? suggestion.name?.trim() || suggestion.email
+              : suggestion.name}
+          </span>
+        </span>
+        {suggestion.principalType === "group" ? (
+          <span className="truncate text-xs text-muted-foreground">
+            {t("agentChat.share.userGroup", { defaultValue: "User group" })}
+          </span>
+        ) : suggestion.principalType === "agent" ? (
+          <span className="truncate text-xs text-muted-foreground">
+            {t("agentChat.share.agentBadge", { defaultValue: "Agent" })}
+          </span>
+        ) : suggestion.name?.trim() ? (
+          <span className="truncate text-xs text-muted-foreground">
+            {suggestion.email}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
 
   const chooseSuggestion = (suggestion: ShareSuggestion) => {
     onSelectSuggestion(suggestion);
@@ -1802,68 +1921,35 @@ function MemberAutocomplete({
           className="max-h-56 overflow-y-auto overflow-x-hidden"
           onScroll={handleScroll}
         >
-          {suggestions.map((suggestion, index) => {
-            const active = index === activeIndex;
-            return (
+          {groupSuggestionsByShareState(suggestions, shares).map((group) => (
+            <div
+              key={group.key}
+              role="group"
+              aria-label={
+                group.key === "already"
+                  ? t("agentChat.share.alreadyInvited", {
+                      defaultValue: "Already invited",
+                    })
+                  : t("agentChat.share.notInvitedToPage", {
+                      defaultValue: "Not invited to page",
+                    })
+              }
+            >
               <div
-                key={suggestionKey(suggestion)}
-                id={optionId(listboxId, index)}
-                role="option"
-                aria-selected={active}
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => chooseSuggestion(suggestion)}
-                className={cn(
-                  "flex cursor-pointer select-none flex-col rounded-sm px-2 py-1.5 text-sm outline-none",
-                  active
-                    ? "bg-accent text-accent-foreground"
-                    : "text-foreground hover:bg-accent hover:text-accent-foreground",
-                )}
+                aria-hidden
+                className="px-2 pb-1 pt-1.5 text-xs font-medium text-muted-foreground"
               >
-                <span className="flex items-center gap-2 truncate font-medium">
-                  {suggestion.principalType === "group" ? (
-                    <IconUsersGroup
-                      aria-hidden
-                      size={14}
-                      strokeWidth={1.8}
-                      className="shrink-0 text-muted-foreground"
-                    />
-                  ) : suggestion.principalType === "agent" ? (
-                    <Avatar label={suggestion.name} agent className="size-6" />
-                  ) : (
-                    <Avatar
-                      email={suggestion.email}
-                      image={suggestion.image}
-                      label={suggestion.name?.trim() || suggestion.email}
-                      className="size-6"
-                    />
-                  )}
-                  <span className="truncate">
-                    {suggestion.principalType === "user"
-                      ? suggestion.name?.trim() || suggestion.email
-                      : suggestion.name}
-                  </span>
-                </span>
-                {suggestion.principalType === "group" ? (
-                  <span className="truncate text-xs text-muted-foreground">
-                    {t("agentChat.share.userGroup", {
-                      defaultValue: "User group",
+                {group.key === "already"
+                  ? t("agentChat.share.alreadyInvited", {
+                      defaultValue: "Already invited",
+                    })
+                  : t("agentChat.share.notInvitedToPage", {
+                      defaultValue: "Not invited to page",
                     })}
-                  </span>
-                ) : suggestion.principalType === "agent" ? (
-                  <span className="truncate text-xs text-muted-foreground">
-                    {t("agentChat.share.agentBadge", {
-                      defaultValue: "Agent",
-                    })}
-                  </span>
-                ) : suggestion.name?.trim() ? (
-                  <span className="truncate text-xs text-muted-foreground">
-                    {suggestion.email}
-                  </span>
-                ) : null}
               </div>
-            );
-          })}
+              {group.rows.map((suggestion) => renderSuggestion(suggestion))}
+            </div>
+          ))}
 
           {search.isLoading && suggestions.length === 0 ? (
             <div className="px-3 py-3 text-sm text-muted-foreground">

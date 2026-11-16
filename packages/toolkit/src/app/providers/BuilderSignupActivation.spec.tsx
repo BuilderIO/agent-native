@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
-  status: vi.fn<() => Promise<"eligible" | "disabled">>(),
+  status: vi.fn<() => Promise<"eligible" | "connected" | "disabled">>(),
   activate: vi.fn<() => Promise<"connected" | "fallback" | "disabled">>(),
 }));
 
@@ -30,6 +30,7 @@ vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
 
 vi.mock("@agent-native/core/client/onboarding/first-run-enabled", () => ({
   isFirstRunOnboardingEnabled: () => false,
+  resolveFirstRunOnboardingMode: () => "off",
 }));
 
 vi.mock("@agent-native/core/client/analytics", () => ({
@@ -106,6 +107,33 @@ describe("BuilderSignupActivation", () => {
     act(() => root.unmount());
     container.remove();
   });
+
+  it.each(["connected", "eligible"] as const)(
+    "refreshes the composer after successful activation with initial status %s",
+    async (status) => {
+      mocks.status.mockResolvedValue(status);
+      mocks.activate.mockImplementation(async () => {
+        mocks.status.mockResolvedValue("connected");
+        return "connected";
+      });
+      const refresh = vi.fn();
+      window.addEventListener("agent-engine:configured-changed", refresh);
+      try {
+        await render(`readiness-${status}-user`);
+        await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+        expect(mocks.activate).toHaveBeenCalledTimes(
+          status === "eligible" ? 1 : 0,
+        );
+        expect(container.querySelector("[inert]")).toBeNull();
+        await act(async () => {
+          await queryClient.refetchQueries();
+        });
+        expect(refresh).toHaveBeenCalledOnce();
+      } finally {
+        window.removeEventListener("agent-engine:configured-changed", refresh);
+      }
+    },
+  );
 
   it("reports eligibility resolution separately from confirmed activation", async () => {
     mocks.status.mockReturnValue(new Promise(() => {}));
@@ -196,13 +224,20 @@ describe("BuilderSignupActivation", () => {
         .querySelector("button")
         ?.getAttribute("data-startup-interaction-blocked"),
     ).toBe("true");
-    mocks.status.mockResolvedValue("disabled");
-    await act(async () => {
-      await queryClient.invalidateQueries();
-    });
-    await vi.waitFor(() =>
-      expect(container.querySelector("[role='status']")).toBeNull(),
-    );
+    const refresh = vi.fn();
+    window.addEventListener("agent-engine:configured-changed", refresh);
+    try {
+      mocks.status.mockResolvedValue("disabled");
+      await act(async () => {
+        await queryClient.invalidateQueries();
+      });
+      await vi.waitFor(() =>
+        expect(container.querySelector("[role='status']")).toBeNull(),
+      );
+      expect(refresh).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener("agent-engine:configured-changed", refresh);
+    }
   });
 
   it("keeps unknown eligibility deferred with an interactive Retry notice until status is confirmed", async () => {

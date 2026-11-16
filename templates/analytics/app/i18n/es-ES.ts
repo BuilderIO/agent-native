@@ -1396,6 +1396,8 @@ export default {
     resetFilters: "Restablecer filtros",
     collapseFilters: "Contraer filtros",
     expandFilters: "Ampliar filtros",
+    collapseDescription: "Contraer descripción",
+    expandDescription: "Ampliar descripción",
     drilldownChartPoints: "Puntos del gráfico",
     drilldownPreviousPage: "Página anterior de puntos del gráfico",
     drilldownNextPage: "Página siguiente de puntos del gráfico",
@@ -1415,6 +1417,8 @@ export default {
       "El gráfico muestra {{chart}}, pero coinciden {{total}} registros",
     drilldownAggregateOnly:
       "Este panel solo tiene filas agregadas. Las filas del punto seleccionado aparecen resaltadas.",
+    drilldownNoXValueAggregateOnly:
+      "Este panel no puede abrir registros de un punto sin valor, así que muestra filas agregadas. Las filas del punto seleccionado aparecen resaltadas.",
     drilldownNoRecords: "No hay registros coincidentes",
     drilldownNoRecordsIncomplete:
       "No se cargó ningún registro. El resultado está incompleto, así que puede haber registros coincidentes.",

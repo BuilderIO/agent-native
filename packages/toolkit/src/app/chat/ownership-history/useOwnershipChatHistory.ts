@@ -44,6 +44,18 @@ export interface UseOwnershipChatHistoryOptions extends Omit<
   minePreviewCount?: number;
   sharedPreviewCount?: number;
   pinned?: boolean | { label?: ReactNode };
+  /**
+   * Group the viewer's chats under date headings (Today, Yesterday, weekday,
+   * month/day). Defaults to false so
+   * every existing caller keeps the single "mine" section.
+   */
+  groupByDate?: boolean;
+  /**
+   * Group a conversation's edited queries under one row instead of listing
+   * every edit. Defaults to false, so a
+   * caller that does not ask keeps the flat list.
+   */
+  collapseEdits?: boolean;
   localMineRows?: readonly OwnDraftRow[];
   decorateItem?: (
     item: ChatHistoryItem,
@@ -54,6 +66,8 @@ export interface UseOwnershipChatHistoryOptions extends Omit<
     pin?: (id: string, pinned: boolean) => Promise<boolean>;
     rename?: (id: string, title: string) => Promise<boolean>;
     archive?: (id: string) => Promise<boolean>;
+    /** Remove the conversation outright instead of archiving it. */
+    delete?: (id: string) => Promise<boolean>;
   };
   /**
    * The URL that opens a thread, resolved against the current page; enables
@@ -71,7 +85,7 @@ export interface OwnershipChatHistoryListProps {
   onTogglePin?: (id: string) => Promise<boolean>;
   onRename?: (id: string, title: string) => Promise<boolean>;
   onDelete?: (id: string) => Promise<boolean>;
-  deleteAction?: "archive";
+  deleteAction?: "delete" | "archive";
   onCopyLink?: (id: string) => Promise<void>;
   /** Hides a shared chat from the viewer's lists; its toast offers Undo. */
   onHide?: (id: string) => Promise<boolean>;
@@ -112,6 +126,7 @@ interface FieldState<Value> {
 interface HideTarget {
   apiUrl: string;
   scope?: ChatThreadScope;
+  collapseEdits?: boolean;
 }
 
 type OverrideField = keyof OverrideValues;
@@ -245,6 +260,7 @@ export function useOwnershipChatHistory(
     apiUrl,
     scope,
     includeExternal,
+    collapseEdits = false,
     query,
     pageSize,
     enabled = true,
@@ -253,6 +269,7 @@ export function useOwnershipChatHistory(
     localMineRows,
     decorateItem,
     minePreviewCount = 5,
+    groupByDate = false,
     sharedPreviewCount = 5,
   } = options;
   const endpoint = apiUrl ?? agentNativePath("/_agent-native/agent-chat");
@@ -261,6 +278,7 @@ export function useOwnershipChatHistory(
     apiUrl: endpoint,
     scope,
     includeExternal,
+    collapseEdits,
     query: normalizedQuery,
     pageSize,
     enabled,
@@ -276,6 +294,7 @@ export function useOwnershipChatHistory(
     scope?.type,
     scope?.id,
     includeExternal,
+    collapseEdits,
     normalizedQuery,
     pageSize,
     enabled,
@@ -602,6 +621,29 @@ export function useOwnershipChatHistory(
     };
     listProps.deleteAction = "archive";
   }
+  // Deleting is not hiding: the conversation is removed and the row leaves the list, so
+  // this path refreshes instead of recording a hidden override. The list already knows how
+  // to render it (`deleteAction: "delete"`); until this wiring nothing in the app could
+  // reach the transport's DELETE.
+  if (options.mutations?.delete) {
+    const persist = options.mutations.delete;
+    listProps.onDelete = async (id) => {
+      if (!enabled || !current() || !permits("archive", id)) return false;
+      try {
+        const removed = await persistInOrder(
+          JSON.stringify([endpoint, id, "delete"]),
+          () => persist(id),
+        );
+        if (!removed) return false;
+        await refreshWithResults();
+        return true;
+      } catch (cause) {
+        latest.current.options.onMutationFailed?.("archive", id, cause);
+        return false;
+      }
+    };
+    listProps.deleteAction = "delete";
+  }
   const setHidden = (
     id: string,
     hidden: boolean,
@@ -646,7 +688,11 @@ export function useOwnershipChatHistory(
       index: sharedRows.indexOf(row),
       view: scopeKey,
     });
-    const target = { apiUrl: endpoint, ...(scope ? { scope } : {}) };
+    const target = {
+      apiUrl: endpoint,
+      collapseEdits,
+      ...(scope ? { scope } : {}),
+    };
     const notice = toast(t("agentChat.history.hidden"), {
       action: {
         label: t("agentChat.history.undo"),
@@ -785,17 +831,83 @@ export function useOwnershipChatHistory(
       items: pinnedRows.map((row) => mapItem(row, "pinned")),
       previewCount: Math.max(1, pinnedRows.length),
     });
-  sections.push({
-    id: "mine",
-    label: t("agentChat.history.mine"),
-    items: mineItems,
-    previewCount: minePreviewCount,
-    ...sectionState(mine, "mine"),
-    emptyLabel:
-      pinnedRows.length || mine.hasMore
-        ? undefined
-        : t("agentChat.history.emptyMine"),
-  });
+  const mineEmptyLabel = (hasMore: boolean) =>
+    pinnedRows.length || hasMore ? undefined : t("agentChat.history.emptyMine");
+  if (!groupByDate)
+    sections.push({
+      id: "mine",
+      label: t("agentChat.history.mine"),
+      items: mineItems,
+      previewCount: minePreviewCount,
+      ...sectionState(mine, "mine"),
+      emptyLabel: mineEmptyLabel(mine.hasMore),
+    });
+  else {
+    // Bucket the same rows the flat section would show, by the day they were
+    // last touched, newest day first. The last bucket keeps the list's paging
+    // and error state so load-more and retry still work.
+    const startOfDay = (value: number) => {
+      const date = new Date(value);
+      date.setHours(0, 0, 0, 0);
+      return date.getTime();
+    };
+    const today = startOfDay(Date.now());
+    const dayLabel = (day: number) => {
+      if (day === today) return t("agentChat.history.today");
+      if (day === today - 86_400_000) return t("agentChat.history.yesterday");
+      const date = new Date(day);
+      const withinWeek = (today - day) / 86_400_000 < 7;
+      return new Intl.DateTimeFormat(
+        locale,
+        withinWeek ? { weekday: "short" } : { month: "short", day: "numeric" },
+      ).format(date);
+    };
+    const buckets = new Map<number, ChatHistoryItem[]>();
+    const rowItems: Array<{ item: ChatHistoryItem; day: number }> = [];
+    const orderedRows: Array<ChatThreadListRow | OwnDraftRow> = [
+      ...drafts.filter(
+        (row) => !projectedIntent(overrides.get(row.id)?.hidden)?.value,
+      ),
+      ...visibleMine.filter((row) => !pinnedIds.has(row.id)),
+    ];
+    let cursor = 0;
+    for (const item of mineItems) {
+      const row = orderedRows.at(cursor);
+      cursor += 1;
+      const updatedAt =
+        row && "updatedAt" in row ? (row as ChatThreadListRow).updatedAt : null;
+      const day = startOfDay(
+        typeof updatedAt === "number" ? updatedAt : Date.now(),
+      );
+      rowItems.push({ item, day });
+    }
+    for (const { item, day } of rowItems) {
+      const list = buckets.get(day);
+      if (list) list.push(item);
+      else buckets.set(day, [item]);
+    }
+    const days = [...buckets.keys()].sort((a, b) => b - a);
+    days.forEach((day, index) => {
+      const isLast = index === days.length - 1;
+      sections.push({
+        id: `mine-${day}`,
+        label: dayLabel(day),
+        items: buckets.get(day) ?? [],
+        previewCount: minePreviewCount,
+        ...(isLast ? sectionState(mine, "mine") : {}),
+        emptyLabel: isLast ? mineEmptyLabel(mine.hasMore) : undefined,
+      });
+    });
+    if (!days.length)
+      sections.push({
+        id: "mine",
+        label: t("agentChat.history.mine"),
+        items: [],
+        previewCount: minePreviewCount,
+        ...sectionState(mine, "mine"),
+        emptyLabel: mineEmptyLabel(mine.hasMore),
+      });
+  }
   if (sharedItems.length || sharedErrorShown || (enabled && shared.hasMore))
     sections.push({
       id: "shared",

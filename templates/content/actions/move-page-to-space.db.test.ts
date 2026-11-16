@@ -254,6 +254,14 @@ describe("moving a page between Content spaces", () => {
       content: "Over to you",
       authorEmail: OWNER,
     });
+    await getDb().insert(schema.documentCommentReactions).values({
+      id: "reaction-handoff",
+      ownerEmail: OWNER,
+      documentId: page.id,
+      commentId: "comment-handoff",
+      actorEmail: EDITOR,
+      reaction: "👍",
+    });
     await getDb().insert(schema.documentVersions).values({
       id: "version-handoff",
       ownerEmail: OWNER,
@@ -309,6 +317,7 @@ describe("moving a page between Content spaces", () => {
       listComments.run({ documentId: page.id }),
     );
     expect(JSON.stringify(comments)).toContain("Over to you");
+    expect(JSON.stringify(comments)).toContain("👍");
     await expect(
       as(OWNER, () => listComments.run({ documentId: page.id })),
     ).rejects.toThrow();
@@ -369,23 +378,23 @@ describe("moving a page between Content spaces", () => {
     ]);
   });
 
-  it("refuses pages that contain a collection", async () => {
+  it("moves pages that contain a collection, with the collection", async () => {
     const page = await as(OWNER, () =>
       createDocument.run({ title: "Tracker" }),
     );
-    await as(OWNER, () =>
+    const created = await as(OWNER, () =>
       createContentDatabase.run({ title: "Tasks", parentId: page.id } as any),
     );
-    await expect(
-      as(OWNER, () =>
-        moveDocument.run({
-          id: page.id,
-          spaceId: organizationContentSpaceId(ORG_ID),
-        }),
-      ),
-    ).rejects.toThrow("contain collections");
-    expect(await documentRows([page.id])).toEqual([
-      expect.objectContaining({ spaceId: personalContentSpaceId(OWNER) }),
+    // oracle-change: a page with a collection now moves with it instead of being refused
+    await as(OWNER, () =>
+      moveDocument.run({
+        id: page.id,
+        spaceId: organizationContentSpaceId(ORG_ID),
+      }),
+    );
+    expect(await documentRows([page.id, created.database.documentId])).toEqual([
+      expect.objectContaining({ spaceId: organizationContentSpaceId(ORG_ID) }),
+      expect.objectContaining({ spaceId: organizationContentSpaceId(ORG_ID) }),
     ]);
   });
 

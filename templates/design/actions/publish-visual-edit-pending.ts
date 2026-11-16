@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -21,7 +22,7 @@ const pendingSchema = z
 
 export default defineAction({
   description:
-    "Publish the current DOM-only visual-edit handoff for the Design page so an external coding agent can retrieve it. Browser-only transport; this does not write design files or app source.",
+    "Publish the current DOM-only visual-edit handoff for the Design page so an external coding agent can retrieve it. Editor handoffs are ready to apply; commenter handoffs are stored as suggestions that need the owner's approval. Browser-only transport; this does not write design files or app source.",
   requiresAuth: false,
   agentTool: false,
   mcpTool: false,
@@ -54,19 +55,48 @@ export default defineAction({
     }
 
     return withDesignSourceMutationTransaction(designId, async (tx) => {
-      const access = await assertAccess("design", designId, "editor");
+      const access = await assertAccess("design", designId, "viewer");
       const design = access.resource as typeof schema.designs.$inferSelect;
+      if (!["owner", "admin", "editor", "commenter"].includes(access.role)) {
+        fail("Comment access is required to suggest visual edits.", {
+          statusCode: 403,
+          errorCode: "visual_edit_comment_access_required",
+        });
+      }
       const now = new Date().toISOString();
       const canEditDesign = ["owner", "admin", "editor"].includes(access.role);
       const canClearOtherPublisher = access.role === "owner";
+      const canReplaceSuggestion = canEditDesign;
+      const previousRows =
+        pending && canReplaceSuggestion
+          ? await tx
+              .select({
+                status: schema.designVisualEditPending.status,
+                publisherId: schema.designVisualEditPending.publisherId,
+                prompt: schema.designVisualEditPending.prompt,
+                authorEmail: schema.designVisualEditPending.authorEmail,
+              })
+              .from(schema.designVisualEditPending)
+              .where(eq(schema.designVisualEditPending.designId, designId))
+              .limit(1)
+          : [];
+      const previous = previousRows.pop();
+      // A commenter cannot change source, so their text must never reach the
+      // owner's coding agent as an instruction; it waits for owner approval.
+      const status = pending
+        ? canEditDesign
+          ? ("ready" as const)
+          : ("suggested" as const)
+        : ("empty" as const);
       const values = {
         designId,
         revision: 1,
         publisherId,
         clientRevision: revision,
         pendingEditCount: pending?.pendingEditCount ?? 0,
-        status: pending?.status ?? ("empty" as const),
+        status,
         prompt: pending?.prompt ?? "",
+        authorEmail: pending ? (getRequestUserEmail() ?? null) : null,
         updatedAt: now,
         visibility: design.visibility,
         ownerEmail: design.ownerEmail,
@@ -75,7 +105,8 @@ export default defineAction({
 
       const samePublisherIsNewer = sql`${schema.designVisualEditPending.publisherId} = excluded.publisher_id AND ${schema.designVisualEditPending.clientRevision} < excluded.client_revision`;
       const fromNewPublisher = sql`${schema.designVisualEditPending.publisherId} IS DISTINCT FROM excluded.publisher_id`;
-      const fromNewPublisherToReady = sql`(${fromNewPublisher} AND ${schema.designVisualEditPending.status} <> 'ready')`;
+      const fromNewPublisherToOpen = sql`(${fromNewPublisher} AND ${schema.designVisualEditPending.status} NOT IN ('ready', 'suggested'))`;
+      const fromNewPublisherToSuggested = sql`(${fromNewPublisher} AND ${schema.designVisualEditPending.status} = 'suggested' AND ${canReplaceSuggestion})`;
       const updated = await tx
         .insert(schema.designVisualEditPending)
         .values(values)
@@ -85,6 +116,7 @@ export default defineAction({
             pendingEditCount: values.pendingEditCount,
             status: values.status,
             prompt: values.prompt,
+            authorEmail: values.authorEmail,
             revision: sql`${schema.designVisualEditPending.revision} + 1`,
             publisherId: values.publisherId,
             clientRevision: values.clientRevision,
@@ -95,23 +127,26 @@ export default defineAction({
           },
           setWhere:
             pending === null
-              ? sql`(${samePublisherIsNewer} OR ${canClearOtherPublisher ? fromNewPublisher : fromNewPublisherToReady})`
-              : sql`(${samePublisherIsNewer} OR ${fromNewPublisherToReady})`,
+              ? sql`(${samePublisherIsNewer} OR ${canClearOtherPublisher ? fromNewPublisher : fromNewPublisherToOpen} OR ${fromNewPublisherToSuggested})`
+              : sql`(${samePublisherIsNewer} OR ${fromNewPublisherToOpen} OR ${fromNewPublisherToSuggested})`,
         })
         .returning({ revision: schema.designVisualEditPending.revision });
 
       if (!updated.length && (pending !== null || !canEditDesign)) {
-        const [current] = await tx
-          .select({
-            status: schema.designVisualEditPending.status,
-            publisherId: schema.designVisualEditPending.publisherId,
-          })
-          .from(schema.designVisualEditPending)
-          .where(eq(schema.designVisualEditPending.designId, designId))
-          .limit(1);
+        const currentRows = previous
+          ? [previous]
+          : await tx
+              .select({
+                status: schema.designVisualEditPending.status,
+                publisherId: schema.designVisualEditPending.publisherId,
+              })
+              .from(schema.designVisualEditPending)
+              .where(eq(schema.designVisualEditPending.designId, designId))
+              .limit(1);
+        const current = currentRows.length > 0 ? currentRows[0] : undefined;
 
         if (
-          current?.status === "ready" &&
+          (current?.status === "ready" || current?.status === "suggested") &&
           current.publisherId !== publisherId
         ) {
           if (pending === null) {
@@ -139,6 +174,16 @@ export default defineAction({
         status: updated.length ? values.status : "stale",
         revision: updated[0]?.revision ?? null,
         updatedAt: updated.length ? now : null,
+        ...(updated.length &&
+        previous?.status === "suggested" &&
+        previous.publisherId !== publisherId
+          ? {
+              supersededSuggestion: {
+                text: previous.prompt,
+                authorEmail: previous.authorEmail,
+              },
+            }
+          : {}),
       };
     });
   },

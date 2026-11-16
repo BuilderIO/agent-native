@@ -473,9 +473,12 @@ async function createSweepHandler(options: AgentChatPluginOptions | null = {}) {
     );
 }
 
+const QUEUED_TEST_APP_ID = "queued-submission-fixture";
+
 async function mountAgentChatRoutes() {
   const h3App = createApp();
   createAgentChatPlugin({
+    appId: QUEUED_TEST_APP_ID,
     actions: () => ({}),
     a2aAgentDelegation: false,
     frameworkTools: "minimal",
@@ -619,7 +622,10 @@ describe("queued submission inbox recurring sweep", () => {
   it("reads queued receipt status only after resolving thread access", async () => {
     const threadId = `thread-${randomUUID()}`;
     const messageId = `queued-${randomUUID()}`;
-    await createThread("user@example.com", { id: threadId });
+    await createThread("user@example.com", {
+      id: threadId,
+      source: { appId: QUEUED_TEST_APP_ID },
+    });
     await mutateThreadQueuedMessages(
       threadId,
       {
@@ -631,6 +637,7 @@ describe("queued submission inbox recurring sweep", () => {
 
     const h3App = createApp();
     createAgentChatPlugin({
+      appId: QUEUED_TEST_APP_ID,
       actions: () => ({}),
       a2aAgentDelegation: false,
       frameworkTools: "minimal",
@@ -653,6 +660,7 @@ describe("queued submission inbox recurring sweep", () => {
     const inaccessibleThreadId = `thread-${randomUUID()}`;
     await createThread("another-user@example.com", {
       id: inaccessibleThreadId,
+      source: { appId: QUEUED_TEST_APP_ID },
     });
     const inaccessibleResponse = await h3App.fetch(
       new Request(receiptPath(inaccessibleThreadId)),
@@ -663,7 +671,10 @@ describe("queued submission inbox recurring sweep", () => {
 
   it("persists approval denial before draining queued submissions", async () => {
     const threadId = `thread-${randomUUID()}`;
-    await createThread("user@example.com", { id: threadId });
+    await createThread("user@example.com", {
+      id: threadId,
+      source: { appId: QUEUED_TEST_APP_ID },
+    });
     const approvalId = await createAgentToolApproval({
       ownerEmail: "user@example.com",
       threadId,
@@ -697,7 +708,10 @@ describe("queued submission inbox recurring sweep", () => {
   it("does not clear a shared editor's card when the approval belongs to another owner", async () => {
     const threadId = `thread-${randomUUID()}`;
     const approvalOwner = "approval-owner@example.com";
-    await createThread(approvalOwner, { id: threadId });
+    await createThread(approvalOwner, {
+      id: threadId,
+      source: { appId: QUEUED_TEST_APP_ID },
+    });
     await grantThreadUserShare(
       threadId,
       "user@example.com",
@@ -743,7 +757,10 @@ describe("queued submission inbox recurring sweep", () => {
     const submittedRunId = `submitted-${randomUUID()}`;
     const incumbentRunId = `incumbent-${randomUUID()}`;
     const actor = { email: "user@example.com", anonymous: false };
-    await createThread(actor.email, { id: threadId });
+    await createThread(actor.email, {
+      id: threadId,
+      source: { appId: QUEUED_TEST_APP_ID },
+    });
     await mutateThreadQueuedMessages(
       threadId,
       {
@@ -777,6 +794,7 @@ describe("queued submission inbox recurring sweep", () => {
 
     const h3App = createApp();
     createAgentChatPlugin({
+      appId: QUEUED_TEST_APP_ID,
       actions: () => ({}),
       a2aAgentDelegation: false,
       frameworkTools: "minimal",
@@ -900,7 +918,10 @@ describe("queued submission inbox recurring sweep", () => {
     const threadId = `thread-${randomUUID()}`;
     const messageId = `queued-${randomUUID()}`;
     const actor = { email: "user@example.com", anonymous: false };
-    await createThread(actor.email, { id: threadId });
+    await createThread(actor.email, {
+      id: threadId,
+      source: { appId: QUEUED_TEST_APP_ID },
+    });
     inboxHarness.claimBusyResponse = true;
     const h3App = await mountAgentChatRoutes();
 

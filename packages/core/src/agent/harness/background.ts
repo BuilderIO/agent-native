@@ -12,6 +12,7 @@ import type {
 } from "../../code-agents/background-run.js";
 import type { ActiveRun } from "../run-manager.js";
 import { abortRunDurably } from "../run-manager.js";
+import { threadMatchesRunApp } from "../run-ownership.js";
 import { getRunEventsSince } from "../run-store.js";
 import type { AgentChatEvent, RunEvent } from "../types.js";
 import {
@@ -30,8 +31,12 @@ import {
   type StoredAgentHarnessSessionEvent,
 } from "./store.js";
 
+export type AgentHarnessBackgroundScope = AgentHarnessOwnerScope & {
+  sourceAppId?: string | null;
+};
+
 export function createAgentHarnessBackgroundAgentController(
-  scope: AgentHarnessOwnerScope = { ownerEmail: null },
+  scope: AgentHarnessBackgroundScope = { ownerEmail: null },
   options: {
     /** Hosts use this to project child output and drain queued thread work. */
     onRunComplete?: (run: ActiveRun) => void | Promise<void>;
@@ -43,6 +48,7 @@ export function createAgentHarnessBackgroundAgentController(
         ...options,
         ownerEmail: scope.ownerEmail,
         orgId: scope.orgId,
+        ...("sourceAppId" in scope ? { sourceAppId: scope.sourceAppId } : {}),
       }),
     get: (runId) => getAgentHarnessBackgroundRun(runId, scope),
     transcript: (runId) =>
@@ -57,14 +63,29 @@ export const agentHarnessBackgroundAgentController =
   createAgentHarnessBackgroundAgentController();
 
 export async function listAgentHarnessBackgroundRuns(
-  options: ListBackgroundAgentRunsOptions & { orgId?: string | null } = {},
+  options: ListBackgroundAgentRunsOptions & {
+    sourceAppId?: string | null;
+  } = {},
 ): Promise<BackgroundAgentRun[]> {
   if (options.goalId && options.goalId !== "agent-harness") return [];
   const sessions = await listAgentHarnessSessions({
     ownerEmail: options.ownerEmail,
     orgId: options.orgId,
+    ...("sourceAppId" in options ? { sourceAppId: options.sourceAppId } : {}),
   });
-  return sessions
+  const scopedSessions = [];
+  for (const session of sessions) {
+    if (
+      await threadMatchesRunApp(
+        session.threadId,
+        "sourceAppId" in options
+          ? { sourceAppId: options.sourceAppId ?? null }
+          : undefined,
+      )
+    )
+      scopedSessions.push(session);
+  }
+  return scopedSessions
     .filter((session) => session.ownerEmail === (options.ownerEmail ?? null))
     .filter(
       (session) =>
@@ -76,10 +97,16 @@ export async function listAgentHarnessBackgroundRuns(
 
 export async function getAgentHarnessBackgroundRun(
   runId: string,
-  options: AgentHarnessOwnerScope = { ownerEmail: null },
+  options: AgentHarnessBackgroundScope = { ownerEmail: null },
 ): Promise<BackgroundAgentRun | null> {
   const session = await getAgentHarnessSessionByRunId(runId);
   if (
+    !(await threadMatchesRunApp(
+      session?.threadId,
+      "sourceAppId" in options
+        ? { sourceAppId: options.sourceAppId ?? null }
+        : undefined,
+    )) ||
     session?.ownerEmail !== options.ownerEmail ||
     (options.orgId !== undefined && session.orgId !== options.orgId)
   ) {
@@ -90,10 +117,16 @@ export async function getAgentHarnessBackgroundRun(
 
 export async function listAgentHarnessBackgroundTranscriptEvents(
   runId: string,
-  options: AgentHarnessOwnerScope = { ownerEmail: null },
+  options: AgentHarnessBackgroundScope = { ownerEmail: null },
 ): Promise<BackgroundAgentTranscriptEvent[]> {
   const session = await getAgentHarnessSessionByRunId(runId);
   if (
+    !(await threadMatchesRunApp(
+      session?.threadId,
+      "sourceAppId" in options
+        ? { sourceAppId: options.sourceAppId ?? null }
+        : undefined,
+    )) ||
     session?.ownerEmail !== options.ownerEmail ||
     (options.orgId !== undefined && session.orgId !== options.orgId)
   ) {
@@ -154,13 +187,19 @@ export async function listAgentHarnessBackgroundTranscriptEvents(
 
 export async function stopAgentHarnessBackgroundRun(
   runId: string,
-  options: { ownerEmail: string | null; orgId?: string | null } = {
+  options: AgentHarnessBackgroundScope = {
     ownerEmail: null,
   },
 ): Promise<BackgroundAgentControlResult> {
   const session = await getAgentHarnessSessionByRunId(runId);
   if (!session) return missingHarnessRunResult(runId);
   if (
+    !(await threadMatchesRunApp(
+      session.threadId,
+      "sourceAppId" in options
+        ? { sourceAppId: options.sourceAppId ?? null }
+        : undefined,
+    )) ||
     session.ownerEmail !== options.ownerEmail ||
     (options.orgId !== undefined && session.orgId !== options.orgId)
   ) {
@@ -471,9 +510,15 @@ function backgroundStatus(
 
 async function sendAgentHarnessBackgroundFollowUp(
   input: BackgroundAgentFollowUpInput,
-  scope: AgentHarnessOwnerScope,
+  scope: AgentHarnessBackgroundScope,
   onRunComplete?: (run: ActiveRun) => void | Promise<void>,
 ): Promise<BackgroundAgentControlResult> {
+  if (
+    "sourceAppId" in scope &&
+    !(await getAgentHarnessBackgroundRun(input.runId, scope))
+  ) {
+    return missingHarnessRunResult(input.runId);
+  }
   const result = await sendAgentHarnessFollowUp({
     runId: input.runId,
     prompt: input.prompt,
@@ -496,7 +541,7 @@ async function sendAgentHarnessBackgroundFollowUp(
 
 async function controlAgentHarnessBackgroundRun(
   input: BackgroundAgentControlInput,
-  scope: AgentHarnessOwnerScope,
+  scope: AgentHarnessBackgroundScope,
 ): Promise<BackgroundAgentControlResult> {
   if (input.command === "stop") {
     return stopAgentHarnessBackgroundRun(input.runId, scope);
@@ -505,6 +550,12 @@ async function controlAgentHarnessBackgroundRun(
     const session = await getAgentHarnessSessionByRunId(input.runId);
     if (
       !session ||
+      !(await threadMatchesRunApp(
+        session.threadId,
+        "sourceAppId" in scope
+          ? { sourceAppId: scope.sourceAppId ?? null }
+          : undefined,
+      )) ||
       session.ownerEmail !== scope.ownerEmail ||
       (scope.orgId !== undefined && session.orgId !== scope.orgId)
     ) {

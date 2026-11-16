@@ -79,12 +79,6 @@ vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
   useFeatureFlagState: () => ({ status: "ready", enabled: true }),
 }));
 
-vi.mock("@agent-native/core/client/use-action", () => ({
-  useActionMutation: () => ({
-    mutateAsync: (...args: unknown[]) => mocks.recordCreditsV2Exposure(...args),
-  }),
-}));
-
 vi.mock("@agent-native/core/client/use-action", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/use-action")

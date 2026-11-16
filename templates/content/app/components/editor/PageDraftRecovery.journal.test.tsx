@@ -44,7 +44,10 @@ const state = vi.hoisted(() => ({
   verify: vi.fn(),
   session: null as null | { email: string; orgId: string },
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  isTerminalActionError: (
+    await importOriginal<typeof import("@agent-native/core/client/hooks")>()
+  ).isTerminalActionError,
   callAction: state.receipt,
   useSession: () => ({ session: state.session }),
 }));
@@ -845,6 +848,102 @@ describe("Page browser journal recovery", () => {
     expect(toast.success).toHaveBeenCalledOnce();
     expect(container.querySelector("textarea")).not.toBeNull();
     expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+
+  describe("a replayed save that fails", () => {
+    const refused = Object.assign(
+      new Error("The editor snapshot is invalid."),
+      {
+        status: 400,
+        errorCode: "INVALID_EDITOR_SNAPSHOT",
+      },
+    );
+    const unavailable = Object.assign(new Error("Service unavailable"), {
+      status: 503,
+    });
+    // Each replay writes the entry again before its save, and the real
+    // journal stamps every write, so a replay that runs again reads it as a
+    // new attempt. Five stamps bound a regression's resend loop.
+    const failSave = (error: Error) => {
+      state.rebase.mockImplementation(
+        ({
+          content,
+          base,
+          persist,
+        }: {
+          content: string;
+          base: unknown;
+          persist: (content: string, base: unknown) => Promise<unknown>;
+        }) => persist(content, base),
+      );
+      state.update.mockImplementation(async () => {
+        if (state.update.mock.calls.length <= 5)
+          for (const item of state.entries) item.writtenAt += 1;
+        throw error;
+      });
+    };
+    const retryButton = () =>
+      [...container.querySelectorAll("button")].find(
+        (button) => button.textContent === "database.retry",
+      );
+
+    it("files a refused replay in History once and opens the page", async () => {
+      state.entries = [entry("closed-tab", "Local")];
+      failSave(refused);
+
+      await act(async () => render());
+
+      expect(state.update).toHaveBeenCalledTimes(1);
+      expect(state.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: "upsert",
+          draft: expect.objectContaining({ content: "Local" }),
+        }),
+      );
+      expect(state.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({ choice: "automatic", documentId: "page" }),
+      );
+      expect(state.entries).toEqual([]);
+      expect(toast.success).toHaveBeenCalledWith(
+        "editor.previewDraftSavedToHistory",
+      );
+      expect(container.querySelector("textarea")).not.toBeNull();
+    });
+
+    it("keeps a refused replay's text locally when History can't take it", async () => {
+      state.entries = [entry("closed-tab", "Local")];
+      failSave(refused);
+      state.upsert.mockRejectedValue(new Error("offline"));
+
+      await act(async () => render());
+
+      expect(state.update).toHaveBeenCalledTimes(1);
+      expect(state.upsert).toHaveBeenCalledTimes(1);
+      expect(state.entries).toEqual([
+        expect.objectContaining({
+          snapshot: expect.objectContaining({ content: "Local" }),
+        }),
+      ]);
+      expect(retryButton()).toBeDefined();
+    });
+
+    it("waits for Retry instead of sending the save again", async () => {
+      state.entries = [entry("closed-tab", "Local")];
+      failSave(unavailable);
+
+      await act(async () => render());
+
+      expect(state.update).toHaveBeenCalledTimes(1);
+      expect(state.upsert).not.toHaveBeenCalled();
+      expect(state.entries).toHaveLength(1);
+      expect(container.querySelector("textarea")).toBeNull();
+
+      await act(async () => retryButton()?.click());
+
+      expect(state.update).toHaveBeenCalledTimes(2);
+      expect(state.entries).toHaveLength(1);
+      expect(retryButton()).toBeDefined();
+    });
   });
 
   it("leaves the mounted editor's journal to its save queue when a save lands", async () => {

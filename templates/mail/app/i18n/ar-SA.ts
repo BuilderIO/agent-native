@@ -472,6 +472,13 @@ const messages = {
       openStorageSettings: "فتح إعدادات التخزين",
       reconnectBuilderStorage: "إعادة ربط Builder.io",
       useOwnStorage: "استخدام مساحة التخزين الخاصة بك",
+      storageBuilderRefusedAskAdmin:
+        "رفض Builder.io اتصال تخزين الملفات الخاص بـ Mail، لذا لم يتم إرفاق الملف. أعد ربط Builder.io أو اطلب من مالك أو مسؤول إعداد التخزين، ثم حاول مرة أخرى.",
+      storageRefusedAskAdmin:
+        "رفضت حاوية التخزين الخاصة بمؤسستك هذا التحميل، لذا لم يتم إرفاق الملف. اطلب من مالك أو مسؤول التحقق من الحاوية ومفاتيحها.",
+      storageNotConfiguredAskAdmin:
+        "لم يتم إعداد تخزين الملفات، لذا لم يتم إرفاق الملف. اربط حسابك الخاص على Builder.io أو اطلب من مالك أو مسؤول إعداد التخزين.",
+      connectBuilderStorage: "ربط Builder.io",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "تم إرسال الرسالة.",
       failedToSaveDraft: "تعذر حفظ المسودة.",

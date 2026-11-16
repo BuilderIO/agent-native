@@ -1401,6 +1401,24 @@ describe("home library", () => {
     ).toBe("home.recent");
   });
 
+  it("preserves a first-paint Templates handoff on the save-template destination", async () => {
+    await act(async () => root.unmount());
+    mocks.queryString = "gettingStarted=save-template";
+    mocks.ownCount = 1;
+    document.documentElement.setAttribute(
+      "data-design-home-library-tab",
+      "templates",
+    );
+    root = createRoot(container);
+
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
+  });
+
   it("preserves a tab choice after the save-template destination query resolves", async () => {
     await act(async () => root.unmount());
     mocks.queryString = "gettingStarted=save-template";

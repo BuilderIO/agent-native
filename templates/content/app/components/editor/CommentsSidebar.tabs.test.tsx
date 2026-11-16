@@ -307,6 +307,9 @@ describe("comments across Blocks field tabs", () => {
       if (child.hasAttribute("data-comments-tab-group")) {
         return `# ${child.textContent}`;
       }
+      if (child.hasAttribute("data-discussion-section")) {
+        return `§ ${child.textContent}`;
+      }
       const card = child.matches("[data-thread-card], [data-suggestion-id]")
         ? child
         : child.querySelector("[data-thread-card], [data-suggestion-id]");
@@ -454,7 +457,7 @@ describe("comments across Blocks field tabs", () => {
     render([thread("body-1", null), thread("body-22", null)], {
       documentProperties: oneField,
     });
-    expect(feed()).toEqual(["body-1", "body-22"]);
+    expect(feed()).toEqual(["§ comments.sectionText", "body-1", "body-22"]);
     await openFilterMenu();
     expect(
       document.querySelector('[data-discussion-filter-group="person"]'),
@@ -491,7 +494,7 @@ describe("comments across Blocks field tabs", () => {
 
     // Until the page's fields are read, nothing is known to be deleted.
     render(threads, { documentProperties: undefined });
-    expect(feed()).toEqual(["body-1", "gone-1"]);
+    expect(feed()).toEqual(["§ comments.sectionText", "body-1", "gone-1"]);
   });
 
   it("starts a new comment in the tab its text is in (CMT-1)", async () => {

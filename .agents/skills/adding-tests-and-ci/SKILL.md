@@ -62,7 +62,11 @@ its junk patterns. This section covers where it lives and what runs it.
   the property instead.
 - **A surviving mutant is a line no test can fail on.** `pnpm mutation:changed`
   runs Stryker on the lines this branch added in `packages/core/src`. CI runs it
-  as `Mutation test changed Core lines`.
+  as `Mutation test changed Core lines`. It runs only specs named `<module>.*`
+  beside the mutated file (`poll.ts` runs `poll.spec.ts` and
+  `poll.settings-scope.spec.ts`, not `poll-settings-scope.spec.ts`; a dash names
+  a different module). A spec with the wrong prefix passes locally but counts as
+  no coverage there.
 - Snapshot output is for reading; reviewers read its diff beside the code diff.
 - Never skip, disable, or quarantine a test to get green.
   `guard:no-oracle-loosening` fails a branch that adds `.skip`/`.only`, test
