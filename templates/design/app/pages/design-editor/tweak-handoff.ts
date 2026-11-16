@@ -14,7 +14,7 @@ export function getTweakHandoffChanges(args: {
   before: TweakSelections;
   after: TweakSelections;
 }): TweakHandoffChange[] {
-  return args.tweaks.flatMap((tweak) => {
+  const declared = args.tweaks.flatMap((tweak) => {
     const oldValue = args.before[tweak.id] ?? tweak.defaultValue;
     const newValue = args.after[tweak.id] ?? tweak.defaultValue;
     if (Object.is(oldValue, newValue)) return [];
@@ -28,6 +28,16 @@ export function getTweakHandoffChanges(args: {
       },
     ];
   });
+  const declaredVars = new Set(
+    args.tweaks.flatMap((tweak) => (tweak.cssVar ? [tweak.cssVar] : [])),
+  );
+  const direct = Object.entries(args.after).flatMap(([cssVar, newValue]) => {
+    if (!cssVar.startsWith("--") || declaredVars.has(cssVar)) return [];
+    const oldValue = args.before[cssVar];
+    if (oldValue === undefined || Object.is(oldValue, newValue)) return [];
+    return [{ id: cssVar, label: cssVar, oldValue, newValue, cssVar }];
+  });
+  return [...declared, ...direct];
 }
 
 export function formatTweakHandoffPrompt(args: {

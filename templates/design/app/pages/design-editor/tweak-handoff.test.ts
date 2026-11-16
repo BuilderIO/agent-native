@@ -56,4 +56,22 @@ describe("remix tweak handoff", () => {
       }),
     ).toEqual([]);
   });
+
+  it("includes direct CSS variable selections in the handoff delta", () => {
+    expect(
+      getTweakHandoffChanges({
+        tweaks: [],
+        before: { "--brand-color": "red" },
+        after: { "--brand-color": "blue" },
+      }),
+    ).toEqual([
+      {
+        id: "--brand-color",
+        label: "--brand-color",
+        oldValue: "red",
+        newValue: "blue",
+        cssVar: "--brand-color",
+      },
+    ]);
+  });
 });
