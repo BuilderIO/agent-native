@@ -494,6 +494,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "Suche läuft...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Gestern",
+  "history.today": "Heute",
+  "commandMenu.systemGroup": "Anwendung",
+  "share.alreadyInvited": "Bereits eingeladen",
+  "share.notInvitedToPage": "Nicht zur Seite eingeladen",
   "history.mine": "Meine Chats",
   "history.sharedWithYou": "Mit dir geteilt",
   "history.showAll": "Alle anzeigen",
@@ -1453,7 +1457,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "Der Modellanbieter hat diesen Anhang wegen seines Formats oder seiner Größe abgelehnt. Exportieren Sie Bilder als kleinere PNG-, JPEG-, GIF- oder WebP-Datei; verwenden Sie für Dokumente ein unterstütztes Dateiformat oder fügen Sie den relevanten Text ein und hängen Sie ihn erneut an.",
   "errorMessages.noProviderConnected":
-    "Es ist kein LLM-Anbieter verbunden. Öffne Einstellungen > Agent > KI-Anbieter und nutze dann Builder.io (kostenloser Tarif verfügbar) oder füge einen Anbieterschlüssel hinzu.",
+    "Es ist kein LLM-Anbieter verbunden. Öffne Einstellungen > Agent > KI-Anbieter und verbinde dann Builder.io oder füge einen Anbieterschlüssel hinzu.",
   "errorMessages.openBuilderSpaceSettings":
     "Builder-Space-Einstellungen öffnen",
   "errorMessages.providerAuthentication":
@@ -2337,6 +2341,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "Passwort aktualisiert",
   "settingsShell.account.photoError": "Foto konnte nicht aktualisiert werden.",
   "settingsShell.account.photoUpdated": "Foto aktualisiert",
+  "settingsShell.account.photoRemoved": "Foto entfernt",
+  "settingsShell.account.removePhoto": "Foto entfernen",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "E-Mail-Versand ist hier nicht eingerichtet",
   "settingsShell.account.profilePhoto": "Profilfoto",
   "settingsShell.account.requestCopyDescription":
     "Ein Administrator prüft deine Identität und meldet sich bei dir.",
@@ -3599,7 +3607,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "Antwort fehlgeschlagen",
   "message.waitingForApproval": "Wartet auf Freigabe",
   "message.waitingForInput": "Wartet auf Eingabe",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}} fehlgeschlagen",
+  "message.workSummaryFailedCount":
+    "{{summary}}, fehlgeschlagene Versuche: {{count}}",
   "message.taskStatusPending": "Ausstehend",
   "message.taskStatusRunning": "Läuft",
   "message.taskStatusCompleted": "Erledigt",

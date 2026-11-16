@@ -128,6 +128,8 @@ const page: { current: HTMLDivElement | null } = { current: null };
 let onSelectedThreadChange: ((threadId: string | null) => void) | undefined;
 // Asks the panel for a new comment on the whole page, as a row's Comment does.
 let pageComment: { focus: boolean; onFocused?: () => void } = { focus: false };
+// Hears Discussion's Show.
+let showSubject: ((thread: CommentThread) => void) | undefined;
 
 function Owner({
   presentation,
@@ -155,6 +157,7 @@ function Owner({
       scrollContainerRef={page}
       focusPageComposer={pageComment.focus}
       onPageComposerFocused={pageComment.onFocused}
+      onShowThreadSubject={showSubject}
     />
   );
 }
@@ -181,6 +184,7 @@ describe("the Discussion panel", () => {
     threads = fixtureThreads;
     onSelectedThreadChange = undefined;
     pageComment = { focus: false };
+    showSubject = undefined;
     queryClient.clear();
     window.localStorage.clear();
   });
@@ -543,6 +547,36 @@ describe("the Discussion panel", () => {
     }
   });
 
+  it("brings a page comment into view once it draws after posting", async () => {
+    actions.create.mockResolvedValue({ id: "created", threadId: "created" });
+    const scroll = vi
+      .spyOn(HTMLElement.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    render();
+    const composer = container.querySelector<HTMLElement>(
+      "[data-discussion-composer]",
+    );
+    const editor = composer ? richEditor(composer) : null;
+    if (!composer || !editor) throw new Error("No page composer");
+    await setRichEditorValue(editor, "Down at the foot");
+    await act(async () =>
+      composer
+        .querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')
+        ?.click(),
+    );
+    threads = [...fixtureThreads, thread("created", null)];
+    try {
+      render();
+      expect(scroll.mock.contexts).toEqual([card("created")]);
+      // Once is enough: drawing again leaves the reader where they scrolled.
+      render();
+      expect(scroll).toHaveBeenCalledTimes(1);
+    } finally {
+      threads = fixtureThreads;
+      scroll.mockRestore();
+    }
+  });
+
   it("keeps a comment whose save wasn't confirmed in view under any filter, and once it's confirmed", async () => {
     const unconfirmed = thread("optimistic-operation-1", null);
     unconfirmed.comments[0].mutation = {
@@ -756,5 +790,79 @@ describe("the Discussion panel", () => {
     render();
     await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
     expect(unavailable("text-1")).not.toBeNull();
+  });
+
+  it("puts the page composer above the threads, filed under where each points", () => {
+    render();
+    const composer = container.querySelector("[data-discussion-composer]");
+    const feed = container.querySelector("[data-comments-feed]");
+    if (!composer || !feed) throw new Error("Discussion didn't render");
+    expect(
+      composer.compareDocumentPosition(feed) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      [...container.querySelectorAll("[data-discussion-section]")].map(
+        (heading) => heading.getAttribute("data-discussion-section"),
+      ),
+    ).toEqual(["text", "page"]);
+  });
+
+  it("shows a placed thread's text from its Show, without opening a reply", async () => {
+    showSubject = vi.fn();
+    page.current = document.createElement("div");
+    page.current.innerHTML =
+      '<div class="ProseMirror"><p><span data-comment-thread="text-1">Quoted line</span></p></div>';
+    document.body.append(page.current);
+    render();
+    await nextFrame();
+    const show = container.querySelector<HTMLButtonElement>(
+      '[data-thread-card="text-1"] [data-discussion-subject="text"]',
+    );
+    expect(show?.tagName).toBe("BUTTON");
+    expect(show?.getAttribute("aria-label")).toBe("comments.showQuoteOnPage");
+    expect(show?.querySelector("[data-comment-quote]")?.textContent).toBe(
+      "Quoted line",
+    );
+    await act(async () => show?.click());
+    expect(showSubject).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: "text-1" }),
+    );
+    expect(container.querySelector("[data-comment-reply-composer]")).toBeNull();
+  });
+
+  it("quotes text the page hasn't placed, with no Show", async () => {
+    showSubject = vi.fn();
+    render();
+    await nextFrame();
+    const subject = container.querySelector(
+      '[data-thread-card="text-1"] [data-discussion-subject]',
+    );
+    expect(subject?.tagName).toBe("DIV");
+    expect(subject?.textContent).toBe("Quoted line");
+  });
+
+  it("closes a saved reply's box and hands focus to the thread's Reply", async () => {
+    actions.create.mockResolvedValue({ id: "reply-1" });
+    render();
+    await click('[data-thread-card="text-1"] [data-comment-reply-action]');
+    const box = () =>
+      container.querySelector<HTMLElement>("[data-comment-reply-composer]");
+    const opened = box();
+    const editor = opened ? richEditor(opened) : null;
+    if (!editor) throw new Error("The reply box didn't open");
+    await setRichEditorValue(editor, "Agreed");
+    await act(async () =>
+      box()
+        ?.querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')
+        ?.click(),
+    );
+    expect(actions.create).toHaveBeenCalledOnce();
+    expect(box()).toBeNull();
+    await nextFrame();
+    expect(document.activeElement).toBe(
+      container.querySelector(
+        '[data-thread-card="text-1"] [data-comment-reply-action]',
+      ),
+    );
   });
 });

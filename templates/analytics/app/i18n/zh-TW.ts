@@ -1386,6 +1386,8 @@ export default {
     resetFilters: "重設篩選器",
     collapseFilters: "折疊過濾器",
     expandFilters: "展開過濾器",
+    collapseDescription: "折疊說明",
+    expandDescription: "展開說明",
     drilldownChartPoints: "圖表資料點",
     drilldownPreviousPage: "上一頁圖表資料點",
     drilldownNextPage: "下一頁圖表資料點",

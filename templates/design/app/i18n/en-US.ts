@@ -969,6 +969,37 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Share live preview",
+      instructions:
+        "Paste a public HTTPS preview URL for your app, such as an ngrok or cloudflared tunnel. Your machine keeps loading localhost; others can view the public preview or suggest edits on the published snapshot.",
+      tunnelUrl: "Public preview URL",
+      enableCollaboration:
+        "Enable live collaboration for everyone with design access",
+      save: "Save",
+      unavailable: "Live preview unavailable — showing snapshot",
+      live: "Live preview",
+      openLive: "Open live preview on {{hostname}}",
+      suggest: "Suggest on snapshot",
+      localOnly: "Live preview only on the owner’s machine",
+    },
+    referenceCopy: {
+      staticNotice: "JavaScript is disabled; dynamic content may be missing.",
+      captureAction: "Capture static snapshot",
+      capturePrompt:
+        "Capture a screenshot and DOM snapshot of this public reference URL and add them as a static reference screen on this design canvas. Keep it labelled as a snapshot, not a live page.",
+      unavailable: "This page may block framing or failed to load.",
+      load: "Load reference copy",
+      label: "Reference copy · public page, read only",
+      noBridge: "Connect a local bridge to load a public reference copy.",
+      snapshot: "Use published snapshot",
+      capture: "Ask your agent to capture a screenshot and DOM snapshot.",
+      failed:
+        "Reference copy failed. Capture a screenshot and DOM snapshot instead.",
+      loading: "Loading reference copy…",
+      original: "Try original page",
+    },
+
     sourceLoadFailed: "Could not load this screen.",
     selectionPublishFailed:
       "The agent may not see your latest selection. Select it again.",
@@ -1022,6 +1053,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Select layer",
+      layerKinds: {
+        webgl: "Canvas · WebGL",
+        canvas: "Canvas",
+        video: "Video",
+        image: "Image",
+        svg: "SVG",
+        embed: "Embed",
+        background: "Background",
+        effect: "Effect",
+      },
       goToMain: "Go to main component",
       restore: "Restore component",
       swap: "Swap instance",
@@ -2044,6 +2085,7 @@ export default {
       applyAria: "Apply design updates",
       applyButton: "Apply styles",
       applySharedEdits: "Apply edits",
+      reviewSuggestion: "Review suggestion",
       previewLabel: "Pending visual preview",
       applyDesignUpdates: "Apply design update",
       applying: "Applying…",
@@ -2147,6 +2189,9 @@ export default {
       annotationSendError:
         "Could not send annotations. Your drawing is still here—try again.",
       codingHandoffError: "Could not create agent handoff",
+      unknownCollaborator: "a collaborator",
+      supersededVisualEditSuggestion:
+        "A previous suggestion from {{authorEmail}} was replaced. Original text: {{text}}",
       visualEditPendingConflict:
         "Another collaborator has edits waiting. Apply or clear them before sending new edits.",
       codingHandoffCopied: "Agent prompt copied",
@@ -3328,6 +3373,18 @@ export default {
     addEmoji: "Add emoji",
     mention: "Mention someone",
     noMentions: "No people found",
+    format: {
+      toolbar: "Formatting",
+      bold: "Bold",
+      italic: "Italic",
+      strike: "Strikethrough",
+      code: "Code",
+      link: "Link",
+      linkField: "Link address",
+      linkPlaceholder: "Paste a link",
+      applyLink: "Apply link",
+      removeLink: "Remove link",
+    },
     mentionsFailed: "Couldn't load people",
     reopen: "Reopen",
     reopening: "Reopening…",

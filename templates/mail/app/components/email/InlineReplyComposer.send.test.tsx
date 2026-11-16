@@ -36,6 +36,9 @@ vi.mock("@/components/ui/tooltip", () => ({
 vi.mock("@/hooks/use-aliases", () => ({
   useAliases: () => ({ data: [] }),
 }));
+vi.mock("@/hooks/use-can-manage-storage", () => ({
+  useCanManageStorage: () => true,
+}));
 vi.mock("@/hooks/use-emails", () => ({
   useAddOptimisticReply: () => vi.fn(),
   useArchiveEmail: () => ({ mutate: mockArchiveEmail }),

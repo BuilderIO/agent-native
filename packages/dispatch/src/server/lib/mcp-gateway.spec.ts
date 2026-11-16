@@ -1,5 +1,9 @@
 import { createHmac } from "node:crypto";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "@agent-native/core/app-config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -170,6 +174,7 @@ function withSignedMutationReceipts(
 }
 
 beforeEach(() => {
+  resetAppConfigForTests();
   mocks.a2aConstructor.mockReset();
   mocks.a2aSend.mockReset();
   mocks.a2aGetTask.mockReset();
@@ -215,6 +220,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetAppConfigForTests();
   vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.clearAllMocks();
@@ -403,6 +409,7 @@ describe("Dispatch MCP gateway app discovery", () => {
       runWithRequestContext(
         {
           userEmail: "owner@example.test",
+          identityAuthenticatedAtMs: Date.now() - 1000,
           requestOrigin: "https://beta.dispatch.agent-native.com",
         },
         () =>
@@ -1976,12 +1983,23 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         },
       ]);
       mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
-      mocks.managerCallTool.mockResolvedValue({
-        structuredContent: {
-          startUrl:
-            "https://beta.agent-workspace.builder.io/customer-ticket-triage/_agent-native/embed/start?ticket=remote",
-        },
-      });
+      mocks.managerCallTool.mockImplementation(async (_tool, args) =>
+        args.runtime
+          ? {
+              structuredContent: {
+                runtime: "workspace-app-chat",
+                token: "private-chat-credential",
+                targetPath: "/",
+                expiresAt: Date.now() + 900000,
+              },
+            }
+          : {
+              structuredContent: {
+                startUrl:
+                  "https://beta.agent-workspace.builder.io/customer-ticket-triage/_agent-native/embed/start?ticket=remote",
+              },
+            },
+      );
 
       const result = await runWithRequestContext(
         {
@@ -2037,6 +2055,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       const chatSession = await runWithRequestContext(
         {
           userEmail: "owner@example.test",
+          identityAuthenticatedAtMs: Date.now() - 1000,
           requestOrigin: "https://beta.agent-workspace.builder.io",
         },
         () =>
@@ -2052,7 +2071,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     },
   );
 
-  it("uses a mounted Workspace app path for embedded chat when its registry URL is a Dispatch page", async () => {
+  it("keeps mounted document and explicit chat grants separate when the registry URL is a Dispatch page", async () => {
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
     vi.stubEnv(
       "WORKSPACE_GATEWAY_URL",
@@ -2083,16 +2102,51 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         isDispatch: false,
       },
     ]);
-    mocks.managerCallTool.mockResolvedValue({
-      structuredContent: {
-        startUrl:
-          "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+    mocks.managerCallTool.mockImplementation(async (_tool, args) =>
+      args.runtime
+        ? {
+            structuredContent: {
+              runtime: "workspace-app-chat",
+              token: "private-chat-credential",
+              targetPath: "/",
+              expiresAt: Date.now() + 900000,
+            },
+          }
+        : {
+            structuredContent: {
+              startUrl:
+                "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+            },
+          },
+    );
+
+    // Independent auth review: retain the document assertion, then pin the
+    // separate chat caller's explicit purpose. Public inputs cannot escalate it.
+    await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
       },
-    });
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "customer-ticket-triage",
+          path: "/",
+          chrome: "minimal",
+          runtime: "workspace-app-chat",
+        } as any),
+    );
+    expect(mocks.managerCallTool).toHaveBeenCalledWith(
+      "mcp__target__create_embed_session",
+      {
+        url: "https://beta.agent-workspace.builder.io/customer-ticket-triage/",
+        chrome: "minimal",
+      },
+    );
 
     const session = await runWithRequestContext(
       {
         userEmail: "owner@example.test",
+        identityAuthenticatedAtMs: Date.now() - 1000,
         requestOrigin: "https://beta.dispatch.agent-native.com",
       },
       () =>
@@ -2119,16 +2173,31 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         preferGlobalSecret: true,
       }),
     );
-    expect(mocks.managerCallTool).toHaveBeenCalledWith(
+
+    expect(mocks.managerCallTool).toHaveBeenLastCalledWith(
       "mcp__target__create_embed_session",
       {
         url: "https://beta.agent-workspace.builder.io/customer-ticket-triage/",
         chrome: "minimal",
+        runtime: "workspace-app-chat",
       },
     );
+    expect(mocks.signA2AToken).toHaveBeenLastCalledWith(
+      "owner@example.test",
+      undefined,
+      undefined,
+      expect.objectContaining({
+        extraClaims: expect.objectContaining({
+          org_id: null,
+          agent_native_workspace_app_chat: true,
+          agent_native_chat_grant_issued_at_ms: expect.any(Number),
+        }),
+      }),
+    );
     expect(session).toEqual({
-      startUrl:
-        "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+      token: "private-chat-credential",
+      targetPath: "/",
+      expiresAt: expect.any(Number),
       appBaseUrl:
         "https://beta.agent-workspace.builder.io/customer-ticket-triage",
     });
@@ -2182,12 +2251,23 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         color: "#14B8A6",
       })),
     );
-    mocks.managerCallTool.mockResolvedValue({
-      structuredContent: {
-        startUrl:
-          "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
-      },
-    });
+    mocks.managerCallTool.mockImplementation(async (_tool, args) =>
+      args.runtime
+        ? {
+            structuredContent: {
+              runtime: "workspace-app-chat",
+              token: "private-chat-credential",
+              targetPath: "/",
+              expiresAt: Date.now() + 900000,
+            },
+          }
+        : {
+            structuredContent: {
+              startUrl:
+                "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+            },
+          },
+    );
 
     const apps = await runWithRequestContext(
       {
@@ -2207,6 +2287,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     const session = await runWithRequestContext(
       {
         userEmail: "owner@example.test",
+        identityAuthenticatedAtMs: Date.now() - 1000,
         requestOrigin: "https://beta.dispatch.agent-native.com",
       },
       () =>
@@ -2403,16 +2484,28 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
           color: "#14B8A6",
         },
       ]);
-      mocks.managerCallTool.mockResolvedValue({
-        structuredContent: {
-          startUrl:
-            "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
-        },
-      });
+      mocks.managerCallTool.mockImplementation(async (_tool, args) =>
+        args.runtime
+          ? {
+              structuredContent: {
+                runtime: "workspace-app-chat",
+                token: "private-chat-credential",
+                targetPath: "/",
+                expiresAt: Date.now() + 900000,
+              },
+            }
+          : {
+              structuredContent: {
+                startUrl:
+                  "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+              },
+            },
+      );
 
       const result = await runWithRequestContext(
         {
           userEmail: "owner@example.test",
+          identityAuthenticatedAtMs: Date.now() - 1000,
           requestOrigin: "https://beta.dispatch.agent-native.com",
         },
         () =>
@@ -2426,8 +2519,9 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       );
 
       expect(result).toEqual({
-        startUrl:
-          "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+        token: "private-chat-credential",
+        targetPath: "/",
+        expiresAt: expect.any(Number),
         appBaseUrl: "https://beta.agent-workspace.builder.io/dispatch",
       });
     },
@@ -3339,4 +3433,157 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
     expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
   });
+});
+
+it("accepts chat credentials only over the private MCP handoff and signs dedicated first-party authority", async () => {
+  vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+  mocks.discoverAgents.mockResolvedValue([
+    { ...analyticsAgent, url: "https://analytics.agent-native.com" },
+  ]);
+  mocks.managerCallTool.mockResolvedValue({
+    structuredContent: {
+      runtime: "workspace-app-chat",
+      token: "private-chat-credential",
+      targetPath: "/",
+      expiresAt: Date.now() + 900000,
+    },
+  });
+  const anchor = Date.now() - 1000;
+  const result = await runWithRequestContext(
+    {
+      userEmail: "owner@example.test",
+      requestOrigin: "https://dispatch.agent-native.com",
+      identityAuthenticatedAtMs: anchor,
+    },
+    () => createWorkspaceSsoEmbedSessionForWorkspaceAppChat("analytics"),
+  );
+  expect(result).toMatchObject({
+    token: "private-chat-credential",
+    appBaseUrl: "https://analytics.agent-native.com",
+  });
+  expect(result).not.toHaveProperty("startUrl");
+  expect(mocks.signA2AToken).toHaveBeenCalledWith(
+    "owner@example.test",
+    undefined,
+    undefined,
+    expect.objectContaining({
+      extraClaims: expect.objectContaining({
+        agent_native_first_party_mcp: true,
+        agent_native_workspace_app_chat: true,
+        agent_native_chat_grant_issued_at_ms: anchor,
+      }),
+    }),
+  );
+});
+
+it.each([
+  ["missing deployment credential", "", undefined],
+  ["rejected deployment credential", "test-a2a-secret", 401],
+] as const)(
+  "never downgrades chat authority to an organization-member token: %s",
+  async (_name, deploymentSecret, status) => {
+    vi.stubEnv("A2A_SECRET", deploymentSecret);
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "https://analytics.agent-native.com" },
+    ]);
+    mocks.getOrgDomain.mockResolvedValue("example.test");
+    mocks.getOrgA2ASecret.mockResolvedValue("organization-test-secret");
+    mocks.managerGetConnectErrorStatus.mockReturnValue(status);
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-one",
+          requestOrigin: "https://dispatch.agent-native.com",
+          identityAuthenticatedAtMs: Date.now() - 1000,
+        },
+        () => createWorkspaceSsoEmbedSessionForWorkspaceAppChat("analytics"),
+      ),
+    ).rejects.toThrow();
+    expect(mocks.getOrgA2ASecret).not.toHaveBeenCalled();
+    expect(mocks.signA2AOrgMemberDelegationToken).not.toHaveBeenCalled();
+  },
+);
+
+it("refuses private chat credentials on the public browser document wrapper", async () => {
+  vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+  mocks.discoverAgents.mockResolvedValue([
+    { ...analyticsAgent, url: "https://analytics.agent-native.com" },
+  ]);
+  mocks.managerCallTool.mockResolvedValue({
+    structuredContent: {
+      runtime: "workspace-app-chat",
+      token: "private-chat-credential",
+      targetPath: "/",
+      expiresAt: Date.now() + 900000,
+    },
+  });
+  await expect(
+    runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://dispatch.agent-native.com",
+        identityAuthenticatedAtMs: Date.now() - 1000,
+      },
+      () => createWorkspaceSsoEmbedSession({ app: "analytics", path: "/" }),
+    ),
+  ).rejects.toThrow("embed start URL");
+});
+
+it("resolves both document and chat trust from the application config layer ahead of env", async () => {
+  vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+  vi.stubEnv("IDENTITY_SSO_APP_REGISTRY_JSON", "[]");
+  // The app layer has precedence over the environment; both runtime paths must honor it.
+  defineAppConfig({
+    auth: {
+      identitySsoAppRegistryJson: JSON.stringify([
+        {
+          appId: "workspace",
+          clientId: "workspace-client",
+          origin: "https://workspace.example.com",
+          callbackPath: "/_agent-native/identity/callback",
+          capabilities: ["identity-sso"],
+        },
+      ]),
+    },
+  } as Parameters<typeof defineAppConfig>[0]);
+  mocks.discoverAgents.mockResolvedValue([
+    {
+      ...analyticsAgent,
+      id: "workspace",
+      name: "Workspace",
+      url: "https://workspace.example.com",
+    },
+  ]);
+  mocks.managerCallTool.mockResolvedValueOnce({
+    structuredContent: {
+      startUrl:
+        "https://workspace.example.com/_agent-native/embed/start?ticket=remote",
+    },
+  });
+  const context = {
+    userEmail: "owner@example.test",
+    requestOrigin: "https://dispatch.agent-native.com",
+    identityAuthenticatedAtMs: Date.now() - 1000,
+  };
+  const document = await runWithRequestContext(context, () =>
+    createWorkspaceSsoEmbedSession({ app: "workspace", path: "/" }),
+  );
+  expect(document.startUrl).toContain("https://workspace.example.com/");
+  mocks.managerCallTool.mockResolvedValueOnce({
+    structuredContent: {
+      runtime: "workspace-app-chat",
+      token: "private-chat-credential",
+      targetPath: "/",
+      expiresAt: Date.now() + 900000,
+    },
+  });
+  const chat = await runWithRequestContext(context, () =>
+    createWorkspaceSsoEmbedSessionForWorkspaceAppChat("workspace"),
+  );
+  expect(chat).toMatchObject({
+    token: "private-chat-credential",
+    appBaseUrl: "https://workspace.example.com",
+  });
+  expect(chat).not.toHaveProperty("startUrl");
 });

@@ -295,9 +295,19 @@ export function runMigrations(
       }
       if (migrations.length === 0) return;
 
+      // Steps run in array order, so an array declared newest-first applies the newest step first and
+      // lets an older one run last - content-app's property-type CHECK was re-narrowed exactly that way
+      // after its widenings. Order every store by version, keeping declaration order for equal
+      // versions (Array.prototype.sort is stable), so the result never depends on how a file is laid out.
+      const orderedMigrations = [...migrations].sort(
+        (a, b) => a.version - b.version,
+      );
+
       let current = -1;
       let namedRowsMissing = false;
-      const hasNamedMigrations = migrations.some((migration) => migration.name);
+      const hasNamedMigrations = orderedMigrations.some(
+        (migration) => migration.name,
+      );
       let appliedNames = new Set<string>();
 
       try {
@@ -320,7 +330,7 @@ export function runMigrations(
         }
       }
 
-      const pendingFast = migrations.filter((migration) =>
+      const pendingFast = orderedMigrations.filter((migration) =>
         migration.name
           ? !appliedNames.has(migration.name)
           : migration.version > current,
@@ -368,7 +378,7 @@ export function runMigrations(
         const insertNamedSql = `INSERT INTO ${namedTable} (name, version) VALUES (?, ?) ON CONFLICT DO NOTHING`;
         const pending = runOnlyPending
           ? pendingFast
-          : migrations.filter((migration) =>
+          : orderedMigrations.filter((migration) =>
               migration.name
                 ? !appliedNames.has(migration.name)
                 : migration.version > current,

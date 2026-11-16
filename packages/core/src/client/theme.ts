@@ -112,7 +112,15 @@ export function getThemeInitScript(
   const themeFamilyConfig = injectedAgentNativeConfig().themeFamily;
 
   const themeScript = `${getThemeFamilyInitScript(themeFamilyAppId, themeFamilyConfig)}\n(function(){function m(){var d={};return{get length(){return Object.keys(d).length},key:function(i){return Object.keys(d)[i]||null},getItem:function(k){k=String(k);return Object.prototype.hasOwnProperty.call(d,k)?d[k]:null},setItem:function(k,v){d[String(k)]=String(v)},removeItem:function(k){delete d[k]},clear:function(){d={}}}}function s(n){try{var x=window[n],p='__an_storage_probe__';x.setItem(p,'1');x.removeItem(p)}catch(e){try{Object.defineProperty(window,n,{configurable:true,value:m()})}catch(_){}}}s('localStorage');s('sessionStorage');try{var defaultTheme=${JSON.stringify(safeDefaultTheme)};var enableSystem=${systemEnabled};var stored=window.localStorage.getItem('theme');var valid=stored==='light'||stored==='dark'||stored==='system'||stored==='auto';var mode=valid?stored:defaultTheme;if(mode==='auto')mode='system';if(!enableSystem&&mode==='system')mode=defaultTheme==='system'?'light':defaultTheme;if(!valid){window.localStorage.removeItem('theme')}else if(stored!==mode){window.localStorage.setItem('theme',mode)}var prefersDark=enableSystem&&mode==='system'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='system'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);root.setAttribute('data-theme',resolved);root.style.colorScheme=resolved;var appearance=window.localStorage.getItem('appearance');var appearanceValid=appearance==='warm'||appearance==='ocean'||appearance==='forest'||appearance==='rose'||appearance==='slate';if(appearanceValid){root.setAttribute('data-appearance',appearance)}else{root.removeAttribute('data-appearance');if(appearance!==null)window.localStorage.removeItem('appearance')}}catch(e){document.documentElement.setAttribute('data-theme-status','unreadable')}})();`;
-  if (!shouldInlineViteDevRecoveryScript()) return themeScript;
+  // Keep this a direct `import.meta.env?.DEV` read (no alias): only then can the
+  // bundler fold it and drop the dev recovery script from production client
+  // bundles. `env` is optional because the production SSR build loads core
+  // unbundled, where `import.meta.env` is undefined and `.DEV` would throw.
+  if (
+    !(import.meta as { env?: { DEV?: boolean } }).env?.DEV ||
+    !shouldInlineViteDevRecoveryScript()
+  )
+    return themeScript;
   return `${themeScript}\n${getViteDevRecoveryScript()}`;
 }
 

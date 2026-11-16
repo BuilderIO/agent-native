@@ -1052,6 +1052,37 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Partager l’aperçu en direct",
+      instructions:
+        "Collez une URL HTTPS publique d’aperçu pour votre application, par exemple un tunnel ngrok ou cloudflared. Votre machine conserve localhost ; les autres peuvent voir l’aperçu public ou suggérer des modifications sur la capture publiée.",
+      tunnelUrl: "URL publique d’aperçu",
+      enableCollaboration:
+        "Activer la collaboration en direct pour toutes les personnes ayant accès au design",
+      save: "Enregistrer",
+      unavailable: "Aperçu en direct indisponible — instantané affiché",
+      live: "Aperçu en direct",
+      openLive: "Ouvrir l’aperçu en direct sur {{hostname}}",
+      suggest: "Suggérer sur la capture",
+      localOnly: "Aperçu en direct uniquement sur la machine du propriétaire",
+    },
+    referenceCopy: {
+      staticNotice:
+        "JavaScript est désactivé ; le contenu dynamique peut manquer.",
+      captureAction: "Capturer une image statique",
+      capturePrompt:
+        "Capturez l’écran et le DOM de cette URL de référence publique et ajoutez-les comme écran de référence statique à ce canevas. Indiquez qu’il s’agit d’une capture, pas d’une page en direct.",
+      unavailable: "Cette page peut bloquer les cadres ou ne pas avoir chargé.",
+      load: "Charger une copie de référence",
+      label: "Copie de référence · page publique, lecture seule",
+      noBridge: "Connectez un pont local pour charger une copie publique.",
+      snapshot: "Utiliser la capture publiée",
+      capture: "Demandez à l’agent une capture d’écran et du DOM.",
+      failed: "Échec de la copie. Capturez l’écran et le DOM.",
+      loading: "Chargement de la copie de référence…",
+      original: "Essayer la page originale",
+    },
+
     sourceLoadFailed: "Impossible de charger cet écran.",
     selectionPublishFailed:
       "L'agent ne verra peut-être pas votre dernière sélection. Sélectionnez-la à nouveau.",
@@ -1103,6 +1134,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Sélectionner un calque",
+      layerKinds: {
+        webgl: "Canevas · WebGL",
+        canvas: "Canevas",
+        video: "Vidéo",
+        image: "Image",
+        svg: "Graphique SVG",
+        embed: "Intégration",
+        background: "Arrière-plan",
+        effect: "Effet",
+      },
       goToMain: "Accéder au composant principal",
       restore: "Restaurer le composant",
       swap: "Permuter l’instance",
@@ -2136,6 +2177,7 @@ export default {
       applyAria: "Appliquer les modifications visuelles de style en attente",
       applyButton: "Appliquer les styles",
       applySharedEdits: "Appliquer les modifications",
+      reviewSuggestion: "Examiner la suggestion",
       previewLabel: "Aperçu visuel en attente",
       applyDesignUpdates: "Appliquer les mises à jour du design",
       applying: "Application…",
@@ -2241,6 +2283,9 @@ export default {
       annotationSendError:
         "Impossible d’envoyer les annotations. Votre dessin est toujours là ; réessayez.",
       codingHandoffError: "Impossible de créer le transfert de code",
+      unknownCollaborator: "un collaborateur",
+      supersededVisualEditSuggestion:
+        "Une suggestion précédente de {{authorEmail}} a été remplacée. Texte d’origine : {{text}}",
       visualEditPendingConflict:
         "Un autre collaborateur a des modifications en attente. Appliquez-les ou effacez-les avant d’en envoyer de nouvelles.",
       codingHandoffCopied: "Transfert de code copié",
@@ -3459,6 +3504,18 @@ export default {
     addEmoji: "Ajouter un emoji",
     mention: "Mentionner quelqu’un",
     noMentions: "Aucune personne trouvée",
+    format: {
+      toolbar: "Mise en forme",
+      bold: "Gras",
+      italic: "Italique",
+      strike: "Barré",
+      code: "Code en ligne",
+      link: "Lien",
+      linkField: "Adresse du lien",
+      linkPlaceholder: "Collez un lien",
+      applyLink: "Appliquer le lien",
+      removeLink: "Supprimer le lien",
+    },
     mentionsFailed: "Impossible de charger les personnes",
     reopen: "Rouvrir",
     reopening: "Réouverture…",

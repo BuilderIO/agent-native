@@ -1035,6 +1035,36 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "लाइव प्रीव्यू साझा करें",
+      instructions:
+        "अपने ऐप के लिए सार्वजनिक HTTPS प्रीव्यू URL पेस्ट करें, जैसे ngrok या cloudflared टनल। आपकी मशीन localhost लोड करती रहेगी; दूसरे सार्वजनिक प्रीव्यू देख सकते हैं या प्रकाशित स्नैपशॉट में बदलाव सुझा सकते हैं।",
+      tunnelUrl: "सार्वजनिक प्रीव्यू URL",
+      enableCollaboration:
+        "डिज़ाइन का एक्सेस रखने वाले सभी लोगों के लिए लाइव सहयोग चालू करें",
+      save: "सहेजें",
+      unavailable: "लाइव प्रीव्यू उपलब्ध नहीं है — स्नैपशॉट दिखाया जा रहा है",
+      live: "लाइव प्रीव्यू",
+      openLive: "{{hostname}} पर लाइव प्रीव्यू खोलें",
+      suggest: "स्नैपशॉट पर सुझाव दें",
+      localOnly: "लाइव प्रीव्यू केवल मालिक की मशीन पर",
+    },
+    referenceCopy: {
+      staticNotice: "JavaScript बंद है; डायनेमिक सामग्री गायब हो सकती है।",
+      captureAction: "स्थिर स्नैपशॉट लें",
+      capturePrompt:
+        "इस सार्वजनिक संदर्भ URL का स्क्रीनशॉट और DOM स्नैपशॉट लें और इस डिज़ाइन कैनवास में स्थिर संदर्भ स्क्रीन के रूप में जोड़ें। इसे लाइव पेज नहीं, स्नैपशॉट के रूप में चिह्नित करें।",
+      unavailable: "यह पेज फ़्रेम रोक सकता है या लोड नहीं हुआ।",
+      load: "संदर्भ प्रति लोड करें",
+      label: "संदर्भ प्रति · सार्वजनिक पेज, केवल पढ़ने के लिए",
+      noBridge: "सार्वजनिक संदर्भ प्रति लोड करने के लिए लोकल ब्रिज जोड़ें।",
+      snapshot: "प्रकाशित स्नैपशॉट उपयोग करें",
+      capture: "एजेंट से स्क्रीनशॉट और DOM स्नैपशॉट लेने को कहें।",
+      failed: "संदर्भ प्रति विफल। स्क्रीनशॉट और DOM स्नैपशॉट लें।",
+      loading: "संदर्भ प्रति लोड हो रही है…",
+      original: "मूल पेज आज़माएँ",
+    },
+
     sourceLoadFailed: "यह स्क्रीन लोड नहीं हो सकी।",
     selectionPublishFailed:
       "एजेंट शायद आपका नवीनतम चयन नहीं देख पाएगा। उसे फिर से चुनें।",
@@ -1084,6 +1114,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "लेयर चुनें",
+      layerKinds: {
+        webgl: "कैनवस · WebGL",
+        canvas: "कैनवस",
+        video: "वीडियो",
+        image: "छवि",
+        svg: "SVG ग्राफ़िक",
+        embed: "एम्बेड",
+        background: "पृष्ठभूमि",
+        effect: "इफ़ेक्ट",
+      },
       goToMain: "मुख्य कॉम्पोनेंट पर जाएं",
       restore: "कॉम्पोनेंट पुनर्स्थापित करें",
       swap: "इंस्टेंस बदलें",
@@ -2094,6 +2134,7 @@ export default {
       applyAria: "लंबित visual style edits लागू करें",
       applyButton: "Styles लागू करें",
       applySharedEdits: "संपादन लागू करें",
+      reviewSuggestion: "सुझाव की समीक्षा करें",
       previewLabel: "लंबित visual preview",
       applyDesignUpdates: "डिज़ाइन अपडेट लागू करें",
       applying: "लागू किया जा रहा है…",
@@ -2196,6 +2237,9 @@ export default {
       annotationSendError:
         "एनोटेशन नहीं भेजे जा सके। आपकी ड्रॉइंग यहीं सुरक्षित है—फिर से कोशिश करें।",
       codingHandoffError: "कोडिंग हैंडऑफ़ नहीं बनाया जा सका",
+      unknownCollaborator: "सहयोगी",
+      supersededVisualEditSuggestion:
+        "{{authorEmail}} का पिछला सुझाव बदल दिया गया। मूल पाठ: {{text}}",
       visualEditPendingConflict:
         "किसी अन्य सहयोगी के बदलाव लागू होने की प्रतीक्षा में हैं। नए बदलाव भेजने से पहले उन्हें लागू करें या हटाएँ।",
       codingHandoffCopied: "कोडिंग हैंडऑफ़ कॉपी हुआ",
@@ -3367,6 +3411,18 @@ export default {
     addEmoji: "इमोजी जोड़ें",
     mention: "किसी को मेंशन करें",
     noMentions: "कोई व्यक्ति नहीं मिला",
+    format: {
+      toolbar: "फ़ॉर्मैटिंग",
+      bold: "बोल्ड",
+      italic: "इटैलिक",
+      strike: "स्ट्राइकथ्रू",
+      code: "कोड",
+      link: "लिंक",
+      linkField: "लिंक का पता",
+      linkPlaceholder: "लिंक पेस्ट करें",
+      applyLink: "लिंक लागू करें",
+      removeLink: "लिंक हटाएँ",
+    },
     mentionsFailed: "लोगों को लोड नहीं किया जा सका",
     reopen: "फिर से खोलें",
     reopening: "फिर से खोला जा रहा है…",

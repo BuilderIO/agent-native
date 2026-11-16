@@ -238,6 +238,17 @@ export interface ActionRunContext {
   /** Marks calls made after a private action in this agent turn. */
   omitFromPersistedHistory?: true;
   /**
+   * Present only for a private tool on a server run with a protected model
+   * dispatch boundary. Register read-only scope checks before reading private
+   * content. Every check must return true before any later model request;
+   * false, rejection, or a thrown value prevents dispatch for the run.
+   * Returns false if this run has already refused a scope check.
+   * Capture identifiers only; callbacks are ephemeral and never persisted.
+   */
+  registerModelInputGuard?: (
+    guard: () => boolean | Promise<boolean>,
+  ) => boolean;
+  /**
    * The approval the agent loop ran this call under, for approval gates to
    * check. Audit rows read approval from the invocation's execution frame,
    * so a child given this context records none.
@@ -1646,7 +1657,12 @@ export function defineAction(options: any) {
     }
   };
   const run = hasSchema
-    ? wrapWithValidation(options.schema, classifiedRun, convertedParameters)
+    ? wrapWithValidation(
+        options.schema,
+        classifiedRun,
+        convertedParameters,
+        options.persistInChatHistory === false,
+      )
     : classifiedRun;
 
   const uiOnly: boolean | undefined =
@@ -2604,6 +2620,15 @@ export class ActionInputValidationError extends Error {
   }
 }
 
+function inputValidationFailure(
+  error: unknown,
+  privateAction: boolean,
+): unknown {
+  return privateAction && error instanceof ActionInputValidationError
+    ? new ActionInputValidationError("Invalid action parameters", error.paths)
+    : error;
+}
+
 const inputIssueSchemas = new WeakMap<object, JsonSchemaObject | undefined>();
 
 /** Converted once, and only once an input is rejected: a rejection is the only reader. */
@@ -2904,6 +2929,7 @@ export async function actionCallIntent(
     tool?: { parameters?: ActionTool["parameters"] };
     readOnly?: boolean;
     planMode?: ActionPlanModeConfig<any>;
+    persistInChatHistory?: boolean;
   },
   input: unknown,
 ): Promise<ActionCallIntent> {
@@ -2933,7 +2959,13 @@ export async function actionCallIntent(
     // instance) are refused: a gate could not be sure it read what runs.
     snapshot = snapshotActionArguments(args);
   } catch (error) {
-    return { valid: false, error };
+    return {
+      valid: false,
+      error: inputValidationFailure(
+        error,
+        entry.persistInChatHistory === false,
+      ),
+    };
   }
   const intent = {
     valid: true,
@@ -3036,10 +3068,17 @@ function wrapWithValidation(
   schema: StandardSchemaV1,
   run: Function,
   toolParameters: () => ActionTool["parameters"],
+  privateAction: boolean,
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
     if (preparedRunFor(ctx, args)?.schema === schema) return run(args, ctx);
-    return run(await validateActionArgs(schema, args, toolParameters()), ctx);
+    let validated: unknown;
+    try {
+      validated = await validateActionArgs(schema, args, toolParameters());
+    } catch (error) {
+      throw inputValidationFailure(error, privateAction);
+    }
+    return run(validated, ctx);
   };
 }
 

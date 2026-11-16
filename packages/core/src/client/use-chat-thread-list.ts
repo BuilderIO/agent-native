@@ -24,6 +24,8 @@ export interface UseChatThreadListOptions {
   /** Include archived threads. Defaults to false. */
   includeArchived?: boolean;
   includeHidden?: boolean;
+  /** Group revisions of an edited chat before pagination. Defaults to false. */
+  collapseEdits?: boolean;
   /** Search text. Empty lists the whole set. */
   query?: string;
   /** When false nothing is fetched and the list is empty. Defaults to true. */
@@ -120,6 +122,7 @@ export function useChatThreadList(
     includeExternal = false,
     includeArchived = false,
     includeHidden = false,
+    collapseEdits = false,
     enabled = true,
     refreshOnThreadUpdates = true,
   } = options;
@@ -139,6 +142,7 @@ export function useChatThreadList(
     includeExternal,
     includeArchived,
     includeHidden,
+    collapseEdits,
     enabled,
   ]);
   const [stored, setState] = useState(() => createListState(identity, enabled));
@@ -177,6 +181,7 @@ export function useChatThreadList(
         includeExternal,
         includeArchived,
         includeHidden,
+        collapseEdits,
         scope: scopeType && scopeId ? { type: scopeType, id: scopeId } : null,
       }).then((result) => {
         if (result.hasMore === undefined) {
@@ -198,6 +203,7 @@ export function useChatThreadList(
       includeArchived,
       includeExternal,
       includeHidden,
+      collapseEdits,
       ownership,
       query,
       scopeId,
@@ -328,6 +334,7 @@ export function useChatThreadList(
         return await hideChatThread(id, hidden, {
           apiUrl,
           scope: options.scope,
+          collapseEdits,
         });
       } catch (error) {
         // A refusal can mean access was revoked mid-request, and a removed row
@@ -353,6 +360,7 @@ export function useChatThreadList(
       apiUrl,
       includeHidden,
       options.scope,
+      collapseEdits,
       refreshWithResult,
       session,
       state.threads,

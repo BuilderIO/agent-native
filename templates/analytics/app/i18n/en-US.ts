@@ -955,6 +955,8 @@ export default {
     resetFilters: "Reset filters",
     collapseFilters: "Collapse filters",
     expandFilters: "Expand filters",
+    collapseDescription: "Collapse description",
+    expandDescription: "Expand description",
     drilldownChartPoints: "Chart points",
     drilldownPreviousPage: "Previous page of chart points",
     drilldownNextPage: "Next page of chart points",

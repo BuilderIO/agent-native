@@ -111,6 +111,7 @@ beforeEach(() => {
       .fn()
       .mockRejectedValue(new Error("configuration probe unavailable")),
   });
+  useThemeFamilyMock.mockReturnValue({ status: "success" });
   originalLocation = window.location;
   originalParent = window.parent;
   Object.defineProperty(window, "location", {
@@ -127,9 +128,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   resetAgentEngineReadinessForTests();
   act(() => root.unmount());
   container.remove();
+  document.documentElement.removeAttribute("data-theme-family-pending");
   Object.defineProperty(window, "location", {
     configurable: true,
     value: originalLocation,
@@ -162,6 +165,7 @@ function renderProviders(props: {
   sessionBypass?: boolean;
   skipFirstRunOnboarding?: boolean;
   enableThemeFamily?: boolean;
+  holdThemeFamilyUntilResolved?: boolean;
   disableWebMcp?: boolean;
   children?: React.ReactNode;
 }) {
@@ -405,6 +409,98 @@ describe("AppProviders session gate", () => {
 
     expect(useThemeFamilyMock).not.toHaveBeenCalled();
   });
+
+  it("holds configured private account themes and permits explicit opt-in", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      themeFamily: {
+        accountDefaultsByEmailDomain: { "example.com": "agent-native" },
+      },
+    });
+    const render = (
+      props: {
+        isPublicPath?: boolean;
+        sessionBypass?: boolean;
+        holdThemeFamilyUntilResolved?: boolean;
+      } = {},
+    ) =>
+      renderToStaticMarkup(
+        <AppProviders queryClient={new QueryClient()} i18n={false} {...props}>
+          <div>content</div>
+        </AppProviders>,
+      );
+
+    const privateMarkup = render();
+    const publicMarkup = render({ isPublicPath: true });
+    const signInMarkup = render({ sessionBypass: true });
+
+    const hold = privateMarkup.indexOf("data-agent-native-theme-family-hold");
+    expect(hold).toBeGreaterThan(-1);
+    expect(privateMarkup).toContain("body{visibility:hidden}");
+    expect(hold).toBeLessThan(
+      privateMarkup.indexOf('data-agent-native-app-skeleton="true"'),
+    );
+    expect(publicMarkup).not.toContain("data-agent-native-theme-family-hold");
+    expect(signInMarkup).not.toContain("data-agent-native-theme-family-hold");
+
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", undefined);
+    expect(render()).not.toContain("data-agent-native-theme-family-hold");
+    expect(render({ holdThemeFamilyUntilResolved: true })).toContain(
+      "data-agent-native-theme-family-hold",
+    );
+  });
+
+  it("releases a held first paint when the theme-family request ends in error", () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    useThemeFamilyMock.mockReturnValue({ status: "error" });
+    document.documentElement.setAttribute("data-theme-family-pending", "true");
+
+    renderProviders({ holdThemeFamilyUntilResolved: true });
+
+    expect(
+      document.documentElement.hasAttribute("data-theme-family-pending"),
+    ).toBe(false);
+  });
+
+  it("keeps the first paint held while the theme-family request is pending", () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    useThemeFamilyMock.mockReturnValue({ status: "loading" });
+    document.documentElement.setAttribute("data-theme-family-pending", "true");
+
+    renderProviders({ holdThemeFamilyUntilResolved: true });
+
+    expect(
+      document.documentElement.getAttribute("data-theme-family-pending"),
+    ).toBe("true");
+
+    useThemeFamilyMock.mockReturnValue({ status: "success" });
+    renderProviders({ holdThemeFamilyUntilResolved: true });
+
+    expect(
+      document.documentElement.hasAttribute("data-theme-family-pending"),
+    ).toBe(false);
+  });
+
+  it.each(["unauthenticated", "unavailable", "signing-out"] as const)(
+    "releases a held first paint when the session is %s",
+    (status) => {
+      useThemeFamilyMock.mockReturnValue({ status: "loading" });
+      useSessionMock.mockReturnValue({
+        session: null,
+        isLoading: false,
+        status,
+      });
+      document.documentElement.setAttribute(
+        "data-theme-family-pending",
+        "true",
+      );
+
+      renderProviders({ holdThemeFamilyUntilResolved: true });
+
+      expect(
+        document.documentElement.hasAttribute("data-theme-family-pending"),
+      ).toBe(false);
+    },
+  );
 
   it("uses Toolkit's theme-aware toaster by default", () => {
     useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);

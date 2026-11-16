@@ -150,6 +150,8 @@ export interface RequestRunContext {
 }
 
 export interface RequestContext {
+  /** Set by the action HTTP boundary after cookie-session and UI-capability proof. */
+  provenUiRequest?: boolean;
   /**
    * The id the server stamps on this request's response, so a failure captured
    * anywhere in the request names the id the person sees on screen.
@@ -184,6 +186,8 @@ export interface RequestContext {
    */
   authCapability?: string;
   timezone?: string;
+  /** Date calculation default, not a detected or persistable user preference. */
+  dateTimezoneFallback?: "UTC";
   /**
    * The caller's browser analytics session id, when the request came from a
    * page. Emitted as PostHog's `$session_id` so agent traces join to session
@@ -677,8 +681,19 @@ export function getRequestIsLoopback(): boolean {
 
 function markAuthContextAccess(ctx: RequestContext | undefined) {
   if (!ctx) return;
-  if (ctx.userEmail || ctx.userName || ctx.orgId || ctx.authCapability) {
-    ctx.authContextAccessed = true;
+  // Recording context access must not execute identity accessors. Count a
+  // present accessor conservatively as an auth read, without evaluating it.
+  for (const key of [
+    "userEmail",
+    "userName",
+    "orgId",
+    "authCapability",
+  ] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(ctx, key);
+    if (descriptor && (!("value" in descriptor) || descriptor.value)) {
+      ctx.authContextAccessed = true;
+      return;
+    }
   }
 }
 
@@ -690,6 +705,10 @@ export function getRequestTimezone(): string | undefined {
   const store = als.getStore();
   if (store !== undefined) return store.timezone;
   return processEnv("AGENT_USER_TIMEZONE");
+}
+
+export function getRequestDateTimezone(): string | undefined {
+  return getRequestTimezone() ?? als.getStore()?.dateTimezoneFallback;
 }
 
 export function isIntegrationCallerRequest(): boolean {
