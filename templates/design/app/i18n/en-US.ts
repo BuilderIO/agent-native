@@ -1678,6 +1678,13 @@ export default {
         "Coming soon: import screens and components directly from a repository.",
       localDescription: "Connect any running local app with /visual-edit.",
       warningsToast: "Import completed with warnings",
+      pasteUnreadable: "The copied layers could not be read.",
+      pasteInexact: "Details not pasted exactly: {{count}}",
+      pasteLayerTypes: "{{tool}} layer types pasted as plain frames: {{count}}",
+      pasteImagePlaceholders:
+        "Images pasted as placeholders: {{count}}. {{tool}} does not copy image data.",
+      pasteImagesLinked:
+        "Images still linked to {{tool}}: {{count}}. They could not be copied into your file storage.",
       figmaSuccess: "Figma paste imported",
       htmlSuccess: "HTML imported",
       uploadSuccess: "File imported",
@@ -1688,6 +1695,8 @@ export default {
         notHtml: "Paste or choose valid HTML to import.",
         importFailed: "Import failed",
         figmaPasteFailed: "Figma paste import failed",
+        paperPasteFailed: "Paper paste import failed",
+        wonderPasteFailed: "Wonder paste import failed",
         uploadFailed: "File upload failed",
         invalidFigFile: "Choose a file ending in .fig.",
         unsupportedFileType: "Choose a .fig, .html, or .htm file.",

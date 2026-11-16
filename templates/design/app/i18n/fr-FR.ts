@@ -1768,6 +1768,14 @@ export default {
       localDescription:
         "Connectez n’importe quelle app locale en cours d’exécution avec /visual-edit.",
       warningsToast: "Import terminé avec avertissements",
+      pasteUnreadable: "Impossible de lire les calques copiés.",
+      pasteInexact: "Détails non collés à l’identique : {{count}}",
+      pasteLayerTypes:
+        "Types de calque {{tool}} collés comme cadres simples : {{count}}",
+      pasteImagePlaceholders:
+        "Images collées comme espaces réservés : {{count}}. {{tool}} ne copie pas les données d’image.",
+      pasteImagesLinked:
+        "Images toujours liées à {{tool}} : {{count}}. Elles n’ont pas pu être copiées dans votre stockage de fichiers.",
       figmaSuccess: "Collage Figma importé",
       htmlSuccess: "HTML importé",
       uploadSuccess: "Fichier importé",
@@ -1778,6 +1786,8 @@ export default {
         notHtml: "Collez ou choisissez du HTML valide à importer.",
         importFailed: "Échec de l’import",
         figmaPasteFailed: "Échec de l’import du collage Figma",
+        paperPasteFailed: "Échec de l'import du collage Paper",
+        wonderPasteFailed: "Échec de l’import du collage Wonder",
         uploadFailed: "Échec du téléversement",
         invalidFigFile: "Choisissez un fichier se terminant par .fig.",
         unsupportedFileType: "Choisissez un fichier .fig, .html ou .htm.",

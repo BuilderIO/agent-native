@@ -1,0 +1,411 @@
+// @vitest-environment happy-dom
+
+// oracle-change(templates/design/app/pages/design-editor/commands/import-figma-clipboard-into-design.spec.ts): Figma copies decode in the browser and share this command with Paper and Wonder, so the server-result and Figma access-failure cases no longer exist; image notice, warnings, screen focus and board/in-canvas placement are asserted here.
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const callAction = vi.fn();
+vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction: (...args: unknown[]) => callAction(...args),
+}));
+const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+const toastError = vi.fn();
+const toastWarning = vi.fn();
+vi.mock("sonner", () => ({
+  toast: {
+    error: (...args: unknown[]) => toastError(...args),
+    warning: (...args: unknown[]) => toastWarning(...args),
+    loading: () => "progress",
+    dismiss: () => {},
+  },
+}));
+
+import type { FigmaPasteScene } from "@shared/figma-paste-plan";
+
+import type { DesignToolPaste } from "@/lib/design-tool-paste";
+
+import {
+  runImportDesignToolPasteIntoDesign,
+  type ImportDesignToolPasteArgs,
+} from "./import-design-tool-paste-into-design";
+
+const layer = (title: string) => ({
+  title,
+  width: 100,
+  height: 80,
+  content: `<!DOCTYPE html><html><head></head><body><div data-name="${title}"></div></body></html>`,
+  wrapsLooseNode: false,
+  origin: { x: 0, y: 0 },
+  sourceOffset: null,
+});
+
+const paste = (over: Partial<DesignToolPaste> = {}): DesignToolPaste => ({
+  status: "ok",
+  tool: "wonder",
+  layers: [layer("Card")],
+  warnings: [],
+  ...over,
+});
+
+const insideScreen: FigmaPasteScene = {
+  container: {
+    fileId: "screen-1",
+    selector: null,
+    width: 1000,
+    height: 800,
+    visible: { x: 0, y: 0, width: 1000, height: 800 },
+    autoLayout: false,
+  },
+  viewport: null,
+  screens: [],
+};
+
+const noTarget: FigmaPasteScene = {
+  container: null,
+  viewport: null,
+  screens: [],
+};
+
+const onBoard: FigmaPasteScene = {
+  container: null,
+  viewport: { x: 0, y: 0, width: 2000, height: 1200 },
+  screens: [],
+};
+
+function setup(
+  scene: FigmaPasteScene,
+  over: Partial<ImportDesignToolPasteArgs> = {},
+) {
+  const insertPasteLayers = vi.fn(
+    (_fileId: string, _selector: string | null, _layers: unknown[]) => true,
+  );
+  const navigate = vi.fn();
+  const showPastedImagesNotice = vi.fn();
+  const args: ImportDesignToolPasteArgs = {
+    boardFileId: "board",
+    canEditDesign: true,
+    id: "design-1",
+    insertPasteLayers,
+    mirrorImage: async () => {
+      throw new Error("file storage is not set up");
+    },
+    navigate,
+    queryClient: { invalidateQueries: vi.fn() } as never,
+    resolvePasteScene: () => scene,
+    showPastedImagesNotice,
+    t: (key) => key,
+    ...over,
+  };
+  return { args, insertPasteLayers, navigate, showPastedImagesNotice };
+}
+
+beforeEach(() => {
+  callAction.mockReset();
+  toastError.mockClear();
+  warn.mockClear();
+  logged.mockClear();
+  toastWarning.mockClear();
+});
+
+describe("a design-tool paste placed inside a screen", () => {
+  it("inserts where the plan says without creating a screen", async () => {
+    const { args, insertPasteLayers } = setup(insideScreen);
+    await runImportDesignToolPasteIntoDesign(args, paste());
+    expect(callAction).not.toHaveBeenCalled();
+    expect(insertPasteLayers).toHaveBeenCalledWith("screen-1", null, [
+      expect.objectContaining({ position: expect.any(Object) }),
+    ]);
+  });
+
+  it("hands unloaded images to the notice with the screen they landed in", async () => {
+    const { args, showPastedImagesNotice } = setup(insideScreen);
+    await runImportDesignToolPasteIntoDesign(
+      args,
+      paste({ tool: "figma", unresolvedImages: 3 }),
+    );
+    expect(showPastedImagesNotice).toHaveBeenCalledWith({
+      count: 3,
+      fileIds: ["screen-1"],
+    });
+  });
+
+  it("shows no notice when every image came through", async () => {
+    const { args, showPastedImagesNotice } = setup(insideScreen);
+    await runImportDesignToolPasteIntoDesign(args, paste({ tool: "figma" }));
+    expect(showPastedImagesNotice).not.toHaveBeenCalled();
+  });
+
+  it("raises what the converter could not carry over as a warning", async () => {
+    const { args } = setup(insideScreen);
+    await runImportDesignToolPasteIntoDesign(
+      args,
+      paste({ warnings: [{ kind: "inexact", detail: "Skipped a color" }] }),
+    );
+    expect(toastWarning).toHaveBeenCalledWith(
+      "designEditor.import.warningsToast",
+      { description: "designEditor.import.pasteInexact" },
+    );
+  });
+
+  it("says so when the layers cannot be inserted", async () => {
+    const { args } = setup(insideScreen, { insertPasteLayers: () => false });
+    await runImportDesignToolPasteIntoDesign(args, paste());
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.import.errors.wonderPasteFailed",
+      { description: "designEditor.toasts.primitiveInsertFailed" },
+    );
+  });
+
+  it("names Figma when a Figma paste cannot be inserted", async () => {
+    const { args } = setup(insideScreen, { insertPasteLayers: () => false });
+    await runImportDesignToolPasteIntoDesign(args, paste({ tool: "figma" }));
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.import.errors.figmaPasteFailed",
+      expect.any(Object),
+    );
+  });
+});
+
+describe("a design-tool paste that links remote images", () => {
+  const remote = "https://cdn.example.test/a.png";
+  const withImage = (): DesignToolPaste =>
+    paste({
+      layers: [
+        {
+          ...layer("Card"),
+          content: `<!DOCTYPE html><html><head></head><body><div style="background-image:url(&quot;${remote}&quot;)"></div></body></html>`,
+        },
+      ],
+      remoteImages: [remote],
+    });
+
+  it("hosts the image and inserts the hosted link", async () => {
+    const { args, insertPasteLayers } = setup(insideScreen, {
+      mirrorImage: async () => "https://files.test/a.png",
+    });
+    await runImportDesignToolPasteIntoDesign(args, withImage());
+    const [, , inserts] = insertPasteLayers.mock.calls[0] ?? [];
+    expect(JSON.stringify(inserts)).toContain("https://files.test/a.png");
+    expect(JSON.stringify(inserts)).not.toContain("cdn.example.test");
+    expect(toastWarning).not.toHaveBeenCalled();
+  });
+
+  it("keeps the link and says so when it cannot be hosted", async () => {
+    const { args, insertPasteLayers } = setup(insideScreen);
+    await runImportDesignToolPasteIntoDesign(args, withImage());
+    const [, , inserts] = insertPasteLayers.mock.calls[0] ?? [];
+    expect(JSON.stringify(inserts)).toContain("cdn.example.test");
+    expect(toastWarning).toHaveBeenCalledWith(
+      "designEditor.import.warningsToast",
+      { description: "designEditor.import.pasteImagesLinked" },
+    );
+  });
+
+  it("still inserts when hosting fails and logs the reason", async () => {
+    const { args, insertPasteLayers } = setup(insideScreen, {
+      mirrorImage: async () => {
+        throw new Error("storage offline");
+      },
+    });
+    await runImportDesignToolPasteIntoDesign(args, withImage());
+    expect(insertPasteLayers).toHaveBeenCalled();
+    expect(toastWarning).toHaveBeenCalledWith(
+      "designEditor.import.warningsToast",
+      { description: "designEditor.import.pasteImagesLinked" },
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("Wonder"),
+      expect.arrayContaining(["storage offline"]),
+    );
+  });
+});
+
+describe("a design-tool paste of loose layers onto the board", () => {
+  it("inserts a board plan into the board file", async () => {
+    const { args, insertPasteLayers } = setup(onBoard);
+    await runImportDesignToolPasteIntoDesign(
+      args,
+      paste({
+        layers: [
+          {
+            ...layer("Loose"),
+            content:
+              '<!DOCTYPE html><html><head></head><body><div><div data-name="Loose"></div></div></body></html>',
+            wrapsLooseNode: true,
+          },
+        ],
+      }),
+    );
+    expect(callAction).not.toHaveBeenCalled();
+    expect(insertPasteLayers).toHaveBeenCalledWith(
+      "board",
+      null,
+      expect.any(Array),
+    );
+  });
+});
+
+describe("a design-tool paste with no screen to land in", () => {
+  it("creates every frame in one batch and focuses the first", async () => {
+    callAction.mockResolvedValueOnce({ files: [{ id: "f1" }, { id: "f2" }] });
+    const { args, navigate } = setup(noTarget);
+    await runImportDesignToolPasteIntoDesign(
+      args,
+      paste({ layers: [layer("One"), layer("Two")] }),
+    );
+    expect(callAction).toHaveBeenCalledTimes(1);
+    const [name, body] = callAction.mock.calls[0] ?? [];
+    expect(name).toBe("import-design-source");
+    expect(body).toMatchObject({
+      designId: "design-1",
+      sourceType: "fig-frame",
+      clientImportFinalBatch: true,
+      frames: [
+        { frameTitle: "One", frameWidth: 100, frameHeight: 80 },
+        { frameTitle: "Two" },
+      ],
+    });
+    const frames = (body as { frames: Array<{ clientImportId: string }> })
+      .frames;
+    const batchId = (body as { clientImportBatchId: string })
+      .clientImportBatchId;
+    expect(frames.map((frame) => frame.clientImportId)).toEqual([
+      `${batchId}:0`,
+      `${batchId}:1`,
+    ]);
+    expect(navigate).toHaveBeenCalledWith(
+      "/design/design-1?editorView=overview&screen=f1",
+    );
+  });
+
+  it("sends a server-safe filename and keeps the real title", async () => {
+    callAction.mockResolvedValueOnce({ files: [{ id: "f1" }] });
+    const { args } = setup(noTarget);
+    await runImportDesignToolPasteIntoDesign(
+      args,
+      paste({
+        layers: [layer("Context=Fill, Tab=Custom / Mode=Hex")],
+      }),
+    );
+    const [, body] = callAction.mock.calls[0] ?? [];
+    expect(
+      (body as { frames: Array<Record<string, unknown>> }).frames[0],
+    ).toMatchObject({
+      originalName: "context-fill-tab-custom-mode-hex",
+      frameTitle: "Context=Fill, Tab=Custom / Mode=Hex",
+    });
+  });
+
+  it("sends the planned canvas position with each frame", async () => {
+    callAction.mockResolvedValueOnce({ files: [{ id: "f1" }] });
+    const { args } = setup({
+      container: null,
+      viewport: { x: 0, y: 0, width: 4000, height: 3000 },
+      screens: [{ fileId: "other", x: 0, y: 0, width: 10, height: 10 }],
+    });
+    await runImportDesignToolPasteIntoDesign(args, paste());
+    const [, body] = callAction.mock.calls[0] ?? [];
+    expect(
+      (body as { frames: Array<{ frameX?: number; frameY?: number }> })
+        .frames[0],
+    ).toMatchObject({ frameX: expect.any(Number), frameY: expect.any(Number) });
+  });
+
+  it("splits more than 32 frames into batches that share one id", async () => {
+    callAction.mockImplementation(async (_name: string, body: unknown) => ({
+      files: (body as { frames: unknown[] }).frames.map((_, i) => ({
+        id: `f${i}`,
+      })),
+    }));
+    const { args } = setup(noTarget);
+    await runImportDesignToolPasteIntoDesign(
+      args,
+      paste({ layers: Array.from({ length: 40 }, (_, i) => layer(`L${i}`)) }),
+    );
+    const bodies = callAction.mock.calls.map(
+      ([, body]) =>
+        body as {
+          clientImportBatchId: string;
+          clientImportFinalBatch: boolean;
+          frames: unknown[];
+        },
+    );
+    expect(bodies.map((body) => body.frames.length)).toEqual([32, 8]);
+    expect(bodies.map((body) => body.clientImportFinalBatch)).toEqual([
+      false,
+      true,
+    ]);
+    expect(new Set(bodies.map((body) => body.clientImportBatchId)).size).toBe(
+      1,
+    );
+  });
+
+  it("removes the screens an earlier batch created when a later one fails", async () => {
+    callAction
+      .mockResolvedValueOnce({ files: [{ id: "f1" }] })
+      .mockResolvedValueOnce({ error: "too large" })
+      .mockResolvedValueOnce({ deletedFileIds: ["f1"] });
+    const { args, navigate } = setup(noTarget);
+    await runImportDesignToolPasteIntoDesign(
+      args,
+      paste({ layers: Array.from({ length: 40 }, (_, i) => layer(`L${i}`)) }),
+    );
+    expect(callAction.mock.calls[2]?.[1]).toMatchObject({ abort: true });
+    expect(navigate).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.import.errors.wonderPasteFailed",
+      { description: "common.genericError" },
+    );
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining("wonder import failed"),
+      expect.objectContaining({ message: "too large" }),
+    );
+  });
+
+  it("keeps the overview route when no created file has an id", async () => {
+    callAction.mockResolvedValue({ files: [] });
+    const { args, navigate } = setup(noTarget);
+    await runImportDesignToolPasteIntoDesign(args, paste());
+    expect(navigate).toHaveBeenCalledWith(
+      "/design/design-1?editorView=overview",
+    );
+  });
+
+  it("hands unloaded images to the notice with the screens it created", async () => {
+    callAction.mockResolvedValueOnce({ files: [{ id: "f1" }, { id: "f2" }] });
+    const { args, showPastedImagesNotice } = setup(noTarget);
+    await runImportDesignToolPasteIntoDesign(
+      args,
+      paste({
+        tool: "figma",
+        layers: [layer("One"), layer("Two")],
+        unresolvedImages: 2,
+      }),
+    );
+    expect(showPastedImagesNotice).toHaveBeenCalledWith({
+      count: 2,
+      fileIds: ["f1", "f2"],
+    });
+  });
+
+  it("names the failing tool when screens cannot be created", async () => {
+    callAction.mockResolvedValue({ error: "name_taken" });
+    const { args } = setup(noTarget);
+    await runImportDesignToolPasteIntoDesign(args, paste({ tool: "paper" }));
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.import.errors.paperPasteFailed",
+      { description: "common.genericError" },
+    );
+  });
+});
+
+describe("a design-tool paste that cannot be applied", () => {
+  it("does nothing without edit access", async () => {
+    const { args, insertPasteLayers } = setup(insideScreen, {
+      canEditDesign: false,
+    });
+    await runImportDesignToolPasteIntoDesign(args, paste());
+    expect(insertPasteLayers).not.toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
+  });
+});

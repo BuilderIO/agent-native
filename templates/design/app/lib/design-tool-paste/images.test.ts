@@ -1,0 +1,88 @@
+import { describe, expect, it, vi } from "vitest";
+
+import { emitFrames } from "./emit";
+import { hostRemoteImages } from "./images";
+import type { PasteFrame } from "./ir";
+
+const frame = (...urls: string[]): PasteFrame => ({
+  title: "Frame",
+  width: 100,
+  height: 100,
+  origin: null,
+  root: {
+    kind: "box",
+    label: "Root",
+    style: {},
+    children: urls.map((url) => ({
+      kind: "box" as const,
+      label: "Image",
+      style: {},
+      images: [{ url, size: "cover" }],
+      children: [],
+    })),
+  },
+});
+
+const A = "https://cdn.example.test/a.png?x=1&y=2";
+const B = "https://cdn.example.test/b.png";
+
+describe("hostRemoteImages", () => {
+  it("rewrites every link to its hosted copy, including & in a URL", async () => {
+    const { layers, imageUrls } = emitFrames([frame(A, B)], []);
+    const mirror = vi.fn(
+      async (url: string) => `https://files.test/${url.length}`,
+    );
+    const result = await hostRemoteImages(layers, imageUrls, mirror);
+    expect(mirror).toHaveBeenCalledTimes(2);
+    expect(result.kept).toBe(0);
+    expect(result.layers[0]?.content).not.toContain("cdn.example.test");
+    expect(result.layers[0]?.content).toContain("https://files.test/");
+  });
+
+  it("hosts what it can and counts the rest as kept", async () => {
+    const { layers, imageUrls } = emitFrames([frame(A, B)], []);
+    const result = await hostRemoteImages(layers, imageUrls, async (url) => {
+      if (url === A) return "https://files.test/a";
+      throw new Error("storage rejected it");
+    });
+    expect(result.kept).toBe(1);
+    expect(result.reason).toBe("storage rejected it");
+    expect(result.layers[0]?.content).toContain("https://files.test/a");
+    expect(result.layers[0]?.content).toContain(B);
+  });
+
+  it("keeps the layers untouched when nothing can be hosted", async () => {
+    const { layers, imageUrls } = emitFrames([frame(A)], []);
+    const result = await hostRemoteImages(layers, imageUrls, async () => {
+      throw new Error("file storage is not set up");
+    });
+    expect(result).toEqual({
+      layers,
+      kept: 1,
+      reason: "file storage is not set up",
+    });
+  });
+
+  it("hosts each distinct image once and never exceeds six at a time", async () => {
+    const urls = Array.from(
+      { length: 9 },
+      (_, i) => `https://cdn.example.test/${i}.png`,
+    );
+    const { layers, imageUrls } = emitFrames(
+      [frame(...urls, urls[0] ?? "")],
+      [],
+    );
+    let active = 0;
+    let peak = 0;
+    const mirror = vi.fn(async (url: string) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await Promise.resolve();
+      active -= 1;
+      return `${url}.hosted`;
+    });
+    await hostRemoteImages(layers, imageUrls, mirror);
+    expect(mirror).toHaveBeenCalledTimes(9);
+    expect(peak).toBeLessThanOrEqual(6);
+  });
+});

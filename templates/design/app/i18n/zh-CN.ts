@@ -1704,6 +1704,13 @@ export default {
       githubDescription: "即将推出：直接从仓库导入屏幕和组件。",
       localDescription: "使用 /visual-edit 连接任何正在运行的本地 app。",
       warningsToast: "导入完成但有警告",
+      pasteUnreadable: "无法读取复制的图层。",
+      pasteInexact: "未能精确粘贴的细节：{{count}}",
+      pasteLayerTypes: "以普通框架粘贴的 {{tool}} 图层类型：{{count}}",
+      pasteImagePlaceholders:
+        "以占位符粘贴的图片：{{count}}。{{tool}} 不会复制图片数据。",
+      pasteImagesLinked:
+        "仍链接到 {{tool}} 的图片：{{count}}。无法将它们复制到你的文件存储。",
       figmaSuccess: "已导入 Figma 粘贴内容",
       htmlSuccess: "已导入 HTML",
       uploadSuccess: "已导入文件",
@@ -1713,6 +1720,8 @@ export default {
         notHtml: "请粘贴或选择有效的 HTML 进行导入。",
         importFailed: "导入失败",
         figmaPasteFailed: "Figma 粘贴导入失败",
+        paperPasteFailed: "Paper 粘贴导入失败",
+        wonderPasteFailed: "Wonder 粘贴导入失败",
         uploadFailed: "文件上传失败",
         invalidFigFile: "请选择以 .fig 结尾的文件。",
         unsupportedFileType: "请选择 .fig、.html 或 .htm 文件。",

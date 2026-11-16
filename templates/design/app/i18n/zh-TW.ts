@@ -1929,6 +1929,13 @@ export default {
       githubDescription: "即將推出：直接從儲存庫匯入螢幕和元件。",
       localDescription: "使用 /visual-edit 連接任何執行中的本機 app。",
       warningsToast: "匯入完成但有警告",
+      pasteUnreadable: "無法讀取複製的圖層。",
+      pasteInexact: "未能精確貼上的細節：{{count}}",
+      pasteLayerTypes: "以一般框架貼上的 {{tool}} 圖層類型：{{count}}",
+      pasteImagePlaceholders:
+        "以預留位置貼上的圖片：{{count}}。{{tool}} 不會複製圖片資料。",
+      pasteImagesLinked:
+        "仍連結至 {{tool}} 的圖片：{{count}}。無法將它們複製到你的檔案儲存空間。",
       figmaSuccess: "已匯入 Figma 貼上內容",
       htmlSuccess: "已匯入 HTML",
       uploadSuccess: "已匯入檔案",
@@ -1938,6 +1945,8 @@ export default {
         notHtml: "請貼上或選擇有效的 HTML 以匯入。",
         importFailed: "匯入失敗",
         figmaPasteFailed: "Figma 貼上匯入失敗",
+        paperPasteFailed: "Paper 貼上匯入失敗",
+        wonderPasteFailed: "Wonder 貼上匯入失敗",
         uploadFailed: "檔案上傳失敗",
         invalidFigFile: "請選擇副檔名為 .fig 的檔案。",
         unsupportedFileType: "請選擇 .fig、.html 或 .htm 檔案。",

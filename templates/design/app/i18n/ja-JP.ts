@@ -1763,6 +1763,14 @@ export default {
       localDescription:
         "/visual-edit で任意の実行中ローカル app に接続します。",
       warningsToast: "警告付きでインポートが完了しました",
+      pasteUnreadable: "コピーしたレイヤーを読み取れませんでした。",
+      pasteInexact: "正確に貼り付けられなかった詳細: {{count}}",
+      pasteLayerTypes:
+        "シンプルなフレームとして貼り付けた{{tool}}のレイヤータイプ: {{count}}",
+      pasteImagePlaceholders:
+        "プレースホルダーとして貼り付けた画像: {{count}}。{{tool}}は画像データをコピーしません。",
+      pasteImagesLinked:
+        "{{tool}}にリンクされたままの画像: {{count}}。ファイルストレージにコピーできませんでした。",
       figmaSuccess: "Figma 貼り付けをインポートしました",
       htmlSuccess: "HTML をインポートしました",
       uploadSuccess: "ファイルをインポートしました",
@@ -1773,6 +1781,8 @@ export default {
         notHtml: "インポートする有効な HTML を貼り付けるか選択してください。",
         importFailed: "インポートに失敗しました",
         figmaPasteFailed: "Figma 貼り付けのインポートに失敗しました",
+        paperPasteFailed: "Paper 貼り付けのインポートに失敗しました",
+        wonderPasteFailed: "Wonder 貼り付けのインポートに失敗しました",
         uploadFailed: "ファイルのアップロードに失敗しました",
         invalidFigFile: ".fig で終わるファイルを選択してください。",
         unsupportedFileType: ".fig、.html、.htm ファイルを選択してください。",

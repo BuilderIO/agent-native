@@ -52,6 +52,10 @@ import {
 } from "@/lib/design-import";
 import { uploadDesignVideoFile } from "@/lib/design-media-upload";
 import {
+  findDesignToolPasteHtml,
+  type DesignToolPaste,
+} from "@/lib/design-tool-paste";
+import {
   dismissFigmaPasteImageNotice,
   figmaPasteImageNoticeDismissed,
 } from "@/lib/figma-paste-image-notice";
@@ -69,15 +73,16 @@ import { runDuplicateSelection } from "../commands/duplicate-selection";
 import {
   adoptDesignClipboardPayloadIntoRefs,
   runCanvasClipboardRelayPaste,
+  runDesignToolPaste,
   runEditorPaste,
 } from "../commands/editor-paste";
 import { runGetSelectedLayerSnapshots } from "../commands/get-selected-layer-snapshots";
 import { runGroupSelection } from "../commands/group-selection";
+import { runImportDesignToolPasteIntoDesign } from "../commands/import-design-tool-paste-into-design";
 import {
-  runImportFigmaClipboardIntoDesign,
+  runInsertFigmaPasteLayers,
   type FigmaPasteLayerInsert,
-} from "../commands/import-figma-clipboard-into-design";
-import { runInsertFigmaPasteLayers } from "../commands/insert-figma-paste-layers";
+} from "../commands/insert-figma-paste-layers";
 import { runPasteCopiedScreens } from "../commands/paste-copied-screens";
 import { runPasteOverSelection } from "../commands/paste-over-selection";
 import {
@@ -453,7 +458,6 @@ export function useEditorClipboard({
   const pastedClipboardLayerSourcesRef = useRef(
     new Map<string, PastedClipboardLayerSource>(),
   );
-  const figmaPasteImportingRef = useRef(false);
   const [figmaHydrationOpen, setFigmaHydrationOpen] = useState(false);
   const [figmaHydrationFileIds, setFigmaHydrationFileIds] = useState<string[]>(
     [],
@@ -919,31 +923,48 @@ export function useEditorClipboard({
     [id, queryClient],
   );
 
-  const importFigmaClipboardIntoDesign = useCallback(
-    async (content: string) =>
-      runImportFigmaClipboardIntoDesign(
+  const designToolPasteBusyRef = useRef(false);
+
+  const mirrorPastedImage = useCallback(
+    async (url: string): Promise<string> => {
+      if (!canUploadDesignMedia) throw new Error("file storage is not set up");
+      const result = (await callAction("upload-image", { url })) as {
+        url?: string;
+        error?: string;
+      };
+      if (!result.url) throw new Error(result.error ?? "the upload failed");
+      return result.url;
+    },
+    [canUploadDesignMedia],
+  );
+
+  const importDesignToolPaste = useCallback(
+    async (paste: DesignToolPaste) =>
+      runImportDesignToolPasteIntoDesign(
         {
           boardFileId,
           canEditDesign,
-          figmaPasteImportingRef,
           id,
           insertPasteLayers: insertFigmaPasteLayers,
+          mirrorImage: mirrorPastedImage,
           navigate,
           queryClient,
           resolvePasteScene: resolveFigmaPasteSceneForEditor,
           showPastedImagesNotice,
           t,
         },
-        content,
+        paste,
       ),
     [
       boardFileId,
       canEditDesign,
       id,
       insertFigmaPasteLayers,
+      mirrorPastedImage,
       navigate,
       queryClient,
       resolveFigmaPasteSceneForEditor,
+      showPastedImagesNotice,
       t,
     ],
   );
@@ -1020,8 +1041,15 @@ export function useEditorClipboard({
         if (canEditDesign) toast.error(t("common.genericError"));
         return;
       }
-      if (content) {
-        void importFigmaClipboardIntoDesign(content);
+      const designTool = findDesignToolPasteHtml(content || html);
+      if (designTool) {
+        if (canEditDesign) {
+          void runDesignToolPaste(designTool, {
+            designToolPasteBusyRef,
+            importDesignToolPaste,
+            t,
+          });
+        }
         return;
       }
       if (
@@ -1059,8 +1087,8 @@ export function useEditorClipboard({
       adoptDesignClipboardPayload,
       canEditDesign,
       handlePastedSvg,
+      importDesignToolPaste,
       handlePasteSelection,
-      importFigmaClipboardIntoDesign,
       t,
     ],
   );
@@ -1375,7 +1403,8 @@ export function useEditorClipboard({
           handlePastedFiles: handleDesignMediaFiles,
           handlePastedSvg,
           hasCanvasClipboard,
-          importFigmaClipboardIntoDesign,
+          designToolPasteBusyRef,
+          importDesignToolPaste,
           lastWrittenClipboardMarkerRef,
           lastWrittenClipboardPlainTextRef,
           t,
@@ -1389,7 +1418,7 @@ export function useEditorClipboard({
       handleDesignMediaFiles,
       handlePastedSvg,
       hasCanvasClipboard,
-      importFigmaClipboardIntoDesign,
+      importDesignToolPaste,
       t,
     ],
   );

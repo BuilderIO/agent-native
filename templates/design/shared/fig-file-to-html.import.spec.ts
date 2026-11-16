@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { parseComputedDropShadowFilter } from "../../shared/figma-svg-scene.js";
 import { renderHtmlTemplates } from "./fig-file-to-html.js";
+import { parseComputedDropShadowFilter } from "./figma-svg-scene.js";
 
 function makeDocument(
   frames: Array<Record<string, unknown>>,

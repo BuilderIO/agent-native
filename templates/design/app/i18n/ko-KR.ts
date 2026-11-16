@@ -1743,6 +1743,14 @@ export default {
         "곧 제공: 저장소에서 화면과 컴포넌트를 직접 가져옵니다.",
       localDescription: "/visual-edit로 실행 중인 모든 로컬 app을 연결합니다.",
       warningsToast: "경고와 함께 가져오기가 완료되었습니다",
+      pasteUnreadable: "복사한 레이어를 읽을 수 없습니다.",
+      pasteInexact: "정확히 붙여넣지 못한 세부 항목: {{count}}",
+      pasteLayerTypes:
+        "단순 프레임으로 붙여넣은 {{tool}} 레이어 유형: {{count}}",
+      pasteImagePlaceholders:
+        "자리 표시자로 붙여넣은 이미지: {{count}}. {{tool}}은(는) 이미지 데이터를 복사하지 않습니다.",
+      pasteImagesLinked:
+        "{{tool}}에 계속 연결된 이미지: {{count}}. 파일 저장소로 복사할 수 없었습니다.",
       figmaSuccess: "Figma 붙여넣기를 가져왔습니다",
       htmlSuccess: "HTML을 가져왔습니다",
       uploadSuccess: "파일을 가져왔습니다",
@@ -1753,6 +1761,8 @@ export default {
         notHtml: "가져올 유효한 HTML을 붙여넣거나 선택하세요.",
         importFailed: "가져오기 실패",
         figmaPasteFailed: "Figma 붙여넣기 가져오기 실패",
+        paperPasteFailed: "Paper 붙여넣기 가져오기에 실패했습니다",
+        wonderPasteFailed: "Wonder 붙여넣기 가져오기에 실패했습니다",
         uploadFailed: "파일 업로드 실패",
         invalidFigFile: ".fig로 끝나는 파일을 선택하세요.",
         unsupportedFileType: ".fig, .html 또는 .htm 파일을 선택하세요.",

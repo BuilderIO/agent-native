@@ -1735,6 +1735,14 @@ export default {
         "जल्द आ रहा है: repository से screens और components सीधे import करें।",
       localDescription: "/visual-edit से किसी भी चल रहे local app को connect करें।",
       warningsToast: "Import warnings के साथ पूरा हुआ",
+      pasteUnreadable: "कॉपी की गई लेयर पढ़ी नहीं जा सकीं।",
+      pasteInexact: "ठीक से पेस्ट न हुए विवरण: {{count}}",
+      pasteLayerTypes:
+        "सामान्य फ़्रेम के रूप में पेस्ट किए गए {{tool}} लेयर प्रकार: {{count}}",
+      pasteImagePlaceholders:
+        "प्लेसहोल्डर के रूप में पेस्ट की गई छवियाँ: {{count}}। {{tool}} छवि डेटा कॉपी नहीं करता।",
+      pasteImagesLinked:
+        "अब भी {{tool}} से जुड़ी छवियाँ: {{count}}। उन्हें आपके फ़ाइल स्टोरेज में कॉपी नहीं किया जा सका।",
       figmaSuccess: "Figma paste import हो गया",
       htmlSuccess: "HTML import हो गया",
       uploadSuccess: "File import हो गई",
@@ -1745,6 +1753,8 @@ export default {
         notHtml: "Import करने के लिए valid HTML paste करें या चुनें।",
         importFailed: "आयात विफल रहा",
         figmaPasteFailed: "Figma paste आयात विफल रहा",
+        paperPasteFailed: "Paper पेस्ट आयात विफल रहा",
+        wonderPasteFailed: "Wonder पेस्ट आयात विफल रहा",
         uploadFailed: "File upload विफल रहा",
         invalidFigFile: ".fig पर समाप्त होने वाली file चुनें।",
         unsupportedFileType: "कोई .fig, .html या .htm फ़ाइल चुनें।",

@@ -1,13 +1,11 @@
+import { utf8ByteLength } from "./fig-bytes.js";
 import {
   assertSafeDecodedFigDocument,
   decodeFig,
   type DecodedFig,
   type DecodedFigImage,
-} from "../server/lib/fig-file-decoder.js";
-import {
-  SERVER_FIG_LIMITS,
-  type FigImportLimits,
-} from "../server/lib/fig-file-limits.js";
+} from "./fig-file-decoder.js";
+import { SERVER_FIG_LIMITS, type FigImportLimits } from "./fig-file-limits.js";
 import {
   collectTopLevelFrames,
   guidKey,
@@ -17,9 +15,8 @@ import {
   type FigImportSkipCounts,
   type FigNode,
   type SkippedRenderFrame,
-} from "../server/lib/fig-file-to-html.js";
-import type { ImportedDesignFile } from "../server/lib/import-design-files.js";
-import { utf8ByteLength } from "./fig-bytes.js";
+} from "./fig-file-to-html.js";
+import type { ImportedDesignFile } from "./imported-design-file.js";
 
 const MAX_FRAME_HTML_BYTES = 4 * 1024 * 1024;
 const YIELD_AFTER_MS = 16;
