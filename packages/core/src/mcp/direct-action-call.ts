@@ -59,6 +59,7 @@ import {
   upstreamStatusText,
   withheldWriteResponse,
   withoutMcpAppEmbedTicket,
+  withServerMintedFullAppEmbedStart,
   withServerMintedMcpAppEmbedStart,
 } from "./build-server.js";
 import { mcpCallAttribution } from "./call-attribution.js";
@@ -492,6 +493,28 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         directoryWidget === undefined;
       const suppressDirectoryWidget =
         directoryCatalog && !hasVerifiedMcpUserIdentity(effectiveIdentity);
+      // Outside the directory catalog, a resource with no scoped widget
+      // mounts the whole app, as the desktop side panel does.
+      const fullAppEmbedResult =
+        !directoryCatalog &&
+        requiresEmbedSession &&
+        !!getRequestContext()?.requestOrigin &&
+        !!mcpAppResourceCandidate &&
+        directoryWidget === undefined &&
+        !mcpResultIsError
+          ? await withServerMintedFullAppEmbedStart(
+              projectedRawResult,
+              entry,
+              callArgs(),
+            ).catch((error: unknown) => {
+              console.warn(
+                `[mcp] ${name} could not mint a full-app session; using a full-app link: ${describeThrownForLog(error)}`,
+              );
+              return undefined;
+            })
+          : undefined;
+      const fullAppEmbed =
+        typeof metadataObject(fullAppEmbedResult).embedStartUrl === "string";
       // The host mounts a widget for this tool from its descriptor, with or
       // without a ticket in the result, so a withheld ticket must be visible.
       if (
@@ -509,9 +532,10 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           }.`,
         );
       }
-      const rawResultForClient =
-        entry.mcpApp?.resource !== undefined &&
-        (!directoryWidget || suppressDirectoryWidget)
+      const rawResultForClient = fullAppEmbed
+        ? fullAppEmbedResult
+        : entry.mcpApp?.resource !== undefined &&
+            (!directoryWidget || suppressDirectoryWidget)
           ? withoutMcpAppEmbedTicket(projectedRawResult)
           : mcpAppResourceCandidate
             ? await withServerMintedMcpAppEmbedStart(
@@ -539,7 +563,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       const mcpAppResource =
         mcpAppResourceCandidate &&
         (!requiresEmbedSession ||
-          (directoryWidget &&
+          ((directoryWidget || fullAppEmbed) &&
             typeof metadataObject(actionResultForClient).embedStartUrl ===
               "string")) &&
         !mcpResultIsError &&
