@@ -733,7 +733,7 @@ describe("direct tools/call wire output", () => {
 
   it("keeps MCP location hints request-scoped without changing the authenticated identity", async () => {
     vi.setSystemTime(new Date("2026-11-17T00:00:00Z"));
-    vi.stubEnv("TZ", "UTC");
+    vi.stubEnv("TZ", "Pacific/Honolulu");
     const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
     const token = await signMcpOAuthAccessToken({
       ownerEmail: "oauth@example.com",
@@ -768,9 +768,11 @@ describe("direct tools/call wire output", () => {
           orgId: ctx?.orgId,
           requestUserEmail: getRequestContext()?.userEmail,
           requestOrgId: getRequestContext()?.orgId,
+          timezone: getRequestContext()?.timezone,
         };
       },
     });
+    const write = vi.fn(async () => ({ ok: true }));
     const requests: unknown[] = [];
     const { client } = await connect(
       {
@@ -778,37 +780,62 @@ describe("direct tools/call wire output", () => {
         "x-agent-native-mcp-full-catalog": "1",
       },
       {
-        serverConfig: { ...config, actions: { "resolve-day": action } },
+        serverConfig: {
+          ...config,
+          actions: {
+            "resolve-day": action,
+            "write-thing": defineAction({
+              description: "Write a thing",
+              schema: z.object({}),
+              run: write,
+            }),
+          },
+        },
         onToolCall: (body) => requests.push(body),
       },
     );
     try {
       const call = (
         args: { day?: string; overlap?: boolean },
-        timezone?: string,
+        meta?: Record<string, unknown>,
       ) =>
         client.callTool({
           name: "resolve-day",
           arguments: args,
-          ...(timezone
-            ? {
-                _meta: {
-                  "openai/userLocation": { timezone },
-                  userEmail: "forged@example.com",
-                  orgId: "forged-org",
-                },
-              }
-            : {}),
+          ...(meta ? { _meta: meta } : {}),
         });
+      const location = (timezone: unknown) => ({
+        "openai/userLocation": { timezone },
+        userEmail: "forged@example.com",
+        orgId: "forged-org",
+      });
       const withoutHint = await call({});
+      const invalidHints = await Promise.all(
+        [
+          { "openai/userLocation": null },
+          { "openai/userLocation": "America/Los_Angeles" },
+          { "openai/userLocation": [] },
+          location(42),
+          location(""),
+          location("Not/A_Timezone"),
+          location("-08:00"),
+          { timezone: "America/Los_Angeles" },
+          { "openai/userLocation": { timeZone: "America/Los_Angeles" } },
+        ].map((meta) => call({}, meta)),
+      );
       const explicitDay = await call(
         { day: "2026-11-10" },
-        "America/Los_Angeles",
+        location("America/Los_Angeles"),
       );
       const [losAngeles, tokyo] = await Promise.all([
-        call({ overlap: true }, "America/Los_Angeles"),
-        call({ overlap: true }, "Asia/Tokyo"),
+        call({ overlap: true }, location("America/Los_Angeles")),
+        call({ overlap: true }, location("Asia/Tokyo")),
       ]);
+      const deniedWrite = await client.callTool({
+        name: "write-thing",
+        arguments: {},
+        _meta: { ...location("America/Los_Angeles"), scope: "mcp:write" },
+      });
       expect(requests).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -833,17 +860,43 @@ describe("direct tools/call wire output", () => {
         requestUserEmail: "oauth@example.com",
         requestOrgId: "org-test",
       };
+      for (const result of [withoutHint, ...invalidHints]) {
+        expect(result.isError).toBeUndefined();
+        expect(result.structuredContent).toEqual({
+          ...identity,
+          day: "2026-11-17",
+          timezone: "UTC",
+        });
+      }
       expect(
-        [withoutHint, explicitDay, losAngeles, tokyo].map((result) => ({
+        [explicitDay, losAngeles, tokyo].map((result) => ({
           isError: result.isError,
           content: result.structuredContent,
         })),
       ).toEqual([
-        { isError: undefined, content: { ...identity, day: "2026-11-17" } },
-        { isError: undefined, content: { ...identity, day: "2026-11-10" } },
-        { isError: undefined, content: { ...identity, day: "2026-11-16" } },
-        { isError: undefined, content: { ...identity, day: "2026-11-17" } },
+        {
+          isError: undefined,
+          content: {
+            ...identity,
+            day: "2026-11-10",
+            timezone: "America/Los_Angeles",
+          },
+        },
+        {
+          isError: undefined,
+          content: {
+            ...identity,
+            day: "2026-11-16",
+            timezone: "America/Los_Angeles",
+          },
+        },
+        {
+          isError: undefined,
+          content: { ...identity, day: "2026-11-17", timezone: "Asia/Tokyo" },
+        },
       ]);
+      expect(deniedWrite.isError).toBe(true);
+      expect(write).not.toHaveBeenCalled();
     } finally {
       await client.close();
     }
