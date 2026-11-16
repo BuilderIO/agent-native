@@ -129,6 +129,17 @@ export interface ComposerContextMenuProps {
   onAttachmentRequest?: () => void;
   attachmentAccept?: string;
   onAttachmentError?: (message: string) => void;
+  /**
+   * Skips the context menu and shows only the attachment control, as the
+   * meeting-notes composer's single paperclip does. The hidden file input and
+   * the `addAttachment` plumbing are the same as in the menu.
+   */
+  attachOnly?: boolean;
+  /** Accessible name of the attach-only control. */
+  attachLabel?: string;
+  /** Accessible name while an upload is in flight, when the host knows it. */
+  attachBusyLabel?: string;
+  attachBusy?: boolean;
   onDisabledFocus?: () => void;
   onRestoreFocus?: () => void;
   contextButtonTooltipDisabled?: boolean;
@@ -355,6 +366,10 @@ export function ComposerContextMenu({
   onAttachmentRequest,
   attachmentAccept,
   onAttachmentError,
+  attachOnly = false,
+  attachLabel,
+  attachBusyLabel,
+  attachBusy = false,
   onDisabledFocus,
   onRestoreFocus,
   contextButtonTooltipDisabled = false,
@@ -478,6 +493,16 @@ export function ComposerContextMenu({
   const uploadLabel = t("agentChat.composer.menu.uploadFile", {
     defaultValue: "Files and images",
   });
+  const attachName =
+    attachLabel ??
+    t("agentChat.composer.attachFiles", { defaultValue: "Attach files" });
+  const attachBusyName =
+    attachBusyLabel ??
+    t("agentChat.composer.uploadingAttachments", {
+      defaultValue: "Uploading attachments",
+    });
+  const attachDisabled = disabled;
+  const canAttach = Boolean(addAttachment || onAttachmentRequest);
   const reportError = useCallback(
     (cause: unknown) => {
       const message = formatAttachmentError(
@@ -791,27 +816,67 @@ export function ComposerContextMenu({
     </>
   );
 
+  const attachmentInput = addAttachment ? (
+    <input
+      ref={inputRef}
+      type="file"
+      multiple
+      accept={attachmentAccept}
+      hidden
+      onChange={(event) => {
+        const files = Array.from(event.target.files ?? []);
+        event.target.value = "";
+        setError(null);
+        void Promise.all(
+          files.map((file) =>
+            Promise.resolve().then(() => addAttachment(file)),
+          ),
+        ).catch(reportError);
+      }}
+    />
+  ) : null;
+
+  // Attach-only: the same input and the same `addAttachment` plumbing, with a
+  // single paperclip control instead of a menu. The meeting-notes composer has
+  // one attachment control and no "+" menu, so it asks for this shape.
+  if (attachOnly && canAttach) {
+    return (
+      <>
+        {attachmentInput}
+        <Tooltip
+          open={triggerTooltipOpen && !contextButtonTooltipDisabled}
+          onOpenChange={setTriggerTooltipOpen}
+        >
+          <TooltipTrigger asChild>
+            <Button
+              ref={triggerRef}
+              type="button"
+              variant="ghost"
+              aria-label={attachBusy ? attachBusyName : attachName}
+              aria-busy={attachBusy}
+              className="size-7 shrink-0 border-[0.4px] border-hairline"
+              data-agent-composer-slot="attach-button"
+              disabled={attachDisabled}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (addAttachment) inputRef.current?.click();
+                else onAttachmentRequest?.();
+              }}
+            >
+              <IconPaperclip size={16} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {attachBusy ? attachBusyName : attachName}
+          </TooltipContent>
+        </Tooltip>
+      </>
+    );
+  }
+
   return (
     <>
-      {addAttachment && (
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          accept={attachmentAccept}
-          hidden
-          onChange={(event) => {
-            const files = Array.from(event.target.files ?? []);
-            event.target.value = "";
-            setError(null);
-            void Promise.all(
-              files.map((file) =>
-                Promise.resolve().then(() => addAttachment(file)),
-              ),
-            ).catch(reportError);
-          }}
-        />
-      )}
+      {attachmentInput}
       <DropdownMenu
         open={open}
         onOpenChange={changeOpen}

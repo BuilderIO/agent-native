@@ -1428,6 +1428,8 @@ export default {
       "Das Diagramm zeigt {{chart}}, aber {{total}} Datensätze passen",
     drilldownAggregateOnly:
       "Dieses Panel enthält nur aggregierte Zeilen. Zeilen zum angeklickten Punkt sind hervorgehoben.",
+    drilldownNoXValueAggregateOnly:
+      "Dieses Panel kann für einen Punkt ohne Wert keine Datensätze öffnen und zeigt daher aggregierte Zeilen. Zeilen zum angeklickten Punkt sind hervorgehoben.",
     drilldownNoRecords: "Keine passenden Datensätze",
     drilldownNoRecordsIncomplete:
       "Keine Datensätze geladen. Das Ergebnis ist unvollständig, daher können trotzdem Datensätze passen.",

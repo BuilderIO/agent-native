@@ -198,6 +198,13 @@ Keep-warm **默认是关闭的**。让数据库保持唤醒会阻止它暂停，
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 即使设置了 `AGENT_NATIVE_ENABLE_KEEP_WARM`，也会关闭 keep-warm。为兼容旧配置而保留。                                                |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 用 5 段式 cron 表达式更改预热的运行频率，例如 `*/5 * * * *`。默认值是 `* * * * *`，即每分钟一次。无效的 cron 值会**导致构建失败**。 |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 跳过后台函数的预热，仍保持服务器函数的预热。预热服务器只是一次请求。预热后台函数会启动一个新容器，并再次检查数据库 schema。         |
+| `AGENT_NATIVE_KEEP_WARM_CONCURRENCY`        | 仅限多应用工作区：每个应用保持预热的服务器实例数，范围 1 到 50。默认值为 `1`。超出范围的值**会使构建失败**。                        |
+
+### 多应用工作区 {#netlify-workspace-keep-warm}
+
+工作区部署读取相同的变量。启用 keep-warm 后，它会生成一个计划函数 `agent-native-workspace-keep-warm`，按计划调用每个应用的 `/<app>/_agent-native/health` 端点。
+
+Netlify 函数实例一次只处理一个请求，而打开一个应用会同时发出一批并行的框架请求。每个找不到空闲实例的请求都会冷启动一个新实例，因此只有一个预热实例对页面加载帮助不大。设置 `AGENT_NATIVE_KEEP_WARM_CONCURRENCY` 可为每个应用发送相应数量的重叠健康检查请求，从而保持相应数量的实例处于预热状态。每次运行会发送 `应用数 x 并发数` 个请求，因此较高的值应搭配较慢的计划，例如 `*/3 * * * *`。
 
 如果你的数据库使用的是免费套餐或其他受限套餐，请让 `AGENT_NATIVE_ENABLE_KEEP_WARM`
 保持未设置。如果你启用了它，请选择更慢的计划，或设置

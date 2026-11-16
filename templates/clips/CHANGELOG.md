@@ -3,6 +3,13 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-13
+
+### Fixed
+
+- Fixed a navigation error when leaving an active recording.
+- Recording recovery reminders now follow the selected interface language.
+
 ## 2026-11-12
 
 ### Improved
@@ -11,6 +18,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- The Labs tab in Clips desktop Settings now stays open instead of jumping back to General.
 - Recordings now retry automatically when the upload service has a brief hiccup at the start or end of an upload, instead of failing.
 
 ## 2026-11-10
@@ -49,6 +57,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Navigation requests now clearly require a destination.
 - Chrome extension: the popup now switches to Record as soon as sign-in completes, and the website shows an error if the extension handoff fails.
 
 ## 2026-11-05
@@ -1435,30 +1444,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
   Agent-created Clips are kept in the Library by default. An optional retention setting can remove future agent-created Clips after 24 hours, 7 days, or 30 days. Renaming, sharing, commenting on, reacting to, tagging, or archiving one preserves it.
 
   Raw Rewind recordings and the complete local index remain on the Mac. The old Private versus Cloud-assisted mode gate has been removed; the boundary is now the bounded request and, for media, the private Clip handoff.
-
-## 2026-07-16
-
-### Added
-
-- Organization admins can choose the default visibility for new recordings.
-
-### Improved
-
-- Camera bubble hover controls now appear above the face so it can rest flush near the bottom of the screen.
-- Clips search now matches recording content without requiring exact letter case.
-- Remove Silences now shows queued, active, completed, and failed progress on the recording page.
-- Settings no longer repeats the Builder connection status in multiple setup cards.
-- The desktop app button now shows "Open desktop app" and launches the installed app instead of re-downloading once you've downloaded it.
-
-### Fixed
-
-- Authorized viewers can open shared private clips without a misleading sign-in detour.
-- Chrome extension recordings no longer leave a stale recorder state blocking the next start after a failed launch.
-- Clips agent chat now stays inline with the recording tabs without a separate Chat or Workspace header.
-- Meetings you decline no longer trigger Clips desktop reminders.
-- Failed or delayed desktop saves now reopen Clips with the saved local copy visible in every view, including Settings.
-- Long desktop Clips now preserve complete playback, synced audio, full transcripts, and local recovery copies until upload verification succeeds.
-- Long recording lists keep Stitch actions and selected-library actions visible.
-- Transcripts now appear from native browser speech sooner, with automatic recovery when transcription stalls.
 
 For the full list of updates, see the [changelog folder](./changelog/).

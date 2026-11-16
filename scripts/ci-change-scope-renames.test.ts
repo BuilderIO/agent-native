@@ -326,3 +326,74 @@ test("runs the guards when docs add or rename a page browsers load", () => {
     rmSync(repoPath, { recursive: true, force: true });
   }
 });
+
+test("reads changed, deleted and added paths in a blobless clone without fetching blobs", () => {
+  const root = mkdtempSync(join(tmpdir(), "ci-change-scope-blobless-"));
+  const sourcePath = join(root, "source");
+  const clonePath = join(root, "clone");
+  const git = (cwd: string, ...args: string[]) => {
+    const result = spawnSync("git", ["-C", cwd, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    assert.equal(
+      result.status,
+      0,
+      `git ${args.join(" ")} failed: ${result.stderr}`,
+    );
+    return result.stdout.trim();
+  };
+
+  try {
+    mkdirSync(sourcePath);
+    git(sourcePath, "init", "--quiet");
+    git(sourcePath, "config", "user.name", "CI Change Scope Test");
+    git(sourcePath, "config", "user.email", "ci-change-scope@example.invalid");
+    const body = Array.from({ length: 40 }, (_, line) => `line ${line}\n`);
+    writeFileSync(join(sourcePath, "old.ts"), body.join(""));
+    writeFileSync(join(sourcePath, "gone.ts"), "export const gone = 1;\n");
+    git(sourcePath, "add", "--all");
+    git(sourcePath, "commit", "--quiet", "-m", "base");
+    const baseSha = git(sourcePath, "rev-parse", "HEAD");
+    rmSync(join(sourcePath, "old.ts"));
+    rmSync(join(sourcePath, "gone.ts"));
+    writeFileSync(join(sourcePath, "new.ts"), [...body, "edited\n"].join(""));
+    git(sourcePath, "add", "--all");
+    git(sourcePath, "commit", "--quiet", "-m", "head");
+    const headSha = git(sourcePath, "rev-parse", "HEAD");
+
+    git(
+      root,
+      "-c",
+      "uploadpack.allowFilter=true",
+      "clone",
+      "--quiet",
+      "--no-checkout",
+      "--filter=blob:none",
+      "--upload-pack",
+      "git -c uploadpack.allowFilter=true upload-pack",
+      `file://${sourcePath}`,
+      clonePath,
+    );
+    git(
+      clonePath,
+      "remote",
+      "set-url",
+      "origin",
+      "https://invalid.example/none.git",
+    );
+
+    assert.deepEqual(readChangedPaths(baseSha, headSha, clonePath).sort(), [
+      "gone.ts",
+      "new.ts",
+      "old.ts",
+    ]);
+    assert.deepEqual(readDeletedPaths(baseSha, headSha, clonePath).sort(), [
+      "gone.ts",
+      "old.ts",
+    ]);
+    assert.deepEqual(readAddedPaths(baseSha, headSha, clonePath), ["new.ts"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

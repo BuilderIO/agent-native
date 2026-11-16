@@ -175,7 +175,7 @@ export interface SqlPanelConfig {
   columns?: TableColumnConfig[];
   /** Table only: columns a clicked row can be split by in the side panel. */
   breakdowns?: PanelBreakdown[];
-  /** Record query for a clicked chart point; uses drillX and drillSeries variables. */
+  /** Record query for a clicked chart point; uses drillX, drillXIsNull and drillSeries variables. */
   drilldown?: PanelDrilldown | null;
   limit?: number;
   extensionId?: string;

@@ -69,7 +69,7 @@ export const ALLOWED_REFERENCES: readonly AllowedReference[] = [
     file: "packages/dispatch/src/db/migrations.ts",
     tokens: ["vault_secrets"],
     reason:
-      "Migrations are append-only: version 2 created the table and version 6 widened its timestamp columns.",
+      "Databases that already hold the table keep it: version 6 widens its timestamp columns and version 10 reads it. A fresh install never creates it.",
   },
   {
     file: "packages/dispatch/src/server/plugins/db.ts",

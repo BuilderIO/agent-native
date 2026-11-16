@@ -31,6 +31,13 @@ import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
 } from "./output-tokens.js";
+import {
+  assertNoGlobalTelemetryIntegration,
+  privateLanguageModelV3,
+  toPrivateEngineEvent,
+} from "./private-ai-sdk-model.js";
+import { toPrivateCompletionError } from "./private-completion-error.js";
+import { ProviderAuthenticationError } from "./provider-auth-error.js";
 import { createProviderToolNameMap } from "./tool-name.js";
 import {
   engineToolsToAISDK,
@@ -164,6 +171,23 @@ const PROVIDER_FACTORIES: Record<AISDKProvider, string> = {
   ollama: "createOllama",
 };
 
+/**
+ * Providers whose installed dist was re-audited to contain no provider-local
+ * `console.*` / telemetry sink on the `streamText` path. The private wrapper
+ * sits ABOVE the provider package, so it cannot bound a provider that logs on
+ * its own. `@openrouter/ai-sdk-provider` and `ai-sdk-ollama` both call
+ * `console.warn` inside their own dist, so private content fails closed for
+ * them rather than making a guarantee the wrapper cannot keep.
+ */
+const PRIVATE_CONTENT_SAFE_PROVIDERS = new Set<AISDKProvider>([
+  "anthropic",
+  "openai",
+  "google",
+  "groq",
+  "mistral",
+  "cohere",
+]);
+
 function googleThinkingBudget(effort: string) {
   if (effort === "low") return 1024;
   if (effort === "medium") return 4096;
@@ -267,6 +291,7 @@ class AISDKEngine implements AgentEngine {
   readonly acceptsCustomModels: boolean;
   readonly preserveCustomModels: boolean;
   readonly capabilities: EngineCapabilities;
+  readonly supportsPrivateContent: boolean;
 
   private readonly provider: AISDKProvider;
   private readonly apiKey?: string;
@@ -294,6 +319,7 @@ class AISDKEngine implements AgentEngine {
           provider === "openrouter" ||
           (provider === "openai" && isCustomOpenAiBaseUrl(config.baseUrl));
     this.capabilities = config.capabilities ?? PROVIDER_CAPABILITIES[provider];
+    this.supportsPrivateContent = PRIVATE_CONTENT_SAFE_PROVIDERS.has(provider);
     this.apiKey =
       config.apiKey ??
       (config.allowEnvFallback === false ? "" : getProviderApiKey(provider));
@@ -311,6 +337,40 @@ class AISDKEngine implements AgentEngine {
   }
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+    if (opts.privateContent === true) {
+      yield* this.streamPrivateContent(opts);
+      return;
+    }
+    yield* this.runStream(opts, false);
+  }
+
+  /**
+   * The private-content boundary. Every yielded event and every escaping error
+   * is canonicalized here so no provider-controlled warning, error message,
+   * request id, upgrade url, or provider string survives the SDK boundary.
+   */
+  private async *streamPrivateContent(
+    opts: EngineStreamOptions,
+  ): AsyncIterable<EngineEvent> {
+    try {
+      if (!this.supportsPrivateContent) {
+        throw toPrivateCompletionError(undefined, this.provider);
+      }
+      for await (const event of this.runStream(opts, true)) {
+        yield toPrivateEngineEvent(event, this.provider);
+        if (event.type === "tool-call-error") {
+          throw toPrivateCompletionError(undefined, this.provider);
+        }
+      }
+    } catch (error) {
+      throw toPrivateCompletionError(error, this.provider);
+    }
+  }
+
+  private async *runStream(
+    opts: EngineStreamOptions,
+    isPrivate: boolean,
+  ): AsyncIterable<EngineEvent> {
     // An absent key is not an anonymous request. Without this the provider
     // factory is constructed with no `apiKey`, the SDK omits the Authorization
     // header entirely, and the gateway's 401 comes back as
@@ -357,12 +417,32 @@ class AISDKEngine implements AgentEngine {
     try {
       providerModel = await this.createProviderModel(opts.model);
     } catch (err: any) {
+      if (isPrivate) {
+        // A custom model id or provider-factory failure is app/config
+        // adjacent, but its message is still not trusted on this boundary.
+        yield toPrivateCompletionError(err, this.provider).stopEvent();
+        return;
+      }
       yield {
         type: "stop",
         reason: "error",
         error: err?.message ?? String(err),
       };
       return;
+    }
+
+    let modelForCall = providerModel;
+    if (isPrivate) {
+      try {
+        modelForCall = privateLanguageModelV3(providerModel, {
+          provider: this.provider,
+        });
+      } catch (err) {
+        // A non-v3 model would make the SDK emit its own compatibility
+        // warning before the wrapper could strip anything. Fail closed.
+        yield toPrivateCompletionError(err, this.provider).stopEvent();
+        return;
+      }
     }
 
     const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
@@ -513,41 +593,60 @@ class AISDKEngine implements AgentEngine {
     const firstEventAbort = createFirstEventAbortController(opts.abortSignal);
     const toolInputs = createStreamedToolInputState();
 
-    const dispatch = await startModelDispatch(opts, () =>
-      streamText({
-        model: providerModel,
-        system: opts.systemPrompt,
-        messages,
-        tools: aiSdkTools,
-        ...(this.omitMaxOutputTokens
-          ? {}
-          : { maxOutputTokens: resolvedMaxOutputTokens }),
-        maxRetries: 1,
-        ...(samplingAllowed && opts.temperature !== undefined
-          ? { temperature: opts.temperature }
-          : {}),
-        abortSignal: firstEventAbort.signal,
-        onStepFinish: (step: any) => {
-          assistantContent = aiSdkStepToAssistantContent(step, toolNameMap);
-        },
-        ...(Object.keys(providerOpts).length > 0
-          ? { providerOptions: providerOpts }
-          : {}),
-      }),
-    ).catch((error) => {
-      firstEventAbort.cleanup();
-      throw error;
-    });
-    if (!dispatch.started) {
-      firstEventAbort.cleanup();
-      return;
-    }
-    const result = dispatch.value;
+    // Set inside the dispatch callback, which control-flow narrowing cannot see.
+    let providerDispatched = false as boolean;
+    let credentialFailureRecorded = false;
+    let streamedAuthenticationFailure: ProviderAuthenticationError | undefined;
 
     try {
+      const dispatch = await startModelDispatch(opts, () => {
+        if (isPrivate) {
+          // Read (never mutate) the global registry synchronously, in the same
+          // tick as `streamText`: the SDK captures it synchronously at call
+          // time, so a global integration would bypass `experimental_telemetry`
+          // entirely. Fail closed before any provider dispatch or marker.
+          assertNoGlobalTelemetryIntegration(this.provider);
+        }
+        providerDispatched = true;
+        return streamText({
+          model: modelForCall,
+          system: opts.systemPrompt,
+          messages,
+          tools: aiSdkTools,
+          ...(this.omitMaxOutputTokens
+            ? {}
+            : { maxOutputTokens: resolvedMaxOutputTokens }),
+          maxRetries: 1,
+          ...(samplingAllowed && opts.temperature !== undefined
+            ? { temperature: opts.temperature }
+            : {}),
+          abortSignal: firstEventAbort.signal,
+          onStepFinish: (step: unknown) => {
+            assistantContent = aiSdkStepToAssistantContent(step, toolNameMap);
+          },
+          ...(Object.keys(providerOpts).length > 0
+            ? { providerOptions: providerOpts }
+            : {}),
+          // Private-only: replace the SDK's default console.error onError and
+          // disable every in-band telemetry recording option the installed
+          // types expose. The ordinary path keeps its exact options shape.
+          ...(isPrivate
+            ? {
+                onError: () => {},
+                experimental_telemetry: {
+                  isEnabled: false,
+                  recordInputs: false,
+                  recordOutputs: false,
+                },
+              }
+            : {}),
+        });
+      });
+      if (!dispatch.started) return;
+      const result = dispatch.value;
+
       let bufferedStop: EngineEvent | undefined;
       let sawFirstEvent = false;
-      let credentialFailureRecorded = false;
 
       for await (const part of result.fullStream) {
         if (!sawFirstEvent && part?.type !== "start") {
@@ -559,18 +658,26 @@ class AISDKEngine implements AgentEngine {
           if (
             event.type === "stop" &&
             event.reason === "error" &&
-            event.statusCode === 401 &&
-            !this.skipCredentialFailureTracking
+            (event.statusCode === 401 || streamedAuthenticationFailure)
           ) {
-            await recordProviderCredentialAuthFailure({
-              key: PROVIDER_ENV_VARS[this.provider][0],
-              value: this.apiKey,
-              status: event.statusCode,
-              code: event.errorCode ?? "http_401",
-              message:
-                event.error || "The model provider rejected the saved API key.",
-            });
-            credentialFailureRecorded = true;
+            const failure =
+              streamedAuthenticationFailure ??
+              new ProviderAuthenticationError(this.provider, 401);
+            streamedAuthenticationFailure = failure;
+            if (
+              !this.skipCredentialFailureTracking &&
+              !credentialFailureRecorded
+            ) {
+              const credentialKey = PROVIDER_ENV_VARS[this.provider].at(0);
+              await recordProviderCredentialAuthFailure({
+                ...(credentialKey !== undefined ? { key: credentialKey } : {}),
+                ...(this.apiKey !== undefined ? { value: this.apiKey } : {}),
+                ...failure.details(),
+              });
+              credentialFailureRecorded = true;
+            }
+            bufferedStop = failure.stopEvent();
+            continue;
           }
           if (event.type === "stop") {
             bufferedStop = event;
@@ -578,6 +685,11 @@ class AISDKEngine implements AgentEngine {
             yield event;
           }
         }
+      }
+
+      if (streamedAuthenticationFailure) {
+        yield streamedAuthenticationFailure.stopEvent();
+        return;
       }
 
       if (firstEventAbort.didTimeout()) {
@@ -624,20 +736,28 @@ class AISDKEngine implements AgentEngine {
       yield bufferedStop ?? { type: "stop", reason: "end_turn" };
     } catch (err: any) {
       const timedOut = firstEventAbort.didTimeout();
-      const errorMessage = describeErrorWithCauses(err);
       const classification = classifyProviderError(err, timedOut);
-      if (
-        classification.statusCode === 401 &&
-        !this.skipCredentialFailureTracking
-      ) {
-        await recordProviderCredentialAuthFailure({
-          key: PROVIDER_ENV_VARS[this.provider][0],
-          value: this.apiKey,
-          status: classification.statusCode,
-          code: "http_401",
-          message: errorMessage,
-        });
+      if (classification.statusCode === 401 || streamedAuthenticationFailure) {
+        const failure =
+          streamedAuthenticationFailure ??
+          new ProviderAuthenticationError(this.provider, 401);
+        if (
+          providerDispatched &&
+          !this.skipCredentialFailureTracking &&
+          !credentialFailureRecorded
+        ) {
+          const credentialKey = PROVIDER_ENV_VARS[this.provider].at(0);
+          await recordProviderCredentialAuthFailure({
+            ...(credentialKey !== undefined ? { key: credentialKey } : {}),
+            ...(this.apiKey !== undefined ? { value: this.apiKey } : {}),
+            ...failure.details(),
+          });
+        }
+        yield failure.stopEvent();
+        throw failure;
       }
+      if (!providerDispatched) throw err;
+      const errorMessage = describeErrorWithCauses(err);
       yield {
         type: "stop",
         reason: "error",

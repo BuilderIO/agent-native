@@ -513,7 +513,8 @@ function SecretCard({
           ? t(SOURCE_LABEL_KEY[secret.source])
           : null;
       return (
-        <span className="flex items-center gap-1 text-[10px] text-green-500">
+        // guard:allow-raw-color — no success token exists; green-500 on a light card is 2.2:1, below the 4.5:1 text floor
+        <span className="flex items-center gap-1 text-[10px] text-green-700 dark:text-green-500">
           <IconCheck size={10} />
           {sourceLabel ? `Set · ${sourceLabel}` : "Set"}
         </span>
@@ -601,8 +602,7 @@ function SecretCard({
               {secret.oauthConnectUrl && (
                 <a
                   href={secret.oauthConnectUrl}
-                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium no-underline"
-                  style={{ backgroundColor: "#00B5FF", color: "white" }}
+                  className="inline-flex items-center gap-1 rounded bg-primary px-2 py-1 text-[10px] font-medium text-primary-foreground no-underline"
                 >
                   <IconPlugConnected size={10} />
                   {secret.status === "set" ? "Reconnect" : "Connect"}
@@ -658,12 +658,12 @@ function SecretCard({
                     </Button>
                     <Button
                       type="button"
+                      variant="default"
                       intent="primary"
                       emphasis="solid"
                       onClick={() => setIsRotating(true)}
                       disabled={busy !== null}
                       className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
-                      style={{ backgroundColor: "#00B5FF", color: "white" }}
                     >
                       <IconRefresh size={10} />
                       Rotate
@@ -798,12 +798,12 @@ function SecretCard({
                     )}
                     <Button
                       type="button"
+                      variant="default"
                       intent="primary"
                       emphasis="solid"
                       onClick={handleSave}
                       disabled={!value.trim() || busy !== null}
                       className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
-                      style={{ backgroundColor: "#00B5FF", color: "white" }}
                     >
                       {busy === "save" ? (
                         <IconLoader2 size={10} className="animate-spin" />
@@ -1122,6 +1122,7 @@ function AdHocKeysSection({
             </Button>
             <Button
               type="button"
+              variant="default"
               intent="primary"
               emphasis="solid"
               onClick={handleAdd}
@@ -1129,7 +1130,6 @@ function AdHocKeysSection({
                 !formName.trim() || !formValue.trim() || !formScope || formBusy
               }
               className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
-              style={{ backgroundColor: "#00B5FF", color: "white" }}
             >
               {formBusy ? (
                 <IconLoader2 size={10} className="animate-spin" />

@@ -1048,6 +1048,37 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Compartilhar prévia ao vivo",
+      instructions:
+        "Cole uma URL HTTPS pública de prévia para seu app, como um túnel ngrok ou cloudflared. Sua máquina continua usando localhost; outras pessoas podem ver a prévia pública ou sugerir alterações na captura publicada.",
+      tunnelUrl: "URL pública de prévia",
+      enableCollaboration:
+        "Ativar colaboração ao vivo para todas as pessoas com acesso ao design",
+      save: "Salvar",
+      unavailable: "Prévia ao vivo indisponível — mostrando o instantâneo",
+      live: "Prévia ao vivo",
+      openLive: "Abrir a prévia ao vivo em {{hostname}}",
+      suggest: "Sugerir na captura",
+      localOnly: "Prévia ao vivo apenas na máquina do proprietário",
+    },
+    referenceCopy: {
+      staticNotice:
+        "O JavaScript está desativado; conteúdo dinâmico pode estar ausente.",
+      captureAction: "Capturar imagem estática",
+      capturePrompt:
+        "Capture a tela e o DOM desta URL de referência pública e adicione-os como tela estática de referência neste canvas. Identifique como captura, não como página ao vivo.",
+      unavailable: "Esta página pode bloquear quadros ou não ter carregado.",
+      load: "Carregar cópia de referência",
+      label: "Cópia de referência · página pública, somente leitura",
+      noBridge: "Conecte uma ponte local para carregar uma cópia pública.",
+      snapshot: "Usar captura publicada",
+      capture: "Peça ao agente uma captura de tela e do DOM.",
+      failed: "A cópia falhou. Capture a tela e o DOM.",
+      loading: "Carregando cópia de referência…",
+      original: "Tentar página original",
+    },
+
     sourceLoadFailed: "Não foi possível carregar esta tela.",
     selectionPublishFailed:
       "O agente pode não ver sua seleção mais recente. Selecione-a novamente.",
@@ -1097,6 +1128,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Selecionar camada",
+      layerKinds: {
+        webgl: "Tela · WebGL",
+        canvas: "Tela",
+        video: "Vídeo",
+        image: "Imagem",
+        svg: "Gráfico SVG",
+        embed: "Incorporação",
+        background: "Fundo",
+        effect: "Efeito",
+      },
       goToMain: "Ir para o componente principal",
       restore: "Restaurar componente",
       swap: "Trocar instância",
@@ -2056,6 +2097,9 @@ export default {
     addTweaks: "Adicionar ajustes",
     addTweakControls: "Adicionar controles de ajuste",
     closeTweaks: "Fechar ajustes",
+    showFloatingTweaks: "Mostrar ajustes flutuantes",
+    collapseTweaks: "Recolher ajustes",
+    expandTweaks: "Expandir ajustes",
     tweaksHelp:
       "Os ajustes são substituições visuais específicas de breakpoint e estado sobre o design base. Redefina um controle para voltar ao valor herdado.",
     tweaksDocs: "Saiba mais.",
@@ -2122,6 +2166,7 @@ export default {
       applyAria: "Aplicar edições visuais de estilo pendentes",
       applyButton: "Aplicar estilos",
       applySharedEdits: "Aplicar edições",
+      reviewSuggestion: "Revisar sugestão",
       previewLabel: "Prévia visual pendente",
       applyDesignUpdates: "Aplicar atualizações de design",
       applying: "Aplicando…",
@@ -2226,6 +2271,9 @@ export default {
       annotationSendError:
         "Não foi possível enviar as anotações. Seu desenho continua aqui; tente novamente.",
       codingHandoffError: "Não foi possível criar o handoff de código",
+      unknownCollaborator: "um colaborador",
+      supersededVisualEditSuggestion:
+        "Uma sugestão anterior de {{authorEmail}} foi substituída. Texto original: {{text}}",
       visualEditPendingConflict:
         "Há alterações de outro colaborador aguardando aplicação. Aplique ou limpe-as antes de enviar novas alterações.",
       codingHandoffCopied: "Handoff de código copiado",
@@ -2320,6 +2368,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Os ajustes foram alterados em outro lugar. Atualize o design antes de tentar novamente.",
+      tweakBaselineUnreadable:
+        "Não foi possível ler a referência salva dos ajustes. As alterações estão pausadas até que os dados do design sejam corrigidos.",
+      resetTweakBaseline: "Redefinir referência",
       tweakSaveNotDurable:
         "Os ajustes ainda não foram salvos. Mantenha esta aba aberta e tente novamente.",
       undoSkippedConcurrentEdit: "Desfazer ignorado — outra pessoa moveu isso",
@@ -3471,6 +3522,10 @@ export default {
     markedUnread: "Marcado como não lido",
     markUnreadFailed: "Não foi possível marcar como não lido",
     attachImage: "Anexar imagem",
+    removeImage: "Remover imagem",
+    imageUploadFailed: "Não foi possível enviar a imagem",
+    editChanged:
+      "Este comentário mudou depois que você começou a editá-lo. Salve de novo para substituí-lo.",
     searching: "Pesquisando…",
     reactionFailed: "Não foi possível atualizar a reação",
     moveFailed: "Não foi possível mover o comentário",

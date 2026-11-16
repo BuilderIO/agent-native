@@ -257,6 +257,8 @@ class HttpStatusError extends Error {
   }
 }
 
+class SyncResyncRequiredError extends Error {}
+
 export type SyncEvent = {
   version?: number;
   cursorId?: string;
@@ -482,6 +484,7 @@ type SyncBroadcast =
       cursor?: SyncCursor;
     }
   | { type: "sse-state"; connected: boolean; capabilities: string[] }
+  | { type: "resync" }
   | { type: "sse-state-request" };
 
 type EventSubscriber = (
@@ -647,7 +650,15 @@ async function fetchPollJson<T>(
       url,
       controller ? { signal: controller.signal } : undefined,
     );
-    if (!res.ok) throw new HttpStatusError(res.status);
+    if (!res.ok) {
+      if (res.status === 409) {
+        const body = (await res.json()) as { error?: unknown };
+        if (body.error === "SYNC_EVENT_READ_UNAVAILABLE") {
+          throw new SyncResyncRequiredError();
+        }
+      }
+      throw new HttpStatusError(res.status);
+    }
     return await res.json();
   } finally {
     if (timeout) clearTimeout(timeout);
@@ -656,6 +667,7 @@ async function fetchPollJson<T>(
 
 interface TransportSubscription {
   onEvents: EventSubscriber;
+  onResync?: () => void;
   pauseWhenHidden: boolean;
   interval: number;
   idleInterval: number;
@@ -930,6 +942,12 @@ class SyncTransport {
     }
   }
 
+  private resync(): void {
+    this.cursorRef = { ...INITIAL_SYNC_CURSOR };
+    for (const sub of this.subscribers.values()) sub.onResync?.();
+    this.broadcast({ type: "resync" });
+  }
+
   private setSseConnected(connected: boolean): void {
     if (this.sseConnected === connected) return;
     this.sseConnected = connected;
@@ -1086,6 +1104,9 @@ class SyncTransport {
           this.notifySseState();
         }
         this.reschedule();
+      } else if (frame?.type === "resync") {
+        this.cursorRef = { ...INITIAL_SYNC_CURSOR };
+        for (const sub of this.subscribers.values()) sub.onResync?.();
       }
     };
     this.channel = channel;
@@ -1341,6 +1362,11 @@ class SyncTransport {
       // retry waits the backed-off interval.
       readNextPage = false;
       if (this.stopped) return;
+      if (err instanceof SyncResyncRequiredError) {
+        this.resync();
+        readNextPage = true;
+        return;
+      }
       this.consecutiveFailures++;
       if (this.mode === "hosted" && this.gateway) {
         if (isTerminalAuthFailure(err)) {
@@ -1568,6 +1594,7 @@ export function _resetSyncTransportRegistryForTests(): void {
 
 export interface SubscribeSyncEventsOptions {
   onEvents: (events: SyncEvent[], version: number | undefined) => void;
+  onResync?: () => void;
   onSseStateChange?: (
     connected: boolean,
     capabilities?: readonly string[],
@@ -1592,6 +1619,7 @@ export function subscribeSyncEvents(
   const id = Symbol("subscribeSyncEvents");
   transport.add(id, {
     onEvents: options.onEvents,
+    onResync: options.onResync,
     onSseStateChange: options.onSseStateChange,
     pauseWhenHidden: options.pauseWhenHidden ?? false,
     interval: options.interval ?? 60_000,
@@ -1672,11 +1700,10 @@ export function useDbSync(
     let pendingInvalidateEvents: SyncEvent[] = [];
     let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
-    const pendingTrailingRefreshes: Array<{
-      filters: InvalidateFilters | undefined;
-      completion: Promise<unknown>;
-      predicateIdentity?: (query: Query) => boolean;
-    }> = [];
+    // Each entry names the in-flight queries one batch found busy. A batch built
+    // with a fresh predicate still overlaps the same fetches, so pending work is
+    // deduped by query, never by filter identity.
+    const pendingTrailingRefreshes: Array<{ queries: ReadonlySet<Query> }> = [];
 
     function flushInvalidateBatch() {
       if (invalidateTimer) {
@@ -1774,27 +1801,10 @@ export function useDbSync(
 
       if (invalidating.length > 0 && queryClient) {
         const asked: InvalidateFilters[] = [];
-        const hasPendingTrailingRefresh = (
-          filters: InvalidateFilters | undefined,
-          predicateIdentity?: (query: Query) => boolean,
-        ) =>
-          pendingTrailingRefreshes.some((pending) => {
-            if (pending.filters?.dedupeKey !== filters?.dedupeKey) return false;
-            if (filters?.dedupeKey) return true;
-            const pendingKey = pending.filters?.queryKey;
-            const filterKey = filters?.queryKey;
-            if (pendingKey || filterKey) {
-              if (
-                !pendingKey ||
-                !filterKey ||
-                pendingKey.length !== filterKey.length
-              ) {
-                return false;
-              }
-              return pendingKey.every((key, index) => key === filterKey[index]);
-            }
-            return pending.predicateIdentity === predicateIdentity;
-          });
+        const hasPendingTrailingRefresh = (query: Query) =>
+          pendingTrailingRefreshes.some((pending) =>
+            pending.queries.has(query),
+          );
 
         const invalidateWithoutCancel = (requested?: InvalidateFilters) => {
           asked.push(requested ?? {});
@@ -1805,29 +1815,43 @@ export function useDbSync(
               !hasTerminalAuthFailure(query) &&
               (callerPredicate?.(query) ?? true),
           };
-          const needsTrailingRefresh =
-            (queryClient.isFetching?.(normalizedFilters) ?? 0) > 0;
+          // The trailing refresh is for the reads that were still in flight and
+          // so may have answered from before this change. The idle reads were
+          // just refetched; refreshing them again is a second request per event.
+          // The query client only calls the predicate on fetching queries, so it
+          // names exactly the busy ones.
+          const busyQueries = new Set<Query>();
+          queryClient.isFetching?.({
+            ...normalizedFilters,
+            predicate: (query: Query) => {
+              const matches = normalizedFilters.predicate?.(query) ?? true;
+              if (matches && !hasPendingTrailingRefresh(query))
+                busyQueries.add(query);
+              return matches;
+            },
+          });
           const completion = queryClient.invalidateQueries(normalizedFilters, {
             cancelRefetch: false,
           });
           if (
             !disposed &&
-            needsTrailingRefresh &&
-            completion instanceof Promise &&
-            !hasPendingTrailingRefresh(normalizedFilters, callerPredicate)
+            busyQueries.size > 0 &&
+            completion instanceof Promise
           ) {
-            const pending = {
-              filters: normalizedFilters,
-              completion,
-              predicateIdentity: callerPredicate,
-            };
+            const pending = { queries: busyQueries };
             pendingTrailingRefreshes.push(pending);
             void completion.then(
               () => {
                 const index = pendingTrailingRefreshes.indexOf(pending);
                 if (index < 0) return;
                 pendingTrailingRefreshes.splice(index, 1);
-                if (!disposed) queryClient.invalidateQueries(normalizedFilters);
+                if (!disposed)
+                  queryClient.invalidateQueries({
+                    ...normalizedFilters,
+                    predicate: (query: Query) =>
+                      busyQueries.has(query) &&
+                      (normalizedFilters.predicate?.(query) ?? true),
+                  });
               },
               () => {
                 const index = pendingTrailingRefreshes.indexOf(pending);
@@ -2217,6 +2241,9 @@ export function useDbSync(
       );
       transport.add(id, {
         onEvents,
+        onResync: () => {
+          queryClient?.invalidateQueries();
+        },
         pauseWhenHidden,
         interval,
         idleInterval,

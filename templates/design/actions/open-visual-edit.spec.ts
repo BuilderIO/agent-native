@@ -37,6 +37,8 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  toDesktopOpenUrl: (url: string) =>
+    `agentnative://open?${url.split("?")[1] ?? ""}`,
   buildEmbedStartPath: (ticket: string) =>
     `/_agent-native/embed/start?ticket=${ticket}`,
   buildDeepLink: ({
@@ -928,6 +930,25 @@ describe("open-visual-edit", () => {
     expect(action.link!({ args: {}, result }).url).toBe(
       "agent-native://open/visual-edit/design_1?editorView=overview&embedChrome=1",
     );
+  });
+
+  it("includes minimal UI in the editor route and MCP link when requested", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/"],
+      minimalUi: true,
+      navigate: false,
+    });
+
+    expect(result.urlPath).toBe(
+      "/visual-edit/design_1?editorView=overview&embedChrome=1&minimalUi=1",
+    );
+    expect(result.openUrl).toBe(
+      "agent-native://open/visual-edit/design_1?editorView=overview&embedChrome=1&minimalUi=1",
+    );
+    expect(action.link!({ args: {}, result }).url).toBe(result.openUrl);
+    expect(action.mcpApp?.resource).toBeDefined();
   });
 
   it("returns the app link after saving an originless local visual-edit request", async () => {

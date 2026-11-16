@@ -224,7 +224,7 @@ async function main() {
   );
 }
 
-async function checkCatalogKeyCoverage(catalogDirs: string[]) {
+export async function checkCatalogKeyCoverage(catalogDirs: string[]) {
   const errors: string[] = [];
   for (const dir of catalogDirs) {
     const sourceCatalog = path.join(dir, `${DEFAULT_LOCALE}.ts`);
@@ -235,11 +235,18 @@ async function checkCatalogKeyCoverage(catalogDirs: string[]) {
     const sourceKeys =
       dir === toolkitCatalogDir
         ? flattenCatalogMessages(
-            toolkitMessagesForLocale(DEFAULT_LOCALE),
-            coreMessagesForLocale(DEFAULT_LOCALE),
             defaultEnglishMessages,
+            coreMessagesForLocale(DEFAULT_LOCALE),
+            toolkitMessagesForLocale(DEFAULT_LOCALE),
           )
-        : source.flat;
+        : flattenCatalogMessages(
+            defaultEnglishMessages,
+            coreMessagesForLocale(DEFAULT_LOCALE),
+            ...(usesToolkitCatalog(dir)
+              ? [toolkitMessagesForLocale(DEFAULT_LOCALE)]
+              : []),
+            source.catalog,
+          );
     const sourceRoot =
       dir === toolkitCatalogDir
         ? path.join(rootDir, "packages", "toolkit", "src", "app")
@@ -275,6 +282,101 @@ async function checkCatalogKeyCoverage(catalogDirs: string[]) {
     }
   }
   return errors;
+}
+
+function usesToolkitCatalog(dir: string): boolean {
+  const entry = path.join(dir, "index.ts");
+  if (!existsSync(entry)) return false;
+  const source = ts.createSourceFile(
+    entry,
+    readFileSync(entry, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  let factory: string | undefined;
+  let catalog: string | undefined;
+  for (const statement of source.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier)
+    )
+      continue;
+    const module = statement.moduleSpecifier.text;
+    const clause = statement.importClause;
+    if (
+      module === "@agent-native/toolkit/app/i18n" &&
+      clause &&
+      !clause.isTypeOnly &&
+      clause.namedBindings &&
+      ts.isNamedImports(clause.namedBindings)
+    ) {
+      for (const specifier of clause.namedBindings.elements) {
+        if (
+          !specifier.isTypeOnly &&
+          (specifier.propertyName?.text ?? specifier.name.text) ===
+            "createToolkitI18nCatalog"
+        )
+          factory = specifier.name.text;
+      }
+    }
+    if (
+      (module === "./en-US" || module === "./en-US.js") &&
+      clause &&
+      !clause.isTypeOnly
+    )
+      catalog = clause.name?.text;
+  }
+  if (!factory || !catalog) return false;
+  return source.statements.some((statement) => {
+    if (
+      !ts.isVariableStatement(statement) ||
+      !statement.modifiers?.some(
+        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+      )
+    )
+      return false;
+    return statement.declarationList.declarations.some((declaration) => {
+      if (
+        !ts.isIdentifier(declaration.name) ||
+        declaration.name.text !== "i18nCatalog"
+      )
+        return false;
+      const call = declaration.initializer;
+      if (
+        !call ||
+        !ts.isCallExpression(call) ||
+        !ts.isIdentifier(call.expression) ||
+        call.expression.text !== factory
+      )
+        return false;
+      const options = call.arguments[0];
+      if (!options || !ts.isObjectLiteralExpression(options)) return false;
+      if (
+        options.properties.some(
+          (property) =>
+            ts.isSpreadAssignment(property) ||
+            (property.name && ts.isComputedPropertyName(property.name)),
+        )
+      )
+        return false;
+      const messages = options.properties.filter(
+        (property) =>
+          property.name &&
+          (ts.isIdentifier(property.name) ||
+            ts.isStringLiteral(property.name)) &&
+          property.name.text === "messages",
+      );
+      const message = messages[0];
+      return (
+        messages.length === 1 &&
+        message !== undefined &&
+        ts.isPropertyAssignment(message) &&
+        ts.isIdentifier(message.initializer) &&
+        message.initializer.text === catalog
+      );
+    });
+  });
 }
 
 function hasCatalogKey(flat: FlatCatalog, key: string) {
@@ -362,8 +464,34 @@ export function findCatalogDirs(): string[] {
 
 function flattenCatalogMessages(...messages: unknown[]): FlatCatalog {
   const flat = new Map<string, string>();
-  for (const value of messages) flattenCatalog(value, [], flat, []);
+  let combined: Record<string, unknown> = {};
+  for (const value of messages) {
+    combined = mergeCatalogMessages(combined, value);
+  }
+  flattenCatalog(combined, [], flat, []);
   return flat;
+}
+
+function mergeCatalogMessages(
+  base: Record<string, unknown>,
+  overrides: unknown,
+): Record<string, unknown> {
+  if (!overrides || typeof overrides !== "object" || Array.isArray(overrides))
+    return base;
+  const result = { ...base };
+  for (const [key, value] of Object.entries(overrides)) {
+    const current = result[key];
+    result[key] =
+      current &&
+      typeof current === "object" &&
+      !Array.isArray(current) &&
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value)
+        ? mergeCatalogMessages(current as Record<string, unknown>, value)
+        : value;
+  }
+  return result;
 }
 
 function safeReadDir(dir: string) {
@@ -495,6 +623,7 @@ function disallowedScriptsForLocale(locale: LocaleCode, value: string) {
 async function loadFlatCatalog(file: string): Promise<{
   flat: FlatCatalog;
   errors: string[];
+  catalog?: unknown;
 }> {
   const errors: string[] = [];
   let mod: unknown;
@@ -514,7 +643,7 @@ async function loadFlatCatalog(file: string): Promise<{
   const catalog = (mod as { default?: unknown }).default;
   const flat = new Map<string, string>();
   flattenCatalog(catalog, [], flat, errors);
-  return { flat, errors };
+  return { flat, errors, catalog };
 }
 
 function flattenCatalog(
@@ -977,90 +1106,6 @@ const rawLiteralAllowPatterns = [
 ];
 const codeLikeRawLiteralPattern =
   /[{}();=<>]|\b(?:const|let|return|useState|useRef|useMemo|ReactNode|Record|Map|Set|Promise|queryClient|undefined|null|true|false)\b/;
-const typescriptParameterFragmentPattern =
-  /^\s*,\s*[a-z_$][\w$]*\??\s*:\s*(?:readonly\s+)?[A-Z][\w$]*(?:\.[A-Z][\w$]*)*\s*$/;
-
-const genericTypeHeadPattern = /([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*$/;
-
-function isGenericTypeParameterFragment(
-  source: string,
-  closingAngleIndex: number,
-  value: string,
-): boolean {
-  if (!typescriptParameterFragmentPattern.test(value)) return false;
-
-  let depth = 0;
-  let openingAngleIndex = -1;
-  for (let index = closingAngleIndex; index >= 0; index--) {
-    if (source[index] === ">" && source[index - 1] !== "=") depth++;
-    else if (source[index] === "<" && source[index + 1] !== "=") {
-      depth--;
-      if (depth === 0) {
-        openingAngleIndex = index;
-        break;
-      }
-    }
-  }
-  if (openingAngleIndex < 0 || source[openingAngleIndex + 1] === "/") {
-    return false;
-  }
-
-  const beforeOpeningAngle = source.slice(0, openingAngleIndex);
-  const headMatch = beforeOpeningAngle.match(genericTypeHeadPattern);
-  if (!headMatch) return false;
-  const typeHeadStart = openingAngleIndex - headMatch[0].length;
-  const beforeTypeHead = source.slice(0, typeHeadStart);
-  return (
-    /[:,|&]\s*$/.test(beforeTypeHead) ||
-    /=>\s*$/.test(beforeTypeHead) ||
-    /\b(?:extends|implements|as|satisfies)\s*$/.test(beforeTypeHead)
-  );
-}
-
-function isGenericTypeArgumentFragment(
-  getSourceFile: () => ts.SourceFile,
-  start: number,
-  end: number,
-  value: string,
-): boolean {
-  const match = /^\s*,\s*([A-Z][\w$]*)\s*$/.exec(value);
-  if (!match) return false;
-  const sourceFile = getSourceFile();
-  const name = match[1];
-  if (!name) return false;
-  const nameStart = start + value.indexOf(name);
-  const nameEnd = nameStart + name.length;
-  const afterName = sourceFile.text[nameEnd];
-  if (afterName !== "<" && afterName !== ">" && afterName !== ",") {
-    return false;
-  }
-
-  let found = false;
-  const visit = (node: ts.Node) => {
-    const typeArguments = (
-      node as ts.Node & { typeArguments?: ts.NodeArray<ts.TypeNode> }
-    ).typeArguments;
-    if (
-      typeArguments &&
-      start >= typeArguments.pos &&
-      end <= typeArguments.end &&
-      typeArguments.some((argument) => {
-        const argumentStart = argument.getStart(sourceFile);
-        return (
-          argumentStart === nameStart &&
-          argument.getText(sourceFile).startsWith(name)
-        );
-      })
-    ) {
-      found = true;
-      return;
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return found;
-}
-
 function readRawLiteralBaseline() {
   return readLineBaseline(rawLiteralBaselinePath);
 }
@@ -1211,20 +1256,13 @@ export function checkRawVisibleLiteralFile(
             : ts.ScriptKind.TS,
     ));
 
-  for (const match of text.matchAll(/>([^<>{}]*[A-Za-z][^<>{}]*)</g)) {
-    const index = match.index ?? 0;
-    const value = match[1] ?? "";
-    if (
-      !isGenericTypeParameterFragment(text, index, value) &&
-      !isGenericTypeArgumentFragment(
-        getSourceFile,
-        index + 1,
-        index + match[0].length - 1,
-        value,
-      )
-    ) {
-      report(index, value);
-    }
+  if (rel.endsWith(".tsx") || rel.endsWith(".jsx")) {
+    const visit = (node: ts.Node) => {
+      if (ts.isJsxText(node))
+        report(node.getStart(getSourceFile()), node.getText(getSourceFile()));
+      ts.forEachChild(node, visit);
+    };
+    visit(getSourceFile());
   }
 
   const attrPattern = new RegExp(
