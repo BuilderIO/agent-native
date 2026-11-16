@@ -868,27 +868,31 @@ export async function handleUpdateResource(event: any) {
     }
     // The copy holds this save over the version read above. When someone
     // saved the source after that read, take the copy back, so it doesn't
-    // hide their save, and refuse with what's there.
-    const takeCopyBack = async () => {
-      await resourceDeleteIfCurrent(resource);
-      const source = await resourceGet(id, { userEmail: email, orgId });
-      if (!source) {
-        setResponseStatus(event, 404);
-        return { error: "Resource not found" };
+    // hide their save, and refuse with what's there. If someone wrote the
+    // copy first, it stays, and it's what's there.
+    const takeCopyBack = async (source: Resource) => {
+      let current: Resource = source;
+      if (!(await resourceDeleteIfCurrent(resource))) {
+        current =
+          (await resourceGet(resource.id, { userEmail: email, orgId })) ??
+          source;
       }
       return contractErrorResponse(
         event,
         saveConflict(
           RESOURCE_CONTENT_RECORD,
-          { content: source.content },
-          resourceContentRevision(source),
+          { content: current.content },
+          resourceContentRevision(current),
         ),
       );
     };
+    // With the source gone, the copy is the only place this save is, so it
+    // stays.
+    const sourceNow = () => resourceGet(id, { userEmail: email, orgId });
     if (checksRevision) {
-      const source = await resourceGet(id, { userEmail: email, orgId });
-      if (!source || source.content !== existing.content) {
-        return takeCopyBack();
+      const source = await sourceNow();
+      if (source && source.content !== existing.content) {
+        return takeCopyBack(source);
       }
     }
     if (
@@ -898,7 +902,10 @@ export async function handleUpdateResource(event: any) {
       // The source goes only if it's still the version read, so a save to it
       // after the check above is caught here.
       const sourceDeleted = await resourceDeleteIfCurrent(existing);
-      if (!sourceDeleted && checksRevision) return takeCopyBack();
+      if (!sourceDeleted && checksRevision) {
+        const source = await sourceNow();
+        if (source) return takeCopyBack(source);
+      }
     }
     return withContentRevision(resource);
   }

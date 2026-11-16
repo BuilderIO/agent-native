@@ -34,11 +34,14 @@ export interface ResourceContentSaveAttempt {
 /**
  * Saves a resource's content only over the revision it was edited from, and
  * throws the typed save conflict (`isSaveConflict`) when someone saved other
- * content since. `useUpdateResource().mutateAsync` does this.
+ * content since. `useUpdateResource().mutateAsync` does this. It resolves to
+ * the resource the content was saved in, which can be another one than it was
+ * sent to: the first save of a legacy shared resource copies it into the
+ * organization.
  */
 export type SaveResourceContent = (
   attempt: ResourceContentSaveAttempt,
-) => Promise<Pick<Resource, "content" | "revision" | "updatedAt">>;
+) => Promise<Pick<Resource, "id" | "content" | "revision" | "updatedAt">>;
 
 /**
  * The resource editor's content. With `saveContent`, edits save on a debounce
@@ -131,7 +134,9 @@ export function useResourceContentSave({
       editContent(restoreOnto(localRef.current).content),
   });
 
-  const id = resource.id;
+  // Saves go where the last one landed, and the revision they send is that
+  // resource's.
+  const saveIdRef = useRef(resource.id);
   flushRef.current = async () => {
     if (!saveContent) {
       dirtyRef.current = false;
@@ -156,7 +161,7 @@ export function useResourceContentSave({
             let result: Awaited<ReturnType<SaveResourceContent>>;
             try {
               result = await saveContent({
-                id,
+                id: saveIdRef.current,
                 content: value.content,
                 expectedRevision: revision ?? undefined,
               });
@@ -166,6 +171,7 @@ export function useResourceContentSave({
               if (isSaveConflict(error)) deferredRef.current = false;
               throw error;
             }
+            saveIdRef.current = result.id;
             savedUpdatedAtRef.current = result.updatedAt;
             return {
               value: { content: result.content },

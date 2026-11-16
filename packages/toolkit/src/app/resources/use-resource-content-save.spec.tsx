@@ -44,7 +44,13 @@ const doc = (
   revision,
 });
 
-const saved = (content: string, revision: string, updatedAt = 2000) => ({
+const saved = (
+  content: string,
+  revision: string,
+  updatedAt = 2000,
+  id = "resource-1",
+) => ({
+  id,
   content,
   revision,
   updatedAt,
@@ -131,6 +137,25 @@ describe("useResourceContentSave", () => {
     expect(saveContent.mock.calls).toEqual([
       [{ id: "resource-1", content: "mine", expectedRevision: "rev-1" }],
       [{ id: "resource-1", content: "mine again", expectedRevision: "rev-2" }],
+    ]);
+  });
+
+  it("saves later edits to the resource the last save landed in", async () => {
+    // The first save of a legacy shared resource lands in the organization's copy.
+    saveContent.mockResolvedValueOnce(saved("mine", "rev-2", 2000, "org-copy"));
+    saveContent.mockResolvedValueOnce(
+      saved("mine again", "rev-3", 3000, "org-copy"),
+    );
+    const { edit } = setup();
+
+    edit("mine");
+    await settle();
+    edit("mine again");
+    await settle();
+
+    expect(saveContent.mock.calls).toEqual([
+      [{ id: "resource-1", content: "mine", expectedRevision: "rev-1" }],
+      [{ id: "org-copy", content: "mine again", expectedRevision: "rev-2" }],
     ]);
   });
 

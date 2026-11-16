@@ -1607,6 +1607,57 @@ Legacy webhook.`,
           );
           expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(2, copy);
         });
+
+        it("keeps the copy when the shared version was deleted meanwhile", async () => {
+          mockResourceGet.mockResolvedValueOnce(shared).mockResolvedValue(null);
+
+          const result = await save();
+
+          expect(lastStatus).toBe(200);
+          expect(result).toEqual(withRevision(copy));
+          expect(mockResourceDeleteIfCurrent).not.toHaveBeenCalled();
+        });
+
+        it("keeps the copy when a legacy source is deleted before it is removed", async () => {
+          const legacy = {
+            ...shared,
+            metadata: '{"source":"workspace-files"}',
+          };
+          mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+          mockResourceGet
+            .mockResolvedValueOnce(legacy)
+            .mockResolvedValueOnce(legacy)
+            .mockResolvedValue(null);
+          mockResourceDeleteIfCurrent.mockResolvedValueOnce(false);
+
+          const result = await save();
+
+          expect(lastStatus).toBe(200);
+          expect(result).toEqual(withRevision(copy));
+          expect(mockResourceDeleteIfCurrent).toHaveBeenCalledExactlyOnceWith(
+            legacy,
+          );
+        });
+
+        it("refuses with the copy when someone wrote it before it could be taken back", async () => {
+          mockResourceGet
+            .mockResolvedValueOnce(shared)
+            .mockResolvedValueOnce({ ...shared, content: "theirs" })
+            .mockResolvedValue({ ...copy, content: "written to the copy" });
+          mockResourceDeleteIfCurrent.mockResolvedValueOnce(false);
+
+          const result = await save();
+
+          expect(lastStatus).toBe(409);
+          expect(result).toMatchObject({
+            errorCode: "save_conflict",
+            details: { current: { content: "written to the copy" } },
+          });
+          expect(mockResourceGet).toHaveBeenLastCalledWith(
+            "copy",
+            expect.anything(),
+          );
+        });
       });
 
       it("renames without checking the content", async () => {
