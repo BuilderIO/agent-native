@@ -492,7 +492,8 @@ export async function countUnread(owner: string): Promise<number> {
   const args: Array<string | number> = [owner];
   // An archived notification was filed away, so it is not something the badge
   // should still be asking about.
-  const where = `owner = ? AND read_at IS NULL AND archived_at IS NULL${hiddenNoticesClause(args)}`;
+  let where = `owner = ? AND read_at IS NULL AND archived_at IS NULL`;
+  where += hiddenNoticesClause(args);
   // raw-sql-ok: where is built only from literal clauses; every value is bound
   const { rows } = await client.execute({
     sql: `SELECT COUNT(*) as c FROM notifications WHERE ${where}`,
