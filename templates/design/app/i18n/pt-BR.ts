@@ -1053,7 +1053,10 @@ export default {
       instructions:
         "Cole uma URL HTTPS pública de prévia para seu app, como um túnel ngrok ou cloudflared. Sua máquina continua usando localhost; outras pessoas podem ver a prévia pública ou sugerir alterações na captura publicada.",
       tunnelUrl: "URL pública de prévia",
+      enableCollaboration:
+        "Ativar colaboração ao vivo para todas as pessoas com acesso ao design",
       save: "Salvar",
+      unavailable: "Prévia ao vivo indisponível — mostrando o instantâneo",
       live: "Prévia ao vivo",
       suggest: "Sugerir na captura",
       localOnly: "Prévia ao vivo apenas na máquina do proprietário",

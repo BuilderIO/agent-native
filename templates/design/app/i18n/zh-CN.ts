@@ -1028,7 +1028,9 @@ export default {
       instructions:
         "粘贴应用的公开 HTTPS 预览地址，例如 ngrok 或 cloudflared 隧道。你的设备继续加载 localhost；其他人可查看公开预览或在已发布快照上提出修改。",
       tunnelUrl: "公开预览地址",
+      enableCollaboration: "为所有有权访问此设计的人启用实时协作",
       save: "保存",
+      unavailable: "实时预览不可用 — 正在显示快照",
       live: "实时预览",
       suggest: "在快照上建议",
       localOnly: "实时预览仅限所有者的设备",

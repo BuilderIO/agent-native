@@ -1377,6 +1377,7 @@ export function renderDesignEditorView({
             designId={id}
             fileId={activeOverviewScreen.id}
             tunnelUrl={activeOverviewScreen.tunnelUrl}
+            liveCollaborationEnabled={liveCollaborationEnabled}
           />
         ) : null}
         <ShareButton

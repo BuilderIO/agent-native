@@ -974,7 +974,10 @@ export default {
       instructions:
         "Paste a public HTTPS preview URL for your app, such as an ngrok or cloudflared tunnel. Your machine keeps loading localhost; others can view the public preview or suggest edits on the published snapshot.",
       tunnelUrl: "Public preview URL",
+      enableCollaboration:
+        "Enable live collaboration for everyone with design access",
       save: "Save",
+      unavailable: "Live preview unavailable — showing snapshot",
       live: "Live preview",
       suggest: "Suggest on snapshot",
       localOnly: "Live preview only on the owner’s machine",

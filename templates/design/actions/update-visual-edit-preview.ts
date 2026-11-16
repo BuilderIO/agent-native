@@ -13,7 +13,7 @@ import { normalizeVisualEditTunnelUrl } from "../shared/visual-edit-preview.js";
 
 export default defineAction({
   description:
-    "Set or remove a public HTTPS preview URL (for example an ngrok or cloudflared tunnel) for a localhost screen's shared live preview. Any public HTTPS origin the editor chooses is accepted if its hostname resolves to public addresses. Signed-in editors only; sharing permissions remain unchanged.",
+    "Set or remove a public HTTPS preview URL (for example an ngrok or cloudflared tunnel) for a localhost screen's shared live preview. Any public HTTPS origin the editor chooses is accepted if its hostname resolves to public addresses. Enabling design-wide live collaboration requires the explicit enableLiveCollaboration input. Signed-in editors only.",
   requiresAuth: true,
   mcpAnnotations: {
     readOnlyHint: false,
@@ -30,14 +30,21 @@ export default defineAction({
       .describe(
         "Public HTTPS preview base URL, such as an ngrok or cloudflared tunnel, or null to use the published snapshot.",
       ),
+    enableLiveCollaboration: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Explicitly enable design-wide live collaboration while saving this preview URL.",
+      ),
   }),
   outputSchema: z.object({
     designId: z.string(),
     fileId: z.string(),
     tunnelUrl: z.string().nullable(),
     sharePath: z.string(),
+    liveCollaborationEnabled: z.boolean(),
   }),
-  run: async ({ designId, fileId, tunnelUrl }) => {
+  run: async ({ designId, fileId, tunnelUrl, enableLiveCollaboration }) => {
     await assertVisualEditAccountEditor(designId);
     const accessContext = { ...currentAccess() };
     delete accessContext.authCapability;
@@ -58,11 +65,15 @@ export default defineAction({
         statusCode: 400,
         errorCode: "private_tunnel_address",
       });
+    let liveCollaborationEnabledResult = false;
     await withDesignSourceMutationTransaction(designId, async (tx) => {
       await assertVisualEditAccountEditor(designId);
       const design = (
         await tx
-          .select({ data: schema.designs.data })
+          .select({
+            data: schema.designs.data,
+            liveCollaborationEnabled: schema.designs.liveCollaborationEnabled,
+          })
           .from(schema.designs)
           .where(
             and(
@@ -106,7 +117,9 @@ export default defineAction({
         .update(schema.designs)
         .set({
           data: JSON.stringify(data),
-          ...(normalized ? { liveCollaborationEnabled: true } : {}),
+          ...(enableLiveCollaboration
+            ? { liveCollaborationEnabled: true }
+            : {}),
           updatedAt: new Date().toISOString(),
         })
         .where(
@@ -126,12 +139,15 @@ export default defineAction({
           statusCode: 409,
           errorCode: "preview_mapping_conflict",
         });
+      liveCollaborationEnabledResult =
+        design.liveCollaborationEnabled || enableLiveCollaboration;
     });
     return {
       designId,
       fileId,
       tunnelUrl: normalized,
       sharePath: `/visual-edit/${encodeURIComponent(designId)}?share=1`,
+      liveCollaborationEnabled: liveCollaborationEnabledResult,
     };
   },
 });

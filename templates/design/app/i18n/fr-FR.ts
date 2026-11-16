@@ -1057,7 +1057,10 @@ export default {
       instructions:
         "Collez une URL HTTPS publique d’aperçu pour votre application, par exemple un tunnel ngrok ou cloudflared. Votre machine conserve localhost ; les autres peuvent voir l’aperçu public ou suggérer des modifications sur la capture publiée.",
       tunnelUrl: "URL publique d’aperçu",
+      enableCollaboration:
+        "Activer la collaboration en direct pour toutes les personnes ayant accès au design",
       save: "Enregistrer",
+      unavailable: "Aperçu en direct indisponible — instantané affiché",
       live: "Aperçu en direct",
       suggest: "Suggérer sur la capture",
       localOnly: "Aperçu en direct uniquement sur la machine du propriétaire",

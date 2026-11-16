@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   data: {} as Record<string, unknown>,
   stored: undefined as Record<string, unknown> | undefined,
   blockedByDns: vi.fn(),
+  columns: {} as Record<string, unknown>,
 }));
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
   isBlockedExtensionUrlWithDns: mocks.blockedByDns,
@@ -29,7 +30,13 @@ vi.mock("@agent-native/core/sharing", () => ({
   }),
 }));
 vi.mock("../server/db/index.js", () => ({
-  schema: { designs: { id: "id", data: "data" } },
+  schema: {
+    designs: {
+      id: "id",
+      data: "data",
+      liveCollaborationEnabled: "liveCollaborationEnabled",
+    },
+  },
 }));
 vi.mock("../server/source-workspace.js", () => ({
   withDesignSourceMutationTransaction: async (
@@ -40,10 +47,13 @@ vi.mock("../server/source-workspace.js", () => ({
       from: () => selection,
       where: () => selection,
       for: () => selection,
-      limit: async () => [{ data: JSON.stringify(mocks.data) }],
+      limit: async () => [
+        { data: JSON.stringify(mocks.data), liveCollaborationEnabled: false },
+      ],
     };
     const update = {
-      set: (value: { data: string }) => {
+      set: (value: Record<string, unknown> & { data: string }) => {
+        mocks.columns = value;
         mocks.stored = JSON.parse(value.data);
         return update;
       },
@@ -66,6 +76,7 @@ beforeEach(() => {
     tweaks: [{ id: "speed" }],
   };
   mocks.stored = undefined;
+  mocks.columns = {};
   mocks.blockedByDns.mockReset().mockResolvedValue(false);
 });
 it("persists only the selected localhost mapping without replacing peer state", async () => {
@@ -76,6 +87,7 @@ it("persists only the selected localhost mapping without replacing peer state", 
       tunnelUrl: "https://demo.ngrok-free.app/",
     }),
   ).resolves.toMatchObject({ tunnelUrl: "https://demo.ngrok-free.app" });
+  expect(mocks.columns).not.toHaveProperty("liveCollaborationEnabled");
   expect(mocks.stored).toEqual({
     ...mocks.data,
     screenMetadata: {
@@ -93,6 +105,17 @@ it("persists only the selected localhost mapping without replacing peer state", 
     "editor",
     { userEmail: "owner@example.test", authCapability: undefined },
   );
+});
+it("enables design-wide collaboration only when the owner explicitly opts in", async () => {
+  await expect(
+    action.run({
+      designId: "design-one",
+      fileId: "local",
+      tunnelUrl: "https://demo.ngrok-free.app",
+      enableLiveCollaboration: true,
+    }),
+  ).resolves.toMatchObject({ liveCollaborationEnabled: true });
+  expect(mocks.columns).toMatchObject({ liveCollaborationEnabled: true });
 });
 it("denies signed-out local capabilities and non-editors before storing anything", async () => {
   mocks.email = undefined;

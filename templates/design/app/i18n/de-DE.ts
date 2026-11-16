@@ -1060,7 +1060,11 @@ export default {
       instructions:
         "Füge eine öffentliche HTTPS-Vorschau-URL für deine App ein, etwa einen ngrok- oder cloudflared-Tunnel. Dein Rechner nutzt weiter localhost; andere sehen die öffentliche Vorschau oder schlagen Änderungen am veröffentlichten Abbild vor.",
       tunnelUrl: "Öffentliche Vorschau-URL",
+      enableCollaboration:
+        "Live-Zusammenarbeit für alle mit Zugriff auf das Design aktivieren",
       save: "Speichern",
+      unavailable:
+        "Live-Vorschau nicht verfügbar — Momentaufnahme wird angezeigt",
       live: "Live-Vorschau",
       suggest: "Am Abbild vorschlagen",
       localOnly: "Live-Vorschau nur auf dem Rechner des Eigentümers",

@@ -1043,7 +1043,10 @@ export default {
       instructions:
         "앱의 공개 HTTPS 미리보기 URL(예: ngrok 또는 cloudflared 터널)을 붙여 넣으세요. 내 기기는 localhost를 유지하고 다른 사람은 공개 미리보기를 보거나 게시된 스냅샷에 수정을 제안할 수 있습니다.",
       tunnelUrl: "공개 미리보기 URL",
+      enableCollaboration:
+        "디자인에 접근할 수 있는 모든 사용자와 실시간 공동 작업 사용",
       save: "저장",
+      unavailable: "실시간 미리보기를 사용할 수 없습니다 — 스냅샷을 표시합니다",
       live: "실시간 미리보기",
       suggest: "스냅샷에 제안",
       localOnly: "실시간 미리보기는 소유자 기기에서만 가능",

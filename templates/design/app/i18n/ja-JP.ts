@@ -1055,7 +1055,11 @@ export default {
       instructions:
         "アプリの公開 HTTPS プレビュー URL（ngrok や cloudflared のトンネルなど）を貼り付けます。自分の端末は localhost のまま、他の人は公開プレビューを表示したり、公開スナップショットに変更を提案できます。",
       tunnelUrl: "公開プレビュー URL",
+      enableCollaboration:
+        "デザインにアクセスできる全員のライブ共同作業を有効にする",
       save: "保存",
+      unavailable:
+        "ライブプレビューを利用できません — スナップショットを表示しています",
       live: "ライブプレビュー",
       suggest: "スナップショットに提案",
       localOnly: "ライブプレビューは所有者の端末のみ",

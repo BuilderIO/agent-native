@@ -1056,7 +1056,11 @@ export default {
       instructions:
         "Pega una URL HTTPS pública de vista previa para tu aplicación, como un túnel de ngrok o cloudflared. Tu equipo sigue usando localhost; los demás pueden ver la vista previa pública o sugerir cambios en la captura publicada.",
       tunnelUrl: "URL pública de vista previa",
+      enableCollaboration:
+        "Habilitar la colaboración en vivo para todas las personas con acceso al diseño",
       save: "Guardar",
+      unavailable:
+        "Vista previa en vivo no disponible; se muestra la instantánea",
       live: "Vista previa en vivo",
       suggest: "Sugerir en la captura",
       localOnly: "La vista en vivo solo está en el equipo del propietario",
