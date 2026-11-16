@@ -86,4 +86,36 @@ describe("URLSync Sessions context", () => {
     });
     queryClient.clear();
   });
+
+  it("scrubs the hash it publishes but leaves the query filters the agent reads", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter
+            initialEntries={[
+              "/sessions?range=7d#access_token=canary-secret&state=canary-secret",
+            ]}
+          >
+            <URLSync browserTabId="sessions-tab" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    const [, options] = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).endsWith("/__url__:sessions-tab") && init?.method === "PUT",
+    )!;
+    expect(JSON.parse(options.body)).toMatchObject({
+      pathname: "/sessions",
+      search: "?range=7d",
+      hash: "#access_token=%3Credacted%3E&state=%3Credacted%3E",
+      searchParams: { range: "7d" },
+    });
+    expect(options.body).not.toContain("canary-secret");
+    queryClient.clear();
+  });
 });

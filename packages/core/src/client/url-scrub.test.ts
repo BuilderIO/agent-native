@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { normalizePathSegments, scrubUrl } from "./url-scrub";
+import {
+  normalizePathSegments,
+  scrubLocationHash,
+  scrubUrl,
+} from "./url-scrub";
 
 describe("scrubUrl", () => {
   it("preserves search-shaped text in a hash route outside the pathname", () => {
@@ -400,5 +404,20 @@ describe("normalizePathSegments", () => {
     ["/a/:shareId", "/a/:shareId"],
   ])("%s -> %s", (path, expected) => {
     expect(normalizePathSegments(path)).toBe(expected);
+  });
+});
+
+describe("scrubLocationHash", () => {
+  it.each([
+    ["", ""],
+    ["#overview", "#overview"],
+    [
+      "#access_token=canary&state=canary",
+      "#access_token=%3Credacted%3E&state=%3Credacted%3E",
+    ],
+    ["access_token=canary", "access_token=%3Credacted%3E"],
+    ["#/verify?token=canary", "#/verify?token=%3Credacted%3E"],
+  ])("%s -> %s", (hash, expected) => {
+    expect(scrubLocationHash(hash)).toBe(expected);
   });
 });

@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/client/api-path";
 import { readClientAppState } from "@agent-native/core/client/application-state";
 import { useScreenRefreshKey } from "@agent-native/core/client/hooks";
+import { scrubLocationHash } from "@agent-native/core/client/url-scrub";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import React from "react";
 import { useInRouterContext, useLocation, useNavigate } from "react-router";
@@ -55,7 +56,9 @@ export function URLSync({ browserTabId }: { browserTabId?: string }) {
     const body = {
       pathname: location.pathname,
       search: location.search,
-      hash: location.hash,
+      // The agent reads filters from the query, so only the hash, where
+      // OAuth redirects land their tokens, is scrubbed.
+      hash: scrubLocationHash(location.hash),
       searchParams,
     };
     const write = (key: string) =>

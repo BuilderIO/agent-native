@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { scrubLocationHash } from "@agent-native/core/client/url-scrub";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
@@ -142,7 +143,9 @@ function UrlStateSync() {
     const value = {
       pathname: location.pathname,
       search: location.search,
-      hash: location.hash,
+      // The agent reads filters from the query, so only the hash, where
+      // OAuth redirects land their tokens, is scrubbed.
+      hash: scrubLocationHash(location.hash),
       searchParams,
     };
     const options = { keepalive: true, requestSource: TAB_ID };

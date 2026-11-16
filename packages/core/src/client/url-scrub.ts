@@ -318,3 +318,15 @@ export function scrubUrl(
     return url.split(/[?#]/, 1)[0];
   }
 }
+
+/**
+ * A `location.hash` scrubbed like the hash of a URL, for sinks that carry the
+ * hash apart from the URL. The query is left to the sink: the agent reads
+ * filters from it.
+ */
+export function scrubLocationHash(hash: string): string {
+  if (!hash) return "";
+  const withMark = hash.startsWith("#") ? hash : `#${hash}`;
+  const scrubbed = scrubUrl(`/${withMark}`)?.slice(1) ?? "";
+  return hash.startsWith("#") ? scrubbed : scrubbed.slice(1);
+}

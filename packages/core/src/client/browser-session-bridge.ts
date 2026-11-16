@@ -23,6 +23,7 @@ import {
   type AgentNativeHostContextGetter,
   type AgentNativeHostSession,
 } from "./host-bridge.js";
+import { scrubUrl } from "./url-scrub.js";
 import type {
   AgentNativeWebMcpClient,
   AgentNativeWebMcpTool,
@@ -338,7 +339,7 @@ function createDirectHostSession(
       : session && typeof session === "object"
         ? session
         : {};
-  return {
+  return withScrubbedUrl({
     id: base.id || fallbackId || directSessionId(),
     connectedAt: base.connectedAt || now,
     url:
@@ -346,7 +347,13 @@ function createDirectHostSession(
       contextUrl ||
       (typeof window !== "undefined" ? window.location.href : undefined),
     ...base,
-  };
+  });
+}
+
+// The page URL goes to the server and on to whatever agent reads the session;
+// its query and hash are where credentials ride.
+function withScrubbedUrl<T extends { url?: string }>(value: T): T {
+  return value.url ? { ...value, url: scrubUrl(value.url) } : value;
 }
 
 function serializeForBrowserSession<T>(value: T, label: string): T {
@@ -503,7 +510,7 @@ async function executeDirectBrowserSessionRequest(
   sessionId: string,
 ): Promise<unknown> {
   if (request.type === "get-context") {
-    return resolveDirectContext(options, sessionId);
+    return withScrubbedUrl(await resolveDirectContext(options, sessionId));
   }
   if (request.type === "list-actions") {
     return resolveDirectActionManifest(options);
@@ -577,7 +584,7 @@ function normalizeSession(
         : {}),
     connectedAt: hostSession?.connectedAt ?? new Date().toISOString(),
     ...(contextUrl || hostSession?.url
-      ? { url: contextUrl ?? hostSession?.url }
+      ? { url: scrubUrl(contextUrl ?? hostSession?.url) }
       : {}),
   };
 }
@@ -606,7 +613,7 @@ async function executeBrowserSessionRequest(
   }
 
   if (request.type === "get-context") {
-    return requestAgentNativeHostContext(hostOptions);
+    return withScrubbedUrl(await requestAgentNativeHostContext(hostOptions));
   }
   if (request.type === "list-actions") {
     return requestAgentNativeHostActions(hostOptions);
@@ -721,11 +728,12 @@ export function createAgentNativeBrowserSessionBridge(
               requestAgentNativeHostActions(hostOptions),
               resolveWebMcpTools(options),
             ]);
-        const [context, actions, webmcpTools] = await awaitWithAbort(
+        const [rawContext, actions, webmcpTools] = await awaitWithAbort(
           registrationContext,
           registrationController.signal,
           requestAbortMs(options),
         );
+        const context = withScrubbedUrl(rawContext);
         return await serializeSessionMutation(async () => {
           if (
             registrationStopGeneration !== stopGeneration ||
