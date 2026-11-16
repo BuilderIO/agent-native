@@ -1,5 +1,8 @@
 import type { TweakDefinition } from "@shared/api";
-import { isSafeCssVarName } from "@shared/resolve-tweaks";
+import {
+  isDirectCssVarSelectionKey,
+  resolveTweaksToCssVars,
+} from "@shared/resolve-tweaks";
 import type { TweakSelections } from "@shared/resolve-tweaks";
 
 export interface TweakHandoffChange {
@@ -10,20 +13,22 @@ export interface TweakHandoffChange {
   cssVar?: string;
 }
 
-function getSelectionValue(
-  selections: TweakSelections,
-  key: string,
-): string | number | boolean | undefined {
-  if (!Object.prototype.hasOwnProperty.call(selections, key)) return undefined;
-  return selections[key];
-}
-
+/**
+ * The delta between the source baseline and the board, in the terms the
+ * preview renders: a direct CSS-variable selection overrides the declared
+ * tweak that writes the same variable, so that variable's change is reported
+ * once, from its effective value, and the shadowed tweak is not.
+ */
 export function getTweakHandoffChanges(args: {
   tweaks: TweakDefinition[];
   before: TweakSelections;
   after: TweakSelections;
 }): TweakHandoffChange[] {
+  const isDirect = (key: string) =>
+    isDirectCssVarSelectionKey(key) &&
+    Object.prototype.hasOwnProperty.call(args.after, key);
   const declared = args.tweaks.flatMap((tweak) => {
+    if (tweak.cssVar && isDirect(tweak.cssVar)) return [];
     const oldValue = args.before[tweak.id] ?? tweak.defaultValue;
     const newValue = args.after[tweak.id] ?? tweak.defaultValue;
     if (Object.is(oldValue, newValue)) return [];
@@ -37,18 +42,22 @@ export function getTweakHandoffChanges(args: {
       },
     ];
   });
-  const declaredVars = new Set(
-    args.tweaks.flatMap((tweak) => (tweak.cssVar ? [tweak.cssVar] : [])),
+  const beforeVars = new Map(
+    Object.entries(resolveTweaksToCssVars(args.tweaks, args.before)),
   );
-  const direct = Object.entries(args.after).flatMap(([cssVar, newValue]) => {
-    if (!isSafeCssVarName(cssVar) || declaredVars.has(cssVar)) return [];
-    const oldValue = getSelectionValue(args.before, cssVar);
-    if (oldValue !== undefined && Object.is(oldValue, newValue)) return [];
+  const afterVars = new Map(
+    Object.entries(resolveTweaksToCssVars(args.tweaks, args.after)),
+  );
+  const direct = Object.keys(args.after).flatMap((cssVar) => {
+    const newValue = afterVars.get(cssVar);
+    if (!isDirect(cssVar) || newValue === undefined) return [];
+    const oldValue = beforeVars.get(cssVar) ?? "(source default)";
+    if (oldValue === newValue) return [];
     return [
       {
         id: cssVar,
         label: cssVar,
-        oldValue: oldValue ?? "(source default)",
+        oldValue,
         newValue,
         cssVar,
       },

@@ -92,4 +92,32 @@ describe("remix tweak handoff", () => {
       },
     ]);
   });
+
+  it("reports a direct selection that overrides a declared tweak's CSS variable", () => {
+    expect(
+      getTweakHandoffChanges({
+        tweaks,
+        before: { "hero-gap": 24 },
+        after: { "hero-gap": 24, "--hero-gap": "40px" },
+      }),
+    ).toEqual([
+      {
+        id: "--hero-gap",
+        label: "--hero-gap",
+        oldValue: "24",
+        newValue: "40px",
+        cssVar: "--hero-gap",
+      },
+    ]);
+  });
+
+  it("reports a shadowed declared tweak only through its effective variable", () => {
+    expect(
+      getTweakHandoffChanges({
+        tweaks,
+        before: { "hero-gap": 24, "--hero-gap": "40px" },
+        after: { "hero-gap": 32, "--hero-gap": "40px" },
+      }),
+    ).toEqual([]);
+  });
 });
