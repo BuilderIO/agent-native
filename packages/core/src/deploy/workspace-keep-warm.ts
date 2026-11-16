@@ -125,9 +125,6 @@ export default async function handler(request) {
   );
   await Promise.all(workers);
   const requested = HEALTH_PATHS.length * CONCURRENCY;
-  if (requested > 0 && warmedRequests === 0) {
-    throw new Error("[agent-native-keep-warm] Every app failed to warm.");
-  }
   console.log(
     "[agent-native-keep-warm] Warmed",
     warmedRequests + "/" + requested,
@@ -142,6 +139,10 @@ export default async function handler(request) {
   if (skipped.length > 0) {
     // Shuffling gives these apps a fresh chance on the next run.
     console.warn("[agent-native-keep-warm] Skipped at the run deadline:", skipped.join(", "));
+  }
+  if (requested > 0 && warmedRequests === 0) {
+    // Logged above first, so a failed run still shows what it skipped.
+    throw new Error("[agent-native-keep-warm] Every app failed to warm.");
   }
   return new Response(null, { status: 204 });
 }
