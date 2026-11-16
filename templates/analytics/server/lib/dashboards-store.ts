@@ -1239,100 +1239,59 @@ export async function listDashboardSummaries(
       })),
     );
   }
-  try {
-    const all = await getScopedLegacySettings(ctx);
-    const candidates: Array<{
-      id: string;
-      kind: DashboardKind;
-      orgId: string | null;
-      visibility: DashboardSummaryRecord["visibility"];
-      config: Record<string, unknown>;
-    }> = [];
-    for (const [key, value] of Object.entries(all)) {
-      let id: string | null = null;
-      let kind: DashboardKind | null = null;
-      let orgId: string | null = null;
-      let visibility: DashboardSummaryRecord["visibility"] = "private";
-      if (ctx.orgId && key.startsWith(`o:${ctx.orgId}:${SQL_PREFIX}`)) {
-        id = key.slice(`o:${ctx.orgId}:${SQL_PREFIX}`.length);
-        kind = "sql";
-        orgId = ctx.orgId;
-        visibility = "org";
-      } else if (ctx.email && key.startsWith(`u:${ctx.email}:${SQL_PREFIX}`)) {
-        id = key.slice(`u:${ctx.email}:${SQL_PREFIX}`.length);
-        kind = "sql";
-      } else if (
-        ctx.email &&
-        key.startsWith(`u:${ctx.email}:${EXPLORER_PREFIX}`)
-      ) {
-        id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
-        kind = isLegacyDashboardId(id) ? "explorer" : null;
-      }
-      if (!id || !kind || isBuiltinDashboardId(id) || seen.has(id)) continue;
-      if (filter?.kind && filter.kind !== kind) continue;
-      candidates.push({ id, kind, orgId, visibility, config: value });
+  const all = await getScopedLegacySettings(ctx);
+  for (const [key, value] of Object.entries(all)) {
+    let id: string | null = null;
+    let kind: DashboardKind | null = null;
+    let orgId: string | null = null;
+    let visibility: DashboardSummaryRecord["visibility"] = "private";
+    if (ctx.orgId && key.startsWith(`o:${ctx.orgId}:${SQL_PREFIX}`)) {
+      id = key.slice(`o:${ctx.orgId}:${SQL_PREFIX}`.length);
+      kind = "sql";
+      orgId = ctx.orgId;
+      visibility = "org";
+    } else if (ctx.email && key.startsWith(`u:${ctx.email}:${SQL_PREFIX}`)) {
+      id = key.slice(`u:${ctx.email}:${SQL_PREFIX}`.length);
+      kind = "sql";
+    } else if (
+      ctx.email &&
+      key.startsWith(`u:${ctx.email}:${EXPLORER_PREFIX}`)
+    ) {
+      id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
+      kind = isLegacyDashboardId(id) ? "explorer" : null;
     }
-
-    // SQL owns an ID even when its row is private or filtered out; only probe IDs
-    // already present in the caller's scoped settings, and never return metadata.
-    const candidateIds = [
-      ...new Set(candidates.map((candidate) => candidate.id)),
-    ];
-    for (let offset = 0; offset < candidateIds.length; offset += 500) {
-      const shadows: Array<{ id: string }> = await db
-        .select({ id: schema.dashboards.id })
-        .from(schema.dashboards)
-        .where(
-          inArray(
-            schema.dashboards.id,
-            candidateIds.slice(offset, offset + 500),
-          ),
-        );
-      for (const shadow of shadows) seen.add(shadow.id);
-    }
-
-    for (const { id, kind, orgId, visibility, config } of candidates) {
-      if (seen.has(id)) continue;
-      seen.add(id);
-      const { title } = configFromSettings(config, kind);
-      const search = filter?.search?.trim().toLowerCase();
-      if (
-        search &&
-        !title.toLowerCase().includes(search) &&
-        !id.toLowerCase().includes(search)
-      )
-        continue;
-      const catalogMetadata = includeCatalogMetadata
-        ? catalogMetadataFromConfig(config)
-        : {
-            configName: null,
-            catalogTemplateId: null,
-            demoId: null,
-          };
-      const createdAt =
-        typeof config.createdAt === "string" ? config.createdAt : nowIso();
-      out.push({
-        id,
-        kind,
-        name: title,
-        description: configDescriptionFromValue(config),
-        ...catalogMetadata,
-        parentId: typeof config.parentId === "string" ? config.parentId : null,
-        folderId: null,
-        ownerEmail: ctx.email,
-        orgId,
-        visibility,
-        createdAt,
-        updatedAt:
-          typeof config.updatedAt === "string" ? config.updatedAt : createdAt,
-        archivedAt: null,
-        hiddenAt: null,
-        hiddenBy: null,
-      });
-    }
-  } catch (error) {
-    if (filter?.legacyScan === "strict") throw error;
-    // Legacy scan is best-effort.
+    if (!id || !kind || isBuiltinDashboardId(id) || seen.has(id)) continue;
+    if (filter?.kind && filter.kind !== kind) continue;
+    seen.add(id);
+    const config = value as Record<string, unknown>;
+    const { title } = configFromSettings(config, kind);
+    const catalogMetadata = includeCatalogMetadata
+      ? catalogMetadataFromConfig(config)
+      : {
+          configName: null,
+          catalogTemplateId: null,
+          demoId: null,
+        };
+    const createdAt =
+      typeof config.createdAt === "string" ? config.createdAt : nowIso();
+    out.push({
+      id,
+      kind,
+      name: title,
+      description: configDescriptionFromValue(config),
+      ...catalogMetadata,
+      parentId: typeof config.parentId === "string" ? config.parentId : null,
+      folderId: null,
+      ownerEmail: ctx.email,
+      orgId,
+      visibility,
+      createdAt,
+      updatedAt:
+        typeof config.updatedAt === "string" ? config.updatedAt : createdAt,
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+    });
   }
   return out;
 }

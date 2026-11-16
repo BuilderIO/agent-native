@@ -409,100 +409,53 @@ describe("listDashboardSummaries", () => {
     expect(state.settingsPrefixCalls).toEqual([]);
   });
 
-  it("suppresses shadowed legacy settings without exposing inaccessible dashboards or reserving stale names", async () => {
+  // oracle-change: unscoped shadow suppression exposed private dashboard existence.
+
+  it("does not reveal whether another user's private dashboard has a legacy setting's id", async () => {
     state.filterRows = true;
+    state.settings = {
+      "u:alice@example.com:sql-dashboard-guessed-id": {
+        name: "My legacy dashboard",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    };
+    const absent = await listDashboardSummaries(ctx);
     state.rows = [
       {
-        id: "archived",
+        id: "guessed-id",
         kind: "sql",
-        name: "Archived current",
-        archivedAt: "2026-01-01",
-        hiddenAt: null,
-      },
-      {
-        id: "hidden",
-        kind: "sql",
-        name: "Hidden current",
-        archivedAt: null,
-        hiddenAt: "2026-01-01",
-      },
-      {
-        id: "renamed",
-        kind: "sql",
-        name: "Current name",
-        archivedAt: null,
-        hiddenAt: null,
-      },
-      {
-        id: "private",
-        kind: "sql",
-        name: "Private current",
-        archivedAt: null,
-        hiddenAt: null,
+        name: "Private title",
         accessible: false,
       },
     ];
-    state.settings = {
-      "u:alice@example.com:sql-dashboard-archived": { name: "Old archived" },
-      "u:alice@example.com:sql-dashboard-hidden": { name: "Old hidden" },
-      "u:alice@example.com:sql-dashboard-renamed": { name: "Old renamed" },
-      "o:org-1:sql-dashboard-private": { name: "Old private" },
-      "u:alice@example.com:sql-dashboard-legacy-only": { name: "Real legacy" },
-      "u:bob@example.com:sql-dashboard-other-user": { name: "Other user" },
-      "o:other-org:sql-dashboard-other-org": { name: "Other org" },
-    };
-
-    expect(
-      (await listDashboardSummaries(ctx)).map(({ id, name }) => [id, name]),
-    ).toEqual([
-      ["renamed", "Current name"],
-      ["legacy-only", "Real legacy"],
+    const privateRowExists = await listDashboardSummaries(ctx);
+    expect(privateRowExists).toEqual(absent);
+    expect(privateRowExists.map(({ name }) => name)).toEqual([
+      "My legacy dashboard",
     ]);
-    expect(state.projection).toEqual({ id: { name: "id" } });
-    expect(state.where).toEqual({
-      kind: "inArray",
-      target: { name: "id" },
-      values: ["archived", "hidden", "legacy-only", "private"],
-    });
-    for (const name of [
-      "Old archived",
-      "Old hidden",
-      "Old renamed",
-      "Old private",
-      "Private current",
-    ]) {
-      await expect(
-        assertDashboardNameIsAvailable(name, ctx),
-      ).resolves.toBeUndefined();
-    }
-    for (const name of ["Current name", "Real legacy"]) {
-      await expect(
-        assertDashboardNameIsAvailable(name, ctx),
-      ).rejects.toMatchObject({
-        errorCode: "dashboard_name_conflict",
-      });
-    }
-    expect(
-      await listDashboardSummaries(ctx, { search: "Old renamed" }),
-    ).toEqual([]);
-    expect(
-      (await listDashboardSummaries(ctx, { search: "Real legacy" })).map(
-        ({ id }) => id,
-      ),
-    ).toEqual(["legacy-only"]);
+    await expect(
+      assertDashboardNameIsAvailable("My legacy dashboard", ctx),
+    ).rejects.toMatchObject({ errorCode: "dashboard_name_conflict" });
   });
 
-  it("fails closed when the SQL shadow check is unavailable", async () => {
-    const error = new Error("dashboard shadow check unavailable");
-    state.shadowError = error;
+  it("reports an unavailable legacy settings read to list callers", async () => {
+    const error = new Error("legacy settings unavailable");
+    state.settingsError = error;
+    await expect(listDashboardSummaries(ctx)).rejects.toBe(error);
+  });
+
+  it("lists legacy entries without an unscoped shadow probe", async () => {
+    state.shadowError = new Error("unscoped shadow query attempted");
     state.settings = {
       "u:alice@example.com:sql-dashboard-legacy": { name: "Legacy" },
     };
 
-    await expect(assertDashboardNameIsAvailable("New name", ctx)).rejects.toBe(
-      error,
+    expect((await listDashboardSummaries(ctx)).map(({ name }) => name)).toEqual(
+      ["Legacy"],
     );
-    await expect(listDashboardSummaries(ctx)).resolves.toEqual([]);
+    await expect(
+      assertDashboardNameIsAvailable("New name", ctx),
+    ).resolves.toBeUndefined();
   });
 
   it("normalizes dashboard names consistently for matching", () => {
