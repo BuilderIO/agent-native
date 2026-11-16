@@ -14,9 +14,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@agent-native/core/client/hooks")
-  >()),
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   setClientAppState: vi.fn(async (key: string, value: unknown) => {
     mocks.writes.push([key, value]);
     return value ?? null;
