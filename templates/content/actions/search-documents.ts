@@ -111,6 +111,11 @@ function semanticSkipReason(
   return usesOperators ? "operators" : null;
 }
 
+/** A title or query as the word lane compares them for an exact title. */
+function normalizedTitle(text: string | null | undefined): string {
+  return (text ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
+}
+
 function semanticStatus(result: SemanticSearchResult): SemanticSearchStatus {
   if (result.status === "unavailable") {
     return { status: "unavailable", reason: result.reason };
@@ -574,7 +579,18 @@ export default defineAction({
           },
           { rankConstant: 60, limit: 2 * LANE_DEPTH },
         );
-        const fusedIds = fused.map((candidate) => candidate.key);
+        // A page titled exactly as searched stays first, as it does in words
+        // alone; meaning can otherwise lift a near neighbour above it.
+        const searched = normalizedTitle(args.query);
+        const exactIds = lexical.docs
+          .filter((doc) => normalizedTitle(doc.title) === searched)
+          .map((doc) => doc.id);
+        const fusedIds = [
+          ...exactIds,
+          ...fused
+            .map((candidate) => candidate.key)
+            .filter((id) => !exactIds.includes(id)),
+        ];
         const pageIds = fusedIds.slice(args.offset, args.offset + args.limit);
         const lexicalIds = new Set(lexical.docs.map((doc) => doc.id));
         const meaningOnlyIds = pageIds.filter((id) => !lexicalIds.has(id));

@@ -193,6 +193,22 @@ beforeAll(async () => {
           ownerEmail: OWNER,
           ...shared,
         },
+        {
+          // Its notes are mostly about support, so by meaning it sits behind
+          // the current plan.
+          id: "holiday-old",
+          title: "Old holiday plan",
+          content: "Support request case notes from the old plan.",
+          ownerEmail: OWNER,
+          ...shared,
+        },
+        {
+          id: "holiday-plan",
+          title: "Holiday plan",
+          content: "Dates for the year; the old plan is archived.",
+          ownerEmail: OWNER,
+          ...shared,
+        },
       ].map((document, index) => ({
         description: "",
         ...document,
@@ -274,6 +290,19 @@ describe("hybrid search", () => {
     expect(
       (await search({ query: "refund", searchFields: "title" })).semanticSearch,
     ).toEqual({ status: "skipped", reason: "title-only" });
+  });
+
+  it("keeps a page titled exactly as searched first", async () => {
+    // The current plan matches by words too and is closer by meaning, so
+    // merging the two would otherwise put it first.
+    const result = await search({ query: "old holiday plan" });
+    expect(result.semanticSearch).toEqual({ status: "used" });
+    expect(
+      result.documents.slice(0, 2).map((doc) => [doc.id, doc.matchedBy]),
+    ).toEqual([
+      ["holiday-old", "both"],
+      ["holiday-plan", "both"],
+    ]);
   });
 
   it("finds a page by meaning when no page has the words", async () => {
