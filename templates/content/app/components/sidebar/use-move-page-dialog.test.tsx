@@ -79,7 +79,8 @@ describe("useMovePageDialog", () => {
   let container: HTMLDivElement | undefined;
   let root: Root | undefined;
   let startMove: (page: MovePageTarget | null) => void = () => undefined;
-  const onMoved = vi.fn();
+  const settle = vi.fn();
+  const onMove = vi.fn(() => settle);
 
   afterEach(async () => {
     await act(async () => root?.unmount());
@@ -89,7 +90,7 @@ describe("useMovePageDialog", () => {
   });
 
   function Harness() {
-    const move = useMovePageDialog({ onMoved });
+    const move = useMovePageDialog({ onMove });
     startMove = move.startMove;
     return move.dialog;
   }
@@ -140,13 +141,16 @@ describe("useMovePageDialog", () => {
     act(() =>
       mocks.dialog?.onMove(roadmap, { spaceId: "personal", parentId: "p-1" }),
     );
-    let call = lastMoveCall();
-    expect(call.variables).toEqual({ id: "doc-1", parentId: "p-1" });
-    act(() => call.callbacks.onSuccess());
-    expect(onMoved).toHaveBeenLastCalledWith(roadmap, {
+    // The sidebar hears of the move as it starts, before the server answers.
+    expect(onMove).toHaveBeenLastCalledWith(roadmap, {
       spaceId: "personal",
       parentId: "p-1",
     });
+    expect(settle).not.toHaveBeenCalled();
+    let call = lastMoveCall();
+    expect(call.variables).toEqual({ id: "doc-1", parentId: "p-1" });
+    act(() => call.callbacks.onSuccess());
+    expect(settle).toHaveBeenLastCalledWith(true);
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
 
     act(() =>
@@ -174,6 +178,6 @@ describe("useMovePageDialog", () => {
     expect(mocks.toastError).toHaveBeenCalledWith("sidebar.failedMovePage", {
       description: "Page is locked",
     });
-    expect(onMoved).not.toHaveBeenCalled();
+    expect(settle).toHaveBeenCalledExactlyOnceWith(false);
   });
 });

@@ -14,6 +14,10 @@ import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  MOVE_DOCUMENT_MUTATION_KEY,
+  type MoveDocumentContext,
+} from "@/hooks/use-pending-moves";
 import { DELETE_DOCUMENT_MUTATION_KEY } from "@/hooks/use-pending-trash";
 import type { SidebarRowsHint } from "@/lib/sidebar-layout-hint";
 
@@ -573,6 +577,90 @@ describe("PagedContentFilesSidebarView", () => {
       "/page/first-root",
       "/page/second-root",
       "/page/open-root",
+    ]);
+
+    await act(async () => root.unmount());
+  });
+
+  it("draws a page under its new parent while its move is pending and back where it was when the move fails", async () => {
+    const branches: Record<string, ContentDatabaseNavigationItem[]> = {
+      root: [
+        navigationItem("folder"),
+        navigationItem("page-a"),
+        navigationItem("page-b"),
+      ],
+      folder: [],
+    };
+    useFilesNavigationPage.mockImplementation((args) => ({
+      data: page(branches[args.navigation.parentId ?? "root"] ?? []),
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    }));
+    const queryClient = new QueryClient();
+    let failMove: (error: Error) => void = () => {};
+    const moveAnswer = new Promise<never>((_resolve, reject) => {
+      failMove = reject;
+    });
+    const { container, root } = await renderHarness({
+      initiallyExpanded: ["folder"],
+      queryClient,
+    });
+    // Each link with how many rows it sits inside.
+    const shown = () => {
+      const rows = Array.from(container.querySelectorAll("a"), (link) => {
+        let depth = 0;
+        for (let node: Element | null = link; node; node = node.parentElement)
+          if (node.classList.contains("gap-0.5")) depth += 1;
+        return [link.getAttribute("href"), depth] as const;
+      });
+      const top = Math.min(...rows.map(([, depth]) => depth));
+      return rows.map(([href, depth]) => [href, depth - top]);
+    };
+    expect(shown()).toEqual([
+      ["/page/folder", 0],
+      ["/page/page-a", 0],
+      ["/page/page-b", 0],
+    ]);
+
+    let moving: Promise<unknown> = Promise.resolve();
+    await act(async () => {
+      moving = queryClient
+        .getMutationCache()
+        .build(queryClient, {
+          mutationKey: MOVE_DOCUMENT_MUTATION_KEY,
+          mutationFn: (_variables: { id: string; parentId: string }) =>
+            moveAnswer,
+          onMutate: (): MoveDocumentContext => ({
+            move: {
+              documentId: "page-b",
+              databaseId: "files",
+              parentId: "folder",
+              from: { databaseId: "files", parentId: null },
+              item: { ...navigationItem("page-b"), parentId: "folder" },
+            },
+          }),
+        })
+        .execute({ id: "page-b", parentId: "folder" })
+        .catch(() => {});
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(shown()).toEqual([
+      ["/page/folder", 0],
+      ["/page/page-b", 1],
+      ["/page/page-a", 0],
+    ]);
+
+    await act(async () => {
+      failMove(new Error("Move is unavailable"));
+      await moving;
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(shown()).toEqual([
+      ["/page/folder", 0],
+      ["/page/page-a", 0],
+      ["/page/page-b", 0],
     ]);
 
     await act(async () => root.unmount());

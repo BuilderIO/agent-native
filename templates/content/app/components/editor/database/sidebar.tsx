@@ -65,10 +65,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { usePendingMoves } from "@/hooks/use-pending-moves";
 import { usePendingTrash } from "@/hooks/use-pending-trash";
 import {
   filesNavigationPageParams,
+  filesRowDocument,
   useFilesNavigationPage,
+  type FilesRowMove,
 } from "@/lib/files-navigation";
 import type { SidebarRowsHint } from "@/lib/sidebar-layout-hint";
 import {
@@ -126,24 +129,7 @@ export function navigationItemAsDatabaseItem(
     databaseId: "",
     position: item.membershipPosition,
     properties: [],
-    document: document ?? {
-      id: item.documentId,
-      spaceId: item.spaceId,
-      parentId: item.parentId,
-      title: item.title,
-      content: "",
-      icon: item.icon,
-      position: item.membershipPosition,
-      isFavorite: item.isFavorite,
-      hideFromSearch: false,
-      canEdit: item.canEdit,
-      canManage: item.canManage,
-      source: item.sourceKind
-        ? { mode: "database", kind: item.sourceKind }
-        : undefined,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-    },
+    document: document ?? filesRowDocument(item),
   };
 }
 
@@ -265,6 +251,7 @@ function PagedContentFilesBranch({
   const lastAutomaticReload = useRef(Number.NEGATIVE_INFINITY);
   const [reloadRefused, setReloadRefused] = useState(false);
   const pendingTrash = usePendingTrash();
+  const pendingMoves = usePendingMoves();
   const query = useFilesNavigationPage(
     filesNavigationPageParams({
       databaseId: props.databaseId,
@@ -429,13 +416,46 @@ function PagedContentFilesBranch({
       createdAt: document.createdAt,
       updatedAt: document.updatedAt,
     }));
-  // A page on its way to Trash leaves the tree with the click.
-  const items = [...pageItems, ...revealedItems].filter(
-    (item) => !pendingTrash.documentIds.has(item.documentId),
+  // A page on its way to a new parent leaves its old branch with the click
+  // and joins the end of its new branch's first page.
+  const movesHere = (move: FilesRowMove) =>
+    move.databaseId === props.databaseId && move.parentId === props.parentId;
+  const movedInItems =
+    cursor === undefined
+      ? [...pendingMoves.values()]
+          .filter(
+            (move) =>
+              movesHere(move) &&
+              !pageDocumentIds.has(move.documentId) &&
+              !revealedItems.some(
+                (item) => item.documentId === move.documentId,
+              ),
+          )
+          .map((move) => move.item)
+      : [];
+  const movingInto = new Set(
+    [...pendingMoves.values()].flatMap((move) =>
+      move.databaseId === props.databaseId && move.parentId
+        ? [move.parentId]
+        : [],
+    ),
   );
+  // A page on its way to Trash leaves the tree with the click.
+  const items = [...pageItems, ...revealedItems, ...movedInItems]
+    .filter((item) => {
+      if (pendingTrash.documentIds.has(item.documentId)) return false;
+      const move = pendingMoves.get(item.documentId);
+      return !move || movesHere(move);
+    })
+    .map((item) =>
+      !item.hasChildren && movingInto.has(item.documentId)
+        ? { ...item, hasChildren: true }
+        : item,
+    );
   const composedDocumentIds = new Set([
     ...pageDocumentIds,
     ...revealedItems.map((item) => item.documentId),
+    ...movedInItems.map((item) => item.documentId),
   ]);
 
   return (

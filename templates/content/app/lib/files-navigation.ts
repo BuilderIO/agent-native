@@ -321,6 +321,151 @@ function withCreatedFilesRows(
     : page;
 }
 
+/** A page's row in a cached Files page, and the Files collection that lists it. */
+export function cachedFilesRow(
+  queryClient: Pick<QueryClient, "getQueryCache">,
+  documentId: string,
+): { databaseId: string; item: ContentDatabaseNavigationItem } | undefined {
+  for (const query of queryClient
+    .getQueryCache()
+    .findAll({ queryKey: ["action", "query-content-database-items"] })) {
+    const params = query.queryKey[2] as FilesNavigationPageParams | undefined;
+    const page = query.state.data as FilesNavigationRead | undefined;
+    if (!params?.navigation || !page || "available" in page) continue;
+    const item = page.items.find(
+      (candidate) => candidate.documentId === documentId,
+    );
+    if (item) return { databaseId: params.databaseId, item };
+  }
+  return undefined;
+}
+
+/** The page a Files row stands for, as far as the row knows it. */
+export function filesRowDocument(
+  item: ContentDatabaseNavigationItem,
+): Document {
+  return {
+    id: item.documentId,
+    spaceId: item.spaceId,
+    parentId: item.parentId,
+    title: item.title,
+    content: "",
+    icon: item.icon,
+    position: item.membershipPosition,
+    isFavorite: item.isFavorite,
+    hideFromSearch: false,
+    canEdit: item.canEdit,
+    canManage: item.canManage,
+    ...(item.sourceKind
+      ? { source: { mode: "database", kind: item.sourceKind } }
+      : {}),
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+}
+
+/** A page on its way to a new parent, as the Files tree draws it there. */
+export type FilesRowMove = {
+  documentId: string;
+  /** The Files collection the page moves into. */
+  databaseId: string;
+  parentId: string | null;
+  /** Where the tree showed it before the move. */
+  from: { databaseId: string; parentId: string | null };
+  /** Its row under the new parent. */
+  item: ContentDatabaseNavigationItem;
+};
+
+/** The move a page on its way to `parentId` makes, read from its cached row. */
+export function filesRowMove(
+  queryClient: Pick<QueryClient, "getQueryCache">,
+  {
+    documentId,
+    parentId,
+    databaseId,
+  }: {
+    documentId: string;
+    parentId: string | null;
+    /** The Files collection of another space; the page's own by default. */
+    databaseId?: string | undefined;
+  },
+): FilesRowMove | undefined {
+  const row = cachedFilesRow(queryClient, documentId);
+  if (!row) return undefined;
+  return {
+    documentId,
+    databaseId: databaseId ?? row.databaseId,
+    parentId,
+    from: { databaseId: row.databaseId, parentId: row.item.parentId },
+    item: { ...row.item, parentId },
+  };
+}
+
+/**
+ * Draws a page the server just moved in its new place in every cached Files
+ * page: gone from the branch it left, at the end of its new branch's first
+ * page, under a parent that now has children, and out of an old parent left
+ * with none. The move's own reread of those branches then draws the server's
+ * order. That reread finds the branches by the page's cached rows, so this
+ * runs after it starts, and a page it marked stale stays marked.
+ */
+export function moveCachedFilesRow(
+  queryClient: QueryClient,
+  move: FilesRowMove,
+) {
+  const inDestination = (params: FilesNavigationPageParams) =>
+    params.databaseId === move.databaseId &&
+    params.navigation.parentId === move.parentId;
+  updateCachedFilesPages(queryClient, (page, params) => {
+    const listed = page.items.some(
+      (item) => item.documentId === move.documentId,
+    );
+    if (listed && !inDestination(params)) {
+      return {
+        ...page,
+        items: page.items.filter((item) => item.documentId !== move.documentId),
+      };
+    }
+    return !listed &&
+      inDestination(params) &&
+      params.navigation.cursor === undefined
+      ? { ...page, items: [...page.items, move.item] }
+      : undefined;
+  });
+  const oldParentId = move.from.parentId;
+  const oldBranch =
+    oldParentId === null
+      ? undefined
+      : queryClient.getQueryData<FilesNavigationRead>(
+          filesNavigationQueryKey(
+            filesNavigationPageParams({
+              databaseId: move.from.databaseId,
+              parentId: oldParentId,
+            }),
+          ),
+        );
+  const oldParentEmptied =
+    oldBranch !== undefined &&
+    !("available" in oldBranch) &&
+    oldBranch.items.length === 0 &&
+    !oldBranch.pagination.hasMore;
+  updateCachedFilesPages(queryClient, (page) => {
+    let changed = false;
+    const items = page.items.map((item) => {
+      const hasChildren =
+        item.documentId === move.parentId
+          ? true
+          : oldParentEmptied && item.documentId === oldParentId
+            ? false
+            : item.hasChildren;
+      if (hasChildren === item.hasChildren) return item;
+      changed = true;
+      return { ...item, hasChildren };
+    });
+    return changed ? { ...page, items } : undefined;
+  });
+}
+
 /**
  * The top-level rows of every Files tree this browser has read, in tree
  * order, with the tree that holds `documentId` first.

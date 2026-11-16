@@ -52,6 +52,7 @@ import {
   type ActivePathDocument,
   type ContentFilesSidebarRenderReorder,
 } from "@/components/editor/database/sidebar";
+import { defaultDatabaseViewConfig } from "@/components/editor/database/view-config";
 import {
   clearPageDraftJournal,
   listPageDraftJournal,
@@ -127,6 +128,7 @@ import {
   useDeleteDocument,
   usePermanentlyDeleteDocument,
   useRestoreDocument,
+  useFirstPins,
   useTrashedDocuments,
   useUpdateDocument,
   isDocumentUpdateConflict,
@@ -517,6 +519,34 @@ function normalizeCollapsedSections(
 interface RemoveLocalFileSourceResult {
   success: boolean;
   deleted: number;
+}
+
+/**
+ * Pinned's list while the first pin creates the Favorites collection: just
+ * the pinned pages, newest first, with the default view.
+ */
+function firstPinsCollection(documents: Document[]): ContentDatabaseResponse {
+  const now = new Date().toISOString();
+  return {
+    database: {
+      id: "",
+      documentId: "",
+      title: "",
+      systemRole: "favorites",
+      viewConfig: defaultDatabaseViewConfig(),
+      createdAt: now,
+      updatedAt: now,
+    },
+    properties: [],
+    source: null,
+    items: documents.map((document, index) => ({
+      id: `optimistic-favorite:${document.id}`,
+      databaseId: "",
+      position: index - documents.length,
+      properties: [],
+      document,
+    })),
+  };
 }
 
 function personalSidebarOrderForDatabase(
@@ -1313,11 +1343,22 @@ export function DocumentSidebar({
   const favoritesData = isContentDatabaseUnavailable(favoritesDatabase.data)
     ? undefined
     : favoritesDatabase.data;
+  // A first pin shows at once, before the Favorites collection it creates
+  // has loaded.
+  const firstPins = useFirstPins();
+  const firstPinsData = useMemo(
+    () =>
+      favoritesData || firstPins.length === 0
+        ? undefined
+        : firstPinsCollection(firstPins),
+    [favoritesData, firstPins],
+  );
+  const pinnedData = favoritesData ?? firstPinsData;
   // A page or collection on its way to Trash leaves Favorites with the click.
   const pendingTrash = usePendingTrash();
   const favoriteItems = useMemo(
     () =>
-      (favoritesData?.items ?? []).filter(
+      (pinnedData?.items ?? []).filter(
         (item) =>
           !pendingTrash.documentIds.has(item.document.id) &&
           !(
@@ -1325,7 +1366,7 @@ export function DocumentSidebar({
             pendingTrash.databaseIds.has(item.document.database.id)
           ),
       ),
-    [favoritesData?.items, pendingTrash],
+    [pinnedData?.items, pendingTrash],
   );
   const updateFavoritesPersonalView = useUpdateContentPersonalNavigation(
     favoritesDatabaseId,
@@ -1440,15 +1481,17 @@ export function DocumentSidebar({
   // Null only while Pinned's reads are in flight. Every settled read gives a
   // count, so a failed or unavailable database draws its own state instead of
   // holding the placeholder.
-  const pinnedCount = !favoritesDatabaseId
-    ? contentSpacesQuery.isSuccess
-      ? 0
-      : null
-    : favoritesDatabase.isError || favoritesPersonalView.isError
-      ? 0
-      : favoritesDatabase.isPending || favoritesPersonalView.isPending
-        ? null
-        : favoriteItems.length;
+  const pinnedCount = firstPinsData
+    ? favoriteItems.length
+    : !favoritesDatabaseId
+      ? contentSpacesQuery.isSuccess
+        ? 0
+        : null
+      : favoritesDatabase.isError || favoritesPersonalView.isError
+        ? 0
+        : favoritesDatabase.isPending || favoritesPersonalView.isPending
+          ? null
+          : favoriteItems.length;
   const handleRetryContentSpaces = useCallback(() => {
     if (contentSpacesQuery.isError) {
       attemptedSpaceReconciliationKeyRef.current = null;
@@ -3098,10 +3141,9 @@ export function DocumentSidebar({
         ...SEARCH_QUERY_KEYS,
       ]),
   });
+  // The new parent opens with the move and closes again if it fails.
   const { startMove, dialog: movePageDialog } = useMovePageDialog({
-    onMoved: (_page, { parentId }) => {
-      if (parentId) handleDocumentExpandedChange(parentId, true);
-    },
+    onMove: (_page, { parentId }) => revealParentForCreation(parentId),
   });
   const sidebarPageActions = useMemo<SidebarPageActions>(
     () => ({
@@ -3892,9 +3934,9 @@ export function DocumentSidebar({
                   ) : (
                     <ContentFilesSidebarView
                       data={
-                        favoritesData
+                        pinnedData
                           ? {
-                              ...favoritesData,
+                              ...pinnedData,
                               items: renderedItems,
                             }
                           : undefined
@@ -3903,8 +3945,9 @@ export function DocumentSidebar({
                       sidebarOrder={favoritesOrder.order}
                       serverOrdered={serverOrdered}
                       isLoading={
-                        favoritesDatabase.isLoading ||
-                        favoritesPersonalView.isLoading
+                        !firstPinsData &&
+                        (favoritesDatabase.isLoading ||
+                          favoritesPersonalView.isLoading)
                       }
                       activeDocumentId={sidebarActiveDocumentId}
                       manualReorder={{
