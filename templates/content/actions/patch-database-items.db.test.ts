@@ -1030,6 +1030,15 @@ describe("patch-database-items receipts for MCP script recovery", () => {
     ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_CLOSED" });
     await expect(
       asOwner(() =>
+        createRow.run({
+          ...envelope(discovered, "lost-script-write"),
+          title: "Task 3",
+          propertyValues: { [ids.properties.rank]: 3 },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_CLOSED" });
+    await expect(
+      asOwner(() =>
         rowMutation.fenceRowPatchReceipt({
           ...locator,
           payloadDigest: "sha256:other",
@@ -1090,24 +1099,34 @@ describe("patch-database-items receipts for MCP script recovery", () => {
       ...envelope(discovered, "waiting-script-write"),
       rows: rows.map((row, index) => rankPatch(ids, row, 70 + index)),
     };
+    const scope = databaseItemsPositionScope(ids.databaseId);
     let release!: () => void;
     const held = withPositionLock(
-      databaseItemsPositionScope(ids.databaseId),
+      scope,
       () => new Promise<void>((resolve) => (release = resolve)),
     );
     const batch = asOwner(() => patchRows.run(input));
     batch.catch(() => {});
-    // Let the batch pass its first receipt check and queue behind the lock.
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    expect(
-      await asOwner(() =>
-        rowMutation.fenceRowPatchReceipt(
-          rowMutation.rowPatchReceiptLocator(input),
+    try {
+      // The batch checks for a receipt before it queues behind the held
+      // lock, and queueing replaces the scope's entry in the lock chain.
+      const locks = (
+        globalThis as {
+          __contentPositionLocks?: Map<string, Promise<unknown>>;
+        }
+      ).__contentPositionLocks;
+      await expect.poll(() => locks?.get(scope) !== held).toBe(true);
+      expect(
+        await asOwner(() =>
+          rowMutation.fenceRowPatchReceipt(
+            rowMutation.rowPatchReceiptLocator(input),
+          ),
         ),
-      ),
-    ).toEqual({ status: "fenced" });
-    release();
-    await held;
+      ).toEqual({ status: "fenced" });
+    } finally {
+      release();
+      await held;
+    }
 
     await expect(batch).rejects.toMatchObject({
       errorCode: "IDEMPOTENCY_KEY_CLOSED",
@@ -1267,6 +1286,43 @@ describe("patch-database-items receipts for MCP script recovery", () => {
             ids.properties.rank,
           ),
         ).toEqual([1, 2]);
+      });
+
+      it("refuses a fence whose caller lost edit access while it waited", async () => {
+        const ids = await fixture("Revoked fence rows");
+        const shareId = `share-${crypto.randomUUID()}`;
+        await getDb().insert(schema.documentShares).values({
+          id: shareId,
+          resourceId: ids.databaseDocumentId,
+          principalType: "user",
+          principalId: COLLABORATOR,
+          role: "editor",
+          createdBy: OWNER,
+          createdAt: new Date().toISOString(),
+        });
+        const locator = {
+          scope: ids.databaseId,
+          idempotencyKey: "revoked-fence",
+          payloadDigest: "sha256:revoked",
+        };
+        const holder = await holdCollectionLock(ids.databaseId);
+        const fence = asCollaborator(() =>
+          rowMutation.fenceRowPatchReceipt(locator),
+        );
+        fence.catch(() => {});
+        try {
+          await waitUntilWaitingOn(holder.pid, 1);
+          await getDb()
+            .delete(schema.documentShares)
+            .where(eq(schema.documentShares.id, shareId));
+        } finally {
+          await holder.release();
+        }
+
+        await expect(fence).rejects.toMatchObject({ statusCode: 403 });
+        expect(await recordsUnderKey(ids.databaseId, "revoked-fence")).toEqual(
+          [],
+        );
       });
     },
   );

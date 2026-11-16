@@ -21,6 +21,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  ne,
   or,
   sql,
 } from "drizzle-orm";
@@ -79,6 +80,7 @@ import {
 } from "./_content-space-access.js";
 import { readOpenCommentSummaries } from "./_database-comment-summary.js";
 import {
+  CLOSED_KEY_OPERATION,
   databaseRowRevision,
   getDatabaseMutationContract,
 } from "./_database-row-mutation.js";
@@ -1851,10 +1853,18 @@ export async function deleteDatabaseDataForDocument(
       .where(
         eq(schema.contentDatabaseMigrationReceipts.databaseId, database.id),
       );
+    // Keeps closed keys: this delete takes no collection lock, so a patch
+    // could otherwise commit under a closed key before the collection goes.
     await db
       .delete(schema.contentDatabaseRowMutationReceipts)
       .where(
-        eq(schema.contentDatabaseRowMutationReceipts.databaseId, database.id),
+        and(
+          eq(schema.contentDatabaseRowMutationReceipts.databaseId, database.id),
+          ne(
+            schema.contentDatabaseRowMutationReceipts.operation,
+            CLOSED_KEY_OPERATION,
+          ),
+        ),
       );
     await db
       .delete(schema.documentPropertyDefinitions)

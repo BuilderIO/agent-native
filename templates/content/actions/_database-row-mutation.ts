@@ -299,7 +299,7 @@ function conflict(
  * patch can never commit later. It sits under the receipts' unique key, so
  * no receipt can take the key after it, and nothing updates or deletes it.
  */
-const CLOSED_KEY_OPERATION = "closed-key";
+export const CLOSED_KEY_OPERATION = "closed-key";
 
 /** Refuses a write whose key a closed-key record holds. */
 export function assertReceiptKeyOpen(
@@ -2457,6 +2457,9 @@ export type RowPatchFenceResult =
  * The receipt a batch patch with these arguments commits. An MCP script
  * write records it before the patch runs, so recovery can look for the
  * receipt later. Throws for rows the patch itself would refuse to read.
+ * Pass the arguments after the action's schema parses them: the digest
+ * covers parsed values, so a raw argument the schema changes, such as a
+ * title it trims, gives another digest.
  */
 export function rowPatchReceiptLocator(
   input: PatchDatabaseRowsMutationInput,
@@ -2560,6 +2563,14 @@ export async function fenceRowPatchReceipt(
   await getDb().transaction(async (tx) => {
     const db = tx as unknown as Db;
     await lockContentDatabaseMutation(db, database.id);
+    // Access can be revoked while this call waits for the collection lock,
+    // so recheck editor access on the collection page here.
+    const editable = await editableDocumentIds(db, [database.documentId]);
+    if (!editable.has(database.documentId)) {
+      throw new ForbiddenError(
+        `Requires editor role on document ${database.documentId}`,
+      );
+    }
     const now = new Date().toISOString();
     // Leaves a receipt or closed key already under the key as it is.
     await db
