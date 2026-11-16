@@ -85,7 +85,10 @@ import {
   useReviewAgent,
   useReviewAgentSurface,
 } from "@/lib/review-agent/review-agent-context";
-import { firstAgentMention } from "@/lib/review-agent/review-agent-models";
+import {
+  firstAgentMention,
+  isDefaultAgentMention,
+} from "@/lib/review-agent/review-agent-models";
 import type { ReviewAgentController } from "@/lib/review-agent/use-review-agent-requests";
 import { useReviewMentionPeople } from "@/lib/review-mention-people";
 import type { ReviewThreadAgentAction } from "@/lib/review-thread-agent-actions";
@@ -2675,8 +2678,10 @@ export function ReviewCanvasPins({
     (comment: ReviewComment, mentions: readonly ReviewMention[]) => {
       const chip = firstAgentMention(mentions);
       if (!chip || !reviewAgent) return;
-      const selection = reviewAgent.resolveMention(chip);
-      if (!selection) {
+      const selection = isDefaultAgentMention(chip)
+        ? null
+        : reviewAgent.resolveMention(chip);
+      if (!selection && !isDefaultAgentMention(chip)) {
         toast.error(t("review.agent.startFailed"));
         return;
       }
