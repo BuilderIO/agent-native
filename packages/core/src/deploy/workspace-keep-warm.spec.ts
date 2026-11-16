@@ -112,8 +112,8 @@ describe("workspace keep-warm", () => {
         });
       }),
     );
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     const mod = await import(pathToFileURL(file).href);
     const response = await mod.default(
@@ -133,6 +133,18 @@ describe("workspace keep-warm", () => {
     // The requests for one app overlap, so they land on separate instances.
     expect(peakInFlight).toBeGreaterThanOrEqual(3);
     expect(mod.config.schedule).toBe("* * * * *");
+    // A short pool is reported, not counted as warm.
+    expect(log).toHaveBeenCalledWith(
+      "[agent-native-keep-warm] Warmed",
+      "6/9",
+      "instances across",
+      3,
+      "apps",
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "[agent-native-keep-warm] Pools below target:",
+      "/qr/_agent-native/health 0/3",
+    );
   });
 
   it("fails the run only when no app could be warmed", async () => {

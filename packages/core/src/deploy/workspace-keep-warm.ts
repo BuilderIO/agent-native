@@ -79,7 +79,7 @@ async function warmApp(origin, healthPath) {
       String(failed[0].reason),
     );
   }
-  return failed.length < CONCURRENCY;
+  return CONCURRENCY - failed.length;
 }
 
 export default async function handler(request) {
@@ -91,25 +91,36 @@ export default async function handler(request) {
     const j = Math.floor(Math.random() * (i + 1));
     [queue[i], queue[j]] = [queue[j], queue[i]];
   }
-  const cold = [];
+  // Apps whose pool came up short this run, with the instances that warmed.
+  const short = [];
+  let warmedInstances = 0;
   const workers = Array.from(
     { length: Math.min(APP_PARALLELISM, queue.length) },
     async () => {
       while (queue.length > 0) {
         const healthPath = queue.shift();
-        if (!(await warmApp(origin, healthPath))) cold.push(healthPath);
+        const warmed = await warmApp(origin, healthPath);
+        warmedInstances += warmed;
+        if (warmed < CONCURRENCY) short.push(healthPath + " " + warmed + "/" + CONCURRENCY);
       }
     },
   );
   await Promise.all(workers);
-  if (cold.length === HEALTH_PATHS.length && cold.length > 0) {
+  const requested = HEALTH_PATHS.length * CONCURRENCY;
+  if (requested > 0 && warmedInstances === 0) {
     throw new Error("[agent-native-keep-warm] Every app failed to warm.");
   }
   console.log(
     "[agent-native-keep-warm] Warmed",
-    HEALTH_PATHS.length - cold.length + "/" + HEALTH_PATHS.length,
-    "apps x" + CONCURRENCY,
+    warmedInstances + "/" + requested,
+    "instances across",
+    HEALTH_PATHS.length,
+    "apps",
   );
+  if (short.length > 0) {
+    // A short pool leaves part of that app's first page load cold.
+    console.warn("[agent-native-keep-warm] Pools below target:", short.join(", "));
+  }
   return new Response(null, { status: 204 });
 }
 
