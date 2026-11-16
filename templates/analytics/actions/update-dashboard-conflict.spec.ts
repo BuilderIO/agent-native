@@ -48,7 +48,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
   assertDashboardEditable: vi.fn(async () => undefined),
   DashboardConflictError: mocks.DashboardConflictError,
   getDashboard: vi.fn(async () =>
-    row ? { kind: "sql", config: row.config } : null,
+    row ? { kind: "sql", config: row.config, updatedAt: row.updatedAt } : null,
   ),
   upsertDashboardOutcome: vi.fn(
     async (

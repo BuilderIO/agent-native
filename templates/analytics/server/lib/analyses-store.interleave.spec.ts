@@ -94,6 +94,7 @@ function rowsResult(rows: unknown[]) {
   const result: any = Promise.resolve(rows);
   result.orderBy = () => rowsResult(rows);
   result.limit = () => rowsResult(rows);
+  result.for = () => rowsResult(rows);
   return result;
 }
 
@@ -231,7 +232,12 @@ vi.mock("../db/index.js", () => {
     }),
   };
 
-  return { schema, getDb: () => db };
+  const transactional = Object.assign(db, {
+    transaction: async (callback: (transactionDb: typeof db) => unknown) =>
+      callback(db),
+  });
+
+  return { schema, getDb: () => transactional };
 });
 
 const {

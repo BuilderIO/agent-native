@@ -6,7 +6,10 @@ import {
   gmailGetMessage,
   googleFetch,
 } from "./google-api.js";
-import { getClientForConnectedAccount } from "./google-auth.js";
+import {
+  getClientForConnectedAccount,
+  getManagedGmailAccountEmail,
+} from "./google-auth.js";
 import { buildRawEmail, resolveComposeAttachments } from "./outgoing-email.js";
 
 type GmailScopeUse = "write" | "reply" | "attachment";
@@ -45,25 +48,88 @@ async function getAccessToken(
   return client?.accessToken ?? null;
 }
 
+type GmailAccount = { accountId: string; tokens: Record<string, unknown> };
+
+const sameEmail = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+/**
+ * The owner's Gmail account to use: `requested` when it's theirs, else the one
+ * with the owner's address, else the first. An OAuth account counts only when
+ * its grant covers `use`. A workspace's shared Gmail connection has no grant
+ * here to check, so it counts for every use; it's looked up only when no OAuth
+ * account settles the choice.
+ */
+async function resolveAccount(
+  requested: string | undefined,
+  ownerEmail: string,
+  use: GmailScopeUse = "write",
+): Promise<GmailAccount | null> {
+  const accounts = (
+    await listOAuthAccountsByOwner("google", ownerEmail)
+  ).filter((account) => hasGmailScope(account.tokens, use));
+  const wanted = requested ?? ownerEmail;
+  const match = accounts.find((account) =>
+    sameEmail(account.accountId, wanted),
+  );
+  if (match) return match;
+
+  let managed: string | null = null;
+  let managedError: Error | undefined;
+  try {
+    managed = await getManagedGmailAccountEmail(ownerEmail);
+  } catch (error) {
+    managedError =
+      error instanceof Error
+        ? error
+        : new Error(
+            `Could not look up the workspace's Gmail connection: ${String(error)}`,
+          );
+  }
+  if (managed && sameEmail(managed, wanted)) {
+    return { accountId: managed, tokens: {} };
+  }
+  if (requested) {
+    throw managedError ?? new Error("Account not owned by current user");
+  }
+  if (accounts[0]) return accounts[0];
+  if (managedError) throw managedError;
+  return managed ? { accountId: managed, tokens: {} } : null;
+}
+
 async function resolveAccountEmail(
   requested: string | undefined,
   ownerEmail: string,
   use: GmailScopeUse = "write",
 ): Promise<string | null> {
-  const accounts = (
-    await listOAuthAccountsByOwner("google", ownerEmail)
-  ).filter((account) => hasGmailScope(account.tokens, use));
-  if (requested) {
-    if (!accounts.some((account) => account.accountId === requested)) {
-      throw new Error("Account not owned by current user");
-    }
-    return requested;
+  const account = await resolveAccount(requested, ownerEmail, use);
+  return account ? account.accountId : null;
+}
+
+/** Throws unless the owner can save drafts to `accountEmail`. */
+export async function assertGmailDraftAccount(
+  accountEmail: string,
+  ownerEmail: string,
+): Promise<void> {
+  await resolveAccount(accountEmail, ownerEmail);
+}
+
+/**
+ * Reads the message a reply draft answers, for its reply headers and thread.
+ * When `optional`, a message Mail may not read (403) or that's gone (404)
+ * comes back null instead of failing the save.
+ */
+async function readRepliedMessage(
+  accessToken: string,
+  messageId: string,
+  optional: boolean,
+) {
+  try {
+    return await gmailGetMessage(accessToken, messageId, "metadata");
+  } catch (error) {
+    const status = (error as { status?: unknown } | null)?.status;
+    if (optional && (status === 403 || status === 404)) return null;
+    throw error;
   }
-  return (
-    accounts.find((account) => account.accountId === ownerEmail)?.accountId ??
-    accounts[0]?.accountId ??
-    null
-  );
 }
 
 export async function findGmailDraftAccount(args: {
@@ -119,28 +185,36 @@ export async function findGmailDraftAccount(args: {
 
 export async function saveGmailDraft(args: {
   ownerEmail: string;
-  accountEmail?: string;
+  accountEmail?: string | undefined;
   draftId?: string;
   to: string;
-  cc?: string;
-  bcc?: string;
+  cc?: string | undefined;
+  bcc?: string | undefined;
   subject: string;
   body: string;
   attachments?: ComposeAttachment[];
-  replyToId?: string;
-  replyToThreadId?: string;
+  replyToId?: string | undefined;
+  replyToThreadId?: string | undefined;
+  /**
+   * A reply draft normally needs to read the message it answers, for its reply
+   * headers and thread. With this, one that can't is saved outside the thread
+   * instead of not at all, as Mail's composer has always saved drafts.
+   */
+  replyHeadersOptional?: boolean;
 }): Promise<{
   draftId: string;
   accountEmail: string;
   created: boolean;
   updated?: boolean;
 } | null> {
-  const accountEmail = await resolveAccountEmail(
+  const replyHeadersOptional = args.replyHeadersOptional === true;
+  const account = await resolveAccount(
     args.accountEmail,
     args.ownerEmail,
-    args.replyToId ? "reply" : "write",
+    args.replyToId && !replyHeadersOptional ? "reply" : "write",
   );
-  if (!accountEmail) return null;
+  if (!account) return null;
+  const accountEmail = account.accountId;
   const accessToken = await getAccessToken(accountEmail, args.ownerEmail);
   if (!accessToken) return null;
 
@@ -175,12 +249,19 @@ export async function saveGmailDraft(args: {
   let threadId = args.replyToThreadId;
   let inReplyTo: string | undefined;
   let references: string | undefined;
-  if (args.replyToId) {
-    const original = await gmailGetMessage(
-      accessToken,
-      args.replyToId,
-      "metadata",
-    );
+  const original = !args.replyToId
+    ? null
+    : hasGmailScope(account.tokens, "reply")
+      ? await readRepliedMessage(
+          accessToken,
+          args.replyToId,
+          replyHeadersOptional,
+        )
+      : null;
+  // Gmail keeps a draft in a thread only with its reply headers, so without
+  // them the thread ID is left off too, as the composer's saves always were.
+  if (args.replyToId && !original) threadId = undefined;
+  if (original) {
     threadId = original.threadId ?? threadId;
     const headers = Array.isArray(original.payload?.headers)
       ? original.payload.headers
@@ -249,7 +330,7 @@ export async function saveGmailDraft(args: {
 
 export async function deleteGmailDraft(args: {
   ownerEmail: string;
-  accountEmail?: string;
+  accountEmail?: string | undefined;
   draftId: string;
 }): Promise<void> {
   const accountEmail = await resolveAccountEmail(
