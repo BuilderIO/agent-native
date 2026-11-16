@@ -1,6 +1,18 @@
 import { expect, it } from "vitest";
 
-import { visualEditSuggestionReviewPrompt } from "./visual-edit-apply-toolbar";
+import {
+  mergeRemoteAndLocalApplyPrompt,
+  visualEditSuggestionReviewPrompt,
+} from "./visual-edit-apply-toolbar";
+
+it("merges remote Apply instructions with local pending edit instructions", () => {
+  expect(
+    mergeRemoteAndLocalApplyPrompt(
+      "Apply the shared canvas changes.",
+      "Apply the local tweak changes.",
+    ),
+  ).toBe("Apply the shared canvas changes.\n\nApply the local tweak changes.");
+});
 
 it("frames a commenter suggestion as untrusted text that needs approval", () => {
   const prompt = visualEditSuggestionReviewPrompt({
