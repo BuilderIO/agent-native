@@ -1,7 +1,12 @@
 import type { TweakHandoffChange } from "./tweak-handoff";
 
 export interface ApplyHandoffInput {
-  remote?: { trusted: true; prompt: string; revision?: number };
+  remote?: {
+    trusted: true;
+    prompt: string;
+    revision?: number;
+    includes?: { visualEditIds: string[]; tweakIds: string[] };
+  };
   localVisualEdits: Array<{ id: string; prompt: string }>;
   localTweakChanges: TweakHandoffChange[];
   fullApp: { enabled: boolean; designId?: string };
@@ -27,13 +32,22 @@ export function getDurableApplyHandoff(
 }
 
 export function composeApplyHandoff(input: ApplyHandoffInput): ApplyHandoff {
-  const localVisualPrompt = input.localVisualEdits
+  const coveredVisualIds = new Set(input.remote?.includes?.visualEditIds ?? []);
+  const coveredTweakIds = new Set(input.remote?.includes?.tweakIds ?? []);
+  const localVisualEdits = input.localVisualEdits.filter(
+    (edit) => !coveredVisualIds.has(edit.id),
+  );
+  const localTweakChanges = input.localTweakChanges.filter(
+    (change) => !coveredTweakIds.has(change.id),
+  );
+  const localVisualPrompt = localVisualEdits
     .map((edit) => edit.prompt)
     .filter(Boolean)
     .join("\n\n");
   const tweakPrompt = formatTweakChanges(
-    input.localTweakChanges,
+    localTweakChanges,
     input.fullApp.enabled ? input.fullApp.designId : undefined,
+    input.remote?.revision,
   );
   const sections = [
     input.fullApp.enabled
@@ -52,8 +66,8 @@ export function composeApplyHandoff(input: ApplyHandoffInput): ApplyHandoff {
     prompt: sections.join("\n\n"),
     includes: {
       remote: Boolean(input.remote),
-      visualEditIds: input.localVisualEdits.map((edit) => edit.id),
-      tweakIds: input.localTweakChanges.map((change) => change.id),
+      visualEditIds: localVisualEdits.map((edit) => edit.id),
+      tweakIds: localTweakChanges.map((change) => change.id),
     },
   };
 }
@@ -61,6 +75,7 @@ export function composeApplyHandoff(input: ApplyHandoffInput): ApplyHandoff {
 function formatTweakChanges(
   changes: TweakHandoffChange[],
   designId?: string,
+  revision?: number,
 ): string {
   if (!changes.length) return "";
   const values = changes
@@ -80,6 +95,6 @@ function formatTweakChanges(
         ]),
     "Changed tweaks:",
     values,
-    `After source verification, call acknowledge-visual-edit-pending with { designId: ${JSON.stringify(designId ?? "<design-id>")}, appliedTweaks: [${changes.map((change) => `{ id: ${JSON.stringify(change.id)}, value: ${JSON.stringify(change.newValue)} }`).join(", ")}] }. Include only tweak ids and values confirmed in source; omit any tweak that was not applied.`,
+    `After source verification, call acknowledge-visual-edit-pending with { designId: ${JSON.stringify(designId ?? "<design-id>")}, ${revision === undefined ? "revision: <exact-handoff-revision>, " : `revision: ${revision}, `}appliedTweaks: [${changes.map((change) => `{ id: ${JSON.stringify(change.id)}, value: ${JSON.stringify(change.newValue)} }`).join(", ")}] }. Include only tweak ids and values confirmed in source; omit any tweak that was not applied.`,
   ].join("\n\n");
 }

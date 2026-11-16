@@ -464,6 +464,7 @@ export function useEditorExportAndHandoff({
     [id, isFullAppDesign, localVisualEditHandoff, pendingTweakChanges],
   );
   const pendingApplyPrompt = localApplyHandoff.prompt;
+  const pendingApplyIncludes = localApplyHandoff.includes;
   const durableApplyHandoff = getDurableApplyHandoff(
     localApplyHandoff,
     pendingVisualEditCount,
@@ -524,6 +525,7 @@ export function useEditorExportAndHandoff({
     async (remote?: {
       prompt: string;
       revision?: number;
+      includes?: { visualEditIds: string[]; tweakIds: string[] };
       reviewOnly?: boolean;
     }) => {
       const handoff = remote?.reviewOnly
@@ -537,6 +539,7 @@ export function useEditorExportAndHandoff({
                   remote: {
                     trusted: true as const,
                     prompt: remote.prompt,
+                    ...(remote.includes ? { includes: remote.includes } : {}),
                     ...(remote.revision !== undefined
                       ? { revision: remote.revision }
                       : {}),
@@ -674,7 +677,12 @@ export function useEditorExportAndHandoff({
   );
   const handleCopyPendingVisualStylePrompt = useCallback(
     async (
-      remote?: { prompt: string; revision?: number; reviewOnly?: boolean },
+      remote?: {
+        prompt: string;
+        revision?: number;
+        includes?: { visualEditIds: string[]; tweakIds: string[] };
+        reviewOnly?: boolean;
+      },
       fullPrompt = true,
     ) => {
       try {
@@ -697,6 +705,7 @@ export function useEditorExportAndHandoff({
                     remote: {
                       trusted: true as const,
                       prompt: remote.prompt,
+                      ...(remote.includes ? { includes: remote.includes } : {}),
                       ...(remote.revision !== undefined
                         ? { revision: remote.revision }
                         : {}),
@@ -1602,6 +1611,7 @@ export function useEditorExportAndHandoff({
     showPendingVisualStyleApply,
     pendingVisualStylePrompt,
     pendingApplyPrompt,
+    pendingApplyIncludes,
     pendingApplyEditCount,
     visualEditPromptResult,
     handleApplyPendingVisualStylesWithAgent,

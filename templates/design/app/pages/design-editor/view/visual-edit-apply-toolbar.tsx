@@ -70,6 +70,7 @@ export function renderVisualEditApplyToolbar({
   const remoteVisualEditPrompt = remoteVisualEdit
     ? {
         prompt: `${remoteVisualEdit.prompt}\n\nAfter applying and verifying these source changes, acknowledge only revision ${remoteVisualEdit.revision} with acknowledge-visual-edit-pending, then call get-visual-edit-pending again to verify it cleared.`,
+        includes: remoteVisualEdit.includes,
         ...(remoteVisualEdit.revision !== null
           ? { revision: remoteVisualEdit.revision }
           : {}),

@@ -37,6 +37,9 @@ export default defineAction({
         pendingEditCount: schema.designVisualEditPending.pendingEditCount,
         status: schema.designVisualEditPending.status,
         prompt: schema.designVisualEditPending.prompt,
+        includedVisualEditIds:
+          schema.designVisualEditPending.includedVisualEditIds,
+        includedTweakIds: schema.designVisualEditPending.includedTweakIds,
         authorEmail: schema.designVisualEditPending.authorEmail,
         revision: schema.designVisualEditPending.revision,
         publisherId: schema.designVisualEditPending.publisherId,
@@ -54,6 +57,14 @@ export default defineAction({
       pendingEditCount: pending?.pendingEditCount ?? 0,
       status: pending?.status ?? "empty",
       prompt: suggested ? "" : (pending?.prompt ?? ""),
+      includes: {
+        visualEditIds: pending?.includedVisualEditIds
+          ? JSON.parse(pending.includedVisualEditIds)
+          : [],
+        tweakIds: pending?.includedTweakIds
+          ? JSON.parse(pending.includedTweakIds)
+          : [],
+      },
       suggestion: suggested
         ? {
             trusted: false as const,

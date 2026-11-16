@@ -354,6 +354,7 @@ export function useEditorSourceAndSync({
     handleFindLayers,
     pendingApplyPrompt,
     pendingApplyEditCount,
+    pendingApplyIncludes,
     handleCopyAsPng,
   } = editorExportAndHandoff;
   const {
@@ -1026,6 +1027,8 @@ export function useEditorSourceAndSync({
                 pendingEditCount,
                 status: "ready" as const,
                 prompt: pendingPrompt,
+                includedVisualEditIds: pendingApplyIncludes.visualEditIds,
+                includedTweakIds: pendingApplyIncludes.tweakIds,
               },
             }
           : {
@@ -1179,6 +1182,7 @@ export function useEditorSourceAndSync({
     id,
     pendingApplyEditCount,
     pendingApplyPrompt,
+    pendingApplyIncludes,
     t,
   ]);
   useEffect(() => {

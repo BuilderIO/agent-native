@@ -1705,6 +1705,7 @@ export function useEditorFilesAndSaving({
     pendingEditCount: number;
     status: "ready" | "suggested" | "empty";
     prompt: string;
+    includes: { visualEditIds: string[]; tweakIds: string[] };
     suggestion: {
       trusted: false;
       authorEmail: string | null;

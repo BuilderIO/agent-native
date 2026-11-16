@@ -17,6 +17,8 @@ const pendingSchema = z
     pendingEditCount: z.number().int().positive(),
     status: z.literal("ready"),
     prompt: z.string().min(1).max(MAX_PROMPT_LENGTH),
+    includedVisualEditIds: z.array(z.string()).default([]),
+    includedTweakIds: z.array(z.string()).default([]),
   })
   .nullable();
 
@@ -96,6 +98,10 @@ export default defineAction({
         pendingEditCount: pending?.pendingEditCount ?? 0,
         status,
         prompt: pending?.prompt ?? "",
+        includedVisualEditIds: JSON.stringify(
+          pending?.includedVisualEditIds ?? [],
+        ),
+        includedTweakIds: JSON.stringify(pending?.includedTweakIds ?? []),
         authorEmail: pending ? (getRequestUserEmail() ?? null) : null,
         updatedAt: now,
         visibility: design.visibility,
@@ -116,6 +122,8 @@ export default defineAction({
             pendingEditCount: values.pendingEditCount,
             status: values.status,
             prompt: values.prompt,
+            includedVisualEditIds: values.includedVisualEditIds,
+            includedTweakIds: values.includedTweakIds,
             authorEmail: values.authorEmail,
             revision: sql`${schema.designVisualEditPending.revision} + 1`,
             publisherId: values.publisherId,

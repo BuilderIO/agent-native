@@ -294,6 +294,10 @@ export const designVisualEditPending = table("design_visual_edit_pending", {
     .notNull()
     .default("empty"),
   prompt: text("prompt").notNull().default(""),
+  includedVisualEditIds: text("included_visual_edit_ids")
+    .notNull()
+    .default("[]"),
+  includedTweakIds: text("included_tweak_ids").notNull().default("[]"),
   authorEmail: text("author_email"),
   revision: bigint("revision", { mode: "number" }).notNull().default(0),
   publisherId: text("publisher_id").notNull().default(""),
