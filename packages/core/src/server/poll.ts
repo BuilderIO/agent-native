@@ -581,13 +581,17 @@ const defaultResolveAccess: AccessResolver = async (
 /**
  * Answers which of `resourceIds` the user may see. A resolver may also report
  * answers through `answered` as they arrive, so a read can pass those
- * resources before the slowest of the rest is checked.
+ * resources before the slowest of the rest is checked. One that checks its
+ * resources in turns reports each turn's resources through `starting` before
+ * it checks them, so a missed deadline counts only against resources whose
+ * checks started. One that never calls `starting` has started them all.
  */
 export type ManyAccessResolver = (
   resourceType: string,
   resourceIds: string[],
   ctx: { userEmail: string; orgId: string | undefined },
   answered?: (resourceId: string, allowed: boolean) => void,
+  starting?: (resourceIds: readonly string[]) => void,
 ) => Promise<ReadonlySet<string>>;
 
 const defaultResolveAccessMany: ManyAccessResolver = async (
@@ -595,6 +599,7 @@ const defaultResolveAccessMany: ManyAccessResolver = async (
   resourceIds,
   ctx,
   answered,
+  starting,
 ) => {
   const { hasHostAccessResolver, resolveAccessMany } =
     await import("../sharing/access.js");
@@ -624,6 +629,7 @@ const defaultResolveAccessMany: ManyAccessResolver = async (
         resourceId,
       ),
     answered,
+    starting,
   );
 };
 
@@ -637,26 +643,28 @@ function resolveOneWith(resolveAccessMany: ManyAccessResolver): AccessResolver {
 
 /** A batch resolver that asks `resolveAccess` about each resource. */
 function resolveEachWith(resolveAccess: AccessResolver): ManyAccessResolver {
-  return (resourceType, resourceIds, ctx, answered) =>
+  return (resourceType, resourceIds, ctx, answered, starting) =>
     checkEachResource(
       resourceIds,
       async (resourceId) =>
         (await resolveAccess(resourceType, resourceId, ctx)) != null,
       answered,
+      starting,
     );
 }
 
 /**
  * Checks `resourceIds` one at a time, ACCESS_CHECKS_AT_ONCE at once, reporting
- * each answer as it arrives. Each group's checks all end before the next group
- * starts, so a failed check never leaves others running past the batch. Once
- * every group has run, a failure rejects the batch, and the caller re-checks
- * the resources left unanswered.
+ * each group as it starts and each answer as it arrives. Each group's checks
+ * all end before the next group starts, so a failed check never leaves others
+ * running past the batch. Once every group has run, a failure rejects the
+ * batch, and the caller re-checks the resources left unanswered.
  */
 async function checkEachResource(
   resourceIds: string[],
   check: (resourceId: string) => Promise<boolean>,
   answered: ((resourceId: string, allowed: boolean) => void) | undefined,
+  starting: ((resourceIds: readonly string[]) => void) | undefined,
 ): Promise<ReadonlySet<string>> {
   const visible = new Set<string>();
   const failures: unknown[] = [];
@@ -665,18 +673,18 @@ async function checkEachResource(
     start < resourceIds.length;
     start += ACCESS_CHECKS_AT_ONCE
   ) {
+    const group = resourceIds.slice(start, start + ACCESS_CHECKS_AT_ONCE);
+    starting?.(group);
     await Promise.all(
-      resourceIds
-        .slice(start, start + ACCESS_CHECKS_AT_ONCE)
-        .map(async (resourceId) => {
-          try {
-            const allowed = await check(resourceId);
-            if (allowed) visible.add(resourceId);
-            answered?.(resourceId, allowed);
-          } catch (error) {
-            failures.push(error);
-          }
-        }),
+      group.map(async (resourceId) => {
+        try {
+          const allowed = await check(resourceId);
+          if (allowed) visible.add(resourceId);
+          answered?.(resourceId, allowed);
+        } catch (error) {
+          failures.push(error);
+        }
+      }),
     );
   }
   if (failures.length > 0) {
@@ -1301,6 +1309,16 @@ export class AppSyncState {
       answeredIds.add(resourceId);
       cacheUnlessInvalidated(resourceId, allowed);
     };
+    // The keys whose checks started, once the resolver reports any. Until
+    // then, every key counts as started.
+    let startedKeys: Set<string> | undefined;
+    const starting = (resourceIds: readonly string[]) => {
+      startedKeys ??= new Set();
+      for (const resourceId of resourceIds) {
+        const key = keys.get(resourceId);
+        if (key) startedKeys.add(key);
+      }
+    };
     const run = async () => {
       try {
         const visible = await resolveMany(
@@ -1308,6 +1326,7 @@ export class AppSyncState {
           ids,
           { userEmail, orgId },
           answer,
+          starting,
         );
         for (const id of ids) {
           if (!answeredIds.has(id)) answer(id, visible.has(id));
@@ -1349,7 +1368,11 @@ export class AppSyncState {
       }
     };
     void work.then(ended, ended);
-    const check = this.trackAccessCheck([...keys.values()], work);
+    const check = this.trackAccessCheck(
+      [...keys.values()],
+      work,
+      (key) => !startedKeys || startedKeys.has(key),
+    );
   }
 
   /**
@@ -1358,11 +1381,17 @@ export class AppSyncState {
    * never answers would otherwise hold these resources pending, and every
    * read stuck behind them, for good. A resource it leaves unanswered is
    * checked again by the next read, and counts as failed once its checks miss
-   * ACCESS_CHECK_TIMEOUTS_MAX deadlines in a row. The check starts on the next
+   * ACCESS_CHECK_TIMEOUTS_MAX deadlines in a row. Only keys `started` says
+   * were checked miss a deadline: a batch that checks in turns may never have
+   * reached the rest. The check starts on the next
    * microtask, so it is registered before any of it runs, and its `finally`
    * always finds it there.
    */
-  private trackAccessCheck(keys: string[], work: Promise<void>): Promise<void> {
+  private trackAccessCheck(
+    keys: string[],
+    work: Promise<void>,
+    started: (key: string) => boolean = () => true,
+  ): Promise<void> {
     const check: Promise<void> = Promise.resolve().then(async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       let timedOut = false;
@@ -1379,7 +1408,11 @@ export class AppSyncState {
         for (const key of keys) {
           // A key the check still owns was neither answered nor invalidated
           // meanwhile.
-          if (timedOut && this.accessInFlight.get(key) === check) {
+          if (
+            timedOut &&
+            this.accessInFlight.get(key) === check &&
+            started(key)
+          ) {
             this.noteAccessTimeout(key);
           }
           this.endAccessCheck(key, check);

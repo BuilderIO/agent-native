@@ -260,11 +260,13 @@ describe("AppSyncState read through other people's resources", () => {
       [...others.map((doc) => doc.resourceId), "mine"],
       { userEmail: "reader@example.com", orgId: undefined },
       expect.any(Function),
+      expect.any(Function),
     );
     expect(resolveAccessMany).toHaveBeenCalledWith(
       "deck",
       ["deck-1", "deck-2"],
       { userEmail: "reader@example.com", orgId: undefined },
+      expect.any(Function),
       expect.any(Function),
     );
   });
@@ -737,6 +739,42 @@ describe("AppSyncState read through other people's resources", () => {
     // A check asks its resolver on the next microtask.
     await vi.advanceTimersByTimeAsync(0);
     expect(resolveAccess).toHaveBeenCalledTimes(4);
+  });
+
+  it("counts no missed deadline for a resource its batch never started checking", async () => {
+    vi.useFakeTimers();
+    // Checked eight at once, the first eight never answer, so the ninth's
+    // check never starts.
+    const ids = Array.from({ length: 9 }, (_, i) => `slow-${i}`);
+    const rows = durableRows(
+      ids.map((resourceId) => ({ resourceType: "document", resourceId })),
+    );
+    const resolveAccess = vi.fn(() => new Promise(() => {}));
+    const state = stateReading(rows, { resolveAccess });
+    const read = () =>
+      state.getDurableChangesSinceForUser(5, "reader@example.com", undefined, {
+        version: 5,
+        id: "",
+      });
+    const visibilityOf = (resourceId: string) =>
+      state.getChangeVisibilityForUser(
+        { owner: "writer@example.com", resourceType: "document", resourceId },
+        "reader@example.com",
+        undefined,
+      );
+
+    // Two batches in a row miss their deadlines.
+    await read();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await read();
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    // Each asked only about the first eight.
+    expect(resolveAccess).toHaveBeenCalledTimes(16);
+    // Those count as failed; the ninth, which neither batch reached, is
+    // checked again.
+    expect(visibilityOf("slow-0")).toBe("unreadable");
+    expect(visibilityOf("slow-8")).toBe("pending");
   });
 
   it("counts no missed deadline for a resource its batch answered, once the cache drops the answer", async () => {
@@ -1250,6 +1288,7 @@ describe("AppSyncState read through other people's resources", () => {
       "document",
       ["mine"],
       { userEmail: "reader@example.com", orgId: undefined },
+      expect.any(Function),
       expect.any(Function),
     );
   });
