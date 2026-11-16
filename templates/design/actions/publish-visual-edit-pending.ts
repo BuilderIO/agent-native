@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -21,7 +22,7 @@ const pendingSchema = z
 
 export default defineAction({
   description:
-    "Publish the current DOM-only visual-edit handoff for the Design page so an external coding agent can retrieve it. Browser-only transport; this does not write design files or app source.",
+    "Publish the current DOM-only visual-edit handoff for the Design page so an external coding agent can retrieve it. Editor handoffs are ready to apply; commenter handoffs are stored as suggestions that need the owner's approval. Browser-only transport; this does not write design files or app source.",
   requiresAuth: false,
   agentTool: false,
   mcpTool: false,
@@ -65,14 +66,22 @@ export default defineAction({
       const now = new Date().toISOString();
       const canEditDesign = ["owner", "admin", "editor"].includes(access.role);
       const canClearOtherPublisher = access.role === "owner";
+      // A commenter cannot change source, so their text must never reach the
+      // owner's coding agent as an instruction; it waits for owner approval.
+      const status = pending
+        ? canEditDesign
+          ? ("ready" as const)
+          : ("suggested" as const)
+        : ("empty" as const);
       const values = {
         designId,
         revision: 1,
         publisherId,
         clientRevision: revision,
         pendingEditCount: pending?.pendingEditCount ?? 0,
-        status: pending?.status ?? ("empty" as const),
+        status,
         prompt: pending?.prompt ?? "",
+        authorEmail: pending ? (getRequestUserEmail() ?? null) : null,
         updatedAt: now,
         visibility: design.visibility,
         ownerEmail: design.ownerEmail,
@@ -81,7 +90,7 @@ export default defineAction({
 
       const samePublisherIsNewer = sql`${schema.designVisualEditPending.publisherId} = excluded.publisher_id AND ${schema.designVisualEditPending.clientRevision} < excluded.client_revision`;
       const fromNewPublisher = sql`${schema.designVisualEditPending.publisherId} IS DISTINCT FROM excluded.publisher_id`;
-      const fromNewPublisherToReady = sql`(${fromNewPublisher} AND ${schema.designVisualEditPending.status} <> 'ready')`;
+      const fromNewPublisherToOpen = sql`(${fromNewPublisher} AND ${schema.designVisualEditPending.status} NOT IN ('ready', 'suggested'))`;
       const updated = await tx
         .insert(schema.designVisualEditPending)
         .values(values)
@@ -91,6 +100,7 @@ export default defineAction({
             pendingEditCount: values.pendingEditCount,
             status: values.status,
             prompt: values.prompt,
+            authorEmail: values.authorEmail,
             revision: sql`${schema.designVisualEditPending.revision} + 1`,
             publisherId: values.publisherId,
             clientRevision: values.clientRevision,
@@ -101,8 +111,8 @@ export default defineAction({
           },
           setWhere:
             pending === null
-              ? sql`(${samePublisherIsNewer} OR ${canClearOtherPublisher ? fromNewPublisher : fromNewPublisherToReady})`
-              : sql`(${samePublisherIsNewer} OR ${fromNewPublisherToReady})`,
+              ? sql`(${samePublisherIsNewer} OR ${canClearOtherPublisher ? fromNewPublisher : fromNewPublisherToOpen})`
+              : sql`(${samePublisherIsNewer} OR ${fromNewPublisherToOpen})`,
         })
         .returning({ revision: schema.designVisualEditPending.revision });
 
@@ -117,7 +127,7 @@ export default defineAction({
           .limit(1);
 
         if (
-          current?.status === "ready" &&
+          (current?.status === "ready" || current?.status === "suggested") &&
           current.publisherId !== publisherId
         ) {
           if (pending === null) {

@@ -190,6 +190,28 @@ describe("runPublishVisualEditPending", () => {
     expect(args.fetchImpl).toHaveBeenCalled();
   });
 
+  it("confirms a commenter's handoff stored as a suggestion", async () => {
+    const setFailed = vi.fn();
+    const args = makeArgs({
+      callAction: vi.fn(async (_name, payload) => ({
+        designId: payload.designId,
+        pendingEditCount: 1,
+        revision: payload.revision,
+        status: "suggested",
+      })),
+      setPendingVisualEditPublicationFailed: setFailed,
+    });
+
+    await runPublishVisualEditPending(args);
+
+    expect(args.onHandoffPublicationStatusChange).toHaveBeenCalledWith(
+      "ready",
+      1,
+      1,
+    );
+    expect(args.showHandoffErrorToast).not.toHaveBeenCalled();
+  });
+
   it("publishes the durable handoff when local revision synchronization fails", async () => {
     const setFailed = vi.fn();
     const order: string[] = [];

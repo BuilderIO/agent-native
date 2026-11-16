@@ -2173,6 +2173,7 @@ export default {
       applyAria: "Appliquer les modifications visuelles de style en attente",
       applyButton: "Appliquer les styles",
       applySharedEdits: "Appliquer les modifications",
+      reviewSuggestion: "Examiner la suggestion",
       previewLabel: "Aperçu visuel en attente",
       applyDesignUpdates: "Appliquer les mises à jour du design",
       applying: "Application…",

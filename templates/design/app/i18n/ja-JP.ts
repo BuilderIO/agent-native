@@ -2164,6 +2164,7 @@ export default {
       applyAria: "保留中のビジュアルスタイル編集を適用",
       applyButton: "スタイルを適用",
       applySharedEdits: "編集内容を適用",
+      reviewSuggestion: "提案を確認",
       previewLabel: "保留中のビジュアルプレビュー",
       applyDesignUpdates: "デザインの更新を適用",
       applying: "適用中…",

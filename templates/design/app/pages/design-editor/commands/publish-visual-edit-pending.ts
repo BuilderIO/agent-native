@@ -16,7 +16,7 @@ interface PublishedVisualEditHandoff {
   designId: string;
   pendingEditCount: number | null;
   revision: number | null;
-  status: "empty" | "ready" | "stale";
+  status: "empty" | "ready" | "suggested" | "stale";
 }
 
 export interface PublishVisualEditPendingArgs {
@@ -141,9 +141,12 @@ export async function runPublishVisualEditPending(
         pending,
       )) as PublishedVisualEditHandoff | null;
       const expectedStatus = clearRequested ? "empty" : "ready";
+      // The server stores a commenter's handoff as a suggestion for the owner.
+      const publishedStatus =
+        result?.status === "suggested" ? "ready" : result?.status;
       if (
         result?.designId !== designId ||
-        result.status !== expectedStatus ||
+        publishedStatus !== expectedStatus ||
         !Number.isInteger(result.revision) ||
         (result.revision ?? 0) < 1
       ) {

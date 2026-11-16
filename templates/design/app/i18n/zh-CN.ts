@@ -2091,6 +2091,7 @@ export default {
       applyAria: "应用待处理的视觉样式编辑",
       applyButton: "应用样式",
       applySharedEdits: "应用修改",
+      reviewSuggestion: "查看建议",
       previewLabel: "待处理的视觉预览",
       applyDesignUpdates: "应用设计更新",
       applying: "正在应用…",

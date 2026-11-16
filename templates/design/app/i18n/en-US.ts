@@ -2081,6 +2081,7 @@ export default {
       applyAria: "Apply design updates",
       applyButton: "Apply styles",
       applySharedEdits: "Apply edits",
+      reviewSuggestion: "Review suggestion",
       previewLabel: "Pending visual preview",
       applyDesignUpdates: "Apply design update",
       applying: "Applying…",

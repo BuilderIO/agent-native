@@ -2142,6 +2142,7 @@ export default {
       applyAria: "보류 중인 시각 스타일 편집 적용",
       applyButton: "스타일 적용",
       applySharedEdits: "편집 내용 적용",
+      reviewSuggestion: "제안 검토",
       previewLabel: "보류 중인 시각 미리보기",
       applyDesignUpdates: "디자인 업데이트 적용",
       applying: "적용 중…",

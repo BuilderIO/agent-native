@@ -2167,6 +2167,7 @@ export default {
       applyAria: "Aplicar ediciones visuales de estilo pendientes",
       applyButton: "Aplicar estilos",
       applySharedEdits: "Aplicar ediciones",
+      reviewSuggestion: "Revisar sugerencia",
       previewLabel: "Vista previa visual pendiente",
       applyDesignUpdates: "Aplicar actualizaciones de diseño",
       applying: "Aplicando…",

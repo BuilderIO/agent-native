@@ -2130,6 +2130,7 @@ export default {
       applyAria: "लंबित visual style edits लागू करें",
       applyButton: "Styles लागू करें",
       applySharedEdits: "संपादन लागू करें",
+      reviewSuggestion: "सुझाव की समीक्षा करें",
       previewLabel: "लंबित visual preview",
       applyDesignUpdates: "डिज़ाइन अपडेट लागू करें",
       applying: "लागू किया जा रहा है…",

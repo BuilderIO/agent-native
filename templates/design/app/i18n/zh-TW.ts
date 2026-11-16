@@ -2149,6 +2149,7 @@ export default {
       applyAria: "套用設計更新",
       applyButton: "套用樣式",
       applySharedEdits: "套用變更",
+      reviewSuggestion: "檢視建議",
       previewLabel: "待處理的視覺預覽",
       applyDesignUpdates: "套用設計更新",
       applying: "正在套用…",

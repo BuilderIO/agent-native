@@ -2123,6 +2123,7 @@ export default {
       applyAria: "تطبيق تعديلات النمط المرئية المعلقة",
       applyButton: "تطبيق الأنماط",
       applySharedEdits: "تطبيق التعديلات",
+      reviewSuggestion: "مراجعة الاقتراح",
       previewLabel: "معاينة مرئية معلقة",
       applyDesignUpdates: "تطبيق تحديثات التصميم",
       applying: "جارٍ التطبيق…",

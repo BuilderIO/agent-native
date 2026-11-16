@@ -2177,6 +2177,7 @@ export default {
       applyAria: "Ausstehende visuelle Stiländerungen anwenden",
       applyButton: "Stile anwenden",
       applySharedEdits: "Änderungen anwenden",
+      reviewSuggestion: "Vorschlag prüfen",
       previewLabel: "Ausstehende visuelle Vorschau",
       applyDesignUpdates: "Design-Updates anwenden",
       applying: "Wird angewendet…",
