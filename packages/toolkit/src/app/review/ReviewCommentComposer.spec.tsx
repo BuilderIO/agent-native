@@ -1501,6 +1501,21 @@ describe("ReviewCommentComposer", () => {
     expect(state.value).toBe("@agent hi");
   });
 
+  it("keeps punctuation typed after an agent mention chip adjacent", async () => {
+    let state = { value: "", mentions: [] as ReviewMention[] };
+    await render(
+      <Harness
+        mentionOptions={[{ label: "agent", id: "agent:default", email: null }]}
+        onState={(next) => (state = next)}
+      />,
+    );
+    keydown("@");
+    await act(async () => {});
+    await act(async () => mentionOption("agent").click());
+    typeText(",");
+    expect(state.value).toBe("@agent,");
+  });
+
   it("keeps existing punctuation after an inserted agent mention", async () => {
     let state = { value: "", mentions: [] as ReviewMention[] };
     await render(

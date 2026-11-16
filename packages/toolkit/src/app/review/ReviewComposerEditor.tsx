@@ -404,15 +404,7 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
           }),
         );
         const afterMention = from + 1;
-        const next = tr.doc.resolve(afterMention).nodeAfter?.text ?? "";
-        const separator =
-          isReviewAgentMention(mention) && !/^[\s.,!?;:)}\]»”’]/u.test(next)
-            ? " "
-            : "";
-        if (separator) tr.insertText(separator, afterMention);
-        tr.setSelection(
-          TextSelection.create(tr.doc, afterMention + separator.length),
-        );
+        tr.setSelection(TextSelection.create(tr.doc, afterMention));
         tr.setMeta(SILENT_META, true);
         view.dispatch(tr);
         view.focus();
@@ -522,17 +514,6 @@ function showMentionChips(
   const start = state.doc.content.findDiffStart(next.content);
   const end = state.doc.content.findDiffEnd(next.content);
   if (start === null || end === null) return;
-  // The saved Markdown trims a trailing space. Keep the editor's separator
-  // when its mention chip is already in place.
-  if (
-    end.b === start &&
-    end.a === start + 1 &&
-    state.doc.resolve(start).nodeBefore?.type.name ===
-      REVIEW_MENTION_NODE_NAME &&
-    state.doc.textBetween(start, end.a) === " "
-  ) {
-    return;
-  }
   // Where the change repeats the text beside it, the two ends can cross.
   const overlap = Math.max(0, start - Math.min(end.a, end.b));
   editor.view.dispatch(
