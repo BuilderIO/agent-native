@@ -2885,6 +2885,34 @@ describe("runQuery cancellation", () => {
       ]);
     });
 
+    it("leaves a job it attached to running when its own caller stops it, for another call to collect", async () => {
+      vi.useFakeTimers();
+      let complete = false;
+      const { fetchMock, jobs } = fakeBigQuery({ complete: () => complete });
+      vi.stubGlobal("fetch", fetchMock);
+      await callUntilDeadline();
+
+      const caller = new AbortController();
+      const deadline = new AbortController();
+      await stopWhilePolling(
+        caller,
+        runQuery(sql, {
+          signal: AbortSignal.any([caller.signal, deadline.signal]),
+          resumeAfter: deadline.signal,
+        }),
+      );
+      expect(cancellations(fetchMock)).toHaveLength(0);
+
+      complete = true;
+      const collected = await runQuery(sql, {
+        resumeAfter: new AbortController().signal,
+      });
+      const [jobId] = submissions(fetchMock);
+      expect(submissions(fetchMock)).toEqual([jobId, jobId, jobId]);
+      expect(collected.usageAccounting?.jobId).toBe(jobId);
+      expect(jobs.size).toBe(1);
+    });
+
     it.each([
       { name: "failed", lookup: () => failedJob },
       {

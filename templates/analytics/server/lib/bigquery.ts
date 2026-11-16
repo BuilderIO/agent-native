@@ -1621,6 +1621,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
   let jobSubmissionResponseReceived = false;
   let token: string | null = null;
   let cancelJob = false;
+  let attachedJob = false;
   // Only where the app cache could also serve the result, so the SQL means
   // the same thing whenever in its window the job ran.
   const resumable =
@@ -1766,6 +1767,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       }
       if (existing.collectable) {
         jobLocation = existing.location;
+        attachedJob = true;
         break;
       }
       usage.location = existing.location;
@@ -1924,6 +1926,8 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     // Stopped for time, a resumable job keeps running for the next call.
     if (jobId !== null && jobId === resumableId && options.resumeAfter?.aborted)
       cancelJob = false;
+    // Another call started a job this one attached to, and may collect it too.
+    if (attachedJob) cancelJob = false;
     if (cancelJob && jobId && token) {
       if (!jobSubmissionResponseReceived) {
         try {
