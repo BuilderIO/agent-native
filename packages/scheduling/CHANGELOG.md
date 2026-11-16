@@ -1,5 +1,28 @@
 # @agent-native/scheduling
 
+## 0.3.0
+
+### Minor Changes
+
+- f152dfe: Booking attendees keep the order they were added in through a new nullable `booking_attendees.position` column (add it in your app's migrations), and calendar and video providers can read credentials and account identity through workspace connections, including a Google Calendar workspace provider and calendar reminders.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [a4a4f9e]
+- Updated dependencies [988cdee]
+- Updated dependencies [dfe5aa0]
+- Updated dependencies [f152dfe]
+- Updated dependencies [fceb6b5]
+- Updated dependencies [425c9ac]
+- Updated dependencies
+- Updated dependencies [9af0433]
+- Updated dependencies [79bc394]
+- Updated dependencies [e79c1ae]
+- Updated dependencies [a6ccc79]
+- Updated dependencies [cf9ff10]
+  - @agent-native/toolkit@0.229.0
+
 ## 0.2.59
 
 ### Patch Changes
@@ -1283,12 +1306,5 @@
 
 - Updated dependencies [aa17e22]
   - @agent-native/toolkit@0.14.0
-
-## 0.1.36
-
-### Patch Changes
-
-- Updated dependencies [106af0e]
-  - @agent-native/toolkit@0.13.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

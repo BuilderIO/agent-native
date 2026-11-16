@@ -3,6 +3,35 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-14
+
+### Improved
+
+- The command menu (Cmd+K) now opens as a short list for the page you're on: search inside it, copy its link, pin it, move it or add a sub-page, followed by your recent pages. Start typing and it widens into search, with filters and a preview of the highlighted result. Before you type, press Tab to search only the open page; Backspace goes back to the whole workspace. When nothing fits, the last row asks the agent.
+
+### Fixed
+
+- A comment whose text was deleted no longer jumps to the same words somewhere else on the page. It shows Highlight unavailable with its quote, unless the text around those words matches what was around the comment's own, as when the paragraph was moved.
+- Personal database view updates now refresh for the account that owns them.
+
+## 2026-11-11
+
+### Added
+
+- Mermaid code blocks now show their drawn diagram; click the diagram to edit its source and watch it redraw as you type.
+
+### Improved
+
+- People who can view or comment on a collection now get each row's ⋯ menu, with Open page, Copy link and, for commenters, Comment.
+
+### Fixed
+
+- A `<br>` typed in inline code now stays text after you save, instead of becoming a line break. Pages synced with Notion keep Notion's line breaks inside inline code, but a tag typed there still becomes a line break once it reaches Notion. On other pages, a line break saved inside inline code before this change now shows as the tag.
+- A page whose unsaved changes can't be saved now opens and keeps those changes, instead of loading forever.
+- The Files sidebar, the breadcrumb menu and the Move dialog stop showing a space's pages once you lose access to it, and wait for the app to confirm who's signed in before they read. The Move dialog also leaves out a page until its create has reached the server, so you can't pick a destination a move would fail to reach.
+- Times Content's database fills in on its own now use the same format as every other time, so pages and rows sort in the right order by when they were created or edited.
+- Typing -> or => inside code no longer turns into an arrow symbol, so Mermaid edges and code stay as typed.
+
 ## 2026-11-10
 
 ### Fixed
@@ -26,12 +55,14 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Moving a page to another workspace now brings the collections in it, with their rows, properties, values, row order and views, instead of refusing.
 - Ask AI works on comments in every Blocks field tab, and its edits there are suggestions on that tab
 - Builder sources now read and write only through your Builder.io connection, so deploy keys no longer reach them; the Builder docs sync still uses keys.
 - Collection sort menus name each direction for the column's values: Old → new for dates, Low → high for numbers, A → Z for text, and Unchecked → checked for checkboxes.
 
 ### Fixed
 
+- The agent links every page it creates in its reply.
 - An open collection row page now updates when that row is edited elsewhere, such as by an agent or in another tab, and a retried row edit returns the first result instead of a conflict error
 - Pages created over MCP now appear in the Files sidebar without a reload.
 - Sorting a collection by a checkbox keeps empty boxes with the unchecked rows, and ascending lists unchecked rows first.
@@ -1279,25 +1310,5 @@ time from the command menu (Cmd+K → "What's new").
 ### Removed
 
 - The content header no longer shows the global notifications bell.
-
-## 2026-07-03
-
-### Added
-
-- Agent document edits now appear as a live collaborator — presence avatar, editing indicator, and a brief highlight on the changed text
-
-### Improved
-
-- Document search and list views load faster on large workspaces
-- Content error screens now include a feedback button with debug context and a prefilled GitHub issue fallback.
-
-## 2026-07-02
-
-### Fixed
-
-- Builder source refreshes recover from stalled background row loading.
-- Builder-sourced database rows now open with sync protection immediately and keep source-field columns stable during background refreshes.
-- Database rows and pages open faster from recently loaded data.
-- Preview panels close reliably, narrow sidebar row actions stay reachable, and adding properties now shows progress.
 
 For the full list of updates, see the [changelog folder](./changelog/).
