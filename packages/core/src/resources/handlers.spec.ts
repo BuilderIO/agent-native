@@ -1504,6 +1504,53 @@ Legacy webhook.`,
         expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
       });
 
+      it("treats a repeat that sends the same metadata as done", async () => {
+        const saved = {
+          ...doc,
+          content: "new",
+          metadata: '{"pinned":true}',
+          updatedAt: 2000,
+        };
+        mockResourceGet.mockResolvedValue(saved);
+
+        const result = await handleUpdateResource({
+          _params: { id: "r1" },
+          _body: {
+            content: "new",
+            metadata: { pinned: true },
+            expectedRevision: withRevision(doc).revision,
+          },
+          context: {},
+        });
+
+        expect(lastStatus).toBe(200);
+        expect(result).toEqual(withRevision(saved));
+        expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
+      });
+
+      it("refuses a repeat whose metadata isn't what's there", async () => {
+        mockResourceGet.mockResolvedValue({
+          ...doc,
+          content: "new",
+          metadata: '{"pinned":false}',
+          updatedAt: 2000,
+        });
+
+        const result = await handleUpdateResource({
+          _params: { id: "r1" },
+          _body: {
+            content: "new",
+            metadata: { pinned: true },
+            expectedRevision: withRevision(doc).revision,
+          },
+          context: {},
+        });
+
+        expect(lastStatus).toBe(409);
+        expect(result).toMatchObject({ errorCode: "save_conflict" });
+        expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
+      });
+
       it("treats the same save landing between its check and its write as done", async () => {
         const saved = { ...doc, content: "new", updatedAt: 2000 };
         mockResourceGet.mockResolvedValueOnce(doc).mockResolvedValue(saved);

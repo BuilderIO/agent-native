@@ -814,11 +814,15 @@ export async function handleUpdateResource(event: any) {
   const checksRevision =
     expectedRevision !== undefined && typeof body.content === "string";
   // True when this save is already there, as when a request is resent after
-  // its response was lost.
+  // its response was lost. Metadata is stored as sent when it's a string or
+  // null, and as JSON otherwise.
   const isSameSaveOver = (resource: Resource) =>
     resource.content === body.content &&
     (body.mimeType === undefined || body.mimeType === resource.mimeType) &&
-    body.metadata === undefined;
+    (body.metadata === undefined ||
+      (body.metadata === null || typeof body.metadata === "string"
+        ? body.metadata
+        : JSON.stringify(body.metadata)) === resource.metadata);
   // The move and the content write are separate statements, so a conflict
   // found after the move would leave the resource renamed but not saved.
   if (
