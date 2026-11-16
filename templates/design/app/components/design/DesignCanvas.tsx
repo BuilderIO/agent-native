@@ -3734,7 +3734,7 @@ export function DesignCanvas({
     // loads a new document rather than asking one to stand down.
     if (interactMode) {
       const capabilityBytes = new Uint8Array(16);
-      if (typeof crypto?.getRandomValues !== "function") {
+      if (typeof crypto.getRandomValues !== "function") {
         throw new Error(
           "Secure randomness is required for Interact capability.",
         );
