@@ -58,7 +58,7 @@ describe("withServerMintedFullAppEmbedStart", () => {
     expect(mint).toHaveBeenCalledWith({
       ownerEmail: "owner@example.com",
       targetPath: "/inbox/t-1?__an_mcp_chat_bridge=1",
-      scope: null,
+      scope: "full-app",
       revocationAnchorCreatedAtMs: ANCHOR,
     });
     expect(result).toEqual({

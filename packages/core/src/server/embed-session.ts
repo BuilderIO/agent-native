@@ -875,10 +875,66 @@ function isEmbedStaticRuntimeRequest(event: H3Event): boolean {
   );
 }
 
+/**
+ * A session an MCP host's side panel opens the whole app with, for a verified
+ * user. It acts as that user in the app, as a signed-in browser does.
+ */
+export const FULL_APP_EMBED_SCOPE = "full-app";
+
+const FULL_APP_DENIED_PREFIXES = [
+  // Approvals and the MCP surface: the host's agent can steer the panel, so
+  // it must never approve its own calls or mint more credentials there.
+  "/_agent-native/mcp",
+  "/_agent-native/a2a",
+  "/_agent-native/oauth",
+  "/_agent-native/identity",
+  "/_agent-native/sign-in",
+  "/_agent-native/signup",
+  "/_agent-native/login",
+  "/_agent-native/env-vars",
+  "/_agent-native/sql",
+  "/_agent-native/db",
+  "/_agent-native/dev",
+  "/_agent-native/debug",
+];
+// Reads stay open here; changing an account, connection or org needs a login.
+const FULL_APP_READ_ONLY_PREFIXES = [
+  "/_agent-native/auth",
+  "/_agent-native/embed",
+  "/_agent-native/org",
+  "/_agent-native/connections",
+  "/_agent-native/integrations",
+  "/_agent-native/google",
+  "/_agent-native/builder",
+];
+
+function underPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+export function fullAppEmbedAllowsRequest(
+  pathname: string,
+  method: string,
+): boolean {
+  // A dot segment or backslash could step from an allowed path to a denied one.
+  if (/(^|\/)\.\.?(\/|$)|\\|%2e|%2f|%5c/i.test(pathname)) return false;
+  if (FULL_APP_DENIED_PREFIXES.some((prefix) => underPrefix(pathname, prefix)))
+    return false;
+  if (
+    FULL_APP_READ_ONLY_PREFIXES.some((prefix) => underPrefix(pathname, prefix))
+  )
+    return method === "GET" || method === "HEAD";
+  return true;
+}
+
 function embedSessionAllowsRequest(
   event: H3Event,
   claims: EmbedSessionTokenClaims,
 ): boolean {
+  if (claims.scope === FULL_APP_EMBED_SCOPE) {
+    const path = requestPathname(event);
+    return !!path && fullAppEmbedAllowsRequest(path, requestMethod(event));
+  }
   if (isWorkspaceAppChatScope(claims.scope)) {
     const path = requestPathname(event);
     return !!path && workspaceAppChatAllowsRequest(path, requestMethod(event));

@@ -120,6 +120,7 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import {
+  FULL_APP_EMBED_SCOPE,
   hasEmbedSessionRequestMarker,
   hasPresentedEmbedSessionCredential,
   isExpiredMcpDirectoryWidgetSessionRequest,
@@ -298,7 +299,20 @@ async function isProvenUiRequest(
   caller: ActionCaller,
   userEmail: string | undefined,
   embedded: boolean,
+  embedSession: ResolvedEmbedSession | null,
 ): Promise<boolean> {
+  // A full-app panel's own requests: the host's agent can navigate the panel
+  // but cannot send them, so they carry the owner's UI authority.
+  if (embedSession && embedSession.scope === FULL_APP_EMBED_SCOPE) {
+    return (
+      caller === "frontend" &&
+      !!userEmail &&
+      embedSession.email.trim().toLowerCase() ===
+        userEmail.trim().toLowerCase() &&
+      hasSameOriginBrowserEvidence(event) &&
+      hasUiActionCapability(event, userEmail)
+    );
+  }
   if (
     caller !== "frontend" ||
     !userEmail ||
@@ -1372,6 +1386,7 @@ function mountActionRoutesInternal(
           requestCaller,
           userEmail,
           embedded,
+          embedSession,
         );
         if (entry.uiOnly === true && !provenUiRequest) {
           setResponseStatus(event, 403);

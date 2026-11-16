@@ -349,6 +349,7 @@ const embedSessionMocks = vi.hoisted(() => {
 });
 
 vi.mock("../server/embed-session.js", () => ({
+  FULL_APP_EMBED_SCOPE: "full-app",
   createEmbedSessionTicket: embedSessionMocks.createEmbedSessionTicket,
   readMcpDirectoryWidgetRenewalTicket:
     embedSessionMocks.readMcpDirectoryWidgetRenewalTicket,
@@ -11528,7 +11529,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             expect.objectContaining({
               ownerEmail: "oauth@example.com",
               targetPath: "/documents/doc-1?__an_mcp_chat_bridge=1",
-              scope: null,
+              scope: "full-app",
             }),
           );
           expect(JSON.stringify(called.result)).not.toContain(

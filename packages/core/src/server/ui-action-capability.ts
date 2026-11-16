@@ -17,7 +17,11 @@ import {
   getBrowserCookieSession,
   getBrowserSessionConfigurationError,
 } from "./auth.js";
-import { hasEmbedSessionRequestMarker } from "./embed-session.js";
+import {
+  FULL_APP_EMBED_SCOPE,
+  hasEmbedSessionRequestMarker,
+  resolveEmbedSessionFromRequest,
+} from "./embed-session.js";
 import { getH3App } from "./framework-request-handler.js";
 import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { isHttpsRequest } from "./https-request.js";
@@ -66,15 +70,24 @@ export function hasUiActionCapability(
 }
 
 async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
-  if (hasEmbedSessionRequestMarker(event)) {
-    setResponseStatus(event, 403);
-    return { error: "Browser cookie session required" };
+  let ownerEmail: string | undefined;
+  const embedMarked = hasEmbedSessionRequestMarker(event);
+  if (!embedMarked) {
+    const session = getHeader(event, "authorization")
+      ? null
+      : await getBrowserCookieSession(event);
+    ownerEmail = normalizedEmail(session?.email);
   }
-
-  const session = getHeader(event, "authorization")
-    ? null
-    : await getBrowserCookieSession(event);
-  const ownerEmail = normalizedEmail(session?.email);
+  if (!ownerEmail) {
+    // A full-app panel is the app's own UI, run by its verified owner.
+    const embedSession = await resolveEmbedSessionFromRequest(event);
+    if (embedSession?.scope === FULL_APP_EMBED_SCOPE) {
+      ownerEmail = normalizedEmail(embedSession.email);
+    } else if (embedMarked) {
+      setResponseStatus(event, 403);
+      return { error: "Browser cookie session required" };
+    }
+  }
   if (!ownerEmail) {
     setResponseStatus(event, 401);
     return {

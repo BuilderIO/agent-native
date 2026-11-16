@@ -151,6 +151,7 @@ vi.mock("./auth.js", () => ({
   isLoopbackRequest: () => false,
 }));
 vi.mock("./embed-session.js", () => ({
+  FULL_APP_EMBED_SCOPE: "full-app",
   hasEmbedSessionRequestMarker: (event: any) =>
     mockHasEmbedSessionRequestMarker(event),
   hasLiveEmbedCapabilityCookie: (event: any) =>
@@ -499,6 +500,69 @@ describe("mountActionRoutes", () => {
     expect(event._status).toBe(403);
     expect(run).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [true, "runs"],
+    [false, "refused"],
+  ] as const)(
+    "treats a full-app panel's own request as the app UI when its capability is %s",
+    async (capability, outcome) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      mockHasUiActionCapability.mockReturnValue(capability);
+      mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
+      mockResolveEmbedSessionFromRequest.mockResolvedValue({
+        email: "owner@example.com",
+        token: "panel-token",
+        targetPath: "/inbox",
+        scope: "full-app",
+      });
+      mockHasEmbedSessionRequestMarker.mockReturnValue(true);
+      try {
+        mountActionRoutes(
+          nitroApp,
+          {
+            "get-thread": {
+              run,
+              uiOnly: true,
+              agentTool: false,
+              mcpTool: false,
+              toolCallable: false,
+            } as any,
+          },
+          { getOwnerFromEvent: async () => "owner@example.com" },
+        );
+        const event = {
+          _method: "POST",
+          _headers: {
+            "sec-fetch-site": "same-origin",
+            authorization: "Bearer panel-token",
+            "x-agent-native-frontend": "1",
+          },
+          req: { json: async () => ({}) },
+        };
+        const result = await mounted[0]!.handler(event);
+        if (outcome === "runs") {
+          expect(result).toEqual({ ok: true });
+          expect(run).toHaveBeenCalledOnce();
+        } else {
+          expect(result).toMatchObject({ errorCode: "ui_only_action" });
+          expect(event._status).toBe(403);
+          expect(run).not.toHaveBeenCalled();
+        }
+      } finally {
+        mockResolveEmbedSessionFromRequest.mockReset();
+        mockHasEmbedSessionRequestMarker.mockReset();
+        mockHasUiActionCapability.mockReset();
+      }
+    },
+  );
 
   describe("approval on the HTTP action route", () => {
     type Caller =

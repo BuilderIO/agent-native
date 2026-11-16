@@ -152,6 +152,7 @@ vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
 }));
 
 vi.mock("../server/embed-session.js", () => ({
+  FULL_APP_EMBED_SCOPE: "full-app",
   createEmbedSessionTicket: vi.fn(async (input: Record<string, unknown>) => {
     trace.push({ embedTicket: input });
     return {
@@ -3190,7 +3191,7 @@ describe("direct tools/call full-app embeds", () => {
       {
         ownerEmail: "oauth@example.com",
         targetPath: "/inbox/t-1?__an_mcp_chat_bridge=1",
-        scope: null,
+        scope: "full-app",
         revocationAnchorCreatedAtMs: expect.any(Number),
       },
     ]);

@@ -1458,6 +1458,66 @@ describe("requestMatchesEmbedTarget", () => {
     } as any;
   }
 
+  it.each([
+    ["/inbox/t-1", "GET"],
+    ["/calendar/week", "GET"],
+    ["/_agent-native/actions/send-draft", "POST"],
+    ["/_agent-native/application-state/navigation", "PUT"],
+    ["/_agent-native/agent-chat/threads", "POST"],
+    ["/api/threads/t-1", "PATCH"],
+    ["/_agent-native/auth/session", "GET"],
+    ["/_agent-native/org/me", "GET"],
+  ])(
+    "lets a full-app session act as its owner: %s %s",
+    async (path, method) => {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost: "http://mail.test",
+        targetPath: "/inbox",
+        scope: "full-app",
+      });
+      const request = credentialEvent(path, token, "cookie");
+      request.req.method = method;
+      await expect(
+        resolveEmbedSessionFromRequest(request),
+      ).resolves.toMatchObject({
+        email: "owner@example.com",
+        scope: "full-app",
+      });
+    },
+  );
+
+  it.each([
+    ["/_agent-native/mcp", "POST"],
+    [
+      "/_agent-native/mcp/approvals/0b6b2a4e-6a8d-4d0f-9c64-3f7d1c2b9a10",
+      "GET",
+    ],
+    ["/_agent-native/mcp/approvals/grant", "POST"],
+    ["/_agent-native/a2a/approvals", "POST"],
+    [
+      "/_agent-native/integrations/remote/computer/approvals/a-1/decision",
+      "POST",
+    ],
+    ["/_agent-native/auth/logout", "POST"],
+    ["/_agent-native/auth/ba/update-user", "POST"],
+    ["/_agent-native/embed/start", "POST"],
+    ["/_agent-native/org/members", "POST"],
+    ["/_agent-native/connections/oauth/zoom/start", "POST"],
+    ["/_agent-native/env-vars", "GET"],
+    ["/_agent-native/actions/x/%2e%2e/%2e%2e/mcp", "POST"],
+  ])("keeps a full-app session off %s %s", async (path, method) => {
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "http://mail.test",
+      targetPath: "/inbox",
+      scope: "full-app",
+    });
+    const request = credentialEvent(path, token, "cookie");
+    request.req.method = method;
+    await expect(resolveEmbedSessionFromRequest(request)).resolves.toBeNull();
+  });
+
   it("resolves Visual Edit metadata without granting other framework routes", async () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",

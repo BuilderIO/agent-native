@@ -265,6 +265,71 @@ describe("UI action capability", () => {
     },
   );
 
+  it.each(["bearer", "cookie"] as const)(
+    "mints for the owner of a full-app panel's %s session",
+    async (source) => {
+      mockGetBrowserCookieSession.mockResolvedValue(null);
+      const embedToken = signEmbedSessionToken({
+        ownerEmail: "panel@example.com",
+        targetPath: "/inbox",
+        audienceHost: "https://example.test",
+        scope: "full-app",
+      });
+      const app = createApp();
+      mountUiActionCapabilityRoute(app);
+      const response = await app.fetch(
+        new Request("https://example.test/_agent-native/ui-capability", {
+          headers: {
+            "sec-fetch-site": "same-origin",
+            ...(source === "cookie"
+              ? { cookie: `an_embed_session=${embedToken}` }
+              : { authorization: `Bearer ${embedToken}` }),
+          },
+        }),
+      );
+      expect(response.status).toBe(200);
+      const cookie = (response.headers.get("set-cookie") ?? "").split(
+        ";",
+        1,
+      )[0];
+      app.use(
+        "/verify",
+        defineEventHandler((event) => ({
+          owner: hasUiActionCapability(event, "panel@example.com"),
+          other: hasUiActionCapability(event, "other@example.com"),
+        })),
+      );
+      const verify = await app.fetch(
+        new Request("https://example.test/verify", {
+          headers: { cookie },
+        }),
+      );
+      expect(await verify.json()).toEqual({ owner: true, other: false });
+    },
+  );
+
+  it("mints nothing for a scoped widget session without a browser login", async () => {
+    mockGetBrowserCookieSession.mockResolvedValue(null);
+    const embedToken = signEmbedSessionToken({
+      ownerEmail: "panel@example.com",
+      targetPath: "/inbox",
+      audienceHost: "https://example.test",
+      scope: "capability:visual-edit:design:design-1",
+    });
+    const app = createApp();
+    mountUiActionCapabilityRoute(app);
+    const response = await app.fetch(
+      new Request("https://example.test/_agent-native/ui-capability", {
+        headers: {
+          "sec-fetch-site": "same-origin",
+          authorization: `Bearer ${embedToken}`,
+        },
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
   it.each([
     { ownerEmail: "alice@example.com", source: "cookie" },
     { ownerEmail: "other@example.com", source: "cookie" },

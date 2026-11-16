@@ -1602,8 +1602,11 @@ export async function withServerMintedFullAppEmbedStart(
       "[mcp] Dropping an embed start URL that this server did not issue.",
     );
   }
-  const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
-    await import("../server/embed-session.js");
+  const {
+    normalizeEmbedTargetPath,
+    createEmbedSessionTicket,
+    FULL_APP_EMBED_SCOPE,
+  } = await import("../server/embed-session.js");
   const { buildEmbedStartPath } = await import("../server/embed-route.js");
   const embedTarget = (value: unknown) =>
     typeof value === "string" &&
@@ -1632,7 +1635,7 @@ export async function withServerMintedFullAppEmbedStart(
     ownerEmail,
     ...(ctx?.orgId ? { orgId: ctx.orgId } : {}),
     targetPath,
-    scope: null,
+    scope: FULL_APP_EMBED_SCOPE,
     revocationAnchorCreatedAtMs,
   });
   return {
