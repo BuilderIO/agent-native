@@ -703,6 +703,7 @@
     "./shared/motion-easing": "./dist/shared/motion-easing.js",
     "./shared/motion-source-node-id": "./dist/shared/motion-source-node-id.js",
     "./shared/password-policy": "./dist/shared/password-policy.js",
+    "./shared/public-host": "./dist/shared/public-host.js",
     "./shared/qa-test-email": "./dist/shared/qa-test-email.js",
     "./shared/runtime-config": "./dist/shared/runtime-config.js",
     "./shared/sign-in-journey": "./dist/shared/sign-in-journey.js",

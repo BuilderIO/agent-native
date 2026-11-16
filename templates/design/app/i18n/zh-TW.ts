@@ -1185,6 +1185,35 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "分享即時預覽",
+      instructions:
+        "貼上應用程式的公開 HTTPS 預覽網址，例如 ngrok 或 cloudflared 通道。你的裝置繼續載入 localhost；其他人可查看公開預覽或在已發佈快照上建議修改。",
+      tunnelUrl: "公開預覽網址",
+      enableCollaboration: "為所有可存取此設計的人啟用即時協作",
+      save: "儲存",
+      unavailable: "即時預覽無法使用 — 正在顯示快照",
+      live: "即時預覽",
+      openLive: "在 {{hostname}} 開啟即時預覽",
+      suggest: "在快照上建議",
+      localOnly: "即時預覽僅限擁有者的裝置",
+    },
+    referenceCopy: {
+      staticNotice: "JavaScript 已停用；動態內容可能缺少。",
+      captureAction: "擷取靜態快照",
+      capturePrompt:
+        "擷取此公開參考網址的螢幕截圖和 DOM 快照，並作為靜態參考畫面加入此設計畫布。請標示為快照，而非即時頁面。",
+      unavailable: "此頁面可能禁止嵌入或載入失敗。",
+      load: "載入參考副本",
+      label: "參考副本 · 公開頁面，唯讀",
+      noBridge: "連接本機橋接以載入公開參考副本。",
+      snapshot: "使用已發佈快照",
+      capture: "請讓代理擷取螢幕截圖和 DOM 快照。",
+      failed: "參考副本載入失敗，請改為擷取螢幕截圖和 DOM 快照。",
+      loading: "正在載入參考副本…",
+      original: "嘗試原始頁面",
+    },
+
     sourceLoadFailed: "無法載入此畫面。",
     selectionPublishFailed: "代理程式可能看不到你最新的選取內容。請重新選取。",
     liveCollaboration: {
@@ -2123,6 +2152,7 @@ export default {
       applyAria: "套用設計更新",
       applyButton: "套用樣式",
       applySharedEdits: "套用變更",
+      reviewSuggestion: "檢視建議",
       previewLabel: "待處理的視覺預覽",
       applyDesignUpdates: "套用設計更新",
       applying: "正在套用…",
@@ -2192,6 +2222,9 @@ export default {
       tweakConflict: "調整已在其他地方變更。請重新整理設計後再試一次。",
       tweakSaveNotDurable: "調整尚未儲存。請保持此分頁開啟並再試一次。",
       codingHandoffError: "無法建立編碼交接",
+      unknownCollaborator: "協作者",
+      supersededVisualEditSuggestion:
+        "來自 {{authorEmail}} 的先前建議已被取代。原文：{{text}}",
       visualEditPendingConflict:
         "另一位協作者有待套用的變更。請先套用或清除這些變更，再傳送新變更。",
       codingHandoffCopied: "編碼交接已複製",
