@@ -265,6 +265,9 @@ let agentChatContextState: AgentChatContextState = {
   updatedAt: 0,
 };
 let pendingAgentChatContextPersistence: Promise<void> = Promise.resolve();
+// Keys a synchronous call removed while a persisted set was in flight, so the
+// set doesn't add its item back. Only one persisted write runs at a time.
+let agentChatContextRemovedMidWrite: Set<string> | "all" | null = null;
 const agentChatContextListeners = new Set<() => void>();
 let agentChatContextNotifyQueued = false;
 
@@ -1618,11 +1621,18 @@ export async function setAgentChatContextItemAndPersist(
       items: withReplacedAgentChatContextItem(baseState.items, item),
       updatedAt: Math.max(Date.now(), baseState.updatedAt + 1),
     };
-    const persistedState = normalizeAgentChatContextState(
-      await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
-        keepalive: true,
-      }),
-    );
+    agentChatContextRemovedMidWrite = new Set();
+    let removedMidWrite: Set<string> | "all" | null = null;
+    let persistedState: AgentChatContextState | null = null;
+    try {
+      persistedState = normalizeAgentChatContextState(
+        await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
+          keepalive: true,
+        }),
+      );
+    } finally {
+      removedMidWrite = takeAgentChatContextRemovedMidWrite();
+    }
     const persistedItem = persistedState?.items.find(
       (candidate) => candidate.key === item.key,
     );
@@ -1637,35 +1647,70 @@ export async function setAgentChatContextItemAndPersist(
       throw new Error("Agent chat context was not persisted.");
     }
 
-    const currentState = agentChatContextState;
-    if (currentState === baseState) {
-      publishAgentChatContextItems(persistedState.items, {
-        persist: false,
-        updatedAt: persistedState.updatedAt,
-      });
-      return item;
-    }
-    // A synchronous set published while the write was in flight, from items
-    // without this one, and its later clock would hide it. Add the item to
-    // that state unless it changed this key itself.
-    if (
-      sameAgentChatContextItem(
-        baseState.items.find((candidate) => candidate.key === item.key),
-        currentState.items.find((candidate) => candidate.key === item.key),
-      )
-    ) {
-      publishAgentChatContextItems(
-        withReplacedAgentChatContextItem(currentState.items, persistedItem),
-        {
-          updatedAt: Math.max(
-            Date.now(),
-            currentState.updatedAt + 1,
-            persistedState.updatedAt + 1,
-          ),
-        },
-      );
-    }
+    await publishPersistedAgentChatContextKey(
+      baseState,
+      persistedState,
+      item.key,
+      removedMidWrite === "all" || !!removedMidWrite?.has(item.key),
+    );
     return item;
+  });
+}
+
+function takeAgentChatContextRemovedMidWrite(): Set<string> | "all" | null {
+  const removed = agentChatContextRemovedMidWrite;
+  agentChatContextRemovedMidWrite = null;
+  return removed;
+}
+
+/**
+ * Publish a persisted write of one key. A synchronous change can publish while
+ * the write is in flight, from items that predate it, and its later clock
+ * would hide the write; the two writes can also reach the server in either
+ * order. So the key is written onto that newer state, unless the newer state
+ * changed the key itself or `cancelled` says it was removed, and the result is
+ * saved here, in the queue, so a later queued write can't be overtaken.
+ */
+async function publishPersistedAgentChatContextKey(
+  baseState: AgentChatContextState,
+  persistedState: AgentChatContextState,
+  key: string,
+  cancelled: boolean,
+): Promise<void> {
+  const currentState = agentChatContextState;
+  if (currentState === baseState) {
+    publishAgentChatContextItems(persistedState.items, {
+      persist: false,
+      updatedAt: persistedState.updatedAt,
+    });
+    return;
+  }
+  const keyIn = (state: AgentChatContextState) =>
+    state.items.find((candidate) => candidate.key === key);
+  const rebase =
+    !cancelled &&
+    sameAgentChatContextItem(keyIn(baseState), keyIn(currentState));
+  const persistedItem = keyIn(persistedState);
+  const nextState: AgentChatContextState = {
+    items: !rebase
+      ? currentState.items
+      : persistedItem
+        ? withReplacedAgentChatContextItem(currentState.items, persistedItem)
+        : currentState.items.filter((candidate) => candidate.key !== key),
+    updatedAt: Math.max(
+      Date.now(),
+      currentState.updatedAt + 1,
+      persistedState.updatedAt + 1,
+    ),
+  };
+  if (rebase) {
+    publishAgentChatContextItems(nextState.items, {
+      persist: false,
+      updatedAt: nextState.updatedAt,
+    });
+  }
+  await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
+    keepalive: true,
   });
 }
 
@@ -1691,11 +1736,10 @@ export async function removeAgentChatContextItemAndPersist(
     ) {
       return;
     }
+    const baseState = agentChatContextState;
     const nextState: AgentChatContextState = {
-      items: agentChatContextState.items.filter(
-        (item) => item.key !== normalizedKey,
-      ),
-      updatedAt: Math.max(Date.now(), agentChatContextState.updatedAt + 1),
+      items: baseState.items.filter((item) => item.key !== normalizedKey),
+      updatedAt: Math.max(Date.now(), baseState.updatedAt + 1),
     };
     const persistedState = normalizeAgentChatContextState(
       await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
@@ -1709,10 +1753,12 @@ export async function removeAgentChatContextItemAndPersist(
       throw new Error("Agent chat context removal was not persisted.");
     }
 
-    publishAgentChatContextItems(persistedState.items, {
-      persist: false,
-      updatedAt: persistedState.updatedAt,
-    });
+    await publishPersistedAgentChatContextKey(
+      baseState,
+      persistedState,
+      normalizedKey,
+      false,
+    );
   });
 }
 
@@ -1748,6 +1794,9 @@ export function removeAgentChatContextItem(
   const openSidebar =
     typeof keyOrOpts === "string" ? false : keyOrOpts.openSidebar === true;
 
+  if (agentChatContextRemovedMidWrite instanceof Set) {
+    agentChatContextRemovedMidWrite.add(key);
+  }
   publishAgentChatContextItems(
     agentChatContextState.items.filter((item) => item.key !== key),
   );
@@ -1762,6 +1811,7 @@ export function clearAgentChatContext(
   opts: AgentChatContextMutationOptions = {},
 ): void {
   if (typeof window === "undefined") return;
+  if (agentChatContextRemovedMidWrite) agentChatContextRemovedMidWrite = "all";
   publishAgentChatContextItems([]);
   postAgentChatContextMessage(
     AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
