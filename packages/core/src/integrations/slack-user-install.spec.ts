@@ -194,7 +194,7 @@ describe("user-only install", () => {
           authedUser: { id: "U0ALICE2", access_token: USER_TOKEN + "-2" },
         }),
         allowlist: [ALLOWED_TEAM],
-        operationId: slackUserInstallOperationId("alice-install-2"),
+        operationId: slackUserInstallOperationId("alice-install-b"),
       }),
     );
     const bundle = await asAlice(() =>

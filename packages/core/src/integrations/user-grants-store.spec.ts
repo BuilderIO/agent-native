@@ -391,7 +391,7 @@ describe("user integration grant store (acceptance)", () => {
     });
     expect(dup).toEqual(meta);
     await expect(
-      complete(A, attempt, bundleWith("synthetic-access-a-2")),
+      complete(A, attempt, bundleWith("synthetic-access-a-b")),
     ).rejects.toBeInstanceOf(UserIntegrationGrantConflictError);
     expect((await resolve(A, attempt.grantId))?.accessToken).toBe(
       BUNDLE.accessToken,
@@ -415,7 +415,7 @@ describe("user integration grant store (acceptance)", () => {
       await gate;
     };
     const p1 = complete(A, attempt, bundleWith("synthetic-access-a-race-1"));
-    const p2 = complete(A, attempt, bundleWith("synthetic-access-a-race-2"));
+    const p2 = complete(A, attempt, bundleWith("synthetic-access-a-race-b"));
     await bothReached;
     openGate();
     const settled = await Promise.allSettled([p1, p2]);
@@ -429,7 +429,7 @@ describe("user integration grant store (acceptance)", () => {
     const winnerPayload =
       settled[0].status === "fulfilled"
         ? "synthetic-access-a-race-1"
-        : "synthetic-access-a-race-2";
+        : "synthetic-access-a-race-b";
     expect((await resolve(A, attempt.grantId))?.accessToken).toBe(
       winnerPayload,
     );

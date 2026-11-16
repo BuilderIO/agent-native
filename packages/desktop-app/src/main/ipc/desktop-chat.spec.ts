@@ -1188,27 +1188,27 @@ describe("Builder relay owner handling", () => {
       const runner = await h.runner();
       const message = /could not confirm your builder\.io account/i;
 
-      h.dispatch.accounts.set("session=owner-a-2", "unreadable");
-      h.dispatch.cookie = "session=owner-a-2";
+      h.dispatch.accounts.set("session=owner-a-b", "unreadable");
+      h.dispatch.cookie = "session=owner-a-b";
       const unreadable =
         await h.chat.getDesktopBuilderGatewayRunnerEnvironment();
       expect(unreadable.env).toBeUndefined();
       expect(unreadable.error).toMatch(message);
 
-      h.dispatch.accounts.delete("session=owner-a-2");
+      h.dispatch.accounts.delete("session=owner-a-b");
       const signedOut =
         await h.chat.getDesktopBuilderGatewayRunnerEnvironment();
       expect(signedOut.env).toBeUndefined();
       expect(signedOut.error).toMatch(message);
 
       // The earlier runner keeps its bearer and its binding to A.
-      h.dispatch.accounts.set("session=owner-a-2", "a@example.com");
+      h.dispatch.accounts.set("session=owner-a-b", "a@example.com");
       expect((await h.send(runner)).status).toBe(200);
 
       const next = await h.runner();
       expect(next.secret).toBe(runner.secret);
-      h.dispatch.accounts.set("session=owner-a-3", "a@example.com");
-      h.dispatch.cookie = "session=owner-a-3";
+      h.dispatch.accounts.set("session=owner-a-c", "a@example.com");
+      h.dispatch.cookie = "session=owner-a-c";
       expect((await h.send(next)).status).toBe(200);
       expect(h.upstreamRequests).toHaveLength(2);
     } finally {
@@ -1220,7 +1220,7 @@ describe("Builder relay owner handling", () => {
     const h = await harness();
     try {
       const runner = await h.runner();
-      for (const cookie of ["session=owner-a-2", "session=owner-a-3"]) {
+      for (const cookie of ["session=owner-a-b", "session=owner-a-c"]) {
         signInAs(h, cookie, "a@example.com");
         expect((await h.send(runner)).status).toBe(200);
       }
