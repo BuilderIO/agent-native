@@ -334,8 +334,8 @@ export function DiscussionToolbar({
   const t = useT();
   const [searchOpen, setSearchOpen] = useState(Boolean(query));
   const inHead = Boolean(headContainer);
-  // In the head, buttons match Close beside them.
-  const buttonSize = inHead ? "h-8 w-8" : undefined;
+  // In the head, buttons match Close beside them: its size and its hover fill.
+  const headButton = inHead ? "h-8 w-8 hover:bg-accent" : undefined;
   const sortLabel = (value: DiscussionSort) =>
     t(
       value === "page"
@@ -366,7 +366,7 @@ export function DiscussionToolbar({
       <ContentTableSearch
         {...search}
         open={searchOpen && !inHead}
-        buttonClassName={buttonSize}
+        buttonClassName={headButton}
       />
       {/* Content's own menu, as the page's ⋮ and Collections' sort use. */}
       <DropdownMenu modal={false}>
@@ -374,7 +374,7 @@ export function DiscussionToolbar({
           <ContentTableToolbarButton
             label={t("comments.sortBy")}
             active={sort !== "page"}
-            className={buttonSize}
+            className={headButton}
             data-discussion-sort-trigger
           >
             <IconArrowsSort className="size-3.5" />
@@ -407,7 +407,7 @@ export function DiscussionToolbar({
             label={t("comments.filter")}
             active={chips.length > 0}
             count={chips.length}
-            className={buttonSize}
+            className={headButton}
             data-discussion-filter-trigger
           >
             <IconAdjustmentsHorizontal className="size-3.5" />
@@ -465,7 +465,7 @@ export function DiscussionToolbar({
           )}
           active={!highlightsVisible}
           aria-pressed={!highlightsVisible}
-          className={inHead ? buttonSize : "ms-auto"}
+          className={inHead ? headButton : "ms-auto"}
           data-discussion-highlights-toggle
           onClick={() => onHighlightsVisibleChange(!highlightsVisible)}
         >
