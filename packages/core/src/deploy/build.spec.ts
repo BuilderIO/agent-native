@@ -8259,6 +8259,22 @@ describe("durable-background Netlify function emit (single-template, default-on)
     }
   });
 
+  it("keeps relative links inside a linked Vercel function as written", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-vercel-inner-"));
+    dirs.push(cwd);
+    const output = path.join(cwd, ".vercel", "output");
+    const base = path.join(output, "functions", "__server.func");
+    const dep = path.join(".nitro", "dep@1.0.0");
+    fs.mkdirSync(path.join(base, "node_modules", dep), { recursive: true });
+    fs.writeFileSync(path.join(base, "index.mjs"), "export {};");
+    fs.symlinkSync(dep, path.join(base, "node_modules", "dep"), "dir");
+    const linked = path.join(output, "functions", "linked.func");
+    fs.symlinkSync(base, linked, "dir");
+    prepareVercelFunctionOutputs(output, cwd);
+    expect(fs.lstatSync(linked).isSymbolicLink()).toBe(false);
+    expect(fs.readlinkSync(path.join(linked, "node_modules", "dep"))).toBe(dep);
+  });
+
   it("bundles one complete Yjs runtime for every serverless consumer", async () => {
     const cwd = setupNetlifyOutput();
     const serverDir = path.join(
