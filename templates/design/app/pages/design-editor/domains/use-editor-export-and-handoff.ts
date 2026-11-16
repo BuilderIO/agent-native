@@ -170,7 +170,6 @@ export function useEditorExportAndHandoff({
     designDataJson,
     designSourceType,
     pendingTweakChanges,
-    tweakSelections,
     boardFileId,
     overviewScreens,
     flushPendingFileContentSavesForBackground,
@@ -183,7 +182,6 @@ export function useEditorExportAndHandoff({
     activeOverviewScreenId,
     activeOverviewScreen,
     activeCanvasSourceType,
-    enqueueFrameGeometryDataSave,
   } = editorActiveScreenAndGeometry;
   const {
     exportPreviewScreenIdRef,
@@ -1524,7 +1522,6 @@ export function useEditorExportAndHandoff({
     handleSendCodingHandoff,
     showPendingVisualStyleApply,
     pendingVisualStylePrompt,
-    pendingApplyPrompt,
     visualEditPromptResult,
     handleApplyPendingVisualStylesWithAgent,
     handleCopyPendingVisualStylePrompt,

@@ -52,7 +52,6 @@ export function renderVisualEditApplyToolbar({
   const { handleAbortPendingVisualStyles } = editorModes;
   const {
     showPendingVisualStyleApply,
-    pendingApplyPrompt,
     pendingAgentHandoffBusy,
     handleApplyPendingVisualStylesWithAgent,
     handleCopyPendingVisualStylePrompt,
