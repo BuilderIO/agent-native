@@ -164,6 +164,15 @@ describe("comment-anchors", () => {
         to: from + "the beta".length,
       });
     });
+
+    it("finds its copy past hundreds of other copies", () => {
+      const others = Array.from({ length: 600 }, () => notes);
+      const moved = others.length * (notes.length + 2) + from;
+      expect(resolveAnchor(mkDoc([...others, plan]), anchor)).toEqual({
+        from: moved,
+        to: moved + "the beta".length,
+      });
+    });
   });
 
   it("resolves a deleted draft at its ordered context boundary", () => {

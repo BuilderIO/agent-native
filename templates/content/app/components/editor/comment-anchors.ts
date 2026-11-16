@@ -231,21 +231,19 @@ export function resolveAnchor(
   const hay = docText.text;
   if (!hay.includes(quote)) return null;
 
-  const occurrences: number[] = [];
-  let idx = hay.indexOf(quote);
-  while (idx !== -1) {
-    occurrences.push(idx);
-    idx = hay.indexOf(quote, idx + Math.max(1, quote.length));
-    if (occurrences.length > 500) break;
-  }
-
   const prefix = anchor.prefix ?? "";
   const suffix = anchor.suffix ?? "";
   const target =
     typeof anchor.startOffset === "number" ? anchor.startOffset : null;
   let chosen: number | null = null;
   let bestScore = -Infinity;
-  for (const start of occurrences) {
+  // Every copy is scored, as the anchor follower on save scores them, so a
+  // comment's own copy is found however many copies come before it.
+  for (
+    let start = hay.indexOf(quote);
+    start !== -1;
+    start = hay.indexOf(quote, start + quote.length)
+  ) {
     const before = hay.slice(Math.max(0, start - CONTEXT_LEN), start);
     const after = hay.slice(
       start + quote.length,
