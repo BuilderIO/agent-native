@@ -6,10 +6,10 @@ import {
   type CredentialProvenance,
 } from "../../credentials/index.js";
 import { isBlockedExtensionUrlWithDns } from "../../extensions/url-safety.js";
+import { McpOAuthRefreshUnavailableError } from "../../mcp-client/oauth-client.js";
 import {
   BUILDER_OAUTH_SCOPE,
-  hasBuilderOAuthSession,
-  resolveBuilderOAuthRequestAccess,
+  resolveBuilderOAuthRequestAccessState,
 } from "../../server/builder-oauth.js";
 import { hasChatGPTSubscriptionCredential } from "../../server/chatgpt-subscription-oauth.js";
 import {
@@ -544,7 +544,10 @@ function shouldTraceEngineDetection(): boolean {
  */
 export async function detectEngineFromUserSecrets(
   identity?: BuilderCredentialLookupIdentity,
-  options: { isBuilderConnectionUsable?: () => Promise<boolean> } = {},
+  options: {
+    isBuilderConnectionUsable?: () => Promise<boolean>;
+    deferBuilderRefreshFailure?: boolean;
+  } = {},
 ): Promise<AgentEngineEntry | null> {
   const traceLookup = shouldTraceEngineDetection();
   let email = identity?.userEmail?.trim() || undefined;
@@ -580,14 +583,15 @@ export async function detectEngineFromUserSecrets(
 
   const isBuilderConnectionUsable =
     options.isBuilderConnectionUsable ??
-    (() => hasUsableBuilderConnection(identity));
+    (() =>
+      hasUsableBuilderConnection(identity, options.deferBuilderRefreshFailure));
   const firstEntry = _registry.values().next().value;
   if (
     !getAppConfig().agent.preferBringYourOwnKey &&
     firstEntry?.name === "builder" &&
     isAgentEnginePackageInstalled(firstEntry) &&
     firstEntry.requiredEnvVars.length > 0 &&
-    (await isBuilderConnectionUsable())
+    (await isBuilderConnectionUsable()) !== false
   ) {
     return firstEntry;
   }
@@ -607,7 +611,9 @@ export async function detectEngineFromUserSecrets(
     await secretsPrefetch;
   };
 
-  const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
+  const hasAllKeys = async (
+    entry: AgentEngineEntry,
+  ): Promise<boolean | McpOAuthRefreshUnavailableError> => {
     if (!isAgentEnginePackageInstalled(entry)) return false;
     if (entry.requiredEnvVars.length === 0) return false;
     if (entry.name === "builder") {
@@ -629,7 +635,7 @@ export async function detectEngineFromUserSecrets(
         usable: await hasAllKeys(entry),
       })),
     );
-    return results.find((result) => result.usable)?.entry ?? null;
+    return results.find((result) => result.usable !== false)?.entry ?? null;
   };
 
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
@@ -795,33 +801,39 @@ async function resolveProviderBaseUrl(
 
 async function builderOAuthLaneUsable(
   identity?: BuilderCredentialLookupIdentity,
-): Promise<boolean | null> {
+  deferRefreshFailure = false,
+): Promise<boolean | null | McpOAuthRefreshUnavailableError> {
   const ownerEmail =
     identity?.userEmail?.trim().toLowerCase() || getRequestUserEmail();
   const orgId =
     identity?.orgId !== undefined ? identity.orgId : getRequestOrgId();
   const requestOrgId = orgId ?? null;
-  if (!ownerEmail || !(await hasBuilderOAuthSession(ownerEmail, requestOrgId)))
-    return null;
+  if (!ownerEmail) return null;
   try {
-    return Boolean(
-      await resolveBuilderOAuthRequestAccess({
-        ownerEmail,
-        requiredScope: BUILDER_OAUTH_SCOPE,
-        orgId: requestOrgId,
-      }),
-    );
-  } catch {
-    // coercion-ok: custody present but unusable is "not usable", not absent;
-    // reconnect UX is owned by /builder/status, not this boolean probe.
-    return false;
+    const state = await resolveBuilderOAuthRequestAccessState({
+      ownerEmail,
+      requiredScope: BUILDER_OAUTH_SCOPE,
+      orgId: requestOrgId,
+    });
+    if (state.kind === "not_connected") return null;
+    return state.kind === "available";
+  } catch (error) {
+    if (
+      deferRefreshFailure &&
+      error instanceof McpOAuthRefreshUnavailableError
+    ) {
+      // Dispatch must reach the engine, which owns retry and private error handling.
+      return error;
+    }
+    throw error;
   }
 }
 
 async function hasUsableBuilderConnection(
   identity?: BuilderCredentialLookupIdentity,
-): Promise<boolean> {
-  const oauthLane = await builderOAuthLaneUsable(identity);
+  deferRefreshFailure = false,
+): Promise<boolean | McpOAuthRefreshUnavailableError> {
+  const oauthLane = await builderOAuthLaneUsable(identity, deferRefreshFailure);
   if (oauthLane !== null) return oauthLane;
   const creds = await resolveBuilderCredentialsDetailed(identity);
   assertCredentialStoreReadable(creds);
@@ -830,8 +842,9 @@ async function hasUsableBuilderConnection(
 
 async function canRunBuilderEngine(
   identity?: BuilderCredentialLookupIdentity,
-): Promise<boolean> {
-  const oauthLane = await builderOAuthLaneUsable(identity);
+  deferRefreshFailure = false,
+): Promise<boolean | McpOAuthRefreshUnavailableError> {
+  const oauthLane = await builderOAuthLaneUsable(identity, deferRefreshFailure);
   if (oauthLane !== null) return oauthLane;
   const creds = await resolveBuilderGatewayCredentialsDetailed(identity);
   assertCredentialStoreReadable(creds);
@@ -1227,11 +1240,30 @@ export function isStoredEngineUsable(
   );
 }
 
+export function isStoredEngineUsableForRequest(
+  stored: unknown,
+  entry: AgentEngineEntry,
+  options: {
+    credentialIdentity?: BuilderCredentialLookupIdentity;
+    deferBuilderRefreshFailure: true;
+  },
+): Promise<boolean | McpOAuthRefreshUnavailableError>;
+export function isStoredEngineUsableForRequest(
+  stored: unknown,
+  entry: AgentEngineEntry,
+  options?: {
+    credentialIdentity?: BuilderCredentialLookupIdentity;
+    deferBuilderRefreshFailure?: false;
+  },
+): Promise<boolean>;
 export async function isStoredEngineUsableForRequest(
   stored: unknown,
   entry: AgentEngineEntry,
-  options: { credentialIdentity?: BuilderCredentialLookupIdentity } = {},
-): Promise<boolean> {
+  options: {
+    credentialIdentity?: BuilderCredentialLookupIdentity;
+    deferBuilderRefreshFailure?: boolean;
+  } = {},
+): Promise<boolean | McpOAuthRefreshUnavailableError> {
   if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
     return chatGPTSubscriptionUsableForRequest(options.credentialIdentity);
   }
@@ -1239,7 +1271,10 @@ export async function isStoredEngineUsableForRequest(
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
   if (entry.name === "builder") {
-    return canRunBuilderEngine(options.credentialIdentity);
+    return canRunBuilderEngine(
+      options.credentialIdentity,
+      options.deferBuilderRefreshFailure,
+    );
   }
   for (const key of entry.requiredEnvVars) {
     if (!(await resolveUsableProviderSecret(key))) return false;
@@ -1247,13 +1282,30 @@ export async function isStoredEngineUsableForRequest(
   return true;
 }
 
+export function isResolvedEngineUsableForRequest(
+  engine: AgentEngine,
+  options: {
+    apiKey?: string;
+    credentialIdentity?: BuilderCredentialLookupIdentity;
+    deferBuilderRefreshFailure: true;
+  },
+): Promise<boolean | McpOAuthRefreshUnavailableError>;
+export function isResolvedEngineUsableForRequest(
+  engine: AgentEngine,
+  options?: {
+    apiKey?: string;
+    credentialIdentity?: BuilderCredentialLookupIdentity;
+    deferBuilderRefreshFailure?: false;
+  },
+): Promise<boolean>;
 export async function isResolvedEngineUsableForRequest(
   engine: AgentEngine,
   options: {
     apiKey?: string;
     credentialIdentity?: BuilderCredentialLookupIdentity;
+    deferBuilderRefreshFailure?: boolean;
   } = {},
-): Promise<boolean> {
+): Promise<boolean | McpOAuthRefreshUnavailableError> {
   const entry = _registry.get(engine.name);
   // Custom engines may have their own credential contract outside the core
   // registry metadata, so do not block them speculatively.
@@ -1265,7 +1317,10 @@ export async function isResolvedEngineUsableForRequest(
   if (entry.requiredEnvVars.length === 0) return true;
 
   if (entry.name === "builder") {
-    return canRunBuilderEngine(options.credentialIdentity);
+    return canRunBuilderEngine(
+      options.credentialIdentity,
+      options.deferBuilderRefreshFailure,
+    );
   }
 
   if (options.apiKey?.trim()) {
@@ -1425,7 +1480,8 @@ export async function resolveEngine(
         getRequestContext()?.isSyntheticTraffic !== true ||
         (await isStoredEngineUsableForRequest({ engine: entry.name }, entry, {
           credentialIdentity,
-        }));
+          deferBuilderRefreshFailure: true,
+        })) !== false;
       if (canUseConfiguredEngine) {
         return await createEngineForEntry(
           entry,
@@ -1447,7 +1503,8 @@ export async function resolveEngine(
       entry &&
       (await isStoredEngineUsableForRequest(appDefault, entry, {
         credentialIdentity,
-      }))
+        deferBuilderRefreshFailure: true,
+      })) !== false
     ) {
       return await createEngineForEntry(
         entry,
@@ -1468,8 +1525,10 @@ export async function resolveEngine(
     // Settings not available — fall through
   }
 
-  const detectedFromUser =
-    await detectEngineFromUserSecrets(credentialIdentity);
+  const detectedFromUser = await detectEngineFromUserSecrets(
+    credentialIdentity,
+    { deferBuilderRefreshFailure: true },
+  );
 
   const storedRaw = stored as { engine?: unknown; config?: unknown } | null;
   const storedEngine = storedRaw?.engine;
@@ -1480,7 +1539,8 @@ export async function resolveEngine(
       entry &&
       (await isStoredEngineUsableForRequest(storedRaw, entry, {
         credentialIdentity,
-      }))
+        deferBuilderRefreshFailure: true,
+      })) !== false
     ) {
       return await createEngineForEntry(
         entry,

@@ -16108,10 +16108,11 @@ export function createProductionAgentHandler(
     );
 
     if (
-      !(await isResolvedEngineUsableForRequest(engine, {
+      (await isResolvedEngineUsableForRequest(engine, {
         apiKey: effectiveApiKey,
         credentialIdentity,
-      }))
+        deferBuilderRefreshFailure: true,
+      })) === false
     ) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
       setResponseHeader(event, "Cache-Control", "no-cache");

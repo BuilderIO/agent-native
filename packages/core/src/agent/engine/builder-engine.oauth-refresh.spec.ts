@@ -71,7 +71,15 @@ vi.mock("../../server/request-context.js", () => ({
   getRequestUserEmail: vi.fn(() => "person@example.com"),
 }));
 
+import { McpOAuthRefreshUnavailableError } from "../../mcp-client/oauth-client.js";
 import { createBuilderEngine } from "./builder-engine.js";
+import {
+  detectEngineFromUserSecrets,
+  isResolvedEngineUsableForRequest,
+  registerAgentEngine,
+  resolveEngine,
+  unregisterAgentEngine,
+} from "./registry.js";
 import type { EngineStreamOptions } from "./types.js";
 
 const owner = "user:person@example.com";
@@ -133,6 +141,96 @@ describe("Builder engine OAuth refresh lifecycle", () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
+
+  it.each([false, true])(
+    "keeps Builder selected through preflight and reports a transient refresh failure in the stream (private=%s)",
+    async (privateContent) => {
+      mocks.rows.set(owner, grant(Date.now() - 1));
+      mocks.refresh.mockRejectedValue(new Error("private upstream detail"));
+      const engine = createBuilderEngine({ privateKey: null, publicKey: null });
+      registerAgentEngine({
+        name: "builder",
+        label: engine.label,
+        description: "",
+        capabilities: engine.capabilities,
+        defaultModel: engine.defaultModel,
+        supportedModels: engine.supportedModels,
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        create: () => engine,
+      });
+      const otherEngine = { ...engine, name: "anthropic" };
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: otherEngine.capabilities,
+        defaultModel: otherEngine.defaultModel,
+        supportedModels: otherEngine.supportedModels,
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: () => otherEngine,
+      });
+      try {
+        const identity = { userEmail: "person@example.com", orgId: "org-test" };
+        await expect(
+          detectEngineFromUserSecrets(identity),
+        ).rejects.toBeInstanceOf(McpOAuthRefreshUnavailableError);
+        expect(
+          (
+            await detectEngineFromUserSecrets(identity, {
+              deferBuilderRefreshFailure: true,
+            })
+          )?.name,
+        ).toBe("builder");
+        await expect(
+          isResolvedEngineUsableForRequest(engine, {
+            credentialIdentity: identity,
+          }),
+        ).rejects.toBeInstanceOf(McpOAuthRefreshUnavailableError);
+        await expect(
+          isResolvedEngineUsableForRequest(engine, {
+            credentialIdentity: identity,
+            deferBuilderRefreshFailure: true,
+          }),
+        ).resolves.toBeInstanceOf(McpOAuthRefreshUnavailableError);
+        await expect(
+          resolveEngine({ credentialIdentity: identity }),
+        ).resolves.toBe(engine);
+        await expect(
+          resolveEngine({
+            engineOption: "builder",
+            credentialIdentity: identity,
+          }),
+        ).resolves.toBe(engine);
+        await expect(
+          resolveEngine({
+            engineOption: "anthropic",
+            apiKey: "example-key",
+            credentialIdentity: identity,
+          }),
+        ).resolves.toBe(otherEngine);
+        const events = [];
+        for await (const event of engine.stream({ ...options, privateContent }))
+          events.push(event);
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "stop",
+            reason: "error",
+            errorCode: "http_503",
+            statusCode: 503,
+            ...(privateContent ? {} : { providerRetryable: true }),
+          }),
+        );
+        expect(JSON.stringify(events)).not.toContain("private upstream detail");
+        expect(fetch).not.toHaveBeenCalled();
+        expect(mocks.rows.get(owner)).not.toHaveProperty(
+          "oauthLifecycle.reconnectReason",
+        );
+      } finally {
+        unregisterAgentEngine("builder");
+        unregisterAgentEngine("anthropic");
+      }
+    },
+  );
 
   it.each([false, true])(
     "keeps an expired grant connected and stops retryably when refresh is temporarily unavailable (private=%s)",

@@ -4,8 +4,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 vi.mock("../../server/builder-oauth.js", () => ({
   BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
-  hasBuilderOAuthSession: vi.fn(async () => false),
-  resolveBuilderOAuthRequestAccess: vi.fn(async () => null),
+  resolveBuilderOAuthRequestAccessState: vi.fn(async () => ({
+    kind: "not_connected",
+  })),
 }));
 
 function providerFailureFingerprint(key: string, value: string): string {
@@ -99,12 +100,12 @@ describe("AgentEngine registry", () => {
   beforeEach(async () => {
     vi.resetModules();
     const builderOAuth = await import("../../server/builder-oauth.js");
-    vi.mocked(builderOAuth.hasBuilderOAuthSession).mockReset();
-    vi.mocked(builderOAuth.hasBuilderOAuthSession).mockResolvedValue(false);
-    vi.mocked(builderOAuth.resolveBuilderOAuthRequestAccess).mockReset();
-    vi.mocked(builderOAuth.resolveBuilderOAuthRequestAccess).mockResolvedValue(
-      null,
-    );
+    vi.mocked(builderOAuth.resolveBuilderOAuthRequestAccessState).mockReset();
+    vi.mocked(
+      builderOAuth.resolveBuilderOAuthRequestAccessState,
+    ).mockResolvedValue({
+      kind: "not_connected",
+    });
     vi.doUnmock("../../settings/store.js");
     vi.doUnmock("../../settings/user-settings.js");
     vi.doUnmock("../app-model-defaults.js");
@@ -2019,14 +2020,18 @@ describe("AgentEngine registry", () => {
     });
 
     it("runs the builder engine on OAuth custody with no key pair stored", async () => {
-      const { hasBuilderOAuthSession, resolveBuilderOAuthRequestAccess } =
+      const { resolveBuilderOAuthRequestAccessState } =
         await import("../../server/builder-oauth.js");
-      vi.mocked(hasBuilderOAuthSession).mockResolvedValue(true);
-      vi.mocked(resolveBuilderOAuthRequestAccess).mockResolvedValue({
-        accessToken: "bat-oauth-token",
-        scopes: ["builder:ai:invoke"],
-        ownerEmail: "visitor@example.com",
-      } as any);
+      vi.mocked(resolveBuilderOAuthRequestAccessState).mockResolvedValue({
+        kind: "available",
+        access: {
+          accessToken: "bat-oauth-token",
+          scopes: ["builder:ai:invoke"],
+          ownerEmail: "visitor@example.com",
+          scope: "user",
+          connectionId: "test-connection",
+        },
+      });
 
       const {
         registerAgentEngine,
@@ -2052,11 +2057,7 @@ describe("AgentEngine registry", () => {
           credentialIdentity: identity,
         }),
       ).resolves.toBe(true);
-      expect(hasBuilderOAuthSession).toHaveBeenCalledWith(
-        identity.userEmail,
-        identity.orgId,
-      );
-      expect(resolveBuilderOAuthRequestAccess).toHaveBeenCalledWith(
+      expect(resolveBuilderOAuthRequestAccessState).toHaveBeenCalledWith(
         expect.objectContaining({
           ownerEmail: identity.userEmail,
           orgId: identity.orgId,
@@ -2067,12 +2068,11 @@ describe("AgentEngine registry", () => {
     it("refuses the builder engine when OAuth custody cannot be resolved", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-legacy"; // guard:allow-env-credential — fixture: proves unusable custody does not fall back to this pair
       process.env.BUILDER_PUBLIC_KEY = "space-legacy"; // guard:allow-env-credential — fixture: proves unusable custody does not fall back to this pair
-      const { hasBuilderOAuthSession, resolveBuilderOAuthRequestAccess } =
+      const { resolveBuilderOAuthRequestAccessState } =
         await import("../../server/builder-oauth.js");
-      vi.mocked(hasBuilderOAuthSession).mockResolvedValue(true);
-      vi.mocked(resolveBuilderOAuthRequestAccess).mockRejectedValue(
-        new Error("Builder OAuth connection does not grant builder:ai:invoke"),
-      );
+      vi.mocked(resolveBuilderOAuthRequestAccessState).mockResolvedValue({
+        kind: "unusable",
+      });
 
       const { registerAgentEngine, isResolvedEngineUsableForRequest } =
         await import("./registry.js");

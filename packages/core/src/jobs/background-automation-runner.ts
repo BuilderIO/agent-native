@@ -503,11 +503,14 @@ async function assertLlmCredentialsUsable(input: {
   ownerEmail: string;
   orgId?: string;
 }): Promise<void> {
-  let usable: boolean;
+  let usable:
+    | Awaited<ReturnType<typeof isResolvedEngineUsableForRequest>>
+    | import("../mcp-client/oauth-client.js").McpOAuthRefreshUnavailableError;
   try {
     usable = await isResolvedEngineUsableForRequest(input.engine, {
       apiKey: input.apiKey,
       credentialIdentity: { userEmail: input.ownerEmail, orgId: input.orgId },
+      deferBuilderRefreshFailure: true,
     });
   } catch (error) {
     if (
@@ -523,7 +526,7 @@ async function assertLlmCredentialsUsable(input: {
     }
     throw error;
   }
-  if (!usable) {
+  if (usable === false) {
     throw new BackgroundAutomationRunError(
       missingCredentialsMessage(input.ownerEmail, input.orgId),
       LLM_MISSING_CREDENTIALS_ERROR_CODE,
