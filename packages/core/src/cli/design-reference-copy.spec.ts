@@ -4,6 +4,7 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   fetchDesignReferenceCopy,
   fetchDesignReferenceResource,
+  rewriteReferenceCss,
 } from "./design-reference-copy.js";
 
 vi.mock("../extensions/url-safety.js", async (importOriginal) => {
@@ -21,6 +22,26 @@ beforeEach(() => {
 });
 
 describe("Design public reference copy", () => {
+  it("rewrites relative stylesheet imports, fonts, and backgrounds through the checked bridge", () => {
+    const css = rewriteReferenceCss(
+      '@import "./theme.css"; @font-face{src:url(../fonts/site.woff2)} .hero{background:url(../images/hero.png)}',
+      "https://example.com/css/main.css",
+      "http://127.0.0.1:7331",
+      "token",
+    );
+    for (const resource of [
+      "https://example.com/css/theme.css",
+      "https://example.com/fonts/site.woff2",
+      "https://example.com/images/hero.png",
+    ]) {
+      const proxy = new URL(
+        `/reference-resource?url=${encodeURIComponent(resource)}&previewToken=token`,
+        "http://127.0.0.1:7331",
+      ).href;
+      expect(css).toContain(proxy);
+    }
+  });
+
   it.each([
     "http://127.0.0.1/",
     "http://169.254.169.254/",
@@ -181,7 +202,9 @@ describe("Design public reference copy", () => {
     expect(html).toContain(
       'src="http://127.0.0.1:7331/reference-resource?url=https%3A%2F%2Frebind.example.com%2Fa.png&amp;previewToken=token"',
     );
-    expect(html).toContain("url(https://localhost/bg.png)");
+    expect(html).toContain(
+      "url(http://127.0.0.1:7331/reference-resource?url=https%3A%2F%2Flocalhost%2Fbg.png&previewToken=token)",
+    );
     expect(html).toContain(
       "url=https%3A%2F%2Fimages.example.org%2Fhero%402x.png&amp;previewToken=token 2x",
     );

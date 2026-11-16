@@ -46,6 +46,25 @@ export class ReferenceCopyError extends Error {
 
 type UrlRewrite = (raw: string) => string | null;
 
+function rewriteCssUrls(css: string, rewrite: UrlRewrite): string {
+  const rewriteUrl = (full: string, quote: string, raw: string) => {
+    const next = rewrite(raw);
+    return next ? `url(${quote}${next}${quote})` : full;
+  };
+  return css
+    .replace(
+      /url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,
+      (full, quote: string, raw: string) => rewriteUrl(full, quote, raw.trim()),
+    )
+    .replace(
+      /((?:-webkit-)?image-set\s*\([^)]*?)(["'])([^"']+\.(?:avif|gif|jpe?g|png|svg|webp)(?:[?#][^"']*)?)\2/gi,
+      (full, prefix: string, quote: string, raw: string) => {
+        const next = rewrite(raw);
+        return next ? `${prefix}${quote}${next}${quote}` : full;
+      },
+    );
+}
+
 function rewriteSrcset(value: string, rewrite: UrlRewrite): string {
   return value
     .split(",")
@@ -104,12 +123,38 @@ function sanitizeReferenceTree(
         });
       }
       if ("childNodes" in child) visit(child);
+      if ("tagName" in child && child.tagName === "style") {
+        for (const text of child.childNodes) {
+          if ("value" in text)
+            text.value = rewriteCssUrls(
+              text.value,
+              rewrite,
+            ) as typeof text.value;
+        }
+      }
       // parse5 keeps <template> children in `content`, not `childNodes`, and
       // they serialize back out, so they need the same pass.
       if ("content" in child) visit(child.content);
     }
   };
   visit(document);
+}
+
+export function rewriteReferenceCss(
+  css: string,
+  baseUrl: string,
+  bridgeUrl: string,
+  token: string,
+): string {
+  return rewriteCssUrls(css, (raw) =>
+    resourceProxyUrl(raw, baseUrl, bridgeUrl, token),
+  ).replace(
+    /(@import\s+)(["'])([^"']+)\2/gi,
+    (full, prefix: string, quote: string, raw: string) => {
+      const next = resourceProxyUrl(raw, baseUrl, bridgeUrl, token);
+      return next ? `${prefix}${quote}${next}${quote}` : full;
+    },
+  );
 }
 
 function resourceProxyUrl(

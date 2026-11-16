@@ -24,6 +24,7 @@ import { injectDocumentMarkup } from "../shared/html-document.js";
 import {
   fetchDesignReferenceCopy,
   fetchDesignReferenceResource,
+  rewriteReferenceCss,
   ReferenceCopyError,
 } from "./design-reference-copy.js";
 
@@ -3909,7 +3910,16 @@ export async function startDesignConnectBridge(
             res.setHeader("Content-Type", result.contentType);
             res.setHeader("Cache-Control", "no-store");
             res.setHeader("X-Content-Type-Options", "nosniff");
-            res.end(result.body);
+            res.end(
+              result.css
+                ? rewriteReferenceCss(
+                    result.body as string,
+                    result.baseUrl,
+                    manifest.bridgeUrl,
+                    providedPreviewToken,
+                  )
+                : result.body,
+            );
           } catch (error) {
             sendJson(
               res,
