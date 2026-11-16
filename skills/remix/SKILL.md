@@ -261,8 +261,8 @@ one board, left to right, at the same viewport size:
    when its dev server runs, else an inline screen of the rebuilt section.
 3. **How it works**: a row of 3-5 small inline screens beneath, one stage of
    the technique each (geometry, motion, camera, shading, palette), each a
-   live card of flat screen layers (see **How It Works Frames**) driven by the
-   remix's knobs.
+   live exploded view of the remix screen's layers (see **How It Works
+   Frames**) driven by the remix's knobs.
 
 Title screens with `rename-screen` ("Original · stripe.com", "Remix",
 "Folded plane"), then size and place them in one `update-design` call:
@@ -338,53 +338,64 @@ knobs in Edit.
 ### How It Works Frames
 
 Explain how the screen works, not the technique in the abstract. The row is a
-left-to-right series of steps; each card draws what you would literally see on
-screen at that step, as flat, front-on 2D layers of the Remix's real screen:
+left-to-right series of steps; each card is an exploded view of the Remix's
+real screen at that step, its layers pulled apart in depth so you can see what
+each one paints:
 
-- A flat rectangle in the screen's real proportions, holding that step's
-  actual content: the vertex grid over the hero, the same grid bent, the grain
-  as it renders in greys, then the colored hero. Draw the destination page
-  (its headline, buttons, palette and accent), faintly where it only orients;
-  at most a tiny source note ("same as stripe.com") goes in the margin.
-- Where layering matters, a short stack of 2-4 flat panes with a small,
-  consistent down-right offset (page content on top, effect canvas, then
-  background), each labelled outside the pane with a hairline and a serif
-  index.
-- One lit accent marks the same row, region or element in every card, so the
-  series reads as one story.
-- Controls are small flat sliders or dials in the card margin, joined to the
-  area they affect by a hairline.
+- Layers are thin flat planes in the screen's proportions and corner radius,
+  stacked in 3D and spread along the depth axis: `preserve-3d` under a
+  perspective, each plane at `translateZ(i * gap)`, the stage at about
+  `rotateX(55deg) rotateZ(-40deg)` (or the same oblique projection in SVG).
+- Each plane holds that layer's real content: the destination page's text and
+  buttons, the effect canvas at that step (vertex grid, bent grid, grain in
+  greys, palette), the background. Empty, clip and mask layers are dashed
+  outlines; content layers are filled. The front plane is the composited
+  result. At most a tiny source note ("same as stripe.com") in the margin.
+- Label each plane beside it, outside the plane, in tiny uppercase Inter or
+  serif italic ("PAGE", "EFFECT CANVAS", "CLIP", "RESULT"), with a hairline
+  leader where needed.
+- Steps read as one story, for example: the page exploded into text, effect
+  canvas and background; the effect canvas exploded into its passes; the
+  canvas behind the text and its clip; the result collapsed with its knobs.
+- An explode control animates between collapsed (the real screen) and
+  exploded. Idle, the stack breathes or turns slightly; dragging tilts it;
+  hovering a plane lights it in the accent and dims the others.
+- A small config panel in one corner in our paper style, never a dark
+  lil-gui: 3-6 rows with the explode toggle, the step's 1-3 real knobs as
+  sliders and optionally a layer toggle, updating the planes live.
+- At most one handwritten note per card (Caveat or Gochi Hand, else serif
+  italic) with a hand-drawn arrow to the key plane ("the shader only paints
+  this layer").
 
-No isometric or 3D projection, and no building-block or hardware metaphors
-(modules, slabs, circuits, cranks, gears), and no flowchart of labelled boxes.
-Draw on warm paper in four warm greys with thin ink lines; exactly one accent;
-colors the step is about (a palette, the final hero) appear as content.
+Draw on warm paper with a faint grid, thin ink lines and four warm greys, with
+exactly one accent; colors the step is about (a palette, the final hero) appear
+as content, and a dark destination stays dark on its planes. No building-block
+or hardware metaphors and no flowchart of labelled boxes.
 
-- A 600×460 card with number, title, a short interaction hint and the live
-  readout in its four corners (Inter; numbers in serif italic). No labels
-  inside the screen; its own headline and buttons are content. Optionally, a 1-3 line monospace snippet in the margin
-  names what the lit part computes, in our own words.
-- Calm and live: a time-based idle tour that pauses on hover or focus, drag to
-  scrub, a key to slow (S) or spread the pane stack (E), and stillness under
-  `prefers-reduced-motion`.
+- A 600×460 card: number (serif italic) and title at the top, a short
+  interaction hint and the live readout at the bottom. No labels inside a
+  plane; its own headline and buttons are content.
+- Calm and live: idle motion pauses on hover or focus, E toggles explode, S
+  slows, and `prefers-reduced-motion` holds it still.
 - One model of true values drives motion and readout: read the shared tweak
   CSS variables from `:root` every frame, with the spec's real parameter names
   and formulas.
-- Parts are layers. Give each part a knob drives (the bent grid, a pane, a
-  margin slider) its own absolutely positioned HTML element over the
-  drawing, with `data-agent-native-node-id` and
+- Parts are layers. Wrap each plane, and each on-figure control, in its own
+  absolutely positioned HTML element with `data-agent-native-node-id` and
   `data-agent-native-layer-name`, present in the static HTML and moved by the
   script, so a click in Edit selects that part. Scope each knob to the Remix's
-  node and to the parts that embody it: selecting a part shows only its knobs,
-  selecting the frame shows them all. In Interact, dragging a dial or slider
-  part sets its CSS variable on the frame's `:root` for instant feedback,
-  then saves it with `window.__anInteract.setTweak(id, value)` (an id or the
-  tweak's cssVar) when present. Design saves only a tweak scoped to that
-  screen, clamped to its min, max and step, as if set in the inspector, so
-  the other frames follow and Apply lists the change. Throttle calls to about
-  one per animation frame while dragging.
-- Small and self-contained: framework-free JS and inline SVG, at most one
-  webfont, never embedded images or base64 fonts; a design has a size limit.
+  node and to the planes that embody it: selecting a plane shows only its
+  knobs, selecting the frame shows them all. In Interact, dragging a panel
+  slider or on-figure control sets its CSS variable on the frame's `:root`
+  for instant feedback, then saves it with
+  `window.__anInteract.setTweak(id, value)` (an id or the tweak's cssVar)
+  when present. Design saves only a tweak scoped to that screen, clamped to
+  its min, max and step, as if set in the inspector, so the other frames
+  follow and Apply lists the change. Throttle calls to about one per
+  animation frame while dragging.
+- Small and self-contained: framework-free JS, CSS 3D and inline SVG, at most
+  two webfonts, never embedded images or base64 fonts; a design has a size
+  limit.
 
 ## Finish Without Design
 
