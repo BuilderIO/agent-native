@@ -79,23 +79,15 @@ export default defineAction({
     const updatedAt = new Date().toISOString();
     await ensureReviewTables();
     await db.transaction(async (tx) => {
-      let changedIds = [args.id];
-      if (nextResolved !== undefined) {
-        // Reply creation takes this same thread lock before checking
-        // resolution, so resolution cannot race an insert.
-        const threadRows = await tx
-          .select({ id: schema.slideComments.id })
-          .from(schema.slideComments)
-          .where(
-            and(
-              eq(schema.slideComments.deckId, comment.deckId),
-              eq(schema.slideComments.slideId, comment.slideId),
-              eq(schema.slideComments.threadId, comment.threadId),
-            ),
-          )
-          .for("update");
-        changedIds = threadRows.map((row) => row.id);
-      }
+      // Adding and deleting comments lock the deck first, as does the copy
+      // into the review kit, so a reply can't land partway through resolving
+      // its thread, and the copy never waits on rows this holds.
+      await tx
+        .select({ id: schema.decks.id })
+        .from(schema.decks)
+        .where(eq(schema.decks.id, comment.deckId))
+        .for("update");
+      const changedIds = new Set<string>();
 
       if (args.content !== undefined) {
         const updated = await tx
@@ -114,10 +106,11 @@ export default defineAction({
             statusCode: 404,
           });
         }
+        changedIds.add(args.id);
       }
 
       if (nextResolved !== undefined) {
-        await tx
+        const resolvedRows = await tx
           .update(schema.slideComments)
           .set({ resolved: nextResolved, updatedAt })
           .where(
@@ -126,10 +119,12 @@ export default defineAction({
               eq(schema.slideComments.slideId, comment.slideId),
               eq(schema.slideComments.threadId, comment.threadId),
             ),
-          );
+          )
+          .returning({ id: schema.slideComments.id });
+        for (const row of resolvedRows) changedIds.add(row.id);
       }
 
-      await mirrorSlideComments(tx, comment.deckId, changedIds);
+      await mirrorSlideComments(tx, comment.deckId, [...changedIds]);
     });
 
     if (nextResolved !== undefined) {

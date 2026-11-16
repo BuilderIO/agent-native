@@ -9,7 +9,10 @@ import { setResponseHeader, setResponseStatus } from "h3";
 
 import "../db/index.js";
 import * as schema from "../db/schema.js";
-import { copySlideCommentsToReviewKit } from "../lib/slide-comment-mirror.js";
+import {
+  copySlideCommentsToReviewKit,
+  type SlideCommentCopyReport,
+} from "../lib/slide-comment-mirror.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -365,9 +368,19 @@ ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS content_hash TEXT`,
       // Comment actions mirror each comment they change into the review kit
       // from now on; this brings over the comments written before. A deck
       // that fails, or still differs after its copy, leaves the copy pending,
-      // so it runs again on the next start.
+      // so it runs again on the next start. So does a failure of the whole
+      // copy, which shouldn't stop the app starting.
       run: async () => {
-        const report = await copySlideCommentsToReviewKit();
+        let report: SlideCommentCopyReport;
+        try {
+          report = await copySlideCommentsToReviewKit();
+        } catch (error) {
+          console.error(
+            "[db] Couldn't copy comments to the review kit; it runs again on the next start:",
+            error instanceof Error ? error.message : error,
+          );
+          return deferMigration();
+        }
         const summary = `[db] Copied ${report.comments} comment(s) on ${report.decks} deck(s) to the review kit`;
         if (report.differences.length > 0) {
           console.warn(

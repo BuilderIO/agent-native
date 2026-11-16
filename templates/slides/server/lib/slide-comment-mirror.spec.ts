@@ -8,9 +8,11 @@ import {
   getReviewCommentById,
 } from "@agent-native/core/review";
 import createReviewComment from "@agent-native/core/review/actions/create-review-comment";
+import deleteReviewComment from "@agent-native/core/review/actions/delete-review-comment";
 import reactToReviewComment from "@agent-native/core/review/actions/react-to-review-comment";
 import resolveReviewThread from "@agent-native/core/review/actions/resolve-review-thread";
 import sendReviewThreadToAgent from "@agent-native/core/review/actions/send-review-thread-to-agent";
+import updateReviewComment from "@agent-native/core/review/actions/update-review-comment";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -289,6 +291,34 @@ describe("Slides comments in the review kit", () => {
     expect((await stored("legacy-root"))?.revision).toBe(1);
   });
 
+  it("reports a deck whose comments only the kit still has", async () => {
+    await createDeck("deck-kit-only");
+    const comment = await asOwner(() =>
+      addComment.run({
+        deckId: "deck-kit-only",
+        slideId: "slide-1",
+        content: "Gone from Slides",
+      }),
+    );
+    // As if deleted from Slides while a build without the mirror ran.
+    const { getDb, schema } = dbModule;
+    await getDb()
+      .delete(schema.slideComments)
+      .where(eq(schema.slideComments.deckId, "deck-kit-only"));
+
+    const report = await mirror.copySlideCommentsToReviewKit();
+    expect(report.differences).toEqual([
+      { deckId: "deck-kit-only", id: comment.id, problem: "extra" },
+    ]);
+    // Reported, not deleted: someone decides what happens to it.
+    expect((await stored(comment.id))?.body).toBe("Gone from Slides");
+
+    await mirror.deleteMirroredSlideComments("deck-kit-only", "all");
+    expect((await mirror.copySlideCommentsToReviewKit()).differences).toEqual(
+      [],
+    );
+  });
+
   it("refuses deck comment writes through the kit's own actions", async () => {
     await createDeck("deck-kit-write");
     const comment = await asOwner(() =>
@@ -318,6 +348,11 @@ describe("Slides comments in the review kit", () => {
         { ...deck, threadId: comment.threadId, resolutionNote: "Noted" },
       ],
       [sendReviewThreadToAgent, { ...deck, threadId: comment.threadId }],
+      [
+        updateReviewComment,
+        { ...deck, commentId: comment.id, body: "Edited around Slides" },
+      ],
+      [deleteReviewComment, { ...deck, commentId: comment.id }],
     ];
 
     for (const [action, args] of kitWrites) {

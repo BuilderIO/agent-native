@@ -71,6 +71,7 @@ export {
 export {
   compareMirroredReviewComments,
   deleteMirroredReviewComments,
+  listMirroredResourceIds,
   mirrorReviewComments,
   type ReviewCommentCopy,
   type ReviewMirrorComparison,

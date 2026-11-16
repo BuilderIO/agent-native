@@ -146,7 +146,11 @@ An app with its own comment table moves in three releases: it writes both
 stores, then reads from the kit, then drops its old table. While it writes
 both, its comment actions call `ensureReviewTables()`, open their transaction,
 and call `mirrorReviewComments(resource, copies)` inside it after changing
-their own table, so the two commit or roll back together. Each copy is one
+their own table, so the two commit or roll back together. The mirror joins a
+Drizzle `db.transaction()`, or a `getDbExec().transaction()` whose handle is
+scoped with `withDbExec(tx, …)`; `getEnclosingTransactionDbExec()` returns
+that handle. Mirror the rows each write actually changed, such as those an
+`UPDATE … RETURNING` reports, rather than rows read before it. Each copy is one
 comment in the kit's terms (`ReviewCommentCopy`): its IDs, surface, anchor,
 text, author, resolution, times, metadata and reactions. The kit adds what it
 lacks, rewrites what changed, and marks the comment's email as sent, without
@@ -160,12 +164,15 @@ While the app still writes its comments, register the resource with
 `commentsWrittenByApp` set to a message naming the app's own actions. Through
 the kit everyone then reads the comments as a viewer, and every kit action
 that would write one (a comment, reply, reaction, resolution or routing) is
-refused with that message, since the app wouldn't show the change.
+refused with that message, since the app wouldn't show the change. Each
+person's own state, such as muting a thread or marking it read, still works.
 
 A startup step copies the comments written before, and can run again safely.
 `compareMirroredReviewComments(resource, copies)` then lists what's `missing`
 from the kit, what it has `extra`, and what's `different`, by field, so the
-app switches only once the stores agree. Slides is the first app to move.
+app switches only once the stores agree. `listMirroredResourceIds(type, page)`
+finds resources with comments only the kit still has, which a copy driven by
+the app's own table would miss. Slides is the first app to move.
 
 ## UI Usage {#ui-usage}
 

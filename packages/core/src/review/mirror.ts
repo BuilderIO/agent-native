@@ -1,4 +1,8 @@
-import { getDbExec, insideDbTransaction, type DbExec } from "../db/client.js";
+import {
+  getDbExec,
+  getEnclosingTransactionDbExec,
+  type DbExec,
+} from "../db/client.js";
 import { sql, type SqlFragment } from "../db/sql.js";
 import type { Visibility } from "../sharing/schema.js";
 import { ReviewCommentResourceConflictError } from "./errors.js";
@@ -208,15 +212,16 @@ function copyValues(
 // the middle of the app's write, so a caller inside a transaction prepares
 // them before opening it.
 async function prepareTables(): Promise<void> {
-  if (!insideDbTransaction()) await ensureReviewTables();
+  if (!getEnclosingTransactionDbExec()) await ensureReviewTables();
 }
 
 function inWrite<T>(run: (client: DbExec) => Promise<T>): Promise<T> {
-  const client = getDbExec();
   // Inside the app's transaction the kit's rows join it, so they commit or
   // roll back with the app's own.
-  if (insideDbTransaction() || !client.transaction) return run(client);
-  return client.transaction(run);
+  const enclosing = getEnclosingTransactionDbExec();
+  if (enclosing) return run(enclosing);
+  const client = getDbExec();
+  return client.transaction ? client.transaction(run) : run(client);
 }
 
 // Run after the upsert, which locks every row it touched, so another write
@@ -396,6 +401,26 @@ export async function deleteMirroredReviewComments(
     }
     return { deleted };
   });
+}
+
+/**
+ * The IDs of resources of this type that have comments in the kit it hasn't
+ * deleted, a page at a time in ID order, starting after `after`. A startup
+ * copy uses it to reach resources whose comments only the kit still has.
+ */
+export async function listMirroredResourceIds(
+  resourceType: string,
+  page: { after?: string; limit: number },
+): Promise<string[]> {
+  await prepareTables();
+  const { rows } = await getDbExec().execute(sql`SELECT DISTINCT resource_id
+       FROM agent_review_comments
+      WHERE resource_type = ${sql.value(resourceType)}
+        AND deleted_at IS NULL
+        AND resource_id > ${sql.value(page.after ?? "")}
+      ORDER BY resource_id
+      LIMIT ${sql.value(page.limit)}`);
+  return rows.map((row) => String(row.resource_id));
 }
 
 function stableJson(value: unknown): string {

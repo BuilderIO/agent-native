@@ -5,6 +5,7 @@ const { ReviewCommentResourceConflictError } = await import("./errors.js");
 const {
   compareMirroredReviewComments,
   deleteMirroredReviewComments,
+  listMirroredResourceIds,
   mirrorReviewComments,
 } = await import("./mirror.js");
 const { __resetReviewInitForTests, ensureReviewTables, getReviewCommentById } =
@@ -254,6 +255,42 @@ describe("mirrorReviewComments", () => {
     ).rejects.toThrow("The app's own write failed");
 
     expect(await stored(comment.id)).toBeNull();
+  });
+
+  it("joins a PGlite transaction whose handle the caller didn't scope", async () => {
+    const comment = copy();
+    await expect(
+      getDbExec().transaction?.(async () => {
+        await mirrorReviewComments(DECK, [comment]);
+        throw new Error("The app's own write failed");
+      }),
+    ).rejects.toThrow("The app's own write failed");
+
+    expect(await stored(comment.id)).toBeNull();
+  });
+});
+
+describe("listMirroredResourceIds", () => {
+  it("pages through the resources with comments the kit hasn't deleted", async () => {
+    const resource = (resourceId: string) => ({
+      ...DECK,
+      resourceType: "mirror-list",
+      resourceId,
+    });
+    await mirrorReviewComments(resource("list-a"), [copy()]);
+    await mirrorReviewComments(resource("list-b"), [copy(), copy()]);
+    await mirrorReviewComments(resource("list-c"), [copy()]);
+    await deleteMirroredReviewComments(resource("list-b"), "all");
+
+    expect(await listMirroredResourceIds("mirror-list", { limit: 10 })).toEqual(
+      ["list-a", "list-c"],
+    );
+    expect(
+      await listMirroredResourceIds("mirror-list", {
+        after: "list-a",
+        limit: 1,
+      }),
+    ).toEqual(["list-c"]);
   });
 });
 

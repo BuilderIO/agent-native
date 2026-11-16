@@ -15,6 +15,7 @@ type Row = {
 const state = vi.hoisted(() => ({
   rows: [] as Row[],
   deleteBeforeContentUpdate: false,
+  onLock: undefined as (() => void) | undefined,
 }));
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockGetUserEmail = vi.hoisted(() => vi.fn(() => "author@example.com"));
@@ -71,6 +72,7 @@ vi.mock("../server/db/index.js", () => {
       resolved: col("resolved"),
       updatedAt: col("updatedAt"),
     },
+    decks: { id: "decks.id" },
   };
 
   const db = {
@@ -91,7 +93,10 @@ vi.mock("../server/db/index.js", () => {
           };
           return {
             limit,
-            for: async () => matched.map(project),
+            for: async () => {
+              state.onLock?.();
+              return matched.map(project);
+            },
           };
         },
       }),
@@ -140,6 +145,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mockGetUserEmail.mockReturnValue("author@example.com");
   state.deleteBeforeContentUpdate = false;
+  state.onLock = undefined;
   state.rows = [
     {
       id: "c-1",
@@ -258,6 +264,25 @@ describe("update-slide-comment", () => {
       "c-2",
     ]);
     expect(seen).toEqual({ content: "Edited and resolved", resolved: true });
+  });
+
+  it("mirrors every comment the resolve changed, even one that just joined the thread", async () => {
+    state.onLock = () => {
+      state.rows.push({
+        ...state.rows[1],
+        id: "c-3",
+        content: "A late reply",
+      });
+    };
+
+    await run({ id: "c-1", deckId: "deck-1", resolved: true });
+
+    expect(state.rows.every((row) => row.resolved)).toBe(true);
+    expect(mirror.comments).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      "deck-1",
+      ["c-1", "c-2", "c-3"],
+    );
   });
 
   it("mirrors only the edited comment when the thread's state stays", async () => {

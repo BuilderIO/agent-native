@@ -2,6 +2,7 @@ import {
   compareMirroredReviewComments,
   deleteMirroredReviewComments,
   ensureReviewTables,
+  listMirroredResourceIds,
   mirrorReviewComments,
   type ReviewCommentCopy,
   type ReviewMirrorDifference,
@@ -133,8 +134,9 @@ const DECK_PAGE_SIZE = 200;
 
 /**
  * Copies every deck's comments into the kit and checks each deck's two
- * stores agree, while its comments are still locked. Safe to run again: each
- * run leaves the kit matching `slide_comments`.
+ * stores agree, while its comments are still locked. Decks with comments
+ * only the kit has are checked too, and reported, not deleted. Safe to run
+ * again: each run brings the kit up to date with `slide_comments`.
  */
 export async function copySlideCommentsToReviewKit(): Promise<SlideCommentCopyReport> {
   await ensureReviewTables();
@@ -160,6 +162,26 @@ export async function copySlideCommentsToReviewKit(): Promise<SlideCommentCopyRe
     const last = page.at(-1);
     if (page.length < DECK_PAGE_SIZE || !last) break;
     after = last.deckId;
+  }
+  // The pass above only reaches decks with comments in `slide_comments`.
+  after = "";
+  for (;;) {
+    const page = await listMirroredResourceIds(DECK_REVIEW_RESOURCE, {
+      after,
+      limit: DECK_PAGE_SIZE,
+    });
+    const last = page.at(-1);
+    if (last === undefined) break;
+    const copied = await db
+      .selectDistinct({ deckId: schema.slideComments.deckId })
+      .from(schema.slideComments)
+      .where(inArray(schema.slideComments.deckId, page));
+    const seen = new Set(copied.map((row) => row.deckId));
+    for (const deckId of page) {
+      if (!seen.has(deckId)) await copyDeck(deckId, report);
+    }
+    if (page.length < DECK_PAGE_SIZE) break;
+    after = last;
   }
   return report;
 }

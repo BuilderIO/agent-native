@@ -118,11 +118,30 @@ export async function assertReviewableResourceAccess(
   );
   if (!access || !roleSatisfies(access.role, minimumRole)) {
     throw new ForbiddenError(
-      (access && getReviewableResource(resourceType)?.commentsWrittenByApp) ||
+      reviewWriteRefusal(
+        resourceType,
+        access,
         `Not allowed to access ${resourceType}:${resourceId}`,
+      ),
     );
   }
   return access;
+}
+
+/**
+ * Why the kit refuses a write: on a resource whose comments the app writes,
+ * the app's message, for a caller who can see the resource; otherwise
+ * `fallback`.
+ */
+export function reviewWriteRefusal(
+  resourceType: string,
+  access: ReviewResourceAccess | null | undefined,
+  fallback: string,
+): string {
+  return (
+    (access && getReviewableResource(resourceType)?.commentsWrittenByApp) ||
+    fallback
+  );
 }
 
 /** The resource's comment policy, with the kit's defaults filled in. */
@@ -180,10 +199,6 @@ export async function assertReviewCommentAccess(
     resourceId,
     ctx,
   );
-  // Someone who can see the resource learns where its comments are written.
-  const writtenByApp = access
-    ? getReviewableResource(resourceType)?.commentsWrittenByApp
-    : undefined;
   if (
     !canCommentOnReviewableResource(
       resourceType,
@@ -192,7 +207,11 @@ export async function assertReviewCommentAccess(
     )
   ) {
     throw new ForbiddenError(
-      writtenByApp || `Not allowed to comment on ${resourceType}:${resourceId}`,
+      reviewWriteRefusal(
+        resourceType,
+        access,
+        `Not allowed to comment on ${resourceType}:${resourceId}`,
+      ),
     );
   }
   return access;

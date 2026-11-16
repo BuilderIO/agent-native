@@ -56,6 +56,8 @@ export interface ReviewableResourceRegistration {
    * mirroring each into the kit with `mirrorReviewComments`. Through the kit
    * everyone then only reads them: its actions refuse every comment write on
    * the resource with this message, which should name the app's own actions.
+   * Each person's own state, such as muting a thread or marking it read,
+   * still works, since it isn't part of the comments.
    */
   commentsWrittenByApp?: string;
   /**

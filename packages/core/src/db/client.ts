@@ -2504,17 +2504,24 @@ export function insideDbTransactionCallback(): boolean {
 }
 
 /**
- * True inside any open transaction: a Drizzle `db.transaction()` scope,
- * PGlite's included, or a `getDbExec().transaction()` callback. Code that
- * should join the caller's transaction rather than open its own asks this,
- * since PGlite can't nest one.
+ * The executor that writes in the transaction this code runs in, or undefined
+ * outside one: the handle `withDbExec` scoped, which a Drizzle
+ * `db.transaction()` scope sets, or inside a PGlite transaction `getDbExec()`,
+ * which joins it. For code that should join the caller's transaction rather
+ * than open its own, since PGlite can't nest one. A `getDbExec().transaction()`
+ * callback that hasn't scoped its handle with `withDbExec` keeps it to itself,
+ * so this throws there rather than return an executor that writes outside it.
  */
-export function insideDbTransaction(): boolean {
-  return (
-    getScopedDbExec() !== undefined ||
-    insideDbTransactionCallback() ||
-    (pgliteTransactionStorage?.getStore()?.size ?? 0) > 0
-  );
+export function getEnclosingTransactionDbExec(): DbExec | undefined {
+  const scoped = getScopedDbExec();
+  if (scoped) return scoped;
+  if ((pgliteTransactionStorage?.getStore()?.size ?? 0) > 0) return getDbExec();
+  if (insideDbTransactionCallback()) {
+    throw new Error(
+      "Scope this transaction's handle with withDbExec(tx, …) so the code it calls writes in it.",
+    );
+  }
+  return undefined;
 }
 
 async function inTransactionCallback<T>(
