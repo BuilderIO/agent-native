@@ -131,7 +131,7 @@ Hay dos hooks de acciones que probablemente usarás más: `useActionQuery()` y `
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      'Almacenado en caché bajo `["action", name, params]`. Se vuelve a obtener automáticamente cada vez que se completa una acción mutante, sin necesidad de invalidación manual.',
+      'Se almacena en caché bajo `["action", name, params]`. Los cambios coincidentes invalidan la consulta automáticamente.',
   }}
 />
 
@@ -196,7 +196,7 @@ const { data, isLoading } = useActionQuery(
   returns={{
     type: "UseMutationResult",
     description:
-      'Al tener éxito, emite un evento de cambio con `source: "action"`, para que cada `useActionQuery()` que lea los datos afectados se vuelva a obtener automáticamente. No se necesita invalidación manual.',
+      "Al completarse correctamente, invalida automáticamente las consultas de acción coincidentes, salvo que se omita la invalidación.",
   }}
 />
 
@@ -225,6 +225,33 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### Invalidación por recurso {#resource-scoped-invalidation}
+
+Ambos hooks aceptan un array opcional `resources`. Una consulta indica los recursos que lee y una mutación los recursos que modifica. Usa `type` para un tipo de recurso completo o `type:id` para un ID concreto.
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+La coincidencia es simétrica para las mutaciones locales y los eventos de sincronización. Una etiqueta `ticket` coincide con `ticket` y con cualquier etiqueta `ticket:id`. Una etiqueta `ticket:123` coincide con `ticket` y `ticket:123`, pero no con `ticket:456`. Las consultas sin etiquetas se invalidan por precaución. Una mutación sin etiquetas invalida todas las consultas de acción.
+
+Para un evento de sincronización de acción, `resourceType` y `resourceId` forman la etiqueta del recurso modificado. Si falta `resourceId` o está vacío, se invalidan todas las consultas que coinciden con ese tipo. Si algún evento de acción no suprimido no tiene `resourceType`, se desactiva el filtro por recurso para el lote y todas las consultas de acción son elegibles. El predicado opcional aún puede filtrar la invalidación.
+
+Para un lote que contiene eventos de acción y solo eventos de acción o app-state, el filtro de recursos coincide con cualquier recurso modificado de los eventos de acción no suprimidos. Con `actionInvalidatePredicate`, una consulta debe cumplir tanto el filtro como el predicado. El predicado recibe todo el lote relevante sin eventos awareness, incluidos los eventos de acción suprimidos. Si el lote también contiene otra fuente que cambia datos, se desactiva el filtro por recurso, pero el predicado sigue aplicándose. En un lote con otro evento que cambia datos pero sin eventos de acción no suprimidos, el predicado también filtra la invalidación general de acciones.
 
 ### callAction {#call-action}
 
@@ -438,10 +465,10 @@ El texto de la notificación depende del fallo. Una solicitud cancelada no muest
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: "(query: Query, events: readonly SyncEvent[]) => boolean",
           optional: true,
           description:
-            "Filtra la invalidación amplia que dispara un evento de acción. Rara vez se necesita. Úsalo para mantener una consulta activa costosa en semántica de refresco explícito mientras las consultas normales con versión de fuente siguen reaccionando a través de `useChangeVersion`.",
+            "Filtra la invalidación de sincronización según la consulta y los eventos agrupados. Consulta Invalidación por recurso para el comportamiento de los lotes.",
         },
         {
           name: "suppressActionInvalidationFor",

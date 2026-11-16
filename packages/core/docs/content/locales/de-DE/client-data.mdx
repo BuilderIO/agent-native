@@ -131,7 +131,7 @@ Es gibt zwei Action-Hooks, die Sie am wahrscheinlichsten verwenden werden: `useA
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      'Zwischengespeichert unter `["action", name, params]`. Ruft automatisch erneut ab, sobald eine mutierende Action abschließt, ohne manuelle Invalidierung.',
+      'Unter `["action", name, params]` zwischengespeichert. Passende Änderungen invalidieren die Abfrage automatisch.',
   }}
 />
 
@@ -196,7 +196,7 @@ const { data, isLoading } = useActionQuery(
   returns={{
     type: "UseMutationResult",
     description:
-      'Bei Erfolg wird ein Änderungsereignis mit `source: "action"` ausgegeben, sodass jede `useActionQuery()`, die betroffene Daten liest, automatisch erneut abruft. Keine manuelle Invalidierung nötig.',
+      "Invalidiert bei Erfolg passende Action-Abfragen automatisch, sofern die Invalidierung nicht übersprungen wird.",
   }}
 />
 
@@ -225,6 +225,33 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### Ressourcenbezogene Invalidierung {#resource-scoped-invalidation}
+
+Beide Hooks akzeptieren ein optionales `resources`-Array. Eine Abfrage nennt die gelesenen Ressourcen, eine Mutation die geänderten Ressourcen. Verwenden Sie `type` für einen ganzen Ressourcentyp oder `type:id` für eine bestimmte ID.
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+Der Abgleich ist für lokale Mutationen und Sync-Ereignisse symmetrisch. Ein Tag `ticket` passt zu `ticket` und jedem Tag `ticket:id`. Ein Tag `ticket:123` passt zu `ticket` und `ticket:123`, aber nicht zu `ticket:456`. Abfragen ohne Tags werden vorsorglich invalidiert. Eine Mutation ohne Tags invalidiert alle Action-Abfragen.
+
+Bei einem Action-Sync-Ereignis bilden `resourceType` und `resourceId` das Tag der geänderten Ressource. Fehlt `resourceId` oder ist es leer, werden alle Abfragen für diesen Typ invalidiert. Fehlt bei einem nicht unterdrückten Action-Ereignis `resourceType`, entfällt die Ressourceneingrenzung für den Stapel und alle Action-Abfragen kommen infrage. Das optionale Prädikat kann die Invalidierung weiterhin filtern.
+
+Enthält ein Stapel Action-Ereignisse und ausschließlich Action- oder App-State-Ereignisse, passt der Ressourcenfilter auf jede geänderte Ressource der nicht unterdrückten Action-Ereignisse. Mit `actionInvalidatePredicate` muss eine Abfrage sowohl den Filter als auch das Prädikat erfüllen. Das Prädikat erhält den gesamten relevanten Stapel ohne Awareness-Ereignisse, einschließlich unterdrückter Action-Ereignisse. Enthält der Stapel auch eine andere datenändernde Quelle, entfällt die Ressourceneingrenzung, das Prädikat gilt aber weiterhin. Bei einem Stapel mit einem anderen datenändernden Ereignis, aber ohne nicht unterdrücktes Action-Ereignis filtert das Prädikat auch die breite Action-Invalidierung.
 
 ### callAction {#call-action}
 
@@ -438,10 +465,10 @@ Der Text des Toasts hängt vom Fehler ab. Eine abgebrochene Anfrage zeigt nichts
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: "(query: Query, events: readonly SyncEvent[]) => boolean",
           optional: true,
           description:
-            "Filtert die breite Invalidierung, die ein Action-Ereignis auslöst. Selten benötigt. Verwenden Sie es, um eine teure aktive Abfrage bei expliziter Aktualisierungssemantik zu halten, während normale quellversionierte Abfragen weiterhin über `useChangeVersion` reagieren.",
+            "Filtert die Sync-Invalidierung anhand der Abfrage und der zusammengefassten Ereignisse. Das Stapelverhalten steht unter Ressourcenbezogene Invalidierung.",
         },
         {
           name: "suppressActionInvalidationFor",

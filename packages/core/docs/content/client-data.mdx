@@ -131,7 +131,7 @@ There are two action hooks you are most likely to use: `useActionQuery()` and `u
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      'Cached under `["action", name, params]`. Refetches automatically whenever a mutating action completes, with no manual invalidation needed.',
+      'Cached under `["action", name, params]`. Matching changes invalidate the query automatically.',
   }}
 />
 
@@ -195,7 +195,7 @@ const { data, isLoading } = useActionQuery(
   returns={{
     type: "UseMutationResult",
     description:
-      'On success, emits a change event with `source: "action"`, so every `useActionQuery()` reading affected data refetches automatically. No manual invalidation is needed.',
+      "On success, invalidates matching action queries automatically unless invalidation is skipped.",
   }}
 />
 
@@ -224,6 +224,33 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### Resource-scoped invalidation {#resource-scoped-invalidation}
+
+Both hooks accept an optional `resources` array. A query names the resources it reads and a mutation names the resources it changes. Use `type` for a whole resource type or `type:id` for one specific ID.
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+Matching is symmetric for local mutations and sync events. A `ticket` tag matches `ticket` and any `ticket:id` tag. A `ticket:123` tag matches `ticket` and `ticket:123`, but not `ticket:456`. Untagged queries are invalidated conservatively. A mutation without tags invalidates all action queries.
+
+For an action sync event, `resourceType` and `resourceId` form the changed resource tag. If `resourceId` is missing or empty, all queries matching that type are invalidated. If any unsuppressed action event has no `resourceType`, resource narrowing is disabled for the batch and all action queries are eligible. The optional predicate can still filter the invalidation.
+
+For a batch containing action events and only action or app-state events, the resource filter matches any changed resource in the unsuppressed action events. When `actionInvalidatePredicate` is supplied, a query must pass both that filter and the predicate. The predicate receives the full relevant non-awareness batch, including suppressed action events. If the batch also contains another data-changing source, resource narrowing is disabled, but the predicate still applies. For a batch with another data-changing event but no unsuppressed action event, the predicate also filters the broad action invalidation.
 
 ### callAction {#call-action}
 
@@ -435,10 +462,10 @@ The toast text depends on the failure. A cancelled request shows nothing. Being 
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: "(query: Query, events: readonly SyncEvent[]) => boolean",
           optional: true,
           description:
-            "Filters the broad invalidation an action event triggers. Rarely needed. Use it to keep an expensive active query on explicit-refresh semantics while normal source-versioned queries still react through `useChangeVersion`.",
+            "Filters sync invalidation using the query and the coalesced events. See Resource-scoped invalidation for batch behavior.",
         },
         {
           name: "suppressActionInvalidationFor",

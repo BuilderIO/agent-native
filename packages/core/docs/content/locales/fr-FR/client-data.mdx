@@ -131,7 +131,7 @@ Il y a deux hooks d'action que vous êtes le plus susceptible d'utiliser : `useA
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      'Mis en cache sous `["action", name, params]`. Se relance automatiquement chaque fois qu\'une action de mutation se termine, sans invalidation manuelle nécessaire.',
+      'Mis en cache sous `["action", name, params]`. Les changements correspondants invalident automatiquement la requête.',
   }}
 />
 
@@ -196,7 +196,7 @@ const { data, isLoading } = useActionQuery(
   returns={{
     type: "UseMutationResult",
     description:
-      'En cas de succès, émet un événement de changement avec `source: "action"`, afin que chaque `useActionQuery()` lisant les données affectées se relance automatiquement. Aucune invalidation manuelle n\'est nécessaire.',
+      "En cas de succès, invalide automatiquement les requêtes d’action correspondantes, sauf si l’invalidation est désactivée.",
   }}
 />
 
@@ -225,6 +225,33 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### Invalidation par ressource {#resource-scoped-invalidation}
+
+Les deux hooks acceptent un tableau facultatif `resources`. Une requête indique les ressources qu’elle lit et une mutation celles qu’elle modifie. Utilisez `type` pour tout un type de ressource ou `type:id` pour un ID précis.
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+La correspondance est symétrique pour les mutations locales et les événements de synchronisation. Une étiquette `ticket` correspond à `ticket` et à toute étiquette `ticket:id`. Une étiquette `ticket:123` correspond à `ticket` et à `ticket:123`, mais pas à `ticket:456`. Les requêtes sans étiquette sont invalidées par précaution. Une mutation sans étiquette invalide toutes les requêtes d’action.
+
+Pour un événement de synchronisation d’action, `resourceType` et `resourceId` forment l’étiquette de la ressource modifiée. Si `resourceId` est absent ou vide, toutes les requêtes correspondant à ce type sont invalidées. Si un événement d’action non supprimé n’a pas de `resourceType`, le filtrage par ressource est désactivé pour le lot et toutes les requêtes d’action sont concernées. Le prédicat facultatif peut toujours filtrer l’invalidation.
+
+Pour un lot contenant des événements d’action et uniquement des événements d’action ou app-state, le filtre de ressources correspond à toute ressource modifiée dans les événements d’action non supprimés. Avec `actionInvalidatePredicate`, une requête doit satisfaire à la fois le filtre et le prédicat. Le prédicat reçoit tout le lot pertinent hors événements awareness, y compris les événements d’action supprimés. Si le lot contient aussi une autre source qui modifie les données, le filtrage par ressource est désactivé, mais le prédicat reste appliqué. Dans un lot avec un autre événement qui modifie les données mais sans événement d’action non supprimé, le prédicat filtre aussi l’invalidation générale des actions.
 
 ### callAction {#call-action}
 
@@ -439,10 +466,10 @@ Le texte de la notification dépend de l'échec. Une requête annulée n'affiche
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: "(query: Query, events: readonly SyncEvent[]) => boolean",
           optional: true,
           description:
-            "Filtre l'invalidation large qu'un événement d'action déclenche. Rarement nécessaire. Utilisez-le pour garder une requête active coûteuse sur une sémantique de rafraîchissement explicite, alors que les requêtes normales à version de source continuent de réagir via `useChangeVersion`.",
+            "Filtre l’invalidation de synchronisation à partir de la requête et des événements regroupés. Voir Invalidation par ressource pour le comportement des lots.",
         },
         {
           name: "suppressActionInvalidationFor",

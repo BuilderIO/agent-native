@@ -249,6 +249,11 @@ describe("useActionMutation resource-scoped invalidation", () => {
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
+    queryClient.getQueryCache().build(queryClient, {
+      queryKey: ["other", "design"],
+      queryFn: async () => null,
+      meta: { actionResources: ["design:d1"] },
+    });
     let runMutation: (() => Promise<unknown>) | undefined;
     await act(async () =>
       root.render(
@@ -263,6 +268,7 @@ describe("useActionMutation resource-scoped invalidation", () => {
       await runMutation!();
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
+    return queryClient;
   }
 
   it("refetches only the action queries tagged for the mutated resource", async () => {
@@ -286,6 +292,68 @@ describe("useActionMutation resource-scoped invalidation", () => {
 
     expect(refetchedActionNames(fetch)).toEqual(["get-design", "list-designs"]);
   });
+
+  it.each([
+    {
+      name: "an exact record with a colon in its ID",
+      resources: ["design:d1:part"],
+      expected: ["design-d1-part", "design-list", "untagged"],
+    },
+    {
+      name: "a type-wide change",
+      resources: ["design"],
+      expected: [
+        "design-d1",
+        "design-d1-part",
+        "design-d2",
+        "design-list",
+        "untagged",
+      ],
+    },
+    {
+      name: "multiple exact records",
+      resources: ["design:d1", "document:doc1"],
+      expected: [
+        "design-d1",
+        "design-list",
+        "document-doc1",
+        "document-list",
+        "untagged",
+      ],
+    },
+  ])(
+    "refetches the affected queries for $name",
+    async ({ resources, expected }) => {
+      const fetch = actionFetchMock();
+      function Probe({
+        mutate,
+      }: {
+        mutate: (run: () => Promise<unknown>) => void;
+      }) {
+        useActionQuery("design-list", undefined, { resources: ["design"] });
+        useActionQuery("design-d1", undefined, { resources: ["design:d1"] });
+        useActionQuery("design-d1-part", undefined, {
+          resources: ["design:d1:part"],
+        });
+        useActionQuery("design-d2", undefined, { resources: ["design:d2"] });
+        useActionQuery("document-list", undefined, { resources: ["document"] });
+        useActionQuery("document-doc1", undefined, {
+          resources: ["document:doc1"],
+        });
+        useActionQuery("untagged");
+        const mutation = useActionMutation("update-design", { resources });
+        mutate(() => mutation.mutateAsync({ id: "d1:part" }));
+        return null;
+      }
+
+      const client = await mountAndMutate(Probe, fetch);
+      expect(refetchedActionNames(fetch)).toEqual(expected);
+      expect(
+        client.getQueryCache().find({ queryKey: ["other", "design"] })?.state
+          .isInvalidated,
+      ).toBe(false);
+    },
+  );
 
   it("still refetches untagged action queries, whose affected set is unknown", async () => {
     const fetch = actionFetchMock();

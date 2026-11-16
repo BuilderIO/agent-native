@@ -131,7 +131,7 @@ description: "वे action हुक जिनका उपयोग app/ प�
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      '`["action", name, params]` के अंतर्गत कैश किया गया। किसी भी म्यूटेटिंग action के पूरा होने पर स्वचालित रूप से रीफ़ेच होता है, बिना किसी मैन्युअल इनवैलिडेशन की आवश्यकता के।',
+      '`["action", name, params]` के अंतर्गत कैश होता है। मेल खाने वाले बदलाव क्वेरी को अपने आप अमान्य करते हैं।',
   }}
 />
 
@@ -195,7 +195,7 @@ const { data, isLoading } = useActionQuery(
   returns={{
     type: "UseMutationResult",
     description:
-      'सफलता पर, `source: "action"` के साथ एक चेंज इवेंट उत्सर्जित करता है, इसलिए प्रभावित डेटा पढ़ने वाला हर `useActionQuery()` स्वचालित रूप से रीफ़ेच होता है। किसी मैन्युअल इनवैलिडेशन की आवश्यकता नहीं है।',
+      "सफल होने पर मेल खाने वाली action क्वेरी अपने आप अमान्य होती हैं, जब तक इनवैलिडेशन छोड़ा न जाए।",
   }}
 />
 
@@ -224,6 +224,33 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### रिसोर्स के अनुसार इनवैलिडेशन {#resource-scoped-invalidation}
+
+दोनों हुक एक वैकल्पिक `resources` ऐरे स्वीकार करते हैं। क्वेरी पढ़े जाने वाले रिसोर्स बताती है और म्यूटेशन बदले जाने वाले रिसोर्स बताता है। पूरे रिसोर्स प्रकार के लिए `type` और किसी खास ID के लिए `type:id` उपयोग करें।
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+स्थानीय म्यूटेशन और सिंक इवेंट के लिए मिलान सममित है। `ticket` टैग, `ticket` और किसी भी `ticket:id` टैग से मेल खाता है। `ticket:123` टैग, `ticket` और `ticket:123` से मेल खाता है, लेकिन `ticket:456` से नहीं। बिना टैग वाली क्वेरी सावधानी से अमान्य की जाती हैं। बिना टैग वाला म्यूटेशन सभी action क्वेरी अमान्य करता है।
+
+action सिंक इवेंट के लिए `resourceType` और `resourceId` बदले गए रिसोर्स का टैग बनाते हैं। `resourceId` न हो या खाली हो तो उस प्रकार से मेल खाने वाली सभी क्वेरी अमान्य होती हैं। किसी भी न दबाए गए action इवेंट में `resourceType` न होने पर पूरे बैच का रिसोर्स फ़िल्टर बंद हो जाता है और सभी action क्वेरी पात्र होती हैं। वैकल्पिक प्रेडिकेट फिर भी इनवैलिडेशन फ़िल्टर कर सकता है।
+
+जिस बैच में action इवेंट हों और केवल action या app-state इवेंट हों, उसका रिसोर्स फ़िल्टर न दबाए गए action इवेंट में बदले गए किसी भी रिसोर्स से मेल खाता है। `actionInvalidatePredicate` देने पर क्वेरी को फ़िल्टर और प्रेडिकेट दोनों पास करने होते हैं। प्रेडिकेट को दबाए गए action इवेंट सहित सभी संबंधित गैर-awareness इवेंट का पूरा बैच मिलता है। बैच में डेटा बदलने वाला कोई अन्य स्रोत भी हो तो रिसोर्स फ़िल्टर बंद होता है, लेकिन प्रेडिकेट लागू रहता है। डेटा बदलने वाला अन्य इवेंट होने पर और न दबाए गए action इवेंट के बिना बैच में भी प्रेडिकेट व्यापक action इनवैलिडेशन फ़िल्टर करता है।
 
 ### callAction {#call-action}
 
@@ -437,10 +464,10 @@ try {
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: "(query: Query, events: readonly SyncEvent[]) => boolean",
           optional: true,
           description:
-            "किसी action इवेंट द्वारा ट्रिगर किए गए व्यापक इनवैलिडेशन को फ़िल्टर करता है। शायद ही कभी आवश्यक होता है। किसी महंगी सक्रिय क्वेरी को एक्सप्लिसिट-रिफ्रेश सिमेंटिक्स पर रखने के लिए उपयोग करें जबकि सामान्य सोर्स-वर्ज़न वाली क्वेरीज़ फिर भी `useChangeVersion` के माध्यम से रिएक्ट करती रहें।",
+            "क्वेरी और एकत्रित इवेंट से सिंक इनवैलिडेशन फ़िल्टर करता है। बैच का व्यवहार रिसोर्स के अनुसार इनवैलिडेशन में देखें।",
         },
         {
           name: "suppressActionInvalidationFor",

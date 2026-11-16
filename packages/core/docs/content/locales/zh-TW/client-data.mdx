@@ -130,7 +130,7 @@ description: "app/ 用來讀取、寫入，並與代理所呼叫的相同 action
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      '快取於 `["action", name, params]` 之下。每當一個變異 action 完成時就會自動重新取得，不需要手動失效。',
+      '快取於 `["action", name, params]` 下。相符的變更會自動使查詢失效。',
   }}
 />
 
@@ -193,8 +193,7 @@ const { data, isLoading } = useActionQuery(
   ]}
   returns={{
     type: "UseMutationResult",
-    description:
-      '成功後會發出 `source: "action"` 的變更事件，因此每個讀取受影響資料的 `useActionQuery()` 都會自動重新取得。不需要手動失效。',
+    description: "成功時自動使相符的 action 查詢失效，除非跳過失效作業。",
   }}
 />
 
@@ -223,6 +222,33 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### 依資源限定失效範圍 {#resource-scoped-invalidation}
+
+兩個掛鉤都接受選用的 `resources` 陣列。查詢指定它讀取的資源，變異指定它修改的資源。使用 `type` 表示整個資源類型，使用 `type:id` 表示特定 ID。
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+本機變異和同步事件使用對稱比對。`ticket` 標籤符合 `ticket` 和任何 `ticket:id` 標籤。`ticket:123` 標籤符合 `ticket` 和 `ticket:123`，但不符合 `ticket:456`。沒有標籤的查詢會保守地失效。沒有標籤的變異會使所有 action 查詢失效。
+
+對於 action 同步事件，`resourceType` 和 `resourceId` 構成已變更資源的標籤。若 `resourceId` 缺少或為空，所有符合該類型的查詢都會失效。若任何未被抑制的 action 事件缺少 `resourceType`，該批次會停用資源範圍篩選，所有 action 查詢都可能失效。選用的述詞仍可篩選失效作業。
+
+對於包含 action 事件且只包含 action 或 app-state 事件的批次，資源篩選器會符合未被抑制的 action 事件中任一已變更資源。提供 `actionInvalidatePredicate` 時，查詢必須同時通過資源篩選器和述詞。述詞會收到完整的相關非 awareness 事件批次，包括被抑制的 action 事件。若批次還包含其他會變更資料的來源，資源範圍篩選會停用，但仍會套用述詞。對於包含其他資料變更事件但沒有未被抑制的 action 事件的批次，述詞也會篩選廣泛的 action 失效作業。
 
 ### callAction {#call-action}
 
@@ -432,10 +458,10 @@ toast 的文字取決於失敗類型。被取消的請求不會顯示任何內�
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: "(query: Query, events: readonly SyncEvent[]) => boolean",
           optional: true,
           description:
-            "篩選一個 action 事件觸發的廣泛失效範圍。極少需要用到。用它讓某個昂貴的活動查詢維持明確重新整理的語意，而一般的來源版本化查詢仍透過 `useChangeVersion` 反應。",
+            "使用查詢和合併的事件篩選同步失效作業。批次行為請參閱「依資源限定失效範圍」。",
         },
         {
           name: "suppressActionInvalidationFor",

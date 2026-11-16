@@ -571,21 +571,25 @@ function hasTerminalAuthFailure(query: Query): boolean {
 }
 
 /**
- * The resource types the batch's action events changed. `undefined` when one
+ * The resources the batch's action events changed. `undefined` when one
  * event names none: its affected queries are unknown, so the batch refreshes
  * every action query, as an event without a resource always has.
  */
-function changedActionResourceTypes(
+function changedActionResources(
   actionEvents: readonly SyncEvent[],
 ): ReadonlySet<string> | undefined {
-  const types = new Set<string>();
+  const resources = new Set<string>();
   for (const evt of actionEvents) {
     if (typeof evt.resourceType !== "string" || !evt.resourceType) {
       return undefined;
     }
-    types.add(evt.resourceType);
+    resources.add(
+      typeof evt.resourceId === "string" && evt.resourceId
+        ? `${evt.resourceType}:${evt.resourceId}`
+        : evt.resourceType,
+    );
   }
-  return types;
+  return resources;
 }
 
 const INTERACTION_CRITICAL_APP_STATE_KEYS = [
@@ -1871,7 +1875,7 @@ export function useDbSync(
           const changedResources = invalidating.every(
             (evt) => evt.source === "action" || evt.source === "app-state",
           )
-            ? changedActionResourceTypes(actionEvents)
+            ? changedActionResources(actionEvents)
             : undefined;
           const predicate =
             appPredicate || changedResources

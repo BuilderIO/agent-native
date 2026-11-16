@@ -131,7 +131,7 @@ description: "app/ がエージェントが呼び出すのと同じアクショ�
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      '`["action", name, params]` の下にキャッシュされます。手動の無効化なしで、変更アクションが完了するたびに自動的に再フェッチされます。',
+      '`["action", name, params]` にキャッシュされます。一致する変更によってクエリが自動的に無効化されます。',
   }}
 />
 
@@ -195,7 +195,7 @@ const { data, isLoading } = useActionQuery(
   returns={{
     type: "UseMutationResult",
     description:
-      '成功すると `source: "action"` で変更イベントを発行するため、変更されたデータを読み取っているすべての `useActionQuery()` が自動的に再フェッチされます。手動の無効化は不要です。',
+      "成功すると、無効化をスキップしない限り、一致するアクションクエリが自動的に無効化されます。",
   }}
 />
 
@@ -224,6 +224,33 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### リソースによる無効化 {#resource-scoped-invalidation}
+
+両方のフックは省略可能な `resources` 配列を受け取ります。クエリは読み取るリソースを、ミューテーションは変更するリソースを指定します。リソース型全体には `type`、特定の ID には `type:id` を使います。
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+ローカルのミューテーションと同期イベントでは対称的に照合されます。`ticket` タグは `ticket` と任意の `ticket:id` タグに一致します。`ticket:123` タグは `ticket` と `ticket:123` に一致しますが、`ticket:456` には一致しません。タグのないクエリは安全のため無効化されます。タグのないミューテーションはすべてのアクションクエリを無効化します。
+
+アクションの同期イベントでは、`resourceType` と `resourceId` から変更されたリソースのタグを作ります。`resourceId` がないか空の場合、その型に一致するすべてのクエリが無効化されます。抑制されていないアクションイベントのいずれかに `resourceType` がない場合、バッチのリソース絞り込みは無効になり、すべてのアクションクエリが対象になります。省略可能な述語によるフィルタリングは引き続き行えます。
+
+アクションイベントを含み、アクションまたは app-state イベントだけで構成されるバッチでは、リソースフィルターは抑制されていないアクションイベントで変更されたリソースのいずれかに一致します。`actionInvalidatePredicate` を指定した場合、クエリはフィルターと述語の両方を満たす必要があります。述語には、抑制されたアクションイベントを含む、関連する awareness 以外のバッチ全体が渡されます。バッチにデータを変更する別のソースも含まれる場合は、リソースの絞り込みは無効になりますが、述語は適用されます。データを変更する別のイベントがあり、抑制されていないアクションイベントがないバッチでも、述語は広範なアクションの無効化をフィルタリングします。
 
 ### callAction {#call-action}
 
@@ -438,10 +465,10 @@ try {
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: "(query: Query, events: readonly SyncEvent[]) => boolean",
           optional: true,
           description:
-            "アクション イベントがトリガーする広範な無効化をフィルタリングします。ほとんど必要ありません。通常のソース バージョン管理されたクエリが `useChangeVersion` を通じて反応し続ける一方で、高コストなアクティブ クエリを明示的なリフレッシュのセマンティクスに保つために使用します。",
+            "クエリとまとめられたイベントを使って同期の無効化をフィルタリングします。バッチの動作は「リソースによる無効化」を参照してください。",
         },
         {
           name: "suppressActionInvalidationFor",
