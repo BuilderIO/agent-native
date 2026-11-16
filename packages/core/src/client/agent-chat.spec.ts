@@ -1865,6 +1865,74 @@ describe("sendToAgentChat", () => {
     ]);
   });
 
+  it("keeps a persisted item when a synchronous set lands during its write", async () => {
+    const write = Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy.mockImplementationOnce(() => write.promise);
+    const persistence = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-1",
+      title: "Text",
+      context: "The block",
+      targetThreadId: "thread-1",
+    });
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    const requestState = JSON.parse(
+      fetchSpy.mock.calls[0]?.[1]?.body as string,
+    );
+
+    // A chat mounting while the write is in flight publishes its own resource.
+    setAgentChatContextItem({
+      key: "resource",
+      title: "Document",
+      context: "The open document",
+    });
+    write.resolve({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(requestState),
+    });
+    await persistence;
+
+    expect(listAgentChatContext().map(({ key }) => key)).toEqual([
+      "resource",
+      "prefill:thread-1",
+    ]);
+    const finalWrite = JSON.parse(fetchSpy.mock.lastCall?.[1]?.body as string);
+    expect(finalWrite.items.map(({ key }: { key: string }) => key)).toEqual([
+      "resource",
+      "prefill:thread-1",
+    ]);
+  });
+
+  it("leaves a key that a synchronous set replaced during the write", async () => {
+    const write = Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy.mockImplementationOnce(() => write.promise);
+    const persistence = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-1",
+      title: "Older",
+      context: "Older block",
+      targetThreadId: "thread-1",
+    });
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    const requestState = JSON.parse(
+      fetchSpy.mock.calls[0]?.[1]?.body as string,
+    );
+
+    setAgentChatContextItem({
+      key: "prefill:thread-1",
+      title: "Newer",
+      context: "Newer block",
+      targetThreadId: "thread-1",
+    });
+    write.resolve({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(requestState),
+    });
+    await persistence;
+
+    expect(listAgentChatContext().map(({ title }) => title)).toEqual(["Newer"]);
+  });
+
   it("persists removal of a staged composer context item", async () => {
     const write = Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
     fetchSpy.mockImplementationOnce(() => write.promise);

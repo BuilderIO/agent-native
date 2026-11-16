@@ -517,6 +517,21 @@ function withReplacedAgentChatContextItem(
   );
 }
 
+function sameAgentChatContextItem(
+  a: AgentChatContextItem | undefined,
+  b: AgentChatContextItem | undefined,
+): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.key === b.key &&
+    a.title === b.title &&
+    a.context === b.context &&
+    a.contextNamespace === b.contextNamespace &&
+    a.targetThreadId === b.targetThreadId &&
+    a.stagingId === b.stagingId
+  );
+}
+
 function notifyAgentChatContextListeners(): void {
   if (agentChatContextNotifyQueued) return;
   agentChatContextNotifyQueued = true;
@@ -1598,12 +1613,10 @@ export async function setAgentChatContextItemAndPersist(
   }
 
   return queueAgentChatContextPersistence(async () => {
+    const baseState = agentChatContextState;
     const nextState: AgentChatContextState = {
-      items: withReplacedAgentChatContextItem(
-        agentChatContextState.items,
-        item,
-      ),
-      updatedAt: Math.max(Date.now(), agentChatContextState.updatedAt + 1),
+      items: withReplacedAgentChatContextItem(baseState.items, item),
+      updatedAt: Math.max(Date.now(), baseState.updatedAt + 1),
     };
     const persistedState = normalizeAgentChatContextState(
       await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
@@ -1624,10 +1637,34 @@ export async function setAgentChatContextItemAndPersist(
       throw new Error("Agent chat context was not persisted.");
     }
 
-    publishAgentChatContextItems(persistedState.items, {
-      persist: false,
-      updatedAt: persistedState.updatedAt,
-    });
+    const currentState = agentChatContextState;
+    if (currentState === baseState) {
+      publishAgentChatContextItems(persistedState.items, {
+        persist: false,
+        updatedAt: persistedState.updatedAt,
+      });
+      return item;
+    }
+    // A synchronous set published while the write was in flight, from items
+    // without this one, and its later clock would hide it. Add the item to
+    // that state unless it changed this key itself.
+    if (
+      sameAgentChatContextItem(
+        baseState.items.find((candidate) => candidate.key === item.key),
+        currentState.items.find((candidate) => candidate.key === item.key),
+      )
+    ) {
+      publishAgentChatContextItems(
+        withReplacedAgentChatContextItem(currentState.items, persistedItem),
+        {
+          updatedAt: Math.max(
+            Date.now(),
+            currentState.updatedAt + 1,
+            persistedState.updatedAt + 1,
+          ),
+        },
+      );
+    }
     return item;
   });
 }
