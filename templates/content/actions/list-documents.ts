@@ -8,7 +8,18 @@ import {
   roleSatisfies,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -56,7 +67,7 @@ function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
 
 export default defineAction({
   description:
-    "List one bounded page of access-scoped document metadata ordered by position. Returns explicit pagination; follow nextOffset until hasMore is false. Does not return full document bodies; use get-document for one document's content.",
+    'List one bounded page of access-scoped document metadata, in sidebar order by default. To find recently edited documents, pass sort "recent", which puts the most recently edited first; the first page usually answers. Returns explicit pagination; request nextOffset only when the task needs more documents than this page holds. Does not return full document bodies; use get-document to read one document.',
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -89,6 +100,20 @@ export default defineAction({
       .enum(["page", "database"])
       .optional()
       .describe("Only ordinary pages or collection pages"),
+    sort: z
+      .enum(["position", "recent"])
+      .default("position")
+      .describe(
+        "position: sidebar order (default). recent: most recently edited first",
+      ),
+    modifiedAfter: z.iso
+      .datetime()
+      .optional()
+      .describe("Modified at or after this UTC timestamp"),
+    modifiedBefore: z.iso
+      .datetime()
+      .optional()
+      .describe("Modified before this UTC timestamp"),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -117,6 +142,20 @@ export default defineAction({
       parentId: args.parentId,
       spaceId: args.spaceId,
       documentType: args.documentType,
+      additional: and(
+        args.modifiedAfter
+          ? gte(
+              sql`${schema.documents.updatedAt}::timestamptz`,
+              args.modifiedAfter,
+            )
+          : undefined,
+        args.modifiedBefore
+          ? lt(
+              sql`${schema.documents.updatedAt}::timestamptz`,
+              args.modifiedBefore,
+            )
+          : undefined,
+      ),
     });
     const [countRow] = await db
       .select({ count: sql<number>`count(*)` })
@@ -149,7 +188,14 @@ export default defineAction({
       })
       .from(schema.documents)
       .where(where)
-      .orderBy(asc(schema.documents.position), asc(schema.documents.id))
+      .orderBy(
+        ...(args.sort === "recent"
+          ? // Not every stored time is an ISO string, so sort by the
+            // timestamp, not the text.
+            [desc(sql`${schema.documents.updatedAt}::timestamptz`)]
+          : [asc(schema.documents.position)]),
+        asc(schema.documents.id),
+      )
       .limit(args.limit)
       .offset(args.offset);
 

@@ -780,6 +780,84 @@ describe("bounded document discovery", () => {
     expect(terminal.documents.at(-1)?.description).toBe("last page marker");
   });
 
+  it("lists the most recently edited documents first in one page", async () => {
+    const recent = await asUser(OWNER, () =>
+      listDocuments.run({
+        parentId: PARENT_ID,
+        sort: "recent",
+        limit: 3,
+        offset: 0,
+      }),
+    );
+
+    expect(recent.documents.map((document) => document.id)).toEqual([
+      "bounded-discovery-document-204",
+      "bounded-discovery-document-203",
+      "bounded-discovery-document-202",
+    ]);
+    expect(recent.pagination).toEqual({
+      offset: 0,
+      limit: 3,
+      totalItems: 205,
+      returnedItems: 3,
+      hasMore: true,
+      nextOffset: 3,
+    });
+  });
+
+  it("sorts and filters recent documents by timestamp, not stored text", async () => {
+    const title = "Recently edited timestamp probe";
+    // As text, the ISO time sorts after the later Postgres-format one.
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "list-recent-late-postgres-text",
+          ownerEmail: OWNER,
+          title,
+          content: "",
+          updatedAt: "2030-01-01 23:00:00+00",
+        },
+        {
+          id: "list-recent-early-iso",
+          ownerEmail: OWNER,
+          title,
+          content: "",
+          updatedAt: "2030-01-01T01:00:00.000Z",
+        },
+      ]);
+
+    const recent = await asUser(OWNER, () =>
+      listDocuments.run({ exactTitle: title, sort: "recent" }),
+    );
+    expect(recent.documents.map((document) => document.id)).toEqual([
+      "list-recent-late-postgres-text",
+      "list-recent-early-iso",
+    ]);
+
+    const afterNoon = await asUser(OWNER, () =>
+      listDocuments.run({
+        exactTitle: title,
+        sort: "recent",
+        modifiedAfter: "2030-01-01T12:00:00.000Z",
+      }),
+    );
+    expect(afterNoon.documents.map((document) => document.id)).toEqual([
+      "list-recent-late-postgres-text",
+    ]);
+    expect(afterNoon.pagination.totalItems).toBe(1);
+
+    const beforeNoon = await asUser(OWNER, () =>
+      listDocuments.run({
+        exactTitle: title,
+        modifiedBefore: "2030-01-01T12:00:00.000Z",
+      }),
+    );
+    expect(beforeNoon.documents.map((document) => document.id)).toEqual([
+      "list-recent-early-iso",
+    ]);
+  });
+
   it("keeps a parent listed on another page and hides one the caller cannot list", async () => {
     const children = await asUser(OWNER, () =>
       listDocuments.run({ parentId: PARENT_ID, limit: 10, offset: 100 }),
