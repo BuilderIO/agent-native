@@ -78,7 +78,7 @@ describe("block actions", () => {
     expect(turnBlockInto(tr, 0, "heading1")).toBe(false);
     expect(tr.docChanged).toBe(false);
   });
-
+  // oracle-change: block titles moved with blockTitleKey to the per-type registry, and its test checks them there
   it("quotes a block's text for a comment, and nothing from a blank or a divider", () => {
     const page = mount([
       paragraph("Hello"),

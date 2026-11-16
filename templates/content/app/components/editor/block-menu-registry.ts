@@ -41,7 +41,7 @@ const titled =
     t(key);
 
 // Notion blocks Content keeps as they are, by the tag they came with.
-const NOTION_BLOCK_TITLES: Record<string, string> = {
+const NOTION_BLOCK_TITLES: Partial<Record<string, string>> = {
   page: "editor.slash.page",
   database: "editor.slash.database",
   equation: "editor.slash.blockEquation",

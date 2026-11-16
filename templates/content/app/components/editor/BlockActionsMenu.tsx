@@ -183,6 +183,7 @@ export function BlockActionsMenu({
   const [query, setQuery] = useState("");
   const [, setRevision] = useState(0);
   const escapedRef = useRef(false);
+  const editorFocusRef = useRef(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const reasonId = useId();
@@ -355,7 +356,9 @@ export function BlockActionsMenu({
     const excerpt = nfm.slice(0, ASK_AGENT_MAX_CHARS);
     const fence = "~".repeat(Math.max(3, longestRun(excerpt, /~+/g) + 1));
     sendToAgentChat({
-      message: "",
+      // The chat drops a send whose message is empty, so a draft with only the
+      // block attached needs one character; the composer trims it on send.
+      message: " ",
       submit: false,
       openSidebar: true,
       contextLabel: blockMenuEntry(latest.node).title(latest.node, t),
@@ -465,7 +468,8 @@ export function BlockActionsMenu({
     if (
       !search ||
       target === search ||
-      target.closest("[data-radix-menu-content]") !== event.currentTarget
+      target.closest("[data-radix-menu-content], [role='dialog']") !==
+        event.currentTarget
     ) {
       return;
     }
@@ -595,8 +599,26 @@ export function BlockActionsMenu({
   if (sheet) {
     const sheetItem = { [SHEET_ITEM]: "" };
 
+    // The open sheet keeps focus inside it, so an action that focuses the
+    // editor is pulled back, before the editor sees it in some browsers; the
+    // sheet passes focus on once it has gone.
     const runAndClose = (action: () => void) => () => {
-      action();
+      const { dom } = request.view;
+      const tookFocus = (event: FocusEvent) => {
+        const to =
+          event.type === "focusin" ? event.target : event.relatedTarget;
+        if (to instanceof Node && dom.contains(to)) {
+          editorFocusRef.current = true;
+        }
+      };
+      window.addEventListener("focusin", tookFocus, true);
+      window.addEventListener("focusout", tookFocus, true);
+      try {
+        action();
+      } finally {
+        window.removeEventListener("focusin", tookFocus, true);
+        window.removeEventListener("focusout", tookFocus, true);
+      }
       close();
     };
 
@@ -718,7 +740,9 @@ export function BlockActionsMenu({
               {section.color ? opensView(colorLabel, "color") : null}
             </>
           );
-        default:
+        case "insert":
+        case "block":
+        case "assist":
           return (
             <>
               {section.actions.map((action) => (
@@ -726,6 +750,7 @@ export function BlockActionsMenu({
                   key={action.id}
                   {...sheetItem}
                   aria-describedby={lockReasonId(action.lock)}
+                  aria-keyshortcuts={action.shortcut?.aria}
                   className={cn(
                     sheetRowClass,
                     action.destructive && "text-destructive",
@@ -762,8 +787,20 @@ export function BlockActionsMenu({
           ref={contentRef}
           aria-describedby={undefined}
           className="flex max-h-[85dvh] flex-col gap-0 rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)]"
-          // The block's actions focus the editor themselves.
-          onCloseAutoFocus={(event) => event.preventDefault()}
+          // An action that focused the editor gets it back, and Escape puts the
+          // caret in the block, as the menu's does. A tap outside leaves the
+          // phone's keyboard down.
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const escaped = escapedRef.current;
+            const toEditor = editorFocusRef.current;
+            escapedRef.current = false;
+            editorFocusRef.current = false;
+            if (toEditor) request.view.focus();
+            else if (escaped) returnToBlock();
+          }}
+          onEscapeKeyDown={markEscaped}
+          onKeyDown={handleMenuKeyDown}
           // The phone's keyboard stays down until the search is tapped.
           onOpenAutoFocus={(event) => event.preventDefault()}
           showClose={false}
@@ -886,7 +923,9 @@ export function BlockActionsMenu({
             ) : null}
           </>
         );
-      default:
+      case "insert":
+      case "block":
+      case "assist":
         return (
           <>
             {section.actions.map((action) => (

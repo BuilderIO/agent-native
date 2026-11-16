@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { parseSubmitChatMessage } from "@agent-native/core/client/agent-chat";
 import type { DragHandleMenuRequest } from "@agent-native/toolkit/editor";
 import { Editor, type JSONContent } from "@tiptap/core";
 import type { Transaction } from "@tiptap/pm/state";
@@ -318,7 +319,7 @@ describe("BlockActionsMenu", () => {
     expect(sendToAgentChat).toHaveBeenCalledOnce();
     const message = sendToAgentChat.mock.calls[0]?.[0];
     expect(message).toMatchObject({
-      message: "",
+      message: " ",
       submit: false,
       openSidebar: true,
       contextLabel: "editor.slash.text",
@@ -328,6 +329,12 @@ describe("BlockActionsMenu", () => {
     expect(message.context).toContain("Block position: 1 of 2");
     expect(message.context).toContain("~~~\nBefore\n~~~");
     expect(menus()).toEqual([]);
+    // The chat takes it as a draft with the block staged, not a send.
+    expect(
+      parseSubmitChatMessage({
+        data: { type: "agentNative.submitChat", data: message },
+      } as MessageEvent),
+    ).toMatchObject({ submit: false, contextLabel: "editor.slash.text" });
   });
 
   it("fences a block that holds tildes so the attachment can't end early", () => {
@@ -729,10 +736,19 @@ describe("BlockActionsMenu", () => {
           `${row.textContent}${row.hasAttribute("aria-checked") ? `=${row.getAttribute("aria-checked")}` : ""}`,
       );
 
+    function row(text: string) {
+      const found = rows().find((element) => element.textContent === text);
+      if (!found) throw new Error(`No sheet row "${text}"`);
+      return found;
+    }
+
+    // A tap focuses the button it lands on, as Chrome's does.
     function tap(text: string) {
-      const row = rows().find((element) => element.textContent === text);
-      if (!row) throw new Error(`No sheet row "${text}"`);
-      act(() => row.click());
+      const tapped = row(text);
+      act(() => {
+        tapped.focus();
+        tapped.click();
+      });
     }
 
     function back() {
@@ -794,6 +810,55 @@ describe("BlockActionsMenu", () => {
       expect(target.state.doc.child(0).type.name).toBe("heading");
       expect(target.state.doc.child(0).attrs.level).toBe(2);
       expect(request.onClose).toHaveBeenCalled();
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it("leaves a restyled block ready to type in once the sheet goes", async () => {
+      onPhone();
+      const target = mount();
+      open(target, 0);
+
+      tap("editor.slash.turnInto");
+      tap("editor.heading2");
+      // The sheet hands focus on a tick after it goes.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+      expect(target.view.hasFocus()).toBe(true);
+      expect(target.state.selection.$from.parent.type.name).toBe("heading");
+    });
+
+    it("puts the caret in its block on Escape", async () => {
+      onPhone();
+      const target = mount();
+      open(target, 0);
+      act(() => searchBox().focus());
+
+      pressEscape();
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(target.view.hasFocus()).toBe(true);
+      expect(target.state.selection.empty).toBe(true);
+      expect(target.state.selection.$from.parent.textContent).toBe("Before");
+    });
+
+    it("filters with what's typed on a row and runs its shortcuts", () => {
+      onPhone();
+      const { request } = open(mount(), 0);
+      const duplicate = row("editor.blockMenu.duplicate");
+      expect(duplicate.getAttribute("aria-keyshortcuts")).toBe(
+        APPLE ? "Meta+D" : "Control+D",
+      );
+      act(() => duplicate.focus());
+
+      const typed = press(duplicate, "u");
+      expect(typed.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(searchBox());
+      expect(searchBox().value).toBe("u");
+
+      const shortcut = press(searchBox(), "d", MOD);
+      expect(shortcut.defaultPrevented).toBe(true);
+      expect(request.duplicate).toHaveBeenCalledOnce();
       expect(document.querySelector('[role="dialog"]')).toBeNull();
     });
 

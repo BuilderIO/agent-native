@@ -107,7 +107,7 @@ test.describe("block menu", () => {
 
     await expect
       .poll(savedContent(page, id))
-      .toMatch(/First line\.\n\nBetween\n\nSecond line\./);
+      .toMatch(/First line\.\nBetween\nSecond line\./);
   });
 
   test("reaches Turn into from the keyboard", async ({ page }) => {
@@ -292,8 +292,13 @@ test.describe("block menu on a phone", () => {
     await expect(duplicate).toHaveText("Duplicate", { useInnerText: true });
     const row = await duplicate.boundingBox();
     expect(row?.height).toBeGreaterThanOrEqual(44);
-    const box = await sheet.boundingBox();
-    expect(box && Math.round(box.y + box.height)).toBe(844);
+    // Once it has slid up, its bottom is the screen's.
+    await expect
+      .poll(async () => {
+        const box = await sheet.boundingBox();
+        return box && Math.round(box.y + box.height);
+      })
+      .toBe(844);
 
     await sheet.getByRole("button", { name: "Turn into" }).tap();
     await expect(sheet.getByRole("radio", { name: "Text" })).toHaveAttribute(
@@ -303,6 +308,10 @@ test.describe("block menu on a phone", () => {
     await sheet.getByRole("radio", { name: "Heading 2" }).tap();
     await expect(sheet).toHaveCount(0);
     await expect(page.locator(`${EDITOR} h2`)).toHaveText("First line.");
+    // The heading is ready to type in, from the end of its text.
+    await expect(page.locator(EDITOR)).toBeFocused();
+    await page.keyboard.type("!");
+    await expect(page.locator(`${EDITOR} h2`)).toHaveText("First line.!");
 
     await block(page, "Second line.").tap();
     await page.locator(GRIP).tap();
@@ -318,7 +327,7 @@ test.describe("block menu on a phone", () => {
       page.locator(`${EDITOR} p[data-notion-color="red"]`),
     ).toHaveText("Second line.");
 
-    await expect.poll(savedContent(page, id)).toContain("## First line.");
+    await expect.poll(savedContent(page, id)).toContain("## First line.!");
     await expect.poll(savedContent(page, id)).toContain("red");
   });
 });
