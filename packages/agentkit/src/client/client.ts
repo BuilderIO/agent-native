@@ -7365,7 +7365,7 @@ export class AgentKitClient implements AgentKitController {
       if (!(error instanceof AgentKitCapabilityError)) throw error;
       this.removeQueuedMessageFromState(threadId, queued.id);
     }
-    await this.sendMessage({
+    const input: SendMessageInput = {
       threadId,
       text: queued.text,
       ...(queued.attachments?.length
@@ -7374,7 +7374,21 @@ export class AgentKitClient implements AgentKitController {
       ...(queued.references?.length ? { references: queued.references } : {}),
       ...(queued.metadata ? { metadata: queued.metadata } : {}),
       queueWhileRunning: false,
-    });
+    };
+    try {
+      await this.sendMessage(input);
+    } catch (error) {
+      // The row was removed before the send; a refusal before any transcript
+      // message exists must not lose the user's text and attachments.
+      if (!this.disposed) {
+        await this.queueMessage({ ...input, queueWhileRunning: true }).catch(
+          () => {
+            // The original error below is the one to surface.
+          },
+        );
+      }
+      throw error;
+    }
   }
 
   /**

@@ -1235,7 +1235,11 @@ export function SharePeopleInvite({
     return true;
   };
   const shareStaged = () => {
-    for (const email of staged) handleAdd(email);
+    const restoreFailed = (email: string) =>
+      setStaged((previous) =>
+        previous.includes(email) ? previous : [...previous, email],
+      );
+    for (const email of staged) handleAdd(email, { onFailed: restoreFailed });
     setStaged([]);
   };
   const orgHasAgents = (data?.agents?.length ?? 0) > 0;

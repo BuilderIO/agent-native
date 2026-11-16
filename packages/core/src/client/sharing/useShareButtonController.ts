@@ -189,8 +189,15 @@ export interface ShareButtonController {
   handleGeneralAccessRole: (role: ShareButtonRole) => void;
   handleVisibility: (visibility: ShareButtonVisibility) => void;
   handleHideInSearch: () => void;
-  /** Shares the typed field, or `email` as a person when given. */
-  handleAdd: (email?: string) => void;
+  /**
+   * Shares the typed field, or `email` as a person when given. A refused
+   * `email` goes to `onFailed` when it is passed, so several saves that fail
+   * together keep every address instead of overwriting one input.
+   */
+  handleAdd: (
+    email?: string,
+    options?: { onFailed?: (email: string) => void },
+  ) => void;
   handleChangeRole: (share: ShareButtonShare, role: ShareButtonRole) => void;
   handleRemove: (share: ShareButtonShare) => void;
 }
@@ -641,7 +648,7 @@ export function useShareButtonController(
   }, [canManage, options.hideInSearchControl]);
 
   const handleAdd = useCallback(
-    (email?: string) => {
+    (email?: string, addOptions?: { onFailed?: (email: string) => void }) => {
       const trimmed = (email ?? inviteEmail).trim();
       if (!trimmed || !canManage) return;
       const group = email === undefined ? selectedGroup : null;
@@ -736,7 +743,11 @@ export function useShareButtonController(
               previous.filter((item) => item.id !== optimistic.id),
             );
             clearInFlight(key);
-            setInviteEmail(trimmed);
+            if (email !== undefined && addOptions?.onFailed) {
+              addOptions.onFailed(trimmed);
+            } else {
+              setInviteEmail(trimmed);
+            }
             setSelectedGroup(group);
             setSelectedAgent(agent);
             setShareMessage((current) => current || message);
