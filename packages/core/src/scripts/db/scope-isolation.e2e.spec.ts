@@ -269,6 +269,28 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
     expect(hidden.rows).toEqual([]);
   });
 
+  it("keeps an app-defined org-only table readable by the whole org, and only that org", async () => {
+    await withClient(async (c) => {
+      await c.execute(
+        `CREATE TABLE inventory_items (id TEXT PRIMARY KEY, org_id TEXT, sku TEXT)`,
+      );
+      for (const [id, org] of [
+        ["i1", "org-1"],
+        ["i2", "org-1"],
+        ["i3", "org-2"],
+      ]) {
+        await c.execute({
+          sql: `INSERT INTO inventory_items VALUES (?, ?, ?)`,
+          args: [id, org, `sku-${id}`],
+        });
+      }
+    });
+    vi.stubEnv("AGENT_USER_EMAIL", "b@x.com");
+    vi.stubEnv("AGENT_ORG_ID", "org-1");
+    const result = await runQuery("SELECT id FROM inventory_items ORDER BY id");
+    expect(result.rows.map((r: any) => r.id)).toEqual(["i1", "i2"]);
+  });
+
   it("does not let member B delete an unlisted org table's rows", async () => {
     await seedOrgTable("email_log");
     vi.stubEnv("AGENT_USER_EMAIL", "b@x.com");

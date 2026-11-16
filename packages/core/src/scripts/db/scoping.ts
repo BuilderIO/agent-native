@@ -18,10 +18,11 @@ const OWNER_COLUMN = "owner_email";
 const ORG_COLUMN = "org_id";
 const DEV_FALLBACK_EMAIL = "local@localhost"; // guard:allow-localhost-fallback — sentinel is rejected below so DB scripts cannot silently scope to the dev fallback tenant
 
-// Tables with `org_id` and no owner column that every org member may read in
-// full. A raw view returns every column, so a table whose action hides columns
-// from non-admins (`workspace_user_groups` blanks its member emails) does not
-// belong here. Any other such table is hidden.
+// Framework tables with `org_id` and no owner column that every org member may
+// read in full. A raw view returns every column, so a table whose action hides
+// columns from non-admins (`workspace_user_groups` blanks its member emails)
+// does not belong here. Any other such framework table is hidden; a table the
+// app defines itself keeps the org-wide view.
 export const ORG_SHARED_TABLES: ReadonlySet<string> = new Set([
   "app_permission_overrides", // every member reads these role grants through list-app-permissions
 ]);
@@ -97,6 +98,7 @@ function buildScopedTables(
   allColumns: TableColumn[],
   userEmail: string,
   orgId: string | null,
+  frameworkTables: ReadonlySet<string>,
 ): ScopedTable[] {
   const columnsByTable = new Map<string, string[]>();
   for (const { table, column } of allColumns) {
@@ -183,7 +185,10 @@ function buildScopedTables(
       continue;
     }
 
-    if (hasOrg && ORG_SHARED_TABLES.has(table)) {
+    if (
+      hasOrg &&
+      (ORG_SHARED_TABLES.has(table) || !frameworkTables.has(table))
+    ) {
       scoped.push(
         viewFor(
           table,
@@ -218,7 +223,16 @@ export async function buildScopingPostgres(client: {
 
   const orgId = getOrgId();
   const allColumns = await discoverColumns(client);
-  const scoped = buildScopedTables(allColumns, userEmail, orgId);
+  // A failed load must fail the call: an empty set would read every framework
+  // table as app-defined and open the org-wide view on all of them.
+  const { SCHEMA_SNAPSHOT } =
+    await import("../../db/schema-snapshot.generated.js");
+  const scoped = buildScopedTables(
+    allColumns,
+    userEmail,
+    orgId,
+    new Set(SCHEMA_SNAPSHOT.tables),
+  );
 
   const columnsByTable = new Map<string, string[]>();
   for (const { table, column } of allColumns) {

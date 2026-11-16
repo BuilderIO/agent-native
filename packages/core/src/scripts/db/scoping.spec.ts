@@ -115,6 +115,8 @@ describe("scoping", () => {
           { table_name: "notes", column_name: "content" },
           { table_name: "app_permission_overrides", column_name: "org_id" },
           { table_name: "app_permission_overrides", column_name: "roles_json" },
+          { table_name: "email_log", column_name: "org_id" },
+          { table_name: "email_log", column_name: "recipient" },
           { table_name: "org_only_table", column_name: "id" },
           { table_name: "org_only_table", column_name: "org_id" },
           { table_name: "org_only_table", column_name: "data" },
@@ -138,9 +140,14 @@ describe("scoping", () => {
       expect(orgSharedView).toContain('"org_id" = ');
       expect(orgSharedView).not.toContain("owner_email");
 
+      const hiddenFrameworkView = ctx.setup.find((s) =>
+        s.includes('"email_log"'),
+      );
+      expect(hiddenFrameworkView).toContain("WHERE 1 = 0");
+
       const orgOnlyView = ctx.setup.find((s) => s.includes('"org_only_table"'));
-      expect(orgOnlyView).toContain("WHERE 1 = 0");
-      expect(orgOnlyView).not.toContain('"org_id" = ');
+      expect(orgOnlyView).toContain('"org_id" = ');
+      expect(orgOnlyView).not.toContain("owner_email");
 
       const plainView = ctx.setup.find((s) => s.includes('"plain_table"'));
       expect(plainView).toBeDefined();
@@ -540,12 +547,28 @@ describe("scoping", () => {
       },
     );
 
-    it("blocks a new table with org_id and no owner column by default", async () => {
+    it("blocks a new framework table with org_id and no owner column by default", async () => {
+      vi.doMock("../../db/schema-snapshot.generated.js", () => ({
+        SCHEMA_SNAPSHOT: { tables: ["brand_new_framework_table"] },
+      }));
+      try {
+        const predicates = await scopeAsMemberB([
+          { table_name: "brand_new_framework_table", column_name: "id" },
+          { table_name: "brand_new_framework_table", column_name: "org_id" },
+        ]);
+        expect(predicates.get("brand_new_framework_table")).toBe("1 = 0");
+      } finally {
+        vi.doUnmock("../../db/schema-snapshot.generated.js");
+      }
+    });
+
+    it("keeps an app-defined table with org_id and no owner column readable by the whole org", async () => {
       const predicates = await scopeAsMemberB([
-        { table_name: "brand_new_table", column_name: "id" },
-        { table_name: "brand_new_table", column_name: "org_id" },
+        { table_name: "inventory_items", column_name: "id" },
+        { table_name: "inventory_items", column_name: "org_id" },
+        { table_name: "inventory_items", column_name: "sku" },
       ]);
-      expect(predicates.get("brand_new_table")).toBe("1 = 0");
+      expect(predicates.get("inventory_items")).toBe(`"org_id" = 'org-1'`);
     });
 
     it("still scopes owner_email tables to the owner and the org", async () => {
