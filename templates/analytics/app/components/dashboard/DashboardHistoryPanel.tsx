@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { actionErrorCode } from "@agent-native/core/client/use-action";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { IconHistory, IconLoader2, IconRotate } from "@tabler/icons-react";
 import { useState } from "react";
@@ -139,7 +140,13 @@ export function DashboardHistoryPanel({
       setPendingRestore(null);
       onOpenChange(false);
     } catch (error) {
-      reportWriteFailure(error, { label: t("dashboard.historyRestoreFailed") });
+      if (actionErrorCode(error) === "dashboard_name_conflict") {
+        toast.error(t("dashboard.nameConflict"));
+      } else {
+        reportWriteFailure(error, {
+          label: t("dashboard.historyRestoreFailed"),
+        });
+      }
     }
   };
 

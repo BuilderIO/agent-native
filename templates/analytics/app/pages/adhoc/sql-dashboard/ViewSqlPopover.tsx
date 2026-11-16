@@ -1,5 +1,6 @@
 import { useReconciledState } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { actionErrorCode } from "@agent-native/core/client/use-action";
 import {
   IconAlertTriangle,
   IconAlignLeft,
@@ -93,7 +94,11 @@ export function ViewSqlPopover({
       setOpen(false);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : t("sqlDashboard.failedToSave"),
+        actionErrorCode(err) === "dashboard_name_conflict"
+          ? t("dashboard.nameConflict")
+          : err instanceof Error
+            ? err.message
+            : t("sqlDashboard.failedToSave"),
       );
     } finally {
       setSaving(false);

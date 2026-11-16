@@ -234,6 +234,8 @@ export default {
     unreadable: "Couldn't read what changed",
   },
   dashboard: {
+    nameConflict:
+      "A visible dashboard already uses this name. Choose a different name or ask its owner to rename it, then retry.",
     sqlDashboard: "SQL dashboard",
     historyTitle: "Dashboard history",
     historyDescription:
