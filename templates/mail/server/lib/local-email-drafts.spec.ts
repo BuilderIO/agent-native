@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   withLocalEmailMutationLock: vi.fn(),
   writeLocalEmails: vi.fn(),
   bodyToHtml: vi.fn((body: string) => `<p>${body}</p>`),
+  readSettings: vi.fn(),
 }));
 
 vi.mock("./local-email-store.js", () => ({
@@ -13,9 +14,15 @@ vi.mock("./local-email-store.js", () => ({
   writeLocalEmails: mocks.writeLocalEmails,
 }));
 
+vi.mock("./mail-settings.js", () => ({ readSettings: mocks.readSettings }));
+
+// No attachment reader here: a local copy never reads an attachment's bytes.
 vi.mock("./outgoing-email.js", () => ({ bodyToHtml: mocks.bodyToHtml }));
 
-import { updateLocalSavedDraft } from "./local-email-drafts.js";
+import {
+  createLocalSavedDraft,
+  updateLocalSavedDraft,
+} from "./local-email-drafts.js";
 
 describe("updateLocalSavedDraft", () => {
   beforeEach(() => {
@@ -155,7 +162,7 @@ describe("updateLocalSavedDraft", () => {
     ).toBe("/api/media/abc123.pdf");
   });
 
-  it("fails rather than creating a replacement when the exact local draft is missing", async () => {
+  it("says so, and writes nothing, when the exact local draft is missing", async () => {
     await expect(
       updateLocalSavedDraft({
         ownerEmail: "owner@example.com",
@@ -164,7 +171,197 @@ describe("updateLocalSavedDraft", () => {
         subject: "Subject",
         body: "Body",
       }),
-    ).rejects.toThrow("it was not recreated");
+    ).resolves.toBe(false);
     expect(mocks.writeLocalEmails).not.toHaveBeenCalled();
+  });
+
+  describe("given the draft's attachments", () => {
+    const draft = {
+      id: "local-draft-1",
+      threadId: "thread-1",
+      from: { name: "Owner", email: "owner@example.com" },
+      to: [],
+      subject: "Subject",
+      snippet: "Body",
+      body: "Body",
+      date: "2026-01-01T00:00:00.000Z",
+      isRead: true,
+      isStarred: false,
+      isDraft: true,
+      isArchived: false,
+      isTrashed: false,
+      labelIds: ["drafts"],
+      attachments: [
+        { id: "a.txt", filename: "a.txt", mimeType: "text/plain", size: 1 },
+      ],
+    };
+    const update = {
+      ownerEmail: "owner@example.com",
+      draftId: "local-draft-1",
+      to: "recipient@example.com",
+      subject: "Subject",
+      body: "Body",
+    };
+
+    it("replaces the ones it had", async () => {
+      mocks.readLocalEmails.mockResolvedValue([draft]);
+      const attachments = [
+        {
+          id: "b",
+          filename: "b.txt",
+          originalName: "b.txt",
+          mimeType: "text/plain",
+          size: 2,
+          url: "/uploads/b.txt",
+        },
+      ];
+
+      await expect(
+        updateLocalSavedDraft({ ...update, attachments }),
+      ).resolves.toBe(true);
+
+      const [written] = mocks.writeLocalEmails.mock.calls[0]?.[1];
+      expect(written.attachments).toEqual([
+        {
+          id: "b.txt",
+          filename: "b.txt",
+          mimeType: "text/plain",
+          size: 2,
+          url: "/uploads/b.txt",
+        },
+      ]);
+    });
+
+    it("removes them all when there are none", async () => {
+      mocks.readLocalEmails.mockResolvedValue([draft]);
+
+      await updateLocalSavedDraft({ ...update, attachments: [] });
+
+      const [written] = mocks.writeLocalEmails.mock.calls[0]?.[1];
+      expect(written).not.toHaveProperty("attachments");
+    });
+
+    it("lists one forwarded from Gmail without reading it", async () => {
+      mocks.readLocalEmails.mockResolvedValue([draft]);
+
+      await updateLocalSavedDraft({
+        ...update,
+        attachments: [
+          {
+            id: "gmail-att",
+            filename: "brief.pdf",
+            originalName: "brief.pdf",
+            mimeType: "application/pdf",
+            size: 3,
+            url: "/api/attachments?messageId=m1&id=gmail-att",
+            source: "gmail",
+            gmailMessageId: "m1",
+            gmailAttachmentId: "gmail-att",
+          },
+        ],
+      });
+
+      const [written] = mocks.writeLocalEmails.mock.calls[0]?.[1];
+      expect(written.attachments).toEqual([
+        {
+          id: "brief.pdf",
+          filename: "brief.pdf",
+          mimeType: "application/pdf",
+          size: 3,
+          url: "/api/attachments?messageId=m1&id=gmail-att",
+        },
+      ]);
+    });
+  });
+});
+
+describe("createLocalSavedDraft", () => {
+  const owner = { name: "Owner", email: "owner@example.com" };
+  const fields = {
+    ownerEmail: "owner@example.com",
+    to: "recipient@example.com",
+    subject: "Subject",
+    body: "Body",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.readSettings.mockResolvedValue(owner);
+    mocks.readLocalEmails.mockResolvedValue([
+      { id: "message-1", threadId: "thread-of-message" },
+    ]);
+    mocks.withLocalEmailMutationLock.mockImplementation(
+      (_owner: string, mutate: () => Promise<unknown>) => mutate(),
+    );
+  });
+
+  const written = () => mocks.writeLocalEmails.mock.calls[0]?.[1].slice(-1)[0];
+
+  it("joins the thread of the message it answers", async () => {
+    await createLocalSavedDraft({
+      ...fields,
+      replyToId: "message-1",
+      replyToThreadId: "thread-given",
+    });
+
+    expect(written().threadId).toBe("thread-of-message");
+  });
+
+  it("falls back to the thread it was given when that message isn't here", async () => {
+    await createLocalSavedDraft({
+      ...fields,
+      replyToId: "message-elsewhere",
+      replyToThreadId: "thread-given",
+    });
+
+    expect(written().threadId).toBe("thread-given");
+  });
+
+  it("lists attachments without reading them", async () => {
+    await createLocalSavedDraft({
+      ...fields,
+      attachments: [
+        {
+          id: "b",
+          filename: "b.txt",
+          originalName: "Big file.txt",
+          mimeType: "text/plain",
+          size: 99_000_000,
+          url: "/uploads/b.txt",
+        },
+      ],
+    });
+
+    expect(written().attachments).toEqual([
+      {
+        id: "b.txt",
+        filename: "Big file.txt",
+        mimeType: "text/plain",
+        size: 99_000_000,
+        url: "/uploads/b.txt",
+      },
+    ]);
+  });
+
+  it("links a Gmail attachment with no stored address to Mail's route", async () => {
+    await createLocalSavedDraft({
+      ...fields,
+      attachments: [
+        {
+          id: "gmail-att",
+          filename: "brief.pdf",
+          originalName: "brief.pdf",
+          mimeType: "application/pdf",
+          size: 3,
+          source: "gmail",
+          gmailMessageId: "m1",
+          gmailAttachmentId: "gmail-att",
+        },
+      ],
+    });
+
+    expect(written().attachments?.[0]?.url).toBe(
+      "/api/attachments?messageId=m1&id=gmail-att&mimeType=application%2Fpdf",
+    );
   });
 });
