@@ -68,6 +68,20 @@ describe("Design public reference copy", () => {
     );
   });
 
+  it("sanitizes markup nested inside template elements", async () => {
+    vi.mocked(ssrfSafeFetch).mockResolvedValueOnce(
+      new Response(
+        '<html><head></head><body><template shadowrootmode="open"><p onclick="alert(1)">Kept</p><script>alert(1)</script><img src="http://localhost/x.png"><template><iframe src="https://example.com/"></iframe></template></template></body></html>',
+        { headers: { "content-type": "text/html" } },
+      ),
+    );
+    const result = await fetchDesignReferenceCopy(
+      "https://example.com/reference",
+    );
+    expect(result.html).toContain("<p>Kept</p>");
+    expect(result.html).not.toMatch(/onclick=|<script|<iframe|localhost/);
+  });
+
   it("bounds the entire operation even when DNS or upstream never returns", async () => {
     vi.useFakeTimers();
     try {

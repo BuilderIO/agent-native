@@ -144,6 +144,9 @@ function sanitizeReferenceTree(
         });
       }
       if ("childNodes" in child) visit(child);
+      // parse5 keeps <template> children in `content`, not `childNodes`, and
+      // they serialize back out, so they need the same pass.
+      if ("content" in child) visit(child.content);
     }
   };
   visit(document);
