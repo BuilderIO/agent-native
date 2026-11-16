@@ -26,10 +26,7 @@ import {
   ReviewComposerToolbar,
   type ReviewComposerFormatLabels,
 } from "./ReviewComposerToolbar.js";
-import {
-  isReviewAgentMention,
-  ReviewMentionNode,
-} from "./ReviewMentionChip.js";
+import { ReviewMentionNode } from "./ReviewMentionChip.js";
 
 const SILENT_META = "reviewComposerSilent";
 // Leaf nodes are one position wide, so one character per chip keeps string
@@ -403,8 +400,7 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
             id: mention.id ?? null,
           }),
         );
-        const afterMention = from + 1;
-        tr.setSelection(TextSelection.create(tr.doc, afterMention));
+        tr.setSelection(TextSelection.create(tr.doc, from + 1));
         tr.setMeta(SILENT_META, true);
         view.dispatch(tr);
         view.focus();
