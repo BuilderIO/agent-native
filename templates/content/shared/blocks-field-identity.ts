@@ -355,10 +355,12 @@ function textPieces(value: string): Map<string, number> {
 
 const MIN_SURVIVING_TEXT = 0.5;
 
-// The share of the old text that the new text still contains. An edit keeps
-// most of a block's text, however much it adds. Unrelated prose shares common
-// words and letter pairs, but few runs of four characters.
-function survivingText(oldText: string, newText: string): number {
+// How many of the old text's pieces the new text still contains, out of all
+// of them.
+function survivingText(
+  oldText: string,
+  newText: string,
+): { kept: number; total: number } {
   const oldPieces = textPieces(oldText);
   const newPieces = textPieces(newText);
   let total = 0;
@@ -367,11 +369,15 @@ function survivingText(oldText: string, newText: string): number {
     total += count;
     kept += Math.min(count, newPieces.get(piece) ?? 0);
   }
-  return total === 0 ? 0 : kept / total;
+  return { kept, total };
 }
 
+// An edit keeps at least half of a block's text, however much it adds.
+// Unrelated prose shares common words and letter pairs, but few runs of four
+// characters.
 function keepsText(oldText: string, newText: string): boolean {
-  return survivingText(oldText, newText) >= MIN_SURVIVING_TEXT;
+  const { kept, total } = survivingText(oldText, newText);
+  return total > 0 && kept >= total * MIN_SURVIVING_TEXT;
 }
 
 function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
@@ -644,8 +650,15 @@ export function reconcileBlocksFieldIdentity(args: {
       if (assigned.has(nextIndex)) continue;
       const snapshot = snapshots[nextIndex]!;
       if (previous.kind !== snapshot.kind) continue;
-      const score = survivingText(previous.markdown, snapshot.markdown);
-      if (score < MIN_SURVIVING_TEXT) continue;
+      const { kept, total } = survivingText(
+        previous.markdown,
+        snapshot.markdown,
+      );
+      if (total === 0 || kept < total * MIN_SURVIVING_TEXT) continue;
+      // Pairs rank by how much text they share, not by the share of the old
+      // text: a short old block that a new one contains whole must not win
+      // over the longer block the new one was edited from.
+      const score = kept;
       const previousBest = bestNextForPrevious.get(previousIndex);
       if (!previousBest || score > previousBest.score) {
         bestNextForPrevious.set(previousIndex, { index: nextIndex, score });

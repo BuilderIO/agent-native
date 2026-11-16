@@ -543,6 +543,27 @@ describe("Blocks field identity", () => {
       expect(result.live).toEqual([cherriesId, applesId, pearsId]);
     });
 
+    it("keeps an edited paragraph's ID when a deleted short paragraph repeated its opening", () => {
+      const opening = "Pears bruise easily.";
+      const long = `${opening} Workers sort every fruit carefully before packing the boxes.`;
+      const marker = "Stable marker";
+      const initial = materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        markdown: [opening, marker, long].join("\n"),
+      });
+      const [openingId, markerId, longId] = initial.blocks.map(
+        (block) => block.id,
+      );
+      const result = save(
+        initial,
+        [long.replace("carefully", "gently"), marker].join("\n"),
+      );
+
+      expect(result.live).toEqual([longId, markerId]);
+      expect(result.deleted).toEqual([openingId]);
+    });
+
     it("never moves a deleted top-level paragraph's ID into a list item", () => {
       const initial = materializeLegacyBlocksFieldIdentity({
         documentId: "doc-1",
