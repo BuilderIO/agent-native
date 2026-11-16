@@ -3,7 +3,13 @@ import os from "node:os";
 import path from "node:path";
 
 import { eq, inArray, is, sql, Subquery, WithSubquery } from "drizzle-orm";
-import { PgDialect, pgTable, QueryBuilder, text } from "drizzle-orm/pg-core";
+import {
+  PgDialect,
+  pgTable,
+  QueryBuilder,
+  text,
+  union,
+} from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -1184,6 +1190,65 @@ describe("createGetDb — lazy proxy before init resolves", () => {
     ).toThrow(callbackError);
   });
 
+  it.each([
+    "union",
+    "unionAll",
+    "intersect",
+    "intersectAll",
+    "except",
+    "exceptAll",
+  ] as const)(
+    "validates field order inside cold %s helper callbacks like Drizzle",
+    async (method) => {
+      const db = (await getLazyDbFactory())();
+      const reference = drizzle.mock();
+      const makeSubquery = (source: typeof reference, mismatch: boolean) => {
+        const select = () =>
+          source
+            .select({ a: meetings.id, b: meetings.recordingId })
+            .from(meetings);
+        const other = () =>
+          mismatch
+            ? source
+                .select({ b: meetings.recordingId, a: meetings.id })
+                .from(meetings)
+            : select();
+        return select()
+          .union((helpers) => helpers[method](select(), select(), other()))
+          .as("combined");
+      };
+      const outer = (subquery: ReturnType<typeof makeSubquery>) =>
+        new QueryBuilder().select().from(subquery).toSQL();
+      expect(outer(makeSubquery(db, false))).toEqual(
+        outer(makeSubquery(reference, false)),
+      );
+      expect(() => makeSubquery(reference, true)).toThrow(
+        /selected fields are not the same/,
+      );
+      expect(() => makeSubquery(db, true)).toThrow(
+        /selected fields are not the same/,
+      );
+    },
+  );
+
+  it("validates field order when a direct Drizzle set helper receives cold operands", async () => {
+    const db = (await getLazyDbFactory())();
+    const reference = drizzle.mock();
+    const combine = (source: typeof reference) =>
+      union(
+        source
+          .select({ a: meetings.id, b: meetings.recordingId })
+          .from(meetings),
+        source
+          .select({ b: meetings.recordingId, a: meetings.id })
+          .from(meetings),
+      );
+    expect(() => combine(reference)).toThrow(
+      /selected fields are not the same/,
+    );
+    expect(() => combine(db)).toThrow(/selected fields are not the same/);
+  });
+
   it("materializes a CTE from a cold select and builds a cold outer query", async () => {
     const db = (await getLazyDbFactory())();
     const reference = drizzle.mock();
@@ -1331,6 +1396,15 @@ describe("createGetDb — lazy proxy before init resolves", () => {
         .union(write as never)
         .as("invalid"),
     ).toThrow(/await the database handle/i);
+    expect(() =>
+      db
+        .select({ id: meetings.id })
+        .from(meetings)
+        .union(({ union }) =>
+          union(db.select({ id: meetings.id }).from(meetings), write as never),
+        )
+        .as("invalid"),
+    ).toThrow(/await the database handle/i);
     expect(select).not.toHaveBeenCalled();
     expect(insert).not.toHaveBeenCalled();
     await Promise.resolve();
@@ -1390,12 +1464,43 @@ describe("createGetDb — lazy proxy before init resolves", () => {
         .where(eq(meetings.id, "1"))
         .union(callback);
       expect(callback).not.toHaveBeenCalled();
+      const coldInvalid = db
+        .select({ a: meetings.id, b: meetings.recordingId })
+        .from(meetings)
+        .union(({ union }) =>
+          union(
+            db
+              .select({ a: meetings.id, b: meetings.recordingId })
+              .from(meetings),
+            db
+              .select({ b: meetings.recordingId, a: meetings.id })
+              .from(meetings),
+          ),
+        );
       await db.execute(sql`create table meetings (id text, recording_id text)`);
       await db.insert(meetings).values([
         { id: "1", recordingId: "abc" },
         { id: "2", recordingId: "xyz" },
       ]);
       const ready = getDb();
+      expect(() =>
+        ready
+          .select({ a: meetings.id, b: meetings.recordingId })
+          .from(meetings)
+          .union(({ union }) =>
+            union(
+              ready
+                .select({ a: meetings.id, b: meetings.recordingId })
+                .from(meetings),
+              ready
+                .select({ b: meetings.recordingId, a: meetings.id })
+                .from(meetings),
+            ),
+          ),
+      ).toThrow(/selected fields are not the same/);
+      await expect(Promise.resolve(coldInvalid)).rejects.toThrow(
+        /selected fields are not the same/,
+      );
       const expectedCte = ready.$with("recent").as(
         ready
           .select({
@@ -1441,7 +1546,11 @@ describe("createGetDb — lazy proxy before init resolves", () => {
     const db = getDb();
     const insertChain = db.insert(meetings).values({ id: "1" });
 
-    for (const prop of ["getSQL", "shouldOmitSQLParens"] as const) {
+    for (const prop of [
+      "getSQL",
+      "getSelectedFields",
+      "shouldOmitSQLParens",
+    ] as const) {
       expect(() => insertChain[prop]).toThrow(/unresolved|await/i);
     }
     expect(() => db.$with("inserted").as(insertChain)).toThrow(

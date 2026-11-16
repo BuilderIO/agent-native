@@ -1257,7 +1257,11 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
           promise.catch(() => {});
           return (promise as any)[prop].bind(promise);
         }
-        if (prop === "getSQL" || prop === "shouldOmitSQLParens") {
+        if (
+          prop === "getSQL" ||
+          prop === "getSelectedFields" ||
+          prop === "shouldOmitSQLParens"
+        ) {
           const replayed = replayChainOffline(chain);
           const member = replayed?.[prop];
           if (typeof member === "function") return member.bind(replayed);
