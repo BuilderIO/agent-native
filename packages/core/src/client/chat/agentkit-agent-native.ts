@@ -2678,12 +2678,14 @@ function persistedAgentCallApproval(
   const tool = data?.tool;
   const url = data?.url;
   const taskId = data?.taskId;
+  const callId = data?.callId;
   return typeof agent === "string" &&
     typeof id === "string" &&
     typeof tool === "string" &&
     typeof url === "string" &&
-    typeof taskId === "string"
-    ? { agent, id, tool, url, taskId }
+    typeof taskId === "string" &&
+    typeof callId === "string"
+    ? { agent, id, tool, url, taskId, callId }
     : undefined;
 }
 

@@ -1011,6 +1011,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       tool: "delete-deck",
       url: "https://slides.example.com/_agent-native/a2a/approvals/approval-1",
       taskId: "task-child",
+      callId: "call-1",
     };
     let savedThreadData: string | undefined;
     const fetcher = vi.fn(

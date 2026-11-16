@@ -450,9 +450,11 @@ on the peer's own origin and names that approval, and passes it on the
 the person returns, asks the agent to call `call-agent` again with the same
 `taskId` and no message, which returns the approved action's result. The card
 is an `agent-native/agent-call-approval` widget saved with the thread, so it
-survives a reload; it closes once the person continues or dismisses it, or once
-that task finishes. Dismissing leaves the approval pending in the peer app. A
-later call that finds the same approval still waiting shows the card again.
+survives a reload; it closes once the person dismisses it, once the chat takes
+the Continue message (if the send fails, Continue stays), or once that task
+finishes. Dismissing leaves the approval pending in the peer app. A later call
+that finds the same approval still waiting shows the card again; a call that
+pauses on a different approval gets that approval's own card.
 
 ## JSON-RPC Methods
 

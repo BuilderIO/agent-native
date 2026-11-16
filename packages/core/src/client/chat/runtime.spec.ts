@@ -5828,19 +5828,19 @@ describe("createAgentNativeChatRuntime", () => {
     );
     const widgets = events.filter((event) => event.type === "widget");
 
-    const card = {
+    const card = (callId: string) => ({
       operation: "create",
       widget: {
         id: "Slides:approval:approval-1",
         kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
         state: "ready",
-        data: { agent: "Slides", ...approval, taskId: "task-child" },
+        data: { agent: "Slides", ...approval, taskId: "task-child", callId },
       },
-    };
-    // Both calls write the same card.
+    });
+    // Both calls write the same card, each naming itself as the waiting call.
     expect(widgets).toHaveLength(2);
-    expect(widgets[0]).toMatchObject(card);
-    expect(widgets[1]).toMatchObject(card);
+    expect(widgets[0]).toMatchObject(card("call-1"));
+    expect(widgets[1]).toMatchObject(card("call-2"));
   });
 
   it("surfaces native and MCP action renderers as composable widgets", async () => {

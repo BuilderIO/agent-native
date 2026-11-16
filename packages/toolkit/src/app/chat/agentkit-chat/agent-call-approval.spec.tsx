@@ -9,7 +9,7 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import {
   AGENT_CALL_APPROVAL_WIDGET_KIND,
-  sendToAgentChat,
+  sendToAgentChatAndConfirm,
 } from "@agent-native/core/client/agent-chat";
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { act } from "react";
@@ -24,10 +24,10 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/agent-chat")
   >()),
-  sendToAgentChat: vi.fn(),
+  sendToAgentChatAndConfirm: vi.fn(),
 }));
 
-const sendToAgentChatMock = vi.mocked(sendToAgentChat);
+const sendMock = vi.mocked(sendToAgentChatAndConfirm);
 const catalog = createToolkitI18nCatalog({ messages: {} });
 const approvalUrl =
   "https://slides.example.com/_agent-native/a2a/approvals/approval-1";
@@ -37,6 +37,7 @@ const approval = {
   tool: "delete-deck",
   url: approvalUrl,
   taskId: "task-child",
+  callId: "call-1",
 };
 const widget: AgentWidget = {
   id: "Slides:approval:approval-1",
@@ -52,7 +53,8 @@ beforeEach(() => {
   document.body.append(container);
   root = createRoot(container);
   window.sessionStorage.clear();
-  sendToAgentChatMock.mockClear();
+  sendMock.mockReset();
+  sendMock.mockResolvedValue({ tabId: "tab-1", delivered: true });
 });
 
 afterEach(async () => {
@@ -87,16 +89,23 @@ async function threadClient(
   return client;
 }
 
-async function renderCard(client: AgentKitClient) {
+async function renderCard(client: AgentKitClient, value: AgentWidget = widget) {
   await act(async () =>
     root.render(
       <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
         <AgentKitProvider controller={client} threadId="thread-1">
-          <AgentKitAgentCallApproval value={widget} threadId="thread-1" />
+          <AgentKitAgentCallApproval value={value} threadId="thread-1" />
         </AgentKitProvider>
       </AgentNativeI18nProvider>,
     ),
   );
+}
+
+// A reload renders the saved widget again in a fresh tree.
+async function reload(client: AgentKitClient, value: AgentWidget = widget) {
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  await renderCard(client, value);
 }
 
 function action(id: string) {
@@ -113,6 +122,13 @@ async function press(id: string) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
+
+const waiting = (id: string): AgentParticipant => ({
+  id,
+  name: "Slides",
+  status: "waiting",
+  activeTaskId: "task-child",
+});
 
 describe("AgentKitAgentCallApproval", () => {
   it("opens the peer's approval page, then continues the same task once", async () => {
@@ -137,26 +153,44 @@ describe("AgentKitAgentCallApproval", () => {
       "_blank",
       "noopener,noreferrer",
     );
-    expect(sendToAgentChatMock).not.toHaveBeenCalled();
+    expect(sendMock).not.toHaveBeenCalled();
 
     await press("continue");
-    expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
-    const request = sendToAgentChatMock.mock.calls[0]?.[0];
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    const request = sendMock.mock.calls[0]?.[0];
     expect(request).toMatchObject({
       message: "I approved it in Slides. Please continue.",
       submit: true,
+      chatTarget: "local",
     });
     expect(request?.context).toContain(
       'agent="Slides" and taskId="task-child"',
     );
     expect(container.textContent).toBe("");
 
-    // A reload renders the same widget again; it stays closed.
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await renderCard(client);
+    await reload(client);
     expect(container.textContent).toBe("");
-    expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
+    expect(sendMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Continue when the chat did not take the continuation", async () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    sendMock.mockResolvedValueOnce({
+      tabId: "tab-1",
+      delivered: false,
+      reason: "timeout",
+    });
+    const client = await threadClient([], [waiting("call-1")]);
+    await renderCard(client);
+    await press("review");
+
+    await press("continue");
+    expect(container.textContent).toContain("Slides needs your approval");
+    expect(action("continue")).not.toBeNull();
+
+    await press("continue");
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toBe("");
   });
 
   it("closes on Dismiss without continuing the task", async () => {
@@ -165,64 +199,56 @@ describe("AgentKitAgentCallApproval", () => {
     await press("dismiss");
 
     expect(container.textContent).toBe("");
-    expect(sendToAgentChatMock).not.toHaveBeenCalled();
+    expect(sendMock).not.toHaveBeenCalled();
   });
 
   it("comes back when a newer call finds the approval still waiting", async () => {
     vi.spyOn(window, "open").mockReturnValue(null);
-    const firstCall: AgentParticipant = {
-      id: "call-1",
-      name: "Slides",
-      status: "waiting",
-      activeTaskId: "task-child",
-    };
-    await renderCard(await threadClient([], [firstCall]));
+    await renderCard(await threadClient([], [waiting("call-1")]));
     await press("review");
     await press("continue");
     expect(container.textContent).toBe("");
 
     // Continue came before the approval: the continuation is still running.
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await renderCard(
+    await reload(
       await threadClient(
         [],
-        [firstCall, { ...firstCall, id: "call-2", status: "working" }],
+        [waiting("call-1"), { ...waiting("call-2"), status: "working" }],
       ),
     );
     expect(container.textContent).toBe("");
 
-    // The peer answers with the same approval still waiting.
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await renderCard(
-      await threadClient(
-        [],
-        [firstCall, { ...firstCall, id: "call-2", status: "waiting" }],
-      ),
+    // The peer answers with the same approval still waiting, which rewrites
+    // this card for the newer call.
+    await reload(
+      await threadClient([], [waiting("call-1"), waiting("call-2")]),
+      { ...widget, data: { ...approval, callId: "call-2" } },
     );
     expect(container.textContent).toContain("Slides needs your approval");
     expect(action("review")).not.toBeNull();
     expect(action("continue")).toBeNull();
   });
 
-  it("shows nothing for a saved approval whose link is not a web page", async () => {
-    const client = await threadClient();
-    await act(async () =>
-      root.render(
-        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
-          <AgentKitProvider controller={client} threadId="thread-1">
-            <AgentKitAgentCallApproval
-              value={{
-                ...widget,
-                data: { ...approval, url: "javascript:alert(1)" },
-              }}
-              threadId="thread-1"
-            />
-          </AgentKitProvider>
-        </AgentNativeI18nProvider>,
-      ),
+  it("stays closed when the task pauses on a different approval", async () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    await renderCard(await threadClient([], [waiting("call-1")]));
+    await press("review");
+    await press("continue");
+    expect(container.textContent).toBe("");
+
+    // The continuation ran this approval's action, then paused on another
+    // one. That call writes the other approval's card; this one keeps call-1.
+    await reload(
+      await threadClient([], [waiting("call-1"), waiting("call-2")]),
     );
+    expect(container.textContent).toBe("");
+  });
+
+  it("shows nothing for a saved approval whose link is not a web page", async () => {
+    await renderCard(await threadClient(), {
+      ...widget,
+      data: { ...approval, url: "javascript:alert(1)" },
+    });
 
     expect(container.textContent).toBe("");
   });
@@ -240,14 +266,7 @@ describe("AgentKitAgentCallApproval", () => {
             status: "completed",
           },
         ],
-        [
-          {
-            id: "call-1",
-            name: "Slides",
-            status: "waiting",
-            activeTaskId: "task-child",
-          },
-        ],
+        [waiting("call-1")],
       ),
     );
 
@@ -260,20 +279,7 @@ describe("AgentKitAgentCallApproval", () => {
       await renderCard(
         await threadClient(
           [],
-          [
-            {
-              id: "call-1",
-              name: "Slides",
-              status: "waiting",
-              activeTaskId: "task-child",
-            },
-            {
-              id: "call-2",
-              name: "Slides",
-              status,
-              activeTaskId: "task-child",
-            },
-          ],
+          [waiting("call-1"), { ...waiting("call-2"), status }],
         ),
       );
 

@@ -4084,11 +4084,17 @@ export const AGENT_CALL_APPROVAL_WIDGET_KIND =
 export interface AgentCallApprovalWidgetData extends A2APeerApproval {
   agent: string;
   taskId: string;
+  /**
+   * The latest call that found this approval still waiting. A call that pauses
+   * on another approval writes that approval's card, so this one keeps its call.
+   */
+  callId: string;
 }
 
 function agentCallApproval(
   ev: SSEEvent,
   agent: string,
+  callId: string,
 ): AgentCallApprovalWidgetData | undefined {
   const approval = ev.approval;
   const taskId = typeof ev.taskId === "string" ? ev.taskId.trim() : "";
@@ -4102,7 +4108,7 @@ function agentCallApproval(
     // coercion-ok: the card needs an absolute page link; the reply text remains.
     return undefined;
   }
-  return { agent, id, tool, url, taskId };
+  return { agent, id, tool, url, taskId, callId };
 }
 
 // The renderer swaps this label for its localized working label. An app name or
@@ -4841,7 +4847,7 @@ function mapAgentNativeEvent(
     // opens its approval page and then continues the same task. The card is
     // keyed by the approval, not the call: a later call that finds the same
     // approval still pending updates that card instead of adding a second.
-    const approval = agentCallApproval(ev, agent);
+    const approval = agentCallApproval(ev, agent, participantId);
     if (approval) {
       events.push({
         type: "widget",

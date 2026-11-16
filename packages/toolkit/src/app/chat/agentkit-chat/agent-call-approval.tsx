@@ -1,6 +1,6 @@
 import type { AgentWidget } from "@agent-native/agentkit/protocol";
 import {
-  sendToAgentChat,
+  sendToAgentChatAndConfirm,
   type AgentCallApprovalWidgetData,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
@@ -27,7 +27,10 @@ function isWebPage(url: string): boolean {
 
 function readApproval(value: unknown): AgentCallApprovalWidgetData | undefined {
   if (!value || typeof value !== "object") return undefined;
-  const { agent, id, tool, url, taskId } = value as Record<string, unknown>;
+  const { agent, id, tool, url, taskId, callId } = value as Record<
+    string,
+    unknown
+  >;
   // A restored thread is data too: open only a web page, never a script URL.
   return typeof agent === "string" &&
     agent &&
@@ -38,8 +41,10 @@ function readApproval(value: unknown): AgentCallApprovalWidgetData | undefined {
     typeof url === "string" &&
     isWebPage(url) &&
     typeof taskId === "string" &&
-    taskId
-    ? { agent, id, tool, url, taskId }
+    taskId &&
+    typeof callId === "string" &&
+    callId
+    ? { agent, id, tool, url, taskId, callId }
     : undefined;
 }
 
@@ -47,8 +52,8 @@ const SETTLED_PREFIX = "agent-native:agent-call-approval:";
 
 // A reload renders the same widget again, so a card the person already
 // continued or dismissed stays closed for the rest of the session. It records
-// the calls that were waiting then, so a newer call that finds the approval
-// still waiting shows the card again.
+// the call that was waiting on this approval then, so a newer call that finds
+// the same approval still waiting shows the card again.
 function readSettled(id: string): readonly string[] | undefined {
   try {
     const saved: unknown = JSON.parse(
@@ -96,45 +101,55 @@ export function AgentKitAgentCallApproval({
   ) {
     return null;
   }
-  return (
-    <AgentCallApprovalCard
-      key={approval.id}
-      approval={approval}
-      waitingCalls={calls
-        .filter((call) => call.status === "waiting")
-        .map((call) => call.id)}
-    />
-  );
+  return <AgentCallApprovalCard key={approval.id} approval={approval} />;
 }
 
 function AgentCallApprovalCard({
   approval,
-  waitingCalls,
 }: {
   approval: AgentCallApprovalWidgetData;
-  waitingCalls: readonly string[];
 }) {
   const t = useT();
   const { agent } = approval;
-  const [phase, setPhase] = useState<"review" | "continue">("review");
+  const [phase, setPhase] = useState<"review" | "continue" | "sending">(
+    "review",
+  );
   const [settledCalls, setSettledCalls] = useState<
     readonly string[] | undefined
   >(() =>
     typeof window !== "undefined" ? readSettled(approval.id) : undefined,
   );
   // Continue can come before the approval: the peer then answers with the same
-  // approval still waiting, on a newer call, and the card comes back for it.
-  if (
-    settledCalls &&
-    waitingCalls.every((call) => settledCalls.includes(call))
-  ) {
-    return null;
-  }
+  // approval still waiting, on a newer call, and the card comes back for it. A
+  // call that pauses on another approval writes that approval's card instead.
+  if (settledCalls?.includes(approval.callId)) return null;
 
   const settle = () => {
-    rememberSettled(approval.id, waitingCalls);
-    setSettledCalls(waitingCalls);
+    const calls = [...(settledCalls ?? []), approval.callId];
+    rememberSettled(approval.id, calls);
+    setSettledCalls(calls);
     setPhase("review");
+  };
+  // The card closes only once the chat took the continuation. If it didn't,
+  // the card stays so Continue can be pressed again.
+  const continueTask = async () => {
+    setPhase("sending");
+    let delivered = false;
+    try {
+      ({ delivered } = await sendToAgentChatAndConfirm({
+        message: t("agentChat.tool.agentApprovalContinueMessage", { agent }),
+        context:
+          `The user approved the pending action in ${agent}. ` +
+          `Call call-agent with agent="${agent}" and taskId="${approval.taskId}" ` +
+          "and no message to continue that same task.",
+        submit: true,
+        chatTarget: "local",
+      }));
+    } catch {
+      // coercion-ok: a send that threw was not delivered; Continue stays.
+    }
+    if (delivered) settle();
+    else setPhase("continue");
   };
   const review = () => {
     window.open(approval.url, "_blank", "noopener,noreferrer");
@@ -164,19 +179,9 @@ function AgentCallApprovalCard({
             id: "continue",
             label: t("agentChat.common.continue"),
             intent: "primary",
-            onPress: () => {
-              sendToAgentChat({
-                message: t("agentChat.tool.agentApprovalContinueMessage", {
-                  agent,
-                }),
-                context:
-                  `The user approved the pending action in ${agent}. ` +
-                  `Call call-agent with agent="${agent}" and taskId="${approval.taskId}" ` +
-                  "and no message to continue that same task.",
-                submit: true,
-              });
-              settle();
-            },
+            pending: phase === "sending",
+            disabled: phase === "sending",
+            onPress: () => void continueTask(),
           },
           { id: "review", label: reviewLabel, onPress: review },
           dismiss,
