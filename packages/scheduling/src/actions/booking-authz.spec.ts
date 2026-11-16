@@ -3,16 +3,27 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { closeDbExec, createGetDb, getDbExec } from "@agent-native/core/db";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const timingSafeEqualSpy = vi.hoisted(() => vi.fn());
+
+vi.mock("node:crypto", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:crypto")>();
+  timingSafeEqualSpy.mockImplementation(actual.timingSafeEqual);
+  return { ...actual, timingSafeEqual: timingSafeEqualSpy };
+});
 
 import * as schema from "../schema/index.js";
+import { getBookingByUid, listBookings } from "../server/bookings-repo.js";
 import { setSchedulingContext } from "../server/context.js";
+import { bookingTokenMatches } from "./_helpers.js";
 import addBookingAttendee from "./add-booking-attendee.js";
 import addBookingNote from "./add-booking-note.js";
 import cancelBooking from "./cancel-booking.js";
 import confirmBooking from "./confirm-booking.js";
 import markNoShow from "./mark-no-show.js";
 import removeBookingAttendee from "./remove-booking-attendee.js";
+import rescheduleBooking from "./reschedule-booking.js";
 import sendRescheduleLink from "./send-reschedule-link.js";
 
 const HOST_EMAIL = "host@example.com";
@@ -40,6 +51,7 @@ let dbDir: string;
 let currentUserEmail: string | undefined;
 
 beforeEach(async () => {
+  timingSafeEqualSpy.mockClear();
   dbDir = mkdtempSync(join(tmpdir(), "scheduling-booking-authz-test-"));
   process.env.DATABASE_URL = `pglite:${dbDir}`;
   await execute(`
@@ -320,5 +332,102 @@ describe("send-reschedule-link authorization", () => {
     currentUserEmail = HOST_EMAIL;
     const result: any = await sendRescheduleLink.run({ uid: BOOKING_UID });
     expect(result.url).toContain("reschedule-token-1");
+  });
+});
+
+describe("booking secrets in a booking list", () => {
+  beforeEach(async () => {
+    await execute({
+      sql: `INSERT INTO booking_references (
+        id, booking_id, type, external_id, meeting_url, meeting_password, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "reference-1",
+        "booking-1",
+        "zoom",
+        "meeting-1",
+        "https://zoom.example.test/j/1",
+        "meeting-password-1",
+        new Date().toISOString(),
+      ],
+    });
+  });
+
+  it("shows the host the cancel and reschedule tokens and the meeting password", async () => {
+    currentUserEmail = HOST_EMAIL;
+    const [booking] = await listBookings({});
+    expect(booking).toMatchObject({
+      cancelToken: "cancel-token-1",
+      rescheduleToken: "reschedule-token-1",
+    });
+    expect(booking?.references[0]?.meetingPassword).toBe("meeting-password-1");
+  });
+
+  it.each([
+    ["another signed-in user", OUTSIDER_EMAIL],
+    ["no signed-in user", undefined],
+  ])("hides them from %s", async (_name, email) => {
+    currentUserEmail = email;
+    const [booking] = await listBookings({});
+    expect(booking?.uid).toBe(BOOKING_UID);
+    expect(booking?.references[0]?.meetingUrl).toBe(
+      "https://zoom.example.test/j/1",
+    );
+    const text = JSON.stringify(booking);
+    for (const secret of [
+      "cancel-token-1",
+      "reschedule-token-1",
+      "meeting-password-1",
+    ]) {
+      expect(text).not.toContain(secret);
+    }
+  });
+
+  it("keeps the tokens on the single lookup that the token checks rely on", async () => {
+    currentUserEmail = undefined;
+    const booking = await getBookingByUid(BOOKING_UID);
+    expect(booking).toMatchObject({
+      cancelToken: "cancel-token-1",
+      rescheduleToken: "reschedule-token-1",
+    });
+  });
+});
+
+describe("booking token checks", () => {
+  it("accepts only the matching token", () => {
+    expect(bookingTokenMatches("cancel-token-1", "cancel-token-1")).toBe(true);
+    expect(bookingTokenMatches("cancel-token-2", "cancel-token-1")).toBe(false);
+    expect(bookingTokenMatches("short", "a-much-longer-stored-token")).toBe(
+      false,
+    );
+    expect(bookingTokenMatches(undefined, "cancel-token-1")).toBe(false);
+    expect(bookingTokenMatches("", "")).toBe(false);
+    expect(bookingTokenMatches("cancel-token-1", undefined)).toBe(false);
+  });
+
+  it("refuses a cancellation with the wrong or the other token", async () => {
+    currentUserEmail = undefined;
+    for (const token of ["wrong-token", "reschedule-token-1"]) {
+      await expect(
+        cancelBooking.run({ uid: BOOKING_UID, token }),
+      ).rejects.toThrow(/not authorized to cancel/i);
+    }
+    expect(await bookingStatus()).toBe("pending");
+    expect(timingSafeEqualSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a reschedule with the wrong or the other token", async () => {
+    currentUserEmail = undefined;
+    for (const token of ["wrong-token", "cancel-token-1"]) {
+      await expect(
+        rescheduleBooking.run({
+          uid: BOOKING_UID,
+          token,
+          newStartTime: "2026-08-02T10:00:00.000Z",
+          newEndTime: "2026-08-02T10:30:00.000Z",
+        }),
+      ).rejects.toThrow(/not authorized to reschedule/i);
+    }
+    expect(timingSafeEqualSpy).toHaveBeenCalledTimes(2);
   });
 });

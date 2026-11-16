@@ -95,12 +95,15 @@ export function assetContentUrl(
   options: {
     variant?: "thumb";
     embedToken?: string | null;
+    omitEmbedToken?: boolean;
     origin?: string;
   } = {},
 ): string {
   const params = new URLSearchParams();
   if (options.variant === "thumb") params.set("variant", "thumb");
-  const embedToken = options.embedToken ?? embedTokenParam();
+  const embedToken = options.omitEmbedToken
+    ? null
+    : (options.embedToken ?? embedTokenParam());
   if (embedToken) params.set("__an_embed_token", embedToken);
   const query = params.toString();
   const url =

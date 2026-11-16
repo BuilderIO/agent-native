@@ -522,7 +522,10 @@ function isCrossOriginPreview(url: string | undefined): boolean {
   }
 }
 
-function assetPayload(asset: Asset, requestedMediaType: PickerMediaType) {
+export function assetPayload(
+  asset: Asset,
+  requestedMediaType: PickerMediaType,
+) {
   const mediaType =
     asset.mediaType === "video" || asset.mimeType?.startsWith("video/")
       ? "video"
@@ -532,8 +535,13 @@ function assetPayload(asset: Asset, requestedMediaType: PickerMediaType) {
   const assetPrompt = asset.prompt?.trim() ?? "";
   const displayTitle = assetDisplayTitle(asset);
   const fallbackLabel = assetTitle || assetPrompt || displayTitle || asset.id;
+  // The payload goes to the host app, which can save the URL into its own
+  // content, so it must not carry this frame's embed session token.
   const embeddedContentUrl = shouldUseContentProxyForPreview(asset)
-    ? assetContentPreviewUrl(asset)
+    ? assetContentUrl(asset.id, {
+        origin: absoluteAppUrl("/"),
+        omitEmbedToken: true,
+      })
     : undefined;
   const previewUrl = absoluteAssetUrl(embeddedContentUrl ?? asset.previewUrl);
   const url = absoluteAssetUrl(

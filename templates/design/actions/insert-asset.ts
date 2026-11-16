@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -67,6 +68,15 @@ const schemaInput = z.object({
         'Both "replace-src" and "background-fill" require targetNodeId.',
     ),
 });
+
+// An Assets picker from before it stopped adding its embed session token to
+// asset URLs would otherwise save that token into the design HTML.
+function withoutEmbedToken(assetUrl: string): string {
+  const url = new URL(assetUrl);
+  if (!url.searchParams.has(EMBED_TOKEN_QUERY_PARAM)) return assetUrl;
+  url.searchParams.delete(EMBED_TOKEN_QUERY_PARAM);
+  return url.toString();
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -258,7 +268,8 @@ export default defineAction({
     "get-code-layer-projection or the current selection.",
   schema: schemaInput,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
-  run: async (args, context) => {
+  run: async (input, context) => {
+    const args = { ...input, assetUrl: withoutEmbedToken(input.assetUrl) };
     const target = await resolveAssetInsertTarget({
       designId: args.designId,
       ownerId: args.ownerId,

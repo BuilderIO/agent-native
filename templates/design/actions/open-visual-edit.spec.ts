@@ -140,6 +140,13 @@ import action, {
   localVisualEditWorkspacePrincipal,
 } from "./open-visual-edit.js";
 
+const externalMcp = {
+  actionName: "open-visual-edit",
+  caller: "mcp",
+  userEmail: "owner@example.com",
+  orgId: "org_1",
+} as never;
+
 describe("open-visual-edit", () => {
   it("allows the public Design page to call the action without a session", () => {
     expect(action.requiresAuth).toBe(false);
@@ -217,20 +224,23 @@ describe("open-visual-edit", () => {
   });
 
   it("uses the connection id returned by connect-localhost when no id is supplied", async () => {
-    const result = await action.run({
-      designId: "design_1",
-      devServerUrl: "http://localhost:5173/",
-      bridgeUrl: "http://127.0.0.1:7331",
-      rootPath: "/tmp/app",
-      routeManifest: {
-        version: 1,
-        sourceType: "localhost",
-        devServerUrl: "http://localhost:5173",
+    const result = await action.run(
+      {
+        designId: "design_1",
+        devServerUrl: "http://localhost:5173/",
+        bridgeUrl: "http://127.0.0.1:7331",
         rootPath: "/tmp/app",
-        routes: [{ path: "/", title: "Home" }],
+        routeManifest: {
+          version: 1,
+          sourceType: "localhost",
+          devServerUrl: "http://localhost:5173",
+          rootPath: "/tmp/app",
+          routes: [{ path: "/", title: "Home" }],
+        },
+        navigate: false,
       },
-      navigate: false,
-    });
+      externalMcp,
+    );
 
     expect(mocks.connectLocalhostRun).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -240,13 +250,14 @@ describe("open-visual-edit", () => {
         devServerUrl: "http://localhost:5173",
         rootPath: "/tmp/app",
       }),
+      externalMcp,
     );
     expect(mocks.addLocalhostScreensRun).toHaveBeenCalledWith(
       expect.objectContaining({
         designId: "design_1",
         connectionId: "localhost_canonical",
       }),
-      undefined,
+      externalMcp,
     );
     expect(mocks.writeAppState).toHaveBeenCalledWith(
       "visual-edit",
@@ -451,13 +462,16 @@ describe("open-visual-edit", () => {
   });
 
   it("puts the bridge start command in the message, which MCP callers see instead of the full result", async () => {
-    const result = await action.run({
-      designId: "design_1",
-      devServerUrl: "http://localhost:5173/",
-      bridgeUrl: "http://127.0.0.1:7331",
-      rootPath: "/tmp/app",
-      navigate: false,
-    });
+    const result = await action.run(
+      {
+        designId: "design_1",
+        devServerUrl: "http://localhost:5173/",
+        bridgeUrl: "http://127.0.0.1:7331",
+        rootPath: "/tmp/app",
+        navigate: false,
+      },
+      externalMcp,
+    );
 
     expect(result.message).toBe(
       "Design design_1 uses connection localhost_canonical. Start its bridge with `AGENT_NATIVE_BRIDGE_TOKEN='stored-write-token' npx @agent-native/core@latest design connect --url 'http://localhost:5173' --root '/tmp/app' --port 7331 --daemon`, then open the design.",
@@ -474,11 +488,14 @@ describe("open-visual-edit", () => {
       routes: [],
     });
 
-    const result = await action.run({
-      designId: "design_1",
-      devServerUrl: "http://localhost:5173/",
-      navigate: false,
-    });
+    const result = await action.run(
+      {
+        designId: "design_1",
+        devServerUrl: "http://localhost:5173/",
+        navigate: false,
+      },
+      externalMcp,
+    );
 
     expect(result.message).toContain(
       `AGENT_NATIVE_BRIDGE_TOKEN='tok'\\''\`id\`' npx`,
@@ -498,12 +515,15 @@ describe("open-visual-edit", () => {
       routes: [],
     });
 
-    const result = await action.run({
-      designId: "design_1",
-      devServerUrl: "http://localhost:5173/",
-      bridgeUrl: "http://127.0.0.1:7400",
-      navigate: false,
-    });
+    const result = await action.run(
+      {
+        designId: "design_1",
+        devServerUrl: "http://localhost:5173/",
+        bridgeUrl: "http://127.0.0.1:7400",
+        navigate: false,
+      },
+      externalMcp,
+    );
 
     expect(result.message).toContain("--port 7400 --daemon");
   });
@@ -902,12 +922,15 @@ describe("open-visual-edit", () => {
   });
 
   it("returns a single-use, resource-scoped handoff for an account caller", async () => {
-    const result = await action.run({
-      designId: "design_1",
-      devServerUrl: "http://localhost:5173",
-      paths: ["/"],
-      navigate: false,
-    });
+    const result = await action.run(
+      {
+        designId: "design_1",
+        devServerUrl: "http://localhost:5173",
+        paths: ["/"],
+        navigate: false,
+      },
+      externalMcp,
+    );
 
     expect(mocks.createEmbedSessionTicket).toHaveBeenCalledWith({
       ownerEmail: "owner@example.com",
@@ -1008,6 +1031,64 @@ describe("open-visual-edit", () => {
       expect(JSON.stringify(result)).not.toContain("stored-write-token");
       expect(JSON.stringify(result)).not.toContain("stored-preview-token");
       expect(result.message).not.toContain("AGENT_NATIVE_BRIDGE_TOKEN");
+    },
+  );
+
+  it.each([
+    ["the in-app agent", { caller: "tool" }],
+    ["an A2A peer", { caller: "a2a" }],
+    ["an automation", { caller: "automation" }],
+    ["a non-browser HTTP client", { caller: "http" }],
+    ["a caller with no context", undefined],
+  ])(
+    "gives %s neither the bridge token, the preview token nor the start command",
+    async (_name, ctx) => {
+      mocks.addLocalhostScreensRun.mockResolvedValueOnce({
+        screenCount: 1,
+        screens: [{ id: "screen_1", previewToken: "stored-preview-token" }],
+        placedFrames: [{ fileId: "screen_1" }],
+      });
+
+      const result = await action.run(
+        {
+          designId: "design_1",
+          devServerUrl: "http://localhost:5173",
+          paths: ["/"],
+          navigate: false,
+        },
+        ctx as never,
+      );
+
+      expect(result.connectionId).toBe("localhost_canonical");
+      expect(result.bridgeToken).toBeUndefined();
+      expect(result.previewToken).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain("stored-write-token");
+      expect(JSON.stringify(result)).not.toContain("stored-preview-token");
+      expect(result.message).not.toContain("AGENT_NATIVE_BRIDGE_TOKEN");
+    },
+  );
+
+  it.each([
+    ["external MCP", "mcp"],
+    ["the local CLI", "cli"],
+  ])(
+    "gives %s the bridge token and the start command",
+    async (_name, caller) => {
+      const result = await action.run(
+        {
+          designId: "design_1",
+          devServerUrl: "http://localhost:5173",
+          paths: ["/"],
+          navigate: false,
+        },
+        { actionName: "open-visual-edit", caller } as never,
+      );
+
+      expect(result.bridgeToken).toBe("stored-write-token");
+      expect(result.previewToken).toBe("stored-preview-token");
+      expect(result.message).toContain(
+        "AGENT_NATIVE_BRIDGE_TOKEN='stored-write-token'",
+      );
     },
   );
 

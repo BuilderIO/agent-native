@@ -204,6 +204,27 @@ describe("sanitizePublicMonitor (security boundary)", () => {
     expect(result.url).toBe("https://api.example.com/health");
   });
 
+  it("publishes a shown URL without userinfo or credential-looking parameters", () => {
+    const result = sanitizePublicMonitor(
+      {
+        id: "m1",
+        name: "Prod",
+        url: "https://user:pass-fixture@api.example.com/health?region=us&api_key=key-fixture&token=tok-fixture",
+        lastStatus: "up",
+      },
+      ref({ showUrl: true }),
+      stats(),
+      { showResponseTime: false },
+    );
+    expect(result.url).toBe(
+      "https://api.example.com/health?region=us&api_key=***&token=***",
+    );
+    const published = JSON.stringify(result);
+    for (const secret of ["pass-fixture", "key-fixture", "tok-fixture"]) {
+      expect(published).not.toContain(secret);
+    }
+  });
+
   it("applies the display-name override and gates response data by showResponseTime", () => {
     const withResponse = sanitizePublicMonitor(
       monitorRow(),
