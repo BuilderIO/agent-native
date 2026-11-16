@@ -1,6 +1,6 @@
 Copies found: M4=478 unique matching files; M5=782, per retained full sweep inventories.
 Files changed: 56 public-repo files; broadcaster source is in its separate queued branch; no worktree copies edited by hand.
-Public PR: none; per fleet-tooling landing path, branch `job/ship-no-rotate-1115` at `807a843d1adc0b93f545a3c16242d54009394f2a` is already queued for steward folding.
+Public PR: none; per fleet-tooling landing path, branch `job/ship-no-rotate-1115` at `807a843d1adc0b93f545a3c16242d54009394f2a` is already queued (report-only follow-up pushed at `b3934497c98885dd4024586c49499b771cc0edcd`) for steward folding.
 Broadcast command path: `~/.config/replica-workers/bin/rule-broadcast`; source committed in the separate queued rule-broadcast job.
 Sessions reached / not reached: 0 / 255 retained targets; post-land send is gated on landing.
 Receipt: pending post-land send; prior receipt predates landing and does not count.
