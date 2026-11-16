@@ -259,7 +259,7 @@ const reply = useActionMutation("send-ticket-reply", {
 });
 ```
 
-对于不含冒号的类型，本地变更和同步事件使用对称匹配。匹配本地变更时，`design:layer` 表示类型 `design` 和 ID `layer`。`resourceType` 为 `design:layer` 的同步事件使用的类型不同于 `design`，不会匹配查询标签 `design`。`ticket` 标签匹配 `ticket` 和任意 `ticket:id` 标签。`ticket:123` 标签匹配 `ticket` 和 `ticket:123`，但不匹配 `ticket:456`。没有标签的查询会保守地失效。没有标签的变更会使所有 action 查询失效。
+对于不含冒号的类型和记录 ID 非空的标签，本地变更和同步事件使用对称匹配。对于整个类型的本地变更，使用 `type`，而不是 `type:`。匹配本地变更时，`design:layer` 表示类型 `design` 和 ID `layer`。`resourceType` 为 `design:layer` 的同步事件使用的类型不同于 `design`，不会匹配查询标签 `design`。`ticket` 标签匹配 `ticket` 和任意 `ticket:id` 标签。`ticket:123` 标签匹配 `ticket` 和 `ticket:123`，但不匹配 `ticket:456`。没有标签的查询会保守地失效。没有标签的变更会使所有 action 查询失效。
 
 对于 action 同步事件，`resourceType` 和 `resourceId` 分别标识已更改的资源。如果 `resourceId` 缺失或为空，则所有匹配该类型的查询都会失效。如果任何未被抑制的 action 事件缺少 `resourceType`，该批次将禁用资源范围过滤，所有 action 查询都有可能失效。可选的谓词仍可过滤失效操作。
 

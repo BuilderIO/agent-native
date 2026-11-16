@@ -261,7 +261,7 @@ const reply = useActionMutation("send-ticket-reply", {
 });
 ```
 
-For types without colons, matching is symmetric for local mutations and sync events. For local mutation matching, `design:layer` means type `design` and ID `layer`. A sync event with `resourceType` `design:layer` has a distinct type from `design` and does not match a `design` query tag. A `ticket` tag matches `ticket` and any `ticket:id` tag. A `ticket:123` tag matches `ticket` and `ticket:123`, but not `ticket:456`. Untagged queries are invalidated conservatively. A mutation without tags invalidates all action queries.
+For types without colons and tags with nonempty record IDs, matching is symmetric for local mutations and sync events. For a type-wide local change, use `type`, not `type:`. For local mutation matching, `design:layer` means type `design` and ID `layer`. A sync event with `resourceType` `design:layer` has a distinct type from `design` and does not match a `design` query tag. A `ticket` tag matches `ticket` and any `ticket:id` tag. A `ticket:123` tag matches `ticket` and `ticket:123`, but not `ticket:456`. Untagged queries are invalidated conservatively. A mutation without tags invalidates all action queries.
 
 For an action sync event, `resourceType` and `resourceId` identify the changed resource separately. If `resourceId` is missing or empty, all queries matching that type are invalidated. If any unsuppressed action event has no `resourceType`, resource narrowing is disabled for the batch and all action queries are eligible. The optional predicate can still filter the invalidation.
 
