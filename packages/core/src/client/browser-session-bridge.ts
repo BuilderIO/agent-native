@@ -339,20 +339,22 @@ function createDirectHostSession(
       : session && typeof session === "object"
         ? session
         : {};
-  return withScrubbedUrl({
+  const hostSession = {
     id: base.id || fallbackId || directSessionId(),
     connectedAt: base.connectedAt || now,
-    url:
-      base.url ||
-      contextUrl ||
-      (typeof window !== "undefined" ? window.location.href : undefined),
     ...base,
-  });
+  };
+  const url =
+    base.url ||
+    contextUrl ||
+    (typeof window !== "undefined" ? window.location.href : undefined);
+  const scrubbed = url ? scrubUrl(url) : undefined;
+  return scrubbed ? { ...hostSession, url: scrubbed } : hostSession;
 }
 
 // The page URL goes to the server and on to whatever agent reads the session;
 // its query and hash are where credentials ride.
-function withScrubbedUrl<T extends { url?: string }>(value: T): T {
+function withScrubbedUrl<T extends { url?: string | undefined }>(value: T): T {
   return value.url ? { ...value, url: scrubUrl(value.url) } : value;
 }
 
