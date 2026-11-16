@@ -17,7 +17,7 @@ const pageStateSchema = z.object({
 
 export default defineAction({
   description:
-    "Get what one History entry on a page changed, such as one agent's edits: for each change it recorded, the page's title and Markdown body before and after, oldest first. Find the entry with list-document-history, or take the historyGroupId an edit-document receipt returns. hasMore when the entry holds more than 100 changes.",
+    "Get what one History entry on a page changed, such as one agent's edits: for each change it recorded, the page's title and Markdown body before and after, oldest first. Find the entry with list-document-history, or take the historyGroupId an edit-document receipt returns. hasMore when the entry holds more than 100 changes. An entry of kind \"legacy\", from before History recorded each change, has none; read its checkpoints instead.",
   schema: z.object({
     documentId: z.string().min(1).describe("Document ID"),
     groupId: z

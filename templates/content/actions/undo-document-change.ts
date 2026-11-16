@@ -9,7 +9,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { requireDocumentRequestActor } from "../server/lib/document-attribution.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
-import { listHistoryEntryChanges } from "../server/lib/document-history-changes.js";
+import {
+  latestHistoryEntryChange,
+  listHistoryEntryChanges,
+} from "../server/lib/document-history-changes.js";
 import { documentHistoryGrouping } from "../server/lib/document-history.js";
 import { firstRow } from "../server/lib/first-row.js";
 import {
@@ -29,8 +32,9 @@ import {
 const UNDO_OPERATION = "undo-document-change";
 // An entry this long is a person's whole session; restore a checkpoint instead.
 const MAX_UNDO_CHANGES = 100;
-// A page someone keeps typing in can move on between the undo's read and its
-// write; each attempt reads the page again.
+// A page someone keeps typing in, or an entry its agent is still adding to,
+// can move on between the undo's read and its write; each attempt reads both
+// again.
 const MAX_UNDO_ATTEMPTS = 3;
 
 type DocumentRow = typeof schema.documents.$inferSelect;
@@ -38,6 +42,14 @@ type ContentDb = ReturnType<typeof getDb>;
 
 // Thrown inside the write when an undo with the same key got there first.
 class UndoAlreadyMade extends Error {}
+
+// Starts the undo over, as a page that moved on does.
+function entryMovedOn(): never {
+  throw new ActionContractError(
+    "A change joined this History entry while it was being undone. Try again.",
+    { errorCode: "DOCUMENT_RESTORE_CONFLICT", statusCode: 409 },
+  );
+}
 
 function undoUnavailable(message: string, statusCode = 409): never {
   throw new ActionContractError(message, {
@@ -156,8 +168,7 @@ export default defineAction({
   searchHints: [
     "undo an agent edit",
     "take back a change",
-    "revert one change",
-    "page history",
+    "undo one agent change",
   ],
   description:
     "Undo one History entry on a page, such as one agent's edits, keeping every change made since. Each block the entry changed goes back to how it read before, unless a later change touched it: those stay as they are and are listed in keptBack. Find the entry with list-document-history, or take the historyGroupId an edit-document receipt returns, and pass a caller-generated idempotencyKey. The undo is a History entry of its own, undoGroupId, so it can be undone too.",
@@ -217,22 +228,27 @@ export default defineAction({
       ...documentStateResult(await readPage()),
       idempotency: { key: args.idempotencyKey, result: "replayed" as const },
     });
+    const entry = { ownerEmail, documentId, groupId: args.groupId };
+    const readChanges = async () => {
+      const { changes, hasMore } = await listHistoryEntryChanges({
+        db,
+        ...entry,
+        limit: MAX_UNDO_CHANGES,
+      });
+      if (hasMore) {
+        undoUnavailable(
+          "This History entry holds too many changes to undo in one step. Restore one of its checkpoints instead.",
+        );
+      }
+      if (!changes.length) {
+        undoUnavailable(
+          'This History entry has no change to undo. An entry of kind "legacy", from before History recorded each change, has none; restore one of its checkpoints instead.',
+          404,
+        );
+      }
+      return changes;
+    };
     if (await undoMade(db)) return replayed();
-    const { changes, hasMore } = await listHistoryEntryChanges({
-      db,
-      ownerEmail,
-      documentId,
-      groupId: args.groupId,
-      limit: MAX_UNDO_CHANGES,
-    });
-    if (hasMore) {
-      undoUnavailable(
-        "This History entry holds too many changes to undo in one step. Restore one of its checkpoints instead.",
-      );
-    }
-    if (!changes.length) {
-      undoUnavailable("This History entry has no change to undo.", 404);
-    }
     const historyGrouping = {
       ...documentHistoryGrouping({
         ...(ctx ? { ctx } : {}),
@@ -242,6 +258,7 @@ export default defineAction({
     };
     for (let attempt = 1; ; attempt += 1) {
       const page = await readPage();
+      const changes = await readChanges();
       // The undo as the restore last prepared it, from the page it read.
       const prepared = { page, undone: undoChanges(changes, page) };
       const unchanged = () =>
@@ -260,6 +277,13 @@ export default defineAction({
               // under the page's lock, so an undo with the same key that
               // landed first is found here instead of written twice.
               if (await undoMade(writer)) throw new UndoAlreadyMade();
+              // An agent still at work can add a change to the entry after
+              // the undo read it.
+              if (
+                (await latestHistoryEntryChange({ db: writer, ...entry })) !==
+                changes[changes.length - 1]?.after.checkpointId
+              )
+                entryMovedOn();
               prepared.page = current;
               prepared.undone = undoChanges(changes, current);
               return prepared.undone;
