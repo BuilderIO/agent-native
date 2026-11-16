@@ -34,6 +34,7 @@ const batchHarness = vi.hoisted(() => ({
     wait: Promise<void>;
     sizes: number[];
   },
+  abortStateRead: null as null | { runId: string; read: () => void },
 }));
 vi.mock("./run-store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./run-store.js")>();
@@ -49,6 +50,14 @@ vi.mock("./run-store.js", async (importOriginal) => {
         gate.sizes.push(args[1].length);
       }
       return actual.insertRunEvents(...args);
+    },
+    getRunAbortState: async (
+      ...args: Parameters<typeof actual.getRunAbortState>
+    ) => {
+      const state = await actual.getRunAbortState(...args);
+      const watch = batchHarness.abortStateRead;
+      if (watch?.runId === args[0]) watch.read();
+      return state;
     },
   };
 });
@@ -71,6 +80,7 @@ const {
   ensureRunTables,
   insertRun,
   claimTurnExecutionLease,
+  markRunAborted,
   isTurnAborted,
   updateRunStatusIfRunning,
 } = await import("./run-store.js");
@@ -161,6 +171,29 @@ function startStoppableRun(input: {
   return { run, ready, completion };
 }
 
+/**
+ * Streams, then stops the run the way a Stop handled by another server does:
+ * that server writes the abort with its terminal event and revokes the run's
+ * lease, and this server's run is left to notice. The run's abort check reads
+ * its abort state as it streams and then waits 3s, so a Stop just after that
+ * read reaches the next lease renewal first.
+ */
+async function stopOnAnotherServer(
+  input: Parameters<typeof startStoppableRun>[0],
+) {
+  const abortChecked = new Promise<void>((resolve) => {
+    batchHarness.abortStateRead = { runId: input.runId, read: resolve };
+  });
+  const started = startStoppableRun(input);
+  await started.ready;
+  await abortChecked;
+  batchHarness.abortStateRead = null;
+
+  expect(await markRunAborted(input.runId, "user")).toBe(true);
+  await started.run.finalized;
+  return started;
+}
+
 describe("a stopped leased run's completion", () => {
   it("saves the partial reply the run streamed before Stop, marked as stopped", async () => {
     const runId = "run-user-stop-partial";
@@ -188,6 +221,51 @@ describe("a stopped leased run's completion", () => {
         .map((part: { text: string }) => part.text)
         .join(""),
     ).toContain("Mangrove forests grow along tropical co");
+  });
+
+  it("saves the partial reply when another server handles the Stop", async () => {
+    const runId = "run-user-stop-other-server";
+    const { completion } = await stopOnAnotherServer({
+      runId,
+      threadId: "thread-user-stop-other-server",
+      text: "45. Rain taps softly on the slow br",
+    });
+
+    expect(completion.error).toBeUndefined();
+    const reply = JSON.parse((await savedReply(runId)) ?? "null");
+    expect(reply).toMatchObject({
+      role: "assistant",
+      status: { type: "complete", reason: "stop" },
+      metadata: { runId, custom: { userStopped: true } },
+    });
+    expect(
+      reply.content
+        .filter((part: { type: string }) => part.type === "text")
+        .map((part: { text: string }) => part.text)
+        .join(""),
+    ).toContain("Rain taps softly on the slow br");
+  });
+
+  it("leaves a run another server stopped for the projection retry when its save fails", async () => {
+    const runId = "run-user-stop-other-server-save-failed";
+    const { completion } = await stopOnAnotherServer({
+      runId,
+      threadId: "thread-user-stop-other-server-save-failed",
+      text: "A reply the thread could not take",
+      beforeStopSaved: async () => {
+        throw new Error("thread save failed");
+      },
+    });
+
+    expect(completion.error).toMatchObject({ message: "thread save failed" });
+    const { rows } = await pglite.query(
+      "SELECT status, thread_projection_pending FROM agent_runs WHERE id = ?",
+      [runId],
+    );
+    expect(rows[0]).toEqual({
+      status: "aborted",
+      thread_projection_pending: true,
+    });
   });
 
   it("saves no reply for a run stopped before it wrote anything", async () => {

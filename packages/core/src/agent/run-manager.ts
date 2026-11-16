@@ -1738,13 +1738,20 @@ export function startRun(
   let ownTerminalStatusEstablished = false;
   let terminalStatusWrite: Promise<boolean> | null = null;
   let terminalStatusWriteOutcomeUnknown = false;
+  // An abort this server reads from SQL was written by the server that took
+  // the Stop, with its terminal event, and that write revoked this run's
+  // lease. Writing it again here would fail on the revoked lease.
+  const adoptPersistedAbort = (reason: string | undefined) => {
+    run.abortPersistenceManaged = true;
+    abortInMemoryRun(run, reason ?? "user");
+  };
   const inspectSqlAbortState = async (
     includeTerminalStatus: boolean,
   ): Promise<void> => {
     // raw-sql-ok: getRunAbortState binds runId through its query args.
     const state = await getRunAbortState(runId);
     if (state.aborted && !abort.signal.aborted) {
-      abortInMemoryRun(run, state.reason ?? "user");
+      adoptPersistedAbort(state.reason);
       return;
     }
     let status: string | null = null;
@@ -1809,6 +1816,25 @@ export function startRun(
       });
   };
 
+  // A Stop handled by another server revokes this run's lease as it marks the
+  // run aborted, and the lease renewal can notice before the abort check does.
+  // Ending the run as that Stop, as the abort check would, lets the run's
+  // completion still save the reply it streamed.
+  const abortForRevokedLease = async () => {
+    let state: Awaited<ReturnType<typeof getRunAbortState>> = {
+      aborted: false,
+    };
+    try {
+      // raw-sql-ok: getRunAbortState binds runId through its query args.
+      state = await getRunAbortState(runId);
+    } catch {
+      // coercion-ok: an unreadable abort state still ends the run as a lost lease.
+    }
+    if (completionInProgress || abort.signal.aborted) return;
+    if (state.aborted) adoptPersistedAbort(state.reason);
+    else abortInMemoryRun(run, EXECUTION_LEASE_LOST_ABORT_REASON);
+  };
+
   let consecutiveHeartbeatFailures = 0;
   let heartbeatInFlight = false;
   let livenessResolved = false;
@@ -1842,9 +1868,7 @@ export function startRun(
         })
         .catch((error) => {
           if (error instanceof StaleExecutionFenceError) {
-            if (!completionInProgress) {
-              abortInMemoryRun(run, EXECUTION_LEASE_LOST_ABORT_REASON);
-            }
+            if (!completionInProgress) return abortForRevokedLease();
             return;
           }
           consecutiveHeartbeatFailures += 1;

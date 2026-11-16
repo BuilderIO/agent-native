@@ -11276,6 +11276,62 @@ describe("AgentKitClient", () => {
     expect(thread.tools["tool-1"]?.status).toBe("cancelled");
   });
 
+  it("saves the stopped reply when cancellation stops the stream before its terminal event", async () => {
+    const subscribed = Promise.withResolvers<void>();
+    let persistedSnapshot: AgentThreadSnapshot | undefined;
+    const persistThreadSnapshot = vi.fn(
+      async ({ snapshot }: { snapshot: AgentThreadSnapshot }) => {
+        persistedSnapshot = snapshot;
+      },
+    );
+    const transport: AgentTransport = {
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async *subscribeToRun({ signal }) {
+        yield protocolEvent(1, { type: "run.started" });
+        yield protocolEvent(2, {
+          type: "message.created",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "streaming",
+            parts: [
+              { type: "text", text: "44. A salmon rests in the shadow." },
+            ],
+          },
+        });
+        subscribed.resolve();
+        await new Promise<void>((resolve) =>
+          signal?.addEventListener("abort", () => resolve(), { once: true }),
+        );
+      },
+      async cancelRun() {},
+      persistThreadSnapshot,
+    };
+    const client = new AgentKitClient({ transport });
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    await subscribed.promise;
+    persistThreadSnapshot.mockClear();
+
+    await run.cancel();
+
+    expect(persistThreadSnapshot).toHaveBeenCalledOnce();
+    expect(persistedSnapshot?.runs).toContainEqual(
+      expect.objectContaining({ id: "run-1", status: "cancelled" }),
+    );
+    expect(persistedSnapshot?.messages).toContainEqual(
+      expect.objectContaining({
+        id: "assistant-1",
+        parts: [
+          expect.objectContaining({
+            text: "44. A salmon rests in the shadow.",
+          }),
+        ],
+      }),
+    );
+  });
+
   it("isolates consumers by thread when providers reuse a run id", async () => {
     const subscriptions: string[] = [];
     const transport: AgentTransport = {

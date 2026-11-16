@@ -5065,6 +5065,17 @@ export class AgentKitClient implements AgentKitController {
     );
     this.stopConsumer(threadId, runId, "cancelled");
     if (!hasOtherConsumers) this.setConnection("connected");
+    // A stopped consumer skips the save a terminal event makes, and a reload
+    // would show the copy saved while the reply was still streaming.
+    const persistenceError =
+      await this.persistThreadSnapshotToTransport(threadId);
+    if (
+      persistenceError &&
+      !this.disposed &&
+      !isExpectedThreadSnapshotDeferral(persistenceError.error)
+    ) {
+      this.fail(persistenceError.error, "thread_snapshot_persist_failed");
+    }
   }
 
   public async submitFeedback(

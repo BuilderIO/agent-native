@@ -190,6 +190,8 @@ interface ProtocolRun {
   terminalSource?: RunTerminalSource;
   /** A stream of this run closed with no terminal event at least once. */
   pipeClosedBeforeTerminal?: boolean;
+  /** A Stop in flight saw the stream end or reach how the run ends. */
+  cancelStreamDrained?: boolean;
   /** A restored decline must verify its request against the replayed stream. */
   requiresRestoredConnectionRequestReplay?: boolean;
   outcomeReported?: boolean;
@@ -238,6 +240,17 @@ const DEFAULT_RETAINED_RUN_TTL_MS = 30 * 60 * 1_000;
 const MAX_DURABLE_RESUME_ATTEMPTS = 3;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const RESTORED_CONNECTION_REQUEST_REPLAY_TIMEOUT_MS = 5_000;
+// How long a Stop the server confirmed waits for the run's stream to deliver
+// what the server wrote before the stop.
+const CANCEL_STREAM_DRAIN_MS = 3_000;
+// Runtime events that end or pause a run. A Stop in flight holds them back,
+// since the Stop decides how the run ends.
+const RUN_SETTLING_RUNTIME_EVENTS: ReadonlySet<string> = new Set([
+  "done",
+  "error",
+  "approval-request",
+  "connection-request",
+]);
 const RESTORED_CONNECTION_REQUEST_UNVERIFIED_MESSAGE =
   "Could not verify whether the restored connection request is still pending.";
 
@@ -3852,6 +3865,56 @@ export function createAgentKitProtocolAdapter(
     indexRun(run, resumed.runId);
   }
 
+  function appendRuntimeEvent(
+    run: ProtocolRun,
+    event: AgentChatRuntimeEvent,
+  ): void {
+    const sequence = event.metadata?.seq;
+    if (
+      typeof sequence === "number" &&
+      (run.runtimeSequence === undefined || sequence > run.runtimeSequence)
+    ) {
+      run.runtimeSequence = sequence;
+      run.resumeAttempts = 0;
+      run.quietAuthorityReads = 0;
+    }
+    for (const protocolEvent of runtimeEventToProtocolEvents(run, event)) {
+      append(run, protocolEvent);
+    }
+  }
+
+  function markCancelStreamDrained(run: ProtocolRun): void {
+    if (run.cancelStreamDrained) return;
+    run.cancelStreamDrained = true;
+    for (const listener of run.listeners) listener();
+  }
+
+  /**
+   * Gives the run's stream a moment, once the server has stopped the run, to
+   * deliver what it streamed before the stop, so the stopped reply shows the
+   * text the server kept.
+   */
+  async function waitForCancelStreamDrain(run: ProtocolRun): Promise<void> {
+    // Only a run reading its stream at Stop has text still on the way.
+    if (
+      run.phase.type !== "cancelling" ||
+      run.phase.previous.type !== "streaming"
+    ) {
+      return;
+    }
+    const deadline = Date.now() + CANCEL_STREAM_DRAIN_MS;
+    while (
+      run.pumpPromise &&
+      !run.cancelStreamDrained &&
+      !readers.signal.aborted &&
+      isRunCancelling(run)
+    ) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return;
+      await notifyWhenChanged(run, readers.signal, remaining);
+    }
+  }
+
   function ensurePump(run: ProtocolRun): void {
     if (
       run.pumpPromise ||
@@ -3870,30 +3933,26 @@ export function createAgentKitProtocolAdapter(
             stream = { failed: false };
             try {
               for await (const event of run.turn.events) {
+                // What the server streamed before it stopped the run is part
+                // of the stopped reply; how the run ends is the Stop's to say.
+                if (
+                  isRunCancelling(run) &&
+                  !RUN_SETTLING_RUNTIME_EVENTS.has(event.type)
+                ) {
+                  appendRuntimeEvent(run, event);
+                  continue;
+                }
+                if (isRunCancelling(run)) markCancelStreamDrained(run);
                 while (isRunCancelling(run))
                   await notifyWhenChanged(run, readers.signal);
                 if (!isRunPhase(run, "streaming")) break;
-                const sequence = event.metadata?.seq;
-                if (
-                  typeof sequence === "number" &&
-                  (run.runtimeSequence === undefined ||
-                    sequence > run.runtimeSequence)
-                ) {
-                  run.runtimeSequence = sequence;
-                  run.resumeAttempts = 0;
-                  run.quietAuthorityReads = 0;
-                }
-                for (const protocolEvent of runtimeEventToProtocolEvents(
-                  run,
-                  event,
-                )) {
-                  append(run, protocolEvent);
-                }
+                appendRuntimeEvent(run, event);
                 if (!isRunPhase(run, "streaming")) break;
               }
             } catch (error) {
               stream = { failed: true, error };
             }
+            if (isRunCancelling(run)) markCancelStreamDrained(run);
             while (isRunCancelling(run))
               await notifyWhenChanged(run, readers.signal);
             if (isRunPhase(run, "streaming")) {
@@ -4199,6 +4258,7 @@ export function createAgentKitProtocolAdapter(
       // run the turn would otherwise hand off to.
       const cancellation = cancelCoreTurn(run, "user");
       // Keep readers attached until the cancellation has produced its events.
+      run.cancelStreamDrained = false;
       run.phase = transition(run.phase, { type: "cancelStarted" });
       try {
         let result;
@@ -4215,6 +4275,8 @@ export function createAgentKitProtocolAdapter(
           );
         }
         if (run.phase.type === "disposed") return;
+        await waitForCancelStreamDrain(run);
+        if (isRunPhase(run, "disposed")) return;
         delete run.pendingApprovalId;
         run.terminalSource = "local";
         run.phase = transition(run.phase, { type: "cancelSucceeded" });
