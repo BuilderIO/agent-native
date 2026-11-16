@@ -133,7 +133,7 @@ describe("CommentComposer images", () => {
     expect(submit).not.toHaveBeenCalled();
     expect(richEditorValue(editor())).toBe("Here's what I see");
 
-    const finish = uploads.finish.at(0);
+    const finish = uploads.finish.shift();
     if (!finish) throw new Error("The image never started uploading");
     await act(async () => finish(image("shot")));
     await settle();
