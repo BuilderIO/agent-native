@@ -114,6 +114,43 @@ describe("Interact tweaks bridge", () => {
     }
   });
 
+  it("posts a tweak-set message to the editor from window.__anInteract.setTweak", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      const frame = await openSandboxedInteractFrame(page);
+      await page.evaluate(() => {
+        (window as { received?: unknown[] }).received = [];
+        window.addEventListener("message", (event) => {
+          if (event.source !== document.querySelector("iframe")!.contentWindow)
+            return;
+          (window as { received?: unknown[] }).received!.push(event.data);
+        });
+      });
+
+      await frame.evaluate(() => {
+        const api = (
+          window as {
+            __anInteract?: { setTweak(id: string, value: unknown): void };
+          }
+        ).__anInteract!;
+        api.setTweak("twist", 1.5);
+        api.setTweak("--sail-twist", "0.4");
+      });
+
+      await expect
+        .poll(() =>
+          page.evaluate(() => (window as { received?: unknown[] }).received),
+        )
+        .toEqual([
+          { type: "tweak-set", id: "twist", value: 1.5 },
+          { type: "tweak-set", cssVar: "--sail-twist", value: "0.4" },
+        ]);
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("applies the first message when the document has no baked tweak sheet", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

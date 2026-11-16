@@ -15,6 +15,13 @@
  *     The complete set of resolved CSS custom properties. Properties missing
  *     from a later message are removed.
  *
+ * Protocol (iframe → parent), sent by `window.__anInteract.setTweak`:
+ *
+ *   { type: 'tweak-set', id: string, value } or { type: 'tweak-set', cssVar, value }
+ *     An on-figure control asks the editor to save a tweak. The editor checks
+ *     the tweak is scoped to this screen, clamps the value, saves it, and
+ *     answers with the usual `tweak-values` message.
+ *
  * Rules:
  *   • No import/require of any module (DOM globals only).
  *   • No references to outer/module scope (the code runs inside an iframe).
@@ -49,6 +56,25 @@
     }
     return first instanceof CSSStyleRule ? first : null;
   }
+
+  var w = window as {
+    __anInteract?: {
+      setTweak: (idOrCssVar: string, value: unknown) => void;
+    };
+  };
+  w.__anInteract = {
+    setTweak: function (idOrCssVar: string, value: unknown) {
+      if (typeof idOrCssVar !== "string" || window.parent === window) return;
+      var message: Record<string, unknown> = {
+        type: "tweak-set",
+        value: value,
+      };
+      if (NAME.test(idOrCssVar)) message.cssVar = idOrCssVar;
+      else message.id = idOrCssVar;
+      // The frame is an opaque origin, so the editor checks the message source.
+      window.parent.postMessage(message, "*");
+    },
+  };
 
   window.addEventListener("message", function (e: MessageEvent) {
     if (e.source !== window.parent) return;

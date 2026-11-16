@@ -15,6 +15,12 @@ vi.mock("@/lib/agent-chat", () => ({
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
+const writeClipboardTextMock = vi.hoisted(() =>
+  vi.fn((_text: string) => Promise.resolve(true)),
+);
+vi.mock("@agent-native/toolkit/clipboard", () => ({
+  writeClipboardText: writeClipboardTextMock,
+}));
 
 import type { PendingStructureVerificationSession } from "@/pages/design-editor/command-types";
 import type { PendingLiveStructureEdit } from "@/pages/design-editor/pending-edits";
@@ -23,6 +29,7 @@ import {
   PENDING_STRUCTURE_HARD_TIMEOUT_MS,
   PENDING_STRUCTURE_RUNTIME_POLL_MS,
 } from "../editor-constants";
+import { formatTweakHandoffPrompt } from "../tweak-handoff";
 import { runApplyPendingVisualStylesWithAgent } from "./apply-pending-visual-styles-with-agent";
 
 function structureEdit(index: number): PendingLiveStructureEdit {
@@ -166,6 +173,63 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     });
     callActionMock.mockReset();
     sendDesignSourceHandoffAndConfirmMock.mockClear();
+    writeClipboardTextMock.mockClear();
+  });
+
+  const tweakPrompt = formatTweakHandoffPrompt({
+    designId: "design",
+    changes: [
+      {
+        id: "twist",
+        label: "Twist",
+        oldValue: 1,
+        newValue: 1.67,
+        cssVar: "--sail-twist",
+      },
+    ],
+    sourceFiles: ["Remix.html"],
+  })!;
+
+  it("sends a tweak-only Apply prompt to the MCP App host chat", async () => {
+    sendDesignSourceHandoffAndConfirmMock.mockResolvedValueOnce({
+      target: "host",
+      delivered: true,
+    });
+    const setup = argsFor([], new Map());
+
+    await runApplyPendingVisualStylesWithAgent({
+      ...setup.args,
+      pendingVisualStylePrompt: tweakPrompt,
+      allowPromptOnly: true,
+    });
+
+    expect(sendDesignSourceHandoffAndConfirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.stringContaining(
+          "Twist (id: `twist`): 1 → 1.67; CSS variable: `--sail-twist`",
+        ),
+        submit: true,
+      }),
+      { timeoutMs: 10_000 },
+    );
+    expect(writeClipboardTextMock).not.toHaveBeenCalled();
+  });
+
+  it("copies the Apply prompt when no host or agent chat takes it", async () => {
+    sendDesignSourceHandoffAndConfirmMock.mockResolvedValueOnce({
+      target: "host",
+      delivered: false,
+      reason: "host-rejected",
+    } as never);
+    const setup = argsFor([], new Map());
+
+    await runApplyPendingVisualStylesWithAgent({
+      ...setup.args,
+      pendingVisualStylePrompt: tweakPrompt,
+      allowPromptOnly: true,
+    });
+
+    expect(writeClipboardTextMock).toHaveBeenCalledExactlyOnceWith(tweakPrompt);
   });
 
   it("hands off a shared prompt without clearing it before source acknowledgement", async () => {

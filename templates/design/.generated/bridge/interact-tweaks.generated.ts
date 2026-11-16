@@ -29,6 +29,19 @@ export const interactTweaksBridgeScript: string = `"use strict";
       }
       return first instanceof CSSStyleRule ? first : null;
     }
+    var w = window;
+    w.__anInteract = {
+      setTweak: function(idOrCssVar, value) {
+        if (typeof idOrCssVar !== "string" || window.parent === window) return;
+        var message = {
+          type: "tweak-set",
+          value
+        };
+        if (NAME.test(idOrCssVar)) message.cssVar = idOrCssVar;
+        else message.id = idOrCssVar;
+        window.parent.postMessage(message, "*");
+      }
+    };
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
       var data = e.data;

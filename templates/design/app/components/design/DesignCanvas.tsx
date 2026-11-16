@@ -18,6 +18,7 @@ import {
 import type { ReviewComment } from "@agent-native/core/review";
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 import { type ReviewThread } from "@agent-native/toolkit/app/review";
+import type { TweakDefinition } from "@shared/api";
 import { isLoopbackPreviewAllowed } from "@shared/builder-preview-url";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,
@@ -187,6 +188,7 @@ import {
   hasSkippedImagePaste,
 } from "./design-canvas/image-paste-files";
 import { buildInteractPreviewDocument } from "./design-canvas/interact-document";
+import { createInteractTweakSetListener } from "./design-canvas/interact-tweak-set";
 import {
   inlineDesignStylesheets,
   useDesignStylesheets,
@@ -941,6 +943,15 @@ interface DesignCanvasProps {
     },
   ) => boolean | "pending" | void;
   tweakValues: Record<string, string>;
+  /**
+   * The design's tweaks and the setter the inspector uses. With both, an
+   * Interact frame's on-figure controls can set a tweak scoped to this screen.
+   */
+  tweaks?: readonly TweakDefinition[];
+  onInteractTweakSet?: (
+    tweakId: string,
+    value: string | number | boolean,
+  ) => void;
   drawMode?: boolean;
   onExitDrawMode?: () => void;
   drawOverlayResetSignal?: number;
@@ -1605,6 +1616,8 @@ export function DesignCanvas({
   onVisualGridGroupChange,
   onVisualDuplicateChange,
   tweakValues,
+  tweaks,
+  onInteractTweakSet,
   drawMode,
   onExitDrawMode,
   drawOverlayResetSignal,
@@ -3639,6 +3652,28 @@ export function DesignCanvas({
     runtimeReplacementKey,
     authoredSourceContent,
   ]);
+
+  const interactTweaksRef = useRef(tweaks);
+  interactTweaksRef.current = tweaks;
+  const interactContentRef = useRef(content);
+  interactContentRef.current = content;
+  const onInteractTweakSetRef = useRef(onInteractTweakSet);
+  onInteractTweakSetRef.current = onInteractTweakSet;
+  const acceptsInteractTweakSet =
+    interactMode && Boolean(screenId) && Boolean(onInteractTweakSet);
+  useEffect(() => {
+    if (!acceptsInteractTweakSet || !screenId) return;
+    const listener = createInteractTweakSetListener({
+      getFrameWindow: () => iframeRef.current?.contentWindow,
+      getTweaks: () => interactTweaksRef.current ?? [],
+      screenId,
+      getScreenHtml: () => interactContentRef.current,
+      onTweakSet: (tweakId, value) =>
+        onInteractTweakSetRef.current?.(tweakId, value),
+    });
+    window.addEventListener("message", listener);
+    return () => window.removeEventListener("message", listener);
+  }, [acceptsInteractTweakSet, screenId]);
 
   useEffect(() => {
     if (!interactMode) return;
