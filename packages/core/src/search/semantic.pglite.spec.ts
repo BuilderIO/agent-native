@@ -467,6 +467,36 @@ describe("the meaning lane", () => {
     await settle();
     await drain();
   });
+
+  it("deletes a page's vectors when it moves to an organization with no provider", async () => {
+    await insertPage("moved", "Laptop", "Hardware moving.");
+    await settle();
+    await drain();
+    expect(store.keys()).toContain("wiki/page/moved/0");
+
+    await run(`UPDATE pages SET org_id = 'org-no-provider' WHERE id = 'moved'`);
+    await settle();
+    await drain();
+    // Its vectors named org-a, whose lane turning off would no longer find them.
+    expect(store.keys()).not.toContain("wiki/page/moved/0");
+    const { rows } = await run(
+      `SELECT audience_id, dimensions, chunk_count, content_hash FROM search_embeddings WHERE resource_id = 'moved'`,
+    );
+    expect(rows).toMatchObject([
+      {
+        audience_id: "org:org-no-provider",
+        dimensions: null,
+        chunk_count: 0,
+        content_hash: "no-provider",
+      },
+    ]);
+
+    await search.requeueSemanticSearchForOrg("org-no-provider");
+    expect(await pendingIds()).toEqual(["moved"]);
+    await run(`DELETE FROM pages WHERE id = 'moved'`);
+    await settle();
+    await drain();
+  });
 });
 
 describe("an organization that turns semantic search off", () => {
@@ -1439,6 +1469,103 @@ describe("when something fails part way", () => {
       await drain();
       expect(keysFor("mid-store")).toEqual([]);
       expect(await pendingIds()).toEqual([]);
+    });
+
+    it("never deletes a later change's vectors when an older drain forgets a hidden page", async () => {
+      await insertPage("stale-forget", "Laptop", "Hardware shown.");
+      await settle();
+      await drain();
+      const loading = gate();
+      const gated: SearchableResourceRegistration = {
+        ...registration,
+        async load(ids) {
+          const documents = await registration.load(ids);
+          if (ids.includes("stale-forget")) await loading.pass();
+          return documents;
+        },
+      };
+      other.configureSemanticSearch({
+        vectorStore: store,
+        resolveEmbeddingFamily: async () => family,
+      });
+      try {
+        await run(`UPDATE pages SET hidden = 1 WHERE id = 'stale-forget'`);
+        await settle();
+        // The older drain reads the page hidden, then pauses before
+        // forgetting it.
+        const older = search.drainSemanticIndex(gated, Date.now() + 10_000);
+        await loading.waiting;
+        await run(
+          `UPDATE pages SET hidden = 0, body = 'Computer shown again.' WHERE id = 'stale-forget'`,
+        );
+        await settle();
+        await other.drainSemanticIndex(registration, Date.now() + 10_000);
+        loading.open();
+        await older;
+      } finally {
+        other.configureSemanticSearch({});
+      }
+      expect(keysFor("stale-forget")).toEqual(["wiki/page/stale-forget/0"]);
+      expect(await row("stale-forget")).toMatchObject([{ chunk_count: 1 }]);
+      expect(await pendingIds()).toEqual([]);
+
+      await run(`DELETE FROM pages WHERE id = 'stale-forget'`);
+      await settle();
+      await drain();
+      expect(keysFor("stale-forget")).toEqual([]);
+      expect(await row("stale-forget")).toEqual([]);
+    });
+
+    it("records nothing over a later change an owner with no provider recorded", async () => {
+      await insertPage("unpowered-race", "Laptop", "Old hardware");
+      await settle();
+      await drain();
+      const [embedded] = await row("unpowered-race");
+      const embedding = gate();
+      const gatedFamily: EmbeddingFamily = {
+        ...family,
+        async embed(inputs, purpose) {
+          await embedding.pass();
+          return family.embed(inputs, purpose);
+        },
+      };
+      search.configureSemanticSearch({
+        vectorStore: store,
+        resolveEmbeddingFamily: async () => gatedFamily,
+      });
+      // The newer drain finds no provider for the owner.
+      other.configureSemanticSearch({
+        vectorStore: store,
+        resolveEmbeddingFamily: async () => null,
+      });
+      try {
+        await run(
+          `UPDATE pages SET body = 'Middle laptop' WHERE id = 'unpowered-race'`,
+        );
+        await settle();
+        const older = drain();
+        await embedding.waiting;
+        await run(
+          `UPDATE pages SET body = 'Newest computer' WHERE id = 'unpowered-race'`,
+        );
+        await settle();
+        await other.drainSemanticIndex(registration, Date.now() + 10_000);
+        embedding.open();
+        await older;
+      } finally {
+        restoreStore();
+        other.configureSemanticSearch({});
+      }
+      // The older drain's text is no newer than what's recorded, so the row
+      // still names the vectors embedded before both changes.
+      expect(await row("unpowered-race")).toEqual([embedded]);
+      expect(await pendingIds()).toEqual([]);
+
+      await run(`DELETE FROM pages WHERE id = 'unpowered-race'`);
+      await settle();
+      await drain();
+      expect(keysFor("unpowered-race")).toEqual([]);
+      expect(await row("unpowered-race")).toEqual([]);
     });
   });
 });

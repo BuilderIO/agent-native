@@ -522,7 +522,8 @@ OpenAI's `text-embedding-3-small`.
   only after the vectors are stored and stale chunks removed. A failed store is
   embedded again, and deleting the page finds every vector. Every write to the
   row is skipped if a later change already recorded newer work, and a drain
-  claims the row that way before deleting another model's vectors. If two
+  claims the row that way before deleting vectors: another model's, or a
+  deleted or hidden page's. If two
   drains still store one page at once (one stalled past its lease), the one
   that finishes second marks the row `repair`, counting every chunk either
   wrote, and queues the page; no drain can record over `repair`, and the next
@@ -538,8 +539,10 @@ OpenAI's `text-embedding-3-small`.
   space, embeds as its owner, whose credentials resolve to their active
   organization (else their first), so that organization's provider embeds it.
   With no provider, the row records `no-provider` and keeps any vectors it
-  had; choosing a provider in the Embeddings setting queues the
-  organization's pages again. Every embedding call records usage:
+  had, unless the page moved to another audience: its vectors name the old
+  one, so they're deleted. Choosing a provider in the Embeddings setting
+  queues the organization's pages again, and choosing the same one again
+  finishes queuing that failed. Every embedding call records usage:
   `search-index-embeddings` for pages and `search-query-embeddings` for
   queries.
 - **Off switch.** The organization setting `semantic-search` is on unless an

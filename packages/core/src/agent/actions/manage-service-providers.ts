@@ -467,7 +467,23 @@ export default defineAction({
       effectiveProviderFor(service, previous, states) !==
         effectiveProviderFor(service, provider, states);
     // Page vectors from the old provider don't match searches with the new one.
-    if (reindexRequired) await requeueSemanticSearchForOrg(orgId);
+    // Choosing the same provider again queues them too, so calling again
+    // finishes a call whose queuing failed after the choice was saved; pages
+    // already embedded with it are skipped.
+    if (service === "embeddings" && (reindexRequired || !changed)) {
+      try {
+        await requeueSemanticSearchForOrg(orgId);
+      } catch (cause) {
+        console.error(
+          "[manage-service-providers] The embeddings provider was saved, but queuing pages to embed again failed:",
+          cause instanceof Error ? cause.message : String(cause),
+        );
+        fail(
+          "The embeddings provider is saved, but queuing pages to embed again failed. Try again with the same provider to finish.",
+          { statusCode: 500 },
+        );
+      }
+    }
     return {
       ...buildStatus(settings, states, canManage, semanticSearch),
       changed,

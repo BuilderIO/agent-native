@@ -299,6 +299,31 @@ describe("manage-service-providers", () => {
     ]);
   });
 
+  it("finishes queuing pages again when an embeddings provider choice is repeated after queuing failed", async () => {
+    // Unset answers with Builder.io, so choosing Gemini changes the provider.
+    mocks.builder.source = "org";
+    mocks.keys.set("GOOGLE_GENERATIVE_AI_API_KEY", { shared: "g-test" });
+    mocks.requeueSemanticSearchForOrg.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+    await expect(
+      action.run({ service: "embeddings", provider: "gemini" }, ctx(ADMIN)),
+    ).rejects.toMatchObject({
+      statusCode: 500,
+      message: expect.stringContaining("Try again with the same provider"),
+    });
+    const read = await action.run({}, ctx(ADMIN));
+    expect(service(read, "embeddings").effectiveProvider).toBe("gemini");
+
+    // The choice is saved, so this call changes nothing, but it queues again.
+    const again = await action.run(
+      { service: "embeddings", provider: "gemini" },
+      ctx(ADMIN),
+    );
+    expect(again.changed).toBe(false);
+    expect(mocks.requeueSemanticSearchForOrg).toHaveBeenCalledTimes(2);
+  });
+
   it("reads semantic search as on until an admin turns it off", async () => {
     const read = await action.run({}, ctx(MEMBER));
     expect(read.semanticSearch).toEqual({

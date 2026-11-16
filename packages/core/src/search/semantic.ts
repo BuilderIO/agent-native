@@ -837,7 +837,7 @@ async function embedChanges(
         exec,
         store,
         registration,
-        change.resourceId,
+        change,
         stored.get(change.resourceId),
       );
       done.push(change);
@@ -908,6 +908,36 @@ async function embedAudienceGroup(
     // choosing a provider later queues it. Vectors from an earlier provider
     // carry its set id, which searches with another family never match.
     for (const { change } of group.items) {
+      const previous = stored.get(change.resourceId);
+      if (
+        previous?.dimensions != null &&
+        previous.audienceId !== group.audienceId
+      ) {
+        // Its vectors still carry the audience it had, but its row will name
+        // the new one, so turning the old audience's lane off would never
+        // find them; they're deleted now. The row is claimed for this change
+        // first, so work a later change already finished is never deleted.
+        if (await markPending(exec, registration, change)) {
+          await removeVectors(
+            exec,
+            store,
+            registration,
+            change.resourceId,
+            previous,
+          );
+          await recordEmbedding(exec, registration, {
+            resourceId: change.resourceId,
+            audienceId: group.audienceId,
+            setId: null,
+            dimensions: null,
+            chunkCount: 0,
+            hash: NO_PROVIDER_HASH,
+            seq: change.seq,
+          });
+        }
+        done.push(change);
+        continue;
+      }
       await recordAudience(exec, registration, change, group.audienceId);
       done.push(change);
     }
@@ -919,13 +949,7 @@ async function embedAudienceGroup(
     const chunks = semanticChunks(document);
     const previous = stored.get(change.resourceId);
     if (!chunks.length) {
-      await forgetResource(
-        exec,
-        store,
-        registration,
-        change.resourceId,
-        previous,
-      );
+      await forgetResource(exec, store, registration, change, previous);
       done.push(change);
       continue;
     }
@@ -1430,7 +1454,11 @@ async function markPending(
   return rows.length > 0;
 }
 
-/** Records a resource's audience, keeping whatever was embedded for it. */
+/**
+ * Records a resource's audience, keeping whatever was embedded for it, and
+ * claims its row for the change, so an older drain still running records
+ * nothing over it.
+ */
 async function recordAudience(
   exec: DbExec,
   registration: SearchableResourceRegistration,
@@ -1442,7 +1470,8 @@ async function recordAudience(
             (app, resource_type, resource_id, audience_id, chunk_count, content_hash, embedded_seq)
           VALUES (?, ?, ?, ?, 0, ?, ?::bigint)
           ON CONFLICT (app, resource_type, resource_id) DO UPDATE SET
-            audience_id = EXCLUDED.audience_id
+            audience_id = EXCLUDED.audience_id,
+            embedded_seq = EXCLUDED.embedded_seq
           WHERE search_embeddings.embedded_seq <= EXCLUDED.embedded_seq`,
     args: [
       registration.app,
@@ -1491,18 +1520,25 @@ async function removeVectors(
   });
 }
 
-/** Deletes a resource's vectors and its row: it's gone, or has no text or owner. */
+/**
+ * Deletes a resource's vectors and its row: it's gone, or has no text or
+ * owner. The row is claimed for the change first, and deleted only while it's
+ * still this change's, so work a later change recorded is never deleted.
+ */
 async function forgetResource(
   exec: DbExec,
   store: SearchVectorStore,
   registration: SearchableResourceRegistration,
-  resourceId: string,
+  change: ClaimedResourceChange,
   previous: StoredEmbedding | undefined,
 ): Promise<void> {
-  await removeVectors(exec, store, registration, resourceId, previous);
+  if (previous && !(await markPending(exec, registration, change))) return;
+  await removeVectors(exec, store, registration, change.resourceId, previous);
   await exec.execute({
-    sql: `DELETE FROM search_embeddings WHERE app = ? AND resource_type = ? AND resource_id = ?`,
-    args: [registration.app, registration.type, resourceId],
+    sql: `DELETE FROM search_embeddings
+          WHERE app = ? AND resource_type = ? AND resource_id = ?
+            AND embedded_seq <= ?::bigint`,
+    args: [registration.app, registration.type, change.resourceId, change.seq],
   });
 }
 
