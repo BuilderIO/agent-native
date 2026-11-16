@@ -383,10 +383,12 @@ each one paints:
   `:root` and never calls `setTweak`. When a `tweak-values` message
   changes a value after the first one, stop the demo and ease the planes and
   slider to the new value over about 700 ms, then hold it. Hovering the panel
-  pauses the demo, and `prefers-reduced-motion` disables it. Outside
-  Interact (no `window.__anInteract`) the panel is display-only: give it
-  `pointer-events: none` so its sliders never change a value that cannot be
-  saved; values change there from the Tweaks panel.
+  pauses the demo, and `prefers-reduced-motion` disables it. Embedded in
+  Design outside Interact (no `window.__anInteract`), the panel is
+  display-only: set `disabled` on its inputs so neither pointer nor keyboard
+  changes a value that cannot be saved; values change there from the Tweaks
+  panel, and hovering the panel still pauses the demo. Running standalone (top
+  window), the knobs work and change only that page.
 - At most one handwritten note per card (Caveat or Gochi Hand, else serif
   italic) with a hand-drawn arrow to the key plane ("the shader only paints
   this layer").
