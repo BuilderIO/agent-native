@@ -804,8 +804,15 @@ async function getOwnerApiKeyDetailed(
     lookupFailed = false;
   };
   const secretKey = ownerProviderSecretKey(provider);
-  const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
+  const request = getRequestContext();
+  const syntheticTraffic = request?.isSyntheticTraffic === true;
   const orgId = getRequestOrgId();
+  const canMatchOwnSolo =
+    request?.userEmail?.trim().toLowerCase() ===
+      ownerEmail.trim().toLowerCase() &&
+    request.credentialScope !== "org" &&
+    (request.a2aIdentityAssurance === undefined ||
+      request.a2aIdentityAssurance === "user");
   const matchesKey = async (value: string): Promise<boolean> =>
     options?.matchApiKey !== undefined
       ? value === options.matchApiKey
@@ -837,7 +844,21 @@ async function getOwnerApiKeyDetailed(
         { scope: "org", scopeId: orgId },
         { scope: "workspace", scopeId: orgId },
       );
-    } else if (!syntheticTraffic && !personalRestricted) {
+      // Identity checks may also inspect the current user's pre-org workspace,
+      // as normal credential resolution does. Never infer ownership from an
+      // arbitrary ownerEmail or cross a delegated/org-only credential scope.
+      if (
+        options?.matchApiKey !== undefined &&
+        !personalRestricted &&
+        canMatchOwnSolo
+      ) {
+        refs.push({ scope: "workspace", scopeId: `solo:${ownerEmail}` });
+      }
+    } else if (
+      !syntheticTraffic &&
+      !personalRestricted &&
+      (options?.matchApiKey === undefined || canMatchOwnSolo)
+    ) {
       refs.push({ scope: "workspace", scopeId: `solo:${ownerEmail}` });
     }
     for (const ref of await orderCredentialScopes(refs, orgId, ownerEmail)) {

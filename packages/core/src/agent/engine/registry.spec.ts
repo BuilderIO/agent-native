@@ -1326,9 +1326,11 @@ describe("AgentEngine registry", () => {
     let activeEngine: string | undefined;
     let duplicateKey = false;
     let shadowLegacy = false;
+    let soloKeyPresent = false;
     let lookupFailure = false;
     vi.doMock("../../server/request-context.js", () => ({
       getRequestContext: () => ({
+        userEmail: "member@example.com",
         orgScope: "personal",
         isSyntheticTraffic: synthetic,
       }),
@@ -1380,15 +1382,32 @@ describe("AgentEngine registry", () => {
           : { value: null, lookupFailed: false },
       ),
     }));
-    const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
-      if (lookupFailure) throw new Error("credential store unavailable");
-      if (key === "OPENAI_API_KEY") return { key, value: "example-openai" };
-      if (key === "ANTHROPIC_API_KEY" && duplicateKey)
-        return { key, value: "example-openai" };
-      if (key === "ANTHROPIC_API_KEY" && shadowLegacy)
-        return { key, value: "example-current-anthropic" };
-      return null;
-    });
+    const readAppSecret = vi.fn(
+      async ({
+        key,
+        scope,
+        scopeId,
+      }: {
+        key: string;
+        scope?: string;
+        scopeId?: string;
+      }) => {
+        if (lookupFailure) throw new Error("credential store unavailable");
+        if (
+          soloKeyPresent &&
+          key === "ANTHROPIC_API_KEY" &&
+          scope === "workspace" &&
+          scopeId === "solo:member@example.com"
+        )
+          return { key, value: "example-personal-solo-anthropic" };
+        if (key === "OPENAI_API_KEY") return { key, value: "example-openai" };
+        if (key === "ANTHROPIC_API_KEY" && duplicateKey)
+          return { key, value: "example-openai" };
+        if (key === "ANTHROPIC_API_KEY" && shadowLegacy)
+          return { key, value: "example-current-anthropic" };
+        return null;
+      },
+    );
     vi.doMock("../../secrets/storage.js", () => ({
       readAppSecret,
       readAppSecrets: readAppSecretsFromSingles(readAppSecret),
@@ -1527,6 +1546,24 @@ describe("AgentEngine registry", () => {
       "example-opaque-openai",
     );
     shadowLegacy = false;
+    soloKeyPresent = true;
+    await completeText({
+      apiKey: "example-personal-solo-anthropic",
+      input: "go",
+    });
+    expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe("example-openai");
+    await completeText({
+      engine: "ai-sdk:openai",
+      apiKey: "example-personal-solo-anthropic",
+      input: "go",
+    });
+    expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe("example-openai");
+    expect(readAppSecret).toHaveBeenCalledWith({
+      key: "ANTHROPIC_API_KEY",
+      scope: "workspace",
+      scopeId: "solo:member@example.com",
+    });
+    soloKeyPresent = false;
     const beforeAmbiguous = openaiCreate.mock.calls.length;
     duplicateKey = true;
     const { getOwnerApiKeyForEngine } = await import("../production-agent.js");
