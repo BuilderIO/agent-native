@@ -23,6 +23,7 @@ import {
 import { injectDocumentMarkup } from "../shared/html-document.js";
 import {
   fetchDesignReferenceCopy,
+  fetchDesignReferenceResource,
   ReferenceCopyError,
 } from "./design-reference-copy.js";
 
@@ -3872,6 +3873,8 @@ export async function startDesignConnectBridge(
           try {
             const result = await fetchDesignReferenceCopy(
               requestUrl.searchParams.get("url") ?? "",
+              manifest.bridgeUrl,
+              providedPreviewToken,
             );
             sendJson(res, 200, { ok: true, ...result });
           } catch (error) {
@@ -3885,6 +3888,38 @@ export async function startDesignConnectBridge(
                   error instanceof Error
                     ? error.message
                     : "Reference copy could not be loaded.",
+              },
+            );
+          }
+        })();
+        return;
+      }
+      if (pathname === "/reference-resource") {
+        if (req.method !== "GET") {
+          sendJson(res, 405, { ok: false, error: "method not allowed" });
+          return;
+        }
+        if (rejectInvalidPreviewToken()) return;
+        void (async () => {
+          try {
+            const result = await fetchDesignReferenceResource(
+              requestUrl.searchParams.get("url") ?? "",
+            );
+            res.statusCode = 200;
+            res.setHeader("Content-Type", result.contentType);
+            res.setHeader("Cache-Control", "no-store");
+            res.setHeader("X-Content-Type-Options", "nosniff");
+            res.end(result.body);
+          } catch (error) {
+            sendJson(
+              res,
+              error instanceof ReferenceCopyError ? error.status : 422,
+              {
+                ok: false,
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "Reference resource could not be loaded.",
               },
             );
           }

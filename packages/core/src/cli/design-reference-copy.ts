@@ -1,14 +1,9 @@
 import { parse, serialize, type DefaultTreeAdapterMap } from "parse5";
 
-import {
-  isBlockedExtensionUrl,
-  isBlockedExtensionUrlWithDns,
-  ssrfSafeFetch,
-} from "../extensions/url-safety.js";
-import { isNonPublicHostname } from "../shared/public-host.js";
+import { ssrfSafeFetch } from "../extensions/url-safety.js";
 
 const MAX_REFERENCE_BYTES = 2 * 1024 * 1024;
-const MAX_REFERENCE_ORIGINS = 32;
+const MAX_RESOURCE_BYTES = 5 * 1024 * 1024;
 const OMIT_TAGS = new Set([
   "script",
   "iframe",
@@ -34,8 +29,6 @@ const LINK_RELS = new Set([
   "shortcut",
   "apple-touch-icon",
 ]);
-const CSS_URL = /url\(\s*(['"]?)([^'")]*)\1\s*\)/gi;
-const CSS_IMPORT = /@import\s+(['"])([^'"]*)\1/gi;
 
 export class ReferenceCopyError extends Error {
   constructor(
@@ -46,41 +39,7 @@ export class ReferenceCopyError extends Error {
   }
 }
 
-/**
- * The copy renders in the viewer's browser, outside ssrfSafeFetch, so every
- * subresource must point at a public HTTPS origin. Hosts that only resolve on
- * a local network are rejected by name, and the remaining origins are checked
- * in DNS once here. A host that rebinds between this check and the browser's
- * own lookup is the residual risk.
- */
-function publicReferenceOrigin(raw: string, pageUrl: string): string | null {
-  if (!URL.canParse(raw.trim(), pageUrl)) return null;
-  const url = new URL(raw.trim(), pageUrl);
-  if (
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    isNonPublicHostname(url.hostname) ||
-    isBlockedExtensionUrl(url.href)
-  )
-    return null;
-  return url.origin;
-}
-
 type UrlRewrite = (raw: string) => string | null;
-
-function rewriteCss(css: string, rewrite: UrlRewrite): string {
-  return css
-    .replace(CSS_IMPORT, (_match, _quote, raw: string) => {
-      const next = rewrite(raw);
-      return next ? `@import "${next}"` : '@import ""';
-    })
-    .replace(CSS_URL, (match, _quote, raw: string) => {
-      if (/^\s*(data:|#)/i.test(raw)) return match;
-      const next = rewrite(raw);
-      return next ? `url("${next}")` : 'url("")';
-    });
-}
 
 function rewriteSrcset(value: string, rewrite: UrlRewrite): string {
   return value
@@ -109,10 +68,6 @@ function sanitizeReferenceTree(
         .some((token) => LINK_RELS.has(token));
     });
     for (const child of node.childNodes) {
-      if ("tagName" in child && child.tagName === "style") {
-        for (const text of child.childNodes)
-          if ("value" in text) text.value = rewriteCss(text.value, rewrite);
-      }
       if ("attrs" in child) {
         if (child.tagName === "head") child.attrs = [];
         child.attrs = child.attrs.flatMap((attr) => {
@@ -131,6 +86,7 @@ function sanitizeReferenceTree(
             return [];
           if (URL_ATTRIBUTES.has(name)) {
             if (/^\s*#/.test(value)) return [attr];
+            if (name === "href" && child.tagName === "a") return [attr];
             if (/^\s*data:image\//i.test(value) && name !== "href")
               return [attr];
             const next = rewrite(value);
@@ -138,8 +94,7 @@ function sanitizeReferenceTree(
           }
           if (SRCSET_ATTRIBUTES.has(name))
             return [{ ...attr, value: rewriteSrcset(value, rewrite) }];
-          if (name === "style")
-            return [{ ...attr, value: rewriteCss(value, rewrite) }];
+          if (name === "style") return [];
           return [attr];
         });
       }
@@ -152,32 +107,61 @@ function sanitizeReferenceTree(
   visit(document);
 }
 
-async function inertReferenceHtml(html: string, url: string): Promise<string> {
-  const candidates = new Set<string>();
-  sanitizeReferenceTree(parse(html), (raw) => {
-    const origin = publicReferenceOrigin(raw, url);
-    if (origin) candidates.add(origin);
-    return raw;
-  });
-  const checked = await Promise.all(
-    [...candidates]
-      .slice(0, MAX_REFERENCE_ORIGINS)
-      .map(async (origin) =>
-        (await isBlockedExtensionUrlWithDns(origin)) ? null : origin,
-      ),
-  );
-  const allowed = new Set(checked.filter((origin) => origin !== null));
-  const document = parse(html);
+function resourceProxyUrl(
+  raw: string,
+  pageUrl: string,
+  bridgeUrl: string,
+  token: string,
+) {
+  if (!URL.canParse(raw.trim(), pageUrl)) return null;
+  const target = new URL(raw.trim(), pageUrl);
+  if (
+    !["http:", "https:"].includes(target.protocol) ||
+    target.username ||
+    target.password
+  )
+    return null;
+  const proxy = new URL("/reference-resource", bridgeUrl);
+  proxy.searchParams.set("url", target.href);
+  proxy.searchParams.set("previewToken", token);
+  return proxy.href;
+}
+
+function inertReferenceHtml(
+  html: string,
+  url: string,
+  bridgeUrl: string,
+  token: string,
+): string {
+  const document = parse(html, { scriptingEnabled: false });
   sanitizeReferenceTree(document, (raw) => {
-    const origin = publicReferenceOrigin(raw, url);
-    return origin && allowed.has(origin) ? new URL(raw.trim(), url).href : null;
+    return resourceProxyUrl(raw, url, bridgeUrl, token);
   });
-  const sources = [...allowed].join(" ");
+  const htmlNode = document.childNodes.find(
+    (node) => "tagName" in node && node.tagName === "html",
+  );
+  if (!htmlNode || !("childNodes" in htmlNode))
+    throw new ReferenceCopyError("Reference document has no HTML root.", 422);
+  let head = htmlNode.childNodes.find(
+    (node) => "tagName" in node && node.tagName === "head",
+  );
+  if (!head || !("childNodes" in head)) {
+    head = {
+      nodeName: "head",
+      tagName: "head",
+      attrs: [],
+      childNodes: [],
+      parentNode: htmlNode,
+    } as typeof head;
+    htmlNode.childNodes.unshift(head);
+  }
+  const headNode = head as DefaultTreeAdapterMap["element"];
+  const bridgeOrigin = new URL(bridgeUrl).origin;
   const csp = [
     "default-src 'none'",
-    `img-src data: ${sources}`,
-    `style-src 'unsafe-inline' ${sources}`,
-    `font-src data: ${sources}`,
+    `img-src data: ${bridgeOrigin}`,
+    `style-src 'unsafe-inline' ${bridgeOrigin}`,
+    `font-src data: ${bridgeOrigin}`,
     "base-uri 'none'",
     "form-action 'none'",
     "frame-src 'none'",
@@ -185,19 +169,105 @@ async function inertReferenceHtml(html: string, url: string): Promise<string> {
   ]
     .map((directive) => directive.trim())
     .join("; ");
-  const escape = (value: string) =>
-    value
-      .replaceAll("&", "&amp;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("<", "&lt;");
-  return serialize(document).replace(
-    "<head>",
-    `<head><meta http-equiv="Content-Security-Policy" content="${escape(csp)}"><meta name="referrer" content="no-referrer">`,
+  headNode.childNodes.unshift(
+    {
+      nodeName: "meta",
+      tagName: "meta",
+      attrs: [
+        { name: "http-equiv", value: "Content-Security-Policy" },
+        { name: "content", value: csp },
+      ],
+      childNodes: [],
+      parentNode: headNode,
+    },
+    {
+      nodeName: "meta",
+      tagName: "meta",
+      attrs: [
+        { name: "name", value: "referrer" },
+        { name: "content", value: "no-referrer" },
+      ],
+      childNodes: [],
+      parentNode: headNode,
+    },
   );
+  return serialize(document);
+}
+
+export async function fetchDesignReferenceResource(rawUrl: string) {
+  const target = new URL(rawUrl);
+  if (
+    !["http:", "https:"].includes(target.protocol) ||
+    target.username ||
+    target.password
+  )
+    throw new ReferenceCopyError("Invalid reference resource URL.", 400);
+  const response = await ssrfSafeFetch(
+    target.href,
+    {
+      method: "GET",
+      credentials: "omit",
+      headers: {
+        accept:
+          "image/*, text/css, font/*, application/font-woff, application/vnd.ms-fontobject",
+      },
+      signal: AbortSignal.timeout(8_000),
+    },
+    { requireDispatcher: true },
+  );
+  const contentType =
+    response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ??
+    "";
+  const css = contentType === "text/css";
+  if (
+    !response.ok ||
+    !(
+      css ||
+      contentType.startsWith("image/") ||
+      /font|woff|opentype|truetype/.test(contentType)
+    )
+  ) {
+    await response.body?.cancel();
+    throw new ReferenceCopyError("Unsupported reference resource.", 415);
+  }
+  const reader = response.body?.getReader();
+  if (!reader)
+    throw new ReferenceCopyError(
+      "Reference resource returned no content.",
+      422,
+    );
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_RESOURCE_BYTES)
+        throw new ReferenceCopyError(
+          "Reference resource exceeds the 5 MiB limit.",
+          413,
+        );
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel();
+  }
+  const bytes = Buffer.concat(chunks);
+  return {
+    body: css ? new TextDecoder().decode(bytes) : bytes,
+    contentType,
+    css,
+    baseUrl: response.url || target.href,
+  };
 }
 
 /** Public reference copies deliberately have no authenticated upstream session. */
-async function loadReferenceCopy(url: string) {
+async function loadReferenceCopy(
+  url: string,
+  bridgeUrl: string,
+  token: string,
+) {
   const target = new URL(url);
   if (
     !["http:", "https:"].includes(target.protocol) ||
@@ -259,9 +329,11 @@ async function loadReferenceCopy(url: string) {
   return {
     mode: "reference-copy" as const,
     url: finalUrl,
-    html: await inertReferenceHtml(
+    html: inertReferenceHtml(
       Buffer.concat(chunks).toString("utf8"),
       finalUrl,
+      bridgeUrl,
+      token,
     ),
     framingBlocked:
       response.headers.has("x-frame-options") ||
@@ -271,11 +343,15 @@ async function loadReferenceCopy(url: string) {
   };
 }
 
-export async function fetchDesignReferenceCopy(url: string) {
+export async function fetchDesignReferenceCopy(
+  url: string,
+  bridgeUrl: string,
+  token: string,
+) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      loadReferenceCopy(url),
+      loadReferenceCopy(url, bridgeUrl, token),
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(
           () =>

@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
-import { fetchDesignReferenceCopy } from "./design-reference-copy.js";
+import {
+  fetchDesignReferenceCopy,
+  fetchDesignReferenceResource,
+} from "./design-reference-copy.js";
 
 vi.mock("../extensions/url-safety.js", async (importOriginal) => {
   const original =
@@ -10,11 +13,6 @@ vi.mock("../extensions/url-safety.js", async (importOriginal) => {
     ...original,
     ssrfSafeFetch: vi.fn(original.ssrfSafeFetch),
     // Unit tests stay offline; a named host stands in for one that resolves privately.
-    isBlockedExtensionUrlWithDns: vi.fn(
-      async (url: string) =>
-        original.isBlockedExtensionUrl(url) ||
-        new URL(url).hostname === "rebind.example.com",
-    ),
   };
 });
 
@@ -31,7 +29,9 @@ describe("Design public reference copy", () => {
     "file:///etc/passwd",
     "https://user:password@example.com/",
   ])("rejects nonpublic or credentialed URL %s", async (url) => {
-    await expect(fetchDesignReferenceCopy(url)).rejects.toThrow();
+    await expect(
+      fetchDesignReferenceCopy(url, "http://127.0.0.1:7331", "token"),
+    ).rejects.toThrow();
   });
 
   it("returns an inert reference with a base and drops upstream framing/session policy", async () => {
@@ -50,10 +50,14 @@ describe("Design public reference copy", () => {
     );
     const result = await fetchDesignReferenceCopy(
       "https://example.com/reference",
+      "http://127.0.0.1:7331",
+      "token",
     );
     expect(result.framingBlocked).toBe(true);
     expect(result.html).toContain("Public reference");
-    expect(result.html).toContain('href="https://example.com/style.css"');
+    expect(result.html).toContain(
+      'href="http://127.0.0.1:7331/reference-resource?url=https%3A%2F%2Fexample.com%2Fstyle.css&amp;previewToken=token"',
+    );
     expect(result.html).not.toMatch(
       /<script|<form|<iframe|onclick=|attacker\.invalid|frame-ancestors|session=fake/,
     );
@@ -77,9 +81,13 @@ describe("Design public reference copy", () => {
     );
     const result = await fetchDesignReferenceCopy(
       "https://example.com/reference",
+      "http://127.0.0.1:7331",
+      "token",
     );
     expect(result.html).toContain("<p>Kept</p>");
-    expect(result.html).not.toMatch(/onclick=|<script|<iframe|localhost/);
+    expect(result.html).not.toMatch(
+      /onclick=|<script|<iframe|src="https?:\/\/localhost/,
+    );
   });
 
   it("bounds the entire operation even when DNS or upstream never returns", async () => {
@@ -89,7 +97,11 @@ describe("Design public reference copy", () => {
         () => new Promise<Response>(() => {}),
       );
       const result = expect(
-        fetchDesignReferenceCopy("https://example.com/"),
+        fetchDesignReferenceCopy(
+          "https://example.com/",
+          "http://127.0.0.1:7331",
+          "token",
+        ),
       ).rejects.toThrow("10 second timeout");
       await vi.advanceTimersByTimeAsync(10_000);
       await result;
@@ -105,7 +117,11 @@ describe("Design public reference copy", () => {
       }),
     );
     await expect(
-      fetchDesignReferenceCopy("https://example.com/"),
+      fetchDesignReferenceCopy(
+        "https://example.com/",
+        "http://127.0.0.1:7331",
+        "token",
+      ),
     ).rejects.toThrow("2 MiB");
     vi.mocked(ssrfSafeFetch).mockResolvedValueOnce(
       new Response("login", {
@@ -114,11 +130,15 @@ describe("Design public reference copy", () => {
       }),
     );
     await expect(
-      fetchDesignReferenceCopy("https://example.com/"),
+      fetchDesignReferenceCopy(
+        "https://example.com/",
+        "http://127.0.0.1:7331",
+        "token",
+      ),
     ).rejects.toThrow("public reference");
   });
 
-  it("keeps only public HTTPS subresources and limits the CSP to their origins", async () => {
+  it("proxies retained resources and locks CSP to the local proxy origin", async () => {
     const privateTargets = [
       "http://cdn.example.com/plain-http.png",
       "https://localhost/a.png",
@@ -148,33 +168,74 @@ describe("Design public reference copy", () => {
         { headers: { "content-type": "text/html" } },
       ),
     );
-    const { html } = await fetchDesignReferenceCopy("https://example.com/page");
-    for (const target of [
-      ...privateTargets,
-      "192.168.",
-      "https://localhost/bg.png",
-      "preconnect",
-      "prefetch",
-    ])
+    const { html } = await fetchDesignReferenceCopy(
+      "https://example.com/page",
+      "http://127.0.0.1:7331",
+      "token",
+    );
+    for (const target of ["preconnect", "prefetch"])
       expect(html).not.toContain(target);
-    expect(html).toContain('href="https://cdn.example.com/site.css"');
-    expect(html).toContain('url("https://example.com/ok.png")');
-    expect(html).toContain("url(#grad)");
     expect(html).toContain(
-      'srcset="https://images.example.org/hero@2x.png 2x"',
+      'href="http://127.0.0.1:7331/reference-resource?url=https%3A%2F%2Fcdn.example.com%2Fsite.css&amp;previewToken=token"',
+    );
+    expect(html).toContain(
+      'src="http://127.0.0.1:7331/reference-resource?url=https%3A%2F%2Frebind.example.com%2Fa.png&amp;previewToken=token"',
+    );
+    expect(html).toContain("url(https://localhost/bg.png)");
+    expect(html).toContain(
+      "url=https%3A%2F%2Fimages.example.org%2Fhero%402x.png&amp;previewToken=token 2x",
     );
     expect(html).toContain('src="data:image/png;base64,AAAA"');
     const csp = html.match(/Content-Security-Policy" content="([^"]+)"/)?.[1];
     expect(csp?.split("; ")).toEqual([
       "default-src 'none'",
-      "img-src data: https://cdn.example.com https://example.com https://images.example.org",
-      "style-src 'unsafe-inline' https://cdn.example.com https://example.com https://images.example.org",
-      "font-src data: https://cdn.example.com https://example.com https://images.example.org",
+      "img-src data: http://127.0.0.1:7331",
+      "style-src 'unsafe-inline' http://127.0.0.1:7331",
+      "font-src data: http://127.0.0.1:7331",
       "base-uri 'none'",
       "form-action 'none'",
       "frame-src 'none'",
       "connect-src 'none'",
     ]);
-    expect(csp).not.toMatch(/\bhttps?:(?!\/\/)/);
+    expect(csp).not.toContain("example.com");
+  });
+
+  it("places CSP before content despite a leading comment and sanitizes noscript refresh", async () => {
+    vi.mocked(ssrfSafeFetch).mockResolvedValueOnce(
+      new Response(
+        '<!--<head>--><html><head><noscript><meta http-equiv="refresh" content="0;url=https://evil.example/"></noscript></head><body>ok</body></html>',
+        { headers: { "content-type": "text/html" } },
+      ),
+    );
+    const { html } = await fetchDesignReferenceCopy(
+      "https://example.com/",
+      "http://127.0.0.1:7331",
+      "token",
+    );
+    expect(html.indexOf('http-equiv="Content-Security-Policy"')).toBeLessThan(
+      html.indexOf("<body"),
+    );
+    expect(html).not.toContain("evil.example");
+  });
+
+  it("proxies only bounded image, stylesheet, and font resources through SSRF-safe GET", async () => {
+    vi.mocked(ssrfSafeFetch).mockResolvedValueOnce(
+      new Response("image", { headers: { "content-type": "image/png" } }),
+    );
+    await expect(
+      fetchDesignReferenceResource("file:///private.png"),
+    ).rejects.toThrow();
+    vi.mocked(ssrfSafeFetch).mockResolvedValueOnce(
+      new Response("image", { headers: { "content-type": "image/png" } }),
+    );
+    const result = await fetchDesignReferenceResource(
+      "https://example.com/a.png",
+    );
+    expect(result.contentType).toBe("image/png");
+    expect(ssrfSafeFetch).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ method: "GET", credentials: "omit" }),
+      { requireDispatcher: true },
+    );
   });
 });
