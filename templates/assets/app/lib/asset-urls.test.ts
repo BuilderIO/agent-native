@@ -36,6 +36,19 @@ describe("assetContentUrl", () => {
     );
   });
 
+  it("leaves the embed token out when asked", () => {
+    vi.stubGlobal("window", {
+      location: {
+        search: "?__an_embed_token=url-token",
+      },
+      __AGENT_NATIVE_EXTERNAL_EMBED: { token: "injected-token" },
+    });
+
+    expect(assetContentUrl("asset-id", { omitEmbedToken: true })).toBe(
+      "/assets/api/assets/asset-id/content",
+    );
+  });
+
   it("uses the URL embed token when no injected token exists", () => {
     vi.stubGlobal("window", {
       location: {

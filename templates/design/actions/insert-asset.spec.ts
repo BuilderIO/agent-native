@@ -251,6 +251,25 @@ describe("insert-asset", () => {
     expect(content).toContain("data-agent-native-asset");
   });
 
+  it("never saves an Assets embed session token into the design", async () => {
+    setFile("<html><body></body></html>");
+
+    const result = await action.run({
+      assetUrl:
+        "https://assets.example.test/api/assets/asset-1/content?variant=thumb&__an_embed_token=embed-token-fixture",
+      mode: "figure",
+      designId: "design-1",
+      fileId: "file-1",
+    });
+
+    const content = mocks.updateChain.set.mock.calls[0]?.[0]?.content as string;
+    expect(content).toContain(
+      'src="https://assets.example.test/api/assets/asset-1/content?variant=thumb"',
+    );
+    expect(content).not.toContain("__an_embed_token");
+    expect(JSON.stringify(result)).not.toContain("embed-token-fixture");
+  });
+
   it("replace-src mode: sets the src attribute on the targeted element", async () => {
     setFile(
       '<html><body><img data-agent-native-node-id="hero-img" src="old.png" /></body></html>',
