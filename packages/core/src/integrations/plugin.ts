@@ -3122,7 +3122,7 @@ export function createIntegrationsPlugin(
             assertSlackInstallAccess({
               email: session.email,
               orgId: org.orgId ?? null,
-              orgRole: org?.role ?? null,
+              orgRole: org.role ?? null,
             });
           }
         } catch (err) {
@@ -3281,7 +3281,7 @@ export function createIntegrationsPlugin(
             : assertSlackInstallAccess({
                 email: session.email,
                 orgId: org.orgId ?? null,
-                orgRole: org?.role ?? null,
+                orgRole: org.role ?? null,
               });
           const requestScope = verifiedRequestScope(access.orgId);
           return await runWithRequestContext(
