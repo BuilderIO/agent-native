@@ -405,6 +405,7 @@ pub fn run() {
             shortcuts::take_pending_dictate_link,
             shortcuts::dictation_listener_gone,
             tray::take_pending_stop_link,
+            tray::stop_link_recording_current,
             whisper_model::whisper_models,
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,

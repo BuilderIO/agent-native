@@ -45,12 +45,12 @@ const rows: Row[] = [
     "start-link",
   ],
   [
-    "stop-only link down starts nothing",
+    "stop-only link down stops a run it didn't start, owning nothing",
     "none",
     { kind: "start", source: "link", stopOnly: true },
     idle,
     "none",
-    "ignore",
+    "stop-running",
   ],
   [
     "link down stops hands-free",
@@ -58,7 +58,7 @@ const rows: Row[] = [
     { kind: "start", source: "link", stopOnly: true },
     handsFree,
     "none",
-    "stop-hands-free",
+    "stop-running",
   ],
   [
     "link up stops its own run",

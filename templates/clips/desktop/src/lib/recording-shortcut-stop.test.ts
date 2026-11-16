@@ -115,14 +115,59 @@ describe("requestRecordingShortcutStop", () => {
     },
   ])("$name", async ({ recorderRunning, outcome }) => {
     listen.mockResolvedValue(vi.fn());
+    invoke.mockImplementation(async (command: string) =>
+      command === "stop_link_recording_current" ? true : undefined,
+    );
     unlistenAcks = await listenForRecordingShortcutStopAcks();
 
-    const stop = stopRecordingFromLink(recorderRunning);
+    const stop = stopRecordingFromLink(recorderRunning, 7);
     await vi.advanceTimersByTimeAsync(300);
 
     await expect(stop).resolves.toEqual(outcome);
     expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
+    expect(invoke).toHaveBeenCalledWith("stop_link_recording_current", {
+      recording: 7,
+    });
   });
+
+  it.each([
+    {
+      name: "the link's recording ended before the bar was asked",
+      recorderRunning: true,
+      currentChecks: [false],
+      events: [],
+    },
+    {
+      name: "the link's recording ended while waiting for the bar",
+      recorderRunning: true,
+      currentChecks: [true, false],
+      events: ["clips:tray-stop-request"],
+    },
+    {
+      name: "the link's recording ended before a direct stop",
+      recorderRunning: false,
+      currentChecks: [false],
+      events: [],
+    },
+  ])(
+    "a stop link never stops a later recording: $name",
+    async ({ recorderRunning, currentChecks, events }) => {
+      listen.mockResolvedValue(vi.fn());
+      const checks = [...currentChecks];
+      invoke.mockImplementation(async (command: string) =>
+        command === "stop_link_recording_current"
+          ? (checks.shift() ?? false)
+          : undefined,
+      );
+      unlistenAcks = await listenForRecordingShortcutStopAcks();
+
+      const stop = stopRecordingFromLink(recorderRunning, 7);
+      await vi.advanceTimersByTimeAsync(300);
+
+      await expect(stop).resolves.toEqual({ type: "stale" });
+      expect(emit.mock.calls.map(([event]) => event)).toEqual(events);
+    },
+  );
 
   it("stops directly when the pill does not acknowledge the request", async () => {
     listen.mockResolvedValue(vi.fn());
@@ -244,9 +289,10 @@ describe("listenForStopLinks", () => {
   // Native keeps one stop until it's taken.
   function nativeStopLinks(waiting: boolean) {
     let pending = waiting;
+    const recording = 7;
     invoke.mockImplementation(async (command: string) => {
       if (command !== "take_pending_stop_link") return undefined;
-      const taken = pending;
+      const taken = pending ? recording : null;
       pending = false;
       return taken;
     });
@@ -295,6 +341,7 @@ describe("listenForStopLinks", () => {
     // A repeated event (or a second check) never stops twice.
     deliver();
     await vi.waitFor(() => expect(onStop).toHaveBeenCalledTimes(stops));
+    for (const call of onStop.mock.calls) expect(call).toEqual([7]);
     expect(listen).toHaveBeenCalledWith(
       "clips:stop-link",
       expect.any(Function),

@@ -18,8 +18,11 @@ export type DictationInputAction =
   | "start-link"
   /** Stop the link's dictation (never read as a key tap). */
   | "stop-link"
-  /** Stop the running hands-free dictation. */
-  | "stop-hands-free"
+  /**
+   * Stop the dictation running that no press holds (hands-free, or a
+   * toggle-mode run the user started).
+   */
+  | "stop-running"
   /** Start or stop a hands-free dictation from the link. */
   | "hands-free-link"
   /** The dictation key's own start/stop handling. */
@@ -40,9 +43,11 @@ export function reduceDictationInput(
       case "link-hands-free":
         return { owner: "none", action: "hands-free-link" };
       case "link":
-        if (context.handsFree) return { owner, action: "stop-hands-free" };
-        // A dictation this press didn't start: native sends it stop-only.
-        if (event.stopOnly) return { owner, action: "ignore" };
+        // A dictation this press didn't start (native sends the press
+        // stop-only): the link stops it, and owns nothing.
+        if (context.handsFree || event.stopOnly) {
+          return { owner, action: "stop-running" };
+        }
         // Native gave this press the dictation, even if an earlier tap is
         // still starting or finishing here: it owns it, and its start waits
         // behind that tap.

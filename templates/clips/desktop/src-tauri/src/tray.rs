@@ -565,13 +565,16 @@ fn take_stop_link(
     pending: &mut Option<PendingStopLink>,
     now: std::time::Instant,
     recording: Option<u64>,
-) -> bool {
-    // Also false once the recording it was sent for (the one running now is
+) -> Option<u64> {
+    // None too once the recording it was sent for (the one running now is
     // `recording`) has ended, so it can't stop a later one.
-    pending.take().is_some_and(|link| {
-        now.saturating_duration_since(link.at) < STOP_LINK_HOLD_LIMIT
-            && recording == Some(link.recording)
-    })
+    pending
+        .take()
+        .filter(|link| {
+            now.saturating_duration_since(link.at) < STOP_LINK_HOLD_LIMIT
+                && recording == Some(link.recording)
+        })
+        .map(|link| link.recording)
 }
 
 /// `clips://stop`: stops the running recording, and does nothing when no
@@ -594,13 +597,23 @@ pub fn stop_recording_from_link(app: &tauri::AppHandle) {
     let _ = app.emit("clips:stop-link", ());
 }
 
+/// The recording a waiting stop link is for, taken once; `None` when there
+/// is none to act on. The popover passes it back to
+/// `stop_link_recording_current` before each stop it sends.
 #[tauri::command]
-pub fn take_pending_stop_link() -> bool {
+pub fn take_pending_stop_link() -> Option<u64> {
     take_stop_link(
         &mut PENDING_STOP_LINK.lock().unwrap_or_else(|e| e.into_inner()),
         std::time::Instant::now(),
         current_recording(),
     )
+}
+
+/// Whether `recording` (from `take_pending_stop_link`) is still the one
+/// running, so a stop still in flight can't land on a later recording.
+#[tauri::command]
+pub fn stop_link_recording_current(recording: u64) -> bool {
+    current_recording() == Some(recording)
 }
 
 #[cfg(test)]
@@ -611,15 +624,15 @@ mod stop_link_tests {
     #[test]
     fn a_stop_link_is_taken_once_while_fresh_and_for_its_own_recording() {
         let t0 = Instant::now();
-        // (taken after, recording running then, taken)
+        // (taken after, recording running then, taken for)
         for (taken_after, running, want) in [
-            (Duration::from_millis(0), Some(1), true),
-            (Duration::from_secs(5), Some(1), true),
-            (STOP_LINK_HOLD_LIMIT, Some(1), false),
+            (Duration::from_millis(0), Some(1), Some(1)),
+            (Duration::from_secs(5), Some(1), Some(1)),
+            (STOP_LINK_HOLD_LIMIT, Some(1), None),
             // Its recording ended before the popover took it.
-            (Duration::from_millis(100), None, false),
+            (Duration::from_millis(100), None, None),
             // And a later recording started since: left running.
-            (Duration::from_millis(100), Some(2), false),
+            (Duration::from_millis(100), Some(2), None),
         ] {
             let mut pending = Some(PendingStopLink {
                 at: t0,
@@ -631,8 +644,11 @@ mod stop_link_tests {
             );
             // Taken (or dropped) once: the event and the listener's startup
             // check can't both act on it.
-            assert!(!take_stop_link(&mut pending, t0 + taken_after, running));
+            assert_eq!(
+                take_stop_link(&mut pending, t0 + taken_after, running),
+                None
+            );
         }
-        assert!(!take_stop_link(&mut None, t0, Some(1)));
+        assert_eq!(take_stop_link(&mut None, t0, Some(1)), None);
     }
 }

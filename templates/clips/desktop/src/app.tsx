@@ -1355,7 +1355,7 @@ export function App({
     view: popoverView,
   };
   const recordShortcutHandlerRef = useRef<() => void>(() => {});
-  const stopLinkHandlerRef = useRef<() => void>(() => {});
+  const stopLinkHandlerRef = useRef<(recording: number) => void>(() => {});
   const handleStartRecordingRef = useRef<
     (options?: {
       resumeCapture?: RestartHandoff;
@@ -4667,8 +4667,8 @@ export function App({
     beginRecording(undefined, { revealPopoverIfMicOff: true });
   };
 
-  stopLinkHandlerRef.current = () => {
-    void stopRecordingFromLink(Boolean(recorder)).catch((error) => {
+  stopLinkHandlerRef.current = (recording) => {
+    void stopRecordingFromLink(Boolean(recorder), recording).catch((error) => {
       console.error("[clips] Stop link failed:", error);
     });
   };
@@ -4676,8 +4676,8 @@ export function App({
   useEffect(() => {
     let cancelled = false;
     let unlistenStopLink: (() => void) | undefined;
-    void listenForStopLinks(() => {
-      stopLinkHandlerRef.current();
+    void listenForStopLinks((recording) => {
+      stopLinkHandlerRef.current(recording);
     })
       .then((unlisten) => {
         if (cancelled) unlisten();

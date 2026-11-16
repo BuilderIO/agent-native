@@ -2178,20 +2178,23 @@ describe("desktop voice dictation runs", () => {
       expect(calls("native_speech_start")).toBe(1);
     });
 
-    it("a push-to-talk link's up leaves a dictation its down didn't start", async () => {
+    it("a stop-only push link stops a toggle-mode dictation the user started", async () => {
+      // With link starts off (or during any run it didn't start), native
+      // sends the press stop-only.
       await install("toggle");
       await dispatch("voice:shortcut-start", { source: "fn" });
       await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
       expect(calls("native_speech_start")).toBe(1);
-      // Native sends a link pressed during a run it didn't start as
-      // stop-only.
       await dispatch("voice:shortcut-start", {
         source: "link",
         stopOnly: true,
       });
-      await dispatch("voice:shortcut-stop", { source: "link" });
       await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
-      expect(calls("native_speech_stop")).toBe(0);
+      expect(calls("native_speech_stop")).toBe(1);
+      // Its up stops nothing more and starts nothing.
+      await dispatch("voice:shortcut-stop", { source: "link", heldMs: 400 });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(1);
       expect(calls("native_speech_start")).toBe(1);
     });
 
@@ -2281,7 +2284,7 @@ describe("desktop voice dictation runs", () => {
     it("a hands-free press during a start that hangs disarms Escape", async () => {
       // Win32 uses the server engine, whose microphone request hangs here
       // before any session exists.
-      vi.mocked(navigator.mediaDevices.getUserMedia).mockImplementation(
+      vi.spyOn(navigator.mediaDevices, "getUserMedia").mockImplementation(
         () => new Promise<MediaStream>(() => {}),
       );
       const { installDesktopVoiceDictation } =
@@ -2391,7 +2394,7 @@ describe("desktop voice dictation runs", () => {
     it("a push link that stops a hands-free start that hangs disarms Escape", async () => {
       // Win32 uses the server engine, whose microphone request hangs here
       // before any session exists.
-      vi.mocked(navigator.mediaDevices.getUserMedia).mockImplementation(
+      vi.spyOn(navigator.mediaDevices, "getUserMedia").mockImplementation(
         () => new Promise<MediaStream>(() => {}),
       );
       const { installDesktopVoiceDictation } =

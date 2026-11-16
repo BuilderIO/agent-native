@@ -1531,7 +1531,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                                 with_gate(&app_for_emit, |gate, _| {
                                     // A hands-free link pressed during the
                                     // delay called this start off.
-                                    let events = if gate.start_allowed(fn_press) {
+                                    let events = if gate.fn_start_due(fn_press) {
                                         fn_start_events(
                                             start,
                                             FN_TAP_ENABLED.load(Ordering::SeqCst),
@@ -1885,9 +1885,29 @@ impl DictationGate {
         !owner.start_sent && owner.id <= self.starts_cancelled_through
     }
 
-    /// Whether press `id` may still send its start (Fn times its own).
+    /// Whether press `id` may still send its start.
     fn start_allowed(&self, id: u64) -> bool {
         id > self.starts_cancelled_through
+    }
+
+    /// The wake delay of Fn press `id` is over (Fn times its own start and
+    /// tap, `FnPress`): true when it may send them, marking its start sent.
+    fn fn_start_due(&mut self, id: u64) -> bool {
+        if !self.start_allowed(id) {
+            return false;
+        }
+        if let Some(owner) = self.owner.as_mut().filter(|owner| owner.id == id) {
+            owner.start_sent = true;
+        }
+        true
+    }
+
+    /// A dictation is live: an unheld run, or a press whose start went out.
+    fn run_live(&self) -> bool {
+        self.unheld_run_live()
+            || self
+                .owner
+                .is_some_and(|owner| owner.start_sent && !self.start_called_off(owner))
     }
 
     /// A popover wake; its number.
@@ -1957,8 +1977,7 @@ impl DictationGate {
             input,
             id: self.next_press,
             since: now,
-            // Fn times its own delayed start (`FnPress`).
-            start_sent: input == PressInput::Fn,
+            start_sent: false,
         });
         PressClaim::Owns
     }
@@ -1994,6 +2013,10 @@ impl DictationGate {
         self.owner = None;
         if self.start_called_off(owner) {
             return Release::NotOwner;
+        }
+        if input == PressInput::Fn {
+            // `FnPress` sends Fn's stop, or its whole tap.
+            return Release::Stop(now.saturating_duration_since(owner.since));
         }
         let held = now.saturating_duration_since(owner.since);
         if owner.start_sent {
@@ -2046,8 +2069,9 @@ impl DictationGate {
     fn hands_free_link(&mut self, now: Instant, starts_allowed: bool) -> HandsFreePress {
         self.expire_stale_owner(now);
         let capture_target = self.owner.is_none() && !self.unheld_run_live();
-        if capture_target && !starts_allowed {
-            // It would start a dictation: only allowed by the setting.
+        if !starts_allowed && !self.run_live() {
+            // It would start a dictation (a press still in its wake delay
+            // has started nothing): only allowed by the setting.
             return HandsFreePress {
                 capture_target: false,
                 deliver_now: false,
@@ -2906,6 +2930,29 @@ mod dictation_gate_tests {
                 false,
             ),
         ]);
+    }
+
+    #[test]
+    fn with_control_links_off_a_hands_free_link_cant_start_during_a_keys_wake_delay() {
+        use Step::{Due, HandsFreeLink, LinkStarts, Press, Release};
+        // Nothing runs yet: blocked, and the key's start goes out as usual.
+        run(&[
+            (0, LinkStarts(false), Done, false),
+            (10, Press(Shortcut), Claim(Owns), true),
+            (30, HandsFreeLink, Out::Blocked, true),
+            (90, Due(1), HOLD, true),
+            (200, Release(Shortcut), STOP, false),
+        ]);
+        // Same for Fn, which times its own start.
+        let t0 = Instant::now();
+        let mut gate = DictationGate::new();
+        gate.listener_ready("a", t0);
+        assert_eq!(gate.press(Fn, t0), Owns);
+        let fn_press = gate.owner_press().unwrap();
+        assert!(gate.hands_free_link(t0 + ms(30), false).blocked);
+        assert!(gate.fn_start_due(fn_press));
+        // Once the key's run is live, the link may stop it.
+        assert!(!gate.hands_free_link(t0 + ms(200), false).blocked);
     }
 
     #[test]

@@ -2790,8 +2790,8 @@ export function installDesktopVoiceDictation(
         case "hands-free-link":
           startOrStopHandsFreeFromLink();
           return;
-        case "stop-hands-free":
-          stopIncludingPendingStart();
+        case "stop-running":
+          if (session || startInFlight) stopIncludingPendingStart();
           return;
         case "start-link":
           // Push-to-talk link down, whatever the key's mode setting is.
