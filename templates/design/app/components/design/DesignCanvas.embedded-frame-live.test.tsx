@@ -1113,6 +1113,29 @@ describe("DesignCanvas live embedded-frame offset", () => {
       );
     });
 
+    it("keeps the frame when design data changes but the CSS values do not", async () => {
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      try {
+        await act(async () =>
+          root.render(renderInteract({ "--sail-twist": "0.25" })),
+        );
+        const before = previewIframe(container);
+        const initialSrcdoc = before.getAttribute("srcdoc");
+
+        // use-tweaks rebuilds the object on every design.data change.
+        await act(async () =>
+          root.render(renderInteract({ "--sail-twist": "0.25" })),
+        );
+        const after = previewIframe(container);
+        expect(after).toBe(before);
+        expect(after.getAttribute("srcdoc")).toBe(initialSrcdoc);
+      } finally {
+        await act(async () => root.unmount());
+        container.remove();
+      }
+    });
   });
 
   it("keeps the iframe identity stable when a board render window reanchors", async () => {
