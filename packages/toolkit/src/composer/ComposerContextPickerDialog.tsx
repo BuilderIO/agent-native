@@ -164,7 +164,7 @@ export function ComposerContextPickerDialog({
             </div>
             <CommandList aria-label={title}>
               {loading || searchPending ? null : error ? (
-                <div role="alert" className="p-3 text-destructive">
+                <div role="alert" className="p-3 agent-kit-tone-warning">
                   {error}
                 </div>
               ) : !items.length ? null : (
@@ -289,7 +289,10 @@ export function ComposerContextPickerDialog({
                 }}
               />
               {validation && (
-                <p id={`${id}-validation`} className="text-sm text-destructive">
+                <p
+                  id={`${id}-validation`}
+                  className="text-sm agent-kit-tone-warning"
+                >
                   {validation}
                 </p>
               )}

@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { IconHistory, IconLoader2, IconRotate } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -137,8 +138,8 @@ export function DashboardHistoryPanel({
       onRestored?.();
       setPendingRestore(null);
       onOpenChange(false);
-    } catch {
-      toast.error(t("dashboard.historyRestoreFailed"));
+    } catch (error) {
+      reportWriteFailure(error, { label: t("dashboard.historyRestoreFailed") });
     }
   };
 

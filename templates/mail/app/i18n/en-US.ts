@@ -461,6 +461,22 @@ const messages = {
       uncertainScheduledRetryFailed: "Failed to retry scheduled email.",
       failedToAttachFile: "Failed to attach file",
       failedToUploadImage: "Failed to upload image",
+      storageBuilderRefused:
+        "Builder.io refused Mail's file storage connection, so the file wasn't attached. Reconnect Builder.io or use your own storage, then try again.",
+      storageRefused:
+        "Your storage bucket refused this upload, so the file wasn't attached. Check the bucket and its keys, then try again.",
+      storageNotConfigured:
+        "File storage isn't set up, so the file wasn't attached. Connect Builder.io or your own storage bucket, then try again.",
+      openStorageSettings: "Open storage settings",
+      reconnectBuilderStorage: "Reconnect Builder.io",
+      useOwnStorage: "Use your own storage",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io refused Mail's file storage connection, so the file wasn't attached. Reconnect Builder.io, or ask an owner or admin to set up storage, then try again.",
+      storageRefusedAskAdmin:
+        "Your organization's storage bucket refused this upload, so the file wasn't attached. Ask an owner or admin to check the bucket and its keys.",
+      storageNotConfiguredAskAdmin:
+        "File storage isn't set up, so the file wasn't attached. Connect your own Builder.io account, or ask an owner or admin to set up storage.",
+      connectBuilderStorage: "Connect Builder.io",
       failedToSendEmail: "Failed to send email",
       messageSent: "Message sent.",
       failedToSaveDraft: "Failed to save draft.",
@@ -930,15 +946,19 @@ const messages = {
     shortcutsList: "Message list",
     shortcutsThread: "Conversation",
     shortcutsCompose: "Compose",
+    askAi: "Ask AI",
     backToCommands: "Back to commands",
     backToMessageList: "Return to message list",
     cycleTabs: "Cycle through tabs",
     extendSelection: "Extend selection",
+    goToUnread: "Go to Unread",
     moveSelection: "Move selection",
     nextPreviousConversation: "Next / previous conversation",
     nextPreviousMessage: "Next / previous message",
     openMessage: "Open message",
+    pageDownUp: "Page down / up",
     selectAllConversations: "Select all conversations",
+    selectConversation: "Select conversation",
     sendAndMarkDone: "Send and mark Done",
     toggleMessageExpansion: "Expand / collapse message",
     toggleReadState: "Toggle read state",

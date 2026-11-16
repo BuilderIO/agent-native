@@ -171,6 +171,23 @@ describe("Content private image upload", () => {
     expect(mocks.bindUploadedPrivateMedia).not.toHaveBeenCalled();
   });
 
+  it("marks the answer for a page with no private storage", async () => {
+    mocks.putPrivateMedia.mockRejectedValue(
+      new PrivateMediaStorageUnavailableError(),
+    );
+    await expect(
+      handler(
+        upload([
+          ["documentId", "document-1"],
+          ["file", image()],
+        ]),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      data: { errorCode: "PRIVATE_MEDIA_STORAGE_UNAVAILABLE" },
+    });
+  });
+
   it.each([
     [new PrivateMediaValidationError("Wrong type", 415), 415],
     [new PrivateMediaStorageUnavailableError(), 503],

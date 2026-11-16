@@ -259,6 +259,7 @@ import { getRewindStartErrorKind } from "./lib/rewind-start-error";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
 import {
   initialDesktopSettingsTab,
+  visibleDesktopSettingsTabs,
   type DesktopSettingsTab,
 } from "./lib/settings-navigation";
 import {
@@ -596,6 +597,7 @@ async function hasConfiguredVideoStorage(
 ): Promise<{
   probe: FileUploadStatusProbe;
   maxClipDurationMs: number | null;
+  hostedRemaining: number | null;
 }> {
   const controller = new AbortController();
   const timeout = window.setTimeout(
@@ -604,6 +606,7 @@ async function hasConfiguredVideoStorage(
   );
   let probe: FileUploadStatusProbe = "unavailable";
   let maxClipDurationMs: number | null = null;
+  let hostedRemaining: number | null = null;
   try {
     const status = await callClipsActionFor<{
       configured: boolean;
@@ -632,6 +635,7 @@ async function hasConfiguredVideoStorage(
       throw new Error("Video storage status response is invalid");
     }
     maxClipDurationMs = hostedClipDurationLimitMs(status);
+    if (status.mode === "hosted") hostedRemaining = status.hostedRemaining;
     if (status.mode === "own") {
       probe = "configured";
       if (account)
@@ -647,7 +651,7 @@ async function hasConfiguredVideoStorage(
   } finally {
     window.clearTimeout(timeout);
   }
-  return { probe, maxClipDurationMs };
+  return { probe, maxClipDurationMs, hostedRemaining };
 }
 
 function videoStorageConfiguredKey(serverUrl: string, account: string): string {
@@ -1410,6 +1414,10 @@ export function App({
   const videoStorageIdentityRef = useRef(videoStorageIdentity);
   // Hosted per-clip cap from the last storage probe; null for own storage.
   const hostedClipLimitMsRef = useRef<number | null>(null);
+  // Free hosted clips left from the last storage probe; null outside hosted.
+  const [hostedClipsRemaining, setHostedClipsRemaining] = useState<
+    number | null
+  >(null);
   // The server and account the newest probe found configured. The cached
   // "configured" is enough to record, but saved files upload on their own
   // only after a probe of the current server and account.
@@ -1419,6 +1427,7 @@ export function App({
   useEffect(() => {
     videoStorageIdentityRef.current = videoStorageIdentity;
     hostedClipLimitMsRef.current = null;
+    setHostedClipsRemaining(null);
     setVideoStorageProbedIdentity(null);
     setVideoStorageStatus(
       signedInAs &&
@@ -1433,6 +1442,7 @@ export function App({
   const refreshVideoStorageStatus = useCallback(async () => {
     if (authStatus !== "authed") {
       hostedClipLimitMsRef.current = null;
+      setHostedClipsRemaining(null);
       setVideoStorageProbedIdentity(null);
       setVideoStorageStatus("configured");
       return true;
@@ -1442,10 +1452,8 @@ export function App({
     // Probes are slow enough to overlap; only the newest result may land, or a
     // pre-connect "missing" overwrites the "configured" that came after it.
     const probeSeq = ++videoStorageProbeSeqRef.current;
-    const { probe, maxClipDurationMs } = await hasConfiguredVideoStorage(
-      serverUrl,
-      signedInAs,
-    );
+    const { probe, maxClipDurationMs, hostedRemaining } =
+      await hasConfiguredVideoStorage(serverUrl, signedInAs);
     if (videoStorageIdentityRef.current !== probedIdentity) return false;
     if (videoStorageProbeSeqRef.current !== probeSeq) return false;
     setVideoStorageProbedIdentity(
@@ -1456,6 +1464,7 @@ export function App({
       return false;
     }
     hostedClipLimitMsRef.current = maxClipDurationMs;
+    setHostedClipsRemaining(hostedRemaining);
     setVideoStorageStatus(probe);
     return probe === "configured";
   }, [authStatus, serverUrl, signedInAs, videoStorageIdentity]);
@@ -5528,6 +5537,23 @@ export function App({
           </button>
         ) : null}
 
+        {!isRecording &&
+        localRecordingMode === "off" &&
+        videoStorageStatus === "configured" &&
+        hostedClipsRemaining !== null ? (
+          <p className="hosted-clips-left">
+            {t("recordRoute.freeClipsLeft", { count: hostedClipsRemaining })}
+            {" · "}
+            <button
+              type="button"
+              className="hosted-clips-activate"
+              onClick={connectVideoStorage}
+            >
+              {t("recordRoute.activateBuilder")}
+            </button>
+          </p>
+        ) : null}
+
         {recError ? (
           recError === MACOS_UPDATE_RESTART_MESSAGE ? (
             <UpdateRestartBanner message={recError} />
@@ -7826,13 +7852,11 @@ function Setup({
     });
   }
 
-  const settingsTabIsAvailable =
-    settingsTab === "general" ||
-    settingsTab === "recording" ||
-    settingsTab === "rewind" ||
-    settingsTab === "advanced" ||
-    (settingsTab === "meetings" && meetingsLabEnabled) ||
-    (settingsTab === "dictation" && voiceDictationLabEnabled);
+  const visibleSettingsTabs = visibleDesktopSettingsTabs({
+    meetings: meetingsLabEnabled,
+    dictation: voiceDictationLabEnabled,
+  });
+  const settingsTabIsAvailable = visibleSettingsTabs.includes(settingsTab);
 
   useEffect(() => {
     if (surface !== "settings" || settingsTabIsAvailable) return;
@@ -9165,57 +9189,45 @@ function Setup({
     );
   }
 
-  const settingsTabs: Array<{
-    id: SettingsTabId;
-    label: string;
-    icon: ReactNode;
-  }> = [
-    {
-      id: "general",
+  const settingsTabDetails: Record<
+    SettingsTabId,
+    { label: string; icon: ReactNode }
+  > = {
+    general: {
       label: "General",
       icon: (
         <IconAdjustmentsHorizontal size={16} stroke={1.7} aria-hidden="true" />
       ),
     },
-    {
-      id: "recording",
+    recording: {
       label: "Recording",
       icon: <IconVideo size={16} stroke={1.7} aria-hidden="true" />,
     },
-    {
-      id: "rewind",
+    rewind: {
       label: "Rewind",
       icon: <IconHistory size={16} stroke={1.7} aria-hidden="true" />,
     },
-    ...(meetingsLabEnabled
-      ? [
-          {
-            id: "meetings" as const,
-            label: "Meetings",
-            icon: <IconCalendar size={16} stroke={1.7} aria-hidden="true" />,
-          },
-        ]
-      : []),
-    ...(voiceDictationLabEnabled
-      ? [
-          {
-            id: "dictation" as const,
-            label: "Dictation",
-            icon: <IconMicrophone size={16} stroke={1.7} aria-hidden="true" />,
-          },
-        ]
-      : []),
-    {
-      id: "labs",
+    meetings: {
+      label: "Meetings",
+      icon: <IconCalendar size={16} stroke={1.7} aria-hidden="true" />,
+    },
+    dictation: {
+      label: "Dictation",
+      icon: <IconMicrophone size={16} stroke={1.7} aria-hidden="true" />,
+    },
+    labs: {
       label: "Labs",
       icon: <IconFlask size={16} stroke={1.7} aria-hidden="true" />,
     },
-    {
-      id: "advanced",
+    advanced: {
       label: "Advanced",
       icon: <IconTool size={16} stroke={1.7} aria-hidden="true" />,
     },
-  ];
+  };
+  const settingsTabs = visibleSettingsTabs.map((id) => ({
+    id,
+    ...settingsTabDetails[id],
+  }));
   const activeSettingsTab =
     settingsTabs.find((tab) => tab.id === settingsTab) ?? settingsTabs[0];
 

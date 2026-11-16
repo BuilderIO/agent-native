@@ -488,6 +488,20 @@ Les navigateurs ordinaires restent sur la connexion propre à chaque application
 Chaque version de Desktop peut initialiser le courtier lorsque la préférence par appareil `desktopSsoEnabled` est vraie (valeur par défaut) ; une valeur persistée explicitement à `false` reste une désactivation volontaire. Le flag Dispatch `desktop.workspace-sso` doit également être activé. Le marqueur Canary de l’agent utilisateur n’est plus un contrôle d’initialisation ; il identifie uniquement le canal de mise à jour.
 La version Canary n’intercepte pas la navigation de connexion anonyme des applications. L’utilisateur doit choisir explicitement la connexion à l’espace de travail dans les paramètres de Desktop pour l’application enregistrée active ; la connexion normale de l’application reste le parcours par défaut.
 
+## Personnaliser la page de connexion
+
+Le modèle Chat définit `marketing: false` dans `server/plugins/auth.ts`. Un objet marketing active le panneau, affiché sous le formulaire sur mobile. `AuthMarketingProps` décrit les propriétés affichées. Le plugin accepte les champs `marketing` ci-dessous. `authHeadHtml` ajoute du HTML fiable de l’application après les styles intégrés. Ne lui transmettez pas de saisie utilisateur.
+
+```ts filename="server/plugins/auth.ts"
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
+
+export default createToolkitAuthPlugin({
+  rootAuth: true,
+  marketing: { appName: "My app", tagline: "Make work easier" },
+  authHeadHtml: "<style>.auth-root { font-family: sans-serif; }</style>",
+});
+```
+
 ## Déploiement administré et invitations
 
 Pour un déploiement administré, définissez `AUTH_SIGNUP=invited`, `ORG_CREATION=closed` et `AUTO_CREATE_DEFAULT_ORG=0`. Le [guide des déploiements administrés](/docs/administered-deployments) décrit les administrateurs d’amorçage, les invitations et les domaines autorisés. Les invitations d’adhésion et l’accès par domaine sont deux règles distinctes.

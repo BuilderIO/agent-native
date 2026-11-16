@@ -25,6 +25,11 @@ import {
   lockOwnerPageTree,
   sortRowIds,
 } from "./_row-lock-order.js";
+import {
+  lockCollectionsForSpaceMove,
+  moveCollectionsToSpace,
+  readCollectionsForSpaceMove,
+} from "./_space-move-collections.js";
 
 type ContentDb = ReturnType<typeof getDb>;
 type ContentTx = Parameters<Parameters<ContentDb["transaction"]>[0]>[0];
@@ -49,6 +54,33 @@ function nanoid(size = 12): string {
 
 function contractError(message: string, errorCode: string, statusCode = 409) {
   return new ActionContractError(message, { errorCode, statusCode });
+}
+
+/**
+ * A page's webhook keeps the owner and workspace it was added under, where its
+ * signing secret is stored, so a page with one stays put, as a collection with
+ * one does. Adding a page webhook locks the page and checks again, so one
+ * can't land between this check, under the move's locks, and the move.
+ */
+async function assertNoPageWebhooks(db: ContentDb, ids: string[]) {
+  for (const idGroup of groups(ids)) {
+    const webhooks = await db
+      .select({ id: schema.contentWebhooks.id })
+      .from(schema.contentWebhooks)
+      .where(
+        and(
+          eq(schema.contentWebhooks.scopeType, "document"),
+          inArray(schema.contentWebhooks.scopeId, idGroup),
+        ),
+      )
+      .limit(1);
+    if (webhooks.length > 0) {
+      throw contractError(
+        "Pages with webhooks can't move to another workspace. Remove the webhooks first.",
+        "PAGE_HAS_WEBHOOKS",
+      );
+    }
+  }
 }
 
 async function rekeyPrimaryBlocksFields(args: {
@@ -229,11 +261,13 @@ async function lockMoveBetweenSpaces(args: {
   confirmedTitles: ReadonlyMap<string, string>;
   files: FilesForMove;
   filesSpaceIds: string[];
+  collectionIds: string[];
 }) {
   const { tx, root, ids, spaceId, parentId, userEmail, confirmedTitles } = args;
   for (const ownerEmail of sortRowIds([root.ownerEmail as string, userEmail])) {
     await lockOwnerPageTree(tx, ownerEmail);
   }
+  await lockCollectionsForSpaceMove(tx, args.collectionIds);
   const membershipIds = await membershipIdsOf(tx, ids);
   await lockDatabaseMemberships(tx, membershipIds);
   await lockDocumentRows(tx, parentId ? [...ids, parentId] : ids);
@@ -279,9 +313,29 @@ async function lockMoveBetweenSpaces(args: {
       ids,
     });
   }
-  // A page turned into a collection while the move waited would leave the
-  // collection behind in the old space.
-  await assertSubtreeCanChangeSpace(tx, lockedPages);
+  // A page turned into a collection while the move waited holds a collection
+  // the move didn't lock, and a row or relation added meanwhile could tie a
+  // moving collection to one that stays.
+  await assertSubtreeCanChangeSpace(tx, lockedPages, { collectionsMove: true });
+  await assertNoPageWebhooks(tx, ids);
+  const lockedCollectionIds = new Set(args.collectionIds);
+  const collections = await readCollectionsForSpaceMove(tx, ids, {
+    recheck: true,
+  });
+  if (
+    collections.some((collection) => !lockedCollectionIds.has(collection.id))
+  ) {
+    throw contractError(
+      "A collection was added to this page while it was being moved. Nothing moved; try again.",
+      "PAGE_CONTAINS_COLLECTION",
+    );
+  }
+  if (collections.length !== lockedCollectionIds.size) {
+    throw contractError(
+      "This page changed while it was being moved. Try again.",
+      "PAGE_SUBTREE_CHANGED",
+    );
+  }
 
   const [current] = await tx
     .select({
@@ -384,8 +438,12 @@ export async function movePageToSpace(args: {
   for (const document of subtree.slice(1)) {
     await assertDocumentMutationAccess(document.id, "editor", "id");
   }
-  await assertSubtreeCanChangeSpace(db, subtree);
+  await assertSubtreeCanChangeSpace(db, subtree, { collectionsMove: true });
   const ids = subtree.map((document) => document.id);
+  await assertNoPageWebhooks(db, ids);
+  const collectionIds = (await readCollectionsForSpaceMove(db, ids)).map(
+    (collection) => collection.id,
+  );
 
   let orgId = destination.orgId ?? null;
   let visibility: "private" | "org" | "public" = orgId ? "org" : "private";
@@ -445,6 +503,7 @@ export async function movePageToSpace(args: {
           confirmedTitles,
           files: filesBeforeTitles,
           filesSpaceIds,
+          collectionIds,
         });
         const { fromFiles, toFiles, fromFilesPropertyIds } = files;
         // Read under the parent's lock: the subtree takes the parent's access.
@@ -504,6 +563,7 @@ export async function movePageToSpace(args: {
             .where(inArray(schema.documentShares.resourceId, idGroup));
           for (const table of [
             schema.documentComments,
+            schema.documentCommentReactions,
             schema.documentVersions,
             schema.documentBodySteps,
             schema.documentBlockFields,
@@ -558,6 +618,14 @@ export async function movePageToSpace(args: {
             updatedAt: now,
           })
           .where(eq(schema.documents.id, root.id));
+        await moveCollectionsToSpace({
+          tx: tx as unknown as ContentDb,
+          collectionIds,
+          spaceId,
+          ownerEmail: userEmail,
+          orgId,
+          now,
+        });
         await rekeyPrimaryBlocksFields({
           tx,
           documentIds: ids,

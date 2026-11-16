@@ -462,6 +462,22 @@ const messages = {
       scheduledCancelFailed: "예약 이메일 취소 실패",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "이미지 업로드 실패",
+      storageBuilderRefused:
+        "Builder.io가 Mail의 파일 저장소 연결을 거부해 파일을 첨부하지 못했습니다. Builder.io를 다시 연결하거나 자체 저장소를 사용한 뒤 다시 시도하세요.",
+      storageRefused:
+        "저장소 버킷이 이 업로드를 거부해 파일을 첨부하지 못했습니다. 버킷과 키를 확인한 뒤 다시 시도하세요.",
+      storageNotConfigured:
+        "파일 저장소가 설정되지 않아 파일을 첨부하지 못했습니다. Builder.io 또는 자체 저장소 버킷을 연결한 뒤 다시 시도하세요.",
+      openStorageSettings: "저장소 설정 열기",
+      reconnectBuilderStorage: "Builder.io 다시 연결",
+      useOwnStorage: "자체 저장소 사용",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io가 Mail의 파일 저장소 연결을 거부해 파일을 첨부하지 못했습니다. Builder.io를 다시 연결하거나 소유자 또는 관리자에게 저장소 설정을 요청한 뒤 다시 시도하세요.",
+      storageRefusedAskAdmin:
+        "조직의 저장소 버킷이 이 업로드를 거부해 파일을 첨부하지 못했습니다. 소유자 또는 관리자에게 버킷과 키 확인을 요청하세요.",
+      storageNotConfiguredAskAdmin:
+        "파일 저장소가 설정되지 않아 파일을 첨부하지 못했습니다. 본인의 Builder.io 계정을 연결하거나 소유자 또는 관리자에게 저장소 설정을 요청하세요.",
+      connectBuilderStorage: "Builder.io 연결",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "메시지가 전송되었습니다.",
       failedToSaveDraft: "초안을 저장하지 못했습니다.",
@@ -932,15 +948,19 @@ const messages = {
     shortcutsList: "메일 목록",
     shortcutsThread: "대화",
     shortcutsCompose: "작성",
+    askAi: "AI에 질문",
     backToCommands: "명령으로 돌아가기",
     backToMessageList: "메시지 목록으로 돌아가기",
     cycleTabs: "탭 전환",
     extendSelection: "선택 영역 확장",
+    goToUnread: "읽지 않음으로 이동",
     moveSelection: "선택 항목 이동",
     nextPreviousConversation: "다음 / 이전 대화",
     nextPreviousMessage: "다음 / 이전 메시지",
     openMessage: "메일 열기",
+    pageDownUp: "페이지 아래로 / 위로",
     selectAllConversations: "모든 대화 선택",
+    selectConversation: "대화 선택",
     sendAndMarkDone: "보내고 완료로 표시",
     toggleMessageExpansion: "메시지 펼치기 / 접기",
     toggleReadState: "읽음 상태 전환",

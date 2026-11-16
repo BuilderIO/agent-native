@@ -426,7 +426,7 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
 describe("Analytics release migrations repair persisted first-party dashboards", () => {
   it("runs the bounded dashboard repair after both release migration sets", () => {
     expect(migrateProductionTsSource).toMatch(
-      /await runFrameworkReleaseMigrations\(null\);[\s\S]*?await runAnalyticsMigrations\(null\);[\s\S]*?await repairPersistedFirstPartyDashboardQueries\(\);/,
+      /await runFrameworkReleaseMigrations\(null, \{ requirePostgres: true \}\);[\s\S]*?await runAnalyticsMigrations\(null\);[\s\S]*?await repairPersistedFirstPartyDashboardQueries\(\);/,
     );
   });
 });

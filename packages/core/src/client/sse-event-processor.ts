@@ -154,6 +154,7 @@ export interface SSEEvent {
   taskId?: string;
   threadId?: string;
   description?: string;
+  name?: string;
   preview?: string;
   currentStep?: string;
   summary?: string;
@@ -1425,6 +1426,14 @@ function hasCompletedUserFacingToolOutput(content: ContentPart[]): boolean {
   return hasCompletedTool && lastCompletedToolIsUserFacing;
 }
 
+export function hasFailedOrUnknownToolResult(content: ContentPart[]): boolean {
+  return content.some(
+    (part) =>
+      part.type === "tool-call" &&
+      (part.isError === true || part.outcome === "unknown"),
+  );
+}
+
 export function appendMissingFinalResponseWarning(
   content: ContentPart[],
   completedToolNames?: Iterable<string>,
@@ -2453,10 +2462,13 @@ export function processEvent(
         },
       };
     }
-    const runWarning = appendMissingFinalResponseWarning(
-      content,
-      state ? state.completedToolsAfterLastAssistantText : undefined,
-    );
+    const runWarning =
+      ev.reason === "action_settled" && !hasFailedOrUnknownToolResult(content)
+        ? null
+        : appendMissingFinalResponseWarning(
+            content,
+            state ? state.completedToolsAfterLastAssistantText : undefined,
+          );
     if (runWarning) {
       return {
         action: "done",

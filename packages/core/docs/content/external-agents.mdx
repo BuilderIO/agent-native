@@ -166,6 +166,14 @@ invalid document ID. Verify the link and connected account's access before
 changing permissions. Reinstalling the connector or changing the public share
 link does not resolve a confirmed account permission denial.
 
+Images uploaded into a private document are stored in its body as
+`/api/private-media/<id>` links, which load only with a Content sign-in.
+When an agent reads the document over MCP, `get-document`, and `pull-document`
+in Markdown, also return `privateMediaLinks`: each stored link paired with a
+URL that opens that one image without signing in, for one hour. One read links
+at most 200 images; `omitted` counts the rest. Read the document again for
+fresh links. Keep the stored links when editing the body.
+
 <a id="access-tab"></a>
 
 ### The in-app MCP setting {#mcp-settings}

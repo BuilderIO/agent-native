@@ -6,6 +6,7 @@ describe("ddl-guard", () => {
     originalEnv = { ...process.env };
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     process.env = originalEnv;
     vi.resetModules();
@@ -488,6 +489,91 @@ describe("ddl-guard", () => {
         },
       } as any;
       expect(await pgTableExists("app_secrets", throwing)).toBeUndefined();
+    });
+
+    it.each([
+      ["a direct code", (e: Error) => Object.assign(e, { code: "28P01" })],
+      [
+        "a wrapped cause",
+        (e: Error) => Object.assign(e, { cause: { code: "ECONNRESET" } }),
+      ],
+      [
+        "a wrapped sourceError",
+        (e: Error) => Object.assign(e, { sourceError: { code: "ETIMEDOUT" } }),
+      ],
+    ])(
+      "logs the allowlisted code from %s of an unreadable probe",
+      async (_n, wrap) => {
+        vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const { pgTableExists } = await import("./ddl-guard.js");
+        const throwing = {
+          execute: async () => {
+            throw wrap(new Error("secret host details"));
+          },
+        } as any;
+        expect(await pgTableExists("app_secrets", throwing)).toBeUndefined();
+        const logged = warn.mock.calls.flat().join(" ");
+        expect(logged).toMatch(/\(code: (28P01|ECONNRESET|ETIMEDOUT)\)/);
+        expect(logged).not.toContain("secret host details");
+      },
+    );
+
+    it("logs an unknown code for a non-allowlisted probe error", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { pgTableExists } = await import("./ddl-guard.js");
+      const throwing = {
+        execute: async () => {
+          throw Object.assign(new Error("boom"), { code: "XX000" });
+        },
+      } as any;
+      await pgTableExists("app_secrets", throwing);
+      const logged = warn.mock.calls.flat().join(" ");
+      expect(logged).toContain("(code: unknown)");
+      expect(logged).not.toContain("XX000");
+    });
+
+    it("logs a repeated unreadable probe once per table and code", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { pgTableExists } = await import("./ddl-guard.js");
+      const failWith = (code: string) =>
+        ({
+          execute: async () => {
+            throw Object.assign(new Error("down"), { code });
+          },
+        }) as any;
+      for (let i = 0; i < 3; i += 1) {
+        await pgTableExists("app_secrets", failWith("ECONNRESET"));
+      }
+      const probeWarnings = () =>
+        warn.mock.calls.filter(([msg]) =>
+          String(msg).includes("schema probe unreadable"),
+        ).length;
+      expect(probeWarnings()).toBe(1);
+      await pgTableExists("app_secrets", failWith("28P01"));
+      await pgTableExists("settings", failWith("ECONNRESET"));
+      expect(probeWarnings()).toBe(3);
+    });
+
+    it("never issues DDL when the table probe is unreadable", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { ensureTableExists } = await import("./ddl-guard.js");
+      const calls: string[] = [];
+      const client = {
+        execute: async (sql: string | { sql: string }) => {
+          calls.push(typeof sql === "string" ? sql : sql.sql);
+          throw Object.assign(new Error("down"), { code: "ECONNRESET" });
+        },
+      } as any;
+      await expect(
+        ensureTableExists("app_secrets", "CREATE TABLE app_secrets (id int)", {
+          injectedClient: client,
+        }),
+      ).rejects.toThrow(/could not probe required schema/);
+      expect(calls.some((sql) => /CREATE TABLE/.test(sql))).toBe(false);
     });
   });
 

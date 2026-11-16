@@ -173,7 +173,10 @@ function usePrepareChannelCredentialRemoval() {
   return useActionMutation<
     { credentials: ChannelCredentialRemovalCandidate[] },
     { platform: string; keys: string[] }
-  >(PREPARE_REMOVAL_ACTION as never, { uiOnly: true });
+  >(PREPARE_REMOVAL_ACTION as never, {
+    uiOnly: true,
+    errorNotification: "caller",
+  });
 }
 
 function useConfirmChannelCredentialRemoval() {

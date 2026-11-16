@@ -1,3 +1,4 @@
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   useEffect,
   useRef,
@@ -52,9 +53,10 @@ function useInlineTitleEdit(input: {
     setEditing(false);
     try {
       await input.onSave(trimmed);
-    } catch {
+    } catch (error) {
       setOptimisticTitle(null);
       setDraftTitle(input.title);
+      reportWriteFailure(error);
     }
   }
 

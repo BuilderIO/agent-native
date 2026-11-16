@@ -4,7 +4,7 @@ import {
   clearAgentNativeAgentKitUploads,
 } from "@agent-native/core/client/agentkit-chat/transport";
 import { callAction } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { readFileUploadStatus } from "@agent-native/core/client/uploads";
 import { useSession } from "@agent-native/core/client/use-session";
 import { useMemo, useEffect } from "react";
@@ -15,7 +15,7 @@ import type { AgentKitRootProps } from "../../agentkit/react/root.js";
 import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
 import { AgentKitActionWidget } from "./action-widget.js";
 import { CoreAgentKitApproval } from "./approval-card.js";
-import { agentKitWorkStepLabels } from "./work-step-labels.js";
+import { agentKitChatLabels } from "./labels.js";
 
 // Every agent-native app serves this framework action, so run details can
 // show credits and the model that ran without each host wiring a loader.
@@ -39,6 +39,7 @@ function coreModelDisplayName(model: string): string {
 
 export function CoreAgentKitRoot(props: AgentKitRootProps) {
   const t = useT();
+  const { formatDate } = useFormatters();
   const nativeUpload = props.transport
     ? getAgentNativeAgentKitUploadDriver(props.transport)
     : undefined;
@@ -117,75 +118,15 @@ export function CoreAgentKitRoot(props: AgentKitRootProps) {
     }),
     [props.slots],
   );
-  // Thread-load states, the empty greeting, the default approval card and the
-  // reply footer render for any host, so their copy is localized here rather
-  // than left to each host.
   const labels = useMemo(
     () => ({
-      threadUnavailable: t("agentChat.message.threadNotFound"),
+      ...agentKitChatLabels(t, formatDate),
       threadLoadFailed: t("agentChat.message.threadLoadFailed"),
       threadLoadRetry: t("agentChat.common.retry"),
-      newChat: t("agentChat.tabs.newChat"),
-      loadingConversation: t("agentChat.empty.loadingChat"),
-      emptyStateText: t("agentChat.empty.prompt"),
       composerPlaceholder: t("agentChat.composer.newChatPlaceholder"),
-      composerReplyPlaceholder: t("agentChat.composer.replyPlaceholder"),
-      worked: t("agentChat.tool.worked"),
-      workedFor: t("agentChat.tool.workedFor", { duration: "{{duration}}" }),
-      showMoreActivities: t("agentChat.activity.showMore", {
-        count: "{{count}}",
-      }),
-      ...agentKitWorkStepLabels(t),
-      approvalApprove: t("agentChat.approval.approve"),
-      approvalDeny: t("agentChat.approval.deny"),
-      approvalSubmit: t("agentChat.approval.submit"),
-      approvalOther: t("agentChat.approval.other"),
-      approvalOtherPlaceholder: t("agentChat.approval.otherPlaceholder"),
-      approvalPending: t("agentChat.approval.pending"),
-      approvalAnswerPending: t("agentChat.approval.answerPending"),
-      messageActions: t("agentChat.message.actions"),
-      moreMessageActions: t("agentChat.message.moreActions"),
-      fewerMessageActions: t("agentChat.message.fewerActions"),
-      copyRequestId: t("agentChat.message.copyRequestId"),
-      copy: t("agentChat.message.copyMessage"),
-      copied: t("agentChat.common.copied"),
-      runDetails: t("agentChat.message.runDetails"),
-      runCreditsUsed: t("agentChat.message.creditsUsed"),
-      runCost: t("agentChat.message.cost"),
-      runToolCalls: t("agentChat.message.toolCalls"),
-      runModel: t("agentChat.message.modelUsed"),
-      runDetailUnavailable: t("agentChat.message.detailUnavailable"),
-      runDetailNotRecorded: t("agentChat.message.notRecorded"),
-      runDetailIncomplete: t("agentChat.message.incomplete"),
-      runDetailEstimated: t("agentChat.message.estimatedAmount", {
-        amount: "{{amount}}",
-      }),
-      runDetailMixed: t("agentChat.message.mixedAmount", {
-        amount: "{{amount}}",
-      }),
-      regenerateResponse: t("agentChat.common.retry"),
-      suggestedActions: t("agentChat.composer.suggestedActions"),
-      fork: t("agentChat.message.forkChat"),
-      editMessage: t("agentChat.message.edit"),
-      editingMessage: t("agentChat.message.editing"),
-      editingMessageHint: t("agentChat.message.editingHint"),
-      cancelEditing: t("agentChat.common.cancel"),
-      feedback: t("agentChat.feedback.label"),
-      feedbackGood: t("agentChat.feedback.goodResponse"),
-      feedbackBad: t("agentChat.feedback.badResponse"),
-      rateResponse: t("agentChat.feedback.rate"),
-      forkFromHere: t("agentChat.message.forkFromHere"),
-      feedbackNote: t("agentChat.feedback.note"),
-      feedbackSubmit: t("agentChat.feedback.submit"),
-      feedbackSubmitted: t("agentChat.feedback.submitted"),
-      runFailed: t("agentChat.error.failed"),
-      continueRun: t("agentChat.common.continue"),
-      continueRunUnavailable: t("agentChat.recovery.continueUnavailable"),
-      reconnect: t("agentChat.common.reconnect"),
-      dismissNotice: t("agentChat.common.dismiss"),
       ...props.labels,
     }),
-    [props.labels, t],
+    [formatDate, props.labels, t],
   );
   const rootProps: AgentKitRootProps = props.controller
     ? props

@@ -41,6 +41,7 @@ import type { Awareness } from "y-protocols/awareness";
 import type { Doc as YDoc } from "yjs";
 
 import { createCodeBlockNode } from "./CodeBlockNode.js";
+import { collabSelectionPlugin } from "./collabSelection.js";
 import {
   foldFollowUpTransactions,
   repairCollabUndo,
@@ -115,7 +116,7 @@ const CollaborationWithSafeInitialSelection = Collaboration.extend({
       };
     }
 
-    return plugins;
+    return [...plugins, collabSelectionPlugin()];
   },
 });
 

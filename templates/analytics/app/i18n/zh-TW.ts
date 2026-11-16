@@ -1386,6 +1386,8 @@ export default {
     resetFilters: "重設篩選器",
     collapseFilters: "折疊過濾器",
     expandFilters: "展開過濾器",
+    collapseDescription: "折疊說明",
+    expandDescription: "展開說明",
     drilldownChartPoints: "圖表資料點",
     drilldownPreviousPage: "上一頁圖表資料點",
     drilldownNextPage: "下一頁圖表資料點",
@@ -1403,6 +1405,8 @@ export default {
       "匯出不完整：查詢符合 {{total}} 筆記錄，但僅載入前 {{loaded}} 筆；篩選後此檔案包含 {{exported}} 筆。",
     drilldownCountMismatch: "圖表顯示 {{chart}}，但符合的記錄有 {{total}} 筆",
     drilldownAggregateOnly: "此面板只有彙總列。與所點選資料點相符的列已標示。",
+    drilldownNoXValueAggregateOnly:
+      "此面板無法開啟無值資料點的記錄，因此顯示彙總列。與所點選資料點相符的列已標示。",
     drilldownNoRecords: "沒有相符的記錄",
     drilldownNoRecordsIncomplete:
       "未載入任何記錄。結果不完整，因此仍可能有相符的記錄。",
@@ -1412,6 +1416,7 @@ export default {
     drilldownOverByteCap:
       "這些記錄將讀取超過 {{gib}} GiB 的資料，因此未載入。請縮小儀表板的篩選條件或日期範圍後再試一次。",
     filterSeries: "篩選",
+    noXValue: "無值",
     chartTimeRangeOverride: "覆寫此圖表的時間範圍",
     chartTimeRangeInherit: "儀表板範圍",
     hide: "Hide",

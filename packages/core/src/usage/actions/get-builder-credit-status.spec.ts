@@ -12,7 +12,8 @@ const mocks = vi.hoisted(() => ({
   appId: "slides" as string | undefined,
 }));
 
-vi.mock("../../action.js", () => ({
+vi.mock("../../action.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../action.js")>()),
   defineAction: (definition: unknown) => definition,
 }));
 vi.mock("../../server/request-context.js", () => ({
@@ -276,10 +277,56 @@ describe("get-builder-credit-status action", () => {
     expect(mocks.clearBuilderCreditLimitNotice).not.toHaveBeenCalled();
   });
 
-  it("does not read another active organization's balance", async () => {
-    await expect(
-      getBuilderCreditStatus.run({ orgId: "org-2" }, context),
-    ).rejects.toThrow("active organization changed");
-    expect(mocks.getBuilderCreditUsage).not.toHaveBeenCalled();
-  });
+  it.each([
+    { active: "org-1", requested: "org-2" },
+    { active: "org-1", requested: null },
+    { active: "org-1", requested: "" },
+    { active: null, requested: "org-1" },
+  ])(
+    "rejects scope $requested when the active scope is $active before credit reads",
+    async ({ active, requested }) => {
+      mocks.getRequestOrgId.mockReturnValue(active);
+      await expect(
+        getBuilderCreditStatus.run({ orgId: requested }, context),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "builder_credit_org_mismatch",
+      });
+      expect(mocks.canViewWorkspaceUsage).not.toHaveBeenCalled();
+      expect(mocks.getBuilderCreditUsage).not.toHaveBeenCalled();
+      expect(mocks.clearBuilderCreditLimitNotice).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([null, ""])(
+    "accepts an explicit personal scope %s",
+    async (orgId) => {
+      mocks.getRequestOrgId.mockReturnValue(null);
+      await expect(
+        getBuilderCreditStatus.run({ orgId }, context),
+      ).resolves.toMatchObject({
+        state: { kind: "usable" },
+      });
+      expect(mocks.canViewWorkspaceUsage).toHaveBeenCalledWith({
+        ownerEmail: "person@example.com",
+        orgId: null,
+      });
+    },
+  );
+
+  it.each([null, "org-1"])(
+    "uses the active scope %s when the argument is omitted",
+    async (active) => {
+      mocks.getRequestOrgId.mockReturnValue(active);
+      await expect(
+        getBuilderCreditStatus.run({}, context),
+      ).resolves.toMatchObject({
+        state: { kind: "usable" },
+      });
+      expect(mocks.canViewWorkspaceUsage).toHaveBeenCalledWith({
+        ownerEmail: "person@example.com",
+        orgId: active,
+      });
+    },
+  );
 });

@@ -81,7 +81,7 @@ export interface BuilderCmsLivePreflight {
 
 /**
  * The source fields and body a Builder write request sends. A safe-model
- * write also sends the entry name, so it counts as a written field.
+ * create also sends the entry name, so it counts as a written field.
  */
 export function builderCmsWrittenSourceFields(
   request: BuilderCmsExecutionPayload["request"],
@@ -605,8 +605,7 @@ function builderRequestForEffect(args: {
   model: string;
   entryId: string | null;
   bodyPatch: Record<string, unknown>;
-  /** The entry's own name in Builder, kept by a write that leaves the title. */
-  currentName?: string | null;
+  /** The row's title, which names a new entry when the write sets none. */
   currentTitle?: string | null;
   intentMarker?: string;
 }): BuilderCmsExecutionPayload["request"] {
@@ -619,21 +618,17 @@ function builderRequestForEffect(args: {
     typeof (args.bodyPatch.data as Record<string, unknown>).title === "string"
       ? (args.bodyPatch.data as Record<string, unknown>).title
       : null;
-  const safeEntryName =
-    args.model === SAFE_WRITE_MODEL
-      ? patchedTitle ||
-        args.currentName?.trim() ||
-        args.currentTitle?.trim() ||
-        null
+  // Builder's entry name is its own label, which Content doesn't show or edit.
+  // Only a new entry takes one, from its title; every later write leaves it.
+  const newEntryName =
+    args.model === SAFE_WRITE_MODEL && args.effect === "create_draft"
+      ? patchedTitle || args.currentTitle?.trim() || null
       : null;
   if (isBuilderCmsUnpublishedSaveEffect(args.effect)) {
     return builderUnpublishedSaveRequest({
       effect: args.effect,
       path: basePath,
-      body: {
-        ...args.bodyPatch,
-        ...(safeEntryName ? { name: safeEntryName } : {}),
-      },
+      body: { ...args.bodyPatch },
     });
   }
   if (args.effect === "update_in_place") {
@@ -643,10 +638,7 @@ function builderRequestForEffect(args: {
       query: {
         triggerWebhooks: "true",
       },
-      body: {
-        ...args.bodyPatch,
-        ...(safeEntryName ? { name: safeEntryName } : {}),
-      },
+      body: { ...args.bodyPatch },
     };
   }
   if (args.effect === "publish") {
@@ -658,7 +650,6 @@ function builderRequestForEffect(args: {
       },
       body: {
         ...args.bodyPatch,
-        ...(safeEntryName ? { name: safeEntryName } : {}),
         published: "published",
       },
     };
@@ -672,7 +663,6 @@ function builderRequestForEffect(args: {
       },
       body: {
         ...args.bodyPatch,
-        ...(safeEntryName ? { name: safeEntryName } : {}),
         published: "draft",
       },
     };
@@ -685,7 +675,7 @@ function builderRequestForEffect(args: {
     },
     body: {
       ...args.bodyPatch,
-      ...(safeEntryName ? { name: safeEntryName } : {}),
+      ...(newEntryName ? { name: newEntryName } : {}),
       data: {
         ...((args.bodyPatch.data && typeof args.bodyPatch.data === "object"
           ? args.bodyPatch.data
@@ -989,10 +979,6 @@ export function buildBuilderCmsExecutionPlan(args: {
     model: args.source.sourceTable,
     entryId: targetEntryId,
     bodyPatch,
-    currentName:
-      typeof targetRow?.sourceValues?.[BUILDER_CMS_ENTRY_NAME_KEY] === "string"
-        ? targetRow.sourceValues[BUILDER_CMS_ENTRY_NAME_KEY]
-        : null,
     currentTitle: targetRow?.sourceDisplayKey ?? null,
     intentMarker:
       effect === "create_draft" && args.source.sourceTable === SAFE_WRITE_MODEL

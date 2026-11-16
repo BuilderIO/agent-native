@@ -1,6 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "path";
 
+import { isConnectionError } from "./errors.js";
+export { isConnectionError, isTransientDatabaseError } from "./errors.js";
+
 import { withoutWriteObservation } from "../action-frame.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
@@ -824,14 +827,24 @@ export function safeJsonParse<T>(value: unknown, fallback: T): T {
 
 export { retryOnDdlRace } from "./runtime-facts.js";
 
+/**
+ * Whether a write failed on a unique or primary key constraint. Drizzle wraps
+ * a failed query in `DrizzleQueryError` with the driver's error as `cause`, so
+ * a few levels of `cause` are checked too.
+ */
 export function isUniqueViolation(e: any): boolean {
-  if (e?.code === "23505") return true;
-  const msg = String(e?.message ?? "").toLowerCase();
-  return (
-    msg.includes("unique constraint") ||
-    msg.includes("primary key constraint") ||
-    msg.includes("duplicate key")
-  );
+  for (let depth = 0; depth < 4 && e; depth += 1, e = e?.cause) {
+    if (e?.code === "23505") return true;
+    const msg = String(e?.message ?? "").toLowerCase();
+    if (
+      msg.includes("unique constraint") ||
+      msg.includes("primary key constraint") ||
+      msg.includes("duplicate key")
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function isLocalDatabase(): boolean {
@@ -1210,90 +1223,6 @@ function explicitTransaction(
   };
 }
 
-const CONNECTION_ERROR_CODES = new Set([
-  "ECONNRESET",
-  "ETIMEDOUT",
-  "EPIPE",
-  "ENOTFOUND",
-  "EMAXCONN",
-  "53300",
-  "CONNECT_TIMEOUT",
-  "CONNECTION_ENDED",
-  "CONNECTION_DESTROYED",
-  "CONNECTION_CLOSED",
-]);
-
-export function isConnectionError(err: any): boolean {
-  if (!err) return false;
-  const code = err.code || err.cause?.code;
-  if (code && CONNECTION_ERROR_CODES.has(code)) return true;
-  const name = err.name || err.cause?.name || "";
-  if (name === "ErrorEvent") return true;
-  const stack = String(err.stack || err.cause?.stack || "");
-  if (
-    /WebSocket\.#onSocketClose|failWebsocketConnection|onSocketClose/.test(
-      stack,
-    )
-  ) {
-    return true;
-  }
-  const msg = String(err.message || err.cause?.message || "");
-  return /ECONNRESET|ETIMEDOUT|EPIPE|EMAXCONN|too many connections|max client connections|remaining connection slots|connection.*(closed|ended|terminated)|socket hang up|websocket/i.test(
-    msg,
-  );
-}
-
-export function isTransientDatabaseError(err: unknown): boolean {
-  const error = err as {
-    code?: unknown;
-    name?: unknown;
-    message?: unknown;
-    stack?: unknown;
-    cause?: {
-      code?: unknown;
-      name?: unknown;
-      message?: unknown;
-      stack?: unknown;
-    };
-  };
-  const code = String(error?.code ?? error?.cause?.code ?? "");
-  if (
-    code === "ECHECKOUTTIMEOUT" ||
-    code === "DB_CONNECT_COOLDOWN" ||
-    code === "EMAXCONN" ||
-    code === "53300" ||
-    code === "57014" ||
-    /^08/.test(code) ||
-    /^57P0[123]$/.test(code)
-  ) {
-    return true;
-  }
-
-  const message = [error?.message, error?.cause?.message]
-    .filter((value): value is string => typeof value === "string")
-    .join(" ");
-  if (
-    /\bstatement timeout\b|\bdb (?:query|connect) timed out\b/i.test(message)
-  ) {
-    return true;
-  }
-
-  const databaseSurface = [
-    error?.name,
-    error?.cause?.name,
-    error?.stack,
-    error?.cause?.stack,
-  ]
-    .filter((value): value is string => typeof value === "string")
-    .join(" ");
-  return (
-    isConnectionError(error) &&
-    /@neondatabase|\bpostgres(?:ql)?\b|\bpg-pool\b|drizzle-orm|\/db\/client\.[cm]?[jt]s/i.test(
-      databaseSurface,
-    )
-  );
-}
-
 // A serverless gateway gives up near 30s, so a retry loop there must stop while
 // the caller can still be handed a database error instead of a 504. Other
 // runtimes have no such gateway and keep their full retry count.
@@ -1337,6 +1266,18 @@ export function dbOpTimeoutMs(): number {
   const raw = Number(process.env.DB_OP_TIMEOUT_MS);
   if (Number.isFinite(raw) && raw > 0) return raw;
   return isServerlessRuntime() ? 8_000 : 30_000;
+}
+
+/**
+ * When the database last timed out a query, so background work can stand down for a
+ * moment instead of retrying into a slow database. 11/5 evening: with the pool no
+ * longer exhausted, ~6 query timeouts a minute remained, each one a sweep handler
+ * failing against a database that had just timed out another one.
+ */
+let lastDbTimeoutAt = 0;
+
+export function dbRecentTimeoutMs(): number {
+  return lastDbTimeoutAt ? Date.now() - lastDbTimeoutAt : Infinity;
 }
 
 class DbTimeoutError extends Error {
@@ -1420,6 +1361,7 @@ export async function withDbTimeout<T>(
         await runCleanup();
         recordQueryResult();
         finishTelemetry("timeout");
+        lastDbTimeoutAt = Date.now();
         reject(new DbTimeoutError(op, ms));
       })();
     }, ms);
@@ -1642,6 +1584,22 @@ export class DbConnectCooldownError extends Error {
     );
     this.name = "DbConnectCooldownError";
   }
+}
+
+/**
+ * How long the process must still wait before it will attempt a database connect,
+ * or 0 when connects are allowed. Exposed so background work can stand down while a
+ * saturated database is in cooldown instead of piling on: the hosted database pooler
+ * answered "Too many connections" to hundreds of requests a minute, and every sweep
+ * handler retried it independently.
+ */
+export function dbConnectGateRemainingMs(): number {
+  let remaining = 0;
+  const now = Date.now();
+  for (const gate of connectCooldowns.values()) {
+    if (gate.until > now) remaining = Math.max(remaining, gate.until - now);
+  }
+  return remaining;
 }
 
 const connectCooldowns = new Map<
@@ -2528,6 +2486,12 @@ export function getScopedTransactionDbExec(): DbExec | undefined {
   return scoped && callback?.active && callback.executors.has(scoped)
     ? scoped
     : undefined;
+}
+
+/** Whether an executor is the live handle supplied to the active transaction callback. */
+export function isActiveTransactionExec(exec: DbExec): boolean {
+  const callback = transactionCallbacks.getStore();
+  return callback?.active === true && callback.executors.has(exec);
 }
 
 /**

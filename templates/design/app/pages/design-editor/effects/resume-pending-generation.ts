@@ -8,6 +8,7 @@ import {
   formatComposerContext,
   hasComposerSystemContext,
 } from "@/lib/composer-context";
+import { figmaReferenceDirectives } from "@/lib/figma-attachment";
 import {
   clearPendingGeneration,
   failPendingGenerationForMissingImagePayload,
@@ -228,6 +229,7 @@ export function runResumePendingGeneration({
       fileContext,
       "",
       ...generationDirectives,
+      ...figmaReferenceDirectives(pending.contextItems),
     ].join("\n");
 
     clearGenerationCompleteTimer();

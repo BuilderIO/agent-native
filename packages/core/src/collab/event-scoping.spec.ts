@@ -49,15 +49,25 @@ describe("collab event scoping via canSeeChangeForUser", () => {
   };
 
   describe("unscoped events (no owner, no orgId)", () => {
-    it("delivers to any authenticated user", () => {
+    it("hides unscoped events", () => {
       const event = { ...baseEvent };
+      expect(canSeeChangeForUser(event, "alice@example.com", undefined)).toBe(
+        false,
+      );
+      expect(canSeeChangeForUser(event, "bob@example.com", "org-2")).toBe(
+        false,
+      );
+      expect(canSeeChangeForUser(event, "charlie@example.com", "org-3")).toBe(
+        false,
+      );
+    });
+
+    it("delivers events explicitly marked public", () => {
+      const event = { ...baseEvent, visibility: "public" as const };
       expect(canSeeChangeForUser(event, "alice@example.com", undefined)).toBe(
         true,
       );
       expect(canSeeChangeForUser(event, "bob@example.com", "org-2")).toBe(true);
-      expect(canSeeChangeForUser(event, "charlie@example.com", "org-3")).toBe(
-        true,
-      );
     });
   });
 

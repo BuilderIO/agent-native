@@ -16,7 +16,7 @@
  *     supplied via `?password=<pw>`, `?t=<token>`, or the protected media
  *     cookie renewed by this route — otherwise 401.
  *   - non-public: caller must have a share grant (owner / viewer / editor /
- *     admin) via `resolveAccess`. Password is still enforced on top.
+ *     admin) via `resolveAccess`. Stored passwords do not gate this access.
  *   - expired recordings 410.
  *   - a Content playback grant (`content_grant`, from the Content playback
  *     route) names the reader in place of the browser session and never
@@ -38,7 +38,6 @@
  *
  * Route: GET /api/video/:recordingId
  */
-
 import { readAppState } from "@agent-native/core/application-state";
 import {
   createSsrfSafeDispatcher,
@@ -89,8 +88,13 @@ import {
   REDACTION_HOLD_MESSAGE,
 } from "../../../lib/pending-redactions.js";
 import {
+  RECORDING_DOWNLOAD_ACCESS_PARAM,
+  resolveRecordingDownloadAccess,
+} from "../../../lib/recording-download-link.js";
+import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
+  recordingUsesSharePassword,
 } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { fetchS3ObjectByUrl } from "../../../lib/s3-upload-provider.js";
@@ -169,6 +173,7 @@ function setProtectedMediaAccessCookie(
       scopeId,
       password,
       sharePasswordVersion,
+      "public",
     ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
@@ -372,10 +377,36 @@ export default defineEventHandler(async (event: H3Event) => {
 
   return runWithRequestContext(requestContext, () =>
     runWithContentPlayback(contentGrant, async () => {
-      const clipId = await contextClipIdForFootage(recordingId);
+      const q = getQuery(event) as {
+        [LOOM_START_MS_QUERY_PARAM]?: unknown;
+        [RECORDING_DOWNLOAD_ACCESS_PARAM]?: unknown;
+        password?: string;
+        t?: string;
+      };
+      // A download link stands in for the owner, so it skips the session
+      // lookup entirely; a bad one is refused rather than falling back to it.
+      const downloadToken = firstQueryValue(q[RECORDING_DOWNLOAD_ACCESS_PARAM]);
+      const download = downloadToken
+        ? await resolveRecordingDownloadAccess(recordingId, downloadToken)
+        : null;
+      if (download && !download.ok) {
+        setResponseStatus(event, download.statusCode);
+        setResponseHeader(
+          event,
+          "Cache-Control",
+          "private, max-age=0, no-store",
+        );
+        return { error: download.message, errorCode: download.errorCode };
+      }
+
+      const clipId = download
+        ? null
+        : await contextClipIdForFootage(recordingId);
       // Access, expiry, redaction, and password are the clip's, not the footage's.
       const gateId = clipId ?? recordingId;
-      const access = await resolveAccess("recording", gateId);
+      const access = download
+        ? { role: "owner", resource: download.recording }
+        : await resolveAccess("recording", gateId);
       let recRow: RecordingRow | null =
         (access?.resource as RecordingRow | undefined) ?? null;
       let role: string | null = access?.role ?? null;
@@ -475,12 +506,11 @@ export default defineEventHandler(async (event: H3Event) => {
       //   - `?password=<pw>` — legacy fallback so existing share pages /
       //     bookmarks keep working during rollout.
       // (audit 11 F-07)
-      const q = getQuery(event) as {
-        [LOOM_START_MS_QUERY_PARAM]?: unknown;
-        password?: string;
-        t?: string;
-      };
-      if (gate.password && role !== "owner") {
+      if (
+        recordingUsesSharePassword(gate.visibility) &&
+        gate.password &&
+        role !== "owner"
+      ) {
         // A document cannot supply a password, so nothing unlocks one for a
         // Content reader; the Content playback route refuses it the same way.
         if (granted) {
@@ -497,6 +527,7 @@ export default defineEventHandler(async (event: H3Event) => {
           gateId,
           gate.password,
           gate.sharePasswordVersion,
+          "public",
         );
         if (token) {
           const result = verifyShortLivedToken(token, scopedRecordingId);
@@ -551,9 +582,20 @@ export default defineEventHandler(async (event: H3Event) => {
         return loomEmbedResponse(embedUrl);
       }
 
-      const blob = await readAppState(`recording-blob-${recordingId}`).catch(
-        () => null,
-      );
+      // Without an upload provider the file sits in the owner's application
+      // state, which a download link (no session) has to read as the owner.
+      const readBlob = () =>
+        // coercion-ok: unchanged playback fallback; an unreadable blob is treated like a missing one and served from videoUrl below
+        readAppState(`recording-blob-${recordingId}`).catch(() => null);
+      const blob = download
+        ? await runWithRequestContext<Awaited<ReturnType<typeof readBlob>>>(
+            {
+              userEmail: download.recording.ownerEmail,
+              orgId: download.recording.organizationId,
+            },
+            readBlob,
+          )
+        : await readBlob();
       const b64 = typeof blob?.data === "string" ? blob.data : null;
       const rangeHeader = getRequestHeader(event, "range");
 

@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/auth/builder-signup", () => ({
-  getBuilderSignupActivationStatus: mocks.status,
+  startBuilderSignupActivation: mocks.status,
   activateBuilderSignupAssignment: mocks.activate,
 }));
 
@@ -114,12 +114,20 @@ describe("BuilderSignupActivation", () => {
     mocks.status.mockResolvedValue("disabled");
     await act(async () => {
       await queryClient.invalidateQueries({
-        queryKey: ["builder-signup-eligibility", "user-2"],
+        queryKey: [
+          "builder-signup-eligibility",
+          "design_builder_signup_v1",
+          "user-2",
+        ],
       });
     });
     await vi.waitFor(() =>
       expect(
-        queryClient.getQueryData(["builder-signup-eligibility", "user-2"]),
+        queryClient.getQueryData([
+          "builder-signup-eligibility",
+          "design_builder_signup_v1",
+          "user-2",
+        ]),
       ).toBe("disabled"),
     );
     await render("user-2");

@@ -21,6 +21,8 @@ Vercel 会替你托管应用，因此无需搭建或维护服务器。构建会�
 你还需要一个 Vercel 账户。请在你自己的电脑上运行本指南中的命令。Vercel CLI 会替你
 把完成的构建上传到 Vercel。
 
+代理轮次受 Vercel Functions 执行时长限制，包括流式响应时间。配置 Function Max Duration，并检查实际部署设置及 [Vercel 限制](https://vercel.com/docs/functions/configuring-functions/duration)。延长时限不能保证轮次完成。
+
 ## 第 1 步：创建应用 {#step-1-create-the-app}
 
 创建新的独立应用。下面的示例基于 Chat 模板创建应用，但你可以从任何模板开始。
