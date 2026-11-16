@@ -111,15 +111,35 @@ export default defineAction({
             { errorCode: "conflict", statusCode: 409 },
           );
       }
-      return acknowledged;
+      const pending = await tx
+        .select({
+          status: schema.designVisualEditPending.status,
+          pendingEditCount: schema.designVisualEditPending.pendingEditCount,
+        })
+        .from(schema.designVisualEditPending)
+        .where(eq(schema.designVisualEditPending.designId, designId))
+        .limit(1);
+      return {
+        acknowledged,
+        pending: pending[0] ?? { status: "empty", pendingEditCount: 0 },
+      };
     });
 
-    const cleared = updated.length > 0;
+    const cleared = updated.acknowledged.length > 0;
     return {
       designId,
       revision: revision ?? null,
-      status: cleared || revision === undefined ? "empty" : "stale",
-      pendingEditCount: cleared || revision === undefined ? 0 : null,
+      status: cleared
+        ? "empty"
+        : revision === undefined
+          ? updated.pending.status
+          : "stale",
+      pendingEditCount: cleared
+        ? 0
+        : revision === undefined
+          ? updated.pending.pendingEditCount
+          : null,
+      tweakAcknowledgedCount: appliedTweaks.length,
       next:
         cleared || revision === undefined
           ? "Call get-visual-edit-pending again to verify the handoff is empty."
