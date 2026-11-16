@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-16",
+    "text": "The left panel can't go narrower than the agent sidebar's 320px, as in the app, so the Library tab and the composer no longer clip; it opens at 360px, and widths saved by earlier versions are reset. Interact's browser controls stay on the floating toolbar when you switch sizes, and the W × H readout fits its text."
+  },
+  {
+    "date": "2026-11-16",
     "text": "The top bar is gone. The file name, its menu and the file panel toggle head the left column; Comments, the people in the file and Share head the inspector; the canvas runs up to the window edge between them. In Interact, back, forward, reload, the page address and the sizes lead the floating toolbar, ahead of Select, Comment and Capture, and Comments, people and Share float top right since Interact has no inspector. System dark mode now darkens the segmented tabs too."
   },
   {

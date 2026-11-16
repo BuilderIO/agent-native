@@ -122,7 +122,7 @@ __KIT_HEAD__
 /* left file panel */
 .panel { grid-row: 1 / 3; grid-column: 2; border-right: 1px solid var(--color-border); display: flex; flex-direction: column; min-width: 0; overflow: hidden; background: var(--color-background); }
 .no-panel .panel { border-right: 0; }
-/* Resize handle on the panel's right edge, like DesignEditor's col-resize strip. Widths snap to the 8pt grid: 240px by default, 232px to 416px. */
+/* Resize handle on the panel's right edge, like DesignEditor's col-resize strip. Widths snap to the 8pt grid: 360px by default, 320px to 416px. */
 .panel { position: relative; }
 .panel-resize { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; z-index: 6; }
 .panel-resize::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px; background: transparent; transition: background .12s; }
@@ -1827,8 +1827,7 @@ body { --brand-ink: #0a6fe0; }
 .app.preview .dev-phone > .page { border-radius: 32px; }
 .app.preview .dev-tablet > .page { border-radius: 20px; }
 body { --pane-bg: color-mix(in srgb, var(--color-foreground) 5%, var(--color-background)); }
-/* 71px, so with the 1px separator the centred bar has an even width and its buttons land on whole pixels. */
-.pv-size { flex: none; width: 71px; text-align: center; font-size: 12px; color: var(--color-muted-foreground); font-variant-numeric: tabular-nums; margin-right: 4px; white-space: nowrap; overflow: hidden; }
+.pv-size { flex: none; text-align: center; font-size: 12px; color: var(--color-muted-foreground); font-variant-numeric: tabular-nums; margin-right: 4px; white-space: nowrap; }
 .pv-dev { height: 28px; }
 .pv-dev button { height: 24px; min-width: 28px; }
 .pv-dev button[aria-pressed="true"] { color: var(--color-foreground); }
@@ -2824,7 +2823,7 @@ body { --rx-ring-aa: #828282; --rx-ring: rgba(0,0,0,.085); --rx-lift: 0 1px 1px 
     <div class="agents" id="agents" hidden></div>
     <div class="agents" id="comments" hidden></div>
     <div class="agents" id="tokens" hidden></div>
-    <div class="panel-resize" id="panel-resize" role="separator" aria-orientation="vertical" aria-label="Resize panel" aria-valuemin="232" aria-valuemax="416" aria-valuenow="240" tabindex="0" title="Drag to resize · double-click to reset"></div>
+    <div class="panel-resize" id="panel-resize" role="separator" aria-orientation="vertical" aria-label="Resize panel" aria-valuemin="320" aria-valuemax="416" aria-valuenow="360" tabindex="0" title="Drag to resize · double-click to reset"></div>
   </aside>
 
   <header class="topbar" id="topbar"></header>
@@ -4516,10 +4515,11 @@ document.addEventListener("keydown", e => {
   }
 });
 
-/* panel resize: every width lands on the 8pt grid. 232 is the first grid width at or above the 227px spec; 416 is the grid value under today's 420 cap. */
-const PANEL_MIN = 232, PANEL_DEFAULT = 360, PANEL_MAX = 416, GRID = 8;
-function setPanelW(w) { w = Math.max(PANEL_MIN, Math.min(PANEL_MAX, Math.round(w / GRID) * GRID)); app.style.setProperty("--panel-w", w + "px"); $("#panel-resize").setAttribute("aria-valuenow", w); try { localStorage.setItem("des-panel-w", w); } catch {} requestAnimationFrame(renderPins); }
-try { const w = +localStorage.getItem("des-panel-w"); if (w) setPanelW(w); } catch {}
+/* panel resize: every width lands on the 8pt grid. 416 is the grid value under today's 420 cap. */
+// The floor is the agent sidebar's 320px, as in the app: a narrower column clips the chat and the Library tab.
+const PANEL_MIN = 320, PANEL_DEFAULT = 360, PANEL_MAX = 416, GRID = 8;
+function setPanelW(w) { w = Math.max(PANEL_MIN, Math.min(PANEL_MAX, Math.round(w / GRID) * GRID)); app.style.setProperty("--panel-w", w + "px"); $("#panel-resize").setAttribute("aria-valuenow", w); try { localStorage.setItem("des-panel-w2", w); } catch {} requestAnimationFrame(renderPins); }
+try { const w = +localStorage.getItem("des-panel-w2"); if (w) setPanelW(w); } catch {}
 (() => {
   const h = $("#panel-resize");
   h.addEventListener("pointerdown", e => {
@@ -9135,13 +9135,17 @@ requestAnimationFrame(() => { wsSide(); hyFitZoom(); islandsChanged(); render();
 {
   app.classList.add("no-gbar");
   const fbar = $("#fbar"), dock = $("#dock");
+  // renderTopbar and renderDock both run on every render; only a fresh copy in #modebar replaces the one already moved.
   const place = () => {
-    fbar.querySelectorAll(":scope > .mb, :scope > .fb-psep").forEach(e => e.remove());
-    const mb = $("#modebar .mb");
-    if (S.mode !== "interact" || !mb || !mb.children.length) return;
+    const mb = $("#modebar .mb"), drop = () => fbar.querySelectorAll(":scope > .mb, :scope > .fb-psep").forEach(e => e.remove());
+    if (S.mode !== "interact") return drop();
+    if (!mb || !mb.children.length) return;
+    drop();
     mb.querySelectorAll(":scope > .vsep").forEach(v => v.remove());
     mb.querySelector(".pv-size")?.insertAdjacentHTML("beforebegin", '<span class="vsep"></span>');
     dock.before(mb); dock.insertAdjacentHTML("beforebegin", '<span class="vsep fb-psep"></span>');
+    // The readout's width follows its text in 4px steps, so the centred bar stays on whole pixels.
+    const ps = mb.querySelector(".pv-size"); if (ps) { ps.style.width = ""; ps.style.width = Math.ceil(ps.scrollWidth / 4) * 4 + "px"; }
   };
   for (const name of ["renderTopbar", "renderDock"]) { const base = eval(name); eval(`${name} = function (...a) { const r = base.apply(this, a); place(); return r; }`); }
   requestAnimationFrame(() => { renderTopbar(); islandsChanged(); });
@@ -9927,5 +9931,6 @@ render();
 #fbar > .mb .icon-btn.sm { width: 16px; height: 32px; border-radius: 6px; }
 #fbar > .mb #route-btn { height: 32px; width: 160px; border-radius: 8px; }
 #fbar > .mb .tb-seg { height: 32px; }
-#fbar > .mb .vsep, #fbar > .fb-psep { flex: none; width: 1px; height: 24px; margin-inline: 4px; background: var(--color-border); }
+#fbar > .mb .vsep, .app .fbar.ix > .fb-psep { display: block; flex: none; width: 8px; height: 20px; margin: 0; background: linear-gradient(var(--color-border), var(--color-border)) center / 1px 20px no-repeat; }
+#fbar > .mb .pv-size { margin: 0; }
 </style>
