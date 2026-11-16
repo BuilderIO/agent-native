@@ -55,6 +55,7 @@ import {
   type JourneySummary,
   type JourneyTree,
   type OnboardingJourneyArgs,
+  type OnboardingJourneyCohorts,
 } from "./onboarding-journey";
 
 const scope = { userEmail: "owner@example.test", orgId: null };
@@ -2009,15 +2010,55 @@ describe("getOnboardingJourney", () => {
       })) as JourneySummary;
 
       expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(1);
+      expect(mocks.queryFirstPartyAnalytics.mock.calls[0]?.[2]).toMatchObject({
+        resumable: { deadline: expect.any(AbortSignal) },
+      });
       expect(summary.coverage.truncated).toBe(true);
       expect(summary.notes?.join(" ")).toMatch(/15-second time budget/);
       expect(summary.notes?.join(" ")).toMatch(
-        /stopped at its time budget \(15 seconds for the event read, 22 in all\)\. Call again with the same arguments and observationWatermark="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z"/,
+        /stopped at its time budget \(15 seconds for the event read, 22 in all\)\. Call again within a few minutes with the same arguments and observationWatermark="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z"/,
       );
+      expect(summary.continueWith).toEqual({
+        observationWatermark: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/,
+        ),
+      });
       expect(summary.followUp).toMatchObject({
         status: "incomplete",
         incompleteReason: "journey_event_read_truncated",
         coverage: { journeyEventRead: { pages: 1, truncated: true } },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives cohort trees the watermark to continue from at the event-read deadline", async () => {
+    vi.useFakeTimers();
+    mocks.queryFirstPartyAnalytics.mockImplementationOnce(async () => {
+      await vi.advanceTimersByTimeAsync(ONBOARDING_EVENT_READ_DEADLINE_MS);
+      return {
+        rows: Array.from({ length: 4_000 }, (_, index) =>
+          eventRow(`deadline-${index}`, "signup", index),
+        ),
+        schema: [],
+      };
+    });
+
+    try {
+      const cohorts = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        app: "design",
+        splitDesignFirstTouch: true,
+        dateTo: "2026-10-09",
+        maxEventRows: 20_000,
+      })) as OnboardingJourneyCohorts;
+
+      expect(cohorts.readCoverage.truncated).toBe(true);
+      expect(cohorts.continueWith).toEqual({
+        observationWatermark: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/,
+        ),
       });
     } finally {
       vi.useRealTimers();
@@ -2115,14 +2156,13 @@ describe("getOnboardingJourney", () => {
     {
       name: "says how to continue when a follow-up was cut short by the budget",
       readMs: 10_000,
-      note: /stopped at its time budget.*Call again with the same arguments and observationWatermark=/,
     },
     {
-      name: "does not offer a retry when a follow-up had a query's full time",
+      // Its job keeps running, so the next call collects it.
+      name: "says how to continue when a follow-up ran out of a query's full time",
       readMs: 0,
-      note: /needed more than the 20 seconds one query may run, so calling again will not finish it/,
     },
-  ])("$name", async ({ readMs, note }) => {
+  ])("$name", async ({ readMs }) => {
     let clockMs = 0;
     const clock = vi
       .spyOn(performance, "now")
@@ -2140,12 +2180,18 @@ describe("getOnboardingJourney", () => {
         format: "summary",
       })) as JourneySummary;
 
+      expect(mocks.queryFirstPartyAnalytics.mock.calls[1]?.[2]).toMatchObject({
+        resumable: {},
+      });
       expect(summary.followUp).toMatchObject({
         status: "incomplete",
         incompleteReason: "followup_aggregate_query_timeout",
       });
-      expect(summary.notes?.join(" ")).toMatch(note);
+      expect(summary.notes?.join(" ")).toMatch(
+        /stopped at its time budget.*Call again within a few minutes with the same arguments and observationWatermark=/,
+      );
       expect(summary.notes).toHaveLength(1);
+      expect(summary.continueWith).toBeDefined();
     } finally {
       clock.mockRestore();
     }

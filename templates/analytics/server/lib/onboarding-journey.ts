@@ -62,8 +62,9 @@ const MAX_FOLLOWUP_QUERY_TOKENS = 50_000;
 const ONBOARDING_QUERY_TIMEOUT_MS = 20_000;
 // A hosted request gets about 30 seconds before the gateway answers 504 and
 // drops everything read so far. Queries stop inside these budgets instead, so a
-// slow read returns partial coverage, and a second call with the same
-// observationWatermark continues from the pages already in the query cache.
+// slow read returns partial coverage. A query stopped this way keeps running
+// in BigQuery, and a second call with the same observationWatermark collects
+// it, or its cached result, instead of running it again.
 export const ONBOARDING_EVENT_READ_DEADLINE_MS = 15_000;
 export const ONBOARDING_JOURNEY_QUERY_BUDGET_MS = 22_000;
 // Pages after the first run this many at a time once the first page reports
@@ -285,6 +286,12 @@ export interface OnboardingJourneyCohorts {
     conflictingSessions: number;
     sessionlessMcpOauthSignupTree: JourneyCohortTree;
   };
+  /**
+   * Present when a time limit stopped this request. The same call with this
+   * added collects the queries it left running or cached instead of starting
+   * them again.
+   */
+  continueWith?: { observationWatermark: string };
 }
 
 /** The contract other agents build against; field names are fixed. */
@@ -315,6 +322,12 @@ export interface JourneyTree {
   };
   /** Present only when something limits how far the tree can be trusted. */
   notes?: string[];
+  /**
+   * Present when a time limit stopped this request. The same call with this
+   * added collects the queries it left running or cached instead of starting
+   * them again.
+   */
+  continueWith?: { observationWatermark: string };
 }
 
 export interface JourneySummary {
@@ -342,6 +355,12 @@ export interface JourneySummary {
     outline: string;
   };
   notes?: string[];
+  /**
+   * Present when a time limit stopped this request. The same call with this
+   * added collects the queries it left running or cached instead of starting
+   * them again.
+   */
+  continueWith?: { observationWatermark: string };
 }
 
 export interface JourneyFollowup {
@@ -728,6 +747,7 @@ async function readJourneyEvents(
           eventDateRange: request.eventDateRange,
           ...ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
           signal: pageSignal,
+          resumable: { deadline: deadline.signal },
         }),
       };
     };
@@ -1109,6 +1129,7 @@ async function readFollowup(
       maxBytesBilled: ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
       eventDateRange: onboardingJourneyEventDateRange(filters, observation),
       signal,
+      resumable: {},
     });
   } catch (error) {
     if (signal?.aborted || isAbortError(error)) throw error;
@@ -1675,6 +1696,7 @@ async function readPersonFollowup(
       eventDateRange,
       ...ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
       signal,
+      resumable: {},
     });
   } catch (error) {
     if (signal?.aborted || isAbortError(error)) throw error;
@@ -2228,6 +2250,7 @@ async function buildOnboardingJourneyCohorts(
   scope: AnalyticsScope,
   args: OnboardingJourneyArgs,
   read: EventRead,
+  observation: OnboardingJourneyObservationWindow,
   signal?: AbortSignal,
 ): Promise<OnboardingJourneyCohorts> {
   const partition = partitionOnboardingJourneyCohorts(read.rows, args);
@@ -2297,6 +2320,13 @@ async function buildOnboardingJourneyCohorts(
         partition.sessionlessMcpOauthSignupEvents,
     },
     tree: makeTree(partition.allSessionIds),
+    ...(read.truncationReason === "read_deadline"
+      ? {
+          continueWith: {
+            observationWatermark: observation.observationWatermark,
+          },
+        }
+      : {}),
   };
   if (args.experimentId && partition.experiment) {
     const experiment = partition.experiment;
@@ -2380,7 +2410,13 @@ export async function getOnboardingJourney(
     throw new OnboardingJourneyReadError(error);
   }
   if (args.experimentId || args.splitDesignFirstTouch) {
-    return buildOnboardingJourneyCohorts(scope, args, read, signal);
+    return buildOnboardingJourneyCohorts(
+      scope,
+      args,
+      read,
+      observation,
+      signal,
+    );
   }
   const { sessions, terminalSteps, sessionsWithoutSteps } = groupSessions(
     read.rows.filter((row) => row.journeyKind === "onboarding"),
@@ -2569,19 +2605,13 @@ export async function getOnboardingJourney(
   const followupTimedOut =
     followUp.incompleteReason === "followup_aggregate_query_timeout" ||
     personFollowUp?.incompleteReason === "person_followup_query_timeout";
-  // A follow-up that had a query's full time and still ran out will run out
-  // again, so only a cut-short one is worth calling again for.
-  const followupCutShort = followupTimeoutMs < ONBOARDING_QUERY_TIMEOUT_MS;
-  if (
-    read.truncationReason === "read_deadline" ||
-    (followupTimedOut && followupCutShort)
-  ) {
+  // A query stopped by a time limit keeps running, so calling again collects
+  // it even when it needed more than one call's time.
+  const stoppedForTime =
+    read.truncationReason === "read_deadline" || followupTimedOut;
+  if (stoppedForTime) {
     notes.push(
-      `This request stopped at its time budget (${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000} seconds for the event read, ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000} in all). Call again with the same arguments and observationWatermark="${observation.observationWatermark}" within 5 minutes: queries that finished are normally kept in the query cache, so the next call usually continues from them instead of running them again.`,
-    );
-  } else if (followupTimedOut) {
-    notes.push(
-      `A follow-up query needed more than the ${ONBOARDING_QUERY_TIMEOUT_MS / 1000} seconds one query may run, so calling again will not finish it; a shorter date range reads less.`,
+      `This request stopped at its time budget (${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000} seconds for the event read, ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000} in all). Call again within a few minutes with the same arguments and observationWatermark="${observation.observationWatermark}": queries that finished are kept in the query cache and unfinished ones keep running, so the next call collects them instead of starting over. Repeat until this note is gone.`,
     );
   }
   const head = {
@@ -2589,6 +2619,13 @@ export async function getOnboardingJourney(
     app: args.app,
     rootN: built.rootN,
     ...(notes.length ? { notes } : {}),
+    ...(stoppedForTime
+      ? {
+          continueWith: {
+            observationWatermark: observation.observationWatermark,
+          },
+        }
+      : {}),
   };
   const truncated =
     read.onboardingTruncated || depthTruncated || capped.dropped > 0;
