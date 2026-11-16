@@ -294,4 +294,26 @@ describe("withServerMintedFullAppEmbedStart", () => {
       warn.mockRestore();
     }
   });
+
+  it("keeps a start URL another app minted on its own origin only for an action that opens one", async () => {
+    const url =
+      "https://mail.other.test/_agent-native/embed/start?ticket=theirs";
+    const opener = { ...entry(), opensAnotherAppEmbed: true } as ActionEntry;
+    const record = { url: "https://mail.other.test/inbox", embedStartUrl: url };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(
+        inRequest(() =>
+          withServerMintedFullAppEmbedStart(record, opener, {}, ANCHOR),
+        ),
+      ).resolves.toBe(record);
+      expect(ticketOwner).not.toHaveBeenCalled();
+      const plain = await inRequest(() =>
+        withServerMintedFullAppEmbedStart(record, entry(), {}, ANCHOR),
+      );
+      expect(JSON.stringify(plain)).not.toContain("ticket=theirs");
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });

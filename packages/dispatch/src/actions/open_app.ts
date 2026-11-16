@@ -133,6 +133,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
+  opensAnotherAppEmbed: true,
   run: async (args, ctx) => {
     const normalized = normalizeOpenAppArgs(args);
     // An MCP host shows the app from the session the target app mints, so

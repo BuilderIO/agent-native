@@ -258,6 +258,10 @@ describe("actionDefinition", () => {
     expect(
       filesystemActionEntry({ tool, run }).requiresSignedInBrowser,
     ).toBeUndefined();
+    expect(
+      filesystemActionEntry({ tool, run, opensAnotherAppEmbed: true })
+        .opensAnotherAppEmbed,
+    ).toBe(true);
   });
 
   it("takes a default action when the module names none", () => {

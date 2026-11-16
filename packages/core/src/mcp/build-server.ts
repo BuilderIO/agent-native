@@ -1564,10 +1564,12 @@ export async function withServerMintedMcpAppEmbedStart(
 function sameOriginEmbedStart(
   value: string,
   origin: string,
+  anyOrigin = false,
 ): { ticket: string; pathname: string } | null {
   try {
     const url = new URL(value, origin);
-    if (url.origin !== origin || !isEmbedStartUrl(url.href)) return null;
+    if ((!anyOrigin && url.origin !== origin) || !isEmbedStartUrl(url.href))
+      return null;
     const ticket = url.searchParams.get("ticket");
     return ticket ? { ticket, pathname: url.pathname } : null;
     // coercion-ok: an unparsable URL is not one this server issued; the caller warns and drops it.
@@ -1608,12 +1610,20 @@ export async function withServerMintedFullAppEmbedStart(
   } = await import("../server/embed-session.js");
   const { buildEmbedStartPath } = await import("../server/embed-route.js");
   if (typeof record.embedStartUrl === "string") {
-    const start = sameOriginEmbedStart(record.embedStartUrl, requestOrigin);
+    const start = sameOriginEmbedStart(
+      record.embedStartUrl,
+      requestOrigin,
+      entry.opensAnotherAppEmbed === true,
+    );
     const ownStartPath = new URL(buildEmbedStartPath("x"), requestOrigin)
       .pathname;
+    const otherOrigin =
+      start !== null &&
+      new URL(record.embedStartUrl, requestOrigin).origin !== requestOrigin;
     if (
       start &&
-      (start.pathname !== ownStartPath ||
+      (otherOrigin ||
+        start.pathname !== ownStartPath ||
         (await embedSessionTicketBelongsTo(start.ticket, ownerEmail)))
     ) {
       return result;

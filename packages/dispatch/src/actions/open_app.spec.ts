@@ -146,4 +146,8 @@ describe("open_app MCP App metadata", () => {
       } as any),
     ).resolves.toMatchObject({ app: "mail", embed: false });
   });
+
+  it("is marked as opening another app's embed", () => {
+    expect(openAppAction.opensAnotherAppEmbed).toBe(true);
+  });
 });
