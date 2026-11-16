@@ -3503,7 +3503,13 @@ export async function createMCPServerForRequest(
 
   async function withToolCallContext<T>(
     fn: () => Promise<T>,
-    { mcpRequestId, timezone }: { mcpRequestId?: string; timezone?: string },
+    {
+      mcpRequestId,
+      timezone,
+    }: {
+      mcpRequestId?: string | undefined;
+      timezone?: string | undefined;
+    },
   ): Promise<T> {
     // Only a signed-in person has browser tabs for a call to act on.
     const browserTabTarget = hasVerifiedMcpUserIdentity(effectiveIdentity)
