@@ -30,6 +30,8 @@ status such as draft, review, approved, or needs changes.
 | `ReviewStatusBadge`            | Controlled status badge for app headers, sidebars, and review panels.                                                                                             |
 | `isCommentSendKey()`           | The send key in every comment box: Enter sends, Shift+Enter starts a new line, and Cmd/Ctrl+Enter sends too, but not while an input method composes.              |
 | `ReviewCommentComposer`        | The comment box, which saves Markdown. A bar over selected text, shortcuts and Markdown typed as you go format it; Enter goes on with a list or code block.       |
+| `useReviewCommentDraft()`      | A comment box's unsent text, mentions and images, kept in the browser per thread so they survive a reload.                                                        |
+| Comment images                 | `useReviewCommentImageUpload()` uploads pasted, dropped or picked images for a box of your own, up to five; `ReviewCommentImageStrip` shows them.                 |
 | `commentDocToMarkdown()`       | The box's document as a comment's Markdown, and `commentMarkdownToDoc()` back, from `@agent-native/core/review/markdown`.                                         |
 | Review hooks                   | `useReviewComments()`, `useCreateReviewComment()`, `useReplyReviewComment()`, `useResolveReviewThread()`, `useDeleteReviewComment()`, and `useSetReviewStatus()`. |
 | Mentions helpers               | `extractReviewMentions()` and `normalizeReviewMentions()` for `@[Label](mailto:email@example.com)` tokens.                                                        |
@@ -48,6 +50,15 @@ specialize anchor shapes, but the common model preserves:
 - optional `mentions`
 - optional `anchor` or `resolutionTarget`
 - optional `resolutionNote` on a resolved root thread
+- optional images in `metadata.attachments`
+
+A comment needs text or an image. `create-review-comment` and
+`reply-review-comment` keep up to five images from `metadata.attachments`:
+Builder's image CDN, or files the app's upload provider says it stored. A
+comment whose body is empty and whose images were all dropped is refused with
+`empty_comment`. `update-review-comment` takes `attachments` to replace an
+author's images, checked the same way, and keeps the rest of the comment's
+metadata.
 
 `list-review-comments` supports anonymous reads for resources whose access
 resolver grants public viewer access. Public viewer responses redact ownership,
@@ -162,6 +173,48 @@ fenced code blocks. Enter sends, except in a list or code block, where it goes
 on with it; Enter on an empty list item ends the list. Pasted text reads as
 Markdown, and Shift pastes it as typed. The bar's labels are English unless
 you pass `formatLabels`, to the box or to `ReviewThreadPanel`.
+
+Give the box `images` and `onImagesChange` and it takes images too: pasted,
+dropped, or picked with its image button, up to five. It uploads each with the
+app's file upload (pass `uploadImage` for another) and sends a comment that's
+only an image. A paste with text in it, such as cells from a spreadsheet,
+pastes as text. Send the images as the comment's `metadata.attachments`; the
+card shows them below its text.
+
+`useReviewCommentDraft(scope, key, initial?)` keeps what a box holds until it's
+sent, so a reload or a closed thread doesn't lose it. Give each box its own
+key, such as `new`, `reply:<threadId>` or `edit:<commentId>`, and call
+`clear()` once the comment is saved. Drafts are kept per person, account and
+resource, and only the newest 50 are kept. Without a signed-in person nothing
+is stored, and a draft lasts while a box on the resource is open. Give the box
+the draft's `target` as `imageTarget`, so an image still uploading when the
+box moves to another thread or account isn't added to that one's draft.
+
+```tsx
+const reply = useReviewCommentDraft(
+  { resourceType: "design", resourceId, userEmail, orgId },
+  `reply:${threadId}`,
+);
+
+<ReviewCommentComposer
+  value={reply.draft.text}
+  onChange={reply.setText}
+  mentions={reply.draft.mentions}
+  onMentionsChange={reply.setMentions}
+  images={reply.draft.images}
+  onImagesChange={reply.setImages}
+  imageTarget={reply.target}
+  onSubmit={async () => {
+    await replyToThread({
+      body: reply.draft.text,
+      metadata: {
+        attachments: reviewCommentImageMetadata(reply.draft.images),
+      },
+    });
+    reply.clear();
+  }}
+/>;
+```
 
 ## UX Standard {#ux-standard}
 

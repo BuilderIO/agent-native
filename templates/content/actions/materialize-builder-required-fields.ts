@@ -21,6 +21,7 @@ import { chunks } from "./_batch-utils.js";
 import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { assertOrdinaryPropertySetupAllowed } from "./_database-setup-mutation.js";
 import {
   builderReferenceIdSourceValueKey,
   resolveDatabaseForSourceMutation,
@@ -273,6 +274,8 @@ export default defineAction({
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
+    // A Builder source attached to Files can't give it properties either.
+    assertOrdinaryPropertySetupAllowed(database);
     const db = getDb();
     const sourceFilters = [
       eq(schema.contentDatabaseSources.databaseId, database.id),
