@@ -18,10 +18,8 @@ const NONPUBLIC_SUFFIXES = [
 export function isNonPublicHostname(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/\.$/, "");
   return (
-    host === "localhost" ||
     !host.includes(".") ||
     /^[\d.]+$/.test(host) ||
-    host.startsWith("[") ||
     host.includes(":") ||
     NONPUBLIC_SUFFIXES.some((suffix) => host.endsWith(suffix))
   );

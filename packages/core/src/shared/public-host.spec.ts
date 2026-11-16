@@ -32,6 +32,8 @@ describe("isNonPublicHostname", () => {
     "example.com.",
     "lantern.io",
     "internals.dev",
+    "1password.com",
+    "preview.v2",
   ])("allows %s", (host) => {
     expect(isNonPublicHostname(host)).toBe(false);
   });
