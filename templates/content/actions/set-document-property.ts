@@ -5,10 +5,12 @@ import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { firstRow } from "../server/lib/first-row.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
 import { drizzleOverExec } from "../server/live-copy/exec-db.js";
@@ -46,6 +48,7 @@ import {
   scheduleContentWebhookDelivery,
 } from "./_content-webhooks.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
 import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 import {
@@ -282,6 +285,7 @@ export default defineAction({
     const now = new Date().toISOString();
 
     if (isBlocksPropertyType(type)) {
+      assertAgentsMayEditPageText(document, ctx);
       if (expectedGeneration !== undefined) {
         throw new ActionContractError(
           "Blocks fields are guarded by expectedBlocksFieldRevision, not expectedGeneration.",
@@ -366,10 +370,14 @@ export default defineAction({
           documentId,
         ]);
         const [lockedPage] = await tx
-          .select({ trashedAt: schema.documents.trashedAt })
+          .select({
+            trashedAt: schema.documents.trashedAt,
+            agentTextLocked: schema.documents.agentTextLocked,
+          })
           .from(schema.documents)
           .where(eq(schema.documents.id, documentId));
         assertEditableDocument(lockedPage);
+        assertAgentsMayEditPageText(lockedPage, ctx);
         const [lockedDefinition] = await tx
           .select()
           .from(schema.documentPropertyDefinitions)
@@ -445,6 +453,14 @@ export default defineAction({
             updatedAt: now,
           })
           .where(eq(schema.documents.id, documentId));
+        await syncPrivateMediaReferences(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            documentId,
+            after: content,
+            userEmail: documentAttributionActor(ctx),
+          },
+        );
         if (
           !primaryBlocksFields.some((field) => field.propertyId === propertyId)
         ) {
@@ -643,6 +659,14 @@ export default defineAction({
           updatedAt: now,
         });
       }
+      await syncPrivateMediaReferences(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          documentId,
+          after: valueJson,
+          userEmail: documentAttributionActor(ctx),
+        },
+      );
       if (isNaturalKey) {
         await tx
           .insert(schema.contentDatabaseItemKeyClaims)

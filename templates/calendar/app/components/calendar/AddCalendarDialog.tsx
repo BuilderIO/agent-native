@@ -452,7 +452,10 @@ function UrlTab({ onClose }: { onClose: () => void }) {
           setUrl("");
           onClose();
         },
-        onError: () => toast.error(t("eventForm.addCalendarFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, {
+            label: t("eventForm.addCalendarFailed"),
+          }),
       },
     );
   }

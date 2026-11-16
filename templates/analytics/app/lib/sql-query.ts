@@ -553,7 +553,17 @@ export function useSqlQuery(
       if (manualRequested && pendingManualRefresh.current === manual) {
         pendingManualRefresh.current = null;
       }
-      if (manual && forceRefresh && !manual.failed && !signal.aborted) {
+      // A background data program answers a forced refresh with its last
+      // rows while the new run goes on, so only its fresh rows say
+      // "Refreshed". (BigQuery marks rows cached when a forced refresh joins
+      // one already running, and those rows are new.)
+      if (
+        manual &&
+        forceRefresh &&
+        !manual.failed &&
+        !signal.aborted &&
+        !(source === "program" && result.cached === true)
+      ) {
         completedManualRefresh.current = {
           token: manual.token,
           queryKeyHash,

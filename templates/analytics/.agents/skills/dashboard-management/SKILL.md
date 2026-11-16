@@ -245,7 +245,7 @@ pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
 pnpm action navigate --view=adhoc --dashboardId=weekly-metrics
 ```
 
-The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. Never work around validation by writing directly to a table.
+The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. A `sql_validation_unavailable` error (status 503) means the validator could not run, not that the SQL is wrong: retry the same write, or report the outage, without rewriting the query. Never work around validation by writing directly to a table.
 
 ### Replicating Or Adapting Another Dashboard
 
@@ -433,7 +433,10 @@ another organization's); it is still saved. A set or note the dashboard hides
 is that dashboard's choice, so ask before showing it.
 
 To explain a spike or dip, read `keyDateSets` and `dataNotes` from
-`get-sql-dashboard` or `view-screen` first and cite what they say. If
+`get-sql-dashboard` or `view-screen` first and cite what they say. They are the
+organization's records, not part of the dashboard's saved config: a config
+write needn't carry them and can't change them, though its `annotations` field
+picks which ones this dashboard hides. If
 `annotationsError` is there instead, say the markers could not be read rather
 than that there are none. `omittedKeyDateSetCount` or `omittedDataNoteCount`
 means the list was cut to fit, so read `list-key-dates` or `list-data-notes`
@@ -516,6 +519,18 @@ backticks or `#` outside strings, and nested block comments.
 Declared record templates do not support `{{?variable}}…{{/variable}}`
 blocks, which could assemble new literal contexts after validation. Use SQL
 `CASE` expressions with ordinary variables for optional filters.
+
+**A point with no x value needs `{{drillXIsNull}}`.** A row whose x is null
+plots at a "No value" tick, and a click on it sends `{{drillX}}` as an empty
+string, the same as a row whose x is `''`. `{{drillXIsNull}}` is `'true'` for
+that click and `'false'` for every other, so match both:
+`(country = '{{drillX}}' OR ('{{drillXIsNull}}' = 'true' AND country IS NULL))`.
+When the column isn't a string, such as a `DATE`, the database reads an empty
+`{{drillX}}` as an invalid date and fails the query, even where the `OR`
+doesn't need it, so compare with `CAST(NULLIF('{{drillX}}', '') AS DATE)`
+instead. A template that doesn't use
+`{{drillXIsNull}}` opens the chart's aggregate rows for a "No value" click,
+not records.
 
 **Record templates can't use `:list` variables.** With nothing selected,
 `{{appFilter:list}}` renders as the bare name `__empty_list_filter__`. BigQuery
@@ -878,7 +893,13 @@ asks for a low-level JSON-pointer edit. Use `moveBefore`, `moveAfter`,
 For visible placement requests like "second row" or "next to return rates", use
 row-aware placement: `dashboard.insertPanel({...}).nextTo("retention-over-time")`,
 `.atRow(2)`, or `dashboard.panel("panel-a").moveNextTo("panel-b")`. These keep
-panels in the intended rendered row and rebalance that row when needed. In
+panels in the intended rendered row and rebalance the widths of the row the
+panel joins and the row it leaves. A row that needs another column widens its
+section and rebalances every row there; above the first section it widens the
+dashboard, and sections without their own column count are pinned to the one
+they had. Other panels keep their widths unless that would merge their row into
+the next one. The op's `commandLog` entry names every width or column count it
+changed. In
 `operations`, `movePanels`, `insertPanel`, and `duplicatePanel` take the same
 placement as fields: `position`, `index`, `beforePanelId`, `afterPanelId`,
 `nextToPanelId` (same visible row, after that panel), or `rowNumber` (1-based

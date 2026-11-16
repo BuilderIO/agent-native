@@ -1377,6 +1377,8 @@ export default {
     resetFilters: "フィルターをリセット",
     collapseFilters: "フィルターを折りたたむ",
     expandFilters: "フィルターを展開する",
+    collapseDescription: "説明を折りたたむ",
+    expandDescription: "説明を展開する",
     drilldownChartPoints: "グラフのデータポイント",
     drilldownPreviousPage: "グラフのデータポイントの前のページ",
     drilldownNextPage: "グラフのデータポイントの次のページ",
@@ -1396,6 +1398,8 @@ export default {
       "グラフは {{chart}} ですが、一致したレコードは {{total}} 件です",
     drilldownAggregateOnly:
       "このパネルには集計行しかありません。クリックしたポイントに一致する行を強調表示しています。",
+    drilldownNoXValueAggregateOnly:
+      "このパネルでは値なしのポイントのレコードを開けないため、集計行を表示しています。クリックしたポイントに一致する行を強調表示しています。",
     drilldownNoRecords: "一致するレコードがありません",
     drilldownNoRecordsIncomplete:
       "レコードは読み込まれませんでした。結果が不完全なため、一致するレコードがある可能性があります。",
@@ -1405,6 +1409,7 @@ export default {
     drilldownOverByteCap:
       "これらのレコードは {{gib}} GiB を超えて読み込むため、読み込みませんでした。ダッシュボードのフィルターか期間を絞ってから、もう一度お試しください。",
     filterSeries: "Filter",
+    noXValue: "値なし",
     chartTimeRangeOverride: "このチャートの期間を上書き",
     chartTimeRangeInherit: "ダッシュボードの期間",
     hide: "Hide",

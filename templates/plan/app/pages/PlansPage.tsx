@@ -32,6 +32,7 @@ import {
   serverAuthReturnPath,
 } from "@agent-native/core/client/sign-in-return";
 import { type ErrorReportDebugItem } from "@agent-native/core/client/ui";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
 import { commentExcerpt } from "@agent-native/core/review/plain-text";
 import { saveWithMerge } from "@agent-native/core/save-conflict";
@@ -292,6 +293,7 @@ import {
   type RuntimeAnnotationParticipant,
 } from "@/lib/plan-annotation-runtime";
 import {
+  blockSaveInput,
   startBlockSave,
   type OwnBlockSave,
   type PlanBlocksOverlapResolver,
@@ -583,6 +585,20 @@ function withPlanComments(
         .length,
     },
   };
+}
+
+/**
+ * The anchor's section id, if it names one of the plan's sections. An anchor
+ * records whatever element id was nearest the click, and a comment's section
+ * must be a real section row.
+ */
+export function planSectionIdForAnchor(
+  sections: Pick<PlanBundle["sections"][number], "id">[],
+  sectionId: string | null | undefined,
+): string | undefined {
+  return sectionId && sections.some((section) => section.id === sectionId)
+    ? sectionId
+    : undefined;
 }
 
 export function addPlanCommentToBundle(
@@ -1862,14 +1878,16 @@ function PlanStatusControl({
       updateStatus.mutate(
         { planId, status: newStatus },
         {
-          onError: () => {
+          onError: (error) => {
             if (prevBundle !== undefined)
               qc.setQueryData(bundleKey, prevBundle);
             if (prevActiveList !== undefined)
               qc.setQueryData(ACTIVE_PLANS_QUERY_KEY, prevActiveList);
             if (prevAllList !== undefined)
               qc.setQueryData(ALL_PLANS_QUERY_KEY, prevAllList);
-            toast.error(t("plansPage.status.updateFailed"));
+            reportWriteFailure(error, {
+              label: t("plansPage.status.updateFailed"),
+            });
           },
         },
       );
@@ -1907,13 +1925,13 @@ function PlanStatusControl({
           {badgeInner}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44 rounded-xl">
+      <DropdownMenuContent align="end" className="w-44">
         <DropdownMenuLabel>{t("plansPage.status.setStatus")}</DropdownMenuLabel>
         <DropdownMenuGroup>
           {APPROVAL_STATUSES.map((s) => (
             <DropdownMenuItem
               key={s}
-              className={cn("gap-2", s === status && "font-medium")}
+              className={cn(s === status && "font-medium")}
               onClick={() => handleSelect(s)}
             >
               {s === "approved" ? (
@@ -2735,8 +2753,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             if (selectedPlanQueryKey) {
               queryClient.setQueryData(selectedPlanQueryKey, updated);
             }
-          } catch {
-            toast.error(t("plansPage.reader.saveAnswersFailed"));
+          } catch (error) {
+            reportWriteFailure(error, {
+              label: t("plansPage.reader.saveAnswersFailed"),
+            });
           } finally {
             if (localPlanBridgeUrl) setLocalBridgeCommentPending(false);
           }
@@ -2749,8 +2769,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           comments: [comment],
         },
         {
-          onError: () => {
-            toast.error(t("plansPage.reader.saveAnswersFailed"));
+          onError: (error) => {
+            reportWriteFailure(error, {
+              label: t("plansPage.reader.saveAnswersFailed"),
+            });
           },
         },
       );
@@ -4077,13 +4099,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           held = await resolveOverlap(overlap, finished);
           return held;
         }),
-      save: async ({ value, revision }) => {
-        const result = await savePlanBlocks.mutateAsync({
-          planId,
-          ...(revision ? { expectedUpdatedAt: revision } : {}),
-          contentPatches: [{ op: "replace-blocks", blocks: value }],
-          note: "Patched structured visual plan content.",
-        });
+      save: async (attempt) => {
+        const result = await savePlanBlocks.mutateAsync(
+          blockSaveInput(planId, attempt),
+        );
         if (!result.plan?.content) {
           throw new Error("The saved plan has no structured content.");
         }
@@ -4558,11 +4577,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       resolutionTarget: draft.resolutionTarget,
       mentions: draft.mentions,
     };
-    const sectionId =
-      anchor.sectionId &&
-      bundle.sections.some((section) => section.id === anchor.sectionId)
-        ? anchor.sectionId
-        : undefined;
+    const sectionId = planSectionIdForAnchor(bundle.sections, anchor.sectionId);
     const anchorJson = JSON.stringify(anchor);
     const commentId = newCommentId();
     const now = new Date().toISOString();
@@ -4657,7 +4672,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           kind: annotation.kind as PlanBundle["comments"][number]["kind"],
           status: annotation.status as PlanBundle["comments"][number]["status"],
           message,
-          sectionId: annotation.sectionId ?? anchor.sectionId,
+          sectionId:
+            annotation.sectionId ??
+            planSectionIdForAnchor(bundle.sections, anchor.sectionId),
           anchor: JSON.stringify(anchor),
           createdBy: "human",
           authorEmail: collabUser?.email,
@@ -5088,10 +5105,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         <IconChevronDown className="size-3.5 opacity-70" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align="end"
-                      className="w-64 rounded-xl"
-                    >
+                    <DropdownMenuContent align="end" className="w-64">
                       <DropdownMenuLabel>
                         {t("plansPage.reader.sendFeedback")}
                       </DropdownMenuLabel>
@@ -5157,10 +5171,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       <IconDotsVertical className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56 rounded-xl">
+                  <DropdownMenuContent align="end" className="w-56">
                     {localPlanMode && (
                       <>
-                        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                        <DropdownMenuLabel className="font-medium text-muted-foreground">
                           {t("plansPage.reader.localFiles")}
                         </DropdownMenuLabel>
                         <div className="px-2 pb-1 text-xs leading-5 text-muted-foreground">
@@ -5223,7 +5237,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     <DropdownMenuGroup>
                       {!localPlanMode && (
                         <>
-                          <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                          <DropdownMenuLabel className="font-medium text-muted-foreground">
                             {t("plansPage.comments.comments")}
                           </DropdownMenuLabel>
                           <DropdownMenuRadioGroup value={commentVisibility}>
@@ -5356,7 +5370,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         <IconCopy className="size-4" />
                         {t("plansPage.reader.copyLink")}
                       </DropdownMenuItem>
-                      <DropdownMenuItem asChild className="gap-2">
+                      <DropdownMenuItem asChild>
                         <a
                           href={PLAN_DOCS_URL}
                           target="_blank"
@@ -5377,7 +5391,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       {desktopPlanFilesAvailable && !localPlanMode && (
                         <>
                           <DropdownMenuSeparator />
-                          <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                          <DropdownMenuLabel className="font-medium text-muted-foreground">
                             {t("plansPage.reader.localFiles")}
                           </DropdownMenuLabel>
                           <DropdownMenuItem
@@ -5446,11 +5460,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         </>
                       )}
                       <DropdownMenuSub>
-                        <DropdownMenuSubTrigger className="gap-2">
+                        <DropdownMenuSubTrigger>
                           <IconDownload className="size-4" />
                           {t("plansPage.reader.export")}
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-56 rounded-xl">
+                        <DropdownMenuSubContent className="w-56">
                           <DropdownMenuItem
                             onClick={() =>
                               runPlanExportAction(copyPlanMarkdown)
@@ -6244,7 +6258,7 @@ function PlanShareControl({
         generalAccessLabel={t("plansPage.share.generalAccess", { noun })}
         accessNote={buildShareAccessNote(t, noun)}
         visibilityCopy={buildShareVisibilityCopy(t, noun)}
-        triggerClassName="pointer-events-auto h-8 px-2"
+        triggerClassName="pointer-events-auto"
         onOpenChange={onOpenChange}
         onShareSuccess={onShareSuccess}
       />
@@ -6537,8 +6551,10 @@ function PlanInviteSuggestionCard({
     trackAction("plan_invite_suggestion_clicked", "enable_domain_join");
     try {
       await setOrgDomain.mutateAsync(domain);
-    } catch {
-      toast.error(t("plansPage.share.teammateSuggestion.enableFailed"));
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("plansPage.share.teammateSuggestion.enableFailed"),
+      });
       return;
     }
     trackAction("plan_invite_suggestion_accepted", "enable_domain_join");
@@ -9704,7 +9720,7 @@ function AnnotationPopover({
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
-                className="w-48 rounded-xl"
+                className="w-48"
                 data-comment-popover-portal
                 onCloseAutoFocus={(event) => {
                   // Edit puts focus in its editor; leave it there. Other
@@ -9715,7 +9731,6 @@ function AnnotationPopover({
               >
                 {canResolve && (
                   <DropdownMenuItem
-                    className="gap-2"
                     onClick={() =>
                       onStatusChange(isResolved ? "open" : "resolved")
                     }
@@ -9728,7 +9743,6 @@ function AnnotationPopover({
                 )}
                 {canEditRootComment && (
                   <DropdownMenuItem
-                    className="gap-2"
                     onClick={() => {
                       editChosenFromMenuRef.current = true;
                       setEditing(true);
@@ -9742,7 +9756,7 @@ function AnnotationPopover({
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
-                      className="gap-2 text-destructive focus:text-destructive"
+                      className="text-destructive focus:text-destructive"
                       onClick={onDelete}
                     >
                       <IconTrash className="size-4" />

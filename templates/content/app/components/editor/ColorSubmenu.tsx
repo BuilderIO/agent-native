@@ -74,7 +74,6 @@ export function ColorChoices({
     return (
       <DropdownMenuRadioItem
         key={color}
-        className="gap-2"
         indicator="check"
         // Type-to-find would otherwise read the text swatch's "A" first.
         textValue={label}
@@ -144,9 +143,7 @@ export function ColorSubmenu({
   const t = useT();
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger className="gap-2">
-        {t("editor.color.label")}
-      </DropdownMenuSubTrigger>
+      <DropdownMenuSubTrigger>{t("editor.color.label")}</DropdownMenuSubTrigger>
       <DropdownMenuSubContent
         className={cn(
           "max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto",

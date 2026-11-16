@@ -246,13 +246,47 @@ export function buildDashboardPanelGroups(
   return groups;
 }
 
-function flattenGroups(groups: DashboardPanelGroup[]): SqlPanel[] {
-  return groups.flatMap((group) => [
-    ...(group.section ? [group.section] : []),
-    ...group.rows.flatMap((row) =>
-      rebalanceRowWidths(row.panels, group.columns),
-    ),
-  ]);
+/** Whether `panels` still lay out as one row of their own, with `next` after them. */
+function laysOutAsOneRow(
+  panels: SqlPanel[],
+  next: SqlPanel | undefined,
+  columns: number,
+): boolean {
+  // Packing is greedy, so a panel after them can join their row or start the
+  // next one, but never changes how they split.
+  if (buildDashboardRows(panels, columns).length !== 1) return false;
+  return !next || buildDashboardRows([...panels, next], columns).length === 2;
+}
+
+/**
+ * Lays the rows back out as a panel list. Each row in `reflowedRows` (one a
+ * panel left or joined, one whose group changed its column count, or one a
+ * removed section handed to the group before it) is rebalanced to fill its
+ * group. Every other row keeps its widths, so placing a
+ * panel never resizes panels elsewhere on the dashboard, unless those widths
+ * would no longer lay out as the same row: the panel that kept the row apart
+ * from the next one has left, say.
+ */
+function flattenGroups(
+  groups: DashboardPanelGroup[],
+  reflowedRows: ReadonlySet<DashboardPanelRow>,
+): SqlPanel[] {
+  return groups.flatMap((group) => {
+    const panels: SqlPanel[] = [];
+    // Bottom up, so each row is checked against the final width of the panel
+    // after it. A group's last row ends at the next section.
+    let next: SqlPanel | undefined;
+    for (const row of [...group.rows].reverse()) {
+      const laidOut =
+        reflowedRows.has(row) ||
+        !laysOutAsOneRow(row.panels, next, group.columns)
+          ? rebalanceRowWidths(row.panels, group.columns)
+          : row.panels;
+      panels.unshift(...laidOut);
+      next = laidOut[0];
+    }
+    return group.section ? [group.section, ...panels] : panels;
+  });
 }
 
 export function removePanelFromLayout(
@@ -260,22 +294,52 @@ export function removePanelFromLayout(
   panelId: string,
   dashboardColumns: number,
 ): SqlPanel[] {
-  const groups = buildDashboardPanelGroups(panels, dashboardColumns);
+  const reflowedRows = new Set<DashboardPanelRow>();
+  const nextGroups: DashboardPanelGroup[] = [];
 
-  return flattenGroups(
-    groups
-      .map((group) => ({
-        ...group,
-        section: group.section?.id === panelId ? null : group.section,
-        rows: group.rows
-          .map((row) => ({
-            ...row,
-            panels: row.panels.filter((panel) => panel.id !== panelId),
-          }))
-          .filter((row) => row.panels.length > 0),
-      }))
-      .filter((group) => group.section || group.rows.length > 0),
-  );
+  for (const group of buildDashboardPanelGroups(panels, dashboardColumns)) {
+    const rows = group.rows
+      .map((row) => {
+        const next = {
+          ...row,
+          panels: row.panels.filter((panel) => panel.id !== panelId),
+        };
+        if (next.panels.length !== row.panels.length) reflowedRows.add(next);
+        return next;
+      })
+      .filter((row) => row.panels.length > 0);
+    if (group.section?.id !== panelId) {
+      if (group.section || rows.length > 0) nextGroups.push({ ...group, rows });
+      continue;
+    }
+
+    // A removed section's rows join the group before it, on that group's
+    // grid, split where a row holds more panels than it has columns.
+    const receiving = nextGroups.pop() ?? {
+      key: "intro",
+      section: null,
+      panels: [],
+      rows: [],
+      columns: clampDashboardColumns(dashboardColumns),
+    };
+    nextGroups.push(receiving);
+    for (const row of rows) {
+      for (
+        let start = 0;
+        start < row.panels.length;
+        start += receiving.columns
+      ) {
+        const joined = {
+          key: `${row.key}:${start}`,
+          panels: row.panels.slice(start, start + receiving.columns),
+        };
+        receiving.rows.push(joined);
+        reflowedRows.add(joined);
+      }
+    }
+  }
+
+  return flattenGroups(nextGroups, reflowedRows);
 }
 
 export function sameDropSlot(
@@ -462,13 +526,18 @@ export function movePanelToDropSlot(
 
   if (!movingPanel) return panels;
 
+  const reflowedRows = new Set<DashboardPanelRow>();
   const nextGroups = groups.map((group) => ({
     ...group,
     rows: group.rows
-      .map((row) => ({
-        ...row,
-        panels: row.panels.filter((panel) => panel.id !== panelId),
-      }))
+      .map((row) => {
+        const next = {
+          ...row,
+          panels: row.panels.filter((panel) => panel.id !== panelId),
+        };
+        if (next.panels.length !== row.panels.length) reflowedRows.add(next);
+        return next;
+      })
       .filter((row) => row.panels.length > 0),
   }));
   const targetGroup = nextGroups.find((group) => group.key === slot.groupKey);
@@ -490,10 +559,9 @@ export function movePanelToDropSlot(
     ) {
       return panels;
     }
-    targetGroup.rows.splice(Math.max(0, rowIndex), 0, {
-      key: movingPanel.id,
-      panels: [movingPanel],
-    });
+    const newRow = { key: movingPanel.id, panels: [movingPanel] };
+    targetGroup.rows.splice(Math.max(0, rowIndex), 0, newRow);
+    reflowedRows.add(newRow);
   } else {
     let rowIndex = slot.rowIndex;
     if (
@@ -529,11 +597,27 @@ export function movePanelToDropSlot(
       0,
       movingPanel,
     );
-    targetGroup.columns = Math.max(
+    reflowedRows.add(targetRow);
+    const columns = Math.max(
       targetGroup.columns,
       clampDashboardColumns(targetRow.panels.length),
     );
+    // A group that gains a column lays every row out on the wider grid.
+    if (columns !== targetGroup.columns) {
+      // Widening the rows above the first section widens the dashboard, and
+      // sections without their own column count follow it; pin them to the
+      // count they have now, so their rows stay as they are.
+      if (!targetGroup.section) {
+        for (const group of nextGroups) {
+          if (group.section && group.section.columns == null) {
+            group.section = { ...group.section, columns: group.columns };
+          }
+        }
+      }
+      targetGroup.columns = columns;
+      for (const row of targetGroup.rows) reflowedRows.add(row);
+    }
   }
 
-  return flattenGroups(nextGroups);
+  return flattenGroups(nextGroups, reflowedRows);
 }

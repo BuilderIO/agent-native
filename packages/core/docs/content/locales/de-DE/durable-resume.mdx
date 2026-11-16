@@ -79,7 +79,7 @@ Wenn eine Ausführung fortgesetzt wird (Soft-Timeout, Gateway-Timeout oder irgen
 - welches Tool **bereits abgeschlossen** aufruft (mit kurzen Ergebnissen), sodass es sie wiederverwendet und **nicht** erneut ausführt, und
 - welche Toolaufrufe **mit unbekanntem Ergebnis unterbrochen** wurden, sodass der Status überprüft wird, bevor von Erfolg oder Misserfolg ausgegangen wird.
 
-Wenn das Journal leer ist (eine Wende ohne Werkzeugaktivität oder eine saubere Fortsetzung), wird nichts Zusätzliches angehängt und das Wiederaufnahmeverhalten ist Byte für Byte das gleiche wie zuvor. Der Hinweis gilt nach bestem Wissen und Gewissen: Ein fehlgeschlagener Ledger-Lesevorgang blockiert niemals eine ansonsten erfolgreiche Wiederherstellung.
+Wenn das Journal leer ist (eine Wende ohne Werkzeugaktivität oder eine saubere Fortsetzung), wird nichts Zusätzliches angehängt und das Wiederaufnahmeverhalten ist Byte für Byte das gleiche wie zuvor. Das Journal selbst ist jedoch erforderlich: Lässt sich das Ledger auch nach einem erneuten Versuch nicht lesen, stoppt die fortgesetzte Ausführung, bevor das Modell läuft, mit `tool_call_journal_unreadable` und bittet Sie, die Anfrage erneut zu senden. Ohne das Ledger kann sie nicht erkennen, welche Schritte bereits abgeschlossen sind.
 
 ## Schicht 2: Werkzeugschicht-Hardblock {#hard-block}
 
@@ -99,12 +99,21 @@ Schlüsseleigenschaften:
 Der Hardblock stoppt nur eine **exakte Wiederholung**: dasselbe Schreibwerkzeug mit derselben Eingabe, nachdem ein früherer Versuch in derselben Runde abgeschlossen und sein Ergebnis aufgezeichnet wurde. Doppelte E-Mails, Abbuchungen oder Tickets schließt er nicht in jedem Fall aus:
 
 - **Ein umformulierter Wiederholungsversuch wird nicht erkannt.** Ändert das Modell ein beliebiges Argument, etwa den E-Mail-Text, stimmt der Aufruf mit keinem abgeschlossenen Aufruf mehr überein, und der Hardblock hält ihn nicht auf.
-- **Ein Absturz mitten im Senden kann zu einer Wiederholung führen.** Stürzt der Prozess ab, nachdem der Nebeneffekt eingetreten ist, aber bevor sein Ergebnis aufgezeichnet wurde, gilt der Aufruf als unterbrochen, und der Hardblock erfasst nur abgeschlossene Aufrufe. Ein separater Schutz verweigert eine identische Wiederholung eines unterbrochenen Schreibaufrufs, aber nur, wenn der Verlauf der fortgesetzten Ausführung die Unterbrechung zeigt.
+- **Nach einem Absturz mitten im Senden wird eine Wiederholung nur für den Rest der Runde zurückgehalten.** Stürzt der Prozess ab, nachdem der Nebeneffekt eingetreten ist, aber bevor sein Ergebnis aufgezeichnet wurde, gilt der Aufruf als unterbrochen, und der Hardblock erfasst nur abgeschlossene Aufrufe. Stattdessen hält die fortgesetzte Ausführung dieses Schreibwerkzeug zurück, wie unter [Schreibaufrufe mit unbekanntem Ergebnis](#unknown-outcome) beschrieben. Eine neue Nachricht beginnt eine neue Runde, in der nichts es zurückhält.
 - **Eine abgestürzte Ausführung kann auf zwei getrennten Wegen in derselben Runde fortgesetzt werden.** Der eine ist eine [dauerhafte Hintergrundausführung](/docs/durable-background-runs). Der andere ist ein späterer Abschnitt einer normalen Vordergrundrunde, die die [Vordergrund-Selbstverkettung](/docs/durable-background-runs#foreground-self-chain) nutzt. Jede andere abgestürzte Ausführung endet mit einem Fehler. **Fortsetzen** setzt dort dieselbe Runde fort, sodass beide Ebenen greifen.
 
 Eine Aktion, deren Nebeneffekt sich niemals wiederholen darf, braucht eine eigene Idempotenzprüfung. Für schreibgeschützte Aktionen gilt der Hardblock nie.
 
 </Callout>
+
+## Schreibaufrufe mit unbekanntem Ergebnis {#unknown-outcome}
+
+Das Ergebnis eines Schreibaufrufs ist unbekannt, wenn er begonnen hat, aber kein Ergebnis aufgezeichnet wurde, wenn er eine Zeitüberschreitung hatte oder wenn er fehlgeschlagen ist, nachdem er mit dem Schreiben begonnen hatte, ohne anzugeben, ob etwas gespeichert wurde. Ein erneuter Aufruf könnte die Änderung doppelt anwenden, deshalb hält die Schleife dieses Werkzeug für den Rest der Runde zurück:
+
+- **Derselbe Aufruf noch einmal.** Wiederholt das Modell den Aufruf mit denselben Argumenten, prüft die Schleife zuerst, ob das eigene Ergebnis dieses Aufrufs doch noch aufgezeichnet wurde, und gibt es in diesem Fall zurück. Andernfalls wird der Aufruf nicht ausgeführt: Die Ausführung stoppt mit `write_tool_outcome_unknown` und bittet Sie, zu prüfen, was gespeichert wurde, und dann mit „weiter“ zu antworten.
+- **Jeder andere Aufruf dieses Werkzeugs.** Ein Aufruf mit anderen Argumenten, etwa eine umformulierte E-Mail, wird ebenfalls nicht ausgeführt. Das Modell erfährt, dass der frühere Aufruf möglicherweise bereits angewendet wurde und dass es den aktuellen Zustand mit einem Lesezugriff prüfen und Ihnen mitteilen soll, was es gefunden hat. Die Runde geht weiter, es sei denn, der frühere Aufruf lässt sich nicht zuordnen, weil er keine vergleichbaren Argumente aufgezeichnet hat oder im wiederholten Verlauf fehlt. Dann könnte jeder Aufruf dieses Werkzeugs eine Wiederholung sein, und er stoppt die Ausführung wie derselbe Aufruf.
+
+Eine mit `retrySafe` markierte Aktion ist ausgenommen, weil ein erneuter Aufruf keine Daten duplizieren oder beschädigen kann: Sie prüft, bevor sie schreibt, oder sie setzt einen Endzustand, etwa das Ersetzen eines Datensatzes anhand seiner ID. Das Modell kann ihre Argumente korrigieren und es erneut versuchen. Schreibgeschützte Aktionen werden nicht zurückgehalten, es sei denn, in einer davon lief ein Schreibvorgang.
 
 ## Automatisches Fortsetzen nach einem Zeitlimit {#auto-continue}
 

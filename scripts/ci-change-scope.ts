@@ -55,12 +55,15 @@ const INSTRUCTION_WORKSPACE_FILTERS = [
 // exercised by the guards job; no workspace build or test imports them.
 const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
 const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
-const RELATED_SCRIPT_TESTS = new Map([
+const RELATED_SCRIPT_TESTS = new Map<string, string | readonly string[]>([
   [".github/workflows/ci.yml", "scripts/feedback-fix-proof.test.ts"],
   ["scripts/fix-proof.ts", "scripts/fix-proof.test.ts"],
   ["scripts/feedback-fix-proof.ts", "scripts/feedback-fix-proof.test.ts"],
   ["scripts/ci-wait.ts", "scripts/ci-wait.test.ts"],
-  ["scripts/chat-health.mjs", "scripts/chat-health.test.ts"],
+  [
+    "scripts/chat-health.mjs",
+    ["scripts/chat-health.test.ts", "scripts/chat-health-terminal.test.ts"],
+  ],
   ["scripts/prune-worktrees.ts", "scripts/prune-worktrees.test.ts"],
   [
     "scripts/design-e2e-regression-pins.ts",
@@ -1043,8 +1046,12 @@ export function scriptTestsForPaths(
 ): string[] {
   const tests = new Set<string>();
   for (const path of paths.map(normalizeChangedPath)) {
-    const relatedTest = RELATED_SCRIPT_TESTS.get(path);
-    if (relatedTest && fileExists(relatedTest)) tests.add(relatedTest);
+    const relatedTests = RELATED_SCRIPT_TESTS.get(path);
+    for (const relatedTest of typeof relatedTests === "string"
+      ? [relatedTests]
+      : (relatedTests ?? [])) {
+      if (fileExists(relatedTest)) tests.add(relatedTest);
+    }
     if (SCRIPT_TEST_RE.test(path)) {
       if (fileExists(path)) tests.add(path);
       continue;

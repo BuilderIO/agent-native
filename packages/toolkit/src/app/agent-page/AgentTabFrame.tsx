@@ -1,3 +1,4 @@
+import { Button } from "@agent-native/toolkit/ui/button";
 import { cn } from "@agent-native/toolkit/utils";
 import { IconHelpCircle } from "@tabler/icons-react";
 import type { ReactNode } from "react";
@@ -7,6 +8,7 @@ interface AgentTabFrameProps {
   description: string;
   helpHref?: string;
   helpLabel?: string;
+  helpIcon?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
@@ -18,6 +20,7 @@ export function AgentTabFrame({
   description,
   helpHref,
   helpLabel,
+  helpIcon,
   actions,
   children,
   className,
@@ -40,17 +43,25 @@ export function AgentTabFrame({
                 {title}
               </h2>
               {helpHref && (
-                <a
-                  href={helpHref}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={helpLabel ?? `Open ${title} documentation`}
-                  title={helpLabel ?? `Open ${title} documentation`}
-                  className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="icon-xs"
+                  className="shrink-0 text-muted-foreground [&_svg]:size-4"
                 >
-                  {/* guard:allow-large-help-icon - heading documentation control */}
-                  <IconHelpCircle className="size-4" />
-                </a>
+                  <a
+                    href={helpHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={helpLabel ?? `Open ${title} documentation`}
+                    title={helpLabel ?? `Open ${title} documentation`}
+                  >
+                    {helpIcon ?? (
+                      // guard:allow-large-help-icon - heading documentation control
+                      <IconHelpCircle className="size-4" aria-hidden="true" />
+                    )}
+                  </a>
+                </Button>
               )}
             </div>
             <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">

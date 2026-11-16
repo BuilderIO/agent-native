@@ -675,7 +675,8 @@ export default function CalendarView({
       { ...settings, timezone: timezonePrompt.browserTimezone },
       {
         onSuccess: () => setTimezonePrompt(null),
-        onError: () => toast.error(t("settings.saveFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, { label: t("settings.saveFailed") }),
       },
     );
   }, [settings, t, timezonePrompt, updateSettings]);
@@ -1334,8 +1335,10 @@ export default function CalendarView({
                 ev,
               ),
               {
-                onError: () =>
-                  toast.error(t("calendarView.failedRestoreAttendance")),
+                onError: (error) =>
+                  reportWriteFailure(error, {
+                    label: t("calendarView.failedRestoreAttendance"),
+                  }),
               },
             );
           }
@@ -1370,7 +1373,10 @@ export default function CalendarView({
               },
             );
           },
-          onError: () => toast.error(t("calendarView.failedDeleteEvent")),
+          onError: (error) =>
+            reportWriteFailure(error, {
+              label: t("calendarView.failedDeleteEvent"),
+            }),
         },
       );
     },
@@ -2504,7 +2510,10 @@ export default function CalendarView({
                     },
                   );
                 },
-                onError: () => toast.error(t("calendarView.failedDeleteEvent")),
+                onError: (error) =>
+                  reportWriteFailure(error, {
+                    label: t("calendarView.failedDeleteEvent"),
+                  }),
               },
             );
           }}

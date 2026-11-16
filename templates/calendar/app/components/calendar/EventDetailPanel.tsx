@@ -355,9 +355,9 @@ export function EventDetailPanel({
           ),
           {
             onSuccess: () => toast.success(t("eventForm.eventUpdated")),
-            onError: () => {
+            onError: (error) => {
               setSelectedAccountEmail(event.accountEmail);
-              toast.error(t("eventForm.updateFailed"));
+              reportWriteFailure(error, { label: t("eventForm.updateFailed") });
             },
           },
         );
@@ -388,7 +388,10 @@ export function EventDetailPanel({
         ),
         {
           onSuccess: () => toast(t("eventForm.googleMeetAdded")),
-          onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
+          onError: (error) =>
+            reportWriteFailure(error, {
+              label: t("eventForm.googleMeetAddFailed"),
+            }),
         },
       );
     })();
@@ -418,7 +421,8 @@ export function EventDetailPanel({
           event,
         ),
         {
-          onError: () => toast.error(t("eventForm.updateFailed")),
+          onError: (error) =>
+            reportWriteFailure(error, { label: t("eventForm.updateFailed") }),
         },
       );
     })();
@@ -474,7 +478,10 @@ export function EventDetailPanel({
           event,
         ),
         {
-          onError: () => toast.error(t("calendarView.failedUpdateEvent")),
+          onError: (error) =>
+            reportWriteFailure(error, {
+              label: t("calendarView.failedUpdateEvent"),
+            }),
         },
       );
     },

@@ -80,6 +80,7 @@ import {
   useOpenUrlLatch,
 } from "./open-extension-link.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
+import { useExtensionChatSubmission } from "./use-extension-chat-submission.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -739,6 +740,7 @@ export function ExtensionViewer({
   headerActions = <AgentToggleButton />,
 }: ExtensionViewerProps) {
   const t = useT();
+  const extensionChat = useExtensionChatSubmission();
   const location = useLocation();
   const navigate = useNavigate();
   const [isDark, setIsDark] = useState(false);
@@ -847,7 +849,7 @@ export function ExtensionViewer({
       if (message.type === "agent-native-send-to-chat") {
         const text = serializeChatValue(message.message);
         if (!text?.trim()) return;
-        sendToAgentChat({
+        extensionChat.send({
           message: text,
           context: serializeChatValue(message.context),
           submit: message.submit === true,
@@ -936,7 +938,7 @@ export function ExtensionViewer({
           );
         }
 
-        sendToAgentChat({
+        extensionChat.send({
           message: `Fix runtime errors in this extension. The content snapshot below was just re-read from the database — treat it as authoritative and ignore any prior version you may have generated in this chat. If in doubt, call get-extension first.\n\nErrors:\n${errors.join("\n")}`,
           context: contextParts.join("\n"),
           submit: true,
@@ -1379,6 +1381,7 @@ export function ExtensionViewer({
               pointerEvents: openPopoverCount > 0 ? "none" : "auto",
             }}
             onLoad={() => {
+              extensionChat.cancel();
               // While the srcDoc frame waits for its CSP lists it has no
               // document yet, so this is the about:blank load. Keep the
               // spinner up until the real document loads.
@@ -1388,6 +1391,7 @@ export function ExtensionViewer({
             }}
           />
         </div>
+        {extensionChat.confirmation}
       </div>
     </TooltipProvider>
   );

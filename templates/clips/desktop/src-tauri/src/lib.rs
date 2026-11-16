@@ -2,6 +2,10 @@ mod accessibility;
 mod adhoc_meetings_watcher;
 mod call_activity;
 mod capture_audio_bus;
+#[cfg(target_os = "macos")]
+mod capture_pcm;
+#[cfg(target_os = "macos")]
+mod capture_stop;
 mod capture_graph;
 mod clips;
 mod config;
@@ -359,6 +363,7 @@ pub fn run() {
             recording_indicator::recording_pill_save_expanded_size,
             recording_indicator::recording_pill_set_detached,
             notifications::take_pending_meeting_notification,
+            notifications::meeting_notification_show,
             notifications::notify_meeting_starting,
             notifications::dismiss_meeting_notification,
             notifications::debug_write_snapshot,

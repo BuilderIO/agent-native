@@ -91,6 +91,7 @@ const mocks = vi.hoisted(() => ({
   ),
   toast: vi.fn(),
   toastError: vi.fn(),
+  reportWriteFailure: vi.fn(),
   translate: (key: string) => key,
   presentChannelSupported: true,
   toolbarProps: null as null | {
@@ -297,6 +298,12 @@ const relayTrack = vi.hoisted(() =>
 );
 vi.mock("sonner", () => ({
   toast: Object.assign(mocks.toast, { error: mocks.toastError }),
+}));
+vi.mock("@agent-native/core/client/write-failure", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/write-failure")
+  >()),
+  reportWriteFailure: mocks.reportWriteFailure,
 }));
 vi.mock("@/lib/agent-run-status", () => ({
   readPreviousGenerationRun: mocks.readPreviousGenerationRun,
@@ -629,6 +636,7 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.sendToAgentChatAndConfirm.mockClear();
     mocks.pendingUnloadGuard.mockClear();
     mocks.toastError.mockClear();
+    mocks.reportWriteFailure.mockClear();
     mocks.toast.mockClear();
     mocks.readPreviousGenerationRun.mockReset().mockResolvedValue("settled");
     mocks.toolbarProps = null;
@@ -1822,6 +1830,7 @@ describe("DeckEditor generation signal wiring", () => {
     });
     expect(router.state.location.search).toBe("");
     expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(mocks.reportWriteFailure).not.toHaveBeenCalled();
   });
 
   it("rechecks guided questions that arrive while generation refresh is pending", async () => {
@@ -4111,7 +4120,8 @@ describe("DeckEditor generation signal wiring", () => {
         originalPrompt: "",
         ...generationContext,
       };
-      mocks.flushDeckSave.mockRejectedValueOnce(new Error("save failed"));
+      const saveFailure = new Error("save failed");
+      mocks.flushDeckSave.mockRejectedValueOnce(saveFailure);
       router = createMemoryRouter(
         [{ path: "/deck/:id", element: <DeckEditor /> }],
         { initialEntries: ["/deck/deck-1"] },
@@ -4123,7 +4133,9 @@ describe("DeckEditor generation signal wiring", () => {
         expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1"),
       );
       await waitFor(() =>
-        expect(mocks.toastError).toHaveBeenCalledWith("settings.saveFailed"),
+        expect(mocks.reportWriteFailure).toHaveBeenCalledWith(saveFailure, {
+          label: "settings.saveFailed",
+        }),
       );
       expect(window.localStorage.getItem(recoveryKey)).toBe(serializedRecovery);
       expect(mocks.deck.generationContext).toMatchObject(generationContext);
@@ -4204,6 +4216,10 @@ describe("DeckEditor generation signal wiring", () => {
       retryAttemptId,
     );
     expect(mocks.toastError).not.toHaveBeenCalledWith("settings.saveFailed");
+    expect(mocks.reportWriteFailure).not.toHaveBeenCalledWith(
+      expect.anything(),
+      { label: "settings.saveFailed" },
+    );
 
     await act(async () => {
       resolveRetryFlush();

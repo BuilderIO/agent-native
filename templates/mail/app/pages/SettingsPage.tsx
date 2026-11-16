@@ -88,6 +88,7 @@ import {
 } from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { useReportImageUploadFailure } from "@/hooks/use-storage-setup-labels";
 import { openFilePicker, uploadFile } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
@@ -985,6 +986,7 @@ function AutomationsSection() {
 
 function DraftingSection() {
   const t = useT();
+  const reportSignatureImageFailure = useReportImageUploadFailure();
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const queryClient = useQueryClient();
@@ -1034,8 +1036,11 @@ function DraftingSection() {
         (current) =>
           `${current.slice(0, start)}${markdown}${current.slice(end)}`,
       );
-    } catch {
-      toast.error(t("settings.signatureImageUploadFailed"));
+    } catch (error) {
+      reportSignatureImageFailure(
+        error,
+        t("settings.signatureImageUploadFailed"),
+      );
     }
   };
 
@@ -1113,8 +1118,10 @@ function DraftingSection() {
         updateSettings.mutate(
           { sendAndArchive: checked },
           {
-            onError: () =>
-              toast.error(t("settings.draftingSettingsSaveFailed")),
+            onError: (error) =>
+              reportWriteFailure(error, {
+                label: t("settings.draftingSettingsSaveFailed"),
+              }),
           },
         )
       }

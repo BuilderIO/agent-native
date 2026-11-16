@@ -354,9 +354,9 @@ try {
 }
 ```
 
-토스트 텍스트는 실패 유형에 따라 달라집니다. `401`과 취소된 요청은 세션 확인에서 이미 `401`을 처리하므로 아무것도 표시하지 않습니다. 오프라인, 시간 초과, `403`은 각각 제목 아래에 짧은 번역 메시지를 표시합니다. `5xx`는 서버가 자체 오류 텍스트를 숨기기 때문에 제목만 표시합니다. 액션이 `fail()`에서 타입이 지정된 `4xx` 오류로 거부하면, 토스트에는 액션이 작성한 메시지가 표시됩니다. [액션 실패 처리](/docs/actions-defining#failing)를 참고하세요. `403`에서는 서버 텍스트가 표시되지 않습니다.
+토스트 텍스트는 실패 유형에 따라 달라집니다. 취소된 요청은 아무것도 표시하지 않습니다. 오프라인, 시간 초과, `401`, `403`은 각각 제목 아래에 짧은 번역 메시지를 표시합니다. `5xx`는 서버가 자체 오류 텍스트를 숨기기 때문에 제목만 표시합니다. 액션이 `fail()`에서 타입이 지정된 `4xx` 오류로 거부하면, 토스트에는 액션이 작성한 메시지가 표시됩니다. [액션 실패 처리](/docs/actions-defining#failing)를 참고하세요. `401` 또는 `403`에서는 서버 텍스트가 표시되지 않습니다.
 
-`AppProviders`는 `toaster` 프로퍼티가 `null`이 아닐 때 이러한 실패를 수신하는 `WriteFailureToaster` 컴포넌트를 마운트합니다. `AppProviders`를 사용하지 않거나 `toaster={null}`을 전달하는 앱은 `QueryClientProvider` 안, 자체 `Toaster` 옆에서 `@agent-native/toolkit/app/shared`의 `<WriteFailureToaster />`를 렌더링해야 합니다. 그렇지 않으면 토스트가 표시되지 않습니다.
+`AppProviders`는 이러한 실패를 수신하는 `WriteFailureToaster` 컴포넌트를 항상 마운트합니다. 토스트는 앱의 `Toaster`를 통해 표시되므로, `toaster={null}`을 전달하는 앱은 자체 `Toaster`를 렌더링해야 합니다. `AppProviders`를 사용하지 않는 앱은 `QueryClientProvider` 안, 자체 `Toaster` 옆에서 `@agent-native/toolkit/app/shared`의 `<WriteFailureToaster />`를 렌더링해야 합니다. 그렇지 않으면 토스트가 표시되지 않습니다.
 
 ## useDbSync {#usedbsync}
 

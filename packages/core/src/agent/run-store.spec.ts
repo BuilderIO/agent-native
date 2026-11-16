@@ -952,6 +952,44 @@ describe("run store", () => {
     });
   });
 
+  it("replays a background task's name, and omits it with the description in private history", async () => {
+    const task = {
+      type: "agent_task",
+      taskId: "task-1",
+      threadId: "child-1",
+      name: "Pricing research",
+      description: "Research the private pricing page",
+      status: "running",
+    };
+    await insertRunEvent("run-task-name", 1, JSON.stringify(task));
+    await insertRunEvent(
+      "run-task-name",
+      2,
+      JSON.stringify({
+        ...task,
+        taskId: "task-2",
+        omitFromPersistedHistory: true,
+      }),
+    );
+    const stored = execCalls
+      .filter((call) => /INSERT INTO agent_run_events/i.test(call.sql))
+      .map((call) => call.args[3]);
+    currentTurnEventRows = stored.map((eventData, index) => ({
+      run_id: "run-task-name",
+      seq: index + 1,
+      event_data: eventData as string,
+    }));
+
+    const recovered = await getCurrentTurnEventsForThread(
+      "thread-test",
+      "turn-test",
+    );
+
+    expect(recovered[0]).toMatchObject({ name: "Pricing research" });
+    expect(recovered[1]).toMatchObject({ taskId: "task-2", description: "" });
+    expect(recovered[1]).not.toHaveProperty("name");
+  });
+
   it("keeps a paused request pending after the run's terminal done event", async () => {
     latestEventRows = [
       {

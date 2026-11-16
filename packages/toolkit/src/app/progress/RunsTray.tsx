@@ -463,7 +463,7 @@ export function RunsTrayMenuItem({
       <DropdownMenuSubTrigger
         ref={triggerRef}
         aria-label={t("runsTray.ariaAgentRuns", { label: triggerLabel })}
-        className="cursor-pointer gap-2"
+        className="cursor-pointer"
       >
         <TriggerIcon
           size={14}

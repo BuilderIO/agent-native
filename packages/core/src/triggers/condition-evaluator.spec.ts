@@ -17,6 +17,10 @@ vi.mock("../agent/engine/index.js", () => ({
   normalizeModelForEngine: normalizeModelForEngineMock,
 }));
 
+const recordUsageMock = vi.hoisted(() => vi.fn(async () => undefined));
+
+vi.mock("../usage/store.js", () => ({ recordUsage: recordUsageMock }));
+
 const { __clearConditionCache, evaluateCondition } =
   await import("./condition-evaluator.js");
 
@@ -56,6 +60,7 @@ describe("evaluateCondition", () => {
     resolveEngineMock.mockReset();
     getStoredModelForEngineMock.mockClear();
     normalizeModelForEngineMock.mockClear();
+    recordUsageMock.mockClear();
   });
 
   afterEach(() => {
@@ -286,5 +291,200 @@ describe("evaluateCondition", () => {
         IDENTITY,
       ),
     ).rejects.toThrow("Condition evaluation failed: rate limited");
+  });
+
+  it("saves the check's usage once, under the owner, organization, app and label", async () => {
+    async function* meteredStream() {
+      yield {
+        type: "usage",
+        inputTokens: 120,
+        outputTokens: 1,
+        cacheReadTokens: 20,
+        builderCreditsUsed: 0.5,
+      } as { type: string; text?: string };
+      yield { type: "text-delta", text: "yes" };
+      yield { type: "usage", inputTokens: 5, outputTokens: 1 } as {
+        type: string;
+        text?: string;
+      };
+    }
+    const engine = fakeEngine(meteredStream);
+    const identity = {
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+      appId: "mail",
+    };
+    const evaluate = () =>
+      evaluateCondition("is this urgent?", { messageId: "metered" }, identity, {
+        engine,
+        resolvedModel: "automation-model",
+        usageLabel: "automation:triage",
+      });
+
+    await expect(evaluate()).resolves.toBe(true);
+    // A cached answer costs nothing, so it records nothing.
+    await expect(evaluate()).resolves.toBe(true);
+
+    expect(recordUsageMock).toHaveBeenCalledOnce();
+    expect(recordUsageMock).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      app: "mail",
+      label: "automation:triage",
+      inputTokens: 125,
+      outputTokens: 2,
+      cacheReadTokens: 20,
+      cacheWriteTokens: 0,
+      builderCreditsUsed: 0.5,
+      engineName: "fake-engine",
+      model: "automation-model",
+    });
+  });
+
+  it("saves the usage of a check whose answer is unusable", async () => {
+    async function* meteredGarbledStream() {
+      yield { type: "usage", inputTokens: 80, outputTokens: 3 } as {
+        type: string;
+        text?: string;
+      };
+      yield { type: "text-delta", text: "maybe" };
+    }
+    resolveEngineMock.mockResolvedValue(fakeEngine(meteredGarbledStream));
+
+    await expect(
+      evaluateCondition(
+        "is this urgent?",
+        { messageId: "metered-garbled" },
+        IDENTITY,
+      ),
+    ).rejects.toThrow(/unexpected classifier response/);
+
+    expect(recordUsageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "owner@example.com",
+        label: "automation-condition",
+        inputTokens: 80,
+        outputTokens: 3,
+      }),
+    );
+  });
+
+  it("answers within the deadline while saving its usage is slow", async () => {
+    vi.useFakeTimers();
+    let streams = 0;
+    async function* meteredStream() {
+      streams += 1;
+      yield { type: "usage", inputTokens: 40, outputTokens: 1 } as {
+        type: string;
+        text?: string;
+      };
+      yield { type: "text-delta", text: "yes" };
+    }
+    const engine = fakeEngine(meteredStream);
+    let finishWrite!: () => void;
+    recordUsageMock.mockReturnValueOnce(
+      new Promise<undefined>((resolve) => {
+        finishWrite = () => resolve(undefined);
+      }),
+    );
+    const evaluate = () =>
+      evaluateCondition(
+        "is this urgent?",
+        { messageId: "slow-usage-write" },
+        IDENTITY,
+        { engine, resolvedModel: "automation-model" },
+      );
+
+    const evaluation = evaluate();
+    // The write is still running when the deadline passes.
+    await vi.advanceTimersByTimeAsync(15_000);
+    finishWrite();
+
+    await expect(evaluation).resolves.toBe(true);
+    // The answer was cached, so asking again costs no second model call.
+    await expect(evaluate()).resolves.toBe(true);
+    expect(streams).toBe(1);
+  });
+
+  it("stops waiting for a usage write that never finishes", async () => {
+    vi.useFakeTimers();
+    async function* meteredStream() {
+      yield { type: "usage", inputTokens: 40, outputTokens: 1 } as {
+        type: string;
+        text?: string;
+      };
+      yield { type: "text-delta", text: "yes" };
+    }
+    recordUsageMock.mockReturnValueOnce(new Promise<undefined>(() => {}));
+
+    const evaluation = evaluateCondition(
+      "is this urgent?",
+      { messageId: "hung-usage-write" },
+      IDENTITY,
+      { engine: fakeEngine(meteredStream), resolvedModel: "automation-model" },
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect(evaluation).resolves.toBe(true);
+  });
+
+  it("saves a timed-out check's usage before reporting the timeout", async () => {
+    vi.useFakeTimers();
+    async function* meteredThenHanging(opts: {
+      abortSignal: AbortSignal;
+    }): AsyncIterable<{ type: string; text?: string }> {
+      yield { type: "usage", inputTokens: 30, outputTokens: 0 } as {
+        type: string;
+        text?: string;
+      };
+      yield* hangingUntilAborted(opts);
+    }
+    resolveEngineMock.mockResolvedValue(fakeEngine(meteredThenHanging));
+    let finishWrite!: () => void;
+    recordUsageMock.mockReturnValueOnce(
+      new Promise<undefined>((resolve) => {
+        finishWrite = () => resolve(undefined);
+      }),
+    );
+
+    let settled = false;
+    const evaluation = evaluateCondition(
+      "is this urgent?",
+      { messageId: "timed-out-metered" },
+      IDENTITY,
+    ).finally(() => {
+      settled = true;
+    });
+    const rejection = expect(evaluation).rejects.toThrow(
+      "Condition evaluation timed out.",
+    );
+    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.waitFor(() =>
+      expect(recordUsageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ inputTokens: 30 }),
+      ),
+    );
+
+    // The timeout waits for the write instead of leaving it behind.
+    expect(settled).toBe(false);
+    finishWrite();
+    await rejection;
+  });
+
+  it("records nothing when the engine reports no usage", async () => {
+    async function* yesStream() {
+      yield { type: "text-delta", text: "yes" };
+    }
+    resolveEngineMock.mockResolvedValue(fakeEngine(yesStream));
+
+    await expect(
+      evaluateCondition(
+        "is this urgent?",
+        { messageId: "unmetered" },
+        IDENTITY,
+      ),
+    ).resolves.toBe(true);
+
+    expect(recordUsageMock).not.toHaveBeenCalled();
   });
 });

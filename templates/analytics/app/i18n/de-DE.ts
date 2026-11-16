@@ -1407,6 +1407,8 @@ export default {
     resetFilters: "Filter zurücksetzen",
     collapseFilters: "Filter ausblenden",
     expandFilters: "Filter erweitern",
+    collapseDescription: "Beschreibung einklappen",
+    expandDescription: "Beschreibung erweitern",
     drilldownChartPoints: "Diagrammpunkte",
     drilldownPreviousPage: "Vorherige Seite der Diagrammpunkte",
     drilldownNextPage: "Nächste Seite der Diagrammpunkte",
@@ -1426,6 +1428,8 @@ export default {
       "Das Diagramm zeigt {{chart}}, aber {{total}} Datensätze passen",
     drilldownAggregateOnly:
       "Dieses Panel enthält nur aggregierte Zeilen. Zeilen zum angeklickten Punkt sind hervorgehoben.",
+    drilldownNoXValueAggregateOnly:
+      "Dieses Panel kann für einen Punkt ohne Wert keine Datensätze öffnen und zeigt daher aggregierte Zeilen. Zeilen zum angeklickten Punkt sind hervorgehoben.",
     drilldownNoRecords: "Keine passenden Datensätze",
     drilldownNoRecordsIncomplete:
       "Keine Datensätze geladen. Das Ergebnis ist unvollständig, daher können trotzdem Datensätze passen.",
@@ -1435,6 +1439,7 @@ export default {
     drilldownOverByteCap:
       "Diese Datensätze würden mehr als {{gib}} GiB lesen und wurden deshalb nicht geladen. Grenze die Filter oder den Zeitraum des Dashboards ein und versuche es erneut.",
     filterSeries: "Filter",
+    noXValue: "Kein Wert",
     chartTimeRangeOverride: "Zeitraum für dieses Diagramm überschreiben",
     chartTimeRangeInherit: "Dashboard-Zeitraum",
     hide: "Hide",

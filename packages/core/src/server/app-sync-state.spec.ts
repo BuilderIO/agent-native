@@ -80,7 +80,12 @@ describe("AppSyncState multi-app isolation", () => {
       key: "theirs",
       owner: "you@x",
     });
-    a.recordChange({ source: "action", type: "change", key: "global" });
+    a.recordChange({
+      source: "action",
+      type: "change",
+      key: "global",
+      visibility: "public",
+    });
 
     const seen = a
       .getChangesSinceForUser(0, "me@x", undefined)

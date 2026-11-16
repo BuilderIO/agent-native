@@ -14,7 +14,7 @@ loadEnv();
 
 async function main(): Promise<void> {
   await withMigrationRuntime(async () => {
-    await runFrameworkReleaseMigrations(null);
+    await runFrameworkReleaseMigrations(null, { requirePostgres: true });
     await runClipsMigrations(null);
     const indexDb = await createDbExec({ url: getMigrationDatabaseUrl() });
     try {

@@ -225,6 +225,7 @@
         "react-markdown",
         "react-router",
         "remark-gfm",
+        "shiki",
         "sonner",
         "tailwind-merge"
       ],
@@ -262,6 +263,7 @@
         "@agent-native/core",
         "@assistant-ui/react",
         "@modelcontextprotocol/ext-apps",
+        "@radix-ui/react-alert-dialog",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",
@@ -375,6 +377,7 @@
         "@agent-native/core",
         "@assistant-ui/react",
         "@modelcontextprotocol/ext-apps",
+        "@radix-ui/react-alert-dialog",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",
@@ -463,6 +466,7 @@
         "@agent-native/core",
         "@assistant-ui/react",
         "@modelcontextprotocol/ext-apps",
+        "@radix-ui/react-alert-dialog",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",
@@ -580,6 +584,7 @@
         "@agent-native/core/shared/builder-link-tracking",
         "@agent-native/core/shared/docs-url",
         "@agent-native/core/shared/first-party-agents",
+        "@agent-native/core/shared/mcp-connect-content",
         "@agent-native/core/shared/password-policy",
         "@agent-native/core/user-profile/shared"
       ]
@@ -598,6 +603,7 @@
         "@agent-native/core",
         "@assistant-ui/react",
         "@modelcontextprotocol/ext-apps",
+        "@radix-ui/react-alert-dialog",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",
@@ -725,10 +731,12 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/client/app-config",
         "@agent-native/core/client/action-query-cache",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/dev-overlay",
         "@agent-native/core/client/i18n",
+        "@agent-native/core/client/onboarding/first-run-enabled",
         "@agent-native/core/client/route-warmup",
         "@agent-native/core/client/theme",
         "@agent-native/core/client/ui",
@@ -744,7 +752,9 @@
         "@agent-native/core/shared/mcp-app-widget-embed",
         "@agent-native/core/shared/ssr-beta-redirect",
         "@agent-native/core/shared/ssr-session-bootstrap",
-        "@agent-native/core/shared/ssr-session-bootstrap-slot"
+        "@agent-native/core/shared/ssr-session-bootstrap-slot",
+        "@agent-native/core/client/analytics",
+        "@agent-native/core/client/auth/builder-signup"
       ]
     },
     {
@@ -793,6 +803,7 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/client/mobile-auth",
         "@agent-native/core/client/analytics",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/auth/auth-page-helpers",
@@ -965,6 +976,7 @@
         "@agent-native/core",
         "@assistant-ui/react",
         "@modelcontextprotocol/ext-apps",
+        "@radix-ui/react-alert-dialog",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",
@@ -1083,6 +1095,7 @@
         "@agent-native/core",
         "@assistant-ui/react",
         "@modelcontextprotocol/ext-apps",
+        "@radix-ui/react-alert-dialog",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",
@@ -1224,6 +1237,7 @@
         "@agent-native/core",
         "@assistant-ui/react",
         "@modelcontextprotocol/ext-apps",
+        "@radix-ui/react-alert-dialog",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",
@@ -1344,6 +1358,7 @@
         "@agent-native/core",
         "@tabler/icons-react",
         "@tiptap/core",
+        "@tiptap/extension-code",
         "@tiptap/extension-placeholder",
         "@tiptap/pm",
         "@tiptap/react",
@@ -1352,13 +1367,16 @@
         "react",
         "react-markdown",
         "remark-gfm",
+        "sonner",
         "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/review/use-review",
+        "@agent-native/core/client/uploads",
         "@agent-native/core/client/use-avatar",
+        "@agent-native/core/review/markdown",
         "@agent-native/core/review/plain-text",
         "@agent-native/core/review/types"
       ]
@@ -1422,6 +1440,8 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/localization",
+        "@agent-native/core/client/agent-engine-readiness",
         "@agent-native/core/client/agent-chat",
         "@agent-native/core/client/agent-native-version",
         "@agent-native/core/client/analytics",
@@ -1861,6 +1881,7 @@
       "sourceEntries": ["src/dashboard"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/core",
         "@radix-ui/react-select",
         "@radix-ui/react-slot",
         "@tabler/icons-react",
@@ -2043,6 +2064,7 @@
       "sourceEntries": ["src/ui"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/core",
         "@radix-ui/react-accordion",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-aspect-ratio",

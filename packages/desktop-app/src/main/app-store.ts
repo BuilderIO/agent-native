@@ -146,6 +146,7 @@ function canonicalizeDefaultApp(appConfig: AppConfig, def: AppConfig) {
     devUrl: appConfig.devUrl ?? def.devUrl,
     devCommand: appConfig.devCommand ?? def.devCommand,
     localPath: appConfig.localPath,
+    native: appConfig.native ?? def.native,
     devPort: appConfig.devPort || def.devPort,
   };
 }

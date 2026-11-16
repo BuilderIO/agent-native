@@ -56,6 +56,7 @@ import {
   rejectBrowserBridgeCredentials,
   stripVisualEditBridgeCredentials,
 } from "./visual-edit-browser-request.js";
+import { launchVisualEdit } from "./visual-edit-launch.js";
 
 const connectionRouteSchema = z.object({
   id: z.string().optional(),
@@ -459,6 +460,12 @@ export default defineAction({
         "Top edge for new screens. Defaults to the topmost existing frame.",
       ),
     gap: z.number().optional().default(160),
+    target: z
+      .enum(["inline-browser", "system-browser", "desktop"])
+      .default("inline-browser")
+      .describe(
+        "Where to open Design. Hosted callers receive host-required launch URLs; only a local CLI can detect and dispatch a desktop launch.",
+      ),
     navigate: z
       .boolean()
       .optional()
@@ -706,7 +713,11 @@ export default defineAction({
         updatedAt: new Date().toISOString(),
       });
 
-      if (args.navigate) {
+      if (
+        args.navigate &&
+        args.target !== "desktop" &&
+        args.target !== "system-browser"
+      ) {
         await navigateAction.run({
           view: "editor",
           designId,
@@ -720,9 +731,12 @@ export default defineAction({
         throw new Error("visual-edit principal was not established");
       }
       const deepLink = localVisualEditDeepLink(designId);
-      const embedStartUrl = isLoopbackUrl(devServerUrl)
-        ? await createCallerHandoff(urlPath, ownerEmail, designId)
-        : undefined;
+      const embedStartUrl =
+        isLoopbackUrl(devServerUrl) &&
+        args.target !== "desktop" &&
+        args.target !== "system-browser"
+          ? await createCallerHandoff(urlPath, ownerEmail, designId)
+          : undefined;
       const browserVisible = isBrowserVisibleVisualEditRequest(ctx);
       const bridgeCommand =
         !browserVisible && connection.bridgeToken
@@ -734,7 +748,17 @@ export default defineAction({
             })
           : null;
 
+      const requestOrigin = getRequestContext()?.requestOrigin;
+      const launch = await launchVisualEdit({
+        target: args.target,
+        openUrl: deepLink,
+        ...(requestOrigin ? { origin: requestOrigin } : {}),
+        localCli: ctx?.caller === "cli",
+        navigate: args.navigate !== false,
+      });
+
       const result = {
+        launch,
         message: bridgeCommand
           ? `Design ${designId} uses connection ${connection.id}. Start its bridge with \`${bridgeCommand}\`, then open the design.`
           : `Design ${designId} uses connection ${connection.id}.`,

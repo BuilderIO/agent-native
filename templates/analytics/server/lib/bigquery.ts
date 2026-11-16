@@ -1241,11 +1241,21 @@ async function readDryRunStatistics(
   };
 }
 
+/**
+ * BigQuery's verdict on the SQL: null when it is valid, else the error. A dry
+ * run that could not reach a verdict throws instead: a timeout, rejected
+ * credentials, a rate limit, or a BigQuery server error.
+ */
 export async function dryRunQuery(
   sql: string,
   options: DryRunQueryOptions = {},
 ): Promise<string | null> {
-  return (await dryRunQuerySchema(sql, options)).error;
+  const result = await dryRunQuerySchema(sql, options);
+  const status = result.status ?? 0;
+  if (result.timedOut || status === 401 || status === 429 || status >= 500) {
+    throw new Error(result.error ?? "BigQuery validation failed");
+  }
+  return result.error;
 }
 
 export async function dryRunQuerySchema(

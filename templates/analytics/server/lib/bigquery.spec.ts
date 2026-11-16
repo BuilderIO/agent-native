@@ -1329,14 +1329,36 @@ describe("runQuery cancellation", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const pending = dryRunQuery("SELECT 1");
-    await vi.advanceTimersByTimeAsync(10_000);
-
-    await expect(pending).resolves.toBe(
+    const outcome = expect(pending).rejects.toThrow(
       "BigQuery validation timed out after 10 seconds",
     );
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await outcome;
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/projects/test-project/jobs"),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("returns BigQuery's rejection of the SQL and throws when it reached no verdict", async () => {
+    const failedResponse = (status: number, message: string) =>
+      ({
+        ok: false,
+        status,
+        text: async () => JSON.stringify({ error: { message } }),
+      }) as Response;
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(failedResponse(400, "Syntax error"))
+      .mockResolvedValueOnce(failedResponse(503, "Backend error"))
+      .mockResolvedValueOnce(failedResponse(429, "Rate limit exceeded"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(dryRunQuery("SELECT")).resolves.toBe("Syntax error");
+    await expect(dryRunQuery("SELECT 1")).rejects.toThrow("Backend error");
+    await expect(dryRunQuery("SELECT 1")).rejects.toThrow(
+      "Rate limit exceeded",
     );
   });
 

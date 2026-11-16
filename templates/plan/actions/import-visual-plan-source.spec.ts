@@ -11,6 +11,7 @@ const {
 } = vi.hoisted(() => ({
   state: {
     content: null as unknown,
+    updatedAt: "revision-1",
     kind: "plan" as "plan" | "recap",
     isLocalRuntime: false,
   },
@@ -95,7 +96,7 @@ vi.mock("../server/plans.js", async () => {
         brief: "Stored plan.",
         kind: state.kind,
         status: "review",
-        updatedAt: "revision-1",
+        updatedAt: state.updatedAt,
         content: state.content,
       },
       comments: [],
@@ -136,9 +137,25 @@ function legacyContent() {
   });
 }
 
+/** The source of a new plan with one image asset. */
+function photoPlanSource() {
+  return {
+    "plan.mdx": [
+      "---",
+      'title: "New plan"',
+      "version: 2",
+      "---",
+      "",
+      "The plan's prose.",
+    ].join("\n"),
+    "assets/": { "photo.png": "cGhvdG8=" },
+  };
+}
+
 describe("import-visual-plan-source stored legacy defaults", () => {
   beforeEach(() => {
     state.content = legacyContent();
+    state.updatedAt = "revision-1";
     state.kind = "plan";
     state.isLocalRuntime = false;
     updateMock.mockReset();
@@ -240,6 +257,172 @@ describe("import-visual-plan-source stored legacy defaults", () => {
       }),
     ).rejects.toMatchObject({ errorCode: "save_conflict" });
     expect(importPlanAssets).not.toHaveBeenCalled();
+  });
+
+  it("gives a new plan a later revision when its assets rewrite the content", async () => {
+    const { importPlanAssets } = await import("../server/lib/plan-assets.js");
+    vi.mocked(importPlanAssets).mockResolvedValueOnce({
+      "photo.png": "/assets/photo.png",
+    });
+    const writes: Array<{ updatedAt?: string }> = [];
+    updateMock.mockImplementation(() => ({
+      set: (values: { updatedAt?: string }) => {
+        writes.push(values);
+        return {
+          where: () => ({ returning: async () => [{ id: "new-plan" }] }),
+        };
+      },
+    }));
+
+    await runAction({
+      mdx: {
+        "plan.mdx": [
+          "---",
+          'title: "New plan"',
+          "version: 2",
+          "---",
+          "",
+          "The plan's prose.",
+        ].join("\n"),
+        "assets/": { "photo.png": "cGhvdG8=" },
+      },
+    });
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.updatedAt).toBe("2026-10-12T00:00:00.001Z");
+  });
+
+  it("rewrites the assets into what an editor saved during the upload, at its revision", async () => {
+    const { importPlanAssets } = await import("../server/lib/plan-assets.js");
+    vi.mocked(importPlanAssets).mockResolvedValueOnce({
+      "photo.png": "/assets/photo.png",
+    });
+    const saved = {
+      version: 2,
+      blocks: [
+        {
+          id: "typed",
+          type: "rich-text",
+          data: { markdown: "Typed while the photo uploaded." },
+        },
+      ],
+    };
+    const writes: Array<{
+      content?: string;
+      updatedAt?: string;
+      where: unknown;
+    }> = [];
+    updateMock.mockImplementation(() => ({
+      set: (values: { content?: string; updatedAt?: string }) => ({
+        where: (where: unknown) => ({
+          returning: async () => {
+            writes.push({ ...values, where });
+            if (writes.length > 1) return [{ id: "new-plan" }];
+            // An editor saved the new plan before the first rewrite landed.
+            state.content = saved;
+            state.updatedAt = "2026-10-12T00:00:05.000Z";
+            return [];
+          },
+        }),
+      }),
+    }));
+
+    await runAction({
+      mdx: {
+        "plan.mdx": [
+          "---",
+          'title: "New plan"',
+          "version: 2",
+          "---",
+          "",
+          "The plan's prose.",
+        ].join("\n"),
+        "assets/": { "photo.png": "cGhvdG8=" },
+      },
+    });
+
+    expect(writes).toHaveLength(2);
+    expect(writes[0]?.where).toContainEqual([
+      "plans.updatedAt",
+      "2026-10-12T00:00:00.000Z",
+    ]);
+    expect(writes[1]?.where).toContainEqual([
+      "plans.updatedAt",
+      "2026-10-12T00:00:05.000Z",
+    ]);
+    expect(JSON.parse(writes[1]?.content ?? "null")).toEqual(saved);
+    expect(writes[1]?.updatedAt).toBe("2026-10-12T00:00:05.001Z");
+  });
+
+  it("leaves a plan that reads only with a block salvaged as it is, and says its links weren't rewritten", async () => {
+    const { importPlanAssets } = await import("../server/lib/plan-assets.js");
+    vi.mocked(importPlanAssets).mockResolvedValueOnce({
+      "photo.png": "/assets/photo.png",
+    });
+    const writes: unknown[] = [];
+    updateMock.mockImplementation(() => ({
+      set: (values: unknown) => ({
+        where: () => ({
+          returning: async () => {
+            writes.push(values);
+            // An editor saved first, and the plan now reads with a block salvaged.
+            state.content = {
+              version: 2,
+              blocks: [
+                {
+                  id: "unreadable",
+                  type: "callout",
+                  data: {
+                    tone: "warning",
+                    body: `${String.fromCharCode(0x200b)}__unknown_block__:{}`,
+                  },
+                },
+              ],
+            };
+            state.updatedAt = "2026-10-12T00:00:05.000Z";
+            return [];
+          },
+        }),
+      }),
+    }));
+
+    const result = (await runAction({ mdx: photoPlanSource() })) as {
+      warnings?: string[];
+    };
+
+    expect(writes).toHaveLength(1);
+    expect(result.warnings).toEqual([
+      expect.stringContaining("assets/photo.png is at /assets/photo.png"),
+    ]);
+  });
+
+  it("stops after three tries when the plan keeps changing, and says its links weren't rewritten", async () => {
+    const { importPlanAssets } = await import("../server/lib/plan-assets.js");
+    vi.mocked(importPlanAssets).mockResolvedValueOnce({
+      "photo.png": "/assets/photo.png",
+    });
+    const writes: unknown[] = [];
+    updateMock.mockImplementation(() => ({
+      set: (values: unknown) => ({
+        where: () => ({
+          returning: async () => {
+            writes.push(values);
+            // An editor saves again before each rewrite lands.
+            state.updatedAt = `2026-10-12T00:00:0${writes.length}.000Z`;
+            return [];
+          },
+        }),
+      }),
+    }));
+
+    const result = (await runAction({ mdx: photoPlanSource() })) as {
+      warnings?: string[];
+    };
+
+    expect(writes).toHaveLength(3);
+    expect(result.warnings).toEqual([
+      expect.stringContaining("image links weren't rewritten"),
+    ]);
   });
 
   it("keeps new imports strict even when the source was exported from a legacy plan", async () => {

@@ -620,6 +620,8 @@ const messages = {
     them: "그들을",
     me: "나",
     regeneratingNotes: "요약 재생성 중",
+    notesAlreadyGenerating:
+      "요약을 이미 생성하고 있습니다. 준비되면 여기에 표시됩니다.",
     meetingRemoved: "회의가 삭제되었습니다.",
     couldNotRemoveMeeting: "회의를 삭제할 수 없습니다.",
     couldNotLoadMeeting: "이 회의를 로드할 수 없습니다.",
@@ -703,6 +705,8 @@ const messages = {
     noMatches: "일치하는 항목이 없습니다.",
     noTranscript: "아직 성적표가 없습니다.",
     noTranscriptCaptured: "캡처된 녹취록이 없습니다.",
+    unreadableDescription:
+      "저장된 스크립트가 손상되었습니다. 다시 생성하면 클립 오디오로 새 스크립트를 만듭니다.",
     partialTranscript:
       "일부 녹취록: 녹화가 중간에 끊겨 일부 내용이 누락되었을 수 있습니다.",
     backupFailed:
@@ -783,6 +787,10 @@ const messages = {
     saveThumbnail: "썸네일 저장",
   },
   shareDialog: {
+    enterPassword: "비밀번호 입력",
+    showPassword: "비밀번호 표시",
+    hidePassword: "비밀번호 숨기기",
+    copyPassword: "비밀번호 복사",
     redactionsPendingTitle: "공유하기 전에 가림 처리 완료",
     redactionsPendingBody:
       "적용되지 않은 가림 처리: {{count}}개. 공유하기 전에 편집기에서 적용하세요. 동영상에는 아직 원본 내용이 남아 있습니다.",

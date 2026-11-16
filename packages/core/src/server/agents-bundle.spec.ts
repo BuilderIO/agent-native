@@ -299,6 +299,52 @@ describe("getDevelopmentSkills", () => {
 });
 
 describe("generateSkillsPromptBlock scope filtering", () => {
+  it("controls generated reference annotations without changing development output or bundle contents", () => {
+    const entry: Skill = {
+      ...skill("references", "both"),
+      meta: {
+        name: "references",
+        description: "Authored reference instructions.",
+      },
+      extraFiles: ["references/guide.md", "image.png"],
+      files: { "references/guide.md": "Reference body" },
+    };
+    const bundle = bundleWith([entry]);
+    const defaultBlock = generateSkillsPromptBlock(bundle);
+    expect(defaultBlock).toContain(
+      'refs via docs-search --slug "skill-references--<ref>": references-guide',
+    );
+    expect(defaultBlock).toContain("also contains: image.png");
+    expect(
+      generateSkillsPromptBlock(bundle, undefined, {
+        includeSupportingFiles: true,
+      }),
+    ).toBe(defaultBlock);
+    const withoutSupportingFiles = generateSkillsPromptBlock(
+      bundle,
+      undefined,
+      {
+        includeSupportingFiles: false,
+      },
+    );
+    expect(withoutSupportingFiles).toContain(
+      "Authored reference instructions.",
+    );
+    expect(withoutSupportingFiles).toContain("[skill-references]");
+    expect(withoutSupportingFiles).not.toContain("refs via");
+    expect(withoutSupportingFiles).not.toContain("also contains:");
+    expect(generateDevelopmentSkillsPromptBlock(bundle)).toContain(
+      "also contains: references/guide.md, image.png",
+    );
+    expect(bundle.skills.references?.extraFiles).toEqual([
+      "references/guide.md",
+      "image.png",
+    ]);
+    expect(bundle.skills.references?.files?.["references/guide.md"]).toBe(
+      "Reference body",
+    );
+  });
+
   it("omits scope: dev skills from the prompt block", () => {
     const bundle = bundleWith([
       skill("runtime-one", "both"),
