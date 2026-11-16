@@ -188,7 +188,8 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
       },
     ],
     sourceFiles: ["Remix.html"],
-  })!;
+  });
+  if (!tweakPrompt) throw new Error("a tweak change formats a prompt");
 
   it("sends a tweak-only Apply prompt to the MCP App host chat", async () => {
     sendDesignSourceHandoffAndConfirmMock.mockResolvedValueOnce({

@@ -62,10 +62,11 @@ function coerceTweakValue(
       if (raw === "true" || raw === "1" || raw === 1) return true;
       if (raw === "false" || raw === "0" || raw === 0) return false;
       return null;
-    default: {
+    case "segment":
+    case "color-swatch":
+    case "color-swatches":
       if (typeof raw !== "string") return null;
       return tweak.options?.some((option) => option.value === raw) ? raw : null;
-    }
   }
 }
 
