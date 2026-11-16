@@ -14,6 +14,7 @@ import { imageDisplaySrc } from "./private-media-src";
 export function CommentImages({ images }: { images: readonly CommentImage[] }) {
   const t = useT();
   const [viewing, setViewing] = useState<CommentImage | null>(null);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set());
   if (!images.length) return null;
@@ -32,7 +33,8 @@ export function CommentImages({ images }: { images: readonly CommentImage[] }) {
               aria-label={t("comments.openImage", { name: image.name })}
               title={image.name}
               disabled={failed.has(image.url)}
-              onClick={() => {
+              onClick={(event) => {
+                setOpener(event.currentTarget);
                 setViewing(image);
                 setOpen(true);
               }}
@@ -61,6 +63,7 @@ export function CommentImages({ images }: { images: readonly CommentImage[] }) {
           onOpenChange={setOpen}
           src={imageDisplaySrc(viewing.url)}
           alt={viewing.name}
+          returnFocus={opener}
         />
       ) : null}
     </>

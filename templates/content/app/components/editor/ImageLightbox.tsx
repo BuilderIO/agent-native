@@ -80,12 +80,18 @@ export function ImageLightbox({
   onOpenChange,
   src,
   alt,
+  returnFocus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** A loadable URL, such as a private image's display path. */
   src: string;
   alt: string;
+  /**
+   * Where focus goes when the viewer closes, such as the thumbnail that
+   * opened it. The viewer has no trigger of its own to hand focus back to.
+   */
+  returnFocus?: HTMLElement | null;
 }) {
   const t = useT();
   const [zoomed, setZoomed] = useState(false);
@@ -124,6 +130,11 @@ export function ImageLightbox({
           className="media-lightbox"
           aria-describedby={undefined}
           onOpenAutoFocus={(event) => event.preventDefault()}
+          onCloseAutoFocus={(event) => {
+            if (!returnFocus?.isConnected) return;
+            event.preventDefault();
+            returnFocus.focus();
+          }}
         >
           <DialogTitle className="sr-only">
             {t("editor.media.imagePreview")}
