@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -45,7 +45,10 @@ export default defineAction({
     });
     const baseline = data.tweakSourceBaseline;
     if (!baseline || typeof baseline !== "object" || Array.isArray(baseline)) {
-      throw new Error("Reset tweak baseline was not persisted as an object.");
+      fail("Reset tweak baseline was not persisted as an object.", {
+        errorCode: "invalid_design_state",
+        statusCode: 500,
+      });
     }
     return {
       designId,
