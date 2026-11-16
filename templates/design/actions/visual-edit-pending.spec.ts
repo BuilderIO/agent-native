@@ -761,6 +761,16 @@ describe("visual-edit pending handoff", () => {
     expect(mocks.selectChain.limit).toHaveBeenCalledTimes(1);
   });
 
+  it("requires an exact handoff revision before acknowledging tweaks", async () => {
+    await expect(
+      acknowledgePendingAction.run({
+        designId: "design_public",
+        appliedTweaks: [{ id: "speed", value: 3 }],
+      }),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_revision_required" });
+    expect(mocks.updateChain.set).not.toHaveBeenCalled();
+  });
+
   it("advances only acknowledged tweak ids and values after source verification", async () => {
     mocks.updateChain.returning
       .mockResolvedValueOnce([{ designId: "design_public" }])
