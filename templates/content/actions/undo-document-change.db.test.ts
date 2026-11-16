@@ -23,6 +23,30 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   getGenerationCreativeContext: vi.fn(async () => null),
 }));
 
+// Runs once, just after the undo next reads an entry's changes, to land an
+// edit between the undo's read and its write.
+const afterEntryRead = vi.hoisted(() => ({
+  run: undefined as (() => Promise<void>) | undefined,
+}));
+vi.mock("../server/lib/document-history-changes.js", async (importOriginal) => {
+  const original =
+    await importOriginal<
+      typeof import("../server/lib/document-history-changes.js")
+    >();
+  return {
+    ...original,
+    listHistoryEntryChanges: async (
+      ...args: Parameters<typeof original.listHistoryEntryChanges>
+    ) => {
+      const read = await original.listHistoryEntryChanges(...args);
+      const { run } = afterEntryRead;
+      afterEntryRead.run = undefined;
+      await run?.();
+      return read;
+    },
+  };
+});
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `undo-document-change-${process.pid}-${Date.now()}.pglite`,
@@ -447,6 +471,25 @@ for (const path of ["legacy", "live_copy"] as const) {
           keptBack: [],
         });
         expect((await page(id)).content).toBe(typed);
+      });
+
+      it("takes back a change that joined the entry while the undo ran", async () => {
+        const id = await seedPage();
+        const run = agentRun();
+        const first = PAGE.replace("Two", "Two by agent");
+        await writeLegacy(id, first, { ...run, operation: "edit-document" });
+        afterEntryRead.run = () =>
+          writeLegacy(id, first.replace("Four", "Four by agent"), {
+            ...run,
+            operation: "edit-document",
+          });
+
+        await expect(undo(id, run.groupId)).resolves.toMatchObject({
+          outcome: "undone",
+          keptBack: [],
+        });
+        expect(afterEntryRead.run).toBeUndefined();
+        expect((await page(id)).content).toBe(PAGE);
       });
 
       it("refuses to merge into a page the parser can't keep in full", async () => {

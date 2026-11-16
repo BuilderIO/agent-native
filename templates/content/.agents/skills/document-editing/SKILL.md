@@ -225,8 +225,8 @@ it is now. An undo that changed nothing records no entry, so a retry of it runs
 again. The undo is a History entry of its own, `undoGroupId`, so it can be
 undone too. It refuses as a version restore does:
 `DOCUMENT_RESTORE_SOURCE_UNSUPPORTED` for a page linked to a local file, and
-`DOCUMENT_RESTORE_CONFLICT` when the page kept changing through three tries;
-read it again and retry. It refuses with `DOCUMENT_UNDO_UNAVAILABLE` for an
+`DOCUMENT_RESTORE_CONFLICT` when the page, or the entry its agent is still
+adding to, kept changing through three tries; read it again and retry. It refuses with `DOCUMENT_UNDO_UNAVAILABLE` for an
 entry with no change to undo or more than 100, and for a page written in a form
 the merge can't keep in full; restore a checkpoint instead.
 
