@@ -1299,6 +1299,7 @@ export const parityMatrix: ParityRow[] = [
     actions: [
       "add-comment",
       "delete-comment",
+      "get-comment-image-storage",
       "list-comments",
       "update-comment",
     ],
