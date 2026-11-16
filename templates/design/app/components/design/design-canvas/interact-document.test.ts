@@ -143,4 +143,22 @@ describe("buildInteractPreviewDocument", () => {
       "data-agent-native-content-offset",
     );
   });
+
+  it("keeps the current tweak values after the design's own :root rules, so knobs do not snap back", () => {
+    const page = PAGE.replace(
+      "</head>",
+      "<style>:root{--sail-twist:1}</style></head>",
+    );
+    const doc = build(page, {
+      tweakValues: { "--sail-twist": "0.25", "--sail-color0": "#8b5cf6" },
+    });
+    const style = doc.indexOf("data-agent-native-interact-tweaks");
+    expect(style).toBeGreaterThan(doc.indexOf(":root{--sail-twist:1}"));
+    expect(doc).toContain("--sail-twist: 0.25;");
+    expect(doc).toContain("--sail-color0: #8b5cf6;");
+    expect(build(PAGE)).not.toContain("data-agent-native-interact-tweaks");
+    expect(
+      build(PAGE, { tweakValues: { "--x": "a</style><script>" } }),
+    ).not.toContain("a</style><script>");
+  });
 });

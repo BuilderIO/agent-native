@@ -10,9 +10,11 @@ metadata:
 
 # Remix
 
-Use **repo mode** for a source-and-change prompt inside a repository; Design is
-not required. Use **Design mode** when the user asks for Design, a canvas or
-selection, or wants to pick visually.
+Use **repo mode** for a source-and-change prompt inside a repository. Use
+**Design mode** when the user asks for Design, a canvas or selection, or wants
+to pick visually. Both modes finish on a **remix board** in Design (below)
+unless the user says no Design, headless, or just the code, or Design is
+unavailable; then finish in repo mode with images.
 
 ## Repo Mode: Run End To End
 
@@ -31,8 +33,8 @@ stack. Follow the repo's instructions and reuse its components and conventions.
    else identical, subject to the original-code and asset rules below.
 4. Expose knobs as typed props or CSS custom properties with explicit defaults.
    Verify source versus rebuild using matched screenshots and motion clips,
-   including the original-colors fidelity check below, then show before/after
-   images of the destination and the source comparison.
+   including the original-colors fidelity check below, then finish on the
+   remix board.
 
 ## Design Mode: Choose On The Canvas
 
@@ -154,9 +156,9 @@ Say in the report where to swap each one.
 
 Every shader, WebGL, canvas, 3D, or animation effect gets knobs. Expose its
 meaningful parameters (speed, intensity, colors, scale, camera, easing,
-density) as typed props or CSS custom properties with defaults. Repo mode
-needs no inspector. **Only in Design mode**, also expose them through Design's
-tweak system, never a private UI:
+density) as typed props or CSS custom properties with defaults. A headless
+finish needs no inspector. **On a Design board**, also expose them through
+Design's tweak system, never a private UI:
 
 1. Bind each parameter to a CSS custom property on the effect's root and have
    the effect read it every frame (\`getComputedStyle(el).getPropertyValue\`), so
@@ -168,8 +170,9 @@ tweak system, never a private UI:
    \`color-swatches\` require \`options\`, a list of \`{ label, value, color? }\`
    choices; without it the inspector shows empty controls. Always set
    \`scope.screenId\`, plus \`nodeId\` (or \`selector\` on a URL screen) of the
-   effect's root: \`{ screenId, nodeId }\` or \`{ screenId, selector }\`. Keep
-   existing tweaks; append.
+   effect's root: \`{ screenId, nodeId }\` or \`{ screenId, selector }\`. A knob
+   that drives several screens takes a list of scopes, one per screen, under
+   one id and cssVar. Keep existing tweaks; append.
 3. Design shows them, already expanded, in the inspector's **Tweaks** section
    whenever the user selects that screen, the effect, or any parent or child of
    it, and never for a sibling.
@@ -180,29 +183,44 @@ tweak system, never a private UI:
 ## Remix Explain
 
 \`remix explain <part of a site>\` teaches instead of porting. Extract the part as
-above, then build original minimal demos from the spec. In repo mode, provide
-a local explainer page with typed props/CSS knobs and captures. In Design mode,
-lay out an explainer microsite on the canvas beside the source:
-
-- One small inline HTML/CSS screen per idea, left to right: the effect in
-  isolation, then each layer of how it works (geometry, shader, timing, scroll
-  binding), each a live minimal demo with a short caption and the few lines of
-  code that matter.
-- Every demo has knobs registered as above, like a lil-gui or Tweakpane panel in
-  a three.js example, scoped to that screen.
-- For something too heavy for inline HTML, run a tiny dev server and add it as a
-  localhost screen.
+above, then build the board's **How it works** row beside the source, without a
+Remix frame. Headless, provide a local explainer page with typed props/CSS
+knobs and captures.
 
 ## Motion
 
 When the user wants to retime a remixed animation, the Motion panel (a Design
 Lab) can edit GSAP-style tracks and keyframes. It is optional; knobs come first.
 
-## Finish
+## Finish On A Remix Board
 
-Show source-versus-result screenshots (and clips for motion) plus destination
-before/after images. List knobs, their defaults, swappable assets, and any
-unverified behavior or remaining differences. In repo mode, report changed
-files and verification directly; in Design mode, hand off source edits the
-visual-edit way for review in the destination repo.
+Open Design as \`/visual-edit\` does (same launch targets and links) and lay out
+one board, left to right, at the same viewport size:
+
+1. **Original**: the source screen from "Put Both Sites On The Canvas" (live
+   where it frames, else the served capture, else a static snapshot).
+2. **Remix**: the destination with the rebuilt effect, as a localhost screen
+   when its dev server runs, else an inline screen of the rebuilt section.
+3. **How it works**: a row of 3-5 small inline screens beneath, one stage of
+   the technique each (geometry, motion, camera, shading, palette), each a
+   live figure with 1-2 knobs in the destination's palette.
+
+Title screens with \`rename-screen\` ("Original · stripe.com", "Remix", "1 ·
+Folded plane"), then size and place them in one \`update-design\` call:
+\`screenMetadata.<id>\` \`{ width, height, heightMode: "fixed" }\` and
+\`canvasFrames.<id>\` \`{ x, y, width, height }\`.
+Explainer and Remix knobs are the same tweaks: the explainer's speed knob is
+the remix's speed tweak, scoped to both screens, and both read its one cssVar.
+Turning a knob in any frame updates the remix too. Every frame runs live in
+Interact mode.
+
+Explainer frames: one idea per frame, diagram first, a caption of a sentence
+or two, real parameter names and values from the spec, small and light.
+Use system or already-loaded web fonts, never embedded base64 fonts or
+images; a design has a size limit.
+
+Then report: the board link, source-versus-result captures (clips for motion),
+knobs and defaults, swappable assets, and unverified behavior or remaining
+differences. In repo mode also list changed files and verification; in Design
+mode hand off source edits the visual-edit way.
 `;

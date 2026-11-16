@@ -109,4 +109,30 @@ describe("tweaksForSelection", () => {
       ),
     ).toEqual([]);
   });
+
+  it("shows a shared knob on every screen in its scope list and hides it for siblings", () => {
+    const shared = [
+      tweak("sail-speed", [
+        { screenId: "home", nodeId: "wave" },
+        { screenId: "explainer-1" },
+        { screenId: "url", selector: ".hero-canvas" },
+      ]),
+    ];
+    const shownOn = (target: TweakSelectionTarget) =>
+      tweaksForSelection(shared, [target], (id) =>
+        id === "home" ? SCREEN_HTML : undefined,
+      ).length;
+
+    expect(shownOn({ screenId: "home", element: { sourceId: "wave" } })).toBe(
+      1,
+    );
+    expect(shownOn({ screenId: "explainer-1" })).toBe(1);
+    expect(
+      shownOn({ screenId: "url", element: { selector: ".hero-canvas" } }),
+    ).toBe(1);
+    expect(shownOn({ screenId: "home", element: { sourceId: "title" } })).toBe(
+      0,
+    );
+    expect(shownOn({ screenId: "original" })).toBe(0);
+  });
 });

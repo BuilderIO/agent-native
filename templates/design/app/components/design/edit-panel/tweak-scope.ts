@@ -88,8 +88,23 @@ export function tweakAppliesToSelection(
   target: TweakSelectionTarget,
   parsedScreen: Document | null,
 ): boolean {
-  const scope = tweak.scope;
-  if (!scope) return true;
+  const scopes = tweakScopes(tweak);
+  if (scopes.length === 0) return true;
+  return scopes.some((scope) =>
+    scopeAppliesToSelection(scope, target, parsedScreen),
+  );
+}
+
+function tweakScopes(tweak: TweakDefinition): TweakScope[] {
+  if (!tweak.scope) return [];
+  return Array.isArray(tweak.scope) ? tweak.scope : [tweak.scope];
+}
+
+function scopeAppliesToSelection(
+  scope: TweakScope,
+  target: TweakSelectionTarget,
+  parsedScreen: Document | null,
+): boolean {
   if (scope.screenId && scope.screenId !== target.screenId) return false;
   if (!scope.nodeId && !scope.selector) return true;
   const element = target.element;
@@ -155,7 +170,7 @@ export function tweaksForSelection(
       tweakAppliesToSelection(
         tweak,
         target,
-        tweak.scope?.nodeId || tweak.scope?.selector
+        tweakScopes(tweak).some((scope) => scope.nodeId || scope.selector)
           ? parsed(target.screenId)
           : null,
       ),

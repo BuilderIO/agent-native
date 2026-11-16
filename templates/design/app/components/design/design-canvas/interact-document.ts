@@ -2,6 +2,7 @@ import { injectSessionReplayIframeBootstrap } from "@agent-native/core/client/ho
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 
 import { interactLinksBridgeScript } from "../../../../.generated/bridge/interact-links.generated";
+import { renderResolvedRootBlock } from "../../../../shared/resolve-tweaks";
 import type { ScreenHeightMode } from "../multi-screen/screen-height";
 import { contentSizeReportBridge } from "./content-size-report";
 import {
@@ -25,10 +26,23 @@ const INTERACT_PREVIEW_BRIDGES =
   PREVIEW_THEME_BRIDGE_SCRIPT + INTERACT_LINKS_BRIDGE_SCRIPT;
 
 /**
+ * The current tweak values as a static stylesheet. Edit applies them through
+ * a live bridge; Interact has none, so without this an Interact preview would
+ * snap every knob back to its authored default.
+ */
+function tweakValuesStyle(tweakValues: Record<string, string> | undefined) {
+  const block = renderResolvedRootBlock(tweakValues ?? {});
+  if (!block) return "";
+  // Placed after the design's own :root rules, so it wins at equal specificity.
+  return `<style data-agent-native-interact-tweaks>${block.replace(/</g, "\\3c ")}</style>`;
+}
+
+/**
  * The document an Interact preview loads. It is the design as the editor
  * frames it (local Alpine and Tailwind, the runtimes the design embeds, the
- * frame's fit, background and offset) with only the two bridges above on top.
- * Edit builds its document separately and keeps every editor bridge.
+ * frame's fit, background and offset, the current tweak values) with only the
+ * two bridges above on top. Edit builds its document separately and keeps
+ * every editor bridge.
  */
 export function buildInteractPreviewDocument(args: {
   content: string;
@@ -38,6 +52,7 @@ export function buildInteractPreviewDocument(args: {
   contentOffsetY?: number;
   fitBodyToFrame: boolean;
   heightMode?: ScreenHeightMode;
+  tweakValues?: Record<string, string>;
 }): string {
   const localizedContent = withLocalRuntimes(args.content);
   const frameContent = getEmbeddedFrameDocumentContent({
@@ -49,6 +64,7 @@ export function buildInteractPreviewDocument(args: {
     fitBodyToFrame: args.fitBodyToFrame,
   });
   const bridges =
+    tweakValuesStyle(args.tweakValues) +
     INTERACT_PREVIEW_BRIDGES +
     (args.heightMode === "hug" ? contentSizeReportBridge(args.heightMode) : "");
   if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
