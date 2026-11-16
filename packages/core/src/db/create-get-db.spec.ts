@@ -1114,6 +1114,126 @@ describe("createGetDb — lazy proxy before init resolves", () => {
     expect(cases[0].sql).toContain('select "recording_id" from "meetings"');
   });
 
+  it("evaluates a set callback once when a cold query is read repeatedly", async () => {
+    const db = (await getLazyDbFactory())();
+    const reference = drizzle.mock();
+    const build = (source: typeof reference) => {
+      let calls = 0;
+      const query = source
+        .select({ id: meetings.id })
+        .from(meetings)
+        .union(() =>
+          source
+            .select({ id: meetings.id })
+            .from(meetings)
+            .where(eq(meetings.id, String(++calls))),
+        );
+      const outer = new QueryBuilder()
+        .select()
+        .from(meetings)
+        .where(inArray(meetings.id, query));
+      return { first: outer.toSQL(), second: outer.toSQL(), calls };
+    };
+    const expected = build(reference);
+    const actual = build(db);
+    expect(actual).toEqual(expected);
+    expect(expected.calls).toBe(1);
+  });
+
+  it("shares callback results when a cold query crosses database factories", async () => {
+    const first = (await getLazyDbFactory())();
+    const { createGetDb } = await import("./create-get-db.js");
+    const second = createGetDb({})();
+    let calls = 0;
+    const query = first
+      .select({ id: meetings.id })
+      .from(meetings)
+      .union(() =>
+        first
+          .select({ id: meetings.id })
+          .from(meetings)
+          .where(eq(meetings.id, String(++calls))),
+      );
+    const sqlFrom = (source: typeof second) =>
+      source
+        .select({ id: meetings.id })
+        .from(meetings)
+        .union(query)
+        .as("combined");
+    const outer = (subquery: ReturnType<typeof sqlFrom>) =>
+      new QueryBuilder().select().from(subquery).toSQL();
+    expect(outer(sqlFrom(first))).toEqual(outer(sqlFrom(second)));
+    expect(calls).toBe(1);
+  });
+
+  it("preserves select callback results across metadata reads and derived chains", async () => {
+    const db = (await getLazyDbFactory())();
+    const reference = drizzle.mock();
+    const build = (source: typeof reference) => {
+      let calls = 0;
+      const query = source
+        .select({ id: meetings.id })
+        .from(meetings)
+        .where((fields) => eq(fields.id, String(++calls)));
+      const first = new QueryBuilder()
+        .select()
+        .from(meetings)
+        .where(inArray(meetings.id, query))
+        .toSQL();
+      const second = new QueryBuilder()
+        .select()
+        .from(query.as("filtered"))
+        .toSQL();
+      return { first, second, calls };
+    };
+    const expected = build(reference);
+    expect(build(db)).toEqual(expected);
+    expect(expected.calls).toBe(1);
+  });
+
+  it("uses the same callback result for offline SQL and deferred execution", async () => {
+    vi.doUnmock("./client.js");
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    const { createGetDb } = await import("./create-get-db.js");
+    const { closeDbExec } = await import("./client.js");
+    try {
+      const db = createGetDb({})();
+      let calls = 1;
+      const cold = db
+        .select({ id: meetings.id })
+        .from(meetings)
+        .where(eq(meetings.id, "1"))
+        .union(() =>
+          db
+            .select({ id: meetings.id })
+            .from(meetings)
+            .where(eq(meetings.id, String(++calls))),
+        );
+      const offline = new QueryBuilder()
+        .select()
+        .from(meetings)
+        .where(inArray(meetings.id, cold))
+        .toSQL();
+      await db.execute(sql`create table meetings (id text, recording_id text)`);
+      await db.insert(meetings).values([{ id: "1" }, { id: "2" }, { id: "3" }]);
+      const rows = await cold;
+      expect({
+        params: offline.params,
+        ids: rows.map((row) => row.id).sort(),
+        calls,
+      }).toEqual({
+        params: ["1", "2"],
+        ids: ["1", "2"],
+        calls: 2,
+      });
+      expect((await cold).map((row) => row.id).sort()).toEqual(["1", "2"]);
+      expect(calls).toBe(2);
+    } finally {
+      await closeDbExec();
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("materializes aliased selects with fields and SQL aliases like Drizzle", async () => {
     const db = (await getLazyDbFactory())();
     const reference = drizzle.mock();
@@ -1350,6 +1470,24 @@ describe("createGetDb — lazy proxy before init resolves", () => {
         throw new Error("Expected Drizzle to reject the field");
       })(),
     );
+  });
+
+  it("evaluates CTE callbacks once when the resulting CTE is reused", async () => {
+    const db = (await getLazyDbFactory())();
+    const reference = drizzle.mock();
+    const build = (source: typeof reference) => {
+      let calls = 0;
+      const cte = source.$with("filtered").as((qb) => {
+        calls++;
+        return qb.select({ id: meetings.id }).from(meetings);
+      });
+      const query = source.with(cte).select().from(cte).as("result");
+      const outer = new QueryBuilder().select().from(query);
+      return { first: outer.toSQL(), second: outer.toSQL(), calls };
+    };
+    const expected = build(reference);
+    expect(build(db)).toEqual(expected);
+    expect(expected.calls).toBe(1);
   });
 
   it("propagates errors from CTE callbacks", async () => {

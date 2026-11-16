@@ -1016,6 +1016,8 @@ const lazyQueryChains = new WeakMap<
   object,
   Array<{ prop: string | symbol; args?: unknown[] }>
 >();
+// Chain steps are shared by derived proxies and by offline and connected replay.
+const callbackResults = new WeakMap<object, Map<number, { value: unknown }>>();
 
 export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   let _db: any;
@@ -1177,30 +1179,54 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     );
   }
 
-  function resolveQueryArgument(query: unknown): unknown {
-    const resolved = resolveOfflineQuery(query);
-    return typeof resolved === "function"
-      ? (...args: unknown[]) => resolveOfflineQuery(resolved(...args))
-      : resolved;
-  }
-
-  function resolveSetOperatorArgs(
+  function resolveChainArgs(
     chain: Array<{ prop: string | symbol; args?: unknown[] }>,
     step: { prop: string | symbol; args?: unknown[] },
   ): unknown[] {
     const args = step.args ?? [];
-    if (
-      isSelectChain(chain) &&
+    const select = isSelectChain(chain);
+    const cte = chain[0]?.prop === "$with" && step.prop === "as";
+    const setOperator =
+      select &&
       (step.prop === "union" ||
         step.prop === "unionAll" ||
         step.prop === "intersect" ||
         step.prop === "intersectAll" ||
         step.prop === "except" ||
-        step.prop === "exceptAll")
-    ) {
-      return [resolveQueryArgument(args[0]), ...args.slice(1)];
-    }
-    return args;
+        step.prop === "exceptAll");
+    const callbackIndex =
+      cte ||
+      setOperator ||
+      (select &&
+        (step.prop === "where" ||
+          step.prop === "having" ||
+          step.prop === "groupBy" ||
+          step.prop === "orderBy"))
+        ? 0
+        : select &&
+            typeof step.prop === "string" &&
+            /^(?:left|right|inner|full)Join(?:Lateral)?$/.test(step.prop)
+          ? 1
+          : -1;
+    return args.map((argument, index) => {
+      if (index !== callbackIndex) return argument;
+      const queryArgument = cte || setOperator;
+      const resolved = queryArgument ? resolveOfflineQuery(argument) : argument;
+      if (typeof resolved !== "function") return resolved;
+      return (...callbackArgs: unknown[]) => {
+        let results = callbackResults.get(step);
+        if (!results) {
+          results = new Map();
+          callbackResults.set(step, results);
+        }
+        const cached = results.get(index);
+        if (cached) return cached.value;
+        const value = resolved(...callbackArgs);
+        const result = queryArgument ? resolveOfflineQuery(value) : value;
+        results.set(index, { value: result });
+        return result;
+      };
+    });
   }
 
   // A select chain embedded as a subquery only needs its SQL, which a
@@ -1227,10 +1253,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
       if (result == null || !(step.prop in Object(result))) return undefined;
       const target = result as Record<string | symbol, unknown>;
       const val = target[step.prop];
-      let args = resolveSetOperatorArgs(chain, step);
-      if (first === "$with" && step.prop === "as") {
-        args = [resolveQueryArgument(args[0]), ...args.slice(1)];
-      }
+      const args = resolveChainArgs(chain, step);
       result = typeof val === "function" ? val.apply(target, args) : val;
     }
     return result as Record<string | symbol, unknown> | undefined;
@@ -1238,9 +1261,9 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
 
   function createLazyProxy(
     ready: Promise<any>,
-    chain: Array<{ prop: string | symbol; args?: any[] }>,
+    chain: Array<{ prop: string | symbol; args?: unknown[] }>,
   ): any {
-    const proxy = new Proxy(function () {} as any, {
+    const proxy = new Proxy(function () {}, {
       get(_target, prop) {
         if (prop === "then" || prop === "catch" || prop === "finally") {
           const promise = ready.then((readyDb) => {
@@ -1249,7 +1272,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
               const val = result[step.prop];
               result =
                 typeof val === "function"
-                  ? val.apply(result, resolveSetOperatorArgs(chain, step))
+                  ? val.apply(result, resolveChainArgs(chain, step))
                   : val;
             }
             return result;
@@ -1277,8 +1300,8 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         return createLazyProxy(ready, [...chain, { prop }]);
       },
       apply(_target, _thisArg, args) {
-        const last = chain[chain.length - 1];
-        if (!last) return createLazyProxy(ready, []);
+        const last = chain.at(-1);
+        if (last === undefined) return createLazyProxy(ready, []);
         const newChain = chain.slice(0, -1);
         newChain.push({ prop: last.prop, args });
         if (last.prop === "as") {
