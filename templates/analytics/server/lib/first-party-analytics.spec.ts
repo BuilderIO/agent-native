@@ -447,6 +447,78 @@ describe("recordAnalyticsEvents", () => {
     expect(outputOutcomeMocks.lost).not.toHaveBeenCalled();
   });
 
+  it("stores URL fields scrubbed whoever sent them, and keeps attribution", async () => {
+    const canary = "canary-secret-value";
+    const page = `https://app.example.test/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b?utm_source=news&p-key=${canary}#access_token=${canary}`;
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "pageview",
+        properties: {
+          url: page,
+          href: page,
+          path: "/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b",
+          search: `?utm_source=news&p-key=${canary}`,
+          referrer: `https://other.example.test/in?api-key=${canary}`,
+          entry_path: "/invite/alice@example.com",
+          landing_path: "/orders/1234567",
+          site_landing_path: `/blog/launch?token=${canary}`,
+          title: "Shared clip",
+        },
+        context: {
+          url: page,
+          referrer: `https://other.example.test/in?access_token=${canary}`,
+          page: {
+            url: page,
+            path: "/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b",
+          },
+        },
+      },
+    ]);
+
+    const [row] = analyticsDbMocks.insertValues.mock.lastCall![0];
+    expect(row).toMatchObject({
+      url: "https://app.example.test/share/:id?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E",
+      path: "/share/:id",
+      hostname: "app.example.test",
+      referrer: "https://other.example.test/in?api-key=%3Credacted%3E",
+    });
+    expect(JSON.parse(row.properties)).toMatchObject({
+      path: "/share/:id",
+      search: "?utm_source=news&p-key=%3Credacted%3E",
+      entry_path: "/invite/:id",
+      landing_path: "/orders/:id",
+      site_landing_path: "/blog/launch?token=%3Credacted%3E",
+      title: "Shared clip",
+    });
+    expect(JSON.parse(row.context).page).toEqual({
+      url: "https://app.example.test/share/:id?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E",
+      path: "/share/:id",
+    });
+    const stored = JSON.stringify(row);
+    expect(stored).not.toContain(canary);
+    expect(stored).not.toContain("3f2a9c1e");
+    expect(stored).not.toContain("alice@example.com");
+  });
+
+  it("leaves a URL that is already a route template as it is", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "pageview",
+        properties: {
+          url: "https://app.example.test/share/:shareId?ref=clip_share",
+          path: "/share/:shareId",
+        },
+      },
+    ]);
+
+    expect(analyticsDbMocks.insertValues).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        url: "https://app.example.test/share/:shareId?ref=clip_share",
+        path: "/share/:shareId",
+      }),
+    ]);
+  });
+
   it("does not acquire the retired historical-backfill lock during ingest", async () => {
     await recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]);
 

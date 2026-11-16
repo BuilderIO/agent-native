@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 
+import { scrubUrl } from "@agent-native/core/client/url-scrub";
 import {
   FREE_EMAIL_PROVIDER_DOMAINS,
   organizations,
@@ -411,6 +412,12 @@ function replayString(value: unknown): string | null {
     return String(value);
   }
   return null;
+}
+
+// Replay keeps the real path so its storyboard can open the page; only the
+// query and hash, where credentials ride, are scrubbed.
+function replayUrl(value: string | null): string | null {
+  return value ? (scrubUrl(value) ?? null) : null;
 }
 
 function replayEmail(value: unknown): string | null {
@@ -1192,10 +1199,11 @@ export function parseSessionReplayIngestPayload(
   };
   assertReplayMetadataCap(metadata);
   const context: Record<string, unknown> = replayRecord(body.context);
-  const url =
+  const url = replayUrl(
     replayString(body.url) ||
-    replayString(properties.url) ||
-    replayString(context.url);
+      replayString(properties.url) ||
+      replayString(context.url),
+  );
   const parts = normalizeReplayUrl(url);
   const signals = deriveReplaySignals({
     body,
@@ -1264,10 +1272,11 @@ export function parseSessionReplayIngestPayload(
     path:
       parts.path || replayString(body.path) || replayString(properties.path),
     hostname,
-    referrer:
+    referrer: replayUrl(
       replayString(body.referrer) ||
-      replayString(properties.referrer) ||
-      replayString(context.referrer),
+        replayString(properties.referrer) ||
+        replayString(context.referrer),
+    ),
     app,
     template,
     pageCount: signals.pageCount,
