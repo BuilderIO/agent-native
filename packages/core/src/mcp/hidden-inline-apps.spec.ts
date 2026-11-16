@@ -43,7 +43,7 @@ beforeAll(async () => {
 
 describe("explicit connector inline apps", () => {
   it(
-    "advertises each inline tool on the default production catalog with its UI resource",
+    "advertises each inline tool on the default production catalog, with a UI resource only for a scoped widget target",
     async () => {
       vi.stubEnv("AGENT_MODE", "production");
       vi.stubEnv("AGENT_PROD_CODE_EXECUTION", "off");
@@ -59,17 +59,23 @@ describe("explicit connector inline apps", () => {
             fullSurface: false,
             inlineMcpApps: true,
           });
-          // Outside a directory listing an embedApp card opens the full app
-          // when the app declares no scoped widget target for it.
-          // oracle-change(packages/core/src/mcp/__snapshots__/hidden-inline-apps.spec.ts.snap): every inline tool now carries its UI resource outside a directory listing.
+          // An embedApp card needs an embed session scoped to one target, so
+          // it is offered only when the app declares a widget target for it.
+          const widgetTargets = config.directoryProfile?.widgetTargets ?? {};
           catalogs[app.appId] = INLINE_ACTIONS[app.appId]!.map((name) => {
             const tool = tools.find((candidate) => candidate.name === name);
-            // oracle-change: every inline tool now carries its UI resource outside a directory listing, so the scoped-target branch is gone.
             expect(tool, `${app.appId}/${name}`).toBeDefined();
-            // oracle-change: every inline tool now carries its UI resource outside a directory listing, so the scoped-target branch is gone.
-            expect(tool?._meta?.ui, `${app.appId}/${name}`).toMatchObject({
-              resourceUri: expect.stringMatching(/^ui:\/\//),
-            });
+            if (Object.hasOwn(widgetTargets, name)) {
+              expect(tool?._meta?.ui, `${app.appId}/${name}`).toMatchObject({
+                resourceUri: expect.stringMatching(/^ui:\/\//),
+              });
+            } else {
+              expect(
+                (tool?._meta?.ui as { resourceUri?: unknown } | undefined)
+                  ?.resourceUri,
+                `${app.appId}/${name}`,
+              ).toBeUndefined();
+            }
             return tool;
           });
         }

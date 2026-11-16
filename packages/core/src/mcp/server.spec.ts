@@ -348,8 +348,7 @@ const embedSessionMocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("../server/embed-session.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../server/embed-session.js")>()),
+vi.mock("../server/embed-session.js", () => ({
   createEmbedSessionTicket: embedSessionMocks.createEmbedSessionTicket,
   readMcpDirectoryWidgetRenewalTicket:
     embedSessionMocks.readMcpDirectoryWidgetRenewalTicket,
@@ -11489,14 +11488,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       return { run, serverConfig };
     }
 
-    // oracle-change: outside a directory listing an embed tool now mounts the
-    // full app in the host side panel instead of falling back to a link.
     it.each([
-      ["view-screen", "embedStartUrl", "previous-ticket"],
-      ["unsupported-card", "startUrl", "minted-picker-ticket"],
+      ["view-screen", "embedStartUrl"],
+      ["unsupported-card", "startUrl"],
     ])(
-      "mounts the full app for %s, whose %s result keeps or mints a session",
-      async (name, ticketField, expectedTicket) => {
+      "uses a full-app link for unsupported %s and strips %s",
+      async (name, ticketField) => {
         const { run, serverConfig } = unsupportedCardConfig(name, ticketField);
         const headers = await mcpAppsAuthHeaders();
         const rpc = (
@@ -11509,76 +11506,40 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             { config: serverConfig, headers },
           );
         const listed = await rpc(220, "tools/list", {});
+        expect(listed.result.tools.map((tool: any) => tool.name)).toContain(
+          name,
+        );
         const descriptor = listed.result.tools.find(
           (tool: any) => tool.name === name,
         );
-        expect(descriptor._meta?.ui?.resourceUri).toBe(
-          `ui://mail/${name}/shell-v65`,
-        );
+        expect(descriptor._meta?.ui?.resourceUri).toBeUndefined();
+        expect(descriptor._meta?.["openai/outputTemplate"]).toBeUndefined();
         const resources = await rpc(221, "resources/list", {});
-        expect(
-          resources.result.resources.map((resource: any) => resource.uri),
-        ).toContain(`ui://mail/${name}/shell-v65`);
+        expect(resources.result.resources).toEqual([]);
+        const read = await rpc(222, "resources/read", {
+          uri: `ui://mail/${name}/shell-v65`,
+        });
+        expect(read.error?.message).toContain("MCP App resource not found");
         const called = await rpc(223, "tools/call", { name, arguments: {} });
         expect(called.result.isError).not.toBe(true);
-        expect(
-          called.result._meta["agent-native/embedStart"].startUrl,
-        ).toContain(`ticket=${expectedTicket}`);
-        if (ticketField === "startUrl") {
-          expect(
-            embedSessionMocks.createEmbedSessionTicket,
-          ).toHaveBeenCalledWith(
-            expect.objectContaining({
-              ownerEmail: "oauth@example.com",
-              targetPath: "/documents/doc-1?__an_mcp_chat_bridge=1",
-              scope: null,
-            }),
-          );
-          expect(JSON.stringify(called.result)).not.toContain(
-            "previous-ticket",
-          );
-        } else {
-          expect(
-            embedSessionMocks.createEmbedSessionTicket,
-          ).not.toHaveBeenCalled();
-        }
-        expect(run).toHaveBeenCalledOnce();
-      },
-    );
-
-    it("falls back to a full-app link when the full-app session cannot be minted", async () => {
-      const { run, serverConfig } = unsupportedCardConfig(
-        "unsupported-card",
-        "startUrl",
-      );
-      embedSessionMocks.createEmbedSessionTicket.mockRejectedValueOnce(
-        new Error("ticket store unavailable"),
-      );
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      try {
-        const called = await callWeb(
-          {
-            jsonrpc: "2.0",
-            id: 226,
-            method: "tools/call",
-            params: { name: "unsupported-card", arguments: {} },
-          },
-          { config: serverConfig, headers: await mcpAppsAuthHeaders() },
-        );
-        expect(called.result.isError).not.toBe(true);
-        expect(called.result._meta["agent-native/embedStart"]).toBeUndefined();
+        expect(called.result.structuredContent).toMatchObject({
+          id: "doc-1",
+          path: "/documents/doc-1",
+        });
+        if (ticketField !== "url")
+          expect(called.result.structuredContent.url).toBe("/documents/doc-1");
         expect(called.result._meta["agent-native/openLink"].webUrl).toBe(
           "https://mail.agent-native.com/documents/doc-1",
         );
+        expect(called.result._meta["agent-native/embedStart"]).toBeUndefined();
+        expect(called.result._meta["openai/outputTemplate"]).toBeUndefined();
         expect(JSON.stringify(called.result)).not.toContain("previous-ticket");
-        expect(warn).toHaveBeenCalledWith(
-          expect.stringContaining("could not mint a full-app session"),
-        );
+        expect(
+          embedSessionMocks.createEmbedSessionTicket,
+        ).not.toHaveBeenCalled();
         expect(run).toHaveBeenCalledOnce();
-      } finally {
-        warn.mockRestore();
-      }
-    });
+      },
+    );
 
     // oracle-change: main excludes context runtime tools before link fallback;
     // retain that denial instead of restoring their previous MCP exposure.

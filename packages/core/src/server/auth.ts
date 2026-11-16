@@ -136,7 +136,6 @@ import {
   MCP_DIRECTORY_ROUTE_PREFIX,
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
-  isMcpPageNavigation,
   isMcpProtocolPath,
 } from "../mcp/route-paths.js";
 import {
@@ -4443,12 +4442,9 @@ function createAuthGuardFn(
     }
 
     if (
-      (isMcpProtocolPath(p) ||
-        p === `${MCP_PUBLIC_ROUTE_PREFIX}/` ||
-        p === `${MCP_LEGACY_ROUTE_PREFIX}/`) &&
-      !isMcpPageNavigation(p, getMethod(event), (name) =>
-        getHeader(event, name),
-      )
+      isMcpProtocolPath(p) ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/` ||
+      p === `${MCP_LEGACY_ROUTE_PREFIX}/`
     ) {
       return;
     }

@@ -188,15 +188,14 @@ function mentionsTool(text: string, name: string): boolean {
 
 describe("ChatGPT directory template profiles", () => {
   it.each(
-    // oracle-change: outside a directory listing these tools now mount the
-    // full app; server.spec covers that path.
     [{ appId: "slides", profile: slidesProfile }].flatMap((template) =>
-      [{ mode: "directory", catalogMode: "directory" as const }].map(
-        (mode) => ({
-          ...template,
-          ...mode,
-        }),
-      ),
+      [
+        { mode: "generic", catalogMode: undefined },
+        { mode: "directory", catalogMode: "directory" as const },
+      ].map((mode) => ({
+        ...template,
+        ...mode,
+      })),
     ),
   )(
     "$appId create/add return full-app links without UI resources or tickets in $mode mode",
