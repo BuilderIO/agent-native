@@ -9,7 +9,6 @@ import { readAppSecret, writeAppSecret } from "../secrets/storage.js";
 import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { getRequestContext } from "../server/request-context.js";
 
-const TABLE = "integration_user_grants";
 const MAX = Number.MAX_SAFE_INTEGER;
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/);
 const provider = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/);
@@ -89,7 +88,9 @@ export const userIntegrationGrantsStore = defineStore({
       org_id TEXT, provider TEXT NOT NULL, team_id TEXT NOT NULL, api_app_id TEXT NOT NULL,
       external_user_id TEXT NOT NULL, generation BIGINT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('pending','connected','revoked')),
-      operation_id TEXT NOT NULL, operations_json TEXT NOT NULL, token_secret_key TEXT,
+      operation_id TEXT NOT NULL, operations_json TEXT NOT NULL,
+      -- guard:allow-plaintext-secret-column — holds only the app_secrets key name; the bundle lives in the vault.
+      token_secret_key TEXT,
       scopes_json TEXT NOT NULL, expires_at BIGINT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
     )`,
         `CREATE INDEX IF NOT EXISTS idx_integration_user_grants_actor ON integration_user_grants(owner_auth_user_id, org_id)`,
@@ -138,7 +139,7 @@ async function actor(): Promise<Actor> {
     try {
       if (await readOrgMemberRole(a.orgId, a.email)) return a;
     } catch {
-      /* fail closed */
+      // coercion-ok: an unreadable membership falls through to the Unavailable throw below.
     }
     throw new UserIntegrationGrantUnavailableError();
   }
@@ -251,7 +252,7 @@ function decode(raw: Record<string, unknown>): Row {
       r.operations.some(
         (o, i) =>
           o.generation > r.generation ||
-          (i > 0 && o.generation <= r.operations[i - 1].generation),
+          (i > 0 && o.generation <= (r.operations[i - 1]?.generation ?? MAX)),
       ) ||
       r.operations.at(-1)?.id !== r.operationId ||
       r.operations.at(-1)?.generation !==
@@ -267,15 +268,15 @@ function decode(raw: Record<string, unknown>): Row {
     throw new UserIntegrationGrantUnavailableError();
   }
 }
+// Every statement scopes the row with `id`, `owner_auth_user_id` and
+// `org_id IS NOT DISTINCT FROM`, bound in that order.
 const argsFor = (a: Actor, value: string) => [value, a.principal, a.orgId];
-const WHERE =
-  "id = ? AND owner_auth_user_id = ? AND org_id IS NOT DISTINCT FROM ?";
 async function load(a: Actor, value: string): Promise<Row | null> {
   if (!grantId.safeParse(value).success) return null;
   try {
     await ensureUserIntegrationGrantsTable();
     const { rows } = await getDbExec().execute({
-      sql: `SELECT * FROM ${TABLE} WHERE ${WHERE}`,
+      sql: "SELECT * FROM integration_user_grants WHERE id = ? AND owner_auth_user_id = ? AND org_id IS NOT DISTINCT FROM ?",
       args: argsFor(a, value),
     });
     return rows[0] ? decode(rows[0] as Record<string, unknown>) : null;
@@ -318,7 +319,7 @@ export async function beginUserIntegrationGrant(
     try {
       const result = previous
         ? await getDbExec().execute({
-            sql: `UPDATE ${TABLE} SET generation = ?, status = 'pending', operation_id = ?, operations_json = ?, token_secret_key = NULL, scopes_json = '[]', expires_at = NULL, updated_at = ? WHERE ${WHERE} AND generation = ?`,
+            sql: `UPDATE integration_user_grants SET generation = ?, status = 'pending', operation_id = ?, operations_json = ?, token_secret_key = NULL, scopes_json = '[]', expires_at = NULL, updated_at = ? WHERE id = ? AND owner_auth_user_id = ? AND org_id IS NOT DISTINCT FROM ? AND generation = ?`,
             args: [
               generation,
               t.operationId,
@@ -329,7 +330,7 @@ export async function beginUserIntegrationGrant(
             ],
           })
         : await getDbExec().execute({
-            sql: `INSERT INTO ${TABLE} (id, owner_auth_user_id, owner_email, org_id, provider, team_id, api_app_id, external_user_id, generation, status, operation_id, operations_json, scopes_json, created_at, updated_at)
+            sql: `INSERT INTO integration_user_grants (id, owner_auth_user_id, owner_email, org_id, provider, team_id, api_app_id, external_user_id, generation, status, operation_id, operations_json, scopes_json, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, '[]', ?, ?) ON CONFLICT (id) DO NOTHING`,
             args: [
               value,
@@ -379,25 +380,37 @@ function currentAttempt(r: Row, attempt: UserIntegrationGrantAttempt) {
     r.generation === attempt.generation && r.operationId === attempt.operationId
   );
 }
+/**
+ * Null means the stored bundle is missing or no longer matches its grant row,
+ * which reconnecting fixes. A vault that cannot be read throws instead, so a
+ * transient outage never reads as "not connected".
+ */
 async function readBundle(r: Row): Promise<UserIntegrationGrantBundle | null> {
   if (!r.secretKey) return null;
+  let secret: Awaited<ReturnType<typeof readAppSecret>>;
   try {
-    const secret = await readAppSecret({
+    secret = await readAppSecret({
       key: r.secretKey,
       scope: "user",
       scopeId: r.email,
     });
-    if (!secret) return null;
-    const b = canonicalBundle(JSON.parse(secret.value));
-    if (
-      (b.expiresAt ?? null) !== r.expiresAt ||
-      JSON.stringify(b.scopes) !== JSON.stringify(r.scopes)
-    )
-      return null;
-    return b;
   } catch {
+    throw new UserIntegrationGrantUnavailableError();
+  }
+  if (!secret) return null;
+  let b: UserIntegrationGrantBundle;
+  try {
+    b = canonicalBundle(JSON.parse(secret.value));
+  } catch {
+    // coercion-ok: a malformed stored bundle is unusable and the remedy is to reconnect; the payload is never echoed.
     return null;
   }
+  if (
+    (b.expiresAt ?? null) !== r.expiresAt ||
+    JSON.stringify(b.scopes) !== JSON.stringify(r.scopes)
+  )
+    return null;
+  return b;
 }
 async function completedDuplicate(
   a: Actor,
@@ -458,7 +471,7 @@ export async function completeUserIntegrationGrant(
   let outcomeUnknown = false;
   try {
     await getDbExec().execute({
-      sql: `UPDATE ${TABLE} SET status = 'connected', token_secret_key = ?, scopes_json = ?, expires_at = ?, updated_at = ? WHERE ${WHERE} AND generation = ? AND operation_id = ? AND status = 'pending' AND owner_email = ?`,
+      sql: `UPDATE integration_user_grants SET status = 'connected', token_secret_key = ?, scopes_json = ?, expires_at = ?, updated_at = ? WHERE id = ? AND owner_auth_user_id = ? AND org_id IS NOT DISTINCT FROM ? AND generation = ? AND operation_id = ? AND status = 'pending' AND owner_email = ?`,
       args: [
         secretKey,
         JSON.stringify(b.scopes),
@@ -493,36 +506,38 @@ export async function completeUserIntegrationGrant(
   return completedDuplicate(a, read, attempt, b);
 }
 
-/** Resolve transiently, with a fresh authorization and generation check after the vault read. */
+/**
+ * Resolve transiently, with a fresh authorization and generation check after
+ * the vault read. Null means there is no usable grant (absent, another
+ * owner's, pending, revoked, expired, superseded during the read, or a
+ * malformed bundle). A database or vault that cannot be read, or a corrupted
+ * grant row, throws `UserIntegrationGrantUnavailableError`.
+ */
 export async function resolveUserIntegrationGrant(
   value: string,
 ): Promise<UserIntegrationGrantBundle | null> {
   const a = await actor();
-  try {
-    const r = await load(a, value);
-    if (
-      !r ||
-      r.status !== "connected" ||
-      !r.secretKey ||
-      (r.expiresAt !== null && r.expiresAt <= Date.now())
-    )
-      return null;
-    const b = await readBundle(r);
-    if (!b) return null;
-    const after = await load(await actor(), value);
-    if (
-      !after ||
-      after.status !== "connected" ||
-      after.generation !== r.generation ||
-      after.secretKey !== r.secretKey ||
-      after.email !== r.email ||
-      (after.expiresAt !== null && after.expiresAt <= Date.now())
-    )
-      return null;
-    return b;
-  } catch {
+  const r = await load(a, value);
+  if (
+    !r ||
+    r.status !== "connected" ||
+    !r.secretKey ||
+    (r.expiresAt !== null && r.expiresAt <= Date.now())
+  )
     return null;
-  }
+  const b = await readBundle(r);
+  if (!b) return null;
+  const after = await load(await actor(), value);
+  if (
+    !after ||
+    after.status !== "connected" ||
+    after.generation !== r.generation ||
+    after.secretKey !== r.secretKey ||
+    after.email !== r.email ||
+    (after.expiresAt !== null && after.expiresAt <= Date.now())
+  )
+    return null;
+  return b;
 }
 
 /** Local revocation only: never calls a provider or deletes historical vault entries. */
@@ -539,7 +554,7 @@ export async function revokeUserIntegrationGrant(
     let unknown = false;
     try {
       const result = await getDbExec().execute({
-        sql: `UPDATE ${TABLE} SET generation = ?, status = 'revoked', token_secret_key = NULL, scopes_json = '[]', expires_at = NULL, updated_at = ? WHERE ${WHERE} AND generation = ?`,
+        sql: `UPDATE integration_user_grants SET generation = ?, status = 'revoked', token_secret_key = NULL, scopes_json = '[]', expires_at = NULL, updated_at = ? WHERE id = ? AND owner_auth_user_id = ? AND org_id IS NOT DISTINCT FROM ? AND generation = ?`,
         args: [generation, Date.now(), ...argsFor(a, value), r.generation],
       });
       if (!result.rowsAffected) continue;
@@ -556,7 +571,7 @@ export async function revokeUserIntegrationGrant(
       )
         return safe(after);
     } catch {
-      /* unknown */
+      // coercion-ok: an unreadable read-back falls through to the UnknownOutcome throw below.
     }
     if (unknown) throw new UserIntegrationGrantUnknownOutcomeError();
     throw new UserIntegrationGrantUnknownOutcomeError();

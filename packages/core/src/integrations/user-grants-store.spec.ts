@@ -143,6 +143,7 @@ let fetchSpy: any;
 const resetHooks = () => {
   state.hooks = {};
 };
+// raw-sql-ok: test helper; every caller passes a fixed literal statement with bound args.
 const sql = (text: string, params: unknown[] = []): Promise<any[]> =>
   state.exec.execute({ sql: text, args: params }).then((r: any) => r.rows);
 const rowOf = async (grantId: string) =>
@@ -627,6 +628,8 @@ describe("user integration grant store (acceptance)", () => {
         [1, "org-1", "same@example.test"],
       );
     };
-    expect(await resolve(A, attempt.grantId)).toBeNull();
+    await expect(resolve(A, attempt.grantId)).rejects.toBeInstanceOf(
+      UserIntegrationGrantUnavailableError,
+    );
   });
 });

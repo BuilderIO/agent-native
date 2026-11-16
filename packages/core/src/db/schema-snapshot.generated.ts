@@ -1117,7 +1117,7 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     ["integration_configs", "baseline", null],
     ["integration_controls", "baseline", null],
     ["integration_installations", "baseline", null],
-    ["integration_user_grants", "baseline", "1bca5aaae54dcd7d"],
+    ["integration_user_grants", "baseline", "30431cda7738c73b"],
     ["mcp_approvals", "baseline", null],
     ["mcp_approvals", "review-page-columns", "5219a7b9642c4847"],
     ["mcp_connect", "baseline", null],

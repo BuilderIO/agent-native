@@ -187,7 +187,9 @@ describe("personal grant encrypted-vault lifecycle", () => {
         await expect(
           getUserIntegrationGrant(attempt.grantId),
         ).rejects.toBeInstanceOf(UserIntegrationGrantUnavailableError);
-        expect(await resolveUserIntegrationGrant(attempt.grantId)).toBeNull();
+        await expect(
+          resolveUserIntegrationGrant(attempt.grantId),
+        ).rejects.toBeInstanceOf(UserIntegrationGrantUnavailableError);
         await pg.query(
           `UPDATE integration_user_grants SET ${column} = ? WHERE id = ?`,
           [original[column], attempt.grantId],
