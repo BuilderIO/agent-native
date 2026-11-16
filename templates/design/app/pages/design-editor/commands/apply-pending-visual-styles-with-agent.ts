@@ -57,6 +57,7 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   pendingVisualStyleEdits: PendingVisualStyleEdit[];
   pendingVisualStylePrompt: string;
   hasPendingTweakChanges?: boolean;
+  onHandoffDelivered?: () => void;
   allowPromptOnly?: boolean;
   setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setApplyingViaHost: Dispatch<SetStateAction<boolean>>;
@@ -105,6 +106,7 @@ export async function runApplyPendingVisualStylesWithAgent({
   pendingVisualStyleEdits,
   pendingVisualStylePrompt,
   hasPendingTweakChanges = false,
+  onHandoffDelivered,
   allowPromptOnly = false,
   setActiveLeftPanel,
   setApplyingViaHost,
@@ -186,6 +188,7 @@ export async function runApplyPendingVisualStylesWithAgent({
         }
         return;
       }
+      onHandoffDelivered?.();
       if (delivery.awaitingHostTurn) {
         stagedSourceHandoffRef.current = "awaiting-start";
         setApplyingViaHost(true);
@@ -317,6 +320,7 @@ export async function runApplyPendingVisualStylesWithAgent({
         );
         return;
       }
+      onHandoffDelivered?.();
 
       const screenIds = Array.from(
         new Set(structureEdits.map((edit) => edit.screenId)),

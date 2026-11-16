@@ -197,11 +197,13 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
       delivered: true,
     });
     const setup = argsFor([], new Map());
+    const onHandoffDelivered = vi.fn();
 
     await runApplyPendingVisualStylesWithAgent({
       ...setup.args,
       pendingVisualStylePrompt: tweakPrompt,
       hasPendingTweakChanges: true,
+      onHandoffDelivered,
     });
 
     expect(sendDesignSourceHandoffAndConfirmMock).toHaveBeenCalledWith(
@@ -215,6 +217,7 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     );
     expect(writeClipboardTextMock).not.toHaveBeenCalled();
     expect(setup.clearPendingLiveEditState).toHaveBeenCalledOnce();
+    expect(onHandoffDelivered).toHaveBeenCalledOnce();
   });
 
   it("copies the Apply prompt when no host or agent chat takes it", async () => {
@@ -232,6 +235,25 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     });
 
     expect(writeClipboardTextMock).toHaveBeenCalledExactlyOnceWith(tweakPrompt);
+  });
+
+  it("records the tweak baseline only after confirmed delivery", async () => {
+    const setup = argsFor([], new Map());
+    const onHandoffDelivered = vi.fn();
+    sendDesignSourceHandoffAndConfirmMock.mockResolvedValueOnce({
+      target: "host",
+      delivered: false,
+      reason: "host-rejected",
+    } as never);
+
+    await runApplyPendingVisualStylesWithAgent({
+      ...setup.args,
+      pendingVisualStylePrompt: tweakPrompt,
+      hasPendingTweakChanges: true,
+      onHandoffDelivered,
+    });
+
+    expect(onHandoffDelivered).not.toHaveBeenCalled();
   });
 
   it("hands off a shared prompt without clearing it before source acknowledgement", async () => {

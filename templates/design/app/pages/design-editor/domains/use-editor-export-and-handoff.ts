@@ -170,6 +170,7 @@ export function useEditorExportAndHandoff({
     designDataJson,
     designSourceType,
     pendingTweakChanges,
+    tweakSelections,
     boardFileId,
     overviewScreens,
     flushPendingFileContentSavesForBackground,
@@ -182,6 +183,7 @@ export function useEditorExportAndHandoff({
     activeOverviewScreenId,
     activeOverviewScreen,
     activeCanvasSourceType,
+    enqueueFrameGeometryDataSave,
   } = editorActiveScreenAndGeometry;
   const {
     exportPreviewScreenIdRef,
@@ -527,6 +529,16 @@ export function useEditorExportAndHandoff({
             : pendingVisualStylePrompt,
         hasPendingTweakChanges: pendingTweakChanges.length > 0,
         allowPromptOnly: promptOverride !== undefined,
+        onHandoffDelivered: () => {
+          if (!id) return;
+          enqueueFrameGeometryDataSave([
+            {
+              op: "set",
+              path: ["tweakSourceBaseline"],
+              value: tweakSelections,
+            },
+          ]);
+        },
         setActiveLeftPanel,
         setApplyingViaHost,
         setPendingAgentHandoffBusy,
@@ -548,6 +560,8 @@ export function useEditorExportAndHandoff({
       pendingStructureVerificationStatus,
       pendingVisualStyleEdits,
       pendingVisualStylePrompt,
+      enqueueFrameGeometryDataSave,
+      tweakSelections,
       t,
     ],
   );
