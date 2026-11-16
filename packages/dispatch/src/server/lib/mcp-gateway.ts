@@ -618,6 +618,28 @@ function appBaseUrl(app: DispatchMcpAccessibleApp): string {
   return app.url.replace(/\/+$/, "");
 }
 
+// The owner-bound bearer for a cross-app session goes to this endpoint, so it
+// must not travel over plain HTTP beyond the developer's own machine.
+function targetEndpointKeepsCredentialsPrivate(
+  app: DispatchMcpAccessibleApp,
+): boolean {
+  try {
+    const url = new URL(app.mcpUrl ?? app.url);
+    if (url.protocol === "https:") return true;
+    const host = url.hostname.replace(/^\[|\]$/g, "");
+    return (
+      url.protocol === "http:" &&
+      (host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "::1" ||
+        host.endsWith(".localhost"))
+    );
+    // coercion-ok: an unparsable endpoint is not one to send a bearer to; the caller skips the session and warns.
+  } catch {
+    return false;
+  }
+}
+
 function appHomeBaseUrl(app: DispatchMcpAccessibleApp): string {
   const configured = app.homeUrl?.trim();
   if (configured) {
@@ -1146,7 +1168,11 @@ export async function openGrantedDispatchMcpApp(input: {
   let embedSession: Awaited<
     ReturnType<typeof createGrantedDispatchMcpEmbedSession>
   > | null = null;
-  if (input.embed) {
+  if (input.embed && !targetEndpointKeepsCredentialsPrivate(target)) {
+    console.warn(
+      `[dispatch] Not pre-minting an MCP embed session for ${target.id}: its endpoint is plain HTTP.`,
+    );
+  } else if (input.embed) {
     try {
       embedSession = await createEmbedSessionForResolvedGrantedApp({
         app: target.id,

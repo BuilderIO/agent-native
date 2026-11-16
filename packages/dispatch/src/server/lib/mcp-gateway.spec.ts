@@ -1701,6 +1701,32 @@ describe("openGrantedDispatchMcpApp", () => {
     warnSpy.mockRestore();
   });
 
+  it("pre-mints no session for a target whose endpoint is plain HTTP off this machine", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "http://analytics.example.test" },
+    ]);
+    mocks.managerCallTool.mockClear();
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "analytics",
+          path: "/dashboards",
+          embed: true,
+        }),
+    );
+
+    expect(mocks.managerCallTool).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty("embedStartUrl");
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
   it("rejects Dispatch-owned extension routes on sibling apps", async () => {
     await expect(
       runWithRequestContext(

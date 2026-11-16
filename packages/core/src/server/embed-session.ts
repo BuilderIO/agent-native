@@ -952,11 +952,12 @@ export function fullAppEmbedAllowsRequest(
 ): boolean {
   // A dot segment or backslash could step from an allowed path to a denied one.
   if (/(^|\/)\.\.?(\/|$)|\\|%2e|%2f|%5c/i.test(pathname)) return false;
-  if (FULL_APP_DENIED_PREFIXES.some((prefix) => underPrefix(pathname, prefix)))
+  const route = pathname.replace(/\/+$/, "") || "/";
+  if (FULL_APP_DENIED_PREFIXES.some((prefix) => underPrefix(route, prefix)))
     return false;
   if (
-    FULL_APP_READ_ONLY_PATHS.includes(pathname) ||
-    FULL_APP_READ_ONLY_PREFIXES.some((prefix) => underPrefix(pathname, prefix))
+    FULL_APP_READ_ONLY_PATHS.includes(route) ||
+    FULL_APP_READ_ONLY_PREFIXES.some((prefix) => underPrefix(route, prefix))
   )
     return method === "GET" || method === "HEAD";
   return true;
