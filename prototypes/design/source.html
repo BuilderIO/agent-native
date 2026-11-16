@@ -93,8 +93,8 @@ __KIT_HEAD__
 /* ───────── review strip ───────── */
 
 /* ───────── app shell ───────── */
-.app { --panel-w: 360px; height: calc(100% - 36px); display: grid; grid-template-columns: 56px var(--panel-w) minmax(0, 1fr) 240px; grid-template-rows: 48px minmax(0, 1fr); }
-.app.no-panel { grid-template-columns: 56px 0 minmax(0, 1fr) 240px; }
+.app { --panel-w: 320px; height: calc(100% - 36px); display: grid; grid-template-columns: 56px var(--panel-w) minmax(0, 1fr) var(--insp-w, 280px); grid-template-rows: 48px minmax(0, 1fr); }
+.app.no-panel { grid-template-columns: 56px 0 minmax(0, 1fr) var(--insp-w, 280px); }
 .app.no-inspector { grid-template-columns: 56px var(--panel-w) minmax(0, 1fr) 0; }
 .app.no-panel.no-inspector { grid-template-columns: 56px 0 minmax(0, 1fr) 0; }
 
@@ -122,7 +122,7 @@ __KIT_HEAD__
 /* left file panel */
 .panel { grid-row: 1 / 3; grid-column: 2; border-right: 1px solid var(--color-border); display: flex; flex-direction: column; min-width: 0; overflow: hidden; background: var(--color-background); }
 .no-panel .panel { border-right: 0; }
-/* Resize handle on the panel's right edge, like DesignEditor's col-resize strip. Widths snap to the 8pt grid: 360px by default, 320px to 416px. */
+/* Resize handle on the panel's right edge, like DesignEditor's col-resize strip. Widths snap to the 8pt grid: 320px by default, 320px to 416px. */
 .panel { position: relative; }
 .panel-resize { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; z-index: 6; }
 .panel-resize::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px; background: transparent; transition: background .12s; }
@@ -1013,7 +1013,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --isl-shadow: var(--isl-ring), 0 6px 20px rgb(0 0 0 / 40%); --agent: hsl(262 85% 72%); --agent-soft: hsl(262 85% 72% / 14%); --primary: 0 0% 96%; --primary-foreground: 0 0% 9%; } }
 :root[data-theme="dark"] { --isl-shadow: var(--isl-ring), 0 6px 20px rgb(0 0 0 / 40%); --agent: hsl(262 85% 72%); --agent-soft: hsl(262 85% 72% / 14%); --primary: 0 0% 96%; --primary-foreground: 0 0% 9%; }
 
-.app { display: block; position: relative; --occ-l: 312px; --occ-r: 256px; }
+.app { display: block; position: relative; --insp-w: 280px; --occ-l: 312px; --occ-r: 296px; }
 .app .rail, .app .topbar { display: none !important; }
 .app .canvas { position: absolute; inset: 0; }
 /* The dot grid scrolls with the frame (attachment: local) and stays off in Interact, where the page is the whole window. */
@@ -1042,7 +1042,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .app.no-panel .pill-branch { display: contents; }
 
 /* right island: presence and Share, then the inspector */
-.isl-r { position: absolute; z-index: 7; top: 8px; right: 8px; bottom: 8px; width: 240px; border-radius: 12px; background: var(--color-background); box-shadow: var(--isl-shadow); display: flex; flex-direction: column; overflow: hidden; }
+.isl-r { position: absolute; z-index: 7; top: 8px; right: 8px; bottom: 8px; width: var(--insp-w); border-radius: 12px; background: var(--color-background); box-shadow: var(--isl-shadow); display: flex; flex-direction: column; overflow: hidden; }
 .isl-head { height: 48px; flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 16px; border-bottom: 1px solid var(--color-border); }
 .isl-head .grow { flex: 1; }
 .app .insp { border: 0; flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -2168,7 +2168,7 @@ body {
 .app .fbar[hidden] { display: none; }
 
 /* top bar right: the inspector column's width, search and comments at its start, people and Share at its end */
-.app.gbar-on #insp-head { box-sizing: border-box; width: 240px; min-width: 240px; padding-left: 8px; }
+.app.gbar-on #insp-head { box-sizing: border-box; width: var(--insp-w); min-width: var(--insp-w); padding-left: 8px; }
 .gbar #insp-head .stack { margin-inline: 0 4px; }
 /* The stack is one button: you are last and on top, and it opens the people menu. */
 .stack.ppl { height: 28px; padding: 0 2px; margin-right: 8px; border-radius: 8px; }
@@ -2823,7 +2823,7 @@ body { --rx-ring-aa: #828282; --rx-ring: rgba(0,0,0,.085); --rx-lift: 0 1px 1px 
     <div class="agents" id="agents" hidden></div>
     <div class="agents" id="comments" hidden></div>
     <div class="agents" id="tokens" hidden></div>
-    <div class="panel-resize" id="panel-resize" role="separator" aria-orientation="vertical" aria-label="Resize panel" aria-valuemin="320" aria-valuemax="416" aria-valuenow="360" tabindex="0" title="Drag to resize · double-click to reset"></div>
+    <div class="panel-resize" id="panel-resize" role="separator" aria-orientation="vertical" aria-label="Resize panel" aria-valuemin="320" aria-valuemax="416" aria-valuenow="320" tabindex="0" title="Drag to resize · double-click to reset"></div>
   </aside>
 
   <header class="topbar" id="topbar"></header>
@@ -4516,10 +4516,11 @@ document.addEventListener("keydown", e => {
 });
 
 /* panel resize: every width lands on the 8pt grid. 416 is the grid value under today's 420 cap. */
-// The floor is the agent sidebar's 320px, as in the app: a narrower column clips the chat and the Library tab.
-const PANEL_MIN = 320, PANEL_DEFAULT = 360, PANEL_MAX = 416, GRID = 8;
-function setPanelW(w) { w = Math.max(PANEL_MIN, Math.min(PANEL_MAX, Math.round(w / GRID) * GRID)); app.style.setProperty("--panel-w", w + "px"); $("#panel-resize").setAttribute("aria-valuenow", w); try { localStorage.setItem("des-panel-w2", w); } catch {} requestAnimationFrame(renderPins); }
-try { const w = +localStorage.getItem("des-panel-w2"); if (w) setPanelW(w); } catch {}
+// The floor is the agent sidebar's 320px, as in the app: a narrower column clips the chat and the Library tab. The
+// panel opens at that floor and the inspector at 280px, so the two columns weigh about the same around the canvas.
+const PANEL_MIN = 320, PANEL_DEFAULT = 320, PANEL_MAX = 416, GRID = 8;
+function setPanelW(w) { w = Math.max(PANEL_MIN, Math.min(PANEL_MAX, Math.round(w / GRID) * GRID)); app.style.setProperty("--panel-w", w + "px"); $("#panel-resize").setAttribute("aria-valuenow", w); try { localStorage.setItem("des-panel-w3", w); } catch {} requestAnimationFrame(renderPins); }
+try { const w = +localStorage.getItem("des-panel-w3"); if (w) setPanelW(w); } catch {}
 (() => {
   const h = $("#panel-resize");
   h.addEventListener("pointerdown", e => {
@@ -4531,6 +4532,24 @@ try { const w = +localStorage.getItem("des-panel-w2"); if (w) setPanelW(w); } ca
   });
   h.addEventListener("dblclick", () => setPanelW(PANEL_DEFAULT));
   h.addEventListener("keydown", e => { const cur = +h.getAttribute("aria-valuenow"); if (e.key === "ArrowLeft") { e.preventDefault(); setPanelW(cur - (e.shiftKey ? 40 : 8)); } if (e.key === "ArrowRight") { e.preventDefault(); setPanelW(cur + (e.shiftKey ? 40 : 8)); } });
+})();
+/* inspector resize: the same 8pt steps from 240px to 400px, dragged from its inner edge or with the arrow keys. */
+const INSP_MIN = 240, INSP_DEFAULT = 280, INSP_MAX = 400;
+function inspW() { return parseInt(getComputedStyle(app).getPropertyValue("--insp-w")) || INSP_DEFAULT; }
+$(".isl-r").insertAdjacentHTML("beforeend", `<div class="panel-resize insp-resize" id="insp-resize" role="separator" aria-orientation="vertical" aria-label="Resize inspector" aria-valuemin="${INSP_MIN}" aria-valuemax="${INSP_MAX}" aria-valuenow="${INSP_DEFAULT}" tabindex="0" data-tip="Drag to resize, double-click to reset"></div>`);
+function setInspW(w) { w = Math.max(INSP_MIN, Math.min(INSP_MAX, Math.round(w / GRID) * GRID)); app.style.setProperty("--insp-w", w + "px"); $("#insp-resize").setAttribute("aria-valuenow", w); try { localStorage.setItem("des-insp-w", w); } catch {} if (typeof islandsChanged === "function") requestAnimationFrame(islandsChanged); requestAnimationFrame(renderPins); }
+try { const w = +localStorage.getItem("des-insp-w"); if (w) setInspW(w); } catch {}
+(() => {
+  const h = $("#insp-resize");
+  h.addEventListener("pointerdown", e => {
+    e.preventDefault(); h.setPointerCapture(e.pointerId); h.classList.add("drag"); document.body.classList.add("resizing");
+    const right = $(".isl-r").getBoundingClientRect().right;
+    const move = ev => setInspW(right - ev.clientX);
+    const up = () => { h.classList.remove("drag"); document.body.classList.remove("resizing"); h.removeEventListener("pointermove", move); h.removeEventListener("pointerup", up); };
+    h.addEventListener("pointermove", move); h.addEventListener("pointerup", up);
+  });
+  h.addEventListener("dblclick", () => setInspW(INSP_DEFAULT));
+  h.addEventListener("keydown", e => { const cur = +h.getAttribute("aria-valuenow"), step = e.shiftKey ? 40 : 8; if (e.key === "ArrowLeft") { e.preventDefault(); setInspW(cur + step); } if (e.key === "ArrowRight") { e.preventDefault(); setInspW(cur - step); } });
 })();
 $("#hist-style").addEventListener("change", e => { S.historyStyle = e.target.value; if (H.active && S.historyStyle === "sheet") exitHistory(); });
 $("#scenario-sel").addEventListener("change", e => {
@@ -5827,7 +5846,7 @@ TOOLS.design = [
 ];
 TOOLS.interact = [{ id: "browse", solo: ["hand-stop", "Browse", ""] }, { id: "select", solo: ["pointer", "Select", "V"] }, { id: "comment", solo: ["message-circle", "Comment", "C"] }];
 // Fits the page between the side columns: the left panel at its width, the inspector, and any sidebar beside them.
-function hyFitZoom() { const pw = parseInt(getComputedStyle(document.querySelector(".app") || document.body).getPropertyValue("--panel-w")) || 360, side = document.querySelector(".ws-side:not([hidden])")?.offsetWidth || 0; const avail = innerWidth - side - pw - 72 - 264 - 96; S.zoom = Math.max(25, Math.min(100, Math.floor(avail / 1280 * 100 / 5) * 5)); }
+function hyFitZoom() { const pw = parseInt(getComputedStyle(document.querySelector(".app") || document.body).getPropertyValue("--panel-w")) || 320, side = document.querySelector(".ws-side:not([hidden])")?.offsetWidth || 0; const avail = innerWidth - side - pw - 72 - (inspW() + 24) - 96; S.zoom = Math.max(25, Math.min(100, Math.floor(avail / 1280 * 100 / 5) * 5)); }
 hyFitZoom();
 const MAIN_DESIGN = { ...DESIGN };
 const PLAYFUL_TITLE = `The app framework your <span class="hl">agent</span> can actually use.`;
@@ -5856,7 +5875,7 @@ function layoutIslands() {
   const pw = parseInt(getComputedStyle(app).getPropertyValue("--panel-w")) || 240;
   const toolL = lc ? 8 : 8 + pw + 8, pv = S.mode === "interact";
   app.style.setProperty("--occ-l", pv ? (lc ? 8 : 8 + pw + 8) + "px" : toolL + 40 + 8 + 8 + "px");
-  app.style.setProperty("--occ-r", pv ? "8px" : (rc ? 8 : 8 + 240 + 8) + 8 + "px");
+  app.style.setProperty("--occ-r", pv ? "8px" : (rc ? 8 : 8 + inspW() + 8) + 8 + "px");
   if (app.classList.contains("rc") !== HY.rc) app.classList.toggle("rc", HY.rc);
   const pt = $("#panel-toggle");
   pt.innerHTML = ic(lc ? "layout-sidebar-left-expand" : "layout-sidebar-left-collapse"); pt.title = lc ? "Show file panel  ⌘\\" : "Hide file panel  ⌘\\";
@@ -8103,7 +8122,7 @@ $("#brand-sel").addEventListener("change", e => setBrand(e.target.value));
   const baseLayout = layoutIslands;
   layoutIslands = () => { baseLayout(); const lc = app.classList.contains("no-panel"), pw = parseInt(getComputedStyle(app).getPropertyValue("--panel-w")) || 240, l = lc ? 8 : pw;
     if (S.mode === "interact") { app.style.setProperty("--occ-l", (lc ? 8 : pw + 8) + "px"); app.style.setProperty("--occ-r", "8px"); }
-    else { app.style.setProperty("--occ-l", l + 16 + "px"); app.style.setProperty("--occ-r", 256 + "px"); } };
+    else { app.style.setProperty("--occ-l", l + 16 + "px"); app.style.setProperty("--occ-r", inspW() + 16 + "px"); } };
   requestAnimationFrame(() => { islandsChanged(); render(); });
 }
 
@@ -8470,7 +8489,7 @@ function openWS(id) {
   requestAnimationFrame(() => { $("#canvas").scrollLeft = P.sl; $("#canvas").scrollTop = P.st; });
   wsSide();
 }
-function fitZoomWS(w) { const avail = app.clientWidth - 256 - 256 - 48, wide = Math.max(...w.frames.map(f => f.x + f.w), 560); return Math.max(40, Math.min(100, Math.floor(avail / wide * 100 / 5) * 5)); }
+function fitZoomWS(w) { const avail = app.clientWidth - 256 - (inspW() + 16) - 48, wide = Math.max(...w.frames.map(f => f.x + f.w), 560); return Math.max(40, Math.min(100, Math.floor(avail / wide * 100 / 5) * 5)); }
 function wsLayout() { wsSide(); islandsChanged(); render(); }
 
 /* ───── render: the Clips workspaces draw into the same shell ───── */
@@ -9679,7 +9698,7 @@ requestAnimationFrame(() => { wsSide(); hyFitZoom(); islandsChanged(); render();
     const mp = document.getElementById("min-page"); if (mp) mp.innerHTML = `<span>${screenOf(S.route).screen}</span>${ic("chevron-down", "s12")}`;
   };
   // The frame and toolbar centre in the canvas the islands leave: the full width until the inspector floats in.
-  layoutIslands = (base => function (...a) { sync(); const r = base.apply(this, a); if (on()) app.style.setProperty("--occ-r", HY.minSel ? "256px" : "24px"); return r; })(layoutIslands);
+  layoutIslands = (base => function (...a) { sync(); const r = base.apply(this, a); if (on()) app.style.setProperty("--occ-r", HY.minSel ? inspW() + 16 + "px" : "24px"); return r; })(layoutIslands);
   const chrome = ".gbar, .isl-r, #dock, .menu, .scrim, .tkp, .fpk, .cpk, #cm-layer, .tool-tip, [role=dialog]";
   document.addEventListener("pointerdown", e => {
     if (!on() || e.target.closest?.(chrome)) return;
@@ -9725,13 +9744,14 @@ render();
 
 /* The inspector's columns, the same in every row. The insets are 16px left and 8px right, because the right edge is
    a 24px button whose glyph sits 4.5px inside it: field edge and glyph edge both land 16px from the panel's sides.
-   Two 84px fields at 16-100 and 108-192, or one at 16-192; trailing 24px buttons centred in 32px slots counted from
-   the right (204-228, then 172-196). A field ends 8px before the first trailing slot, so field-to-button is 12px. */
+   Two fields share the width left of the trailing 32px slot, or one spans both; trailing 24px buttons centred in 32px
+   slots counted from the right. A field ends 8px before the first trailing slot, so field-to-button is 12px. The
+   inspector resizes in 8px steps, so the two fields always land on the 4px grid (104px each at the default 280px). */
 #insp .psec, #isl-r .sel-head, #insp .state { padding-inline: 16px 8px; }
-#insp .g5 { grid-template-columns: 84px 8px 84px 8px 32px; }
-#isl-r .sel-head .g:not(:has(.ws-nm)) { grid-template-columns: 152px 64px; }
-#insp .fillrow { grid-template-columns: 152px 32px 32px; }
-#insp .fillrow .inp { width: 144px; }
+#insp .g5 { grid-template-columns: minmax(0, 1fr) 8px minmax(0, 1fr) 8px 32px; }
+#isl-r .sel-head .g:not(:has(.ws-nm)) { grid-template-columns: minmax(0, 1fr) 64px; }
+#insp .fillrow { grid-template-columns: minmax(0, 1fr) 32px 32px; }
+#insp .fillrow .inp { width: calc(100% - 8px); }
 #insp .psec-h .acts .icon-btn { width: 24px; height: 24px; }
 #insp .ex-set { grid-template-columns: 100px 68px 32px; column-gap: 8px; }
 #insp .ex-set > .icon-btn, #insp .ex-set > .ex-sp { justify-self: center; }
@@ -9767,12 +9787,12 @@ render();
 /* Radix Kbd: one keycap holding the whole shortcut, surface fill, a hairline ring with a heavier bottom edge. */
 .kc { min-width: 20px; height: 20px; padding: 0 6px; border: 0; border-radius: 4px; background: var(--rx-surface, var(--color-background)); box-shadow: inset 0 0 0 1px var(--rx-a4), inset 0 -1px 0 1px var(--rx-a5); font: 500 11px/20px var(--font); letter-spacing: .06em; white-space: nowrap; }
 
-/* Without labels the inspector is one grid: fields span 16-224, two to a row (16-116, 124-224) or one across, with
+/* Without labels the inspector is one grid: fields span to 16px from the right edge, two to a row or one across, with
    8px between rows and 16px under each section, so every section is a whole number of 8px lines. Rows that end in
    real actions (Fill's visibility and remove, a responsive rule's remove) keep their 32px slots, glyphs on the 16px
    line. */
 #insp .flabel { display: none; }
-#insp .g5 { grid-template-columns: 100px 8px 100px 0 0; }
+#insp .g5 { grid-template-columns: minmax(0, 1fr) 8px minmax(0, 1fr) 0 8px; }
 #insp .psec-b { padding-bottom: 16px; }
 #insp .state { padding-inline: 16px; }
 
@@ -9781,9 +9801,9 @@ render();
 #insp .psec-h .t { margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0; color: var(--color-foreground); }
 
 /* A row that ends in its property's action (constraints, 3D rotation, aspect lock, independent corners) splits its
-   fields evenly at 16-100 and 108-192, so the action sits in the tool-action column at 204-228 with every other
+   fields the same as every other row, so the action sits in the tool-action column with every other
    row's actions. */
-#insp .g5:has(> .c5) { grid-template-columns: 84px 8px 84px 12px 24px; }
+#insp .g5:has(> .c5) { grid-template-columns: minmax(0, 1fr) 8px minmax(0, 1fr) 12px 24px 4px; }
 
 /* A paint row is one line: swatch, then the value or the bound token's exact name, with visibility and remove in the
    tool-action column. Binding happens from the section's Tokens button. */
@@ -9933,4 +9953,8 @@ render();
 #fbar > .mb .tb-seg { height: 32px; }
 #fbar > .mb .vsep, .app .fbar.ix > .vsep.fb-psep:not(.fb-msep) { display: block; flex: none; width: 8px; height: 20px; margin: 0; background: linear-gradient(var(--color-border), var(--color-border)) center / 1px 20px no-repeat; }
 #fbar > .mb .pv-size { margin: 0; }
+
+/* The inspector's resize handle sits on its inner edge, as the left panel's does on its own. */
+.isl-r .insp-resize { right: auto; left: -3px; }
+.panel-resize:focus-visible::after { background: var(--color-ring); }
 </style>
