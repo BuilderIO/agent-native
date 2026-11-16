@@ -205,7 +205,7 @@ function truncate(value: string, max: number): string {
 
 function currentUrl(): string | undefined {
   try {
-    return scrubUrl(window.location.href);
+    return scrubUrl(window.location.href, { routePath: true });
   } catch {
     return undefined;
   }
@@ -562,7 +562,7 @@ function installNavigationBreadcrumbs(runtime: ErrorCaptureRuntime): void {
     try {
       addErrorBreadcrumb({
         category: "navigation",
-        message: `${navType} ${scrubUrl(window.location.href) ?? window.location.pathname}`,
+        message: `${navType} ${scrubUrl(window.location.href, { routePath: true }) ?? window.location.pathname}`,
       });
     } catch {
       // ignore

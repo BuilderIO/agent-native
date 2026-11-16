@@ -216,6 +216,7 @@
     "./client/lazy-chunk-retry-fallback": "./dist/client/tombstone/lazy-chunk-retry-fallback.js",
     "./client/secrets": "./dist/client/secrets.js",
     "./client/session-replay-privacy": "./dist/client/session-replay-privacy.js",
+    "./client/url-scrub": "./dist/client/url-scrub.js",
     "./client/use-db-sync": "./dist/client/use-db-sync.js",
     "./client/zoom-gesture": "./dist/client/zoom-gesture.js",
     "./client/generation-stream": "./dist/client/generation-stream/index.js",

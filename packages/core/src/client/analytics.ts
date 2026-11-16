@@ -89,7 +89,11 @@ import type {
   SessionReplayOptions,
   SessionReplayStartResult,
 } from "./session-replay.js";
-import { scrubUrl } from "./url-scrub.js";
+import {
+  FIRST_TOUCH_QUERY_FIELDS,
+  routePathname,
+  scrubUrl,
+} from "./url-scrub.js";
 import {
   installWebVitals,
   type PageViewVitals,
@@ -283,20 +287,6 @@ const RETURN_USAGE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 const FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS = 2592000;
 const FIRST_TOUCH_MAX_FIELD_LENGTH = 120;
 const FIRST_TOUCH_MAX_COOKIE_BYTES = 1500;
-const FIRST_TOUCH_QUERY_FIELDS = [
-  "ref",
-  "via",
-  "utm_source",
-  "utm_medium",
-  "utm_campaign",
-  "utm_content",
-  "utm_term",
-  "gclid",
-  "msclkid",
-  "vector_source",
-  "site_referrer",
-  "site_landing_path",
-] as const;
 const FIRST_TOUCH_COOKIE_FIELD_PRIORITY = [
   "gclid",
   "msclkid",
@@ -755,7 +745,7 @@ function buildFirstTouchAttribution(
       if (value) attribution[field] = value;
     }
   }
-  const landingPath = truncateFirstTouchField(landingPathname);
+  const landingPath = truncateFirstTouchField(routePathname(landingPathname));
   if (landingPath) attribution.landing_path = landingPath;
   const landingReferrer =
     typeof document !== "undefined" ? scrubReferrerHost(document.referrer) : "";
@@ -1547,20 +1537,22 @@ function ensureSentry(loadWithoutDsn = false): void {
             return null;
           }
           if (event.request?.url) {
-            event.request.url = scrubUrl(event.request.url);
+            event.request.url = scrubUrl(event.request.url, {
+              routePath: true,
+            });
           }
           if (Array.isArray(event.breadcrumbs)) {
             for (const crumb of event.breadcrumbs) {
               if (crumb && typeof crumb === "object" && "data" in crumb) {
                 const data = crumb.data as Record<string, unknown> | undefined;
                 if (data && typeof data.url === "string") {
-                  data.url = scrubUrl(data.url);
+                  data.url = scrubUrl(data.url, { routePath: true });
                 }
                 if (data && typeof data.from === "string") {
-                  data.from = scrubUrl(data.from);
+                  data.from = scrubUrl(data.from, { routePath: true });
                 }
                 if (data && typeof data.to === "string") {
-                  data.to = scrubUrl(data.to);
+                  data.to = scrubUrl(data.to, { routePath: true });
                 }
               }
             }
@@ -2376,7 +2368,7 @@ function resolveProps(
   }
   if (typeof window === "undefined") return { ...params };
   const base: Record<string, unknown> = {
-    url: window.location.origin + window.location.pathname,
+    url: window.location.origin + routePathname(window.location.pathname),
     app: window.location.hostname.split(".")[0] || "localhost",
     ...params,
   };
@@ -2451,20 +2443,23 @@ type PageviewSnapshot = {
 function snapshotPageview(reason: string): PageviewSnapshot {
   const { href, origin, pathname, hostname, search } = window.location;
   const contentCaptureEnabled = _trackingContentCaptureEnabled;
+  const path = routePathname(pathname);
   const properties: Record<string, unknown> = {
-    url: !contentCaptureEnabled ? origin + pathname : scrubUrl(href),
-    path: pathname,
+    url: !contentCaptureEnabled
+      ? origin + path
+      : scrubUrl(href, { routePath: true }),
+    path,
     hostname,
     navigation_type: reason,
     [AGENT_SIGNALS_PAGEVIEW_PROPERTY]: AGENT_SIGNALS_VERSION,
     [PAGE_LOAD_PAGEVIEW_PROPERTY]: getAnalyticsPageLoadId(),
   };
   if (contentCaptureEnabled && search) {
-    properties.search = scrubUrl(search);
+    properties.search = scrubUrl(`/${search}`)?.slice(1);
   }
   if (contentCaptureEnabled && typeof document !== "undefined") {
     if (document.referrer) {
-      properties.referrer = scrubUrl(document.referrer);
+      properties.referrer = scrubUrl(document.referrer, { routePath: true });
     }
     if (document.title) {
       properties.title = document.title;
@@ -2536,8 +2531,9 @@ function emitAppEntered(entryPath?: string): void {
   if (typeof window === "undefined" || !_getDefaultProps) return;
   const scheduledEntryPath = entryPath ?? window.location.pathname;
   if (waitForTrackingIdentityBeforeAppEntry(scheduledEntryPath)) return;
+  const entryRoute = routePathname(scheduledEntryPath);
   const properties = resolveProps(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
-    entry_path: scheduledEntryPath,
+    entry_path: entryRoute,
   });
   const appName = normalizeTrackingDimension(
     properties.app_name ?? properties.app,
@@ -2554,7 +2550,7 @@ function emitAppEntered(entryPath?: string): void {
   const attribution = getFirstTouchAttribution();
   trackEvent(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
     app_name: appName,
-    entry_path: scheduledEntryPath,
+    entry_path: entryRoute,
     ...(attribution?.ref ? { source: attribution.ref } : {}),
     ...(attribution?.landing_referrer
       ? { referrer: attribution.landing_referrer }

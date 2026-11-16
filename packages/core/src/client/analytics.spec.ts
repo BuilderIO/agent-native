@@ -466,7 +466,8 @@ describe("browser analytics pageviews", () => {
         url: "https://mail.agent-native.com/inbox",
         path: "/inbox",
         hostname: "mail.agent-native.com",
-        referrer: "https://builder.io/start?token=%3Credacted%3E&utm=ok",
+        referrer:
+          "https://builder.io/start?token=%3Credacted%3E&utm=%3Credacted%3E",
         title: "Inbox",
         navigation_type: "load",
         agent_signals: 1,
@@ -491,6 +492,60 @@ describe("browser analytics pageviews", () => {
     expect(body.anonymousId).toMatch(/^[A-Za-z0-9_-]+$/);
     const latestBody = JSON.parse(String(analyticsCalls[1][1].body));
     expect(getCookie()).toContain(`an_aid=${latestBody.anonymousId}`);
+  });
+
+  it("reports the route template and scrubbed query, never a path id or credential", async () => {
+    const { cookieJson } = installBrowser(
+      "https://clips.agent-native.com/share/tok_abc?utm_source=news&p-key=canary-secret#access_token=canary-hash",
+    );
+    (window as any).__reactRouterManifest = {
+      routes: {
+        root: { id: "root", path: "" },
+        "routes/share.$shareId": {
+          id: "routes/share.$shareId",
+          parentId: "root",
+          path: "share/:shareId",
+        },
+      },
+    };
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/track",
+    );
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        app: "agent-native-clips",
+      }),
+    });
+    await tick();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    const bodies = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    expect(
+      bodies.find((body) => body.event === "pageview")?.properties,
+    ).toMatchObject({
+      url: "https://clips.agent-native.com/share/:shareId?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E",
+      path: "/share/:shareId",
+      search: "?utm_source=news&p-key=%3Credacted%3E",
+    });
+    expect(
+      bodies.find((body) => body.event === "app_entered")?.properties,
+    ).toMatchObject({ entry_path: "/share/:shareId" });
+    expect(cookieJson("an_ft")).toMatchObject({
+      landing_path: "/share/:shareId",
+      utm_source: "news",
+    });
+    const sent = JSON.stringify(bodies);
+    expect(sent).not.toContain("tok_abc");
+    expect(sent).not.toContain("canary-secret");
+    expect(sent).not.toContain("canary-hash");
   });
 
   it("captures the source forwarded by the marketing site", async () => {
@@ -1856,11 +1911,12 @@ describe("browser analytics pageviews", () => {
     expect(pageLeft?.properties).not.toHaveProperty("url");
     expect(pageLeft?.properties).not.toHaveProperty("path");
     expect(JSON.stringify(pageLeft?.properties)).not.toContain("jane");
-    // Every other event keeps the page it happened on.
+    // Every other event names the route of the page it happened on, never the
+    // path itself.
     expect(
       bodies.find((body) => body.event === "deck_opened")?.properties,
     ).toMatchObject({
-      url: "https://slides.agent-native.com/decks/jane@example.com",
+      url: "https://slides.agent-native.com/decks/:id",
     });
   });
 
@@ -3013,18 +3069,18 @@ describe("browser analytics pageviews", () => {
     expect(readPageviews().map((event) => event.properties)).toMatchObject([
       {
         path: "/design/output-first",
-        search: "?generation_attempt_id=attempt_1234567890abcdef",
+        search: "?generation_attempt_id=%3Credacted%3E",
         observedRoute: "/design/output-first",
-        observedSearch: "?generation_attempt_id=attempt_1234567890abcdef",
+        observedSearch: "?generation_attempt_id=%3Credacted%3E",
         navigation_type: "load",
         sessionReplayId: "replay-test",
         sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
       },
       {
         path: "/design/output-second",
-        search: "?generation_attempt_id=attempt_2234567890abcdef",
+        search: "?generation_attempt_id=%3Credacted%3E",
         observedRoute: "/design/output-second",
-        observedSearch: "?generation_attempt_id=attempt_2234567890abcdef",
+        observedSearch: "?generation_attempt_id=%3Credacted%3E",
         navigation_type: "pushState",
         sessionReplayId: "replay-test",
         sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
