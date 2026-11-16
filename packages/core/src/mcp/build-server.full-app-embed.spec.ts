@@ -5,10 +5,12 @@ import { runWithRequestContext } from "../server/request-context.js";
 import { withServerMintedFullAppEmbedStart } from "./build-server.js";
 
 const mint = vi.hoisted(() => vi.fn());
+const ticketOwner = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/embed-session.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../server/embed-session.js")>()),
   createEmbedSessionTicket: mint,
+  embedSessionTicketBelongsTo: ticketOwner,
 }));
 vi.mock("../server/embed-route.js", () => ({
   buildEmbedStartPath: (ticket: string) =>
@@ -40,6 +42,11 @@ describe("withServerMintedFullAppEmbedStart", () => {
   beforeEach(() => {
     mint.mockReset();
     mint.mockResolvedValue({ ticket: "full", expiresAt: 42 });
+    ticketOwner.mockReset();
+    ticketOwner.mockImplementation(
+      async (ticket: string, owner: string) =>
+        ticket === "own" && owner === "owner@example.com",
+    );
   });
 
   it("mints an unscoped session for the result's page and drops stale tickets", async () => {
@@ -171,10 +178,13 @@ describe("withServerMintedFullAppEmbedStart", () => {
         withServerMintedFullAppEmbedStart(record, entry(), {}, ANCHOR),
       ),
     ).resolves.toBe(record);
+    expect(ticketOwner).toHaveBeenCalledWith("own", "owner@example.com");
     expect(mint).not.toHaveBeenCalled();
   });
 
   it.each([
+    `${ORIGIN}/_agent-native/embed/start?ticket=someone-elses`,
+    `${ORIGIN}/_agent-native/embed/start`,
     "https://other.test/_agent-native/embed/start?ticket=own",
     `${ORIGIN}/inbox?ticket=own`,
     "//other.test/_agent-native/embed/start?ticket=own",
@@ -193,7 +203,7 @@ describe("withServerMintedFullAppEmbedStart", () => {
       expect(result).toMatchObject({
         embedStartUrl: `${ORIGIN}/_agent-native/embed/start?ticket=full`,
       });
-      expect(JSON.stringify(result)).not.toContain("ticket=own");
+      expect(JSON.stringify(result)).not.toMatch(/ticket=(own|someone)/);
     } finally {
       warn.mockRestore();
     }

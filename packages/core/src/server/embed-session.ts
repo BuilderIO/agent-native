@@ -896,8 +896,16 @@ const FULL_APP_DENIED_PREFIXES = [
   "/_agent-native/db",
   "/_agent-native/dev",
   "/_agent-native/debug",
+  // Stored secrets, the user's own browser, and local processes.
+  "/_agent-native/secrets",
+  "/_agent-native/browser-sessions",
+  "/_agent-native/process-run",
+  "/_agent-native/sandbox",
+  "/_agent-native/agent-terminal-info",
+  "/_agent-native/available-clis",
 ];
-// Reads stay open here; changing an account, connection or org needs a login.
+// Reads stay open here; changing an account, connection, org, model key or
+// stored setting needs a login.
 const FULL_APP_READ_ONLY_PREFIXES = [
   "/_agent-native/auth",
   "/_agent-native/embed",
@@ -906,6 +914,12 @@ const FULL_APP_READ_ONLY_PREFIXES = [
   "/_agent-native/integrations",
   "/_agent-native/google",
   "/_agent-native/builder",
+  "/_agent-native/agent-engine",
+  "/_agent-native/agent-model-defaults",
+  "/_agent-native/agent-loop-settings",
+  "/_agent-native/settings",
+  "/_agent-native/env-status",
+  "/_agent-native/credential-probe",
 ];
 
 function underPrefix(pathname: string, prefix: string): boolean {
@@ -1541,6 +1555,34 @@ export async function resolveEmbedSessionCookieOwners(
     if (owner) owners.add(owner);
   }
   return [...owners];
+}
+
+/**
+ * Whether a ticket is still redeemable here and was issued to this owner,
+ * without consuming it.
+ */
+export async function embedSessionTicketBelongsTo(
+  ticket: string,
+  ownerEmail: string,
+): Promise<boolean> {
+  const expected = normalizedEmail(ownerEmail);
+  if (!ticket || !expected) return false;
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: "SELECT owner_email, expires_at, consumed_at FROM agent_native_embed_tickets WHERE ticket_hash = ?",
+    args: [hashTicket(ticket)],
+  });
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return false;
+  const expiresAt = numberOrNull(row.expires_at ?? row.expiresAt);
+  const consumedAt = numberOrNull(row.consumed_at ?? row.consumedAt);
+  return (
+    consumedAt === null &&
+    expiresAt !== null &&
+    expiresAt > Date.now() &&
+    normalizedEmail(stringOrUndefined(row.owner_email ?? row.ownerEmail)) ===
+      expected
+  );
 }
 
 export async function consumeEmbedSessionTicket(

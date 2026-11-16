@@ -153,6 +153,7 @@ vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
 
 vi.mock("../server/embed-session.js", () => ({
   FULL_APP_EMBED_SCOPE: "full-app",
+  embedSessionTicketBelongsTo: async () => false,
   createEmbedSessionTicket: vi.fn(async (input: Record<string, unknown>) => {
     trace.push({ embedTicket: input });
     return {

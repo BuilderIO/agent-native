@@ -55,6 +55,7 @@ import {
   signEmbedSessionToken,
   verifyEmbedSessionToken,
   embedSessionsStore,
+  embedSessionTicketBelongsTo,
 } from "./embed-session.js";
 import { getRequestContext, runWithRequestContext } from "./request-context.js";
 
@@ -163,6 +164,26 @@ describe("workspace host chat ticket lifecycle", () => {
     expect(response.headers.get("location")).toBeNull();
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(await response.text()).not.toContain("agent_native_embed_token");
+  });
+  it("tells whose unredeemed ticket it is without redeeming it", async () => {
+    const ticket = await createEmbedSessionTicket({
+      ownerEmail: "Owner@Example.com",
+      targetPath: "/inbox",
+      scope: "full-app",
+    });
+    expect(
+      await embedSessionTicketBelongsTo(ticket.ticket, "other@example.com"),
+    ).toBe(false);
+    expect(
+      await embedSessionTicketBelongsTo("missing", "owner@example.com"),
+    ).toBe(false);
+    expect(
+      await embedSessionTicketBelongsTo(ticket.ticket, " owner@example.com "),
+    ).toBe(true);
+    expect(await consumeEmbedSessionTicket(ticket.ticket)).not.toBeNull();
+    expect(
+      await embedSessionTicketBelongsTo(ticket.ticket, "owner@example.com"),
+    ).toBe(false);
   });
   it("refuses unbound chat ticket redemption", async () => {
     const ticket = await createEmbedSessionTicket(input());
@@ -1467,6 +1488,8 @@ describe("requestMatchesEmbedTarget", () => {
     ["/api/threads/t-1", "PATCH"],
     ["/_agent-native/auth/session", "GET"],
     ["/_agent-native/org/me", "GET"],
+    ["/_agent-native/agent-engine/status", "GET"],
+    ["/_agent-native/settings/theme", "GET"],
   ])(
     "lets a full-app session act as its owner: %s %s",
     async (path, method) => {
@@ -1505,6 +1528,16 @@ describe("requestMatchesEmbedTarget", () => {
     ["/_agent-native/org/members", "POST"],
     ["/_agent-native/connections/oauth/zoom/start", "POST"],
     ["/_agent-native/env-vars", "GET"],
+    ["/_agent-native/secrets", "GET"],
+    ["/_agent-native/secrets/OPENAI_API_KEY", "PUT"],
+    ["/_agent-native/browser-sessions/start", "POST"],
+    ["/_agent-native/process-run", "POST"],
+    ["/_agent-native/sandbox/run", "POST"],
+    ["/_agent-native/agent-engine/api-key", "POST"],
+    ["/_agent-native/agent-engine/disconnect", "POST"],
+    ["/_agent-native/agent-model-defaults", "PUT"],
+    ["/_agent-native/agent-loop-settings", "DELETE"],
+    ["/_agent-native/settings/mcp-servers", "PUT"],
     ["/_agent-native/actions/x/%2e%2e/%2e%2e/mcp", "POST"],
   ])("keeps a full-app session off %s %s", async (path, method) => {
     const token = signEmbedSessionToken({

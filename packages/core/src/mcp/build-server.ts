@@ -1561,20 +1561,24 @@ export async function withServerMintedMcpAppEmbedStart(
   };
 }
 
-function sameOriginEmbedStartUrl(value: string, origin: string): boolean {
+function sameOriginEmbedStartTicket(
+  value: string,
+  origin: string,
+): string | null {
   try {
     const url = new URL(value, origin);
-    return url.origin === origin && isEmbedStartUrl(url.href);
+    if (url.origin !== origin || !isEmbedStartUrl(url.href)) return null;
+    return url.searchParams.get("ticket") || null;
     // coercion-ok: an unparsable URL is not one this server issued; the caller warns and drops it.
   } catch {
-    return false;
+    return null;
   }
 }
 
 /**
  * Gives a result the full-session ticket a full-app embed starts from, opening
  * the page the result names, in the open link's order, or the tool's link. A
- * ticket the action minted on this server, such as a cross-app open, is kept. Callers mint only for a verified
+ * ticket the action minted on this server for the caller, such as a cross-app open, is kept. Callers mint only for a verified
  * user, anchored to the credential's issue time so revoking it ends the session.
  */
 export async function withServerMintedFullAppEmbedStart(
@@ -1592,21 +1596,27 @@ export async function withServerMintedFullAppEmbedStart(
   const ownerEmail = ctx?.userEmail?.trim();
   const requestOrigin = getEmbedSessionOrigin();
   if (!ownerEmail || !requestOrigin) return withoutMcpAppEmbedTicket(record);
-  // Only a start URL on this server, such as another mounted app's, is a
-  // ticket it issued; anything else may be data the action passed through.
-  if (typeof record.embedStartUrl === "string") {
-    if (sameOriginEmbedStartUrl(record.embedStartUrl, requestOrigin)) {
-      return result;
-    }
-    console.warn(
-      "[mcp] Dropping an embed start URL that this server did not issue.",
-    );
-  }
+  // Only an unredeemed ticket this server issued to this caller, such as
+  // another mounted app's open, is kept; anything else may be data the action
+  // passed through or another user's session.
   const {
     normalizeEmbedTargetPath,
     createEmbedSessionTicket,
+    embedSessionTicketBelongsTo,
     FULL_APP_EMBED_SCOPE,
   } = await import("../server/embed-session.js");
+  if (typeof record.embedStartUrl === "string") {
+    const ticket = sameOriginEmbedStartTicket(
+      record.embedStartUrl,
+      requestOrigin,
+    );
+    if (ticket && (await embedSessionTicketBelongsTo(ticket, ownerEmail))) {
+      return result;
+    }
+    console.warn(
+      "[mcp] Dropping an embed start URL that this server did not issue to this caller.",
+    );
+  }
   const { buildEmbedStartPath } = await import("../server/embed-route.js");
   const embedTarget = (value: unknown) =>
     typeof value === "string" &&

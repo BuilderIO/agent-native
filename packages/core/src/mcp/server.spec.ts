@@ -350,6 +350,8 @@ const embedSessionMocks = vi.hoisted(() => {
 
 vi.mock("../server/embed-session.js", () => ({
   FULL_APP_EMBED_SCOPE: "full-app",
+  embedSessionTicketBelongsTo: async (ticket: string, owner: string) =>
+    ticket === "previous-ticket" && owner === "oauth@example.com",
   createEmbedSessionTicket: embedSessionMocks.createEmbedSessionTicket,
   readMcpDirectoryWidgetRenewalTicket:
     embedSessionMocks.readMcpDirectoryWidgetRenewalTicket,
