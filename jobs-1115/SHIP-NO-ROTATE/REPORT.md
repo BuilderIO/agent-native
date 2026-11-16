@@ -1,32 +1,23 @@
-Copies found: M4=478 unique files; M5=782 unique files, per retained full sweep inventories.
-Files changed: 57 public-repo files versus origin/main at verification; latest branch commit is recorded below.
-Public PR URL/state: none; this fleet-tooling job is queued for steward landing on job/ship-no-rotate-1115.
-Broadcast command path: ~/.config/replica-workers/bin/rule-broadcast (source separately queued).
-Sessions reached / not reached: 0 / 255 retained targets; post-land send and enumeration remain pending.
-Receipt: pending post-land broadcast; the prior receipt predates landing and does not count.
-Enforcing rotation scripts removed: none found; pnpm ship:push pushes the current branch only.
-Worktree copies: 237 reported refreshed through their bases; none edited individually.
-Verification: pnpm guards passed 107/107 on current branch; focused rule-file tests passed 2/2; git diff --check passed.
-Pending: steward landing, then one post-land broadcast, receipt, and coordinator-added Claude Desktop ids.
+Copies found: M4=478 unique paths; M5=783 unique paths (from retained complete sweep inventories).
+Files changed: 57 public-repo files on `job/ship-no-rotate-1115`; 7 fleet-tooling files on `job/rule-broadcast-1115`; user-level source copies still need post-land reconciliation.
+Public PR: none; fleet-tooling jobs are submitted to the steward queue for folding, not opened as PRs.
+Broadcast command: `~/.config/replica-workers/bin/rule-broadcast`; tracked implementation: `replicate-wt/ship-no-rotate-1115/fleet/bin/rule-broadcast.ts`.
+Sessions reached / not reached: 0 / not enumerated for the required post-land broadcast; no real message sent.
+Receipt: none for this landing; previous pre-land receipts do not count. Exact message is at `jobs-1115/SHIP-NO-ROTATE/BROADCAST-MESSAGE.md`.
+Enforcing rotation scripts removed: none found; `pnpm ship:push` only pushes the current branch.
+Worktree copies: 237 identified; refresh through their bases after landing, with no per-worktree edits.
+Checks: public `pnpm guards` 107/107; `pnpm exec tsx --test scripts/guard-rule-one-file.test.ts` 2/2; fleet broadcaster test 4/4.
+File:line inventories: `/Users/steve/Projects/builder/agent-native/.tmp/replica-home/jobs-1115/SHIP-NO-ROTATE/INVENTORY-M4.tsv` and `INVENTORY-M5.tsv` (2,638 and 4,307 exact matching rows).
 
-PR creation was attempted with explicit repo/head/base and refused by ~/.local/share/pr-steward/gh-create-guard.py because this job head is not an authorized PR head. No guard was bypassed. The fleet-tooling submission command is recorded in the handoff ledger.
+## Current continuation — 02:20 PT, 2026-11-16
 
-## Verification continuation — 01:33 PT, 2026-11-16
+- The public candidate is pushed at `1339b05412603c5f28c14394277683d21f9c0409` on `job/ship-no-rotate-1115`. There is no PR; the latest instruction routes fleet-tooling jobs through the steward queue. The checkout is clean.
+- `pnpm guards` passed all 107 checks. The focused public test `pnpm exec tsx --test scripts/guard-rule-one-file.test.ts` passed 2/2, including the planted mismatch check.
+- The broadcaster source candidate is pushed at `773088ef0ca22e2d5e1cd78bab7a1ac16910da32` on `job/rule-broadcast-1115`; `node --experimental-strip-types --test fleet/bin/rule-broadcast.test.ts` exercises the planted missing-receipt red case and covered-receipt green case (4/4).
+- The retained sweep has 478 distinct M4 paths and 783 distinct M5 paths. It records exact matching files and line numbers. The prior summary's M5 count of 782 was off by one; this report follows the inventory.
+- M4 and M5 installed broadcaster sources differ from the fleet branch source (and from each other). Reconcile both using the tracked fleet source with `.prev-shipnorotate-1115` backups and temp-file replacement only after landing.
+- Do not send the real broadcast until the public rule change and fleet broadcaster have landed. Then enumerate and message all live targets once, write the TSV receipt, and have the coordinator append Claude Desktop session ids after manual delivery.
 
-- On `job/ship-no-rotate-1115` at `142e3e6a05cc3986fcb64465b6e3f53e5d3971a6`, `corepack pnpm guards` passed all 107 checks. Focused rule-one-file/template-standard tests passed 18/18.
-- Both Macs fetched `origin/main` at `cf9ff108eeae99bb3b8a15209d06fcabbd7b6448`; the ship branch is not an ancestor. `gh pr list --state all --head job/ship-no-rotate-1115` is empty.
-- Fleet-tooling submission `42d033b6d7d703346e75.json` covers prior branch commits but does not contain the exact current tip. This report update will be submitted as a follow-up using the required steward queue.
-- The post-land broadcast remains gated; no session delivery was attempted. The retained 255-target census is not a new enumeration, and no qualifying receipt exists.
+## Pending
 
-## Verification continuation — 01:49 PT, 2026-11-16
-
-- On `job/ship-no-rotate-1115` at `cae00df48e05ac70fb2dc16b2f10d5684f37040e`, `pnpm guards` passed all 107 checks, including `guard:doc-budgets` and `guard:rule-one-file`.
-- `pnpm exec tsx --test scripts/guard-rule-one-file.test.ts` passed 2/2 tests. `git diff --check` passed.
-- Rule-broadcast remains post-land gated. No broadcast or receipt was fabricated; existing census remains 255 retained targets and must be refreshed after landing.
-- The required steward submission follows this report update commit; no PR was opened because the task's fleet-tooling instruction routes job branches through the steward.
-
-## Verification continuation — 02:13 PT, 2026-11-16
-
-- On the pushed job branch at `6d79f61ab947439f5bbc6a007175dd608980f20f`, a fresh `pnpm guards` run passed all 107 checks; `pnpm exec tsx --test scripts/guard-rule-one-file.test.ts` passed 2/2.
-- `gh pr list --head job/ship-no-rotate-1115 --state all` is empty. The branch is already queued for steward landing; this fleet-tooling job does not open a PR.
-- No landing occurred in this run. The post-land broadcast remains gated; no new session enumeration, delivery, or receipt is claimed.
+Steward landing of the public and fleet branches; post-land user-level source refresh and base/worktree refresh; one real rule broadcast and its receipt. No user-level or worktree edits were performed in this continuation.
