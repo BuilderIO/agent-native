@@ -551,9 +551,11 @@ async function persistAiRequestStatus(
 ): Promise<boolean> {
   const reason = snapshot?.terminalReason;
   const message =
-    snapshot?.status === "errored" && reason?.startsWith("error:")
-      ? normalizeChatError(reason, reason.slice("error:".length)).message
-      : reason;
+    snapshot?.status === "errored" && reason === "missing_api_key"
+      ? normalizeChatError(reason, reason).message
+      : snapshot?.status === "errored" && reason?.startsWith("error:")
+        ? normalizeChatError(reason, reason.slice("error:".length)).message
+        : reason;
   try {
     await callAction(
       "update-ai-request-status" as any,

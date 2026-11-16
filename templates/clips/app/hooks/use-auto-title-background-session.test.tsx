@@ -294,6 +294,10 @@ describe("Clips filler-word background sessions", () => {
       "error:email_verification_required",
       "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
     ],
+    [
+      "missing_api_key",
+      "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.",
+    ],
     ["error:unknown", "error:unknown"],
     ["run_timeout", "run_timeout"],
   ])(
