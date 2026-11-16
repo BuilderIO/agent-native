@@ -164,6 +164,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     "idle",
   );
   const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
+  const stagedHandoffStartedRef = useRef<(() => void) | undefined>(undefined);
   const [applyingViaHost, setApplyingViaHost] = useState(false);
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel | null>("file");
@@ -500,6 +501,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
         }
       }
       stagedSourceHandoffRef.current = "idle";
+      stagedHandoffStartedRef.current = undefined;
       setApplyingViaHost(false);
       if (pendingEditSessionDesignIdRef.current === id) {
         clearPendingEditSessionRecovery();
@@ -775,6 +777,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
           stagedSourceHandoffRef.current === "awaiting-start"
         ) {
           stagedSourceHandoffRef.current = "running";
+          stagedHandoffStartedRef.current?.();
+          stagedHandoffStartedRef.current = undefined;
           if (stagedHandoffStartTimerRef.current !== undefined) {
             window.clearTimeout(stagedHandoffStartTimerRef.current);
             stagedHandoffStartTimerRef.current = undefined;
@@ -784,8 +788,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
           reloadRunningAppPreviewFrames();
           if (stagedSourceHandoffRef.current === "running") {
             stagedSourceHandoffRef.current = "idle";
+            stagedHandoffStartedRef.current = undefined;
             setApplyingViaHost(false);
-            if (next === "idle") clearPendingLiveEditStateRef.current();
           }
         }
         hostChatGeneratingRef.current = next === "generating";
@@ -1260,6 +1264,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     pendingLiveNonStyleRedoStackRef,
     pendingStructureRedoReplayRef,
     stagedSourceHandoffRef,
+    stagedHandoffStartedRef,
     stagedHandoffStartTimerRef,
     applyingViaHost,
     setApplyingViaHost,

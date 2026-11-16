@@ -38,18 +38,19 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   cancelPendingStructureVerification: (
     nextStatus?: PendingStructureVerificationStatus,
   ) => void;
-  clearPendingLiveEditState: () => void;
   id: string | undefined;
   overviewScreens: OverviewScreen[];
   pendingAgentHandoffBusyRef: RefObject<boolean>;
   pendingLiveNonStyleEdits: PendingLiveNonStyleEdit[];
   stagedHandoffStartTimerRef: RefObject<number | undefined>;
   stagedSourceHandoffRef: RefObject<"idle" | "awaiting-start" | "running">;
+  stagedHandoffStartedRef: RefObject<(() => void) | undefined>;
   pendingStructureVerificationRevisionRef: RefObject<number>;
   pendingStructureVerificationSessionRef: RefObject<
     PendingStructureVerificationSession | undefined
   >;
   pendingLiveNonStyleEditsRef: RefObject<PendingLiveNonStyleEdit[]>;
+  pendingVisualStyleEditsRef: RefObject<PendingVisualStyleEdit[]>;
   pendingStructureVerificationSnapshotsRef: RefObject<
     Map<number, Record<string, RuntimeLayerSnapshot>>
   >;
@@ -64,6 +65,9 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   setPendingAgentHandoffBusy: Dispatch<SetStateAction<boolean>>;
   setPendingLiveNonStyleEdits: Dispatch<
     SetStateAction<PendingLiveNonStyleEdit[]>
+  >;
+  setPendingVisualStyleEdits: Dispatch<
+    SetStateAction<PendingVisualStyleEdit[]>
   >;
   setPendingStructureAckRequest: Dispatch<
     SetStateAction<{
@@ -91,16 +95,17 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
 
 export async function runApplyPendingVisualStylesWithAgent({
   cancelPendingStructureVerification,
-  clearPendingLiveEditState,
   id,
   overviewScreens,
   pendingAgentHandoffBusyRef,
   pendingLiveNonStyleEdits,
   stagedHandoffStartTimerRef,
   stagedSourceHandoffRef,
+  stagedHandoffStartedRef,
   pendingStructureVerificationRevisionRef,
   pendingStructureVerificationSessionRef,
   pendingLiveNonStyleEditsRef,
+  pendingVisualStyleEditsRef,
   pendingStructureVerificationSnapshotsRef,
   pendingStructureVerificationStatus,
   pendingVisualStyleEdits,
@@ -112,6 +117,7 @@ export async function runApplyPendingVisualStylesWithAgent({
   setApplyingViaHost,
   setPendingAgentHandoffBusy,
   setPendingLiveNonStyleEdits,
+  setPendingVisualStyleEdits,
   setPendingStructureAckRequest,
   setPendingStructureVerificationStatus,
   setPendingVisualStyleBaselineResetRequest,
@@ -153,7 +159,23 @@ export async function runApplyPendingVisualStylesWithAgent({
       (edit): edit is PendingLiveStructureEdit => edit.kind === "structure",
     );
     const finalizeWithoutStructureVerification = () => {
-      clearPendingLiveEditState();
+      const includedIds = new Set(includedVisualEditIds);
+      const styles = pendingVisualStyleEditsRef.current.filter(
+        (edit) =>
+          !includedIds.has(
+            `style:${edit.screenId}:${edit.selector}:${edit.updatedAt}`,
+          ),
+      );
+      const nonStyles = pendingLiveNonStyleEditsRef.current.filter(
+        (edit) =>
+          !includedIds.has(
+            `live:${edit.kind}:${edit.screenId}:${edit.selector}:${edit.updatedAt}`,
+          ),
+      );
+      pendingVisualStyleEditsRef.current = styles;
+      pendingLiveNonStyleEditsRef.current = nonStyles;
+      setPendingVisualStyleEdits(styles);
+      setPendingLiveNonStyleEdits(nonStyles);
       const previewRequestId = Date.now() + Math.random();
       window.setTimeout(() => {
         if (preservePreviewPatches.length > 0) {
@@ -188,20 +210,26 @@ export async function runApplyPendingVisualStylesWithAgent({
         }
         return;
       }
-      if (includedVisualEditIds.length > 0)
-        finalizeWithoutStructureVerification();
       if (delivery.awaitingHostTurn) {
         stagedSourceHandoffRef.current = "awaiting-start";
+        stagedHandoffStartedRef.current = () => {
+          if (includedVisualEditIds.length > 0)
+            finalizeWithoutStructureVerification();
+        };
         setApplyingViaHost(true);
         stagedHandoffStartTimerRef.current = window.setTimeout(() => {
           stagedHandoffStartTimerRef.current = undefined;
           if (stagedSourceHandoffRef.current !== "awaiting-start") return;
           stagedSourceHandoffRef.current = "idle";
+          stagedHandoffStartedRef.current = undefined;
           setApplyingViaHost(false);
           toast.error(
             t("designEditor.pendingVisualStyles.agentHandoffFailedToast"),
           );
         }, HOST_TURN_START_TIMEOUT_MS);
+      }
+      if (!delivery.awaitingHostTurn && includedVisualEditIds.length > 0) {
+        finalizeWithoutStructureVerification();
       }
       if (delivery.target === "local") setActiveLeftPanel("agent");
       toast.success(t("designEditor.pendingVisualStyles.sentToast"));
@@ -388,7 +416,9 @@ export async function runApplyPendingVisualStylesWithAgent({
             }
           }
           if (session.edits.length === 0) {
-            clearPendingLiveEditState();
+            if (includedVisualEditIds.length > 0) {
+              finalizeWithoutStructureVerification();
+            }
             toast.success(t("designEditor.pendingVisualStyles.verifiedToast"));
             return;
           }

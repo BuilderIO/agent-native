@@ -60,7 +60,11 @@ function argsFor(
     current: undefined,
   } as { current: PendingStructureVerificationSession | undefined };
   const pendingEditsRef = { current: edits };
+  const pendingStyleEditsRef = { current: [] as PendingVisualStyleEdit[] };
   const stagedSourceHandoffRef = { current: "idle" as const };
+  const stagedHandoffStartedRef = {
+    current: undefined as (() => void) | undefined,
+  };
   const sourceVersions = new Map(
     edits.map((edit) => [edit.sourceAnchor!.relPath, "v0"]),
   );
@@ -136,9 +140,11 @@ function argsFor(
       pendingLiveNonStyleEdits: edits,
       stagedHandoffStartTimerRef: { current: undefined },
       stagedSourceHandoffRef,
+      stagedHandoffStartedRef,
       pendingStructureVerificationRevisionRef: { current: 0 },
       pendingStructureVerificationSessionRef: sessionRef,
       pendingLiveNonStyleEditsRef: pendingEditsRef,
+      pendingVisualStyleEditsRef: pendingStyleEditsRef,
       pendingStructureVerificationSnapshotsRef: { current: snapshots },
       pendingStructureVerificationStatus: "idle" as const,
       pendingVisualStyleEdits: [],
@@ -149,6 +155,7 @@ function argsFor(
       setApplyingViaHost: vi.fn(),
       setPendingAgentHandoffBusy: vi.fn(),
       setPendingLiveNonStyleEdits: vi.fn(),
+      setPendingVisualStyleEdits: vi.fn(),
       setPendingStructureAckRequest,
       setPendingStructureVerificationStatus: vi.fn(),
       setPendingVisualStyleBaselineResetRequest: vi.fn(),
@@ -159,6 +166,8 @@ function argsFor(
     ackRequests,
     cancelPendingStructureVerification,
     clearPendingLiveEditState,
+    pendingStyleEditsRef,
+    stagedHandoffStartedRef,
     runtimeRequests,
   };
 }
@@ -239,7 +248,7 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
   });
 
-  it("finalizes included local visual edits once with remote instructions", async () => {
+  it("waits for host start and removes only included local visual edits", async () => {
     const setup = argsFor([], new Map());
     const localEdit = {
       screenId: "screen-1",
@@ -252,11 +261,17 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
       updatedAt: 1,
     } satisfies PendingVisualStyleEdit;
 
+    setup.pendingStyleEditsRef.current = [localEdit];
+    sendDesignSourceHandoffAndConfirmMock.mockResolvedValueOnce({
+      target: "host",
+      delivered: true,
+      awaitingHostTurn: true,
+    } as never);
     await runApplyPendingVisualStylesWithAgent({
       ...setup.args,
       pendingVisualStyleEdits: [localEdit],
       pendingVisualStylePrompt: "Remote instructions\n\nLocal visual edits",
-      includedVisualEditIds: ["local-visual-edits"],
+      includedVisualEditIds: ["style:screen-1:button:1"],
       hasStandalonePrompt: true,
     });
 
@@ -266,7 +281,79 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
       }),
       { timeoutMs: 10_000 },
     );
-    expect(setup.clearPendingLiveEditState).toHaveBeenCalledOnce();
+    expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
+    expect(setup.stagedHandoffStartedRef.current).toBeTypeOf("function");
+    setup.stagedHandoffStartedRef.current?.();
+    expect(setup.args.setPendingVisualStyleEdits).toHaveBeenCalledWith([]);
+  });
+
+  it("preserves edits created while delivery is waiting", async () => {
+    const setup = argsFor([], new Map());
+    const included = {
+      screenId: "s",
+      filename: "a",
+      screenName: "A",
+      selector: "a",
+      classes: [],
+      styles: { color: "red" },
+      originalStyles: {},
+      updatedAt: 1,
+    } satisfies PendingVisualStyleEdit;
+    const later = { ...included, selector: "b", updatedAt: 2 };
+    setup.pendingStyleEditsRef.current = [included];
+    let resolveDelivery!: (value: {
+      target: string;
+      delivered: boolean;
+      awaitingHostTurn: boolean;
+    }) => void;
+    sendDesignSourceHandoffAndConfirmMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveDelivery = resolve;
+      }) as never,
+    );
+    const apply = runApplyPendingVisualStylesWithAgent({
+      ...setup.args,
+      pendingVisualStyleEdits: [included],
+      includedVisualEditIds: ["style:s:a:1"],
+      hasStandalonePrompt: true,
+    });
+    setup.pendingStyleEditsRef.current = [included, later];
+    resolveDelivery({
+      target: "host",
+      delivered: true,
+      awaitingHostTurn: true,
+    });
+    await apply;
+    setup.stagedHandoffStartedRef.current?.();
+    expect(setup.args.setPendingVisualStyleEdits).toHaveBeenCalledWith([later]);
+  });
+
+  it("removes nothing when the host does not start the accepted turn", async () => {
+    const setup = argsFor([], new Map());
+    const edit = {
+      screenId: "s",
+      filename: "a",
+      screenName: "A",
+      selector: "a",
+      classes: [],
+      styles: { color: "red" },
+      originalStyles: {},
+      updatedAt: 1,
+    } satisfies PendingVisualStyleEdit;
+    setup.pendingStyleEditsRef.current = [edit];
+    sendDesignSourceHandoffAndConfirmMock.mockResolvedValueOnce({
+      target: "host",
+      delivered: true,
+      awaitingHostTurn: true,
+    } as never);
+    await runApplyPendingVisualStylesWithAgent({
+      ...setup.args,
+      pendingVisualStyleEdits: [edit],
+      includedVisualEditIds: ["style:s:a:1"],
+      hasStandalonePrompt: true,
+    });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(setup.args.setPendingVisualStyleEdits).not.toHaveBeenCalled();
   });
 
   it("records the tweak baseline only after confirmed delivery", async () => {
@@ -310,6 +397,10 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     const edits = [structureEdit(1), structureEdit(2), structureEdit(3)];
     const snapshots = new Map();
     const setup = argsFor(edits, snapshots);
+    setup.args.includedVisualEditIds = edits.map(
+      (edit) =>
+        `live:structure:${edit.screenId}:${edit.selector}:${edit.updatedAt}`,
+    );
     const applyPromise = runApplyPendingVisualStylesWithAgent(setup.args);
 
     const wakeAt = async (time: number) => {
@@ -326,7 +417,8 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     await expect(applyPromise).resolves.toBeUndefined();
 
     expect(setup.cancelPendingStructureVerification).not.toHaveBeenCalled();
-    expect(setup.clearPendingLiveEditState).toHaveBeenCalledTimes(1);
+    expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
+    expect(setup.args.setPendingLiveNonStyleEdits).toHaveBeenLastCalledWith([]);
     expect(setup.runtimeRequests).toHaveLength(3);
     expect(setup.ackRequests).toHaveLength(3);
     expect(setup.ackRequests.flatMap((request) => request.acks)).toEqual(

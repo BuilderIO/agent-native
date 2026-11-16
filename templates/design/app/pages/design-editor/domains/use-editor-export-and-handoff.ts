@@ -133,11 +133,14 @@ export function useEditorExportAndHandoff({
   } = editorCore;
   const {
     pendingVisualStyleEdits,
+    setPendingVisualStyleEdits,
     pendingLiveNonStyleEdits,
     setPendingLiveNonStyleEdits,
     pendingLiveNonStyleEditsRef,
+    pendingVisualStyleEditsRef,
     stagedSourceHandoffRef,
     stagedHandoffStartTimerRef,
+    stagedHandoffStartedRef,
     setApplyingViaHost,
     clearPendingLiveEditState,
     setActiveLeftPanel,
@@ -543,7 +546,6 @@ export function useEditorExportAndHandoff({
           });
       return runApplyPendingVisualStylesWithAgent({
         cancelPendingStructureVerification,
-        clearPendingLiveEditState,
         id,
         overviewScreens,
         pendingAgentHandoffBusyRef,
@@ -552,10 +554,12 @@ export function useEditorExportAndHandoff({
           : pendingLiveNonStyleEdits,
         stagedHandoffStartTimerRef,
         stagedSourceHandoffRef,
+        stagedHandoffStartedRef,
         pendingStructureVerificationRevisionRef,
         pendingStructureVerificationSessionRef,
         pendingStructureVerificationSnapshotsRef,
         pendingLiveNonStyleEditsRef,
+        pendingVisualStyleEditsRef,
         pendingStructureVerificationStatus,
         pendingVisualStyleEdits: remote?.reviewOnly
           ? []
@@ -570,6 +574,7 @@ export function useEditorExportAndHandoff({
         setApplyingViaHost,
         setPendingAgentHandoffBusy,
         setPendingLiveNonStyleEdits,
+        setPendingVisualStyleEdits,
         setPendingStructureAckRequest,
         setPendingStructureVerificationStatus,
         setPendingVisualStyleBaselineResetRequest,
