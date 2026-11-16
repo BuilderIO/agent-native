@@ -781,21 +781,21 @@ describe("bounded document discovery", () => {
   });
 
   it("lists the most recently edited documents first in one page", async () => {
-    const recent = await asUser(OWNER, () =>
+    const newest = await asUser(OWNER, () =>
       listDocuments.run({
         parentId: PARENT_ID,
-        sort: "lastEdited",
+        sort: "newest",
         limit: 3,
         offset: 0,
       }),
     );
 
-    expect(recent.documents.map((document) => document.id)).toEqual([
+    expect(newest.documents.map((document) => document.id)).toEqual([
       "bounded-discovery-document-204",
       "bounded-discovery-document-203",
       "bounded-discovery-document-202",
     ]);
-    expect(recent.pagination).toEqual({
+    expect(newest.pagination).toEqual({
       offset: 0,
       limit: 3,
       totalItems: 205,
@@ -805,7 +805,7 @@ describe("bounded document discovery", () => {
     });
   });
 
-  it("sorts and filters recent documents by timestamp, not stored text", async () => {
+  it("sorts newest documents by timestamp, not stored text", async () => {
     const title = "Recently edited timestamp probe";
     // As text, the ISO time sorts after the later Postgres-format one.
     await getDb()
@@ -827,33 +827,11 @@ describe("bounded document discovery", () => {
         },
       ]);
 
-    const recent = await asUser(OWNER, () =>
-      listDocuments.run({ exactTitle: title, sort: "lastEdited" }),
+    const newest = await asUser(OWNER, () =>
+      listDocuments.run({ exactTitle: title, sort: "newest" }),
     );
-    expect(recent.documents.map((document) => document.id)).toEqual([
+    expect(newest.documents.map((document) => document.id)).toEqual([
       "list-recent-late-postgres-text",
-      "list-recent-early-iso",
-    ]);
-
-    const afterNoon = await asUser(OWNER, () =>
-      listDocuments.run({
-        exactTitle: title,
-        sort: "lastEdited",
-        modifiedAfter: "2030-01-01T12:00:00.000Z",
-      }),
-    );
-    expect(afterNoon.documents.map((document) => document.id)).toEqual([
-      "list-recent-late-postgres-text",
-    ]);
-    expect(afterNoon.pagination.totalItems).toBe(1);
-
-    const beforeNoon = await asUser(OWNER, () =>
-      listDocuments.run({
-        exactTitle: title,
-        modifiedBefore: "2030-01-01T12:00:00.000Z",
-      }),
-    );
-    expect(beforeNoon.documents.map((document) => document.id)).toEqual([
       "list-recent-early-iso",
     ]);
   });
