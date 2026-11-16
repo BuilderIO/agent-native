@@ -474,6 +474,22 @@ describe("system collection properties", () => {
     expect(await ordinaryFilesProperties(files.id)).toEqual(before);
   });
 
+  it("refuses materializing Builder required fields on Files", async () => {
+    const materialize = (
+      await import("./materialize-builder-required-fields.js")
+    ).default;
+    const files = await filesCollection();
+    const before = await ordinaryFilesProperties(files.id);
+
+    await expect(
+      as(owner, () => materialize.run({ databaseId: files.id })),
+    ).rejects.toMatchObject({
+      errorCode: "SYSTEM_DATABASE_UNSUPPORTED",
+      statusCode: 400,
+    });
+    expect(await ordinaryFilesProperties(files.id)).toEqual(before);
+  });
+
   it("refuses duplicating a leftover Files property but still lets it be renamed", async () => {
     const configure = (await import("./configure-document-property.js"))
       .default;
