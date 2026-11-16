@@ -496,11 +496,14 @@ async function isDeploymentProviderEndpointUsable(
   return true;
 }
 
-export async function detectEngineFromEnvForRequest(): Promise<AgentEngineEntry | null> {
+export async function detectEngineFromEnvForRequest(
+  options: { excludeBuilder?: boolean } = {},
+): Promise<AgentEngineEntry | null> {
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
 
   const matches: DetectedEngineEnvMatch[] = [];
   for (const entry of _registry.values()) {
+    if (options.excludeBuilder && entry.name === "builder") continue;
     const match = await usableEnvCredentialMatch(entry);
     if (match) matches.push(match);
   }
@@ -545,7 +548,9 @@ function shouldTraceEngineDetection(): boolean {
 export async function detectEngineFromUserSecrets(
   identity?: BuilderCredentialLookupIdentity,
   options: {
-    isBuilderConnectionUsable?: () => Promise<boolean>;
+    isBuilderConnectionUsable?: () => Promise<
+      boolean | McpOAuthRefreshUnavailableError
+    >;
     deferBuilderRefreshFailure?: boolean;
   } = {},
 ): Promise<AgentEngineEntry | null> {
@@ -581,17 +586,23 @@ export async function detectEngineFromUserSecrets(
     return null;
   }
 
-  const isBuilderConnectionUsable =
-    options.isBuilderConnectionUsable ??
-    (() =>
-      hasUsableBuilderConnection(identity, options.deferBuilderRefreshFailure));
+  let builderAvailability:
+    | Promise<boolean | McpOAuthRefreshUnavailableError>
+    | undefined;
+  const isBuilderConnectionUsable = () =>
+    (builderAvailability ??= options.isBuilderConnectionUsable
+      ? options.isBuilderConnectionUsable()
+      : hasUsableBuilderConnection(
+          identity,
+          options.deferBuilderRefreshFailure,
+        ));
   const firstEntry = _registry.values().next().value;
   if (
     !getAppConfig().agent.preferBringYourOwnKey &&
     firstEntry?.name === "builder" &&
     isAgentEnginePackageInstalled(firstEntry) &&
     firstEntry.requiredEnvVars.length > 0 &&
-    (await isBuilderConnectionUsable()) !== false
+    (await isBuilderConnectionUsable()) === true
   ) {
     return firstEntry;
   }
@@ -635,7 +646,13 @@ export async function detectEngineFromUserSecrets(
         usable: await hasAllKeys(entry),
       })),
     );
-    return results.find((result) => result.usable !== false)?.entry ?? null;
+    return (
+      results.find((result) => result.usable === true)?.entry ??
+      results.find(
+        (result) => result.usable instanceof McpOAuthRefreshUnavailableError,
+      )?.entry ??
+      null
+    );
   };
 
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
@@ -1482,6 +1499,29 @@ export async function resolveEngine(
     );
   }
 
+  let deferredBuilder:
+    | { entry: AgentEngineEntry; config?: Record<string, unknown> }
+    | undefined;
+  const usableAutomaticDefault = async (
+    stored: unknown,
+    entry: AgentEngineEntry,
+  ): Promise<boolean> => {
+    const result = await isStoredEngineUsableForRequest(stored, entry, {
+      credentialIdentity,
+      deferBuilderRefreshFailure: true,
+    });
+    if (result instanceof McpOAuthRefreshUnavailableError) {
+      deferredBuilder ??= {
+        entry,
+        config: stripInlineApiKeyConfig(
+          (stored as { config?: Record<string, unknown> } | null)?.config,
+        ),
+      };
+      return false;
+    }
+    return result;
+  };
+
   const envEngine = getAppConfig().agent.engine;
   if (envEngine) {
     const entry = _registry.get(envEngine);
@@ -1489,13 +1529,15 @@ export async function resolveEngine(
       assertAgentEnginePackageInstalled(entry);
       // Synthetic checks cannot use deploy-wide credentials, but may validate
       // the dedicated user-scoped credential they install for the request.
+      const synthetic = getRequestContext()?.isSyntheticTraffic === true;
       const canUseConfiguredEngine =
-        getRequestContext()?.isSyntheticTraffic !== true ||
-        (await isStoredEngineUsableForRequest({ engine: entry.name }, entry, {
-          credentialIdentity,
-          deferBuilderRefreshFailure: true,
-        })) !== false;
-      if (canUseConfiguredEngine) {
+        entry.name === "builder" || synthetic
+          ? await usableAutomaticDefault({ engine: entry.name }, entry)
+          : true;
+      if (
+        canUseConfiguredEngine ||
+        (entry.name === "builder" && !synthetic && !deferredBuilder)
+      ) {
         return await createEngineForEntry(
           entry,
           apiKey,
@@ -1512,13 +1554,7 @@ export async function resolveEngine(
   const appDefault = await getAgentAppModelDefaultForCurrentRequest(appId);
   if (appDefault?.engine) {
     const entry = _registry.get(appDefault.engine);
-    if (
-      entry &&
-      (await isStoredEngineUsableForRequest(appDefault, entry, {
-        credentialIdentity,
-        deferBuilderRefreshFailure: true,
-      })) !== false
-    ) {
+    if (entry && (await usableAutomaticDefault(appDefault, entry))) {
       return await createEngineForEntry(
         entry,
         apiKey,
@@ -1540,7 +1576,22 @@ export async function resolveEngine(
 
   const detectedFromUser = await detectEngineFromUserSecrets(
     credentialIdentity,
-    { deferBuilderRefreshFailure: true },
+    {
+      deferBuilderRefreshFailure: true,
+      isBuilderConnectionUsable: async () => {
+        const result = await hasUsableBuilderConnection(
+          credentialIdentity,
+          true,
+        );
+        if (result instanceof McpOAuthRefreshUnavailableError) {
+          const entry = _registry.get("builder");
+          if (entry) deferredBuilder ??= { entry };
+        } else if (result) {
+          deferredBuilder = undefined;
+        }
+        return result;
+      },
+    },
   );
 
   const storedRaw = stored as { engine?: unknown; config?: unknown } | null;
@@ -1548,13 +1599,7 @@ export async function resolveEngine(
   const storedConfig = storedRaw?.config;
   if (storedRaw && typeof storedEngine === "string") {
     const entry = _registry.get(storedEngine);
-    if (
-      entry &&
-      (await isStoredEngineUsableForRequest(storedRaw, entry, {
-        credentialIdentity,
-        deferBuilderRefreshFailure: true,
-      })) !== false
-    ) {
+    if (entry && (await usableAutomaticDefault(storedRaw, entry))) {
       return await createEngineForEntry(
         entry,
         apiKey,
@@ -1569,7 +1614,10 @@ export async function resolveEngine(
     }
   }
 
-  if (detectedFromUser) {
+  if (
+    detectedFromUser &&
+    !(deferredBuilder && detectedFromUser.name === "builder")
+  ) {
     return await createEngineForEntry(
       detectedFromUser,
       apiKey,
@@ -1581,12 +1629,26 @@ export async function resolveEngine(
     );
   }
 
-  const detected = await detectEngineFromEnvForRequest();
+  const detected = await detectEngineFromEnvForRequest({
+    excludeBuilder: !!deferredBuilder,
+  });
   if (detected) {
     return await createEngineForEntry(
       detected,
       apiKey,
       undefined,
+      "automatic",
+      apiKeyEnvVar,
+      credentialIdentity,
+      apiKeyProvenance,
+    );
+  }
+
+  if (deferredBuilder) {
+    return await createEngineForEntry(
+      deferredBuilder.entry,
+      apiKey,
+      deferredBuilder.config,
       "automatic",
       apiKeyEnvVar,
       credentialIdentity,

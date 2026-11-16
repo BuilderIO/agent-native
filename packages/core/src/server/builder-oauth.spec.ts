@@ -980,6 +980,14 @@ describe("Builder hosted user OAuth", () => {
     ).toBe(true);
     expect(
       refreshFailurePolicy?.(
+        new OAuthError(
+          OAuthErrorCode.InvalidScope,
+          "scope no longer authorized",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      refreshFailurePolicy?.(
         new OAuthError(OAuthErrorCode.InvalidClient, "OAuth client rejected"),
       ),
     ).toBe(true);

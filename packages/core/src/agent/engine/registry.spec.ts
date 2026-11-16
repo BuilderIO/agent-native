@@ -1243,6 +1243,88 @@ describe("AgentEngine registry", () => {
     expect(resolved).toBe(fakeEngine);
   });
 
+  it.each(["app", "stored"])(
+    "uses an available provider when the %s Builder default cannot refresh",
+    async (source) => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => ({ orgScope: "personal" }),
+        getRequestUserEmail: () => "member@example.com",
+        getRequestOrgId: () => undefined,
+        getRequestBuilderStorageCredentialOrgId: () => undefined,
+      }));
+      vi.doMock("../app-model-defaults.js", async (original) => ({
+        ...(await original<typeof import("../app-model-defaults.js")>()),
+        getAgentAppModelDefaultForCurrentRequest: vi.fn(async () =>
+          source === "app" ? { engine: "builder" } : null,
+        ),
+      }));
+      vi.doMock("../../settings/store.js", async (original) => ({
+        ...(await original<typeof import("../../settings/store.js")>()),
+        getSetting: vi.fn(async (key: string) =>
+          source === "stored" && key === "agent-engine"
+            ? { engine: "builder" }
+            : null,
+        ),
+      }));
+      const readAppSecret = vi.fn(async ({ key }: { key: string }) =>
+        key === "ANTHROPIC_API_KEY"
+          ? { key, value: "example-provider-key" }
+          : null,
+      );
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+      }));
+      const { McpOAuthRefreshUnavailableError } =
+        await import("../../mcp-client/oauth-client.js");
+      const oauth = await import("../../server/builder-oauth.js");
+      vi.mocked(oauth.resolveBuilderOAuthRequestAccessState).mockRejectedValue(
+        new McpOAuthRefreshUnavailableError(),
+      );
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const builderCreate = vi
+        .fn()
+        .mockReturnValue({ name: "builder", stream: vi.fn() });
+      const otherCreate = vi
+        .fn()
+        .mockReturnValue({ name: "anthropic", stream: vi.fn() });
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY"],
+        create: builderCreate,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: otherCreate,
+      });
+      expect(
+        (
+          await resolveEngine({
+            appId: "dispatch",
+            apiKey: "example-builder-key",
+            apiKeyEnvVar: "BUILDER_PRIVATE_KEY",
+          })
+        ).name,
+      ).toBe("anthropic");
+      expect(otherCreate.mock.calls[0]?.[0].apiKey).toBe(
+        "example-provider-key",
+      );
+      expect(builderCreate).not.toHaveBeenCalled();
+    },
+  );
+
   it("resolveEngine honors a usable app default before the global setting", async () => {
     const getAppDefault = vi.fn(async (appId: string | undefined) =>
       appId === "analytics"
@@ -2238,6 +2320,73 @@ describe("AgentEngine registry", () => {
         }),
       );
     });
+
+    it.each(["fast", "general"])(
+      "prefers a usable provider to a deferred Builder refresh in the %s path",
+      async (path) => {
+        vi.doMock("../../server/request-context.js", () => ({
+          getRequestContext: () => ({ orgScope: "personal" }),
+          getRequestUserEmail: () => "member@example.com",
+          getRequestOrgId: () => undefined,
+        }));
+        const readAppSecret = vi.fn(async ({ key }: { key: string }) =>
+          key === "ANTHROPIC_API_KEY"
+            ? { key, value: "example-anthropic-key" }
+            : null,
+        );
+        vi.doMock("../../secrets/storage.js", () => ({
+          readAppSecret,
+          readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+        }));
+        const { McpOAuthRefreshUnavailableError } =
+          await import("../../mcp-client/oauth-client.js");
+        const oauth = await import("../../server/builder-oauth.js");
+        vi.mocked(
+          oauth.resolveBuilderOAuthRequestAccessState,
+        ).mockRejectedValue(new McpOAuthRefreshUnavailableError());
+        const { registerAgentEngine, detectEngineFromUserSecrets } =
+          await import("./registry.js");
+        const builder = {
+          name: "builder",
+          label: "Builder",
+          description: "",
+          capabilities: {} as any,
+          defaultModel: "m",
+          supportedModels: [],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY"],
+          create: vi.fn() as any,
+        };
+        const other = {
+          name: "anthropic",
+          label: "Anthropic",
+          description: "",
+          capabilities: {} as any,
+          defaultModel: "m",
+          supportedModels: [],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+          create: vi.fn() as any,
+        };
+        if (path === "fast") {
+          registerAgentEngine(builder);
+          registerAgentEngine(other);
+        } else {
+          registerAgentEngine({
+            ...other,
+            name: "missing",
+            requiredEnvVars: [],
+          });
+          registerAgentEngine(builder);
+          registerAgentEngine(other);
+        }
+        expect(
+          (
+            await detectEngineFromUserSecrets(undefined, {
+              deferBuilderRefreshFailure: true,
+            })
+          )?.name,
+        ).toBe("anthropic");
+      },
+    );
 
     it("picks the Builder engine when the user has Builder keys in app_secrets", async () => {
       vi.doMock("../../server/request-context.js", () => ({

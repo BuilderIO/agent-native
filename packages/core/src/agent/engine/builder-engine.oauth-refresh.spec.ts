@@ -54,9 +54,20 @@ vi.mock("../../settings/store.js", async (importOriginal) => ({
   ),
 }));
 
-vi.mock("../../server/personal-provider-key-policy.js", () => ({
-  isPersonalProviderKeyUseRestricted: vi.fn(async () => false),
-  readOrgMemberRole: vi.fn(async () => "member"),
+vi.mock(
+  "../../server/personal-provider-key-policy.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../server/personal-provider-key-policy.js")
+    >()),
+    isPersonalProviderKeyUseRestricted: vi.fn(async () => false),
+    readOrgMemberRole: vi.fn(async () => "member"),
+  }),
+);
+
+vi.mock("../../secrets/storage.js", () => ({
+  readAppSecret: vi.fn(async () => null),
+  readAppSecrets: vi.fn(async () => new Map()),
 }));
 
 vi.mock("../../usage/builder-credit-notice.js", () => ({

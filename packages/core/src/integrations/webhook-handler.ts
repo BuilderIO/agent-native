@@ -307,7 +307,7 @@ async function resolveIntegrationEngineOption(
   appId?: string,
   includeConfiguredSelection = true,
 ): Promise<WebhookHandlerOptions["engine"]> {
-  if (engineOption && typeof engineOption === "object") return engineOption;
+  if (engineOption) return engineOption;
   if (!includeConfiguredSelection) return engineOption ?? "builder";
   try {
     return (
@@ -317,8 +317,7 @@ async function resolveIntegrationEngineOption(
       })) ?? engineOption
     );
   } catch (error) {
-    if (error instanceof McpOAuthRefreshUnavailableError)
-      return engineOption ?? "builder";
+    if (error instanceof McpOAuthRefreshUnavailableError) return engineOption;
     throw error;
   }
 }

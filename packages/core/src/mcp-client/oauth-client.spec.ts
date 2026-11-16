@@ -158,6 +158,91 @@ beforeEach(() => {
   validateAuthorizationResponseIssuerMock.mockReset();
 });
 
+describe("Builder OAuth refresh lifecycle", () => {
+  it.each([false, true])(
+    "requires reconnect on invalid_scope and uses an alternate grant when available: %s",
+    async (hasAlternate) => {
+      vi.doMock("../server/personal-provider-key-policy.js", () => ({
+        isPersonalProviderKeyUseRestricted: vi.fn(async () => false),
+      }));
+      vi.doMock("../server/credential-read-order.js", () => ({
+        orderCredentialScopes: (options: unknown[]) => options,
+      }));
+      const { resolveBuilderOAuthRequestAccessState, BUILDER_OAUTH_SCOPE } =
+        await import("../server/builder-oauth.js");
+      const { OAuthError, OAuthErrorCode } =
+        await import("@modelcontextprotocol/client");
+      const grant = {
+        serverUrl: "https://api.builder.io",
+        clientInformation: {
+          client_id: "example-client",
+          issuer: "https://mcp.builder.io",
+        },
+        discoveryState: {
+          authorizationServerUrl: "https://mcp.builder.io",
+          authorizationServerMetadata: {
+            issuer: "https://mcp.builder.io",
+            token_endpoint: "https://mcp.builder.io/token",
+          },
+          resourceMetadata: { resource: "https://api.builder.io" },
+        },
+        tokens: {
+          access_token: "example-access",
+          refresh_token: "example-refresh",
+          token_type: "bearer",
+          issuer: "https://mcp.builder.io",
+          scope: BUILDER_OAUTH_SCOPE,
+        },
+        tokenExpiresAt: Date.now() - 1,
+      };
+      let personal: Record<string, unknown> = grant;
+      getOAuthTokensMock.mockImplementation(
+        async (_provider: string, _key: string, owner: string) =>
+          owner.startsWith("user:")
+            ? personal
+            : hasAlternate
+              ? {
+                  ...grant,
+                  tokens: {
+                    ...grant.tokens,
+                    access_token: "example-org-access",
+                  },
+                  tokenExpiresAt: Date.now() + 3_600_000,
+                }
+              : null,
+      );
+      replaceOAuthTokensIfRevisionMock.mockImplementation(
+        async (
+          _provider,
+          _key,
+          _owner,
+          _revision,
+          _legacyRevision,
+          _version,
+          next,
+        ) => {
+          personal = next;
+          return true;
+        },
+      );
+      refreshAuthorizationMock.mockRejectedValue(
+        new OAuthError(OAuthErrorCode.InvalidScope, "provider private error"),
+      );
+      const result = await resolveBuilderOAuthRequestAccessState({
+        ownerEmail: "member@example.com",
+        orgId: "org-example",
+        requiredScope: BUILDER_OAUTH_SCOPE,
+      });
+      expect(result.kind).toBe(hasAlternate ? "available" : "unusable");
+      if (result.kind === "available") expect(result.access.scope).toBe("org");
+      expect(personal).toMatchObject({
+        oauthLifecycle: { reconnectReason: expect.any(String) },
+      });
+      expect(JSON.stringify(result)).not.toContain("provider private error");
+    },
+  );
+});
+
 describe("MCP OAuth client", () => {
   it("starts Google Workspace OAuth without MCP discovery", async () => {
     const result = await startMcpOAuthAuthorization({

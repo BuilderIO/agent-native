@@ -424,7 +424,9 @@ describe("integration webhook handler engine resolution", () => {
     setIntegrationAwaitingInputMock.mockResolvedValue(undefined);
     clearIntegrationAwaitingInputMock.mockResolvedValue(undefined);
     getStoredModelForEngineMock.mockResolvedValue(undefined);
-    getConfiguredEngineNameForRequestMock.mockResolvedValue(undefined);
+    getConfiguredEngineNameForRequestMock
+      .mockReset()
+      .mockResolvedValue(undefined);
     resolveEngineMock.mockResolvedValue({
       name: "builder",
       defaultModel: "builder-default-model",
@@ -920,7 +922,7 @@ describe("integration webhook handler engine resolution", () => {
     },
   );
 
-  it("routes a temporarily unavailable configured Builder grant to the retry-aware engine", async () => {
+  it("leaves automatic selection to the shared resolver after a temporary Builder refresh failure", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { McpOAuthRefreshUnavailableError } =
       await import("../mcp-client/oauth-client.js");
@@ -941,7 +943,7 @@ describe("integration webhook handler engine resolution", () => {
     });
 
     expect(resolveEngineMock).toHaveBeenCalledWith(
-      expect.objectContaining({ engineOption: "builder" }),
+      expect.objectContaining({ engineOption: undefined }),
     );
     expect(runAgentLoopMock).toHaveBeenCalledOnce();
   });
@@ -969,6 +971,25 @@ describe("integration webhook handler engine resolution", () => {
     );
   });
 
+  it("honors an explicitly selected integration engine over the configured default", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    getConfiguredEngineNameForRequestMock.mockResolvedValueOnce("builder");
+    await processIntegrationTask(pendingTask(), {
+      adapter: createAdapter(),
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "",
+      engine: "ai-sdk:openai",
+      ownerEmail: "integration@fake",
+      orgId: "org-qa",
+      principalType: "service",
+      appId: "dispatch",
+    });
+    expect(resolveEngineMock).toHaveBeenCalledWith(
+      expect.objectContaining({ engineOption: "ai-sdk:openai" }),
+    );
+  });
+
   it("does not mask unrelated configured-engine errors", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     getConfiguredEngineNameForRequestMock.mockRejectedValueOnce(
@@ -980,7 +1001,6 @@ describe("integration webhook handler engine resolution", () => {
       systemPrompt: "system",
       actions: {},
       apiKey: "",
-      engine: "ai-sdk:openai",
       ownerEmail: "integration@fake",
       orgId: "org-qa",
       principalType: "service",
@@ -1913,7 +1933,7 @@ describe("integration webhook handler engine resolution", () => {
   );
 
   it(
-    "prefers the org's configured engine over the integration plugin default",
+    "uses the org's configured engine for automatic integration selection",
     { timeout: 15000 },
     async () => {
       const { processIntegrationTask } = await import("./webhook-handler.js");
@@ -1950,7 +1970,6 @@ describe("integration webhook handler engine resolution", () => {
         actions: {},
         model: "builder-default-model",
         apiKey: "",
-        engine: "builder",
         appId: "dispatch",
         ownerEmail: task.ownerEmail,
       });

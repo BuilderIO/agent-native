@@ -55,6 +55,7 @@ function shouldMarkBuilderReconnectRequiredOnRefreshFailure(
     error instanceof McpOAuthReauthorizationRequiredError ||
     (error instanceof OAuthError &&
       (error.code === OAuthErrorCode.InvalidGrant ||
+        error.code === OAuthErrorCode.InvalidScope ||
         error.code === OAuthErrorCode.InvalidClient ||
         error.code === OAuthErrorCode.UnauthorizedClient))
   );
