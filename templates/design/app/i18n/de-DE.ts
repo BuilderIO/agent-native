@@ -2115,6 +2115,9 @@ export default {
     addTweaks: "Fügen Sie Optimierungen hinzu",
     addTweakControls: "Fügen Sie Optimierungssteuerelemente hinzu",
     closeTweaks: "Enge Optimierungen",
+    showFloatingTweaks: "Schwebende Optimierungen anzeigen",
+    collapseTweaks: "Optimierungen einklappen",
+    expandTweaks: "Optimierungen ausklappen",
     tweaksHelp:
       "Anpassungen sind breakpoint- und zustandsspezifische visuelle Überschreibungen über dem Basisdesign. Setzen Sie ein Steuerelement zurück, um den geerbten Wert wiederherzustellen.",
     tweaksDocs: "Mehr erfahren.",

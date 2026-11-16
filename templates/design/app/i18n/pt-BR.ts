@@ -2097,6 +2097,9 @@ export default {
     addTweaks: "Adicionar ajustes",
     addTweakControls: "Adicionar controles de ajuste",
     closeTweaks: "Fechar ajustes",
+    showFloatingTweaks: "Mostrar ajustes flutuantes",
+    collapseTweaks: "Recolher ajustes",
+    expandTweaks: "Expandir ajustes",
     tweaksHelp:
       "Os ajustes são substituições visuais específicas de breakpoint e estado sobre o design base. Redefina um controle para voltar ao valor herdado.",
     tweaksDocs: "Saiba mais.",

@@ -2105,6 +2105,9 @@ export default {
     addTweaks: "Agregar ajustes",
     addTweakControls: "Agregar controles de ajuste",
     closeTweaks: "Cerrar ajustes",
+    showFloatingTweaks: "Mostrar ajustes flotantes",
+    collapseTweaks: "Contraer ajustes",
+    expandTweaks: "Expandir ajustes",
     tweaksHelp:
       "Los ajustes son modificaciones visuales por punto de quiebre y estado superpuestas al diseño base. Restablece un control para volver al valor heredado.",
     tweaksDocs: "Más información.",
