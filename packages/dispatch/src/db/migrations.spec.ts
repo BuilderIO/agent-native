@@ -236,4 +236,70 @@ describe("dispatch migrations", () => {
     );
     expect(grants).toEqual([{ id: "grant-1", credential_key: null }]);
   });
+
+  it("migrates a fresh install all the way without creating the retired vault_secrets table", async () => {
+    const [{ getDbExec, runMigrations, closeDbExec }, { dispatchMigrations }] =
+      await Promise.all([
+        import("@agent-native/core/db"),
+        import("./migrations.js"),
+      ]);
+    getDbExec();
+
+    await runMigrations(dispatchMigrations, {
+      table: "dispatch_migrations",
+    })({});
+
+    await closeDbExec();
+    const exec = (await import("@agent-native/core/db")).getDbExec();
+    const { rows: tables } = await exec.execute(`
+      SELECT table_name FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name LIKE 'vault\\_%'
+      ORDER BY table_name
+    `);
+    expect(tables.map((row) => row.table_name)).toEqual([
+      "vault_audit_log",
+      "vault_grants",
+      "vault_requests",
+    ]);
+    const { rows: columns } = await exec.execute({
+      sql: `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = ? AND column_name = ?`,
+      args: ["vault_grants", "credential_key"],
+    });
+    expect(columns).toHaveLength(1);
+  });
+
+  it("leaves an existing vault_secrets table and its rows alone", async () => {
+    const [{ getDbExec, runMigrations, closeDbExec }, { dispatchMigrations }] =
+      await Promise.all([
+        import("@agent-native/core/db"),
+        import("./migrations.js"),
+      ]);
+    const exec = getDbExec();
+    await exec.execute(`
+      CREATE TABLE vault_secrets (
+        id TEXT PRIMARY KEY,
+        org_id TEXT,
+        credential_key TEXT NOT NULL
+      )
+    `);
+    await exec.execute({
+      sql: "INSERT INTO vault_secrets (id, org_id, credential_key) VALUES ('secret-a', 'org-a', 'HUBSPOT_ACCESS_TOKEN')",
+      args: [],
+    });
+
+    await runMigrations(dispatchMigrations, {
+      table: "dispatch_migrations",
+    })({});
+
+    await closeDbExec();
+    const { rows } = await (
+      await import("@agent-native/core/db")
+    )
+      .getDbExec()
+      .execute("SELECT id, credential_key FROM vault_secrets");
+    expect(rows).toEqual([
+      { id: "secret-a", credential_key: "HUBSPOT_ACCESS_TOKEN" },
+    ]);
+  });
 });
