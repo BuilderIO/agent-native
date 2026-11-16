@@ -52,8 +52,8 @@ export function useNavigationState() {
           : pathname === "/sign-in"
             ? "sign-in"
             : pathname.replace(/^\/+/, ""),
-      // Optional semantic alias. Raw query params are already exposed in
-      // <current-url> and controllable with set-search-params.
+      // Optional semantic alias. Query keys the app declares in
+      // `urlQueryKeys` are already in <current-url>; set-search-params edits them.
       label: searchParams.get("label"),
     }),
     getCommandPath: (command: any) =>
