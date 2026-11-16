@@ -501,11 +501,15 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         !!getRequestContext()?.requestOrigin &&
         !!mcpAppResourceCandidate &&
         directoryWidget === undefined &&
-        !mcpResultIsError
+        !mcpResultIsError &&
+        hasVerifiedMcpUserIdentity(effectiveIdentity) &&
+        typeof trustedCredentialIssuedAtMs === "number" &&
+        Number.isSafeInteger(trustedCredentialIssuedAtMs)
           ? await withServerMintedFullAppEmbedStart(
               projectedRawResult,
               entry,
               callArgs(),
+              trustedCredentialIssuedAtMs,
             ).catch((error: unknown) => {
               console.warn(
                 `[mcp] ${name} could not mint a full-app session; using a full-app link: ${describeThrownForLog(error)}`,

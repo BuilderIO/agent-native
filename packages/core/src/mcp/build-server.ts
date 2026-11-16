@@ -1563,12 +1563,14 @@ export async function withServerMintedMcpAppEmbedStart(
 /**
  * Gives a result the full-session ticket a full-app embed starts from, opening
  * the page the result or the tool's link names. A ticket the action minted
- * itself, such as a cross-app open, is kept.
+ * itself, such as a cross-app open, is kept. Callers mint only for a verified
+ * user, anchored to the credential's issue time so revoking it ends the session.
  */
 export async function withServerMintedFullAppEmbedStart(
   result: unknown,
   entry: ActionEntry,
   args: Record<string, unknown>,
+  revocationAnchorCreatedAtMs: number,
 ): Promise<unknown> {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     return result;
@@ -1602,6 +1604,7 @@ export async function withServerMintedFullAppEmbedStart(
     ...(ctx?.orgId ? { orgId: ctx.orgId } : {}),
     targetPath,
     scope: null,
+    revocationAnchorCreatedAtMs,
   });
   return {
     ...(withoutMcpAppEmbedTicket(record) as Record<string, unknown>),
