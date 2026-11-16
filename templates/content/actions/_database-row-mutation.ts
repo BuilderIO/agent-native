@@ -292,6 +292,28 @@ function conflict(
   throw new ActionContractError(message, { errorCode, details });
 }
 
+/**
+ * The operation of a record that closes an idempotency key in a collection
+ * for good. MCP script recovery stores one through `fenceRowPatchReceipt`
+ * when it cannot tell whether a batch patch sent with the key ran, so the
+ * patch can never commit later. It sits under the receipts' unique key, so
+ * no receipt can take the key after it, and nothing updates or deletes it.
+ */
+const CLOSED_KEY_OPERATION = "closed-key";
+
+/** Refuses a write whose key a closed-key record holds. */
+export function assertReceiptKeyOpen(
+  stored: { operation: string },
+  idempotencyKey: string,
+): void {
+  if (stored.operation !== CLOSED_KEY_OPERATION) return;
+  conflict(
+    "IDEMPOTENCY_KEY_CLOSED",
+    "This idempotency key was closed because a script's write sent with it could not be confirmed. Nothing was written with it; send the change again with a new idempotency key.",
+    { idempotencyKey },
+  );
+}
+
 function invalidProperty(
   definition: Pick<DefinitionRow, "id" | "name" | "type">,
   reason: string,
@@ -1178,6 +1200,7 @@ async function replayReceipt(
       ),
     );
   if (!stored) return null;
+  assertReceiptKeyOpen(stored, idempotencyKey);
   if (!expectedPayloadDigests.includes(stored.payloadDigest)) {
     conflict(
       "IDEMPOTENCY_KEY_REUSED",
@@ -2376,6 +2399,7 @@ async function replayRowPatchReceipt(
       ),
     );
   if (!stored) return null;
+  assertReceiptKeyOpen(stored, idempotencyKey);
   if (
     stored.operation !== ROW_PATCH_RECEIPT_OPERATION ||
     stored.payloadDigest !== payloadDigest
@@ -2411,6 +2435,172 @@ async function replayRowPatchReceipt(
       rows: ordered as ContentDatabaseRowPatchReceipt[],
     },
   };
+}
+
+/** Where a batch patch's receipt goes: its collection, key and payload. */
+export interface RowPatchReceiptLocator {
+  /** The collection's ID. */
+  scope: string;
+  idempotencyKey: string;
+  payloadDigest: string;
+}
+
+export type RowPatchReconcileResult =
+  | { status: "committed"; receipt: { receiptId: string } }
+  | { status: "absent" };
+
+export type RowPatchFenceResult =
+  | { status: "committed"; receipt: { receiptId: string } }
+  | { status: "fenced" };
+
+/**
+ * The receipt a batch patch with these arguments commits. An MCP script
+ * write records it before the patch runs, so recovery can look for the
+ * receipt later. Throws for rows the patch itself would refuse to read.
+ */
+export function rowPatchReceiptLocator(
+  input: PatchDatabaseRowsMutationInput,
+): RowPatchReceiptLocator {
+  return {
+    scope: input.target.databaseId,
+    idempotencyKey: input.idempotencyKey,
+    payloadDigest: rowPatchPayloadDigest(
+      input,
+      canonicalRowPatches(input.rows),
+    ),
+  };
+}
+
+/** The live collection a locator names, once the caller holds `role` on it. */
+async function locatorCollection(
+  locator: RowPatchReceiptLocator,
+  role: "viewer" | "editor",
+): Promise<DatabaseRow> {
+  const found = await getDb()
+    .select()
+    .from(schema.contentDatabases)
+    .where(
+      and(
+        eq(schema.contentDatabases.id, locator.scope),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    );
+  const database = found.find((row) => row.id === locator.scope);
+  if (!database) {
+    throw new ActionContractError("Content database not found.", {
+      errorCode: "DATABASE_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
+  await assertAccess("document", database.documentId, role);
+  return database;
+}
+
+/** What holds the locator's key: a receipt, a closed key, or nothing. */
+async function locatorRecord(
+  locator: RowPatchReceiptLocator,
+): Promise<{ id: string; operation: string } | undefined> {
+  const found = await getDb()
+    .select({
+      id: schema.contentDatabaseRowMutationReceipts.id,
+      operation: schema.contentDatabaseRowMutationReceipts.operation,
+      idempotencyKey: schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+      payloadDigest: schema.contentDatabaseRowMutationReceipts.payloadDigest,
+    })
+    .from(schema.contentDatabaseRowMutationReceipts)
+    .where(
+      and(
+        eq(schema.contentDatabaseRowMutationReceipts.databaseId, locator.scope),
+        eq(
+          schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+          locator.idempotencyKey,
+        ),
+      ),
+    );
+  const stored = found.find(
+    (record) => record.idempotencyKey === locator.idempotencyKey,
+  );
+  if (stored && stored.payloadDigest !== locator.payloadDigest) {
+    conflict(
+      "IDEMPOTENCY_KEY_REUSED",
+      "This idempotency key was already used for a different row mutation.",
+      { idempotencyKey: locator.idempotencyKey },
+    );
+  }
+  return stored;
+}
+
+/**
+ * Whether the batch patch a locator names committed, read as the caller,
+ * who needs view access to the collection. A closed key is `absent`: its
+ * patch never ran and never will. Changes nothing.
+ */
+export async function reconcileRowPatchReceipt(
+  locator: RowPatchReceiptLocator,
+): Promise<RowPatchReconcileResult> {
+  await locatorCollection(locator, "viewer");
+  const stored = await locatorRecord(locator);
+  return stored && stored.operation !== CLOSED_KEY_OPERATION
+    ? { status: "committed", receipt: { receiptId: stored.id } }
+    : { status: "absent" };
+}
+
+/**
+ * Closes the locator's key for good unless its batch patch committed, as
+ * the caller, who needs edit access to the collection. MCP script recovery
+ * calls it before it records a lost patch as not applied. It takes the
+ * collection lock every row writer takes, so a patch already holding the
+ * lock commits or fails first, and one still waiting for it finds the key
+ * closed once it holds the lock, and writes nothing.
+ */
+export async function fenceRowPatchReceipt(
+  locator: RowPatchReceiptLocator,
+): Promise<RowPatchFenceResult> {
+  const database = await locatorCollection(locator, "editor");
+  await getDb().transaction(async (tx) => {
+    const db = tx as unknown as Db;
+    await lockContentDatabaseMutation(db, database.id);
+    const now = new Date().toISOString();
+    // Leaves a receipt or closed key already under the key as it is.
+    await db
+      .insert(schema.contentDatabaseRowMutationReceipts)
+      .values({
+        id: nanoid(),
+        ownerEmail: database.ownerEmail,
+        orgId: database.orgId,
+        spaceId: database.spaceId ?? "",
+        databaseId: database.id,
+        databaseDocumentId: database.documentId,
+        operation: CLOSED_KEY_OPERATION,
+        // A closed key names no row, schema or revision.
+        itemId: "",
+        documentId: "",
+        idempotencyKey: locator.idempotencyKey,
+        payloadDigest: locator.payloadDigest,
+        schemaRevision: "",
+        postRowRevision: "",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing({
+        target: [
+          schema.contentDatabaseRowMutationReceipts.databaseId,
+          schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+        ],
+      });
+  });
+  // Read after the commit, so `fenced` means the closed key is stored.
+  const stored = await locatorRecord(locator);
+  if (!stored) {
+    conflict(
+      "RECEIPT_MISMATCH",
+      "The record under this idempotency key went missing.",
+      { idempotencyKey: locator.idempotencyKey },
+    );
+  }
+  return stored.operation === CLOSED_KEY_OPERATION
+    ? { status: "fenced" }
+    : { status: "committed", receipt: { receiptId: stored.id } };
 }
 
 async function patchRowsInsideTransaction(
