@@ -263,6 +263,67 @@ describe("visual-edit pending handoff", () => {
     );
   });
 
+  it("lets an editor replace a suggestion and returns the superseded text", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.selectChain.limit.mockResolvedValueOnce([
+      {
+        status: "suggested",
+        publisherId: "22222222-2222-4222-8222-222222222222",
+        prompt: "Try a warmer color palette",
+        authorEmail: "commenter@example.com",
+      },
+    ]);
+    await expect(
+      publishPendingAction.run(
+        {
+          designId: design.id,
+          publisherId,
+          revision: 1,
+          pending: {
+            designId: design.id,
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "Increase the heading size",
+          },
+        },
+        { caller: "frontend", requestHeaders: new Headers() },
+      ),
+    ).resolves.toMatchObject({
+      status: "ready",
+      supersededSuggestion: {
+        text: "Try a warmer color palette",
+        authorEmail: "commenter@example.com",
+      },
+    });
+    const update = mocks.insertChain.onConflictDoUpdate.mock.calls[0]?.[0];
+    expect(
+      update?.setWhere.values
+        .map((value: { strings?: string[] }) => value.strings?.join(" "))
+        .join(" "),
+    ).toContain("= 'suggested'");
+  });
+
+  it("lets an editor clear another publisher's suggestion", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    await expect(
+      publishPendingAction.run(
+        {
+          designId: design.id,
+          publisherId,
+          revision: 2,
+          pending: null,
+        },
+        { caller: "frontend", requestHeaders: new Headers() },
+      ),
+    ).resolves.toMatchObject({ status: "empty" });
+    const update = mocks.insertChain.onConflictDoUpdate.mock.calls[0]?.[0];
+    expect(
+      update?.setWhere.values
+        .map((value: { strings?: string[] }) => value.strings?.join(" "))
+        .join(" "),
+    ).toContain("= 'suggested'");
+  });
+
   it("returns a commenter suggestion apart from the prompt and requires owner approval", async () => {
     mocks.selectChain.limit.mockResolvedValueOnce([
       {
