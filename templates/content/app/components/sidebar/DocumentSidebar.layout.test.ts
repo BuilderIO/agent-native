@@ -277,10 +277,8 @@ describe("document sidebar layout", () => {
     expect(sections).not.toContain("min-h-[38px]");
     expect(sections).toContain("text-muted-foreground");
     expect(sidebar).toContain("useContentDatabaseById(favoritesDatabaseId, {");
-    // Before the first pin creates the Favorites collection, Pinned draws the pin itself.
-    expect(sidebar).toContain(
-      "const pinnedData = favoritesData ?? firstPinsData;",
-    );
+    // Until the Favorites list lists a first pin, Pinned draws the pin itself.
+    expect(sidebar).toContain("const drawn = firstPinsToDraw(");
     expect(sidebar).toContain("pinnedData?.items ?? []");
     expect(sidebar).toContain(").slice(0, limit);");
     expect(sidebar).toContain(

@@ -37,6 +37,8 @@ import {
 } from "@/lib/files-navigation";
 
 import {
+  type FirstPin,
+  firstPinsToDraw,
   useFirstPins,
   useMoveDocument,
   useUpdateDocument,
@@ -279,6 +281,44 @@ describe("pinning from the hosted Files tree", () => {
         .isInvalidated,
     ).toBe(true);
   });
+
+  it("hands a pin to Pinned while the Favorites list still loads, and reads the list again from after the answer", async () => {
+    seedSpaces(queryClient, "favorites");
+    useUpdateDocument();
+    const options = mutationOptions("update-document");
+    const variables = { id: "page", isFavorite: true };
+
+    const context = await options.onMutate(variables);
+    expect(context).toMatchObject({
+      createsFavorites: false,
+      firstPin: { id: "page", spaceId: SPACE, isFavorite: true },
+    });
+
+    // The list's first read starts before the server has the pin.
+    void queryClient.prefetchQuery({
+      queryKey: favoritesKey,
+      queryFn: () => new Promise<never>(() => {}),
+    });
+    options.onSuccess(
+      {
+        id: "page",
+        isFavorite: true,
+        updatedAt: "2026-11-16T00:00:01.000Z",
+        softDeletedDatabaseIds: [],
+      },
+      variables,
+      context,
+    );
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+
+    const favorites = queryClient
+      .getQueryCache()
+      .find({ queryKey: favoritesKey });
+    expect(favorites?.state.fetchStatus).toBe("idle");
+    expect(favorites?.state.isInvalidated).toBe(true);
+  });
 });
 
 describe("useFirstPins", () => {
@@ -301,7 +341,7 @@ describe("useFirstPins", () => {
     const queryClient = new QueryClient();
     const seen = { current: [] as string[] };
     function Probe() {
-      const ids = useFirstPins(SPACE).map((document) => document.id);
+      const ids = useFirstPins(SPACE).map((pin) => pin.document.id);
       useEffect(() => {
         seen.current = ids;
       });
@@ -363,6 +403,50 @@ describe("useFirstPins", () => {
   });
 });
 
+describe("firstPinsToDraw", () => {
+  const pin = (id: string, answeredAt: number | null): FirstPin => ({
+    document: {
+      id,
+      spaceId: SPACE,
+      parentId: null,
+      title: id,
+      content: "",
+      icon: null,
+      position: 0,
+      isFavorite: true,
+      hideFromSearch: false,
+      createdAt: "2026-11-16T00:00:00.000Z",
+      updatedAt: "2026-11-16T00:00:00.000Z",
+    },
+    answeredAt,
+  });
+  const listing = (...ids: string[]) => ({
+    items: ids.map((id) => ({ document: { id } })),
+  });
+  const drawn = (
+    pins: FirstPin[],
+    favorites: ReturnType<typeof listing> | undefined,
+    readAt = 0,
+  ) => firstPinsToDraw(pins, favorites, readAt).map((document) => document.id);
+
+  it("draws every first pin until the Favorites list loads", () => {
+    expect(drawn([pin("b", null), pin("a", 100)], undefined)).toEqual([
+      "b",
+      "a",
+    ]);
+  });
+
+  it("leaves a pin the list lists to the list", () => {
+    expect(drawn([pin("a", null)], listing("a"))).toEqual([]);
+  });
+
+  it("keeps a pin a read from before its answer doesn't list, and drops one a later read doesn't", () => {
+    const pins = [pin("waiting", null), pin("answered", 100)];
+    expect(drawn(pins, listing(), 50)).toEqual(["waiting", "answered"]);
+    expect(drawn(pins, listing(), 150)).toEqual(["waiting"]);
+  });
+});
+
 describe("usePendingMoves", () => {
   const plan = (parentId: string): MoveDocumentContext => ({
     move: {
@@ -374,7 +458,7 @@ describe("usePendingMoves", () => {
     },
   });
 
-  it("draws a page where its latest move takes it, even when an older move is still waiting", async () => {
+  async function mount() {
     const queryClient = new QueryClient();
     const seen = { current: [] as Array<string | null> };
     function Probe() {
@@ -393,33 +477,60 @@ describe("usePendingMoves", () => {
         </QueryClientProvider>,
       ),
     );
-    const answers = new Map<string, () => void>();
+    const answers = new Map<
+      string,
+      { resolve: () => void; reject: (error: Error) => void }
+    >();
     const moveTo = (parentId: string) =>
       queryClient
         .getMutationCache()
         .build(queryClient, {
           mutationKey: MOVE_DOCUMENT_MUTATION_KEY,
           mutationFn: () =>
-            new Promise<void>((resolve) => answers.set(parentId, resolve)),
+            new Promise<void>((resolve, reject) =>
+              answers.set(parentId, { resolve, reject }),
+            ),
           onMutate: () => plan(parentId),
         })
-        .execute({ id: "page", parentId });
+        .execute({ id: "page", parentId })
+        .catch(() => {});
     const settle = async () =>
       act(async () => {
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       });
+    return { root, seen, answers, moveTo, settle };
+  }
 
+  it("draws a page where its latest move takes it, even when an older move is still waiting", async () => {
+    const { root, seen, answers, moveTo, settle } = await mount();
     void moveTo("b");
     void moveTo("c");
     await settle();
     expect(seen.current).toEqual(["c"]);
 
     // The move to C answers first; the move to B is still waiting.
-    answers.get("c")?.();
+    answers.get("c")?.resolve();
     await settle();
     expect(seen.current).toEqual([]);
 
-    answers.get("b")?.();
+    answers.get("b")?.resolve();
+    await settle();
+    expect(seen.current).toEqual([]);
+
+    await act(async () => root.unmount());
+  });
+
+  it("draws a page where an older move takes it once a newer move fails", async () => {
+    const { root, seen, answers, moveTo, settle } = await mount();
+    void moveTo("b");
+    void moveTo("c");
+    await settle();
+
+    answers.get("c")?.reject(new Error("refused"));
+    await settle();
+    expect(seen.current).toEqual(["b"]);
+
+    answers.get("b")?.resolve();
     await settle();
     expect(seen.current).toEqual([]);
 

@@ -1704,14 +1704,15 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
           });
 
         // The first pin creates the Favorites collection, so there is none to
-        // draw it into yet: Pinned draws it from `useFirstPins`.
+        // draw it into yet, and a pin made while the list still loads has none
+        // either: Pinned draws these from `useFirstPins`.
         const createsFavorites =
           variables.isFavorite === true &&
           !favoritesCollectionExists(queryClient);
         let firstPin: Document | undefined;
         if (variables.isFavorite === true) {
           const document = cachedDocumentForPinned(queryClient, variables.id);
-          if (document && createsFavorites) {
+          if (document && favoritesListMissing(queryClient, documentSpaceId)) {
             // Pinned lists the pins of one space.
             firstPin = {
               ...document,
@@ -1941,6 +1942,27 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-content-database"],
           });
+        }
+        const firstPin = (context as { firstPin?: Document } | undefined)
+          ?.firstPin;
+        if (variables.isFavorite === true && firstPin) {
+          firstPinAnswers.set(firstPin, Date.now());
+          // Pinned keeps the pin until a Favorites read from after this answer
+          // lists it, so a first read still loading from before it starts
+          // again.
+          const favorites = favoritesDatabaseIds(queryClient);
+          void queryClient
+            .cancelQueries({
+              queryKey: ["action", "get-content-database"],
+              predicate: (query) =>
+                query.state.data === undefined &&
+                isFavoritesListKey(query.queryKey, favorites),
+            })
+            .then(() =>
+              queryClient.invalidateQueries({
+                queryKey: ["action", "get-content-database"],
+              }),
+            );
         }
         if (variables.isFavorite !== undefined) {
           invalidateContentQueries(queryClient, [
@@ -2484,13 +2506,73 @@ function favoritesCollectionExists(queryClient: QueryClient) {
     );
 }
 
+/** The Favorites collections the hosted spaces lists name. */
+function favoritesDatabaseIds(queryClient: QueryClient) {
+  return new Set(
+    queryClient
+      .getQueriesData<ListContentSpacesResponse>({
+        queryKey: ["action", "list-content-spaces"],
+      })
+      .flatMap(([, data]) =>
+        data?.favoritesDatabaseId ? [data.favoritesDatabaseId] : [],
+      ),
+  );
+}
+
+function isFavoritesListKey(
+  queryKey: QueryKey,
+  favorites: ReadonlySet<string>,
+  spaceId?: string | null,
+) {
+  const params = queryKey[2] as
+    | { databaseId?: unknown; contentSpaceId?: unknown }
+    | undefined;
+  return (
+    typeof params?.databaseId === "string" &&
+    favorites.has(params.databaseId) &&
+    (spaceId === undefined || (params.contentSpaceId ?? null) === spaceId)
+  );
+}
+
 /**
- * Pages pinned in `spaceId` before this person had a Favorites collection,
- * newest pin first, as Pinned lists a new pin. The first pin creates the
- * collection, so Pinned draws these until the collection's own read lands. A
- * failed pin leaves, and so does a page unpinned since.
+ * True when Pinned has no Favorites list of `spaceId` to draw a pin into:
+ * there is no collection yet, or its list hasn't loaded.
  */
-export function useFirstPins(spaceId: string | null | undefined): Document[] {
+function favoritesListMissing(
+  queryClient: QueryClient,
+  spaceId: string | null | undefined,
+) {
+  if (!favoritesCollectionExists(queryClient)) return true;
+  const favorites = favoritesDatabaseIds(queryClient);
+  return (
+    favorites.size > 0 &&
+    !queryClient
+      .getQueriesData<ContentDatabaseResponse>({
+        queryKey: ["action", "get-content-database"],
+        predicate: (query) =>
+          isFavoritesListKey(query.queryKey, favorites, spaceId ?? null),
+      })
+      .some(([, data]) => isFavoritesDatabaseCache(data))
+  );
+}
+
+/** When the server answered each first pin, by the pin. */
+const firstPinAnswers = new WeakMap<Document, number>();
+
+/** A pin Pinned draws itself, before its Favorites list lists it. */
+export type FirstPin = {
+  document: Document;
+  /** When the server answered the pin; null while it waits. */
+  answeredAt: number | null;
+};
+
+/**
+ * Pages pinned in `spaceId` while Pinned had no Favorites list to draw them
+ * into, newest pin first, as Pinned lists a new pin. The first pin creates the
+ * collection, so Pinned draws these until the collection's own read lists
+ * them. A failed pin leaves, and so does a page unpinned since.
+ */
+export function useFirstPins(spaceId: string | null | undefined): FirstPin[] {
   const toggles = useMutationState({
     filters: {
       mutationKey: DOCUMENT_UPDATE_MUTATION_KEY,
@@ -2502,27 +2584,57 @@ export function useFirstPins(spaceId: string | null | undefined): Document[] {
     select: (mutation) => {
       const variables = mutation.state
         .variables as DocumentUpdateRequestWithCas;
+      const document = (
+        mutation.state.context as { firstPin?: Document } | undefined
+      )?.firstPin;
       return {
         id: variables.id,
-        firstPin:
-          (mutation.state.context as { firstPin?: Document } | undefined)
-            ?.firstPin ?? null,
+        firstPin: document
+          ? {
+              document,
+              answeredAt:
+                mutation.state.status === "success"
+                  ? (firstPinAnswers.get(document) ?? 0)
+                  : null,
+            }
+          : null,
       };
     },
   });
   return useMemo(() => {
-    const latest = new Map<string, Document | null>();
+    const latest = new Map<string, FirstPin | null>();
     for (const toggle of toggles) {
       latest.delete(toggle.id);
       latest.set(toggle.id, toggle.firstPin);
     }
     return [...latest.values()]
       .filter(
-        (document): document is Document =>
-          document !== null && Boolean(spaceId) && document.spaceId === spaceId,
+        (pin): pin is FirstPin =>
+          pin !== null && Boolean(spaceId) && pin.document.spaceId === spaceId,
       )
       .reverse();
   }, [spaceId, toggles]);
+}
+
+/**
+ * The first pins Pinned still draws itself: all of them until the Favorites
+ * list loads, then those it doesn't list from a read made after their answer.
+ * `readAt` is when the list's current read landed.
+ */
+export function firstPinsToDraw(
+  pins: readonly FirstPin[],
+  favorites: { items: readonly { document: { id: string } }[] } | undefined,
+  readAt: number,
+): Document[] {
+  if (!favorites) return pins.map((pin) => pin.document);
+  const listed = new Set(favorites.items.map((item) => item.document.id));
+  return pins
+    .filter(
+      (pin) =>
+        !listed.has(pin.document.id) &&
+        (pin.answeredAt === null || readAt <= pin.answeredAt),
+    )
+    .map((pin) => pin.document);
 }
 
 function currentContentSidebarState(

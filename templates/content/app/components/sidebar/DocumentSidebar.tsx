@@ -128,6 +128,7 @@ import {
   useDeleteDocument,
   usePermanentlyDeleteDocument,
   useRestoreDocument,
+  firstPinsToDraw,
   useFirstPins,
   useTrashedDocuments,
   useUpdateDocument,
@@ -1344,16 +1345,21 @@ export function DocumentSidebar({
     ? undefined
     : favoritesDatabase.data;
   // A first pin shows at once, before the Favorites collection it creates
-  // has loaded.
+  // has loaded, and stays ahead of a Favorites read from before its answer.
   const firstPins = useFirstPins(selectedSpace?.id);
-  const firstPinsData = useMemo(
-    () =>
-      favoritesData || firstPins.length === 0
-        ? undefined
-        : firstPinsCollection(firstPins),
-    [favoritesData, firstPins],
-  );
-  const pinnedData = favoritesData ?? firstPinsData;
+  const pinnedData = useMemo(() => {
+    const drawn = firstPinsToDraw(
+      firstPins,
+      favoritesData,
+      favoritesDatabase.dataUpdatedAt,
+    );
+    if (drawn.length === 0) return favoritesData;
+    const pins = firstPinsCollection(drawn);
+    return favoritesData
+      ? { ...favoritesData, items: [...pins.items, ...favoritesData.items] }
+      : pins;
+  }, [favoritesData, favoritesDatabase.dataUpdatedAt, firstPins]);
+  const firstPinsOnly = !favoritesData && pinnedData !== undefined;
   // A page or collection on its way to Trash leaves Favorites with the click.
   const pendingTrash = usePendingTrash();
   const favoriteItems = useMemo(
@@ -1481,7 +1487,7 @@ export function DocumentSidebar({
   // Null only while Pinned's reads are in flight. Every settled read gives a
   // count, so a failed or unavailable database draws its own state instead of
   // holding the placeholder.
-  const pinnedCount = firstPinsData
+  const pinnedCount = firstPinsOnly
     ? favoriteItems.length
     : !favoritesDatabaseId
       ? contentSpacesQuery.isSuccess
@@ -3945,7 +3951,7 @@ export function DocumentSidebar({
                       sidebarOrder={favoritesOrder.order}
                       serverOrdered={serverOrdered}
                       isLoading={
-                        !firstPinsData &&
+                        !firstPinsOnly &&
                         (favoritesDatabase.isLoading ||
                           favoritesPersonalView.isLoading)
                       }

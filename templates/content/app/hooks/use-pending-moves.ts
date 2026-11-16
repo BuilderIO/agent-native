@@ -13,8 +13,9 @@ export type MoveDocumentContext = { move?: FilesRowMove };
  * The pages whose move is still waiting on the server, by page ID. The Files
  * tree draws each under its new parent, so a page moves with the click, a read
  * that started before the move can't put it back, and a failed move shows it
- * where it was. A page's latest move decides: an older move still waiting
- * doesn't draw a page where a newer, finished one took it from.
+ * where it was. A page's latest move that hasn't failed decides: an older
+ * move still waiting doesn't draw a page where a newer, finished one took it
+ * from, and a newer move that failed doesn't hide an older one still waiting.
  */
 export function usePendingMoves(): ReadonlyMap<string, FilesRowMove> {
   const moves = useMutationState({
@@ -22,8 +23,9 @@ export function usePendingMoves(): ReadonlyMap<string, FilesRowMove> {
       mutationKey: MOVE_DOCUMENT_MUTATION_KEY,
       // Only a move to a new parent changes where a page shows.
       predicate: (mutation) =>
+        mutation.state.status !== "error" &&
         (mutation.state.variables as MoveVariables | undefined)?.parentId !==
-        undefined,
+          undefined,
     },
     select: (mutation) => ({
       documentId: (mutation.state.variables as MoveVariables).id,
