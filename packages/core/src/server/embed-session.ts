@@ -920,6 +920,8 @@ const FULL_APP_DENIED_PREFIXES = [
   "/_agent-native/auth/ba/oauth2",
   "/_agent-native/auth/desktop-exchange",
   "/_agent-native/integrations/remote",
+  // Consumes a one-time ticket and sets a session cookie on GET.
+  "/_agent-native/embed/start",
 ];
 // Reads stay open here; changing an account, connection, org, model key or
 // stored setting needs a login.
@@ -945,6 +947,28 @@ const FULL_APP_READ_ONLY_PREFIXES = [
   "/_agent-native/agent-chat",
 ];
 
+// App routes outside the framework, such as a template's `PUT /api/pylon/key`
+// or `POST /api/auth/logout`, store credentials or change the account by
+// name; a panel can read them but not write them.
+const FULL_APP_READ_ONLY_SEGMENTS = new Set([
+  "auth",
+  "oauth",
+  "callback",
+  "connect",
+  "key",
+  "keys",
+  "api-key",
+  "api-keys",
+  "secret",
+  "secrets",
+  "token",
+  "tokens",
+  "credential",
+  "credentials",
+  "password",
+  "passwords",
+]);
+
 function underPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
@@ -967,9 +991,14 @@ export function fullAppEmbedAllowsRequest(
   const route = decoded.replace(/\/{2,}/g, "/").replace(/\/+$/, "") || "/";
   if (FULL_APP_DENIED_PREFIXES.some((prefix) => underPrefix(route, prefix)))
     return false;
-  if (FULL_APP_READ_ONLY_PREFIXES.some((prefix) => underPrefix(route, prefix)))
-    return method === "GET" || method === "HEAD";
-  return true;
+  const readOnly =
+    FULL_APP_READ_ONLY_PREFIXES.some((prefix) => underPrefix(route, prefix)) ||
+    route
+      .split("/")
+      .some((segment) =>
+        FULL_APP_READ_ONLY_SEGMENTS.has(segment.toLowerCase()),
+      );
+  return !readOnly || method === "GET" || method === "HEAD";
 }
 
 function embedSessionAllowsRequest(

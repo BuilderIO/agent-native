@@ -1492,6 +1492,9 @@ describe("requestMatchesEmbedTarget", () => {
     ["/_agent-native/agent-chat", "GET"],
     ["/_agent-native/agent-chat/runs/run-1", "GET"],
     ["/_agent-native/automations", "GET"],
+    ["/api/emails/send", "POST"],
+    ["/api/emails/draft/d-1", "DELETE"],
+    ["/api/pylon/key", "GET"],
   ])(
     "lets a full-app session act as its owner: %s %s",
     async (path, method) => {
@@ -1527,6 +1530,13 @@ describe("requestMatchesEmbedTarget", () => {
     ["/_agent-native/auth/logout", "POST"],
     ["/_agent-native/auth/ba/update-user", "POST"],
     ["/_agent-native/embed/start", "POST"],
+    ["/_agent-native/embed/start", "GET"],
+    ["/api/pylon/key", "PUT"],
+    ["/api/hubspot/key", "DELETE"],
+    ["/calendar/api/gong/key", "PUT"],
+    ["/api/auth/logout", "POST"],
+    ["/api/settings/API-Keys", "POST"],
+    ["/api/provider/oauth/start", "POST"],
     ["/_agent-native/org/members", "POST"],
     ["/_agent-native/connections/oauth/zoom/start", "POST"],
     ["/_agent-native/env-vars", "GET"],
