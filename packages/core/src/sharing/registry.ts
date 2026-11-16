@@ -71,7 +71,7 @@ export interface ShareableResourceRegistration {
       | { kind: "visibility"; visibility: "private" | "org" | "public" }
       | {
           kind: "grant";
-          principalType: "user" | "group" | "org";
+          principalType: string;
           principalId: string;
         };
   }) => void | Promise<void>;
