@@ -236,6 +236,9 @@ describe("nitroServerCodeSplittingGroupsForPreset", () => {
     expect(
       config.output?.codeSplitting?.groups.map((group) => group.name("")),
     ).toEqual(["_libs/drizzle-orm", "agent-native-core"]);
+    expect(
+      config.output?.codeSplitting?.groups.map((group) => group.debugName),
+    ).toEqual(["drizzle-orm", "agent-native-core"]);
   });
 });
 

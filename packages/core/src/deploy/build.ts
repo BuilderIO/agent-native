@@ -4852,6 +4852,8 @@ export function nitroServerCodeSplittingGroupsForPreset(targetPreset: string) {
         ...NITRO_SINGLE_CHUNK_SERVER_PACKAGES.map((packageName) => ({
           test: nodeModulesPackageRe(packageName),
           name: () => `_libs/${packageName}`,
+          // Names the group in the bundler timing report; `name` is a function.
+          debugName: packageName,
           // Above Nitro's per-package `_libs` group and the Core group, so
           // nothing else claims part of the package.
           priority: 20,
@@ -4859,6 +4861,7 @@ export function nitroServerCodeSplittingGroupsForPreset(targetPreset: string) {
         {
           test: NITRO_AGENT_NATIVE_SERVER_CHUNK_RE,
           name: () => "agent-native-core",
+          debugName: "agent-native-core",
           // Preserve dynamic-import boundaries. A package-wide chunk pulls
           // optional agent, integration and rendering code into every cold
           // request, even when that request only reads application data.
