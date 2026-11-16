@@ -9,5 +9,6 @@ export default defineAction({
   toolCallable: false,
   http: { method: "GET" },
   schema: z.object({}),
+  outputSchema: z.object({ configured: z.boolean() }),
   run: async () => ({ configured: await isPrivateBlobConfiguredForRequest() }),
 });
