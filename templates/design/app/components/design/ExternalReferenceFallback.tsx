@@ -40,7 +40,9 @@ export function ExternalReferenceFallback({
   useEffect(() => {
     onReferenceChange(html !== null);
   }, [html, onReferenceChange]);
-  if (!failed && html === null) return null;
+  // A frame blocked by X-Frame-Options still fires load, so a loaded preview
+  // keeps the compact recovery toolbar even though it is not marked failed.
+  if (!failed && !compact && html === null) return null;
   const compactControls = html !== null || compact;
   return (
     <div

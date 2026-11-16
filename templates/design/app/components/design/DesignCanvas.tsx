@@ -283,6 +283,7 @@ import type {
   TextEditingState,
 } from "./types";
 import { useNativeShaderApprovals } from "./use-native-shader-approvals";
+import { useReferenceFrameFailure } from "./use-reference-frame-failure";
 
 function getSingleScreenZoomTransform(
   zoom: number,
@@ -2710,7 +2711,6 @@ export function DesignCanvas({
     iframePreviewUrlRef.current.url = resolvedExternalPreviewUrl;
   }
   const externalPreviewUrl = iframePreviewUrlRef.current.url;
-  const [referenceFrameFailed, setReferenceFrameFailed] = useState(false);
   const [referenceCopyActive, setReferenceCopyActive] = useState(false);
   const referenceEligible = Boolean(
     externalPreviewUrl &&
@@ -2718,14 +2718,7 @@ export function DesignCanvas({
     !usesLiveEditInjectedBridge,
   );
   useEffect(() => {
-    setReferenceFrameFailed(false);
     setReferenceCopyActive(false);
-    if (!referenceEligible) return;
-    const timeout = window.setTimeout(
-      () => setReferenceFrameFailed(true),
-      8_000,
-    );
-    return () => window.clearTimeout(timeout);
   }, [externalPreviewUrl, referenceEligible]);
 
   const { syncFrame: syncNativeShaderApprovals, approvedDefinitionHashes } =
@@ -3924,6 +3917,12 @@ export function DesignCanvas({
   const liveEditBridgeConfigurationPending =
     liveEditFrameRequiresBridge && !usesLiveEditInjectedBridge;
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
+  const { failed: referenceFrameFailed, markFailed: markReferenceFrameFailed } =
+    useReferenceFrameFailure({
+      url: externalPreviewUrl,
+      eligible: referenceEligible,
+      loaded: previewFrameLoaded,
+    });
   const [motionOriginMarkerPosition, setMotionOriginMarkerPosition] = useState<{
     targetNodeId: string;
     x: number;
@@ -8530,7 +8529,7 @@ export function DesignCanvas({
             sandbox={previewIframeSandbox}
             allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
             data-design-preview-iframe
-            onError={() => setReferenceFrameFailed(true)}
+            onError={markReferenceFrameFailed}
             onFocus={(event) => {
               if (
                 sourceType !== "localhost" ||
