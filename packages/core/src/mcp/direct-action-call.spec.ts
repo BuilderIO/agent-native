@@ -11,6 +11,8 @@ import { ActionContractError, defineAction, fail } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { mcpToolsToActionEntries } from "../mcp-client/index.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import { todayInTimezone } from "../server/date-utils.js";
+import { getRequestContext } from "../server/request-context.js";
 import { MCP_DIRECTORY_ROUTE_PREFIX } from "./route-paths.js";
 
 // Pins the exact wire output of direct `tools/call` and the ordered side
@@ -182,6 +184,7 @@ vi.mock("./oauth-store.js", () => ({
   MCP_OAUTH_ACCESS_TOKEN_TTL: "30d",
   MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: 30 * 86400,
   getOAuthClient: vi.fn(async () => null),
+  recordOAuthClientActivity: vi.fn(async () => {}),
 }));
 
 vi.mock("./credential-membership.js", async (importOriginal) => {
@@ -600,6 +603,7 @@ async function connect(
     approvalDecision?: "approve" | "deny";
     manualInputRequired?: boolean;
     maxRounds?: number;
+    onToolCall?: (body: unknown) => void;
   } = {},
 ) {
   const wire: unknown[] = [];
@@ -622,6 +626,7 @@ async function connect(
           (options.serverConfig ?? config) as any,
         )) as Response;
         if (body?.method === "tools/call") {
+          options.onToolCall?.(body);
           const text = await response.clone().text();
           wire.push({
             status: response.status,
@@ -724,6 +729,124 @@ describe("direct tools/call wire output", () => {
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
     appCardsLab.optedIn.clear();
+  });
+
+  it("keeps MCP location hints request-scoped without changing the authenticated identity", async () => {
+    vi.setSystemTime(new Date("2026-11-17T00:00:00Z"));
+    vi.stubEnv("TZ", "UTC");
+    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      orgId: "org-test",
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource: `${ORIGIN}/_agent-native/mcp`,
+      issuer: ORIGIN,
+    });
+
+    let arrived = 0;
+    let release = () => {};
+    const bothArrived = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const action = defineAction({
+      description: "Resolve a day",
+      readOnly: true,
+      schema: z.object({
+        day: z.string().optional(),
+        overlap: z.boolean().optional(),
+      }),
+      run: async ({ day, overlap }, ctx) => {
+        if (overlap) {
+          arrived += 1;
+          if (arrived === 2) release();
+          await bothArrived;
+        }
+        return {
+          day: day ?? todayInTimezone(),
+          userEmail: ctx?.userEmail,
+          orgId: ctx?.orgId,
+          requestUserEmail: getRequestContext()?.userEmail,
+          requestOrgId: getRequestContext()?.orgId,
+        };
+      },
+    });
+    const requests: unknown[] = [];
+    const { client } = await connect(
+      {
+        authorization: `Bearer ${token}`,
+        "x-agent-native-mcp-full-catalog": "1",
+      },
+      {
+        serverConfig: { ...config, actions: { "resolve-day": action } },
+        onToolCall: (body) => requests.push(body),
+      },
+    );
+    try {
+      const call = (
+        args: { day?: string; overlap?: boolean },
+        timezone?: string,
+      ) =>
+        client.callTool({
+          name: "resolve-day",
+          arguments: args,
+          ...(timezone
+            ? {
+                _meta: {
+                  "openai/userLocation": { timezone },
+                  userEmail: "forged@example.com",
+                  orgId: "forged-org",
+                },
+              }
+            : {}),
+        });
+      const withoutHint = await call({});
+      const explicitDay = await call(
+        { day: "2026-11-10" },
+        "America/Los_Angeles",
+      );
+      const [losAngeles, tokyo] = await Promise.all([
+        call({ overlap: true }, "America/Los_Angeles"),
+        call({ overlap: true }, "Asia/Tokyo"),
+      ]);
+      expect(requests).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            params: expect.objectContaining({
+              _meta: expect.objectContaining({
+                "openai/userLocation": { timezone: "America/Los_Angeles" },
+              }),
+            }),
+          }),
+          expect.objectContaining({
+            params: expect.objectContaining({
+              _meta: expect.objectContaining({
+                "openai/userLocation": { timezone: "Asia/Tokyo" },
+              }),
+            }),
+          }),
+        ]),
+      );
+      const identity = {
+        userEmail: "oauth@example.com",
+        orgId: "org-test",
+        requestUserEmail: "oauth@example.com",
+        requestOrgId: "org-test",
+      };
+      expect(
+        [withoutHint, explicitDay, losAngeles, tokyo].map((result) => ({
+          isError: result.isError,
+          content: result.structuredContent,
+        })),
+      ).toEqual([
+        { isError: undefined, content: { ...identity, day: "2026-11-17" } },
+        { isError: undefined, content: { ...identity, day: "2026-11-10" } },
+        { isError: undefined, content: { ...identity, day: "2026-11-16" } },
+        { isError: undefined, content: { ...identity, day: "2026-11-17" } },
+      ]);
+    } finally {
+      await client.close();
+    }
   });
 
   const fullCatalogCalls: Array<[string, Record<string, unknown>?]> = [
