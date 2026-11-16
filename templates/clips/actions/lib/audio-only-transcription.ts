@@ -204,6 +204,12 @@ function isMissingAudioTrack(stderr: string): boolean {
   );
 }
 
+// ffmpeg writes the audio and its chunks to the same temp filesystem as a
+// downloaded video, so it can fill the disk too.
+function isDiskFull(message: string, stderr: string): boolean {
+  return /no space left on device|\benospc\b/i.test(`${message}\n${stderr}`);
+}
+
 function mapFfmpegError(err: unknown): AudioOnlyExtractionError {
   const message = err instanceof Error ? err.message : String(err);
   const stderr = err instanceof FfmpegRunError ? err.stderr : "";
@@ -211,6 +217,12 @@ function mapFfmpegError(err: unknown): AudioOnlyExtractionError {
     return new AudioOnlyExtractionError(
       "FFMPEG_UNAVAILABLE",
       "Audio-only transcription requires ffmpeg to extract the recording's audio track.",
+    );
+  }
+  if (isDiskFull(message, stderr)) {
+    return new AudioOnlyExtractionError(
+      "MEDIA_TOO_LARGE",
+      "This video is too large to transcribe. The server ran out of temporary space while preparing its audio.",
     );
   }
   if (isMissingAudioTrack(stderr)) {
