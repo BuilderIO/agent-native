@@ -1576,9 +1576,8 @@ export async function withServerMintedFullAppEmbedStart(
     return result;
   }
   const record = result as Record<string, unknown>;
-  if (record.embed === false || typeof record.embedStartUrl === "string") {
-    return result;
-  }
+  if (record.embed === false) return withoutMcpAppEmbedTicket(record);
+  if (typeof record.embedStartUrl === "string") return result;
   const ctx = getRequestContext();
   const ownerEmail = ctx?.userEmail?.trim();
   const requestOrigin = getEmbedSessionOrigin();
@@ -1586,18 +1585,28 @@ export async function withServerMintedFullAppEmbedStart(
   const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
     await import("../server/embed-session.js");
   const { buildEmbedStartPath } = await import("../server/embed-route.js");
-  const linked = entry.link?.({ args, result: { ...record, embed: false } });
-  const targetPath = [record.deepLinkUrl, record.url, record.path, linked?.url]
-    .filter(
-      (value): value is string =>
-        typeof value === "string" &&
-        value !== HIDDEN_EMBED_URL &&
-        !isEmbedStartUrl(value),
-    )
-    .map((value) =>
-      normalizeEmbedTargetPath(withMcpChatBridgeParam(value), requestOrigin),
-    )
-    .find((value): value is string => !!value);
+  const embedTarget = (value: unknown) =>
+    typeof value === "string" &&
+    value !== HIDDEN_EMBED_URL &&
+    !isEmbedStartUrl(value)
+      ? normalizeEmbedTargetPath(withMcpChatBridgeParam(value), requestOrigin)
+      : null;
+  const linkedTarget = () => {
+    try {
+      return embedTarget(
+        entry.link?.({ args, result: { ...record, embed: false } })?.url,
+      );
+    } catch (error) {
+      console.warn(
+        `[mcp] The tool's link threw; opening no full app for it: ${describeThrownForLog(error)}`,
+      );
+      return null;
+    }
+  };
+  const targetPath =
+    [record.deepLinkUrl, record.url, record.path]
+      .map(embedTarget)
+      .find((value): value is string => !!value) ?? linkedTarget();
   if (!targetPath) return result;
   const ticket = await createEmbedSessionTicket({
     ownerEmail,

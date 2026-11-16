@@ -3102,6 +3102,35 @@ describe("direct tools/call full-app embeds", () => {
           deepLinkUrl: "/inbox/t-6?view=full",
         }),
       }),
+      "open-opt-out-ticket": act({
+        description: "Opt out while carrying a start URL",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => ({
+          id: "t-7",
+          url: "/inbox/t-7",
+          embed: false,
+          embedStartUrl: `${ORIGIN}/_agent-native/embed/start?ticket=opt-out-ticket`,
+        }),
+      }),
+      "open-link-throws": act({
+        description: "A link that throws beside a usable URL",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => ({ id: "t-8", url: "/inbox/t-8" }),
+        link: () => {
+          throw new Error("link builder broke");
+        },
+      }),
+      "open-only-link-throws": act({
+        description: "A link that throws and nothing else to open",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => ({ id: "t-9" }),
+        link: () => {
+          throw new Error("link builder broke");
+        },
+      }),
       "open-failing": act({
         description: "Fails",
         readOnly: true,
@@ -3188,6 +3217,40 @@ describe("direct tools/call full-app embeds", () => {
     );
     expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
     expect(minted()).toEqual([]);
+  });
+
+  it("drops the ticket of a result that opts out of the embed", async () => {
+    const result = await call("open-opt-out-ticket");
+    expect(result.isError).not.toBe(true);
+    expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("opt-out-ticket");
+    expect(minted()).toEqual([]);
+  });
+
+  it("opens the result's URL without calling a link that throws", async () => {
+    const result = await call("open-link-throws");
+    expect(result._meta["agent-native/embedStart"].startUrl).toContain(
+      "ticket=minted-ticket",
+    );
+    expect(minted()).toEqual([
+      expect.objectContaining({
+        targetPath: "/inbox/t-8?__an_mcp_chat_bridge=1",
+      }),
+    ]);
+  });
+
+  it("reports a link that throws when it is the only target", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await call("open-only-link-throws");
+      expect(result.isError).toBe(true);
+      expect(minted()).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("The tool's link threw"),
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("opens the result's deep link ahead of its path", async () => {
