@@ -3606,7 +3606,20 @@ export function copyInstalledExternalSsrPackages(
     }
   });
   if (packagesToCopy.size === 0) return 0;
-  if (undiciOnly && !coreUndiciDir) {
+
+  // A Node-family build can already carry an undici that Nitro traced for the
+  // app's own static imports, often at a different version than Core's. Keep
+  // that copy: overwriting server/node_modules/undici with Core's undici can
+  // break the app's imports, and Core's opaque specifier resolves to whichever
+  // undici is present in the output. Only copy Core's when none is traced.
+  const emittedUndiciDir = path.join(serverDir, "node_modules", "undici");
+  const tracedUndici =
+    undiciOnly && packagesToCopy.has("undici")
+      ? readPackageManifest(emittedUndiciDir)
+      : null;
+  const keepTracedUndici = tracedUndici?.name === "undici";
+
+  if (undiciOnly && !coreUndiciDir && !keepTracedUndici) {
     throw new Error(
       "[deploy] Could not resolve undici from @agent-native/core's dependencies for the Node server output.",
     );
@@ -3617,6 +3630,13 @@ export function copyInstalledExternalSsrPackages(
   let copiedCount = 0;
   const versions: Record<string, string> = {};
   for (const packageName of packagesToCopy) {
+    // Preserve an undici Nitro already traced into the emitted output.
+    if (undiciOnly && packageName === "undici" && keepTracedUndici) {
+      console.log(
+        `[deploy] Kept the undici ${tracedUndici?.version ?? "(version unknown)"} already traced in the Node server output; skipped Core's copy to avoid overwriting the app's dependency.`,
+      );
+      continue;
+    }
     // url-safety.ts belongs to @agent-native/core, so its opaque "undici"
     // specifier resolves against Core's dependency. Resolving from the app
     // workspace (or the first .pnpm store entry) can ship a different version.

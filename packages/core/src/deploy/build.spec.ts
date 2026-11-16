@@ -8427,4 +8427,114 @@ describe("Node preset external SSR runtime output", { timeout: 60_000 }, () => {
       true,
     );
   });
+
+  it("preserves an undici already traced into the Node output for the app", async () => {
+    const workspace = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-node-undici-traced-"),
+    );
+    dirs.push(workspace);
+
+    const coreUndici = path.join(workspace, "core", "node_modules", "undici");
+    fs.mkdirSync(coreUndici, { recursive: true });
+    fs.writeFileSync(
+      path.join(coreUndici, "package.json"),
+      `${JSON.stringify({ name: "undici", version: "7.28.0" })}\n`,
+    );
+    fs.writeFileSync(
+      path.join(coreUndici, "index.js"),
+      'export const undiciMarker = "from-core-dependency";\n',
+    );
+
+    const appDir = path.join(workspace, "app");
+    const routesDir = path.join(appDir, "server", "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(routesDir, "index.ts"),
+      'export default defineEventHandler(() => "ok");\n',
+    );
+
+    const { build, createNitro, prepare } = await import("nitro/builder");
+    const nitro = await createNitro({
+      rootDir: appDir,
+      preset: "node",
+      dev: false,
+      minify: false,
+      noExternals: true,
+      serverDir: "./server",
+      rolldownConfig: nitroServerCodeSplittingConfigForPreset("node"),
+    });
+    const hook = createDeploymentRuntimeCopyHook(
+      "node",
+      workspace,
+      () => coreUndici,
+    );
+    if (!hook) throw new Error("expected a Node deployment output hook");
+    try {
+      await runNitroBuildPipeline({
+        nitro,
+        hooks: {
+          prepare: async (instance) => {
+            await prepare(instance);
+          },
+          copyPublicAssets: async () => {},
+          nitroBuild: async (instance) => {
+            await build(instance);
+            // Reproduce an undici Nitro already traced for the app's own
+            // imports: a different version in the shared output location.
+            const tracedUndici = path.join(
+              instance.options.output.serverDir,
+              "node_modules",
+              "undici",
+            );
+            fs.mkdirSync(tracedUndici, { recursive: true });
+            fs.writeFileSync(
+              path.join(tracedUndici, "package.json"),
+              `${JSON.stringify({
+                name: "undici",
+                version: "6.21.0-app",
+                type: "module",
+                main: "index.js",
+              })}\n`,
+            );
+            fs.writeFileSync(
+              path.join(tracedUndici, "index.js"),
+              'export const undiciMarker = "from-app-traced-output";\n',
+            );
+            fs.writeFileSync(
+              path.join(
+                instance.options.output.serverDir,
+                "undici-runtime.mjs",
+              ),
+              'const undiciSpecifier = "undici";\n' +
+                "export const { undiciMarker } = await import(" +
+                "/* @vite-ignore */ undiciSpecifier);\n",
+            );
+          },
+        },
+        clientDir: path.join(appDir, "build", "client"),
+        publicOutputDir: undefined,
+        appBasePath: "",
+        cwd: appDir,
+        onServerOutputReady: (serverDir) => {
+          hook(serverDir);
+        },
+      });
+
+      const serverDir = nitro.options.output.serverDir;
+      const emitted = path.join(serverDir, "node_modules", "undici");
+      // Core's copy must not overwrite the version already traced for the app.
+      expect(
+        JSON.parse(fs.readFileSync(path.join(emitted, "package.json"), "utf-8"))
+          .version,
+      ).toBe("6.21.0-app");
+      expect(
+        fs.readFileSync(path.join(emitted, "index.js"), "utf-8"),
+      ).toContain("from-app-traced-output");
+      expect(
+        fs.readFileSync(path.join(emitted, "index.js"), "utf-8"),
+      ).not.toContain("from-core-dependency");
+    } finally {
+      await nitro.close();
+    }
+  });
 });
