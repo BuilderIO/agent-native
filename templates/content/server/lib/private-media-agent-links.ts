@@ -20,8 +20,16 @@ import { documentTextOutsideBody } from "./private-media-references.js";
 export const PRIVATE_MEDIA_AGENT_RESOURCE_KIND = "content:private-media";
 
 /**
+ * The scope of an agent's link to one comment's image. The image route opens
+ * it only while a live comment on a live page still carries the image.
+ */
+export const COMMENT_IMAGE_AGENT_RESOURCE_KIND = "content:comment-image";
+
+/**
  * How long an agent's image link works. A leaked link opens that one image
- * until then, even for someone who has since lost access to its page.
+ * until then, even for someone who has since lost access to its page. A
+ * comment image's link also closes once its comment is deleted or its page
+ * goes to Trash.
  */
 export const PRIVATE_MEDIA_AGENT_LINK_TTL_SECONDS = 60 * 60;
 
@@ -99,6 +107,7 @@ export async function privateMediaAgentLinks(input: {
   return agentLinksTo(
     ids.filter((id) => bound.has(id)),
     input.origin,
+    PRIVATE_MEDIA_AGENT_RESOURCE_KIND,
   );
 }
 
@@ -135,12 +144,14 @@ export async function commentImageAgentLinks(input: {
   return agentLinksTo(
     ids.filter((id) => bound.has(id)),
     input.origin,
+    COMMENT_IMAGE_AGENT_RESOURCE_KIND,
   );
 }
 
 function agentLinksTo(
   shown: readonly string[],
   requestOrigin: string | undefined,
+  resourceKind: string,
 ): PrivateMediaAgentLinks | undefined {
   if (shown.length === 0) return undefined;
   const linked = shown.slice(0, MAX_AGENT_LINKS);
@@ -151,7 +162,7 @@ function agentLinksTo(
   ).toISOString();
   const links = linked.map((id) => {
     const { token } = createScopedAgentAccessGrant({
-      resourceKind: PRIVATE_MEDIA_AGENT_RESOURCE_KIND,
+      resourceKind,
       resourceId: id,
       ttlSeconds: PRIVATE_MEDIA_AGENT_LINK_TTL_SECONDS,
     });
@@ -174,11 +185,28 @@ export function agentLinkOpensPrivateMedia(
   token: string,
   mediaId: string,
 ): boolean {
+  return verifiesAgentLink(token, PRIVATE_MEDIA_AGENT_RESOURCE_KIND, mediaId);
+}
+
+/**
+ * True when `token` is an unexpired agent link to this comment image. The
+ * caller must still check that a live comment carries it.
+ */
+export function agentLinkNamesCommentImage(
+  token: string,
+  mediaId: string,
+): boolean {
+  return verifiesAgentLink(token, COMMENT_IMAGE_AGENT_RESOURCE_KIND, mediaId);
+}
+
+function verifiesAgentLink(
+  token: string,
+  resourceKind: string,
+  mediaId: string,
+): boolean {
   return (
     !!token &&
-    verifyScopedAgentAccessToken(token, {
-      resourceKind: PRIVATE_MEDIA_AGENT_RESOURCE_KIND,
-      resourceId: mediaId,
-    }).ok
+    verifyScopedAgentAccessToken(token, { resourceKind, resourceId: mediaId })
+      .ok
   );
 }

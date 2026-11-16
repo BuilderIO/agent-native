@@ -144,9 +144,42 @@ export async function attachableCommentImages(input: {
  * not live, so either stops the image loading for everyone but its uploader.
  * Runs inside the caller's request context, so space membership counts.
  */
-export async function canReadPrivateMediaThroughComment(
+export function canReadPrivateMediaThroughComment(
   mediaId: string,
   db: Database = getDb(),
+): Promise<boolean> {
+  return someLiveCommentPage(
+    mediaId,
+    db,
+    async (documentId) =>
+      !!(await resolveDocumentAccess(documentId, {
+        db,
+        skipResourceBody: true,
+      })),
+  );
+}
+
+/**
+ * True when a live comment on a live page still carries this image, uploaded
+ * to that page, whoever asks. An agent's link to a comment's image opens it
+ * only while this holds, so deleting the comment or trashing its page closes
+ * the link as well.
+ */
+export function liveCommentCarriesPrivateMedia(
+  mediaId: string,
+  db: Database = getDb(),
+): Promise<boolean> {
+  return someLiveCommentPage(mediaId, db, async () => true);
+}
+
+/**
+ * Walks the live pages with a comment that carries this image, uploaded to
+ * that page, until `opens` accepts one.
+ */
+async function someLiveCommentPage(
+  mediaId: string,
+  db: Database,
+  opens: (documentId: string) => Promise<boolean>,
 ): Promise<boolean> {
   if (!isPrivateMediaId(mediaId)) return false;
   const path = privateMediaPath(mediaId);
@@ -202,14 +235,7 @@ export async function canReadPrivateMediaThroughComment(
         continue;
       }
       checked.add(row.documentId);
-      if (
-        await resolveDocumentAccess(row.documentId, {
-          db,
-          skipResourceBody: true,
-        })
-      ) {
-        return true;
-      }
+      if (await opens(row.documentId)) return true;
     }
     if (rows.length < COMMENT_PAGE_SIZE) return false;
   }

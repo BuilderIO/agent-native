@@ -178,6 +178,18 @@ async function status(id: string, email = "", query = "") {
   }
 }
 
+/** The query of the link an agent listing the page's comments gets for `id`. */
+async function agentLinkQuery(documentId: string, id: string) {
+  const listed = await as(VIEWER, () =>
+    listComments.run({ documentId }, { caller: "mcp" }),
+  );
+  const link = listed.privateMediaLinks?.links.find(
+    ({ src }) => src === `/api/private-media/${id}`,
+  )?.url;
+  if (!link) throw new Error("The agent got no link");
+  return new URL(link).search;
+}
+
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const module = await import("../db/index.js");
@@ -245,26 +257,32 @@ describe("comment images", () => {
     expect(await status(id, "", new URL(link).search)).toBe(200);
   });
 
-  it("stops showing it once the comment is deleted or the page is in Trash", async () => {
+  it("stops showing it, through agent links too, once the comment is deleted or the page is in Trash", async () => {
     const deleted = await page();
     const gone = await uploaded(COMMENTER, deleted);
     const created = await comment(COMMENTER, deleted, [image(gone)]);
+    const goneLink = await agentLinkQuery(deleted, gone);
     expect(await status(gone, VIEWER)).toBe(200);
+    expect(await status(gone, "", goneLink)).toBe(200);
     await db
       .delete(schema.documentComments)
       .where(eq(schema.documentComments.id, created.id));
     expect(await status(gone, VIEWER)).toBe(404);
+    expect(await status(gone, "", goneLink)).toBe(404);
     expect(await status(gone, COMMENTER)).toBe(200);
 
     const trashed = await page();
     const hidden = await uploaded(COMMENTER, trashed);
     await comment(COMMENTER, trashed, [image(hidden)]);
+    const hiddenLink = await agentLinkQuery(trashed, hidden);
+    expect(await status(hidden, "", hiddenLink)).toBe(200);
     await db
       .update(schema.documents)
       .set({ trashedAt: new Date().toISOString() })
       .where(eq(schema.documents.id, trashed));
     expect(await status(hidden, VIEWER)).toBe(404);
     expect(await status(hidden, OWNER)).toBe(404);
+    expect(await status(hidden, "", hiddenLink)).toBe(404);
   });
 
   it("opens nothing through a comment row filed under another owner", async () => {
