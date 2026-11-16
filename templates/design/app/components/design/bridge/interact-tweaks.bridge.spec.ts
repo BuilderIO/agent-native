@@ -12,11 +12,16 @@ function escapeAttribute(value: string): string {
 
 // A read-only canvas frame: scripts run, but the document is an opaque origin
 // the editor cannot reach into.
-async function openSandboxedInteractFrame(page: Page): Promise<Frame> {
-  const srcdoc = buildInteractPreviewDocument({
-    content: DESIGN,
-    fitBodyToFrame: true,
+async function openSandboxedInteractFrame(
+  page: Page,
+  options: { content?: string; tweakValues?: Record<string, string> } = {
     tweakValues: { "--sail-twist": "0.25" },
+  },
+): Promise<Frame> {
+  const srcdoc = buildInteractPreviewDocument({
+    ...options,
+    content: options.content ?? DESIGN,
+    fitBodyToFrame: true,
   });
   await page.setContent(
     `<!doctype html><html><body><iframe sandbox="allow-scripts" srcdoc="${escapeAttribute(srcdoc)}"></iframe></body></html>`,
@@ -104,6 +109,46 @@ describe("Interact tweaks bridge", () => {
             ).length,
         ),
       ).toBe(1);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("applies the first message when the document has no baked tweak sheet", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      const frame = await openSandboxedInteractFrame(page, {});
+      expect(
+        await frame.evaluate(
+          () =>
+            document.querySelectorAll(
+              "style[data-agent-native-interact-tweaks]",
+            ).length,
+        ),
+      ).toBe(0);
+
+      await postFromParent(page, { "--sail-twist": "0.75" });
+      await expect.poll(() => readVar(frame, "--sail-twist")).toBe("0.75");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("applies the first message when the tweak sheet holds an unexpected rule", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      const frame = await openSandboxedInteractFrame(page, {
+        content: DESIGN.replace(
+          "</head>",
+          "<style data-agent-native-interact-tweaks>:root{--sail-twist:0.1} body{margin:0}</style></head>",
+        ),
+      });
+      expect(await readVar(frame, "--sail-twist")).toBe("0.1");
+
+      await postFromParent(page, { "--sail-twist": "0.75" });
+      await expect.poll(() => readVar(frame, "--sail-twist")).toBe("0.75");
     } finally {
       await browser.close();
     }

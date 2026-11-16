@@ -41,7 +41,10 @@
     if (!sheet) return null;
     var first = sheet.cssRules[0];
     if (sheet.cssRules.length !== 1 || !(first instanceof CSSStyleRule)) {
-      style.textContent = ":root {}";
+      // Edit the live sheet: setting textContent replaces it, so `sheet` would
+      // go stale and this message would be dropped.
+      while (sheet.cssRules.length) sheet.deleteRule(0);
+      sheet.insertRule(":root {}", 0);
       first = sheet.cssRules[0];
     }
     return first instanceof CSSStyleRule ? first : null;
