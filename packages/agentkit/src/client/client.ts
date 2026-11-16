@@ -5594,7 +5594,12 @@ export class AgentKitClient implements AgentKitController {
       !hasActiveAgentRuns(terminalThread);
     if (queuedWorkKnown) this.scheduleQueuePromotion(threadId, true);
     const persistenceError = await snapshotPersistence;
-    if (completed) {
+    // A failed or cancelled run may still have taken a steering row; the snapshot says which, so
+    // read it before those rows are settled below.
+    const steeringRowsPending = terminalThread.queuedMessages.some(
+      (message) => message.delivery === "steering",
+    );
+    if (completed || steeringRowsPending) {
       const shouldRefreshProjection =
         !options.projectionAlreadyCaughtUp &&
         !this.threadLoads.has(threadId) &&
@@ -5611,7 +5616,11 @@ export class AgentKitClient implements AgentKitController {
           if (this.disposed) throw error;
         }
       }
-      if (!queuedWorkKnown && !hasActiveAgentRuns(this.getThread(threadId))) {
+      if (
+        completed &&
+        !queuedWorkKnown &&
+        !hasActiveAgentRuns(this.getThread(threadId))
+      ) {
         this.scheduleQueuePromotion(threadId, true);
       }
     }

@@ -1086,6 +1086,12 @@ export async function inviteOne(
       [descriptor.appId]: [...new Set(appRoles)],
     });
   }
+  // An explicit admin invitation lifts a prior deactivation.
+  await e.execute({
+    sql: `DELETE FROM org_invitations
+          WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated'`,
+    args: [ctx.orgId, email],
+  });
   await e.execute({
     sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role, app_roles_json) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
     args: [id, ctx.orgId, email, ctx.email, Date.now(), role, appRolesJson],

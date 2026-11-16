@@ -53,6 +53,7 @@ vi.mock("./track-invite-accepted.js", () => ({
 import { isOrgMemberOrInvited } from "../sharing/grant.js";
 import { acceptPendingInvitationsForEmail } from "./accept-pending.js";
 import {
+  inviteOne,
   leaveOrgHandler,
   listDeactivatedMembersHandler,
   listInvitationsHandler,
@@ -168,6 +169,42 @@ describe("deactivating and leaving an organization (real pglite)", () => {
       [],
     );
     expect(await isOrgMember("org-1", MEMBER)).toBe(false);
+  }, 30_000);
+
+  it("deactivating cancels a pending invitation and an explicit re-invite lifts the deactivation", async () => {
+    await pglite.exec(
+      `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status)
+       VALUES ('inv-1', 'org-1', '${MEMBER}', '${OWNER}', 1, 'pending')`,
+    );
+    state.ctx = {
+      email: OWNER,
+      orgId: "org-1",
+      orgName: "Acme",
+      role: "owner",
+    };
+    await removeMemberHandler(
+      event(`/_agent-native/org/members/${MEMBER}`, {
+        transferTo: OWNER,
+        deactivate: true,
+      }),
+    );
+    const pending = await pglite.query(
+      `SELECT 1 FROM org_invitations WHERE status = 'pending' AND email = '${MEMBER}'`,
+    );
+    expect(pending.rows).toEqual([]);
+    expect((await acceptPendingInvitationsForEmail(MEMBER)).accepted).toEqual(
+      [],
+    );
+
+    await inviteOne(
+      { orgId: "org-1", orgName: "Acme", email: OWNER },
+      MEMBER,
+      "member",
+    );
+    expect(await listDeactivatedMembersHandler(event("/"))).toEqual({
+      members: [],
+    });
+    expect(await isOrgMemberOrInvited("org-1", MEMBER)).toBe(true);
   }, 30_000);
 
   it("a removal without deactivate leaves no Deactivated row", async () => {

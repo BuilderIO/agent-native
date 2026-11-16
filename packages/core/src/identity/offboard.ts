@@ -384,6 +384,11 @@ export async function offboardMember(
     if (options.deactivate && orgId) {
       // Every grant reads only 'pending' invitation rows, so this record confers nothing.
       await tx.execute({
+        sql: `UPDATE org_invitations SET status = 'canceled'
+              WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending'`,
+        args: [orgId, oldEmail],
+      });
+      await tx.execute({
         sql: `DELETE FROM org_invitations
               WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated'`,
         args: [orgId, oldEmail],
