@@ -19,6 +19,7 @@ import {
   preserveCommentComposerEscape,
   useCommentReplyDrafts,
 } from "./CommentsSidebar";
+import { escapeWasHandled } from "./document-page-panel-state";
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -402,11 +403,23 @@ describe("the Discussion panel", () => {
     const field = container.querySelector<HTMLInputElement>(
       'input[aria-label="comments.searchDiscussion"]',
     );
-    // Escape there closes the search, not the panel.
     expect(field?.closest("[data-discussion-toolbar]")).toBeInstanceOf(
       HTMLElement,
     );
     expect(head.querySelector("input")).toBeNull();
+
+    // Escape there closes the search, not the panel. The panel reads the key
+    // after the field is gone, so the search must mark it handled.
+    const escape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => field?.dispatchEvent(escape));
+    expect(
+      container.querySelector('input[aria-label="comments.searchDiscussion"]'),
+    ).toBeNull();
+    expect(escapeWasHandled(escape)).toBe(true);
   });
 
   it("shows a chip for each filter someone chose and clears it from the chip", async () => {

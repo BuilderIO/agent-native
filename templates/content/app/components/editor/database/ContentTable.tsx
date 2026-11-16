@@ -351,7 +351,12 @@ export function ContentTableSearch({
     onChange: (event: ReactChangeEvent<HTMLInputElement>) =>
       onValueChange(event.target.value),
     onKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => {
-      if (event.key === "Escape") close();
+      if (event.key !== "Escape") return;
+      // Mark the key used: once the search closes the field is gone, so a
+      // page panel or row preview listening for Escape can't tell it came
+      // from here, and would close too.
+      event.preventDefault();
+      close();
     },
   };
   if (open && variant === "field") {
