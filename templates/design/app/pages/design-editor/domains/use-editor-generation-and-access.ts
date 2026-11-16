@@ -170,7 +170,6 @@ export function useEditorGenerationAndAccess({
     queryClient,
     shellMode,
     isVisualEditSurface,
-    isLiveCanvasShareLink,
     readOnlyWidget,
     viewMode,
     viewModeRef,
@@ -1061,9 +1060,9 @@ export function useEditorGenerationAndAccess({
     isVisualEditSurface &&
     !visualEditAccessLost &&
     (roleCanEditDesign ||
-      designAccessRole === "commenter" ||
-      (!isLiveCanvasShareLink &&
-        (design?.visibility === "public" || designAccessRole === "viewer")));
+      design?.visibility === "public" ||
+      designAccessRole === "viewer" ||
+      designAccessRole === "commenter");
   const rolePublicVisualEdit =
     isVisualEditSurface &&
     !visualEditAccessLost &&

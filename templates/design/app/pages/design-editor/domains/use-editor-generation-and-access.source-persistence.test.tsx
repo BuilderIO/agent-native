@@ -842,7 +842,7 @@ describe("automatic canonical source persistence", () => {
 
 describe("shared Visual Edit roles", () => {
   it.each(["private", "public"] as const)(
-    "keeps %s share viewers read-only while commenters can suggest",
+    "lets %s share viewers stage edits locally while only commenters can suggest",
     async (visibility) => {
       const surface = {
         isSignedIn: true,
@@ -857,8 +857,9 @@ describe("shared Visual Edit roles", () => {
           canPersistSource: false,
         }),
       );
-      expect(access().canEditLiveScreens).toBe(false);
+      expect(access().canEditLiveScreens).toBe(true);
       expect(access().canCommentDesign).toBe(false);
+      expect(access().canEditDesign).toBe(false);
       await rerender(
         surface,
         designData({
