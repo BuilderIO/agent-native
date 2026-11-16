@@ -1,6 +1,16 @@
-import { createHash } from "node:crypto";
+import {
+  constants,
+  createHash,
+  generateKeyPairSync,
+  privateDecrypt,
+} from "node:crypto";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../../app-config/store.js";
 
 const mocks = vi.hoisted(() => ({
   roles: new Map<string, "owner" | "admin" | "member">(),
@@ -35,6 +45,7 @@ const mocks = vi.hoisted(() => ({
   resolveGoogleSignInCredentials: vi.fn(),
   resolveGoogleProviderCredentials: vi.fn(),
   resolveGoogleLegacyProviderCredentials: vi.fn(),
+  recordActionAudit: vi.fn(async () => {}),
 }));
 
 vi.mock("../../server/credential-provider.js", () => ({
@@ -61,6 +72,13 @@ vi.mock("../../server/google-oauth-credentials.js", () => ({
     mocks.resolveGoogleLegacyProviderCredentials,
 }));
 
+vi.mock("../../audit/record.js", () => ({
+  recordActionAudit: mocks.recordActionAudit,
+}));
+vi.mock("../../audit/attribution.js", () => ({
+  auditAttribution: () => ({ caller: "frontend" }),
+}));
+
 const { default: action, INFRASTRUCTURE_ADMIN_REQUIRED_ERROR_CODE } =
   await import("./get-infrastructure-status.js");
 
@@ -82,6 +100,7 @@ async function failure(run: Promise<unknown>) {
 }
 
 beforeEach(() => {
+  resetAppConfigForTests();
   mocks.roles.clear();
   mocks.trustedSelfHosted = false;
   mocks.getInfrastructureStatus.mockReset();
@@ -96,22 +115,167 @@ beforeEach(() => {
   mocks.resolveGoogleLegacyProviderCredentials
     .mockReset()
     .mockReturnValue(null);
+  mocks.recordActionAudit.mockReset().mockResolvedValue(undefined);
   mocks.roles.set("org-1:owner@example.com", "owner");
   mocks.roles.set("org-1:admin@example.com", "admin");
   mocks.roles.set("org-1:member@example.com", "member");
 });
+
+afterEach(() => resetAppConfigForTests());
 
 describe("get-infrastructure-status", () => {
   it("is a read-only GET that sandboxed extensions can't call", () => {
     expect(action.http).toEqual({ method: "GET" });
     expect(action.readOnly).toBe(true);
     expect(action.toolCallable).toBe(false);
+    expect(action.persistInBrowser).toBe(false);
+    expect(action.persistInChatHistory).toBe(false);
+    expect(action.audit).toMatchObject({
+      onRead: true,
+      recordInputs: false,
+    });
     expect(
       action.schema.parse({ includeGoogleCredentialFingerprints: "true" }),
     ).toEqual({ includeGoogleCredentialFingerprints: true });
     expect(
       action.schema.parse({ includeGoogleCredentialFingerprints: "false" }),
     ).toEqual({ includeGoogleCredentialFingerprints: false });
+  });
+
+  it("refuses recovery when no deployment operator has configured it", async () => {
+    const error = await failure(
+      action.run(
+        { includeGoogleCredentialRecovery: true },
+        ctx("owner@example.com"),
+      ),
+    );
+    expect(error).toMatchObject({
+      statusCode: 409,
+      errorCode: "google_recovery_off",
+    });
+  });
+
+  it("refuses recovery without an organization even on trusted self-hosted runtimes", async () => {
+    mocks.trustedSelfHosted = true;
+    const error = await failure(
+      action.run(
+        { includeGoogleCredentialRecovery: true },
+        ctx("owner@example.com", null),
+      ),
+    );
+    expect(error).toMatchObject({
+      statusCode: 403,
+      errorCode: INFRASTRUCTURE_ADMIN_REQUIRED_ERROR_CODE,
+    });
+    expect(mocks.getInfrastructureStatus).not.toHaveBeenCalled();
+    expect(mocks.getActiveGoogleSignInCredentials).not.toHaveBeenCalled();
+  });
+
+  it("encrypts recovery only for the pinned deployment operator and recipient", async () => {
+    const keys = generateKeyPairSync("rsa", {
+      modulusLength: 3072,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const clientSecret = "obviously-fake-recovery-google-secret";
+    const clientId = "recovery-client.example.test";
+    defineAppConfig({
+      googleOAuthRecovery: {
+        recipientPublicKey: keys.publicKey,
+        expectedClientId: clientId,
+        expectedSecretSha256: createHash("sha256")
+          .update(clientSecret)
+          .digest("hex"),
+        operatorEmail: "owner@example.com",
+        notBefore: new Date(Date.now() - 1000).toISOString(),
+        expiresAt: new Date(Date.now() + 60000).toISOString(),
+      },
+    });
+    mocks.getActiveGoogleSignInCredentials.mockReturnValue({
+      credentials: { clientId, clientSecret },
+      recorded: true,
+      version: 1,
+    });
+
+    const refused = await failure(
+      action.run(
+        { includeGoogleCredentialRecovery: true },
+        ctx("admin@example.com"),
+      ),
+    );
+    expect(refused).toMatchObject({
+      statusCode: 403,
+      errorCode: "google_recovery_wrong_operator",
+    });
+
+    const result = await action.run(
+      { includeGoogleCredentialRecovery: true },
+      ctx("owner@example.com"),
+    );
+    expect(result.googleCredentialFingerprints).toBeUndefined();
+    expect(action.outputSchema?.safeParse(result).success).toBe(true);
+    expect(result.googleCredentialRecovery).toBeDefined();
+    const recovered = privateDecrypt(
+      {
+        key: keys.privateKey,
+        padding: constants.RSA_PKCS1_OAEP_PADDING,
+        oaepHash: "sha256",
+      },
+      Buffer.from(
+        result.googleCredentialRecovery?.encryptedSecret ?? "",
+        "base64url",
+      ),
+    ).toString("utf8");
+    expect(recovered).toBe(clientSecret);
+    expect(JSON.stringify(result)).not.toContain(clientSecret);
+    expect(JSON.stringify(result)).not.toContain(keys.privateKey);
+  });
+
+  it("audits recovery without persisting its arguments or result", async () => {
+    const keys = generateKeyPairSync("rsa", {
+      modulusLength: 3072,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const clientSecret = "obviously-fake-audited-recovery-secret";
+    const clientId = "audited-recovery-client.example.test";
+    defineAppConfig({
+      googleOAuthRecovery: {
+        recipientPublicKey: keys.publicKey,
+        expectedClientId: clientId,
+        expectedSecretSha256: createHash("sha256")
+          .update(clientSecret)
+          .digest("hex"),
+        operatorEmail: "owner@example.com",
+        notBefore: new Date(Date.now() - 1000).toISOString(),
+        expiresAt: new Date(Date.now() + 60000).toISOString(),
+      },
+    });
+    mocks.getActiveGoogleSignInCredentials.mockReturnValue({
+      credentials: { clientId, clientSecret },
+      recorded: true,
+      version: 1,
+    });
+
+    const result = await action.run(
+      { includeGoogleCredentialRecovery: true },
+      ctx("owner@example.com"),
+    );
+
+    expect(result.googleCredentialRecovery).toBeDefined();
+    expect(mocks.recordActionAudit).toHaveBeenCalledTimes(1);
+    const auditCall = mocks.recordActionAudit.mock.calls[0]?.[0];
+    expect(auditCall).toMatchObject({
+      config: { onRead: true, recordInputs: false },
+      args: {},
+      status: "success",
+    });
+    expect(auditCall).not.toHaveProperty("result");
+    const encryptedSecret = result.googleCredentialRecovery?.encryptedSecret;
+    expect(typeof encryptedSecret).toBe("string");
+    if (!encryptedSecret) throw new Error("expected encrypted recovery data");
+    expect(JSON.stringify(auditCall)).not.toContain(clientSecret);
+    expect(JSON.stringify(auditCall)).not.toContain(encryptedSecret);
   });
 
   it("returns the status for owners and admins, for the calling app", async () => {

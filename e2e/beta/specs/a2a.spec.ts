@@ -68,11 +68,8 @@ test.describe("slides -> analytics delegation", () => {
 
       chat.assertOnlyLuna();
 
-      // The work disclosure is a <details>/<summary>, which has no button role,
-      // and its steps are not in the page text until it is open.
-      const workSummaries = page.locator("summary").filter({
-        hasText: /^\s*Worked\b/i,
-      });
+      // The reply footer opens the current run-details disclosure.
+      const workSummaries = page.getByRole("button", { name: /^Worked\b/i });
       await expect
         .poll(() => workSummaries.count(), {
           timeout: 20_000,
@@ -81,10 +78,7 @@ test.describe("slides -> analytics delegation", () => {
         })
         .toBeGreaterThan(0);
       for (const summary of await workSummaries.all()) {
-        const open = await summary.evaluate(
-          (element) => (element.parentElement as HTMLDetailsElement).open,
-        );
-        if (!open) await summary.click();
+        await summary.click();
       }
 
       const transcript = await renderedText(

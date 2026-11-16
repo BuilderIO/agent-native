@@ -1,4 +1,4 @@
-import { fail, isActionContractError } from "@agent-native/core/action";
+import { fail } from "@agent-native/core/action";
 import {
   BUILDER_CONTENT_WRITE_SCOPE,
   BUILDER_OAUTH_RESOURCE,
@@ -38,62 +38,30 @@ function builderWriteApiHost(source: BuilderRequestAuthorization["source"]) {
   ).replace(/\/+$/, "");
 }
 
-const BUILDER_WRITE_LEGACY_CREDENTIAL_KEYS = [
+// Only the Builder docs sync still writes with deploy keys; Sources write
+// through their bound Builder.io OAuth connection alone.
+const BUILDER_DOCS_LEGACY_CREDENTIAL_KEYS = [
   "BUILDER_PRIVATE_KEY",
   "BUILDER_CMS_PRIVATE_KEY",
 ] as const;
 
-async function readBuilderWriteAuthorization(sourceBound: boolean) {
-  try {
-    return await resolveBuilderRequestAuthorization({
-      oauthResource: "general",
-      requiredScope: BUILDER_CONTENT_WRITE_SCOPE,
-      legacyCredentialKeys: BUILDER_WRITE_LEGACY_CREDENTIAL_KEYS,
-    });
-  } catch (error) {
-    // The shared resolver throws instead of falling back when a grant predates
-    // builder:content:write. A caller with no Source binding wrote with the
-    // deploy keys before OAuth, so it keeps that path until re-authorizing.
-    if (
-      sourceBound ||
-      !isActionContractError(error) ||
-      error.errorCode !== "builder_oauth_reauthorization_required" ||
-      error.details?.reason !== "missing_scope" ||
-      error.details.scope !== BUILDER_CONTENT_WRITE_SCOPE
-    ) {
-      throw error;
-    }
-    const legacy = await resolveBuilderLegacyRequestAuthorization(
-      BUILDER_WRITE_LEGACY_CREDENTIAL_KEYS,
-    );
-    if (!legacy) throw error;
-    return legacy;
-  }
-}
-
 function assertBuilderWriteSourceBinding(
-  authorization: Awaited<ReturnType<typeof readBuilderWriteAuthorization>>,
+  authorization: BuilderRequestAuthorization,
   expectedSourceSpace: string | null | undefined,
   expectedSourceConnectionId: string | null | undefined,
-  sourceWrite: boolean,
-) {
-  const sourceBound = Boolean(
-    expectedSourceSpace || expectedSourceConnectionId,
-  );
-  // An unbound Source keeps writing with its deploy keys, but OAuth may write
-  // only into the space a Source is bound to.
+): asserts authorization is BuilderRequestAuthorization & {
+  source: "oauth";
+  oauthResource: "general";
+} {
   if (
-    sourceBound &&
-    (authorization?.source !== "oauth" ||
-      authorization.oauthResource !== "general")
+    authorization.source !== "oauth" ||
+    authorization.oauthResource !== "general"
   ) {
     fail(
       "This Builder source's OAuth connection is unavailable. Reconnect the source before writing.",
       { errorCode: "builder_connection_required", statusCode: 412 },
     );
   }
-  if (authorization?.source !== "oauth") return;
-  if (!sourceWrite && !sourceBound) return;
   if (!expectedSourceSpace || !expectedSourceConnectionId) {
     fail(
       "This Builder source is not bound to its connected space. Refresh the source before writing.",
@@ -217,7 +185,7 @@ export async function executeBuilderCmsWrite(args: {
   request: BuilderCmsWriteRequest;
   expectedSourceSpace?: string | null;
   expectedSourceConnectionId?: string | null;
-  requireSourceBinding?: boolean;
+  /** The Builder docs sync's deploy-key write; Sources never set it. */
   legacyOnly?: boolean;
   fetchImpl?: FetchLike;
   /** @deprecated Never used: retrying another transport after dispatch is unsafe. */
@@ -226,11 +194,13 @@ export async function executeBuilderCmsWrite(args: {
 }): Promise<BuilderCmsWriteResult> {
   const authorization = args.legacyOnly
     ? await resolveBuilderLegacyRequestAuthorization(
-        BUILDER_WRITE_LEGACY_CREDENTIAL_KEYS,
+        BUILDER_DOCS_LEGACY_CREDENTIAL_KEYS,
       )
-    : await readBuilderWriteAuthorization(
-        Boolean(args.expectedSourceSpace || args.expectedSourceConnectionId),
-      );
+    : await resolveBuilderRequestAuthorization({
+        oauthResource: "general",
+        requiredScope: BUILDER_CONTENT_WRITE_SCOPE,
+        legacyCredentialKeys: [],
+      });
   if (!authorization) {
     return {
       ok: false,
@@ -239,12 +209,13 @@ export async function executeBuilderCmsWrite(args: {
       error: "Builder write access is not connected.",
     };
   }
-  assertBuilderWriteSourceBinding(
-    authorization,
-    args.expectedSourceSpace,
-    args.expectedSourceConnectionId,
-    args.requireSourceBinding === true,
-  );
+  if (!args.legacyOnly) {
+    assertBuilderWriteSourceBinding(
+      authorization,
+      args.expectedSourceSpace,
+      args.expectedSourceConnectionId,
+    );
+  }
 
   const url = new URL(
     args.request.path,

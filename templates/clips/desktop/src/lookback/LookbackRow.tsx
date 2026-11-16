@@ -145,7 +145,7 @@ export function LookbackRow({
         align="start"
         sideOffset={6}
         data-popover-resize-overlay="true"
-        className="recorder-menu w-[216px] rounded-[10px]"
+        className="recorder-menu w-[216px]"
         onCloseAutoFocus={(event) => {
           // Runs once the menu has unmounted. Keeping focus here stops Radix
           // from returning it to the trigger over the custom input.

@@ -60,7 +60,7 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
  * data-querying and dropping the backend field's repeat of the health-check
  * rule paid back ~40t.
  */
-const BASELINE_BUDGET_TOKENS = 18_955;
+const BASELINE_BUDGET_TOKENS = 18_950;
 
 /** An estimate: real tokenizers differ by model, and JSON runs 3 to 3.5. */
 const CHARS_PER_TOKEN = 3.5;

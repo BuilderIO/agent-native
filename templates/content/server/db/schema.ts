@@ -327,6 +327,11 @@ export const documentComments = table(
     actorKind: text("actor_kind"),
     authorModel: text("author_model"),
     authorEffort: text("author_effort"),
+    /**
+     * The MCP host an outside agent said it was, as a connect host id such as
+     * `claude-code`, on a comment it posted over MCP.
+     */
+    authorClient: text("author_client"),
     resolved: integer("resolved").notNull().default(0),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),

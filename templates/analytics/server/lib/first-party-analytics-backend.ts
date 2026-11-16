@@ -1330,6 +1330,16 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
     }
     return `FORMAT_DATE('%Y-%m-%d', CAST(${translatePostgresDateExpression(args[0] ?? "")} AS DATE))`;
   });
+  // PostgreSQL's md5(text) is lowercase hex; BigQuery's MD5 returns bytes.
+  translated = rewriteSqlFunctionCalls(translated, "md5", (args) => {
+    if (args.length !== 1) {
+      throw new FirstPartyAnalyticsUnsupportedSqlError(
+        "a multi-argument md5(...) call",
+        "First-party BigQuery query has an invalid md5 call",
+      );
+    }
+    return `TO_HEX(MD5(${args[0]}))`;
+  });
   translated = rewriteSqlFunctionCalls(translated, "chr", (args) => {
     if (args.length !== 1) {
       throw new FirstPartyAnalyticsUnsupportedSqlError(
@@ -2091,6 +2101,8 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     maxBytesBilled?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
+    /** Stopped by this or by `timeoutMs`, the job is left for a later call. */
+    resumeAfter?: AbortSignal;
   } = {},
 ): Promise<AnalyticsQueryResult> {
   const timeoutMs = options.timeoutMs;
@@ -2108,6 +2120,10 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     options.signal && timeoutSignal
       ? AbortSignal.any([options.signal, timeoutSignal])
       : (options.signal ?? timeoutSignal);
+  const resumeAfter =
+    options.resumeAfter && timeoutSignal
+      ? AbortSignal.any([options.resumeAfter, timeoutSignal])
+      : options.resumeAfter;
   let eventsSource = options.eventsSource;
   let result: Awaited<ReturnType<typeof runQuery>>;
   try {
@@ -2129,6 +2145,7 @@ export async function queryFirstPartyAnalyticsInBigQuery(
       {
         maxBytesBilled: options.maxBytesBilled,
         ...(signal ? { signal } : {}),
+        ...(resumeAfter ? { resumeAfter } : {}),
         ...(eventsSource?.source === "model" && sourceGeneration
           ? { sourceGeneration }
           : {}),

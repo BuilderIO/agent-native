@@ -616,7 +616,7 @@ export default defineAction({
           existing.config as Record<string, unknown>,
           actionContext?.signal,
         );
-        if (sqlError) throw new Error(sqlError);
+        if (sqlError) fail(sqlError);
         verdict = await verifyMutation(
           existing.config as Record<string, unknown>,
           root,
@@ -645,7 +645,7 @@ export default defineAction({
               existing.config as Record<string, unknown>,
               actionContext?.signal,
             );
-            if (sqlError) throw new Error(sqlError);
+            if (sqlError) fail(sqlError);
             verdict = await verifyMutation(
               existing.config as Record<string, unknown>,
               computed.nextRoot,

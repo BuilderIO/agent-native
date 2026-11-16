@@ -129,11 +129,14 @@ export function CommentAiModelList({
 export function CommentAiSendControl({
   mode,
   disabled,
+  suggestOnly = false,
   onModeChange,
   onSubmit,
 }: {
   mode: CommentAiMode;
   disabled: boolean;
+  /** The AI replies or suggests changes here, and never applies them. */
+  suggestOnly?: boolean;
   onModeChange: (mode: CommentAiMode) => void;
   onSubmit: () => void;
 }) {
@@ -142,7 +145,14 @@ export function CommentAiSendControl({
     ["auto", t("comments.aiAuto")],
     ["reply", t("comments.aiReplyInThread")],
     ["suggest", t("comments.aiSuggestChanges")],
-    ["apply-resolve", t("comments.aiApplyAndResolve")],
+    ...(suggestOnly
+      ? []
+      : [
+          ["apply-resolve", t("comments.aiApplyAndResolve")] as [
+            CommentAiMode,
+            string,
+          ],
+        ]),
   ];
   const sendLabels: Record<CommentAiMode, string> = {
     auto: t("comments.aiSendShort"),

@@ -526,7 +526,12 @@ it("does not query or apply a default system when workflows are disabled", async
   expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
   expect(
     mocks.promptProps?.contextMenuItems.map((item: { id: string }) => item.id),
-  ).toEqual(["figma-reference", "design-reference", "website-reference"]);
+  ).toEqual([
+    "figma-reference",
+    "design-reference",
+    "content-reference",
+    "website-reference",
+  ]);
   await act(async () => mocks.promptProps?.onSubmit("New design", [], {}));
   expect(mocks.createDesign).toHaveBeenCalledWith(
     expect.objectContaining({ designSystemId: null }),
@@ -1394,6 +1399,24 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("home.recent");
+  });
+
+  it("preserves a first-paint Templates handoff on the save-template destination", async () => {
+    await act(async () => root.unmount());
+    mocks.queryString = "gettingStarted=save-template";
+    mocks.ownCount = 1;
+    document.documentElement.setAttribute(
+      "data-design-home-library-tab",
+      "templates",
+    );
+    root = createRoot(container);
+
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
   });
 
   it("preserves a tab choice after the save-template destination query resolves", async () => {

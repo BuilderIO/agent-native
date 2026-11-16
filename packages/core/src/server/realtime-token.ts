@@ -98,16 +98,16 @@ export function createRealtimeTokenHandler() {
       return { error: "Cross-origin request rejected" };
     }
 
-    const session = await getSession(event).catch(() => null);
+    const session = await getSession(event);
     if (!session?.email) {
       setResponseStatus(event, 401);
       return { error: "Authentication required" };
     }
 
-    const orgCtx = await getOrgContext(event).catch(() => null);
+    const orgCtx = await getOrgContext(event);
     const requestContext = {
       userEmail: session.email,
-      orgId: orgCtx?.orgId ?? session.orgId,
+      orgId: orgCtx.orgId ?? undefined,
     };
 
     return runWithRequestContext(requestContext, async () => {

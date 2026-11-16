@@ -192,6 +192,7 @@ function tabSuggestion(id: string, fieldId: string): ResourceSuggestion {
 
 const commentAi = {
   requests: [],
+  serverRequests: [],
   startingThreadIds: new Set<string>(),
   stoppingRequestIds: new Set<string>(),
   continuations: new Map(),
@@ -306,6 +307,9 @@ describe("comments across Blocks field tabs", () => {
       if (child.hasAttribute("data-comments-tab-group")) {
         return `# ${child.textContent}`;
       }
+      if (child.hasAttribute("data-discussion-section")) {
+        return `§ ${child.textContent}`;
+      }
       const card = child.matches("[data-thread-card], [data-suggestion-id]")
         ? child
         : child.querySelector("[data-thread-card], [data-suggestion-id]");
@@ -321,7 +325,12 @@ describe("comments across Blocks field tabs", () => {
     const trigger = container.querySelector<HTMLButtonElement>(
       "[data-discussion-filter-trigger]",
     )!;
-    await act(async () => trigger.click());
+    // Content's menus open on a press or Enter, not a bare click().
+    await act(async () => {
+      trigger.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
   }
 
   const tabOptions = () => [
@@ -379,7 +388,8 @@ describe("comments across Blocks field tabs", () => {
     );
     expect(feed()).toEqual(["# Notes", "notes-1"]);
     expect(
-      tabOptions().map((option) => option.getAttribute("aria-pressed")),
+      // oracle-change: the options are menu items now, checked rather than pressed.
+      tabOptions().map((option) => option.getAttribute("aria-checked")),
     ).toEqual(["false", "false", "true", "false"]);
 
     act(() => replies.setHistoryFilters({ tab: "" }));
@@ -453,7 +463,7 @@ describe("comments across Blocks field tabs", () => {
     render([thread("body-1", null), thread("body-22", null)], {
       documentProperties: oneField,
     });
-    expect(feed()).toEqual(["body-1", "body-22"]);
+    expect(feed()).toEqual(["§ comments.sectionText", "body-1", "body-22"]);
     await openFilterMenu();
     expect(
       document.querySelector('[data-discussion-filter-group="person"]'),
@@ -490,7 +500,7 @@ describe("comments across Blocks field tabs", () => {
 
     // Until the page's fields are read, nothing is known to be deleted.
     render(threads, { documentProperties: undefined });
-    expect(feed()).toEqual(["body-1", "gone-1"]);
+    expect(feed()).toEqual(["§ comments.sectionText", "body-1", "gone-1"]);
   });
 
   it("starts a new comment in the tab its text is in (CMT-1)", async () => {
@@ -536,15 +546,15 @@ describe("comments across Blocks field tabs", () => {
     expect(actions.create.mock.calls[0]?.[0]).not.toHaveProperty("fieldId");
   });
 
-  it("offers Ask AI only on the page body's threads", () => {
+  it("offers Ask AI on a tab's threads, as on the page body's", () => {
     render([thread("notes-1", "notes", "Notes")], {
       presentation: "inline",
       selected: "notes-1",
       commentAi,
     });
     expect(richEditor(container)).not.toBeNull();
-    expect(actions.aiEnabled.length).toBeGreaterThan(0);
-    expect(actions.aiEnabled.every((enabled) => !enabled)).toBe(true);
+    // oracle-change: a tab's thread now offers Ask AI, so it is enabled rather than disabled everywhere.
+    expect(actions.aiEnabled).toContain(true);
 
     actions.aiEnabled.length = 0;
     render([thread("body-1", null)], {
@@ -555,14 +565,14 @@ describe("comments across Blocks field tabs", () => {
     expect(actions.aiEnabled).toContain(true);
   });
 
-  it("offers Ask AI only on new comments in the page body", () => {
+  it("offers Ask AI on new comments in a tab, as in the page body", () => {
     render([], {
       presentation: "inline",
       pending: { quotedText: "Notes", offsetTop: 0, fieldId: "notes" },
       commentAi,
     });
     expect(richEditor(container)).not.toBeNull();
-    expect(actions.aiEnabled.every((enabled) => !enabled)).toBe(true);
+    expect(actions.aiEnabled).toContain(true);
 
     actions.aiEnabled.length = 0;
     render([], {

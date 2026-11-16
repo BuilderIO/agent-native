@@ -126,6 +126,23 @@ interface Meeting {
   participants?: Participant[];
 }
 
+/**
+ * finalize-meeting skips a run while another notes run (the server's job after
+ * a meeting ends, another tab, the agent) holds the meeting, and returns the
+ * old notes. It gives the same answer for a meeting it can't claim from its
+ * status, which has no run to wait for.
+ */
+function skippedForRunningNotes(result: unknown): boolean {
+  const reply = result as {
+    skipped?: unknown;
+    transcriptStatus?: unknown;
+  } | null;
+  return (
+    reply?.skipped === "already-in-progress" &&
+    reply.transcriptStatus === "pending"
+  );
+}
+
 function formatDateTime(iso?: string | null): string {
   if (!iso) return "";
   try {
@@ -511,6 +528,9 @@ export default function MeetingDetailRoute() {
   const deleteMeeting = useActionMutation<any, any>("delete-meeting");
   const finalize = useActionMutation("finalize-meeting", {
     errorNotification: "caller",
+    onSuccess: (result, { meetingId: finalizedId }) => {
+      if (skippedForRunningNotes(result)) waitForRunningNotes(finalizedId);
+    },
   });
   const stopMeetingRecording = useActionMutation<any, any>(
     "stop-meeting-recording",
@@ -926,11 +946,22 @@ export default function MeetingDetailRoute() {
 
   const handleFinalize = () => {
     if (!meeting) return;
-    if (hasNotes) {
-      toast.info(t("meetingDetail.regeneratingNotes"));
-    }
+    const toastId = hasNotes
+      ? toast.info(t("meetingDetail.regeneratingNotes"))
+      : undefined;
     autoFinalizedRef.current = true;
-    finalize.mutate({ meetingId: meeting.id, force: true });
+    finalize.mutate(
+      { meetingId: meeting.id, force: true },
+      {
+        onSuccess: (result) => {
+          if (!meeting.actualEnd || !skippedForRunningNotes(result)) return;
+          toast.info(
+            t("meetingDetail.notesAlreadyGenerating"),
+            toastId === undefined ? undefined : { id: toastId },
+          );
+        },
+      },
+    );
   };
 
   const showNotesFailed = () => {
@@ -948,8 +979,39 @@ export default function MeetingDetailRoute() {
     refetch: refetchMeeting,
     onGiveUp: showNotesFailed,
   });
+  // Waits out the notes run that made this page's finalize skip. The run sets
+  // `ready` or `failed` when it finishes.
+  const runningNotes = useDeferredNotesWait({
+    meetingId: meeting?.id,
+    notesArrived: meeting?.transcriptStatus !== "pending",
+    notesFailed: meeting?.transcriptStatus === "failed",
+    refetch: refetchMeeting,
+    onGiveUp: showNotesFailed,
+  });
+  const waitForRunningNotes = (id: string) => {
+    // The reply may come after the page moved to another meeting. A live
+    // meeting is `pending` from its recording until it ends, with no run to
+    // wait for.
+    if (id !== meeting?.id || !meeting.actualEnd) return;
+    // The page's copy may predate that run's claim. It's keyed by the address
+    // the page opened, which for a calendar event isn't the meeting's id.
+    qc.setQueryData<GetMeetingResp | undefined>(
+      ["action", "get-meeting", { id: meetingId }],
+      (prev) =>
+        prev?.meeting
+          ? {
+              ...prev,
+              meeting: { ...prev.meeting, transcriptStatus: "pending" },
+            }
+          : prev,
+    );
+    runningNotes.start(id);
+  };
   const generatingNotes =
-    finalize.isPending || removeEarlierAudio.isPending || deferredNotes.pending;
+    finalize.isPending ||
+    removeEarlierAudio.isPending ||
+    deferredNotes.pending ||
+    runningNotes.pending;
 
   const handleRemoveEarlierAudio = () => {
     if (!meeting) return;

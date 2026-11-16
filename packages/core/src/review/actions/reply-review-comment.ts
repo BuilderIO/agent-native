@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
-import { sanitizeReviewCommentMetadata } from "../attachments.js";
+import {
+  assertReviewCommentHasContent,
+  sanitizeReviewCommentMetadata,
+} from "../attachments.js";
 import { reviewAuthorNameFromContext } from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
 import {
@@ -9,7 +12,7 @@ import {
   notifyReviewCommentWithReceipt,
 } from "../notifications.js";
 import {
-  assertReviewableResourceAccess,
+  assertReviewCommentAccess,
   normalizeReviewVisibility,
 } from "../registry.js";
 import {
@@ -34,7 +37,9 @@ const schema = z.object({
   resourceType: z.string().min(1),
   resourceId: z.string().min(1),
   commentId: z.string().min(1),
-  body: z.string().min(1),
+  body: z
+    .string()
+    .describe("Inline Markdown; may be empty when the reply has an image"),
   authorName: z.string().nullable().optional(),
   resolutionTarget: z.enum(["agent", "human"]).nullable().optional(),
   mentions: z.array(mentionSchema).optional(),
@@ -61,11 +66,10 @@ export default defineAction({
       userEmail: actionCtx?.userEmail ?? null,
       orgId: actionCtx?.orgId ?? null,
     };
-    const access = await assertReviewableResourceAccess(
+    const access = await assertReviewCommentAccess(
       args.resourceType,
       args.resourceId,
       actionCtx,
-      "commenter",
     );
     const clientOperationCommentId = args.clientOperationId
       ? reviewCommentIdForClientOperation(args.clientOperationId)
@@ -112,6 +116,8 @@ export default defineAction({
         errorCode: "thread_not_open",
       });
     }
+    const metadata = await sanitizeReviewCommentMetadata(args.metadata);
+    assertReviewCommentHasContent(args.body, metadata);
     const mentions = normalizeReviewMentions([
       ...normalizeReviewMentions(args.mentions),
       ...extractReviewMentions(args.body),
@@ -125,14 +131,22 @@ export default defineAction({
       threadId: parent.threadId,
       parentCommentId: parent.id,
       targetId: parent.targetId,
+      surfaceId: parent.surfaceId,
       kind: parent.kind,
       // A retry rebuilds the reply from its parent, whose anchor may have moved
       // since, or been cleared when the parent was deleted. The saved reply
-      // keeps the anchor it was sent with.
-      anchor:
-        existingReply?.parentCommentId === parent.id
-          ? existingReply.anchor
-          : parent.anchor,
+      // keeps the anchor it was sent with, and its kind and version with it.
+      ...(existingReply?.parentCommentId === parent.id
+        ? {
+            anchor: existingReply.anchor,
+            anchorKind: existingReply.anchorKind,
+            anchorVersion: existingReply.anchorVersion,
+          }
+        : {
+            anchor: parent.anchor,
+            anchorKind: parent.anchorKind,
+            anchorVersion: parent.anchorVersion,
+          }),
       body: args.body,
       authorEmail: actionCtx?.userEmail ?? null,
       authorName: args.authorName ?? reviewAuthorNameFromContext(actionCtx),
@@ -142,7 +156,7 @@ export default defineAction({
       ownerEmail: access.ownerEmail ?? actionCtx?.userEmail ?? null,
       orgId: access.orgId ?? actionCtx?.orgId ?? null,
       visibility: normalizeReviewVisibility(access.visibility),
-      metadata: await sanitizeReviewCommentMetadata(args.metadata),
+      metadata,
     };
     const resource = {
       resourceType: args.resourceType,

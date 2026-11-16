@@ -32,10 +32,15 @@ export function publicDesignAccessRole(
   }
 }
 
+interface RedactionPolicy {
+  allowPreviewToken: boolean;
+  allowTunnelUrl: boolean;
+}
+
 function removeLocalhostCredentials(
   value: unknown,
   ancestors: WeakSet<object>,
-  allowPreviewToken: boolean,
+  policy: RedactionPolicy,
 ): unknown {
   if (!value || typeof value !== "object") return value;
   if (ancestors.has(value)) {
@@ -46,7 +51,7 @@ function removeLocalhostCredentials(
   try {
     if (Array.isArray(value)) {
       return value.map((child) =>
-        removeLocalhostCredentials(child, ancestors, allowPreviewToken),
+        removeLocalhostCredentials(child, ancestors, policy),
       );
     }
 
@@ -55,11 +60,12 @@ function removeLocalhostCredentials(
         .filter(
           ([key]) =>
             key !== "bridgeToken" &&
-            (allowPreviewToken || key !== "previewToken"),
+            (policy.allowPreviewToken || key !== "previewToken") &&
+            (policy.allowTunnelUrl || key !== "tunnelUrl"),
         )
         .map(([key, child]) => [
           key,
-          removeLocalhostCredentials(child, ancestors, allowPreviewToken),
+          removeLocalhostCredentials(child, ancestors, policy),
         ]),
     );
   } finally {
@@ -74,19 +80,31 @@ function removeLocalhostCredentials(
  * returned through design data, including to owners/editors. The separate
  * read-only preview token is available only to callers with an editor role;
  * anonymous/public viewers fail closed rather than gaining access to a local
- * development server. Invalid persisted JSON also fails closed to null.
+ * development server. Public preview (tunnel) URLs reach non-editors only while
+ * the design's live collaboration is enabled, so turning it off revokes them.
+ * Invalid persisted JSON also fails closed to null.
  */
-export function designDataForAccessRole(data: unknown, role: unknown): unknown {
-  const allowPreviewToken = typeof role === "string" && EDITOR_ROLES.has(role);
+export function designDataForAccessRole(
+  data: unknown,
+  role: unknown,
+  {
+    liveCollaborationEnabled = false,
+  }: { liveCollaborationEnabled?: boolean } = {},
+): unknown {
+  const editor = typeof role === "string" && EDITOR_ROLES.has(role);
+  const policy = {
+    allowPreviewToken: editor,
+    allowTunnelUrl: editor || liveCollaborationEnabled,
+  };
 
   try {
     if (typeof data === "string") {
       const parsed = JSON.parse(data) as unknown;
       return JSON.stringify(
-        removeLocalhostCredentials(parsed, new WeakSet(), allowPreviewToken),
+        removeLocalhostCredentials(parsed, new WeakSet(), policy),
       );
     }
-    return removeLocalhostCredentials(data, new WeakSet(), allowPreviewToken);
+    return removeLocalhostCredentials(data, new WeakSet(), policy);
   } catch {
     return null;
   }

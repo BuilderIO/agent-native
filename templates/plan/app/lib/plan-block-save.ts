@@ -82,6 +82,25 @@ export function documentHoldsTheirChanges(
   });
 }
 
+/**
+ * The write for a save from the open document. Removing a block there is the
+ * person's own edit, and the server refuses a replacement that drops a block
+ * unless it says so. The revision is still checked, and the server keeps a
+ * version of the plan from before the write.
+ */
+export function blockSaveInput(
+  planId: string,
+  { value, revision }: SavedPlanBlocks,
+) {
+  return {
+    planId,
+    ...(revision ? { expectedUpdatedAt: revision } : {}),
+    allowDestructive: true,
+    contentPatches: [{ op: "replace-blocks" as const, blocks: value }],
+    note: "Patched structured visual plan content.",
+  };
+}
+
 /** This tab's last save: what it was given, and what came back. */
 export interface OwnBlockSave {
   planId: string;

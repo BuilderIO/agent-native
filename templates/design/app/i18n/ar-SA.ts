@@ -1033,6 +1033,36 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "مشاركة المعاينة المباشرة",
+      instructions:
+        "الصق رابط معاينة HTTPS عامًا لتطبيقك، مثل نفق ngrok أو cloudflared. يبقى جهازك على localhost؛ ويمكن للآخرين مشاهدة المعاينة العامة أو اقتراح تعديلات على اللقطة المنشورة.",
+      tunnelUrl: "رابط المعاينة العامة",
+      enableCollaboration:
+        "تفعيل التعاون المباشر لكل من لديه حق الوصول إلى التصميم",
+      save: "حفظ",
+      unavailable: "المعاينة المباشرة غير متاحة — يتم عرض اللقطة",
+      live: "معاينة مباشرة",
+      openLive: "افتح المعاينة المباشرة على {{hostname}}",
+      suggest: "اقتراح على اللقطة",
+      localOnly: "المعاينة المباشرة على جهاز المالك فقط",
+    },
+    referenceCopy: {
+      staticNotice: "JavaScript معطّل؛ قد يكون المحتوى الديناميكي مفقوداً.",
+      captureAction: "التقاط لقطة ثابتة",
+      capturePrompt:
+        "التقط صورة للشاشة ولقطة DOM لرابط المرجع العام هذا وأضفهما كشاشة مرجعية ثابتة إلى لوحة التصميم. وضّح أنها لقطة وليست صفحة مباشرة.",
+      unavailable: "قد تمنع هذه الصفحة الإطارات أو تعذّر تحميلها.",
+      load: "تحميل نسخة مرجعية",
+      label: "نسخة مرجعية · صفحة عامة للقراءة فقط",
+      noBridge: "اربط جسراً محلياً لتحميل نسخة مرجعية عامة.",
+      snapshot: "استخدام اللقطة المنشورة",
+      capture: "اطلب من الوكيل التقاط صورة للشاشة ولقطة DOM.",
+      failed: "فشلت النسخة المرجعية. التقط صورة للشاشة ولقطة DOM بدلاً منها.",
+      loading: "جارٍ تحميل النسخة المرجعية…",
+      original: "تجربة الصفحة الأصلية",
+    },
+
     sourceLoadFailed: "تعذر تحميل هذه الشاشة.",
     selectionPublishFailed: "قد لا يرى الوكيل تحديدك الأخير. حدِّده مرة أخرى.",
     liveCollaboration: {
@@ -1080,6 +1110,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "تحديد طبقة",
+      layerKinds: {
+        webgl: "لوحة رسم · WebGL",
+        canvas: "لوحة رسم",
+        video: "فيديو",
+        image: "صورة",
+        svg: "رسم SVG",
+        embed: "تضمين",
+        background: "خلفية",
+        effect: "تأثير",
+      },
       goToMain: "الانتقال إلى المكوّن الرئيسي",
       restore: "استعادة المكوّن",
       swap: "تبديل النسخة",
@@ -1728,7 +1768,6 @@ export default {
     signInToRequestAccessTitle: "سجّل الدخول لطلب الوصول",
     signInToRequestAccessDescription:
       "سجّل الدخول أو أنشئ حسابًا لطلب الوصول من المالك.",
-    signInOrSignUp: "تسجيل الدخول أو إنشاء حساب",
     accessCheckFailed: "تعذر التحقق من الوصول إلى هذا التصميم.",
     retryAccessCheck: "إعادة المحاولة",
     saveAsTemplate: "حفظ كقالب…",
@@ -1762,6 +1801,8 @@ export default {
         "طبّق تعديلاتك المرئية المعلّقة أو تجاهلها قبل التكرار.",
       allDesigns: "كل التصاميم",
       rename: "إعادة التسمية",
+      builtFrom: "مبني على {{title}}",
+      builtFromPage: "مبني على صفحة Content",
       duplicate: "تكرار",
       versionHistory: "سجل الإصدارات",
       import: "استيراد…",
@@ -2022,6 +2063,9 @@ export default {
     addTweaks: "أضف تعديلات",
     addTweakControls: "إضافة الضوابط القرص",
     closeTweaks: "إغلاق القرص",
+    showFloatingTweaks: "إظهار التعديلات العائمة",
+    collapseTweaks: "طي التعديلات",
+    expandTweaks: "توسيع التعديلات",
     tweaksHelp:
       "التعديلات هي تجاوزات مرئية خاصة بنقطة التوقف والحالة فوق التصميم الأساسي. أعد ضبط عنصر التحكم للعودة إلى القيمة الموروثة.",
     tweaksDocs: "معرفة المزيد.",
@@ -2086,6 +2130,7 @@ export default {
       applyAria: "تطبيق تعديلات النمط المرئية المعلقة",
       applyButton: "تطبيق الأنماط",
       applySharedEdits: "تطبيق التعديلات",
+      reviewSuggestion: "مراجعة الاقتراح",
       previewLabel: "معاينة مرئية معلقة",
       applyDesignUpdates: "تطبيق تحديثات التصميم",
       applying: "جارٍ التطبيق…",
@@ -2188,10 +2233,37 @@ export default {
       annotationSendError:
         "تعذّر إرسال التعليقات التوضيحية. لا يزال الرسم محفوظًا هنا، فحاول مرة أخرى.",
       codingHandoffError: "تعذر إنشاء تسليم الترميز",
+      unknownCollaborator: "متعاون",
+      supersededVisualEditSuggestion:
+        "تم استبدال اقتراح سابق من {{authorEmail}}. النص الأصلي: {{text}}",
       visualEditPendingConflict:
         "لدى متعاون آخر تعديلات بانتظار التطبيق. طبّقها أو امسحها قبل إرسال تعديلات جديدة.",
       codingHandoffCopied: "تم نسخ تسليم الترميز",
       clipboardBlocked: "تم حظر الحافظة",
+      pasteMediaTooMany_zero:
+        "لم يتم لصق {{count}} ملف. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_one:
+        "لم يتم لصق {{count}} ملف. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_two:
+        "لم يتم لصق {{count}} ملفين. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_few:
+        "لم يتم لصق {{count}} ملفات. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_many:
+        "لم يتم لصق {{count}} ملفًا. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_other:
+        "لم يتم لصق {{count}} ملفًا. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooLarge_zero:
+        "لم يتم لصق {{count}} ملف لأنه يتجاوز {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_one:
+        "لم يتم لصق {{count}} ملف لأنه يتجاوز {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_two:
+        "لم يتم لصق {{count}} ملفين لأنهما يتجاوزان {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_few:
+        "لم يتم لصق {{count}} ملفات لأنها تتجاوز {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_many:
+        "لم يتم لصق {{count}} ملفًا لأنها تتجاوز {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_other:
+        "لم يتم لصق {{count}} ملفًا لأنها تتجاوز {{limitMb}} ميغابايت.",
       htmlCreateError: "تعذر إنشاء تنزيل HTML",
       htmlDownloaded: "تم تنزيل HTML",
       htmlExportError: "تعذر تصدير HTML",
@@ -2260,6 +2332,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "تم تغيير التعديلات في مكان آخر. حدّث التصميم قبل المحاولة مرة أخرى.",
+      tweakBaselineUnreadable:
+        "تعذّرت قراءة خط الأساس المحفوظ للتعديلات. تم إيقاف تغييرات التعديلات مؤقتًا حتى إصلاح بيانات التصميم.",
+      resetTweakBaseline: "إعادة تعيين خط الأساس",
       tweakSaveNotDurable:
         "لم تُحفظ التعديلات بعد. أبقِ علامة التبويب هذه مفتوحة وحاول مرة أخرى.",
       undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
@@ -2541,6 +2616,8 @@ export default {
     changesDiscarded:
       "تعذّر حفظ بعض التغييرات لأن الملف لم يعد موجودًا، وتم تجاهلها.",
     offline: "غير متصل",
+    unsaved: "غير محفوظ",
+    saveRetrying: "تعذّر حفظ تغييراتك. جارٍ إعادة المحاولة تلقائيًا.",
     saving: "جارٍ الحفظ...",
     clearedAllAnnotations: "تم مسح جميع التعليقات التوضيحية",
     annotationsDiscardedOnViewChange:
@@ -2607,6 +2684,7 @@ export default {
     searchSystems: "البحث في أنظمة التصميم…",
     searchDesigns: "البحث في التصاميم…",
     searchPresentations: "البحث في العروض التقديمية…",
+    searchPages: "البحث في الصفحات…",
     searchDesign: "البحث في التصميم…",
     useDesignSystem: "استخدام نظام تصميم",
     notReady:
@@ -2619,6 +2697,7 @@ export default {
     design: "مراجع التصميم",
     slides: "الشرائح",
     referenceDesign: "استخدام تصميم كمرجع",
+    contentPage: "صفحة Content",
     connectFigma: "ربط Figma",
     figmaReference: "تصميم Figma…",
     figmaDialogTitle: "إضافة تصميم Figma",
@@ -3345,6 +3424,18 @@ export default {
     addEmoji: "إضافة رمز تعبيري",
     mention: "الإشارة إلى شخص",
     noMentions: "لم يتم العثور على أشخاص",
+    format: {
+      toolbar: "التنسيق",
+      bold: "غامق",
+      italic: "مائل",
+      strike: "يتوسطه خط",
+      code: "رمز برمجي",
+      link: "رابط",
+      linkField: "عنوان الرابط",
+      linkPlaceholder: "الصق رابطًا",
+      applyLink: "تطبيق الرابط",
+      removeLink: "إزالة الرابط",
+    },
     mentionsFailed: "تعذّر تحميل الأشخاص",
     reopen: "إعادة الفتح",
     reopening: "جارٍ إعادة الفتح…",
@@ -3369,6 +3460,9 @@ export default {
     markedUnread: "تم وضع علامة كغير مقروء",
     markUnreadFailed: "تعذر وضع علامة كغير مقروء",
     attachImage: "إرفاق صورة",
+    removeImage: "إزالة الصورة",
+    imageUploadFailed: "تعذّر رفع الصورة",
+    editChanged: "تغيّر هذا التعليق بعد أن بدأت تعديله. احفظ مرة أخرى لاستبداله.",
     searching: "جارٍ البحث…",
     reactionFailed: "تعذر تحديث التفاعل",
     moveFailed: "تعذر نقل التعليق",

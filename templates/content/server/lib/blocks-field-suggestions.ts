@@ -38,8 +38,10 @@ import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { schema } from "../db/index.js";
 import { firstRow } from "./first-row.js";
 import {
+  assertCommentAiSuggestionBinding,
   CONTENT_SUGGESTION_OPERATION_KINDS,
   drizzleTransactionForExec,
+  reanchorSourceComment,
   suggestionStaleError,
   validateSuggestionStructure,
 } from "./suggested-edits.js";
@@ -235,13 +237,6 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
     if (input.resourceType !== "document") {
       invalidSuggestion("Content suggestions are only available for Pages");
     }
-    // Ask AI answers on the body's thread; tabs don't take them yet.
-    if (input.metadata?.commentAiRequestId !== undefined) {
-      fail("Ask AI can't suggest edits in this tab yet.", {
-        statusCode: 409,
-        errorCode: "suggestion_field_unavailable",
-      });
-    }
     const { operation, fieldId, before, after } = fieldOperation(
       input.operations,
     );
@@ -252,6 +247,8 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
       );
     }
     const tx = (input.ctx?.transaction as DbExec | undefined) ?? getDbExec();
+    if (input.metadata?.commentAiRequestId !== undefined)
+      await assertCommentAiSuggestionBinding(tx, input, fieldId);
     const db = contentDb(tx);
     // A missing or trashed Page is refused as a tab's own save refuses it.
     assertEditableDocument(
@@ -352,14 +349,24 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
       });
     }
     validateSuggestionStructure(current, next, UNSUPPORTED_ACCEPT_MESSAGE);
+    const now = new Date().toISOString();
     await writeStoredBlocksField(db, {
       ownerEmail: database.ownerEmail,
       documentId,
       propertyId: fieldId,
       content: next,
       expectedRevision: await storedFieldRevision(tx, documentId, fieldId),
-      now: new Date().toISOString(),
+      now,
     });
+    await reanchorSourceComment(
+      tx,
+      documentId,
+      context.suggestion,
+      current,
+      next,
+      now,
+      fieldId,
+    );
     return { resourceId: documentId, propertyId: fieldId };
   },
   describeOperation(operation) {

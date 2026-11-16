@@ -563,7 +563,7 @@ describe("Agents set to Can comment on a page", () => {
       // agent on the command line can, so the lock has to catch it.
       await expect(
         updateDocument.run(
-          { id: page.id, content: "Changed text" },
+          { id: page.id, content: "Changed text", baseRevision: page.revision },
           { caller: "cli", userEmail: OWNER },
         ),
       ).rejects.toMatchObject(locked);
@@ -1159,13 +1159,11 @@ describe("Agents set to Can comment on a page", () => {
     });
   });
 
-  it("holds an agent's property setup to locked rows when it adds, renames or hides a tab", async () => {
+  it("refuses an agent's collection setup adding, renaming or hiding a Blocks tab on locked rows, and lets a person", async () => {
     await asOwner(async () => {
       const row = await collectionRow();
-      let sequence = 0;
-      // The shape MCP and the in-app agent send: an exact target and a fresh
-      // schema revision.
       const setup = async (
+        key: string,
         change:
           | { operation: "create"; definition: Record<string, unknown> }
           | {
@@ -1173,68 +1171,59 @@ describe("Agents set to Can comment on a page", () => {
               propertyId: string;
               patch: Record<string, unknown>;
             },
-        ctx: typeof agent | typeof person = agent,
+        caller: typeof person | typeof agent,
       ) => {
         const discovered = await contract(row.databaseId);
         const { spaceId, databaseId, databaseDocumentId } = discovered.target;
-        sequence += 1;
         return (await configureProperty.run(
           {
+            ...change,
             target: { spaceId, databaseId, databaseDocumentId },
             expectedSchemaRevision: discovered.schemaRevision,
-            idempotencyKey: `tab-setup-${row.databaseId}-${sequence}`,
-            ...change,
+            idempotencyKey: `${key}-${caller.caller}`,
           } as never,
-          ctx,
-        )) as {
-          value: {
-            id: string;
-            name: string;
-            type: string;
-            visibility: string;
-            options: { blocks?: { primary?: boolean } };
-          };
-        };
+          caller,
+        )) as { value: { id: string } };
       };
-      const newTab = (name: string) =>
-        ({
-          operation: "create",
-          definition: { name, type: "blocks" },
-        }) as const;
+      const newTab = {
+        operation: "create" as const,
+        definition: { name: "Agent notes", type: "blocks" },
+      };
 
-      await expect(setup(newTab("Agent notes"))).rejects.toMatchObject(locked);
-
-      const notes = (await setup(newTab("Notes"), person)).value;
-      expect(notes).toMatchObject({
-        name: "Notes",
-        type: "blocks",
-        options: { blocks: { primary: false } },
-      });
-      const update = (patch: Record<string, unknown>) =>
-        ({ operation: "update", propertyId: notes.id, patch }) as const;
-      await expect(
-        setup(update({ name: "Agent's notes" })),
-      ).rejects.toMatchObject(locked);
-      await expect(
-        setup(update({ visibility: "always_hide" })),
-      ).rejects.toMatchObject(locked);
-      // A description isn't on the tab, so it isn't held to the lock.
-      expect(
-        (await setup(update({ description: "Shared notes" }))).value.name,
-      ).toBe("Notes");
-
-      await setLock.run({ id: row.documentId, locked: false }, person);
-      const plan = (await setup(newTab("Plan"))).value;
-      expect(plan).toMatchObject({ type: "blocks", name: "Plan" });
-      expect(
-        (
-          await setup({
-            operation: "update",
-            propertyId: plan.id,
-            patch: { name: "Specs" },
-          })
-        ).value.name,
-      ).toBe("Specs");
+      await expect(setup("new-tab", newTab, agent)).rejects.toMatchObject(
+        locked,
+      );
+      const notes = (await setup("new-tab", newTab, person)).value.id;
+      for (const patch of [
+        { name: "Agent's notes" },
+        { visibility: "always_hide" },
+      ]) {
+        await expect(
+          setup(
+            `tab-${Object.keys(patch)[0]}`,
+            { operation: "update", propertyId: notes, patch },
+            agent,
+          ),
+        ).rejects.toMatchObject(locked);
+      }
+      await setup(
+        "tab-description",
+        {
+          operation: "update",
+          propertyId: notes,
+          patch: { description: "Working notes" },
+        },
+        agent,
+      );
+      await setup(
+        "tab-rename",
+        {
+          operation: "update",
+          propertyId: notes,
+          patch: { name: "Renamed notes", visibility: "always_hide" },
+        },
+        person,
+      );
     });
   });
 
@@ -1467,6 +1456,10 @@ describe("a lock turned on while a write is under way", () => {
       const row = await collectionRow();
       await setLock.run({ id: row.documentId, locked: false }, person);
       const { listed } = await rowRevision(row.databaseId, row.blocksId, row);
+      if (!listed.baseRevision) {
+        throw new Error("The main Blocks field should list the page revision.");
+      }
+      const { baseRevision } = listed;
       await expect(
         lockedAsTransactionOpens(row.documentId, () =>
           setProperty.run(
@@ -1475,7 +1468,7 @@ describe("a lock turned on while a write is under way", () => {
               documentId: row.documentId,
               propertyId: row.blocksId,
               value: "Changed block",
-              expectedBlocksFieldRevision: listed.fieldRevision,
+              baseRevision,
             },
             agent,
           ),

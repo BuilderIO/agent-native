@@ -206,6 +206,11 @@ export interface ContentNavigationPathEntry {
   databaseId: string | null;
   databaseDocumentId: string | null;
   isFavorite: boolean;
+  /**
+   * Whether the Files tree draws children under this page, by the rule its
+   * own navigation row follows. Absent outside a Files database.
+   */
+  hasChildren?: boolean;
   visibility?: "private" | "org" | "public";
   accessRole?: DocumentAccessRole;
   canView?: boolean;
@@ -367,6 +372,11 @@ export interface DocumentPropertiesResponse {
   databaseId: string | null;
   canEditValues?: boolean;
   canManageSchema?: boolean;
+  /**
+   * False where schema rights can't add a property: a system collection such
+   * as Files keeps only the ones the app gives it.
+   */
+  canAddProperties?: boolean;
   properties: DocumentProperty[];
 }
 

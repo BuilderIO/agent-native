@@ -16,6 +16,7 @@ export {
   type UseSemanticNavigationStateResult,
   type WorkspaceAppRouteTarget,
 } from "../route-state.js";
+export { useBrowserTabUse } from "../browser-tab-use.js";
 export {
   AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE,
   postAgentNativeWorkspaceAppRoute,

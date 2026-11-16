@@ -1,3 +1,41 @@
+## 0.1.16
+
+### Patch Changes
+
+- 52cce19: Shrink the dispatch and pinpoint install footprint by removing code and
+  dependencies nothing could reach. Dispatch drops the unused pre-auth routing
+  helper — `rootDispatchRedirect` had no callers and was not re-exported from
+  `./server` or any other published subpath — along with the database client and
+  `h3` dependencies, which had no imports in the package but were still installed
+  for every consumer. Pinpoint drops the `HistoryDropdown` and `SettingsPanel`
+  overlay components, which were never rendered by the overlay and were not
+  reachable from any of its `.`, `./react`, `./primitives`, `./server`, or
+  `./types` entry points. No exported API changes.
+
+## 0.1.15
+
+### Patch Changes
+
+- 8df32f6: Publish the latest Builder link tracking updates.
+
+## 0.1.14
+
+### Patch Changes
+
+- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
+
+## 0.1.13
+
+### Patch Changes
+
+- 38ca6fa: Make annotation badges appear from a natural scale and respect reduced-motion preferences.
+
+## 0.1.12
+
+### Patch Changes
+
+- f43d34c: Stage atomic writes inside the data directory so saves work when /tmp is a different filesystem.
+
 ## 0.1.11
 
 ### Patch Changes

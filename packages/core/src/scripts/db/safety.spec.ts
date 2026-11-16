@@ -249,6 +249,18 @@ describe("sensitive framework tables", () => {
     );
   });
 
+  it("keeps the Dispatch vault out of every raw tool, including legacy plaintext rows", () => {
+    expect(() =>
+      readRawDbReadStatement("SELECT credential_key, value FROM vault_secrets"),
+    ).toThrow(/Sensitive framework table "vault_secrets"/);
+    expect(() =>
+      readRawDbWriteStatement("UPDATE vault_secrets SET value = 'x'"),
+    ).toThrow(/Sensitive framework table "vault_secrets"/);
+    expect(() =>
+      assertNoSensitiveFrameworkTables("vault_secrets", "patch"),
+    ).toThrow(/Sensitive framework table "vault_secrets"/);
+  });
+
   it("keeps chat transcripts out of the raw database surface", () => {
     expect(() =>
       readRawDbReadStatement("SELECT thread_data FROM chat_threads"),

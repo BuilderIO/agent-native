@@ -59,6 +59,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   documentPropertiesPlaceholder,
+  documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
@@ -143,6 +144,11 @@ interface DocumentBlockFieldsProps {
   primaryEditor: ReactNode;
   /** The primary body as its editor holds it now, for its tab's word count. */
   primaryContent?: string;
+  /**
+   * True when images uploaded into the page's other Blocks fields are kept
+   * private to the page, as its body's are.
+   */
+  privateImageUploads?: boolean;
   /** The fields the page read returned, used until the property read lands. */
   pageProperties?: DocumentProperty[] | undefined;
   onAdditionalContentChange?: (
@@ -390,6 +396,7 @@ export function DocumentBlockFields({
   onPrimaryFieldAvailabilityChange,
   primaryEditor,
   primaryContent,
+  privateImageUploads = false,
   pageProperties,
   onAdditionalContentChange,
   onFieldTabChange,
@@ -404,7 +411,9 @@ export function DocumentBlockFields({
     placeholder,
   });
   const propertiesData = usePagePropertiesOnly ? placeholder : query.data;
-  const hasQueryError = !usePagePropertiesOnly && query.isError;
+  const hasQueryError =
+    !usePagePropertiesOnly &&
+    documentPropertiesReadFailed(documentId, databaseId, query);
   const canEditFields =
     canEdit &&
     propertiesData?.canEditValues === true &&
@@ -418,6 +427,9 @@ export function DocumentBlockFields({
     propertiesData?.canManageSchema === true &&
     databaseId !== null &&
     databaseDocumentId !== null;
+  // A tab is a property, which a system collection such as Files refuses.
+  const canAddFields =
+    canManageFields && propertiesData.canAddProperties !== false;
   const properties = propertiesData?.properties ?? [];
   const blockFields = useMemo(
     () => blockFieldsFromProperties(properties),
@@ -480,11 +492,7 @@ export function DocumentBlockFields({
         className={cn(BLOCK_FIELDS_GRID, "gap-1")}
         data-block-fields-state="error"
       >
-        <QueryErrorState
-          compact
-          onRetry={() => globalThis.location.reload()}
-          retrying={query.isRefetching}
-        />
+        <QueryErrorState compact onRetry={() => void query.refetch()} />
       </div>
     );
   }
@@ -531,6 +539,7 @@ export function DocumentBlockFields({
               property={state.field}
               canEdit={canEditFields && !suggesting}
               allowPendingSave={canEditFields && enteringSuggestion}
+              privateImageUploads={privateImageUploads}
               onContentChange={onAdditionalContentChange}
             />
           </div>
@@ -554,9 +563,11 @@ export function DocumentBlockFields({
           canEdit={canEditFields && !suggesting}
           allowPendingSave={canEditFields && enteringSuggestion}
           canManageFields={canManageFields}
+          canAddFields={canAddFields}
           blockFields={state.fields}
           primaryEditor={primaryEditor}
           primaryContent={primaryContent}
+          privateImageUploads={privateImageUploads}
           onAdditionalContentChange={onAdditionalContentChange}
           onFieldTabChange={onFieldTabChange}
           t={t}
@@ -617,9 +628,11 @@ function MultiBlockFields({
   canEdit,
   allowPendingSave,
   canManageFields,
+  canAddFields,
   blockFields,
   primaryEditor,
   primaryContent,
+  privateImageUploads,
   onAdditionalContentChange,
   onFieldTabChange,
   t,
@@ -630,9 +643,11 @@ function MultiBlockFields({
   canEdit: boolean;
   allowPendingSave: boolean;
   canManageFields: boolean;
+  canAddFields: boolean;
   blockFields: DocumentProperty[];
   primaryEditor: ReactNode;
   primaryContent?: string;
+  privateImageUploads: boolean;
   onAdditionalContentChange?: (
     documentId: string,
     propertyId: string,
@@ -1383,7 +1398,7 @@ function MultiBlockFields({
               );
             })}
           </div>
-          {canManageFields ? (
+          {canAddFields ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -1435,6 +1450,7 @@ function MultiBlockFields({
                 property={property}
                 canEdit={canEdit}
                 allowPendingSave={allowPendingSave}
+                privateImageUploads={privateImageUploads}
                 onContentChange={handleAdditionalContentChange}
               />
             )}
@@ -1563,7 +1579,7 @@ function BlockFieldTabMenu({
         onCloseAutoFocus={(event) => event.preventDefault()}
         data-block-field-menu
       >
-        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+        <DropdownMenuLabel className="font-normal text-muted-foreground">
           {t("editor.blockFieldMenuScope")}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
@@ -2121,6 +2137,7 @@ function AdditionalBlockEditor({
   property,
   canEdit,
   allowPendingSave,
+  privateImageUploads,
   onContentChange,
 }: {
   documentId: string;
@@ -2128,6 +2145,7 @@ function AdditionalBlockEditor({
   property: DocumentProperty;
   canEdit: boolean;
   allowPendingSave: boolean;
+  privateImageUploads: boolean;
   onContentChange?: (
     documentId: string,
     propertyId: string,
@@ -2211,22 +2229,39 @@ function AdditionalBlockEditor({
   // against its saved text, in place of that text.
   const suggestionEditor = useBlocksFieldSuggestionEditor(propertyId);
   const session = suggestionEditor?.session ?? null;
-  const needsSession = !!suggestionEditor?.suggesting && !session;
+  // Accepting suggestions shows the tab's text with them in it at once, and
+  // the tab takes no typing until it holds the text they wrote: its own copy
+  // takes that in a render or two after the page reads it, and would show
+  // the old text meanwhile.
+  const landed = suggestionEditor?.landed ?? null;
+  const preview =
+    suggestionEditor?.preview ??
+    (landed &&
+    blockFieldRevision(key, property.blocksField?.revision ?? 0).base <
+      landed.revision
+      ? landed
+      : null);
+  // A draft starts on the text accepting wrote, once the tab holds it.
+  const needsSession = !!suggestionEditor?.suggesting && !session && !preview;
   const startSession = suggestionEditor?.start;
   useEffect(() => {
     if (!needsSession) return;
     const base = suggestionBase();
     if (base) startSession?.(base);
   }, [needsSession, startSession, suggestionBase, suggestionBaseVersion]);
-  // The editor takes no newer text while it shows a draft, and the tab has
-  // no typing of its own to merge then, so newer saved text (an accepted
-  // suggestion) goes straight into the tab's own copy. Its word count stays
-  // current, and the editor shows that text once the draft ends.
-  const showsDraft = session !== null;
+  // The editor takes no newer text while it shows a draft or a preview, and
+  // the tab has no typing it hasn't reported to merge then, so newer saved
+  // text (an accepted suggestion) goes straight into the tab's own copy. Its
+  // word count stays current, and the editor shows that text afterwards.
+  const holdsEditor = session !== null || preview !== null;
   useEffect(() => {
-    if (showsDraft && externalContent) externalContent.merge(null, () => true);
-  }, [externalContent, showsDraft]);
-  const shownContent = session ? session.draft : content;
+    if (holdsEditor && externalContent) externalContent.merge(null, () => true);
+  }, [externalContent, holdsEditor]);
+  const shownContent = preview
+    ? preview.text
+    : session
+      ? session.draft
+      : content;
   const visualsFor = suggestionEditor?.visuals;
   const visuals = useMemo(
     () => visualsFor?.(shownContent),
@@ -2236,16 +2271,26 @@ function AdditionalBlockEditor({
   return (
     <VisualEditor
       documentId={documentId}
+      privateImageUploads={privateImageUploads}
       content={shownContent}
-      contentResetKey={session ? `suggesting:${session.key}` : null}
-      externalContent={session ? null : externalContent}
+      contentResetKey={
+        preview
+          ? `preview:${preview.key}`
+          : session
+            ? `suggesting:${session.key}`
+            : null
+      }
+      externalContent={holdsEditor ? null : externalContent}
       onChange={(markdown) => {
+        if (preview) return;
         if (session) suggestionEditor?.change(markdown);
         else if (canEdit) onChange(markdown);
       }}
       onSaveContent={async (markdown) => {
-        // A suggestion draft is saved as suggestions, never as the tab's text.
-        if (session || isAcknowledgedContent(markdown)) return "unchanged";
+        // A suggestion draft is saved as suggestions, never as the tab's
+        // text, and a preview is the server's to write.
+        if (preview || session || isAcknowledgedContent(markdown))
+          return "unchanged";
         if (!canEdit && (!allowPendingSave || !isPendingContent(markdown)))
           return "failed";
         return (await onSaveContent(markdown)) ? "persisted" : "failed";
@@ -2253,7 +2298,9 @@ function AdditionalBlockEditor({
       // A decision on the tab's suggestions, or the page's last save before
       // Suggesting mode ends, ends its draft, so the tab takes no typing
       // until it restarts or leaves Suggesting mode.
-      editable={session ? !suggestionEditor?.readOnly : canEdit}
+      editable={
+        preview ? false : session ? !suggestionEditor?.readOnly : canEdit
+      }
       suggesting={!!session}
       suggestions={visuals}
       activeSuggestionId={suggestionEditor?.activeSuggestionId}

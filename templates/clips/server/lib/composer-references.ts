@@ -45,7 +45,11 @@ export async function searchRecordingReferences(
   );
   return result.recordings
     .filter(
-      (recording) => !recording.hasPassword || recording.ownerEmail === email,
+      (recording) =>
+        recording.visibility === "private" ||
+        recording.visibility === "org" ||
+        !recording.hasPassword ||
+        recording.ownerEmail === email,
     )
     .map((recording) => ({
       id: `recording:${recording.id}`,

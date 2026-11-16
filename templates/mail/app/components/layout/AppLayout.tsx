@@ -9,6 +9,7 @@ import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   AgentSidebar,
   AgentToggleButton,
+  focusAgentChat,
 } from "@agent-native/toolkit/app/chat";
 import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
@@ -1391,6 +1392,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       shift: "either",
       handler: () => {
         document.getElementById("mail-search")?.focus();
+      },
+    },
+    { key: "?", shift: "either", handler: focusAgentChat },
+    {
+      key: "U",
+      shift: true,
+      handler: () => {
+        void navigate("/unread");
       },
     },
     { key: "c", handler: handleCompose },

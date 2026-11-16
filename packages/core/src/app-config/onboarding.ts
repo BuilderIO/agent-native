@@ -1,10 +1,15 @@
 import { z } from "zod";
 
 export const onboardingConfig = z.object({
+  builderSignupExperimentId: z
+    .string()
+    .regex(/^[a-z][a-z0-9_]*$/)
+    .default("design_builder_signup_v1"),
   builderSignupExperiment: z.boolean().default(false),
+  builderSignupAutomaticPercent: z.number().int().min(0).max(100).default(50),
   builderSignupExperimentOverride: z.boolean().optional().meta({
     env: "BUILDER_SIGNUP_EXPERIMENT",
-    doc: "Enable the pre-signup automatic Builder account experiment for Design.",
+    doc: "Enable the pre-signup automatic Builder account experiment for this app.",
   }),
   firstRunCreditsExperiment: z.enum(["v1", "v2"]).default("v1"),
   firstRunCreditsExperimentOverride: z.literal("v1").optional().meta({

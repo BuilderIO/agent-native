@@ -1,4 +1,5 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -37,30 +38,37 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   cancelPendingStructureVerification: (
     nextStatus?: PendingStructureVerificationStatus,
   ) => void;
-  clearPendingLiveEditState: () => void;
   id: string | undefined;
   overviewScreens: OverviewScreen[];
   pendingAgentHandoffBusyRef: RefObject<boolean>;
   pendingLiveNonStyleEdits: PendingLiveNonStyleEdit[];
   stagedHandoffStartTimerRef: RefObject<number | undefined>;
   stagedSourceHandoffRef: RefObject<"idle" | "awaiting-start" | "running">;
+  stagedHandoffStartedRef: RefObject<(() => void) | undefined>;
   pendingStructureVerificationRevisionRef: RefObject<number>;
   pendingStructureVerificationSessionRef: RefObject<
     PendingStructureVerificationSession | undefined
   >;
   pendingLiveNonStyleEditsRef: RefObject<PendingLiveNonStyleEdit[]>;
+  pendingVisualStyleEditsRef: RefObject<PendingVisualStyleEdit[]>;
   pendingStructureVerificationSnapshotsRef: RefObject<
     Map<number, Record<string, RuntimeLayerSnapshot>>
   >;
   pendingStructureVerificationStatus: PendingStructureVerificationStatus;
   pendingVisualStyleEdits: PendingVisualStyleEdit[];
   pendingVisualStylePrompt: string;
-  allowPromptOnly?: boolean;
+  hasPendingTweakChanges?: boolean;
+  includedVisualEditIds: string[];
+  finalizeIncludedHistory: (includedIds: string[]) => void;
+  hasStandalonePrompt: boolean;
   setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setApplyingViaHost: Dispatch<SetStateAction<boolean>>;
   setPendingAgentHandoffBusy: Dispatch<SetStateAction<boolean>>;
   setPendingLiveNonStyleEdits: Dispatch<
     SetStateAction<PendingLiveNonStyleEdit[]>
+  >;
+  setPendingVisualStyleEdits: Dispatch<
+    SetStateAction<PendingVisualStyleEdit[]>
   >;
   setPendingStructureAckRequest: Dispatch<
     SetStateAction<{
@@ -88,25 +96,30 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
 
 export async function runApplyPendingVisualStylesWithAgent({
   cancelPendingStructureVerification,
-  clearPendingLiveEditState,
   id,
   overviewScreens,
   pendingAgentHandoffBusyRef,
   pendingLiveNonStyleEdits,
   stagedHandoffStartTimerRef,
   stagedSourceHandoffRef,
+  stagedHandoffStartedRef,
   pendingStructureVerificationRevisionRef,
   pendingStructureVerificationSessionRef,
   pendingLiveNonStyleEditsRef,
+  pendingVisualStyleEditsRef,
   pendingStructureVerificationSnapshotsRef,
   pendingStructureVerificationStatus,
   pendingVisualStyleEdits,
   pendingVisualStylePrompt,
-  allowPromptOnly = false,
+  hasPendingTweakChanges = false,
+  includedVisualEditIds,
+  finalizeIncludedHistory,
+  hasStandalonePrompt,
   setActiveLeftPanel,
   setApplyingViaHost,
   setPendingAgentHandoffBusy,
   setPendingLiveNonStyleEdits,
+  setPendingVisualStyleEdits,
   setPendingStructureAckRequest,
   setPendingStructureVerificationStatus,
   setPendingVisualStyleBaselineResetRequest,
@@ -117,7 +130,8 @@ export async function runApplyPendingVisualStylesWithAgent({
   if (
     pendingVisualStyleEdits.length === 0 &&
     pendingLiveNonStyleEdits.length === 0 &&
-    !allowPromptOnly
+    !hasPendingTweakChanges &&
+    !hasStandalonePrompt
   ) {
     return;
   }
@@ -147,7 +161,24 @@ export async function runApplyPendingVisualStylesWithAgent({
       (edit): edit is PendingLiveStructureEdit => edit.kind === "structure",
     );
     const finalizeWithoutStructureVerification = () => {
-      clearPendingLiveEditState();
+      finalizeIncludedHistory(includedVisualEditIds);
+      const includedIds = new Set(includedVisualEditIds);
+      const styles = pendingVisualStyleEditsRef.current.filter(
+        (edit) =>
+          !includedIds.has(
+            `style:${edit.screenId}:${edit.selector}:${edit.updatedAt}`,
+          ),
+      );
+      const nonStyles = pendingLiveNonStyleEditsRef.current.filter(
+        (edit) =>
+          !includedIds.has(
+            `live:${edit.kind}:${edit.screenId}:${edit.selector}:${edit.updatedAt}`,
+          ),
+      );
+      pendingVisualStyleEditsRef.current = styles;
+      pendingLiveNonStyleEditsRef.current = nonStyles;
+      setPendingVisualStyleEdits(styles);
+      setPendingLiveNonStyleEdits(nonStyles);
       const previewRequestId = Date.now() + Math.random();
       window.setTimeout(() => {
         if (preservePreviewPatches.length > 0) {
@@ -171,24 +202,38 @@ export async function runApplyPendingVisualStylesWithAgent({
         { timeoutMs: 10_000 },
       );
       if (!delivery.delivered) {
-        toast.error(
-          t("designEditor.pendingVisualStyles.agentHandoffFailedToast"),
-        );
+        if (await writeClipboardText(pendingVisualStylePrompt)) {
+          toast.success(t("designEditor.pendingVisualStyles.copiedToast"), {
+            description: t(
+              "designEditor.pendingVisualStyles.copiedToastDescription",
+            ),
+          });
+        } else {
+          toast.error(t("designEditor.toasts.clipboardBlocked"));
+        }
         return;
       }
       if (delivery.awaitingHostTurn) {
         stagedSourceHandoffRef.current = "awaiting-start";
+        stagedHandoffStartedRef.current = () => {
+          if (includedVisualEditIds.length > 0)
+            finalizeWithoutStructureVerification();
+        };
         setApplyingViaHost(true);
         stagedHandoffStartTimerRef.current = window.setTimeout(() => {
           stagedHandoffStartTimerRef.current = undefined;
           if (stagedSourceHandoffRef.current !== "awaiting-start") return;
           stagedSourceHandoffRef.current = "idle";
+          stagedHandoffStartedRef.current = undefined;
           setApplyingViaHost(false);
           toast.error(
             t("designEditor.pendingVisualStyles.agentHandoffFailedToast"),
           );
         }, HOST_TURN_START_TIMEOUT_MS);
-      } else if (!allowPromptOnly) finalizeWithoutStructureVerification();
+      }
+      if (!delivery.awaitingHostTurn && includedVisualEditIds.length > 0) {
+        finalizeWithoutStructureVerification();
+      }
       if (delivery.target === "local") setActiveLeftPanel("agent");
       toast.success(t("designEditor.pendingVisualStyles.sentToast"));
       return;
@@ -374,7 +419,9 @@ export async function runApplyPendingVisualStylesWithAgent({
             }
           }
           if (session.edits.length === 0) {
-            clearPendingLiveEditState();
+            if (includedVisualEditIds.length > 0) {
+              finalizeWithoutStructureVerification();
+            }
             toast.success(t("designEditor.pendingVisualStyles.verifiedToast"));
             return;
           }

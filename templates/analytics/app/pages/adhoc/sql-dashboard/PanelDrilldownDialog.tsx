@@ -127,9 +127,17 @@ export function PanelDrilldownDialog({
     drilldownQuery.isSuccess &&
     (drilldownData?.drilldown === null ||
       (typeof drilldownSql === "string" && drilldownSql.length > 0));
-  const hasRecordQuery = hasDrilldownResult && drilldownSql !== null;
+  // A null x reaches a template as '', which matches no records. Only a
+  // template that reads drillXIsNull can open them; others show the chart's rows.
+  const nullXUnsupported =
+    datum?.xIsNull === true &&
+    typeof drilldownSql === "string" &&
+    !drilldownSql.includes("{{drillXIsNull}}");
+  const hasRecordQuery =
+    hasDrilldownResult && drilldownSql !== null && !nullXUnsupported;
   const hasAggregateQuery =
-    hasDrilldownResult && drilldownData?.drilldown === null;
+    hasDrilldownResult &&
+    (drilldownData?.drilldown === null || nullXUnsupported);
 
   const recordSql = useMemo(
     () =>
@@ -139,6 +147,7 @@ export function PanelDrilldownDialog({
             {
               ...filters,
               drillX: datum.x,
+              drillXIsNull: datum.xIsNull ? "true" : "false",
               drillSeries: datum.series ?? "",
             },
             panel,
@@ -263,7 +272,7 @@ export function PanelDrilldownDialog({
     totalMatching !== chartValue;
 
   const title = datum
-    ? `${panel.title}: ${datum.x}${datum.series ? ` · ${datum.series}` : ""}`
+    ? `${panel.title}: ${datum.x || t("sqlDashboard.noXValue")}${datum.series ? ` · ${datum.series}` : ""}`
     : panel.title;
 
   return (
@@ -337,7 +346,9 @@ export function PanelDrilldownDialog({
         ) : null}
         {!hasRecordQuery && !loading && !error ? (
           <p className="shrink-0 text-xs text-muted-foreground">
-            {t("sqlDashboard.drilldownAggregateOnly")}
+            {nullXUnsupported
+              ? t("sqlDashboard.drilldownNoXValueAggregateOnly")
+              : t("sqlDashboard.drilldownAggregateOnly")}
           </p>
         ) : null}
         {showSql ? (

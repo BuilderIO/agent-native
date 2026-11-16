@@ -124,6 +124,172 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+// The broker only touches a session's cookies, fetch and storage clearing.
+function fakeSession(
+  cookies: ReturnType<typeof cookieStore>,
+  extra: { clearStorageData?: () => Promise<void> } = {},
+): Electron.Session {
+  return {
+    cookies,
+    fetch: vi.fn(async () => sessionResponse("a@example.com")),
+    ...extra,
+  } as unknown as Electron.Session;
+}
+
+// Adopt a login from Mail with Calendar and Tasks still to synchronize. The
+// next read of Calendar's cookie store can be held, to stand in for a store
+// that answers late or never.
+function adoptionRig(
+  options: {
+    calendarAlreadySynchronized?: boolean;
+    // A valid session of the same account that differs from the adopted one.
+    calendarSessionValue?: string;
+  } = {},
+) {
+  const source = appFixture();
+  source.session = fakeSession(
+    cookieStore([
+      sessionCookie("an_session_mail", source.origin, "shared-session"),
+    ]),
+  );
+  const authority = authorityFixture();
+  authority.session = fakeSession(cookieStore());
+  const laterApp = (id: string, initial: Electron.Cookie[] = []) => {
+    const cookies = cookieStore(initial);
+    const app: DesktopIdentityApp = {
+      ...appFixture(),
+      id,
+      origin: `https://${id}.agent-native.com`,
+      cookieNames: [`an_session_${id}`, "an_session"],
+      cookieNamesToClear: [`an_session_${id}`, "an_session"],
+      session: fakeSession(cookies),
+    };
+    return { app, cookies };
+  };
+  const calendar = laterApp(
+    "calendar",
+    options.calendarAlreadySynchronized
+      ? [
+          sessionCookie(
+            "an_session_calendar",
+            "https://calendar.agent-native.com",
+            "shared-session",
+          ),
+        ]
+      : options.calendarSessionValue
+        ? [
+            sessionCookie(
+              "an_session_calendar",
+              "https://calendar.agent-native.com",
+              options.calendarSessionValue,
+            ),
+          ]
+        : [],
+  );
+  if (options.calendarAlreadySynchronized)
+    calendar.app.alternateOrigins = ["https://beta.calendar.agent-native.com"];
+  const tasks = laterApp("tasks");
+  const apps = [source, authority, calendar.app, tasks.app];
+  const identityCookies = cookieStore([
+    sessionCookie("an_session_dispatch", authority.origin, "shared-session"),
+  ]);
+  const createWindow = vi.fn(() => {
+    let didNavigate:
+      | ((event: unknown, url: string, statusCode: number) => void)
+      | null = null;
+    return {
+      webContents: {
+        on: vi.fn((event: string, handler: typeof didNavigate) => {
+          if (event === "did-navigate") didNavigate = handler;
+        }),
+        setWindowOpenHandler: vi.fn(),
+      },
+      loadURL: vi.fn(async (url: string) => {
+        const target = apps.find(
+          (app) => new URL(url).hostname === new URL(app.origin).hostname,
+        );
+        const cookieName = target?.cookieNames[0];
+        if (target && cookieName) {
+          await identityCookies.set({
+            url: target.origin,
+            name: cookieName,
+            value: "shared-session",
+            path: "/",
+            httpOnly: true,
+            secure: true,
+            sameSite: "lax",
+          });
+        }
+        queueMicrotask(() => didNavigate?.({}, url, 200));
+      }),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn(),
+    } as never;
+  });
+  const broker = new DesktopIdentityBroker({
+    identitySession: fakeSession(identityCookies, {
+      clearStorageData: vi.fn(async () => {}),
+    }),
+    isAvailable: vi.fn(async () => true),
+    resolveLoginRedirect: vi.fn(async (loginUrl: string) => {
+      const returnPath = new URL(loginUrl).searchParams.get("return") ?? "/";
+      return new URL(returnPath, new URL(loginUrl).origin).toString();
+    }),
+    resolveApp: (id) => apps.find((app) => app.id === id) ?? null,
+    listApps: () => apps,
+    createWindow,
+    reloadApp: vi.fn(),
+    clearLocalBroker: vi.fn(),
+  });
+  const readCalendar = calendar.cookies.get.getMockImplementation();
+  const held = new Map<number, () => Promise<Electron.Cookie[]>>();
+  let calendarReads = 0;
+  calendar.cookies.get.mockImplementation(async (filter) => {
+    calendarReads += 1;
+    return held.get(calendarReads)?.() ?? readCalendar?.(filter) ?? [];
+  });
+  const removeCalendar = calendar.cookies.remove.getMockImplementation();
+  let removalGate: Promise<void> | null = null;
+  calendar.cookies.remove.mockImplementation(async (url, name) => {
+    await removalGate;
+    return removeCalendar?.(url, name);
+  });
+  return {
+    broker,
+    source,
+    authority,
+    calendar,
+    tasks,
+    createWindow,
+    // The nth read of Calendar's cookie store, counted from now, answers
+    // with `answer` instead of the real store.
+    holdCalendarRead(nth: number, answer: Promise<Electron.Cookie[]>) {
+      held.set(calendarReads + nth, () => answer);
+    },
+    // The same, but the answer arrives `ms` after the read starts.
+    delayCalendarRead(nth: number, ms: number, answer: Electron.Cookie[]) {
+      held.set(
+        calendarReads + nth,
+        () => new Promise((resolve) => setTimeout(() => resolve(answer), ms)),
+      );
+    },
+    // Calendar's cookie removals wait until the returned release is called.
+    holdCalendarRemovals() {
+      const gate = deferred<void>();
+      removalGate = gate.promise;
+      return { release: () => gate.resolve() };
+    },
+    adopt() {
+      const outcome: { value?: boolean } = {};
+      const done = broker
+        .adoptAppSession(source.id)
+        .then((value) => (outcome.value = value));
+      return { outcome, done };
+    },
+  };
+}
+
 function sessionCookie(
   name: string,
   origin: string,
@@ -851,6 +1017,503 @@ describe("DesktopIdentityBroker", () => {
     expect(broker.getStatus()).toBe("signed-in");
   });
 
+  it("keeps the verified email when a same-account adoption runs the legacy authority ceremony", async () => {
+    const source = appFixture();
+    source.session = {
+      cookies: cookieStore([
+        sessionCookie("an_session_mail", source.origin, "shared-session"),
+      ]),
+      fetch: vi.fn(async () => sessionResponse("a@example.com")),
+    } as unknown as Electron.Session;
+    const authority = authorityFixture();
+    authority.session = {
+      cookies: cookieStore(),
+      fetch: vi.fn(async () => sessionResponse("a@example.com")),
+    } as unknown as Electron.Session;
+    const identityCookies = cookieStore([
+      sessionCookie("an_session_dispatch", authority.origin, "shared-session"),
+    ]);
+    const identityFetch = vi.fn(async () => sessionResponse("a@example.com"));
+    const createWindow = vi.fn(() => {
+      let didNavigate:
+        | ((event: unknown, url: string, statusCode: number) => void)
+        | null = null;
+      return {
+        webContents: {
+          on: vi.fn((event: string, handler: typeof didNavigate) => {
+            if (event === "did-navigate") didNavigate = handler;
+          }),
+          setWindowOpenHandler: vi.fn(),
+        },
+        loadURL: vi.fn(async (url: string) => {
+          queueMicrotask(() => didNavigate?.({}, url, 200));
+        }),
+        isDestroyed: vi.fn(() => false),
+        close: vi.fn(),
+        on: vi.fn(),
+      } as never;
+    });
+    const onOwnerChange = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveLoginRedirect: vi.fn(async (loginUrl: string) => {
+        const returnPath = new URL(loginUrl).searchParams.get("return")!;
+        return new URL(returnPath, new URL(loginUrl).origin).toString();
+      }),
+      resolveApp: (id) =>
+        id === source.id ? source : id === authority.id ? authority : null,
+      listApps: () => [source, authority],
+      createWindow,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+      onOwnerChange,
+    });
+
+    await expect(broker.adoptAppSession(source.id)).resolves.toBe(true);
+
+    expect(createWindow).toHaveBeenCalledTimes(1);
+    expect(broker.getStatus()).toBe("signed-in");
+    expect(broker.getVerifiedEmail()).toBe("a@example.com");
+    const owners = onOwnerChange.mock.calls.map(([owner]) => owner);
+    expect(owners).not.toContain(null);
+    expect(owners.at(-1)).toBe("account:a@example.com");
+  });
+
+  it("lets an active adoption finish every app when a status read arrives during it", async () => {
+    const source = appFixture();
+    source.session = {
+      cookies: cookieStore([
+        sessionCookie("an_session_mail", source.origin, "shared-session"),
+      ]),
+      fetch: vi.fn(async () => sessionResponse("a@example.com")),
+    } as unknown as Electron.Session;
+    const authority = authorityFixture();
+    authority.session = {
+      cookies: cookieStore(),
+      fetch: vi.fn(async () => sessionResponse("a@example.com")),
+    } as unknown as Electron.Session;
+    const laterApp = (id: string): DesktopIdentityApp => ({
+      ...appFixture(),
+      id,
+      origin: `https://${id}.agent-native.com`,
+      cookieNames: [`an_session_${id}`, "an_session"],
+      cookieNamesToClear: [`an_session_${id}`, "an_session"],
+      session: {
+        cookies: cookieStore(),
+        fetch: vi.fn(async () => sessionResponse("a@example.com")),
+      } as unknown as Electron.Session,
+    });
+    const calendar = laterApp("calendar");
+    const tasks = laterApp("tasks");
+    const apps = [source, authority, calendar, tasks];
+    const identityCookies = cookieStore([
+      sessionCookie("an_session_dispatch", authority.origin, "shared-session"),
+    ]);
+    const identityFetch = vi.fn(async () => sessionResponse("a@example.com"));
+    const createWindow = vi.fn(() => {
+      let didNavigate:
+        | ((event: unknown, url: string, statusCode: number) => void)
+        | null = null;
+      return {
+        webContents: {
+          on: vi.fn((event: string, handler: typeof didNavigate) => {
+            if (event === "did-navigate") didNavigate = handler;
+          }),
+          setWindowOpenHandler: vi.fn(),
+        },
+        loadURL: vi.fn(async (url: string) => {
+          const target = apps.find(
+            (app) => new URL(url).hostname === new URL(app.origin).hostname,
+          );
+          const cookieName = target?.cookieNames[0];
+          if (target && cookieName) {
+            await identityCookies.set({
+              url: target.origin,
+              name: cookieName,
+              value: "shared-session",
+              path: "/",
+              httpOnly: true,
+              secure: true,
+              sameSite: "lax",
+            });
+          }
+          queueMicrotask(() => didNavigate?.({}, url, 200));
+        }),
+        isDestroyed: vi.fn(() => false),
+        close: vi.fn(),
+        on: vi.fn(),
+      } as never;
+    });
+    const calendarPreflight = deferred<void>();
+    const calendarPreflightReached = deferred<void>();
+    const onOwnerChange = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveLoginRedirect: vi.fn(async (loginUrl: string) => {
+        if (new URL(loginUrl).hostname === new URL(calendar.origin).hostname) {
+          calendarPreflightReached.resolve();
+          await calendarPreflight.promise;
+        }
+        const returnPath = new URL(loginUrl).searchParams.get("return")!;
+        return new URL(returnPath, new URL(loginUrl).origin).toString();
+      }),
+      resolveApp: (id) => apps.find((app) => app.id === id) ?? null,
+      listApps: () => apps,
+      createWindow,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+      onOwnerChange,
+    });
+
+    const adoption = broker.adoptAppSession(source.id);
+    await calendarPreflightReached.promise;
+    const generation = Reflect.get(broker, "ceremonyGeneration");
+    expect(broker.getStatus()).toBe("signing-in");
+
+    await broker.refreshStatus(authority);
+
+    expect(Reflect.get(broker, "ceremonyGeneration")).toBe(generation);
+    expect(broker.getStatus()).toBe("signing-in");
+
+    calendarPreflight.resolve();
+    await expect(adoption).resolves.toBe(true);
+
+    expect(calendar.session.cookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "an_session_calendar" }),
+    );
+    expect(tasks.session.cookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "an_session_tasks" }),
+    );
+    expect(broker.getStatus()).toBe("signed-in");
+    expect(broker.getVerifiedEmail()).toBe("a@example.com");
+    const owners = onOwnerChange.mock.calls.map(([owner]) => owner);
+    expect(owners).not.toContain(null);
+    expect(owners.at(-1)).toBe("account:a@example.com");
+  });
+
+  describe("an adoption step whose cookie reads stall", () => {
+    const deadlineMs = 30_000;
+    const never = () => new Promise<Electron.Cookie[]>(() => {});
+    const syncedWith = (app: {
+      app: { id: string };
+      cookies: { set: unknown };
+    }) =>
+      expect(app.cookies.set).toHaveBeenCalledWith(
+        expect.objectContaining({ name: `an_session_${app.app.id}` }),
+      );
+    const withTimers = async (body: () => Promise<void>) => {
+      vi.useFakeTimers();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await body();
+      } finally {
+        warn.mockRestore();
+        vi.useRealTimers();
+      }
+    };
+    const failureWarning = [
+      "[desktop identity] automatic app session sync had failures",
+      { appIds: ["calendar"] },
+    ];
+
+    it.each([
+      ["the first read", 1, false],
+      ["the read that matches the adopted session", 2, false],
+      ["the alternate cookie synchronization read", 3, true],
+    ])(
+      "ends adoption and recovers the status when %s never settles",
+      async (_name, nth, alreadySynchronized) => {
+        await withTimers(async () => {
+          const rig = adoptionRig({
+            calendarAlreadySynchronized: alreadySynchronized,
+          });
+          rig.holdCalendarRead(nth, never());
+          const { outcome, done } = rig.adopt();
+          await vi.advanceTimersByTimeAsync(deadlineMs - 1);
+          expect(outcome.value).toBeUndefined();
+          expect(rig.broker.getStatus()).toBe("signing-in");
+          await vi.advanceTimersByTimeAsync(1);
+          expect(outcome.value).toBe(true);
+          await done;
+          expect(rig.broker.getStatus()).toBe("signed-in");
+          expect(
+            Reflect.get(rig.broker, "sessionAdoptionOperation"),
+          ).toBeNull();
+          if (!alreadySynchronized)
+            expect(rig.calendar.cookies.set).not.toHaveBeenCalled();
+          // The hung step did not hold the queue: Tasks still synchronized.
+          syncedWith(rig.tasks);
+          expect(console.warn).toHaveBeenCalledWith(...failureWarning);
+        });
+      },
+    );
+
+    it("synchronizes the app when a read settles just before the deadline", async () => {
+      await withTimers(async () => {
+        const rig = adoptionRig();
+        const read = deferred<Electron.Cookie[]>();
+        rig.holdCalendarRead(1, read.promise);
+        const { outcome, done } = rig.adopt();
+        await vi.advanceTimersByTimeAsync(deadlineMs - 1);
+        read.resolve([]);
+        await vi.advanceTimersByTimeAsync(deadlineMs);
+        await done;
+        expect(outcome.value).toBe(true);
+        syncedWith(rig.calendar);
+        syncedWith(rig.tasks);
+        expect(console.warn).not.toHaveBeenCalledWith(...failureWarning);
+      });
+    });
+
+    it.each([
+      ["first", 1, false],
+      ["alternate cookie synchronization", 3, true],
+    ])(
+      "changes nothing when the %s read answers after the deadline",
+      async (_name, nth, alreadySynchronized) => {
+        await withTimers(async () => {
+          const rig = adoptionRig({
+            calendarAlreadySynchronized: alreadySynchronized,
+          });
+          const read = deferred<Electron.Cookie[]>();
+          rig.holdCalendarRead(nth, read.promise);
+          const { outcome, done } = rig.adopt();
+          await vi.advanceTimersByTimeAsync(deadlineMs);
+          expect(outcome.value).toBe(true);
+          await done;
+          const windows = rig.createWindow.mock.calls.length;
+          const writes = rig.calendar.cookies.set.mock.calls.length;
+          const removals = rig.calendar.cookies.remove.mock.calls.length;
+          // Late answers that would each trigger a change if acted on: a
+          // matching cookie (alternate sync) or a stale one (clear).
+          read.resolve([
+            sessionCookie(
+              "an_session_calendar",
+              rig.calendar.app.origin,
+              alreadySynchronized ? "shared-session" : "stale-session",
+            ),
+          ]);
+          await vi.advanceTimersByTimeAsync(deadlineMs);
+          expect(rig.broker.getStatus()).toBe("signed-in");
+          expect(rig.createWindow.mock.calls.length).toBe(windows);
+          expect(rig.calendar.cookies.set.mock.calls.length).toBe(writes);
+          expect(rig.calendar.cookies.remove.mock.calls.length).toBe(removals);
+          expect(
+            Reflect.get(rig.broker, "synchronizedAlternateSessionCookies"),
+          ).toEqual(new Set());
+        });
+      },
+    );
+
+    describe("once the step starts clearing", () => {
+      const cookie = (value: string) =>
+        sessionCookie(
+          "an_session_calendar",
+          "https://calendar.agent-native.com",
+          value,
+        );
+
+      it("finishes clear and replace even when the clear crosses the deadline", async () => {
+        await withTimers(async () => {
+          const rig = adoptionRig({ calendarSessionValue: "child-session" });
+          // 9.9s + 19.9s of reads, then a clear that settles after 30s.
+          rig.delayCalendarRead(1, 9_900, [cookie("child-session")]);
+          rig.delayCalendarRead(2, 19_900, [cookie("child-session")]);
+          const removals = rig.holdCalendarRemovals();
+          const { outcome, done } = rig.adopt();
+          await vi.advanceTimersByTimeAsync(29_800);
+          expect(rig.calendar.cookies.remove).toHaveBeenCalled();
+          await vi.advanceTimersByTimeAsync(300);
+          // Past the 30s deadline, but the step is mid-clear and still owns
+          // the operation.
+          expect(outcome.value).toBeUndefined();
+          expect(rig.calendar.cookies.set).not.toHaveBeenCalled();
+          removals.release();
+          await vi.advanceTimersByTimeAsync(0);
+          await done;
+          expect(outcome.value).toBe(true);
+          expect(rig.calendar.cookies.set).toHaveBeenCalledWith(
+            expect.objectContaining({
+              name: "an_session_calendar",
+              value: "shared-session",
+            }),
+          );
+          expect(rig.broker.getStatus()).toBe("signed-in");
+          expect(console.warn).not.toHaveBeenCalledWith(...failureWarning);
+        });
+      });
+
+      it("finishes copying to the alternate origins when their clear crosses the deadline", async () => {
+        await withTimers(async () => {
+          const rig = adoptionRig({ calendarAlreadySynchronized: true });
+          rig.delayCalendarRead(1, 9_900, [cookie("shared-session")]);
+          rig.delayCalendarRead(2, 19_900, [cookie("shared-session")]);
+          const removals = rig.holdCalendarRemovals();
+          const { outcome, done } = rig.adopt();
+          await vi.advanceTimersByTimeAsync(30_100);
+          expect(rig.calendar.cookies.remove).toHaveBeenCalled();
+          expect(outcome.value).toBeUndefined();
+          removals.release();
+          await vi.advanceTimersByTimeAsync(0);
+          await done;
+          expect(outcome.value).toBe(true);
+          expect(rig.calendar.cookies.set).toHaveBeenCalledWith(
+            expect.objectContaining({
+              url: "https://beta.calendar.agent-native.com",
+              value: "shared-session",
+            }),
+          );
+          expect(
+            Reflect.get(rig.broker, "synchronizedAlternateSessionCookies"),
+          ).toEqual(
+            new Set(["calendar\u0000https://beta.calendar.agent-native.com"]),
+          );
+        });
+      });
+    });
+
+    it("lets a newer adoption run once the stalled one expires, and keeps the old one from overwriting it", async () => {
+      await withTimers(async () => {
+        const rig = adoptionRig();
+        const read = deferred<Electron.Cookie[]>();
+        rig.holdCalendarRead(1, read.promise);
+        const first = rig.adopt();
+        await vi.advanceTimersByTimeAsync(deadlineMs / 2);
+        rig.broker.setStatusForSetting("idle");
+        await vi.advanceTimersByTimeAsync(deadlineMs / 2);
+        expect(first.outcome.value).toBe(false);
+        await first.done;
+        expect(rig.broker.getStatus()).toBe("idle");
+        expect(Reflect.get(rig.broker, "sessionAdoptionOperation")).toBeNull();
+
+        const second = rig.adopt();
+        await vi.advanceTimersByTimeAsync(0);
+        await second.done;
+        expect(second.outcome.value).toBe(true);
+        expect(rig.broker.getStatus()).toBe("signed-in");
+        syncedWith(rig.calendar);
+
+        const windows = rig.createWindow.mock.calls.length;
+        read.resolve([]);
+        await vi.advanceTimersByTimeAsync(deadlineMs);
+        expect(rig.broker.getStatus()).toBe("signed-in");
+        expect(rig.createWindow.mock.calls.length).toBe(windows);
+      });
+    });
+  });
+
+  describe("a slow valid cookie read outside adoption", () => {
+    const slowFirstRead = (cookies: ReturnType<typeof cookieStore>) => {
+      const read = cookies.get.getMockImplementation();
+      let slowed = false;
+      cookies.get.mockImplementation(
+        (filter) =>
+          new Promise<Electron.Cookie[]>((resolve) => {
+            const answer = read?.(filter) ?? Promise.resolve([]);
+            if (slowed) {
+              void answer.then(resolve);
+              return;
+            }
+            slowed = true;
+            setTimeout(() => void answer.then(resolve), 10_100);
+          }),
+      );
+    };
+    const matchingMail = () => {
+      const authority = authorityFixture();
+      const mail = appFixture();
+      mail.cookieNames = [...mail.cookieNames, "an_embed_session"];
+      mail.cookieNamesToClear = [
+        ...mail.cookieNamesToClear,
+        "an_embed_session",
+      ];
+      const mailCookies = cookieStore([
+        sessionCookie(
+          "an_embed_session",
+          mail.origin,
+          "workspace-embed-session",
+        ),
+      ]);
+      mail.session = {
+        cookies: mailCookies,
+        fetch: vi.fn(async () => sessionResponse("owner@example.com")),
+      } as unknown as Electron.Session;
+      const statuses: string[] = [];
+      const reloadApp = vi.fn();
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: cookieStore([
+            sessionCookie(
+              "an_session_dispatch",
+              authority.origin,
+              "desktop-session",
+            ),
+          ]),
+          fetch: vi.fn(async () => sessionResponse("owner@example.com")),
+          clearStorageData: vi.fn(async () => {}),
+        } as unknown as Electron.Session,
+        resolveApp: (id) =>
+          id === authority.id ? authority : id === mail.id ? mail : null,
+        listApps: () => [authority, mail],
+        openExternal: vi.fn(async () => {}),
+        reloadApp,
+        clearLocalBroker: vi.fn(),
+        createWindow: vi.fn() as never,
+        onStatus: (status) => statuses.push(status),
+      });
+      broker.setStatusForSetting("signed-in");
+      statuses.length = 0;
+      slowFirstRead(mailCookies);
+      return { broker, mail, statuses, mailCookies };
+    };
+
+    it("still succeeds in modern sign-in", async () => {
+      vi.useFakeTimers();
+      try {
+        const rig = matchingMail();
+        const outcome: { value?: boolean } = {};
+        const done = rig.broker
+          .ensureAppSession(rig.mail.id)
+          .then((value) => (outcome.value = value));
+        await vi.advanceTimersByTimeAsync(10_100);
+        expect(outcome.value).toBe(true);
+        await done;
+        expect(rig.broker.getStatus()).toBe("signed-in");
+        expect(rig.statuses).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("still returns without adoption on a cookie change", async () => {
+      vi.useFakeTimers();
+      try {
+        const rig = matchingMail();
+        const outcome: { value?: boolean } = {};
+        const done = rig.broker
+          .adoptAppSession(rig.mail.id, { fromCookieChange: true })
+          .then((value) => (outcome.value = value));
+        await vi.advanceTimersByTimeAsync(10_100);
+        expect(outcome.value).toBe(true);
+        await done;
+        expect(rig.broker.getStatus()).toBe("signed-in");
+        expect(rig.statuses).not.toContain("signing-in");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it("restores the previous identity session and revalidation timestamp when authority synchronization fails", async () => {
     vi.useFakeTimers();
     try {
@@ -1107,6 +1770,126 @@ describe("DesktopIdentityBroker", () => {
     expect(broker.getStatus()).toBe("signed-in");
     expect(onStatus).toHaveBeenCalledTimes(1);
     expect(onStatus).toHaveBeenCalledWith("signed-in");
+  });
+
+  function ownerBroker(
+    authority: DesktopIdentityApp,
+    identityFetch: ReturnType<typeof vi.fn>,
+    onOwnerChange: (owner: string | null) => void,
+  ) {
+    return new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore([
+          sessionCookie("an_session_dispatch", authority.origin),
+        ]),
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+      statusRevalidationIntervalMs: 0,
+      onOwnerChange,
+    });
+  }
+
+  it("announces an owner change when only the verified email changes", async () => {
+    const authority = authorityFixture();
+    const onOwnerChange = vi.fn();
+    const broker = ownerBroker(
+      authority,
+      vi
+        .fn()
+        .mockResolvedValueOnce(sessionResponse("a@example.com"))
+        .mockResolvedValueOnce(sessionResponse("b@example.com")),
+      onOwnerChange,
+    );
+
+    await broker.refreshStatus(authority);
+    expect(onOwnerChange).toHaveBeenCalledTimes(1);
+    expect(onOwnerChange).toHaveBeenLastCalledWith("account:a@example.com");
+
+    await broker.refreshStatus(authority);
+    expect(broker.getStatus()).toBe("signed-in");
+    expect(onOwnerChange).toHaveBeenCalledTimes(2);
+    expect(onOwnerChange).toHaveBeenLastCalledWith("account:b@example.com");
+  });
+
+  it("restores the verified email with the signed-in status when a re-verification fails", async () => {
+    const authority = authorityFixture();
+    const source = appFixture();
+    source.session = {
+      cookies: cookieStore([
+        sessionCookie("an_session_mail", source.origin, "a-second-session"),
+      ]),
+      fetch: vi.fn(async () => sessionResponse("a@example.com")),
+    } as unknown as Electron.Session;
+    const onOwnerChange = vi.fn();
+    const identityFetch = vi
+      .fn()
+      .mockResolvedValueOnce(sessionResponse("a@example.com"))
+      .mockResolvedValueOnce(sessionResponse("a@example.com"))
+      .mockResolvedValueOnce(new Response(null, { status: 500 }));
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore([
+          sessionCookie("an_session_dispatch", authority.origin),
+        ]),
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) =>
+        id === source.id ? source : id === authority.id ? authority : null,
+      listApps: () => [source, authority],
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+      statusRevalidationIntervalMs: 0,
+      onOwnerChange,
+    });
+
+    await broker.refreshStatus(authority);
+    await expect(broker.adoptAppSession(source.id)).resolves.toBe(false);
+
+    expect(broker.getStatus()).toBe("signed-in");
+    expect(broker.getVerifiedEmail()).toBe("a@example.com");
+    expect(onOwnerChange.mock.calls.map(([owner]) => owner)).toEqual([
+      "account:a@example.com",
+      "no-account",
+      "account:a@example.com",
+    ]);
+  });
+
+  it("announces no owner change when the same email is verified again", async () => {
+    const authority = authorityFixture();
+    const onOwnerChange = vi.fn();
+    const broker = ownerBroker(
+      authority,
+      vi.fn(async () => sessionResponse("a@example.com")),
+      onOwnerChange,
+    );
+
+    await broker.refreshStatus(authority);
+    await broker.refreshStatus(authority);
+    await broker.refreshStatus(authority);
+
+    expect(onOwnerChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("announces no owner change when the first note keeps the start owner", async () => {
+    const authority = authorityFixture();
+    const onOwnerChange = vi.fn();
+    const broker = ownerBroker(
+      authority,
+      vi.fn(async () => new Response(null, { status: 401 })),
+      onOwnerChange,
+    );
+
+    await broker.refreshStatus(authority);
+
+    expect(broker.getStatus()).toBe("sign-in-required");
+    expect(onOwnerChange).not.toHaveBeenCalled();
   });
 
   it("preserves a verified session across a transient status refresh failure", async () => {

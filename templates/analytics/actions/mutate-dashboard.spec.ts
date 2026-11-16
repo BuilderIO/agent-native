@@ -777,14 +777,122 @@ describe("mutate-dashboard", () => {
     });
     mocks.dryRunQuery.mockResolvedValue("bad column");
 
+    const run = mutateDashboard.run({
+      dashboardId: "traffic",
+      code: 'dashboard.panel("a").setSql("SELECT bad_column FROM `project.dataset.table`");',
+    });
+    await expect(run).rejects.toThrow(/SQL is invalid: bad column/);
+    // A caller error, so the route echoes the message instead of a bare 500.
+    await expect(run).rejects.toMatchObject({
+      errorCode: "action_failed",
+      statusCode: 400,
+    });
+
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
+  it("reports invalid SQL on a dry run as a caller error", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: {
+        ...dashboardConfig(),
+        panels: [panel("a", "bigquery")],
+      },
+    });
+    mocks.dryRunQuery.mockResolvedValue(
+      "Syntax error: concatenated string literals must be separated by whitespace or comments",
+    );
+
     await expect(
       mutateDashboard.run({
         dashboardId: "traffic",
-        code: 'dashboard.panel("a").setSql("SELECT bad_column FROM `project.dataset.table`");',
+        dryRun: true,
+        operations: [
+          {
+            op: "updatePanel",
+            panelId: "a",
+            patch: {
+              sql: "SELECT 'Alice''s' AS value FROM `project.dataset.table`",
+            },
+          },
+        ],
       }),
-    ).rejects.toThrow(/SQL is invalid: bad column/);
-
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/SQL is invalid: Syntax error/),
+      statusCode: 400,
+    });
     expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
+  it("reports a validator that could not run as unavailable, not as invalid SQL", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: {
+        ...dashboardConfig(),
+        panels: [panel("a", "bigquery")],
+      },
+    });
+    mocks.dryRunQuery.mockRejectedValue(new Error("Token exchange failed"));
+
+    await expect(
+      mutateDashboard.run({
+        dashboardId: "traffic",
+        operations: [
+          {
+            op: "updatePanel",
+            panelId: "a",
+            patch: { sql: "SELECT 1" },
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      message: "Dashboard SQL could not be validated: Token exchange failed",
+      errorCode: "sql_validation_unavailable",
+      statusCode: 503,
+    });
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
+  it("reports a validation timeout as unavailable", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: {
+          ...dashboardConfig(),
+          panels: [panel("a", "bigquery")],
+        },
+      });
+      mocks.dryRunQuery.mockImplementation(
+        async (_sql: string, options: { signal: AbortSignal }) =>
+          await new Promise<null>((_resolve, reject) => {
+            options.signal.addEventListener("abort", () =>
+              reject(new Error("aborted")),
+            );
+          }),
+      );
+
+      const pending = mutateDashboard.run({
+        dashboardId: "traffic",
+        operations: [
+          {
+            op: "updatePanel",
+            panelId: "a",
+            patch: { sql: "SELECT 1" },
+          },
+        ],
+      });
+      const outcome = expect(pending).rejects.toMatchObject({
+        message: expect.stringMatching(/timed out after 10 seconds/),
+        errorCode: "sql_validation_unavailable",
+        statusCode: 503,
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      await outcome;
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("validates multiple BigQuery panels in parallel within one batch", async () => {

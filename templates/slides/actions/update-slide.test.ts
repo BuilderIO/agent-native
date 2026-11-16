@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
 const mockTrack = vi.fn();
-const mockGetCurrentRequestBrowserTabId = vi.fn(() => null);
+const mockGetCurrentRequestStateTabId = vi.fn(() => null);
 const mockReadAppStateForCurrentTab = vi.fn(async () => null);
 
 let lastUpdateSet: { data?: string; updatedAt?: string } | undefined;
@@ -125,7 +125,7 @@ vi.mock("@agent-native/core/collab", () => ({
 }));
 
 vi.mock("./_tab-state.js", () => ({
-  getCurrentRequestBrowserTabId: () => mockGetCurrentRequestBrowserTabId(),
+  getCurrentRequestStateTabId: async () => mockGetCurrentRequestStateTabId(),
   readAppStateForCurrentTab: (...args: unknown[]) =>
     mockReadAppStateForCurrentTab(...args),
 }));
@@ -189,7 +189,7 @@ beforeEach(() => {
       slides: [{ id: "slide-1", content: "<div>Old</div>" }],
     }),
   };
-  mockGetCurrentRequestBrowserTabId.mockReturnValue(null);
+  mockGetCurrentRequestStateTabId.mockReturnValue(null);
   mockReadAppStateForCurrentTab.mockResolvedValue(null);
 });
 
@@ -458,7 +458,7 @@ describe("update-slide", () => {
   });
 
   it("rejects a stale browser-tab target before writing", async () => {
-    mockGetCurrentRequestBrowserTabId.mockReturnValue("tab-1");
+    mockGetCurrentRequestStateTabId.mockReturnValue("tab-1");
     mockReadAppStateForCurrentTab.mockResolvedValue({
       deckId: "deck-1",
       slideId: "slide-2",
@@ -483,7 +483,7 @@ describe("update-slide", () => {
   });
 
   it("allows an explicit named edit to a non-current slide", async () => {
-    mockGetCurrentRequestBrowserTabId.mockReturnValue("tab-1");
+    mockGetCurrentRequestStateTabId.mockReturnValue("tab-1");
     mockReadAppStateForCurrentTab.mockResolvedValue({
       deckId: "deck-1",
       slideId: "slide-2",

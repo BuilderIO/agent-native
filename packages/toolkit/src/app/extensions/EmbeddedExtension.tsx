@@ -1,4 +1,3 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useAppearance } from "@agent-native/core/client/appearance";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
@@ -57,6 +56,7 @@ import {
   useOpenUrlLatch,
 } from "./open-extension-link.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
+import { useExtensionChatSubmission } from "./use-extension-chat-submission.js";
 
 interface Extension {
   id: string;
@@ -134,6 +134,7 @@ export function EmbeddedExtension({
   onHeightChange,
 }: EmbeddedExtensionProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const extensionChat = useExtensionChatSubmission();
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
   const onHeightChangeRef = useRef(onHeightChange);
@@ -307,7 +308,7 @@ export function EmbeddedExtension({
       if (message.type === "agent-native-send-to-chat") {
         const text = serializeChatValue((message as any).message);
         if (!text?.trim()) return;
-        sendToAgentChat({
+        extensionChat.send({
           message: text,
           context: serializeChatValue((message as any).context),
           submit: (message as any).submit === true,
@@ -391,7 +392,7 @@ export function EmbeddedExtension({
           );
         }
 
-        sendToAgentChat({
+        extensionChat.send({
           message: `Fix runtime errors in extension "${name}" (id: ${extensionId}), embedded as a dashboard panel. The content snapshot below was just re-read from the database — treat it as authoritative and ignore any prior version you may have generated in this chat. If in doubt, call get-extension first.\n\nErrors:\n${errors.join("\n")}`,
           context: contextParts.join("\n"),
           submit: true,
@@ -495,6 +496,7 @@ export function EmbeddedExtension({
         sandbox={EXTENSION_IFRAME_SANDBOX}
         style={{ width: "100%", border: 0, height, display: "block" }}
         onLoad={() => {
+          extensionChat.cancel();
           iframeRef.current?.contentWindow?.postMessage(
             {
               type: "agent-native-slot-context",
@@ -513,6 +515,7 @@ export function EmbeddedExtension({
           fireReady();
         }}
       />
+      {extensionChat.confirmation}
       <EmbeddedToolMenu
         extensionId={extensionId}
         slotId={slotId}
