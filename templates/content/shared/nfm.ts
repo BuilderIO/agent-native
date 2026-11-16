@@ -2025,8 +2025,9 @@ const FENCE_CLOSE = /^(`{3,}|~{3,})\s*$/;
 
 /**
  * A fence's language, and whether its block wraps long lines, written as
- * `{wrap="true"}` after the language. Any other braces, such as the line
- * numbers in `js {1,3}`, stay part of the language.
+ * `{wrap="true"}` after the language and a space. Any other braces, such as
+ * the line numbers in `js {1,3}`, stay part of the language, and so do braces
+ * against it, as in `js{wrap="true"}` or `js\{wrap="true"}`.
  */
 function splitCodeFenceInfo(info: string | undefined): {
   lang: string;
@@ -2034,7 +2035,9 @@ function splitCodeFenceInfo(info: string | undefined): {
 } {
   const trimmed = info?.trim() ?? "";
   const m = matchBlockAttrSuffix(trimmed);
-  return m && /^\s*wrap\s*=\s*"true"\s*$/.test(m.body)
+  return m &&
+    (m.text === "" || trimmed[m.text.length] !== "{") &&
+    /^\s*wrap\s*=\s*"true"\s*$/.test(m.body)
     ? { lang: m.text, wrap: true }
     : { lang: trimmed, wrap: false };
 }

@@ -986,6 +986,16 @@ describe("bug fixes — reliability sweep", () => {
       expect(canonicalizeNfm(nfm)).toBe(nfm);
     });
 
+    it("leaves braces against the language as part of it", () => {
+      for (const info of ['js{wrap="true"}', 'js\\{wrap="true"}']) {
+        const nfm = L("```" + info, "x", "```");
+        const doc = nfmToDoc(nfm);
+        expect(doc.content[0]?.attrs?.language).toBe(info);
+        expect(doc.content[0]?.attrs?.wrap).toBeUndefined();
+        expect(canonicalizeNfm(nfm)).toBe(nfm);
+      }
+    });
+
     it("writes nothing for a block that doesn't wrap", () => {
       const doc = nfmToDoc(L("```ts", "x", "```"));
       expect(doc.content[0]?.attrs?.wrap).toBeUndefined();

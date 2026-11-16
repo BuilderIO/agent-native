@@ -99,8 +99,8 @@ describe("CodeBlockToolbar", () => {
     return mounted;
   }
 
-  function hoverCodeBlock() {
-    const pre = wrapper?.querySelector("pre.content-code-block");
+  function hoverCodeBlock(index = 0) {
+    const pre = wrapper?.querySelectorAll("pre.content-code-block")[index];
     if (!pre) throw new Error("Expected a code block");
     act(() => {
       pre.dispatchEvent(
@@ -220,6 +220,48 @@ describe("CodeBlockToolbar", () => {
     expect(toastError).toHaveBeenCalledWith(
       "editor.toolbar.clipboardAccessUnavailable",
     );
+  });
+
+  it("follows its block through several edits in one event", () => {
+    const mounted = mount(["```", "a", "```", "```", "b", "```"].join("\n"));
+    hoverCodeBlock(1);
+
+    act(() => {
+      mounted.view.dispatch(mounted.state.tr.insertText("x".repeat(1000), 2));
+      mounted.view.dispatch(mounted.state.tr.insertText("y".repeat(2000), 2));
+      mounted.view.dispatch(mounted.state.tr.delete(2, 3002));
+    });
+    act(() => button("editor.wrapCodeLines")?.click());
+
+    expect(mounted.state.doc.firstChild?.attrs.wrap).toBe(false);
+    expect(mounted.state.doc.child(1).attrs.wrap).toBe(true);
+  });
+
+  it("goes away with its block, not onto the next one", () => {
+    const mounted = mount(["```", "a", "```", "```", "b", "```"].join("\n"));
+    hoverCodeBlock(0);
+    expect(bar()).not.toBeNull();
+
+    act(() => {
+      const first = mounted.state.doc.firstChild;
+      if (!first) throw new Error("Expected a code block");
+      mounted.view.dispatch(mounted.state.tr.delete(0, first.nodeSize));
+    });
+
+    expect(bar()).toBeNull();
+    expect(languageChoice("Python")).toBeNull();
+    expect(mounted.state.doc.firstChild?.attrs.language).toBeNull();
+  });
+
+  it("goes away with its editor", () => {
+    const mounted = mount(["```", "x", "```"].join("\n"));
+    hoverCodeBlock();
+    expect(bar()).not.toBeNull();
+
+    act(() => mounted.destroy());
+    editor = null;
+
+    expect(bar()).toBeNull();
   });
 
   it("gives readers Copy and the language, and nothing to change", () => {

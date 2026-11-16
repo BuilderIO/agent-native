@@ -109,16 +109,17 @@ function selectedCodeBlockPos(view: EditorView): number | null {
   return $from.before();
 }
 
-function remapCodeBlockPos(
-  editor: Editor,
-  pos: number | null,
-  map: (pos: number) => number,
-) {
+/**
+ * Where the code block at `pos` is once `transaction` applies, or null when
+ * it's gone. A deleted block maps onto whatever follows it, so a block whose
+ * start and first position inside were both deleted counts as gone.
+ */
+function remapCodeBlockPos(transaction: Transaction, pos: number | null) {
   if (pos === null) return null;
-  const mapped = map(pos);
-  return editor.state.doc.nodeAt(mapped)?.type.name === "codeBlock"
-    ? mapped
-    : null;
+  const { mapping, doc } = transaction;
+  const start = mapping.mapResult(pos);
+  if (start.deletedAfter && mapping.mapResult(pos + 1).deleted) return null;
+  return doc.nodeAt(start.pos)?.type.name === "codeBlock" ? start.pos : null;
 }
 
 /**
@@ -168,10 +169,11 @@ export function CodeBlockToolbar({ editor, canEdit }: CodeBlockToolbarProps) {
       transaction: Transaction;
     }) => {
       if (transaction.docChanged) {
-        const map = (pos: number) => transaction.mapping.map(pos);
-        setHoveredPos((pos) => remapCodeBlockPos(editor, pos, map));
-        setMenuPos((pos) => remapCodeBlockPos(editor, pos, map));
-        setCopiedPos((pos) => remapCodeBlockPos(editor, pos, map));
+        // Several transactions in one event are mapped in turn, each against
+        // the document it made.
+        setHoveredPos((pos) => remapCodeBlockPos(transaction, pos));
+        setMenuPos((pos) => remapCodeBlockPos(transaction, pos));
+        setCopiedPos((pos) => remapCodeBlockPos(transaction, pos));
       }
       rerender();
     };
@@ -181,6 +183,7 @@ export function CodeBlockToolbar({ editor, canEdit }: CodeBlockToolbarProps) {
     editor.on("transaction", handleTransaction);
     editor.on("focus", rerender);
     editor.on("blur", rerender);
+    editor.on("destroy", rerender);
     document.addEventListener("pointermove", handlePointerMove, true);
     document.addEventListener("pointerdown", handlePointerDown, true);
     document.addEventListener("pointerout", handlePointerOut, true);
@@ -192,6 +195,7 @@ export function CodeBlockToolbar({ editor, canEdit }: CodeBlockToolbarProps) {
       editor.off("transaction", handleTransaction);
       editor.off("focus", rerender);
       editor.off("blur", rerender);
+      editor.off("destroy", rerender);
       document.removeEventListener("pointermove", handlePointerMove, true);
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("pointerout", handlePointerOut, true);
@@ -229,10 +233,13 @@ export function CodeBlockToolbar({ editor, canEdit }: CodeBlockToolbarProps) {
   const copied = copiedPos === pos;
 
   const updateBlock = (attrs: Record<string, unknown>) => {
-    const current = plainCodeBlockAt(view, pos);
+    // The editor can be gone by the time a click lands.
+    const liveView = getMountedEditorView(editor);
+    if (!liveView) return;
+    const current = plainCodeBlockAt(liveView, pos);
     if (!current) return;
-    view.dispatch(
-      view.state.tr
+    liveView.dispatch(
+      liveView.state.tr
         .setNodeMarkup(pos, undefined, { ...current.node.attrs, ...attrs })
         .setMeta(LOCAL_FILE_USER_EDIT_META, true),
     );
