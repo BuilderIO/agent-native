@@ -13,6 +13,7 @@ import {
   CONTINUE_OF_RUN_METADATA_KEY,
 } from "../../agent/auto-continue.js";
 import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
   normalizeAgentActionScope,
   type A2APeerApproval,
   type AgentActionScope,
@@ -4076,9 +4077,7 @@ function agentNativeAgentReference(
   return { id: agent, kind: "agent", label: agent };
 }
 
-/** The widget a paused peer call shows while it waits on the person's approval in that app. */
-export const AGENT_CALL_APPROVAL_WIDGET_KIND =
-  "agent-native/agent-call-approval";
+export { AGENT_CALL_APPROVAL_WIDGET_KIND };
 
 /** The approval page to open, and the paused task to continue once approved. */
 export interface AgentCallApprovalWidgetData extends A2APeerApproval {

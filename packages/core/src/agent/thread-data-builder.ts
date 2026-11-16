@@ -50,7 +50,11 @@ import type {
 } from "./engine/types.js";
 import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
 import type { ActiveRun } from "./run-manager.js";
-import { isContinuationTerminalReason, isUnknownWriteCause } from "./types.js";
+import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
+  isContinuationTerminalReason,
+  isUnknownWriteCause,
+} from "./types.js";
 import type {
   AgentChatAttachment,
   AgentChatSteeredUserMessage,
@@ -2572,6 +2576,26 @@ function prefersApprovalReplaySnapshot(
   );
 }
 
+// A peer's approval card keeps one id per approval, and each call that finds
+// the approval still waiting rewrites it with that call. The rewrite from a
+// later run wins, or the card stays tied to a call the person already settled.
+function prefersNewerApprovalCard(
+  existing: any,
+  incoming: any,
+  existingMessageRunIds: Map<string, string>,
+  incomingMessageRunIds: Map<string, string>,
+  existingRuns: unknown,
+  incomingRuns: unknown,
+): boolean {
+  if (incoming?.widget?.kind !== AGENT_CALL_APPROVAL_WIDGET_KIND) return false;
+  return isIncomingToolCallRunNewer(
+    { runId: existingMessageRunIds.get(existing?.messageId) },
+    { runId: incomingMessageRunIds.get(incoming?.messageId) },
+    existingRuns,
+    incomingRuns,
+  );
+}
+
 function incomingRunIsNotProvenNewer(
   existing: any,
   incoming: any,
@@ -2732,6 +2756,16 @@ function mergeAgentKitHistoryArray(
           existingRuns,
           incomingRuns,
         );
+      const preferNewerApprovalCard =
+        kind === "widget" &&
+        prefersNewerApprovalCard(
+          merged[index],
+          entry,
+          existingMessageRunIds,
+          incomingMessageRunIds,
+          existingRuns,
+          incomingRuns,
+        );
       const preferCurrentMessageId =
         kind === "message" &&
         textIndex !== undefined &&
@@ -2742,7 +2776,12 @@ function mergeAgentKitHistoryArray(
           incomingRuns,
           existingRuns,
         );
-      if (preferIncoming || preferApprovedReplay || preferCurrentMessageId) {
+      if (
+        preferIncoming ||
+        preferApprovedReplay ||
+        preferNewerApprovalCard ||
+        preferCurrentMessageId
+      ) {
         merged[index] =
           kind === "toolCall"
             ? withToolCallMessageIdFallback(entry, merged[index])

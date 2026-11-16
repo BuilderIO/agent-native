@@ -418,6 +418,10 @@ export interface A2APeerApproval {
   url: string;
 }
 
+/** The widget a paused peer call shows while it waits on the person's approval in that app. */
+export const AGENT_CALL_APPROVAL_WIDGET_KIND =
+  "agent-native/agent-call-approval";
+
 type AgentChatEventPayload =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
