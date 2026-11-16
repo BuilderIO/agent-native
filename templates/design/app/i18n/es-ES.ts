@@ -2375,6 +2375,8 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Los ajustes cambiaron en otro lugar. Actualiza el diseño antes de intentarlo de nuevo.",
+      tweakBaselineUnreadable:
+        "No se pudo leer la referencia guardada de los ajustes. Los cambios están en pausa hasta que se reparen los datos del diseño.",
       tweakSaveNotDurable:
         "Los ajustes aún no se han guardado. Mantén esta pestaña abierta e inténtalo de nuevo.",
       undoSkippedConcurrentEdit: "Se omitió deshacer: otra persona movió eso",

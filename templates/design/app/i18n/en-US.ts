@@ -2271,6 +2271,8 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Tweaks changed elsewhere. Refresh the design before trying again.",
+      tweakBaselineUnreadable:
+        "The saved tweak baseline could not be read. Tweak changes are paused until the design data is repaired.",
       tweakSaveNotDurable:
         "Tweaks aren't saved yet. Keep this tab open and try again.",
       undoSkippedConcurrentEdit: "Skipped an undo — someone else moved that",

@@ -161,6 +161,16 @@ describe("useTweaks save scheduling", () => {
     expect(result.current.pendingTweakChanges).toEqual([]);
   });
 
+  it("keeps pending changes unknown and warns when the baseline data is malformed", async () => {
+    const { result } = mountTweaks({ data: "{" });
+    await flushMicrotasks();
+
+    expect(result.current.pendingTweakChanges).toEqual([]);
+    expect(toast.warning).toHaveBeenCalledWith(
+      "designEditor.toasts.tweakBaselineUnreadable",
+    );
+  });
+
   it("coalesces changes made during an in-flight save into one latest-values save", async () => {
     const { result, saves } = mountTweaks();
 

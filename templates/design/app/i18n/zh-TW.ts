@@ -2223,6 +2223,8 @@ export default {
       componentCreated: "元件已建立",
       componentCreateFailed: "無法建立元件",
       tweakConflict: "調整已在其他地方變更。請重新整理設計後再試一次。",
+      tweakBaselineUnreadable:
+        "無法讀取已儲存的調整基準。修復設計資料前，調整變更已暫停。",
       tweakSaveNotDurable: "調整尚未儲存。請保持此分頁開啟並再試一次。",
       codingHandoffError: "無法建立編碼交接",
       unknownCollaborator: "協作者",

@@ -352,7 +352,8 @@ export function useEditorSourceAndSync({
     handleSelectAllFrames,
     handleShowLayersPanel,
     handleFindLayers,
-    pendingVisualStylePrompt,
+    pendingApplyPrompt,
+    pendingApplyEditCount,
     handleCopyAsPng,
   } = editorExportAndHandoff;
   const {
@@ -947,17 +948,17 @@ export function useEditorSourceAndSync({
     "get-visual-edit-pending",
     { designId: id! },
     {
-      enabled: Boolean(id) && canEditDesign && pendingVisualEditCount > 0,
+      enabled: Boolean(id) && canEditDesign && pendingApplyEditCount > 0,
       refetchInterval:
-        canEditDesign && pendingVisualEditCount > 0 ? 10_000 : false,
+        canEditDesign && pendingApplyEditCount > 0 ? 10_000 : false,
       refetchIntervalInBackground: false,
     },
   );
   useEffect(() => {
     if (!id) return;
-    if (pendingVisualEditCount > 0) {
+    if (pendingApplyEditCount > 0) {
       pendingEditSessionDesignIdRef.current = id;
-      const result = writePendingEditSessionMarker(id, pendingVisualEditCount);
+      const result = writePendingEditSessionMarker(id, pendingApplyEditCount);
       setPendingEditSessionMarker(
         result.status === "stored"
           ? { status: "absent" }
@@ -972,7 +973,7 @@ export function useEditorSourceAndSync({
         setPendingEditSessionMarker(result);
       }
     }
-  }, [id, pendingVisualEditCount]);
+  }, [id, pendingApplyEditCount]);
   useEffect(() => {
     if (!hasLocalPendingVisualEdits && !remoteVisualEditPending) {
       setPendingVisualEditRecoveryVisible(false);
@@ -992,22 +993,22 @@ export function useEditorSourceAndSync({
     if (
       !shouldPublishVisualEditHandoff({
         designId: id,
-        pendingEditCount: pendingVisualEditCount,
+        pendingEditCount: pendingApplyEditCount,
         clearRequestedDesignId: pendingVisualEditClearRequestedRef.current,
         hadPendingDesignId: pendingVisualEditHadPendingRef.current,
       })
     ) {
       return;
     }
-    const pendingEditCount = pendingVisualEditCount;
-    const pendingPrompt = pendingVisualStylePrompt;
+    const pendingEditCount = pendingApplyEditCount;
+    const pendingPrompt = pendingApplyPrompt;
     const bridgeRevisionSyncKey =
       activeScreenBridgeUrl &&
       activeScreenPreviewToken &&
       activeScreenLiveEditCapability
         ? `${id}\u0000${activeScreenBridgeUrl}`
         : null;
-    if (pendingVisualEditCount > 0) {
+    if (pendingApplyEditCount > 0) {
       pendingVisualEditClearRequestedRef.current = null;
       pendingVisualEditHadPendingRef.current = id;
     }
@@ -1176,8 +1177,8 @@ export function useEditorSourceAndSync({
     canEditDesign,
     clearReloadedPendingLiveEdits,
     id,
-    pendingVisualEditCount,
-    pendingVisualStylePrompt,
+    pendingApplyEditCount,
+    pendingApplyPrompt,
     t,
   ]);
   useEffect(() => {
@@ -1191,7 +1192,9 @@ export function useEditorSourceAndSync({
     }
     const localPendingCount =
       pendingVisualStyleEditsRef.current.length +
-      pendingLiveNonStyleEditsRef.current.length;
+      pendingLiveNonStyleEditsRef.current.length +
+      editorExportAndHandoff.pendingApplyEditCount -
+      pendingVisualEditCount;
     const handoffPublication = pendingVisualEditHandoffPublicationRef.current;
     const serverRevision =
       handoffPublication?.designId === id &&
@@ -1228,6 +1231,8 @@ export function useEditorSourceAndSync({
     pendingVisualEditHandoffQuery.data,
     pendingVisualEditHandoffServerRevision,
     pendingVisualStyleEdits,
+    editorExportAndHandoff.pendingApplyEditCount,
+    pendingVisualEditCount,
   ]);
 
   useEffect(() => {

@@ -23,7 +23,7 @@ import {
   type LiveFigmaSvgSource,
 } from "@/lib/figma-svg-copy";
 
-import { composeApplyHandoff } from "../apply-handoff";
+import { composeApplyHandoff, getDurableApplyHandoff } from "../apply-handoff";
 import { elementInfoFromCodeLayerNode } from "../code-layer-state";
 import type { CodingHandoffResult } from "../command-types";
 import { runApplyPendingVisualStylesWithAgent } from "../commands/apply-pending-visual-styles-with-agent";
@@ -51,6 +51,7 @@ import {
   pageHasWebMcpHost,
 } from "../design-editor-shared";
 import { isCurrentRuntimeLayerSnapshot } from "../export-snapshot-frame";
+import { countRemovedPendingStyleEntries } from "../history-cleanup";
 import {
   captureNativeCurrentFramePng,
   NativeCurrentFramePngError,
@@ -463,6 +464,11 @@ export function useEditorExportAndHandoff({
     [id, isFullAppDesign, localVisualEditHandoff, pendingTweakChanges],
   );
   const pendingApplyPrompt = localApplyHandoff.prompt;
+  const durableApplyHandoff = getDurableApplyHandoff(
+    localApplyHandoff,
+    pendingVisualEditCount,
+  );
+  const pendingApplyEditCount = durableApplyHandoff?.pendingEditCount ?? 0;
   const visualEditPromptResult = useCallback<
     () => VisualEditPromptResult
   >(() => {
@@ -583,13 +589,13 @@ export function useEditorExportAndHandoff({
           ];
           for (const [index, stack] of styleStacks.entries()) {
             const direction = index === 0 ? "undo" : "redo";
+            counts[direction]["pending-style"] +=
+              countRemovedPendingStyleEntries(stack.current, included);
             stack.current = stack.current.flatMap((entry) => {
               const targets = entry.groupedTargets ?? [entry];
               const kept = targets.filter(
                 (target) => !included.has(stackId(target.edit)),
               );
-              counts[direction]["pending-style"] +=
-                targets.length - kept.length;
               if (kept.length === 0) return [];
               if (kept.length === targets.length) return [entry];
               const first = kept[0];
@@ -1595,6 +1601,8 @@ export function useEditorExportAndHandoff({
     handleSendCodingHandoff,
     showPendingVisualStyleApply,
     pendingVisualStylePrompt,
+    pendingApplyPrompt,
+    pendingApplyEditCount,
     visualEditPromptResult,
     handleApplyPendingVisualStylesWithAgent,
     handleCopyPendingVisualStylePrompt,
