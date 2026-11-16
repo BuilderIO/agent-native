@@ -1185,7 +1185,7 @@ export function ContentCommandSearchResults({
           />
           <EditorSearchChoice
             value={editor}
-            currentUserEmail={session?.email?.trim() || null}
+            currentUserEmail={session?.email.trim() || null}
             onChange={setEditor}
             focusInput={focusPickerInput}
           />

@@ -320,7 +320,7 @@ describe("SearchPage: instant lane + server convergence", () => {
 
   it("asks the server for pages the chosen person last edited", async () => {
     const queryClient = new QueryClient();
-    const fetchMock = vi.fn((_input: RequestInfo | URL) =>
+    const fetchMock = vi.fn((_input: string) =>
       Promise.resolve(
         jsonResponse(
           searchDocumentsResponse([
@@ -354,7 +354,7 @@ describe("SearchPage: instant lane + server convergence", () => {
 
     await waitFor(() => container.textContent.includes("Plan they edited"));
     const searches = fetchMock.mock.calls
-      .map(([input]) => new URL(String(input), "http://localhost"))
+      .map(([input]) => new URL(input, "http://localhost"))
       .filter((url) => url.searchParams.get("query") === "plan");
     expect(searches.length).toBeGreaterThan(0);
     for (const url of searches) {
