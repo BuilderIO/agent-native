@@ -12,7 +12,9 @@ export {
 } from "../agentkit/capabilities.js";
 export {
   defineAppConfig,
+  defineAppConfigSection,
   getAppConfig,
+  getAppConfigSchema,
   resolveAppHomePath,
   resetAppConfigForTests,
   resolveClipsHostedStorageConfig,
@@ -21,6 +23,9 @@ export {
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type AppConfigSection,
+  type AppConfigSections,
+  type AppConfigSectionSchema,
   type ClipsConfig,
   type ClipsHostedStorageConfig,
   type ResolvedClipsHostedStorageConfig,
