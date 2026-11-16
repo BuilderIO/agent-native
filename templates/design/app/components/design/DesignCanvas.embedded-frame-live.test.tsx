@@ -1050,8 +1050,8 @@ describe("DesignCanvas live embedded-frame offset", () => {
       const before = container.querySelector<HTMLIFrameElement>(
         "iframe[data-design-preview-iframe]",
       );
-      expect(before).not.toBeNull();
-      const initialSrcdoc = before!.srcdoc;
+      if (!before) throw new Error("expected an Interact preview frame");
+      const initialSrcdoc = before.srcdoc;
       expect(initialSrcdoc).toContain("--sail-twist: 0.25;");
 
       await act(async () => root.render(render("0.75")));
@@ -1059,8 +1059,8 @@ describe("DesignCanvas live embedded-frame offset", () => {
         "iframe[data-design-preview-iframe]",
       );
       expect(after).toBe(before);
-      expect(after!.srcdoc).toBe(initialSrcdoc);
-      const liveTweaks = after!.contentDocument?.querySelector(
+      expect(before.srcdoc).toBe(initialSrcdoc);
+      const liveTweaks = before.contentDocument?.querySelector(
         "style[data-agent-native-interact-tweaks]",
       );
       expect(liveTweaks?.textContent).toContain("--sail-twist: 0.75;");

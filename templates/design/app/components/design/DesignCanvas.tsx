@@ -6471,13 +6471,15 @@ export function DesignCanvas({
         if (!style) {
           style = doc.createElement("style");
           style.setAttribute(INTERACT_TWEAKS_STYLE_ATTRIBUTE, "");
-          (doc.body ?? doc.documentElement).appendChild(style);
+          // Last in the document, after the design's own :root rules.
+          doc.documentElement.appendChild(style);
         }
         if (style.textContent !== interactTweakBlock) {
           style.textContent = interactTweakBlock;
         }
+        // coercion-ok: a cross-origin frame keeps the values baked into its document.
       } catch {
-        // Cross-origin frames keep the values baked into their document.
+        // Cross-origin frames refuse document access; nothing else to apply.
       }
     };
     applyTweaks();
