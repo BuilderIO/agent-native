@@ -6,7 +6,7 @@ Sessions reached / not reached: 0 / 255 retained targets; post-land send and enu
 Receipt: pending post-land broadcast; the prior receipt predates landing and does not count.
 Enforcing rotation scripts removed: none found; pnpm ship:push pushes the current branch only.
 Worktree copies: 237 reported refreshed through their bases; none edited individually.
-Verification: pnpm guards passed 107/107; focused tests passed 18/18; git diff --check previously passed.
+Verification: pnpm guards passed 107/107 on current branch; focused rule-file tests passed 2/2; git diff --check passed.
 Pending: steward landing, then one post-land broadcast, receipt, and coordinator-added Claude Desktop ids.
 
 PR creation was attempted with explicit repo/head/base and refused by ~/.local/share/pr-steward/gh-create-guard.py because this job head is not an authorized PR head. No guard was bypassed. The fleet-tooling submission command is recorded in the handoff ledger.
@@ -17,3 +17,10 @@ PR creation was attempted with explicit repo/head/base and refused by ~/.local/s
 - Both Macs fetched `origin/main` at `cf9ff108eeae99bb3b8a15209d06fcabbd7b6448`; the ship branch is not an ancestor. `gh pr list --state all --head job/ship-no-rotate-1115` is empty.
 - Fleet-tooling submission `42d033b6d7d703346e75.json` covers prior branch commits but does not contain the exact current tip. This report update will be submitted as a follow-up using the required steward queue.
 - The post-land broadcast remains gated; no session delivery was attempted. The retained 255-target census is not a new enumeration, and no qualifying receipt exists.
+
+## Verification continuation — 01:49 PT, 2026-11-16
+
+- On `job/ship-no-rotate-1115` at `cae00df48e05ac70fb2dc16b2f10d5684f37040e`, `pnpm guards` passed all 107 checks, including `guard:doc-budgets` and `guard:rule-one-file`.
+- `pnpm exec tsx --test scripts/guard-rule-one-file.test.ts` passed 2/2 tests. `git diff --check` passed.
+- Rule-broadcast remains post-land gated. No broadcast or receipt was fabricated; existing census remains 255 retained targets and must be refreshed after landing.
+- The required steward submission follows this report update commit; no PR was opened because the task's fleet-tooling instruction routes job branches through the steward.
