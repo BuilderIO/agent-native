@@ -31,7 +31,8 @@ function contextualize(segments: Diff[]): Diff[] {
   });
 }
 
-function DiffValue({ value, other }: { value: string; other: string }) {
+/** `value` with the text it doesn't share with `other` marked. */
+export function DiffValue({ value, other }: { value: string; other: string }) {
   const segments = useMemo(() => {
     const differ = new DiffMatchPatch();
     const result = differ.diff_main(value, other);

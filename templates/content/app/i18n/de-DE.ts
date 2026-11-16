@@ -1640,6 +1640,26 @@ const history = {
   historyGroupGitHub: "Aus GitHub synchronisiert",
   historyGroupOperation: "Vorgang",
   historyGroupRestore: "Wiederherstellung",
+  historyGroupUndo: "Rückgängig",
+  historyGroupAgentUndo: "Rückgängig durch Agent",
+  historyViewChanges: "Änderungen anzeigen",
+  historyChangesLoadError: "Diese Änderungen konnten nicht geladen werden.",
+  historyChangesNone: "Hier gibt es keine Änderungen.",
+  historyChangesInParts:
+    "Zwischendurch hat jemand anderes die Seite bearbeitet, daher erscheinen diese Änderungen in Teilen.",
+  historyChangesMore: "Die ersten 100 Änderungen werden angezeigt.",
+  historyUndoChanges: "Diese Änderungen rückgängig machen",
+  historyUndoingChanges: "Wird rückgängig gemacht…",
+  historyUndoTooMany:
+    "Zu viele Änderungen für einen Schritt. Stellen Sie stattdessen einen Prüfpunkt wieder her.",
+  historyUndoFailed:
+    "Diese Änderungen konnten nicht rückgängig gemacht werden.",
+  historyChangesUndone: "Änderungen rückgängig gemacht.",
+  historyUndoAlreadyDone: "Diese Änderungen sind bereits rückgängig gemacht.",
+  historyUndoPartly:
+    "Rückgängig gemacht, außer Blöcken, die seitdem jemand bearbeitet hat. Sie bleiben, wie sie sind. So hatten diese Änderungen sie verändert.",
+  historyUndoNothing:
+    "Nichts rückgängig gemacht: Jeder geänderte Block wurde seitdem bearbeitet und bleibt, wie er ist. So hatten diese Änderungen sie verändert.",
   historyLoadError: "Versionsverlauf konnte nicht geladen werden.",
   historyLoadMore: "Mehr laden",
   historyLinkedLocalRestoreUnavailable:

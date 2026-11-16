@@ -584,6 +584,23 @@ const overrides = {
     historyGroupGitHub: "從 GitHub 同步",
     historyGroupOperation: "操作",
     historyGroupRestore: "還原",
+    historyGroupUndo: "復原",
+    historyGroupAgentUndo: "代理復原",
+    historyViewChanges: "檢視變更",
+    historyChangesLoadError: "無法載入這些變更。",
+    historyChangesNone: "沒有可顯示的變更。",
+    historyChangesInParts: "期間有其他人編輯了頁面，因此這些變更分段顯示。",
+    historyChangesMore: "顯示前 100 項變更。",
+    historyUndoChanges: "復原這些變更",
+    historyUndoingChanges: "正在復原…",
+    historyUndoTooMany: "變更太多，無法一次復原。請改為還原一個檢查點。",
+    historyUndoFailed: "無法復原這些變更。",
+    historyChangesUndone: "已復原變更。",
+    historyUndoAlreadyDone: "這些變更已復原。",
+    historyUndoPartly:
+      "已復原，但之後有人編輯過的區塊保持不變。以下是這些變更對它們所做的修改。",
+    historyUndoNothing:
+      "未復原任何內容：每個變更過的區塊之後都有人編輯過，因此保持不變。以下是這些變更對它們所做的修改。",
     historyLoadError: "無法載入版本歷史紀錄。",
     historyLoadMore: "載入更多",
     historyLinkedLocalRestoreUnavailable:

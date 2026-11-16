@@ -34,10 +34,12 @@ vi.mock("./use-documents", () => ({
 }));
 
 import {
+  useDocumentHistoryChanges,
   useDocumentHistoryCheckpoint,
   useDocumentHistoryCheckpoints,
   useDocumentHistoryPage,
   useRestoreDocumentVersion,
+  useUndoDocumentChange,
 } from "./use-document-versions";
 
 describe("document history hooks", () => {
@@ -264,5 +266,68 @@ describe("document history hooks", () => {
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["action", "list-content-spaces"],
     });
+  });
+
+  it("reads one entry's changes only once an entry is chosen", () => {
+    useDocumentHistoryChanges("page-1", null);
+    useDocumentHistoryChanges("page-1", "group-1");
+    expect(useActionQuery).toHaveBeenNthCalledWith(
+      1,
+      "get-document-history-change",
+      undefined,
+      { enabled: false },
+    );
+    expect(useActionQuery).toHaveBeenNthCalledWith(
+      2,
+      "get-document-history-change",
+      { documentId: "page-1", groupId: "group-1" },
+      { enabled: true },
+    );
+  });
+
+  it("installs the page an undo wrote, and leaves the caches when it wrote nothing", () => {
+    const options = useUndoDocumentChange("page-1") as unknown as {
+      onSuccess: (result: Record<string, unknown>) => void;
+    };
+    const page = {
+      id: "page-1",
+      title: "Draft A",
+      content: "Undone body",
+      updatedAt: "2026-09-08T14:00:00.000Z",
+      revision: "9:undone-hash",
+      bodyRevision: 9,
+      contentHash: "undone-hash",
+    };
+    options.onSuccess({ ...page, outcome: "already-undone", keptBack: [] });
+    expect(patchDocumentCaches).not.toHaveBeenCalled();
+
+    options.onSuccess({ ...page, outcome: "undone", undoGroupId: "undo:1" });
+    expect(patchDocumentCaches).toHaveBeenCalledWith(
+      expect.anything(),
+      "page-1",
+      {
+        title: "Draft A",
+        content: "Undone body",
+        updatedAt: "2026-09-08T14:00:00.000Z",
+        revision: "9:undone-hash",
+        bodyRevision: 9,
+        contentHash: "undone-hash",
+      },
+    );
+
+    const client = new QueryClient();
+    const refreshed = [
+      ["action", "list-document-history", { documentId: "page-1" }],
+      ["action", "get-document-history-change", { documentId: "page-1" }],
+      ["document", "page-1"],
+    ];
+    for (const key of refreshed) client.setQueryData(key, {});
+    for (const [filter] of invalidateQueries.mock.calls) {
+      void client.invalidateQueries(filter);
+    }
+    for (const key of refreshed) {
+      expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    }
+    client.clear();
   });
 });

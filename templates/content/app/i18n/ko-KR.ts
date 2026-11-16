@@ -1594,6 +1594,25 @@ const history = {
   historyGroupGitHub: "GitHub에서 동기화됨",
   historyGroupOperation: "작업",
   historyGroupRestore: "복원",
+  historyGroupUndo: "실행 취소",
+  historyGroupAgentUndo: "에이전트 실행 취소",
+  historyViewChanges: "변경 사항 보기",
+  historyChangesLoadError: "이 변경 사항을 불러오지 못했습니다.",
+  historyChangesNone: "표시할 변경 사항이 없습니다.",
+  historyChangesInParts:
+    "중간에 다른 사람이 페이지를 편집해서 이 변경 사항은 나뉘어 표시됩니다.",
+  historyChangesMore: "처음 100개의 변경 사항을 표시합니다.",
+  historyUndoChanges: "이 변경 사항 실행 취소",
+  historyUndoingChanges: "실행 취소하는 중…",
+  historyUndoTooMany:
+    "변경 사항이 너무 많아 한 번에 실행 취소할 수 없습니다. 대신 체크포인트를 복원하세요.",
+  historyUndoFailed: "이 변경 사항을 실행 취소하지 못했습니다.",
+  historyChangesUndone: "변경 사항을 실행 취소했습니다.",
+  historyUndoAlreadyDone: "이 변경 사항은 이미 실행 취소되었습니다.",
+  historyUndoPartly:
+    "실행 취소했습니다. 단, 그 뒤에 누군가 편집한 블록은 그대로 둡니다. 이 변경 사항이 그 블록을 어떻게 바꿨는지는 아래와 같습니다.",
+  historyUndoNothing:
+    "아무것도 실행 취소하지 않았습니다. 변경된 블록이 모두 그 뒤에 편집되어 그대로 둡니다. 이 변경 사항이 바꾼 내용은 아래와 같습니다.",
   historyLoadError: "버전 기록을 불러오지 못했습니다.",
   historyLoadMore: "더 불러오기",
   historyLinkedLocalRestoreUnavailable:
