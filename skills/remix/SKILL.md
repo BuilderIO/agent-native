@@ -256,46 +256,54 @@ one board, left to right, at the same viewport size:
    when its dev server runs, else an inline screen of the rebuilt section.
 3. **How it works**: a row of 3-5 small inline screens beneath, one stage of
    the technique each (geometry, motion, camera, shading, palette), each a
-   live figure with 1-2 knobs in the destination's palette.
+   live machine card (see **How It Works Frames**) driven by the remix's knobs.
 
-Title screens with `rename-screen` ("Original · stripe.com", "Remix", "1 ·
-Folded plane"), then size and place them in one `update-design` call:
+Title screens with `rename-screen` ("Original · stripe.com", "Remix",
+"Folded plane"), then size and place them in one `update-design` call:
 `screenMetadata.<id>` `{ width, height, heightMode: "fixed" }` and
 `canvasFrames.<id>` `{ x, y, width, height }`. A layout that reads well:
 Original at (0, 0), Remix 400 px to its right, and the explainer row centered
-about 870 px below them, with 160 px between frames.
+with its top at y 1860, 160 px between frames.
 
 ### Annotate The Canvas
 
-The board should read like a FigJam board, with guidance drawn on the canvas
-itself. Canvas annotations live in the design's board file, `__board__.html`.
-Call `migrate-board-objects-to-file` once; it is idempotent and creates the
-file. Then find the file's id in `get-design` `files` and write it with
+Use the board like a whiteboard, styled as an editorial page: paper,
+hairlines and quiet type, not sticky notes or heavy arrows. Canvas annotations
+live in the design's board file, `__board__.html`. Call
+`migrate-board-objects-to-file` once; it is idempotent and creates the file.
+Then find the file's id in `get-design` `files` and write it with
 `update-file`. Each annotation is a direct `<body>` child, absolutely
 positioned in canvas coordinates (the same space as `canvasFrames`), with
 `data-agent-native-node-id`, `data-agent-native-layer-name` and
-`data-an-primitive` (`rectangle`, `text`, `ellipse` or `arrow`). That
-makes each one an editable layer. Add:
+`data-an-primitive` (`rectangle`, `text`, `ellipse` or `arrow`). That makes
+each one an editable layer. Add:
 
-- A pale, rounded region behind each group (Original, Remix, How it works), one
-  tint per group, extending 80 px past the frames. Earlier body children paint
-  below later ones, and screens paint above the board.
-- A big bold section title (about 120 px) in each region's top band. Leave
-  about 100 px above each screen for Design's own screen label. Put a board title
-  and a one-line technique above everything.
-- Numbered badges 1→n above the explainers, each with a short step name, and
-  arrows between the frames.
-- Arrows from Original to Remix and from Remix down into How it works. An arrow
-  is an `<svg data-an-primitive="arrow" overflow="visible">` with a `<path
-  d="M 0 0 L 192 0" stroke-width="10" marker-end="url(#id)">` and a triangle
+- A paper region behind each group (Original, Remix, How it works): warm
+  off-white, a 3 px warm-grey hairline border, 6 px radius, about 100 px past
+  the frames. Set `canvasBackground` to a slightly darker warm grey in the
+  same `update-design` call. Earlier body children paint below later ones; screens paint above.
+- A section header in each region's top band: an Inter title (about 84 px,
+  weight 600), a 3 px hairline running right, and a serif-italic index at its
+  end ("01", "02", "03"; EB Garamond, else Georgia). Above everything, a board
+  title (Inter, about 112 px), a serif-italic one-line technique and a
+  full-width hairline.
+- Margin notes, not stickies: small grey Inter (about 34 px) under the header
+  rule, each line led by a serif-italic note number. Use the source
+  URL, "Only colors, fonts and icons changed" and "Each machine reads the
+  remix's own knobs".
+- A serif-italic step index ("01"…) on a hairline above each explainer.
+  Design's screen label carries the step name, so name screens plainly.
+- Thin ink connectors (3 px, dark warm grey, small triangle head): Original to
+  Remix, Remix down to How it works, and between explainers. An arrow is an
+  `<svg data-an-primitive="arrow" overflow="visible">` with a `<path d="M 0 0
+  L 192 0" stroke-width="3" marker-end="url(#id)">` and a triangle
   `<marker id="id">` in its `<defs>`.
-- Two or three sticky notes: pale yellow, slightly tilted, with about 40 px
-  text. Use the source URL, "Only colors, fonts, icons changed" and "Same knobs
-  as the remix".
 
-Size the text for the fitted overview (about 25%): titles 100 px or more, and
-labels and stickies 40 px or more. Inside a `style` attribute, quote font
-names with single quotes; a double quote ends the attribute.
+Leave about 420 px of band above Original and Remix (header, notes, then
+Design's own screen label) and about 600 px above the explainers. Inside a
+`style` attribute, quote font names with single quotes; a double quote ends
+the attribute.
+
 Explainer and Remix knobs are the same tweaks: the explainer's speed knob is
 the remix's speed tweak, scoped to both screens, and both read its one cssVar.
 Turning a knob in any frame updates the remix too. Every frame runs live in
@@ -303,10 +311,33 @@ Interact mode; inline frames keep the knob values there, but a localhost or URL
 screen loads as itself in Interact and shows its source defaults, so judge its
 knobs in Edit.
 
-Explainer frames: one idea per frame, diagram first, a caption of a sentence
-or two, real parameter names and values from the spec, small and light.
-Use system or already-loaded web fonts, never embedded base64 fonts or
-images; a design has a size limit.
+### How It Works Frames
+
+The object is the explanation. Each frame is a small, well-made machine whose
+moving parts behave the way that stage works: strips folding over a roller for
+a folded plane, a shaft of blades each turned further than the last for a
+twist, a beam bending through one glass rod for refraction. No boxes and
+arrows, floating labels or leader lines.
+
+- One camera: isometric, 30° from a corner, no perspective. Every part is a
+  filled solid painted back to front, so nothing shows through.
+- Four tones per face by light direction (lightest on top): warm greys on
+  off-white paper with thin near-black ink outlines. Exactly one part is
+  lit in the destination's accent, the part to watch. Colors the stage is
+  about (palette stops, a painted field) may appear as content.
+- Many small parts, 40 or more (plinth, feet, screws, ticks, frame, mechanism,
+  a crank), so the drawing still rewards a 4× zoom.
+- A 600×460 card with number, title, a short interaction hint and the live
+  readout in its four corners (Inter; numbers in serif italic). No words
+  inside the drawing.
+- Calm and live: a time-based idle tour that pauses on hover or focus, drag to
+  scrub, a key to slow (S) or pull apart (E), and stillness under
+  `prefers-reduced-motion`.
+- One model of true values drives motion and readout: read the shared tweak
+  CSS variables from `:root` every frame, with the spec's real parameter names
+  and formulas.
+- Small and self-contained: framework-free JS and inline SVG, at most one
+  webfont, never embedded images or base64 fonts; a design has a size limit.
 
 ## Finish Without Design
 
