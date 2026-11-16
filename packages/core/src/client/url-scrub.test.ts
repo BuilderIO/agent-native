@@ -5,6 +5,7 @@ import {
   normalizePathSegments,
   scrubLocationHash,
   scrubLocationState,
+  scrubQueryString,
   scrubUrl,
 } from "./url-scrub";
 
@@ -504,5 +505,26 @@ describe("scrubUrl keepParams", () => {
         additionalSensitiveParams: ["f_y"],
       }),
     ).toBe("/x?a=1&b=%3Credacted%3E&f_x=3&f_y=%3Credacted%3E&c=%3Credacted%3E");
+  });
+});
+
+describe("scrubQueryString", () => {
+  it("redacts every value but the attribution parameters, in each shape a report holds", () => {
+    const expected = "code=%3Credacted%3E&utm_source=docs";
+    expect(scrubQueryString("?code=CANARY&utm_source=docs")).toBe(expected);
+    expect(scrubQueryString({ code: "CANARY", utm_source: "docs" })).toBe(
+      expected,
+    );
+    expect(
+      scrubQueryString([
+        ["code", "CANARY"],
+        ["utm_source", "docs"],
+      ]),
+    ).toBe(expected);
+  });
+
+  it("returns nothing for a request with no query string", () => {
+    expect(scrubQueryString(undefined)).toBeUndefined();
+    expect(scrubQueryString("")).toBe("");
   });
 });

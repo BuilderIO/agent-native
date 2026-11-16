@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { measureCpuMs } from "../testing/cpu-time.js";
 import { SIGNED_LINK_PARAMS } from "./agent-access.js";
-import { isSecretName, redactSecretsInText } from "./secret-redaction.js";
+import {
+  isSecretName,
+  redactSecretsInText,
+  redactSecretsInValue,
+} from "./secret-redaction.js";
 
 const P = "<r>";
 const redact = (text: string, names: "contains" | "named" = "contains") =>
@@ -94,6 +98,77 @@ describe("redactSecretsInText names", () => {
   });
 });
 
+describe("redactSecretsInText across sinks", () => {
+  it("keeps the placeholder another sink already wrote", () => {
+    const text =
+      'token=[REDACTED] {"secret":"<redacted>"} Authorization: [redacted] x-api-key: ["[REDACTED]"]';
+    expect(redact(text)).toBe(text);
+    expect(redact(text, "named")).toBe(text);
+    expect(redact("Authorization: Bearer [REDACTED]")).toBe(
+      "Authorization: [REDACTED]",
+    );
+  });
+
+  it("keeps an already-redacted field value in a copied object", () => {
+    expect(
+      redactSecretsInValue(
+        { apiKey: "[REDACTED]", token: "<redacted>", jwt: "abc" },
+        { placeholder: P, names: "named" },
+      ),
+    ).toEqual({ apiKey: "[REDACTED]", token: "<redacted>", jwt: P });
+  });
+});
+
+describe("redactSecretsInValue", () => {
+  const value = {
+    token: "a",
+    credential_kind: "builder",
+    input_tokens: 12,
+    note: "password=hunter2",
+    nested: [{ api_key: "b", ok: true, token: 3 }],
+    when: new Date(0),
+    empty: { secret: null },
+  };
+
+  it("redacts a secret-named field's text value, and every string, in a copy", () => {
+    const out = redactSecretsInValue(value, {
+      placeholder: P,
+      names: "named",
+    }) as typeof value;
+    expect(out).toEqual({
+      token: P,
+      credential_kind: "builder",
+      input_tokens: 12,
+      note: `password=${P}`,
+      nested: [{ api_key: P, ok: true, token: 3 }],
+      when: value.when,
+      empty: { secret: null },
+    });
+    expect(value.token).toBe("a");
+  });
+
+  it("matches a word in a name when asked", () => {
+    const out = redactSecretsInValue(value, { placeholder: P }) as {
+      credential_kind: string;
+    };
+    expect(out.credential_kind).toBe(P);
+  });
+
+  it("replaces a cycle and nesting past the limit", () => {
+    const cycle: Record<string, unknown> = { a: 1 };
+    cycle.self = cycle;
+    expect(redactSecretsInValue(cycle, { placeholder: P })).toEqual({
+      a: 1,
+      self: P,
+    });
+    let deep: unknown = "end";
+    for (let i = 0; i < 20; i += 1) deep = { next: deep };
+    expect(
+      JSON.stringify(redactSecretsInValue(deep, { placeholder: P })),
+    ).toContain(`"next":"${P}"`);
+  });
+});
+
 describe("redactSecretsInText URLs", () => {
   it.each([
     ...SIGNED_LINK_PARAMS,
@@ -128,6 +203,13 @@ describe("redactSecretsInText URLs", () => {
     expect(redact("https://app.example.com/a?next=/b?token=CANARY01")).toBe(
       `https://app.example.com/a?next=/b?token=${P}`,
     );
+  });
+
+  it("redacts the first pair of a query copied out without its question mark", () => {
+    expect(redact("failed: code=CANARY01&state=CANARY02&utm_source=x")).toBe(
+      `failed: code=${P}&state=${P}&utm_source=x`,
+    );
+    expect(redact("exit code=1 signal=9")).toBe("exit code=1 signal=9");
   });
 
   it("keeps benign parameters and a trailing sentence mark", () => {
@@ -234,6 +316,7 @@ describe("redactSecretsInText time", () => {
     "a.a",
     "://",
     "a:b@",
+    "code=",
     "-----BEGIN ",
     "AKIA",
     "xoxb-",

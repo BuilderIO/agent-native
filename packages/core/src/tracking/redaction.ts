@@ -1,4 +1,7 @@
-import { redactSecretsInText } from "../shared/secret-redaction.js";
+import {
+  redactSecretsInText,
+  redactSecretsInValue,
+} from "../shared/secret-redaction.js";
 
 export const MAX_MESSAGE_LENGTH = 1000;
 export const MAX_STACK_LENGTH = 8000;
@@ -653,6 +656,21 @@ export function redact(value: string): string {
     (match, query: string, params: string) =>
       isSqlStatementText(query) ? `${query}${params}<redacted>` : match,
   );
+}
+
+/**
+ * The caller's event properties with secrets removed. A field is dropped by its
+ * whole name (`token`, `api_key`, `client_secret`), not by a word in it:
+ * `credential_kind` and `input_tokens` are analytics, not credentials.
+ */
+export function redactEventProperties(
+  properties: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  return redactSecretsInValue(properties ?? {}, {
+    placeholder: "<redacted>",
+    names: "named",
+    redactText: redact,
+  }) as Record<string, unknown>;
 }
 
 export function boundedText(value: unknown, max: number): string {

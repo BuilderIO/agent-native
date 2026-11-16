@@ -3336,6 +3336,47 @@ describe("browser analytics pageviews", () => {
     expect(hint.attachments).toBeUndefined();
   });
 
+  it("redacts secrets in a browser Sentry event's exception, extras, breadcrumbs and query string", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+    configureTracking({});
+    await tick();
+    const options = sentryMock.init.mock.calls[0][0];
+
+    const result = options.beforeSend({
+      message: "failed with ?key=CANARYMESSAGE",
+      exception: {
+        values: [
+          {
+            type: "Error",
+            value: 'boom {"apiKey":"CANARYEXCEPTION"} code=CANARYCODE&state=s',
+          },
+        ],
+      },
+      extra: { apiKey: "CANARYEXTRA", attempt: 2 },
+      contexts: { upstream: { client_secret: "CANARYCONTEXT" } },
+      breadcrumbs: [
+        { category: "console", message: "token=CANARYCRUMB", data: {} },
+        {
+          category: "fetch",
+          data: { url: "https://x.example.com/?p-key=CANARYFETCH" },
+        },
+      ],
+      request: {
+        url: "https://app.example.com/cb",
+        query_string: "code=CANARYQUERY&utm_source=docs",
+      },
+    });
+
+    expect(JSON.stringify(result)).not.toMatch(/CANARY/);
+    expect(result.extra).toEqual({ apiKey: "<redacted>", attempt: 2 });
+    expect(result.request.query_string).toContain("utm_source=docs");
+  });
+
   it("drops blocked Amplitude fetch noise from browser Sentry", async () => {
     installBrowser();
     (window as any).__AGENT_NATIVE_CONFIG__ = {

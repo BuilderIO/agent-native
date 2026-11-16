@@ -80,6 +80,23 @@ describe("exception message redaction", () => {
     dispose();
   });
 
+  it("redacts JSON keys, query values and bare keys in an exception's message, stack and extras", () => {
+    installBrowser();
+    const send = vi.fn();
+    const dispose = installErrorCapture({ send });
+    const error = new Error(
+      'failed {"apiKey":"CANARYJSON"} GET https://x.example.com/?key=CANARYQUERY code=CANARYCODE&state=CANARYSTATE ' +
+        ["sk-ant-api03-", "CANARYBARE0123456789"].join(""),
+    );
+
+    captureException(error, { extra: { apiKey: "CANARYEXTRA" } });
+
+    const event = send.mock.calls[0][0];
+    expect(JSON.stringify(event)).not.toMatch(/CANARY/);
+    expect(event.extra).toEqual({ apiKey: "<redacted>" });
+    dispose();
+  });
+
   it("redacts 8 KB of repeated key-looking text in well under a second", () => {
     installBrowser();
     const send = vi.fn();

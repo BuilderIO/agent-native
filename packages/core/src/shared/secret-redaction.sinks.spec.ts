@@ -224,6 +224,11 @@ const urlParameterShapes: Shape[] = [
     "https://app.example.com/x?a=1&amp;code={}",
     "CANARYAMPCODE0123456789",
   ),
+  shape(
+    "code=&state= with no question mark",
+    "failed: code={}&state=CANARYBARESTATE0123",
+    "CANARYBARECODE0123456789",
+  ),
 ];
 
 const allShapes = [...auditShapes, ...toolErrorShapes, ...urlParameterShapes];
@@ -275,6 +280,7 @@ describe("secret redaction sinks", () => {
       "a=",
       "?key=",
       "&code=",
+      "code=",
       "Bearer ",
       "eyJ-",
       "eyJaaaa.",

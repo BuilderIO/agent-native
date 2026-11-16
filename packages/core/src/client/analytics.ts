@@ -43,6 +43,7 @@ import {
 } from "../shared/llm-connection.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import { isTestIdentityEmail } from "../shared/qa-test-email.js";
+import { redactSecretsInValue } from "../shared/secret-redaction.js";
 import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
@@ -77,6 +78,7 @@ import {
 import {
   firstPartyHosts,
   installErrorCapture,
+  redactSecrets,
   type CapturedExceptionEvent,
 } from "./error-capture.js";
 import {
@@ -92,6 +94,7 @@ import type {
 import {
   FIRST_TOUCH_QUERY_FIELDS,
   routePathname,
+  scrubQueryString,
   scrubUrl,
 } from "./url-scrub.js";
 import {
@@ -1516,6 +1519,36 @@ function captureWithSentry(
   });
 }
 
+function redactSentryValue<T>(value: T): T {
+  return redactSecretsInValue(value, { placeholder: "<redacted>" }) as T;
+}
+
+// Sentry gathers exception text, breadcrumbs and extras itself, so none of it
+// has passed through the capture redactor.
+function redactBrowserSentryEvent(event: Sentry.Event): void {
+  for (const exception of event.exception?.values ?? []) {
+    if (typeof exception.value === "string") {
+      exception.value = redactSecrets(exception.value);
+    }
+  }
+  if (typeof event.message === "string") {
+    event.message = redactSecrets(event.message);
+  }
+  if (event.extra) event.extra = redactSentryValue(event.extra);
+  if (event.contexts) event.contexts = redactSentryValue(event.contexts);
+  if (event.tags) event.tags = redactSentryValue(event.tags);
+  if (event.request?.query_string !== undefined) {
+    event.request.query_string =
+      scrubQueryString(event.request.query_string) ?? "";
+  }
+  for (const crumb of event.breadcrumbs ?? []) {
+    if (typeof crumb.message === "string") {
+      crumb.message = redactSecrets(crumb.message);
+    }
+    if (crumb.data) crumb.data = redactSentryValue(crumb.data);
+  }
+}
+
 function ensureSentry(loadWithoutDsn = false): void {
   if (isSyntheticBrowserTraffic()) return;
   if (_sentryInitialized || _sentryLoadPromise) return;
@@ -1569,6 +1602,7 @@ function ensureSentry(loadWithoutDsn = false): void {
               }
             }
           }
+          redactBrowserSentryEvent(event);
           addRecorderContext(event, hint);
           return event;
         },

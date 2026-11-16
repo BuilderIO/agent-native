@@ -142,14 +142,20 @@ function normalizeName(name: string): string {
 }
 
 /**
- * Whether an object key or field name holds a credential word. Only for names
- * of fields: text goes through `redactSecretsInText`.
+ * Whether an object key or field name marks its value as secret: `contains`
+ * for any name holding a credential word, `named` for whole credential names
+ * only (`credential_kind` is not one). Only for names of fields: text goes
+ * through `redactSecretsInText`.
  */
 export function isSecretName(
   name: string,
-  options: { session?: boolean } = {},
+  options: {
+    session?: boolean;
+    names?: "contains" | "named" | undefined;
+  } = {},
 ): boolean {
   const normalized = normalizeName(name);
+  if (options.names === "named") return isNamedSecret(name, normalized);
   return (
     CREDENTIAL_FRAGMENTS.some((fragment) => normalized.includes(fragment)) ||
     (options.session === true && normalized.includes("session"))
@@ -177,10 +183,10 @@ function isNamedSecret(name: string, normalized: string): boolean {
     .split(/[-_.\s]+/)
     .filter(Boolean);
   if (words.length < 2) return false;
-  const last = words[words.length - 1];
+  const last = words.at(-1) ?? "";
   if (COMPOUND_LAST_WORDS.has(last)) return true;
   if (last === "token") return !CURSOR_TOKEN.test(normalized);
-  return last === "key" && COMPOUND_KEY_PREFIXES.has(words[words.length - 2]);
+  return last === "key" && COMPOUND_KEY_PREFIXES.has(words.at(-2) ?? "");
 }
 
 function isSecretAssignment(
@@ -290,6 +296,29 @@ function readQuoted(
   };
 }
 
+// A value another sink already redacted keeps that sink's placeholder: text
+// passes through several of them, and each would overwrite the last.
+const KNOWN_PLACEHOLDERS = ["<redacted>", "[REDACTED]", "[redacted]"];
+
+function redactedValueLength(
+  text: string,
+  start: number,
+  placeholder: string,
+): number {
+  for (const known of [placeholder, ...KNOWN_PLACEHOLDERS]) {
+    for (const [open, close] of [
+      ["", ""],
+      ['"', '"'],
+      ["'", "'"],
+      ['["', '"]'],
+    ] as const) {
+      const wrapped = `${open}${known}${close}`;
+      if (text.startsWith(wrapped, start)) return wrapped.length;
+    }
+  }
+  return 0;
+}
+
 function readValue(
   text: string,
   start: number,
@@ -298,19 +327,14 @@ function readValue(
   lineValued: boolean,
 ): { end: number; replacement: string } | undefined {
   if (start >= text.length) return undefined;
-  if (
-    text.startsWith(placeholder, start) ||
-    text.startsWith(`["${placeholder}"]`, start)
-  ) {
-    return undefined;
-  }
+  if (redactedValueLength(text, start, placeholder) > 0) return undefined;
   const first = text.charCodeAt(start);
   if (query) {
     const end = skipWhile(text, start, isQueryValueEnd);
     let trimmed = end;
     while (
       trimmed > start &&
-      TRAILING_PUNCTUATION.includes(text[trimmed - 1])
+      TRAILING_PUNCTUATION.includes(text.charAt(trimmed - 1))
     ) {
       trimmed -= 1;
     }
@@ -334,10 +358,11 @@ function readValue(
   if (scheme) {
     lineEnds = lineEnds || scheme[0].toLowerCase().startsWith("digest");
     valueStart = start + scheme[0].length;
-    if (text.startsWith(placeholder, valueStart)) {
+    const redacted = redactedValueLength(text, valueStart, placeholder);
+    if (redacted > 0) {
       return {
-        end: valueStart + placeholder.length,
-        replacement: placeholder,
+        end: valueStart + redacted,
+        replacement: text.slice(valueStart, valueStart + redacted),
       };
     }
     if (isQuote(text.charCodeAt(valueStart))) {
@@ -353,6 +378,10 @@ function readValue(
   return end > valueStart ? { end, replacement: placeholder } : undefined;
 }
 
+function isNameCharacter(code: number): boolean {
+  return isSchemeCharacter(code) || code === 95 || code === 36;
+}
+
 function redactAssignments(
   text: string,
   placeholder: string,
@@ -361,17 +390,36 @@ function redactAssignments(
   ASSIGNMENT_RE.lastIndex = 0;
   let out = "";
   let copied = 0;
+  // End of the value being scanned. A scan restarts inside a value it skipped,
+  // so each start reuses this instead of walking the value again.
+  let queryValueEnd = -1;
   for (
     let match = ASSIGNMENT_RE.exec(text);
     match;
     match = ASSIGNMENT_RE.exec(text)
   ) {
-    const name = match[2];
-    if (name === undefined) continue;
+    const [, quote = "", name = "", separator = ""] = match;
+    if (!name) continue;
     const valueStart = ASSIGNMENT_RE.lastIndex;
-    const query =
-      match[3] === "=" && isQueryPosition(text, match.index + match[1].length);
-    if (!isSecretAssignment(name, query, mode)) continue;
+    let query =
+      separator === "=" && isQueryPosition(text, match.index + quote.length);
+    let secret = isSecretAssignment(name, query, mode);
+    if (
+      !secret &&
+      !query &&
+      separator === "=" &&
+      isSecretAssignment(name, true, mode)
+    ) {
+      // `code=…&state=…` copied out of a URL has no `?` before its first name.
+      if (valueStart > queryValueEnd) {
+        queryValueEnd = skipWhile(text, valueStart, isQueryValueEnd);
+      }
+      query =
+        text.charCodeAt(queryValueEnd) === 38 &&
+        isNameCharacter(text.charCodeAt(queryValueEnd + 1));
+      secret = query;
+    }
+    if (!secret) continue;
     const normalized = normalizeName(name);
     const value = readValue(
       text,
@@ -550,4 +598,47 @@ export function redactSecretsInText(
   out = redactSchemes(out, placeholder).replace(PROVIDER_KEY_RE, replacement);
   out = redactUserinfo(out, placeholder);
   return tail ? redactTail(out, placeholder, tail === "truncated") : out;
+}
+
+const MAX_VALUE_DEPTH = 12;
+
+/**
+ * A copy of `value` with every string redacted and every value under a
+ * credential-named key replaced. A number or boolean keeps its value under such
+ * a key, so `input_tokens: 12` survives. A cycle, or nesting past 12 levels, is
+ * replaced too.
+ */
+export function redactSecretsInValue(
+  value: unknown,
+  options: RedactSecretsOptions & { redactText?: (text: string) => string },
+): unknown {
+  const { placeholder, names, redactText } = options;
+  const redactString =
+    redactText ?? ((text: string) => redactSecretsInText(text, options));
+  const walk = (current: unknown, ancestors: object[]): unknown => {
+    if (typeof current === "string") return redactString(current);
+    if (current === null || typeof current !== "object") return current;
+    if (current instanceof Date) return current;
+    if (ancestors.length >= MAX_VALUE_DEPTH || ancestors.includes(current)) {
+      return placeholder;
+    }
+    const path = [...ancestors, current];
+    if (Array.isArray(current)) return current.map((item) => walk(item, path));
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(current)) {
+      const keepsValue =
+        child === null ||
+        child === undefined ||
+        typeof child === "number" ||
+        typeof child === "boolean" ||
+        (typeof child === "string" &&
+          redactedValueLength(child, 0, placeholder) === child.length);
+      out[key] =
+        !keepsValue && isSecretName(key, { names })
+          ? placeholder
+          : walk(child, path);
+    }
+    return out;
+  };
+  return walk(value, []);
 }

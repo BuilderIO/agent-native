@@ -327,6 +327,23 @@ export function scrubUrl(
 }
 
 /**
+ * A request's `query_string` as an error report holds it (text, a record, or
+ * a list of pairs), scrubbed like the query of a URL. `undefined` when it holds
+ * none.
+ */
+export function scrubQueryString(queryString: unknown): string | undefined {
+  const query =
+    typeof queryString === "string"
+      ? queryString.replace(/^\?/, "")
+      : queryString && typeof queryString === "object"
+        ? new URLSearchParams(queryString as Record<string, string>).toString()
+        : undefined;
+  return query === undefined
+    ? undefined
+    : (scrubUrl(`/?${query}`)?.slice(2) ?? "");
+}
+
+/**
  * A `location.hash` scrubbed like the hash of a URL, for a reader that gets the
  * hash apart from the query.
  */
