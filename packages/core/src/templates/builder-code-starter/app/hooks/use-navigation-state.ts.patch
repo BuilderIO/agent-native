@@ -1,7 +1,11 @@
 ===================================================================
 --- a/app/hooks/use-navigation-state.ts
 +++ b/app/hooks/use-navigation-state.ts
-@@ -7,7 +6,0 @@
+@@ -3,35 +3,31 @@
+   appPathFromLocalRoute,
+ } from "@agent-native/core/client/api-path";
+ import { useAgentRouteState } from "@agent-native/core/client/navigation";
+ 
 -import {
 -  chatThreadPath,
 -  HOME_PATH,
@@ -9,19 +13,41 @@
 -  NEW_CHAT_PATH,
 -  threadIdFromPath,
 -} from "@/lib/chat-paths";
-@@ -20,1 +12,0 @@
+ import { TAB_ID } from "@/lib/tab-id";
+ 
+ export interface NavigationState {
+   view?: string;
+   path?: string;
+   publicPath?: string;
 -  threadId?: string;
-@@ -27,1 +19,5 @@
+ }
+ 
+ export function useNavigationState() {
+   useAgentRouteState<NavigationState>({
+     browserTabId: TAB_ID,
+     requestSource: TAB_ID,
 -    getNavigationState: ({ pathname }) => navigationStateForPath(pathname),
 +    getNavigationState: ({ pathname }) => ({
 +      view: viewForPath(pathname),
 +      path: pathname,
 +      publicPath: appPathFromLocalRoute(pathname),
 +    }),
-@@ -33,1 +29,1 @@
+     getCommandPath: commandPathForNavigation,
+   });
+ }
+ 
+ export function commandPathForNavigation(command: NavigationState): string {
 -  const fallbackPath = pathForCommand(command);
 +  const fallbackPath = pathForView(command?.view);
-@@ -52,10 +47,0 @@
+   const path = typeof command?.path === "string" ? command.path : "";
+   if (!path) return fallbackPath;
+ 
+   const basePath = appBasePath();
+@@ -61,59 +57,17 @@
+ function matchesPathPrefix(pathname: string, prefix: string): boolean {
+   return pathname === prefix || pathname.startsWith(`${prefix}/`);
+ }
+ 
 -export function navigationStateForPath(pathname: string): NavigationState {
 -  const threadId = threadIdFromPath(pathname);
 -  return {
@@ -32,7 +58,7 @@
 -  };
 -}
 -
-@@ -63,11 +49,2 @@
+ function viewForPath(pathname: string): string {
 -  if (isChatPathname(pathname)) return "chat";
 -  if (pathname === HOME_PATH) return "home";
 -  if (pathname.startsWith("/database")) return "database";
@@ -46,11 +72,14 @@
 -  return "chat";
 +  if (pathname === "/") return "home";
 +  return "home";
-@@ -78,3 +54,0 @@
+ }
+ 
+ function pathForView(view?: string): string {
+   switch (view) {
 -    case "chat":
 -    case "ask":
 -      return NEW_CHAT_PATH;
-@@ -82,13 +56,1 @@
+     case "home":
 -      return HOME_PATH;
 -    case "database":
 -      return "/database";
@@ -65,10 +94,11 @@
 -    case "team":
 -      return "/settings/organization";
 +      return "/";
-@@ -96,1 +58,1 @@
+     default:
 -      return HOME_PATH;
 +      return "/";
-@@ -99,8 +60,0 @@
+   }
+ }
 -
 -export function pathForCommand(command: any): string {
 -  const path = pathForView(command?.view);

@@ -238,11 +238,18 @@ export function checkClaudeMdSymlink(templates: string[]): Violation[] {
       continue;
     }
     if (!lstatSync(path).isSymbolicLink()) {
+      const agentsPath = templatePath(template, "AGENTS.md");
+      if (
+        existsSync(agentsPath) &&
+        readFileSync(path).equals(readFileSync(agentsPath))
+      ) {
+        continue;
+      }
       violations.push({
         rule: "claude-md-symlink",
         template,
         severity: "fail",
-        message: `templates/${template}/CLAUDE.md exists but is not a symlink to AGENTS.md.`,
+        message: `templates/${template}/CLAUDE.md must link to AGENTS.md or be an identical scaffold copy.`,
       });
       continue;
     }

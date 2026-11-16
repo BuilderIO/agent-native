@@ -91,6 +91,7 @@
     "oxlint": "oxlint --config .oxlintrc.json .",
     "dev:cli": "tsx packages/core/src/cli/index.ts",
     "guard:hooks-registered": "node scripts/guard-hooks-registered.mjs",
+    "guard:rule-one-file": "tsx scripts/guard-rule-one-file.ts",
     "guard:agent-native-brand": "tsx scripts/guard-agent-native-brand.ts",
     "guard:readme-link-tags": "tsx scripts/guard-readme-link-tags.ts",
     "guard:no-drizzle-push": "node scripts/guard-no-drizzle-push.mjs",

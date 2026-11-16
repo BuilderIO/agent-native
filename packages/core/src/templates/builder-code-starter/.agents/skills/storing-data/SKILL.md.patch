@@ -1,7 +1,7 @@
 ===================================================================
 --- a/.agents/skills/storing-data/SKILL.md
 +++ b/.agents/skills/storing-data/SKILL.md
-@@ -36,23 +36,12 @@
+@@ -54,23 +54,12 @@
  such as `ownableColumns()` and `createSharesTable()`, from
  `@agent-native/core/db/schema`. Do not import table builders through the core
  helper module.
@@ -28,7 +28,7 @@
  
  Existing unnamed migrations don't need to be renamed retroactively (the two gating strategies coexist), but any new entry should always carry a name.
  
-@@ -72,12 +61,12 @@
+@@ -90,12 +79,12 @@
  | `sessions`          | Auth sessions                                        | `@agent-native/core/server`               |
  
  ### Domain Data (per-template)
