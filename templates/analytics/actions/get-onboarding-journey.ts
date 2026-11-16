@@ -84,7 +84,7 @@ export default defineAction({
         .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/)
         .optional()
         .describe(
-          'A past UTC minute, such as 2026-11-10T22:38:00.000Z, to read as of instead of now. Pass continueWith.observationWatermark from a response a time limit stopped: the queries it finished are cached and the ones it stopped keep running, so the same request with this value, sent within a few minutes, continues from them. It pins event time in both follow-up modes; only followUpMode "person" also pins receive time, so in session mode an event that arrives between calls can change pages, which coverage reports as may_have_shifted.',
+          'A past UTC minute, such as 2026-11-10T22:38:00.000Z, to read as of instead of now. Pass continueWith.observationWatermark from a response a time limit stopped: the queries it finished are cached and the BigQuery queries it stopped keep running, so the same request with this value, sent within a few minutes, continues from them. It pins event time in both follow-up modes; only followUpMode "person" also pins receive time, so in session mode an event that arrives between calls can change pages, which coverage reports as may_have_shifted.',
         ),
       format: z
         .enum(["tree", "summary"])

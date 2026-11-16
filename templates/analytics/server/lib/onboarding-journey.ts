@@ -2605,13 +2605,13 @@ export async function getOnboardingJourney(
   const followupTimedOut =
     followUp.incompleteReason === "followup_aggregate_query_timeout" ||
     personFollowUp?.incompleteReason === "person_followup_query_timeout";
-  // A query stopped by a time limit keeps running, so calling again collects
-  // it even when it needed more than one call's time.
+  // A BigQuery query stopped by a time limit keeps running, so calling again
+  // collects it even when it needed more than one call's time.
   const stoppedForTime =
     read.truncationReason === "read_deadline" || followupTimedOut;
   if (stoppedForTime) {
     notes.push(
-      `This request stopped at its time budget (${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000} seconds for the event read, ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000} in all). Call again within a few minutes with the same arguments and observationWatermark="${observation.observationWatermark}": queries that finished are kept in the query cache and unfinished ones keep running, so the next call collects them instead of starting over. Repeat until this note is gone.`,
+      `This request stopped at its time budget (${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000} seconds for the event read, ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000} in all). Call again within a few minutes with the same arguments and observationWatermark="${observation.observationWatermark}": queries that finished are kept in the query cache and unfinished BigQuery queries keep running, so the next call collects them instead of starting over. Repeat until this note is gone.`,
     );
   }
   const head = {
