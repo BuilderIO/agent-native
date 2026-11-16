@@ -41,6 +41,12 @@ const state = vi.hoisted(() => ({
   frameDeleteFails: false,
   trackDeletes: [] as string[],
   tracksLeft: [] as string[],
+  richStops: [] as Array<{
+    ownerEmail: string;
+    id: string;
+    updatesBefore: number;
+  }>,
+  richStopFails: false,
   deletedAppState: [] as string[],
   ffmpegRuns: 0,
   uploadUrl: "https://cdn.example.com/media/clips/rec_1.mp4" as string | null,
@@ -162,6 +168,16 @@ vi.mock("../server/lib/agent-frame-store.js", () => ({
     return state.frameDeleteFails ? 1 : 0;
   },
 }));
+vi.mock("../server/lib/recording-policy.js", () => ({
+  stopRichRecording: async (ownerEmail: string, id: string) => {
+    if (state.richStopFails) throw new Error("app state unavailable");
+    state.richStops.push({
+      ownerEmail,
+      id,
+      updatesBefore: state.updated.length,
+    });
+  },
+}));
 vi.mock("../server/lib/recording-tracks.js", () => ({
   deleteStoredRecordingTracks: async (target: { id: string }) => {
     state.trackDeletes.push(target.id);
@@ -234,6 +250,8 @@ describe("burning redactions into a recording", () => {
     state.frameDeleteFails = false;
     state.trackDeletes = [];
     state.tracksLeft = [];
+    state.richStops = [];
+    state.richStopFails = false;
     state.deletedAppState = [];
     state.ffmpegRuns = 0;
     state.uploadUrl = "https://cdn.example.com/media/clips/rec_1.mp4";
@@ -458,6 +476,26 @@ describe("burning redactions into a recording", () => {
       mediaFormat: "flat",
       richBytes: 0,
     });
+  });
+
+  it("stops the owner's recording keeping tracks before it swaps the video, whoever burns", async () => {
+    await burnRedactionsFor({
+      recordingId: "rec_1",
+      ownerEmail: "editor@example.com",
+    });
+
+    expect(state.richStops).toEqual([
+      { ownerEmail: "owner@example.com", id: "rec_1", updatesBefore: 0 },
+    ]);
+  });
+
+  it("swaps nothing when it can't stop the recording keeping tracks", async () => {
+    state.richStopFails = true;
+
+    await expect(run()).rejects.toThrow(/app state unavailable/);
+
+    expect(state.updated).toHaveLength(0);
+    expect(state.deleted).toEqual([state.uploadUrl]);
   });
 
   it("keeps the clip held when a track cannot be deleted", async () => {

@@ -76,7 +76,7 @@ export default defineEventHandler(async (event: H3Event) => {
       let upstream: Response | { error: string; status: number };
       try {
         const signed = await fetchS3ObjectByUrl(access.url, {
-          range,
+          ...(range ? { range } : {}),
           timeoutMs: PROVIDER_MEDIA_FETCH_TIMEOUT_MS,
           recordingId,
           storageMode: recording.storageMode === "hosted" ? "hosted" : "own",

@@ -125,7 +125,11 @@ export async function handleTrackChunk(event: H3Event) {
   }
 
   return runWithRequestContext(
-    { userEmail: ownerEmail, orgId, authUserId },
+    {
+      userEmail: ownerEmail,
+      ...(orgId === undefined ? {} : { orgId }),
+      ...(authUserId === undefined ? {} : { authUserId }),
+    },
     async () => {
       const recordingWhere = and(
         eq(schema.recordings.id, recordingId),
@@ -294,7 +298,7 @@ export async function handleTrackChunk(event: H3Event) {
               intent: "existing",
               recordingId,
               email: ownerEmail,
-              userId: authUserId,
+              userId: authUserId ?? null,
             })
           ).provider;
         } catch (err) {
@@ -367,12 +371,17 @@ export async function handleTrackChunk(event: H3Event) {
         // A burn that read the track sessions before this one was saved can't
         // cancel it, so the upload cancels itself once redactions are waiting
         // or burned. Saving first, then checking, leaves no gap between them.
+        // The share lock waits out a permanent deletion holding the row: once
+        // it commits the row is gone and the upload cancels itself, and one
+        // that locks the row later captures this saved session.
         const fenced = await getDb()
           .select({ editsJson: schema.recordings.editsJson })
           .from(schema.recordings)
           .where(recordingWhere)
+          .for("share")
           .limit(1);
-        const editsJson = fenced.length ? fenced[0].editsJson : null;
+        const fencedRow = fenced.length ? fenced[0] : null;
+        const editsJson = fencedRow ? fencedRow.editsJson : null;
         if (
           editsJson === null ||
           hasBurnedRedactions(editsJson) ||

@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => {
     rich: true,
     provider: provider as typeof provider | null,
     abort: vi.fn(),
+    locks: [] as string[],
   };
 });
 
@@ -81,6 +82,10 @@ vi.mock("../../../../../db/index.js", () => ({
       const builder = {
         from: () => builder,
         where: () => builder,
+        for: (mode: string) => {
+          mocks.locks.push(mode);
+          return builder;
+        },
         limit: async () => (mocks.recording ? [mocks.recording] : []),
       };
       return builder;
@@ -187,6 +192,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.state.clear();
   mocks.rows = [];
+  mocks.locks = [];
   mocks.rich = true;
   mocks.provider = provider;
   mocks.recording = {
@@ -494,6 +500,28 @@ describe("POST /api/uploads/:recordingId/tracks/:track", () => {
       sessionId: "upload-1",
     });
     expect(mocks.state.has(sessionKey)).toBe(false);
+  });
+
+  it("cancels a new track upload when the recording was deleted before it was saved", async () => {
+    provider.resumable.startSession.mockImplementationOnce(async () => {
+      mocks.recording = null;
+      return { sessionId: "upload-1", meta: { parts: [] } };
+    });
+    const { status, body } = await send(
+      chunk(0, 4, { uploadGenerationId: "gen-1" }),
+    );
+    expect(status).toBe(409);
+    expect(body).toMatchObject({ tracksStopped: true });
+    expect(provider.resumable.relayChunk).not.toHaveBeenCalled();
+    expect(mocks.abort.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: "upload-1",
+    });
+    expect(mocks.state.has(sessionKey)).toBe(false);
+  });
+
+  it("checks a new track upload under a share lock, so a deletion holding the row finishes first", async () => {
+    await send(chunk(0, 4, { uploadGenerationId: "gen-1" }));
+    expect(mocks.locks).toEqual(["share"]);
   });
 
   it("cancels a new track upload while redactions wait to be burned", async () => {

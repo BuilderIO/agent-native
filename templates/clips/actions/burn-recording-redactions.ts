@@ -25,6 +25,7 @@ import { deleteStoredAgentFrames } from "../server/lib/agent-frame-store.js";
 import { ensureRecordingThumbnail } from "../server/lib/ensure-recording-thumbnail.js";
 import { loadRecordingMediaBytes } from "../server/lib/public-agent-context.js";
 import { deleteStoredMediaUrl } from "../server/lib/recording-media-cleanup.js";
+import { stopRichRecording } from "../server/lib/recording-policy.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { deleteStoredRecordingTracks } from "../server/lib/recording-tracks.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
@@ -313,6 +314,9 @@ export async function burnRedactionsFor(args: {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),
     );
+    // Before the swap, so a track this burn can't delete below can't be
+    // finalized again once the owner clears the marks that hold the clip.
+    await stopRichRecording(existing.ownerEmail, args.recordingId);
   } catch (error) {
     await discardUpload();
     throw error;

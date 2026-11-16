@@ -5,6 +5,7 @@ import {
   deleteAppState,
   readAppState,
 } from "@agent-native/core/application-state";
+import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 
 import {
@@ -186,13 +187,23 @@ export async function discardTrackUploads(recording: {
   ownerEmail: string;
   storageMode: "own" | "hosted" | null;
 }): Promise<string[]> {
+  // The owner's track uploads keep their sessions in the owner's app state,
+  // and an editor can run a burn.
+  const asOwner = <T>(run: () => Promise<T>) =>
+    runWithRequestContext(
+      { userEmail: recording.ownerEmail.trim().toLowerCase() },
+      run,
+    );
+  const sessions = await asOwner(() => listTrackSessions(recording.id));
+  // Most recordings never had a track upload, so they skip the row read.
+  if (!sessions.length) return [];
   const left: string[] = [];
   const stored = new Set(
     (await listRecordingTracks(recording.id, recording.ownerEmail)).map(
       (row) => row.url,
     ),
   );
-  for (const { track, session } of await listTrackSessions(recording.id)) {
+  for (const { track, session } of sessions) {
     const completedUrl = session.meta.completedUrl;
     const discarded =
       (typeof completedUrl === "string" && stored.has(completedUrl)) ||
@@ -202,7 +213,7 @@ export async function discardTrackUploads(recording: {
         storageMode: recording.storageMode,
         session,
       }));
-    if (discarded) await deleteTrackSession(recording.id, track);
+    if (discarded) await asOwner(() => deleteTrackSession(recording.id, track));
     else left.push(`unfinished ${track} track upload of ${recording.id}`);
   }
   return left;

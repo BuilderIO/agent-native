@@ -218,7 +218,11 @@ export async function handleFinalizeTracks(event: H3Event) {
   }
 
   return runWithRequestContext(
-    { userEmail: ownerEmail, orgId, authUserId },
+    {
+      userEmail: ownerEmail,
+      ...(orgId === undefined ? {} : { orgId }),
+      ...(authUserId === undefined ? {} : { authUserId }),
+    },
     async () => {
       const db = getDb();
       const ownerKey = ownerEmail.trim().toLowerCase();
@@ -290,18 +294,8 @@ export async function handleFinalizeTracks(event: H3Event) {
           retryable: true,
         };
       }
-      if (
-        !(await snapshotRichRecordingPolicy(ownerEmail, orgId, recordingId))
-      ) {
-        setResponseStatus(event, 403);
-        return {
-          ok: false,
-          error: "Separate tracks are off for this recording.",
-          labDisabled: true,
-          tracksStopped: true,
-        };
-      }
-
+      // First, since a burn also stops the recording's tracks: anything
+      // stored late is deleted rather than left behind a refusal.
       if (hasBurnedRedactions(existing.editsJson)) {
         // Everything uploaded or stored of its tracks predates the burn and
         // can still show what was redacted.
@@ -323,6 +317,19 @@ export async function handleFinalizeTracks(event: H3Event) {
           tracksStopped: true,
         };
       }
+
+      if (
+        !(await snapshotRichRecordingPolicy(ownerEmail, orgId, recordingId))
+      ) {
+        setResponseStatus(event, 403);
+        return {
+          ok: false,
+          error: "Separate tracks are off for this recording.",
+          labDisabled: true,
+          tracksStopped: true,
+        };
+      }
+
       // The tracks can show what the owner marked for redaction, so they wait
       // until the marks are burned in, which discards them, or cleared.
       if (isHeldForRedaction(existing.editsJson, null)) {
@@ -452,7 +459,7 @@ export async function handleFinalizeTracks(event: H3Event) {
               accounting = await addHostedClipRecordingBytes({
                 recordingId,
                 ownerEmail,
-                userId: authUserId,
+                userId: authUserId ?? null,
                 additionalBytes: session.bytesUploaded,
               });
             } catch (err) {

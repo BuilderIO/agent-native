@@ -565,6 +565,8 @@ describe("POST /api/uploads/:recordingId/tracks/finalize", () => {
       `INSERT INTO recording_tracks (id, recording_id, track, owner_email, url, content_type, bytes) VALUES ('t-1', 'rec-1', 'screen', 'owner@example.com', '${trackUrl("screen")}', 'video/mp4', 10)`,
     );
     await setEdits(burnedEdits);
+    // The burn also stopped the recording keeping tracks.
+    mocks.rich = false;
     const { status } = await finalize(body([listed("screen")]));
     expect(status).toBe(409);
     expect(mocks.deleteUrl).toHaveBeenCalledWith(

@@ -1,6 +1,7 @@
 import {
   compareAndSetAppState,
   readAppState,
+  writeAppState,
 } from "@agent-native/core/application-state";
 import { getUserLabState } from "@agent-native/core/labs/server";
 import { runWithRequestContext } from "@agent-native/core/server";
@@ -101,14 +102,16 @@ export async function snapshotRichRecordingPolicy(
   orgId: string | undefined,
   recordingId: string,
 ): Promise<boolean> {
-  return runWithRequestContext({ userEmail, orgId }, async () => {
+  const scope = orgId === undefined ? { userEmail } : { userEmail, orgId };
+  return runWithRequestContext(scope, async () => {
     const key = richPolicyKey(recordingId);
     const saved = parseRichRecordingPolicy(await readAppState(key));
     if (saved !== null) return saved;
-    const state = await getUserLabState(userEmail, CLIPS_RICH_RECORDINGS, {
+    const state = await getUserLabState(
       userEmail,
-      orgId,
-    });
+      CLIPS_RICH_RECORDINGS,
+      scope,
+    );
     if (
       await compareAndSetAppState(key, null, {
         version: 1,
@@ -124,4 +127,22 @@ export async function snapshotRichRecordingPolicy(
       );
     return winner;
   });
+}
+
+/**
+ * Stops a recording keeping separate tracks, for good: its track uploads and
+ * finalize are refused from then on. A burn calls this before it swaps the
+ * video, so a track it can't delete can't be finalized again once the owner
+ * clears the marks that held the clip.
+ */
+export async function stopRichRecording(
+  ownerEmail: string,
+  recordingId: string,
+): Promise<void> {
+  // Saved as the owner, whose uploads read it; an editor can run the burn.
+  await runWithRequestContext(
+    { userEmail: ownerEmail.trim().toLowerCase() },
+    () =>
+      writeAppState(richPolicyKey(recordingId), { version: 1, rich: false }),
+  );
 }

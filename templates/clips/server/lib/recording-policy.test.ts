@@ -4,6 +4,7 @@ const state = vi.hoisted(() => ({
   labEnabled: true,
   source: "choice" as "choice" | "legacy" | "default",
   saved: null as Record<string, unknown> | null,
+  contexts: [] as unknown[],
 }));
 
 vi.mock("@agent-native/core/labs/server", () => ({
@@ -21,10 +22,16 @@ vi.mock("@agent-native/core/labs/server", () => ({
   }),
 }));
 vi.mock("@agent-native/core/server", () => ({
-  runWithRequestContext: (_context: unknown, run: () => unknown) => run(),
+  runWithRequestContext: (context: unknown, run: () => unknown) => {
+    state.contexts.push(context);
+    return run();
+  },
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: async () => state.saved,
+  writeAppState: async (_key: string, value: Record<string, unknown>) => {
+    state.saved = value;
+  },
   compareAndSetAppState: async (
     _key: string,
     expected: unknown,
@@ -40,6 +47,7 @@ import {
   getUploadRecoveryPolicy,
   snapshotRichRecordingPolicy,
   snapshotUploadRecoveryPolicy,
+  stopRichRecording,
 } from "./recording-policy";
 
 describe("recording upload policy snapshot", () => {
@@ -120,6 +128,29 @@ describe("rich recording policy snapshot", () => {
     expect(
       await snapshotRichRecordingPolicy("owner@example.com", "org-1", "rec-1"),
     ).toBe(true);
+  });
+
+  it("stops a recording's tracks for good, saved as its owner", async () => {
+    expect(
+      await snapshotRichRecordingPolicy("owner@example.com", "org-1", "rec-3"),
+    ).toBe(true);
+
+    await stopRichRecording(" Owner@Example.com ", "rec-3");
+
+    expect(state.contexts[state.contexts.length - 1]).toEqual({
+      userEmail: "owner@example.com",
+    });
+    expect(
+      await snapshotRichRecordingPolicy("owner@example.com", "org-1", "rec-3"),
+    ).toBe(false);
+  });
+
+  it("leaves the org out of the lab read when there is none", async () => {
+    await snapshotRichRecordingPolicy("owner@example.com", undefined, "rec-4");
+
+    expect(state.contexts[state.contexts.length - 1]).toEqual({
+      userEmail: "owner@example.com",
+    });
   });
 
   it("keeps tracks off for a recording made with the lab off", async () => {
