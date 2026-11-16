@@ -87,6 +87,7 @@ import {
   writeServedBuildManifest,
 } from "./served-build.js";
 import { resolveWorkspaceAppPaths } from "./workspace-app-paths.js";
+import { emitNetlifyWorkspaceKeepWarmFunction } from "./workspace-keep-warm.js";
 
 function workspaceFrameworkRoutePrefixEnv(): string {
   return (
@@ -470,6 +471,10 @@ export async function runWorkspaceDeploy(
   }
   writeWorkspaceAppManifests(workspaceRoot, apps, workspaceApps, preset);
   if (preset === "netlify") {
+    emitNetlifyWorkspaceKeepWarmFunction(
+      netlifyFunctionsDir(workspaceRoot),
+      apps,
+    );
     writeServedBuildManifest(workspaceRoot, {
       revision: workspaceSourceRevision() ?? null,
       apps: Object.fromEntries(
