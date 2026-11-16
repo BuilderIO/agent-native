@@ -319,7 +319,7 @@ describe("recording range broker", () => {
       });
       const res = fetch(media.path, {
         headers: { range: "bytes=1-3" },
-        signal,
+        signal: signal ?? null,
       });
       const admission = Promise.race([
         read.then(() => "admitted"),
