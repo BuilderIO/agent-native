@@ -5451,6 +5451,130 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  async function startRunStoppedMidStream(
+    afterStop: () => AsyncIterable<AgentChatRuntimeEvent>,
+  ) {
+    const stopSent = Promise.withResolvers<void>();
+    async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      yield {
+        type: "message-delta",
+        messageId: "assistant-1",
+        delta: { type: "text", text: "1. A river runs. " },
+      };
+      await stopSent.promise;
+      yield* afterStop();
+    }
+    const cancel = vi.fn(async () => {
+      stopSent.resolve();
+      return { status: "cancelled" as const };
+    });
+    const runtime = createRuntime(activeEvents);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: activeEvents(),
+        cancel,
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("List river sentences")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    while (true) {
+      const next = await iterator.next();
+      if (next.value?.type === "message.delta") break;
+    }
+    const remaining: AgentEvent[] = [];
+    const drained = (async () => {
+      while (true) {
+        const next = await iterator.next();
+        if (next.done) return;
+        remaining.push(next.value);
+      }
+    })();
+    return { transport, runId, remaining, drained };
+  }
+
+  // A server that hears of a Stop from another instance keeps writing until
+  // its next check for it.
+  async function* linesEverySecond(
+    from: number,
+    to: number,
+  ): AsyncIterable<AgentChatRuntimeEvent> {
+    for (let line = from; line <= to; line += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      yield {
+        type: "message-delta",
+        messageId: "assistant-1",
+        delta: { type: "text", text: `${line}. A river runs. ` },
+      };
+    }
+  }
+
+  it("keeps text that is still arriving well after a Stop returns", async () => {
+    vi.useFakeTimers();
+    try {
+      const { transport, runId, remaining, drained } =
+        await startRunStoppedMidStream(async function* () {
+          yield* linesEverySecond(2, 6);
+          yield { type: "done", reason: "cancelled" };
+        });
+
+      const cancelling = transport.cancelRun({ threadId: "thread-1", runId });
+      await vi.advanceTimersByTimeAsync(6_000);
+      await cancelling;
+      await drained;
+
+      expect(
+        remaining.flatMap((event) =>
+          event.type === "message.delta" ? [event.text] : [],
+        ),
+      ).toEqual([2, 3, 4, 5, 6].map((line) => `${line}. A river runs. `));
+      expect(remaining.at(-1)?.type).toBe("run.cancelled");
+      await transport.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops waiting on a stream still sending ten seconds after a Stop", async () => {
+    vi.useFakeTimers();
+    try {
+      const { transport, runId, remaining, drained } =
+        await startRunStoppedMidStream(() => linesEverySecond(2, 30));
+
+      let settled = false;
+      const cancelling = transport
+        .cancelRun({ threadId: "thread-1", runId })
+        .then(() => {
+          settled = true;
+        });
+      await vi.advanceTimersByTimeAsync(9_500);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(settled).toBe(true);
+      await cancelling;
+      await drained;
+
+      expect(remaining.at(-1)?.type).toBe("run.cancelled");
+      await transport.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("releases readers when a cancel whose stream closed first fails", async () => {
     const streamClosed = Promise.withResolvers<void>();
     async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
