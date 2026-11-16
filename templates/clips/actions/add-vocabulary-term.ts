@@ -1,32 +1,36 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, eq } from "drizzle-orm";
 import { createError } from "h3";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
-import { nanoid, ownerEmailMatches } from "../server/lib/recordings.js";
+import { requireOrganizationAccess } from "../server/lib/recordings.js";
+import {
+  TEAM_VOCABULARY_EDITOR_ROLES,
+  upsertVocabularyTerm,
+} from "../server/lib/vocabulary.js";
 
 export default defineAction({
   description:
-    "Record a personal vocabulary correction (term + user's preferred replacement). Future dictations bias toward the replacement.",
+    'Record a vocabulary entry (term + preferred replacement). Future dictations bias toward the replacement. scope "personal" (default) is only for the caller; scope "team" shares it with everyone in the caller\'s active organization and needs an org admin or owner. For a name hint without a rewrite, use the same text for term and replacement.',
   schema: z.object({
     term: z
       .string()
       .min(1)
       .max(120)
       .describe("The original word/phrase the recognizer produced"),
-    replacement: z
-      .string()
-      .min(1)
-      .max(120)
-      .describe("The user's preferred spelling"),
+    replacement: z.string().min(1).max(120).describe("The preferred spelling"),
     confidence: z
       .number()
       .min(0)
       .max(1)
       .optional()
       .describe("How confident this correction is (0..1)"),
+    scope: z
+      .enum(["personal", "team"])
+      .default("personal")
+      .describe(
+        '"personal" for the caller only, "team" for everyone in the active organization (org admins and owners only)',
+      ),
   }),
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
@@ -36,54 +40,22 @@ export default defineAction({
         statusMessage: "Authentication required",
       });
     }
-
-    const db = getDb();
-    const term = args.term.trim();
-    const replacement = args.replacement.trim();
-    if (!term || !replacement) {
-      return { id: null, skipped: true };
-    }
-    const now = new Date().toISOString();
-    const [existing] = await db
-      .select()
-      .from(schema.vocabulary)
-      .where(
-        and(
-          ownerEmailMatches(schema.vocabulary.ownerEmail, ownerEmail),
-          eq(schema.vocabulary.term, term),
-        ),
-      )
-      .limit(1);
-    if (existing) {
-      const nextConfidence = Math.min(
-        1,
-        (args.confidence ?? existing.confidence) +
-          (existing.replacement === replacement ? 0.05 : 0),
-      );
-      await db
-        .update(schema.vocabulary)
-        .set({
-          replacement,
-          confidence: nextConfidence,
-          usesCount: (existing.usesCount ?? 1) + 1,
-          updatedAt: now,
-        })
-        .where(eq(schema.vocabulary.id, existing.id));
-      return { id: existing.id, updated: true };
-    }
-    const id = `vocab_${nanoid()}`;
-    await db.insert(schema.vocabulary).values({
-      id,
-      term,
-      replacement,
-      confidence: args.confidence ?? 0.5,
-      usesCount: 1,
-      createdAt: now,
-      updatedAt: now,
+    const scope = args.scope ?? "personal";
+    const orgId =
+      scope === "team"
+        ? (
+            await requireOrganizationAccess(undefined, [
+              ...TEAM_VOCABULARY_EDITOR_ROLES,
+            ])
+          ).organizationId
+        : null;
+    return upsertVocabularyTerm({
+      scope,
       ownerEmail,
-      orgId: null,
-      visibility: "private",
+      orgId,
+      term: args.term,
+      replacement: args.replacement,
+      confidence: args.confidence,
     });
-    return { id, created: true };
   },
 });

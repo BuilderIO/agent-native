@@ -27,6 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import {
@@ -56,6 +57,7 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -63,12 +65,30 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+type VocabularyScope = "personal" | "team";
+
 interface VocabularyEntry {
   id: string;
   term: string;
   replacement: string;
   confidence: number;
   usesCount: number;
+  /** Older servers send no scope: everything they list is personal. */
+  scope?: VocabularyScope;
+}
+
+interface VocabularyList {
+  /** What dictation uses: personal words plus team words not overridden. */
+  vocabulary: VocabularyEntry[];
+  /** Every team word of the active organization. */
+  team?: VocabularyEntry[];
+  canManageTeam?: boolean;
+}
+
+type DictionaryTab = "mine" | "team";
+
+export function isTeamEntry(entry: Pick<VocabularyEntry, "scope">): boolean {
+  return entry.scope === "team";
 }
 
 export interface VocabularyDraft {
@@ -204,6 +224,7 @@ export function VocabularyManager({
   const [search, setSearch] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
+  const [tab, setTab] = useState<DictionaryTab>("mine");
   const [removeCandidate, setRemoveCandidate] =
     useState<VocabularyEntry | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -216,10 +237,17 @@ export function VocabularyManager({
     setRemoveCandidate(null);
   }, [disabled]);
 
-  const { data, isLoading } = useActionQuery<{
-    vocabulary: VocabularyEntry[];
-  }>("list-vocabulary", {}, { enabled: open && !disabled });
-  const entries = data?.vocabulary ?? [];
+  const { data, isLoading } = useActionQuery<VocabularyList>(
+    "list-vocabulary",
+    {},
+    { enabled: open && !disabled },
+  );
+  const canManageTeam = data?.canManageTeam === true;
+  const entries =
+    tab === "team" ? (data?.team ?? []) : (data?.vocabulary ?? []);
+  const canEdit = tab === "mine" || canManageTeam;
+  const canRemove = (entry: VocabularyEntry) =>
+    !isTeamEntry(entry) || canManageTeam;
 
   const visibleEntries = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase();
@@ -241,10 +269,14 @@ export function VocabularyManager({
         const previous = queryClient.getQueryData(QUERY_KEY);
         queryClient.setQueryData(
           QUERY_KEY,
-          (current: { vocabulary: VocabularyEntry[] } | undefined) =>
+          (current: VocabularyList | undefined) =>
             current
               ? {
+                  ...current,
                   vocabulary: current.vocabulary.filter(
+                    (entry) => entry.id !== variables.id,
+                  ),
+                  team: current.team?.filter(
                     (entry) => entry.id !== variables.id,
                   ),
                 }
@@ -284,7 +316,11 @@ export function VocabularyManager({
 
     setIsAdding(true);
     const failedCount = await addVocabularyEntries(parsedDraft, (entry) =>
-      addTerm.mutateAsync({ ...entry, confidence: 1 }),
+      addTerm.mutateAsync({
+        ...entry,
+        confidence: 1,
+        scope: tab === "team" ? "team" : "personal",
+      }),
     );
     setIsAdding(false);
 
@@ -327,7 +363,8 @@ export function VocabularyManager({
     );
     const link = document.createElement("a");
     link.href = url;
-    link.download = "clips-dictionary.csv";
+    link.download =
+      tab === "team" ? "clips-team-dictionary.csv" : "clips-dictionary.csv";
     link.click();
     URL.revokeObjectURL(url);
     toast.success(t("dictateRoute.dictionaryExported"));
@@ -342,6 +379,7 @@ export function VocabularyManager({
           if (!nextOpen) {
             resetAddTerms();
             setSearch("");
+            setTab("mine");
             setRemoveCandidate(null);
           }
         }}
@@ -383,6 +421,32 @@ export function VocabularyManager({
                 <ItemTitle>{t("dictateRoute.dictionaryAutoLearn")}</ItemTitle>
               </ItemContent>
             </Item>
+
+            <Tabs
+              value={tab}
+              onValueChange={(value) => {
+                setTab(value === "team" ? "team" : "mine");
+                resetAddTerms();
+                setSearch("");
+              }}
+            >
+              <TabsList className="w-full">
+                <TabsTrigger value="mine" className="flex-1">
+                  {t("dictateRoute.dictionaryTabMine")}
+                </TabsTrigger>
+                <TabsTrigger value="team" className="flex-1">
+                  {t("dictateRoute.dictionaryTabTeam")}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {tab === "team" ? (
+              <p className="text-xs text-muted-foreground">
+                {t("dictateRoute.dictionaryTeamDescription")}
+                {canManageTeam
+                  ? null
+                  : ` ${t("dictateRoute.dictionaryTeamReadOnly")}`}
+              </p>
+            ) : null}
 
             <input
               ref={fileInputRef}
@@ -446,26 +510,30 @@ export function VocabularyManager({
             ) : (
               <div className="flex flex-col gap-2">
                 <ButtonGroup className="w-full">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => setAdding(true)}
-                  >
-                    <IconPlus />
-                    {t("dictateRoute.dictionaryAddTerms")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <IconUpload />
-                    {t("dictateRoute.dictionaryImport")}
-                  </Button>
+                  {canEdit ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => setAdding(true)}
+                      >
+                        <IconPlus />
+                        {t("dictateRoute.dictionaryAddTerms")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <IconUpload />
+                        {t("dictateRoute.dictionaryImport")}
+                      </Button>
+                    </>
+                  ) : null}
                   <Button
                     type="button"
                     variant="outline"
@@ -510,7 +578,11 @@ export function VocabularyManager({
                   <EmptyMedia variant="icon">
                     <IconBook2 />
                   </EmptyMedia>
-                  <EmptyTitle>{t("dictateRoute.dictionaryEmpty")}</EmptyTitle>
+                  <EmptyTitle>
+                    {tab === "team"
+                      ? t("dictateRoute.dictionaryTeamEmpty")
+                      : t("dictateRoute.dictionaryEmpty")}
+                  </EmptyTitle>
                 </EmptyHeader>
               </Empty>
             ) : visibleEntries.length === 0 ? (
@@ -543,6 +615,15 @@ export function VocabularyManager({
                               </span>
                             </>
                           ) : null}
+                          {isTeamEntry(entry) ? (
+                            <Badge
+                              variant="secondary"
+                              className="shrink-0"
+                              data-testid="vocabulary-team-badge"
+                            >
+                              {t("dictateRoute.dictionaryTeamBadge")}
+                            </Badge>
+                          ) : null}
                         </ItemTitle>
                         <span className="text-xs tabular-nums text-muted-foreground">
                           {t("dictateRoute.dictionaryUsesCount", {
@@ -550,25 +631,27 @@ export function VocabularyManager({
                           })}
                         </span>
                       </ItemContent>
-                      <ItemActions>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="text-muted-foreground hover:text-destructive"
-                              aria-label={t("dictateRoute.dictionaryRemove")}
-                              onClick={() => setRemoveCandidate(entry)}
-                            >
-                              <IconTrash />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {t("dictateRoute.dictionaryRemove")}
-                          </TooltipContent>
-                        </Tooltip>
-                      </ItemActions>
+                      {canRemove(entry) ? (
+                        <ItemActions>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="text-muted-foreground hover:text-destructive"
+                                aria-label={t("dictateRoute.dictionaryRemove")}
+                                onClick={() => setRemoveCandidate(entry)}
+                              >
+                                <IconTrash />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {t("dictateRoute.dictionaryRemove")}
+                            </TooltipContent>
+                          </Tooltip>
+                        </ItemActions>
+                      ) : null}
                     </Item>
                   </div>
                 ))}

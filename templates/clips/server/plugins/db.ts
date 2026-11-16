@@ -13,6 +13,7 @@ import { z } from "zod";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { orderMigrationsByVersion } from "../lib/migration-order.js";
+import { TEAM_VOCABULARY_UNIQUE_TERM_SQL } from "../lib/vocabulary-schema.js";
 import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
 import {
   uploadLeaseExpiry,
@@ -1415,6 +1416,11 @@ export const migrations = runMigrations(
       version: 102,
       name: "recording-transcript-earlier-audio-removed-at",
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_removed_at TEXT`,
+    },
+    {
+      version: 104,
+      name: "team-vocabulary-unique-term",
+      sql: TEAM_VOCABULARY_UNIQUE_TERM_SQL,
     },
   ]),
   { table: "clips_migrations" },

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   MAX_VOCABULARY_IMPORT,
   addVocabularyEntries,
+  isTeamEntry,
   parseVocabularyEntries,
   serializeVocabularyEntries,
 } from "./vocabulary-section";
@@ -91,5 +92,13 @@ describe("addVocabularyEntries", () => {
 
     await expect(addVocabularyEntries(entries, addEntry)).resolves.toBe(1);
     expect(addEntry).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("isTeamEntry", () => {
+  it("marks only team-scoped entries, so older servers list personal words", () => {
+    expect(isTeamEntry({ scope: "team" })).toBe(true);
+    expect(isTeamEntry({ scope: "personal" })).toBe(false);
+    expect(isTeamEntry({})).toBe(false);
   });
 });
