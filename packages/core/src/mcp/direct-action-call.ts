@@ -511,16 +511,21 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         directoryCatalog && !hasVerifiedMcpUserIdentity(effectiveIdentity);
       // Outside the directory catalog, a resource with no scoped widget
       // mounts the whole app, as the desktop side panel does.
-      const fullAppCandidate =
+      const noWidgetOpened =
         !directoryCatalog &&
         requiresEmbedSession &&
         !!mcpAppResourceCandidate &&
         directoryWidget === undefined &&
         !mcpResultIsError;
+      // A tool with a declared widget target is scoped to it; when that
+      // widget is unavailable it falls back to a link, never the whole app.
+      const fullAppCandidate =
+        noWidgetOpened &&
+        !Object.hasOwn(config.directoryProfile?.widgetTargets ?? {}, name);
       // The action already ran, so an origin the allowlist rejects only keeps
       // its app from opening; it must not turn the call into a failure.
       let fullAppOrigin: "none" | "valid" | "rejected" = "none";
-      if (fullAppCandidate) {
+      if (noWidgetOpened) {
         try {
           fullAppOrigin = getEmbedSessionOrigin() ? "valid" : "none";
         } catch (error) {
@@ -531,6 +536,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         }
       }
       const fullAppEmbedResult =
+        fullAppCandidate &&
         fullAppOrigin === "valid" &&
         hasVerifiedMcpUserIdentity(effectiveIdentity) &&
         typeof trustedCredentialIssuedAtMs === "number" &&
@@ -614,7 +620,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       // An `embed: false` result opts out of the frame, not of this signal.
       const fullAppNotOpened =
         (appResource.unresolved && !mcpResultIsError) ||
-        (fullAppCandidate && fullAppOrigin !== "none" && !mcpAppResource);
+        (noWidgetOpened && fullAppOrigin !== "none" && !mcpAppResource);
       const fullAppOptedOut =
         metadataObject(projectedRawResult).embed === false;
       const mcpAppOpenLinkMeta = mcpAppResource

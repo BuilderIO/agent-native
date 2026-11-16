@@ -11622,7 +11622,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       }
     });
 
-    it("keeps a completed call when the server rejects its embed origin", async () => {
+    it("answers with a link and keeps the catalog when the server rejects its embed origin", async () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       const { run, serverConfig } = unsupportedCardConfig(
         "unsupported-card",
@@ -11657,14 +11657,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           name: "unsupported-card",
           arguments: {},
         });
-        expect(result.isError).toBe(true);
-        expect((result.content as Array<{ text: string }>)[0]!.text).toContain(
-          "unsupported-card completed, but its app could not open here.",
-        );
+        expect(result.isError).not.toBe(true);
         expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
         expect(warn).toHaveBeenCalledWith(
-          expect.stringContaining("the server cannot open its app here"),
+          expect.stringContaining(
+            "the server rejects this request's embed origin",
+          ),
         );
+        const { tools } = await client.listTools();
+        expect(tools.map((tool) => tool.name)).toContain("unsupported-card");
         expect(run).toHaveBeenCalledOnce();
       } finally {
         await Promise.all([client.close(), server.close()]);

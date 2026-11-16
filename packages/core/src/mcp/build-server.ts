@@ -1561,10 +1561,20 @@ export async function withServerMintedMcpAppEmbedStart(
   };
 }
 
+function sameOriginEmbedStartUrl(value: string, origin: string): boolean {
+  try {
+    const url = new URL(value, origin);
+    return url.origin === origin && isEmbedStartUrl(url.href);
+    // coercion-ok: an unparsable URL is not one this server issued; the caller warns and drops it.
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Gives a result the full-session ticket a full-app embed starts from, opening
- * the page the result names, in the open link's order, or the tool's link. A ticket the action minted
- * itself, such as a cross-app open, is kept. Callers mint only for a verified
+ * the page the result names, in the open link's order, or the tool's link. A
+ * ticket the action minted on this server, such as a cross-app open, is kept. Callers mint only for a verified
  * user, anchored to the credential's issue time so revoking it ends the session.
  */
 export async function withServerMintedFullAppEmbedStart(
@@ -1578,11 +1588,20 @@ export async function withServerMintedFullAppEmbedStart(
   }
   const record = result as Record<string, unknown>;
   if (record.embed === false) return withoutMcpAppEmbedTicket(record);
-  if (typeof record.embedStartUrl === "string") return result;
   const ctx = getRequestContext();
   const ownerEmail = ctx?.userEmail?.trim();
   const requestOrigin = getEmbedSessionOrigin();
-  if (!ownerEmail || !requestOrigin) return result;
+  if (!ownerEmail || !requestOrigin) return withoutMcpAppEmbedTicket(record);
+  // Only a start URL on this server, such as another mounted app's, is a
+  // ticket it issued; anything else may be data the action passed through.
+  if (typeof record.embedStartUrl === "string") {
+    if (sameOriginEmbedStartUrl(record.embedStartUrl, requestOrigin)) {
+      return result;
+    }
+    console.warn(
+      "[mcp] Dropping an embed start URL that this server did not issue.",
+    );
+  }
   const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
     await import("../server/embed-session.js");
   const { buildEmbedStartPath } = await import("../server/embed-route.js");
@@ -2536,16 +2555,26 @@ export async function resolveMcpAppResourceSafely(
   }
   const resolvedUri = getMcpAppResourceUri(config, actionName, entry);
   if (!resolvedUri) return null;
-  const requestOrigin = requestMeta?.resolveEmbedRequestOrigin
-    ? validateEmbedRequestOrigin(requestMeta.resolveEmbedRequestOrigin())
-    : requestMeta?.origin === undefined
-      ? undefined
-      : validateEmbedRequestOrigin(requestMeta.origin);
-  if (
+  const opensFullApp =
     resource.requiresEmbedSession === true &&
-    !requestOrigin &&
-    (!widgetTargets || !Object.hasOwn(widgetTargets, actionName))
-  ) {
+    (!widgetTargets || !Object.hasOwn(widgetTargets, actionName));
+  let requestOrigin: string | undefined;
+  try {
+    requestOrigin = requestMeta?.resolveEmbedRequestOrigin
+      ? validateEmbedRequestOrigin(requestMeta.resolveEmbedRequestOrigin())
+      : requestMeta?.origin === undefined
+        ? undefined
+        : validateEmbedRequestOrigin(requestMeta.origin);
+  } catch (error) {
+    // A full-app tool falls back to its link; one rejected origin must not
+    // fail the whole catalog it is listed in.
+    if (!opensFullApp) throw error;
+    console.warn(
+      `[mcp] ${actionName} opens as a link: the server rejects this request's embed origin: ${describeThrownForLog(error)}`,
+    );
+    return null;
+  }
+  if (opensFullApp && !requestOrigin) {
     // A full-app session is minted for the request's origin; without one the
     // tool answers with a link.
     return null;

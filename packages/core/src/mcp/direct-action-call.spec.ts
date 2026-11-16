@@ -3064,7 +3064,7 @@ describe("direct tools/call full-app embeds", () => {
         description: "A widget target that names nothing to open",
         readOnly: true,
         mcpApp: fullApp,
-        run: async () => ({ id: "t-10", title: "Thread" }),
+        run: async () => ({ id: "t-10", url: "/inbox/t-10" }),
       }),
       "open-thread": act({
         description: "Open a thread",
@@ -3253,7 +3253,7 @@ describe("direct tools/call full-app embeds", () => {
     ]);
   });
 
-  it("flags a call whose widget target produced no widget", async () => {
+  it("opens no full app for a tool whose widget target produced no widget", async () => {
     const result = await call("open-unused-target");
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain(

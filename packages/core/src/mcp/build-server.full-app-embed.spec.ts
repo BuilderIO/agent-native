@@ -161,14 +161,42 @@ describe("withServerMintedFullAppEmbedStart", () => {
     }
   });
 
-  it("keeps a session the action minted itself", async () => {
-    const record = { embedStartUrl: "https://other.test/start?ticket=own" };
+  it.each([
+    `${ORIGIN}/calendar/_agent-native/embed/start?ticket=own`,
+    "/_agent-native/embed/start?ticket=own",
+  ])("keeps a session the action minted on this server: %s", async (url) => {
+    const record = { embedStartUrl: url };
     await expect(
       inRequest(() =>
         withServerMintedFullAppEmbedStart(record, entry(), {}, ANCHOR),
       ),
     ).resolves.toBe(record);
     expect(mint).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "https://other.test/_agent-native/embed/start?ticket=own",
+    `${ORIGIN}/inbox?ticket=own`,
+    "//other.test/_agent-native/embed/start?ticket=own",
+    "/\\other.test/_agent-native/embed/start?ticket=own",
+  ])("replaces a start URL this server did not issue: %s", async (url) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await inRequest(() =>
+        withServerMintedFullAppEmbedStart(
+          { url: "/inbox", embedStartUrl: url },
+          entry(),
+          {},
+          ANCHOR,
+        ),
+      );
+      expect(result).toMatchObject({
+        embedStartUrl: `${ORIGIN}/_agent-native/embed/start?ticket=full`,
+      });
+      expect(JSON.stringify(result)).not.toContain("ticket=own");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("drops every ticket from a result that opts out", async () => {
@@ -202,7 +230,7 @@ describe("withServerMintedFullAppEmbedStart", () => {
         () => withServerMintedFullAppEmbedStart(record, entry(), {}, ANCHOR),
         context,
       ),
-    ).resolves.toBe(record);
+    ).resolves.toEqual(record);
     expect(mint).not.toHaveBeenCalled();
   });
 
