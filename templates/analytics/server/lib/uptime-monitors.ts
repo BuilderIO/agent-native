@@ -1522,7 +1522,7 @@ export async function saveMonitor(
   // A URL saved before credentials were refused stays editable as long as the
   // URL itself is unchanged.
   const url =
-    stored && (input.url ?? "").trim() === stored.url
+    stored && input.url.trim() === stored.url
       ? stored.url
       : normalizeUrl(input.url);
   const method = normalizeMethod(input.method);
