@@ -144,6 +144,30 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
     ).rejects.toThrow(/Sensitive framework table "chat_threads"/);
   });
 
+  it.each([
+    "sandbox_executions",
+    "automation_runs",
+    "agent_trace_spans",
+    "agent_trace_summaries",
+    "agent_feedback",
+    "agent_instruction_updates",
+  ])("refuses member B any read of %s in a shared org", async (table) => {
+    await withClient(async (c) => {
+      await c.execute(
+        `CREATE TABLE ${table} (id TEXT PRIMARY KEY, org_id TEXT, body TEXT)`,
+      );
+      await c.execute({
+        sql: `INSERT INTO ${table} VALUES (?, ?, ?)`,
+        args: ["row-a", "org-1", "A-private-run"],
+      });
+    });
+    vi.stubEnv("AGENT_USER_EMAIL", "b@x.com");
+    vi.stubEnv("AGENT_ORG_ID", "org-1");
+    await expect(runQuery(`SELECT body FROM ${table}`)).rejects.toThrow(
+      new RegExp(`Sensitive framework table "${table}"`),
+    );
+  });
+
   it("rejects a schema-qualified write", async () => {
     const { default: dbExec } = await import("./exec.js");
     await expect(
