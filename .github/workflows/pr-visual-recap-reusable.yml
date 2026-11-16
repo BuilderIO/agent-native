@@ -531,7 +531,7 @@ jobs:
           run_claude() {
             set +e
             mkdir -p "$RUNNER_TEMP/recap-agent-home"
-            env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
+            env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" npx -y @anthropic-ai/claude-code@2.1.325 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
             CLAUDE_STATUS="$?"
             set -e
             echo "$CLAUDE_STATUS" > claude-exit-code.txt
@@ -701,7 +701,7 @@ jobs:
           done
           set +e
           mkdir -p "$RUNNER_TEMP/recap-agent-home"
-          env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-repair-result.json 2> claude-repair-stderr.log
+          env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" npx -y @anthropic-ai/claude-code@2.1.325 "${CLAUDE_ARGS[@]}" > claude-repair-result.json 2> claude-repair-stderr.log
           CLAUDE_REPAIR_STATUS="$?"
           set -e
           echo "$CLAUDE_REPAIR_STATUS" > claude-repair-exit-code.txt
