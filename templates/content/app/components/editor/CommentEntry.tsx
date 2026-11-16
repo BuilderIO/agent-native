@@ -212,13 +212,15 @@ export function CommentEntry({
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const savedImages = comment.attachments ?? [];
+  // An edit holds no images of its own until its writer changes them, so a
+  // draft kept from before another save added one can't send the old list.
   const initialDraft = {
     text: comment.content,
     mentions: comment.mentions,
     aiDraft: null,
-    images: savedImages,
   };
   const draft = useCommentDraft(`edit:${comment.id}`, initialDraft);
+  const editImages = draft.draft.images ?? savedImages;
   const inputRef = useRef<TiptapComposerHandle>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
   // Set once a delete lands: where focus goes when the row goes.
@@ -386,7 +388,8 @@ export function CommentEntry({
   // Compared as a save would store them: the editor reports a mention per
   // pill, the stored comment one per name.
   const imagesEdited =
-    JSON.stringify(draftImages(draft.draft)) !== JSON.stringify(savedImages);
+    draft.draft.images !== undefined &&
+    JSON.stringify(draft.draft.images) !== JSON.stringify(savedImages);
   const edited =
     draft.draft.text.trim() !== comment.content.trim() ||
     imagesEdited ||
@@ -650,7 +653,7 @@ export function CommentEntry({
             onChange={draft.setText}
             mentions={draft.draft.mentions}
             onMentionsChange={draft.setMentions}
-            images={draftImages(draft.draft)}
+            images={editImages}
             onImagesChange={draft.setImages}
             imageDocumentId={documentId}
             onSubmit={save}

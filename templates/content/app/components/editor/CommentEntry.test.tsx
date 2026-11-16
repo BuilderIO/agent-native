@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { CommentImage } from "@shared/comment-images";
 import { serializeStoredCommentMentions } from "@shared/comment-mentions";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -88,6 +89,8 @@ vi.mock("./CommentComposer", () => ({
     confirmEscape,
     ariaLabel,
     submitLabel,
+    images,
+    onImagesChange,
   }: {
     value: string;
     onChange: (value: string) => void;
@@ -97,6 +100,8 @@ vi.mock("./CommentComposer", () => ({
     confirmEscape?: string | false;
     ariaLabel: string;
     submitLabel?: string;
+    images?: readonly CommentImage[];
+    onImagesChange?: (images: CommentImage[]) => void;
   }) => (
     <>
       <textarea
@@ -108,6 +113,11 @@ vi.mock("./CommentComposer", () => ({
       {submitLabel ? <button onClick={onSubmit}>{submitLabel}</button> : null}
       {onCancel ? <button onClick={onCancel}>comments.cancel</button> : null}
       {onEscape ? <button onClick={onEscape}>Escape</button> : null}
+      {onImagesChange ? (
+        <button onClick={() => onImagesChange(images?.slice(1) ?? [])}>
+          Remove first image
+        </button>
+      ) : null}
     </>
   ),
 }));
@@ -177,6 +187,24 @@ function Harness({
       )}
     </CommentDraftProvider>
   );
+}
+async function type(text: string) {
+  const area = container.querySelector("textarea");
+  expect(area).not.toBeNull();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )!.set!.call(area, text);
+    area!.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+function image(id: string): CommentImage {
+  return {
+    url: `/api/private-media/${id}`,
+    name: `${id}.png`,
+    contentType: "image/png",
+  };
 }
 async function click(label: string) {
   const button = [...container.querySelectorAll("button")].find(
@@ -348,6 +376,47 @@ it("has Escape confirm only a changed edit, and restores the comment once it can
   await click("comments.edit");
   expect(container.querySelector("textarea")?.value).toBe(comment.content);
   expect(confirmEscape()).toBe("false");
+});
+
+it("leaves images another save added alone when an edit only changes the text", async () => {
+  mutateAsync.mockResolvedValue(undefined);
+  const first = { ...comment, attachments: [image("first")] };
+  await act(async () => root.render(<Harness entry={first} />));
+  await click("comments.edit");
+  await type("Original comment, revised");
+  // Another tab saves a second image while this edit is open.
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{ ...first, attachments: [image("first"), image("second")] }}
+      />,
+    ),
+  );
+  await click("comments.save");
+
+  expect(mutateAsync).toHaveBeenCalledTimes(1);
+  const [request] = mutateAsync.mock.calls[0];
+  expect(request.content).toBe("Original comment, revised");
+  expect(request).not.toHaveProperty("attachments");
+});
+
+it("sends the images an edit changed", async () => {
+  mutateAsync.mockResolvedValue(undefined);
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{ ...comment, attachments: [image("first"), image("second")] }}
+      />,
+    ),
+  );
+  await click("comments.edit");
+  await click("Remove first image");
+  await click("comments.save");
+
+  expect(mutateAsync).toHaveBeenCalledWith(
+    expect.objectContaining({ attachments: [image("second")] }),
+    expect.anything(),
+  );
 });
 
 it("does not count a repeated mention's extra pills as an edit", async () => {
