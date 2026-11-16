@@ -1644,7 +1644,11 @@ export async function withServerMintedFullAppEmbedStart(
     [record.deepLinkUrl, record.url, record.path]
       .map(embedTarget)
       .find((value): value is string => !!value) ?? linkedTarget();
-  if (!targetPath) return result;
+  if (!targetPath) {
+    return typeof record.embedStartUrl === "string"
+      ? withoutMcpAppEmbedTicket(record)
+      : result;
+  }
   const ticket = await createEmbedSessionTicket({
     ownerEmail,
     ...(ctx?.orgId ? { orgId: ctx.orgId } : {}),

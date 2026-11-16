@@ -108,6 +108,9 @@ export function preserveActionFlags(
     out.requiresAuth = entry.requiresAuth;
   }
   if (typeof entry.uiOnly === "boolean") out.uiOnly = entry.uiOnly;
+  if (entry.requiresSignedInBrowser === true) {
+    out.requiresSignedInBrowser = true;
+  }
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
   if (typeof entry.grounding === "boolean") out.grounding = entry.grounding;
   if (typeof entry.allowInPlanMode === "boolean") {

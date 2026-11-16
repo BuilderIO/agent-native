@@ -1516,6 +1516,18 @@ export function generateWorkerEntry(
     const uiActionContext = actionIsUiOnly || actionDeclaresApproval
       ? await getGeneratedUiActionContext(event, actionIsEmbedded)
       : undefined;
+    if (
+      ${varName}.requiresSignedInBrowser === true &&
+      hasGeneratedEmbedCredential(event)
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: "Sign in to the app in your browser to do this.",
+          errorCode: "signed_in_browser_required",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
     if (actionIsUiOnly && !uiActionContext) {
       return new Response(
         JSON.stringify({

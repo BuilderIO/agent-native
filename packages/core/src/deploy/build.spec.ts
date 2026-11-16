@@ -3000,6 +3000,59 @@ export default {
     },
   );
 
+  it.each([
+    ["an embedded panel", true, 403],
+    ["a signed-in browser", false, 200],
+  ] as const)(
+    "runs a signed-in-browser action from %s in generated workers",
+    async (_caller, embedded, status) => {
+      vi.stubEnv("OAUTH_STATE_SECRET", randomBytes(32).toString("base64url"));
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "rotate-action.mjs");
+      fs.writeFileSync(
+        actionPath,
+        `export default {
+  requiresSignedInBrowser: true,
+  run: async () => ({ rotated: true }),
+};`,
+      );
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry(
+          [],
+          [],
+          [],
+          [{ name: "rotate-key", absPath: actionPath, method: "post" }],
+        ),
+      );
+      const headers = new Headers({ "content-type": "application/json" });
+      if (embedded) {
+        const token = signEmbedSessionToken({
+          ownerEmail: "panel-owner@example.com",
+          audienceHost: "https://app.test",
+          targetPath: "/",
+          scope: "full-app",
+        });
+        headers.set("cookie", `${EMBED_SESSION_COOKIE}=${token}`);
+      }
+      const response = await worker.fetch(
+        new Request("https://app.test/_agent-native/actions/rotate-key", {
+          method: "POST",
+          headers,
+          body: "{}",
+        }),
+        {},
+        {},
+      );
+      expect(response.status).toBe(status);
+      const body = await response.json();
+      if (embedded) {
+        expect(body).toMatchObject({ errorCode: "signed_in_browser_required" });
+      } else {
+        expect(body).toEqual({ rotated: true });
+      }
+    },
+  );
+
   it("pre-marks generated plugin slots before running async plugins", () => {
     const dir = makeTempDir();
     const agentChatPlugin = path.join(

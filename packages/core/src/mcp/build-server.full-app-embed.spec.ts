@@ -270,4 +270,28 @@ describe("withServerMintedFullAppEmbedStart", () => {
     );
     expect(mint).not.toHaveBeenCalled();
   });
+
+  it("drops a start URL it did not issue even when it opens no page", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(
+        inRequest(() =>
+          withServerMintedFullAppEmbedStart(
+            {
+              title: "Inbox",
+              embedStartUrl: `${ORIGIN}/_agent-native/embed/start?ticket=someone-elses`,
+              embedTargetPath: "/inbox",
+              embedExpiresAt: 1,
+            },
+            entry(),
+            {},
+            ANCHOR,
+          ),
+        ),
+      ).resolves.toEqual({ title: "Inbox" });
+      expect(mint).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
