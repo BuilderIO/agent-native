@@ -720,6 +720,10 @@ const messages = {
     saveThumbnail: "Save thumbnail",
   },
   shareDialog: {
+    enterPassword: "Enter a password",
+    showPassword: "Show password",
+    hidePassword: "Hide password",
+    copyPassword: "Copy password",
     redactionsPendingTitle: "Finish redactions before sharing",
     redactionsPendingBody:
       "Pending redactions: {{count}}. Apply them in the editor before sharing; the video still contains the original content.",

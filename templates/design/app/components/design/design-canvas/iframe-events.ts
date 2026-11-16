@@ -25,9 +25,16 @@ export interface IframeImagePasteFile {
   name: string;
 }
 
+export interface IframeImagePasteSkipped {
+  tooMany: number;
+  tooLarge: number;
+  invalid: number;
+}
+
 export interface IframeImagePastePayload {
   files: IframeImagePasteFile[];
   screenId?: string;
+  skipped?: IframeImagePasteSkipped;
 }
 
 export interface IframeContextMenuPayload {

@@ -273,7 +273,7 @@ export async function handleWorkspaceProviderOAuthStart(
   providerId: GenericWorkspaceOAuthProvider,
 ): Promise<Response | Record<string, unknown>> {
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (!session?.email) return unauthorized(event);
   const query = getQuery(event);
   const requestedScope = parseWorkspaceProviderOAuthScope(text(query.scope));
@@ -535,7 +535,7 @@ export async function handleWorkspaceProviderOAuthCallback(
   providerId: GenericWorkspaceOAuthProvider,
 ): Promise<Response | Record<string, unknown>> {
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (!session?.email) return unauthorized(event);
   const query = getQuery(event);
   const code = text(query.code);
@@ -2196,7 +2196,7 @@ async function requireWorkspaceProviderOAuthAccess(
     })
   | null
 > {
-  const context = await getOrgContext(event).catch(() => null);
+  const context = await getOrgContext(event);
   if (!context || !context.orgId) {
     setResponseStatus(event, 403);
     return null;

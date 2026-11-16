@@ -37,6 +37,8 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  toDesktopOpenUrl: (url: string) =>
+    `agentnative://open?${url.split("?")[1] ?? ""}`,
   buildEmbedStartPath: (ticket: string) =>
     `/_agent-native/embed/start?ticket=${ticket}`,
   buildDeepLink: ({

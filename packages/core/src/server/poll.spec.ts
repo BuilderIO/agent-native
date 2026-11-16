@@ -6,6 +6,7 @@ import {
   getChangesSince,
   getVersion,
   recordChange,
+  SyncEventReadError,
 } from "./poll.js";
 
 // The default access checks, for the tests that use them. Design stands in
@@ -376,7 +377,7 @@ describe("AppSyncState read through other people's resources", () => {
     }
   });
 
-  it("hides only the failing resource when a batch check fails", async () => {
+  it("marks only the failing resource unreadable when a batch check fails", async () => {
     const rows = durableRows([
       { resourceType: "document", resourceId: "shared" },
       { resourceType: "document", resourceId: "broken" },
@@ -394,19 +395,33 @@ describe("AppSyncState read through other people's resources", () => {
     const resolveAccess = vi.fn(async () => ({ role: "viewer" }));
     const state = stateReading(rows, { resolveAccess, resolveAccessMany });
 
-    const result = await state.getCombinedChangesSinceForUser(
-      5,
-      "reader@example.com",
-      undefined,
-      true,
-      { version: 5, id: "" },
-    );
-
-    expect(result.events.map((event) => event.resourceId)).toEqual([
-      "shared",
-      "mine",
+    // The read stops at the failed check and asks its client to resync,
+    // instead of hiding a change the reader may be allowed to see.
+    await expect(
+      state.getCombinedChangesSinceForUser(
+        5,
+        "reader@example.com",
+        undefined,
+        true,
+        { version: 5, id: "" },
+      ),
+    ).rejects.toBeInstanceOf(SyncEventReadError);
+    const visibilityOf = (resourceId: string) =>
+      state.getChangeVisibilityForUser(
+        {
+          owner: "writer@example.com",
+          resourceType: "document",
+          resourceId,
+        },
+        "reader@example.com",
+        undefined,
+      );
+    // The other resources still get their answers.
+    expect(["shared", "broken", "mine"].map(visibilityOf)).toEqual([
+      "visible",
+      "unreadable",
+      "visible",
     ]);
-    expect(result.cursorLimited).toBeUndefined();
     // The batch, then each resource as a batch of its own.
     expect(resolveAccessMany).toHaveBeenCalledTimes(4);
     // The single resolver may follow other rules, so the fallback never
@@ -622,7 +637,7 @@ describe("AppSyncState read through other people's resources", () => {
     expect(resolveAccess).toHaveBeenCalledTimes(2);
   });
 
-  it("passes a change whose checks miss their deadline twice in a row", async () => {
+  it("asks for a resync when a change's checks miss their deadline twice in a row", async () => {
     vi.useFakeTimers();
     const rows = durableRows([
       { resourceType: "document", resourceId: "a" },
@@ -651,10 +666,10 @@ describe("AppSyncState read through other people's resources", () => {
     expect(await readIds()).toEqual([]);
     await vi.advanceTimersByTimeAsync(30_000);
     expect(await readIds()).toEqual([]);
-    // The second check misses its deadline too, so "a" fails closed, as a
-    // check that throws does, and reads move past it.
+    // The second check misses its deadline too, so "a" counts as a check
+    // that failed, and the read asks its client to resync.
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(await readIds()).toEqual(["b"]);
+    await expect(readIds()).rejects.toBeInstanceOf(SyncEventReadError);
   });
 
   it("starts the count of missed deadlines over after an answer", async () => {
@@ -685,7 +700,7 @@ describe("AppSyncState read through other people's resources", () => {
     expect(visibility()).toBe("visible");
 
     // Once that answer is stale, a third check misses its deadline. It's the
-    // first miss since the answer, so the change is checked again, not hidden.
+    // first miss since the answer, so the change is checked again.
     await vi.advanceTimersByTimeAsync(1_000);
     expect(visibility()).toBe("pending");
     await vi.advanceTimersByTimeAsync(30_000);
@@ -770,7 +785,7 @@ describe("AppSyncState read through other people's resources", () => {
     expect(visibilityOf("b")).toBe("pending");
     await vi.advanceTimersByTimeAsync(30_000);
     // That is the first deadline a check of "b" missed, so "b" is checked
-    // again instead of hidden.
+    // again.
     expect(visibilityOf("b")).toBe("pending");
     // A check asks its resolver on the next microtask.
     await vi.advanceTimersByTimeAsync(0);
@@ -1147,6 +1162,45 @@ describe("AppSyncState read through other people's resources", () => {
     await vi.advanceTimersByTimeAsync(50);
 
     expect(delivered).toEqual(["mine"]);
+  });
+
+  it("stops at an unchecked change before an unreadable row after it", async () => {
+    const rows = [
+      ...durableRows([{ resourceType: "document", resourceId: "a" }]),
+      { id: "row-0001", version: 7, event_json: "{not json" },
+    ];
+    const state = stateReading(rows, {
+      resolveAccess: () => new Promise(() => {}),
+    });
+    const read = () =>
+      state.getDurableChangesSinceForUser(5, "reader@example.com", undefined, {
+        version: 5,
+        id: "",
+      });
+
+    // Every row is read before the walk, to start its checks, but the
+    // unreadable one fails the read only once the walk reaches it.
+    const result = await read();
+    expect(result.events).toEqual([]);
+    expect(result.cursorLimited).toBe(true);
+
+    // Once "a" is answered, the walk reaches the unreadable row.
+    const shared = stateReading(rows, {
+      resolveAccess: async () => viewerOf("a"),
+    });
+    await shared.getDurableChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      { version: 5, id: "" },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await expect(
+      shared.getDurableChangesSinceForUser(5, "reader@example.com", undefined, {
+        version: 5,
+        id: "",
+      }),
+    ).rejects.toBeInstanceOf(SyncEventReadError);
   });
 
   it("does not check resources the reader owns or that are public", async () => {

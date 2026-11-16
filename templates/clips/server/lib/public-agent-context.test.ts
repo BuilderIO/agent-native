@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, open, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -90,8 +91,19 @@ vi.mock("./agent-views.js", async (importOriginal) => ({
 }));
 
 vi.mock("./share-password.js", () => ({
-  getRecordingAccessTokenResourceId: (id: string, password: string | null) =>
-    password ? `${id}:password-scoped` : `${id}:update-scoped`,
+  getRecordingAccessTokenResourceId: vi.fn(
+    (
+      id: string,
+      password: string | null,
+      _version: string,
+      visibility: string,
+    ) => {
+      const base = password ? `${id}:password-scoped` : `${id}:update-scoped`;
+      return visibility === "public"
+        ? base
+        : `${base}:visibility:${visibility}`;
+    },
+  ),
   verifySharePassword: vi.fn(() => false),
 }));
 
@@ -182,7 +194,7 @@ describe("public agent context access", () => {
   it("mints a short-lived API token for owners sharing password-protected public clips", async () => {
     mockRecordings.rows = [
       makeRecording({
-        password: "encrypted-password",
+        password: randomUUID(),
       }),
     ];
     mockGetSession.mockResolvedValue({ email: "owner@example.com" });
@@ -200,11 +212,65 @@ describe("public agent context access", () => {
     });
   });
 
+  it.each(["private", "org"] as const)(
+    "rejects a real %s viewer grant after the password becomes public",
+    async (visibility) => {
+      const storedPassword = randomUUID();
+      const core = await vi.importActual<
+        typeof import("@agent-native/core/server")
+      >("@agent-native/core/server");
+      const passwords = await vi.importActual<
+        typeof import("./share-password.js")
+      >("./share-password.js");
+      const mockedPasswords = await import("./share-password.js");
+      const token = core.signScopedAgentAccessToken({
+        resourceKind: "clip-agent-context",
+        resourceId: passwords.getRecordingAccessTokenResourceId(
+          "rec-1",
+          storedPassword,
+          "initial",
+          visibility,
+        ),
+      });
+      vi.mocked(mockedPasswords.getRecordingAccessTokenResourceId)
+        .mockImplementationOnce(passwords.getRecordingAccessTokenResourceId)
+        .mockImplementationOnce(passwords.getRecordingAccessTokenResourceId);
+      mockVerifyScopedAgentAccessToken.mockImplementation(
+        core.verifyScopedAgentAccessToken,
+      );
+      mockRecordings.rows = [
+        makeRecording({ visibility, password: storedPassword }),
+      ];
+      expect(
+        (
+          await loadPublicAgentAccess(
+            {} as Parameters<typeof loadPublicAgentAccess>[0],
+            "rec-1",
+            { token },
+          )
+        ).ok,
+      ).toBe(true);
+      mockRecordings.rows = [
+        makeRecording({ visibility: "public", password: storedPassword }),
+      ];
+      expect(
+        await loadPublicAgentAccess(
+          {} as Parameters<typeof loadPublicAgentAccess>[0],
+          "rec-1",
+          { token },
+        ),
+      ).toMatchObject({
+        ok: false,
+        failure: { status: 401, body: { passwordRequired: true } },
+      });
+    },
+  );
+
   it("does not accept an agent token scoped before a password was added", async () => {
     mockRecordings.rows = [
       makeRecording({
         visibility: "private",
-        password: "encrypted-password",
+        password: randomUUID(),
       }),
     ];
 
@@ -217,7 +283,7 @@ describe("public agent context access", () => {
       "old-agent-token",
       {
         resourceKind: "clip-agent-context",
-        resourceId: "rec-1:password-scoped",
+        resourceId: "rec-1:password-scoped:visibility:private",
       },
     );
   });
@@ -243,13 +309,13 @@ describe("public agent context access", () => {
       "agent-token",
       {
         resourceKind: "clip-agent-context",
-        resourceId: "rec-1:update-scoped",
+        resourceId: "rec-1:update-scoped:visibility:private",
       },
     );
   });
 
   it("lets a Share with agents link from an editor read app activity events but never a share password", async () => {
-    mockRecordings.rows = [makeRecording({ password: "encrypted-password" })];
+    mockRecordings.rows = [makeRecording({ password: randomUUID() })];
 
     vi.mocked(verifySharePassword).mockReturnValueOnce(true);
     const viaPassword = await loadPublicAgentAccess({} as any, "rec-1", {

@@ -700,7 +700,7 @@ Quando o usuário clica no link em qualquer navegador ou webview in-line, `GET /
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -732,7 +732,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. Resolve a sessão do **navegador** via `getSession` (o protetor de autenticação ignora o caminho exato `/_agent-native/open`).
 2. Se não autenticado, atende o login configurado HTML **no mesmo URL**; o manipulador de sucesso do formulário recarrega `window.location`, inserindo novamente a rota autenticada - sem encanamento `?next=`.
 3. Grava o comando de estado do aplicativo `navigate` existente (carga útil = cada parâmetro de consulta não reservado + `view`) com escopo no e-mail da sessão do navegador com `requestSource: "deep-link"` e decodifica um rascunho de url base64 `compose` em uma chave `compose-<id>`.
-4. 302-redireciona para um caminho relativo seguro de mesma origem (`to=`, caso contrário, `/<view>`, caso contrário, um `resolveOpenPath` por modelo), encaminhando parâmetros de filtro `f_*` para que listas/paineles abram pré-filtrados antes mesmo que o comando `navigate` seja drenado.
+4. 302-redireciona para um caminho relativo seguro de mesma origem (`to=`, caso contrário, um `resolveOpenPath` por modelo, caso contrário, `/<view>`), encaminhando parâmetros de filtro `f_*` para que listas/paineles abram pré-filtrados antes mesmo que o comando `navigate` seja drenado.
 
 Os redirecionamentos de origem cruzada, `//host` relativos ao esquema e control-char são rejeitados (proteção de redirecionamento aberto). A rota pode ser desativada por aplicativo via `disableOpenRoute`.
 

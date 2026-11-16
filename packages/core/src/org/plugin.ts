@@ -43,6 +43,7 @@ import {
   listInvitationsHandler,
   createInvitationHandler,
   acceptInvitationHandler,
+  cancelInvitationHandler,
   joinByDomainHandler,
   setDomainHandler,
   setWorkspaceUrlHandler,
@@ -333,6 +334,13 @@ export function createOrgPlugin(): NitroPluginDef {
             return { error: "Method not allowed" };
           }
           return acceptInvitationHandler(event);
+        }
+        if (/^\/[^/]+\/?$/.test(tail)) {
+          if (method !== "DELETE") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return cancelInvitationHandler(event);
         }
         setResponseStatus(event, 404);
         return { error: "Not found" };

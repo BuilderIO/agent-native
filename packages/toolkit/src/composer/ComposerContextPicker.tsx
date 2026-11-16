@@ -104,7 +104,10 @@ export function ComposerContextPicker({
           <>
             {actionError && (
               <>
-                <div role="alert" className="p-3 text-sm text-destructive">
+                <div
+                  role="alert"
+                  className="p-3 text-sm agent-kit-tone-warning"
+                >
                   {actionError.message}
                 </div>
                 {actionError.retry && (
@@ -133,7 +136,10 @@ export function ComposerContextPicker({
           <>
             {error ? (
               <>
-                <div role="alert" className="p-3 text-sm text-destructive">
+                <div
+                  role="alert"
+                  className="p-3 text-sm agent-kit-tone-warning"
+                >
                   {error}
                 </div>
                 {retry && (

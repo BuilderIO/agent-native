@@ -36,11 +36,16 @@ import { resolveSecret } from "../server/credential-provider.js";
 import { resolveGoogleProviderCredentialCandidates } from "../server/google-oauth-credentials.js";
 import { getCredentialContext } from "../server/request-context.js";
 import { mergeDefinitionsById } from "../shared/merge-by-id.js";
+import { parseRetryAfterMs } from "../shared/retry-after.js";
 import { resolveWorkspaceConnectionCredentialForApp } from "../workspace-connections/credentials.js";
 import {
   resolveWorkspaceConnectionForApp,
   type WorkspaceConnection,
 } from "../workspace-connections/store.js";
+import {
+  recordProviderCall,
+  type ProviderCallCensusKey,
+} from "./call-census.js";
 import type {
   CustomProviderConfig,
   CustomProviderAuthKind,
@@ -115,7 +120,9 @@ export type ProviderApiMethod =
   | "PUT"
   | "PATCH"
   | "DELETE"
-  | "HEAD";
+  | "HEAD"
+  | "PROPFIND"
+  | "REPORT";
 
 export interface FetchAllPagesConfig {
   cursorPath: string;
@@ -494,6 +501,8 @@ export type ProviderApiCredentialResolver = (
 export interface ProviderApiRuntimeOptions {
   appId: string;
   maxResponseBytes?: number;
+  /** Do not replay unsafe requests after their first dispatch attempt. */
+  unsafeRequestPolicy?: "single-attempt";
   providerIds?: readonly (ProviderApiId | string)[];
   providerOverrides?: readonly ProviderApiConfig[];
   localCredentialSource?: string;
@@ -505,6 +514,9 @@ export interface ProviderApiRuntimeOptions {
 
 export interface ProviderApiRuntime {
   providerIds: readonly ProviderApiId[];
+  readonly requestCapabilities?: Readonly<{
+    singleAttemptUnsafeRequests: boolean;
+  }>;
   listCatalog(
     provider?: ProviderApiId | string,
   ): ReturnType<typeof listProviderApiCatalog> | Promise<unknown[]>;
@@ -2061,6 +2073,10 @@ export function createProviderApiRuntime(
   };
   const runtime: ProviderApiRuntime = {
     providerIds,
+    requestCapabilities: Object.freeze({
+      singleAttemptUnsafeRequests:
+        runtimeOptions.unsafeRequestPolicy === "single-attempt",
+    }),
     listCatalog: (provider) =>
       listProviderApiCatalogWithCustom(
         provider,
@@ -2321,6 +2337,7 @@ export async function executeProviderApiRequest(
   const endpoint = await resolveBaseUrl(config, runtime, ctx, args);
   const placeholders = await resolvePlaceholders(config, runtime, ctx, args);
   const method = normalizeMethod(args.method);
+  const singleAttempt = resolveSingleAttempt(runtime, method, args);
   const url = buildProviderUrl({
     config,
     baseUrl: endpoint.url,
@@ -2407,9 +2424,16 @@ export async function executeProviderApiRequest(
           body: pageBody,
           maxBytes: effectiveMaxBytes,
           maxResponseBytes: effectiveMaxBytes,
+          requireTextForSave: Boolean(args.saveToFile),
           timeoutMs: clampTimeout(args.timeoutMs),
           signal: args.signal,
           secretValues: auth.secretValues,
+          census: providerCallCensusKey(
+            config.id,
+            runtime,
+            method,
+            args.connectionId,
+          ),
           quota: {
             identity: quotaIdentity,
             method,
@@ -2417,7 +2441,10 @@ export async function executeProviderApiRequest(
               pageUrl.href,
               auth.secretValues,
             ),
-            requestKey,
+            requestKey:
+              requestKey && args.saveToFile
+                ? `${requestKey}:text-save`
+                : requestKey,
           },
         }),
         config,
@@ -2467,18 +2494,29 @@ export async function executeProviderApiRequest(
   const response = applyBodyEnvelopeOutcome(
     await fetchWithTimeout(url.href, {
       method,
+      singleAttempt,
       headers,
       body,
       maxBytes: effectiveMaxBytes,
       maxResponseBytes: effectiveMaxBytes,
+      requireTextForSave: Boolean(args.saveToFile),
       timeoutMs: clampTimeout(args.timeoutMs),
       signal: args.signal,
       secretValues: auth.secretValues,
+      census: providerCallCensusKey(
+        config.id,
+        runtime,
+        method,
+        args.connectionId,
+      ),
       quota: {
         identity: quotaIdentity,
         method,
         target: describeProviderRequestTarget(url.href, auth.secretValues),
-        requestKey,
+        requestKey:
+          requestKey && args.saveToFile
+            ? `${requestKey}:text-save`
+            : requestKey,
       },
     }),
     config,
@@ -3342,6 +3380,7 @@ async function executeCustomProviderApiRequest(
 ): Promise<unknown> {
   const ctx = requireRuntimeCredentialContext(runtime, customConfig.id);
   const method = normalizeMethod(args.method);
+  const singleAttempt = resolveSingleAttempt(runtime, method, args);
   const baseUrl = customConfig.baseUrl;
 
   const syntheticConfig: ProviderApiConfig = {
@@ -3438,9 +3477,16 @@ async function executeCustomProviderApiRequest(
         body: pageBody,
         maxBytes: effectiveMaxBytes,
         maxResponseBytes: effectiveMaxBytes,
+        requireTextForSave: Boolean(args.saveToFile),
         timeoutMs: clampTimeout(args.timeoutMs),
         signal: args.signal,
         secretValues: auth.secretValues,
+        census: providerCallCensusKey(
+          customConfig.id,
+          runtime,
+          method,
+          args.connectionId,
+        ),
         quota: {
           identity: quotaIdentity,
           method,
@@ -3448,7 +3494,10 @@ async function executeCustomProviderApiRequest(
             pageUrl.href,
             auth.secretValues,
           ),
-          requestKey,
+          requestKey:
+            requestKey && args.saveToFile
+              ? `${requestKey}:text-save`
+              : requestKey,
         },
       });
       return {
@@ -3489,26 +3538,36 @@ async function executeCustomProviderApiRequest(
     return { ...metadata, items };
   }
 
+  const requestKey = createProviderRequestDedupeKey({
+    method,
+    url: url.href,
+    ...(body === undefined ? {} : { body }),
+    headers,
+    maxBytes: effectiveMaxBytes,
+  });
   const response = await fetchWithTimeout(url.href, {
     method,
+    singleAttempt,
     headers,
     body,
     maxBytes: effectiveMaxBytes,
     maxResponseBytes: effectiveMaxBytes,
+    requireTextForSave: Boolean(args.saveToFile),
     timeoutMs: clampTimeout(args.timeoutMs),
     signal: args.signal,
     secretValues: auth.secretValues,
+    census: providerCallCensusKey(
+      customConfig.id,
+      runtime,
+      method,
+      args.connectionId,
+    ),
     quota: {
       identity: quotaIdentity,
       method,
       target: describeProviderRequestTarget(url.href, auth.secretValues),
-      requestKey: createProviderRequestDedupeKey({
-        method,
-        url: url.href,
-        body,
-        headers,
-        maxBytes: effectiveMaxBytes,
-      }),
+      requestKey:
+        requestKey && args.saveToFile ? `${requestKey}:text-save` : requestKey,
     },
   });
 
@@ -3838,6 +3897,17 @@ export async function defaultProviderApiCredentialResolver(
             ? { scopeId: options.ctx.orgId ?? undefined }
             : {}),
       };
+    }
+    // An explicit source is authoritative; a missing or revoked grant must
+    // never be substituted by a generic user/org credential. A key the
+    // connection simply does not hold is absent; any other status means the
+    // selected connection itself cannot be used, which callers must not read as
+    // "use the provider default".
+    if (options.connectionId?.trim()) {
+      if (result.status === "missing_ref") return null;
+      throw new Error(
+        `The selected workspace connection is not available (${result.status}).`,
+      );
     }
   }
 
@@ -4527,17 +4597,22 @@ async function resolveAuth(
         };
       }
     }
-    const token = await getGoogleServiceAccountToken(auth.scopes, runtime, ctx);
+    const token = await getGoogleServiceAccountToken(
+      auth.scopes,
+      runtime,
+      ctx,
+      {
+        config,
+        args,
+        ...(auth.workspaceProvider
+          ? { workspaceProvider: auth.workspaceProvider }
+          : {}),
+      },
+    );
     return {
-      headers: { Authorization: `Bearer ${token}` },
-      credentialSources: [
-        {
-          key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-          provider: config.id,
-          source: runtime.localCredentialSource ?? "app_local",
-        },
-      ],
-      secretValues: [token],
+      headers: { Authorization: `Bearer ${token.token}` },
+      credentialSources: [omitCredentialValue(token.credential)],
+      secretValues: [token.token, token.credential.value],
     };
   }
   if (auth.type === "oauth-bearer") {
@@ -4629,6 +4704,7 @@ async function resolveAuth(
       keys: auth.fallbackKeys ?? [auth.key],
       ctx,
       runtime,
+      connectionId: args.connectionId,
     });
     return {
       headers: { [auth.header]: credential.value },
@@ -4698,6 +4774,7 @@ async function resolveAuth(
       keys: auth.fallbackKeys ?? [auth.key],
       ctx,
       runtime,
+      connectionId: args.connectionId,
     });
     return {
       headers: { Authorization: `Bearer ${credential.value}` },
@@ -4973,76 +5050,156 @@ async function getGoogleServiceAccountToken(
   scopes: readonly string[],
   runtime: ProviderApiRuntimeOptions,
   ctx: CredentialContext,
-): Promise<string> {
-  const cacheKey = createHash("sha256")
-    .update(
-      `${runtime.appId}:${ctx.orgId ?? ctx.userEmail}:${scopes.join(" ")}`,
-    )
-    .digest("hex");
-  const cached = googleServiceTokenCache.get(cacheKey);
-  if (cached && Date.now() < cached.expiresAt - 30_000) return cached.token;
-
-  const credsJson = await resolveCredentialValue({
-    config: getProviderApiConfig("gcloud", runtime.providerOverrides),
-    runtime,
-    ctx,
-    key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-    args: { provider: "gcloud", path: "/" },
-  });
-  if (!credsJson) {
-    throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not configured");
-  }
-  let creds: {
-    type?: string;
-    client_email?: string;
-    private_key?: string;
-    token_uri?: string;
-  };
-  try {
-    creds = JSON.parse(credsJson) as typeof creds;
-  } catch {
-    throw new Error(
-      "GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON. Upload a service account JSON key.",
-    );
-  }
-  if (!creds.client_email || !creds.private_key) {
-    throw new Error(
-      "GOOGLE_APPLICATION_CREDENTIALS_JSON must be a service account JSON key.",
-    );
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  const aud = await resolveGoogleServiceAccountTokenUri(creds.token_uri);
-  const jwt = await signRs256Jwt(
-    {
-      iss: creds.client_email,
-      scope: scopes.join(" "),
-      aud,
-      iat: now,
-      exp: now + 3600,
-    },
-    creds.private_key,
+  source: {
+    config: ProviderApiConfig;
+    args: ProviderApiRequestArgs;
+    workspaceProvider?: string;
+  },
+): Promise<{ token: string; credential: ProviderApiResolvedCredential }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    clampTimeout(source.args.timeoutMs),
   );
-  const res = await fetch(aud, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`Google OAuth error ${res.status}: ${await res.text()}`);
+  const signal = source.args.signal
+    ? AbortSignal.any([source.args.signal, controller.signal])
+    : controller.signal;
+  try {
+    signal.throwIfAborted();
+    // Resolve before consulting the cache so source revocation is observed on
+    // every use. Cache identity includes exact credential material, never its
+    // plaintext value, as well as actor, source and authorization scopes.
+    const connectionId = source.args.connectionId?.trim();
+    // Without an explicit connection the lookup is the one this exchange has
+    // always made, through the gcloud provider's own credential order. Only a
+    // selected connection binds the lookup to the requesting provider.
+    const credential = await resolveCredentialResult(
+      connectionId
+        ? {
+            config: source.config,
+            runtime,
+            ctx,
+            key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+            args: source.args,
+            ...(source.workspaceProvider
+              ? { workspaceProvider: source.workspaceProvider }
+              : {}),
+          }
+        : {
+            config: getProviderApiConfig("gcloud", runtime.providerOverrides),
+            runtime,
+            ctx,
+            key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+            args: { provider: "gcloud", path: "/", signal },
+          },
+    );
+    if (
+      connectionId &&
+      (!credential?.value ||
+        credential.source !== "workspace_connection" ||
+        credential.connectionId !== connectionId)
+    ) {
+      throw new Error(
+        "The selected service account credential is not available.",
+      );
+    }
+    if (!credential?.value) {
+      throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not configured");
+    }
+    signal.throwIfAborted();
+    const credsJson = credential.value;
+    const cacheKey = createHash("sha256")
+      .update(
+        JSON.stringify([
+          runtime.appId,
+          ctx.orgId ?? null,
+          ctx.userEmail,
+          ctx.credentialScope ?? null,
+          source.config.id,
+          connectionId ?? null,
+          scopes,
+          createHash("sha256").update(credsJson).digest("hex"),
+        ]),
+      )
+      .digest("hex");
+    const cached = googleServiceTokenCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt - 30_000)
+      return { token: cached.token, credential };
+
+    let creds: {
+      type?: string;
+      client_email?: string;
+      private_key?: string;
+      token_uri?: string;
+    };
+    try {
+      creds = JSON.parse(credsJson) as typeof creds;
+    } catch {
+      throw new Error(
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON. Upload a service account JSON key.",
+      );
+    }
+    if (!creds.client_email || !creds.private_key) {
+      throw new Error(
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON must be a service account JSON key.",
+      );
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const aud = await resolveGoogleServiceAccountTokenUri(creds.token_uri);
+    const jwt = await signRs256Jwt(
+      {
+        iss: creds.client_email,
+        scope: scopes.join(" "),
+        aud,
+        iat: now,
+        exp: now + 3600,
+      },
+      creds.private_key,
+    );
+    signal.throwIfAborted();
+    const res = await fetch(aud, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion: jwt,
+      }),
+      signal,
+    });
+    if (!res.ok) {
+      throw new Error(`Google OAuth error ${res.status}: ${await res.text()}`);
+    }
+    const data: unknown = await res.json();
+    // A token whose request was cancelled while its body was read is never cached.
+    signal.throwIfAborted();
+    if (
+      !isPlainRecord(data) ||
+      "error" in data ||
+      typeof data.access_token !== "string" ||
+      !data.access_token ||
+      /\s/u.test(data.access_token) ||
+      (data.expires_in !== undefined &&
+        (typeof data.expires_in !== "number" ||
+          !Number.isSafeInteger(data.expires_in) ||
+          data.expires_in <= 0))
+    ) {
+      throw new Error("Google OAuth returned an invalid token response.");
+    }
+    const expiresAt = Date.now() + (data.expires_in ?? 3600) * 1000;
+    if (!Number.isSafeInteger(expiresAt))
+      throw new Error("Google OAuth returned an invalid token response.");
+    for (const [key, entry] of googleServiceTokenCache) {
+      if (entry.expiresAt <= Date.now()) googleServiceTokenCache.delete(key);
+    }
+    googleServiceTokenCache.set(cacheKey, {
+      token: data.access_token,
+      expiresAt,
+    });
+    return { token: data.access_token, credential };
+  } finally {
+    clearTimeout(timeout);
   }
-  const data = (await res.json()) as {
-    access_token: string;
-    expires_in?: number;
-  };
-  googleServiceTokenCache.set(cacheKey, {
-    token: data.access_token,
-    expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
-  });
-  return data.access_token;
 }
 
 async function resolveOAuthBearerToken(options: {
@@ -6390,7 +6547,9 @@ function normalizeMethod(
     normalized === "PUT" ||
     normalized === "PATCH" ||
     normalized === "DELETE" ||
-    normalized === "HEAD"
+    normalized === "HEAD" ||
+    normalized === "PROPFIND" ||
+    normalized === "REPORT"
   ) {
     return normalized;
   }
@@ -6442,6 +6601,43 @@ function runtimeOptionsAppId(runtime: ProviderApiRuntimeOptions): string {
   return runtime.appId || "app";
 }
 
+function resolveSingleAttempt(
+  runtime: ProviderApiRuntimeOptions,
+  method: ProviderApiMethod,
+  args: ProviderApiRequestArgs,
+): boolean {
+  const singleAttempt =
+    runtime.unsafeRequestPolicy === "single-attempt" &&
+    method !== "GET" &&
+    method !== "HEAD";
+  if (singleAttempt && args.fetchAllPages) {
+    throw new Error(
+      "Unsafe pagination is unavailable under the single-attempt policy.",
+    );
+  }
+  return singleAttempt;
+}
+
+/**
+ * Attribution key for the always-on provider call census, resolved at the
+ * request boundary so every app sharing a provider client is countable. The
+ * operation is the HTTP method only: paths can carry account ids and are
+ * never recorded.
+ */
+function providerCallCensusKey(
+  providerId: string,
+  runtime: ProviderApiRuntimeOptions,
+  method: ProviderApiMethod,
+  connectionId?: string | null,
+): ProviderCallCensusKey {
+  return {
+    app: runtimeOptionsAppId(runtime),
+    provider: providerId,
+    operation: method.toLowerCase(),
+    connection: connectionId ?? null,
+  };
+}
+
 async function fetchWithTimeout(
   optionsUrl: string,
   options: {
@@ -6455,9 +6651,13 @@ async function fetchWithTimeout(
     secretValues?: string[];
     quota?: ProviderApiFetchQuotaOptions;
     discardRedirectBody?: boolean;
+    requireTextForSave?: boolean;
+    census?: ProviderCallCensusKey;
+    singleAttempt?: boolean;
   },
 ): Promise<ProviderApiHttpResponse> {
-  const runOnce = async (): Promise<ProviderApiHttpResponse> => {
+  type FetchResult = ProviderApiHttpResponse & { bodyValidationError?: Error };
+  const runOnce = async (): Promise<FetchResult> => {
     const controller = new AbortController();
     const timeoutMs = clampTimeout(options.timeoutMs);
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -6488,9 +6688,13 @@ async function fetchWithTimeout(
           ? { maxResponseBytes: options.maxResponseBytes }
           : {}),
         secretValues,
+        ...(options.requireTextForSave === undefined
+          ? {}
+          : { requireTextForSave: options.requireTextForSave }),
         ...(options.discardRedirectBody !== undefined
           ? { discardRedirectBody: options.discardRedirectBody }
           : {}),
+        ...(options.census ? { census: options.census } : {}),
       });
     } catch (error) {
       throw normalizeFetchError(error, {
@@ -6504,24 +6708,71 @@ async function fetchWithTimeout(
     }
   };
 
-  if (options.quota) {
-    return executeWithProviderQuota({
-      request: {
-        identity: options.quota.identity,
-        method: options.quota.method,
-        target: options.quota.target,
-        requestKey: options.quota.requestKey,
-      },
-      execute: runOnce,
-      inspect: (result) => ({
-        status: result.status,
-        headers: result.headers,
-      }),
-      buildQuotaExhaustedResult: providerQuotaExhaustedResponse,
-    });
-  }
+  let lastBodyValidationError: Error | undefined;
+  const result = options.quota
+    ? await executeWithProviderQuota<FetchResult>({
+        request: {
+          identity: options.quota.identity,
+          method: options.quota.method,
+          target: options.quota.target,
+          ...(options.quota.requestKey === undefined
+            ? {}
+            : { requestKey: options.quota.requestKey }),
+        },
+        execute: async () => {
+          const response = await runOnce();
+          lastBodyValidationError = response.bodyValidationError;
+          return response;
+        },
+        ...(options.singleAttempt ? { singleAttempt: true } : {}),
+        inspect: (response) => ({
+          status: response.status,
+          headers: response.headers,
+        }),
+        buildQuotaExhaustedResult: (detail) => ({
+          ...providerQuotaExhaustedResponse(detail),
+          ...(lastBodyValidationError
+            ? { bodyValidationError: lastBodyValidationError }
+            : {}),
+        }),
+      })
+    : await runOnce();
 
-  return runOnce();
+  if (result.bodyValidationError) {
+    if (result.status !== 429) {
+      fail(
+        result.status >= 200 && result.status < 300
+          ? `${result.bodyValidationError.message} (HTTP ${result.status}).`
+          : `Cannot save binary or invalid UTF-8 provider response (HTTP ${result.status}).`,
+        {
+          errorCode: "provider_response_invalid",
+          statusCode:
+            result.status >= 400 && result.status < 600 ? result.status : 502,
+        },
+      );
+    }
+    const retryAfterMs =
+      result.quota?.retryAfterMs ?? parseRetryAfterMs(result.headers);
+    const retryAfterSeconds =
+      retryAfterMs !== null && Number.isFinite(retryAfterMs)
+        ? Math.min(Math.ceil(retryAfterMs / 1000), Number.MAX_SAFE_INTEGER)
+        : undefined;
+    const retry =
+      retryAfterSeconds === undefined
+        ? ""
+        : `; retry after ${retryAfterSeconds} seconds`;
+    fail(
+      `Cannot save binary or invalid UTF-8 provider response (HTTP 429${retry}).`,
+      {
+        errorCode: "provider_response_invalid",
+        statusCode: 429,
+        ...(retryAfterSeconds === undefined
+          ? {}
+          : { details: { retryAfterSeconds } }),
+      },
+    );
+  }
+  return result;
 }
 
 function providerQuotaExhaustedResponse(
@@ -6607,6 +6858,8 @@ function applyBodyEnvelopeOutcome<
   };
 }
 
+class ProviderResponseBodyValidationError extends Error {}
+
 async function fetchProviderResponse(
   url: string,
   fetchOptions: RequestInit & { dispatcher?: unknown },
@@ -6615,10 +6868,19 @@ async function fetchProviderResponse(
     maxResponseBytes?: number;
     secretValues: string[];
     discardRedirectBody?: boolean;
+    requireTextForSave?: boolean;
+    census?: ProviderCallCensusKey;
   },
-): Promise<ProviderApiHttpResponse> {
+): Promise<ProviderApiHttpResponse & { bodyValidationError?: Error }> {
   const startedAt = Date.now();
-  const res = await fetch(url, fetchOptions);
+  let res: Response;
+  try {
+    res = await fetch(url, fetchOptions);
+  } catch (error) {
+    if (options.census) recordProviderCall(options.census, null);
+    throw error;
+  }
+  if (options.census) recordProviderCall(options.census, res.status);
   const elapsedMs = Date.now() - startedAt;
   const headers = redactSecrets(
     headersToObject(res.headers),
@@ -6638,10 +6900,31 @@ async function fetchProviderResponse(
       truncated: false,
     };
   }
-  const rawText = await readResponseTextWithLimit(
-    res,
-    clampMaxBytes(options.maxBytes, options.maxResponseBytes),
-  );
+  let rawText: Awaited<ReturnType<typeof readResponseTextWithLimit>>;
+  try {
+    rawText = await readResponseTextWithLimit(
+      res,
+      clampMaxBytes(options.maxBytes, options.maxResponseBytes),
+      options.requireTextForSave ? headers["content-type"] : undefined,
+      options.requireTextForSave,
+    );
+  } catch (error) {
+    if (!(error instanceof ProviderResponseBodyValidationError)) {
+      throw error;
+    }
+    // The governor must observe 429 headers before this rejection escapes.
+    return {
+      status: res.status,
+      statusText: res.statusText,
+      ok: res.ok,
+      elapsedMs,
+      headers,
+      contentType: res.headers.get("content-type") ?? null,
+      size: 0,
+      truncated: false,
+      bodyValidationError: error,
+    };
+  }
   const redactedText = redactString(rawText.text, options.secretValues);
   const parsed = tryParseJson(redactedText);
   return {
@@ -6718,14 +7001,36 @@ function describeProviderRequestTarget(
 async function readResponseTextWithLimit(
   response: Response,
   maxBytes: number,
+  contentType?: string,
+  requireTextForSave = false,
 ): Promise<{
   text: string;
   truncated: boolean;
   size: number;
   sizeIsLowerBound?: true;
 }> {
+  const mediaType =
+    response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ??
+    "";
+  const redactedType = contentType?.split(";")[0]?.trim().toLowerCase() ?? "";
+  const displayType = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(
+    redactedType,
+  )
+    ? redactedType.slice(0, 100)
+    : "unknown";
+  if (!response.body) return { text: "", truncated: false, size: 0 };
+  const binaryForSave =
+    requireTextForSave && isBinaryProviderContentType(mediaType);
+  if (binaryForSave && response.status === 429) {
+    // Cancellation can itself wait for the stream, but the quota is already known.
+    void response.body.cancel().catch(() => undefined);
+    throw new ProviderResponseBodyValidationError(
+      `Cannot save binary provider response (content type: ${displayType}) as a text workspace file. Use a binary storage capability instead.`,
+    );
+  }
   const contentLength = response.headers.get("content-length");
-  if (contentLength && Number(contentLength) > maxBytes) {
+  if (!binaryForSave && contentLength && Number(contentLength) > maxBytes) {
+    await response.body?.cancel();
     return {
       text: `(response too large - ${contentLength} bytes, max ${maxBytes})`,
       truncated: true,
@@ -6742,26 +7047,71 @@ async function readResponseTextWithLimit(
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (value.byteLength > 0 && binaryForSave) {
+        await reader.cancel();
+        throw new ProviderResponseBodyValidationError(
+          `Cannot save binary provider response (content type: ${displayType}) as a text workspace file. Use a binary storage capability instead.`,
+        );
+      }
       size += value.byteLength;
-      kept.push(value);
       if (size > maxBytes) {
+        kept.push(value.subarray(0, value.byteLength - (size - maxBytes)));
         await reader.cancel();
         return {
-          text: new TextDecoder().decode(
-            Buffer.concat(kept, size).subarray(0, maxBytes),
-          ),
+          text: requireTextForSave
+            ? `(response too large - max ${maxBytes} bytes)`
+            : new TextDecoder().decode(Buffer.concat(kept, maxBytes)),
           truncated: true,
           size,
           sizeIsLowerBound: true,
         };
       }
+      kept.push(value);
     }
   }
-  return {
-    text: new TextDecoder().decode(Buffer.concat(kept, size)),
-    truncated: false,
-    size,
-  };
+  const bytes = Buffer.concat(kept, size);
+  if (requireTextForSave && bytes.includes(0)) {
+    throw new ProviderResponseBodyValidationError(
+      `Cannot save provider response containing NUL bytes (content type: ${displayType}) as a text workspace file.`,
+    );
+  }
+  if (
+    requireTextForSave &&
+    bytes.some(
+      (byte) =>
+        byte < 9 || byte === 11 || (byte >= 14 && byte < 32) || byte === 127,
+    )
+  ) {
+    throw new ProviderResponseBodyValidationError(
+      `Cannot save provider response containing binary control bytes (content type: ${displayType}) as a text workspace file.`,
+    );
+  }
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: requireTextForSave }).decode(
+      bytes,
+    );
+  } catch {
+    throw new ProviderResponseBodyValidationError(
+      `Cannot save provider response with invalid UTF-8 (content type: ${displayType}) as a text workspace file.`,
+    );
+  }
+  return { text, truncated: false, size };
+}
+
+function isBinaryProviderContentType(mediaType: string): boolean {
+  if (
+    mediaType === "application/vnd.ms-excel" ||
+    mediaType.endsWith("+json") ||
+    mediaType.endsWith("+xml")
+  )
+    return false;
+  return (
+    /^(image|audio|video|font)\//.test(mediaType) ||
+    /^application\/(?:octet-stream|pdf|zip|x-zip-compressed|gzip|x-gzip|x-tar|x-bzip2|x-xz|zstd|x-rar-compressed|vnd\.rar|x-7z-compressed|wasm|protobuf|x-protobuf|msword|vnd\.ms-[^/]+|vnd\.openxmlformats-officedocument\.[^/]+|vnd\.oasis\.opendocument\.[^/]+)$/.test(
+      mediaType,
+    )
+  );
 }
 
 function headersToObject(headers: Headers): Record<string, string> {

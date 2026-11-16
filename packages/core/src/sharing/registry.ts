@@ -1,5 +1,7 @@
+import { registerDbDependency } from "../db/readiness.js";
 import type { EmailCta, EmailLinkBlock } from "../server/email-template.js";
 import type { UserProfile } from "../user-profile/shared.js";
+import { ensureWorkspaceUserGroupsTable } from "../workspace-connections/groups.js";
 
 export interface ShareEmailExtras {
   paragraphs?: string[];
@@ -218,6 +220,9 @@ export function registerShareableResource(
   entry: ShareableResourceRegistration,
 ): void {
   if (!isTestRuntime() && registrationCameFromTestFile()) return;
+  if (entry.supportsGroupShares) {
+    registerDbDependency(entry.getDb, ensureWorkspaceUserGroupsTable);
+  }
   getRegistry().set(entry.type, entry);
 }
 

@@ -65,7 +65,10 @@ import {
   RecordingMediaFetchError,
   sanitizeRecordingMediaError,
 } from "./recording-media-fetch-error.js";
-import { isRecordingExpiredForViewer } from "./recording-page-access.js";
+import {
+  isRecordingExpiredForViewer,
+  recordingUsesSharePassword,
+} from "./recording-page-access.js";
 export { RecordingMediaFetchError } from "./recording-media-fetch-error.js";
 import { fetchS3ObjectByUrl, openS3Recording } from "./s3-upload-provider.js";
 import {
@@ -443,6 +446,7 @@ export async function resolvePublicAgentAccess(
     recording.id,
     recording.password,
     recording.sharePasswordVersion,
+    recording.visibility,
   );
   const suppliedToken = options.token ?? "";
   const tokenAccess = suppliedToken
@@ -495,7 +499,11 @@ export async function resolvePublicAgentAccess(
     });
   }
 
-  if (recording.password && !viewerIsOwner) {
+  if (
+    recordingUsesSharePassword(recording.visibility) &&
+    recording.password &&
+    !viewerIsOwner
+  ) {
     const suppliedPassword = options.password ?? "";
     let allowed = tokenAllowsAgentAccess;
 

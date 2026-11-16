@@ -29,8 +29,8 @@ on `org`.
 
 Clips **adds two things** on top of the framework system:
 
-1. **Password** — an optional bcrypt'd string on the `recordings` row. When set, all non-owner viewers must enter it to play the recording.
-2. **`expiresAt`** — an optional ISO timestamp on the `recordings` row. After this time, all non-owner access is denied (even to principals with explicit grants).
+1. **Password** — an optional encrypted string on the `recordings` row. For public recordings, non-owner viewers must enter it to play the recording. Private and organization access use the framework ACL; a stored password is retained and applies again if the recording becomes public.
+2. **`expiresAt`** — an optional ISO timestamp on the `recordings` row. After this time, all non-owner access is denied (even to principals with explicit grants). Existing values remain enforced, although the Share panel no longer edits expiry.
 
 These are **additive** — they never grant access the framework denies, only tighten it.
 
@@ -47,7 +47,8 @@ Read this skill before:
 
 ## Data model touched
 
-- **`recordings.password`** (nullable text) — bcrypt hash.
+- **`recordings.password`** (nullable text) — encrypted password value.
+- **`hasPassword`** reports whether a password is stored, including dormant passwords on private or organization recordings; it does not by itself indicate an active password gate.
 - **`recordings.expires_at`** (nullable ISO string).
 - **`recording_shares`** — framework-managed. Do not insert directly — use `share-resource`.
 - **`recordings.visibility`** — framework-managed column from `ownableColumns()`.
@@ -58,29 +59,17 @@ Read this skill before:
 
 ## Dropping in the share UI
 
-Clips composes its share panels from Toolkit pieces rather than the generic
-`ShareButton`. `app/components/player/share-dialog.tsx` (recordings) and
-`app/components/meetings/share-meeting-dialog.tsx` (meetings) both use
-`useShareButtonController`, `SharePeopleInvite`, `SharePeopleList`, and
-`ShareGeneralAccessRow`, so invites, roles, and the organization confirmation
-match every other app.
+Recordings and meetings use Toolkit `ShareButton` for the standard access,
+copy-link, and Send to controls. Public recordings can set, change, or remove a
+password under General access. Existing expiry values remain enforced, but are
+not edited in this panel. Meeting transcript visibility remains a
+meeting-specific control. Pending redactions block sharing until they are burned
+into the recording. Private and password-protected recording agent handoffs use
+scoped recording agent links; a password-protected viewer cannot mint one.
 
-- **Tabs:** recordings show People, Agents, Embed, Social; meetings show People
-  and Agents. Keep that order. A viewer resharing someone else's clip gets no
-  People tab, and no Agents tab when the clip has a password.
-- **Copy link** is the link segment of the Share button (`JoinedShareControl`),
-  not a row inside the panel.
-- **Advanced** sits under General access, in `ShareGeneralAccessRow`'s
-  children, with a one-line summary beside it. For recordings it holds
-  Password required and Link expires, which call
-  `update-recording --password=...` / `--expiresAt=...`. For meetings it holds
-  Transcript on the share link (see the meetings skill).
-- **Embed** never changes access itself. When the clip isn't public, it explains
-  why and links back to General access, which opens the access menu so the
-  change goes through the same confirmation as any other. Copy embed code stays
-  disabled until the clip is public.
-
-Put any new generic sharing behavior in Toolkit, not in these Clips wrappers.
+Embed URLs remain available through `build-embed-url`; embedding does not change
+access. Public share pages emit link-preview metadata, while an iframe is a
+separate playback integration.
 
 ## Shared with me
 
@@ -146,10 +135,10 @@ async function canAccess(
     if (new Date(rec.expiresAt) < new Date()) return false;
   }
 
-  // 3. Password — non-owner only.
-  if (rec.password && requester?.email !== rec.ownerEmail) {
+  // 3. Password — public links, non-owner only.
+  if (rec.visibility === "public" && rec.password && requester?.email !== rec.ownerEmail) {
     if (!providedPassword) return false;
-    if (!(await bcrypt.compare(providedPassword, rec.password))) return false;
+    if (!verifySharePassword(providedPassword, rec.password)) return false;
   }
 
   return true;
@@ -259,7 +248,7 @@ context instead of stopping at the share page or transcript preview:
    size-limit, and temporary storage errors do not prove that media is missing
    or that the link lacks access.
    If `failureKind: expired`, ask the owner to extend or remove the clip expiry
-   in the Share menu, save, then create and send a new **Share with agents**
+   through `update-recording`, then create and send a new **Share with agents**
    link. Never claim to have seen frames that were not returned as images.
 
 The JSON discovery payload and HTTP endpoints work without browser tools. An
@@ -270,7 +259,7 @@ connected as an MCP connector (`apis.mcp.connectUrl`). It takes the
 blocks; without `atMs` it returns the first four recommended frames and lists
 all of them. It checks only the connected user's own access (owner, share,
 organization, public); an `agent_access` token does not grant it. A
-password-protected clip fails with `password_required` for anyone but its
+public password-protected clip fails with `password_required` for anyone but its
 owner.
 
 Recordings can expose URLs meant for external agents without handing over raw
@@ -292,7 +281,7 @@ temporary agent-link path:
   `/share/:recordingId`. The share page SSR advertises the agent context URL,
   and the JSON endpoints accept the same scoped token.
 - Expired clips return expired.
-- Password-protected clips require `password=<pw>` once; successful JSON
+- Public password-protected clips require `password=<pw>` once; successful JSON
   responses include short-lived tokenized links so the plaintext password is not
   copied into downstream agent prompts, browser history, or logs.
 - If a discovery, context, or transcript payload reports `agentReadiness.state`
@@ -352,7 +341,7 @@ continued with `start=nextStart`). An open public link, a share password, or a
 link made by a viewer gets the summary only, because event data is more
 sensitive than the summary.
 
-Password-protected clips require the password once to mint a short-lived token,
+Public password-protected clips require the password once to mint a short-lived token,
 which is returned inside the agent-context links.
 
 Use the `@agent-native/core/server` and `@agent-native/core/shared` agent-access
@@ -484,7 +473,7 @@ On top of the aggregate `viewCount` shown in the library and the `views` stat in
 ## Rules
 
 - **Never** write to `recording_shares` directly. Always go through `share-resource` / `unshare-resource`.
-- **Never** store a plaintext password. Use bcrypt on write; bcrypt-compare on read.
+- **Never** store a plaintext password. Use the share-password helper to encrypt and verify it.
 - **Never** bypass the access check on `/api/video/:id`. Streaming routes are the #1 data-leak vector. The only thing that stands in for a signed-in owner there is a `download_access` token, verified against the recording's current owner.
 - **Password + expiry are additions**, not replacements — the framework's `accessFilter` still runs first.
 - The embed route (`/embed/:shareId`) is **anonymous by default** — don't require auth, but still go through `canAccess`.

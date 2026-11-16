@@ -59,6 +59,15 @@ export interface TransactionalChange {
   publish(): ChangeEvent;
 }
 
+export class SyncEventReadError extends Error {
+  readonly code = "SYNC_EVENT_READ_UNAVAILABLE";
+
+  constructor() {
+    super("A sync event could not be read; clients must refresh their data.");
+    this.name = "SyncEventReadError";
+  }
+}
+
 const MAX_BUFFER = 200;
 const DURABLE_READ_LIMIT = 1000;
 const DURABLE_PRUNE_WRITE_INTERVAL_MS = 5 * 60 * 1000;
@@ -112,8 +121,8 @@ const ACCESS_IN_FLIGHT_MAX = 1_000;
 const ACCESS_CHECK_TIMEOUT_MS = 30_000;
 // How many deadlines in a row one resource's checks may miss. After the first,
 // the next read checks it again, so one slow check doesn't cost a change. At
-// the limit it fails closed, as a check that throws does: its change is hidden
-// and reads move past it, instead of stopping there on every poll.
+// the limit it counts as a check that failed: a read that reaches its change
+// asks the client to resync, instead of waiting there on every poll.
 const ACCESS_CHECK_TIMEOUTS_MAX = 2;
 const ACCESS_CHECK_WAIT_MS = 1_000;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
@@ -150,36 +159,76 @@ function timestampValue(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-/** A `sync_events` row, with its event, or null when the row holds none. */
+/**
+ * A `sync_events` row, with its event, or null when the row can't be read.
+ * The row's own scope columns win over the scope inside its JSON. A read
+ * throws SyncEventReadError when it reaches a null event, not before, so an
+ * earlier event can still stop it first.
+ */
 function parseDurableEventRow(row: {
   id?: unknown;
   version?: unknown;
   event_json?: unknown;
+  owner?: unknown;
+  org_id?: unknown;
+  resource_type?: unknown;
+  resource_id?: unknown;
 }): { rawVersion: number; rowId: string; event: ChangeEvent | null } {
   const rawVersion = timestampValue(row.version);
   const rowId = typeof row.id === "string" ? row.id : "";
-  let event: ChangeEvent | null = null;
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(String(row.event_json));
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      typeof parsed.source === "string" &&
-      typeof parsed.type === "string"
-    ) {
-      event = {
-        ...(parsed as ChangeEvent),
-        version: rawVersion || (parsed as ChangeEvent).version,
-        ...(rowId || typeof (parsed as ChangeEvent).cursorId === "string"
-          ? {
-              cursorId: rowId || (parsed as ChangeEvent).cursorId,
-            }
-          : {}),
-      };
-    }
+    parsed = JSON.parse(String(row.event_json));
   } catch {
-    event = null;
+    return { rawVersion, rowId, event: null };
   }
+  if (!parsed || typeof parsed !== "object") {
+    return { rawVersion, rowId, event: null };
+  }
+  const parsedRecord = parsed as Record<string, unknown>;
+  if (
+    typeof parsedRecord.source !== "string" ||
+    typeof parsedRecord.type !== "string"
+  ) {
+    return { rawVersion, rowId, event: null };
+  }
+  const parsedEvent = parsed as ChangeEvent;
+  const {
+    owner: _eventOwner,
+    orgId: _eventOrgId,
+    resourceType: _eventResourceType,
+    resourceId: _eventResourceId,
+    ...safeEvent
+  } = parsedEvent;
+  const event: ChangeEvent = {
+    ...safeEvent,
+    version: rawVersion || parsedEvent.version,
+    ...(typeof row.owner === "string"
+      ? { owner: row.owner }
+      : row.owner === undefined && typeof parsedEvent.owner === "string"
+        ? { owner: parsedEvent.owner }
+        : {}),
+    ...(typeof row.org_id === "string"
+      ? { orgId: row.org_id }
+      : row.org_id === undefined && typeof parsedEvent.orgId === "string"
+        ? { orgId: parsedEvent.orgId }
+        : {}),
+    ...(typeof row.resource_type === "string"
+      ? { resourceType: row.resource_type }
+      : row.resource_type === undefined &&
+          typeof parsedEvent.resourceType === "string"
+        ? { resourceType: parsedEvent.resourceType }
+        : {}),
+    ...(typeof row.resource_id === "string"
+      ? { resourceId: row.resource_id }
+      : row.resource_id === undefined &&
+          typeof parsedEvent.resourceId === "string"
+        ? { resourceId: parsedEvent.resourceId }
+        : {}),
+    ...(rowId || typeof parsedEvent.cursorId === "string"
+      ? { cursorId: rowId || parsedEvent.cursorId }
+      : {}),
+  };
   return { rawVersion, rowId, event };
 }
 
@@ -216,6 +265,20 @@ function decodeSyncCursor(value: unknown): SyncCursor | undefined {
 
 function isEventAfterCursor(event: ChangeEvent, cursor: SyncCursor): boolean {
   return compareSyncCursors(cursorForEvent(event), cursor) > 0;
+}
+
+function withoutSettingsKey<T extends { source: string; key?: string }>(
+  event: T,
+): T {
+  return event.source === "settings" && event.key !== "*"
+    ? ({ ...event, key: "*" } as T)
+    : event;
+}
+
+export function sanitizeChangeEvent<T extends { source: string; key?: string }>(
+  event: T,
+): T {
+  return withoutSettingsKey(event);
 }
 
 function syncEventsDisabled(): boolean {
@@ -455,7 +518,7 @@ async function readExtensionTargetsForRows(
   );
 }
 
-export type ChangeVisibility = "visible" | "hidden" | "pending";
+export type ChangeVisibility = "visible" | "hidden" | "pending" | "unreadable";
 
 class SyncEventsTableUnavailableError extends Error {
   constructor() {
@@ -467,6 +530,16 @@ class SyncEventsTableUnavailableError extends Error {
 function isMissingRelationError(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false;
   return (error as { code?: unknown }).code === "42P01";
+}
+
+function isInvalidJsonCastError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: unknown; message?: unknown };
+  return (
+    record.code === "22P02" ||
+    (typeof record.message === "string" &&
+      record.message.startsWith("invalid input syntax for type json"))
+  );
 }
 
 export type ChangeReadResult = {
@@ -698,7 +771,7 @@ export class AppSyncState {
 
   private readonly accessCache = new Map<
     string,
-    { allowed: boolean; checkedAt: number }
+    { allowed: boolean | "unreadable"; checkedAt: number }
   >();
   private readonly accessInFlight = new Map<string, Promise<void>>();
   // Deadlines missed in a row, by cache key. An answer clears its count.
@@ -731,8 +804,8 @@ export class AppSyncState {
     this.pollEmitter.setMaxListeners(0);
   }
 
-  private accessCacheTtl(allowed: boolean): number {
-    return allowed ? this.accessAllowTtlMs : ACCESS_CACHE_DENY_TTL_MS;
+  private accessCacheTtl(allowed: boolean | "unreadable"): number {
+    return allowed === true ? this.accessAllowTtlMs : ACCESS_CACHE_DENY_TTL_MS;
   }
 
   private durableEventId(event: ChangeEvent, dedupeKey?: string): string {
@@ -936,6 +1009,7 @@ export class AppSyncState {
     presetId?: string,
   ): Promise<void> {
     if (!(await this.ensureSyncEventsTable())) return;
+    const safeEvent = withoutSettingsKey(event);
     const client = this.getDb();
     await client.execute({
       sql: `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
@@ -944,14 +1018,14 @@ export class AppSyncState {
       args: [
         presetId ?? this.durableEventId(event, dedupeKey),
         event.version,
-        JSON.stringify(event),
-        event.source,
-        event.type,
-        event.key ?? null,
-        event.owner ?? null,
-        event.orgId ?? null,
-        event.resourceType ?? null,
-        event.resourceId ?? null,
+        JSON.stringify(safeEvent),
+        safeEvent.source,
+        safeEvent.type,
+        safeEvent.key ?? null,
+        safeEvent.owner ?? null,
+        safeEvent.orgId ?? null,
+        safeEvent.resourceType ?? null,
+        safeEvent.resourceId ?? null,
         Date.now(),
       ],
     });
@@ -1062,7 +1136,11 @@ export class AppSyncState {
     }
   }
 
-  private setAccessCache(key: string, allowed: boolean, now: number): void {
+  private setAccessCache(
+    key: string,
+    allowed: boolean | "unreadable",
+    now: number,
+  ): void {
     this.accessTimeouts.delete(key);
     this.accessCache.delete(key);
     this.accessCache.set(key, { allowed, checkedAt: now });
@@ -1088,7 +1166,7 @@ export class AppSyncState {
     const epoch = this.accessInvalidationEpoch.get(resourceKey) ?? 0;
     const work = retainRequestDbPoolScope(
       Promise.resolve().then(async () => {
-        let allowed = false;
+        let allowed: boolean | "unreadable";
         try {
           allowed =
             (await this.resolveAccessFn(resourceType, resourceId, {
@@ -1096,7 +1174,9 @@ export class AppSyncState {
               orgId,
             })) != null;
         } catch {
-          // coercion-ok: a check that fails hides its change, as it always has.
+          // A check that fails is no denial: the read asks its client to
+          // resync instead of hiding a change the user may be allowed to see.
+          allowed = "unreadable";
         }
         // The answer counts only if sharing didn't change meanwhile and this
         // is still the resource's running check. Past the deadline, a newer
@@ -1201,7 +1281,10 @@ export class AppSyncState {
     // resource go: the batch's deadline no longer counts against it, even if
     // the cache drops the answer, and a read can check it again without
     // waiting for the rest of the batch.
-    const cacheUnlessInvalidated = (resourceId: string, allowed: boolean) => {
+    const cacheUnlessInvalidated = (
+      resourceId: string,
+      allowed: boolean | "unreadable",
+    ) => {
       const key = keys.get(resourceId);
       const epoch =
         this.accessInvalidationEpoch.get(
@@ -1232,20 +1315,22 @@ export class AppSyncState {
       } catch {
         // The batch fails as a whole when any one resource's check fails.
         // Check the first few still unanswered on their own, in log order:
-        // a failure then hides only its own resource, and the read moves
-        // past them. The rest stay unchecked for a later read, so a failing
-        // batch costs a few single checks, not one per resource. Each goes
-        // through the same batch resolver, so the same rules decide it.
+        // a failure then marks only its own resource unreadable, and the
+        // others get their answers. The rest stay unchecked for a later read,
+        // so a failing batch costs a few single checks, not one per resource.
+        // Each goes through the same batch resolver, so the same rules decide
+        // it.
         const unanswered = ids.filter((id) => !answeredIds.has(id));
         await Promise.all(
           unanswered.slice(0, ACCESS_RETRY_LIMIT).map(async (id) => {
-            let allowed = false;
+            let allowed: boolean | "unreadable";
             try {
               allowed = (
                 await resolveMany(resourceType, [id], { userEmail, orgId })
               ).has(id);
             } catch {
-              // coercion-ok: fails closed, like a single check.
+              // Fails as a single check does.
+              allowed = "unreadable";
             }
             cacheUnlessInvalidated(id, allowed);
           }),
@@ -1272,7 +1357,7 @@ export class AppSyncState {
    * ACCESS_CHECK_TIMEOUT_MS passes, whichever comes first. A resolver that
    * never answers would otherwise hold these resources pending, and every
    * read stuck behind them, for good. A resource it leaves unanswered is
-   * checked again by the next read, and fails closed once its checks miss
+   * checked again by the next read, and counts as failed once its checks miss
    * ACCESS_CHECK_TIMEOUTS_MAX deadlines in a row. The check starts on the next
    * microtask, so it is registered before any of it runs, and its `finally`
    * always finds it there.
@@ -1307,14 +1392,14 @@ export class AppSyncState {
 
   /**
    * Counts a missed deadline for `key`. At ACCESS_CHECK_TIMEOUTS_MAX in a row,
-   * caches a denial, so reads pass its change instead of checking it on every
-   * poll.
+   * caches it as unreadable, as a failed check does, so a read asks its client
+   * to resync instead of waiting on it at every poll.
    */
   private noteAccessTimeout(key: string): void {
     const missed = (this.accessTimeouts.get(key) ?? 0) + 1;
     this.accessTimeouts.delete(key);
     if (missed >= ACCESS_CHECK_TIMEOUTS_MAX) {
-      this.setAccessCache(key, false, Date.now());
+      this.setAccessCache(key, "unreadable", Date.now());
       return;
     }
     this.accessTimeouts.set(key, missed);
@@ -1350,7 +1435,8 @@ export class AppSyncState {
    *
    * Security: a cache MISS returns `false`, so we NEVER deliver to a user before
    * their access has been affirmatively confirmed by the resolver — the same
-   * authority that gates the HTTP routes. Errors fail closed (cached deny).
+   * authority that gates the HTTP routes. Resolver errors remain distinct from
+   * permission denials so callers can request a refresh without advancing.
    * Organization membership alone does not grant access to a resource-scoped event.
    */
   canSeeChangeForUser(
@@ -1428,15 +1514,14 @@ export class AppSyncState {
     orgId: string | undefined,
   ): ChangeVisibility {
     const normalizedUserEmail = userEmail.trim().toLowerCase();
-    if (!event.owner && !event.orgId && !event.resourceType) return "visible";
+    if (event.visibility === "public") return "visible";
+    if (!event.owner && !event.orgId && !event.resourceType) return "hidden";
     if (
       typeof event.owner === "string" &&
       event.owner.trim().toLowerCase() === normalizedUserEmail
     ) {
       return "visible";
     }
-    if (event.visibility === "public") return "visible";
-
     if (event.resourceType && event.resourceId) {
       const key = accessCacheKey(
         normalizedUserEmail,
@@ -1450,7 +1535,11 @@ export class AppSyncState {
         cached &&
         now - cached.checkedAt < this.accessCacheTtl(cached.allowed)
       ) {
-        return cached.allowed ? "visible" : "hidden";
+        return cached.allowed === "unreadable"
+          ? "unreadable"
+          : cached.allowed
+            ? "visible"
+            : "hidden";
       }
       this.scheduleAccessCheck(
         key,
@@ -1476,18 +1565,19 @@ export class AppSyncState {
     },
     opts?: { dedupeKey?: string },
   ): void {
+    const safeEvent = sanitizeChangeEvent(event);
     if (this.dbAssignedVersions && !syncEventsDisabled()) {
       this.recordChain = retainRequestDbPoolScope(
         this.recordChain
-          .then(() => this.recordWithDbVersion(event, opts?.dedupeKey))
+          .then(() => this.recordWithDbVersion(safeEvent, opts?.dedupeKey))
           .catch((error) => {
-            this.reportDurableWriteFailure(error, event);
+            this.reportDurableWriteFailure(error, safeEvent);
           }),
       );
       return;
     }
     this.version = Math.max(this.version + 1, Date.now());
-    const provisional: ChangeEvent = { ...event, version: this.version };
+    const provisional: ChangeEvent = { ...safeEvent, version: this.version };
     const cursorId = this.durableEventId(provisional, opts?.dedupeKey);
     const entry: ChangeEvent = { ...provisional, cursorId };
     this.commitEntry(entry);
@@ -1504,6 +1594,7 @@ export class AppSyncState {
     key?: string;
     [k: string]: unknown;
   }): Promise<TransactionalChange> {
+    const safeEvent = sanitizeChangeEvent(event);
     if (!(await this.ensureSyncEventsTable())) {
       throw new Error(
         "Transactional change delivery requires durable sync events",
@@ -1521,16 +1612,16 @@ export class AppSyncState {
             args: [
               this.version + 1,
               id,
-              JSON.stringify({ ...event, cursorId: id })
+              JSON.stringify({ ...safeEvent, cursorId: id })
                 .split("\\u0000")
                 .join(""),
-              event.source,
-              event.type,
-              event.key ?? null,
-              (event.owner as string | undefined) ?? null,
-              (event.orgId as string | undefined) ?? null,
-              (event.resourceType as string | undefined) ?? null,
-              (event.resourceId as string | undefined) ?? null,
+              safeEvent.source,
+              safeEvent.type,
+              safeEvent.key ?? null,
+              (safeEvent.owner as string | undefined) ?? null,
+              (safeEvent.orgId as string | undefined) ?? null,
+              (safeEvent.resourceType as string | undefined) ?? null,
+              (safeEvent.resourceId as string | undefined) ?? null,
               Date.now(),
             ],
           });
@@ -1540,7 +1631,7 @@ export class AppSyncState {
           }
         } else {
           version = Math.max(this.version + 1, Date.now());
-          const entry = { ...event, version, cursorId: id } as ChangeEvent;
+          const entry = { ...safeEvent, version, cursorId: id } as ChangeEvent;
           const result = await transaction.execute({
             sql: `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
@@ -1562,7 +1653,7 @@ export class AppSyncState {
             throw new Error("Durable sync event was not persisted");
           }
         }
-        persisted = { ...event, version, cursorId: id } as ChangeEvent;
+        persisted = { ...safeEvent, version, cursorId: id } as ChangeEvent;
         return persisted;
       },
       isPersisted: () => persisted !== null,
@@ -1745,8 +1836,9 @@ export class AppSyncState {
         userEmail,
         orgId,
       );
+      if (visibility === "unreadable") throw new SyncEventReadError();
       if (visibility === "visible") {
-        events.push(event);
+        events.push(withoutSettingsKey(event));
         lastCursor = cursorForEvent(event);
         continue;
       }
@@ -1808,9 +1900,6 @@ export class AppSyncState {
     }
 
     try {
-      const compositeCursorSql = cursor
-        ? "(version > ? OR (version = ? AND id > ?))"
-        : "version > ?";
       // Scope the fetch to rows that could ever be visible to this caller
       // before paying to JSON.parse and visibility-check every deployment-wide
       // event: deployment-global rows (no owner, no org), the caller's own
@@ -1821,24 +1910,24 @@ export class AppSyncState {
       // `orgId` bind param, which makes `org_id = ?` match no row in both
       // mirroring the `event.orgId && orgId` truthy check.
       const result = await this.getDb().execute({
-        sql: `SELECT id, version, event_json FROM sync_events WHERE ${compositeCursorSql}
+        sql: `SELECT id, version, event_json, owner, org_id, resource_type, resource_id FROM sync_events
+              WHERE (version > ? OR (? = TRUE AND version = ? AND id > ?))
               AND (
-                (owner IS NULL AND org_id IS NULL)
+                (owner IS NULL AND org_id IS NULL AND event_json::jsonb ->> 'visibility' = 'public')
                 OR owner = ?
                 OR org_id = ?
                 OR resource_type IS NOT NULL
               )
             ORDER BY version ASC, id ASC LIMIT ?`,
-        args: cursor
-          ? [
-              cursor.version,
-              cursor.version,
-              cursor.id,
-              userEmail,
-              orgId ?? null,
-              DURABLE_READ_LIMIT + 1,
-            ]
-          : [since, userEmail, orgId ?? null, DURABLE_READ_LIMIT + 1],
+        args: [
+          cursor?.version ?? since,
+          cursor !== undefined,
+          cursor?.version ?? since,
+          cursor?.id ?? "",
+          userEmail,
+          orgId ?? null,
+          DURABLE_READ_LIMIT + 1,
+        ],
       });
       const events: ChangeEvent[] = [];
       let version = Math.max(this.version, since);
@@ -1861,10 +1950,7 @@ export class AppSyncState {
         if (rawVersion > lastDurableVersion) lastDurableVersion = rawVersion;
         if (rawVersion > version) version = rawVersion;
         let rowCursor = rowId ? { version: rawVersion, id: rowId } : undefined;
-        if (!event) {
-          if (rowCursor) lastCursor = rowCursor;
-          continue;
-        }
+        if (!event) throw new SyncEventReadError();
         if (!rowCursor && typeof event.cursorId === "string") {
           rowCursor = { version: event.version, id: event.cursorId };
         }
@@ -1874,8 +1960,9 @@ export class AppSyncState {
           userEmail,
           orgId,
         );
+        if (visibility === "unreadable") throw new SyncEventReadError();
         if (visibility === "visible") {
-          events.push(event);
+          events.push(withoutSettingsKey(event));
           if (rowCursor) lastCursor = rowCursor;
           continue;
         }
@@ -1929,6 +2016,7 @@ export class AppSyncState {
     } catch (error) {
       if (isMissingRelationError(error))
         throw new SyncEventsTableUnavailableError();
+      if (isInvalidJsonCastError(error)) throw new SyncEventReadError();
       throw error;
     }
   }
@@ -2362,7 +2450,12 @@ export class AppSyncState {
       if (settingsTs > this.lastSettingsTs) {
         if (this.lastSettingsTs > 0) {
           this.recordChange(
-            { source: "settings", type: "change", key: "*" },
+            {
+              source: "settings",
+              type: "change",
+              key: "*",
+              visibility: "public",
+            },
             { dedupeKey: `settings|${settingsTs}` },
           );
         }
@@ -2581,10 +2674,9 @@ export function createPollHandler(
   }
   return defineEventHandler(async (event) => {
     try {
-      // coercion-ok: polling must fail closed when session resolution is unavailable.
-      const session = await import("./auth.js")
-        .then(({ getSession }) => getSession(event))
-        .catch(() => null); // coercion-ok: polling must fail closed when session resolution is unavailable.
+      const session = await import("./auth.js").then(({ getSession }) =>
+        getSession(event),
+      );
       if (!session?.email) {
         setResponseStatus(event, 401);
         return { error: "Unauthenticated" };
@@ -2634,6 +2726,10 @@ export function createPollHandler(
         );
       }
     } catch (error) {
+      if (error instanceof SyncEventReadError) {
+        setResponseStatus(event, 409);
+        return { error: error.code };
+      }
       console.error(
         `[agent-native] Poll handler failed (request_id=${getHttpRequestTelemetryId(event) ?? "unavailable"})`,
         error,

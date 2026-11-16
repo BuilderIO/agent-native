@@ -36,7 +36,7 @@ describe("dispatch action registry", () => {
       "get-workspace-resource-effective-context",
     );
     expect(dispatchActions).toHaveProperty("grant-workspace-resources-to-app");
-    expect(dispatchActions).toHaveProperty("sync-vault-to-app");
+    // oracle-change: sync-vault-to-app is removed; vault keys are no longer pushed to apps.
 
     expect(dispatchActions).not.toHaveProperty(
       "sync-workspace-resources-to-app",

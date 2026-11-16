@@ -361,7 +361,7 @@ describe("onboarding plugin routes", () => {
     const result = await dispatch(nitroApp, "/_agent-native/onboarding/steps");
 
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: "credential store unavailable" });
+    expect(result.body).toEqual({ error: "Internal server error" });
   });
 
   it("propagates completion failures so callers can retry", async () => {
@@ -381,7 +381,7 @@ describe("onboarding plugin routes", () => {
     const result = await dispatch(nitroApp, "/_agent-native/onboarding/steps");
 
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: "storage status unavailable" });
+    expect(result.body).toEqual({ error: "Internal server error" });
   });
 
   it("propagates manual override lookup failures so callers can retry", async () => {
@@ -409,9 +409,9 @@ describe("onboarding plugin routes", () => {
     );
 
     expect(steps.status).toBe(500);
-    expect(steps.body).toEqual({ error: "app state unavailable" });
+    expect(steps.body).toEqual({ error: "Internal server error" });
     expect(dismissed.status).toBe(500);
-    expect(dismissed.body).toEqual({ error: "app state unavailable" });
+    expect(dismissed.body).toEqual({ error: "Internal server error" });
   });
 
   it("does not turn completion failures into incomplete dismissed status", async () => {
@@ -434,7 +434,7 @@ describe("onboarding plugin routes", () => {
     );
 
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: "storage status unavailable" });
+    expect(result.body).toEqual({ error: "Internal server error" });
   });
 
   it("uses the same request context when reporting dismissed/allComplete state", async () => {
@@ -481,10 +481,11 @@ describe("onboarding plugin routes", () => {
       "/_agent-native/onboarding/dismissed",
     );
 
-    expect(result.status).toBe(500);
+    expect(result.status).toBe(503);
+    expect(result.headers.get("retry-after")).toBe("5");
     expect(result.body).toEqual({
-      error:
-        "Could not read your saved connections. Try again, or reconnect the connection if the issue continues.",
+      error: new CredentialStoreUnavailableError().message,
+      code: "credential_store_unavailable",
     });
   });
 
@@ -534,9 +535,9 @@ describe("onboarding plugin routes", () => {
     );
 
     expect(dismissed.status).toBe(500);
-    expect(dismissed.body).toEqual({ error: "connection timed out" });
+    expect(dismissed.body).toEqual({ error: "Internal server error" });
     expect(summary.status).toBe(500);
-    expect(summary.body).toEqual({ error: "connection timed out" });
+    expect(summary.body).toEqual({ error: "Internal server error" });
   });
 
   it("still fails the summary when the credential store is unavailable", async () => {
@@ -550,10 +551,11 @@ describe("onboarding plugin routes", () => {
       "/_agent-native/onboarding/summary",
     );
 
-    expect(result.status).toBe(500);
+    expect(result.status).toBe(503);
+    expect(result.headers.get("retry-after")).toBe("5");
     expect(result.body).toEqual({
-      error:
-        "Could not read your saved connections. Try again, or reconnect the connection if the issue continues.",
+      error: new CredentialStoreUnavailableError().message,
+      code: "credential_store_unavailable",
     });
   });
 
@@ -1014,7 +1016,7 @@ describe("onboarding plugin routes", () => {
     );
 
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: failure.message });
+    expect(result.body).toEqual({ error: "Internal server error" });
 
     expect(trackMock).toHaveBeenCalledWith(
       "onboarding_role_save_failed",
@@ -1108,5 +1110,75 @@ describe("onboarding plugin routes", () => {
     expect(result.body).toEqual({ error: "Invalid onboarding role" });
     expect(updateUserOnboardingRoleMock).not.toHaveBeenCalled();
     expect(trackMock).not.toHaveBeenCalled();
+  });
+  it("keeps an app-owned questionnaire independent of shared connection completion", async () => {
+    vi.stubEnv("COOKIE_DOMAIN", ".example.com");
+    vi.stubEnv("ONBOARDING_SHARED_COMPLETION", "1");
+    vi.stubEnv("AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING", "app");
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+    appStateGetMock.mockImplementation(async (_sessionId, key) =>
+      key === FIRST_RUN_ONBOARDING_ELIGIBLE_KEY ? { orgId: "org-1" } : null,
+    );
+    const status = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/status",
+      "GET",
+      {
+        cookie: `${FIRST_RUN_ONBOARDING_COOKIE}=1; ${SHARED_ONBOARDING_COOKIE}=${encodeSharedOnboardingCookie({ role: "design", email: "alice@example.com" })}`,
+      },
+    );
+    expect(status.body).toEqual({ firstRun: true });
+    expect(updateUserOnboardingRoleMock).not.toHaveBeenCalled();
+    expect(appStatePutMock).not.toHaveBeenCalled();
+    const completed = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/complete",
+      "POST",
+      { "content-type": "application/json" },
+      { expectedUserEmail: "alice@example.com", expectedOrgId: "org-1" },
+    );
+    expect(completed.body).toEqual({ ok: true });
+    expect(completed.headers.get("set-cookie")).not.toContain(
+      `${SHARED_ONBOARDING_COOKIE}=`,
+    );
+  });
+  it.each([
+    { expectedUserEmail: "other@example.com", expectedOrgId: "org-1" },
+    { expectedUserEmail: "alice@example.com", expectedOrgId: "org-other" },
+    {},
+  ])(
+    "rejects changed app-completion scope before writing: %j",
+    async (input) => {
+      vi.stubEnv("AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING", "app");
+      const nitroApp = createNitroApp();
+      await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+      appStateGetMock.mockResolvedValue({ orgId: "org-1" });
+      const result = await dispatch(
+        nitroApp,
+        "/_agent-native/onboarding/first-run/complete",
+        "POST",
+        { "content-type": "application/json" },
+        input,
+      );
+      expect(result.status).toBe(409);
+      expect(appStatePutMock).not.toHaveBeenCalled();
+    },
+  );
+  it("rejects completion after the active workspace leaves the eligible workspace", async () => {
+    vi.stubEnv("AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING", "app");
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+    appStateGetMock.mockResolvedValue({ orgId: "org-1" });
+    getOrgContextMock.mockResolvedValue({ orgId: "org-other" });
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/complete",
+      "POST",
+      { "content-type": "application/json" },
+      { expectedUserEmail: "alice@example.com", expectedOrgId: "org-other" },
+    );
+    expect(result.status).toBe(409);
+    expect(appStatePutMock).not.toHaveBeenCalled();
   });
 });

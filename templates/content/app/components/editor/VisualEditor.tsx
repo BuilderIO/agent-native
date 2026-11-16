@@ -141,6 +141,7 @@ import {
   type CommentBlockTarget,
 } from "./comment-block-anchors";
 import { buildContentSelectionPayload } from "./content-selection";
+import { DrawDiagramsContext } from "./draw-diagrams";
 import {
   isEditorDraftSaveAccepted,
   type EditorDraftSaveResult,
@@ -154,7 +155,7 @@ import {
 } from "./editor-transaction-meta";
 import { AudioNode } from "./extensions/AudioNode";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
-import { CodeBlock } from "./extensions/CodeBlockNode";
+import { CodeBlock, DrawingCodeBlock } from "./extensions/CodeBlockNode";
 import {
   CommentHighlight,
   type CommentHighlightOptions,
@@ -611,6 +612,13 @@ const TypographyReplacements = Extension.create({
         props: {
           handleTextInput(view, from, to, text) {
             const { state } = view;
+            // Code keeps what was typed: `-->` is a Mermaid edge, not an arrow.
+            const $from = state.doc.resolve(from);
+            if (
+              $from.parent.type.spec.code ||
+              $from.marks().some((mark) => mark.type.spec.code)
+            )
+              return false;
             for (const [trigger, replacement] of ARROW_REPLACEMENTS) {
               const lastChar = trigger[trigger.length - 1];
               if (text !== lastChar) continue;
@@ -1821,6 +1829,11 @@ interface VisualEditorProps {
   privateImageUploads?: boolean;
   localFilePath?: string | null;
   referenceDepth?: number;
+  /**
+   * Draw Mermaid code blocks as diagrams. Public pages turn it off: they
+   * never run document source.
+   */
+  drawDiagrams?: boolean;
   onComment?: (
     quotedText: string,
     offsetTop: number,
@@ -2228,6 +2241,7 @@ interface VisualEditorExtensionOptions {
   resolveNotionPageLink?: (id: string) => ContentLinkTarget | null;
   localFilePath?: string | null;
   referenceDepth?: number;
+  drawDiagrams?: boolean;
   emptyBlockPlaceholder?: string;
   onMediaSourceCommitted?: (
     editor: CoreEditor,
@@ -3277,6 +3291,7 @@ export function createVisualEditorExtensions({
   resolveNotionPageLink,
   localFilePath,
   referenceDepth = 0,
+  drawDiagrams = true,
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
   onMediaSourceCommitted,
   findCommentQuote,
@@ -3306,7 +3321,7 @@ export function createVisualEditorExtensions({
       CompatibleCode,
       EmptyLineParagraph,
       NotionBlockquote,
-      CodeBlock,
+      drawDiagrams ? DrawingCodeBlock : CodeBlock,
       VisualEditorPlaceholder.configure({
         emptyBlockPlaceholder,
       }),
@@ -3732,6 +3747,7 @@ export function VisualEditor({
   privateImageUploads = false,
   localFilePath,
   referenceDepth,
+  drawDiagrams = true,
   onComment,
   onBlockComment,
   commentThreads,
@@ -4166,6 +4182,7 @@ export function VisualEditor({
         resolveNotionPageLink,
         localFilePath,
         referenceDepth,
+        drawDiagrams,
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
         findCommentQuote,
@@ -4246,6 +4263,7 @@ export function VisualEditor({
       resolveNotionPageLink,
       localFilePath,
       referenceDepth,
+      drawDiagrams,
       t,
       onMediaSourceCommitted,
       findCommentQuote,
@@ -6003,7 +6021,9 @@ export function VisualEditor({
             documentId={referenceDepth ? undefined : documentId}
           />
         ) : null}
-        <EditorContent editor={editor} hidden={showStoredBody} />
+        <DrawDiagramsContext.Provider value={drawDiagrams}>
+          <EditorContent editor={editor} hidden={showStoredBody} />
+        </DrawDiagramsContext.Provider>
       </RegistryBlockDataProvider>
       {collabState.initialSeedFailed ? (
         <div

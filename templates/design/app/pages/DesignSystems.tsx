@@ -1,4 +1,4 @@
-import { appApiPath } from "@agent-native/core/client/api-path";
+import { appApiPath, appPath } from "@agent-native/core/client/api-path";
 import {
   isDesignSystemTierAtMax,
   type DesignSystemTierLimit,
@@ -756,6 +756,11 @@ export default function DesignSystems() {
                           <ShareButton
                             resourceType="design-system"
                             resourceId={ds.id}
+                            shareUrl={
+                              typeof window === "undefined"
+                                ? undefined
+                                : `${window.location.origin}${appPath(`/design-systems?designSystemId=${encodeURIComponent(ds.id)}`)}`
+                            }
                             allowedRoles={["viewer", "editor", "admin"]}
                             resourceTitle={ds.title}
                           />

@@ -340,6 +340,18 @@ export function renderEditorCanvasArea({
       isHidden={activeLayerHidden}
       labels={{
         selectLayer: t("designEditor.componentInstances.selectLayer"),
+        layerKinds: {
+          webgl: t("designEditor.componentInstances.layerKinds.webgl"),
+          canvas: t("designEditor.componentInstances.layerKinds.canvas"),
+          video: t("designEditor.componentInstances.layerKinds.video"),
+          image: t("designEditor.componentInstances.layerKinds.image"),
+          svg: t("designEditor.componentInstances.layerKinds.svg"),
+          embed: t("designEditor.componentInstances.layerKinds.embed"),
+          background: t(
+            "designEditor.componentInstances.layerKinds.background",
+          ),
+          effect: t("designEditor.componentInstances.layerKinds.effect"),
+        },
         goToMainComponent: t("designEditor.componentInstances.goToMain"),
         swapInstance: t("designEditor.componentInstances.swap"),
         detachInstance: t("designEditor.componentInstances.detach"),

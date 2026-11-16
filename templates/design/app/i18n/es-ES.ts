@@ -1051,6 +1051,38 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Compartir vista previa en vivo",
+      instructions:
+        "Pega una URL HTTPS pública de vista previa para tu aplicación, como un túnel de ngrok o cloudflared. Tu equipo sigue usando localhost; los demás pueden ver la vista previa pública o sugerir cambios en la captura publicada.",
+      tunnelUrl: "URL pública de vista previa",
+      enableCollaboration:
+        "Habilitar la colaboración en vivo para todas las personas con acceso al diseño",
+      save: "Guardar",
+      unavailable:
+        "Vista previa en vivo no disponible; se muestra la instantánea",
+      live: "Vista previa en vivo",
+      openLive: "Abrir la vista previa en vivo en {{hostname}}",
+      suggest: "Sugerir en la captura",
+      localOnly: "La vista en vivo solo está en el equipo del propietario",
+    },
+    referenceCopy: {
+      staticNotice:
+        "JavaScript está desactivado; puede faltar contenido dinámico.",
+      captureAction: "Capturar instantánea estática",
+      capturePrompt:
+        "Captura la pantalla y el DOM de esta URL de referencia pública y añádelos como pantalla estática de referencia al lienzo. Etiquétala como captura, no como página en vivo.",
+      unavailable: "Esta página puede bloquear marcos o no haberse cargado.",
+      load: "Cargar copia de referencia",
+      label: "Copia de referencia · página pública, solo lectura",
+      noBridge: "Conecta un puente local para cargar una copia pública.",
+      snapshot: "Usar captura publicada",
+      capture: "Pide al agente una captura de pantalla y del DOM.",
+      failed: "La copia falló. Captura la pantalla y el DOM.",
+      loading: "Cargando copia de referencia…",
+      original: "Probar página original",
+    },
+
     sourceLoadFailed: "No se pudo cargar esta pantalla.",
     selectionPublishFailed:
       "Es posible que el agente no vea tu selección más reciente. Vuelve a seleccionarla.",
@@ -1101,6 +1133,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Seleccionar capa",
+      layerKinds: {
+        webgl: "Lienzo · WebGL",
+        canvas: "Lienzo",
+        video: "Vídeo",
+        image: "Imagen",
+        svg: "Gráfico SVG",
+        embed: "Insertado",
+        background: "Fondo",
+        effect: "Efecto",
+      },
       goToMain: "Ir al componente principal",
       restore: "Restaurar componente",
       swap: "Intercambiar instancia",
@@ -1767,7 +1809,6 @@ export default {
     signInToRequestAccessTitle: "Inicia sesión para solicitar acceso",
     signInToRequestAccessDescription:
       "Inicia sesión o crea una cuenta para solicitar acceso al propietario.",
-    signInOrSignUp: "Iniciar sesión o registrarse",
     accessCheckFailed: "No se pudo comprobar el acceso a este diseño.",
     retryAccessCheck: "Reintentar",
     saveAsTemplate: "Guardar como plantilla…",
@@ -1801,6 +1842,8 @@ export default {
         "Aplica o descarta tus ediciones visuales pendientes antes de duplicar.",
       allDesigns: "Todos los diseños",
       rename: "Renombrar",
+      builtFrom: "Creado a partir de {{title}}",
+      builtFromPage: "Creado a partir de una página de Content",
       duplicate: "Duplicar",
       versionHistory: "Historial de versiones",
       import: "Importar…",
@@ -2129,6 +2172,7 @@ export default {
       applyAria: "Aplicar ediciones visuales de estilo pendientes",
       applyButton: "Aplicar estilos",
       applySharedEdits: "Aplicar ediciones",
+      reviewSuggestion: "Revisar sugerencia",
       previewLabel: "Vista previa visual pendiente",
       applyDesignUpdates: "Aplicar actualizaciones de diseño",
       applying: "Aplicando…",
@@ -2234,10 +2278,25 @@ export default {
       annotationSendError:
         "No se pudieron enviar las anotaciones. Tu dibujo sigue aquí; inténtalo de nuevo.",
       codingHandoffError: "No se pudo crear la entrega para código",
+      unknownCollaborator: "un colaborador",
+      supersededVisualEditSuggestion:
+        "Se reemplazó una sugerencia anterior de {{authorEmail}}. Texto original: {{text}}",
       visualEditPendingConflict:
         "Otro colaborador tiene cambios pendientes. Aplícalos o elimínalos antes de enviar cambios nuevos.",
       codingHandoffCopied: "Entrega para código copiada",
       clipboardBlocked: "Portapapeles bloqueado",
+      pasteMediaTooMany_one:
+        "No se pegó {{count}} archivo. Puedes pegar hasta {{limit}} archivos a la vez.",
+      pasteMediaTooMany_many:
+        "No se pegaron {{count}} archivos. Puedes pegar hasta {{limit}} archivos a la vez.",
+      pasteMediaTooMany_other:
+        "No se pegaron {{count}} archivos. Puedes pegar hasta {{limit}} archivos a la vez.",
+      pasteMediaTooLarge_one:
+        "No se pegó {{count}} archivo porque supera los {{limitMb}} MB.",
+      pasteMediaTooLarge_many:
+        "No se pegaron {{count}} archivos porque superan los {{limitMb}} MB.",
+      pasteMediaTooLarge_other:
+        "No se pegaron {{count}} archivos porque superan los {{limitMb}} MB.",
       htmlCreateError: "No se pudo crear la descarga HTML",
       htmlDownloaded: "HTML descargado",
       htmlExportError: "No se pudo exportar HTML",
@@ -2673,6 +2732,7 @@ export default {
     searchSystems: "Buscar sistemas de diseño…",
     searchDesigns: "Buscar diseños…",
     searchPresentations: "Buscar presentaciones…",
+    searchPages: "Buscar páginas…",
     searchDesign: "Buscar diseño…",
     useDesignSystem: "Usar un sistema de diseño",
     notReady:
@@ -2685,6 +2745,7 @@ export default {
     design: "Referencias de diseño",
     slides: "Diapositivas",
     referenceDesign: "Usar un diseño como referencia",
+    contentPage: "Página de Content",
     connectFigma: "Conectar Figma",
     figmaReference: "Diseño de Figma…",
     figmaDialogTitle: "Añadir diseño de Figma",
@@ -3428,6 +3489,18 @@ export default {
     addEmoji: "Añadir emoji",
     mention: "Mencionar a alguien",
     noMentions: "No se encontraron personas",
+    format: {
+      toolbar: "Formato",
+      bold: "Negrita",
+      italic: "Cursiva",
+      strike: "Tachado",
+      code: "Código",
+      link: "Enlace",
+      linkField: "Dirección del enlace",
+      linkPlaceholder: "Pega un enlace",
+      applyLink: "Aplicar enlace",
+      removeLink: "Quitar enlace",
+    },
     mentionsFailed: "No se pudo cargar a las personas",
     reopen: "Reabrir",
     reopening: "Reabriendo…",
