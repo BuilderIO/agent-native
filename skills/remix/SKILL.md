@@ -261,8 +261,8 @@ one board, left to right, at the same viewport size:
    when its dev server runs, else an inline screen of the rebuilt section.
 3. **How it works**: a row of 3-5 small inline screens beneath, one stage of
    the technique each (geometry, motion, camera, shading, palette), each a
-   live isometric card (see **How It Works Frames**) driven by the remix's
-   knobs.
+   live card of flat screen layers (see **How It Works Frames**) driven by the
+   remix's knobs.
 
 Title screens with `rename-screen` ("Original · stripe.com", "Remix",
 "Folded plane"), then size and place them in one `update-design` call:
@@ -337,40 +337,41 @@ knobs in Edit.
 
 ### How It Works Frames
 
-Draw the software itself as isometric constructs whose parts behave the way
-the code does, using the data the stage works on:
+Explain how the screen works, not the technique in the abstract. The row is a
+left-to-right series of steps; each card draws what you would literally see on
+screen at that step, as flat, front-on 2D layers of the Remix's real screen:
 
-- geometry as a mesh with a visible vertex grid;
-- coordinate spaces (UV, screen) as grids with axis ticks;
-- buffers, render targets and layers as stacked slabs with pixel tiles on top;
-- shader stages and functions as modules joined by thin ink traces carrying
-  data packets, with uniforms as small dial or slider blocks plugged in;
-- fragments and noise fields as tile grids that light or rise as they run;
-- timelines and springs as tracks with keyframe pegs.
+- A flat rectangle in the screen's real proportions, holding that step's
+  actual content: the vertex grid over the hero, the same grid bent, the grain
+  as it renders in greys, then the colored hero. Draw the destination page
+  (its headline, buttons, palette and accent), faintly where it only orients;
+  at most a tiny source note ("same as stripe.com") goes in the margin.
+- Where layering matters, a short stack of 2-4 flat panes with a small,
+  consistent down-right offset (page content on top, effect canvas, then
+  background), each labelled outside the pane with a hairline and a serif
+  index.
+- One lit accent marks the same row, region or element in every card, so the
+  series reads as one story.
+- Controls are small flat sliders or dials in the card margin, joined to the
+  area they affect by a hairline.
 
-No hardware metaphors (cranks, plinths, gears, clocks, looms), and no
-flowchart of labelled boxes and arrows.
+No isometric or 3D projection, and no building-block or hardware metaphors
+(modules, slabs, circuits, cranks, gears), and no flowchart of labelled boxes.
+Draw on warm paper in four warm greys with thin ink lines; exactly one accent;
+colors the step is about (a palette, the final hero) appear as content.
 
-- One camera: isometric, 30° from a corner, no perspective. Every part is a
-  filled solid painted back to front, so nothing shows through.
-- Four tones per face by light direction (lightest on top): warm greys on
-  off-white paper with thin near-black ink outlines. Exactly one part is
-  lit in the destination's accent, the part to watch. Colors the stage is
-  about (palette stops, a painted field) may appear as content.
-- Many small parts, 40 or more (vertices, tiles, ticks, pins, packets), so
-  the drawing still rewards a 4× zoom.
 - A 600×460 card with number, title, a short interaction hint and the live
-  readout in its four corners (Inter; numbers in serif italic). No words
-  inside the drawing. Optionally, a 1-3 line monospace snippet in the margin
+  readout in its four corners (Inter; numbers in serif italic). No labels
+  inside the screen; its own headline and buttons are content. Optionally, a 1-3 line monospace snippet in the margin
   names what the lit part computes, in our own words.
 - Calm and live: a time-based idle tour that pauses on hover or focus, drag to
-  scrub, a key to slow (S) or pull apart (E), and stillness under
+  scrub, a key to slow (S) or spread the pane stack (E), and stillness under
   `prefers-reduced-motion`.
 - One model of true values drives motion and readout: read the shared tweak
   CSS variables from `:root` every frame, with the spec's real parameter names
   and formulas.
-- Parts are layers. Give each part a knob drives (a twist module, a uniform
-  dial, a noise grid) its own absolutely positioned HTML element over the
+- Parts are layers. Give each part a knob drives (the bent grid, a pane, a
+  margin slider) its own absolutely positioned HTML element over the
   drawing, with `data-agent-native-node-id` and
   `data-agent-native-layer-name`, present in the static HTML and moved by the
   script, so a click in Edit selects that part. Scope each knob to the Remix's
