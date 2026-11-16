@@ -650,6 +650,12 @@ describe("VersionHistoryPanel changes and undo", () => {
     );
   }
 
+  function undoButton() {
+    return Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent.trim() === "Undo these changes",
+    );
+  }
+
   beforeEach(() => {
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -781,6 +787,32 @@ describe("VersionHistoryPanel changes and undo", () => {
       "editor.historyUndoAlreadyDone",
     );
     expect(mocks.onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(undoButton()).toBeUndefined();
+    expect(document.activeElement?.textContent).toContain("Back to history");
+  });
+
+  it("applies a replayed undo without calling it a full undo", async () => {
+    mocks.undo.mockResolvedValueOnce({
+      id: "document-1",
+      title: "Plan",
+      content: "One\nTwo by agent and person",
+      outcome: "replayed",
+      undoGroupId: "undo:group-agent",
+    });
+    await renderWith([agentGroup]);
+    await clickButton("Agent run", false);
+    await clickButton("View changes");
+    await clickButton("Undo these changes");
+
+    expect(mocks.onRestored).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "replayed" }),
+    );
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(mocks.toastInfo).toHaveBeenCalledWith(
+      "editor.historyUndoAlreadyDone",
+    );
+    expect(mocks.onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(undoButton()).toBeUndefined();
   });
 
   it("lets a person's session be viewed but not undone", async () => {

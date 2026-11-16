@@ -155,6 +155,8 @@ export function VersionHistoryPanel({
   // undo it already made instead of undoing again.
   const [undoKey, setUndoKey] = useState("");
   const [undoKeptBack, setUndoKeptBack] = useState<UndoKeptBack | null>(null);
+  // The entry's changes were undone before, so its Undo has nothing to do.
+  const [undoSettled, setUndoSettled] = useState(false);
   const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(
     null,
   );
@@ -201,12 +203,13 @@ export function VersionHistoryPanel({
     setRestoreError(null);
   }, [selectedCheckpoint?.id, selectedChangeGroup?.id, open]);
 
-  // Opening a checkpoint or an entry's changes hides the list, and a partial
-  // undo takes away the Undo button, so focus moves to the way back.
+  // Opening a checkpoint or an entry's changes hides the list, and an undo
+  // that leaves the panel open takes away the Undo button, so focus moves to
+  // the way back.
   const viewId = selectedCheckpoint?.id ?? selectedChangeGroup?.id ?? null;
   useEffect(() => {
     if (viewId) backButtonRef.current?.focus();
-  }, [viewId, undoKeptBack]);
+  }, [viewId, undoKeptBack, undoSettled]);
 
   useEffect(() => {
     if (!open || firstHistoryPage.isPlaceholderData || !firstHistoryPage.data)
@@ -275,6 +278,7 @@ export function VersionHistoryPanel({
     operationContextRef.current.generation += 1;
     setIsPreparingRestore(false);
     setUndoKeptBack(null);
+    setUndoSettled(false);
     setUndoKey(group ? globalThis.crypto.randomUUID() : "");
     setSelectedChangeGroup(group);
   };
@@ -292,6 +296,7 @@ export function VersionHistoryPanel({
       setSelectedCheckpoint(null);
       setSelectedChangeGroup(null);
       setUndoKeptBack(null);
+      setUndoSettled(false);
       setPendingRestore(null);
     }
     onOpenChange(nextOpen);
@@ -420,7 +425,10 @@ export function VersionHistoryPanel({
       );
       return;
     }
-    if (result.outcome === "already-undone") {
+    // A replay returns the page after the first undo with this key, without
+    // what that undo kept back, so it can't be called a full undo.
+    if (result.outcome === "already-undone" || result.outcome === "replayed") {
+      setUndoSettled(true);
       toast.info(t("editor.historyUndoAlreadyDone"));
       return;
     }
@@ -443,6 +451,7 @@ export function VersionHistoryPanel({
     !!selectedChangeGroup &&
     isUndoable(selectedChangeGroup) &&
     !undoKeptBack &&
+    !undoSettled &&
     changeSpans.length > 0;
   const undoDisabled =
     !restoreReady ||
