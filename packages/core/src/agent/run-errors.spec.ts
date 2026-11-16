@@ -125,6 +125,21 @@ describe("retry safety for an incomplete run", () => {
 });
 
 describe("incompleteAgentRunFailure", () => {
+  it("warns against repeating unknown work when the ledger cannot be read", () => {
+    const failure = incompleteAgentRunFailure({
+      dispatchedModelCalls: 1,
+      hasVisibleText: false,
+      hasSuccessfulToolOutput: false,
+      retrySafety: "unreadable",
+    });
+    expect(failure).toMatchObject({
+      code: "tool_call_journal_unreadable",
+      providerRetryable: false,
+    });
+    expect(failure.message).not.toMatch(/send the request again/i);
+    expect(failure.message).toMatch(/check.*completed/i);
+  });
+
   it("distinguishes a run that never produced output from an exhausted run", () => {
     expect(
       incompleteAgentRunFailure({

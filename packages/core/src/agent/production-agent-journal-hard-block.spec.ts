@@ -834,38 +834,47 @@ describe("tool-call journal hard-block", () => {
     );
   });
 
-  it("stops a continuation whose per-turn ledger cannot be read", async () => {
-    currentTurnEventsMock.mockRejectedValue(new Error("neon: connection lost"));
-    const action = makeWriteAction();
-    const events: any[] = [];
+  it.each([false, true])(
+    "stops a continuation whose per-turn ledger cannot be read (private=%s)",
+    async (privateContent) => {
+      currentTurnEventsMock.mockRejectedValue(
+        new Error("neon: connection lost"),
+      );
+      const action = makeWriteAction();
+      const events: any[] = [];
 
-    await runAgentLoop({
-      engine: singleToolEngine("send-email", { to: "a@b.com" }),
-      model: "test-model",
-      systemPrompt: "system",
-      tools: [],
-      messages: [
-        {
-          role: "user",
-          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
-        },
-      ],
-      actions: { "send-email": action },
-      send: (e) => events.push(e),
-      signal: new AbortController().signal,
-      threadId: "thread-unreadable",
-    });
+      await runAgentLoop({
+        engine: singleToolEngine("send-email", { to: "a@b.com" }),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: { "send-email": action },
+        send: (e) => events.push(e),
+        signal: new AbortController().signal,
+        threadId: "thread-unreadable",
+        historyPrivacyState: { private: privateContent, recorded: true },
+      });
 
-    expect(action.run).not.toHaveBeenCalled();
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "tool_call_journal_unreadable",
-        recoverable: false,
-        details: expect.stringContaining("neon: connection lost"),
-      }),
-    );
-  });
+      expect(action.run).not.toHaveBeenCalled();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "tool_call_journal_unreadable",
+          recoverable: false,
+          details: "Per-turn ledger read failed.",
+          error: expect.stringMatching(/check.*completed/i),
+        }),
+      );
+      expect(JSON.stringify(events)).not.toContain("neon: connection lost");
+      expect(JSON.stringify(events)).not.toMatch(/send the request again/i);
+    },
+  );
 
   it("survives a single ledger read blip on a continuation", async () => {
     currentTurnEventsMock

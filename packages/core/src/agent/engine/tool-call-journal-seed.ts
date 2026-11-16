@@ -427,11 +427,10 @@ async function readCurrentTurnEventsWithRetry(
 ): Promise<AgentChatEvent[]> {
   try {
     return await getCurrentTurnEventsForThread(threadId, turnId);
-  } catch (err) {
+  } catch {
+    // Privacy cannot be determined until the ledger has been read.
     console.warn(
-      `[tool-call-journal] per-turn ledger read failed for thread ${threadId}, retrying once: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
+      "[tool-call-journal] per-turn ledger read failed; retrying once",
     );
     await new Promise((resolve) => setTimeout(resolve, LEDGER_READ_RETRY_MS));
     return await getCurrentTurnEventsForThread(threadId, turnId);
@@ -463,12 +462,9 @@ export async function loadPriorTurnToolCallJournal(
   let priorEvents: AgentChatEvent[];
   try {
     priorEvents = await readCurrentTurnEventsWithRetry(threadId, turnId);
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[tool-call-journal] per-turn ledger read failed for thread ${threadId}: ${error}`,
-    );
-    return { status: "unreadable", error };
+  } catch {
+    console.warn("[tool-call-journal] per-turn ledger read failed after retry");
+    return { status: "unreadable", error: "Per-turn ledger read failed." };
   }
   const privateStarts = new Map<string, string>();
   const privatePauses = new Set<string>();
@@ -484,7 +480,7 @@ export async function loadPriorTurnToolCallJournal(
           status: "unreadable",
           code: "private_history_unrecoverable",
           error:
-            "Private tool history cannot be safely resumed. Start a new turn.",
+            "Private tool history cannot be safely resumed. Check whether earlier actions completed before taking further action.",
         };
       }
       privateStarts.set(event.id, event.tool);
@@ -500,7 +496,7 @@ export async function loadPriorTurnToolCallJournal(
           status: "unreadable",
           code: "private_history_unrecoverable",
           error:
-            "Private tool history cannot be safely resumed. Start a new turn.",
+            "Private tool history cannot be safely resumed. Check whether earlier actions completed before taking further action.",
         };
       }
       privateStarts.delete(event.id);
@@ -511,7 +507,8 @@ export async function loadPriorTurnToolCallJournal(
     return {
       status: "unreadable",
       code: "private_history_unrecoverable",
-      error: "Private tool history cannot be safely resumed. Start a new turn.",
+      error:
+        "Private tool history cannot be safely resumed. Check whether earlier actions completed before taking further action.",
     };
   }
   if (options.recoverCompletedExecutionSteps) {
@@ -521,12 +518,12 @@ export async function loadPriorTurnToolCallJournal(
         turnId!,
         priorEvents,
       );
-    } catch (err) {
-      const error = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `[tool-call-journal] execution-step recovery read failed for thread ${threadId}: ${error}`,
-      );
-      return { status: "unreadable", error };
+    } catch {
+      console.warn("[tool-call-journal] execution-step recovery read failed");
+      return {
+        status: "unreadable",
+        error: "Execution-step recovery read failed.",
+      };
     }
   }
   const priorToolCalls: PriorTurnToolCallSummary[] = [];

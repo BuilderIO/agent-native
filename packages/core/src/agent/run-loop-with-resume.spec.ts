@@ -2253,6 +2253,27 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(mockRunAgentLoop).not.toHaveBeenCalled();
   });
 
+  it("warns without exposing a private resume-ledger storage error", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockGetCurrentTurnEventsForThread.mockRejectedValue(
+      new Error("synthetic private storage diagnostic"),
+    );
+    try {
+      await appendDurableContinuationContext(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        "network_interrupted",
+        "private-thread",
+        "private-turn",
+      );
+      expect(warn).toHaveBeenCalled();
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(
+        "synthetic private storage diagnostic",
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("still resumes when the journal ledger read throws", async () => {
     mockGetCurrentTurnEventsForThread.mockRejectedValue(
       new Error("db unavailable"),

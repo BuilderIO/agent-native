@@ -68,10 +68,8 @@ async function readCurrentTurnEventsForResume(
   } catch (err) {
     if (err instanceof AgentRunJournalUnreadableError) throw err;
     persisted = false;
-    console.warn(
-      "[run-loop] current-turn ledger read failed:",
-      err instanceof Error ? err.message : String(err),
-    );
+    // The failed read cannot establish whether this turn contains private data.
+    console.warn("[run-loop] current-turn ledger read failed");
   }
   if (localEvents.length === 0) return { events: persistedEvents, persisted };
   const seen = new Set(persistedEvents.map((event) => JSON.stringify(event)));

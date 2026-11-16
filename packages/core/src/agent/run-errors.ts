@@ -36,7 +36,7 @@ export const AGENT_RUN_NO_OUTPUT_MESSAGE =
   "The agent run ended without producing a response.";
 export const RUN_JOURNAL_UNREADABLE_MESSAGE =
   "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
-  "Retrying would risk repeating a step that already completed. Please send the request again.";
+  "Retrying could repeat an action. Check whether earlier actions completed before taking further action.";
 
 interface IncompleteAgentRunFailure {
   code: string;

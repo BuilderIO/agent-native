@@ -642,6 +642,46 @@ describe("loadedSkillPagesContext", () => {
 });
 
 describe("private prior-turn recovery", () => {
+  it.each(["ledger", "execution-step"] as const)(
+    "reports a %s read failure without logging or returning storage details",
+    async (stage) => {
+      const secret = "synthetic private storage diagnostic";
+      const read = vi.spyOn(runStore, "getCurrentTurnEventsForThread");
+      const steps = vi.spyOn(runStore, "getCompletedAgentExecutionSteps");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.useFakeTimers();
+      if (stage === "ledger") read.mockRejectedValue(new Error(secret));
+      else {
+        read.mockResolvedValue([
+          { type: "tool_start", id: "call", tool: "write", input: {} },
+        ]);
+        steps.mockRejectedValue(new Error(secret));
+      }
+      try {
+        const pending = loadPriorTurnToolCallJournal(
+          "private-thread",
+          "private-turn",
+          {
+            recoverCompletedExecutionSteps: true,
+          },
+        );
+        await vi.runAllTimersAsync();
+        const result = await pending;
+        expect(result).toMatchObject({ status: "unreadable" });
+        expect(JSON.stringify(result)).not.toContain(secret);
+        expect(warn).toHaveBeenCalled();
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
+        expect(read).toHaveBeenCalledTimes(stage === "ledger" ? 2 : 1);
+        if (stage === "execution-step") expect(steps).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+        read.mockRestore();
+        steps.mockRestore();
+        warn.mockRestore();
+      }
+    },
+  );
+
   it("refuses to resume an executed private tool whose identity was omitted", async () => {
     const read = vi
       .spyOn(runStore, "getCurrentTurnEventsForThread")
@@ -664,9 +704,13 @@ describe("private prior-turn recovery", () => {
         },
       ]);
     try {
-      expect(
-        await loadPriorTurnToolCallJournal("thread", "turn"),
-      ).toMatchObject({ status: "unreadable" });
+      const result = await loadPriorTurnToolCallJournal("thread", "turn");
+      expect(result).toMatchObject({
+        status: "unreadable",
+        code: "private_history_unrecoverable",
+        error: expect.stringMatching(/check.*completed/i),
+      });
+      expect(JSON.stringify(result)).not.toMatch(/start a new turn/i);
     } finally {
       read.mockRestore();
     }
