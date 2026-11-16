@@ -71,6 +71,7 @@ import {
   copyInstalledBrowserRuntimePackages,
   copyInstalledExternalSsrPackages,
   shouldCopyExternalSsrRuntimePackages,
+  shouldCopyOnlyUndiciForPreset,
   copyDrizzleMigrationAssets,
   copyDir,
   createCloudflareModuleStubPlugin,
@@ -8181,6 +8182,144 @@ describe("shouldCopyExternalSsrRuntimePackages", () => {
   it("does not copy for presets that bundle the runtime instead", () => {
     expect(shouldCopyExternalSsrRuntimePackages("cloudflare_module")).toBe(
       false,
+    );
+  });
+});
+
+describe("Node preset external SSR runtime output", { timeout: 60_000 }, () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const directory of dirs.splice(0)) {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("limits the newly covered Node-family presets to undici", () => {
+    for (const preset of ["node", "node-server", "koyeb", "render_com"]) {
+      expect(shouldCopyOnlyUndiciForPreset(preset)).toBe(true);
+    }
+    for (const preset of ["netlify", "vercel", "aws-lambda", "aws_amplify"]) {
+      expect(shouldCopyOnlyUndiciForPreset(preset)).toBe(false);
+    }
+  });
+
+  it("loads undici from the emitted Node server output after the workspace install is gone", async () => {
+    const workspace = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-node-undici-"),
+    );
+    dirs.push(workspace);
+
+    // Stand-in for the build host's installed undici. A deployed Node server
+    // never ships the workspace's pnpm store, so the emitted output has to
+    // carry its own copy.
+    const installedUndici = path.join(workspace, "node_modules", "undici");
+    fs.mkdirSync(installedUndici, { recursive: true });
+    fs.writeFileSync(
+      path.join(installedUndici, "package.json"),
+      `${JSON.stringify({
+        name: "undici",
+        version: "7.28.0",
+        type: "module",
+        main: "index.js",
+      })}\n`,
+    );
+    fs.writeFileSync(
+      path.join(installedUndici, "index.js"),
+      'export const undiciMarker = "undici-from-server-output";\n',
+    );
+
+    // Build a real Node-preset server output. This minimal app has no
+    // url-safety.ts, so the opaque undici specifier that module leaves in the
+    // bundle is reproduced verbatim on the emitted output.
+    const appDir = path.join(workspace, "app");
+    const routesDir = path.join(appDir, "server", "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(routesDir, "index.ts"),
+      'export default defineEventHandler(() => "ok");\n',
+    );
+    const { build, createNitro, prepare } = await import("nitro/builder");
+    const nitro = await createNitro({
+      rootDir: appDir,
+      preset: "node",
+      dev: false,
+      minify: false,
+      noExternals: true,
+      serverDir: "./server",
+      rolldownConfig: nitroServerCodeSplittingConfigForPreset("node"),
+    });
+    await prepare(nitro);
+    await build(nitro);
+    const serverDir = nitro.options.output.serverDir;
+    const opaqueImport =
+      'const undiciSpecifier = "undici";\n' +
+      "export const { undiciMarker } = await import(" +
+      "/* @vite-ignore */ undiciSpecifier);\n";
+    fs.writeFileSync(path.join(serverDir, "undici-runtime.mjs"), opaqueImport);
+
+    expect(copyInstalledExternalSsrPackages(serverDir, workspace, "node")).toBe(
+      1,
+    );
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "undici", "package.json"),
+      ),
+    ).toBe(true);
+    // No unrelated SSR package is copied or pruned into a Node server tree.
+    expect(
+      fs.existsSync(path.join(serverDir, "node_modules", "react-dom")),
+    ).toBe(false);
+
+    // Simulate deployment: the workspace install is not shipped.
+    fs.rmSync(installedUndici, { recursive: true, force: true });
+    const requireFromOutput = createRequire(path.join(serverDir, "index.mjs"));
+    expect(requireFromOutput.resolve("undici")).toContain(
+      path.join("node_modules", "undici"),
+    );
+
+    const entrypoint = path.join(serverDir, "load-undici.mjs");
+    fs.writeFileSync(
+      entrypoint,
+      'export const { undiciMarker } = await import("undici");\n',
+    );
+    const runtime = await import(pathToFileURL(entrypoint).href);
+    expect(runtime.undiciMarker).toBe("undici-from-server-output");
+    await nitro.close();
+  });
+
+  it("keeps the full SSR package copy for serverless presets", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-serverless-ssr-"),
+    );
+    dirs.push(root);
+    for (const name of ["undici", "react-dom"]) {
+      const dir = path.join(root, "node_modules", name);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "package.json"),
+        JSON.stringify({ name, version: "1.0.0" }),
+      );
+    }
+    const serverDir = path.join(root, "server");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(serverDir, "package.json"),
+      JSON.stringify({ name: "server-output", dependencies: {} }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "chunk.mjs"),
+      'export * from "react-dom";\nawait import(`undici`);\n',
+    );
+
+    expect(copyInstalledExternalSsrPackages(serverDir, root, "netlify")).toBe(
+      2,
+    );
+    expect(
+      fs.existsSync(path.join(serverDir, "node_modules", "react-dom")),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(serverDir, "node_modules", "undici"))).toBe(
+      true,
     );
   });
 });

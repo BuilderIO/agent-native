@@ -3580,14 +3580,24 @@ export function copyInstalledBrowserRuntimePackages(
 export function copyInstalledExternalSsrPackages(
   serverDir: string | undefined,
   projectCwd = cwd,
+  targetPreset?: string,
 ): number {
   if (!serverDir || !fs.existsSync(serverDir)) return 0;
+
+  // The SSR package set and its pruning are serverless function-size
+  // optimisations. Node-family presets ship a normal node_modules tree, where
+  // a partial, pruned react-dom copy can break SSR. Keep those presets to the
+  // undici runtime that url-safety's opaque import needs; omitting targetPreset
+  // preserves the original full copy for every other caller.
+  const undiciOnly =
+    targetPreset !== undefined && shouldCopyOnlyUndiciForPreset(targetPreset);
 
   const packagesToCopy = new Set<string>();
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
     // Keep undici opaque to client bundlers, but copy it into the server runtime.
     if (/(\"|'|\x60)undici\1/.test(source)) packagesToCopy.add("undici");
+    if (undiciOnly) return;
     for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
       if (hasExternalSsrRuntimeReference(source, packageName)) {
         packagesToCopy.add(packageName);
@@ -3623,6 +3633,7 @@ export function copyInstalledExternalSsrPackages(
     );
   }
   for (const packageName of copiedPackages) {
+    if (undiciOnly) continue;
     pruneExternalSsrPackageArtifacts(serverDir, packageName);
   }
 
@@ -4820,18 +4831,24 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
   );
 }
 
-export function shouldCopyExternalSsrRuntimePackages(
-  targetPreset: string,
-): boolean {
+export function shouldCopyOnlyUndiciForPreset(targetPreset: string): boolean {
   return (
-    targetPreset === "netlify" ||
-    targetPreset === "vercel" ||
-    isAwsLambdaPreset(targetPreset) ||
-    isAwsAmplifyPreset(targetPreset) ||
     targetPreset === "node" ||
     targetPreset === "node-server" ||
     targetPreset === "koyeb" ||
     targetPreset === "render_com"
+  );
+}
+
+export function shouldCopyExternalSsrRuntimePackages(
+  targetPreset: string,
+): boolean {
+  return (
+    shouldCopyOnlyUndiciForPreset(targetPreset) ||
+    targetPreset === "netlify" ||
+    targetPreset === "vercel" ||
+    isAwsLambdaPreset(targetPreset) ||
+    isAwsAmplifyPreset(targetPreset)
   );
 }
 
@@ -6455,7 +6472,11 @@ export default bundle;
   // url-safety loads undici through an opaque specifier; the bundle cannot resolve
   // it from a pnpm store unless the package is copied into the server output.
   if (shouldCopyExternalSsrRuntimePackages(preset)) {
-    copyInstalledExternalSsrPackages(nitro.options.output.serverDir);
+    copyInstalledExternalSsrPackages(
+      nitro.options.output.serverDir,
+      cwd,
+      preset,
+    );
   }
 
   if (preset === "vercel") {
