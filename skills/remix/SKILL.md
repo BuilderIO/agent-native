@@ -263,12 +263,16 @@ Open Design as `/visual-edit` does (same launch targets and links) and lay out
 one board, left to right, at the same viewport size.
 
 A board writes files to a Design project, so it needs the authenticated
-connector or a signed-in Design tab. The `/visual-edit` page lists only the
-visual-edit tools (`open-visual-edit` and a few others); file tools such as
-`create-file`, `update-file` and `list-files` register on a signed-in
-`/design/<id>` page. When the tab is signed out, ask the user to sign in to
-Design there, wait, open the board's design page, and check its tools again
-before falling back to **Finish Without Design**.
+connector or a signed-in Design tab. Check sign-in before the first launch:
+signed out, creating a project fails with `no authenticated user`. The
+`/visual-edit` page lists only the visual-edit tools (`open-visual-edit` and
+a few others); file tools such as `create-file`, `update-file` and
+`list-files` register on a signed-in `/design/<id>` page. When the tab is
+signed out, ask the user to sign in to Design there and wait, then launch with
+`newDesign: true` so the board is a new project the user owns and can edit.
+If a write is refused for permission, start a new board the same way rather
+than reusing someone else's project; fall back to **Finish Without Design**
+only when no signed-in session is possible.
 
 1. **Original**: the source screen from "Put Both Sites On The Canvas" (live
    where it frames, else the served capture, else a static snapshot).
