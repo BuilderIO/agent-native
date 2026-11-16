@@ -125,6 +125,15 @@ description: "خطافات actions التي يستخدمها app/ للقراءة
       optional: true,
       description:
         "كل شيء من [خيارات useQuery](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) باستثناء `queryKey` و`queryFn`، التي يضبطها الخطاف نفسه.",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "الموارد التي يقرأها الاستعلام، بعلامات type أو type:id.",
+        },
+      ],
     },
   ]}
   returns={{
@@ -174,6 +183,13 @@ const { data, isLoading } = useActionQuery(
       description:
         "كل شيء من [خيارات useMutation](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) باستثناء `mutationFn`، التي يضبطها الخطاف نفسه.",
       fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "الموارد التي تعدلها عملية التغيير، بعلامات type أو type:id للإبطال المحلي.",
+        },
         {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
@@ -251,6 +267,8 @@ const reply = useActionMutation("send-ticket-reply", {
 في حدث مزامنة action، يشكّل `resourceType` و`resourceId` علامة المورد المعدّل. إذا كان `resourceId` مفقودًا أو فارغًا، تُبطل جميع الاستعلامات المطابقة لذلك النوع. إذا افتقد أي حدث action غير مكبوت إلى `resourceType`، يُعطّل تضييق نطاق الموارد للدفعة وتصبح جميع استعلامات action مؤهلة للإبطال. لا يزال بإمكان الشرط الاختياري تصفية الإبطال.
 
 في دفعة تتضمن أحداث action ولا تحتوي إلا على أحداث action أو app-state، يطابق مرشح الموارد أي مورد تغيّر في أحداث action غير المكبوتة. عند توفير `actionInvalidatePredicate`، يجب أن يجتاز الاستعلام المرشح والشرط معًا. يتلقى الشرط الدفعة الكاملة ذات الصلة باستثناء أحداث awareness، بما فيها أحداث action المكبوتة. إذا احتوت الدفعة أيضًا على مصدر آخر يغيّر البيانات، يُعطّل تضييق نطاق الموارد مع استمرار تطبيق الشرط. وفي دفعة تحتوي على حدث آخر يغيّر البيانات ولا تحتوي على حدث action غير مكبوت، يصفّي الشرط أيضًا الإبطال العام لاستعلامات action.
+
+يحدد `changeResource` في action موردًا واحدًا لتسليم الحدث والتحقق من الوصول، وليس بالضرورة قائمة شاملة بما تكتبه action. لا تكون علامات السجلات المحددة في الاستعلام آمنة إلا إذا مثّل المؤشر المُسلَّم لكل action ذات صلة جميع السجلات التي يعتمد عليها الاستعلام. للكتابات الجماعية أو الاعتماد بين السجلات، استخدم علامات استعلام على مستوى النوع أو استعلامات بلا علامات، أو أرسل أحداثًا متعددة مستقلة التسليم تغطي السجلات المتأثرة. توسعة علامات العميل تؤثر في المطابقة بعد تسليم الحدث فقط، ولا تجعل الحدث مرئيًا لمن لا يملك الوصول إلى مورد تسليمه. تأكد من أن المشاهدين المعنيين يتلقون حدثًا يمكنهم الوصول إليه.
 
 ### callAction {#call-action}
 
@@ -463,7 +481,7 @@ try {
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query, events: readonly SyncEvent[]) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
             "يصفّي إبطال المزامنة باستخدام الاستعلام والأحداث المجمّعة. راجع الإبطال حسب نطاق المورد لمعرفة سلوك الدفعات.",

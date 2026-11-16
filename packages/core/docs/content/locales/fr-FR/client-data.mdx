@@ -126,6 +126,15 @@ Il y a deux hooks d'action que vous êtes le plus susceptible d'utiliser : `useA
       optional: true,
       description:
         "Tout ce qui vient des [options de useQuery](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) sauf `queryKey` et `queryFn`, que le hook définit lui-même.",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "Ressources lues par la requête, sous forme d’étiquettes type ou type:id.",
+        },
+      ],
     },
   ]}
   returns={{
@@ -175,6 +184,13 @@ const { data, isLoading } = useActionQuery(
       description:
         "Tout ce qui vient des [options de useMutation](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) sauf `mutationFn`, que le hook définit lui-même.",
       fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "Ressources modifiées par la mutation, sous forme d’étiquettes type ou type:id pour l’invalidation locale.",
+        },
         {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
@@ -252,6 +268,8 @@ La correspondance est symétrique pour les mutations locales et les événements
 Pour un événement de synchronisation d’action, `resourceType` et `resourceId` forment l’étiquette de la ressource modifiée. Si `resourceId` est absent ou vide, toutes les requêtes correspondant à ce type sont invalidées. Si un événement d’action non supprimé n’a pas de `resourceType`, le filtrage par ressource est désactivé pour le lot et toutes les requêtes d’action sont concernées. Le prédicat facultatif peut toujours filtrer l’invalidation.
 
 Pour un lot contenant des événements d’action et uniquement des événements d’action ou app-state, le filtre de ressources correspond à toute ressource modifiée dans les événements d’action non supprimés. Avec `actionInvalidatePredicate`, une requête doit satisfaire à la fois le filtre et le prédicat. Le prédicat reçoit tout le lot pertinent hors événements awareness, y compris les événements d’action supprimés. Si le lot contient aussi une autre source qui modifie les données, le filtrage par ressource est désactivé, mais le prédicat reste appliqué. Dans un lot avec un autre événement qui modifie les données mais sans événement d’action non supprimé, le prédicat filtre aussi l’invalidation générale des actions.
+
+`changeResource` d’une action désigne une ressource pour la livraison de l’événement et le contrôle d’accès. Ce n’est pas nécessairement la liste exhaustive des écritures de l’action. Les étiquettes de requête propres à un enregistrement ne sont sûres que si le marqueur livré de chaque action pertinente représente tous les enregistrements dont dépend la requête. Pour les écritures groupées ou les dépendances entre enregistrements, utilisez des étiquettes de requête couvrant le type entier ou des requêtes sans étiquette, ou émettez plusieurs événements livrés indépendamment pour les enregistrements concernés. Élargir les étiquettes côté client ne modifie la correspondance qu’après la livraison. Cela ne rend pas l’événement visible à une personne sans accès à sa ressource de livraison. Assurez-vous que les personnes concernées reçoivent un événement auquel elles ont accès.
 
 ### callAction {#call-action}
 
@@ -466,7 +484,7 @@ Le texte de la notification dépend de l'échec. Une requête annulée n'affiche
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query, events: readonly SyncEvent[]) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
             "Filtre l’invalidation de synchronisation à partir de la requête et des événements regroupés. Voir Invalidation par ressource pour le comportement des lots.",

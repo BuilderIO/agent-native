@@ -126,6 +126,15 @@ Es gibt zwei Action-Hooks, die Sie am wahrscheinlichsten verwenden werden: `useA
       optional: true,
       description:
         "Alles aus den [useQuery-Optionen](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) außer `queryKey` und `queryFn`, die der Hook selbst setzt.",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "Von der Abfrage gelesene Ressourcen als Tags type oder type:id.",
+        },
+      ],
     },
   ]}
   returns={{
@@ -175,6 +184,13 @@ const { data, isLoading } = useActionQuery(
       description:
         "Alles aus den [useMutation-Optionen](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) außer `mutationFn`, die der Hook selbst setzt.",
       fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "Von der Mutation geänderte Ressourcen als Tags type oder type:id für die lokale Invalidierung.",
+        },
         {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
@@ -252,6 +268,8 @@ Der Abgleich ist für lokale Mutationen und Sync-Ereignisse symmetrisch. Ein Tag
 Bei einem Action-Sync-Ereignis bilden `resourceType` und `resourceId` das Tag der geänderten Ressource. Fehlt `resourceId` oder ist es leer, werden alle Abfragen für diesen Typ invalidiert. Fehlt bei einem nicht unterdrückten Action-Ereignis `resourceType`, entfällt die Ressourceneingrenzung für den Stapel und alle Action-Abfragen kommen infrage. Das optionale Prädikat kann die Invalidierung weiterhin filtern.
 
 Enthält ein Stapel Action-Ereignisse und ausschließlich Action- oder App-State-Ereignisse, passt der Ressourcenfilter auf jede geänderte Ressource der nicht unterdrückten Action-Ereignisse. Mit `actionInvalidatePredicate` muss eine Abfrage sowohl den Filter als auch das Prädikat erfüllen. Das Prädikat erhält den gesamten relevanten Stapel ohne Awareness-Ereignisse, einschließlich unterdrückter Action-Ereignisse. Enthält der Stapel auch eine andere datenändernde Quelle, entfällt die Ressourceneingrenzung, das Prädikat gilt aber weiterhin. Bei einem Stapel mit einem anderen datenändernden Ereignis, aber ohne nicht unterdrücktes Action-Ereignis filtert das Prädikat auch die breite Action-Invalidierung.
+
+`changeResource` einer Action bezeichnet eine Ressource für die Ereigniszustellung und Zugriffsprüfung. Sie ist nicht unbedingt eine vollständige Liste der Schreibzugriffe der Action. Datensatzspezifische Abfrage-Tags sind nur sicher, wenn der zugestellte Marker jeder relevanten Action alle Datensätze repräsentiert, von denen die Abfrage abhängt. Verwenden Sie bei Sammelschreibvorgängen oder datensatzübergreifenden Abhängigkeiten typweite Abfrage-Tags oder Abfragen ohne Tags, oder senden Sie mehrere unabhängig zugestellte Ereignisse für die betroffenen Datensätze. Breitere Client-Tags beeinflussen den Abgleich erst nach der Zustellung. Sie machen ein Ereignis nicht für Personen sichtbar, die keinen Zugriff auf seine Zustellressource haben. Stellen Sie sicher, dass die betroffenen Personen ein für sie zugängliches Ereignis erhalten.
 
 ### callAction {#call-action}
 
@@ -465,7 +483,7 @@ Der Text des Toasts hängt vom Fehler ab. Eine abgebrochene Anfrage zeigt nichts
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query, events: readonly SyncEvent[]) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
             "Filtert die Sync-Invalidierung anhand der Abfrage und der zusammengefassten Ereignisse. Das Stapelverhalten steht unter Ressourcenbezogene Invalidierung.",

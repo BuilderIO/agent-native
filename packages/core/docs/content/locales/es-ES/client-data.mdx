@@ -126,6 +126,15 @@ Hay dos hooks de acciones que probablemente usarás más: `useActionQuery()` y `
       optional: true,
       description:
         "Todo lo de [las opciones de useQuery](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) salvo `queryKey` y `queryFn`, que el hook establece por sí mismo.",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "Recursos que lee la consulta, como etiquetas type o type:id.",
+        },
+      ],
     },
   ]}
   returns={{
@@ -175,6 +184,13 @@ const { data, isLoading } = useActionQuery(
       description:
         "Todo lo de [las opciones de useMutation](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) salvo `mutationFn`, que el hook establece por sí mismo.",
       fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "Recursos que modifica la mutación, como etiquetas type o type:id para la invalidación local.",
+        },
         {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
@@ -252,6 +268,8 @@ La coincidencia es simétrica para las mutaciones locales y los eventos de sincr
 Para un evento de sincronización de acción, `resourceType` y `resourceId` forman la etiqueta del recurso modificado. Si falta `resourceId` o está vacío, se invalidan todas las consultas que coinciden con ese tipo. Si algún evento de acción no suprimido no tiene `resourceType`, se desactiva el filtro por recurso para el lote y todas las consultas de acción son elegibles. El predicado opcional aún puede filtrar la invalidación.
 
 Para un lote que contiene eventos de acción y solo eventos de acción o app-state, el filtro de recursos coincide con cualquier recurso modificado de los eventos de acción no suprimidos. Con `actionInvalidatePredicate`, una consulta debe cumplir tanto el filtro como el predicado. El predicado recibe todo el lote relevante sin eventos awareness, incluidos los eventos de acción suprimidos. Si el lote también contiene otra fuente que cambia datos, se desactiva el filtro por recurso, pero el predicado sigue aplicándose. En un lote con otro evento que cambia datos pero sin eventos de acción no suprimidos, el predicado también filtra la invalidación general de acciones.
+
+`changeResource` de una acción identifica un recurso para la entrega del evento y la comprobación de acceso. No es necesariamente una lista exhaustiva de lo que escribe la acción. Las etiquetas de consulta específicas de un registro solo son seguras si el marcador entregado de cada acción relevante representa todos los registros de los que depende la consulta. Para escrituras masivas o dependencias entre registros, usa etiquetas de consulta de todo el tipo o consultas sin etiquetas, o emite varios eventos de entrega independiente que cubran los registros afectados. Ampliar las etiquetas del cliente solo cambia la coincidencia después de entregar un evento. No hace visible un evento a quien no tiene acceso al recurso de entrega. Asegúrate de que los usuarios afectados reciban un evento al que puedan acceder.
 
 ### callAction {#call-action}
 
@@ -465,7 +483,7 @@ El texto de la notificación depende del fallo. Una solicitud cancelada no muest
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query, events: readonly SyncEvent[]) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
             "Filtra la invalidación de sincronización según la consulta y los eventos agrupados. Consulta Invalidación por recurso para el comportamiento de los lotes.",

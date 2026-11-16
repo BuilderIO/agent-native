@@ -126,6 +126,15 @@ description: "वे action हुक जिनका उपयोग app/ प�
       optional: true,
       description:
         "[useQuery options](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) से सब कुछ, `queryKey` और `queryFn` को छोड़कर, जिन्हें हुक स्वयं सेट करता है।",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "क्वेरी द्वारा पढ़े गए रिसोर्स, type या type:id टैग के रूप में।",
+        },
+      ],
     },
   ]}
   returns={{
@@ -175,6 +184,13 @@ const { data, isLoading } = useActionQuery(
       description:
         "[useMutation options](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) से सब कुछ, `mutationFn` को छोड़कर, जिसे हुक स्वयं सेट करता है।",
       fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "म्यूटेशन द्वारा बदले गए रिसोर्स, स्थानीय इनवैलिडेशन के लिए type या type:id टैग के रूप में।",
+        },
         {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
@@ -251,6 +267,8 @@ const reply = useActionMutation("send-ticket-reply", {
 action सिंक इवेंट के लिए `resourceType` और `resourceId` बदले गए रिसोर्स का टैग बनाते हैं। `resourceId` न हो या खाली हो तो उस प्रकार से मेल खाने वाली सभी क्वेरी अमान्य होती हैं। किसी भी न दबाए गए action इवेंट में `resourceType` न होने पर पूरे बैच का रिसोर्स फ़िल्टर बंद हो जाता है और सभी action क्वेरी पात्र होती हैं। वैकल्पिक प्रेडिकेट फिर भी इनवैलिडेशन फ़िल्टर कर सकता है।
 
 जिस बैच में action इवेंट हों और केवल action या app-state इवेंट हों, उसका रिसोर्स फ़िल्टर न दबाए गए action इवेंट में बदले गए किसी भी रिसोर्स से मेल खाता है। `actionInvalidatePredicate` देने पर क्वेरी को फ़िल्टर और प्रेडिकेट दोनों पास करने होते हैं। प्रेडिकेट को दबाए गए action इवेंट सहित सभी संबंधित गैर-awareness इवेंट का पूरा बैच मिलता है। बैच में डेटा बदलने वाला कोई अन्य स्रोत भी हो तो रिसोर्स फ़िल्टर बंद होता है, लेकिन प्रेडिकेट लागू रहता है। डेटा बदलने वाला अन्य इवेंट होने पर और न दबाए गए action इवेंट के बिना बैच में भी प्रेडिकेट व्यापक action इनवैलिडेशन फ़िल्टर करता है।
+
+किसी action का `changeResource` इवेंट की डिलीवरी और एक्सेस जाँच के लिए एक रिसोर्स पहचानता है। यह ज़रूरी नहीं कि action द्वारा लिखे गए सभी रिसोर्स की पूरी सूची हो। रिकॉर्ड-विशिष्ट क्वेरी टैग तभी सुरक्षित हैं जब हर संबंधित action का डिलीवर किया गया मार्कर उन सभी रिकॉर्ड को दर्शाए जिन पर क्वेरी निर्भर है। बल्क राइट या कई रिकॉर्ड पर निर्भरता के लिए पूरे प्रकार के क्वेरी टैग या बिना टैग वाली क्वेरी उपयोग करें, या प्रभावित रिकॉर्ड के लिए अलग-अलग डिलीवर होने वाले कई इवेंट भेजें। क्लाइंट टैग का दायरा बढ़ाने से केवल डिलीवरी के बाद मिलान बदलता है। इससे वह इवेंट उस दर्शक को दिखाई नहीं देता जिसके पास उसके डिलीवरी रिसोर्स का एक्सेस नहीं है। सुनिश्चित करें कि संबंधित दर्शकों को ऐसा इवेंट मिले जिसे वे एक्सेस कर सकते हैं।
 
 ### callAction {#call-action}
 
@@ -464,7 +482,7 @@ try {
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query, events: readonly SyncEvent[]) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
             "क्वेरी और एकत्रित इवेंट से सिंक इनवैलिडेशन फ़िल्टर करता है। बैच का व्यवहार रिसोर्स के अनुसार इनवैलिडेशन में देखें।",

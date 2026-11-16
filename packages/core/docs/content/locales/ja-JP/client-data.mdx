@@ -126,6 +126,15 @@ description: "app/ がエージェントが呼び出すのと同じアクショ�
       optional: true,
       description:
         "[useQuery オプション](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) のすべて (`queryKey` と `queryFn` を除く。これらはフック自体が設定します)。",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "クエリが読み取るリソースを type または type:id タグで指定します。",
+        },
+      ],
     },
   ]}
   returns={{
@@ -175,6 +184,13 @@ const { data, isLoading } = useActionQuery(
       description:
         "[useMutation オプション](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) のすべて (`mutationFn` を除く。これはフック自体が設定します)。",
       fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "ミューテーションが変更するリソースを、ローカルの無効化用に type または type:id タグで指定します。",
+        },
         {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
@@ -251,6 +267,8 @@ const reply = useActionMutation("send-ticket-reply", {
 アクションの同期イベントでは、`resourceType` と `resourceId` から変更されたリソースのタグを作ります。`resourceId` がないか空の場合、その型に一致するすべてのクエリが無効化されます。抑制されていないアクションイベントのいずれかに `resourceType` がない場合、バッチのリソース絞り込みは無効になり、すべてのアクションクエリが対象になります。省略可能な述語によるフィルタリングは引き続き行えます。
 
 アクションイベントを含み、アクションまたは app-state イベントだけで構成されるバッチでは、リソースフィルターは抑制されていないアクションイベントで変更されたリソースのいずれかに一致します。`actionInvalidatePredicate` を指定した場合、クエリはフィルターと述語の両方を満たす必要があります。述語には、抑制されたアクションイベントを含む、関連する awareness 以外のバッチ全体が渡されます。バッチにデータを変更する別のソースも含まれる場合は、リソースの絞り込みは無効になりますが、述語は適用されます。データを変更する別のイベントがあり、抑制されていないアクションイベントがないバッチでも、述語は広範なアクションの無効化をフィルタリングします。
+
+アクションの `changeResource` は、イベントの配信とアクセス確認に使う一つのリソースを指定します。アクションが書き込むすべての対象を列挙するものとは限りません。レコード単位のクエリタグが安全なのは、関連する各アクションの配信されたマーカーが、クエリの依存するすべてのレコードを表す場合だけです。一括書き込みや複数レコードにまたがる依存関係には、型全体のクエリタグまたはタグのないクエリを使うか、影響を受けるレコードを対象に独立して配信される複数のイベントを発行します。クライアントのタグを広げても変わるのは配信後の照合だけです。配信先リソースへのアクセス権がない閲覧者にイベントが見えるようにはなりません。関係する閲覧者がアクセスできるイベントを受け取れるようにしてください。
 
 ### callAction {#call-action}
 
@@ -465,7 +483,7 @@ try {
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query, events: readonly SyncEvent[]) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
             "クエリとまとめられたイベントを使って同期の無効化をフィルタリングします。バッチの動作は「リソースによる無効化」を参照してください。",

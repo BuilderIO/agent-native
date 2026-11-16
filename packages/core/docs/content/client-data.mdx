@@ -126,6 +126,14 @@ There are two action hooks you are most likely to use: `useActionQuery()` and `u
       optional: true,
       description:
         "Everything from the [useQuery options](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) except `queryKey` and `queryFn`, which the hook sets itself.",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description: "Resources this query reads, as type or type:id tags.",
+        },
+      ],
     },
   ]}
   returns={{
@@ -175,6 +183,13 @@ const { data, isLoading } = useActionQuery(
       description:
         "Everything from the [useMutation options](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) except `mutationFn`, which the hook sets itself.",
       fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "Resources this mutation changes, as type or type:id tags for local invalidation.",
+        },
         {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
@@ -251,6 +266,8 @@ Matching is symmetric for local mutations and sync events. A `ticket` tag matche
 For an action sync event, `resourceType` and `resourceId` form the changed resource tag. If `resourceId` is missing or empty, all queries matching that type are invalidated. If any unsuppressed action event has no `resourceType`, resource narrowing is disabled for the batch and all action queries are eligible. The optional predicate can still filter the invalidation.
 
 For a batch containing action events and only action or app-state events, the resource filter matches any changed resource in the unsuppressed action events. When `actionInvalidatePredicate` is supplied, a query must pass both that filter and the predicate. The predicate receives the full relevant non-awareness batch, including suppressed action events. If the batch also contains another data-changing source, resource narrowing is disabled, but the predicate still applies. For a batch with another data-changing event but no unsuppressed action event, the predicate also filters the broad action invalidation.
+
+An action’s `changeResource` identifies one resource for event delivery and access checks. It is not necessarily an exhaustive list of what the action writes. Record-specific query tags are safe only when each relevant action’s delivered marker represents every record the query depends on. For bulk writes or cross-record dependencies, use type-wide or untagged query tags, or emit multiple independently delivered events covering the affected records. Broader client tags only affect matching after an event is delivered. They cannot make an event visible to a viewer who does not have access to its delivery resource. Ensure the relevant viewers receive an event they can access.
 
 ### callAction {#call-action}
 
@@ -462,7 +479,7 @@ The toast text depends on the failure. A cancelled request shows nothing. Being 
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query, events: readonly SyncEvent[]) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
             "Filters sync invalidation using the query and the coalesced events. See Resource-scoped invalidation for batch behavior.",
