@@ -1058,6 +1058,7 @@ export default {
       save: "Salvar",
       unavailable: "Prévia ao vivo indisponível — mostrando o instantâneo",
       live: "Prévia ao vivo",
+      openLive: "Abrir a prévia ao vivo em {{hostname}}",
       suggest: "Sugerir na captura",
       localOnly: "Prévia ao vivo apenas na máquina do proprietário",
     },

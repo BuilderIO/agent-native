@@ -1061,6 +1061,7 @@ export default {
       unavailable:
         "ライブプレビューを利用できません — スナップショットを表示しています",
       live: "ライブプレビュー",
+      openLive: "{{hostname}} でライブプレビューを開く",
       suggest: "スナップショットに提案",
       localOnly: "ライブプレビューは所有者の端末のみ",
     },

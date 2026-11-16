@@ -1194,6 +1194,7 @@ export default {
       save: "儲存",
       unavailable: "即時預覽無法使用 — 正在顯示快照",
       live: "即時預覽",
+      openLive: "在 {{hostname}} 開啟即時預覽",
       suggest: "在快照上建議",
       localOnly: "即時預覽僅限擁有者的裝置",
     },

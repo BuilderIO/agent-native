@@ -1066,6 +1066,7 @@ export default {
       unavailable:
         "Live-Vorschau nicht verfügbar — Momentaufnahme wird angezeigt",
       live: "Live-Vorschau",
+      openLive: "Live-Vorschau auf {{hostname}} öffnen",
       suggest: "Am Abbild vorschlagen",
       localOnly: "Live-Vorschau nur auf dem Rechner des Eigentümers",
     },

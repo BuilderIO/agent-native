@@ -979,6 +979,7 @@ export default {
       save: "Save",
       unavailable: "Live preview unavailable — showing snapshot",
       live: "Live preview",
+      openLive: "Open live preview on {{hostname}}",
       suggest: "Suggest on snapshot",
       localOnly: "Live preview only on the owner’s machine",
     },

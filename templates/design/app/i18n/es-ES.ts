@@ -1062,6 +1062,7 @@ export default {
       unavailable:
         "Vista previa en vivo no disponible; se muestra la instantánea",
       live: "Vista previa en vivo",
+      openLive: "Abrir la vista previa en vivo en {{hostname}}",
       suggest: "Sugerir en la captura",
       localOnly: "La vista en vivo solo está en el equipo del propietario",
     },

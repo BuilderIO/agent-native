@@ -1032,6 +1032,7 @@ export default {
       save: "保存",
       unavailable: "实时预览不可用 — 正在显示快照",
       live: "实时预览",
+      openLive: "在 {{hostname}} 打开实时预览",
       suggest: "在快照上建议",
       localOnly: "实时预览仅限所有者的设备",
     },

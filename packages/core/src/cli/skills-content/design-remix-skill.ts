@@ -87,8 +87,9 @@ For a live remote preview, the owner runs ngrok or
 \`cloudflared tunnel --url http://localhost:5173\` and uses **Share live preview**,
 or calls \`update-visual-edit-preview\` with \`{designId, fileId, tunnelUrl}\`.
 Use the public HTTPS base URL; pass \`null\` to remove it. The owner keeps
-loading localhost. Remote viewers load the tunnel as a read-only preview;
-without one, they see the last published snapshot and the owner-machine notice.
+loading localhost. Remote viewers see the last published snapshot by default.
+They can choose **Open live preview** to open the tunnel in a new tab; the
+hostname is shown before they leave Design.
 The tunnel exposes the owner's app publicly: do not forward bridge tokens,
 credentials, or private app data into the URL.
 

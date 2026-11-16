@@ -1062,6 +1062,7 @@ export default {
       save: "Enregistrer",
       unavailable: "Aperçu en direct indisponible — instantané affiché",
       live: "Aperçu en direct",
+      openLive: "Ouvrir l’aperçu en direct sur {{hostname}}",
       suggest: "Suggérer sur la capture",
       localOnly: "Aperçu en direct uniquement sur la machine du propriétaire",
     },

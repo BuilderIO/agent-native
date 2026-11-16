@@ -8622,10 +8622,7 @@ export function DesignCanvas({
         </span>
       ) : null}
       {snapshotOnly && sharedTunnelUrl ? (
-        <SharedTunnelPreview
-          url={sharedTunnelUrl}
-          active={nativePreviewActive}
-        />
+        <SharedTunnelPreview url={sharedTunnelUrl} />
       ) : null}
       {motionOriginProxy}
       {externalPreviewUrl &&

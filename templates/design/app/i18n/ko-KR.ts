@@ -1048,6 +1048,7 @@ export default {
       save: "저장",
       unavailable: "실시간 미리보기를 사용할 수 없습니다 — 스냅샷을 표시합니다",
       live: "실시간 미리보기",
+      openLive: "{{hostname}}에서 실시간 미리보기 열기",
       suggest: "스냅샷에 제안",
       localOnly: "실시간 미리보기는 소유자 기기에서만 가능",
     },

@@ -58,19 +58,18 @@ handlers (stable first, `launch.desktopProtocol`); browsers cannot. `dispatched`
 These URLs transfer no capability; account editing needs sign-in and a paired bridge.
 
 **Copy prompt** hands edits to the coding agent. `openUrl` is read-only.
-Inline hosts call WebMCP at `https://design.agent-native.com/visual-edit`,
-signed in or out; no connector needed.
-VS Code uses its webview/deep link; other hosts use authenticated Design MCP.
-Never start local Design.
+Inline hosts use WebMCP at `https://design.agent-native.com/visual-edit`
+without a connector. VS Code uses its webview; other hosts use authenticated
+Design MCP.
 
 ## Share The Canvas And Local Preview
 
-Use signed-in Share permissions (view/comment/edit).
+Use signed-in Share permissions.
 `get-visual-edit-collaboration({designId})` returns `shareUrl` and
 `previews`. For **Share live preview**, run ngrok or
 `cloudflared tunnel --url http://localhost:5173`, then
 `update-visual-edit-preview({designId,fileId,tunnelUrl})` with public HTTPS
-(`null` removes). Owner stays local; viewers get tunnel or snapshot. Tunnels expose the app publicly; never expose bridge secrets.
+(`null` removes). Owner stays local; viewers see snapshots; **Open live preview** opens a new tab with its hostname. Keep credentials and private data off the public tunnel.
 Existing canvas/frame pins handle comments; **Suggest on snapshot** feeds
 `get-visual-edit-pending` and revision-based
 `acknowledge-visual-edit-pending` after the owner's agent applies source edits.
