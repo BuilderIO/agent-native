@@ -156,7 +156,9 @@ export default defineAction({
         ctx,
       );
     }
-    return result;
+    // The gateway echoes only `embed: true`; the MCP server reads an explicit
+    // `false` to open no panel.
+    return normalized.embed === false ? { ...result, embed: false } : result;
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;

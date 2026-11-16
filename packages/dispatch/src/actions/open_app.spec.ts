@@ -131,4 +131,19 @@ describe("open_app MCP App metadata", () => {
       expect(input.embed).toBe(expected);
     },
   );
+
+  it("tells the MCP server an MCP host opted out of the panel", async () => {
+    mocks.openGrantedDispatchMcpApp.mockReset();
+    mocks.openGrantedDispatchMcpApp.mockResolvedValue({
+      app: "mail",
+      view: "inbox",
+      url: "https://mail.agent-native.com/inbox",
+    });
+
+    await expect(
+      openAppAction.run({ app: "mail", view: "inbox", embed: false }, {
+        caller: "mcp",
+      } as any),
+    ).resolves.toMatchObject({ app: "mail", embed: false });
+  });
 });

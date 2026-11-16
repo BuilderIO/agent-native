@@ -936,7 +936,11 @@ const FULL_APP_READ_ONLY_PREFIXES = [
   "/_agent-native/settings",
   "/_agent-native/env-status",
   "/_agent-native/credential-probe",
+  // The app's own agent runs as the owner, and its background continuations
+  // carry no mark of this panel; the host's agent works the panel instead.
+  "/_agent-native/agent-chat/runs",
 ];
+const FULL_APP_READ_ONLY_PATHS = ["/_agent-native/agent-chat"];
 
 function underPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
@@ -951,6 +955,7 @@ export function fullAppEmbedAllowsRequest(
   if (FULL_APP_DENIED_PREFIXES.some((prefix) => underPrefix(pathname, prefix)))
     return false;
   if (
+    FULL_APP_READ_ONLY_PATHS.includes(pathname) ||
     FULL_APP_READ_ONLY_PREFIXES.some((prefix) => underPrefix(pathname, prefix))
   )
     return method === "GET" || method === "HEAD";

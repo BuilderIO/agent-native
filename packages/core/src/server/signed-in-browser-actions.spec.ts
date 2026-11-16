@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import manageBuilderConnection from "../agent/actions/manage-builder-connection.js";
 import manageProviderKeyPolicy from "../agent/actions/manage-provider-key-policy.js";
 import manageServiceProviders from "../agent/actions/manage-service-providers.js";
+import selectChatgptSubscriptionAccount from "../agent/actions/select-chatgpt-subscription-account.js";
 import setFeatureFlag from "../feature-flags/actions/set-feature-flag.js";
 import manageFileStorage from "../file-upload/actions/manage-file-storage.js";
 import confirmMessagingChannelCredentialRemoval from "../integrations/actions/confirm-messaging-channel-credential-removal.js";
@@ -57,6 +58,7 @@ const actions = [
   ["bulk-update-workspace-user-groups", bulkUpdateWorkspaceUserGroups],
   ["delete-workspace-user-group", deleteWorkspaceUserGroup],
   ["upsert-workspace-user-group", upsertWorkspaceUserGroup],
+  ["select-chatgpt-subscription-account", selectChatgptSubscriptionAccount],
   ["custom-provider-registration", createCustomProviderRegistrationAction()],
 ] as const;
 

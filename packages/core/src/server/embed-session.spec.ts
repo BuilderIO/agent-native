@@ -1490,6 +1490,8 @@ describe("requestMatchesEmbedTarget", () => {
     ["/_agent-native/org/me", "GET"],
     ["/_agent-native/agent-engine/status", "GET"],
     ["/_agent-native/settings/theme", "GET"],
+    ["/_agent-native/agent-chat", "GET"],
+    ["/_agent-native/agent-chat/runs/run-1", "GET"],
   ])(
     "lets a full-app session act as its owner: %s %s",
     async (path, method) => {
@@ -1539,6 +1541,8 @@ describe("requestMatchesEmbedTarget", () => {
     ["/_agent-native/agent-loop-settings", "DELETE"],
     ["/_agent-native/settings/mcp-servers", "PUT"],
     ["/_agent-native/agent-chat/save-key", "POST"],
+    ["/_agent-native/agent-chat", "POST"],
+    ["/_agent-native/agent-chat/runs/run-1/retry-projection", "POST"],
     ["/_agent-native/connections/oauth/zoom/start", "GET"],
     ["/_agent-native/google/auth-url", "GET"],
     ["/_agent-native/google/callback", "GET"],
