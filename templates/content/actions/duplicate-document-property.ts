@@ -47,7 +47,6 @@ export default defineAction({
       "editor",
     );
     if (!database) throw new Error("Document is not part of a database.");
-    assertOrdinaryPropertySetupAllowed(database);
 
     const [definition] = await db
       .select()
@@ -66,6 +65,7 @@ export default defineAction({
     if (definition.systemRole) {
       throw new Error("System properties cannot be duplicated.");
     }
+    assertOrdinaryPropertySetupAllowed(database);
 
     const now = new Date().toISOString();
     const newPropertyId = nanoid();
