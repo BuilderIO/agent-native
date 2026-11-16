@@ -178,7 +178,7 @@ describe("Design public reference copy", () => {
           <link rel="stylesheet" href="https://cdn.example.com/site.css">
           <link rel="preconnect" href="https://10.0.0.8/">
           <link rel="prefetch" href="https://cdn.example.com/next">
-          <style>@import "http://192.168.1.1/x.css"; body { background: url(https://localhost/bg.png) } .ok { background: url('/ok.png') } .svg { fill: url(#grad) }</style>
+          <style>@import "./theme.css"; @import "http://192.168.1.1/x.css"; body { background: url(https://localhost/bg.png) } .ok { background: url('/ok.png') } .svg { fill: url(#grad) }</style>
         </head><body>
           ${privateTargets.map((src) => `<img src="${src}">`).join("")}
           <img src="https://images.example.org/hero.png" srcset="https://images.example.org/hero@2x.png 2x, http://192.168.0.2/x.png 3x">
@@ -205,6 +205,10 @@ describe("Design public reference copy", () => {
     expect(html).toContain(
       "url(http://127.0.0.1:7331/reference-resource?url=https%3A%2F%2Flocalhost%2Fbg.png&previewToken=token)",
     );
+    expect(html).toContain(
+      '@import "http://127.0.0.1:7331/reference-resource?url=https%3A%2F%2Fexample.com%2Ftheme.css&previewToken=token"',
+    );
+    expect(html).toContain("fill: url(#grad)");
     expect(html).toContain(
       "url=https%3A%2F%2Fimages.example.org%2Fhero%402x.png&amp;previewToken=token 2x",
     );

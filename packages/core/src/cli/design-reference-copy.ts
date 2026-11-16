@@ -57,6 +57,13 @@ function rewriteCssUrls(css: string, rewrite: UrlRewrite): string {
       (full, quote: string, raw: string) => rewriteUrl(full, quote, raw.trim()),
     )
     .replace(
+      /(@import\s+)(["'])([^"']+)\2/gi,
+      (full, prefix: string, quote: string, raw: string) => {
+        const next = rewrite(raw);
+        return next ? `${prefix}${quote}${next}${quote}` : full;
+      },
+    )
+    .replace(
       /((?:-webkit-)?image-set\s*\([^)]*?)(["'])([^"']+\.(?:avif|gif|jpe?g|png|svg|webp)(?:[?#][^"']*)?)\2/gi,
       (full, prefix: string, quote: string, raw: string) => {
         const next = rewrite(raw);
@@ -148,12 +155,6 @@ export function rewriteReferenceCss(
 ): string {
   return rewriteCssUrls(css, (raw) =>
     resourceProxyUrl(raw, baseUrl, bridgeUrl, token),
-  ).replace(
-    /(@import\s+)(["'])([^"']+)\2/gi,
-    (full, prefix: string, quote: string, raw: string) => {
-      const next = resourceProxyUrl(raw, baseUrl, bridgeUrl, token);
-      return next ? `${prefix}${quote}${next}${quote}` : full;
-    },
   );
 }
 
@@ -164,6 +165,7 @@ function resourceProxyUrl(
   token: string,
 ) {
   if (!URL.canParse(raw.trim(), pageUrl)) return null;
+  if (raw.trim().startsWith("#")) return null;
   const target = new URL(raw.trim(), pageUrl);
   if (
     !["http:", "https:"].includes(target.protocol) ||
