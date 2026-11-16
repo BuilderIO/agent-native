@@ -325,7 +325,8 @@ describe("DocumentToolbar in an MCP App widget", () => {
     expect(byLabel("comments.discussion")).not.toBeNull();
     expect(byLabel("editor.toolbar.openInAgentNative")).toBeNull();
     const trigger = byLabel("editor.toolbar.morePageActions");
-    expect(trigger?.className).toContain("size-9");
+    // oracle-change: the desktop ⋮ is the bar's 32 px, as Edited and Share are.
+    expect(trigger?.className).toContain("size-8");
     expect(trigger?.className).not.toContain("size-11");
   });
 

@@ -240,6 +240,23 @@ function documentConflictResponse(
   };
 }
 
+// A script or automation treats any answered request as a save.
+function staleBaseRevisionError(doc: {
+  bodyRevision: number;
+  content: string;
+}) {
+  return new ActionContractError(
+    "The page changed after it was read; nothing was saved. Read it again with get-document and retry with its baseRevision.",
+    {
+      errorCode: "DOCUMENT_REVISION_CONFLICT",
+      details: {
+        currentRevision: documentRevisionToken(doc.bodyRevision, doc.content),
+      },
+      statusCode: 409,
+    },
+  );
+}
+
 function isFavoriteOnlyUpdate(args: {
   isFavorite?: boolean;
   title?: string;
@@ -604,7 +621,7 @@ const updateDocumentAction = defineAction({
       .string()
       .optional()
       .describe(
-        "Opaque body revision from get-document; guards browser content saves without treating metadata changes as body conflicts",
+        "Opaque body revision from get-document; guards content saves without treating metadata changes as body conflicts. Scripts, the CLI and automations send it, or baseUpdatedAt, with content.",
       ),
     authoredBaseRevision: z.string().optional(),
     // Body copies take any length `content` takes. A tighter cap here refused
@@ -813,13 +830,41 @@ const updateDocumentAction = defineAction({
           { errorCode: "INVALID_BROWSER_SAVE_ATTEMPT", statusCode: 400 },
         );
       }
-      if (isExternalCaller && args.content !== undefined) {
+      const isOutsideBodyWrite =
+        args.content !== undefined &&
+        ctx !== undefined &&
+        ctx.caller !== "frontend" &&
+        !isScopedWidgetDocumentWriter(ctx, id);
+      if (isOutsideBodyWrite) {
+        if (isExternalCaller) {
+          throw new ActionContractError(
+            "External document body updates require get-document followed by edit-document with baseRevision and idempotencyKey.",
+            {
+              errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
+              statusCode: 400,
+            },
+          );
+        }
+        // Without a base, the body replaces whatever was saved since the
+        // caller read the page.
+        if (
+          args.baseRevision === undefined &&
+          args.baseUpdatedAt === undefined
+        ) {
+          throw new ActionContractError(
+            "Replacing a document body from outside the app requires baseRevision from get-document, or that read's updatedAt as baseUpdatedAt.",
+            { errorCode: "BASE_REVISION_REQUIRED", statusCode: 400 },
+          );
+        }
+      }
+      const parsedBaseRevision =
+        args.baseRevision === undefined
+          ? null
+          : parseDocumentRevisionToken(args.baseRevision);
+      if (args.baseRevision !== undefined && !parsedBaseRevision) {
         throw new ActionContractError(
-          "External document body updates require get-document followed by edit-document with baseRevision and idempotencyKey.",
-          {
-            errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
-            statusCode: 400,
-          },
+          "baseRevision is not a valid document revision token.",
+          { errorCode: "INVALID_BASE_REVISION", statusCode: 400 },
         );
       }
 
@@ -834,6 +879,16 @@ const updateDocumentAction = defineAction({
         : await assertDocumentMutationAccess(id, "editor", "id");
       let existing = access.resource;
       let ownerEmail = existing.ownerEmail as string;
+      // A write that changes nothing never reaches the commit's check.
+      if (
+        isOutsideBodyWrite &&
+        (args.baseRevision !== undefined
+          ? args.baseRevision !==
+            documentRevisionToken(existing.bodyRevision, existing.content)
+          : args.baseUpdatedAt !== existing.updatedAt)
+      ) {
+        throw staleBaseRevisionError(existing);
+      }
 
       const observeSaveBase = (snapshot: {
         bodyRevision: number;
@@ -996,7 +1051,13 @@ const updateDocumentAction = defineAction({
           ? undefined
           : normalizeAuthoredContent(args.authoredCandidateContent);
       let staleBodySave: "stale_builder_image" | "stale_empty_body" | undefined;
-      if (content !== undefined && !args.preserveLeadingTitleHeading) {
+      // An outside write proves freshness with its base. Keeping the stored
+      // body for it would answer its dropped text as a save.
+      if (
+        content !== undefined &&
+        !args.preserveLeadingTitleHeading &&
+        !isOutsideBodyWrite
+      ) {
         if (
           content.includes('componentName="Image"') &&
           existing.content.includes("![")
@@ -1550,15 +1611,6 @@ const updateDocumentAction = defineAction({
             lockedContentChanged ||
             lockedDescriptionChanged ||
             lockedIconChanged;
-          const parsedBaseRevision = args.baseRevision
-            ? parseDocumentRevisionToken(args.baseRevision)
-            : null;
-          if (args.baseRevision && !parsedBaseRevision) {
-            throw new ActionContractError(
-              "baseRevision is not a valid document revision token.",
-              { errorCode: "INVALID_BASE_REVISION", statusCode: 400 },
-            );
-          }
           if (
             lockedContentChanged &&
             args.baseRevision &&
@@ -1984,6 +2036,7 @@ const updateDocumentAction = defineAction({
                 { errorCode: "DOCUMENT_UPDATE_CONFLICT", statusCode: 409 },
               );
             }
+            if (isOutsideBodyWrite) throw staleBaseRevisionError(current);
             return respond(
               documentConflictResponse(
                 current,

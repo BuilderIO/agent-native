@@ -130,6 +130,8 @@ let onSelectedThreadChange: ((threadId: string | null) => void) | undefined;
 let pageComment: { focus: boolean; onFocused?: () => void } = { focus: false };
 // Hears Discussion's Show.
 let showSubject: ((thread: CommentThread) => void) | undefined;
+// The page panel head's tool slot, when the panel gives one.
+let headTools: HTMLElement | null = null;
 
 function Owner({
   presentation,
@@ -158,6 +160,7 @@ function Owner({
       focusPageComposer={pageComment.focus}
       onPageComposerFocused={pageComment.onFocused}
       onShowThreadSubject={showSubject}
+      headToolsContainer={headTools}
     />
   );
 }
@@ -185,6 +188,8 @@ describe("the Discussion panel", () => {
     onSelectedThreadChange = undefined;
     pageComment = { focus: false };
     showSubject = undefined;
+    headTools?.remove();
+    headTools = null;
     queryClient.clear();
     window.localStorage.clear();
   });
@@ -218,6 +223,15 @@ describe("the Discussion panel", () => {
     document.querySelector<HTMLButtonElement>(selector)!;
   const click = async (selector: string) => {
     await act(async () => button(selector).click());
+  };
+  // Sort and Filter are Content's menus, which open on a press or Enter, not a
+  // bare click().
+  const openMenu = async (selector: string) => {
+    await act(async () => {
+      button(selector).dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
   };
   const filterOption = (group: string, option: string) =>
     `[data-discussion-filter-group="${group}"] [data-discussion-filter-option="${option}"]`;
@@ -315,11 +329,11 @@ describe("the Discussion panel", () => {
 
   it("remembers the sort and a Page's filters, and forgets the filters once they're back to default", async () => {
     render();
-    await click("[data-discussion-sort-trigger]");
+    await openMenu("[data-discussion-sort-trigger]");
     await click('[data-discussion-sort="activity"]');
     expect(window.localStorage.getItem(SORT_KEY)).toBe('"activity"');
 
-    await click("[data-discussion-filter-trigger]");
+    await openMenu("[data-discussion-filter-trigger]");
     await click(filterOption("target", "page"));
     expect(JSON.parse(storedFilters()!)).toEqual({
       kind: "all",
@@ -338,7 +352,7 @@ describe("the Discussion panel", () => {
     });
     expect(card("text-1")).toBeNull();
 
-    await click("[data-discussion-filter-trigger]");
+    await openMenu("[data-discussion-filter-trigger]");
     await click(filterOption("target", "all"));
     expect(storedFilters()).toBeNull();
     expect(card("text-1")).not.toBeNull();
@@ -365,6 +379,34 @@ describe("the Discussion panel", () => {
     render();
     expect(toggle().getAttribute("aria-label")).toBe("comments.showIndicators");
     expect(toggle().getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("puts its controls in the panel head it's given, and opens the search under it", async () => {
+    headTools = document.createElement("div");
+    document.body.append(headTools);
+    render();
+    const head = headTools;
+    expect(head.querySelector("[data-discussion-sort-trigger]")).not.toBeNull();
+    expect(
+      head.querySelector("[data-discussion-filter-trigger]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-discussion-sort-trigger]"),
+    ).toBeNull();
+
+    const searchButton = head.querySelector<HTMLButtonElement>(
+      'button[aria-label="comments.searchDiscussion"]',
+    );
+    expect(searchButton).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => searchButton?.click());
+    const field = container.querySelector<HTMLInputElement>(
+      'input[aria-label="comments.searchDiscussion"]',
+    );
+    // Escape there closes the search, not the panel.
+    expect(field?.closest("[data-discussion-toolbar]")).toBeInstanceOf(
+      HTMLElement,
+    );
+    expect(head.querySelector("input")).toBeNull();
   });
 
   it("shows a chip for each filter someone chose and clears it from the chip", async () => {
@@ -397,10 +439,11 @@ describe("the Discussion panel", () => {
     expect(
       container.querySelectorAll("[data-discussion-filter-trigger]"),
     ).toHaveLength(1);
+    // oracle-change: the options are menu items now, checked rather than pressed.
     const pressed = (group: string, option: string) =>
-      button(filterOption(group, option)).getAttribute("aria-pressed");
+      button(filterOption(group, option)).getAttribute("aria-checked");
 
-    await click("[data-discussion-filter-trigger]");
+    await openMenu("[data-discussion-filter-trigger]");
     expect(pressed("status", "open")).toBe("true");
     expect(pressed("status", "resolved")).toBe("false");
 
