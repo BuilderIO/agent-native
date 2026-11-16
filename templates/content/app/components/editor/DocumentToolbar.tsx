@@ -1849,7 +1849,7 @@ export function DocumentToolbar({
                 <DropdownMenu modal={false}>
                   <DropdownMenuTrigger asChild>
                     <ShareTrigger
-                      className="h-9 rounded-lg px-3"
+                      className="h-8 rounded-md px-3"
                       emphasis="ghost"
                       pending={shareLocalFile.isPending}
                       disabled={shareLocalFile.isPending}
@@ -2068,8 +2068,8 @@ export function DocumentToolbar({
                     <button
                       ref={pageActionsRef}
                       className={cn(
-                        "flex items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
-                        phoneBar ? "size-11" : "size-9",
+                        "flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground",
+                        phoneBar ? "size-11 rounded-lg" : "size-8 rounded-md",
                         // Folded, the menu holds Stop suggesting, so it shows
                         // its state.
                         suggestingInMenu &&

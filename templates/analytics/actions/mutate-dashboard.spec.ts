@@ -588,6 +588,8 @@ describe("mutate-dashboard", () => {
       "allowEmptyResult",
       "returnConfig",
       "returnTypes",
+      "expectedUpdatedAt",
+      "idempotencyKey",
     ]);
     expect(parameters.required ?? []).not.toContain("dashboardId");
     expect(parameters.properties.dashboardId.minLength).toBe(1);
