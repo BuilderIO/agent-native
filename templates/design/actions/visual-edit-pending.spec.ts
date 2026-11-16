@@ -56,6 +56,8 @@ const mocks = vi.hoisted(() => {
       pendingEditCount: "pending.pendingEditCount",
       status: "pending.status",
       prompt: "pending.prompt",
+      includedVisualEditIds: "pending.includedVisualEditIds",
+      includedTweakIds: "pending.includedTweakIds",
       authorEmail: "pending.authorEmail",
       revision: "pending.revision",
       publisherId: "pending.publisherId",
@@ -258,13 +260,19 @@ describe("visual-edit pending handoff", () => {
             pendingEditCount: 1,
             status: "ready",
             prompt: "Adjust heading spacing",
+            includedVisualEditIds: ["visual-1"],
+            includedTweakIds: ["spacing"],
           },
         },
         { caller: "frontend", requestHeaders: new Headers() },
       ),
     ).resolves.toMatchObject({ status: "ready" });
     expect(mocks.insertChain.values).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "ready" }),
+      expect.objectContaining({
+        status: "ready",
+        includedVisualEditIds: '["visual-1"]',
+        includedTweakIds: '["spacing"]',
+      }),
     );
   });
 
