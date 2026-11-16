@@ -582,6 +582,20 @@ describe("Blocks field identity", () => {
       expect(replaced.deleted).toEqual([hiId]);
     });
 
+    it("keeps a moved paragraph's ID when its accents change from combining marks to single characters", () => {
+      const marker = "Stable marker";
+      const dessert = "Cr\u00e8me br\u00fbl\u00e9e";
+      const initial = materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        markdown: [dessert.normalize("NFD"), marker].join("\n"),
+      });
+      const [dessertId, markerId] = initial.blocks.map((block) => block.id);
+
+      const result = save(initial, [marker, dessert].join("\n"));
+      expect(result.live).toEqual([markerId, dessertId]);
+    });
+
     it("never moves a deleted top-level paragraph's ID into a list item", () => {
       const initial = materializeLegacyBlocksFieldIdentity({
         documentId: "doc-1",

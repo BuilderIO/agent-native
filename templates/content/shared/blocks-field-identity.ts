@@ -338,9 +338,10 @@ function uniqueIndexByKey<T>(
 const TEXT_PIECE_LENGTH = 4;
 
 // Whitespace is left out, so the parts of a split or merge read the same as
-// the text they came from.
+// the text they came from. Accented letters typed as a letter and a combining
+// mark compare the same as the single character.
 function comparableText(value: string): string {
-  return value.toLocaleLowerCase().replace(/\s+/g, "");
+  return value.normalize("NFC").toLocaleLowerCase().replace(/\s+/g, "");
 }
 
 // Comparable text as counted, overlapping four-character pieces, with its
