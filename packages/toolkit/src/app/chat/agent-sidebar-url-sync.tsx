@@ -35,7 +35,7 @@ export function URLSync({
 }: {
   browserTabId?: string;
   /** Query keys whose values the agent may read; see `scrubLocationState`. */
-  queryKeys?: readonly string[];
+  queryKeys?: readonly string[] | undefined;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
