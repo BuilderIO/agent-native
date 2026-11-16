@@ -1,6 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { actionErrorCode } from "@agent-native/core/client/use-action";
 import { preparePromptComposerAgentHandoff } from "@agent-native/toolkit/app/chat";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import {
@@ -375,11 +374,7 @@ function PanelEditorContent({
       onOpenChange(false);
     } catch (err) {
       const message =
-        actionErrorCode(err) === "dashboard_name_conflict"
-          ? t("dashboard.nameConflict")
-          : err instanceof Error
-            ? err.message
-            : t("panelEditor.failedToSavePanel");
+        err instanceof Error ? err.message : t("panelEditor.failedToSavePanel");
       setError(message);
     } finally {
       setSaving(false);

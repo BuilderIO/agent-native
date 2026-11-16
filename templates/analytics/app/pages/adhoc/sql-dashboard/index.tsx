@@ -16,7 +16,6 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
-import { actionErrorCode } from "@agent-native/core/client/use-action";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   CreativeContextShareSheet,
@@ -569,17 +568,15 @@ const PanelCell = memo(function PanelCell({
           else setPreviewHeight(savedValues.height ?? null);
         }
         toast.error(
-          actionErrorCode(err) === "dashboard_name_conflict"
-            ? t("dashboard.nameConflict")
-            : err instanceof DashboardSaveQueueConflictError ||
-                (err instanceof Error &&
-                  err.message === t("sqlDashboard.saveFailed"))
-              ? t("sqlDashboard.saveFailed")
-              : err instanceof Error
-                ? t("sqlDashboard.saveFailedWithMessage", {
-                    message: err.message,
-                  })
-                : t("sqlDashboard.saveFailed"),
+          err instanceof DashboardSaveQueueConflictError ||
+            (err instanceof Error &&
+              err.message === t("sqlDashboard.saveFailed"))
+            ? t("sqlDashboard.saveFailed")
+            : err instanceof Error
+              ? t("sqlDashboard.saveFailedWithMessage", {
+                  message: err.message,
+                })
+              : t("sqlDashboard.saveFailed"),
         );
       });
   };
@@ -1112,11 +1109,9 @@ function SqlDashboardPageContent({
       },
       onError: (error: unknown) => {
         toast.error(
-          actionErrorCode(error) === "dashboard_name_conflict"
-            ? t("dashboard.nameConflict")
-            : error instanceof Error && error.message
-              ? error.message
-              : t("sqlDashboard.duplicateFailed"),
+          error instanceof Error && error.message
+            ? error.message
+            : t("sqlDashboard.duplicateFailed"),
         );
       },
     });
@@ -1800,15 +1795,13 @@ function SqlDashboardPageContent({
           // A later save may own the optimistic state, but this save still failed.
           rollbackFailedDashboardSave(dashboardId, updated, queue, hold);
           toast.error(
-            actionErrorCode(err) === "dashboard_name_conflict"
-              ? t("dashboard.nameConflict")
-              : err instanceof DashboardSaveQueueConflictError
-                ? t("sqlDashboard.saveFailed")
-                : err instanceof Error
-                  ? t("sqlDashboard.saveFailedWithMessage", {
-                      message: err.message,
-                    })
-                  : t("sqlDashboard.saveFailed"),
+            err instanceof DashboardSaveQueueConflictError
+              ? t("sqlDashboard.saveFailed")
+              : err instanceof Error
+                ? t("sqlDashboard.saveFailedWithMessage", {
+                    message: err.message,
+                  })
+                : t("sqlDashboard.saveFailed"),
           );
         });
     },
@@ -1955,11 +1948,9 @@ function SqlDashboardPageContent({
       } catch (error) {
         resetRevisionNavigation();
         toast.error(
-          actionErrorCode(error) === "dashboard_name_conflict"
-            ? t("dashboard.nameConflict")
-            : error instanceof Error
-              ? t("dashboard.undoFailedWithMessage", { message: error.message })
-              : t("dashboard.undoFailed"),
+          error instanceof Error
+            ? t("dashboard.undoFailedWithMessage", { message: error.message })
+            : t("dashboard.undoFailed"),
         );
       } finally {
         revisionRestoreInFlightRef.current = false;
@@ -2008,11 +1999,9 @@ function SqlDashboardPageContent({
     } catch (error) {
       resetRevisionNavigation();
       toast.error(
-        actionErrorCode(error) === "dashboard_name_conflict"
-          ? t("dashboard.nameConflict")
-          : error instanceof Error
-            ? t("dashboard.redoFailedWithMessage", { message: error.message })
-            : t("dashboard.redoFailed"),
+        error instanceof Error
+          ? t("dashboard.redoFailedWithMessage", { message: error.message })
+          : t("dashboard.redoFailed"),
       );
     } finally {
       revisionRestoreInFlightRef.current = false;
@@ -2702,11 +2691,7 @@ function SqlDashboardPageContent({
       toast.success(`Unhid "${dashboard?.name ?? "dashboard"}"`);
     } catch (err) {
       toast.error(
-        actionErrorCode(err) === "dashboard_name_conflict"
-          ? t("dashboard.nameConflict")
-          : err instanceof Error
-            ? err.message
-            : "Couldn't unhide dashboard",
+        err instanceof Error ? err.message : "Couldn't unhide dashboard",
       );
     }
   }, [
@@ -2715,7 +2700,6 @@ function SqlDashboardPageContent({
     dashboard?.name,
     hideDashboardAction,
     queryClient,
-    t,
   ]);
 
   const handleSaveView = useCallback(

@@ -104,7 +104,6 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { actionErrorCode } from "@agent-native/core/client/use-action";
 import {
   OwnershipChatHistoryRail,
   useOwnershipChatHistory,
@@ -608,14 +607,12 @@ function SortableRow({
     } catch (e) {
       setRenameValue(name);
       toast.error(
-        actionErrorCode(e) === "dashboard_name_conflict"
-          ? t("dashboard.nameConflict")
-          : e instanceof Error
-            ? t("sidebar.renameFailedWithMessage", {
-                name,
-                message: e.message,
-              })
-            : t("sidebar.renameFailed", { name }),
+        e instanceof Error
+          ? t("sidebar.renameFailedWithMessage", {
+              name,
+              message: e.message,
+            })
+          : t("sidebar.renameFailed", { name }),
       );
     }
   }, [name, onRename, renameValue, t]);
@@ -678,14 +675,12 @@ function SortableRow({
       await onUnhide();
     } catch (e) {
       toast.error(
-        actionErrorCode(e) === "dashboard_name_conflict"
-          ? t("dashboard.nameConflict")
-          : e instanceof Error
-            ? t("sidebar.unhideFailedWithMessage", {
-                name,
-                message: e.message,
-              })
-            : t("sidebar.unhideFailed", { name }),
+        e instanceof Error
+          ? t("sidebar.unhideFailedWithMessage", {
+              name,
+              message: e.message,
+            })
+          : t("sidebar.unhideFailed", { name }),
       );
     }
   }, [name, onUnhide, t]);
@@ -698,13 +693,11 @@ function SortableRow({
         await onSetVisibility(visibility);
       } catch (e) {
         toast.error(
-          actionErrorCode(e) === "dashboard_name_conflict"
-            ? t("dashboard.nameConflict")
-            : e instanceof Error
-              ? t("sidebar.updateVisibilityFailedWithMessage", {
-                  message: e.message,
-                })
-              : t("sidebar.updateVisibilityFailed"),
+          e instanceof Error
+            ? t("sidebar.updateVisibilityFailedWithMessage", {
+                message: e.message,
+              })
+            : t("sidebar.updateVisibilityFailed"),
         );
       }
     },
