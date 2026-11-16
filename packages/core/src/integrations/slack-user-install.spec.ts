@@ -27,8 +27,8 @@ vi.mock("../db/client.js", async (original) => ({
 
 const ALLOWED_TEAM = "T0INTERNAL1";
 const OTHER_TEAM = "T0SOMEWHERE2";
-const USER_TOKEN = "xoxp-synthetic-user-token-7a1";
-const BOT_TOKEN = "xoxb-synthetic-bot-token-7a1";
+const USER_TOKEN = "synthetic-user-access-7a1";
+const BOT_TOKEN = "synthetic-bot-access-7a1";
 
 let pg: Awaited<ReturnType<typeof createTestPglite>>;
 

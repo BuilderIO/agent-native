@@ -37,8 +37,8 @@ export interface SlackUserInstallGate {
 }
 
 export interface SlackUserInstallGateConfig {
-  slackInternalTeamIds?: readonly string[];
-  slackUserInstallBootstrap?: boolean;
+  slackInternalTeamIds?: readonly string[] | undefined;
+  slackUserInstallBootstrap?: boolean | undefined;
 }
 
 /**
@@ -142,7 +142,7 @@ export async function installSlackUserGrant(options: {
     try {
       await revokeUserIntegrationGrant(grant.id);
     } catch {
-      /* the caller still reports the failed install */
+      // coercion-ok: the install still fails loudly with the throw below.
     }
     throw new Error(USER_INSTALL_UNAVAILABLE);
   }

@@ -105,6 +105,7 @@ function isHttpsRedirect(value: unknown): value is string {
   try {
     return new URL(value).protocol === "https:";
   } catch {
+    // coercion-ok: an unparseable redirect is rejected by the caller's throw.
     return false;
   }
 }
@@ -117,11 +118,11 @@ export function buildSlackUserAuthorizeUrl(
   options: SlackUserAuthorizeUrlOptions,
 ): string {
   const clientId =
-    typeof options?.clientId === "string" ? options.clientId.trim() : "";
-  const state = typeof options?.state === "string" ? options.state : "";
-  const redirectUri = options?.redirectUri;
-  const scopes = normalizeScopes(options?.userScopes);
-  const teamId = options?.teamId;
+    typeof options.clientId === "string" ? options.clientId.trim() : "";
+  const state = typeof options.state === "string" ? options.state : "";
+  const redirectUri = options.redirectUri;
+  const scopes = normalizeScopes(options.userScopes);
+  const teamId = options.teamId;
 
   if (
     !clientId ||
@@ -157,7 +158,7 @@ export function mapSlackUserOAuthResponse(
   response: SlackOAuthAccessResponse,
   now = Date.now(),
 ): SlackUserOAuthIdentity {
-  if (!response || response.ok !== true || !isPositiveSafeInteger(now)) {
+  if (response.ok !== true || !isPositiveSafeInteger(now)) {
     throw new Error(USER_OAUTH_ERROR);
   }
 
@@ -194,7 +195,7 @@ export function mapSlackUserOAuthResponse(
   }
 
   if (expiresIn !== undefined) {
-    if (!isPositiveSafeInteger(expiresIn) || !isPositiveSafeInteger(now)) {
+    if (!isPositiveSafeInteger(expiresIn)) {
       throw new Error(USER_OAUTH_ERROR);
     }
     const expiresAt = now + expiresIn * 1_000;
