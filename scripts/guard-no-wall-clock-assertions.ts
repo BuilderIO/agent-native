@@ -39,9 +39,9 @@
  *   - timeout, retry, debounce or backoff logic: `vi.useFakeTimers()` and
  *     `vi.advanceTimersByTime()`, or inject a clock;
  *   - a real performance budget (a ReDoS guard, parser speed): `measureCpuMs`
- *     from `@agent-native/core/testing`, which counts CPU time and not the
- *     time a loaded runner spends on other work, or a scaling check (n
- *     against 4n).
+ *     from `@agent-native/core/testing/cpu-time`, which counts CPU time and
+ *     not the time a loaded runner spends on other work, or a scaling check
+ *     (n against 4n).
  *
  * When real elapsed time really is the subject (a live network deadline with
  * nothing to fake), opt out with a reason of at least 10 characters:
@@ -104,8 +104,8 @@ export const FIX_HINT =
   "  - timeout, retry, debounce or backoff logic: vi.useFakeTimers() and\n" +
   "    vi.advanceTimersByTime(), or inject a clock;\n" +
   "  - a real performance budget: measureCpuMs from\n" +
-  '    "@agent-native/core/testing" (CPU time, not wall time), or a scaling\n' +
-  "    check (n against 4n).\n" +
+  '    "@agent-native/core/testing/cpu-time" (CPU time, not wall time), or a\n' +
+  "    scaling check (n against 4n).\n" +
   "Do not raise the number: a loaded runner crosses any fixed bound.\n\n" +
   "If real elapsed time really is the subject, opt out in a comment on the\n" +
   "assertion or directly above it, with a reason of 10+ characters:\n" +

@@ -33,5 +33,3 @@ export {
 } from "./cli/design-connect.js";
 
 export { assertNoInlineImageBytes } from "./shared/inline-bytes.js";
-
-export { measureCpuMs } from "./testing/cpu-time.js";

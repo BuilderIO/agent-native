@@ -451,6 +451,10 @@
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"
     },
+    "./testing/cpu-time": {
+      "types": "./dist/testing/cpu-time.d.ts",
+      "default": "./dist/testing/cpu-time.js"
+    },
     "./router": "./dist/router/index.js",
     "./collab": "./dist/collab/index.js",
     "./collab/bounded-task-bundle": "./dist/collab/bounded-task-bundle.js",
