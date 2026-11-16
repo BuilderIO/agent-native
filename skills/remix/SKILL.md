@@ -236,9 +236,9 @@ Design's tweak system, never a private UI:
 ## Remix Explain
 
 `remix explain <part of a site>` teaches instead of porting. Extract the part as
-above, then build the board's **How it works** row beside the source, without a
-Remix frame. Headless, provide a local explainer page with typed props/CSS
-knobs and captures.
+above, then finish on the **Explain board** variant in "Finish On A Remix
+Board". Headless, provide a local explainer page with typed props/CSS knobs and
+captures.
 
 ## Motion
 
@@ -264,6 +264,15 @@ Title screens with `rename-screen` ("Original · stripe.com", "Remix",
 `canvasFrames.<id>` `{ x, y, width, height }`. A layout that reads well:
 Original at (0, 0), Remix 400 px to its right, and the explainer row centered
 with its top at y 1860, 160 px between frames.
+
+**Explain board** (`remix explain`): the same board with no Remix group, so
+Original then How it works. Keep the same layout, regions, headers, notes,
+connectors and machine frames; leave out the Remix screen, its region and
+header, and the Original-to-Remix connector, and draw one connector from
+Original down to How it works. Number the sections "01" and "02", drop the
+"Only colors, fonts and icons changed" note, and scope each knob to the
+explainer screens and, when inline, the Original. Center the explainer row
+under Original.
 
 ### Annotate The Canvas
 
