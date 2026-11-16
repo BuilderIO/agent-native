@@ -1,13 +1,13 @@
-Copies found: M4=478 unique files; M5=782 unique files (from existing sweep report; no reinventory this run)
-Files changed: 56 tracked paths in public agent-native commits c90f9bbfaf, 4b6e44ffb4; user-level copies pending landing; worktree copies refresh from bases
-Public PR URL and state: none; fleet-tooling handoff is queued for the steward, per the final instruction
-Broadcast command path: ~/.config/replica-workers/bin/rule-broadcast (private source and trigger are queued separately)
-Sessions reached / not reached: 0 / total not enumerated; real send waits for the rule changes to land
-Receipt: pending; exact message is in BROADCAST-MESSAGE.md
-Enforcing scripts removed: none found in prior sweep; pnpm ship:push only pushes the current branch
-Worktree copies: not edited individually; refreshed from their base after landing
-Checks: prior branch run passed pnpm guards 107/107; latest rerun had 7 dependency-import failures; focused tests passed 18/18
-Remaining: steward landing, M4/M5 user-level install, live session enumeration/delivery, receipt, and final ledger completion
+Copies found: M4=478 unique matching files; M5=782. File:line sweeps: INVENTORY-M4.tsv and INVENTORY-M5.tsv.
+Files changed: public ship guidance=9 committed files; broadcaster/audit source=7 files; M4/M5 user-level ship copies installed with backups; hand-edited worktree copies=0.
+Public PR: none; `job/ship-no-rotate-1115` is queued for pr-steward folding (latest source commit `cfa375e01095df407ce875764aca3a28f1265216`).
+Broadcast command: `~/.config/replica-workers/bin/rule-broadcast`; source `fleet/bin/rule-broadcast.ts`, audit trigger in `fleet/audit/audit-wave.py`.
+Sessions reached / not reached: 0 / not enumerated for the post-land send; send remains gated on landing.
+Broadcast receipt: pending; the previous pre-land receipt does not count. Exact message is in `BROADCAST-MESSAGE.md`.
+Enforcing rotation scripts removed: none found; `pnpm ship:push` only pushes the current branch.
+Worktree copies not edited individually: 108 M4 and 129 M5 skill copies, refreshed via their bases after landing.
+Verification: `pnpm guards` passed all 107 checks on the queued source branch; focused broadcaster tests and audit selftest passed.
+Remaining: steward landing, then one real broadcast, receipt, and coordinator-added Claude Desktop session ids.
 
 The branch is pushed at `4b6e44ffb4ec32927e7523e2141f47439a1d2646`. No merge or real broadcast occurred in this run, so user-level copies and session delivery remain gated. The existing public handoff is in `~/.local/state/pr-steward/tooling-inbox/4f04342f34311439f4d9.json`; do not duplicate that queue entry. The private rule-broadcast tooling submission is also already queued.
 
