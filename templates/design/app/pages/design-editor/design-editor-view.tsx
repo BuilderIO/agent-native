@@ -65,6 +65,7 @@ import {
 import type { MotionDockEasingSegment } from "@/components/design/MotionDock";
 import { NudgeAmountDialog } from "@/components/design/NudgeAmountDialog";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
+import { ShareLivePreview } from "@/components/design/ShareLivePreview";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
 import {
@@ -355,6 +356,9 @@ export function renderDesignEditorView({
     getComponentExpectedFiles,
     pendingNodeRewriteByFile,
     documentColorFiles,
+    tweaks,
+    tweakSelections,
+    handleTweakChange,
     designSourceType,
     overviewScreens,
     layoutGrids,
@@ -374,6 +378,7 @@ export function renderDesignEditorView({
     handleResponsiveEditScopeChange,
     activeScreenBaseWidthPx,
     activeScreenSnapshotOnly,
+    activeOverviewScreen,
     activeCanvasSourceType,
     handleBreakpointBarRemove,
   } = editorActiveScreenAndGeometry;
@@ -1366,6 +1371,15 @@ export function renderDesignEditorView({
 
     return (
       <div className="flex items-center">
+        {canEditDesign && activeOverviewScreen?.sourceType === "localhost" ? (
+          <ShareLivePreview
+            key={activeOverviewScreen.id}
+            designId={id}
+            fileId={activeOverviewScreen.id}
+            tunnelUrl={activeOverviewScreen.tunnelUrl}
+            liveCollaborationEnabled={liveCollaborationEnabled}
+          />
+        ) : null}
         <ShareButton
           resourceType="design"
           resourceId={id}
@@ -1696,6 +1710,9 @@ export function renderDesignEditorView({
     viewMode,
     mode,
     files: documentColorFiles,
+    tweaks,
+    tweakValues: tweakSelections,
+    onTweakChange: canEditDesign ? handleTweakChange : undefined,
     activeTool,
     scaleToolControls: canEditDesign ? scaleToolControls : undefined,
     onCreateScreenFromPreset: canEditDesign

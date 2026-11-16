@@ -658,8 +658,11 @@ async function loadMemberships(email: string): Promise<MembershipRow[] | null> {
 
 export async function listOrgMemberships(
   email: string,
+  options?: { fresh?: boolean },
 ): Promise<OrgMembership[] | null> {
-  const memberships = await loadMemberships(email);
+  const memberships = options?.fresh
+    ? await loadMembershipsUncached(email)
+    : await loadMemberships(email);
   return scopeMembershipsForDelegatedIdentity(email, memberships);
 }
 

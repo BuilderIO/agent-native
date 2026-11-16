@@ -38,6 +38,19 @@ vi.mock("../server/lib/private-icon-authority.js", async (importOriginal) => ({
   >()),
   assertPrivateIconOwner: vi.fn(async () => undefined),
 }));
+// A webhook URL is checked without a network: names resolve as public.
+vi.mock("@agent-native/core/extensions/url-safety", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/core/extensions/url-safety")
+    >();
+  return {
+    ...actual,
+    isBlockedExtensionUrlWithDns: vi.fn(async (url: string) =>
+      actual.isBlockedExtensionUrl(url),
+    ),
+  };
+});
 const builderRead = vi.hoisted(() => ({ entries: [] as unknown[] }));
 vi.mock("./_builder-cms-read-client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./_builder-cms-read-client.js")>()),
@@ -108,6 +121,8 @@ let disconnectLocalFolder: typeof import("./disconnect-local-folder-source.js").
 let resolveLocalFolderConflict: typeof import("./resolve-local-folder-conflict.js").default;
 let contentFilesItemId: typeof import("./_content-files.js").contentFilesItemId;
 let processBuilderBodyHydrationQueue: typeof import("./_database-source-utils.js").processBuilderBodyHydrationQueue;
+let configureDocumentProperty: typeof import("./configure-document-property.js").default;
+let createContentWebhook: typeof import("./create-content-webhook.js").default;
 
 beforeAll(async () => {
   if (!POSTGRES_URL) return;
@@ -120,6 +135,7 @@ beforeAll(async () => {
     throw new Error(`${POSTGRES_ENV} must name an isolated test database.`);
   }
   process.env.DATABASE_URL = POSTGRES_URL;
+  process.env.SECRETS_ENCRYPTION_KEY ??= "lock-order-test-key";
   const database = await import("../server/db/index.js");
   getDb = database.getDb;
   schema = database.schema;
@@ -176,6 +192,9 @@ beforeAll(async () => {
   ({ contentFilesItemId } = await import("./_content-files.js"));
   ({ processBuilderBodyHydrationQueue } =
     await import("./_database-source-utils.js"));
+  configureDocumentProperty = (await import("./configure-document-property.js"))
+    .default;
+  createContentWebhook = (await import("./create-content-webhook.js")).default;
   await (await import("../server/plugins/db.js")).default(undefined as any);
   // Content's migrations don't create core's organization tables.
   await getDb().execute(
@@ -751,6 +770,99 @@ function moveToOtherSpace(seed: Awaited<ReturnType<typeof seedSpaceMove>>) {
       id: seed.ids.moved,
       spaceId: seed.ids.toSpace,
       parentId: seed.ids.parent,
+    }),
+  );
+}
+
+/** A collection page with one row, in Files, to move to another space. */
+async function seedCollectionSpaceMove() {
+  const key = fixtureKey();
+  const ids = {
+    fromSpace: `${key}_sa`,
+    toSpace: `${key}_sb`,
+    fromFiles: `${key}_fa`,
+    toFiles: `${key}_fb`,
+    collection: `${key}_c`,
+    collectionPage: `${key}_p2`,
+    row: `${key}_p1`,
+    rowItem: `${key}_m2`,
+    rowFilesItem: `${key}_m3`,
+    pageFilesItem: `${key}_m1`,
+  };
+  const db = getDb();
+  for (const [spaceId, filesId] of [
+    [ids.fromSpace, ids.fromFiles],
+    [ids.toSpace, ids.toFiles],
+  ] as const) {
+    await db.insert(schema.contentSpaces).values({
+      id: spaceId,
+      name: `Synthetic ${spaceId}`,
+      kind: "user",
+      ownerEmail: OWNER,
+      orgId: null,
+      filesDatabaseId: filesId,
+      createdBy: OWNER,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+    await db.insert(schema.contentDatabases).values({
+      id: filesId,
+      ownerEmail: OWNER,
+      spaceId,
+      documentId: `${filesId}_page`,
+      title: "Files",
+      systemRole: "files",
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+  }
+  await db.insert(schema.documents).values([
+    pageValues(ids.collectionPage, null, "Collection", {
+      spaceId: ids.fromSpace,
+    }),
+    pageValues(ids.row, ids.collectionPage, "Row", {
+      spaceId: ids.fromSpace,
+      position: 0,
+    }),
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: ids.collection,
+    ownerEmail: OWNER,
+    spaceId: ids.fromSpace,
+    documentId: ids.collectionPage,
+    title: "Collection",
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  await db
+    .insert(schema.contentDatabaseItems)
+    .values([
+      itemValues(ids.rowItem, ids.collection, ids.row, 0),
+      itemValues(ids.pageFilesItem, ids.fromFiles, ids.collectionPage, 0),
+      itemValues(ids.rowFilesItem, ids.fromFiles, ids.row, 1),
+    ]);
+  const rows: LockedRow[] = [
+    { label: "collection", kind: "collection", id: ids.collection },
+    {
+      label: "page Files membership",
+      kind: "membership",
+      id: ids.pageFilesItem,
+    },
+    { label: "row membership", kind: "membership", id: ids.rowItem },
+    { label: "row Files membership", kind: "membership", id: ids.rowFilesItem },
+    { label: "row page", kind: "page", id: ids.row },
+    { label: "collection page", kind: "page", id: ids.collectionPage },
+  ];
+  return { key, ids, rows };
+}
+
+function moveCollectionToOtherSpace(
+  seed: Awaited<ReturnType<typeof seedCollectionSpaceMove>>,
+) {
+  return asOwner(() =>
+    moveDocument.run({
+      id: seed.ids.collectionPage,
+      spaceId: seed.ids.toSpace,
     }),
   );
 }
@@ -2261,6 +2373,25 @@ describe.skipIf(!POSTGRES_URL)(
           "moved page",
           "new parent page",
           "child page",
+        ]);
+      });
+
+      it("move a collection to another space", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollectionSpaceMove();
+          return {
+            rows: seed.rows,
+            run: () => moveCollectionToOtherSpace(seed),
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual([
+          "collection",
+          "page Files membership",
+          "row membership",
+          "row Files membership",
+          "row page",
+          "collection page",
         ]);
       });
 
@@ -3895,6 +4026,196 @@ parentId: "${seed.ids.moved}"
           spaceId: seed.ids.fromSpace,
         });
       }
+    });
+
+    it("refuses a move to another space of a collection that gained a row while it waited", async () => {
+      const seed = await seedCollectionSpaceMove();
+      const added = `${seed.key}_p3`;
+      const { action: moved } = await raceAgainst(
+        async (tx) => {
+          // add-database-item: the collection, then the new row.
+          await tx
+            .update(schema.contentDatabases)
+            .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+            .where(eq(schema.contentDatabases.id, seed.ids.collection));
+          await tx.insert(schema.documents).values(
+            pageValues(added, seed.ids.collectionPage, "Added", {
+              spaceId: seed.ids.fromSpace,
+              position: 1,
+            }),
+          );
+          await tx
+            .insert(schema.contentDatabaseItems)
+            .values(
+              itemValues(`${seed.key}_m4`, seed.ids.collection, added, 1),
+            );
+        },
+        () => moveCollectionToOtherSpace(seed),
+      );
+      await expect(moved).rejects.toMatchObject({
+        errorCode: "PAGE_SUBTREE_CHANGED",
+        statusCode: 409,
+      });
+      for (const page of [seed.ids.collectionPage, seed.ids.row, added]) {
+        expect(await readPage(page)).toMatchObject({
+          spaceId: seed.ids.fromSpace,
+        });
+      }
+      const [collection] = await getDb()
+        .select({ spaceId: schema.contentDatabases.spaceId })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, seed.ids.collection));
+      expect(collection).toEqual({ spaceId: seed.ids.fromSpace });
+    });
+
+    it("refuses a relation to a collection that moved to another space while it waited", async () => {
+      const seed = await seedCollectionSpaceMove();
+      const linker = `${seed.key}_c2`;
+      const linkerPage = `${seed.key}_p5`;
+      await getDb()
+        .insert(schema.documents)
+        .values(
+          pageValues(linkerPage, null, "Linker", {
+            spaceId: seed.ids.fromSpace,
+          }),
+        );
+      await getDb().insert(schema.contentDatabases).values({
+        id: linker,
+        ownerEmail: OWNER,
+        spaceId: seed.ids.fromSpace,
+        documentId: linkerPage,
+        title: "Linker",
+        createdAt: STAMP,
+        updatedAt: STAMP,
+      });
+      const { action: related } = await raceAgainst(
+        async (tx) => {
+          // The move: lock the collection, then give it to the other space.
+          await tx
+            .update(schema.contentDatabases)
+            .set({ spaceId: seed.ids.toSpace })
+            .where(eq(schema.contentDatabases.id, seed.ids.collection));
+        },
+        () =>
+          asOwner(() =>
+            configureDocumentProperty.run({
+              documentId: linkerPage,
+              databaseId: linker,
+              name: "Linked",
+              type: "relation",
+              options: { relation: { databaseId: seed.ids.collection } },
+            } as Parameters<typeof configureDocumentProperty.run>[0]),
+          ),
+      );
+      await expect(related).rejects.toMatchObject({
+        errorCode: "RELATION_TARGET_OTHER_SPACE",
+      });
+      expect(
+        await getDb()
+          .select({ id: schema.documentPropertyDefinitions.id })
+          .from(schema.documentPropertyDefinitions)
+          .where(eq(schema.documentPropertyDefinitions.databaseId, linker)),
+      ).toEqual([]);
+    });
+
+    it("refuses a webhook on a collection that moved to another owner while it waited", async () => {
+      const seed = await seedCollectionSpaceMove();
+      const { action: created } = await raceAgainst(
+        async (tx) => {
+          // The move: lock the collection, then give it to its new owner.
+          await tx
+            .update(schema.contentDatabases)
+            .set({
+              spaceId: seed.ids.toSpace,
+              ownerEmail: "synthetic-lock-order-mover@example.test",
+            })
+            .where(eq(schema.contentDatabases.id, seed.ids.collection));
+        },
+        () =>
+          asOwner(() =>
+            createContentWebhook.run({
+              databaseId: seed.ids.collection,
+              url: "https://hooks.example.com/content",
+              events: ["property.changed"],
+            } as Parameters<typeof createContentWebhook.run>[0]),
+          ),
+      );
+      await expect(created).rejects.toMatchObject({
+        errorCode: "WEBHOOK_SCOPE_MOVED",
+        statusCode: 409,
+      });
+      expect(
+        await getDb()
+          .select({ id: schema.contentWebhooks.id })
+          .from(schema.contentWebhooks)
+          .where(eq(schema.contentWebhooks.scopeId, seed.ids.collection)),
+      ).toEqual([]);
+    });
+
+    it("refuses a webhook on a page that moved to another owner while it waited", async () => {
+      const seed = await seedCollectionSpaceMove();
+      const { action: created } = await raceAgainst(
+        async (tx) => {
+          // The move: lock the row page, then give it to its new owner.
+          await tx
+            .update(schema.documents)
+            .set({
+              spaceId: seed.ids.toSpace,
+              ownerEmail: "synthetic-lock-order-mover@example.test",
+            })
+            .where(eq(schema.documents.id, seed.ids.row));
+        },
+        () =>
+          asOwner(() =>
+            createContentWebhook.run({
+              documentId: seed.ids.row,
+              url: "https://hooks.example.com/content",
+              events: ["property.changed"],
+            } as Parameters<typeof createContentWebhook.run>[0]),
+          ),
+      );
+      await expect(created).rejects.toMatchObject({
+        errorCode: "WEBHOOK_SCOPE_MOVED",
+        statusCode: 409,
+      });
+      expect(
+        await getDb()
+          .select({ id: schema.contentWebhooks.id })
+          .from(schema.contentWebhooks)
+          .where(eq(schema.contentWebhooks.scopeId, seed.ids.row)),
+      ).toEqual([]);
+    });
+
+    it("refuses a webhook on a page its owner moved to another of their workspaces while it waited", async () => {
+      const seed = await seedCollectionSpaceMove();
+      const { action: created } = await raceAgainst(
+        async (tx) => {
+          // The owner's own move keeps the owner and organization; only the
+          // workspace, and with it the page's sharing, changes.
+          await tx
+            .update(schema.documents)
+            .set({ spaceId: seed.ids.toSpace })
+            .where(eq(schema.documents.id, seed.ids.row));
+        },
+        () =>
+          asOwner(() =>
+            createContentWebhook.run({
+              documentId: seed.ids.row,
+              url: "https://hooks.example.com/content",
+              events: ["property.changed"],
+            } as Parameters<typeof createContentWebhook.run>[0]),
+          ),
+      );
+      await expect(created).rejects.toMatchObject({
+        errorCode: "WEBHOOK_SCOPE_MOVED",
+        statusCode: 409,
+      });
+      expect(
+        await getDb()
+          .select({ id: schema.contentWebhooks.id })
+          .from(schema.contentWebhooks)
+          .where(eq(schema.contentWebhooks.scopeId, seed.ids.row)),
+      ).toEqual([]);
     });
 
     it("appends a page moved to another space after a page another move appended while it waited", async () => {

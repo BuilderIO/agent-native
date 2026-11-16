@@ -1381,6 +1381,15 @@
   background: var(--agent-kit-raised-surface);
 }
 
+/* A host may offset the stack with `translate`, which creates a stacking
+   context and traps the composer root's z-index behind the setup card. Raise
+   the stack itself so the box's top edge still hides the card's tucked lower
+   edge, while the card stays above the wrapper that holds the composer. */
+.agent-composer-area--attached-above .agentkit-composer-stack {
+  position: relative;
+  z-index: 2;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .agent-builder-setup-card--attached {
     animation: none;

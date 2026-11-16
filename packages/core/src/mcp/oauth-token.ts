@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import * as jose from "jose";
 
+import { isDeploymentEmailDomainAllowed } from "../org/signup-admission.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
 import { getMissingAuthSecretKey } from "../server/deploy-settings.js";
 import {
@@ -230,6 +231,11 @@ export async function verifyMcpOAuthAccessToken(
     const embeddedResource = normaliseResource(payload.resource);
     if (!audiences.includes(embeddedResource)) return null;
     if (typeof payload.sub !== "string" || !payload.sub) return null;
+    if (
+      payload.credential_version !== MCP_OAUTH_SERVICE_CREDENTIAL_VERSION &&
+      !isDeploymentEmailDomainAllowed(payload.sub)
+    )
+      return null;
     if (typeof payload.client_id !== "string" || !payload.client_id) {
       return null;
     }

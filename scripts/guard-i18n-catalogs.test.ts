@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
   checkCatalogDevelopmentMarkers,
+  checkCatalogKeyCoverage,
   checkLocalizedDocsCoverage,
   checkRawVisibleLiteralFile,
   checkStaleBaselineEntries,
@@ -11,6 +14,125 @@ import {
   findCorruptedLocalizedDocsIdentifiers,
   normalizeLocalizedDocSlug,
 } from "./guard-i18n-catalogs";
+
+describe("app catalog key coverage", () => {
+  for (const [name, messages] of [
+    ["a scalar parent", { share: "Own label" }],
+    ["an object replacing a leaf", { share: { copy: { label: "Own label" } } }],
+    ["an empty object replacing a leaf", { share: { copy: {} } }],
+  ] as const) {
+    it(`rejects a Core key shadowed by ${name}`, async () => {
+      const fixture = mkdtempSync(path.join(os.tmpdir(), "catalog-shadow-"));
+      const catalog = path.join(fixture, "app", "i18n");
+      mkdirSync(catalog, { recursive: true });
+      try {
+        writeFileSync(
+          path.join(catalog, "en-US.ts"),
+          `export default ${JSON.stringify(messages)};`,
+        );
+        writeFileSync(
+          path.join(fixture, "app", "View.tsx"),
+          'const label = t("share.copy");',
+        );
+        const errors = await checkCatalogKeyCoverage([catalog]);
+        assert.equal(errors.length, 1);
+        assert.match(errors[0]!, /share\.copy/);
+      } finally {
+        rmSync(fixture, { recursive: true, force: true });
+      }
+    });
+  }
+  it("accepts Core fallback keys and still rejects missing app keys", async () => {
+    const fixture = mkdtempSync(path.join(os.tmpdir(), "catalog-coverage-"));
+    const catalog = path.join(fixture, "app", "i18n");
+    mkdirSync(catalog, { recursive: true });
+    try {
+      writeFileSync(
+        path.join(catalog, "en-US.ts"),
+        'export default { workspace: { known: "Known" } };',
+      );
+      writeFileSync(
+        path.join(fixture, "app", "View.tsx"),
+        'const labels = [t("share.copy"), t("workspace.known"), t("workspace.missing")];',
+      );
+      const errors = await checkCatalogKeyCoverage([catalog]);
+      assert.equal(errors.length, 1);
+      assert.match(errors[0]!, /workspace\.missing/);
+      assert.doesNotMatch(errors[0]!, /share\.copy|workspace\.known/);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+  it("only includes Toolkit keys for the actual imported factory and preserves shadowing", async () => {
+    const fixture = mkdtempSync(path.join(os.tmpdir(), "catalog-toolkit-"));
+    const catalog = path.join(fixture, "app", "i18n");
+    mkdirSync(catalog, { recursive: true });
+    const en = path.join(catalog, "en-US.ts");
+    const entry = path.join(catalog, "index.ts");
+    try {
+      writeFileSync(
+        path.join(fixture, "app", "View.tsx"),
+        'const x = t("agentChat.share.loadFailed");',
+      );
+      writeFileSync(en, "export default {};");
+      assert.equal((await checkCatalogKeyCoverage([catalog])).length, 1);
+      writeFileSync(
+        entry,
+        'import { createToolkitI18nCatalog as make } from "@agent-native/toolkit/app/i18n"; import en from "./en-US"; export const unused = make({ messages: en }); export const i18nCatalog = { messages: en };',
+      );
+      assert.equal((await checkCatalogKeyCoverage([catalog])).length, 1);
+      for (const options of [
+        "{ messages: en, ...other }",
+        "{ messages: en, messages: other }",
+        "{ messages: en, [key]: other }",
+        "{ messages: en, get messages() { return other; } }",
+      ]) {
+        writeFileSync(
+          entry,
+          `import { createToolkitI18nCatalog as make } from "@agent-native/toolkit/app/i18n"; import en from "./en-US"; export const i18nCatalog = make(${options});`,
+        );
+        assert.equal(
+          (await checkCatalogKeyCoverage([catalog])).length,
+          1,
+          options,
+        );
+      }
+      writeFileSync(
+        entry,
+        'import { createToolkitI18nCatalog as make } from "@agent-native/toolkit/app/i18n"; import en from "./en-US"; export const i18nCatalog = make({ messages: en });',
+      );
+      assert.deepEqual(await checkCatalogKeyCoverage([catalog]), []);
+      writeFileSync(
+        entry,
+        'import { createToolkitI18nCatalog as make } from "@agent-native/toolkit/app/i18n"; import en from "./en-US"; export const i18nCatalog = { messages: en };',
+      );
+      assert.equal((await checkCatalogKeyCoverage([catalog])).length, 1);
+      writeFileSync(
+        entry,
+        'import { createToolkitI18nCatalog as make } from "@agent-native/toolkit/app/i18n"; import en from "./en-US"; export const i18nCatalog = make({ messages: en });',
+      );
+      writeFileSync(en, 'export default { agentChat: { share: "shadow" } };');
+      // A distinct URL avoids module-cache reuse when loading a revised fixture.
+      const shadowCatalog = path.join(fixture, "shadow", "app", "i18n");
+      mkdirSync(shadowCatalog, { recursive: true });
+      writeFileSync(
+        path.join(shadowCatalog, "en-US.ts"),
+        'export default { agentChat: { share: "shadow" } };',
+      );
+      writeFileSync(
+        path.join(shadowCatalog, "index.ts"),
+        'import { createToolkitI18nCatalog as make } from "@agent-native/toolkit/app/i18n"; import en from "./en-US"; export const i18nCatalog = make({ messages: en });',
+      );
+      writeFileSync(
+        path.join(fixture, "shadow", "app", "View.tsx"),
+        'const x = t("agentChat.share.loadFailed");',
+      );
+      assert.equal((await checkCatalogKeyCoverage([shadowCatalog])).length, 1);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("i18n catalog locations", () => {
   it("checks Toolkit app catalogs instead of the removed Core UI catalog", () => {
@@ -73,6 +195,28 @@ toast.error(", status: Ready");
         `${file}|Open color picker`,
         `${file}|, status: Ready`,
         `${file}|, status: Ready`,
+      ],
+    );
+  });
+
+  it("distinguishes JSX copy from comparisons and generic type syntax", () => {
+    const file = "templates/design/comparisons.tsx";
+    const source = `
+const result = content.querySelector<HTMLElement>("button");
+const value = day > 12 && day < limit;
+const other = codePoint > 0 && codePoint < 128;
+type Args = Parameters<Fn>[0];
+const view = <div>Visible English<span>workspace.rawKey</span></div>;
+const button = <Button aria-label="Open color picker" />;
+toast.error("Save failed");
+`;
+    assert.deepEqual(
+      checkRawVisibleLiteralFile(file, source).map(({ id }) => id),
+      [
+        `${file}|Visible English`,
+        `${file}|workspace.rawKey`,
+        `${file}|Open color picker`,
+        `${file}|Save failed`,
       ],
     );
   });

@@ -65,6 +65,7 @@ const APP_BUNDLES: MarketplaceApp[] = [
         exportAs: "design-exploration",
       },
       { sourcePath: "skills/visual-edit", exportAs: "visual-edit" },
+      { sourcePath: "skills/remix", exportAs: "remix" },
     ],
     brandColor: "#0F766E",
   },

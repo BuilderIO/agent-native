@@ -286,6 +286,23 @@ export function useRemoveMember() {
   });
 }
 
+/**
+ * Withdraw a pending invitation. Without this an invite is final: a typo stays in the
+ * roster, and a person who was never going to join cannot be taken back out.
+ */
+export function useCancelInvitation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`${orgBasePath()}/invitations/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-invitations"] });
+    },
+  });
+}
+
 export function useUpdateOrg() {
   const qc = useQueryClient();
   return useMutation({

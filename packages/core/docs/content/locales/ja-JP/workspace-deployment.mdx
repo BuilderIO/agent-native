@@ -166,6 +166,8 @@ npx @agent-native/core@latest deploy
 
 `PATH`、`PWD`、`npm_*`、`PNPM_*` など、実行のたびに変わってもビルドには影響しない変数は、すでにキーから除外されています。デプロイ環境が独自の変数（たとえば実行 ID）を追加する場合は、`AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` に列挙してください。末尾の `*` はプレフィックスに一致します。それ以外はすべて対象となるため、`VITE_*` や `DATABASE_URL` が変わるとすべてのアプリが再ビルドされます。
 
+`AGENT_NATIVE_BUILD_ID` にコミットを設定するワークスペースでは、本来コミットごとにすべてのアプリが再ビルドされます。キャッシュが有効な場合、この変数はキーから除外され、各アプリは自身のキーから導いた ID（`content-…`）でビルドされるため、変更のないアプリは新しいコミットでも同じ出力を復元します。Netlify のレスポンスには引き続き `x-agent-native-build-sha` にコミットが入り、`x-agent-native-app-build-id` にアプリに埋め込まれた ID が入ります。デプロイは期待値を `.netlify/agent-native-served-builds.json` に書き出し、`@agent-native/core/deploy/served-build` の `checkServedAppBuild` がライブのレスポンスをそれと比較します。`DEPLOY_ID` が優先され、キーに残ります。
+
 毎回クリーンなディスクから始まるホスト型ビルダーでは、キャッシュの利点はありません。そこでは `AGENT_NATIVE_DEPLOY_CACHE=false` を設定して、ビルド後に行われるコピーをスキップしてください。
 
 ## Docker Compose によるワークスペースのセルフホスト {#workspace-docker-compose}
