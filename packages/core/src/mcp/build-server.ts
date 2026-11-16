@@ -148,7 +148,7 @@ import {
 } from "./oauth-token.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
 
-function mcpCallTimezone(meta: unknown): string {
+function mcpCallTimezone(meta: unknown): string | undefined {
   const location =
     meta && typeof meta === "object" && !Array.isArray(meta)
       ? (meta as Record<string, unknown>)["openai/userLocation"]
@@ -161,7 +161,7 @@ function mcpCallTimezone(meta: unknown): string {
     !/^[+-]/.test(timezone) &&
     isValidTimezone(timezone)
     ? timezone
-    : "UTC";
+    : undefined;
 }
 
 export const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
@@ -3471,6 +3471,7 @@ export async function createMCPServerForRequest(
     authUserId?: string,
     run?: RequestRunContext,
     timezone?: string,
+    dateTimezoneFallback?: "UTC",
   ): Promise<T> {
     const orgId = await orgIdPromise;
     return runWithRequestContext(
@@ -3494,6 +3495,7 @@ export async function createMCPServerForRequest(
           effectiveIdentity?.mcpCredentialIssuedAtMs ?? null,
         ...(run ? { run } : {}),
         ...(timezone ? { timezone } : {}),
+        ...(dateTimezoneFallback ? { dateTimezoneFallback } : {}),
       },
       fn,
     ) as Promise<T>;
@@ -3501,7 +3503,7 @@ export async function createMCPServerForRequest(
 
   async function withToolCallContext<T>(
     fn: () => Promise<T>,
-    { mcpRequestId, timezone }: { mcpRequestId?: string; timezone: string },
+    { mcpRequestId, timezone }: { mcpRequestId?: string; timezone?: string },
   ): Promise<T> {
     // Only a signed-in person has browser tabs for a call to act on.
     const browserTabTarget = hasVerifiedMcpUserIdentity(effectiveIdentity)
@@ -3513,6 +3515,7 @@ export async function createMCPServerForRequest(
       await resolveCallerAuthUserId(),
       browserTabTarget ? { browserTabTarget } : undefined,
       timezone,
+      "UTC",
     );
     return withBrowserTabTargetNote(result, browserTabTarget);
   }

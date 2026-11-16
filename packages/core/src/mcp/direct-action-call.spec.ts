@@ -12,7 +12,10 @@ import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { mcpToolsToActionEntries } from "../mcp-client/index.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import { todayInTimezone } from "../server/date-utils.js";
-import { getRequestContext } from "../server/request-context.js";
+import {
+  getRequestContext,
+  getRequestTimezone,
+} from "../server/request-context.js";
 import { MCP_DIRECTORY_ROUTE_PREFIX } from "./route-paths.js";
 
 // Pins the exact wire output of direct `tools/call` and the ordered side
@@ -746,7 +749,7 @@ describe("direct tools/call wire output", () => {
 
     let arrived = 0;
     let release = () => {};
-    const bothArrived = new Promise<void>((resolve) => {
+    const allArrived = new Promise<void>((resolve) => {
       release = resolve;
     });
     const action = defineAction({
@@ -759,16 +762,17 @@ describe("direct tools/call wire output", () => {
       run: async ({ day, overlap }, ctx) => {
         if (overlap) {
           arrived += 1;
-          if (arrived === 2) release();
-          await bothArrived;
+          if (arrived === 3) release();
+          await allArrived;
         }
         return {
           day: day ?? todayInTimezone(),
+          explicitTimezoneDay: todayInTimezone("America/Los_Angeles"),
           userEmail: ctx?.userEmail,
           orgId: ctx?.orgId,
           requestUserEmail: getRequestContext()?.userEmail,
           requestOrgId: getRequestContext()?.orgId,
-          timezone: getRequestContext()?.timezone,
+          timezone: getRequestTimezone() ?? null,
         };
       },
     });
@@ -827,9 +831,11 @@ describe("direct tools/call wire output", () => {
         { day: "2026-11-10" },
         location("America/Los_Angeles"),
       );
-      const [losAngeles, tokyo] = await Promise.all([
+      const explicitUtc = await call({}, location("UTC"));
+      const [losAngeles, tokyo, overlappingWithoutHint] = await Promise.all([
         call({ overlap: true }, location("America/Los_Angeles")),
         call({ overlap: true }, location("Asia/Tokyo")),
+        call({ overlap: true }),
       ]);
       const deniedWrite = await client.callTool({
         name: "write-thing",
@@ -859,17 +865,22 @@ describe("direct tools/call wire output", () => {
         orgId: "org-test",
         requestUserEmail: "oauth@example.com",
         requestOrgId: "org-test",
+        explicitTimezoneDay: "2026-11-16",
       };
-      for (const result of [withoutHint, ...invalidHints]) {
+      for (const result of [
+        withoutHint,
+        ...invalidHints,
+        overlappingWithoutHint,
+      ]) {
         expect(result.isError).toBeUndefined();
         expect(result.structuredContent).toEqual({
           ...identity,
           day: "2026-11-17",
-          timezone: "UTC",
+          timezone: null,
         });
       }
       expect(
-        [explicitDay, losAngeles, tokyo].map((result) => ({
+        [explicitDay, losAngeles, tokyo, explicitUtc].map((result) => ({
           isError: result.isError,
           content: result.structuredContent,
         })),
@@ -893,6 +904,10 @@ describe("direct tools/call wire output", () => {
         {
           isError: undefined,
           content: { ...identity, day: "2026-11-17", timezone: "Asia/Tokyo" },
+        },
+        {
+          isError: undefined,
+          content: { ...identity, day: "2026-11-17", timezone: "UTC" },
         },
       ]);
       expect(deniedWrite.isError).toBe(true);
