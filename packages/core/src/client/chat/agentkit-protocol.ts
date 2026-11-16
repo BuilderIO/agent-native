@@ -192,8 +192,6 @@ interface ProtocolRun {
   pipeClosedBeforeTerminal?: boolean;
   /** A Stop in flight saw the stream end or reach how the run ends. */
   cancelStreamDrained?: boolean;
-  /** When a Stop in flight last applied an event from the stream. */
-  cancelStreamEventAt?: number;
   /** A restored decline must verify its request against the replayed stream. */
   requiresRestoredConnectionRequestReplay?: boolean;
   outcomeReported?: boolean;
@@ -242,13 +240,9 @@ const DEFAULT_RETAINED_RUN_TTL_MS = 30 * 60 * 1_000;
 const MAX_DURABLE_RESUME_ATTEMPTS = 3;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const RESTORED_CONNECTION_REQUEST_REPLAY_TIMEOUT_MS = 5_000;
-// A Stop the server confirmed waits for the run's stream to deliver what the
-// server wrote before the stop, until the stream has been quiet this long. A
-// server that hears of the Stop from another instance checks for it every 3
-// seconds, so its last text can arrive a few seconds after the Stop returns.
-const CANCEL_STREAM_QUIET_MS = 3_000;
-// The longest a confirmed Stop waits on a stream that keeps sending.
-const CANCEL_STREAM_DRAIN_MAX_MS = 10_000;
+// How long a Stop the server confirmed waits for the run's stream to deliver
+// what the server wrote before the stop.
+const CANCEL_STREAM_DRAIN_MS = 3_000;
 // Runtime events that end or pause a run. A Stop in flight holds them back,
 // since the Stop decides how the run ends.
 const RUN_SETTLING_RUNTIME_EVENTS: ReadonlySet<string> = new Set([
@@ -3896,9 +3890,9 @@ export function createAgentKitProtocolAdapter(
   }
 
   /**
-   * Waits, once the server has stopped the run, for its stream to deliver
-   * what it streamed before the stop, so the stopped reply shows the text the
-   * server kept. The wait ends when the stream ends or goes quiet.
+   * Gives the run's stream a moment, once the server has stopped the run, to
+   * deliver what it streamed before the stop, so the stopped reply shows the
+   * text the server kept.
    */
   async function waitForCancelStreamDrain(run: ProtocolRun): Promise<void> {
     // Only a run reading its stream at Stop has text still on the way.
@@ -3908,19 +3902,14 @@ export function createAgentKitProtocolAdapter(
     ) {
       return;
     }
-    const startedAt = Date.now();
-    const latest = startedAt + CANCEL_STREAM_DRAIN_MAX_MS;
+    const deadline = Date.now() + CANCEL_STREAM_DRAIN_MS;
     while (
       run.pumpPromise &&
       !run.cancelStreamDrained &&
       !readers.signal.aborted &&
       isRunCancelling(run)
     ) {
-      // Text still arriving means the server hasn't finished stopping.
-      const quietUntil =
-        Math.max(startedAt, run.cancelStreamEventAt ?? 0) +
-        CANCEL_STREAM_QUIET_MS;
-      const remaining = Math.min(quietUntil, latest) - Date.now();
+      const remaining = deadline - Date.now();
       if (remaining <= 0) return;
       await notifyWhenChanged(run, readers.signal, remaining);
     }
@@ -3950,7 +3939,6 @@ export function createAgentKitProtocolAdapter(
                   isRunCancelling(run) &&
                   !RUN_SETTLING_RUNTIME_EVENTS.has(event.type)
                 ) {
-                  run.cancelStreamEventAt = Date.now();
                   appendRuntimeEvent(run, event);
                   continue;
                 }
@@ -4271,7 +4259,6 @@ export function createAgentKitProtocolAdapter(
       const cancellation = cancelCoreTurn(run, "user");
       // Keep readers attached until the cancellation has produced its events.
       run.cancelStreamDrained = false;
-      run.cancelStreamEventAt = undefined;
       run.phase = transition(run.phase, { type: "cancelStarted" });
       try {
         let result;
