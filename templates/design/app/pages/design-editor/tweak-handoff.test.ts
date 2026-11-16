@@ -74,4 +74,22 @@ describe("remix tweak handoff", () => {
       },
     ]);
   });
+
+  it("includes a direct CSS variable change when its source baseline is unknown", () => {
+    expect(
+      getTweakHandoffChanges({
+        tweaks: [],
+        before: {},
+        after: { "--brand-color": "blue" },
+      }),
+    ).toEqual([
+      {
+        id: "--brand-color",
+        label: "--brand-color",
+        oldValue: "(source default)",
+        newValue: "blue",
+        cssVar: "--brand-color",
+      },
+    ]);
+  });
 });

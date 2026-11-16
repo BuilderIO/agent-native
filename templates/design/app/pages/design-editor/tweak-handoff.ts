@@ -43,8 +43,16 @@ export function getTweakHandoffChanges(args: {
   const direct = Object.entries(args.after).flatMap(([cssVar, newValue]) => {
     if (!isSafeCssVarName(cssVar) || declaredVars.has(cssVar)) return [];
     const oldValue = getSelectionValue(args.before, cssVar);
-    if (oldValue === undefined || Object.is(oldValue, newValue)) return [];
-    return [{ id: cssVar, label: cssVar, oldValue, newValue, cssVar }];
+    if (oldValue !== undefined && Object.is(oldValue, newValue)) return [];
+    return [
+      {
+        id: cssVar,
+        label: cssVar,
+        oldValue: oldValue ?? "(source default)",
+        newValue,
+        cssVar,
+      },
+    ];
   });
   return [...declared, ...direct];
 }
