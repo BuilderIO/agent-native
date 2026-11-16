@@ -6,6 +6,7 @@ import {
   collapseExactRepeatedNfm,
   docToNfm,
   inspectNfmFidelity,
+  keepCodeBlockWrap,
   nfmToDoc,
   parseNfmWithLosses,
 } from "./nfm";
@@ -853,6 +854,102 @@ describe("bug fixes — reliability sweep", () => {
       const nfm = L("````markdown", "example:", "```", "inner", "````");
       const once = canonicalizeNfm(nfm);
       expect(canonicalizeNfm(once)).toBe(once);
+    });
+  });
+
+  describe("code block wrapping", () => {
+    it("keeps wrapping after the fence's language", () => {
+      const nfm = L('```ts {wrap="true"}', "const a = 1;", "```");
+      const doc = nfmToDoc(nfm);
+      expect(doc.content[0]?.attrs).toMatchObject({
+        language: "ts",
+        wrap: true,
+      });
+      expect(docToNfm(doc)).toBe(nfm);
+    });
+
+    it("keeps wrapping on a block without a language", () => {
+      const nfm = L('``` {wrap="true"}', "plain", "```");
+      const doc = nfmToDoc(nfm);
+      expect(doc.content[0]?.attrs).toMatchObject({
+        language: null,
+        wrap: true,
+      });
+      expect(canonicalizeNfm(nfm)).toBe(nfm);
+    });
+
+    it("writes nothing for a block that doesn't wrap", () => {
+      const doc = nfmToDoc(L("```ts", "x", "```"));
+      expect(doc.content[0]?.attrs?.wrap).toBeUndefined();
+      expect(
+        docToNfm({
+          type: "doc",
+          content: [
+            {
+              type: "codeBlock",
+              attrs: { language: "ts", wrap: false },
+              content: [{ type: "text", text: "x" }],
+            },
+          ],
+        }),
+      ).toBe(L("```ts", "x", "```"));
+    });
+
+    it("leaves other braces in the language", () => {
+      const doc = nfmToDoc(L("```js {1,3}", "x", "```"));
+      expect(doc.content[0]?.attrs?.language).toBe("js {1,3}");
+      expect(doc.content[0]?.attrs?.wrap).toBeUndefined();
+    });
+
+    it("leaves wrapping out of a Notion page's copy", () => {
+      expect(canonicalizeNotionNfm(L('```ts {wrap="true"}', "x", "```"))).toBe(
+        L("```ts", "x", "```"),
+      );
+    });
+
+    it("keeps local wrapping on the code Notion sends back", () => {
+      const local = L(
+        "Intro",
+        '```ts {wrap="true"}',
+        "same code",
+        "```",
+        "```",
+        "other code",
+        "```",
+      );
+      const fromNotion = L(
+        "Intro, edited in Notion",
+        "```typescript",
+        "same code",
+        "```",
+        "```",
+        "other code",
+        "```",
+      );
+      expect(keepCodeBlockWrap(local, fromNotion)).toBe(
+        L(
+          "Intro, edited in Notion",
+          '```typescript {wrap="true"}',
+          "same code",
+          "```",
+          "```",
+          "other code",
+          "```",
+        ),
+      );
+    });
+
+    it("pairs identical code blocks in order", () => {
+      const block = (info: string) => L("```" + info, "dup", "```");
+      const local = L(block(""), block(' {wrap="true"}'));
+      expect(keepCodeBlockWrap(local, L(block(""), block("")))).toBe(local);
+    });
+
+    it("leaves Notion's copy alone when nothing local wraps", () => {
+      const fromNotion = L("```ts", "x", "```", "");
+      expect(keepCodeBlockWrap(L("```ts", "x", "```"), fromNotion)).toBe(
+        fromNotion,
+      );
     });
   });
 

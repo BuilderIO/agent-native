@@ -697,11 +697,6 @@
   margin-bottom: 0;
 }
 
-.content-editor .content-code-block-wrapper {
-  margin: 0.6em 0;
-  border-radius: 6px;
-  background: hsl(var(--muted));
-}
 .content-editor .content-code-block-header {
   display: flex;
   align-items: center;
@@ -732,59 +727,46 @@
   background: transparent;
   color: hsl(var(--muted-foreground));
 }
-.content-code-lang-picker {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 50;
-  width: 200px;
-  margin-top: 4px;
-  border-radius: 8px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--popover));
-  box-shadow: 0 4px 16px hsl(0 0% 0% / 0.2);
-  overflow: hidden;
-}
-.content-code-lang-search {
-  width: 100%;
-  padding: 8px 10px;
-  font-size: 0.8rem;
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid hsl(var(--border));
-  color: hsl(var(--foreground));
-  outline: none;
-}
-.content-code-lang-search::placeholder {
-  color: hsl(var(--muted-foreground) / 0.6);
-}
-.content-code-lang-list {
-  max-height: 200px;
-  overflow-y: auto;
-  padding: 4px;
-}
-.content-code-lang-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 5px 8px;
-  font-size: 0.8rem;
-  color: hsl(var(--foreground));
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  text-align: left;
-}
-.content-code-lang-option:hover {
-  background: hsl(var(--accent));
-}
-.content-code-lang-option.active {
-  color: hsl(var(--primary));
+.content-code-lang-btn--icon {
+  justify-content: center;
+  width: 24px;
+  padding: 0;
 }
 
-.content-editor .content-code-block-wrapper pre,
+/* A code block's language, wrapping and Copy, over the room the block keeps
+   at its top. Only its buttons take the pointer; the rest of it is the
+   block's. */
+.content-code-block-bar {
+  position: absolute;
+  top: var(--code-block-bar-top);
+  left: var(--code-block-bar-left);
+  z-index: 10;
+  width: var(--code-block-bar-width);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px 0;
+  pointer-events: none;
+}
+.content-code-block-bar .content-code-lang-btn {
+  height: 24px;
+  pointer-events: auto;
+}
+/* The block's own background is the accent color in light mode, so a
+   pressed or hovered button there needs a darker tint to show. */
+.content-code-block-bar
+  .content-code-lang-btn:not(.content-code-lang-btn--readonly):hover,
+.content-code-block-bar .content-code-lang-btn--active {
+  background: hsl(var(--muted-foreground) / 0.16);
+  color: hsl(var(--foreground));
+}
+.content-code-block-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-inline-start: auto;
+}
+
 .content-editor .content-code-block,
 .content-editor pre {
   font-family: "JetBrains Mono Variable", "JetBrains Mono", monospace;
@@ -796,14 +778,16 @@
   overflow-x: auto;
   line-height: 1.55;
 }
-.content-editor .content-code-block-wrapper pre {
-  background: hsl(var(--muted));
-  border-radius: 0 0 6px 6px;
-}
 .content-editor .content-code-block {
   background: hsl(var(--muted));
   border-radius: 6px;
   margin: 0.6em 0;
+  /* Room for the block's bar, which shows on hover or with the cursor in it. */
+  padding-top: 2.5em;
+}
+.content-editor .content-code-block[data-wrap="true"] code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .content-editor pre code {
   white-space: pre;
@@ -2731,6 +2715,7 @@ audio.media-block__content {
 
   [data-document-print-root] [class*="absolute"],
   [data-document-print-root] .media-block__toolbar,
+  [data-document-print-root] .content-code-block-bar,
   [data-document-print-root] .media-block__overlay,
   [data-document-print-root] .media-block__resize-handle,
   [data-document-print-root] .media-block__alt-badge,

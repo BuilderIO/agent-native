@@ -1,3 +1,7 @@
+import {
+  DEFAULT_CODE_LANGUAGES,
+  type CodeLanguageOption,
+} from "@agent-native/toolkit/editor";
 import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
@@ -14,6 +18,64 @@ import { common, createLowlight } from "lowlight";
 import { MermaidCodeBlockView } from "./MermaidCodeBlockView";
 
 const lowlight = createLowlight(common);
+
+// Programming languages keep their canonical names in every locale.
+const MORE_CODE_LANGUAGES: [value: string, label: string][] = [
+  ["shell", "Shell"],
+  ["xml", "XML"],
+  ["java", "Java"],
+  ["kotlin", "Kotlin"],
+  ["swift", "Swift"],
+  ["c", "C"],
+  ["cpp", "C++"],
+  ["csharp", "C#"],
+  ["ruby", "Ruby"],
+  ["php", "PHP"],
+  ["lua", "Lua"],
+  ["r", "R"],
+  ["ini", "INI"],
+];
+
+// Only languages the editor can color are offered, so picking one always
+// changes the highlighting.
+export const CODE_BLOCK_LANGUAGES: CodeLanguageOption[] = [
+  ...DEFAULT_CODE_LANGUAGES.map(({ value, label }): [string | null, string] => [
+    value,
+    label,
+  ]),
+  ...MORE_CODE_LANGUAGES,
+].flatMap(([value, label]) =>
+  value && lowlight.registered(value) ? [{ value, label }] : [],
+);
+
+export const PLAIN_TEXT_CODE_LANGUAGE = "plaintext";
+
+// Fence shorthands, such as ```ts, pick the language they stand for.
+const CODE_LANGUAGE_ALIASES = new Map([
+  ["ts", "typescript"],
+  ["js", "javascript"],
+  ["py", "python"],
+  ["sh", "bash"],
+  ["zsh", "bash"],
+  ["yml", "yaml"],
+  ["md", "markdown"],
+  ["rs", "rust"],
+  ["golang", "go"],
+  ["c++", "cpp"],
+  ["cs", "csharp"],
+  ["rb", "ruby"],
+  ["kt", "kotlin"],
+  ["text", PLAIN_TEXT_CODE_LANGUAGE],
+  ["txt", PLAIN_TEXT_CODE_LANGUAGE],
+]);
+
+/** The language a code block's picker shows as chosen; null is Auto. */
+export function codeBlockLanguageChoice(language: unknown): string | null {
+  const normalized =
+    typeof language === "string" ? language.trim().toLowerCase() : "";
+  if (!normalized) return null;
+  return CODE_LANGUAGE_ALIASES.get(normalized) ?? normalized;
+}
 
 export function isMermaidCodeBlock(
   node: ProseMirrorNode | null | undefined,
@@ -98,6 +160,18 @@ function ignoreTypingOnSelectedMermaid(
 }
 
 export const CodeBlock = CodeBlockLowlight.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      // Whether long lines wrap instead of scrolling sideways.
+      wrap: {
+        default: false,
+        parseHTML: (element) => element.getAttribute("data-wrap") === "true",
+        renderHTML: (attributes) =>
+          attributes.wrap ? { "data-wrap": "true" } : {},
+      },
+    };
+  },
   addKeyboardShortcuts() {
     return {
       ...this.parent?.(),

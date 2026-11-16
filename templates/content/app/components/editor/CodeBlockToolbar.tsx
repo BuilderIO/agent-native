@@ -1,0 +1,365 @@
+import { useT } from "@agent-native/core/client/i18n";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
+import {
+  IconCheck,
+  IconChevronDown,
+  IconCopy,
+  IconTextWrap,
+} from "@tabler/icons-react";
+import type { Transaction } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
+import type { Editor } from "@tiptap/react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { toast } from "sonner";
+
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+import {
+  CODE_BLOCK_LANGUAGES,
+  PLAIN_TEXT_CODE_LANGUAGE,
+  codeBlockLanguageChoice,
+} from "./extensions/CodeBlockNode";
+import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
+
+interface CodeBlockToolbarProps {
+  editor: Editor;
+  /** Whether the block's language and wrapping can change here. */
+  canEdit: boolean;
+}
+
+/** How long Copy shows its check after copying. */
+const COPIED_MS = 1500;
+
+const CODE_BLOCK_SELECTOR = "pre.content-code-block";
+
+function getMountedEditorView(editor: Editor): EditorView | null {
+  if (editor.isDestroyed) return null;
+  try {
+    const view = editor.view;
+    return view.dom.isConnected ? view : null;
+  } catch {
+    // coercion-ok: an editor whose view isn't mounted has no view to read.
+    return null;
+  }
+}
+
+function getTargetElement(target: EventTarget | null) {
+  if (target instanceof Element) return target;
+  if (target instanceof Node) return target.parentElement;
+  return null;
+}
+
+/**
+ * The code block drawn at `pos` as a plain block of code. A Mermaid block
+ * drawn as its diagram brings its own header, so it has none.
+ */
+function plainCodeBlockAt(view: EditorView, pos: number | null) {
+  if (pos === null) return null;
+  const node = view.state.doc.nodeAt(pos);
+  if (node?.type.name !== "codeBlock") return null;
+  const dom = view.nodeDOM(pos);
+  if (!(dom instanceof HTMLElement) || !dom.matches(CODE_BLOCK_SELECTOR))
+    return null;
+  return { node, dom };
+}
+
+function codeBlockPosOf(view: EditorView, pre: Element): number | null {
+  try {
+    const $inside = view.state.doc.resolve(view.posAtDOM(pre, 0));
+    for (let depth = $inside.depth; depth > 0; depth--) {
+      if ($inside.node(depth).type.name === "codeBlock")
+        return $inside.before(depth);
+    }
+  } catch {
+    // coercion-ok: a node the view is still drawing has no position yet.
+  }
+  return null;
+}
+
+/** The code block the pointer is over, in this editor and not one nested in it. */
+function hoveredCodeBlockPos(view: EditorView, target: EventTarget | null) {
+  const pre = getTargetElement(target)?.closest(CODE_BLOCK_SELECTOR);
+  if (!pre || pre.closest(".ProseMirror") !== view.dom) return null;
+  return codeBlockPosOf(view, pre);
+}
+
+function selectedCodeBlockPos(view: EditorView): number | null {
+  if (!view.hasFocus()) return null;
+  const { $from, $to } = view.state.selection;
+  if ($from.parent.type.name !== "codeBlock" || !$from.sameParent($to))
+    return null;
+  return $from.before();
+}
+
+function remapCodeBlockPos(
+  editor: Editor,
+  pos: number | null,
+  map: (pos: number) => number,
+) {
+  if (pos === null) return null;
+  const mapped = map(pos);
+  return editor.state.doc.nodeAt(mapped)?.type.name === "codeBlock"
+    ? mapped
+    : null;
+}
+
+/**
+ * The bar over a code block the pointer is on or the cursor is in: its
+ * language, line wrapping and a Copy button. It sits outside the editor's
+ * text, in the room the block keeps at its top, so it never covers code or
+ * takes part in the block's editing. Readers get Copy alone.
+ */
+export function CodeBlockToolbar({ editor, canEdit }: CodeBlockToolbarProps) {
+  const t = useT();
+  const [hoveredPos, setHoveredPos] = useState<number | null>(null);
+  const [menuPos, setMenuPos] = useState<number | null>(null);
+  const [copiedPos, setCopiedPos] = useState<number | null>(null);
+  const [, setRevision] = useState(0);
+  const [viewRetry, setViewRetry] = useState(0);
+  const refocusEditorOnCloseRef = useRef(false);
+
+  useEffect(() => {
+    if (editor.isDestroyed) return;
+    const view = getMountedEditorView(editor);
+    if (!view) {
+      if (viewRetry >= 5) return;
+      const frame = requestAnimationFrame(() => {
+        setViewRetry((retry) => (retry >= 5 ? retry : retry + 1));
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+
+    const rerender = () => setRevision((revision) => revision + 1);
+    const isBarTarget = (target: EventTarget | null) =>
+      Boolean(getTargetElement(target)?.closest("[data-code-block-toolbar]"));
+    const handlePointerMove = (event: PointerEvent) => {
+      // Touch has no hover; a tap picks the block instead.
+      if (event.pointerType === "touch" || isBarTarget(event.target)) return;
+      setHoveredPos(hoveredCodeBlockPos(view, event.target));
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.pointerType !== "touch" || isBarTarget(event.target)) return;
+      setHoveredPos(hoveredCodeBlockPos(view, event.target));
+    };
+    const handlePointerOut = (event: PointerEvent) => {
+      if (!event.relatedTarget) setHoveredPos(null);
+    };
+    const handleTransaction = ({
+      transaction,
+    }: {
+      transaction: Transaction;
+    }) => {
+      if (transaction.docChanged) {
+        const map = (pos: number) => transaction.mapping.map(pos);
+        setHoveredPos((pos) => remapCodeBlockPos(editor, pos, map));
+        setMenuPos((pos) => remapCodeBlockPos(editor, pos, map));
+        setCopiedPos((pos) => remapCodeBlockPos(editor, pos, map));
+      }
+      rerender();
+    };
+    const resizeObserver = new ResizeObserver(rerender);
+
+    resizeObserver.observe(view.dom);
+    editor.on("transaction", handleTransaction);
+    editor.on("focus", rerender);
+    editor.on("blur", rerender);
+    document.addEventListener("pointermove", handlePointerMove, true);
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("pointerout", handlePointerOut, true);
+    window.addEventListener("resize", rerender);
+    window.addEventListener("scroll", rerender, true);
+
+    return () => {
+      resizeObserver.disconnect();
+      editor.off("transaction", handleTransaction);
+      editor.off("focus", rerender);
+      editor.off("blur", rerender);
+      document.removeEventListener("pointermove", handlePointerMove, true);
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("pointerout", handlePointerOut, true);
+      window.removeEventListener("resize", rerender);
+      window.removeEventListener("scroll", rerender, true);
+    };
+  }, [editor, viewRetry]);
+
+  useEffect(() => {
+    if (copiedPos === null) return;
+    const timer = window.setTimeout(() => setCopiedPos(null), COPIED_MS);
+    return () => window.clearTimeout(timer);
+  }, [copiedPos]);
+
+  const view = getMountedEditorView(editor);
+  if (!view) return null;
+  const editable = canEdit && editor.isEditable;
+  const pos =
+    menuPos ?? hoveredPos ?? (editable ? selectedCodeBlockPos(view) : null);
+  const block = plainCodeBlockAt(view, pos);
+  const wrapper = view.dom.closest(".visual-editor-wrapper");
+  if (pos === null || !block || !wrapper) return null;
+
+  const wrapperRect = wrapper.getBoundingClientRect();
+  const blockRect = block.dom.getBoundingClientRect();
+  const choice = codeBlockLanguageChoice(block.node.attrs.language);
+  const choices = [
+    { value: null, label: t("editor.codeLanguageAuto") },
+    { value: PLAIN_TEXT_CODE_LANGUAGE, label: t("editor.plainText") },
+    ...CODE_BLOCK_LANGUAGES,
+  ];
+  const chosen = choices.find((option) => option.value === choice);
+  const languageLabel = chosen?.label ?? String(block.node.attrs.language);
+  const wraps = block.node.attrs.wrap === true;
+  const copied = copiedPos === pos;
+
+  const updateBlock = (attrs: Record<string, unknown>) => {
+    const current = plainCodeBlockAt(view, pos);
+    if (!current) return;
+    view.dispatch(
+      view.state.tr
+        .setNodeMarkup(pos, undefined, { ...current.node.attrs, ...attrs })
+        .setMeta(LOCAL_FILE_USER_EDIT_META, true),
+    );
+  };
+
+  const copy = async () => {
+    if (await writeClipboardText(block.node.textContent)) setCopiedPos(pos);
+    else toast.error(t("editor.toolbar.clipboardAccessUnavailable"));
+  };
+
+  return (
+    <div
+      className="content-code-block-bar"
+      contentEditable={false}
+      data-code-block-toolbar=""
+      style={
+        {
+          "--code-block-bar-left": `${blockRect.left - wrapperRect.left}px`,
+          "--code-block-bar-top": `${blockRect.top - wrapperRect.top}px`,
+          "--code-block-bar-width": `${blockRect.width}px`,
+        } as CSSProperties
+      }
+      // The cursor stays in the code while the bar is used.
+      onMouseDown={(event) => event.preventDefault()}
+    >
+      {editable ? (
+        <Popover
+          open={menuPos !== null}
+          onOpenChange={(open) => {
+            if (open) refocusEditorOnCloseRef.current = view.hasFocus();
+            setMenuPos(open ? pos : null);
+          }}
+        >
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="content-code-lang-btn"
+              aria-label={t("editor.codeLanguage")}
+            >
+              {languageLabel}
+              <IconChevronDown className="size-3" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            className="w-52 p-0"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              // Focusing an editor the reader wasn't typing in would scroll
+              // to its old cursor.
+              if (refocusEditorOnCloseRef.current) view.focus();
+            }}
+          >
+            <Command>
+              <CommandInput
+                placeholder={t("editor.searchLanguages")}
+                aria-label={t("editor.codeLanguage")}
+              />
+              <CommandList className="max-h-64">
+                <CommandEmpty>{t("editor.noLanguagesFound")}</CommandEmpty>
+                <CommandGroup>
+                  {choices.map((option) => (
+                    <CommandItem
+                      key={option.value ?? "auto"}
+                      value={option.label}
+                      keywords={option.value ? [option.value] : []}
+                      onSelect={() => {
+                        updateBlock({ language: option.value });
+                        setMenuPos(null);
+                      }}
+                    >
+                      {option.label}
+                      {option.value === choice ? (
+                        <IconCheck className="ms-auto size-3.5" />
+                      ) : null}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+      ) : choice ? (
+        <span className="content-code-lang-btn content-code-lang-btn--readonly">
+          {languageLabel}
+        </span>
+      ) : null}
+      <div className="content-code-block-bar__actions">
+        {editable ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "content-code-lang-btn content-code-lang-btn--icon",
+                  wraps && "content-code-lang-btn--active",
+                )}
+                aria-label={t("editor.wrapCodeLines")}
+                aria-pressed={wraps}
+                onClick={() => updateBlock({ wrap: !wraps })}
+              >
+                <IconTextWrap className="size-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("editor.wrapCodeLines")}</TooltipContent>
+          </Tooltip>
+        ) : null}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="content-code-lang-btn content-code-lang-btn--icon"
+              aria-label={t("editor.copyCode")}
+              onClick={() => void copy()}
+            >
+              {copied ? (
+                <IconCheck className="size-3.5" />
+              ) : (
+                <IconCopy className="size-3.5" />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {copied ? t("editor.codeCopied") : t("editor.copyCode")}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    </div>
+  );
+}

@@ -1879,6 +1879,12 @@ const overrides = {
     apply: "Anwenden",
     plainText: "Nur Text",
     searchLanguages: "Sprachen suchen...",
+    codeLanguageAuto: "Automatisch",
+    codeLanguage: "Codesprache",
+    noLanguagesFound: "Keine Sprachen gefunden",
+    copyCode: "Code kopieren",
+    codeCopied: "Kopiert",
+    wrapCodeLines: "Zeilen umbrechen",
     noBlocksFields:
       "Keine Blocks-Felder. Füge eines über das Eigenschaftenmenü hinzu.",
     addBlockField: "Feld hinzufügen",

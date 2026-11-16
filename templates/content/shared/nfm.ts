@@ -265,6 +265,8 @@ function hasUnsupportedJsxProps(raw: string): boolean {
 // own attribute, so `data-markdown="1"` isn't it.
 const TOGGLE_MARKDOWN_TITLE_ATTR = 'markdown="1"';
 const TOGGLE_MARKDOWN_TITLE_PATTERN = /(?:^|\s)markdown\s*=\s*"1"/;
+// A code block that wraps long lines says so after its fence's language.
+const CODE_BLOCK_WRAP_ATTR = 'wrap="true"';
 
 function toggleTitleNode(inline: PMNode[]): PMNode {
   return inline.length
@@ -1449,6 +1451,8 @@ export interface NfmSerializeContext {
    * page has no place for.
    */
   omitMediaIds?: boolean;
+  /** Leave out code block wrapping, which a Notion page has no place for. */
+  omitCodeBlockWrap?: boolean;
 }
 
 /**
@@ -1607,8 +1611,12 @@ function serializeBlock(node: PMNode, indent: number): string[] {
         Math.max(3, longestRun(text, marker === "`" ? /`+/g : /~+/g) + 1),
       );
       const gap = lang.startsWith(marker) ? " " : "";
+      const wrap =
+        node.attrs?.wrap === true && !activeSerializeContext?.omitCodeBlockWrap
+          ? ` {${CODE_BLOCK_WRAP_ATTR}}`
+          : "";
       return [
-        indentStr(ind) + fence + gap + lang,
+        indentStr(ind) + fence + gap + lang + wrap,
         ...body,
         indentStr(ind) + fence,
       ];
@@ -1989,6 +1997,22 @@ function leadingTabs(line: string): number {
 // least as many of the same character.
 const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/;
 const FENCE_CLOSE = /^(`{3,}|~{3,})\s*$/;
+
+/**
+ * A fence's language, and whether its block wraps long lines, written as
+ * `{wrap="true"}` after the language. Any other braces, such as the line
+ * numbers in `js {1,3}`, stay part of the language.
+ */
+function splitCodeFenceInfo(info: string | undefined): {
+  lang: string;
+  wrap: boolean;
+} {
+  const trimmed = info?.trim() ?? "";
+  const m = matchBlockAttrSuffix(trimmed);
+  return m && /^\s*wrap\s*=\s*"true"\s*$/.test(m.body)
+    ? { lang: m.text, wrap: true }
+    : { lang: trimmed, wrap: false };
+}
 
 // A backtick fence's language holds no backtick, so a line that starts with
 // a long code span, as the editor writes ``` `` ```, stays a paragraph.
@@ -2784,7 +2808,7 @@ function parseSingleBlock(
   const fenceOpenMatch = matchFenceOpen(dedent);
   if (fenceOpenMatch) {
     const marker = fenceOpenMatch[1];
-    const lang = fenceOpenMatch[2].trim();
+    const { lang, wrap } = splitCodeFenceInfo(fenceOpenMatch[2]);
     const body: string[] = [];
     let i = start + 1;
     for (; i < lines.length; i++) {
@@ -2800,7 +2824,7 @@ function parseSingleBlock(
     const code = body.join("\n");
     const node: PMNode = {
       type: "codeBlock",
-      attrs: { language: lang || null },
+      attrs: { language: lang || null, ...(wrap ? { wrap: true } : {}) },
       content: code ? [{ type: "text", text: code }] : [],
     };
     return { nodes: [withIndentAttr(node)], end: i + 1 };
@@ -3925,15 +3949,57 @@ export function canonicalizeNfm(nfm: string | null | undefined): string {
 /**
  * Canonical Markdown that keeps a trailing empty block. A Notion page can end
  * in an empty paragraph its author made, and its pulls, pushes and sync hashes
- * must not drop it. Video block ids and the Assets ids of images are left
- * out: Notion has nowhere to keep them, and the editor writing one down is not
- * a change to sync.
+ * must not drop it. Video block ids, the Assets ids of images and code block
+ * wrapping are left out: Notion has nowhere to keep them, and the editor
+ * writing one down is not a change to sync.
  */
 export function canonicalizeNotionNfm(nfm: string | null | undefined): string {
   return docToNfm(nfmToDoc(nfm ?? ""), {
     keepTrailingEmptyBlock: true,
     omitMediaIds: true,
+    omitCodeBlockWrap: true,
   });
+}
+
+/**
+ * `incoming` with the wrapping `local` gave its code blocks. A Notion page has
+ * nowhere to keep it, so its copy of a page comes back without, and taking
+ * that as is would unwrap every block on each push and pull. A code block
+ * takes the wrapping of the local block with the same code, in order; Notion
+ * can rename a block's language, so the language doesn't count.
+ */
+export function keepCodeBlockWrap(
+  local: string | null | undefined,
+  incoming: string,
+): string {
+  const codeOf = (node: PMNode) =>
+    (node.content ?? []).map((text) => text.text ?? "").join("");
+  const codeBlocksIn = (root: PMNode) => {
+    const blocks: PMNode[] = [];
+    const walk = (node: PMNode) => {
+      if (node.type === "codeBlock") blocks.push(node);
+      else node.content?.forEach(walk);
+    };
+    walk(root);
+    return blocks;
+  };
+  const localWraps = new Map<string, boolean[]>();
+  for (const block of codeBlocksIn(nfmToDoc(local ?? ""))) {
+    const wraps = localWraps.get(codeOf(block)) ?? [];
+    wraps.push(block.attrs?.wrap === true);
+    localWraps.set(codeOf(block), wraps);
+  }
+  if (![...localWraps.values()].some((wraps) => wraps.includes(true)))
+    return incoming;
+  const doc = nfmToDoc(incoming);
+  let kept = false;
+  for (const block of codeBlocksIn(doc)) {
+    if (!localWraps.get(codeOf(block))?.shift() || block.attrs?.wrap === true)
+      continue;
+    block.attrs = { ...block.attrs, wrap: true };
+    kept = true;
+  }
+  return kept ? docToNfm(doc, { keepTrailingEmptyBlock: true }) : incoming;
 }
 
 /**

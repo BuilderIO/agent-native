@@ -191,6 +191,11 @@ column's, or synced block's children sit one tab deeper than its line or tags.
 Visual indentation is a block `indent` attribute (Tab indents a block,
 matching Notion).
 
+Code block wrapping (`{wrap="true"}` after a fence's language) has no Notion
+equivalent: `canonicalizeNotionNfm` leaves it out of pushes and sync hashes,
+and `keepCodeBlockWrap` puts it back on the blocks whose code Notion returns
+unchanged, so toggling it is not a change to sync.
+
 ## Sync State
 
 The `document_sync_links` table tracks sync relationships:
