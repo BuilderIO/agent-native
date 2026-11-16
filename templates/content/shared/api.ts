@@ -181,10 +181,22 @@ export interface LiveCopyBodySave {
   collabVersion: number;
 }
 
+/**
+ * What a browser save's body came to when another writer had changed the page
+ * since the body was typed: merged in, or set aside where both changed the
+ * same block, the page keeping the other writer's version and History
+ * keeping the save's body as `displacedCheckpointId`.
+ */
+export interface DocumentBodyIntentOutcome {
+  status: "applied" | "displaced-preserved";
+  displacedCheckpointId?: string | undefined;
+}
+
 export interface DocumentUpdateResponse extends Document {
   urlPath: string;
   softDeletedDatabaseIds: string[];
   bodySave?: LiveCopyBodySave;
+  bodyIntentOutcome?: DocumentBodyIntentOutcome;
 }
 
 export interface DocumentMoveRequest {

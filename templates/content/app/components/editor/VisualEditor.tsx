@@ -27,6 +27,7 @@ import {
 import type { ContentLinkTarget } from "@shared/api";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { isContentClipUploadMimeType } from "@shared/clips-peer-contract";
+import { bodyHoldsChanges } from "@shared/document-intent-merge";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
 import { CLIP_EMBED_FLAG } from "@shared/feature-flags";
 import { isMarkdownFilePath } from "@shared/import/paths";
@@ -2101,6 +2102,19 @@ export function shouldSeedCollaborativeContent({
     hasSemanticCollaborationContent(content) &&
     (fragmentLength === 0 || !hasSemanticCollaborationContent(currentMarkdown))
   );
+}
+
+/**
+ * Whether a saved body already holds everything the editor changed since
+ * `base`, as the server's merge of the editor's own save does. The editor
+ * holds canonical NFM, so the saved body is compared in that form.
+ */
+export function savedBodyHoldsLiveChanges(
+  base: string,
+  saved: string,
+  live: string,
+): boolean {
+  return bodyHoldsChanges(base, canonicalizeNfm(saved), live);
 }
 
 export function parseNfmForCollabReconcile(
@@ -5257,6 +5271,7 @@ export function VisualEditor({
     onBaseAwareMerge: documentId
       ? (outcome) => reportEditorMerge(documentId, "open_editor", outcome)
       : undefined,
+    serverHoldsLiveChanges: savedBodyHoldsLiveChanges,
     onRemoteSnapshotChange: onRemoteSnapshotChange
       ? reportRemoteSnapshot
       : undefined,

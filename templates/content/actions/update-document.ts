@@ -138,10 +138,6 @@ export interface DocumentUpdateSupersededResponse {
 
 type BrowserDocumentUpdateResponse = DocumentUpdateResponse & {
   browserSaveAttempt?: BrowserSaveAttemptConfirmation;
-  bodyIntentOutcome?: {
-    status: "applied" | "displaced-preserved";
-    displacedCheckpointId?: string;
-  };
 };
 
 export interface DocumentUpdatePreservationResponse {
