@@ -66,6 +66,59 @@ async function resolveAccountEmail(
   );
 }
 
+const isNotFound = (error: unknown) =>
+  error instanceof Error && /\b404\b/.test(error.message);
+
+async function findGmailDraftIdForMessage(
+  accessToken: string,
+  messageId: string,
+): Promise<string | null> {
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({
+      maxResults: "500",
+      fields: "drafts(id,message/id),nextPageToken",
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+    const page = await googleFetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/drafts?${params}`,
+      accessToken,
+    );
+    const draft = (
+      page?.drafts as { id?: string; message?: { id?: string } }[] | undefined
+    )?.find((candidate) => candidate.message?.id === messageId);
+    if (draft?.id) return draft.id;
+    pageToken = page?.nextPageToken;
+  } while (pageToken);
+  return null;
+}
+
+/**
+ * Runs `request` on the Gmail draft `savedDraftId` names, or returns null when
+ * Gmail has no such draft. Mail lists Gmail drafts as messages, so a draft
+ * reopened from that list names its message ID, which Gmail's drafts API
+ * answers with a 404; that ID stands for the draft holding the message.
+ */
+export async function withSavedGmailDraft<T>(
+  accessToken: string,
+  savedDraftId: string,
+  request: (draftId: string) => Promise<T>,
+): Promise<{ result: T } | null> {
+  try {
+    return { result: await request(savedDraftId) };
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+  }
+  const draftId = await findGmailDraftIdForMessage(accessToken, savedDraftId);
+  if (!draftId) return null;
+  try {
+    return { result: await request(draftId) };
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+    return null;
+  }
+}
+
 export async function findGmailDraftAccount(args: {
   ownerEmail: string;
   accountEmail?: string;
@@ -96,17 +149,16 @@ export async function findGmailDraftAccount(args: {
       continue;
     }
 
-    try {
-      await googleFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(args.draftId)}`,
-        accessToken,
-      );
-      return account.accountId;
-    } catch (error) {
-      if (!(error instanceof Error) || !/\b404\b/.test(error.message)) {
-        throw error;
-      }
-    }
+    const found = await withSavedGmailDraft(
+      accessToken,
+      args.draftId,
+      (draftId) =>
+        googleFetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(draftId)}`,
+          accessToken,
+        ),
+    );
+    if (found) return account.accountId;
   }
 
   if (unavailableAccount) {
@@ -212,28 +264,29 @@ export async function saveGmailDraft(args: {
     ...(threadId ? { threadId } : {}),
   };
   if (args.draftId) {
-    try {
-      const updated = await googleFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${args.draftId}`,
-        accessToken,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message }),
-        },
-      );
+    const updated = await withSavedGmailDraft(
+      accessToken,
+      args.draftId,
+      (draftId) =>
+        googleFetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(draftId)}`,
+          accessToken,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message }),
+          },
+        ),
+    );
+    if (updated) {
       return {
-        draftId: updated.id,
+        draftId: updated.result.id,
         accountEmail,
         created: false,
         updated: true,
       };
-    } catch (error) {
-      if (!(error instanceof Error) || !/\b404\b/.test(error.message)) {
-        throw error;
-      }
-      // A deleted Gmail draft is safe to replace with a new one.
     }
+    // A deleted Gmail draft is safe to replace with a new one.
   }
   const created = await googleFetch(
     "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
@@ -268,15 +321,11 @@ export async function deleteGmailDraft(args: {
     );
   }
 
-  try {
-    await googleFetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${args.draftId}`,
+  await withSavedGmailDraft(accessToken, args.draftId, (draftId) =>
+    googleFetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(draftId)}`,
       accessToken,
       { method: "DELETE" },
-    );
-  } catch (error) {
-    if (!(error instanceof Error) || !/\b404\b/.test(error.message)) {
-      throw error;
-    }
-  }
+    ),
+  );
 }

@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   buildOutgoingRawEmail: vi.fn(),
   googleFetch: vi.fn(),
   setResponseStatus: vi.fn(),
+  resolveExistingSavedDraftOwnership: vi.fn(),
 }));
 
 vi.mock("h3", () => ({
@@ -120,7 +121,7 @@ vi.mock("../lib/outgoing-email.js", () => ({
   splitReplyQuote: vi.fn(),
 }));
 vi.mock("../lib/saved-draft-ownership.js", () => ({
-  resolveExistingSavedDraftOwnership: vi.fn(),
+  resolveExistingSavedDraftOwnership: mocks.resolveExistingSavedDraftOwnership,
   SavedDraftOwnershipError: class SavedDraftOwnershipError extends Error {},
 }));
 vi.mock("../lib/sender-identity.js", () => ({
@@ -190,6 +191,53 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
       accountEmail: managedAccountEmail,
       created: true,
     });
+  });
+
+  it("saves an edit to a draft reopened from Drafts into that same Gmail draft", async () => {
+    // The Drafts list holds Gmail messages, so the reopened draft names its
+    // message ID; Gmail's drafts API knows it only by its draft ID.
+    mocks.readBody.mockResolvedValue({
+      to: "recipient@example.com",
+      subject: "Edited draft",
+      body: "Edited body",
+      draftId: "message-of-draft",
+      savedDraftBackend: "gmail",
+      accountEmail: managedAccountEmail,
+    });
+    mocks.resolveExistingSavedDraftOwnership.mockResolvedValue({
+      backend: "gmail",
+      accountEmail: managedAccountEmail,
+    });
+    mocks.googleFetch.mockImplementation(async (url: string) => {
+      if (url.endsWith("/drafts/r-draft-7")) return { id: "r-draft-7" };
+      if (url.includes("/drafts?")) {
+        return {
+          drafts: [{ id: "r-draft-7", message: { id: "message-of-draft" } }],
+        };
+      }
+      throw new Error("Google API error (404): Not Found");
+    });
+
+    const result = await (saveDraft as (event: unknown) => Promise<unknown>)(
+      {},
+    );
+
+    expect(result).toEqual({
+      draftId: "r-draft-7",
+      backend: "gmail",
+      accountEmail: managedAccountEmail,
+      updated: true,
+    });
+    expect(mocks.googleFetch).toHaveBeenLastCalledWith(
+      "https://gmail.googleapis.com/gmail/v1/users/me/drafts/r-draft-7",
+      "test-access-token",
+      expect.objectContaining({ method: "PUT" }),
+    );
+    expect(mocks.googleFetch).not.toHaveBeenCalledWith(
+      "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+      "test-access-token",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("returns a structured account error when refreshing before saving a draft fails", async () => {

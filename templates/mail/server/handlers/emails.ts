@@ -55,6 +55,7 @@ import {
   persistTracking,
   type TrackingContext,
 } from "../lib/email-tracking.js";
+import { withSavedGmailDraft } from "../lib/gmail-drafts.js";
 import {
   filterInboxScopedThreadMessages,
   filterLabelMessages,
@@ -1625,28 +1626,29 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
       });
 
       if (savedDraftId) {
-        try {
-          const updated = await googleFetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(savedDraftId)}`,
-            accessToken,
-            {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ message: { raw } }),
-            },
-          );
+        const updated = await withSavedGmailDraft(
+          accessToken,
+          savedDraftId,
+          (draftId) =>
+            googleFetch(
+              `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(draftId)}`,
+              accessToken,
+              {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: { raw } }),
+              },
+            ),
+        );
+        if (updated) {
           return {
-            draftId: updated.id,
+            draftId: updated.result.id,
             backend: "gmail" as const,
             accountEmail: acct,
             updated: true,
           };
-        } catch (error) {
-          if (!(error instanceof Error) || !/\b404\b/.test(error.message)) {
-            throw error;
-          }
-          // A deleted Gmail draft is safe to replace with a new one.
         }
+        // A deleted Gmail draft is safe to replace with a new one.
       }
       const created = await googleFetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/drafts`,
@@ -1794,10 +1796,12 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
     if (!gmailAccess.ok) return gmailAccess.response;
     const { accessToken } = gmailAccess;
     try {
-      await googleFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${id}`,
-        accessToken,
-        { method: "DELETE" },
+      await withSavedGmailDraft(accessToken, id, (draftId) =>
+        googleFetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(draftId)}`,
+          accessToken,
+          { method: "DELETE" },
+        ),
       );
     } catch {
       // Draft may not exist in Gmail

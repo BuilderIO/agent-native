@@ -22,7 +22,11 @@ vi.mock("./google-auth.js", () => ({
   getClientForConnectedAccount: mocks.getClientForConnectedAccount,
 }));
 
-import { findGmailDraftAccount, saveGmailDraft } from "./gmail-drafts.js";
+import {
+  deleteGmailDraft,
+  findGmailDraftAccount,
+  saveGmailDraft,
+} from "./gmail-drafts.js";
 
 describe("findGmailDraftAccount", () => {
   beforeEach(() => {
@@ -50,14 +54,13 @@ describe("findGmailDraftAccount", () => {
         tokens: { scope: "https://www.googleapis.com/auth/gmail.modify" },
       },
     ]);
-    mocks.googleFetch.mockImplementation(
-      async (_url: string, token: string) => {
-        if (token === "token:owner@example.com") {
-          throw new Error("Google API error (404): Not Found");
-        }
-        return { id: "legacy-draft" };
-      },
-    );
+    mocks.googleFetch.mockImplementation(async (url: string, token: string) => {
+      if (token === "token:owner@example.com") {
+        if (url.includes("/drafts?")) return { drafts: [] };
+        throw new Error("Google API error (404): Not Found");
+      }
+      return { id: "legacy-draft" };
+    });
 
     await expect(
       findGmailDraftAccount({
@@ -65,8 +68,9 @@ describe("findGmailDraftAccount", () => {
         draftId: "legacy-draft",
       }),
     ).resolves.toBe("secondary@example.com");
+    // The owner's mailbox is also searched for a draft holding that message.
     expect(mocks.googleFetch).toHaveBeenNthCalledWith(
-      2,
+      3,
       expect.stringContaining("/drafts/legacy-draft"),
       "token:secondary@example.com",
     );
@@ -433,5 +437,126 @@ describe("saveGmailDraft", () => {
       "refreshed-token",
       expect.any(Object),
     );
+  });
+});
+
+// Mail's Drafts list holds Gmail messages, so a draft reopened from it names
+// its message ID ("message-of-draft") rather than its draft ID ("r-draft-7").
+describe("a Gmail draft reopened by its message ID", () => {
+  const notFound = () => new Error("Google API error (404): Not Found");
+
+  function gmailWithDraft(draftsPages: unknown[]) {
+    const pages = [...draftsPages];
+    mocks.googleFetch.mockImplementation(
+      async (url: string, _token: string, options?: { method?: string }) => {
+        const method = options?.method ?? "GET";
+        if (url.includes("/drafts?")) return pages.shift();
+        if (url.endsWith("/drafts/r-draft-7")) {
+          return method === "DELETE" ? null : { id: "r-draft-7" };
+        }
+        if (url.endsWith("/drafts") && method === "POST") {
+          return { id: "r-new-draft" };
+        }
+        throw notFound();
+      },
+    );
+  }
+
+  const twoPages = [
+    {
+      drafts: [{ id: "r-other", message: { id: "message-of-other" } }],
+      nextPageToken: "page-2",
+    },
+    { drafts: [{ id: "r-draft-7", message: { id: "message-of-draft" } }] },
+  ];
+
+  const calls = () =>
+    mocks.googleFetch.mock.calls.map(
+      ([url, , options]) =>
+        `${(options as { method?: string } | undefined)?.method ?? "GET"} ${String(url).replace("https://gmail.googleapis.com/gmail/v1/users/me", "")}`,
+    );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "owner@example.com",
+        displayName: null,
+        tokens: { scope: "https://mail.google.com/" },
+      },
+    ]);
+    mocks.getClientForConnectedAccount.mockResolvedValue({
+      email: "owner@example.com",
+      accessToken: "token",
+    });
+  });
+
+  it("updates that draft instead of creating a second one", async () => {
+    gmailWithDraft(twoPages);
+
+    const result = await saveGmailDraft({
+      ownerEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      draftId: "message-of-draft",
+      to: "recipient@example.com",
+      subject: "Edited",
+      body: "Edited body",
+    });
+
+    expect(result).toEqual({
+      draftId: "r-draft-7",
+      accountEmail: "owner@example.com",
+      created: false,
+      updated: true,
+    });
+    expect(calls()).toEqual([
+      "PUT /drafts/message-of-draft",
+      expect.stringMatching(/^GET \/drafts\?/),
+      expect.stringMatching(/^GET \/drafts\?.*pageToken=page-2/),
+      "PUT /drafts/r-draft-7",
+    ]);
+  });
+
+  it("creates a draft only when no draft holds that message", async () => {
+    gmailWithDraft([{ drafts: [] }]);
+
+    const result = await saveGmailDraft({
+      ownerEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      draftId: "message-of-deleted-draft",
+      to: "recipient@example.com",
+      subject: "Edited",
+      body: "Edited body",
+    });
+
+    expect(result).toEqual({
+      draftId: "r-new-draft",
+      accountEmail: "owner@example.com",
+      created: true,
+    });
+  });
+
+  it("deletes that draft when it is sent or discarded", async () => {
+    gmailWithDraft(twoPages);
+
+    await deleteGmailDraft({
+      ownerEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      draftId: "message-of-draft",
+    });
+
+    expect(calls()).toContain("DELETE /drafts/r-draft-7");
+  });
+
+  it("finds the account that owns that draft", async () => {
+    gmailWithDraft(twoPages);
+
+    await expect(
+      findGmailDraftAccount({
+        ownerEmail: "owner@example.com",
+        draftId: "message-of-draft",
+      }),
+    ).resolves.toBe("owner@example.com");
+    expect(calls()).toContain("GET /drafts/r-draft-7");
   });
 });
