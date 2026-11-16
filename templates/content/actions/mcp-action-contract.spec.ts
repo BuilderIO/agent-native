@@ -552,13 +552,13 @@ describe("Content action-owned agent catalogs", () => {
     expect(editDocument.tool.description).not.toContain(
       "First call get-document",
     );
-    expect(editDocument.tool.description).toContain("receipt.revisions.after");
     expect(editDocument.tool.description).toContain(
-      "don't call get-document to check the edit",
+      "an applied receipt needs no readback",
     );
     const baseRevision =
       editDocument.tool.parameters?.properties?.baseRevision?.description;
     expect(baseRevision).toContain("create-document");
     expect(baseRevision).toContain("receipt.revisions.after");
+    expect(baseRevision).toContain("don't call get-document to check the edit");
   });
 });
