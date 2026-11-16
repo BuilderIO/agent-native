@@ -1644,6 +1644,25 @@ const history = {
   historyGroupGitHub: "Synchronisé depuis GitHub",
   historyGroupOperation: "Opération",
   historyGroupRestore: "Restauration",
+  historyGroupUndo: "Annulation",
+  historyGroupAgentUndo: "Annulation par l’agent",
+  historyViewChanges: "Voir les modifications",
+  historyChangesLoadError: "Impossible de charger ces modifications.",
+  historyChangesNone: "Aucune modification à afficher.",
+  historyChangesInParts:
+    "Quelqu’un d’autre a modifié la page entre-temps, ces modifications s’affichent donc en plusieurs parties.",
+  historyChangesMore: "Affichage des 100 premières modifications.",
+  historyUndoChanges: "Annuler ces modifications",
+  historyUndoingChanges: "Annulation…",
+  historyUndoTooMany:
+    "Trop de modifications pour les annuler en une fois. Restaurez plutôt un point de contrôle.",
+  historyUndoFailed: "Impossible d’annuler ces modifications.",
+  historyChangesUndone: "Modifications annulées.",
+  historyUndoAlreadyDone: "Ces modifications sont déjà annulées.",
+  historyUndoPartly:
+    "Annulé, sauf les blocs que quelqu’un a modifiés depuis, qui restent tels quels. Voici ce que ces modifications leur avaient fait.",
+  historyUndoNothing:
+    "Rien n’a été annulé : chaque bloc modifié l’a été de nouveau depuis, il reste donc tel quel. Voici ce que ces modifications leur avaient fait.",
   historyLoadError: "Impossible de charger l’historique des versions.",
   historyLoadMore: "Charger plus",
   historyLinkedLocalRestoreUnavailable:

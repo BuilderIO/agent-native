@@ -10,9 +10,11 @@ import type {
 import { IMPORT_CONTENT_OPERATION } from "@shared/import/types";
 import {
   IconAlertCircle,
+  IconArrowBackUp,
   IconArrowLeft,
   IconChevronDown,
   IconChevronRight,
+  IconFileDiff,
   IconLoader2,
   IconRefresh,
   IconRotate,
@@ -45,14 +47,21 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  useDocumentHistoryChanges,
   useDocumentHistoryCheckpoint,
   useDocumentHistoryCheckpoints,
   useDocumentHistoryPage,
   useRestoreDocumentVersion,
+  useUndoDocumentChange,
+  type DocumentUndoResult,
 } from "@/hooks/use-document-versions";
 
 import { setHistoryApplicationState } from "./history-application-state";
+import { historyChangeSpans } from "./history-change-diff";
+import { DiffValue } from "./RecoveryComparison";
 import { VisualEditor } from "./VisualEditor";
+
+const UNDO_OPERATION = "undo-document-change";
 
 export type HistoryRestoreApplyResult =
   | { status: "applied" }
@@ -75,6 +84,17 @@ interface VersionHistoryPanelProps {
 interface PendingRestore {
   checkpoint: DocumentHistoryCheckpointDetail;
   expectedUpdatedAt: string;
+}
+
+/** An undo that left blocks someone edited since as they were. */
+interface UndoKeptBack {
+  outcome: DocumentUndoResult["outcome"];
+  keptBack: NonNullable<DocumentUndoResult["keptBack"]>;
+}
+
+// An agent's changes can be undone, and so can an undo.
+function isUndoable(group: DocumentHistoryGroup) {
+  return group.kind === "agent_run" || group.operation === UNDO_OPERATION;
 }
 
 function mergeRefreshedFirstPage<T extends { id: string }>(
@@ -119,6 +139,7 @@ export function VersionHistoryPanel({
   );
   const restoreButtonRef = useRef<HTMLButtonElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const backButtonRef = useRef<HTMLButtonElement>(null);
   const t = useT();
   const formatters = useFormatters();
   const [cursor, setCursor] = useState<string | null>(null);
@@ -128,6 +149,14 @@ export function VersionHistoryPanel({
   );
   const [selectedCheckpoint, setSelectedCheckpoint] =
     useState<DocumentHistoryCheckpoint | null>(null);
+  const [selectedChangeGroup, setSelectedChangeGroup] =
+    useState<DocumentHistoryGroup | null>(null);
+  // One key per look at an entry's changes, so a retried Undo finds the
+  // undo it already made instead of undoing again.
+  const [undoKey, setUndoKey] = useState("");
+  const [undoKeptBack, setUndoKeptBack] = useState<UndoKeptBack | null>(null);
+  // The entry's changes were undone before, so its Undo has nothing to do.
+  const [undoSettled, setUndoSettled] = useState(false);
   const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(
     null,
   );
@@ -147,12 +176,23 @@ export function VersionHistoryPanel({
     selectedCheckpoint?.id ?? null,
   );
   const restoreVersion = useRestoreDocumentVersion(documentId);
+  const historyChanges = useDocumentHistoryChanges(
+    open ? documentId : null,
+    selectedChangeGroup?.id ?? null,
+  );
+  const undoChange = useUndoDocumentChange(documentId);
+  const changeSpans = useMemo(
+    () => historyChangeSpans(historyChanges.data?.changes ?? []),
+    [historyChanges.data],
+  );
 
   useEffect(() => {
     setCursor(null);
     setGroups([]);
     setExpandedGroupIds(new Set());
     setSelectedCheckpoint(null);
+    setSelectedChangeGroup(null);
+    setUndoKeptBack(null);
     setPendingRestore(null);
     setRestoreApplyFailed(false);
     setRestoreError(null);
@@ -161,7 +201,15 @@ export function VersionHistoryPanel({
 
   useEffect(() => {
     setRestoreError(null);
-  }, [selectedCheckpoint?.id, open]);
+  }, [selectedCheckpoint?.id, selectedChangeGroup?.id, open]);
+
+  // Opening a checkpoint or an entry's changes hides the list, and an undo
+  // that leaves the panel open takes away the Undo button, so focus moves to
+  // the way back.
+  const viewId = selectedCheckpoint?.id ?? selectedChangeGroup?.id ?? null;
+  useEffect(() => {
+    if (viewId) backButtonRef.current?.focus();
+  }, [viewId, undoKeptBack, undoSettled]);
 
   useEffect(() => {
     if (!open || firstHistoryPage.isPlaceholderData || !firstHistoryPage.data)
@@ -196,6 +244,7 @@ export function VersionHistoryPanel({
             open: true,
             expandedGroupIds: expandedGroupIdList,
             selectedCheckpointId: selectedCheckpoint?.id ?? null,
+            selectedChangesGroupId: selectedChangeGroup?.id ?? null,
           }
         : null,
     ).catch((error) =>
@@ -207,6 +256,7 @@ export function VersionHistoryPanel({
     historyStateKey,
     open,
     selectedCheckpoint?.id,
+    selectedChangeGroup?.id,
   ]);
   useEffect(
     () => () => {
@@ -224,12 +274,29 @@ export function VersionHistoryPanel({
     setSelectedCheckpoint(checkpoint);
   };
 
+  const selectChangeGroup = (group: DocumentHistoryGroup | null) => {
+    operationContextRef.current.generation += 1;
+    setIsPreparingRestore(false);
+    setUndoKeptBack(null);
+    setUndoSettled(false);
+    setUndoKey(group ? globalThis.crypto.randomUUID() : "");
+    setSelectedChangeGroup(group);
+  };
+
+  const backToHistory = () => {
+    selectCheckpoint(null);
+    selectChangeGroup(null);
+  };
+
   const handleClose = (nextOpen: boolean) => {
     if (!nextOpen) {
       operationContextRef.current.generation += 1;
       operationContextRef.current.open = false;
       setIsPreparingRestore(false);
       setSelectedCheckpoint(null);
+      setSelectedChangeGroup(null);
+      setUndoKeptBack(null);
+      setUndoSettled(false);
       setPendingRestore(null);
     }
     onOpenChange(nextOpen);
@@ -297,6 +364,79 @@ export function VersionHistoryPanel({
     onOpenChange(false);
   };
 
+  const doUndo = async (group: DocumentHistoryGroup) => {
+    if (!prepareRestore || !restoreReady) return;
+    const generation = operationContextRef.current.generation;
+    const stale = () => operationContextRef.current.generation !== generation;
+    setIsPreparingRestore(true);
+    setRestoreError(null);
+    try {
+      // The undo merges into the saved page, so the editor saves first.
+      await prepareRestore();
+    } catch (error) {
+      if (stale()) return;
+      setIsPreparingRestore(false);
+      toast.error(
+        actionErrorMessage(error) ?? t("editor.historySaveBeforeRestoreFailed"),
+      );
+      return;
+    }
+    if (stale()) return;
+    setIsPreparingRestore(false);
+    let result: DocumentUndoResult;
+    try {
+      result = await undoChange.mutateAsync({
+        documentId,
+        groupId: group.id,
+        idempotencyKey: undoKey,
+      });
+    } catch (error) {
+      if (stale()) return;
+      const message =
+        actionErrorMessage(error) ?? t("editor.historyUndoFailed");
+      setRestoreError(message);
+      toast.error(message);
+      return;
+    }
+    if (stale()) return;
+    if (result.undoGroupId) {
+      let application: HistoryRestoreApplyResult;
+      try {
+        application = onRestored
+          ? await onRestored(result)
+          : { status: "committed-editor-refresh-required" };
+      } catch {
+        application = { status: "committed-editor-refresh-required" };
+      }
+      if (stale()) return;
+      if (application.status === "committed-editor-refresh-required") {
+        setRestoreApplyFailed(true);
+        toast.error(t("editor.historyRestoreAppliedRefreshFailed"));
+        return;
+      }
+    }
+    const keptBack = result.keptBack ?? [];
+    if (keptBack.length > 0) {
+      setUndoKeptBack({ outcome: result.outcome, keptBack });
+      toast.info(
+        result.outcome === "nothing-undone"
+          ? t("editor.historyUndoNothing")
+          : t("editor.historyUndoPartly"),
+      );
+      return;
+    }
+    // A replay returns the page after the first undo with this key, without
+    // what that undo kept back, so it can't be called a full undo.
+    if (result.outcome === "already-undone" || result.outcome === "replayed") {
+      setUndoSettled(true);
+      toast.info(t("editor.historyUndoAlreadyDone"));
+      return;
+    }
+    toast.success(t("editor.historyChangesUndone"));
+    selectChangeGroup(null);
+    onOpenChange(false);
+  };
+
   const detail = checkpointDetail.data?.checkpoint;
   const showRestore = canRestore;
   const restoreDisabled =
@@ -306,6 +446,21 @@ export function VersionHistoryPanel({
     !prepareRestore ||
     isPreparingRestore ||
     restoreVersion.isPending;
+  const showUndo =
+    canRestore &&
+    !!selectedChangeGroup &&
+    isUndoable(selectedChangeGroup) &&
+    !undoKeptBack &&
+    !undoSettled &&
+    changeSpans.length > 0;
+  const undoDisabled =
+    !restoreReady ||
+    restoreApplyFailed ||
+    !!restoreUnavailableReason ||
+    !prepareRestore ||
+    isPreparingRestore ||
+    undoChange.isPending ||
+    !!historyChanges.data?.hasMore;
 
   return (
     <>
@@ -313,10 +468,11 @@ export function VersionHistoryPanel({
         <SheetContent side="right" className="w-[92vw] max-w-[430px] p-0">
           <SheetHeader className="px-4 pt-4 pb-0">
             <SheetTitle className="text-sm font-medium">
-              {selectedCheckpoint ? (
+              {selectedCheckpoint || selectedChangeGroup ? (
                 <button
+                  ref={backButtonRef}
                   type="button"
-                  onClick={() => selectCheckpoint(null)}
+                  onClick={backToHistory}
                   className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
                 >
                   <IconArrowLeft className="size-3.5" />
@@ -410,8 +566,126 @@ export function VersionHistoryPanel({
               ) : null}
             </div>
           ) : null}
+          {selectedChangeGroup ? (
+            <div className="flex h-[calc(100%-60px)] flex-col">
+              <div className="border-b border-border px-4 py-3">
+                <p className="truncate text-xs font-medium">
+                  {historyGroupTitle(selectedChangeGroup, t)}
+                </p>
+                <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                  {selectedChangeGroup.actorEmail
+                    ? `${selectedChangeGroup.actorEmail} · `
+                    : ""}
+                  {formatHistoryDate(
+                    selectedChangeGroup.endedAt,
+                    formatters.formatDate,
+                  )}
+                </p>
+              </div>
+              <ScrollArea className="flex-1">
+                {undoKeptBack ? (
+                  <div className="grid gap-3 px-4 py-4">
+                    <p className="text-xs text-muted-foreground">
+                      {undoKeptBack.outcome === "nothing-undone"
+                        ? t("editor.historyUndoNothing")
+                        : t("editor.historyUndoPartly")}
+                    </p>
+                    {undoKeptBack.keptBack.map((blocks) => (
+                      <HistoryChangeComparison
+                        key={`${blocks.changedFrom}\u0000${blocks.changedTo}`}
+                        before={{ title: "", content: blocks.changedFrom }}
+                        after={{ title: "", content: blocks.changedTo }}
+                      />
+                    ))}
+                  </div>
+                ) : historyChanges.isLoading ? (
+                  <HistoryPreviewSkeleton />
+                ) : historyChanges.error ? (
+                  <HistoryError
+                    message={t("editor.historyChangesLoadError")}
+                    retry={() => void historyChanges.refetch()}
+                  />
+                ) : changeSpans.length === 0 ? (
+                  <div className="px-4 py-12 text-center text-xs text-muted-foreground">
+                    {t("editor.historyChangesNone")}
+                  </div>
+                ) : (
+                  <div className="grid gap-4 px-4 py-4">
+                    {changeSpans.length > 1 ? (
+                      <p className="text-xs text-muted-foreground">
+                        {t("editor.historyChangesInParts")}
+                      </p>
+                    ) : null}
+                    {changeSpans.map((span) => (
+                      <HistoryChangeComparison
+                        key={span.after.checkpointId}
+                        before={span.before}
+                        after={span.after}
+                      />
+                    ))}
+                    {historyChanges.data?.hasMore ? (
+                      <p className="text-xs text-muted-foreground">
+                        {t("editor.historyChangesMore")}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+              </ScrollArea>
+              {showUndo ? (
+                <div className="border-t border-border p-3">
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    onClick={() => void doUndo(selectedChangeGroup)}
+                    disabled={undoDisabled}
+                  >
+                    {isPreparingRestore || undoChange.isPending ? (
+                      <IconLoader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <IconArrowBackUp className="size-3.5" />
+                    )}
+                    {isPreparingRestore
+                      ? t("editor.historyPreparingRestore")
+                      : undoChange.isPending
+                        ? t("editor.historyUndoingChanges")
+                        : t("editor.historyUndoChanges")}
+                  </Button>
+                  {restoreError ? (
+                    <p
+                      role="alert"
+                      className="mt-2 text-center text-xs text-destructive"
+                    >
+                      {restoreError}
+                    </p>
+                  ) : null}
+                  {restoreApplyFailed ? (
+                    <p
+                      role="alert"
+                      className="mt-2 text-center text-xs text-destructive"
+                    >
+                      {t("editor.historyRestoreAppliedRefreshFailed")}
+                    </p>
+                  ) : null}
+                  {historyChanges.data?.hasMore ? (
+                    <p className="mt-2 text-center text-xs text-muted-foreground">
+                      {t("editor.historyUndoTooMany")}
+                    </p>
+                  ) : restoreUnavailableReason || !prepareRestore ? (
+                    <p className="mt-2 text-center text-xs text-muted-foreground">
+                      {restoreUnavailableReason ??
+                        t("editor.historyRestoreUnavailable")}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div
-            className={selectedCheckpoint ? "hidden" : "h-[calc(100%-60px)]"}
+            className={
+              selectedCheckpoint || selectedChangeGroup
+                ? "hidden"
+                : "h-[calc(100%-60px)]"
+            }
           >
             <ScrollArea className="h-full">
               {firstHistoryPage.isPlaceholderData ||
@@ -471,6 +745,11 @@ export function VersionHistoryPanel({
                         })
                       }
                       onSelectCheckpoint={selectCheckpoint}
+                      onViewChanges={
+                        group.kind === "legacy"
+                          ? undefined
+                          : () => selectChangeGroup(group)
+                      }
                       formatDate={formatters.formatDate}
                     />
                   ))}
@@ -564,6 +843,7 @@ function HistoryGroupRow({
   open,
   onOpenChange,
   onSelectCheckpoint,
+  onViewChanges,
   formatDate,
 }: {
   documentId: string;
@@ -571,6 +851,8 @@ function HistoryGroupRow({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelectCheckpoint: (checkpoint: DocumentHistoryCheckpoint) => void;
+  /** Absent for entries from before History recorded each change. */
+  onViewChanges?: () => void;
   formatDate: ReturnType<typeof useFormatters>["formatDate"];
 }) {
   const t = useT();
@@ -628,6 +910,18 @@ function HistoryGroupRow({
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent className="ms-5 border-s border-border ps-2">
+        {onViewChanges ? (
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-start hover:bg-accent"
+            onClick={onViewChanges}
+          >
+            <IconFileDiff className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate text-xs">
+              {t("editor.historyViewChanges")}
+            </span>
+          </button>
+        ) : null}
         {firstCheckpoints.isLoading && loadedCheckpoints.length === 0 ? (
           <div className="grid gap-2 px-2 py-2">
             <Skeleton className="h-8 w-full" />
@@ -743,6 +1037,60 @@ function HistoryError({
   );
 }
 
+/** A change as before and after, each with what the other lacks marked. */
+function HistoryChangeComparison({
+  before,
+  after,
+}: {
+  before: { title: string; content: string };
+  after: { title: string; content: string };
+}) {
+  const t = useT();
+  return (
+    <div className="grid min-w-0 gap-2">
+      {[
+        {
+          key: "before",
+          label: t("editor.historyCheckpointBefore"),
+          value: before,
+          other: after,
+        },
+        {
+          key: "after",
+          label: t("editor.historyCheckpointAfter"),
+          value: after,
+          other: before,
+        },
+      ].map((version) => (
+        <section
+          key={version.key}
+          className="min-w-0 rounded-md border bg-background p-3"
+        >
+          <h3 className="mb-2 text-xs font-medium text-muted-foreground">
+            {version.label}
+          </h3>
+          {version.value.title !== version.other.title ? (
+            <p className="mb-2 text-sm font-medium break-words">
+              <DiffValue
+                value={version.value.title}
+                other={version.other.title}
+              />
+            </p>
+          ) : null}
+          {version.value.content !== version.other.content ? (
+            <pre className="overflow-x-auto whitespace-pre-wrap break-words font-sans text-sm">
+              <DiffValue
+                value={version.value.content}
+                other={version.other.content}
+              />
+            </pre>
+          ) : null}
+        </section>
+      ))}
+    </div>
+  );
+}
+
 function HistoryListSkeleton() {
   return (
     <div className="grid gap-3 p-4">
@@ -774,6 +1122,11 @@ function historyGroupTitle(
   group: DocumentHistoryGroup,
   t: ReturnType<typeof useT>,
 ) {
+  if (group.operation === UNDO_OPERATION) {
+    return group.kind === "agent_run"
+      ? t("editor.historyGroupAgentUndo")
+      : t("editor.historyGroupUndo");
+  }
   if (group.kind === "human_session") return t("editor.historyGroupHuman");
   if (group.kind === "agent_run") return t("editor.historyGroupAgent");
   if (group.kind === "operation") {

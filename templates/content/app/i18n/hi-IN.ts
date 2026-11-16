@@ -1568,6 +1568,25 @@ const history = {
   historyGroupGitHub: "GitHub से सिंक किया गया",
   historyGroupOperation: "कार्रवाई",
   historyGroupRestore: "पुनर्स्थापना",
+  historyGroupUndo: "पूर्ववत",
+  historyGroupAgentUndo: "एजेंट द्वारा पूर्ववत",
+  historyViewChanges: "बदलाव देखें",
+  historyChangesLoadError: "ये बदलाव लोड नहीं किए जा सके।",
+  historyChangesNone: "दिखाने के लिए कोई बदलाव नहीं है।",
+  historyChangesInParts:
+    "बीच में किसी और ने पेज संपादित किया, इसलिए ये बदलाव हिस्सों में दिखते हैं।",
+  historyChangesMore: "पहले 100 बदलाव दिखाए जा रहे हैं।",
+  historyUndoChanges: "ये बदलाव पूर्ववत करें",
+  historyUndoingChanges: "पूर्ववत किया जा रहा है…",
+  historyUndoTooMany:
+    "एक बार में पूर्ववत करने के लिए बहुत ज़्यादा बदलाव हैं। इसके बजाय कोई चेकपॉइंट पुनर्स्थापित करें।",
+  historyUndoFailed: "ये बदलाव पूर्ववत नहीं किए जा सके।",
+  historyChangesUndone: "बदलाव पूर्ववत किए गए।",
+  historyUndoAlreadyDone: "ये बदलाव पहले ही पूर्ववत हो चुके हैं।",
+  historyUndoPartly:
+    "पूर्ववत किया गया, सिवाय उन ब्लॉक के जिन्हें बाद में किसी ने संपादित किया; वे जैसे हैं वैसे ही रहेंगे। इन बदलावों ने उनमें यह बदला था।",
+  historyUndoNothing:
+    "कुछ भी पूर्ववत नहीं हुआ: हर बदले गए ब्लॉक को बाद में किसी ने संपादित किया, इसलिए वे जैसे हैं वैसे ही रहेंगे। इन बदलावों ने उनमें यह बदला था।",
   historyLoadError: "संस्करण इतिहास लोड नहीं किया जा सका।",
   historyLoadMore: "और लोड करें",
   historyLinkedLocalRestoreUnavailable:

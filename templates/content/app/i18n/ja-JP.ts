@@ -1604,6 +1604,25 @@ const history = {
   historyGroupGitHub: "GitHub から同期",
   historyGroupOperation: "操作",
   historyGroupRestore: "復元",
+  historyGroupUndo: "元に戻す",
+  historyGroupAgentUndo: "エージェントによる取り消し",
+  historyViewChanges: "変更を表示",
+  historyChangesLoadError: "これらの変更を読み込めませんでした。",
+  historyChangesNone: "表示する変更はありません。",
+  historyChangesInParts:
+    "途中で別の人がページを編集したため、これらの変更は分けて表示されます。",
+  historyChangesMore: "最初の 100 件の変更を表示しています。",
+  historyUndoChanges: "これらの変更を元に戻す",
+  historyUndoingChanges: "元に戻しています…",
+  historyUndoTooMany:
+    "変更が多すぎて一度に元に戻せません。代わりにチェックポイントを復元してください。",
+  historyUndoFailed: "これらの変更を元に戻せませんでした。",
+  historyChangesUndone: "変更を元に戻しました。",
+  historyUndoAlreadyDone: "これらの変更はすでに元に戻されています。",
+  historyUndoPartly:
+    "元に戻しました。ただし、その後に誰かが編集したブロックはそのまま残ります。これらの変更がそのブロックに加えた内容は以下のとおりです。",
+  historyUndoNothing:
+    "何も元に戻していません。変更されたブロックはすべてその後に編集されたため、そのまま残ります。これらの変更が加えた内容は以下のとおりです。",
   historyLoadError: "バージョン履歴を読み込めませんでした。",
   historyLoadMore: "さらに読み込む",
   historyLinkedLocalRestoreUnavailable:

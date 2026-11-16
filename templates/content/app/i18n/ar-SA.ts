@@ -1593,6 +1593,25 @@ const history = {
   historyGroupGitHub: "تمت المزامنة من GitHub",
   historyGroupOperation: "عملية",
   historyGroupRestore: "استعادة",
+  historyGroupUndo: "تراجع",
+  historyGroupAgentUndo: "تراجع الوكيل",
+  historyViewChanges: "عرض التغييرات",
+  historyChangesLoadError: "تعذر تحميل هذه التغييرات.",
+  historyChangesNone: "لا توجد تغييرات لعرضها.",
+  historyChangesInParts:
+    "عدّل شخص آخر الصفحة في الأثناء، لذا تظهر هذه التغييرات على أجزاء.",
+  historyChangesMore: "يتم عرض أول 100 تغيير.",
+  historyUndoChanges: "تراجع عن هذه التغييرات",
+  historyUndoingChanges: "جارٍ التراجع…",
+  historyUndoTooMany:
+    "التغييرات كثيرة جدًا للتراجع عنها دفعة واحدة. استعد نقطة حفظ بدلًا من ذلك.",
+  historyUndoFailed: "تعذر التراجع عن هذه التغييرات.",
+  historyChangesUndone: "تم التراجع عن التغييرات.",
+  historyUndoAlreadyDone: "تم التراجع عن هذه التغييرات بالفعل.",
+  historyUndoPartly:
+    "تم التراجع، باستثناء الكتل التي عدّلها أحدهم بعد ذلك، فهي تبقى كما هي. إليك ما فعلته هذه التغييرات بها.",
+  historyUndoNothing:
+    "لم يتم التراجع عن شيء: عدّل أحدهم كل كتلة متغيرة بعد ذلك، لذا تبقى كما هي. إليك ما فعلته هذه التغييرات بها.",
   historyLoadError: "تعذر تحميل سجل الإصدارات.",
   historyLoadMore: "تحميل المزيد",
   historyLinkedLocalRestoreUnavailable:

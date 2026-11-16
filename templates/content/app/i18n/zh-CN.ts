@@ -1646,6 +1646,23 @@ const history = {
   historyGroupGitHub: "从 GitHub 同步",
   historyGroupOperation: "操作",
   historyGroupRestore: "恢复",
+  historyGroupUndo: "撤销",
+  historyGroupAgentUndo: "代理撤销",
+  historyViewChanges: "查看更改",
+  historyChangesLoadError: "无法加载这些更改。",
+  historyChangesNone: "没有可显示的更改。",
+  historyChangesInParts: "期间有其他人编辑了页面，因此这些更改分段显示。",
+  historyChangesMore: "显示前 100 项更改。",
+  historyUndoChanges: "撤销这些更改",
+  historyUndoingChanges: "正在撤销…",
+  historyUndoTooMany: "更改太多，无法一次撤销。请改为恢复一个检查点。",
+  historyUndoFailed: "无法撤销这些更改。",
+  historyChangesUndone: "已撤销更改。",
+  historyUndoAlreadyDone: "这些更改已撤销。",
+  historyUndoPartly:
+    "已撤销，但之后有人编辑过的块保持不变。以下是这些更改对它们做的修改。",
+  historyUndoNothing:
+    "未撤销任何内容：每个更改过的块之后都有人编辑过，因此保持不变。以下是这些更改对它们做的修改。",
   historyLoadError: "无法加载版本历史。",
   historyLoadMore: "加载更多",
   historyLinkedLocalRestoreUnavailable:

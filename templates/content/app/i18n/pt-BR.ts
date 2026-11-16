@@ -1630,6 +1630,25 @@ const history = {
   historyGroupGitHub: "Sincronizado do GitHub",
   historyGroupOperation: "Operação",
   historyGroupRestore: "Restauração",
+  historyGroupUndo: "Desfazer",
+  historyGroupAgentUndo: "Desfeito pelo agente",
+  historyViewChanges: "Ver alterações",
+  historyChangesLoadError: "Não foi possível carregar estas alterações.",
+  historyChangesNone: "Nenhuma alteração para mostrar.",
+  historyChangesInParts:
+    "Outra pessoa editou a página nesse meio-tempo, então estas alterações aparecem em partes.",
+  historyChangesMore: "Mostrando as primeiras 100 alterações.",
+  historyUndoChanges: "Desfazer estas alterações",
+  historyUndoingChanges: "Desfazendo…",
+  historyUndoTooMany:
+    "Alterações demais para desfazer de uma vez. Restaure um ponto de controle em vez disso.",
+  historyUndoFailed: "Não foi possível desfazer estas alterações.",
+  historyChangesUndone: "Alterações desfeitas.",
+  historyUndoAlreadyDone: "Estas alterações já foram desfeitas.",
+  historyUndoPartly:
+    "Desfeito, exceto os blocos que alguém editou depois, que ficam como estão. Veja o que estas alterações fizeram com eles.",
+  historyUndoNothing:
+    "Nada foi desfeito: alguém editou depois cada bloco alterado, então eles ficam como estão. Veja o que estas alterações fizeram com eles.",
   historyLoadError: "Não foi possível carregar o histórico de versões.",
   historyLoadMore: "Carregar mais",
   historyLinkedLocalRestoreUnavailable:

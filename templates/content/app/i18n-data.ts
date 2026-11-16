@@ -1780,6 +1780,25 @@ const enUS = {
     historyGroupGitHub: "Synced from GitHub",
     historyGroupOperation: "Operation",
     historyGroupRestore: "Restore",
+    historyGroupUndo: "Undo",
+    historyGroupAgentUndo: "Agent undo",
+    historyViewChanges: "View changes",
+    historyChangesLoadError: "Could not load these changes.",
+    historyChangesNone: "No changes to show here.",
+    historyChangesInParts:
+      "Someone else edited the page in between, so these changes show in parts.",
+    historyChangesMore: "Showing the first 100 changes.",
+    historyUndoChanges: "Undo these changes",
+    historyUndoingChanges: "Undoing…",
+    historyUndoTooMany:
+      "Too many changes to undo in one step. Restore a checkpoint instead.",
+    historyUndoFailed: "Could not undo these changes.",
+    historyChangesUndone: "Changes undone.",
+    historyUndoAlreadyDone: "These changes are already undone.",
+    historyUndoPartly:
+      "Undone, except blocks someone edited since, which stay as they are. Here’s what these changes did to them.",
+    historyUndoNothing:
+      "Nothing undone: someone edited every changed block since, so they stay as they are. Here’s what these changes did to them.",
     historyLoadError: "Could not load version history.",
     historyLoadMore: "Load more",
     historyLinkedLocalRestoreUnavailable:
