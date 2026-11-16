@@ -53,9 +53,14 @@ names the section and destination, use them; otherwise let the user select.
 
 ### Put Design Beside The Chat
 
-Use `open-visual-edit` with `target: "inline-browser"` (default),
-`"system-browser"`, or `"desktop"`. Inline uses the host's browser or
-MCP App; system browser uses the local opener; desktop reuses
+Use `open-visual-edit` with `target: "inline-browser"` (default) and
+`minimalUi: true`. This is the default for a remix board: layers stay hidden,
+the inspector appears after selecting an item, and the user can turn minimal
+UI off with the existing shortcut. Prefer the MCP App returned by
+`open-visual-edit` in Claude Desktop/Code/claude.ai and Codex when available;
+otherwise use the host's inline browser. Fall back to the desktop app, then the
+system browser, only when inline rendering is unavailable. System browser uses
+the local opener; desktop reuses
 `agentnative://open` through the existing open route. Read the visual-edit
 skill's launch contract: hosted calls return `launch.status: "host-required"`
 with browser and desktop URLs for the local host. Verify the installed protocol

@@ -286,16 +286,20 @@ function isVisualEditBootstrapCapability(
   );
 }
 
-function localVisualEditPath(designId: string): string {
-  return `/visual-edit/${encodeURIComponent(designId)}?editorView=overview&embedChrome=1`;
+function localVisualEditPath(designId: string, minimalUi = false): string {
+  return `/visual-edit/${encodeURIComponent(designId)}?editorView=overview&embedChrome=1${minimalUi ? "&minimalUi=1" : ""}`;
 }
 
-function localVisualEditDeepLink(designId: string): string {
+function localVisualEditDeepLink(designId: string, minimalUi = false): string {
   return buildDeepLink({
     app: "design",
     view: "editor",
-    params: { designId, editorView: "overview" },
-    to: localVisualEditPath(designId),
+    params: {
+      designId,
+      editorView: "overview",
+      ...(minimalUi ? { minimalUi: "1" } : {}),
+    },
+    to: localVisualEditPath(designId, minimalUi),
   });
 }
 
@@ -471,6 +475,13 @@ export default defineAction({
       .optional()
       .default(true)
       .describe("Write a navigate app-state command to open overview mode."),
+    minimalUi: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Open the design with minimal UI: hide layers and show the inspector only when an item is selected.",
+      ),
     publicReadOnly: z
       .boolean()
       .optional()
@@ -701,7 +712,7 @@ export default defineAction({
         ctx,
       );
 
-      const urlPath = localVisualEditPath(designId);
+      const urlPath = localVisualEditPath(designId, args.minimalUi);
       await writeAppState("visual-edit", {
         designId,
         connectionId: connection.id,
@@ -730,7 +741,7 @@ export default defineAction({
       if (!ownerEmail) {
         throw new Error("visual-edit principal was not established");
       }
-      const deepLink = localVisualEditDeepLink(designId);
+      const deepLink = localVisualEditDeepLink(designId, args.minimalUi);
       const embedStartUrl =
         isLoopbackUrl(devServerUrl) &&
         args.target !== "desktop" &&
@@ -773,6 +784,7 @@ export default defineAction({
         screens: screens.screens,
         placedFrames: screens.placedFrames,
         overview: true,
+        minimalUi: args.minimalUi,
         urlPath,
         openUrl: deepLink,
         bridgeToken: browserVisible ? undefined : connection.bridgeToken,
@@ -821,12 +833,13 @@ export default defineAction({
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
-    const { designId } = result as {
+    const { designId, minimalUi } = result as {
       designId?: string;
+      minimalUi?: boolean;
     };
     if (!designId) return null;
     return {
-      url: localVisualEditDeepLink(designId),
+      url: localVisualEditDeepLink(designId, Boolean(minimalUi)),
       label: "Open overview",
       view: "editor",
     };

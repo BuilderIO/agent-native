@@ -137,6 +137,7 @@ export function useEditorCore() {
       embedded,
       embedChromeRequested,
       widgetEmbed,
+      minimalUiRequested: searchParams.get("minimalUi") === "1",
     });
   const [builderHostConfirmed, setBuilderHostConfirmed] = useState(() =>
     isBuilderHostEmbed(),

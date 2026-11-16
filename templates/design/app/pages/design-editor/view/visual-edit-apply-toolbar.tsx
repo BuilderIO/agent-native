@@ -52,6 +52,7 @@ export function renderVisualEditApplyToolbar({
   const { handleAbortPendingVisualStyles } = editorModes;
   const {
     showPendingVisualStyleApply,
+    pendingApplyPrompt,
     pendingAgentHandoffBusy,
     handleApplyPendingVisualStylesWithAgent,
     handleCopyPendingVisualStylePrompt,
@@ -70,6 +71,7 @@ export function renderVisualEditApplyToolbar({
       : !hasLocalPendingVisualEdits && remoteVisualEditSuggestion
         ? visualEditSuggestionReviewPrompt(remoteVisualEditSuggestion)
         : undefined;
+  const applyPrompt = remoteVisualEditPrompt ?? pendingApplyPrompt;
   const showSharedVisualEditApply = Boolean(remoteVisualEditPrompt);
   const showVisualEditApply =
     showPendingVisualStyleApply ||
@@ -113,15 +115,8 @@ export function renderVisualEditApplyToolbar({
               }
               onClick={
                 canApplyPendingVisualEditsFromToolbar
-                  ? () =>
-                      handleApplyPendingVisualStylesWithAgent(
-                        remoteVisualEditPrompt,
-                      )
-                  : () =>
-                      handleCopyPendingVisualStylePrompt(
-                        remoteVisualEditPrompt,
-                        true,
-                      )
+                  ? () => handleApplyPendingVisualStylesWithAgent(applyPrompt)
+                  : () => handleCopyPendingVisualStylePrompt(applyPrompt, true)
               }
             >
               {applyingViaHost ? (
@@ -169,10 +164,7 @@ export function renderVisualEditApplyToolbar({
                   </DropdownMenuLabel>
                   <DropdownMenuItem
                     onClick={() =>
-                      handleCopyPendingVisualStylePrompt(
-                        remoteVisualEditPrompt,
-                        false,
-                      )
+                      handleCopyPendingVisualStylePrompt(applyPrompt, false)
                     }
                   >
                     <IconClipboard className="mr-2 h-4 w-4" />
@@ -180,10 +172,7 @@ export function renderVisualEditApplyToolbar({
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() =>
-                      handleCopyPendingVisualStylePrompt(
-                        remoteVisualEditPrompt,
-                        true,
-                      )
+                      handleCopyPendingVisualStylePrompt(applyPrompt, true)
                     }
                   >
                     <IconClipboard className="mr-2 h-4 w-4" />
