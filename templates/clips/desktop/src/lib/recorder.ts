@@ -4832,6 +4832,74 @@ async function untilStopSent(
   ]);
 }
 
+/**
+ * The one retry path for a native / Rewind stop that failed before its stop
+ * command was sent (capture is still running): new starts are blocked, and
+ * the next start retries that stop once before giving up. Used for an
+ * abandoned start's late stop and for an ordinary stop alike.
+ */
+function blockStartsUntilStopSent(
+  stopTake: () => Promise<unknown>,
+): Promise<void> {
+  const blocked = Promise.reject(new PreviousRecordingStillStoppingError());
+  blocked.catch(() => {});
+  abandonedCaptureSettling = blocked;
+  retryAbandonedStop = async () => {
+    const retrySent = nextCaptureStopSent();
+    try {
+      const stop = stopTake();
+      void stop.catch((stopErr: unknown) =>
+        console.warn("[clips-recorder] stop retry failed:", stopErr),
+      );
+      await untilStopSent(retrySent, stop);
+    } finally {
+      retrySent.dispose();
+    }
+    releaseStartBlock(blocked);
+  };
+  return blocked;
+}
+
+function releaseStartBlock(blocked: Promise<void> | null): void {
+  if (blocked && abandonedCaptureSettling === blocked) {
+    abandonedCaptureSettling = null;
+    retryAbandonedStop = null;
+  }
+}
+
+/** For a native / Rewind recording: if its stop fails before the stop command
+ * is sent, block new starts until a retry sends it (see above). */
+function withStopRetryBarrier(handle: RecorderHandle): RecorderHandle {
+  const stop = handle.stop.bind(handle);
+  let block: Promise<void> | null = null;
+  handle.stop = async () => {
+    const sent = nextCaptureStopSent();
+    let dispatched = false;
+    // Read through a function: the listener below sets `dispatched`.
+    const wasDispatched = () => dispatched;
+    void sent.promise.then(() => {
+      dispatched = true;
+      // Stopped directly after all: lift the block this handle set.
+      releaseStartBlock(block);
+    });
+    try {
+      return await stop();
+    } catch (err) {
+      if (!wasDispatched()) {
+        console.error(
+          "[clips-recorder] stop failed before it was sent; blocking new starts until a retry sends it",
+          err,
+        );
+        block = blockStartsUntilStopSent(stop);
+      }
+      throw err;
+    } finally {
+      sent.dispose();
+    }
+  };
+  return handle;
+}
+
 async function waitForAbandonedCapture(signal?: AbortSignal): Promise<void> {
   const settling = abandonedCaptureSettling;
   if (!settling) return;
@@ -4889,6 +4957,8 @@ export async function startRecording(
   // late-resolving handle is stopped and saved (onLateResolve). A start that
   // then fails cleans up on its own failure path.
   let startupState: "starting" | "capturing" = "starting";
+  // Read through a function: callbacks change startupState.
+  const captureMayBeLive = () => startupState === "capturing";
   let lateStop: Promise<unknown> | null = null;
   let lateHandle: RecorderHandle | null = null;
   const cancelStartup = () => {
@@ -4896,7 +4966,7 @@ export async function startRecording(
     void emit("clips:countdown-cancel", {
       attemptId: countdownAttemptId,
     }).catch(() => {});
-    if (startupState === "capturing") {
+    if (captureMayBeLive()) {
       // Hold the next start until this take's stop command is sent, or the
       // start itself failed (nothing to stop). If the stop fails before it
       // was sent, the session may still be running: the barrier stays closed
@@ -4921,28 +4991,9 @@ export async function startRecording(
             "[clips-recorder] abandoned take's stop failed before it was sent; blocking new starts until a retry sends it",
             err,
           );
-          retryAbandonedStop = async () => {
-            const handle = lateHandle;
-            if (!handle) throw new PreviousRecordingStillStoppingError();
-            const retrySent = nextCaptureStopSent();
-            try {
-              const stop = handle.stop();
-              lateStop = stop;
-              void stop.catch((stopErr) =>
-                console.warn(
-                  "[clips-recorder] abandoned take's stop retry failed:",
-                  stopErr,
-                ),
-              );
-              await untilStopSent(retrySent, stop);
-            } finally {
-              retrySent.dispose();
-            }
-            if (abandonedCaptureSettling === settling) {
-              abandonedCaptureSettling = null;
-              retryAbandonedStop = null;
-            }
-          };
+          const handle = lateHandle;
+          // Without a handle there is nothing to retry: starts stay blocked.
+          if (handle) void blockStartsUntilStopSent(() => handle.stop());
         },
       );
       return;
@@ -5006,7 +5057,8 @@ export async function startRecording(
         });
       },
     });
-    return recorderWithRewindOriginLifecycle(started, requestedRecordingId);
+    const live = captureMayBeLive() ? withStopRetryBarrier(started) : started;
+    return recorderWithRewindOriginLifecycle(live, requestedRecordingId);
   } catch (err) {
     void startPromise.catch(async () => {
       const recordingId = requestedRecordingId;

@@ -1636,6 +1636,54 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
+  it("retries an ordinary stop that failed before it was sent at the next start, saves the take, then starts", async () => {
+    vi.resetModules();
+    const { startRecording } = await import("./recorder");
+    const handle = await (async () => {
+      const pending = startRecording(params);
+      await vi.advanceTimersByTimeAsync(3_600);
+      return pending;
+    })();
+
+    // The app's stop fails before the native stop command is sent.
+    const listen = mocks.listen.getMockImplementation();
+    if (!listen) throw new Error("listen mock has no implementation");
+    mocks.listen.mockImplementation(async (name, callback) => {
+      if (name === "clips:native-recording-finalized") {
+        throw new Error("listener registration failed");
+      }
+      return listen(name, callback);
+    });
+    await expect(handle.stop()).rejects.toThrow("listener registration failed");
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      0,
+    );
+
+    // The next start retries that stop first; it is sent, so the take is
+    // saved, and only then does the new recording start.
+    mocks.listen.mockImplementation(listen);
+    const next = startRecording(params);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+    await vi.advanceTimersByTimeAsync(3_600);
+    const nextHandle = await next;
+    const order = mocks.invoke.mock.calls
+      .map(([name]) => name as string)
+      .filter(
+        (name) =>
+          name === "native_fullscreen_recording_stop_and_upload" ||
+          name === "native_fullscreen_recording_begin",
+      );
+    expect(order).toEqual([
+      "native_fullscreen_recording_begin",
+      "native_fullscreen_recording_stop_and_upload",
+      "native_fullscreen_recording_begin",
+    ]);
+    await nextHandle.cancel();
+  });
+
   it("keeps microphone-off local capture native and skips transcription", async () => {
     const pending = startRecording({
       ...params,
