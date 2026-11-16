@@ -196,6 +196,9 @@ export async function getSettingsRaw(
 
 export interface StoreWriteOptions {
   requestSource?: string;
+  owner?: string;
+  orgId?: string;
+  global?: true;
   /**
    * Allow this write to keep an inline image data URI.
    *
@@ -206,6 +209,43 @@ export interface StoreWriteOptions {
    * that route asks for the exemption explicitly. Nothing else passes it.
    */
   allowInlineImageBytes?: boolean;
+}
+
+export class SettingsScopeError extends Error {
+  readonly code = "SETTINGS_SCOPE_CONFLICT";
+
+  constructor() {
+    super("Settings write scope conflicts with its wrapper.");
+    this.name = "SettingsScopeError";
+  }
+}
+
+export type UserSettingWriteOptions = Omit<
+  StoreWriteOptions,
+  "owner" | "orgId" | "global"
+>;
+
+export type UserSettingMutationOptions = Omit<
+  StoreMutationOptions,
+  "owner" | "orgId" | "global"
+>;
+
+export type OrgSettingWriteOptions = Omit<
+  StoreWriteOptions,
+  "owner" | "orgId" | "global"
+>;
+
+export function assertScopedSettingsOptions(
+  options: StoreWriteOptions | undefined,
+): void {
+  if (
+    options &&
+    (options.owner !== undefined ||
+      options.orgId !== undefined ||
+      options.global !== undefined)
+  ) {
+    throw new SettingsScopeError();
+  }
 }
 
 export interface StoreMutationOptions extends StoreWriteOptions {
@@ -227,12 +267,23 @@ export interface StoreMutationOptions extends StoreWriteOptions {
   validateStoredValue?: (value: unknown) => void | Promise<void>;
 }
 
-export interface StoreMutationOptions extends StoreWriteOptions {
-  /** Initialize the settings store before the transaction and publish the change only after commit. */
-  transaction?: DbExec;
-}
-
 const SETTINGS_MUTATION_ATTEMPTS = 25;
+
+function settingsChangeEvent(
+  type: "change" | "delete",
+  key: string,
+  options?: StoreWriteOptions,
+): Record<string, unknown> {
+  return {
+    source: "settings",
+    type,
+    key,
+    ...(options?.owner && { owner: options.owner }),
+    ...(options?.orgId && { orgId: options.orgId }),
+    ...(options?.global && { visibility: "public" }),
+    ...(options?.requestSource && { requestSource: options.requestSource }),
+  };
+}
 
 export async function mutateSetting(
   key: string,
@@ -282,12 +333,10 @@ export async function mutateSetting(
     if (result.rowsAffected === 0) continue;
     if (!options?.transaction) {
       requestSettingsCache()?.set(key, nextRaw);
-      settingsEmitter().emit("settings", {
-        source: "settings",
-        type: "change",
-        key,
-        ...(options?.requestSource && { requestSource: options.requestSource }),
-      });
+      settingsEmitter().emit(
+        "settings",
+        settingsChangeEvent("change", key, options),
+      );
     }
     return JSON.parse(nextRaw);
   }
@@ -299,12 +348,10 @@ export function publishSettingChange(
   options?: StoreWriteOptions,
 ): void {
   requestSettingsCache()?.delete(key);
-  settingsEmitter().emit("settings", {
-    source: "settings",
-    type: "change",
-    key,
-    ...(options?.requestSource && { requestSource: options.requestSource }),
-  });
+  settingsEmitter().emit(
+    "settings",
+    settingsChangeEvent("change", key, options),
+  );
 }
 
 export function invalidateSettingRequestCache(key: string): void {
@@ -328,12 +375,10 @@ export async function putSetting(
     args: [key, serialized, Date.now()],
   });
   requestSettingsCache()?.set(key, serialized);
-  settingsEmitter().emit("settings", {
-    source: "settings",
-    type: "change",
-    key,
-    ...(options?.requestSource && { requestSource: options.requestSource }),
-  });
+  settingsEmitter().emit(
+    "settings",
+    settingsChangeEvent("change", key, options),
+  );
 }
 
 export async function deleteSetting(
@@ -349,12 +394,10 @@ export async function deleteSetting(
   });
   requestSettingsCache()?.set(key, null);
   if (result.rowsAffected > 0) {
-    settingsEmitter().emit("settings", {
-      source: "settings",
-      type: "delete",
-      key,
-      ...(options?.requestSource && { requestSource: options.requestSource }),
-    });
+    settingsEmitter().emit(
+      "settings",
+      settingsChangeEvent("delete", key, options),
+    );
     return true;
   }
   return false;
@@ -376,12 +419,10 @@ export async function deleteSettingIfValue(
 
   if (!options?.transaction) {
     requestSettingsCache()?.set(key, null);
-    settingsEmitter().emit("settings", {
-      source: "settings",
-      type: "delete",
-      key,
-      ...(options?.requestSource && { requestSource: options.requestSource }),
-    });
+    settingsEmitter().emit(
+      "settings",
+      settingsChangeEvent("delete", key, options),
+    );
   }
   return true;
 }
@@ -400,12 +441,10 @@ export async function deleteSettingsByPrefix(
   });
   requestSettingsCache()?.clear();
   if (result.rowsAffected > 0) {
-    settingsEmitter().emit("settings", {
-      source: "settings",
-      type: "delete",
-      key: prefix,
-      ...(options?.requestSource && { requestSource: options.requestSource }),
-    });
+    settingsEmitter().emit(
+      "settings",
+      settingsChangeEvent("delete", prefix, options),
+    );
   }
   return result.rowsAffected;
 }

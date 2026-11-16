@@ -645,6 +645,12 @@
       "checksum": null
     }
   ],
+  "integration_user_grants": [
+    {
+      "name": "baseline",
+      "checksum": "30431cda7738c73b"
+    }
+  ],
   "mcp_approvals": [
     {
       "name": "baseline",

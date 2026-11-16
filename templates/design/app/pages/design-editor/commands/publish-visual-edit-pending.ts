@@ -16,7 +16,8 @@ interface PublishedVisualEditHandoff {
   designId: string;
   pendingEditCount: number | null;
   revision: number | null;
-  status: "empty" | "ready" | "stale";
+  status: "empty" | "ready" | "suggested" | "stale";
+  supersededSuggestion?: { text: string; authorEmail: string | null };
 }
 
 export interface PublishVisualEditPendingArgs {
@@ -41,6 +42,10 @@ export interface PublishVisualEditPendingArgs {
   ) => void;
   setPendingVisualEditPublicationFailed: (failed: boolean) => void;
   showHandoffErrorToast: (error: unknown) => void;
+  onSupersededSuggestion: (suggestion: {
+    text: string;
+    authorEmail: string | null;
+  }) => void;
   onLocalRevisionConflict?: () => void;
 }
 
@@ -129,6 +134,7 @@ export async function runPublishVisualEditPending(
     pendingVisualEditHadPendingRef,
     prepareLocalBridgeRevision,
     onHandoffPublicationStatusChange,
+    onSupersededSuggestion,
     onLocalRevisionConflict,
     setPendingVisualEditPublicationFailed,
     showHandoffErrorToast,
@@ -141,13 +147,19 @@ export async function runPublishVisualEditPending(
         pending,
       )) as PublishedVisualEditHandoff | null;
       const expectedStatus = clearRequested ? "empty" : "ready";
+      // The server stores a commenter's handoff as a suggestion for the owner.
+      const publishedStatus =
+        result?.status === "suggested" ? "ready" : result?.status;
       if (
         result?.designId !== designId ||
-        result.status !== expectedStatus ||
+        publishedStatus !== expectedStatus ||
         !Number.isInteger(result.revision) ||
         (result.revision ?? 0) < 1
       ) {
         throw { errorCode: "visual_edit_handoff_unconfirmed" };
+      }
+      if (result.supersededSuggestion) {
+        onSupersededSuggestion(result.supersededSuggestion);
       }
       setPendingVisualEditPublicationFailed(false);
       onHandoffPublicationStatusChange(

@@ -33,6 +33,7 @@ import {
   type MouseEvent,
 } from "react";
 
+import { createLoadDraftScope } from "../lib/load-draft-scope.js";
 import DesktopAiSetupCard from "./DesktopAiSetupCard.js";
 
 import "./QuickPromptOverlay.css";
@@ -41,6 +42,16 @@ type VerifiedCodeAgentSelection = CodeAgentModelSelectionType & {
   engine: string;
   model: string;
 };
+
+// The shell renderer imports this module too, and its load must not purge the
+// Quick Prompt window's draft, so the scope is made when the overlay mounts.
+let quickPromptDraftScope: string | undefined;
+function getQuickPromptDraftScope(): string {
+  quickPromptDraftScope ??= createLoadDraftScope("desktop:quick-prompt:", [
+    "desktop:quick-prompt",
+  ]);
+  return quickPromptDraftScope;
+}
 
 type QuickPromptOverlayProps = {
   onSubmit: (
@@ -173,6 +184,7 @@ export default function QuickPromptOverlay({
 }: QuickPromptOverlayProps) {
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useComposerFocus();
+  const draftScope = getQuickPromptDraftScope();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [localSubmitting, setLocalSubmitting] = useState(false);
   const [projects, setProjects] = useState<CodeAgentProjectFolder[]>([]);
@@ -481,7 +493,7 @@ export default function QuickPromptOverlay({
         className="quick-prompt-overlay__composer"
         composerRef={composerRef}
         disabled={submitting || localSubmitting || setupRequired}
-        draftScope="desktop:quick-prompt"
+        draftScope={draftScope}
         layoutVariant="hero"
         placeholder="Ask anything…"
         showModelSelector
