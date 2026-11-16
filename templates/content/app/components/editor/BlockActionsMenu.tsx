@@ -209,6 +209,7 @@ export function BlockActionsMenu({
     const host: BlockMenuHost = {
       editor,
       open: (next) => {
+        editorFocusRef.current = false;
         setQuery("");
         setSheet(opensAsSheet());
         setSheetView("menu");
@@ -292,6 +293,27 @@ export function BlockActionsMenu({
   const close = () => {
     setRequest(null);
     request.onClose();
+  };
+
+  // An open sheet keeps focus inside it, so an action that focuses the editor
+  // is pulled back, in some browsers before the editor sees it. This notes the
+  // attempt, and the sheet passes focus on once it has gone.
+  const runNotingFocus = (action: () => void) => {
+    const { dom } = request.view;
+    const tookFocus = (event: FocusEvent) => {
+      const to = event.type === "focusin" ? event.target : event.relatedTarget;
+      if (to instanceof Node && dom.contains(to)) {
+        editorFocusRef.current = true;
+      }
+    };
+    window.addEventListener("focusin", tookFocus, true);
+    window.addEventListener("focusout", tookFocus, true);
+    try {
+      action();
+    } finally {
+      window.removeEventListener("focusin", tookFocus, true);
+      window.removeEventListener("focusout", tookFocus, true);
+    }
   };
 
   // The menu holds focus, and Content saves an unfocused change only when it
@@ -440,7 +462,7 @@ export function BlockActionsMenu({
       // Even a refused copy mustn't open the browser's bookmark dialog.
       event.preventDefault();
       if (canDuplicate) {
-        request.duplicate();
+        runNotingFocus(() => request.duplicate());
         close();
       }
       return;
@@ -457,7 +479,7 @@ export function BlockActionsMenu({
     if (event.key === "Delete" && plain && !event.shiftKey && !query) {
       event.preventDefault();
       if (canRemove) {
-        request.remove();
+        runNotingFocus(() => request.remove());
         close();
       }
       return;
@@ -599,26 +621,8 @@ export function BlockActionsMenu({
   if (sheet) {
     const sheetItem = { [SHEET_ITEM]: "" };
 
-    // The open sheet keeps focus inside it, so an action that focuses the
-    // editor is pulled back, before the editor sees it in some browsers; the
-    // sheet passes focus on once it has gone.
     const runAndClose = (action: () => void) => () => {
-      const { dom } = request.view;
-      const tookFocus = (event: FocusEvent) => {
-        const to =
-          event.type === "focusin" ? event.target : event.relatedTarget;
-        if (to instanceof Node && dom.contains(to)) {
-          editorFocusRef.current = true;
-        }
-      };
-      window.addEventListener("focusin", tookFocus, true);
-      window.addEventListener("focusout", tookFocus, true);
-      try {
-        action();
-      } finally {
-        window.removeEventListener("focusin", tookFocus, true);
-        window.removeEventListener("focusout", tookFocus, true);
-      }
+      runNotingFocus(action);
       close();
     };
 

@@ -862,6 +862,20 @@ describe("BlockActionsMenu", () => {
       expect(document.querySelector('[role="dialog"]')).toBeNull();
     });
 
+    it("passes focus to the editor that a shortcut's action gave it", async () => {
+      onPhone();
+      const target = mount();
+      const { request } = open(target, 0);
+      vi.mocked(request.remove).mockImplementation(() => target.view.focus());
+      act(() => searchBox().focus());
+
+      press(searchBox(), "Delete");
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+      expect(request.remove).toHaveBeenCalledOnce();
+      expect(target.view.hasFocus()).toBe(true);
+    });
+
     it("colours a block from Color's own view", () => {
       onPhone();
       const target = mount();
