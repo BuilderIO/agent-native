@@ -32,6 +32,7 @@ import {
   POST_FINALIZE_JOB_TOKEN_KIND,
   postFinalizeJobResourceId,
 } from "../../../lib/post-finalize-dispatch.js";
+import { runDurableStitchJob } from "../../../lib/stitch-job.js";
 
 const bodySchema = z.object({
   recordingId: z.string().min(1).max(200),
@@ -43,6 +44,7 @@ const bodySchema = z.object({
     "brain-export",
     "loom-import",
     "meeting-finalize",
+    "stitch",
   ]),
   token: z.string().min(1),
   requestedByEmail: z.email().max(320).optional(),
@@ -178,7 +180,9 @@ export default defineEventHandler(async (event: H3Event) => {
     };
   }
   const requiredStatus =
-    kind === "media-ready" || kind === "loom-import" ? "processing" : "ready";
+    kind === "media-ready" || kind === "loom-import" || kind === "stitch"
+      ? "processing"
+      : "ready";
   const meetingFinalizeWaitingForRecording =
     kind === "meeting-finalize" &&
     (recording.status === "uploading" || recording.status === "processing");
@@ -414,6 +418,13 @@ export default defineEventHandler(async (event: H3Event) => {
           claimId,
         });
         return { ok: true, kind, result };
+      }
+
+      if (kind === "stitch") {
+        // Claims the job's lease first, so a duplicate or late dispatch for
+        // a stitch another worker is running returns skipped.
+        const result = await runDurableStitchJob(recordingId);
+        return { ok: true, recordingId, kind, result };
       }
 
       if (kind === "brain-export") {

@@ -1269,6 +1269,9 @@ const messages = {
     titleLabel: "標題",
     combining:
       "正在用 ffmpeg.wasm 合併 — {{progress}}%。大型拼接可能需要一分鐘。",
+    starting: "正在開始…",
+    processingDescription:
+      "正在伺服器上合併。你可以關閉此分頁；片段會自動準備就緒。",
     combine: "合併",
   },
   inviteDialog: {

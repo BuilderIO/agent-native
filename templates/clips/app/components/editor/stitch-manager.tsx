@@ -12,6 +12,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -53,10 +54,12 @@ export function StitchManager({
   seedRecordingId,
 }: StitchManagerProps) {
   const t = useT();
+  const navigate = useNavigate();
   const { session } = useSession();
   const [queue, setQueue] = useState<RecordingLite[]>([]);
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(0);
+  /** Set while the browser fallback runs (servers without ffmpeg). */
+  const [browserProgress, setBrowserProgress] = useState<number | null>(null);
   const [title, setTitle] = useState(t("stitchManager.defaultTitle"));
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [storageSetupOpen, setStorageSetupOpen] = useState(false);
@@ -77,8 +80,8 @@ export function StitchManager({
   useEffect(() => {
     if (!open) {
       setQueue([]);
-      setProgress(0);
       setBusy(false);
+      setBrowserProgress(null);
       setStorageSetupOpen(false);
     }
   }, [open]);
@@ -152,70 +155,85 @@ export function StitchManager({
       storageCheckInFlight.current = false;
     }
     setBusy(true);
-    setProgress(0);
     try {
-      const { blob, width, height } = await exportConcat(
-        queue.map((r) => ({
-          url: r.videoUrl!,
-          format: r.videoFormat ?? "webm",
-          width: r.width,
-          height: r.height,
-        })),
-        (p) => setProgress(p.progress),
-      );
-
-      const destinationRecordingId = crypto.randomUUID();
-      const upload = await uploadFileClient(
-        blob,
-        `${destinationRecordingId}.mp4`,
-      );
-      const videoUrl = upload?.url ?? null;
-      if (!videoUrl) {
-        throw new Error(t("stitchManager.connectStorage"));
+      // The server combines the videos in the
+      // background. The new recording exists at once as "processing", so the
+      // user can open it or close the tab.
+      let result: unknown;
+      try {
+        result = await stitch.mutateAsync({
+          title,
+          sourceRecordingIds: queue.map((r) => r.id),
+        });
+      } catch (err: unknown) {
+        // Hosts without ffmpeg (or without long-running processes) cannot
+        // stitch on the server: combine in the browser like before.
+        if (!isServerStitchUnavailable(err)) throw err;
+        result = await stitchInBrowser();
       }
-
-      const totalDuration = queue.reduce((sum, r) => sum + r.durationMs, 0);
-      const result = await stitch.mutateAsync({
-        recordingId: destinationRecordingId,
-        title,
-        sourceRecordingIds: queue.map((r) => r.id),
-        videoUrl,
-        durationMs: totalDuration,
-        width,
-        height,
-      });
       const newRecordingId = (result as { id?: string } | null)?.id;
-      if (newRecordingId) {
-        const copied = await copyFreshRecordingShareLink(
-          newRecordingId,
-          session,
-        );
-        if (copied) {
-          toast.success(t("stitchManager.created"), {
-            description: t("recordRoute.linkCopied"),
-          });
-        } else {
-          toast.success(t("stitchManager.created"), {
-            action: {
-              label: t("recordRoute.copyLinkAction"),
-              onClick: () => {
-                void copyFreshRecordingShareLink(newRecordingId, session);
+      const copied = newRecordingId
+        ? await copyFreshRecordingShareLink(newRecordingId, session)
+        : false;
+      toast.success(t("stitchManager.created"), {
+        description: copied
+          ? `${t("stitchManager.processingDescription")} ${t("recordRoute.linkCopied")}`
+          : t("stitchManager.processingDescription"),
+        duration: 8_000,
+        ...(newRecordingId && !copied
+          ? {
+              action: {
+                label: t("recordRoute.copyLinkAction"),
+                onClick: () => {
+                  void copyFreshRecordingShareLink(newRecordingId, session);
+                },
               },
-            },
-          });
-        }
-      } else {
-        toast.success(t("stitchManager.created"));
-      }
+            }
+          : {}),
+      });
       onOpenChange(false);
+      if (newRecordingId) {
+        void navigate(`/r/${encodeURIComponent(newRecordingId)}`);
+      }
       return result;
     } catch (err: any) {
       console.error(err);
       toast.error(err?.message ?? t("stitchManager.failed"));
     } finally {
       setBusy(false);
-      setProgress(0);
+      setBrowserProgress(null);
     }
+  };
+
+  const stitchInBrowser = async () => {
+    setBrowserProgress(0);
+    const { blob, width, height } = await exportConcat(
+      queue.map((r) => ({
+        url: r.videoUrl ?? "",
+        format: r.videoFormat ?? "webm",
+        width: r.width,
+        height: r.height,
+      })),
+      (p) => setBrowserProgress(p.progress),
+    );
+    const destinationRecordingId = crypto.randomUUID();
+    const upload = await uploadFileClient(
+      blob,
+      `${destinationRecordingId}.mp4`,
+    );
+    const videoUrl = upload?.url ?? null;
+    if (!videoUrl) {
+      throw new Error(t("stitchManager.connectStorage"));
+    }
+    return stitch.mutateAsync({
+      recordingId: destinationRecordingId,
+      title,
+      sourceRecordingIds: queue.map((r) => r.id),
+      videoUrl,
+      durationMs: queue.reduce((sum, r) => sum + r.durationMs, 0),
+      width,
+      height,
+    });
   };
 
   return (
@@ -328,9 +346,11 @@ export function StitchManager({
         {busy && (
           <div className="flex shrink-0 items-center gap-2 pt-3 text-xs text-muted-foreground">
             <IconLoader2 className="w-4 h-4 animate-spin" />
-            {t("stitchManager.combining", {
-              progress: Math.round(progress * 100),
-            })}
+            {browserProgress === null
+              ? t("stitchManager.starting")
+              : t("stitchManager.combining", {
+                  progress: Math.round(browserProgress * 100),
+                })}
           </div>
         )}
 
@@ -361,4 +381,10 @@ export function StitchManager({
       />
     </Dialog>
   );
+}
+
+/** The stitch action's error when this server has no ffmpeg. */
+function isServerStitchUnavailable(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  return /not available on this server/i.test(message);
 }

@@ -144,9 +144,17 @@ export async function runFfmpegWithProgress(
     label?: string;
     totalMs: number;
     onProgress: (fraction: number) => void;
+    /** Kills ffmpeg when aborted, e.g. once a worker loses its job lease. */
+    signal?: AbortSignal;
   },
 ): Promise<void> {
-  const { timeoutMs = REMUX_TIMEOUT_MS, label = "remux", totalMs } = options;
+  const {
+    timeoutMs = REMUX_TIMEOUT_MS,
+    label = "remux",
+    totalMs,
+    signal,
+  } = options;
+  signal?.throwIfAborted();
   const withProgress = [
     args[0],
     "-progress",
@@ -166,6 +174,17 @@ export async function runFfmpegWithProgress(
       child.kill("SIGKILL");
       reject(new Error(`ffmpeg ${label} timed out\n${stderr}`));
     }, timeoutMs);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      child.kill("SIGKILL");
+      reject(
+        signal?.reason instanceof Error
+          ? signal.reason
+          : new Error(`ffmpeg ${label} was stopped`),
+      );
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    child.on("close", () => signal?.removeEventListener("abort", onAbort));
 
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");

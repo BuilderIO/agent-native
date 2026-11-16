@@ -215,6 +215,54 @@ describe("post-finalize dispatch", () => {
     expect(request?.signal?.aborted).toBe(true);
   });
 
+  it("waits for a durable function to accept a stitch, with the acceptance bound", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+    const dispatch = dispatchPostFinalizeJob({
+      recordingId: "rec-stitch",
+      kind: "stitch",
+      awaitDurableAcceptance: true,
+    });
+    const rejection = expect(dispatch).rejects.toThrow(
+      "worker acceptance timed out after 10000ms",
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await rejection;
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(
+      "https://clips.example/.netlify/functions/server-agent-background",
+    );
+  });
+
+  it("does not hold a stitch dispatch open for a long-lived server's inline worker", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+    let settled = false;
+    const dispatch = dispatchPostFinalizeJob({
+      recordingId: "rec-stitch-inline",
+      kind: "stitch",
+      awaitDurableAcceptance: true,
+    }).finally(() => {
+      settled = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await dispatch;
+
+    expect(settled).toBe(true);
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(
+      "https://clips.example/api/_agent-native-background/post-finalize-worker",
+    );
+  });
+
   it("waits for slow inline worker completion without aborting it", async () => {
     vi.useFakeTimers();
     let resolveFetch!: (response: Response) => void;

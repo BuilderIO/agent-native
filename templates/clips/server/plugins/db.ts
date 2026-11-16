@@ -1416,6 +1416,29 @@ export const migrations = runMigrations(
       name: "recording-transcript-earlier-audio-removed-at",
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_removed_at TEXT`,
     },
+    {
+      version: 105,
+      name: "clips-stitch-jobs",
+      // Mirrors `stitchJobs` in server/db/schema.ts.
+      sql: `CREATE TABLE IF NOT EXISTS clips_stitch_jobs (
+        recording_id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        source_ids_json TEXT NOT NULL,
+        storage_provider_id TEXT,
+        state TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        lease_token TEXT,
+        lease_until TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE INDEX IF NOT EXISTS clips_stitch_jobs_state_lease_idx
+        ON clips_stitch_jobs (state, lease_until);
+      CREATE INDEX IF NOT EXISTS clips_stitch_jobs_owner_state_idx
+        ON clips_stitch_jobs (owner_email, state)`,
+    },
   ]),
   { table: "clips_migrations" },
 );

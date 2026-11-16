@@ -942,6 +942,8 @@ export async function fetchS3ObjectByUrl(
   options: {
     range?: string;
     timeoutMs?: number;
+    /** Aborts the request and its body, e.g. a stalled streaming download. */
+    signal?: AbortSignal;
     recordingId: string;
     allowLegacyObjectKey?: boolean;
     storageMode?: ClipsS3StorageMode;
@@ -963,6 +965,7 @@ export async function fetchS3ObjectByUrl(
     method: "GET",
     range: options.range,
     timeoutMs: options.timeoutMs ?? S3_PUT_TIMEOUT_MS,
+    ...(options.signal ? { signal: options.signal } : {}),
   });
 }
 

@@ -931,3 +931,40 @@ export const hostedClipAllowances = table(
     ),
   }),
 );
+
+/**
+ * One row per server stitch (`stitch-recordings` without a videoUrl), keyed by
+ * the destination recording. The post-finalize worker claims it with a lease,
+ * so a stitch whose worker died is picked up again, and admission counts these
+ * rows to bound queued work.
+ */
+export const stitchJobs = table(
+  "clips_stitch_jobs",
+  {
+    recordingId: text("recording_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sourceIdsJson: text("source_ids_json").notNull(),
+    /** The destination's upload provider when the stitch was accepted. */
+    storageProviderId: text("storage_provider_id"),
+    state: text("state", {
+      enum: ["queued", "running", "ready", "failed"],
+    }).notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    leaseToken: text("lease_token"),
+    leaseUntil: text("lease_until"),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (job) => ({
+    stateLeaseIndex: index("clips_stitch_jobs_state_lease_idx").on(
+      job.state,
+      job.leaseUntil,
+    ),
+    ownerStateIndex: index("clips_stitch_jobs_owner_state_idx").on(
+      job.ownerEmail,
+      job.state,
+    ),
+  }),
+);

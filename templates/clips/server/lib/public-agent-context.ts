@@ -1180,8 +1180,19 @@ export async function fetchRecordingMediaResponse(
   options: {
     recordingId?: string;
     storageMode?: "own" | "hosted" | null;
+    /**
+     * A whole-transfer budget for callers that stream the full body, which
+     * the default 30-second timeout would cut off. Pair it with `signal` for
+     * a stall timeout.
+     */
+    timeoutMs?: number;
+    signal?: AbortSignal;
   } = {},
 ): Promise<Response> {
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)])
+    : AbortSignal.timeout(timeoutMs);
   if (options.storageMode === "hosted") {
     if (!options.recordingId) {
       throw new RecordingMediaFetchError(
@@ -1194,7 +1205,8 @@ export async function fetchRecordingMediaResponse(
       response = await fetchS3ObjectByUrl(videoUrl, {
         recordingId: options.recordingId,
         storageMode: "hosted",
-        timeoutMs: 30_000,
+        timeoutMs,
+        ...(options.signal ? { signal: options.signal } : {}),
       });
     } catch (error) {
       throw sanitizeRecordingMediaError(error);
@@ -1230,12 +1242,8 @@ export async function fetchRecordingMediaResponse(
   let response: Response;
   try {
     response = isAppRelativeUrl
-      ? await fetch(resolvedVideoUrl, { signal: AbortSignal.timeout(30_000) })
-      : await ssrfSafeFetch(
-          resolvedVideoUrl,
-          { signal: AbortSignal.timeout(30_000) },
-          { maxRedirects: 3 },
-        );
+      ? await fetch(resolvedVideoUrl, { signal })
+      : await ssrfSafeFetch(resolvedVideoUrl, { signal }, { maxRedirects: 3 });
   } catch (err) {
     throw new RecordingMediaFetchError(
       messageForMediaFetchError(err),

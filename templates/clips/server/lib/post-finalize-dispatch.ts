@@ -16,7 +16,8 @@ export type PostFinalizeJobKind =
   | "transcript"
   | "brain-export"
   | "loom-import"
-  | "meeting-finalize";
+  | "meeting-finalize"
+  | "stitch";
 
 export const POST_FINALIZE_JOB_TOKEN_KIND = "clips-post-finalize-job";
 
@@ -64,10 +65,17 @@ export async function dispatchPostFinalizeJob(args: {
   regenerate?: boolean;
   replaceImportId?: string | null;
   requireAccepted?: boolean;
+  /**
+   * Waits for a durable background function to accept the job (a quick 202),
+   * but on a long-lived server only lets the request leave, like the default:
+   * there the worker runs the job inside that request, which may take long.
+   */
+  awaitDurableAcceptance?: boolean;
   requestedByEmail?: string;
 }): Promise<void> {
   const {
     requireAccepted = false,
+    awaitDurableAcceptance = false,
     requestedByEmail: suppliedCaller,
     ...options
   } = args;
@@ -93,6 +101,8 @@ export async function dispatchPostFinalizeJob(args: {
   const workerUrl = resolveWorkerUrl(dispatchPath);
   const usesDurableBackground =
     dispatchPathTargetsNetlifyBackgroundFunction(dispatchPath);
+  const awaitAcceptance =
+    requireAccepted || (awaitDurableAcceptance && usesDurableBackground);
   const body = JSON.stringify({
     ...job,
     token,
@@ -144,7 +154,7 @@ export async function dispatchPostFinalizeJob(args: {
   };
   const dispatch = (async () => {
     const initialResponse =
-      usesDurableBackground && requireAccepted
+      usesDurableBackground && awaitAcceptance
         ? await requestDurableAcceptance()
         : await post(workerUrl);
     const response =
@@ -171,7 +181,7 @@ export async function dispatchPostFinalizeJob(args: {
     });
   });
 
-  if (requireAccepted) {
+  if (awaitAcceptance) {
     await dispatch;
     return;
   }
