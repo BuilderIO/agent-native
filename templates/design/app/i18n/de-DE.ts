@@ -1055,6 +1055,41 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Live-Vorschau teilen",
+      instructions:
+        "Füge eine öffentliche HTTPS-Vorschau-URL für deine App ein, etwa einen ngrok- oder cloudflared-Tunnel. Dein Rechner nutzt weiter localhost; andere sehen die öffentliche Vorschau oder schlagen Änderungen am veröffentlichten Abbild vor.",
+      tunnelUrl: "Öffentliche Vorschau-URL",
+      enableCollaboration:
+        "Live-Zusammenarbeit für alle mit Zugriff auf das Design aktivieren",
+      save: "Speichern",
+      unavailable:
+        "Live-Vorschau nicht verfügbar — Momentaufnahme wird angezeigt",
+      live: "Live-Vorschau",
+      openLive: "Live-Vorschau auf {{hostname}} öffnen",
+      suggest: "Am Abbild vorschlagen",
+      localOnly: "Live-Vorschau nur auf dem Rechner des Eigentümers",
+    },
+    referenceCopy: {
+      staticNotice:
+        "JavaScript ist deaktiviert; dynamische Inhalte fehlen möglicherweise.",
+      captureAction: "Statisches Abbild erfassen",
+      capturePrompt:
+        "Erfasse Screenshot und DOM dieser öffentlichen Referenz-URL und füge sie als statischen Referenzbildschirm zur Designfläche hinzu. Kennzeichne ihn als Abbild, nicht als Live-Seite.",
+      unavailable:
+        "Diese Seite blockiert möglicherweise Frames oder konnte nicht geladen werden.",
+      load: "Referenzkopie laden",
+      label: "Referenzkopie · öffentliche Seite, schreibgeschützt",
+      noBridge:
+        "Verbinde eine lokale Bridge, um eine öffentliche Referenzkopie zu laden.",
+      snapshot: "Veröffentlichtes Abbild verwenden",
+      capture: "Bitte den Agenten um einen Screenshot und ein DOM-Abbild.",
+      failed:
+        "Referenzkopie fehlgeschlagen. Erfasse stattdessen Screenshot und DOM.",
+      loading: "Referenzkopie wird geladen…",
+      original: "Originalseite versuchen",
+    },
+
     sourceLoadFailed: "Dieser Bildschirm konnte nicht geladen werden.",
     selectionPublishFailed:
       "Der Agent sieht deine neueste Auswahl möglicherweise nicht. Wähle sie erneut aus.",
@@ -2080,6 +2115,9 @@ export default {
     addTweaks: "Fügen Sie Optimierungen hinzu",
     addTweakControls: "Fügen Sie Optimierungssteuerelemente hinzu",
     closeTweaks: "Enge Optimierungen",
+    showFloatingTweaks: "Schwebende Optimierungen anzeigen",
+    collapseTweaks: "Optimierungen einklappen",
+    expandTweaks: "Optimierungen ausklappen",
     tweaksHelp:
       "Anpassungen sind breakpoint- und zustandsspezifische visuelle Überschreibungen über dem Basisdesign. Setzen Sie ein Steuerelement zurück, um den geerbten Wert wiederherzustellen.",
     tweaksDocs: "Mehr erfahren.",
@@ -2147,6 +2185,7 @@ export default {
       applyAria: "Ausstehende visuelle Stiländerungen anwenden",
       applyButton: "Stile anwenden",
       applySharedEdits: "Änderungen anwenden",
+      reviewSuggestion: "Vorschlag prüfen",
       previewLabel: "Ausstehende visuelle Vorschau",
       applyDesignUpdates: "Design-Updates anwenden",
       applying: "Wird angewendet…",
@@ -2253,6 +2292,9 @@ export default {
       annotationSendError:
         "Die Anmerkungen konnten nicht gesendet werden. Deine Zeichnung ist noch da – versuche es erneut.",
       codingHandoffError: "Code-Übergabe konnte nicht erstellt werden",
+      unknownCollaborator: "Mitwirkende Person",
+      supersededVisualEditSuggestion:
+        "Ein früherer Vorschlag von {{authorEmail}} wurde ersetzt. Originaltext: {{text}}",
       visualEditPendingConflict:
         "Bei einem anderen Mitwirkenden warten Änderungen. Wende sie an oder verwerfe sie, bevor du neue Änderungen sendest.",
       codingHandoffCopied: "Code-Übergabe kopiert",
@@ -2346,6 +2388,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Die Anpassungen wurden an anderer Stelle geändert. Aktualisiere das Design, bevor du es erneut versuchst.",
+      tweakBaselineUnreadable:
+        "Die gespeicherte Tweaks-Basis konnte nicht gelesen werden. Änderungen an Tweaks sind pausiert, bis die Designdaten repariert sind.",
+      resetTweakBaseline: "Ausgangswert zurücksetzen",
       tweakSaveNotDurable:
         "Die Anpassungen sind noch nicht gespeichert. Lass diesen Tab geöffnet und versuche es erneut.",
       undoSkippedConcurrentEdit:
@@ -3514,6 +3559,10 @@ export default {
     markedUnread: "Als ungelesen markiert",
     markUnreadFailed: "Konnte nicht als ungelesen markiert werden",
     attachImage: "Bild anhängen",
+    removeImage: "Bild entfernen",
+    imageUploadFailed: "Das Bild konnte nicht hochgeladen werden",
+    editChanged:
+      "Dieser Kommentar wurde geändert, nachdem Sie mit dem Bearbeiten begonnen haben. Speichern Sie erneut, um ihn zu ersetzen.",
     searching: "Suche…",
     reactionFailed: "Reaktion konnte nicht aktualisiert werden",
     moveFailed: "Kommentar konnte nicht verschoben werden",

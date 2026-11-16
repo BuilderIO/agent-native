@@ -520,6 +520,18 @@ Declared record templates do not support `{{?variable}}…{{/variable}}`
 blocks, which could assemble new literal contexts after validation. Use SQL
 `CASE` expressions with ordinary variables for optional filters.
 
+**A point with no x value needs `{{drillXIsNull}}`.** A row whose x is null
+plots at a "No value" tick, and a click on it sends `{{drillX}}` as an empty
+string, the same as a row whose x is `''`. `{{drillXIsNull}}` is `'true'` for
+that click and `'false'` for every other, so match both:
+`(country = '{{drillX}}' OR ('{{drillXIsNull}}' = 'true' AND country IS NULL))`.
+When the column isn't a string, such as a `DATE`, the database reads an empty
+`{{drillX}}` as an invalid date and fails the query, even where the `OR`
+doesn't need it, so compare with `CAST(NULLIF('{{drillX}}', '') AS DATE)`
+instead. A template that doesn't use
+`{{drillXIsNull}}` opens the chart's aggregate rows for a "No value" click,
+not records.
+
 **Record templates can't use `:list` variables.** With nothing selected,
 `{{appFilter:list}}` renders as the bare name `__empty_list_filter__`. BigQuery
 and PostgreSQL reject that name even inside a `CASE` branch that never runs, so

@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.228.2",
+  "version": "0.229.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -451,6 +451,10 @@
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"
     },
+    "./testing/cpu-time": {
+      "types": "./dist/testing/cpu-time.d.ts",
+      "default": "./dist/testing/cpu-time.js"
+    },
     "./router": "./dist/router/index.js",
     "./collab": "./dist/collab/index.js",
     "./collab/bounded-task-bundle": "./dist/collab/bounded-task-bundle.js",
@@ -703,6 +707,7 @@
     "./shared/motion-easing": "./dist/shared/motion-easing.js",
     "./shared/motion-source-node-id": "./dist/shared/motion-source-node-id.js",
     "./shared/password-policy": "./dist/shared/password-policy.js",
+    "./shared/public-host": "./dist/shared/public-host.js",
     "./shared/qa-test-email": "./dist/shared/qa-test-email.js",
     "./shared/runtime-config": "./dist/shared/runtime-config.js",
     "./shared/sign-in-journey": "./dist/shared/sign-in-journey.js",

@@ -1585,6 +1585,49 @@ describe("mountActionRoutes", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("preserves an empty GET scope and a typed credit conflict over HTTP", async () => {
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
+    const { fail } = await import("../action.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async ({ orgId }: { orgId?: string }) => {
+      if (orgId === "") {
+        fail("The active organization changed. Please retry.", {
+          errorCode: "builder_credit_org_mismatch",
+          statusCode: 409,
+        });
+      }
+      return { orgId: orgId ?? "omitted" };
+    });
+    mountActionRoutes(
+      nitroApp,
+      {
+        "get-builder-credit-status": { run, http: { method: "GET" } },
+      } as any,
+      { getOwnerFromEvent: async () => "owner@example.com" },
+    );
+    const event = {
+      _method: "GET",
+      _status: undefined as number | undefined,
+      req: {
+        url: "http://localhost/_agent-native/actions/get-builder-credit-status?orgId=",
+      },
+    };
+
+    const result = await mounted[0]!.handler(event);
+    expect(run).toHaveBeenCalledWith({ orgId: "" }, expect.anything());
+    expect(event._status).toBe(409);
+    expect(result).toEqual({
+      error: "The active organization changed. Please retry.",
+      errorCode: "builder_credit_org_mismatch",
+    });
+  });
+
   it("echoes a fail() message instead of a generic 500", async () => {
     const { fail } = await import("../scripts/utils.js");
     const { mountActionRoutes } = await import("./action-routes.js");

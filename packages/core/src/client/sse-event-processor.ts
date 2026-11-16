@@ -154,6 +154,7 @@ export interface SSEEvent {
   taskId?: string;
   threadId?: string;
   description?: string;
+  name?: string;
   preview?: string;
   currentStep?: string;
   summary?: string;

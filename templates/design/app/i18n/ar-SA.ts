@@ -1033,6 +1033,36 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "مشاركة المعاينة المباشرة",
+      instructions:
+        "الصق رابط معاينة HTTPS عامًا لتطبيقك، مثل نفق ngrok أو cloudflared. يبقى جهازك على localhost؛ ويمكن للآخرين مشاهدة المعاينة العامة أو اقتراح تعديلات على اللقطة المنشورة.",
+      tunnelUrl: "رابط المعاينة العامة",
+      enableCollaboration:
+        "تفعيل التعاون المباشر لكل من لديه حق الوصول إلى التصميم",
+      save: "حفظ",
+      unavailable: "المعاينة المباشرة غير متاحة — يتم عرض اللقطة",
+      live: "معاينة مباشرة",
+      openLive: "افتح المعاينة المباشرة على {{hostname}}",
+      suggest: "اقتراح على اللقطة",
+      localOnly: "المعاينة المباشرة على جهاز المالك فقط",
+    },
+    referenceCopy: {
+      staticNotice: "JavaScript معطّل؛ قد يكون المحتوى الديناميكي مفقوداً.",
+      captureAction: "التقاط لقطة ثابتة",
+      capturePrompt:
+        "التقط صورة للشاشة ولقطة DOM لرابط المرجع العام هذا وأضفهما كشاشة مرجعية ثابتة إلى لوحة التصميم. وضّح أنها لقطة وليست صفحة مباشرة.",
+      unavailable: "قد تمنع هذه الصفحة الإطارات أو تعذّر تحميلها.",
+      load: "تحميل نسخة مرجعية",
+      label: "نسخة مرجعية · صفحة عامة للقراءة فقط",
+      noBridge: "اربط جسراً محلياً لتحميل نسخة مرجعية عامة.",
+      snapshot: "استخدام اللقطة المنشورة",
+      capture: "اطلب من الوكيل التقاط صورة للشاشة ولقطة DOM.",
+      failed: "فشلت النسخة المرجعية. التقط صورة للشاشة ولقطة DOM بدلاً منها.",
+      loading: "جارٍ تحميل النسخة المرجعية…",
+      original: "تجربة الصفحة الأصلية",
+    },
+
     sourceLoadFailed: "تعذر تحميل هذه الشاشة.",
     selectionPublishFailed: "قد لا يرى الوكيل تحديدك الأخير. حدِّده مرة أخرى.",
     liveCollaboration: {
@@ -2033,6 +2063,9 @@ export default {
     addTweaks: "أضف تعديلات",
     addTweakControls: "إضافة الضوابط القرص",
     closeTweaks: "إغلاق القرص",
+    showFloatingTweaks: "إظهار التعديلات العائمة",
+    collapseTweaks: "طي التعديلات",
+    expandTweaks: "توسيع التعديلات",
     tweaksHelp:
       "التعديلات هي تجاوزات مرئية خاصة بنقطة التوقف والحالة فوق التصميم الأساسي. أعد ضبط عنصر التحكم للعودة إلى القيمة الموروثة.",
     tweaksDocs: "معرفة المزيد.",
@@ -2097,6 +2130,7 @@ export default {
       applyAria: "تطبيق تعديلات النمط المرئية المعلقة",
       applyButton: "تطبيق الأنماط",
       applySharedEdits: "تطبيق التعديلات",
+      reviewSuggestion: "مراجعة الاقتراح",
       previewLabel: "معاينة مرئية معلقة",
       applyDesignUpdates: "تطبيق تحديثات التصميم",
       applying: "جارٍ التطبيق…",
@@ -2199,6 +2233,9 @@ export default {
       annotationSendError:
         "تعذّر إرسال التعليقات التوضيحية. لا يزال الرسم محفوظًا هنا، فحاول مرة أخرى.",
       codingHandoffError: "تعذر إنشاء تسليم الترميز",
+      unknownCollaborator: "متعاون",
+      supersededVisualEditSuggestion:
+        "تم استبدال اقتراح سابق من {{authorEmail}}. النص الأصلي: {{text}}",
       visualEditPendingConflict:
         "لدى متعاون آخر تعديلات بانتظار التطبيق. طبّقها أو امسحها قبل إرسال تعديلات جديدة.",
       codingHandoffCopied: "تم نسخ تسليم الترميز",
@@ -2295,6 +2332,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "تم تغيير التعديلات في مكان آخر. حدّث التصميم قبل المحاولة مرة أخرى.",
+      tweakBaselineUnreadable:
+        "تعذّرت قراءة خط الأساس المحفوظ للتعديلات. تم إيقاف تغييرات التعديلات مؤقتًا حتى إصلاح بيانات التصميم.",
+      resetTweakBaseline: "إعادة تعيين خط الأساس",
       tweakSaveNotDurable:
         "لم تُحفظ التعديلات بعد. أبقِ علامة التبويب هذه مفتوحة وحاول مرة أخرى.",
       undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
@@ -3420,6 +3460,9 @@ export default {
     markedUnread: "تم وضع علامة كغير مقروء",
     markUnreadFailed: "تعذر وضع علامة كغير مقروء",
     attachImage: "إرفاق صورة",
+    removeImage: "إزالة الصورة",
+    imageUploadFailed: "تعذّر رفع الصورة",
+    editChanged: "تغيّر هذا التعليق بعد أن بدأت تعديله. احفظ مرة أخرى لاستبداله.",
     searching: "جارٍ البحث…",
     reactionFailed: "تعذر تحديث التفاعل",
     moveFailed: "تعذر نقل التعليق",

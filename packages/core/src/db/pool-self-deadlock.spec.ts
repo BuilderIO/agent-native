@@ -56,7 +56,8 @@ describe("transactions on a one-connection Neon pool", () => {
   async function bootPool() {
     vi.stubEnv("DATABASE_URL", SINGLE_CONNECTION_NEON_URL);
     vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "pool-self-deadlock-test");
-    // Longer than the test's own deadline, so only the guard can finish first.
+    // A query queued behind the held connection times out within the test's
+    // timeout, so a missing guard fails with the wrong error instead of hanging.
     vi.stubEnv("DB_OP_TIMEOUT_MS", "5000");
     const { pool, pglite, stats } = await createSingleConnectionNeonPool();
     const { getRuntimeDatabaseUrl, sharedDbPool } = await import("./client.js");
@@ -82,19 +83,31 @@ describe("transactions on a one-connection Neon pool", () => {
     return { pglite, stats };
   }
 
+  // "Immediately" means no wait for the held connection (stats.maxWaiting), no
+  // timed-out wait and no retry. An elapsed-time bound failed correct runs on
+  // a loaded CI runner.
+  async function countingDatabaseWork(run: () => Promise<void>) {
+    const { createDatabaseRequestTelemetry, runWithDatabaseRequestTelemetry } =
+      await import("./request-telemetry.js");
+    const telemetry = createDatabaseRequestTelemetry();
+    await runWithDatabaseRequestTelemetry(telemetry, run);
+    return telemetry;
+  }
+
   it("fails a getDbExec() call made inside getDbExec().transaction() immediately", async () => {
     const { stats } = await bootPool();
     const { getDbExec } = await import("./client.js");
     const { DbPoolSelfDeadlockError } = await import("./pool-self-deadlock.js");
 
-    const startedAt = Date.now();
-    await expect(
-      getDbExec().transaction(async () => {
-        await getDbExec().execute("SELECT 1 AS ok");
-      }),
-    ).rejects.toBeInstanceOf(DbPoolSelfDeadlockError);
+    const telemetry = await countingDatabaseWork(() =>
+      expect(
+        getDbExec().transaction(async () => {
+          await getDbExec().execute("SELECT 1 AS ok");
+        }),
+      ).rejects.toBeInstanceOf(DbPoolSelfDeadlockError),
+    );
 
-    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(telemetry).toMatchObject({ retryCount: 0, timeoutCount: 0 });
     expect(stats.maxWaiting).toBe(0);
   });
 
@@ -105,16 +118,17 @@ describe("transactions on a one-connection Neon pool", () => {
       await import("./request-pool-context.js");
     const { DbPoolSelfDeadlockError } = await import("./pool-self-deadlock.js");
 
-    const startedAt = Date.now();
-    await runWithRequestDbPoolScope(true, undefined, async () => {
-      await expect(
-        getDbExec().transaction(async () => {
-          await getDbExec().execute("SELECT 1 AS ok");
-        }),
-      ).rejects.toBeInstanceOf(DbPoolSelfDeadlockError);
-    });
+    const telemetry = await countingDatabaseWork(() =>
+      runWithRequestDbPoolScope(true, undefined, async () => {
+        await expect(
+          getDbExec().transaction(async () => {
+            await getDbExec().execute("SELECT 1 AS ok");
+          }),
+        ).rejects.toBeInstanceOf(DbPoolSelfDeadlockError);
+      }),
+    );
 
-    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(telemetry).toMatchObject({ retryCount: 0, timeoutCount: 0 });
     expect(stats.maxWaiting).toBe(0);
   });
 
@@ -131,20 +145,22 @@ describe("transactions on a one-connection Neon pool", () => {
     await runWithRequestDbPoolScope(true, undefined, async () => {
       await getDb().execute(sql.raw("SELECT 1"));
 
-      const startedAt = Date.now();
-      const failure = await getDbExec()
-        .transaction(async () => {
-          await getDb().execute(sql.raw("SELECT 2"));
-        })
-        .then(
-          () => undefined,
-          (error) => error,
-        );
+      let failure: unknown;
+      const telemetry = await countingDatabaseWork(async () => {
+        failure = await getDbExec()
+          .transaction(async () => {
+            await getDb().execute(sql.raw("SELECT 2"));
+          })
+          .then(
+            () => undefined,
+            (error) => error,
+          );
+      });
       expect(failure).toMatchObject({
         cause: expect.any(DbPoolSelfDeadlockError),
       });
 
-      expect(Date.now() - startedAt).toBeLessThan(200);
+      expect(telemetry).toMatchObject({ retryCount: 0, timeoutCount: 0 });
       expect(stats.maxWaiting).toBe(0);
     });
   });

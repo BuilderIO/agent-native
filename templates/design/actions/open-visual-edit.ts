@@ -56,6 +56,7 @@ import {
   rejectBrowserBridgeCredentials,
   stripVisualEditBridgeCredentials,
 } from "./visual-edit-browser-request.js";
+import { launchVisualEdit } from "./visual-edit-launch.js";
 
 const connectionRouteSchema = z.object({
   id: z.string().optional(),
@@ -285,16 +286,20 @@ function isVisualEditBootstrapCapability(
   );
 }
 
-function localVisualEditPath(designId: string): string {
-  return `/visual-edit/${encodeURIComponent(designId)}?editorView=overview&embedChrome=1`;
+function localVisualEditPath(designId: string, minimalUi = false): string {
+  return `/visual-edit/${encodeURIComponent(designId)}?editorView=overview&embedChrome=1${minimalUi ? "&minimalUi=1" : ""}`;
 }
 
-function localVisualEditDeepLink(designId: string): string {
+function localVisualEditDeepLink(designId: string, minimalUi = false): string {
   return buildDeepLink({
     app: "design",
     view: "editor",
-    params: { designId, editorView: "overview" },
-    to: localVisualEditPath(designId),
+    params: {
+      designId,
+      editorView: "overview",
+      ...(minimalUi ? { minimalUi: "1" } : {}),
+    },
+    to: localVisualEditPath(designId, minimalUi),
   });
 }
 
@@ -459,11 +464,24 @@ export default defineAction({
         "Top edge for new screens. Defaults to the topmost existing frame.",
       ),
     gap: z.number().optional().default(160),
+    target: z
+      .enum(["inline-browser", "system-browser", "desktop"])
+      .default("inline-browser")
+      .describe(
+        "Where to open Design. Hosted callers receive host-required launch URLs; only a local CLI can detect and dispatch a desktop launch.",
+      ),
     navigate: z
       .boolean()
       .optional()
       .default(true)
       .describe("Write a navigate app-state command to open overview mode."),
+    minimalUi: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Open the design with minimal UI: hide layers and show the inspector only when an item is selected.",
+      ),
     publicReadOnly: z
       .boolean()
       .optional()
@@ -694,7 +712,7 @@ export default defineAction({
         ctx,
       );
 
-      const urlPath = localVisualEditPath(designId);
+      const urlPath = localVisualEditPath(designId, args.minimalUi);
       await writeAppState("visual-edit", {
         designId,
         connectionId: connection.id,
@@ -706,7 +724,11 @@ export default defineAction({
         updatedAt: new Date().toISOString(),
       });
 
-      if (args.navigate) {
+      if (
+        args.navigate &&
+        args.target !== "desktop" &&
+        args.target !== "system-browser"
+      ) {
         await navigateAction.run({
           view: "editor",
           designId,
@@ -719,10 +741,13 @@ export default defineAction({
       if (!ownerEmail) {
         throw new Error("visual-edit principal was not established");
       }
-      const deepLink = localVisualEditDeepLink(designId);
-      const embedStartUrl = isLoopbackUrl(devServerUrl)
-        ? await createCallerHandoff(urlPath, ownerEmail, designId)
-        : undefined;
+      const deepLink = localVisualEditDeepLink(designId, args.minimalUi);
+      const embedStartUrl =
+        isLoopbackUrl(devServerUrl) &&
+        args.target !== "desktop" &&
+        args.target !== "system-browser"
+          ? await createCallerHandoff(urlPath, ownerEmail, designId)
+          : undefined;
       const browserVisible = isBrowserVisibleVisualEditRequest(ctx);
       const bridgeCommand =
         !browserVisible && connection.bridgeToken
@@ -734,7 +759,17 @@ export default defineAction({
             })
           : null;
 
+      const requestOrigin = getRequestContext()?.requestOrigin;
+      const launch = await launchVisualEdit({
+        target: args.target,
+        openUrl: deepLink,
+        ...(requestOrigin ? { origin: requestOrigin } : {}),
+        localCli: ctx?.caller === "cli",
+        navigate: args.navigate !== false,
+      });
+
       const result = {
+        launch,
         message: bridgeCommand
           ? `Design ${designId} uses connection ${connection.id}. Start its bridge with \`${bridgeCommand}\`, then open the design.`
           : `Design ${designId} uses connection ${connection.id}.`,
@@ -749,6 +784,7 @@ export default defineAction({
         screens: screens.screens,
         placedFrames: screens.placedFrames,
         overview: true,
+        minimalUi: args.minimalUi,
         urlPath,
         openUrl: deepLink,
         bridgeToken: browserVisible ? undefined : connection.bridgeToken,
@@ -797,12 +833,13 @@ export default defineAction({
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
-    const { designId } = result as {
+    const { designId, minimalUi } = result as {
       designId?: string;
+      minimalUi?: boolean;
     };
     if (!designId) return null;
     return {
-      url: localVisualEditDeepLink(designId),
+      url: localVisualEditDeepLink(designId, Boolean(minimalUi)),
       label: "Open overview",
       view: "editor",
     };

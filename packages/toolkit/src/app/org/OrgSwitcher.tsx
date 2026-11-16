@@ -128,6 +128,12 @@ export interface OrgSwitcherProps {
    * hidden when no links are passed.
    */
   utilityLinks?: readonly OrgSwitcherUtilityLink[];
+  /**
+   * App-owned content shown at the top of the organization list, such as a
+   * workspace summary. It is not a menu item, so it is skipped by keyboard
+   * navigation.
+   */
+  menuHeader?: ReactNode;
 }
 
 export type AccountMenuProps = OrgSwitcherProps;
@@ -194,7 +200,7 @@ export function BuilderCreditNotice({
   } | null>(
     "get-builder-credit-status",
     {
-      orgId: org?.orgId ?? null,
+      orgId: org?.orgId ?? "",
       ...(chatEngine ? { engine: chatEngine } : {}),
     },
     {
@@ -470,6 +476,7 @@ export function OrgSwitcher({
   hideCreateOrganization,
   hideUsage,
   utilityLinks,
+  menuHeader,
 }: OrgSwitcherProps) {
   const { data: org, isLoading, dataUpdatedAt } = useOrg();
   const { session } = useSession();
@@ -783,6 +790,9 @@ export function OrgSwitcher({
           <DropdownMenuSeparator />
         </>
       )}
+      {menuHeader ? (
+        <div data-org-switcher-menu-header="">{menuHeader}</div>
+      ) : null}
       <DropdownMenuGroup>
         {orgs.map((o) => {
           const current = o.orgId === org.orgId;

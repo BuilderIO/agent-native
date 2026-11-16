@@ -172,10 +172,10 @@ function createSendClient() {
   };
 }
 
-function mountAgentChat() {
+function mountAgentChat(onOpenApp?: (event: unknown) => void) {
   let chat: AgentChatController | undefined;
   function Harness() {
-    chat = useAgentChat({});
+    chat = useAgentChat({}, { onOpenApp });
     return null;
   }
   const container = document.createElement("div");
@@ -1910,4 +1910,134 @@ describe("useAgentChat readiness gate", () => {
     );
     expect(client.sendMessage).not.toHaveBeenCalled();
   });
+});
+
+describe("completed app panel delivery", () => {
+  it.each([
+    ["open_app", "completed", { app: "mail", path: "/inbox" }, "open"],
+    ["open_app", "completed", undefined, "notice"],
+    ["open_app", "failed", { app: "mail", path: "/inbox" }, "notice"],
+    ["remote__open_app", "completed", { app: "mail", path: "/inbox" }, null],
+  ] as const)(
+    "delivers %s %s result as %s without ending chat",
+    async (name, status, output, expected) => {
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      const listeners = new Set<() => void>();
+      const threads = new Map<
+        string,
+        ReturnType<typeof createAgentThreadState>
+      >();
+      const completed = deferred<void>();
+      const getThread = (id: string) => {
+        let thread = threads.get(id);
+        if (!thread) {
+          thread = createAgentThreadState(id);
+          threads.set(id, thread);
+        }
+        return thread;
+      };
+      const client = {
+        ...createSendClient(),
+        subscribe: vi.fn((listener: () => void) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        }),
+        getThread,
+        loadThread: vi.fn(async (id: string) => getThread(id)),
+        sendMessage: vi.fn(async () => ({
+          runId: "panel-run",
+          completed: completed.promise,
+        })),
+      };
+      createSessionMock.mockReturnValue({
+        client,
+        dispose: vi.fn(async () => {}),
+      });
+      const opened = vi.fn();
+      const mounted = mountAgentChat(opened);
+      let pending: Promise<boolean> | undefined;
+      try {
+        await vi.waitFor(() => expect(mounted.chat?.canChat).toBe(true));
+        await act(async () => {
+          pending = mounted.chat?.send("Find the latest mail");
+          await Promise.resolve();
+        });
+        await vi.waitFor(() =>
+          expect(client.sendMessage).toHaveBeenCalledOnce(),
+        );
+        const id = mounted.chat?.threadId;
+        if (!id) throw new Error("expected a thread id");
+        await act(async () => {
+          const thread = getThread(id);
+          threads.set(id, {
+            ...thread,
+            events: [
+              ...thread.events,
+              {
+                ...eventBase(
+                  "tool.updated",
+                  "panel-tool-event",
+                  id,
+                  "panel-run",
+                  1,
+                ),
+                type: "tool.updated",
+                toolCall: {
+                  id: "panel-tool",
+                  name,
+                  status,
+                  input: { app: "mail", path: "/inbox" },
+                  output,
+                },
+              } as AgentEvent,
+            ],
+          });
+          listeners.forEach((listener) => listener());
+        });
+        if (expected)
+          expect(opened).toHaveBeenCalledWith(
+            expect.objectContaining({ kind: expected }),
+          );
+        else expect(opened).not.toHaveBeenCalled();
+        expect(mounted.chat.threadId).toBe(id);
+        expect(mounted.chat.isStreaming).toBe(true);
+        expect(
+          mounted.chat.messages.some((message) => message.role === "user"),
+        ).toBe(true);
+        if (expected === "open") {
+          await act(async () => {
+            const thread = getThread(id);
+            threads.set(id, {
+              ...thread,
+              events: [
+                ...thread.events,
+                {
+                  ...eventBase(
+                    "run.failed",
+                    "panel-run-failure",
+                    id,
+                    "panel-run",
+                    2,
+                  ),
+                  type: "run.failed",
+                  error: { message: "Run failed" },
+                } as AgentEvent,
+              ],
+            });
+            listeners.forEach((listener) => listener());
+          });
+          expect(opened).toHaveBeenLastCalledWith(
+            expect.objectContaining({ kind: "notice" }),
+          );
+          expect(mounted.chat.threadId).toBe(id);
+        }
+      } finally {
+        completed.resolve();
+        await act(async () => {
+          await pending;
+        });
+        mounted.cleanup();
+      }
+    },
+  );
 });

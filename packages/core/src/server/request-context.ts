@@ -186,6 +186,8 @@ export interface RequestContext {
    */
   authCapability?: string;
   timezone?: string;
+  /** Date calculation default, not a detected or persistable user preference. */
+  dateTimezoneFallback?: "UTC";
   /**
    * The caller's browser analytics session id, when the request came from a
    * page. Emitted as PostHog's `$session_id` so agent traces join to session
@@ -703,6 +705,10 @@ export function getRequestTimezone(): string | undefined {
   const store = als.getStore();
   if (store !== undefined) return store.timezone;
   return processEnv("AGENT_USER_TIMEZONE");
+}
+
+export function getRequestDateTimezone(): string | undefined {
+  return getRequestTimezone() ?? als.getStore()?.dateTimezoneFallback;
 }
 
 export function isIntegrationCallerRequest(): boolean {

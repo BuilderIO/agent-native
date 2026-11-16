@@ -969,6 +969,37 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Share live preview",
+      instructions:
+        "Paste a public HTTPS preview URL for your app, such as an ngrok or cloudflared tunnel. Your machine keeps loading localhost; others can view the public preview or suggest edits on the published snapshot.",
+      tunnelUrl: "Public preview URL",
+      enableCollaboration:
+        "Enable live collaboration for everyone with design access",
+      save: "Save",
+      unavailable: "Live preview unavailable — showing snapshot",
+      live: "Live preview",
+      openLive: "Open live preview on {{hostname}}",
+      suggest: "Suggest on snapshot",
+      localOnly: "Live preview only on the owner’s machine",
+    },
+    referenceCopy: {
+      staticNotice: "JavaScript is disabled; dynamic content may be missing.",
+      captureAction: "Capture static snapshot",
+      capturePrompt:
+        "Capture a screenshot and DOM snapshot of this public reference URL and add them as a static reference screen on this design canvas. Keep it labelled as a snapshot, not a live page.",
+      unavailable: "This page may block framing or failed to load.",
+      load: "Load reference copy",
+      label: "Reference copy · public page, read only",
+      noBridge: "Connect a local bridge to load a public reference copy.",
+      snapshot: "Use published snapshot",
+      capture: "Ask your agent to capture a screenshot and DOM snapshot.",
+      failed:
+        "Reference copy failed. Capture a screenshot and DOM snapshot instead.",
+      loading: "Loading reference copy…",
+      original: "Try original page",
+    },
+
     sourceLoadFailed: "Could not load this screen.",
     selectionPublishFailed:
       "The agent may not see your latest selection. Select it again.",
@@ -1987,6 +2018,9 @@ export default {
     addTweaks: "Add tweaks",
     addTweakControls: "Add tweak controls",
     closeTweaks: "Close tweaks",
+    showFloatingTweaks: "Show floating tweaks",
+    collapseTweaks: "Collapse tweaks",
+    expandTweaks: "Expand tweaks",
     tweaksHelp:
       "Tweaks are breakpoint- and state-specific visual overrides layered on the base design. Reset a control to return to the inherited value.",
     tweaksDocs: "Learn more.",
@@ -2054,6 +2088,7 @@ export default {
       applyAria: "Apply design updates",
       applyButton: "Apply styles",
       applySharedEdits: "Apply edits",
+      reviewSuggestion: "Review suggestion",
       previewLabel: "Pending visual preview",
       applyDesignUpdates: "Apply design update",
       applying: "Applying…",
@@ -2157,6 +2192,9 @@ export default {
       annotationSendError:
         "Could not send annotations. Your drawing is still here—try again.",
       codingHandoffError: "Could not create agent handoff",
+      unknownCollaborator: "a collaborator",
+      supersededVisualEditSuggestion:
+        "A previous suggestion from {{authorEmail}} was replaced. Original text: {{text}}",
       visualEditPendingConflict:
         "Another collaborator has edits waiting. Apply or clear them before sending new edits.",
       codingHandoffCopied: "Agent prompt copied",
@@ -2233,6 +2271,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Tweaks changed elsewhere. Refresh the design before trying again.",
+      tweakBaselineUnreadable:
+        "The saved tweak baseline could not be read. Tweak changes are paused until the design data is repaired.",
+      resetTweakBaseline: "Reset baseline",
       tweakSaveNotDurable:
         "Tweaks aren't saved yet. Keep this tab open and try again.",
       undoSkippedConcurrentEdit: "Skipped an undo — someone else moved that",
@@ -3376,6 +3417,10 @@ export default {
     markedUnread: "Marked as unread",
     markUnreadFailed: "Could not mark as unread",
     attachImage: "Attach image",
+    removeImage: "Remove image",
+    imageUploadFailed: "Could not upload the image",
+    editChanged:
+      "This comment changed after you started editing. Save again to replace it.",
     searching: "Searching…",
     reactionFailed: "Could not update the reaction",
     moveFailed: "Could not move the comment",
