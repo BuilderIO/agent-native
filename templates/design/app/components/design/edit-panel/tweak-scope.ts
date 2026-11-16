@@ -16,6 +16,31 @@ export interface TweakSelectionTarget {
   >;
 }
 
+export function tweakTargetsForSelection(args: {
+  elements: readonly Pick<
+    ElementInfo,
+    | "sourceId"
+    | "runtimeSourceId"
+    | "selector"
+    | "runtimeSelector"
+    | "parentAutoLayout"
+    | "childLayouts"
+    | "sourceLayerIdentity"
+  >[];
+  fallbackScreenId?: string;
+  screenId?: string;
+}): TweakSelectionTarget[] {
+  if (args.elements.length === 0) {
+    return args.screenId ? [{ screenId: args.screenId }] : [];
+  }
+  const targets = args.elements.flatMap((element) => {
+    const screenId =
+      element.sourceLayerIdentity?.screenId ?? args.fallbackScreenId;
+    return screenId ? [{ screenId, element }] : [];
+  });
+  return targets;
+}
+
 const NODE_ID_ATTRIBUTE = "data-agent-native-node-id";
 
 function elementNodeIds(element: TweakSelectionTarget["element"]): string[] {

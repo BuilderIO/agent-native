@@ -2089,6 +2089,9 @@ export default {
     addTweaks: "新增調整",
     addTweakControls: "新增調整控制項",
     closeTweaks: "關閉調整",
+    showFloatingTweaks: "顯示浮動調整",
+    collapseTweaks: "收合調整",
+    expandTweaks: "展開調整",
     tweaksHelp:
       "調整項是疊加在基礎設計上的中斷點與狀態專屬視覺覆寫。重設控制項可回到繼承值。",
     tweaksDocs: "深入瞭解。",

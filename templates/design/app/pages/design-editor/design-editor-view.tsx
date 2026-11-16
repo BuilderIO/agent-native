@@ -52,9 +52,14 @@ import {
   motionStarterStyles,
 } from "@/components/design/edit-panel/motion-controls";
 import type { CapturedStyleTarget } from "@/components/design/edit-panel/style-change-types";
+import {
+  tweaksForSelection,
+  tweakTargetsForSelection,
+} from "@/components/design/edit-panel/tweak-scope";
 import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomToolbar";
 import { EditorTopBar } from "@/components/design/editor/EditorTopBar";
 import { UrlScreenControls } from "@/components/design/editor/UrlScreenControls";
+import { FloatingTweaksPanel } from "@/components/design/FloatingTweaksPanel";
 import { FusionAppMenu } from "@/components/design/FusionAppMenu";
 import { getUnavailableShortcutIds } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
@@ -1602,6 +1607,43 @@ export function renderDesignEditorView({
     mode,
     canEdit: canEditActiveVisualScreen,
   });
+  const tweakTargets = tweakTargetsForSelection({
+    elements: selectedInspectorElements,
+    ...(activeFile?.id ? { fallbackScreenId: activeFile.id } : {}),
+    ...(selectedScreenGeometry?.id
+      ? { screenId: selectedScreenGeometry.id }
+      : {}),
+  });
+  const floatingTweaks = tweaksForSelection(
+    tweaks,
+    tweakTargets,
+    (screenId) =>
+      documentColorFiles.find((file) => file.id === screenId)?.content,
+  );
+  const floatingTweaksPanel =
+    mode === "edit" ? (
+      <FloatingTweaksPanel
+        tweaks={floatingTweaks}
+        values={tweakSelections}
+        onChange={handleTweakChange}
+        open={editorLayoutAndStructure.viewSettings.tweaksPanelOpen}
+        collapsed={editorLayoutAndStructure.viewSettings.tweaksPanelCollapsed}
+        position={editorLayoutAndStructure.viewSettings.tweaksPanelPosition}
+        onOpenChange={(open) =>
+          editorLayoutAndStructure.updateViewSettings({ tweaksPanelOpen: open })
+        }
+        onCollapsedChange={(collapsed) =>
+          editorLayoutAndStructure.updateViewSettings({
+            tweaksPanelCollapsed: collapsed,
+          })
+        }
+        onPositionChange={(position) =>
+          editorLayoutAndStructure.updateViewSettings({
+            tweaksPanelPosition: position,
+          })
+        }
+      />
+    ) : null;
   const questionFlowInsetRight = rightInspectorCanvasInset({
     visible: rightSidebarVisible,
     width: rightSidebarWidth,
@@ -2378,6 +2420,7 @@ export function renderDesignEditorView({
           interactFloatingBar,
           rightSidebarVisible,
           editPanelProps,
+          floatingTweaksPanel,
         })}
       </div>
 

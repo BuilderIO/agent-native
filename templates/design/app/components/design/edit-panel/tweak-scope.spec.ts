@@ -3,7 +3,11 @@
 import type { TweakDefinition } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
-import { tweaksForSelection, type TweakSelectionTarget } from "./tweak-scope";
+import {
+  tweakTargetsForSelection,
+  tweaksForSelection,
+  type TweakSelectionTarget,
+} from "./tweak-scope";
 
 const SCREEN_HTML = `<!doctype html><html><body>
   <section data-agent-native-node-id="hero">
@@ -134,5 +138,41 @@ describe("tweaksForSelection", () => {
       0,
     );
     expect(shownOn({ screenId: "original" })).toBe(0);
+  });
+});
+
+describe("tweakTargetsForSelection", () => {
+  it("uses the active screen only when the screen itself is selected", () => {
+    expect(
+      tweakTargetsForSelection({ elements: [], screenId: "screen-a" }),
+    ).toEqual([{ screenId: "screen-a" }]);
+    expect(
+      tweakTargetsForSelection({ elements: [{}], screenId: "screen-a" }),
+    ).toEqual([]);
+  });
+
+  it("keeps each selected element's owning screen with the inspector fallback", () => {
+    expect(
+      tweakTargetsForSelection({
+        elements: [
+          { sourceId: "selected" },
+          {
+            sourceId: "remote",
+            sourceLayerIdentity: { screenId: "screen-b", nodeId: "remote" },
+          },
+        ],
+        fallbackScreenId: "screen-a",
+        screenId: "screen-a",
+      }),
+    ).toEqual([
+      { screenId: "screen-a", element: { sourceId: "selected" } },
+      {
+        screenId: "screen-b",
+        element: {
+          sourceId: "remote",
+          sourceLayerIdentity: { screenId: "screen-b", nodeId: "remote" },
+        },
+      },
+    ]);
   });
 });

@@ -2063,6 +2063,9 @@ export default {
     addTweaks: "أضف تعديلات",
     addTweakControls: "إضافة الضوابط القرص",
     closeTweaks: "إغلاق القرص",
+    showFloatingTweaks: "إظهار التعديلات العائمة",
+    collapseTweaks: "طي التعديلات",
+    expandTweaks: "توسيع التعديلات",
     tweaksHelp:
       "التعديلات هي تجاوزات مرئية خاصة بنقطة التوقف والحالة فوق التصميم الأساسي. أعد ضبط عنصر التحكم للعودة إلى القيمة الموروثة.",
     tweaksDocs: "معرفة المزيد.",

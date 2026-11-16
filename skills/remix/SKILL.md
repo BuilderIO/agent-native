@@ -363,6 +363,9 @@ each one paints:
 - A small config panel in one corner in our paper style, never a dark
   lil-gui: 3-6 rows with the explode toggle, the step's 1-3 real knobs as
   sliders and optionally a layer toggle, updating the planes live.
+- Show an in-figure config panel only when `window.__anInteract` exists or the
+  frame is running standalone; hide it in Design Edit so the floating inspector
+  controls remain the only knobs on the canvas.
 - At most one handwritten note per card (Caveat or Gochi Hand, else serif
   italic) with a hand-drawn arrow to the key plane ("the shader only paints
   this layer").

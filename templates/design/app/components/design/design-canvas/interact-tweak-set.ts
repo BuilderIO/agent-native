@@ -11,8 +11,10 @@ function parsedScreenDocument(html: string | undefined): Document | null {
   if (!html) return null;
   if (!parsedDocuments.has(html)) {
     parsedDocuments.set(html, parseScreenDocument(html));
-    if (parsedDocuments.size > 8)
-      parsedDocuments.delete(parsedDocuments.keys().next().value!);
+    if (parsedDocuments.size > 8) {
+      const oldest = parsedDocuments.keys().next().value;
+      if (oldest !== undefined) parsedDocuments.delete(oldest);
+    }
   }
   return parsedDocuments.get(html) ?? null;
 }
