@@ -50,6 +50,15 @@ pnpm action search-documents --query "project plan" --format json
 Get a single document by ID with full content and description. MCP callers read
 the complete values from `structuredContent`; the text preview may be shortened.
 
+Agent tool calls (in the app, over MCP, A2A or WebMCP) get each property's
+`id`, `databaseId`, `name`, `type`, `description`, `options` (option `id`,
+`name` and `description`), `value` and `editable`, but not the editor's display
+settings, timestamps or option colors. The page body's own Blocks field says
+`valueIsContent: true` instead of repeating `content`. Other Blocks fields keep
+their `value`, and their `blocksField` is just `{ fieldId, revision }`; read
+their blocks with `list-content-database-blocks`. Pass `detail: "full"` for the
+editor's whole read; the CLI always gets it.
+
 ```bash
 pnpm action get-document --id abc123
 pnpm action get-document --id abc123 --format json

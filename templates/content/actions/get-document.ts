@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -20,6 +20,8 @@ import {
   privateMediaAgentLinks,
   readsWithoutSessionCookie,
 } from "../server/lib/private-media-agent-links.js";
+import type { DocumentProperty } from "../shared/api.js";
+import { isPrimaryBlocksField } from "../shared/properties.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   getDatabaseByDocumentId,
@@ -75,6 +77,60 @@ function canManageRole(role: string) {
   return role === "owner" || role === "admin";
 }
 
+/** Callers whose reader is a model, which get agentReadProperty's fields. */
+const AGENT_READ_CALLERS = new Set<ActionRunContext["caller"]>([
+  "tool",
+  "mcp",
+  "webmcp",
+  "a2a",
+]);
+
+/**
+ * A field as an agent reads it. The page body's own field says valueIsContent
+ * instead of repeating `content`, and a Blocks field keeps only the revision
+ * of the editor's block map (list-content-database-blocks reads the blocks).
+ * Display settings, timestamps and option colors go too. Descriptions stay:
+ * agents follow them as guidance.
+ */
+function agentReadProperty({
+  definition,
+  value,
+  blocksField,
+  ...rest
+}: DocumentProperty) {
+  const { options } = definition;
+  return {
+    definition: {
+      id: definition.id,
+      databaseId: definition.databaseId,
+      ...(definition.systemRole ? { systemRole: definition.systemRole } : {}),
+      name: definition.name,
+      type: definition.type,
+      ...(definition.description !== undefined
+        ? { description: definition.description }
+        : {}),
+      options: options.options
+        ? {
+            ...options,
+            options: options.options.map(({ color, ...option }) => option),
+          }
+        : options,
+    },
+    ...(isPrimaryBlocksField(options)
+      ? { valueIsContent: true as const }
+      : { value }),
+    ...rest,
+    ...(blocksField
+      ? {
+          blocksField: {
+            fieldId: blocksField.fieldId,
+            revision: blocksField.revision,
+          },
+        }
+      : {}),
+  };
+}
+
 /**
  * Starts a read now but raises its failure only where the result is awaited,
  * so a read whose result a later check discards cannot fail the request.
@@ -93,7 +149,7 @@ function deferFailure<T>(read: Promise<T>): () => Promise<T> {
 
 export default defineAction({
   description:
-    "Read one access-scoped document by its stable ID, including the full Markdown body and description in MCP structuredContent; the text preview may be shortened. Private images appear in the body as /api/private-media/<id>; privateMediaLinks gives each one a link that opens it without signing in for an hour. Use list-documents or search-documents first when the ID is unknown.",
+    'Read one access-scoped document by its stable ID, including the full Markdown body and description in MCP structuredContent; the text preview may be shortened. Private images appear in the body as /api/private-media/<id>; privateMediaLinks gives each one a link that opens it without signing in for an hour. Fields leave out display settings, option colors and block maps, and the page body\'s own field says valueIsContent instead of repeating the body; detail: "full" returns them. Use list-documents or search-documents first when the ID is unknown.',
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -118,6 +174,12 @@ export default defineAction({
       .optional()
       .describe(
         "Also return the current user's private unsaved draft of this page as previewDraft. The editor sets this when it opens a page; other callers omit it.",
+      ),
+    detail: z
+      .enum(["full"])
+      .optional()
+      .describe(
+        "Pass full to get every field as the editor reads it: display settings, timestamps, option colors, each Blocks field's block map, and the page body's own field value. Omit it otherwise.",
       ),
   }),
   http: { method: "GET" },
@@ -421,6 +483,15 @@ export default defineAction({
         })
       : undefined;
 
+    const agentRead =
+      args.detail !== "full" && !!ctx && AGENT_READ_CALLERS.has(ctx.caller);
+    const readProperties = hasPropertyDatabaseAccess
+      ? properties
+      : properties.map((property) => ({
+          ...property,
+          definition: { ...property.definition, databaseId: null },
+        }));
+
     track(
       "document_viewed",
       {
@@ -512,12 +583,13 @@ export default defineAction({
         : undefined,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
-      properties: hasPropertyDatabaseAccess
-        ? properties
-        : properties.map((property) => ({
-            ...property,
-            definition: { ...property.definition, databaseId: null },
-          })),
+      // An agent's read goes to a model as JSON, never to the editor's typed
+      // client, so it keeps the editor read's type.
+      properties: agentRead
+        ? (readProperties.map(
+            agentReadProperty,
+          ) as unknown as DocumentProperty[])
+        : readProperties,
       propertyGenerations: propertyGenerationsFor(
         doc.id,
         properties,
