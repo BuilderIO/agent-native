@@ -286,6 +286,8 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).toContain("sidebarOrder={favoritesOrder.order}");
     expect(sidebar).toContain("handlePinnedReorder");
+    // A pin its Favorites list doesn't list yet stays out of a saved order.
+    expect(sidebar).toContain("!isOptimisticFavoriteItemId(id)");
     expect(sidebar).not.toContain("updateFavoritesPersonalView.isPending");
     expect(sidebar).toContain(
       'const serverOrdered = favoritesOrder.order.mode !== "custom";',

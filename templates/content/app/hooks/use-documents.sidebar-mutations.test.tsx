@@ -109,6 +109,17 @@ function seedSpaces(
   });
 }
 
+/**
+ * Lets answered mutations reach the hooks that watch them. TanStack Query tells
+ * them a timer tick after the answer, so one tick isn't always enough.
+ */
+async function settleMutations() {
+  await act(async () => {
+    for (let tick = 0; tick < 3; tick += 1)
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 /** The options the hook hands the action mutation, as TanStack Query runs them. */
 function mutationOptions(name: string) {
   const call = useActionMutation.mock.calls
@@ -282,6 +293,31 @@ describe("pinning from the hosted Files tree", () => {
     ).toBe(true);
   });
 
+  it("counts a pin made before any spaces list loads as a first pin, and reads the spaces list after it", async () => {
+    // The spaces list's first read hasn't landed.
+    const spaces = queryClient.getQueryCache().build(queryClient, {
+      queryKey: ["action", "list-content-spaces", undefined],
+    });
+    useUpdateDocument();
+    const options = mutationOptions("update-document");
+    const variables = { id: "page", isFavorite: true };
+
+    const context = await options.onMutate(variables);
+    expect(context).toMatchObject({ createsFavorites: true });
+
+    options.onSuccess(
+      {
+        id: "page",
+        isFavorite: true,
+        updatedAt: "2026-11-16T00:00:01.000Z",
+        softDeletedDatabaseIds: [],
+      },
+      variables,
+      context,
+    );
+    expect(spaces.state.isInvalidated).toBe(true);
+  });
+
   it("hands a pin to Pinned while the Favorites list still loads, and reads the list again from after the answer", async () => {
     seedSpaces(queryClient, "favorites");
     useUpdateDocument();
@@ -377,10 +413,7 @@ describe("useFirstPins", () => {
         })
         .execute({ id, isFavorite })
         .catch(() => {});
-    const settle = async () =>
-      act(async () => {
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      });
+    const settle = settleMutations;
 
     void toggle("a", true);
     void toggle("b", true);
@@ -494,10 +527,7 @@ describe("usePendingMoves", () => {
         })
         .execute({ id: "page", parentId })
         .catch(() => {});
-    const settle = async () =>
-      act(async () => {
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      });
+    const settle = settleMutations;
     return { root, seen, answers, moveTo, settle };
   }
 

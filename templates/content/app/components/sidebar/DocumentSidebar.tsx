@@ -129,6 +129,8 @@ import {
   usePermanentlyDeleteDocument,
   useRestoreDocument,
   firstPinsToDraw,
+  isOptimisticFavoriteItemId,
+  optimisticFavoriteItemId,
   useFirstPins,
   useTrashedDocuments,
   useUpdateDocument,
@@ -541,7 +543,7 @@ function firstPinsCollection(documents: Document[]): ContentDatabaseResponse {
     properties: [],
     source: null,
     items: documents.map((document, index) => ({
-      id: `optimistic-favorite:${document.id}`,
+      id: optimisticFavoriteItemId(document.id),
       databaseId: "",
       position: index - documents.length,
       properties: [],
@@ -3091,14 +3093,23 @@ export function DocumentSidebar({
 
   const handlePinnedReorder = useCallback(
     (itemIds: string[], previousItemIds: string[]) => {
-      if (!favoritesDatabaseId) return;
+      // A pin the Favorites list doesn't list yet has no item there to order.
+      const listed = (ids: string[]) =>
+        ids.filter((id) => !isOptimisticFavoriteItemId(id));
+      const order = listed(itemIds);
+      const previousOrder = listed(previousItemIds);
+      if (
+        !favoritesDatabaseId ||
+        order.every((id, index) => id === previousOrder[index])
+      )
+        return;
       updateFavoritesPersonalView.mutate(
         {
           databaseId: favoritesDatabaseId,
           navigation: {
             sidebarOrder: {
               viewId: favoritesOrder.activeViewId,
-              ...contentSidebarSubsetReorder(itemIds, previousItemIds),
+              ...contentSidebarSubsetReorder(order, previousOrder),
             },
           },
         },

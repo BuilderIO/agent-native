@@ -1737,7 +1737,7 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
                 database.items.some((item) => item.document.id === variables.id)
               )
                 continue;
-              const optimisticItemId = `optimistic-favorite:${variables.id}`;
+              const optimisticItemId = optimisticFavoriteItemId(variables.id);
               queryClient.setQueryData(databaseKey, {
                 ...database,
                 items: [
@@ -2494,16 +2494,32 @@ function cachedDocumentForPinned(
   return row ? filesRowDocument(row.item) : undefined;
 }
 
-/** False once the hosted spaces list says this person has no Favorites collection yet. */
+/**
+ * True once a loaded spaces list shows this person's Favorites collection, or
+ * shows local files, which have none. Before any list loads it is unknown, so
+ * a pin then counts as a first pin and reads the spaces list again.
+ */
 function favoritesCollectionExists(queryClient: QueryClient) {
-  return !queryClient
+  const lists = queryClient
     .getQueriesData<ListContentSpacesResponse>({
       queryKey: ["action", "list-content-spaces"],
     })
-    .some(
-      ([, data]) =>
-        data?.sourceMode === "database" && !data.favoritesDatabaseId,
-    );
+    .flatMap(([, data]) => (data ? [data] : []));
+  return (
+    lists.length > 0 &&
+    !lists.some(
+      (data) => data.sourceMode === "database" && !data.favoritesDatabaseId,
+    )
+  );
+}
+
+/** Pinned's item for a pin its Favorites list doesn't list yet. */
+export function optimisticFavoriteItemId(documentId: string) {
+  return `optimistic-favorite:${documentId}`;
+}
+
+export function isOptimisticFavoriteItemId(itemId: string) {
+  return itemId.startsWith("optimistic-favorite:");
 }
 
 /** The Favorites collections the hosted spaces lists name. */
