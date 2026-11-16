@@ -26,7 +26,7 @@ export type AppConfigLayer = (typeof LAYER_ORDER)[number];
 
 interface AppConfigState {
   layers: Partial<Record<AppConfigLayer, AppConfigInput>>;
-  resolved?: AppConfig;
+  resolved?: AppConfig | undefined;
   envSignature?: string;
 }
 
@@ -234,8 +234,18 @@ export function defineAppConfigSection<
   return {
     key,
     schema,
-    read: () =>
-      (getAppConfig() as unknown as Record<string, z.output<Schema>>)[key],
+    read: () => {
+      const value = (
+        getAppConfig() as unknown as Record<
+          string,
+          z.output<Schema> | undefined
+        >
+      )[key];
+      if (value === undefined) {
+        throw new Error(`App config section "${key}" is not registered.`);
+      }
+      return value;
+    },
   };
 }
 

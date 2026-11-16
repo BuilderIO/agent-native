@@ -39,7 +39,7 @@ const SECTION_KEY = /^[a-z][a-zA-Z0-9]*$/;
 interface SectionRegistry {
   sections: Map<string, { schema: AppConfigSectionSchema; signature: string }>;
   version: number;
-  composed?: { version: number; schema: z.ZodObject };
+  composed?: { version: number; schema: z.ZodObject } | undefined;
 }
 
 const globals = globalThis as typeof globalThis & {

@@ -135,6 +135,13 @@ describe("app config sections", () => {
     expect(() => section.read()).toThrow(/EXAMPLE_PROVIDER_PAUSED/);
   });
 
+  it("fails loudly when a section is read after its registration is gone", () => {
+    const section = defineAppConfigSection("locations", locationsSection());
+    clearAppConfigSectionsForTests();
+
+    expect(() => section.read()).toThrow(/not registered/);
+  });
+
   it("refuses a key the framework already owns", () => {
     expect(() => defineAppConfigSection("agent", providerSection())).toThrow(
       /collides with the framework/,
