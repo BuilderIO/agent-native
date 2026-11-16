@@ -645,7 +645,9 @@ async function fetchHostedWorkspaceAppRegistry(
       await response.json().catch(() => null);
     if (
       auth.url.searchParams.get("orgAccessInventory") === "true" &&
-      (!body || typeof body !== "object" || Array.isArray(body) ||
+      (!body ||
+        typeof body !== "object" ||
+        Array.isArray(body) ||
         (body as { inventoryKind?: unknown }).inventoryKind !== "org-access")
     ) {
       return workspaceAppAccessUnavailable("registry-malformed-response", {

@@ -852,17 +852,15 @@ describe("isWorkspaceAppAccessAllowed", () => {
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
     );
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            inventoryKind: "org-access",
-            apps: [{ id: "programs" }, { id: "new-live-app" }],
-          }),
-          { headers: { "content-type": "application/json" } },
-        ),
-      );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          inventoryKind: "org-access",
+          apps: [{ id: "programs" }, { id: "new-live-app" }],
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const ids = await currentWorkspaceAppIdsForAccessList({
@@ -904,7 +902,10 @@ describe("isWorkspaceAppAccessAllowed", () => {
 
   it("rejects an ordinary app list returned by an older Dispatch during mixed-version rollout", async () => {
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
-    vi.stubEnv("AGENT_NATIVE_ORG_DIRECTORY_URL", "https://dispatch.example.test");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([{ id: "visible-to-caller" }]), {
         headers: { "content-type": "application/json" },
@@ -914,24 +915,38 @@ describe("isWorkspaceAppAccessAllowed", () => {
 
     await expect(
       currentWorkspaceAppIdsForAccessList({
-        email: "admin@example.com", orgId: null,
+        email: "admin@example.com",
+        orgId: null,
       }),
-    ).rejects.toThrow("Workspace app inventory unavailable: registry-malformed-response");
+    ).rejects.toThrow(
+      "Workspace app inventory unavailable: registry-malformed-response",
+    );
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("rejects a normal list wrapped in apps without the admin inventory marker", async () => {
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
-    vi.stubEnv("AGENT_NATIVE_ORG_DIRECTORY_URL", "https://dispatch.example.test");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ apps: [{ id: "filtered" }] })),
-    ));
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ apps: [{ id: "filtered" }] })),
+        ),
+    );
 
     await expect(
       currentWorkspaceAppIdsForAccessList({
-        email: "admin@example.com", orgId: null,
+        email: "admin@example.com",
+        orgId: null,
       }),
-    ).rejects.toThrow("Workspace app inventory unavailable: registry-malformed-response");
+    ).rejects.toThrow(
+      "Workspace app inventory unavailable: registry-malformed-response",
+    );
   });
 
   it("requests the admin inventory so disabled mounted apps remain manageable", async () => {

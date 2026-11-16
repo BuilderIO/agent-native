@@ -770,7 +770,9 @@ describe("listWorkspaceApps", () => {
   );
 
   it("fails admin access inventory on a denied gateway instead of trusting the manifest", async () => {
-    const fetchMock = vi.fn(async () => new Response("denied", { status: 403 }));
+    const fetchMock = vi.fn(
+      async () => new Response("denied", { status: 403 }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
