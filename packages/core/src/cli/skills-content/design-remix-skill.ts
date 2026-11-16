@@ -16,6 +16,12 @@ to pick visually. Both modes finish on a **remix board** in Design (below)
 unless the user says no Design, headless, or just the code, or Design is
 unavailable; then use the image finish in **Finish Without Design**.
 
+Design is unavailable only when no Design MCP connector is connected and no
+browser that runs page JavaScript can load \`https://design.agent-native.com\`.
+A missing connector is not enough: open Design in the host's inline browser
+(Claude Code's side-panel browser, Codex's in-app browser), else the user's
+browser, and use the page's WebMCP tools as \`/visual-edit\` describes.
+
 ## Repo Mode: Run End To End
 
 For \`/remix add the stripe hero animation to ours but make it blue\`, locate
@@ -253,12 +259,19 @@ Lab) can edit GSAP-style tracks and keyframes. It is optional; knobs come first.
 ## Finish On A Remix Board
 
 Open Design as \`/visual-edit\` does (same launch targets and links) and lay out
-one board, left to right, at the same viewport size:
+one board, left to right, at the same viewport size.
+
+A board writes files to a Design project, so it needs the authenticated
+connector or a signed-in Design tab. A signed-out tab lists only the
+visual-edit tools (\`open-visual-edit\` and a few others); then ask the user to
+sign in to Design in that tab, wait, and check the tools again before falling
+back to **Finish Without Design**.
 
 1. **Original**: the source screen from "Put Both Sites On The Canvas" (live
    where it frames, else the served capture, else a static snapshot).
 2. **Remix**: the destination with the rebuilt effect, as a localhost screen
-   when its dev server runs, else an inline screen of the rebuilt section.
+   when a visual-edit bridge is connected for its dev server, else an inline
+   screen of the rebuilt section.
 3. **How it works**: a row of 3-5 small inline screens beneath, one stage of
    the technique each (geometry, motion, camera, shading, palette), each a
    live exploded view of the remix screen's layers (see **How It Works
