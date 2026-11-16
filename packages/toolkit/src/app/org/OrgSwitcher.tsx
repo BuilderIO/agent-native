@@ -200,7 +200,7 @@ export function BuilderCreditNotice({
   } | null>(
     "get-builder-credit-status",
     {
-      orgId: org?.orgId ?? null,
+      orgId: org?.orgId ?? "",
       ...(chatEngine ? { engine: chatEngine } : {}),
     },
     {
