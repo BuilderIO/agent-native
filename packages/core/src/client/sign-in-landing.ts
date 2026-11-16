@@ -59,7 +59,7 @@ export function signInLandingLoader(
           encodeContinuation(appPath(workspaceHome), appBasePath())
         : "";
       const destination = authFirst
-        ? `${appPath(SIGN_IN_ENTRY_PATH)}${
+        ? `${SIGN_IN_ENTRY_PATH}${
             token ? `?${SIGN_IN_CONTINUATION_PARAM}=${token}` : ""
           }`
         : target;
@@ -68,7 +68,9 @@ export function signInLandingLoader(
       });
     }
   }
-  if (!base) return redirectDocument(appPath(SIGN_IN_ENTRY_PATH));
+  // React Router adds its basename to single-fetch redirects; the SSR handler
+  // adds the mount to document Location headers after the router responds.
+  if (!base) return redirectDocument(SIGN_IN_ENTRY_PATH);
 
   const uiOrigin =
     (

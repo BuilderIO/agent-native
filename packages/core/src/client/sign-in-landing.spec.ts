@@ -29,7 +29,7 @@ describe("signInLandingLoader", () => {
       response!.headers.get("location")!,
       "https://workspace.example",
     );
-    expect(location.pathname).toBe("/sample/sign-in");
+    expect(location.pathname).toBe("/sign-in");
     expect(decodeContinuation(location.searchParams.get("c"), "/sample")).toBe(
       `/sample/home${suffix}`,
     );
@@ -58,7 +58,7 @@ describe("signInLandingLoader", () => {
       response!.headers.get("location")!,
       "https://workspace.example",
     );
-    expect(location.pathname).toBe("/sample/sign-in");
+    expect(location.pathname).toBe("/sign-in");
     expect(decodeContinuation(location.searchParams.get("c"), "/sample")).toBe(
       "/sample/home",
     );
@@ -79,16 +79,16 @@ describe("signInLandingLoader", () => {
     vi.stubEnv("VITE_APP_BASE_PATH", "/sample");
     expect(
       signInLandingLoader({ authFirst: true })!.headers.get("location"),
-    ).toBe("/sample/sign-in");
+    ).toBe("/sign-in");
   });
 
-  it("document-redirects to the mounted app sign-in page", () => {
+  it("returns a router-relative document redirect for a mounted app", () => {
     vi.stubEnv("VITE_APP_BASE_PATH", "/account-expert");
 
     const response = signInLandingLoader();
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("/account-expert/sign-in");
+    expect(response.headers.get("location")).toBe("/sign-in");
     expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
   });
 
@@ -159,7 +159,7 @@ describe("signInLandingLoader", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "0");
     vi.stubEnv("VITE_APP_BASE_PATH", "/mail");
     expect(signInLandingLoader("/home")!.headers.get("location")).toBe(
-      "/mail/sign-in",
+      "/sign-in",
     );
   });
 
@@ -196,9 +196,7 @@ describe("signInLandingLoader", () => {
   ])("does not use an unsafe workspace home %j", (home) => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/mail");
-    expect(signInLandingLoader(home)!.headers.get("location")).toBe(
-      "/mail/sign-in",
-    );
+    expect(signInLandingLoader(home)!.headers.get("location")).toBe("/sign-in");
   });
 
   it("leaves the root route available when it is the configured app home", () => {
