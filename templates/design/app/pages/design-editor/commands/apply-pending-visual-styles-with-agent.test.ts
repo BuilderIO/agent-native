@@ -150,6 +150,7 @@ function argsFor(
       pendingVisualStyleEdits: [],
       pendingVisualStylePrompt: "Apply the pending structure edits.",
       includedVisualEditIds: edits.length ? ["local-visual-edits"] : [],
+      finalizeIncludedHistory: vi.fn(),
       hasStandalonePrompt: false,
       setActiveLeftPanel: vi.fn(),
       setApplyingViaHost: vi.fn(),
@@ -285,6 +286,9 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     expect(setup.stagedHandoffStartedRef.current).toBeTypeOf("function");
     setup.stagedHandoffStartedRef.current?.();
     expect(setup.args.setPendingVisualStyleEdits).toHaveBeenCalledWith([]);
+    expect(setup.args.finalizeIncludedHistory).toHaveBeenCalledWith([
+      "style:screen-1:button:1",
+    ]);
   });
 
   it("preserves edits created while delivery is waiting", async () => {

@@ -59,6 +59,7 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   pendingVisualStylePrompt: string;
   hasPendingTweakChanges?: boolean;
   includedVisualEditIds: string[];
+  finalizeIncludedHistory: (includedIds: string[]) => void;
   hasStandalonePrompt: boolean;
   setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setApplyingViaHost: Dispatch<SetStateAction<boolean>>;
@@ -112,6 +113,7 @@ export async function runApplyPendingVisualStylesWithAgent({
   pendingVisualStylePrompt,
   hasPendingTweakChanges = false,
   includedVisualEditIds,
+  finalizeIncludedHistory,
   hasStandalonePrompt,
   setActiveLeftPanel,
   setApplyingViaHost,
@@ -159,6 +161,7 @@ export async function runApplyPendingVisualStylesWithAgent({
       (edit): edit is PendingLiveStructureEdit => edit.kind === "structure",
     );
     const finalizeWithoutStructureVerification = () => {
+      finalizeIncludedHistory(includedVisualEditIds);
       const includedIds = new Set(includedVisualEditIds);
       const styles = pendingVisualStyleEditsRef.current.filter(
         (edit) =>
