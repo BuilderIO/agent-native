@@ -17,6 +17,7 @@ import {
   type RefObject,
   type SetStateAction,
 } from "react";
+import { toast } from "sonner";
 
 import {
   createDesignSaveOutboxEntry,
@@ -237,13 +238,26 @@ export function useTweaks({
       return {};
     }
   }, [design?.data]);
-  const sourceBaseline: TweakSelections = useMemo(() => {
-    if (!design?.data) return {};
-    const value = JSON.parse(design.data)?.tweakSourceBaseline;
-    return value && typeof value === "object" && !Array.isArray(value)
-      ? value
-      : {};
+  const sourceBaseline = useMemo(() => {
+    if (!design?.data) return { status: "readable" as const, value: {} };
+    try {
+      const parsed = JSON.parse(design.data);
+      const value = parsed?.tweakSourceBaseline;
+      if (value === undefined)
+        return { status: "readable" as const, value: {} };
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        return { status: "readable" as const, value: value as TweakSelections };
+      }
+      return { status: "unreadable" as const };
+    } catch {
+      return { status: "unreadable" as const };
+    }
   }, [design?.data]);
+  useEffect(() => {
+    if (sourceBaseline.status === "unreadable") {
+      toast.warning(t("designEditor.toasts.tweakBaselineUnreadable"));
+    }
+  }, [sourceBaseline.status, t]);
   useLayoutEffect(() => {
     if (
       !tweakSaveActive &&
@@ -268,15 +282,14 @@ export function useTweaks({
       equals: areTweakSelectionsEqual,
     },
   );
-  const pendingTweakChanges = useMemo(
-    () =>
-      getTweakHandoffChanges({
-        tweaks,
-        before: sourceBaseline,
-        after: tweakSelections,
-      }),
-    [sourceBaseline, tweakSelections, tweaks],
-  );
+  const pendingTweakChanges = useMemo(() => {
+    if (sourceBaseline.status === "unreadable") return [];
+    return getTweakHandoffChanges({
+      tweaks,
+      before: sourceBaseline.value,
+      after: tweakSelections,
+    });
+  }, [sourceBaseline, tweakSelections, tweaks]);
 
   const cssVarValues = useMemo(
     () => resolveTweaksToCssVars(tweaks, tweakSelections),

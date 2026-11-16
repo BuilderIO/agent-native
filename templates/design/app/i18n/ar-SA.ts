@@ -2329,6 +2329,8 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "تم تغيير التعديلات في مكان آخر. حدّث التصميم قبل المحاولة مرة أخرى.",
+      tweakBaselineUnreadable:
+        "تعذّرت قراءة خط الأساس المحفوظ للتعديلات. تم إيقاف تغييرات التعديلات مؤقتًا حتى إصلاح بيانات التصميم.",
       tweakSaveNotDurable:
         "لم تُحفظ التعديلات بعد. أبقِ علامة التبويب هذه مفتوحة وحاول مرة أخرى.",
       undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
