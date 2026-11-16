@@ -52,16 +52,18 @@ export function renderWorkspaceKeepWarmEntry(options: {
 const CONCURRENCY = ${JSON.stringify(options.concurrency)};
 // Apps warmed at the same time, which bounds the open requests of one run.
 const APP_PARALLELISM = 12;
-// Netlify stops a scheduled function after 30 seconds.
 const REQUEST_TIMEOUT_MS = 15_000;
+// Netlify stops a scheduled function after 30 seconds; stop starting apps,
+// and cut request timeouts, so the run finishes and logs inside that.
+const RUN_DEADLINE_MS = 25_000;
 
-async function warmApp(origin, healthPath) {
+async function warmApp(origin, healthPath, timeoutMs) {
   const url = new URL(healthPath, origin);
   const results = await Promise.allSettled(
     Array.from({ length: CONCURRENCY }, () =>
       fetch(url, {
         headers: { "user-agent": "agent-native-netlify-keep-warm" },
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       }).then(async (response) => {
         // Drain the body so the connection is released.
         await response.arrayBuffer();
@@ -84,6 +86,7 @@ async function warmApp(origin, healthPath) {
 
 export default async function handler(request) {
   const origin = new URL(request.url).origin;
+  const deadline = Date.now() + RUN_DEADLINE_MS;
   // Shuffled so a run cut short by the time limit still warms different apps
   // than the last one.
   const queue = [...HEALTH_PATHS];
@@ -93,33 +96,47 @@ export default async function handler(request) {
   }
   // Apps whose pool came up short this run, with the instances that warmed.
   const short = [];
-  let warmedInstances = 0;
+  const skipped = [];
+  let warmedRequests = 0;
   const workers = Array.from(
     { length: Math.min(APP_PARALLELISM, queue.length) },
     async () => {
       while (queue.length > 0) {
         const healthPath = queue.shift();
-        const warmed = await warmApp(origin, healthPath);
-        warmedInstances += warmed;
+        const remaining = deadline - Date.now();
+        if (remaining < 1_000) {
+          skipped.push(healthPath);
+          continue;
+        }
+        const warmed = await warmApp(
+          origin,
+          healthPath,
+          Math.min(REQUEST_TIMEOUT_MS, remaining),
+        );
+        warmedRequests += warmed;
         if (warmed < CONCURRENCY) short.push(healthPath + " " + warmed + "/" + CONCURRENCY);
       }
     },
   );
   await Promise.all(workers);
   const requested = HEALTH_PATHS.length * CONCURRENCY;
-  if (requested > 0 && warmedInstances === 0) {
+  if (requested > 0 && warmedRequests === 0) {
     throw new Error("[agent-native-keep-warm] Every app failed to warm.");
   }
   console.log(
     "[agent-native-keep-warm] Warmed",
-    warmedInstances + "/" + requested,
-    "instances across",
+    warmedRequests + "/" + requested,
+    "health requests across",
     HEALTH_PATHS.length,
     "apps",
   );
   if (short.length > 0) {
     // A short pool leaves part of that app's first page load cold.
     console.warn("[agent-native-keep-warm] Pools below target:", short.join(", "));
+  }
+  if (skipped.length > 0) {
+    // Shuffling gives these apps a fresh chance on the next run.
+    console.warn("[agent-native-keep-warm] Skipped at the run deadline:", skipped.join(", "));
   }
   return new Response(null, { status: 204 });
 }

@@ -137,7 +137,7 @@ describe("workspace keep-warm", () => {
     expect(log).toHaveBeenCalledWith(
       "[agent-native-keep-warm] Warmed",
       "6/9",
-      "instances across",
+      "health requests across",
       3,
       "apps",
     );
@@ -145,6 +145,46 @@ describe("workspace keep-warm", () => {
       "[agent-native-keep-warm] Pools below target:",
       "/qr/_agent-native/health 0/3",
     );
+  });
+
+  it("skips apps it can't reach before the run deadline", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const file = path.join(tmp, "entry-deadline.mjs");
+    fs.writeFileSync(
+      file,
+      renderWorkspaceKeepWarmEntry({
+        apps: Array.from({ length: 30 }, (_, i) => `app${i}`),
+        concurrency: 1,
+        schedule: "* * * * *",
+      }),
+    );
+    // Each request "takes" 13s, so two waves of 12 apps fit in 25s.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const startedAt = Date.now();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        vi.setSystemTime(Math.max(Date.now(), startedAt + 13_000));
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const mod = await import(pathToFileURL(file).href);
+      const response = await mod.default(
+        new Request("https://workspace.example.com/x"),
+      );
+      expect(response.status).toBe(204);
+      expect(fetch).toHaveBeenCalledTimes(24);
+      const skippedCall = warn.mock.calls.find(
+        (call) =>
+          call[0] === "[agent-native-keep-warm] Skipped at the run deadline:",
+      );
+      expect(String(skippedCall?.[1]).split(", ")).toHaveLength(6);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fails the run only when no app could be warmed", async () => {
