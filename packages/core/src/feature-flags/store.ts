@@ -480,7 +480,7 @@ export async function mutateFeatureFlagRules(
   try {
     persisted = orgId
       ? await mutateOrgSetting(orgId, settingKey(key), mutate)
-      : await mutateSetting(settingKey(key), mutate);
+      : await mutateSetting(settingKey(key), mutate, { global: true });
   } catch (error) {
     if (error instanceof SyntaxError)
       throw new FeatureFlagRulesError(
@@ -507,7 +507,7 @@ export async function replaceFeatureFlagRules(
   const orgId = scope.orgId?.trim() || null;
   const normalized = normalizeFeatureFlagRules(rules);
   if (orgId) await putOrgSetting(orgId, settingKey(key), { ...normalized });
-  else await putSetting(settingKey(key), { ...normalized });
+  else await putSetting(settingKey(key), { ...normalized }, { global: true });
   await syncFeatureFlagRolloutIndex(key, scope, normalized);
   return normalized;
 }

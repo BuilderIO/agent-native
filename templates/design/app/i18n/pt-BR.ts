@@ -1097,6 +1097,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Selecionar camada",
+      layerKinds: {
+        webgl: "Tela · WebGL",
+        canvas: "Tela",
+        video: "Vídeo",
+        image: "Imagem",
+        svg: "Gráfico SVG",
+        embed: "Incorporação",
+        background: "Fundo",
+        effect: "Efeito",
+      },
       goToMain: "Ir para o componente principal",
       restore: "Restaurar componente",
       swap: "Trocar instância",

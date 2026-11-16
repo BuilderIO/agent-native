@@ -59,6 +59,11 @@ import {
 import { normalizeScreenHtml } from "@shared/screen-annotation";
 import { sourceContentHash } from "@shared/source-workspace";
 import { sanitizeVisualEditSnapshotHtml } from "@shared/visual-edit-snapshot";
+import {
+  CANVAS_CONTEXT_RECORDER_SCRIPT,
+  injectCanvasContextRecorder,
+  isVisualLayerKind,
+} from "@shared/visual-layers";
 import { IconPlugConnectedX, IconRefresh } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import {
@@ -3744,7 +3749,10 @@ export function DesignCanvas({
       imageDiagBridge;
     let frameDocument: string;
     if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
-      frameDocument = injectDocumentMarkup(frameContent, bridgeToInject);
+      frameDocument = injectDocumentMarkup(
+        injectCanvasContextRecorder(frameContent),
+        bridgeToInject,
+      );
     } else {
       const frameStyle = [
         getEmbeddedFrameBackgroundStyle({
@@ -3756,7 +3764,7 @@ export function DesignCanvas({
           embeddedFrame?.contentOffsetY ?? 0,
         ),
       ].join("");
-      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
+      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}${CANVAS_CONTEXT_RECORDER_SCRIPT}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
     }
     frameDocument = inlineDesignStylesheets(frameDocument, designStylesheets);
     if (isEmbeddedFrame) {
@@ -5812,6 +5820,9 @@ export function DesignCanvas({
                       typeof e.data.screenId === "string"
                         ? e.data.screenId
                         : undefined,
+                    ...(isVisualLayerKind(candidate.kind)
+                      ? { kind: candidate.kind }
+                      : {}),
                     info: candidate.info,
                   }))
               : [],

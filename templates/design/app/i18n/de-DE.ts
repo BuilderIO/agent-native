@@ -1105,6 +1105,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Ebene auswählen",
+      layerKinds: {
+        webgl: "Leinwand · WebGL",
+        canvas: "Leinwand",
+        video: "Video",
+        image: "Bild",
+        svg: "SVG-Grafik",
+        embed: "Einbettung",
+        background: "Hintergrund",
+        effect: "Effekt",
+      },
       goToMain: "Zur Hauptkomponente",
       restore: "Komponente wiederherstellen",
       swap: "Instanz austauschen",

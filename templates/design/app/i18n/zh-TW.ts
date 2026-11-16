@@ -1313,6 +1313,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "選取圖層",
+      layerKinds: {
+        webgl: "畫布 · WebGL",
+        canvas: "畫布",
+        video: "影片",
+        image: "圖片",
+        svg: "SVG 圖形",
+        embed: "嵌入",
+        background: "背景",
+        effect: "效果",
+      },
       goToMain: "前往主要元件",
       restore: "還原元件",
       swap: "交換實例",
