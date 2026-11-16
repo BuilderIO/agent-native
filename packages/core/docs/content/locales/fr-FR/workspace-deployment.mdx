@@ -168,6 +168,8 @@ Définissez `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` pour reconstruire deux applicat
 
 Les variables qui changent à chaque exécution sans atteindre un build, telles que `PATH`, `PWD`, `npm_*` et `PNPM_*`, sont déjà exclues de la clé. Si un environnement de déploiement ajoute les siennes (un identifiant d'exécution, par exemple), listez-la dans `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` ; un `*` final correspond à un préfixe. Tout le reste compte, donc un `VITE_*` ou un `DATABASE_URL` modifié reconstruit toutes les applications.
 
+Un workspace qui définit `AGENT_NATIVE_BUILD_ID` sur son commit reconstruirait sinon chaque app à chaque commit. Avec le cache activé, cette variable est exclue de la clé et chaque app est construite avec un identifiant dérivé de sa propre clé (`content-…`), si bien qu'une app inchangée restaure la même sortie sur un nouveau commit. Les réponses Netlify portent toujours le commit dans `x-agent-native-build-sha`, ainsi que l'identifiant intégré à l'app dans `x-agent-native-app-build-id`. Le déploiement écrit les valeurs attendues dans `.netlify/agent-native-served-builds.json`, et `checkServedAppBuild` de `@agent-native/core/deploy/served-build` compare une réponse en direct à ces valeurs. Un `DEPLOY_ID` est prioritaire et reste dans la clé.
+
 Les builders hébergés qui démarrent à chaque fois avec un disque vierge ne gagnent rien avec le cache. Définissez-y `AGENT_NATIVE_DEPLOY_CACHE=false` pour éviter la copie qu'il effectue après chaque build.
 
 ## Workspace auto-hébergé avec Docker Compose {#workspace-docker-compose}

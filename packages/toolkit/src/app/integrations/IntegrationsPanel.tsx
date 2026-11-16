@@ -1435,6 +1435,12 @@ export function IntegrationsPanel() {
         description={BUILDER_ROW_DESCRIPTION}
         render={({ viewModel }) => {
           const builderConnected = viewModel.status.kind === "connected";
+          const builderManageable =
+            viewModel.configured ||
+            Boolean(
+              viewModel.connectFlow?.grants?.personal ||
+              viewModel.connectFlow?.grants?.org,
+            );
           const builderItem: IntegrationGridItem = {
             id: "builder-cms",
             name: "Builder.io",
@@ -1447,12 +1453,12 @@ export function IntegrationsPanel() {
                 integrationId="builder-cms"
               />
             ),
-            actionKind: builderConnected ? "manage" : "connect",
-            actionLabel: builderConnected
+            actionKind: builderManageable ? "manage" : "connect",
+            actionLabel: builderManageable
               ? t("integrations.manage")
               : t("mcpIntegrations.connect"),
             action:
-              viewModel.configured && viewModel.connectFlow ? (
+              builderManageable && viewModel.connectFlow ? (
                 <BuilderConnectionMenu
                   flow={viewModel.connectFlow}
                   trackingSource="settings_connections"

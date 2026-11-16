@@ -12,12 +12,26 @@
   Siri/App Intents on iOS and a dictation Quick Settings tile on Android.
 - Native iOS Clips browsing, calendar readiness, Live Activities, widgets,
   ReplayKit broadcast capture, Apple Watch actions, and configurable dictation.
+- Any enabled app, including custom and workspace apps, can be pinned as a
+  bottom tab and opens inside the tab navigator.
+- Links in chat messages are tappable, and chat hosts can receive completed
+  `open_app` results through `useAgentChat`'s `onOpenApp` option.
+- Google sign-in started from an app's sign-in page inside the iOS WebView now
+  completes through the system auth session and returns to that page.
 
 ### Changed
 
 - Upgraded the mobile runtime to Expo SDK 57 and React Native 0.86.
 - Improved native capture lifecycle tracking and session-token storage so
   uploads and companion actions recover cleanly across app restarts.
+- The bottom bar no longer paints a fade over scrolling content.
+
+### Fixed
+
+- OAuth deep-link handling no longer logs callback URLs, which carry session
+  tokens.
+- An invalid Clips library response shows an error instead of an empty
+  library.
 
 ## 0.1.207
 

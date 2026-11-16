@@ -1009,7 +1009,7 @@ export function updateReloadedVisualEditHandoff(
 export function shouldSuppressReloadedVisualEditHandoff(args: {
   marker: VisualEditHandoffPublicationState | null;
   designId: string | null | undefined;
-  status: "empty" | "ready" | undefined;
+  status: "empty" | "ready" | "suggested" | undefined;
   revision: number | null | undefined;
 }): boolean {
   if (!args.marker || args.marker.designId !== args.designId) return false;
@@ -1024,7 +1024,7 @@ export function shouldSuppressReloadedVisualEditHandoff(args: {
 export function shouldClearReloadedVisualEditHandoff(args: {
   marker: VisualEditHandoffPublicationState | null;
   designId: string | null | undefined;
-  status: "empty" | "ready" | undefined;
+  status: "empty" | "ready" | "suggested" | undefined;
   revision: number | null | undefined;
 }): boolean {
   if (

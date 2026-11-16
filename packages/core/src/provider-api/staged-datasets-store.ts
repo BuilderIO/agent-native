@@ -97,6 +97,16 @@ export const stagedDatasetsStore = defineStore({
         );
       },
     },
+    {
+      name: "source-completeness",
+      run: async () => {
+        await ensureColumnExists(
+          "staged_datasets",
+          "source_complete",
+          `ALTER TABLE staged_datasets ADD COLUMN IF NOT EXISTS source_complete BOOLEAN`,
+        );
+      },
+    },
   ],
 });
 
@@ -114,6 +124,12 @@ export interface StagedDatasetMeta {
   byteSize: number;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Whether the staged rows are the complete result of their source, as the
+   * stager reported it. Null means the stager did not say (a provider page or
+   * an older row), so a reader must not claim the source is complete.
+   */
+  sourceComplete: boolean | null;
 }
 
 /**
@@ -163,6 +179,13 @@ export interface UpsertDatasetOptions {
   rows: Record<string, unknown>[];
   columns: string[];
   append?: boolean;
+  /**
+   * Whether the rows are the complete result of their source. Imported files
+   * pass true; a provider page that may be truncated passes false or leaves it
+   * undefined. Persisted so readers can report source completeness instead of
+   * guessing.
+   */
+  sourceComplete?: boolean;
   /**
    * An older id for the same app, owner, and name. A dataset still stored
    * under it is removed in the same transaction, so a re-stage replaces it
@@ -563,7 +586,7 @@ export async function upsertStagedDataset(
     }
 
     const result = await tx.execute({
-      sql: `INSERT INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, byte_size_utf8_updated_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, columns=EXCLUDED.columns, row_count=EXCLUDED.row_count, byte_size=EXCLUDED.byte_size, byte_size_utf8_updated_at=EXCLUDED.byte_size_utf8_updated_at, updated_at=EXCLUDED.updated_at, removed_at=NULL, removed_reason=NULL WHERE staged_datasets.app_id = EXCLUDED.app_id AND staged_datasets.owner_email = EXCLUDED.owner_email`,
+      sql: `INSERT INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, byte_size_utf8_updated_at, created_at, updated_at, source_complete) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, columns=EXCLUDED.columns, row_count=EXCLUDED.row_count, byte_size=EXCLUDED.byte_size, byte_size_utf8_updated_at=EXCLUDED.byte_size_utf8_updated_at, updated_at=EXCLUDED.updated_at, removed_at=NULL, removed_reason=NULL, source_complete=EXCLUDED.source_complete WHERE staged_datasets.app_id = EXCLUDED.app_id AND staged_datasets.owner_email = EXCLUDED.owner_email`,
       args: [
         id,
         options.appId,
@@ -575,6 +598,7 @@ export async function upsertStagedDataset(
         writtenAt,
         now,
         writtenAt,
+        options.sourceComplete ?? null,
       ],
     });
     if (result.rowsAffected === 0) {
@@ -596,6 +620,7 @@ export async function upsertStagedDataset(
     byteSize: prepared.byteSize,
     createdAt: now,
     updatedAt,
+    sourceComplete: options.sourceComplete ?? null,
   };
 }
 
@@ -630,7 +655,7 @@ export async function getStagedDatasetMeta(options: {
   await ensureTables();
   const db = getDbExec();
   const { rows } = await db.execute({
-    sql: `SELECT id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at, removed_at, removed_reason FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
+    sql: `SELECT id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at, source_complete, removed_at, removed_reason FROM staged_datasets WHERE id = ? AND app_id = ? AND owner_email = ?`,
     args: [options.id, options.appId, options.ownerEmail],
   });
   if (rows.length === 0) return null;
@@ -645,7 +670,7 @@ export async function listStagedDatasets(options: {
   await ensureTables();
   const db = getDbExec();
   const { rows } = await db.execute({
-    sql: `SELECT id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at FROM staged_datasets WHERE app_id = ? AND owner_email = ? AND removed_at IS NULL ORDER BY updated_at DESC`,
+    sql: `SELECT id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at, source_complete FROM staged_datasets WHERE app_id = ? AND owner_email = ? AND removed_at IS NULL ORDER BY updated_at DESC`,
     args: [options.appId, options.ownerEmail],
   });
   return rows.map(rowToMeta);
@@ -684,6 +709,8 @@ function rowToMeta(row: Record<string, unknown>): StagedDatasetMeta {
     byteSize: Number(row.byte_size),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
+    sourceComplete:
+      row.source_complete == null ? null : Boolean(row.source_complete),
   };
 }
 

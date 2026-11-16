@@ -212,10 +212,17 @@ export interface PromptComposerProps {
   showModelSelector?: boolean;
   /** Controlled open state for hosts that resize around the model picker. */
   modelSelectorOpen?: boolean;
+  /**
+   * Name the selection in the model trigger even while its provider is unset (default false).
+   * See TiptapComposer's modelTriggerNamesSelectionOnly: the picker keeps the connect rows.
+   */
+  modelTriggerNamesSelectionOnly?: boolean;
   /** Show the legacy provider-level Auto model option (default: true). */
   showAutoModelOption?: boolean;
   /** Show the voice dictation button. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
+  /** Bind dictation to the global mod+d accelerator (default false; see TiptapComposer). */
+  dictationShortcut?: boolean;
   /** Let an empty draft turn Send into the voice-chat button (default: true). Dictation is unaffected. */
   voiceChatEnabled?: boolean;
   /** Starts voice chat from the empty Send slot in place of the provider's default start. */
@@ -234,7 +241,7 @@ export interface PromptComposerProps {
    * Controls the shared "+" affordance. Defaults to upload-only for standalone
    * prompt forms; chat surfaces can opt into the full sidebar menu.
    */
-  plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
+  plusMenuMode?: "full" | "upload-only" | "attach-only" | "terminal" | "hidden";
   /** Controls the terminal-specific plus menu when `plusMenuMode` is terminal. */
   terminalModeControl?: ComposerTerminalModeControl;
   /**
@@ -294,7 +301,15 @@ export interface PromptComposerProps {
   availableModels?: EngineModelGroup[];
   /** Whether the external model list is still being resolved. */
   modelListLoading?: boolean;
+  /** Show the chevron after the model name (default true; see TiptapComposer). */
+  modelSelectorChevron?: boolean;
   selectedModel?: string;
+  /**
+   * The model the composer shows before the host controls a selection, for
+   * example "auto". Concrete models stay selectable and a user pick still wins.
+   * Omit it to keep the adapter's server-side default.
+   */
+  defaultModel?: string;
   selectedEngine?: string;
   selectedEffort?: ReasoningEffort;
   onModelChange?: (model: string, engine: string) => void;
@@ -829,8 +844,10 @@ function PromptComposerInner({
   clearOnSubmitImmediately,
   showModelSelector = true,
   modelSelectorOpen,
+  modelTriggerNamesSelectionOnly = false,
   showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
+  dictationShortcut = false,
   voiceChatEnabled = true,
   onVoiceChatStart,
   attachmentsEnabled = true,
@@ -864,7 +881,9 @@ function PromptComposerInner({
   onSlashCommand,
   availableModels,
   modelListLoading,
+  modelSelectorChevron = true,
   selectedModel,
+  defaultModel,
   selectedEngine,
   selectedEffort,
   onModelChange,
@@ -950,7 +969,7 @@ function PromptComposerInner({
     enabled: showModelSelector && requestedModelStatusChecksEnabled,
   });
   const composerModel = showModelSelector
-    ? (selectedModel ?? models.selectedModel)
+    ? (selectedModel ?? defaultModel ?? models.selectedModel)
     : undefined;
   const composerEngine = showModelSelector
     ? (selectedEngine ?? models.selectedEngine)
@@ -1285,6 +1304,7 @@ function PromptComposerInner({
           includeDefaultSlashSkills={includeDefaultSlashSkills}
           onSlashCommand={onSlashCommand}
           voiceEnabled={voiceEnabled}
+          dictationShortcut={dictationShortcut}
           voiceChatEnabled={voiceChatEnabled}
           onVoiceChatStart={onVoiceChatStart}
           onTextChange={onTextChange}
@@ -1310,11 +1330,13 @@ function PromptComposerInner({
           agentOnly={agentOnly}
           showAutoModelOption={showAutoModelOption}
           modelListLoading={composerModelListLoading}
+          modelSelectorChevron={modelSelectorChevron}
           onModelChange={handleModelChange}
           onEffortChange={handleEffortChange}
           onAgentChange={onAgentChange}
           onModelSelectorOpenChange={onModelSelectorOpenChange}
           providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
+          modelTriggerNamesSelectionOnly={modelTriggerNamesSelectionOnly}
           onConnectProvider={onConnectProvider}
           onConnectLocalRuntime={onConnectLocalRuntime}
           imageModelMenu={imageModelMenu}
