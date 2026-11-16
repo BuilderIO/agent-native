@@ -1208,16 +1208,52 @@ return removeSupersededReservations;`,
     });
   });
 
-  it("waits through the observed stable release review and CI delay", async () => {
+  const releaseHeadSha = "b".repeat(40);
+
+  function releaseMergeRun(
+    id: number,
+    status: string,
+    conclusion: string | null,
+  ) {
+    return {
+      id,
+      head_sha: releaseHeadSha,
+      status,
+      conclusion,
+      html_url: `https://github.com/BuilderIO/agent-native/actions/runs/${id}`,
+    };
+  }
+
+  async function loadWaitForReleaseMerge({
+    github,
+    sleep,
+    pollIntervalMs,
+    core = { info: () => {}, warning: () => {} },
+    listWorkflowRunJobs = async () => [],
+    failureAnnotations = async () => [],
+  }: {
+    github: Workflow;
+    sleep: (ms: number) => Promise<void>;
+    pollIntervalMs: number;
+    core?: Workflow;
+    listWorkflowRunJobs?: (runId: number) => Promise<Workflow[]>;
+    failureAnnotations?: (job: Workflow) => Promise<string[]>;
+  }): Promise<(pr: Workflow) => Promise<string>> {
     const source = String((coordinator.with as Workflow).script);
-    const helperStart = source.indexOf(
-      "async function waitForReleaseMerge(pr)",
-    );
+    const helperStart = source.indexOf("async function latestReleaseMergeRun(");
     const helperEnd = source.indexOf(
       "\n\nasync function waitForStablePackagePublish",
       helperStart,
     );
+    const requestHelperStart = source.indexOf(
+      "function isTransientDispatchFailure(",
+    );
+    const requestHelperEnd = source.indexOf(
+      "\n\nasync function findDispatchedRun",
+      requestHelperStart,
+    );
     assert(helperStart >= 0 && helperEnd > helperStart);
+    assert(requestHelperStart >= 0 && requestHelperEnd > requestHelperStart);
     const AsyncFunction = Object.getPrototypeOf(
       async function () {},
     ).constructor;
@@ -1229,72 +1265,171 @@ return removeSupersededReservations;`,
       "sleep",
       "pollIntervalMs",
       "core",
-      `${source.slice(helperStart, helperEnd)}
+      "listWorkflowRunJobs",
+      "failureAnnotations",
+      `${source.slice(requestHelperStart, requestHelperEnd)}
+${source.slice(helperStart, helperEnd)}
 return waitForReleaseMerge;`,
-    ) as (
-      github: Workflow,
-      owner: string,
-      repo: string,
-      phaseDeadline: (timeoutMs: number) => number,
-      sleep: (ms: number) => Promise<void>,
-      pollIntervalMs: number,
-      core: Workflow,
-    ) => (pr: Workflow) => Promise<string>;
+    );
+    return createWaitForReleaseMerge(
+      github,
+      "BuilderIO",
+      "agent-native",
+      (timeoutMs: number) => Math.min(350 * 60_000, Date.now() + timeoutMs),
+      sleep,
+      pollIntervalMs,
+      core,
+      listWorkflowRunJobs,
+      failureAnnotations,
+    );
+  }
 
+  it("waits through the observed stable release review and CI delay", async () => {
     const realNow = Date.now;
     let now = 0;
     Date.now = () => now;
+    const sleep = async (ms: number) => {
+      now += ms;
+    };
+    const actions = {
+      listWorkflowRuns: async () => ({
+        data: { workflow_runs: [releaseMergeRun(1, "in_progress", null)] },
+      }),
+    };
     try {
-      const github = {
-        rest: {
-          pulls: {
-            get: async () => ({
-              data:
-                now >= 196 * 60_000
-                  ? { merged: true, merge_commit_sha: "a".repeat(40) }
-                  : { merged: false, state: "open" },
-            }),
+      const waitForReleaseMerge = await loadWaitForReleaseMerge({
+        github: {
+          rest: {
+            actions,
+            pulls: {
+              get: async () => ({
+                data:
+                  now >= 196 * 60_000
+                    ? { merged: true, merge_commit_sha: "a".repeat(40) }
+                    : {
+                        merged: false,
+                        state: "open",
+                        head: { sha: releaseHeadSha },
+                      },
+              }),
+            },
           },
         },
-      } as Workflow;
-      const waitForReleaseMerge = await createWaitForReleaseMerge(
-        github,
-        "BuilderIO",
-        "agent-native",
-        (timeoutMs) => Math.min(350 * 60_000, Date.now() + timeoutMs),
-        async (ms) => {
-          now += ms;
-        },
-        20 * 60_000,
-        { info: () => {} },
-      );
+        sleep,
+        pollIntervalMs: 20 * 60_000,
+      });
       assert.equal(await waitForReleaseMerge({ number: 8062 }), "a".repeat(40));
       assert(now < 210 * 60_000);
 
       now = 120 * 60_000;
-      const noMergeGithub = {
-        rest: {
-          pulls: {
-            get: async () => ({ data: { merged: false, state: "open" } }),
+      const reserveBoundedWait = await loadWaitForReleaseMerge({
+        github: {
+          rest: {
+            actions,
+            pulls: {
+              get: async () => ({
+                data: {
+                  merged: false,
+                  state: "open",
+                  head: { sha: releaseHeadSha },
+                },
+              }),
+            },
           },
         },
-      } as Workflow;
-      const reserveBoundedWait = await createWaitForReleaseMerge(
-        noMergeGithub,
-        "BuilderIO",
-        "agent-native",
-        (timeoutMs) => Math.min(350 * 60_000, Date.now() + timeoutMs),
-        async (ms) => {
-          now += ms;
-        },
-        20 * 60_000,
-        { info: () => {} },
-      );
+        sleep,
+        pollIntervalMs: 20 * 60_000,
+      });
       await assert.rejects(
         reserveBoundedWait({ number: 8102 }),
         /did not merge in time/,
       );
       assert.equal(now, 330 * 60_000);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it("stops waiting for the release PR once its merge run ends without merging", async () => {
+    const realNow = Date.now;
+    let now = 0;
+    Date.now = () => now;
+    const sleep = async (ms: number) => {
+      now += ms;
+    };
+    const openPull = {
+      get: async () => ({
+        data: { merged: false, state: "open", head: { sha: releaseHeadSha } },
+      }),
+    };
+    let runReads = 0;
+    const actions = {
+      listWorkflowRuns: async ({ head_sha }: { head_sha: string }) => {
+        assert.equal(head_sha, releaseHeadSha);
+        runReads += 1;
+        if (runReads === 2) {
+          throw Object.assign(new Error("Service Unavailable"), {
+            status: 503,
+          });
+        }
+        return {
+          data: {
+            workflow_runs: [
+              releaseMergeRun(1, "completed", "cancelled"),
+              now >= 29 * 60_000
+                ? releaseMergeRun(2, "completed", "failure")
+                : releaseMergeRun(2, "in_progress", null),
+            ],
+          },
+        };
+      },
+    };
+    const warnings: string[] = [];
+    try {
+      const waitForReleaseMerge = await loadWaitForReleaseMerge({
+        github: { rest: { actions, pulls: openPull } },
+        sleep,
+        pollIntervalMs: 15_000,
+        core: {
+          info: () => {},
+          warning: (message: string) => warnings.push(message),
+        },
+        listWorkflowRunJobs: async (runId) => {
+          assert.equal(runId, 2);
+          return [
+            { id: 20, conclusion: "failure" },
+            { id: 21, conclusion: "success" },
+          ];
+        },
+        failureAnnotations: async (job) => {
+          assert.equal(job.id, 20);
+          return [
+            "Required release PR checks are not green: Fast tests.",
+            "Process completed with exit code 1.",
+          ];
+        },
+      });
+      await assert.rejects(waitForReleaseMerge({ number: 9132 }), {
+        message:
+          "Stable release PR #9132 will not merge: its merge run ended failure (Required release PR checks are not green: Fast tests.): https://github.com/BuilderIO/agent-native/actions/runs/2",
+      });
+      assert.equal(now, 29 * 60_000);
+      assert.equal(warnings.length, 1);
+      assert.match(warnings[0], /HTTP 503: Service Unavailable/);
+
+      now = 29 * 60_000;
+      const unreadableReason = await loadWaitForReleaseMerge({
+        github: { rest: { actions, pulls: openPull } },
+        sleep,
+        pollIntervalMs: 15_000,
+        listWorkflowRunJobs: async () => {
+          throw Object.assign(new Error("Forbidden"), { status: 403 });
+        },
+      });
+      await assert.rejects(unreadableReason({ number: 9132 }), {
+        message:
+          "Stable release PR #9132 will not merge: its merge run ended failure (its failure annotations could not be read: HTTP 403: Forbidden): https://github.com/BuilderIO/agent-native/actions/runs/2",
+      });
     } finally {
       Date.now = realNow;
     }

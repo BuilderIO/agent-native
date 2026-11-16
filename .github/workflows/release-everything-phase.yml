@@ -867,6 +867,44 @@ jobs:
               throw new Error("The stable package Version Packages PR was not created in time.");
             }
 
+            // Only auto-merge-version-packages.yml merges the release PR, and its
+            // concurrency group cancels older runs, so the newest pull_request
+            // run for the current head is the only merge still coming. Without
+            // this, a merge run that fails in minutes leaves this wait idle for
+            // its full window.
+            async function latestReleaseMergeRun(headSha) {
+              const response = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: "auto-merge-version-packages.yml",
+                event: "pull_request",
+                head_sha: headSha,
+                per_page: 100,
+              });
+              const runs = response.data?.workflow_runs;
+              if (!Array.isArray(runs)) {
+                throw new Error("GitHub returned no workflow runs for the release PR merge.");
+              }
+              return runs
+                .filter((run) => run.head_sha === headSha)
+                .sort((left, right) => right.id - left.id)[0] ?? null;
+            }
+
+            async function releaseMergeRunFailureReason(run) {
+              try {
+                const messages = [];
+                for (const job of await listWorkflowRunJobs(run.id)) {
+                  if (job.conclusion !== "failure") continue;
+                  messages.push(...(await failureAnnotations(job)));
+                }
+                return messages
+                  .filter((message) => !/^Process completed with exit code \d+\.$/.test(message))
+                  .join(" ");
+              } catch (error) {
+                return `its failure annotations could not be read: ${describeRequestFailure(error)}`;
+              }
+            }
+
             async function waitForReleaseMerge(pr) {
               const deadline = phaseDeadline(210 * 60_000);
               if (deadline <= Date.now()) {
@@ -874,6 +912,7 @@ jobs:
                   `Not enough coordinator time remains to wait for stable release PR #${pr.number}.`,
                 );
               }
+              let lastMergeRunState = "";
               while (Date.now() < deadline) {
                 const current = (await github.rest.pulls.get({
                   owner,
@@ -892,6 +931,32 @@ jobs:
                 }
                 if (current.state === "closed") {
                   throw new Error(`Stable release PR #${pr.number} closed without merging: ${pr.html_url}`);
+                }
+                let mergeRun;
+                try {
+                  mergeRun = await latestReleaseMergeRun(current.head.sha);
+                } catch (error) {
+                  if (!isTransientDispatchFailure(error)) throw error;
+                  core.warning(
+                    `Could not read the merge run for stable release PR #${pr.number} (${describeRequestFailure(error)}); retrying.`,
+                  );
+                }
+                if (mergeRun !== undefined) {
+                  const mergeRunState = mergeRun
+                    ? `${mergeRun.status}/${mergeRun.conclusion || "pending"}`
+                    : "not started";
+                  if (mergeRunState !== lastMergeRunState) {
+                    core.info(
+                      `Stable release PR #${pr.number} merge run: ${mergeRunState}${mergeRun ? ` ${mergeRun.html_url}` : ""}`,
+                    );
+                    lastMergeRunState = mergeRunState;
+                  }
+                  if (mergeRun?.status === "completed" && mergeRun.conclusion !== "success") {
+                    const reason = await releaseMergeRunFailureReason(mergeRun);
+                    throw new Error(
+                      `Stable release PR #${pr.number} will not merge: its merge run ended ${mergeRun.conclusion}${reason ? ` (${reason})` : ""}: ${mergeRun.html_url}`,
+                    );
+                  }
                 }
                 const remaining = deadline - Date.now();
                 if (remaining <= 0) break;
