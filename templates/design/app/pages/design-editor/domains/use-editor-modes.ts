@@ -44,6 +44,7 @@ import {
   getScreenFrameOriginCanvas,
   shouldPopToOverviewOnZoomChange,
 } from "../overview-camera";
+import { discardPendingLiveEditCollections } from "../pending-edits";
 import { cancelPrototypeNavigationTransition } from "../prototype-navigation-transition";
 import { computeInteractZoomToFit } from "../responsive-interact";
 import { hasSelectableCodeLayerParent } from "../selection-state";
@@ -1262,7 +1263,11 @@ export function useEditorModes({
     }
     requestPendingVisualStyleRevert(pendingVisualStyleEdits);
     requestPendingLiveNonStyleRevert(pendingLiveNonStyleEdits);
-    clearPendingLiveEditState();
+    discardPendingLiveEditCollections({
+      stylesRef: pendingVisualStyleEditsRef,
+      liveRef: pendingLiveNonStyleEditsRef,
+      clearState: clearPendingLiveEditState,
+    });
     window.setTimeout(() => handleModeChange("edit"), 50);
     toast.success(t("designEditor.pendingVisualStyles.abortedToast"));
   }, [

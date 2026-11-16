@@ -2063,6 +2063,9 @@ export default {
     addTweaks: "أضف تعديلات",
     addTweakControls: "إضافة الضوابط القرص",
     closeTweaks: "إغلاق القرص",
+    showFloatingTweaks: "إظهار التعديلات العائمة",
+    collapseTweaks: "طي التعديلات",
+    expandTweaks: "توسيع التعديلات",
     tweaksHelp:
       "التعديلات هي تجاوزات مرئية خاصة بنقطة التوقف والحالة فوق التصميم الأساسي. أعد ضبط عنصر التحكم للعودة إلى القيمة الموروثة.",
     tweaksDocs: "معرفة المزيد.",
@@ -2329,6 +2332,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "تم تغيير التعديلات في مكان آخر. حدّث التصميم قبل المحاولة مرة أخرى.",
+      tweakBaselineUnreadable:
+        "تعذّرت قراءة خط الأساس المحفوظ للتعديلات. تم إيقاف تغييرات التعديلات مؤقتًا حتى إصلاح بيانات التصميم.",
+      resetTweakBaseline: "إعادة تعيين خط الأساس",
       tweakSaveNotDurable:
         "لم تُحفظ التعديلات بعد. أبقِ علامة التبويب هذه مفتوحة وحاول مرة أخرى.",
       undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",

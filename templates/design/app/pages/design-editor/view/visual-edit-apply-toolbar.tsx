@@ -43,7 +43,7 @@ export function renderVisualEditApplyToolbar({
     shellMode,
     t,
   } = editorCore;
-  const { hasLocalPendingVisualEdits, applyingViaHost } = editorHistory;
+  const { applyingViaHost } = editorHistory;
   const {
     remoteVisualEditPending,
     remoteVisualEditSuggestion,
@@ -64,12 +64,27 @@ export function renderVisualEditApplyToolbar({
     pendingStructureVerificationStatus === "checking-source" ||
     pendingStructureVerificationStatus === "awaiting-source" ||
     pendingStructureVerificationStatus === "awaiting-runtime";
-  const remoteVisualEditPrompt =
-    !hasLocalPendingVisualEdits && remoteVisualEditPending
-      ? `${visualEditPendingQuery.data!.prompt}\n\nAfter applying and verifying these source changes, acknowledge only revision ${visualEditPendingQuery.data!.revision} with acknowledge-visual-edit-pending, then call get-visual-edit-pending again to verify it cleared.`
-      : !hasLocalPendingVisualEdits && remoteVisualEditSuggestion
-        ? visualEditSuggestionReviewPrompt(remoteVisualEditSuggestion)
-        : undefined;
+  const remoteVisualEdit = remoteVisualEditPending
+    ? visualEditPendingQuery.data
+    : undefined;
+  const remoteVisualEditPrompt = remoteVisualEdit
+    ? {
+        prompt: remoteVisualEdit.prompt,
+        records: remoteVisualEdit.records,
+        ...(remoteVisualEdit.revision !== null
+          ? { revision: remoteVisualEdit.revision }
+          : {}),
+      }
+    : remoteVisualEditSuggestion
+      ? {
+          prompt: visualEditSuggestionReviewPrompt(remoteVisualEditSuggestion),
+          ...(typeof remoteVisualEditSuggestion.revision === "number"
+            ? { revision: remoteVisualEditSuggestion.revision }
+            : {}),
+          reviewOnly: true,
+        }
+      : undefined;
+  const applyPrompt = remoteVisualEditPrompt;
   const showSharedVisualEditApply = Boolean(remoteVisualEditPrompt);
   const showVisualEditApply =
     showPendingVisualStyleApply ||
@@ -113,15 +128,8 @@ export function renderVisualEditApplyToolbar({
               }
               onClick={
                 canApplyPendingVisualEditsFromToolbar
-                  ? () =>
-                      handleApplyPendingVisualStylesWithAgent(
-                        remoteVisualEditPrompt,
-                      )
-                  : () =>
-                      handleCopyPendingVisualStylePrompt(
-                        remoteVisualEditPrompt,
-                        true,
-                      )
+                  ? () => handleApplyPendingVisualStylesWithAgent(applyPrompt)
+                  : () => handleCopyPendingVisualStylePrompt(applyPrompt, true)
               }
             >
               {applyingViaHost ? (
@@ -169,10 +177,7 @@ export function renderVisualEditApplyToolbar({
                   </DropdownMenuLabel>
                   <DropdownMenuItem
                     onClick={() =>
-                      handleCopyPendingVisualStylePrompt(
-                        remoteVisualEditPrompt,
-                        false,
-                      )
+                      handleCopyPendingVisualStylePrompt(applyPrompt, false)
                     }
                   >
                     <IconClipboard className="mr-2 h-4 w-4" />
@@ -180,10 +185,7 @@ export function renderVisualEditApplyToolbar({
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() =>
-                      handleCopyPendingVisualStylePrompt(
-                        remoteVisualEditPrompt,
-                        true,
-                      )
+                      handleCopyPendingVisualStylePrompt(applyPrompt, true)
                     }
                   >
                     <IconClipboard className="mr-2 h-4 w-4" />

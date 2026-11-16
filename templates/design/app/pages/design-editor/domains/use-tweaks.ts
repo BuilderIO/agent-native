@@ -1,4 +1,7 @@
-import { useReconciledState } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  useReconciledState,
+} from "@agent-native/core/client/hooks";
 import type { TweakDefinition } from "@shared/api";
 import {
   resolveTweaksToCssVars,
@@ -17,6 +20,7 @@ import {
   type RefObject,
   type SetStateAction,
 } from "react";
+import { toast } from "sonner";
 
 import {
   createDesignSaveOutboxEntry,
@@ -32,6 +36,7 @@ import {
   areTweakSelectionsEqual,
   buildAuthoritativeTweakSelections,
 } from "@/pages/design-editor/design-data-geometry-utils";
+import { getTweakHandoffChanges } from "@/pages/design-editor/tweak-handoff";
 import {
   createQueuedTweakSave,
   type ConfirmedTweakSelections,
@@ -60,10 +65,14 @@ export interface UseTweaksResult {
   handleTweakChange: (
     tweakId: string,
     value: string | number | boolean,
-  ) => void;
+  ) =>
+    | { accepted: true }
+    | { accepted: false; reason: "baseline_unreadable" | "not_editable" };
   setTweakSelections: Dispatch<SetStateAction<TweakSelections>>;
   tweakSelections: TweakSelections;
   tweaks: TweakDefinition[];
+  pendingTweakChanges: ReturnType<typeof getTweakHandoffChanges>;
+  tweakMutationsEnabled: boolean;
 }
 
 export function useTweaks({
@@ -235,6 +244,34 @@ export function useTweaks({
       return {};
     }
   }, [design?.data]);
+  const sourceBaseline = useMemo(() => {
+    if (!design?.data) return { status: "readable" as const, value: {} };
+    try {
+      const parsed = JSON.parse(design.data);
+      const value = parsed?.tweakSourceBaseline;
+      if (value === undefined)
+        return { status: "readable" as const, value: {} };
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        return { status: "readable" as const, value: value as TweakSelections };
+      }
+      return { status: "unreadable" as const };
+    } catch {
+      return { status: "unreadable" as const };
+    }
+  }, [design?.data]);
+  useEffect(() => {
+    if (sourceBaseline.status === "unreadable") {
+      toast.warning(t("designEditor.toasts.tweakBaselineUnreadable"), {
+        action: {
+          label: t("designEditor.toasts.resetTweakBaseline"),
+          onClick: () => {
+            if (id)
+              void callAction("reset-tweak-source-baseline", { designId: id });
+          },
+        },
+      });
+    }
+  }, [id, sourceBaseline.status, t]);
   useLayoutEffect(() => {
     if (
       !tweakSaveActive &&
@@ -259,6 +296,14 @@ export function useTweaks({
       equals: areTweakSelectionsEqual,
     },
   );
+  const pendingTweakChanges = useMemo(() => {
+    if (sourceBaseline.status === "unreadable") return [];
+    return getTweakHandoffChanges({
+      tweaks,
+      before: sourceBaseline.value,
+      after: tweakSelections,
+    });
+  }, [sourceBaseline, tweakSelections, tweaks]);
 
   const cssVarValues = useMemo(
     () => resolveTweaksToCssVars(tweaks, tweakSelections),
@@ -267,14 +312,23 @@ export function useTweaks({
 
   const handleTweakChange = useCallback(
     (tweakId: string, value: string | number | boolean) => {
+      if (sourceBaseline.status === "unreadable") {
+        return {
+          accepted: false as const,
+          reason: "baseline_unreadable" as const,
+        };
+      }
+      if (!canEditDesignRef.current) {
+        return { accepted: false as const, reason: "not_editable" as const };
+      }
       setTweakSelections((prev) => {
-        if (!canEditDesign) return prev;
         const next = { ...prev, [tweakId]: value };
         queueTweakSave(next);
         return next;
       });
+      return { accepted: true as const };
     },
-    [canEditDesign, queueTweakSave],
+    [canEditDesignRef, queueTweakSave, sourceBaseline.status],
   );
 
   return {
@@ -284,5 +338,7 @@ export function useTweaks({
     setTweakSelections,
     tweakSelections,
     tweaks,
+    pendingTweakChanges,
+    tweakMutationsEnabled: sourceBaseline.status === "readable",
   };
 }
