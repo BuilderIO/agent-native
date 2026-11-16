@@ -17,6 +17,7 @@ interface PublishedVisualEditHandoff {
   pendingEditCount: number | null;
   revision: number | null;
   status: "empty" | "ready" | "suggested" | "stale";
+  supersededSuggestion?: { text: string; authorEmail: string | null };
 }
 
 export interface PublishVisualEditPendingArgs {
@@ -41,6 +42,10 @@ export interface PublishVisualEditPendingArgs {
   ) => void;
   setPendingVisualEditPublicationFailed: (failed: boolean) => void;
   showHandoffErrorToast: (error: unknown) => void;
+  onSupersededSuggestion: (suggestion: {
+    text: string;
+    authorEmail: string | null;
+  }) => void;
   onLocalRevisionConflict?: () => void;
 }
 
@@ -129,6 +134,7 @@ export async function runPublishVisualEditPending(
     pendingVisualEditHadPendingRef,
     prepareLocalBridgeRevision,
     onHandoffPublicationStatusChange,
+    onSupersededSuggestion,
     onLocalRevisionConflict,
     setPendingVisualEditPublicationFailed,
     showHandoffErrorToast,
@@ -151,6 +157,9 @@ export async function runPublishVisualEditPending(
         (result.revision ?? 0) < 1
       ) {
         throw { errorCode: "visual_edit_handoff_unconfirmed" };
+      }
+      if (result.supersededSuggestion) {
+        onSupersededSuggestion(result.supersededSuggestion);
       }
       setPendingVisualEditPublicationFailed(false);
       onHandoffPublicationStatusChange(

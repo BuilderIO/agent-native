@@ -2230,6 +2230,9 @@ export default {
       annotationSendError:
         "تعذّر إرسال التعليقات التوضيحية. لا يزال الرسم محفوظًا هنا، فحاول مرة أخرى.",
       codingHandoffError: "تعذر إنشاء تسليم الترميز",
+      unknownCollaborator: "متعاون",
+      supersededVisualEditSuggestion:
+        "تم استبدال اقتراح سابق من {{authorEmail}}. النص الأصلي: {{text}}",
       visualEditPendingConflict:
         "لدى متعاون آخر تعديلات بانتظار التطبيق. طبّقها أو امسحها قبل إرسال تعديلات جديدة.",
       codingHandoffCopied: "تم نسخ تسليم الترميز",

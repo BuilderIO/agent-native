@@ -2189,6 +2189,9 @@ export default {
       annotationSendError:
         "Could not send annotations. Your drawing is still here—try again.",
       codingHandoffError: "Could not create agent handoff",
+      unknownCollaborator: "a collaborator",
+      supersededVisualEditSuggestion:
+        "A previous suggestion from {{authorEmail}} was replaced. Original text: {{text}}",
       visualEditPendingConflict:
         "Another collaborator has edits waiting. Apply or clear them before sending new edits.",
       codingHandoffCopied: "Agent prompt copied",

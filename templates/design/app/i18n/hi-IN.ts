@@ -2237,6 +2237,9 @@ export default {
       annotationSendError:
         "एनोटेशन नहीं भेजे जा सके। आपकी ड्रॉइंग यहीं सुरक्षित है—फिर से कोशिश करें।",
       codingHandoffError: "कोडिंग हैंडऑफ़ नहीं बनाया जा सका",
+      unknownCollaborator: "सहयोगी",
+      supersededVisualEditSuggestion:
+        "{{authorEmail}} का पिछला सुझाव बदल दिया गया। मूल पाठ: {{text}}",
       visualEditPendingConflict:
         "किसी अन्य सहयोगी के बदलाव लागू होने की प्रतीक्षा में हैं। नए बदलाव भेजने से पहले उन्हें लागू करें या हटाएँ।",
       codingHandoffCopied: "कोडिंग हैंडऑफ़ कॉपी हुआ",

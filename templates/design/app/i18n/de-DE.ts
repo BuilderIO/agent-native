@@ -2289,6 +2289,9 @@ export default {
       annotationSendError:
         "Die Anmerkungen konnten nicht gesendet werden. Deine Zeichnung ist noch da – versuche es erneut.",
       codingHandoffError: "Code-Übergabe konnte nicht erstellt werden",
+      unknownCollaborator: "Mitwirkende Person",
+      supersededVisualEditSuggestion:
+        "Ein früherer Vorschlag von {{authorEmail}} wurde ersetzt. Originaltext: {{text}}",
       visualEditPendingConflict:
         "Bei einem anderen Mitwirkenden warten Änderungen. Wende sie an oder verwerfe sie, bevor du neue Änderungen sendest.",
       codingHandoffCopied: "Code-Übergabe kopiert",

@@ -2268,6 +2268,9 @@ export default {
       annotationSendError:
         "Não foi possível enviar as anotações. Seu desenho continua aqui; tente novamente.",
       codingHandoffError: "Não foi possível criar o handoff de código",
+      unknownCollaborator: "um colaborador",
+      supersededVisualEditSuggestion:
+        "Uma sugestão anterior de {{authorEmail}} foi substituída. Texto original: {{text}}",
       visualEditPendingConflict:
         "Há alterações de outro colaborador aguardando aplicação. Aplique ou limpe-as antes de enviar novas alterações.",
       codingHandoffCopied: "Handoff de código copiado",

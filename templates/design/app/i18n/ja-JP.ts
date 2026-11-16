@@ -2276,6 +2276,9 @@ export default {
       annotationSendError:
         "注釈を送信できませんでした。描画はそのまま残っています。もう一度お試しください。",
       codingHandoffError: "コーディング引き継ぎを作成できませんでした",
+      unknownCollaborator: "共同編集者",
+      supersededVisualEditSuggestion:
+        "{{authorEmail}} の以前の提案が置き換えられました。元のテキスト: {{text}}",
       visualEditPendingConflict:
         "別の共同編集者の変更が適用待ちです。新しい変更を送る前に適用するか消去してください。",
       codingHandoffCopied: "コーディング引き継ぎをコピーしました",

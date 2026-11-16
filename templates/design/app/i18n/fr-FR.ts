@@ -2283,6 +2283,9 @@ export default {
       annotationSendError:
         "Impossible d’envoyer les annotations. Votre dessin est toujours là ; réessayez.",
       codingHandoffError: "Impossible de créer le transfert de code",
+      unknownCollaborator: "un collaborateur",
+      supersededVisualEditSuggestion:
+        "Une suggestion précédente de {{authorEmail}} a été remplacée. Texte d’origine : {{text}}",
       visualEditPendingConflict:
         "Un autre collaborateur a des modifications en attente. Appliquez-les ou effacez-les avant d’en envoyer de nouvelles.",
       codingHandoffCopied: "Transfert de code copié",

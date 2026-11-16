@@ -2278,6 +2278,9 @@ export default {
       annotationSendError:
         "No se pudieron enviar las anotaciones. Tu dibujo sigue aquí; inténtalo de nuevo.",
       codingHandoffError: "No se pudo crear la entrega para código",
+      unknownCollaborator: "un colaborador",
+      supersededVisualEditSuggestion:
+        "Se reemplazó una sugerencia anterior de {{authorEmail}}. Texto original: {{text}}",
       visualEditPendingConflict:
         "Otro colaborador tiene cambios pendientes. Aplícalos o elimínalos antes de enviar cambios nuevos.",
       codingHandoffCopied: "Entrega para código copiada",

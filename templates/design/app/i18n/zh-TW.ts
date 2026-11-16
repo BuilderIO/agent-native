@@ -2222,6 +2222,9 @@ export default {
       tweakConflict: "調整已在其他地方變更。請重新整理設計後再試一次。",
       tweakSaveNotDurable: "調整尚未儲存。請保持此分頁開啟並再試一次。",
       codingHandoffError: "無法建立編碼交接",
+      unknownCollaborator: "協作者",
+      supersededVisualEditSuggestion:
+        "來自 {{authorEmail}} 的先前建議已被取代。原文：{{text}}",
       visualEditPendingConflict:
         "另一位協作者有待套用的變更。請先套用或清除這些變更，再傳送新變更。",
       codingHandoffCopied: "編碼交接已複製",

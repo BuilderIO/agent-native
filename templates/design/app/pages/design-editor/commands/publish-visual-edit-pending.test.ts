@@ -36,6 +36,7 @@ function makeArgs(
     pendingVisualEditClearRequestedRef: { current: null },
     pendingVisualEditHadPendingRef: { current: null },
     onHandoffPublicationStatusChange: vi.fn(),
+    onSupersededSuggestion: vi.fn(),
     setPendingVisualEditPublicationFailed: vi.fn(),
     showHandoffErrorToast: vi.fn(),
     ...overrides,
@@ -210,6 +211,28 @@ describe("runPublishVisualEditPending", () => {
       1,
     );
     expect(args.showHandoffErrorToast).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the original suggestion when an editor replaces it", async () => {
+    const args = makeArgs({
+      callAction: vi.fn(async (_name, payload) => ({
+        designId: payload.designId,
+        pendingEditCount: 1,
+        revision: payload.revision,
+        status: "ready",
+        supersededSuggestion: {
+          text: "Try a warmer color palette",
+          authorEmail: "commenter@example.com",
+        },
+      })),
+    });
+
+    await runPublishVisualEditPending(args);
+
+    expect(args.onSupersededSuggestion).toHaveBeenCalledWith({
+      text: "Try a warmer color palette",
+      authorEmail: "commenter@example.com",
+    });
   });
 
   it("publishes the durable handoff when local revision synchronization fails", async () => {

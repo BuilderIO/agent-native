@@ -2193,6 +2193,9 @@ export default {
     toasts: {
       annotationSendError: "无法发送批注。你的绘图仍保留在这里，请重试。",
       codingHandoffError: "无法创建编码交接",
+      unknownCollaborator: "协作者",
+      supersededVisualEditSuggestion:
+        "来自 {{authorEmail}} 的先前建议已被替换。原文：{{text}}",
       visualEditPendingConflict:
         "另一位协作者有待应用的更改。请先应用或清除这些更改，再发送新更改。",
       codingHandoffCopied: "编码交接已复制",
