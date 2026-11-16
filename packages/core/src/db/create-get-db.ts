@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { sql } from "drizzle-orm";
-import { QueryBuilder } from "drizzle-orm/pg-core";
-import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import { is, sql, Subquery, WithSubquery } from "drizzle-orm";
+import { PgDatabase, PgDialect, QueryBuilder } from "drizzle-orm/pg-core";
+import type { PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import {
   annotateMissingTable,
@@ -1012,6 +1012,11 @@ export function isNeonUrl(url: string): boolean {
   return /\.neon\.tech([:/?]|$)/.test(url);
 }
 
+const lazyQueryChains = new WeakMap<
+  object,
+  Array<{ prop: string | symbol; args?: unknown[] }>
+>();
+
 export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   let _db: any;
   let _dbReady: Promise<any> | undefined;
@@ -1155,18 +1160,51 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     if (
       first !== "select" &&
       first !== "selectDistinct" &&
-      first !== "selectDistinctOn"
+      first !== "selectDistinctOn" &&
+      !(
+        first === "with" &&
+        (chain[1]?.prop === "select" ||
+          chain[1]?.prop === "selectDistinct" ||
+          chain[1]?.prop === "selectDistinctOn")
+      ) &&
+      !(first === "$with" && chain.length === 2 && chain[1]?.prop === "as")
     ) {
       return undefined;
     }
-    let result: unknown = new QueryBuilder();
+    const resolveCteQuery = (query: unknown): unknown => {
+      const lazyChain =
+        (typeof query === "function" || (typeof query === "object" && query)) &&
+        lazyQueryChains.get(query);
+      if (!lazyChain) return query;
+      const replayed = replayChainOffline(lazyChain);
+      if (replayed) return replayed;
+      throw new Error(
+        "getDb(): accessed an unresolved query chain synchronously. " +
+          "Only select-style query chains can be embedded as a subquery " +
+          "before the database is ready; await this chain before using its result.",
+      );
+    };
+    // QueryBuilder.with() drops the WITH list for distinct selects; PgDatabase's
+    // builders preserve it and remain connection-less until execution.
+    let result: unknown =
+      first === "with"
+        ? new PgDatabase(new PgDialect(), undefined as never, undefined)
+        : new QueryBuilder();
     for (const step of chain) {
       if (step.prop === "execute") return undefined;
       if (result == null || !(step.prop in Object(result))) return undefined;
       const target = result as Record<string | symbol, unknown>;
       const val = target[step.prop];
-      result =
-        typeof val === "function" ? val.apply(target, step.args ?? []) : val;
+      let args = step.args ?? [];
+      if (first === "$with" && step.prop === "as") {
+        const query = resolveCteQuery(args[0]);
+        args = [
+          typeof query === "function"
+            ? (builder: QueryBuilder) => resolveCteQuery(query(builder))
+            : query,
+        ];
+      }
+      result = typeof val === "function" ? val.apply(target, args) : val;
     }
     return result as Record<string | symbol, unknown> | undefined;
   }
@@ -1175,7 +1213,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     ready: Promise<any>,
     chain: Array<{ prop: string | symbol; args?: any[] }>,
   ): any {
-    return new Proxy(function () {} as any, {
+    const proxy = new Proxy(function () {} as any, {
       get(_target, prop) {
         if (prop === "then" || prop === "catch" || prop === "finally") {
           const promise = ready.then((readyDb) => {
@@ -1206,13 +1244,21 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         return createLazyProxy(ready, [...chain, { prop }]);
       },
       apply(_target, _thisArg, args) {
-        if (chain.length === 0) return createLazyProxy(ready, []);
         const last = chain[chain.length - 1];
+        if (!last) return createLazyProxy(ready, []);
         const newChain = chain.slice(0, -1);
         newChain.push({ prop: last.prop, args });
+        if (last.prop === "as") {
+          const replayed = replayChainOffline(newChain);
+          if (is(replayed, Subquery) || is(replayed, WithSubquery)) {
+            return replayed;
+          }
+        }
         return createLazyProxy(ready, newChain);
       },
     });
+    lazyQueryChains.set(proxy, chain);
+    return proxy;
   }
 
   function getDb(): PgDatabase<PgQueryResultHKT, T> {

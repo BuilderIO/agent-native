@@ -2,8 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { inArray } from "drizzle-orm";
+import { eq, inArray, is, sql, Subquery, WithSubquery } from "drizzle-orm";
 import { PgDialect, pgTable, QueryBuilder, text } from "drizzle-orm/pg-core";
+import { drizzle } from "drizzle-orm/postgres-js";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 describe("createGetDb pooled transaction scoping", () => {
@@ -1107,6 +1108,235 @@ describe("createGetDb — lazy proxy before init resolves", () => {
     expect(cases[0].sql).toContain('select "recording_id" from "meetings"');
   });
 
+  it("materializes aliased selects with fields and SQL aliases like Drizzle", async () => {
+    const db = (await getLazyDbFactory())();
+    const reference = drizzle.mock();
+    const makeSubquery = (source: typeof reference) =>
+      source
+        .select({
+          id: meetings.recordingId,
+          label: sql<string>`upper(${meetings.id})`.as("upper_id"),
+        })
+        .from(meetings)
+        .as("recent");
+    const cold = makeSubquery(db);
+    const expected = makeSubquery(reference);
+    expect(is(cold, Subquery)).toBe(true);
+    const outer = (subquery: typeof expected) =>
+      new QueryBuilder()
+        .select()
+        .from(subquery)
+        .where(eq(subquery.id, "recording"));
+    expect(outer(cold).toSQL()).toEqual(outer(expected).toSQL());
+    expect(new PgDialect().sqlToQuery(sql`${cold.label}`)).toEqual(
+      new PgDialect().sqlToQuery(sql`${expected.label}`),
+    );
+  });
+
+  it("materializes a CTE from a cold select and builds a cold outer query", async () => {
+    const db = (await getLazyDbFactory())();
+    const reference = drizzle.mock();
+    const makeCte = (source: typeof reference) =>
+      source.$with("recent").as(
+        source
+          .select({
+            id: meetings.recordingId,
+            label: sql<string>`upper(${meetings.id})`.as("upper_id"),
+          })
+          .from(meetings),
+      );
+    const cold = makeCte(db);
+    const expected = makeCte(reference);
+    expect(is(cold, WithSubquery)).toBe(true);
+    const coldOuter = db.with(cold).select().from(cold).as("outer_query");
+    const expectedOuter = reference
+      .with(expected)
+      .select()
+      .from(expected)
+      .as("outer_query");
+    const selectOuter = (subquery: typeof expectedOuter) =>
+      new QueryBuilder()
+        .select({ id: subquery.id, label: subquery.label })
+        .from(subquery)
+        .where(eq(subquery.id, "recording"))
+        .toSQL();
+    expect(selectOuter(coldOuter)).toEqual(selectOuter(expectedOuter));
+  });
+
+  it.each(["selectDistinct", "selectDistinctOn"] as const)(
+    "preserves CTEs in cold %s aliases",
+    async (method) => {
+      const db = (await getLazyDbFactory())();
+      const reference = drizzle.mock();
+      const makeOuter = (source: typeof reference) => {
+        const cte = source
+          .$with("recent")
+          .as((qb) => qb.select({ id: meetings.id }).from(meetings));
+        const withCte = source.with(cte);
+        return (
+          method === "selectDistinct"
+            ? withCte.selectDistinct()
+            : withCte.selectDistinctOn([cte.id])
+        )
+          .from(cte)
+          .as("outer_query");
+      };
+      const outerSql = (subquery: ReturnType<typeof makeOuter>) =>
+        new QueryBuilder().select().from(subquery).toSQL();
+      expect(outerSql(makeOuter(db))).toEqual(outerSql(makeOuter(reference)));
+    },
+  );
+
+  it.each(["callback", "sql"] as const)(
+    "materializes %s CTEs like Drizzle",
+    async (kind) => {
+      const db = (await getLazyDbFactory())();
+      const reference = drizzle.mock();
+      const makeCallbackCte = (source: typeof reference) =>
+        source
+          .$with("callback_cte")
+          .as((qb) => qb.select({ id: meetings.id }).from(meetings));
+      const makeSqlCte = (source: typeof reference) =>
+        source
+          .$with("sql_cte", { id: meetings.id })
+          .as(sql`select ${meetings.id} from ${meetings}`);
+      const makeCte = kind === "callback" ? makeCallbackCte : makeSqlCte;
+      const cold = makeCte(db);
+      const expected = makeCte(reference);
+      expect(is(cold, WithSubquery)).toBe(true);
+      const outer = (source: typeof reference, cte: typeof expected) =>
+        source.with(cte).select().from(cte).as("outer_query");
+      const selectOuter = (subquery: ReturnType<typeof outer>) =>
+        new QueryBuilder().select().from(subquery).toSQL();
+      expect(selectOuter(outer(db, cold))).toEqual(
+        selectOuter(outer(reference, expected)),
+      );
+    },
+  );
+
+  it("preserves Drizzle errors for unaliased SQL fields", async () => {
+    const db = (await getLazyDbFactory())();
+    const reference = drizzle.mock();
+    const makeSubquery = (source: typeof reference) =>
+      source
+        .select({ id: sql<string>`upper(${meetings.id})` })
+        .from(meetings)
+        .as("bad");
+    const cold = makeSubquery(db);
+    const expected = makeSubquery(reference);
+    expect(() => cold.id).toThrowError(
+      (() => {
+        try {
+          void expected.id;
+        } catch (error) {
+          return error as Error;
+        }
+        throw new Error("Expected Drizzle to reject the field");
+      })(),
+    );
+  });
+
+  it("propagates errors from CTE callbacks", async () => {
+    const db = (await getLazyDbFactory())();
+    const error = new Error("CTE callback failed");
+    expect(() =>
+      db.$with("bad").as(() => {
+        throw error;
+      }),
+    ).toThrow(error);
+  });
+
+  it("defers generic queries and executes cold outer queries on the initialized database", async () => {
+    const reference = drizzle.mock();
+    let initialize!: (value: { drizzle: () => typeof reference }) => void;
+    vi.doMock("./client.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./client.js")>();
+      return {
+        ...actual,
+        isPgliteUrl: vi.fn(() => true),
+        loadPgliteDrizzle: vi.fn(
+          () =>
+            new Promise((resolve) => {
+              initialize = resolve;
+            }),
+        ),
+        getPgliteClient: vi.fn(async () => ({})),
+        pgliteDrizzleClient: vi.fn((_url: string, client: unknown) => client),
+      };
+    });
+    const { createGetDb } = await import("./create-get-db.js");
+    const db = createGetDb({})();
+    const select = vi.spyOn(reference, "select");
+    const insert = vi.spyOn(reference, "insert");
+    const cte = db
+      .$with("recent")
+      .as((qb) => qb.select({ id: meetings.id }).from(meetings));
+    const outer = db.with(cte).select().from(cte);
+    const write = db.insert(meetings).values({ id: "1" });
+    expect(select).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+    await Promise.resolve();
+    initialize({ drizzle: () => reference });
+    const expectedCte = reference
+      .$with("recent")
+      .as((qb) => qb.select({ id: meetings.id }).from(meetings));
+    const expectedSelect = reference
+      .with(expectedCte)
+      .select()
+      .from(expectedCte)
+      .toSQL();
+    const expectedInsert = reference
+      .insert(meetings)
+      .values({ id: "1" })
+      .toSQL();
+    expect(await outer.toSQL()).toEqual(expectedSelect);
+    expect(await write.toSQL()).toEqual(expectedInsert);
+  });
+
+  it("executes a cold CTE outer query with Drizzle-equivalent results", async () => {
+    vi.doUnmock("./client.js");
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    const { createGetDb } = await import("./create-get-db.js");
+    const { closeDbExec } = await import("./client.js");
+    try {
+      const getDb = createGetDb({});
+      const db = getDb();
+      const cte = db.$with("recent").as(
+        db
+          .select({
+            id: meetings.id,
+            label: sql<string>`upper(${meetings.recordingId})`.as("label"),
+          })
+          .from(meetings),
+      );
+      const coldOuter = db.with(cte).select().from(cte).where(eq(cte.id, "1"));
+      await db.execute(sql`create table meetings (id text, recording_id text)`);
+      await db.insert(meetings).values([
+        { id: "1", recordingId: "abc" },
+        { id: "2", recordingId: "xyz" },
+      ]);
+      const ready = getDb();
+      const expectedCte = ready.$with("recent").as(
+        ready
+          .select({
+            id: meetings.id,
+            label: sql<string>`upper(${meetings.recordingId})`.as("label"),
+          })
+          .from(meetings),
+      );
+      const expected = await ready
+        .with(expectedCte)
+        .select()
+        .from(expectedCte)
+        .where(eq(expectedCte.id, "1"));
+      expect(await coldOuter).toEqual(expected);
+      expect(expected).toEqual([{ id: "1", label: "ABC" }]);
+    } finally {
+      await closeDbExec();
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("still fails loudly for chains that cannot be built offline", async () => {
     const getDb = await getLazyDbFactory();
     const db = getDb();
@@ -1115,6 +1345,9 @@ describe("createGetDb — lazy proxy before init resolves", () => {
     for (const prop of ["getSQL", "shouldOmitSQLParens"] as const) {
       expect(() => insertChain[prop]).toThrow(/unresolved|await/i);
     }
+    expect(() => db.$with("inserted").as(insertChain)).toThrow(
+      /unresolved|await/i,
+    );
   });
 });
 
