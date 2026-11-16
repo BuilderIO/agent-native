@@ -10,3 +10,5 @@ A full-app panel acts as its verified owner, as a signed-in browser does: it run
 Dispatch's `open_app` asks the target app for an embed session whenever an MCP host calls it, so the full app opens in the host's side panel without the caller passing `embed: true`, and passes an explicit `embed: false` on so no panel opens.
 
 An action that returns another app's embed start URL, such as `open_app`, declares `opensAnotherAppEmbed: true` so the MCP server keeps that URL even when the app runs on its own origin.
+
+When `open_app` cannot get a session from the target app, its result says why in `embedUnavailable` instead of looking like a plain link.

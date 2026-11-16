@@ -1145,6 +1145,7 @@ export async function openGrantedDispatchMcpApp(input: {
   embedStartUrl?: string;
   embedTargetPath?: string;
   embedExpiresAt?: number;
+  embedUnavailable?: string;
 }> {
   const view = input.view?.trim() ?? "";
   const hasPathInput = input.path != null;
@@ -1166,6 +1167,9 @@ export async function openGrantedDispatchMcpApp(input: {
   let embedSession: Awaited<
     ReturnType<typeof createGrantedDispatchMcpEmbedSession>
   > | null = null;
+  // Says why no session came back, so the caller can tell a plain link it
+  // asked for from a panel that failed to open.
+  let embedUnavailable: string | undefined;
   if (input.embed) {
     try {
       embedSession = await createEmbedSessionForResolvedGrantedApp({
@@ -1179,6 +1183,9 @@ export async function openGrantedDispatchMcpApp(input: {
         `[dispatch] Could not pre-mint MCP embed session for ${target.id}:`,
         error,
       );
+      embedUnavailable = (
+        error instanceof Error ? error.message : String(error)
+      ).slice(0, 300);
     }
   }
   return {
@@ -1195,6 +1202,7 @@ export async function openGrantedDispatchMcpApp(input: {
     ...(typeof embedSession?.expiresAt === "number"
       ? { embedExpiresAt: embedSession.expiresAt }
       : {}),
+    ...(embedUnavailable ? { embedUnavailable } : {}),
   };
 }
 

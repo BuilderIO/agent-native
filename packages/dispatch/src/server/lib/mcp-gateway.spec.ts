@@ -1718,6 +1718,7 @@ describe("openGrantedDispatchMcpApp", () => {
       url: "http://localhost:8086/dashboards",
       embed: true,
       chrome: "minimal",
+      embedUnavailable: "Target app did not return an embed session.",
     });
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
@@ -1745,6 +1746,9 @@ describe("openGrantedDispatchMcpApp", () => {
 
     expect(mocks.managerCallTool).not.toHaveBeenCalled();
     expect(result).not.toHaveProperty("embedStartUrl");
+    expect(result).toMatchObject({
+      embedUnavailable: expect.stringContaining("HTTPS target endpoint"),
+    });
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
   });
