@@ -19,8 +19,10 @@ import {
   deleteLocalWorkspaceResourceIfCurrent,
   isLocalWorkspaceResourceId,
   isLocalWorkspaceResourcesEnabled,
+  isSameLocalWorkspaceFile,
   listLocalWorkspaceResources,
   localWorkspaceResourcePathFromId,
+  normalizeLocalWorkspaceResourcePath,
   readLocalWorkspaceResource,
   writeLocalWorkspaceResourceIfAbsentAtPath,
   writeLocalWorkspaceResourceIfCurrent,
@@ -952,6 +954,18 @@ async function localWorkspaceResourceByPath(
   return resource ? localWorkspaceResourceToResource(resource) : null;
 }
 
+/**
+ * The local workspace file a new file at `resourcePath` would clash with. A
+ * skill path names the skill, so its copy in either skill root counts,
+ * whichever root the path spells.
+ */
+async function localWorkspaceResourceClash(resourcePath: string) {
+  if (!canUseLocalWorkspaceResourcePath(resourcePath)) return null;
+  return readLocalWorkspaceResource({
+    path: normalizeLocalWorkspaceResourcePath(resourcePath),
+  });
+}
+
 async function localWorkspaceResourceMetas(
   pathPrefix?: string,
   limit?: number,
@@ -991,7 +1005,7 @@ async function assertWritableWorkspaceResourcePath(resourcePath: string) {
   }
 }
 
-export { isLocalWorkspaceResourceId };
+export { isLocalWorkspaceResourceId, isSameLocalWorkspaceFile };
 
 function mergeResourceMetas(
   primary: ResourceMeta[],
@@ -2632,6 +2646,10 @@ function resourceSnapshotMatch(resource: Resource) {
   };
 }
 
+function isFileExistsError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "EEXIST";
+}
+
 function localWorkspaceResourceSnapshot(resource: Resource) {
   return isLocalWorkspaceResourceId(resource.id)
     ? localWorkspaceResourceMetadataFromResource(resource)
@@ -2680,12 +2698,18 @@ async function resourcePutIfSnapshotInternal(
           expectedAbsolutePath: localPrevious!.absolutePath,
         })
       : await (async () => {
-          if (await localWorkspaceResourceByPath(input.path)) return null;
-          return writeLocalWorkspaceResource({
-            path: input.path,
-            content: input.content,
-            ifNotExists: true,
-          });
+          if (await localWorkspaceResourceClash(input.path)) return null;
+          try {
+            return await writeLocalWorkspaceResource({
+              path: input.path,
+              content: input.content,
+              ifNotExists: true,
+            });
+          } catch (error) {
+            // Another write created the file after the check above.
+            if (isFileExistsError(error)) return null;
+            throw error;
+          }
         })();
     if (!written) return null;
     const resource = localWorkspaceResourceToResource({
@@ -3549,4 +3573,38 @@ export async function resourceMove(
     emitResourceChange(id, newPath, rows[0].owner as string);
   }
   return moved;
+}
+
+/**
+ * Which of `paths` already hold something a resource stored for `owner`
+ * would land on if it moved there. For a local workspace file
+ * (`localFiles`), that's a file on disk, found the way a write finds it, so
+ * a case-insensitive disk counts "Notes.md" as "notes.md", and a skill counts
+ * in either skill root, whichever one the path spells. Otherwise it's a
+ * row stored for exactly that owner and path, whatever its visibility, since
+ * the (path, owner) index covers every row. Unlike `resourceGetByPath`, it
+ * leaves out organization rows and grants, which a move never lands on.
+ */
+export async function resourceStoredPathsTaken(
+  owner: string,
+  paths: readonly string[],
+  options: { localFiles?: boolean } = {},
+): Promise<Set<string>> {
+  const candidates = [...new Set(paths)];
+  const taken = new Set<string>();
+  if (candidates.length === 0) return taken;
+  if (options.localFiles) {
+    for (const resourcePath of candidates) {
+      if (await localWorkspaceResourceClash(resourcePath)) {
+        taken.add(resourcePath);
+      }
+    }
+    return taken;
+  }
+  await ensureTable();
+  const { rows } = await getDbExec().execute(
+    sql`SELECT path FROM resources WHERE owner = ${sql.value(owner)} AND path IN ${sql.in(candidates)}`,
+  );
+  for (const row of rows) taken.add(String(row.path));
+  return taken;
 }
