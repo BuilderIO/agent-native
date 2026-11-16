@@ -310,9 +310,15 @@ async function resolveIntegrationEngineOption(
   if (engineOption && typeof engineOption === "object") return engineOption;
   if (!includeConfiguredSelection) return engineOption ?? "builder";
   try {
-    return (await getConfiguredEngineNameForRequest({ appId })) ?? engineOption;
+    return (
+      (await getConfiguredEngineNameForRequest({
+        appId,
+        deferBuilderRefreshFailure: true,
+      })) ?? engineOption
+    );
   } catch (error) {
-    if (error instanceof McpOAuthRefreshUnavailableError) return "builder";
+    if (error instanceof McpOAuthRefreshUnavailableError)
+      return engineOption ?? "builder";
     throw error;
   }
 }

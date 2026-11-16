@@ -1367,16 +1367,28 @@ export function explicitEngineName(
 }
 
 export async function getConfiguredEngineNameForRequest(
-  options: { appId?: string } = {},
+  options: { appId?: string; deferBuilderRefreshFailure?: boolean } = {},
 ): Promise<string | undefined> {
+  let refreshFailure: McpOAuthRefreshUnavailableError | undefined;
+  const usable = async (stored: unknown, entry: AgentEngineEntry) => {
+    if (!options.deferBuilderRefreshFailure) {
+      return isStoredEngineUsableForRequest(stored, entry);
+    }
+    const result = await isStoredEngineUsableForRequest(stored, entry, {
+      deferBuilderRefreshFailure: true,
+    });
+    if (result instanceof McpOAuthRefreshUnavailableError) {
+      refreshFailure = result;
+      return false;
+    }
+    return result;
+  };
   const appDefault = await getAgentAppModelDefaultForCurrentRequest(
     options.appId,
   ).catch(() => null);
   if (appDefault?.engine) {
     const entry = _registry.get(appDefault.engine);
-    if (entry && (await isStoredEngineUsableForRequest(appDefault, entry))) {
-      return entry.name;
-    }
+    if (entry && (await usable(appDefault, entry))) return entry.name;
   }
 
   let stored: { engine?: unknown; config?: unknown } | null = null;
@@ -1385,15 +1397,16 @@ export async function getConfiguredEngineNameForRequest(
       engine?: unknown;
       config?: unknown;
     } | null;
-  } catch {
+  } catch (error) {
+    if (refreshFailure) throw error;
     return undefined;
   }
-  if (typeof stored?.engine !== "string") return undefined;
-  const entry = _registry.get(stored.engine);
-  if (!entry || !(await isStoredEngineUsableForRequest(stored, entry))) {
-    return undefined;
+  if (typeof stored?.engine === "string") {
+    const entry = _registry.get(stored.engine);
+    if (entry && (await usable(stored, entry))) return entry.name;
   }
-  return entry.name;
+  if (refreshFailure) throw refreshFailure;
+  return undefined;
 }
 
 export async function resolveEngine(

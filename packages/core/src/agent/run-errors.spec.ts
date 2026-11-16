@@ -16,9 +16,9 @@ import {
   RUN_STREAM_ENDED_ERROR_CODE,
   RUN_STREAM_ENDED_MESSAGE,
   RUN_TIMEOUT_MESSAGE,
-  canRetryRunWithoutReplayingWork,
   incompleteAgentRunFailure,
 } from "./run-errors.js";
+import { canRetryRunWithoutReplayingWork } from "./run-retry-safety.js";
 
 describe("retry safety for an incomplete run", () => {
   it.each([

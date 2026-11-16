@@ -76,6 +76,7 @@ import { McpOAuthRefreshUnavailableError } from "../../mcp-client/oauth-client.j
 import { createBuilderEngine } from "./builder-engine.js";
 import {
   detectEngineFromUserSecrets,
+  getConfiguredEngineNameForRequest,
   isResolvedEngineUsableForRequest,
   registerAgentEngine,
   resolveEngine,
@@ -257,6 +258,71 @@ describe("Builder engine OAuth refresh lifecycle", () => {
       expect(fetch).not.toHaveBeenCalled();
     },
   );
+
+  it("continues to a usable stored engine when the app's Builder grant cannot refresh", async () => {
+    mocks.rows.set(owner, grant(Date.now() - 1));
+    mocks.refresh.mockRejectedValue(new Error("temporary outage"));
+    const appDefaults = await import("../app-model-defaults.js");
+    const defaults = await import("../default-agent-engine.js");
+    vi.spyOn(
+      appDefaults,
+      "getAgentAppModelDefaultForCurrentRequest",
+    ).mockResolvedValue({
+      engine: "builder",
+      model: "auto",
+    });
+    const readDefault = vi
+      .spyOn(defaults, "readDefaultAgentEngineSetting")
+      .mockResolvedValue({
+        engine: "alternate",
+      });
+    const engine = createBuilderEngine({ privateKey: null, publicKey: null });
+    registerAgentEngine({
+      name: "builder",
+      label: engine.label,
+      description: "",
+      capabilities: engine.capabilities,
+      defaultModel: engine.defaultModel,
+      supportedModels: engine.supportedModels,
+      requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+      create: () => engine,
+    });
+    registerAgentEngine({
+      name: "alternate",
+      label: "Alternate",
+      description: "",
+      capabilities: engine.capabilities,
+      defaultModel: "auto",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: () => ({ ...engine, name: "alternate" }),
+    });
+    try {
+      await expect(
+        getConfiguredEngineNameForRequest({
+          appId: "dispatch",
+          deferBuilderRefreshFailure: true,
+        }),
+      ).resolves.toBe("alternate");
+      readDefault.mockResolvedValueOnce(null);
+      await expect(
+        getConfiguredEngineNameForRequest({
+          appId: "dispatch",
+          deferBuilderRefreshFailure: true,
+        }),
+      ).rejects.toBeInstanceOf(McpOAuthRefreshUnavailableError);
+      readDefault.mockRejectedValueOnce(new Error("settings unavailable"));
+      await expect(
+        getConfiguredEngineNameForRequest({
+          appId: "dispatch",
+          deferBuilderRefreshFailure: true,
+        }),
+      ).rejects.toThrow("settings unavailable");
+    } finally {
+      unregisterAgentEngine("builder");
+      unregisterAgentEngine("alternate");
+    }
+  });
 
   it("uses an eligible alternate after a transient refresh failure", async () => {
     mocks.rows.set(owner, grant(Date.now() - 1));

@@ -10,9 +10,9 @@ import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import { EngineError, type EngineMessage } from "./engine/types.js";
 import {
   IncompleteAgentRunError,
-  canRetryRunWithoutReplayingWork,
   incompleteAgentRunFailure,
 } from "./run-errors.js";
+import { canRetryRunWithoutReplayingWork } from "./run-retry-safety.js";
 export {
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
   RUN_BUDGET_EXHAUSTED_MESSAGE,

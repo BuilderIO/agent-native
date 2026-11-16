@@ -423,7 +423,6 @@ import {
 import { applyUncheckedDefaultModelReplacement } from "./provider-model-selection.js";
 import {
   IncompleteAgentRunError,
-  canRetryRunWithoutReplayingWork,
   incompleteAgentRunFailure,
   RUN_JOURNAL_UNREADABLE_MESSAGE,
   RUN_RATE_LIMITED_MESSAGE,
@@ -450,6 +449,7 @@ import {
   endsDuringActionPreparation,
 } from "./run-manager.js";
 import type { ActiveRun, StartedRun } from "./run-manager.js";
+import { canRetryRunWithoutReplayingWork } from "./run-retry-safety.js";
 import {
   writeLedgerEntry,
   readLedgerEntry,

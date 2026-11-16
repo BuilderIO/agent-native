@@ -946,6 +946,55 @@ describe("integration webhook handler engine resolution", () => {
     expect(runAgentLoopMock).toHaveBeenCalledOnce();
   });
 
+  it("uses the explicit string engine when configured Builder refresh fails", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { McpOAuthRefreshUnavailableError } =
+      await import("../mcp-client/oauth-client.js");
+    getConfiguredEngineNameForRequestMock.mockRejectedValueOnce(
+      new McpOAuthRefreshUnavailableError(),
+    );
+    await processIntegrationTask(pendingTask(), {
+      adapter: createAdapter(),
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "",
+      engine: "ai-sdk:openai",
+      ownerEmail: "integration@fake",
+      orgId: "org-qa",
+      principalType: "service",
+      appId: "dispatch",
+    });
+    expect(resolveEngineMock).toHaveBeenCalledWith(
+      expect.objectContaining({ engineOption: "ai-sdk:openai" }),
+    );
+  });
+
+  it("does not mask unrelated configured-engine errors", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    getConfiguredEngineNameForRequestMock.mockRejectedValueOnce(
+      new Error("credential store unavailable"),
+    );
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    await processIntegrationTask(pendingTask(), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "",
+      engine: "ai-sdk:openai",
+      ownerEmail: "integration@fake",
+      orgId: "org-qa",
+      principalType: "service",
+      appId: "dispatch",
+    });
+    expect(resolveEngineMock).not.toHaveBeenCalled();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining("problem") }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
   it(
     "re-resolves a rejected service-principal credential before any agent output",
     { timeout: 15_000 },
@@ -1908,6 +1957,7 @@ describe("integration webhook handler engine resolution", () => {
 
       expect(getConfiguredEngineNameForRequestMock).toHaveBeenCalledWith({
         appId: "dispatch",
+        deferBuilderRefreshFailure: true,
       });
       expect(resolveOwnerEngineApiKeyMock).toHaveBeenCalledWith({
         engineOption: "anthropic",
