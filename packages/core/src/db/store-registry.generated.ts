@@ -235,6 +235,13 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       ),
   ],
   [
+    "integration_user_grants",
+    () =>
+      import("../integrations/user-grants-store.js").then(
+        (m) => m.userIntegrationGrantsStore,
+      ),
+  ],
+  [
     "mcp_approvals",
     () => import("../mcp/approval-store.js").then((m) => m.mcpApprovalsStore),
   ],
