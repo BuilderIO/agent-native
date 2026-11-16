@@ -3,10 +3,8 @@
  *
  * Why: on a hosted workspace one shared Google OAuth client serves every workspace app, so
  * Cloud Monitoring can say "Events.List 152/min, 403 at 3/min" but cannot say
- * WHICH app or connection is calling. The per-call `provider.api.upstream`
- * diagnostics are only switched on for one app, so every other consumer is
- * invisible from logs. This census is always on, cheap, and attributes at
- * (app, provider, operation, connection) granularity.
+ * WHICH app or connection is calling. This census is always on, cheap, and
+ * attributes at (app, provider, operation, connection) granularity.
  *
  * Volume: one aggregated line per key every 50 calls or 60 seconds, whichever
  * comes first — 150 calls/min becomes 2-3 lines/min, never 150.
@@ -23,7 +21,7 @@ export interface ProviderCallCensusKey {
   app: string;
   /** Provider id, e.g. "google_calendar". */
   provider: string;
-  /** Normalised operation, e.g. "event_read". */
+  /** Normalised operation: the lower-case HTTP method, e.g. "get". */
   operation: string;
   /** Workspace connection id; only a short prefix is ever emitted. */
   connection?: string | null;
@@ -58,7 +56,11 @@ let timer: ReturnType<typeof setInterval> | undefined;
 
 function connectionPrefix(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
-  return trimmed ? trimmed.slice(0, CONNECTION_PREFIX_LENGTH) : null;
+  // Personal connection ids carry a fixed `pconn1:` namespace; slicing it in
+  // would leave one distinguishing character and merge buckets.
+  return trimmed
+    ? trimmed.replace(/^[a-z0-9]+:/i, "").slice(0, CONNECTION_PREFIX_LENGTH)
+    : null;
 }
 
 function bucketId(entry: ProviderCallCensusKey): string {

@@ -441,6 +441,13 @@ function workspaceAppMetadataSettingsKey(): string {
   return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:user:${currentOwnerEmail()}`;
 }
 
+function scopedSettingsWriteOptions(): { owner: string } | { orgId: string } {
+  const orgId = currentOrgId();
+  return orgId
+    ? { orgId }
+    : { owner: currentOwnerEmail().trim().toLowerCase() };
+}
+
 function cleanOptionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -638,7 +645,7 @@ async function writeWorkspaceAppMetadataOverride(input: {
   if (input.visibility) next.visibility = input.visibility;
 
   current.apps[appId] = next;
-  await putSetting(key, { apps: current.apps });
+  await putSetting(key, { apps: current.apps }, scopedSettingsWriteOptions());
   return current;
 }
 
@@ -1321,73 +1328,81 @@ async function reservePendingWorkspaceApp(input: {
   const creatorEmail = currentOwnerEmail();
   const communitySourceId = normalizeCommunitySourceId(input.communitySourceId);
 
-  await mutateSetting(scopedSettingsKey(), async (current) => {
-    const raw =
-      current && typeof current === "object" && !Array.isArray(current)
-        ? current
-        : {};
-    const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
-    const existing = pendingApps
-      .filter((app) => !isPendingWorkspaceAppExpired(app))
-      .find((app) => app.id === input.appId);
-    if (existing) {
-      const owner = existing.createdBy ?? existing.owner ?? null;
-      throw new WorkspaceAppIdTakenError({
-        appId: input.appId,
-        conflict: "pending",
-        owner,
-        message: `Workspace app "${input.appId}" is already being created${
-          owner ? ` by ${owner}` : ""
-        }.`,
-      });
-    }
+  await mutateSetting(
+    scopedSettingsKey(),
+    async (current) => {
+      const raw =
+        current && typeof current === "object" && !Array.isArray(current)
+          ? current
+          : {};
+      const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
+      const existing = pendingApps
+        .filter((app) => !isPendingWorkspaceAppExpired(app))
+        .find((app) => app.id === input.appId);
+      if (existing) {
+        const owner = existing.createdBy ?? existing.owner ?? null;
+        throw new WorkspaceAppIdTakenError({
+          appId: input.appId,
+          conflict: "pending",
+          owner,
+          message: `Workspace app "${input.appId}" is already being created${
+            owner ? ` by ${owner}` : ""
+          }.`,
+        });
+      }
 
-    const reservation: PendingWorkspaceApp = {
-      id: input.appId,
-      name: titleCase(input.appId),
-      description:
-        input.description ||
-        "Builder is creating this app. The workspace path becomes live after the branch is merged and deployed.",
-      path: `/${input.appId}`,
-      builderUrl: null,
-      branchName: null,
-      projectId: input.projectId,
-      contextId: context?.id ?? null,
-      contextLabel: context?.label ?? null,
-      visibility: input.visibility,
-      ...(communitySourceId ? { communitySourceId } : {}),
-      createdBy: creatorEmail,
-      owner: creatorEmail,
-      createdAt: now,
-      updatedAt: now,
-      expiresAt: pendingWorkspaceAppExpiresAt(now),
-    };
+      const reservation: PendingWorkspaceApp = {
+        id: input.appId,
+        name: titleCase(input.appId),
+        description:
+          input.description ||
+          "Builder is creating this app. The workspace path becomes live after the branch is merged and deployed.",
+        path: `/${input.appId}`,
+        builderUrl: null,
+        branchName: null,
+        projectId: input.projectId,
+        contextId: context?.id ?? null,
+        contextLabel: context?.label ?? null,
+        visibility: input.visibility,
+        ...(communitySourceId ? { communitySourceId } : {}),
+        createdBy: creatorEmail,
+        owner: creatorEmail,
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: pendingWorkspaceAppExpiresAt(now),
+      };
 
-    return {
-      ...raw,
-      pendingApps: [reservation, ...pendingApps].slice(0, MAX_PENDING_APPS),
-    };
-  });
+      return {
+        ...raw,
+        pendingApps: [reservation, ...pendingApps].slice(0, MAX_PENDING_APPS),
+      };
+    },
+    scopedSettingsWriteOptions(),
+  );
 }
 
 async function releasePendingWorkspaceAppReservation(appId: string) {
   const contextId = pendingWorkspaceAppContext()?.id ?? null;
   const creatorEmail = currentOwnerEmail().trim().toLowerCase();
-  await mutateSetting(scopedSettingsKey(), async (current) => {
-    const raw =
-      current && typeof current === "object" && !Array.isArray(current)
-        ? current
-        : {};
-    const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
-    return {
-      ...raw,
-      pendingApps: pendingApps.filter((app) => {
-        if (app.id !== appId || app.contextId !== contextId) return true;
-        const owner = (app.createdBy ?? app.owner)?.trim().toLowerCase();
-        return owner !== creatorEmail;
-      }),
-    };
-  });
+  await mutateSetting(
+    scopedSettingsKey(),
+    async (current) => {
+      const raw =
+        current && typeof current === "object" && !Array.isArray(current)
+          ? current
+          : {};
+      const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
+      return {
+        ...raw,
+        pendingApps: pendingApps.filter((app) => {
+          if (app.id !== appId || app.contextId !== contextId) return true;
+          const owner = (app.createdBy ?? app.owner)?.trim().toLowerCase();
+          return owner !== creatorEmail;
+        }),
+      };
+    },
+    scopedSettingsWriteOptions(),
+  );
 }
 
 function parseArchivedAppIds(value: unknown): string[] {
@@ -1411,7 +1426,11 @@ export async function archiveWorkspaceApp(input: {
   const raw = await readSettingsRecord();
   const current = parseArchivedAppIds(raw.archivedAppIds);
   if (!current.includes(appId)) current.push(appId);
-  await putSetting(scopedSettingsKey(), { ...raw, archivedAppIds: current });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, archivedAppIds: current },
+    scopedSettingsWriteOptions(),
+  );
   invalidateOrgAppsDirectoryCache();
   await recordAudit({
     action: "workspace-app.archived",
@@ -1431,7 +1450,11 @@ export async function unarchiveWorkspaceApp(input: {
   const current = parseArchivedAppIds(raw.archivedAppIds).filter(
     (id) => id !== appId,
   );
-  await putSetting(scopedSettingsKey(), { ...raw, archivedAppIds: current });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, archivedAppIds: current },
+    scopedSettingsWriteOptions(),
+  );
   invalidateOrgAppsDirectoryCache();
   await recordAudit({
     action: "workspace-app.unarchived",
@@ -1454,7 +1477,11 @@ export async function removePendingWorkspaceApp(input: {
   );
   const removed = next.length !== pending.length;
   if (!removed) return { removed: false };
-  await putSetting(scopedSettingsKey(), { ...raw, pendingApps: next });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, pendingApps: next },
+    scopedSettingsWriteOptions(),
+  );
   await recordAudit({
     action: "workspace-app.pending-removed",
     targetType: "workspace-app",
@@ -1993,13 +2020,17 @@ async function recordPendingWorkspaceApp(input: {
     expiresAt: pendingWorkspaceAppExpiresAt(existing?.createdAt || now),
   };
 
-  await putSetting(scopedSettingsKey(), {
-    ...raw,
-    pendingApps: [
-      next,
-      ...pendingApps.filter((app) => !samePendingEntry(app)),
-    ].slice(0, MAX_PENDING_APPS),
-  });
+  await putSetting(
+    scopedSettingsKey(),
+    {
+      ...raw,
+      pendingApps: [
+        next,
+        ...pendingApps.filter((app) => !samePendingEntry(app)),
+      ].slice(0, MAX_PENDING_APPS),
+    },
+    scopedSettingsWriteOptions(),
+  );
 
   await writeWorkspaceAppMetadataOverride({
     appId: input.appId,
@@ -2964,7 +2995,11 @@ async function persistProvisionedBuilderProjectId(
 ): Promise<void> {
   const raw = await readSettingsRecord();
 
-  await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, builderProjectId },
+    scopedSettingsWriteOptions(),
+  );
   await recordAudit({
     action: "settings.updated",
     targetType: "dispatch-app-creation-settings",
@@ -3014,7 +3049,11 @@ export async function setAppCreationSettings(input: {
   const builderProjectId = input.builderProjectId?.trim() || null;
   const raw = await readSettingsRecord();
 
-  await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, builderProjectId },
+    scopedSettingsWriteOptions(),
+  );
   await recordAudit({
     action: "settings.updated",
     targetType: "dispatch-app-creation-settings",

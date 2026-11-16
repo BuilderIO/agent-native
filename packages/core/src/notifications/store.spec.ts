@@ -137,6 +137,7 @@ describe("insertNotification", () => {
       source: "notifications",
       type: "change",
       key: ALICE,
+      owner: ALICE,
     });
 
     const [listed] = await listNotifications(ALICE);
@@ -722,5 +723,52 @@ describe("archiving", () => {
     await seedTwo();
     await setNotificationArchived("unread", ALICE, true);
     expect(await countUnread(ALICE)).toBe(0);
+  });
+});
+
+describe("usage-limit notice setting", () => {
+  async function seedUsageAndOther() {
+    await insertNotification({
+      owner: ALICE,
+      severity: "warning",
+      title: "Usage limit reached",
+      metadata: { usageAlertRuleId: "rule-1", period: "month" },
+    });
+    await insertNotification({
+      owner: ALICE,
+      severity: "info",
+      title: "Report ready",
+      metadata: { url: "/reports/1" },
+    });
+    await insertNotification({
+      owner: ALICE,
+      severity: "info",
+      title: "No metadata",
+    });
+  }
+
+  it("shows usage-limit notices by default", async () => {
+    await seedUsageAndOther();
+
+    expect((await listNotifications(ALICE)).map((n) => n.title).sort()).toEqual(
+      ["No metadata", "Report ready", "Usage limit reached"],
+    );
+    expect(await countUnread(ALICE)).toBe(3);
+  });
+
+  it("leaves usage-limit notices out of the inbox, badge, and bulk archive when turned off", async () => {
+    await seedUsageAndOther();
+    vi.stubEnv("AGENT_NATIVE_NOTIFICATIONS_USAGE_LIMIT_NOTICES", "false");
+
+    expect((await listNotifications(ALICE)).map((n) => n.title).sort()).toEqual(
+      ["No metadata", "Report ready"],
+    );
+    expect(await countUnread(ALICE)).toBe(2);
+    expect(await archiveNotifications(ALICE, "all")).toBe(2);
+
+    vi.unstubAllEnvs();
+    const visible = await listNotifications(ALICE);
+    expect(visible.map((n) => n.title)).toEqual(["Usage limit reached"]);
+    expect(visible[0].archivedAt).toBeNull();
   });
 });

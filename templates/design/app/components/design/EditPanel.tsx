@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { recorder } from "@agent-native/core/client/recorder";
 import { readVisualScrubInputs } from "@agent-native/toolkit/design-tweaks";
+import type { TweakDefinition } from "@shared/api";
 import { alphaToOpacity, parseCssColor } from "@shared/color-utils";
 import {
   listInteractionStates,
@@ -216,6 +217,11 @@ import {
   normalizeRotationDegrees,
   sharedRotationValue,
 } from "./edit-panel/transform-helpers";
+import { TweakProperties } from "./edit-panel/tweak-properties";
+import {
+  tweaksForSelection,
+  type TweakSelectionTarget,
+} from "./edit-panel/tweak-scope";
 import {
   displayFontFamilyName,
   FONT_FAMILY_OPTIONS,
@@ -506,6 +512,10 @@ interface EditPanelProps {
   defaultComponentName?: string;
   inspectCode?: InspectCodeData;
   aiActions?: ReactNode;
+  /** Every tweak in the design; the panel shows the ones scoped to the selection. */
+  tweaks?: readonly TweakDefinition[];
+  tweakValues?: Record<string, string | number | boolean>;
+  onTweakChange?: (id: string, value: string | number | boolean) => void;
   activeTool?: string;
   scaleToolControls?: ScaleToolControls;
   onCreateScreenFromPreset?: (preset: FrameSizePreset) => void;
@@ -1785,6 +1795,7 @@ function ExportPreviewDisclosure({
 }
 
 const NO_SELECTION_ELEMENTS: ElementInfo[] = [];
+const NO_TWEAKS: TweakDefinition[] = [];
 
 export function withCapturedSelectionColorScopeIdentities(
   scopes: SelectionColorScope[],
@@ -2227,6 +2238,9 @@ export const EditPanel = memo(function EditPanel({
   defaultComponentName = "Component",
   inspectCode,
   aiActions,
+  tweaks,
+  tweakValues,
+  onTweakChange,
   activeTool,
   scaleToolControls,
   onCreateScreenFromPreset,
@@ -2770,6 +2784,45 @@ export const EditPanel = memo(function EditPanel({
 
   const showFramePresets =
     !readOnly && activeTool === "frame" && Boolean(onCreateScreenFromPreset);
+  const scopedTweaks = useMemo(() => {
+    if (!tweaks?.length || !onTweakChange) return NO_TWEAKS;
+    const targets: TweakSelectionTarget[] = [];
+    if (effectiveSelectedElements.length > 0) {
+      for (const element of effectiveSelectedElements) {
+        const screenId = element.sourceLayerIdentity?.screenId ?? fileId;
+        if (screenId) targets.push({ screenId, element });
+      }
+    } else if (selectedScreenGeometry) {
+      targets.push({ screenId: selectedScreenGeometry.id });
+    }
+    return tweaksForSelection(
+      tweaks,
+      targets,
+      (screenId) => files?.find((file) => file.id === screenId)?.content,
+    );
+  }, [
+    effectiveSelectedElements,
+    fileId,
+    files,
+    onTweakChange,
+    selectedScreenGeometry,
+    tweaks,
+  ]);
+  const tweaksSection =
+    scopedTweaks.length > 0 && onTweakChange ? (
+      <PanelSection title={t("designEditor.tweaks")}>
+        <div
+          data-design-inspector-tweaks
+          className="flex min-w-0 flex-col gap-[var(--design-inspector-grid-gap)]"
+        >
+          <TweakProperties
+            tweaks={scopedTweaks}
+            values={tweakValues ?? {}}
+            onChange={onTweakChange}
+          />
+        </div>
+      </PanelSection>
+    ) : null;
   const gridDebugToggle =
     import.meta.env.DEV && onInspectorGridDebugChange ? (
       <InspectorGridDebugToggle
@@ -3056,6 +3109,8 @@ export const EditPanel = memo(function EditPanel({
                         {aiActions}
                       </div>
                     ) : null}
+
+                    {tweaksSection}
 
                     {motionInspector && !inspectorElement ? (
                       <PanelSection title={t("designEditor.motion.animations")}>

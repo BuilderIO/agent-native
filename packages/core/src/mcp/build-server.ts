@@ -29,6 +29,7 @@ import {
   isActionHiddenFromEveryAgentSurface,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { isValidTimezone } from "../agent/runtime-context.js";
 import {
   describeToolResultImages,
   type NormalizedToolResultImages,
@@ -146,6 +147,22 @@ import {
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
+
+function mcpCallTimezone(meta: unknown): string | undefined {
+  const location =
+    meta && typeof meta === "object" && !Array.isArray(meta)
+      ? (meta as Record<string, unknown>)["openai/userLocation"]
+      : undefined;
+  const timezone =
+    location && typeof location === "object" && !Array.isArray(location)
+      ? (location as Record<string, unknown>).timezone
+      : undefined;
+  return typeof timezone === "string" &&
+    !/^[+-]/.test(timezone) &&
+    isValidTimezone(timezone)
+    ? timezone
+    : undefined;
+}
 
 export const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
 
@@ -3453,6 +3470,8 @@ export async function createMCPServerForRequest(
     mcpRequestId?: string,
     authUserId?: string,
     run?: RequestRunContext,
+    timezone?: string,
+    dateTimezoneFallback?: "UTC",
   ): Promise<T> {
     const orgId = await orgIdPromise;
     return runWithRequestContext(
@@ -3475,6 +3494,8 @@ export async function createMCPServerForRequest(
         mcpCredentialIssuedAtMs:
           effectiveIdentity?.mcpCredentialIssuedAtMs ?? null,
         ...(run ? { run } : {}),
+        ...(timezone ? { timezone } : {}),
+        ...(dateTimezoneFallback ? { dateTimezoneFallback } : {}),
       },
       fn,
     ) as Promise<T>;
@@ -3482,7 +3503,13 @@ export async function createMCPServerForRequest(
 
   async function withToolCallContext<T>(
     fn: () => Promise<T>,
-    mcpRequestId?: string,
+    {
+      mcpRequestId,
+      timezone,
+    }: {
+      mcpRequestId?: string | undefined;
+      timezone?: string | undefined;
+    },
   ): Promise<T> {
     // Only a signed-in person has browser tabs for a call to act on.
     const browserTabTarget = hasVerifiedMcpUserIdentity(effectiveIdentity)
@@ -3493,6 +3520,8 @@ export async function createMCPServerForRequest(
       mcpRequestId,
       await resolveCallerAuthUserId(),
       browserTabTarget ? { browserTabTarget } : undefined,
+      timezone,
+      "UTC",
     );
     return withBrowserTabTargetNote(result, browserTabTarget);
   }
@@ -3892,6 +3921,10 @@ export async function createMCPServerForRequest(
             : requestMeta?.mcpRetryToken
               ? `stateless:${requestMeta.mcpRetryToken}`
               : undefined;
+      const toolCallContext = {
+        mcpRequestId,
+        timezone: mcpCallTimezone(ctx.mcpReq._meta),
+      };
       const result = await withToolCallContext(async () => {
         const { name, arguments: args } = request.params;
 
@@ -4029,7 +4062,7 @@ export async function createMCPServerForRequest(
         return directActionCall({ name, args, request, ctx }, (error) => {
           failure = error;
         });
-      }, mcpRequestId);
+      }, toolCallContext);
 
       const toolName = request.params?.name;
       const calledEntry = actions[toolName];
