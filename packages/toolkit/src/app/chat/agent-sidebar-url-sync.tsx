@@ -33,7 +33,7 @@ export function URLSync({
   browserTabId,
   queryKeys,
 }: {
-  browserTabId?: string;
+  browserTabId?: string | undefined;
   /** Query keys whose values the agent may read; see `scrubLocationState`. */
   queryKeys?: readonly string[] | undefined;
 }) {
