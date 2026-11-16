@@ -34,7 +34,11 @@ function isAudioFile(file: File): boolean {
   return file.type.startsWith("audio/");
 }
 
-type MediaUploadKind = "image" | "video" | "audio";
+function isLinkedFile(file: File): boolean {
+  return file.type === "application/pdf" || file.type === "text/csv";
+}
+
+type MediaUploadKind = "image" | "video" | "audio" | "file";
 
 const IMAGE_LOAD_TIMEOUT_MS = 15_000;
 
@@ -210,7 +214,8 @@ function isStorageUnavailable(body: UploadResponse): boolean {
 function mediaUploadLabel(kind: MediaUploadKind) {
   if (kind === "image") return "Image";
   if (kind === "video") return "Video";
-  return "Audio";
+  if (kind === "audio") return "Audio";
+  return "File";
 }
 
 export function getImageFiles(
@@ -293,7 +298,9 @@ async function uploadMediaFile(
       ? normalizeImageFile(file) !== null
       : kind === "video"
         ? isVideoFile(file)
-        : isAudioFile(file);
+        : kind === "audio"
+          ? isAudioFile(file)
+          : isLinkedFile(file);
   if (!isValidFile) {
     throw new Error(`Only ${kind} files can be uploaded.`);
   }
@@ -362,4 +369,12 @@ export async function uploadVideoFile(file: File): Promise<string> {
 
 export async function uploadAudioFile(file: File): Promise<string> {
   return uploadMediaFile(file, "audio");
+}
+
+/**
+ * Uploads a PDF or CSV an imported page links to, to the workspace's file
+ * storage at a public URL, as imported images go.
+ */
+export async function uploadLinkedFile(file: File): Promise<string> {
+  return uploadMediaFile(file, "file");
 }

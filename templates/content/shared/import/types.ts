@@ -19,10 +19,14 @@ export const IMPORT_NOTE_SEVERITY = {
   "inline-image-moved-to-own-line": "converted",
   "ordered-task-list-unnumbered": "converted",
   "title-formatting-removed": "converted",
+  "callout-icon-replaced": "converted",
+  "expiring-link-rehosted": "converted",
   "frontmatter-not-shown": "kept",
   "frontmatter-unreadable": "kept",
+  "properties-not-shown": "kept",
   "asset-missing": "lost",
   "link-target-not-imported": "lost",
+  "expiring-link-not-rehosted": "lost",
   "link-removed": "lost",
   "image-title-dropped": "lost",
   "link-title-dropped": "lost",
@@ -70,11 +74,19 @@ export type ImportAssetRequest =
       path: string;
       /** The reference as written in the source. */
       reference: string;
+      /** An image shows the file; a link only points at it, so any file will do. */
+      use: "image" | "link";
     }
   | {
       kind: "data-url";
       mediaType: string;
       dataUrl: string;
+      reference: string;
+    }
+  | {
+      /** A signed link that expires, so the file it names is uploaded instead. */
+      kind: "remote";
+      url: string;
       reference: string;
     };
 

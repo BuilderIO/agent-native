@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import {
   afterAll,
   beforeAll,
@@ -75,6 +75,20 @@ vi.mock("@agent-native/core/private-blob", async (importOriginal) => ({
   putPrivateBlob: blobs.put,
   deletePrivateBlob: blobs.delete,
 }));
+// Signed Notion links are fetched through the SSRF guard; the files behind
+// them are faked at that call.
+const signedFiles = vi.hoisted(() => ({
+  fetch: vi.fn(
+    async (_url: string, _init?: RequestInit) =>
+      new Response(new Uint8Array([137, 80, 78, 71]), {
+        headers: { "content-type": "binary/octet-stream" },
+      }),
+  ),
+}));
+vi.mock("@agent-native/core/extensions/url-safety", async (importOriginal) => ({
+  ...(await importOriginal()),
+  ssrfSafeFetch: signedFiles.fetch,
+}));
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -133,6 +147,7 @@ beforeEach(async () => {
   uploads.upload.mockClear();
   uploads.delete.mockClear();
   writeAppStateMock.mockClear();
+  signedFiles.fetch.mockClear();
   flushHook.once = null;
   PARENT_ID = `import-parent-${++parentNumber}`;
   await asOwner(() => createDocument.run({ id: PARENT_ID, title: "Imports" }));
@@ -730,6 +745,219 @@ describe("import-content", () => {
     expect(records).toHaveLength(2);
     expect(JSON.stringify(records)).not.toContain("UklTS1lQQVlMT0FE");
     expect(JSON.stringify(records)).not.toContain("U0NBTEFSUEFZTE9BRA");
+  });
+});
+
+describe("Notion export import", () => {
+  const ID = {
+    plan: "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+    child: "1f1e2d3c4b5a69788796a5b4c3d2e1f0",
+    tasks: "2f1e2d3c4b5a69788796a5b4c3d2e1f0",
+    row: "3f1e2d3c4b5a69788796a5b4c3d2e1f0",
+  };
+  const CHART =
+    "https://file.notion.so/f/f/space/block/chart.png?expirationTimestamp=1700000000000&signature=secret";
+  const PLAN = `Plan ${ID.plan}.md`;
+  const CHILD = `Plan/Child ${ID.child}.md`;
+  const TASKS_ALL = `Plan/Tasks ${ID.tasks}_all.csv`;
+
+  function notionFiles() {
+    return [
+      {
+        name: PLAN,
+        text: [
+          "# Plan",
+          "",
+          `See [Child](Plan/Child%20${ID.child}.md) and [Tasks](Plan/Tasks%20${ID.tasks}.csv).`,
+          "",
+          `![Chart](${CHART})`,
+          "",
+        ].join("\n"),
+      },
+      {
+        name: CHILD,
+        text: `# Child\n\nBack to [Plan](../Plan%20${ID.plan}.md).\n`,
+      },
+      { name: `Plan/Tasks ${ID.tasks}.csv` },
+      { name: TASKS_ALL, url: "/uploads/tasks.csv" },
+      {
+        name: `Plan/Tasks/Row ${ID.row}.md`,
+        text: "# Row\n\nStatus: Done\nDue: Today\n",
+      },
+    ];
+  }
+
+  it("previews the page tree and names the database it leaves for later", async () => {
+    const preview = await asOwner(() =>
+      importContent.run({
+        files: notionFiles(),
+        parentId: PARENT_ID,
+        dryRun: true,
+      }),
+    );
+
+    expect(
+      preview.pages.map((page) => [
+        page.sourceName,
+        page.parentSourceName,
+        page.title,
+      ]),
+    ).toEqual([
+      [PLAN, null, "Plan"],
+      [CHILD, PLAN, "Child"],
+    ]);
+    expect(preview.databases).toEqual([
+      {
+        name: "Tasks",
+        sourceName: `Plan/Tasks ${ID.tasks}.csv`,
+        rows: 1,
+        csvKept: true,
+      },
+    ]);
+    expect(preview.uploads).toEqual([TASKS_ALL]);
+    expect(preview.skipped).toEqual([]);
+    expect(preview.message).toContain("1 Notion database not imported yet");
+    // The preview names the signed link without fetching it.
+    expect(signedFiles.fetch).not.toHaveBeenCalled();
+    expect(preview.pages[0].notes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "expiring-link-rehosted",
+          samples: ["chart.png"],
+        }),
+      ]),
+    );
+    expect(JSON.stringify(preview)).not.toContain("signature=secret");
+  });
+
+  it("nests subpages, uploads signed files, and points links at the new pages", async () => {
+    const applied = await asOwner(() =>
+      importContent.run({
+        files: notionFiles(),
+        parentId: PARENT_ID,
+        dryRun: false,
+      }),
+    );
+    const [planId, childId] = applied.pages.map((page) => page.id!);
+    const rows = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(inArray(schema.documents.id, [planId, childId]));
+    const plan = rows.find((row) => row.id === planId)!;
+    const child = rows.find((row) => row.id === childId)!;
+
+    expect(plan.parentId).toBe(PARENT_ID);
+    expect(child.parentId).toBe(planId);
+    expect(plan.content).toContain(`/page/${childId}`);
+    expect(plan.content).toContain("/uploads/tasks.csv");
+    expect(plan.content).toMatch(/\/uploads\/embedded-\d+\.png/);
+    expect(plan.content).not.toContain("signature=secret");
+    expect(child.content).toContain(`/page/${planId}`);
+    expect(signedFiles.fetch).toHaveBeenCalledTimes(1);
+    expect(signedFiles.fetch.mock.calls[0]![0]).toBe(CHART);
+    expect(uploads.upload).toHaveBeenCalledWith(
+      expect.objectContaining({ filename: "chart.png", mimeType: "image/png" }),
+    );
+
+    const records = await getDb()
+      .select()
+      .from(schema.documentImports)
+      .where(eq(schema.documentImports.importId, applied.importId));
+    expect(records.map((record) => record.sourceFormat)).toEqual([
+      "notion-export",
+      "notion-export",
+    ]);
+  });
+
+  it("keeps a signed link it can't fetch, and says the file may lapse", async () => {
+    signedFiles.fetch.mockResolvedValueOnce(
+      new Response(null, { status: 403 }),
+    );
+    const applied = await asOwner(() =>
+      importContent.run({
+        files: notionFiles(),
+        parentId: PARENT_ID,
+        dryRun: false,
+      }),
+    );
+    const plan = applied.pages[0];
+    const [stored] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, plan.id!));
+
+    expect(stored.content).toContain(CHART.split("?")[0]);
+    expect(plan.status).toBe("lost");
+    expect(plan.notes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "expiring-link-not-rehosted",
+          samples: ["chart.png"],
+        }),
+      ]),
+    );
+    expect(uploads.upload).not.toHaveBeenCalled();
+  });
+
+  it("says when the same files were imported before, until those pages go to Trash", async () => {
+    const applied = await asOwner(() =>
+      importContent.run({
+        files: notionFiles(),
+        parentId: PARENT_ID,
+        dryRun: false,
+      }),
+    );
+    const again = await asOwner(() =>
+      importContent.run({
+        files: notionFiles(),
+        parentId: PARENT_ID,
+        dryRun: true,
+      }),
+    );
+    expect(again.pages.map((page) => page.alreadyImportedAt)).toEqual([
+      expect.any(String),
+      expect.any(String),
+    ]);
+
+    const undone = await asOwner(() =>
+      undoContentImport.run({ importId: applied.importId }),
+    );
+    expect([...undone.trashedIds].sort()).toEqual(
+      applied.pages.map((page) => page.id!).sort(),
+    );
+    const afterUndo = await asOwner(() =>
+      importContent.run({
+        files: notionFiles(),
+        parentId: PARENT_ID,
+        dryRun: true,
+      }),
+    );
+    expect(afterUndo.pages.map((page) => page.alreadyImportedAt)).toEqual([
+      null,
+      null,
+    ]);
+  });
+
+  it("refuses an export that holds only a database, and names it", async () => {
+    const files = notionFiles().filter(
+      (file) => !file.name.startsWith("Plan/Child") && file.name !== PLAN,
+    );
+    const preview = await asOwner(() =>
+      importContent.run({ files, parentId: PARENT_ID, dryRun: true }),
+    );
+    expect(preview.pages).toEqual([]);
+    expect(preview.databases).toEqual([
+      expect.objectContaining({ name: "Tasks", rows: 1, csvKept: false }),
+    ]);
+
+    await expect(
+      asOwner(() =>
+        importContent.run({ files, parentId: PARENT_ID, dryRun: false }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "IMPORT_NOTHING_TO_IMPORT",
+      message: expect.stringContaining("Tasks"),
+    });
   });
 });
 

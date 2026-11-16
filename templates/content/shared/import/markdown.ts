@@ -41,9 +41,15 @@ import {
   tokenizeHtml,
   type HtmlToken,
 } from "./html-fragment";
+import { isExpiringFileUrl } from "./expiring-links";
 import { describeDataUrl, ImportNoteBag } from "./notes";
 import { classifyImportReference, type ImportReference } from "./paths";
-import type { ImportFrontmatter, ImportedPage, MarkdownDialect } from "./types";
+import type {
+  ImportFrontmatter,
+  ImportedPage,
+  ImportNoteKind,
+  MarkdownDialect,
+} from "./types";
 
 /**
  * Prefix for image sources and link targets that wait on an upload or on the
@@ -204,6 +210,10 @@ const HTML_BLOCK_BREAKS = new Set([
 /** Tags a flattened HTML block reproduces faithfully, so they need no note. */
 const FAITHFUL_HTML_TAGS = new Set(["p", "br", "img", "a", "hr", "pre"]);
 const MAX_BLOCK_NESTING = 64;
+const ASIDE_OPEN_RE = /^[ \t]*<aside>[ \t]*$/i;
+const ASIDE_CLOSE_RE = /^[ \t]*<\/aside>[ \t]*$/i;
+const LEADING_EMOJI_RE =
+  /^((?:\p{Extended_Pictographic}|\p{Regional_Indicator}{2})(?:[\uFE0F\u200D\p{Emoji_Modifier}\p{Extended_Pictographic}])*)[ \t\u00A0]+/u;
 /**
  * The parser pairs the emphasis, strikethrough, and link delimiters of one
  * paragraph, heading, or table cell in time that grows with the square of
@@ -278,6 +288,15 @@ export interface ParseMarkdownImportInput {
   sourcePath: string;
   text: string;
   tablePadding: TablePaddingBudget;
+  /** Title for a file with none of its own, in place of its file name. */
+  fallbackTitle?: string;
+  /**
+   * Reads a line that is only `<aside>` through its `</aside>` as a callout,
+   * as Notion exports one, instead of flattening the HTML block.
+   */
+  asideCallouts?: boolean;
+  /** What a pass over the text before parsing changed, for the report. */
+  notes?: ReadonlyArray<{ kind: ImportNoteKind; sample?: string }>;
 }
 
 export function parseMarkdownImport(
@@ -288,6 +307,7 @@ export function parseMarkdownImport(
   );
   const text = exported.body;
   const notes = new ImportNoteBag();
+  for (const note of input.notes ?? []) notes.add(note.kind, note.sample);
   const bodyField = noteExportManifest(exported.manifest, text, notes);
   const frontmatterMatch = FRONTMATTER_RE.exec(text);
   const body = frontmatterMatch ? text.slice(frontmatterMatch[0].length) : text;
@@ -323,6 +343,7 @@ export function parseMarkdownImport(
       notes,
       referencePrefix,
       input.tablePadding,
+      input.asideCallouts === true,
     );
     blocks = converter.convert();
     slots = converter.slots;
@@ -336,7 +357,7 @@ export function parseMarkdownImport(
   const title = takeTitle(
     blocks,
     frontmatter.title,
-    input.sourcePath,
+    input.fallbackTitle ?? titleFromFilename(input.sourcePath),
     notes,
     bodyOwnsOpeningHeading(body, bodyField),
   );
@@ -669,7 +690,7 @@ function frontmatterRecord(
 function takeTitle(
   blocks: PMNode[],
   frontmatterTitle: string | null,
-  sourcePath: string,
+  fileTitle: string,
   notes: ImportNoteBag,
   headingInBody: boolean,
 ): {
@@ -711,11 +732,7 @@ function takeTitle(
     }
     return { title: headingText, source: "heading", heading: headingText };
   }
-  return {
-    title: titleFromFilename(sourcePath),
-    source: "filename",
-    heading: null,
-  };
+  return { title: fileTitle, source: "filename", heading: null };
 }
 
 class MarkdownConverter {
@@ -737,6 +754,7 @@ class MarkdownConverter {
     private readonly notes: ImportNoteBag,
     private readonly referencePrefix: string,
     private readonly tablePadding: TablePaddingBudget,
+    private readonly asideCallouts: boolean,
   ) {}
 
   convert(): PMNode[] {
@@ -849,6 +867,18 @@ class MarkdownConverter {
           index--;
         }
         continue;
+      }
+      if (
+        this.asideCallouts &&
+        node.type === "html" &&
+        ASIDE_OPEN_RE.test(node.value)
+      ) {
+        const callout = this.aside(nodes, index);
+        if (callout) {
+          out.push(callout.node);
+          index = callout.end;
+          continue;
+        }
       }
       pushAll(out, this.block(node));
     }
@@ -1042,6 +1072,38 @@ class MarkdownConverter {
       const alt = String(block.attrs?.alt ?? "");
       return alt ? [{ type: "paragraph", content: [textNode(alt, [])] }] : [];
     });
+  }
+
+  /**
+   * Notion exports a callout as `<aside>` and `</aside>` lines around its
+   * blocks, with the callout's emoji opening the first line. A line that is
+   * only the tag reads as an HTML block of its own once a blank line follows
+   * it, which the Notion pass makes sure of. Null when the aside never
+   * closes, so the block is flattened like other HTML.
+   */
+  private aside(
+    nodes: readonly RootContent[],
+    start: number,
+  ): { node: PMNode; end: number } | null {
+    let depth = 1;
+    for (let index = start + 1; index < nodes.length; index++) {
+      const node = nodes[index];
+      if (node.type !== "html") continue;
+      if (ASIDE_OPEN_RE.test(node.value)) depth += 1;
+      else if (ASIDE_CLOSE_RE.test(node.value)) depth -= 1;
+      if (depth > 0) continue;
+      const content = this.blocks(nodes.slice(start + 1, index));
+      const icon = takeLeadingEmoji(content);
+      return {
+        node: {
+          type: "notionCallout",
+          attrs: { icon: icon ?? "", color: null },
+          content: content.length ? content : [{ type: "paragraph" }],
+        },
+        end: index,
+      };
+    }
+    return null;
   }
 
   /**
@@ -1537,7 +1599,7 @@ class MarkdownConverter {
         ? describeDataUrl(reference.url)
         : url || label;
     const src =
-      reference.kind === "remote"
+      reference.kind === "remote" && !isExpiringFileUrl(reference.url)
         ? reference.url
         : this.slot({ role: "asset", reference, written });
     return { type: "image", attrs: { src, alt: label } };
@@ -1570,6 +1632,9 @@ function importedLinkHref(
   const reference = classifyImportReference(sourcePath, written);
   switch (reference.kind) {
     case "remote":
+      return isExpiringFileUrl(reference.url)
+        ? slot({ role: "link", reference, written })
+        : reference.url;
     case "anchor":
       return reference.url;
     case "relative":
@@ -2095,6 +2160,25 @@ function normalizeInline(nodes: readonly PMNode[]): PMNode[] {
   // Not `/\s+$/`: it rescans every run of spaces that isn't at the end.
   if (last?.type === "text") last.text = last.text?.trimEnd();
   return out;
+}
+
+/**
+ * Removes the emoji a Notion callout's first line opens with, and returns it
+ * as the callout's icon. A paragraph left empty goes with it.
+ */
+function takeLeadingEmoji(blocks: PMNode[]): string | null {
+  const first = blocks[0];
+  const text = first?.type === "paragraph" ? first.content?.[0] : undefined;
+  if (text?.type !== "text" || !text.text) return null;
+  const match = LEADING_EMOJI_RE.exec(text.text);
+  if (!match) return null;
+  const rest = text.text.slice(match[0].length);
+  const content = rest
+    ? [{ ...text, text: rest }, ...(first!.content ?? []).slice(1)]
+    : (first!.content ?? []).slice(1);
+  if (content.length) blocks[0] = { ...first!, content };
+  else blocks.shift();
+  return match[1];
 }
 
 function withLeadingParagraph(blocks: PMNode[]): PMNode[] {

@@ -7,23 +7,34 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import type {
+  ImportContentDatabaseResult,
   ImportContentFileInput,
   ImportContentPageResult,
   ImportContentResult,
 } from "@shared/import/api";
 import {
+  importAttachmentMediaType,
   importFileFormat,
   importFileKind,
+  importImageMediaType,
   type ImportSkippedFile,
+  MAX_IMPORT_ATTACHMENT_BYTES,
   MAX_IMPORT_FILES,
   MAX_IMPORT_IMAGE_BYTES,
   MAX_IMPORT_MARKDOWN_BYTES,
+  MAX_IMPORT_TOTAL_MARKDOWN_BYTES,
   normalizeImportPath,
 } from "@shared/import/plan";
 import type { ImportNoteKind, ImportPageStatus } from "@shared/import/types";
 import {
+  IMPORT_ZIP_LIMITS,
+  ImportZipError,
+  readImportZip,
+} from "@shared/import/zip";
+import {
   IconAlertTriangle,
   IconCircleCheck,
+  IconDatabase,
   IconFileImport,
   IconFileOff,
   IconFileText,
@@ -47,11 +58,11 @@ import { useImportContent, useUndoContentImport } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 
 import { FileStorageStatusGate } from "./FileStorageStatusGate";
-import { uploadImageFile } from "./image-upload";
+import { uploadImageFile, uploadLinkedFile } from "./image-upload";
 import { uploadPickedImages } from "./import-image-uploads";
 
 const IMPORT_APP_STATE_KEY = "content-import";
-const FILE_ACCEPT = ".md,.markdown,.mdx,image/*";
+const FILE_ACCEPT = ".md,.markdown,.mdx,.zip,.pdf,.csv,image/*";
 // Long enough to reach Open or Undo after the dialog closes.
 const IMPORTED_TOAST_MS = 10_000;
 
@@ -67,10 +78,14 @@ const NOTE_MESSAGE_KEYS: Record<ImportNoteKind, string> = {
     "contentImport.noteInlineImageMovedToOwnLine",
   "ordered-task-list-unnumbered": "contentImport.noteOrderedTaskListUnnumbered",
   "title-formatting-removed": "contentImport.noteTitleFormattingRemoved",
+  "callout-icon-replaced": "contentImport.noteCalloutIconReplaced",
+  "expiring-link-rehosted": "contentImport.noteExpiringLinkRehosted",
   "frontmatter-not-shown": "contentImport.noteFrontmatterNotShown",
   "frontmatter-unreadable": "contentImport.noteFrontmatterUnreadable",
+  "properties-not-shown": "contentImport.notePropertiesNotShown",
   "asset-missing": "contentImport.noteAssetMissing",
   "link-target-not-imported": "contentImport.noteLinkTargetNotImported",
+  "expiring-link-not-rehosted": "contentImport.noteExpiringLinkNotRehosted",
   "link-removed": "contentImport.noteLinkRemoved",
   "image-title-dropped": "contentImport.noteImageTitleDropped",
   "link-title-dropped": "contentImport.noteLinkTitleDropped",
@@ -86,10 +101,12 @@ const NOTE_MESSAGE_KEYS: Record<ImportNoteKind, string> = {
 const SKIP_MESSAGE_KEYS: Record<ImportSkippedFile["reason"], string> = {
   "unsupported-format": "contentImport.skipUnsupported",
   "unused-image": "contentImport.skipUnusedImage",
+  "unused-file": "contentImport.skipUnusedFile",
   "too-large": "contentImport.skipTooLarge",
   "not-text": "contentImport.skipNotText",
   "duplicate-name": "contentImport.skipDuplicateName",
   "invalid-name": "contentImport.skipInvalidName",
+  "nested-archive": "contentImport.skipNestedArchive",
 };
 
 const STATUS_MESSAGE_KEYS: Record<ImportPageStatus, string> = {
@@ -123,29 +140,120 @@ function writeImportState(value: Record<string, unknown> | null) {
   }
 }
 
-async function readImportFiles(files: File[]) {
-  const payload: ImportContentFileInput[] = [];
+/**
+ * A file in the import: one picked or dropped, or one from a picked zip,
+ * named by its path inside the zip.
+ */
+interface ImportSource {
+  name: string;
+  size: number;
+  file: File;
+}
+
+const IMPORT_SIZE_LIMITS: Partial<
+  Record<ReturnType<typeof importFileKind>, number>
+> = {
+  markdown: MAX_IMPORT_MARKDOWN_BYTES,
+  image: MAX_IMPORT_IMAGE_BYTES,
+  attachment: MAX_IMPORT_ATTACHMENT_BYTES,
+};
+
+function importSource(name: string, file: File): ImportSource {
+  // A zip's files have no type, and a picked CSV can arrive as Excel's; the
+  // upload takes the type its extension names.
+  const type = importImageMediaType(name) ?? importAttachmentMediaType(name);
+  return {
+    name,
+    size: file.size,
+    file:
+      type && file.type !== type ? new File([file], file.name, { type }) : file,
+  };
+}
+
+/** Opens each picked zip into its files; other files pass through. */
+async function expandPickedFiles(files: File[], t: Translate) {
+  const sources: ImportSource[] = [];
   const skipped: ImportSkippedFile[] = [];
   for (const file of files) {
-    const kind = importFileKind(normalizeImportPath(file.name) ?? file.name);
-    if (
-      (kind === "markdown" && file.size > MAX_IMPORT_MARKDOWN_BYTES) ||
-      (kind === "image" && file.size > MAX_IMPORT_IMAGE_BYTES)
-    ) {
+    if (!/\.zip$/i.test(file.name)) {
+      sources.push(importSource(file.name, file));
+      continue;
+    }
+    let read: Awaited<ReturnType<typeof readImportZip>>;
+    try {
+      read = await readImportZip(file);
+    } catch (zipError) {
+      throw new Error(zipErrorMessage(zipError, file.name, t));
+    }
+    for (const entry of read.entries) {
+      const name = entry.path.slice(entry.path.lastIndexOf("/") + 1);
+      sources.push(importSource(entry.path, new File([entry.data], name)));
+    }
+    for (const entry of read.skipped) {
       skipped.push({
-        name: file.name,
+        name: entry.name,
+        reason: entry.reason,
+        format: importFileFormat(entry.name),
+      });
+    }
+  }
+  return { sources, skipped };
+}
+
+function zipErrorMessage(error: unknown, name: string, t: Translate) {
+  const megabytes = (bytes: number) => Math.round(bytes / 1024 / 1024);
+  if (!(error instanceof ImportZipError)) {
+    return t("contentImport.zipUnreadable", { name });
+  }
+  switch (error.code) {
+    case "too-large":
+      return t("contentImport.zipTooLarge", {
+        name,
+        max: megabytes(IMPORT_ZIP_LIMITS.compressedBytes),
+      });
+    case "too-many-entries":
+      return t("contentImport.zipTooManyFiles", {
+        name,
+        max: IMPORT_ZIP_LIMITS.entries,
+      });
+    case "expands-too-large":
+      return t("contentImport.zipExpandsTooLarge", {
+        name,
+        max: megabytes(IMPORT_ZIP_LIMITS.uncompressedBytes),
+      });
+    case "unreadable":
+      return t("contentImport.zipUnreadable", { name });
+  }
+}
+
+async function readImportFiles(sources: ImportSource[]) {
+  const payload: ImportContentFileInput[] = [];
+  const skipped: ImportSkippedFile[] = [];
+  let markdownBytes = 0;
+  for (const source of sources) {
+    const kind = importFileKind(normalizeImportPath(source.name) ?? source.name);
+    if (source.size > (IMPORT_SIZE_LIMITS[kind] ?? Infinity)) {
+      skipped.push({
+        name: source.name,
         reason: "too-large",
-        format: importFileFormat(file.name),
+        format: importFileFormat(source.name),
       });
       continue;
     }
+    if (kind === "markdown") markdownBytes += source.size;
     payload.push(
       kind === "markdown"
-        ? { name: file.name, text: await file.text() }
-        : { name: file.name },
+        ? { name: source.name, text: await source.file.text() }
+        : { name: source.name },
     );
   }
-  return { payload, skipped };
+  return { payload, skipped, markdownBytes };
+}
+
+function uploadImportSource(source: ImportSource): Promise<string> {
+  return importFileKind(source.name) === "image"
+    ? uploadImageFile(source.file)
+    : uploadLinkedFile(source.file);
 }
 
 function skipReasonLabel(file: ImportSkippedFile, t: Translate) {
@@ -182,10 +290,14 @@ export function ContentImportDialog({
   // One key per pick or drop, kept when the same files are planned again, so
   // an import that already created pages finishes instead of duplicating them.
   const idempotencyKey = useRef("");
-  // A retry under the same key must send the same image urls, which the
-  // key's fingerprint includes, so each picked image uploads once per key.
-  const imageUploads = useRef(new Map<File, Promise<string>>());
-  const [files, setFiles] = useState<File[]>([]);
+  // A retry under the same key must send the same file urls, which the key's
+  // fingerprint includes, so each picked image or file uploads once per key.
+  const imageUploads = useRef(new Map<ImportSource, Promise<string>>());
+  const [files, setFiles] = useState<ImportSource[]>([]);
+  // Files a picked zip held that can't be imported, such as a zip in a zip.
+  const [archiveSkipped, setArchiveSkipped] = useState<ImportSkippedFile[]>(
+    [],
+  );
   const [payload, setPayload] = useState<ImportContentFileInput[]>([]);
   const [localSkipped, setLocalSkipped] = useState<ImportSkippedFile[]>([]);
   const [plan, setPlan] = useState<ImportContentResult | null>(null);
@@ -199,7 +311,7 @@ export function ContentImportDialog({
     (
       next: ImportPhase,
       details: {
-        files?: File[];
+        files?: Array<{ name: string; size: number }>;
         plan?: ImportContentResult | null;
         createdPageIds?: string[];
         error?: string | null;
@@ -218,6 +330,7 @@ export function ContentImportDialog({
           ? {
               importId: details.plan.importId,
               counts: details.plan.counts,
+              databases: details.plan.databases.length,
               storageReady: details.plan.storageReady,
             }
           : {}),
@@ -231,13 +344,14 @@ export function ContentImportDialog({
   );
 
   const previewFiles = useCallback(
-    async (picked: File[]) => {
+    async (picked: ImportSource[], fromArchives: ImportSkippedFile[]) => {
       const requestId = ++planRequest.current;
       const key = idempotencyKey.current;
       setFiles(picked);
+      setArchiveSkipped(fromArchives);
       setPlan(null);
       setError(null);
-      if (picked.length === 0) {
+      if (picked.length === 0 && fromArchives.length === 0) {
         setPhase("choosing");
         publishState("choosing");
         return;
@@ -256,6 +370,15 @@ export function ContentImportDialog({
       try {
         const read = await readImportFiles(picked);
         if (requestId !== planRequest.current) return;
+        if (read.markdownBytes > MAX_IMPORT_TOTAL_MARKDOWN_BYTES) {
+          const message = t("contentImport.markdownTooLarge", {
+            max: Math.round(MAX_IMPORT_TOTAL_MARKDOWN_BYTES / 1024 / 1024),
+          });
+          setPhase("failed");
+          setError(message);
+          publishState("failed", { files: picked, error: message });
+          return;
+        }
         setPayload(read.payload);
         setLocalSkipped(read.skipped);
         const result =
@@ -284,12 +407,37 @@ export function ContentImportDialog({
   );
 
   const planFiles = useCallback(
-    (picked: File[]) => {
+    async (picked: File[]) => {
       idempotencyKey.current = crypto.randomUUID();
       imageUploads.current = new Map();
-      return previewFiles(picked);
+      if (!picked.some((file) => /\.zip$/i.test(file.name))) {
+        return previewFiles(
+          picked.map((file) => importSource(file.name, file)),
+          [],
+        );
+      }
+      const requestId = ++planRequest.current;
+      setPlan(null);
+      setError(null);
+      setPhase("planning");
+      publishState("planning", { files: picked });
+      try {
+        const expanded = await expandPickedFiles(picked, t);
+        if (requestId !== planRequest.current) return;
+        return previewFiles(expanded.sources, expanded.skipped);
+      } catch (zipError) {
+        if (requestId !== planRequest.current) return;
+        const message =
+          zipError instanceof Error
+            ? zipError.message
+            : t("contentImport.importFailed");
+        setFiles([]);
+        setPhase("failed");
+        setError(message);
+        publishState("failed", { files: picked, error: message });
+      }
     },
-    [previewFiles],
+    [previewFiles, publishState, t],
   );
 
   const planFilesRef = useRef(planFiles);
@@ -301,6 +449,7 @@ export function ContentImportDialog({
   const close = useCallback(() => {
     planRequest.current += 1;
     setFiles([]);
+    setArchiveSkipped([]);
     setPayload([]);
     setLocalSkipped([]);
     setPlan(null);
@@ -342,7 +491,7 @@ export function ContentImportDialog({
           return file ? [file] : [];
         }),
         imageUploads.current,
-        uploadImageFile,
+        uploadImportSource,
       );
       const result = await importContent.mutateAsync({
         files: payload.map((file) =>
@@ -362,6 +511,7 @@ export function ContentImportDialog({
       });
       planRequest.current += 1;
       setFiles([]);
+      setArchiveSkipped([]);
       setPayload([]);
       setLocalSkipped([]);
       setPlan(null);
@@ -442,8 +592,24 @@ export function ContentImportDialog({
     undo,
   ]);
 
-  const skipped = [...localSkipped, ...(plan?.skipped ?? [])];
+  const skipped = [
+    ...archiveSkipped,
+    ...localSkipped,
+    ...(plan?.skipped ?? []),
+  ];
   const pages = plan?.pages ?? [];
+  const databases = plan?.databases ?? [];
+  // Pages arrive each followed by its subpages, so a parent's depth is known.
+  const pageDepths = new Map<string, number>();
+  for (const page of pages) {
+    const parentDepth = page.parentSourceName
+      ? pageDepths.get(page.parentSourceName)
+      : undefined;
+    pageDepths.set(
+      page.sourceName,
+      parentDepth === undefined ? 0 : parentDepth + 1,
+    );
+  }
   const busy = phase === "planning" || phase === "importing";
   const storageReady = plan?.storageReady ?? true;
   const canImport =
@@ -527,11 +693,34 @@ export function ContentImportDialog({
 
         {pages.length > 0 &&
         (phase === "previewing" || phase === "importing") ? (
-          <ul className="grid gap-3">
+          <ul className="grid max-h-[50vh] gap-3 overflow-y-auto">
             {pages.map((page) => (
-              <ImportPageRow key={page.sourceName} page={page} t={t} />
+              <ImportPageRow
+                key={page.sourceName}
+                page={page}
+                depth={pageDepths.get(page.sourceName) ?? 0}
+                t={t}
+              />
             ))}
           </ul>
+        ) : null}
+
+        {databases.length > 0 &&
+        (phase === "previewing" || phase === "importing") ? (
+          <section className="grid gap-1.5">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t("contentImport.databasesNotImported")}
+            </h3>
+            <ul className="grid gap-1">
+              {databases.map((database) => (
+                <ImportDatabaseRow
+                  key={database.sourceName}
+                  database={database}
+                  t={t}
+                />
+              ))}
+            </ul>
+          </section>
         ) : null}
 
         {skipped.length > 0 &&
@@ -540,7 +729,7 @@ export function ContentImportDialog({
             <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t("contentImport.notImported")}
             </h3>
-            <ul className="grid gap-1">
+            <ul className="grid max-h-[30vh] gap-1 overflow-y-auto">
               {skipped.map((file, index) => (
                 <li
                   key={`${index}:${file.name}:${file.reason}`}
@@ -619,7 +808,7 @@ export function ContentImportDialog({
         onOpenChange={(next, reason) => {
           setStorageSetupOpen(next);
           if (!next && reason === "connected" && files.length > 0) {
-            void previewFiles(files);
+            void previewFiles(files, archiveSkipped);
           }
         }}
       />
@@ -629,9 +818,12 @@ export function ContentImportDialog({
 
 function ImportPageRow({
   page,
+  depth,
   t,
 }: {
   page: ImportContentPageResult;
+  /** How many imported pages it goes under. */
+  depth: number;
   t: Translate;
 }) {
   const StatusIcon =
@@ -641,7 +833,10 @@ function ImportPageRow({
         ? IconInfoCircle
         : IconAlertTriangle;
   return (
-    <li className="flex min-w-0 items-start gap-3">
+    <li
+      className="flex min-w-0 items-start gap-3"
+      style={depth > 0 ? { paddingInlineStart: `${depth * 1.25}rem` } : {}}
+    >
       <IconFileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <div className="grid min-w-0 flex-1 gap-1">
         <div className="flex min-w-0 items-baseline gap-2">
@@ -661,6 +856,17 @@ function ImportPageRow({
           <StatusIcon className="size-3.5 shrink-0" />
           {t(STATUS_MESSAGE_KEYS[page.status])}
         </div>
+        {page.alreadyImportedAt ? (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <IconInfoCircle className="size-3.5 shrink-0" />
+            {t("contentImport.alreadyImported", {
+              date: new Date(page.alreadyImportedAt).toLocaleDateString(
+                undefined,
+                { dateStyle: "medium" },
+              ),
+            })}
+          </div>
+        ) : null}
         {page.notes.length > 0 ? (
           <ul className="grid gap-0.5 ps-5 text-xs text-muted-foreground">
             {page.notes.map((note) => (
@@ -672,6 +878,28 @@ function ImportPageRow({
           </ul>
         ) : null}
       </div>
+    </li>
+  );
+}
+
+function ImportDatabaseRow({
+  database,
+  t,
+}: {
+  database: ImportContentDatabaseResult;
+  t: Translate;
+}) {
+  return (
+    <li className="flex min-w-0 items-center gap-2 text-sm">
+      <IconDatabase className="size-4 shrink-0 text-muted-foreground" />
+      <span className="truncate">{database.name}</span>
+      <span className="ms-auto shrink-0 text-xs text-muted-foreground">
+        {t("contentImport.databaseRows", { count: database.rows })}
+        {" · "}
+        {database.csvKept
+          ? t("contentImport.databaseCsvKept")
+          : t("contentImport.databaseCsvNotKept")}
+      </span>
     </li>
   );
 }

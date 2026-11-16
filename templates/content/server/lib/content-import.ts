@@ -17,9 +17,10 @@ import {
   isPrivateBlobConfiguredForRequest,
   putPrivateBlob,
 } from "@agent-native/core/private-blob";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { captureError } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
 import { resolveContentSpaceTarget } from "../../actions/_content-space-target.js";
 import createDocument, {
@@ -27,21 +28,29 @@ import createDocument, {
 } from "../../actions/create-document.js";
 import type {
   ImportContentArgs,
+  ImportContentDatabaseResult,
   ImportContentFileInput,
   ImportContentPageResult,
   ImportContentResult,
 } from "../../shared/import/api.js";
+import { expiringFileLabel } from "../../shared/import/expiring-links.js";
 import {
   assetKey,
   dataUrlBytes,
   finalizePlannedPage,
+  importAttachmentMediaType,
   importFileFormat,
   importFileKind,
+  importImageMediaType,
   type ImportSkippedFile,
+  isImportImageMediaType,
+  MAX_IMPORT_ATTACHMENT_BYTES,
   MAX_IMPORT_MARKDOWN_BYTES,
   MAX_IMPORT_PAGE_CHARACTERS,
+  MAX_IMPORT_TOTAL_MARKDOWN_BYTES,
   normalizeImportPath,
   planMarkdownPages,
+  type PlannedImportPage,
 } from "../../shared/import/plan.js";
 import {
   IMPORT_CONTENT_OPERATION,
@@ -61,9 +70,11 @@ interface IntakeMarkdown {
   text: string;
 }
 
-interface IntakeImage {
+/** An image a page shows, or a file such as a PDF a page links to. */
+interface IntakeAsset {
   path: string;
   name: string;
+  kind: "image" | "attachment";
   url: string | null;
 }
 
@@ -74,11 +85,32 @@ export async function runContentImport(
   const actor = requireDocumentRequestActor(ctx);
   const db = getDb();
   const destination = await resolveImportDestination(db, actor, args);
-  const { markdown, images, skipped } = intakeFiles(args.files);
+  const { markdown, assets, skipped } = intakeFiles(args.files);
+  const markdownBytes = markdown.reduce(
+    (total, file) => total + Buffer.byteLength(file.text, "utf8"),
+    0,
+  );
+  if (markdownBytes > MAX_IMPORT_TOTAL_MARKDOWN_BYTES) {
+    fail(
+      `These files hold ${megabytes(markdownBytes)} MB of Markdown, more than the ${megabytes(MAX_IMPORT_TOTAL_MARKDOWN_BYTES)} MB one import takes. Import them in smaller groups, such as one top-level page and its subpages at a time.`,
+      { errorCode: "IMPORT_TOO_LARGE", statusCode: 413 },
+    );
+  }
 
-  const { pages: planned, tooLarge } = planMarkdownPages({
+  const assetPaths = (kind: IntakeAsset["kind"]) =>
+    new Set(
+      [...assets.values()]
+        .filter((asset) => asset.kind === kind)
+        .map((asset) => asset.path),
+    );
+  const {
+    pages: planned,
+    tooLarge,
+    notion,
+  } = planMarkdownPages({
     markdown,
-    imagePaths: new Set(images.keys()),
+    imagePaths: assetPaths("image"),
+    attachmentPaths: assetPaths("attachment"),
   });
   for (const path of tooLarge) {
     skipped.push({
@@ -88,25 +120,34 @@ export async function runContentImport(
     });
   }
 
-  const usedImagePaths = new Set(
+  const usedAssetPaths = new Set(
     planned.flatMap((page) =>
       page.uploads.flatMap((request) =>
         request.kind === "file" ? [request.path] : [],
       ),
     ),
   );
-  for (const image of images.values()) {
-    if (!usedImagePaths.has(image.path)) {
-      skipped.push({
-        name: image.name,
-        reason: "unused-image",
-        format: importFileFormat(image.path),
-      });
-    }
+  for (const asset of assets.values()) {
+    // A database's own files are named by the database's entry.
+    if (usedAssetPaths.has(asset.path)) continue;
+    if (notion?.databaseFiles.has(asset.path)) continue;
+    skipped.push({
+      name: asset.name,
+      reason: asset.kind === "image" ? "unused-image" : "unused-file",
+      format: importFileFormat(asset.path),
+    });
   }
-  const uploads = [...usedImagePaths].map((path) => images.get(path)!.name);
+  const uploads = [...usedAssetPaths].map((path) => assets.get(path)!.name);
+  const databases: ImportContentDatabaseResult[] = (
+    notion?.databases ?? []
+  ).map((database) => ({
+    name: database.name,
+    sourceName: assets.get(database.csvPath)?.name ?? database.csvPath,
+    rows: database.rows.length,
+    csvKept: usedAssetPaths.has(database.keptCsvPath),
+  }));
   const needsServerUpload = planned.some((page) =>
-    page.uploads.some((request) => request.kind === "data-url"),
+    page.uploads.some((request) => request.kind !== "file"),
   );
   const storageReady =
     (await isPrivateBlobConfiguredForRequest()) &&
@@ -114,35 +155,43 @@ export async function runContentImport(
       Boolean(await getActiveFileUploadProviderForRequest()));
 
   if (args.dryRun) {
+    const importId = importIdFor(actor, args.idempotencyKey);
+    const earlier = await earlierImports(db, actor, importId, markdown);
     return importResult({
-      importId: importIdFor(actor, args.idempotencyKey),
+      importId,
       dryRun: true,
       destination,
       storageReady,
-      pages: planned.map((page) => pageResult(page.path, page.preview, null)),
+      pages: planned.map((page) =>
+        pageResult(page, page.preview, null, {
+          alreadyImportedAt:
+            earlier.get(sha256(sourceFile(markdown, page.path).text)) ?? null,
+        }),
+      ),
       skipped,
+      databases,
       uploads,
     });
   }
 
   if (planned.length === 0) {
-    fail(nothingToImportMessage(skipped), {
+    fail(nothingToImportMessage(skipped, databases), {
       errorCode: "IMPORT_NOTHING_TO_IMPORT",
       statusCode: 400,
     });
   }
   if (!storageReady) storageUnavailable();
-  for (const path of usedImagePaths) {
-    if (!images.get(path)!.url) {
+  for (const path of usedAssetPaths) {
+    if (!assets.get(path)!.url) {
       fail(
-        `Upload ${images.get(path)!.name} and pass its url before applying the import.`,
+        `Upload ${assets.get(path)!.name} and pass its url before applying the import.`,
         { errorCode: "IMPORT_IMAGE_NOT_UPLOADED", statusCode: 400 },
       );
     }
   }
 
   const importId = importIdFor(actor, args.idempotencyKey);
-  const requestSha256 = importRequestFingerprint(destination, markdown, images);
+  const requestSha256 = importRequestFingerprint(destination, markdown, assets);
   const previous = await db
     .select({
       documentId: schema.documentImports.documentId,
@@ -164,7 +213,9 @@ export async function runContentImport(
     planned.map((page) => [page.path, importPageId(importId, page.path)]),
   );
 
-  const dataUrlUploads = new Map<string, FileUploadResult>();
+  // Embedded images and files behind signed links, which the server uploads.
+  // A signed link that couldn't be fetched maps to null and stays a link.
+  const serverUploads = new Map<string, FileUploadResult | null>();
   const usedUploads = new Set<string>();
   const pages: ImportContentPageResult[] = [];
   try {
@@ -175,17 +226,21 @@ export async function runContentImport(
     for (const page of planned) {
       if (previousById.has(pageIds.get(page.path)!)) continue;
       for (const request of page.uploads) {
-        if (request.kind !== "data-url") continue;
+        if (request.kind === "file") continue;
         const key = assetKey(request);
-        if (!dataUrlUploads.has(key)) {
-          dataUrlUploads.set(key, await uploadDataUrl(request, actor));
-        }
+        if (serverUploads.has(key)) continue;
+        serverUploads.set(
+          key,
+          request.kind === "data-url"
+            ? await uploadDataUrl(request, actor)
+            : await uploadExpiringFile(request, actor),
+        );
       }
       const filled = finalizePlannedPage(page, {
         assetUrl: (request) =>
           request.kind === "file"
-            ? (images.get(request.path)?.url ?? null)
-            : (dataUrlUploads.get(assetKey(request))?.url ?? null),
+            ? (assets.get(request.path)?.url ?? null)
+            : (serverUploads.get(assetKey(request))?.url ?? null),
         pageHref: (path) => {
           const target = pageIds.get(path);
           return target ? `/page/${target}` : null;
@@ -206,7 +261,7 @@ export async function runContentImport(
       if (earlier) {
         pages.push(
           pageResult(
-            page.path,
+            page,
             {
               ...page.preview,
               report: JSON.parse(earlier.reportJson) as ImportedPageReport,
@@ -220,7 +275,7 @@ export async function runContentImport(
       const filled = stored.get(page.path)!;
       const keepUploads = () => {
         for (const request of page.uploads) {
-          if (request.kind === "data-url") usedUploads.add(assetKey(request));
+          if (request.kind !== "file") usedUploads.add(assetKey(request));
         }
       };
       const { report, created } = await createImportedPage({
@@ -231,12 +286,17 @@ export async function runContentImport(
         importId,
         requestSha256,
         destination,
+        // Pages come parents first, so an imported parent exists by now.
+        parentId: page.parentPath
+          ? pageIds.get(page.parentPath)!
+          : destination.parentId,
+        sourceFormat: notion ? "notion-export" : "markdown",
         source: sourceFile(markdown, page.path),
         page: filled,
         keepUploads,
       });
       if (created) keepUploads();
-      pages.push(pageResult(page.path, { ...filled, report }, id));
+      pages.push(pageResult(page, { ...filled, report }, id));
     }
   } catch (error) {
     throw await incompleteImportError(error, {
@@ -247,7 +307,7 @@ export async function runContentImport(
       confirmedIds: pages.flatMap((page) => (page.id ? [page.id] : [])),
     });
   } finally {
-    await deleteUnusedUploads(dataUrlUploads, usedUploads);
+    await deleteUnusedUploads(serverUploads, usedUploads);
   }
 
   return importResult({
@@ -257,8 +317,50 @@ export async function runContentImport(
     storageReady,
     pages,
     skipped,
+    databases,
     uploads,
   });
+}
+
+/**
+ * When this person last imported each file's exact text, by the text's hash,
+ * into a page still out of Trash. Importing again makes new pages anyway; the
+ * preview says so in case the export was imported already.
+ */
+async function earlierImports(
+  db: ReturnType<typeof getDb>,
+  actor: string,
+  importId: string,
+  markdown: IntakeMarkdown[],
+): Promise<Map<string, string>> {
+  const hashes = [...new Set(markdown.map((file) => sha256(file.text)))];
+  if (hashes.length === 0) return new Map();
+  const rows = await db
+    .select({
+      sourceSha256: schema.documentImports.sourceSha256,
+      createdAt: schema.documentImports.createdAt,
+    })
+    .from(schema.documentImports)
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.documentImports.documentId),
+    )
+    .where(
+      and(
+        inArray(schema.documentImports.sourceSha256, hashes),
+        ne(schema.documentImports.importId, importId),
+        isNull(schema.documents.trashedAt),
+        sql`lower(${schema.documents.createdBy}) = ${actor}`,
+      ),
+    );
+  const latest = new Map<string, string>();
+  for (const row of rows) {
+    const seen = latest.get(row.sourceSha256);
+    if (!seen || row.createdAt > seen) {
+      latest.set(row.sourceSha256, row.createdAt);
+    }
+  }
+  return latest;
 }
 
 /**
@@ -379,7 +481,7 @@ async function resolveImportDestination(
 
 function intakeFiles(files: ImportContentFileInput[]) {
   const markdown: IntakeMarkdown[] = [];
-  const images = new Map<string, IntakeImage>();
+  const assets = new Map<string, IntakeAsset>();
   const skipped: ImportSkippedFile[] = [];
   const seen = new Set<string>();
 
@@ -391,15 +493,15 @@ function intakeFiles(files: ImportContentFileInput[]) {
       continue;
     }
     if (seen.has(path)) {
-      // References match images by name, so a repeated image name can't say
+      // References match files by name, so a repeated file name can't say
       // which file it means; every file with it is left out instead.
-      const image = images.get(path);
-      if (image) {
-        images.delete(path);
+      const asset = assets.get(path);
+      if (asset) {
+        assets.delete(path);
         skipped.push({
-          name: image.name,
+          name: asset.name,
           reason: "duplicate-name",
-          format: importFileFormat(image.name),
+          format: importFileFormat(asset.name),
         });
       }
       skipped.push({ name: file.name, reason: "duplicate-name", format });
@@ -412,10 +514,11 @@ function intakeFiles(files: ImportContentFileInput[]) {
       skipped.push({ name: file.name, reason: "unsupported-format", format });
       continue;
     }
-    if (kind === "image") {
-      images.set(path, {
+    if (kind === "image" || kind === "attachment") {
+      assets.set(path, {
         path,
         name: file.name,
+        kind,
         url: file.url ? importImageUrl(file) : null,
       });
       continue;
@@ -436,7 +539,7 @@ function intakeFiles(files: ImportContentFileInput[]) {
     }
     markdown.push({ path, name: file.name, text: file.text });
   }
-  return { markdown, images, skipped };
+  return { markdown, assets, skipped };
 }
 
 function sourceFile(markdown: IntakeMarkdown[], path: string): IntakeMarkdown {
@@ -478,17 +581,91 @@ async function uploadDataUrl(
 }
 
 /**
- * Embedded images this attempt uploaded for a page it didn't create, because
+ * Uploads the file a signed Notion link names, so the page keeps it once the
+ * link lapses. A file that can't be fetched, is too large, or isn't an image
+ * or PDF stays linked as written, and the page's report says so. The link
+ * itself is never logged: its signature lets anyone fetch the file.
+ */
+async function uploadExpiringFile(
+  request: Extract<ImportAssetRequest, { kind: "remote" }>,
+  ownerEmail: string,
+): Promise<FileUploadResult | null> {
+  const filename = expiringFileLabel(request.url);
+  try {
+    const response = await ssrfSafeFetch(
+      request.url,
+      { signal: AbortSignal.timeout(30_000) },
+      { httpsOnly: true, maxRedirects: 3 },
+    );
+    const declared = (response.headers.get("content-type") ?? "")
+      .split(";")[0]!
+      .trim()
+      .toLowerCase();
+    // Storage often serves a file as octet-stream; its name says what it is.
+    const mimeType = keptFileType(declared)
+      ? declared
+      : (importImageMediaType(filename) ??
+        (importAttachmentMediaType(filename) === "application/pdf"
+          ? "application/pdf"
+          : null));
+    const data =
+      response.ok && mimeType
+        ? await readAtMost(response, MAX_IMPORT_ATTACHMENT_BYTES)
+        : null;
+    if (!data || !mimeType) {
+      await response.body?.cancel().catch(() => {});
+      return null;
+    }
+    const uploaded = await uploadFile({ data, filename, mimeType, ownerEmail });
+    return uploaded?.url ? uploaded : null;
+  } catch (error) {
+    console.error(
+      `[content] Imported file ${filename} could not be fetched from its signed link:`,
+      error instanceof Error ? error.name : "unknown error",
+    );
+    return null;
+  }
+}
+
+function keptFileType(mimeType: string): boolean {
+  return isImportImageMediaType(mimeType) || mimeType === "application/pdf";
+}
+
+/** The response body, or null once it passes `limit` bytes. */
+async function readAtMost(
+  response: Response,
+  limit: number,
+): Promise<Uint8Array | null> {
+  if (Number(response.headers.get("content-length")) > limit) return null;
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
+ * Files the server uploaded for a page this attempt didn't create, because
  * the page failed or another attempt with the key created it first. Nothing
  * points at them, so they go; a failed delete is logged, never thrown over the
  * import's own result.
  */
 async function deleteUnusedUploads(
-  uploads: ReadonlyMap<string, FileUploadResult>,
+  uploads: ReadonlyMap<string, FileUploadResult | null>,
   used: ReadonlySet<string>,
 ): Promise<void> {
   for (const [key, upload] of uploads) {
-    if (used.has(key)) continue;
+    if (!upload || used.has(key)) continue;
     try {
       const deleted = await deleteUploadedFile(upload.provider, {
         url: upload.url,
@@ -496,12 +673,12 @@ async function deleteUnusedUploads(
       });
       if (!deleted) {
         console.error(
-          `[content] Unused imported image ${upload.url} was not deleted: the provider kept it`,
+          `[content] Unused imported file ${upload.url} was not deleted: the provider kept it`,
         );
       }
     } catch (error) {
       console.error(
-        `[content] Unused imported image ${upload.url} was not deleted:`,
+        `[content] Unused imported file ${upload.url} was not deleted:`,
         error,
       );
     }
@@ -523,9 +700,12 @@ async function createImportedPage(input: {
   importId: string;
   requestSha256: string;
   destination: ImportContentResult["destination"];
+  /** The page it goes under: an imported page, or the destination's. */
+  parentId: string | null;
+  sourceFormat: "markdown" | "notion-export";
   source: IntakeMarkdown;
   page: ImportedPage;
-  /** Keeps the images uploaded for the page, which may have been saved. */
+  /** Keeps the files uploaded for the page, which may have been saved. */
   keepUploads: () => void;
 }): Promise<{ report: ImportedPageReport; created: boolean }> {
   const { db, ctx, actor, id, page, source } = input;
@@ -622,7 +802,7 @@ async function createImportedPage(input: {
           importId: input.importId,
           requestSha256: input.requestSha256,
           sourceName: source.name,
-          sourceFormat: "markdown",
+          sourceFormat: input.sourceFormat,
           sourceBytes: Buffer.byteLength(source.text, "utf8"),
           sourceSha256,
           originalBlob,
@@ -642,8 +822,8 @@ async function createImportedPage(input: {
             preserveLeadingTitleHeading: true,
             ...(page.description ? { description: page.description } : {}),
             ...(page.icon ? { icon: page.icon } : {}),
-            ...(input.destination.parentId
-              ? { parentId: input.destination.parentId }
+            ...(input.parentId
+              ? { parentId: input.parentId }
               : { spaceId: input.destination.spaceId }),
             reuseLabels: [],
           },
@@ -738,14 +918,14 @@ export function importedStateFingerprint(page: {
 
 /**
  * What a retry with the same key must repeat: the destination, each Markdown
- * file's name and text, and each image's name and url. The url stands in for
- * the image's bytes, so a retry sends the same upload's url rather than
- * uploading the image again.
+ * file's name and text, and each other file's name and url. The url stands in
+ * for the file's bytes, so a retry sends the same upload's url rather than
+ * uploading the file again.
  */
 function importRequestFingerprint(
   destination: ImportContentResult["destination"],
   markdown: IntakeMarkdown[],
-  images: Map<string, IntakeImage>,
+  assets: Map<string, IntakeAsset>,
 ): string {
   return sha256(
     JSON.stringify({
@@ -754,9 +934,9 @@ function importRequestFingerprint(
       markdown: [...markdown]
         .sort((a, b) => (a.path < b.path ? -1 : 1))
         .map((file) => [file.path, sha256(file.text)]),
-      images: [...images.values()]
+      images: [...assets.values()]
         .sort((a, b) => (a.path < b.path ? -1 : 1))
-        .map((image) => [image.path, image.url]),
+        .map((asset) => [asset.path, asset.url]),
     }),
   );
 }
@@ -790,14 +970,17 @@ function idempotencyKeyReused(): never {
 }
 
 function pageResult(
-  path: string,
+  planned: PlannedImportPage,
   page: ImportedPage,
   id: string | null,
+  options: { alreadyImportedAt?: string | null } = {},
 ): ImportContentPageResult {
   return {
     id,
     urlPath: id ? `/page/${id}` : null,
-    sourceName: path,
+    sourceName: planned.path,
+    parentSourceName: planned.parentPath,
+    alreadyImportedAt: options.alreadyImportedAt ?? null,
     title: page.title,
     titleSource: page.titleSource,
     status: page.report.status,
@@ -825,7 +1008,9 @@ function resultMessage(
   input: Omit<ImportContentResult, "counts" | "message">,
   counts: ImportContentResult["counts"],
 ): string {
-  if (counts.pages === 0) return nothingToImportMessage(input.skipped);
+  if (counts.pages === 0) {
+    return nothingToImportMessage(input.skipped, input.databases);
+  }
   const verb = input.dryRun ? "Would import" : "Imported";
   const parts = [
     `${verb} ${counts.pages} page${counts.pages === 1 ? "" : "s"}`,
@@ -840,6 +1025,11 @@ function resultMessage(
       `${counts.skipped} file${counts.skipped === 1 ? "" : "s"} skipped`,
     );
   }
+  if (input.databases.length > 0) {
+    parts.push(
+      `${input.databases.length} Notion database${input.databases.length === 1 ? "" : "s"} not imported yet`,
+    );
+  }
   if (input.dryRun && !input.storageReady) {
     parts.push(
       "file storage is not set up, so applying will fail until it is connected in Settings",
@@ -848,12 +1038,18 @@ function resultMessage(
   return `${parts.join("; ")}.`;
 }
 
-function nothingToImportMessage(skipped: ImportSkippedFile[]): string {
+function nothingToImportMessage(
+  skipped: ImportSkippedFile[],
+  databases: ImportContentDatabaseResult[],
+): string {
+  if (databases.length > 0) {
+    return `Nothing to import: the export holds only ${databases.map((database) => database.name).join(", ")}, ${databases.length === 1 ? "a Notion database" : "Notion databases"}, which Content doesn't import yet.`;
+  }
   const unsupported = skipped.filter(
     (file) => file.reason === "unsupported-format",
   );
   if (unsupported.length > 0) {
-    return `Nothing to import: ${unsupported.map((file) => file.name).join(", ")} ${unsupported.length === 1 ? "is" : "are"} not supported yet. Content imports Markdown (.md, .markdown, .mdx) files and the images they use.`;
+    return `Nothing to import: ${unsupported.map((file) => file.name).join(", ")} ${unsupported.length === 1 ? "is" : "are"} not supported yet. Content imports Markdown (.md, .markdown, .mdx) files with the images, PDFs and CSVs they use, including a Notion export.`;
   }
   return "Nothing to import: no readable Markdown files were given.";
 }
@@ -863,6 +1059,10 @@ function storageUnavailable(): never {
     "File storage isn't set up for this workspace, so the import can't keep the original file or upload images. Connect storage in Settings → File uploads, then import again.",
     { errorCode: "IMPORT_STORAGE_UNAVAILABLE", statusCode: 503 },
   );
+}
+
+function megabytes(bytes: number): string {
+  return (bytes / 1024 / 1024).toFixed(1).replace(/\.0$/, "");
 }
 
 function importIdFor(actor: string, idempotencyKey?: string): string {

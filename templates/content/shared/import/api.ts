@@ -26,6 +26,13 @@ export interface ImportContentPageResult {
   id: string | null;
   urlPath: string | null;
   sourceName: string;
+  /** The imported file this page goes under; null for the destination. */
+  parentSourceName: string | null;
+  /**
+   * When a page with this file's exact text was last imported and is still
+   * out of Trash. Dry runs only; importing again makes new pages anyway.
+   */
+  alreadyImportedAt: string | null;
   title: string;
   titleSource: ImportedPage["titleSource"];
   status: ImportPageStatus;
@@ -45,7 +52,12 @@ export interface ImportContentResult {
   storageReady: boolean;
   pages: ImportContentPageResult[];
   skipped: ImportSkippedFile[];
-  /** File names, as given, of the images the pages use; the UI uploads these. */
+  /** Notion databases in the import, which aren't imported yet. */
+  databases: ImportContentDatabaseResult[];
+  /**
+   * File names, as given, of the images and files the pages use, such as a
+   * PDF or a database's CSV a page links to; the UI uploads these.
+   */
   uploads: string[];
   counts: {
     pages: number;
@@ -55,6 +67,19 @@ export interface ImportContentResult {
     skipped: number;
   };
   message: string;
+}
+
+export interface ImportContentDatabaseResult {
+  name: string;
+  /** The database's CSV in the import. */
+  sourceName: string;
+  /** Row pages the export holds for it. */
+  rows: number;
+  /**
+   * Whether its CSV is kept as a file a page links to. A database no
+   * imported page links to keeps only its listing here.
+   */
+  csvKept: boolean;
 }
 
 export interface UndoContentImportResult {

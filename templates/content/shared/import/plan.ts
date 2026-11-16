@@ -4,6 +4,13 @@ import {
   newTablePaddingBudget,
   parseMarkdownImport,
 } from "./markdown";
+import {
+  isNotionExport,
+  type NotionDatabase,
+  notionFileTitle,
+  planNotionExport,
+  prepareNotionMarkdown,
+} from "./notion-export";
 import { isMarkdownFilePath } from "./paths";
 import type {
   ImportAssetRequest,
@@ -11,9 +18,17 @@ import type {
   ImportedPage,
 } from "./types";
 
-export const MAX_IMPORT_FILES = 50;
+/** Files in one import, a zip's files included: a zip may hold 500. */
+export const MAX_IMPORT_FILES = 500;
 export const MAX_IMPORT_MARKDOWN_BYTES = 1024 * 1024;
+/**
+ * Markdown text in one import, every file together. The files travel in one
+ * request, which a hosted server caps at a few megabytes.
+ */
+export const MAX_IMPORT_TOTAL_MARKDOWN_BYTES = 4 * 1024 * 1024;
 export const MAX_IMPORT_IMAGE_BYTES = 10 * 1024 * 1024;
+/** A PDF or CSV a page links to, kept as a file. */
+export const MAX_IMPORT_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 /** The editor's full-body snapshot limit; a larger page could not be saved. */
 export const MAX_IMPORT_PAGE_CHARACTERS = 500_000;
 
@@ -27,19 +42,28 @@ const IMAGE_MEDIA_TYPES = new Map([
   ["svg", "image/svg+xml"],
 ]);
 
-export type ImportFileKind = "markdown" | "image" | "unsupported";
+/** Files a page can link to and keep, though not show. */
+const ATTACHMENT_MEDIA_TYPES = new Map([
+  ["pdf", "application/pdf"],
+  ["csv", "text/csv"],
+]);
+
+export type ImportFileKind = "markdown" | "image" | "attachment" | "unsupported";
 
 /**
- * Why a file in the import did not become a page or an uploaded image. Every
- * skipped file is reported; none is dropped quietly.
+ * Why a file in the import did not become a page or an uploaded file. Every
+ * skipped file is reported; none is dropped quietly, except a Notion
+ * database's own files, which the database's entry stands for.
  */
 export type ImportSkipReason =
   | "unsupported-format"
   | "unused-image"
+  | "unused-file"
   | "too-large"
   | "not-text"
   | "duplicate-name"
-  | "invalid-name";
+  | "invalid-name"
+  | "nested-archive";
 
 export interface ImportSkippedFile {
   name: string;
@@ -68,7 +92,13 @@ export function importFileFormat(path: string): string | null {
 
 export function importFileKind(path: string): ImportFileKind {
   if (isMarkdownFilePath(path)) return "markdown";
-  return importImageMediaType(path) ? "image" : "unsupported";
+  if (importImageMediaType(path)) return "image";
+  return importAttachmentMediaType(path) ? "attachment" : "unsupported";
+}
+
+export function importAttachmentMediaType(path: string): string | null {
+  const format = importFileFormat(path);
+  return format ? (ATTACHMENT_MEDIA_TYPES.get(format) ?? null) : null;
 }
 
 /** Image types a page can show, as stored by the editor upload path. */
@@ -169,13 +199,22 @@ export function dataUrlBytes(dataUrl: string): Uint8Array | null {
 
 export interface PlannedImportPage {
   path: string;
+  /** The imported file this page becomes a subpage of; null for the destination. */
+  parentPath: string | null;
   draft: MarkdownImportDraft;
   /** The page as the preview reports it, before uploads and page ids exist. */
   preview: ImportedPage;
   /** Every asset the page needs uploaded, once each, by picked file path. */
   uploads: ImportAssetRequest[];
-  /** Picked image path for each image path the source references. */
-  imageMatches: ReadonlyMap<string, string>;
+  /** Picked file path for each file path the source references. */
+  fileMatches: ReadonlyMap<string, string>;
+}
+
+interface ImportFilePaths {
+  images: ReadonlySet<string>;
+  attachments: ReadonlySet<string>;
+  /** A linked CSV to the one kept in its place. */
+  aliases: ReadonlyMap<string, string>;
 }
 
 /**
@@ -199,39 +238,87 @@ export function matchImportImagePath(
 }
 
 /**
- * Parses each Markdown file and reports what it would become. Images picked
- * alongside count as available; nothing is uploaded or stored. A page longer
- * than the editor can save is left out, and the pages that link to it report
- * those links as not imported.
+ * Parses each Markdown file and reports what it would become. Images and
+ * files picked alongside count as available; nothing is uploaded or stored. A
+ * page longer than the editor can save is left out, and the pages that link
+ * to it report those links as not imported.
+ *
+ * A Notion export is read as one: page titles lose Notion's ids, each page
+ * goes under the page whose folder holds it, and databases are listed rather
+ * than imported, their CSVs kept where a page links them.
  */
 export function planMarkdownPages(input: {
   markdown: Array<{ path: string; text: string }>;
   imagePaths: ReadonlySet<string>;
-}): { pages: PlannedImportPage[]; tooLarge: string[] } {
+  attachmentPaths?: ReadonlySet<string>;
+}): {
+  /** Each page followed by its subpages, so parents come first. */
+  pages: PlannedImportPage[];
+  tooLarge: string[];
+  /** Set when the files are a Notion export. */
+  notion: {
+    databases: NotionDatabase[];
+    /** Every file a database holds, which its entry stands for. */
+    databaseFiles: ReadonlySet<string>;
+  } | null;
+} {
+  const attachmentPaths = input.attachmentPaths ?? new Set<string>();
+  const notion = isNotionExport(input.markdown.map(({ path }) => path))
+    ? planNotionExport([
+        ...input.markdown.map(({ path }) => path),
+        ...input.imagePaths,
+        ...attachmentPaths,
+      ])
+    : null;
+  const markdown = notion
+    ? input.markdown.filter(({ path }) => !notion.databaseFiles.has(path))
+    : input.markdown;
+  const files: ImportFilePaths = {
+    images: input.imagePaths,
+    attachments: attachmentPaths,
+    aliases: notion?.csvAliases ?? new Map(),
+  };
+
   // Files share one padding budget, so they're parsed in path order: the same
   // files give the same pages in any order, as an import's fingerprint assumes.
   const tablePadding = newTablePaddingBudget();
   const parsed = new Map(
-    [...input.markdown]
+    [...markdown]
       .sort((a, b) => (a.path < b.path ? -1 : 1))
-      .map(({ path, text }) => [
-        path,
-        parseMarkdownImport({ sourcePath: path, text, tablePadding }),
-      ]),
+      .map(({ path, text }): [string, MarkdownImportDraft] => {
+        if (!notion) {
+          return [
+            path,
+            parseMarkdownImport({ sourcePath: path, text, tablePadding }),
+          ];
+        }
+        const prepared = prepareNotionMarkdown(text);
+        return [
+          path,
+          parseMarkdownImport({
+            sourcePath: path,
+            text: prepared.text,
+            tablePadding,
+            fallbackTitle: notionFileTitle(path),
+            asideCallouts: true,
+            notes: prepared.notes,
+          }),
+        ];
+      }),
   );
-  const drafts = new Map(
-    input.markdown.map(({ path }) => [path, parsed.get(path)!]),
-  );
+  const drafts = new Map(markdown.map(({ path }) => [path, parsed.get(path)!]));
   const importing = new Set(drafts.keys());
+  const parents = new Map<string, string>();
+  for (const [path, candidates] of notion?.parentCandidates ?? []) {
+    const parent = chooseParent(path, candidates, drafts);
+    if (parent) parents.set(path, parent);
+  }
   const planned = new Map<string, ReturnType<typeof planPage>>();
   const tooLarge: string[] = [];
   let stale = [...drafts.keys()];
   while (stale.length > 0) {
     for (const path of stale) {
-      planned.set(
-        path,
-        planPage(path, drafts.get(path)!, importing, input.imagePaths),
-      );
+      planned.set(path, planPage(path, drafts.get(path)!, importing, files));
     }
     const dropped = stale.filter(
       (path) =>
@@ -250,17 +337,88 @@ export function planMarkdownPages(input: {
       dropped.some((target) => linked.has(target)) ? [path] : [],
     );
   }
-  return { pages: [...planned.values()].map(({ page }) => page), tooLarge };
+
+  // A subpage of a page left out goes under the next page up that isn't.
+  const parentOf = (path: string): string | null => {
+    let parent = parents.get(path) ?? null;
+    while (parent && !planned.has(parent)) parent = parents.get(parent) ?? null;
+    return parent;
+  };
+  const children = new Map<string | null, PlannedImportPage[]>();
+  for (const { page } of planned.values()) {
+    const parentPath = parentOf(page.path);
+    const siblings = children.get(parentPath) ?? [];
+    siblings.push({ ...page, parentPath });
+    children.set(parentPath, siblings);
+  }
+  // Each page, then its subpages: the order of the tree the preview shows.
+  const pages: PlannedImportPage[] = [];
+  const visit = (parentPath: string | null) => {
+    for (const page of children.get(parentPath) ?? []) {
+      pages.push(page);
+      visit(page.path);
+    }
+  };
+  visit(null);
+  return {
+    pages,
+    tooLarge,
+    notion: notion && {
+      databases: notion.databases,
+      databaseFiles: notion.databaseFiles,
+    },
+  };
+}
+
+/**
+ * The page a Notion page goes under. Two sibling pages with one title share a
+ * subpage folder in current exports, so the one that links to the subpage, as
+ * Notion's export of a page links each subpage, is its parent.
+ */
+function chooseParent(
+  path: string,
+  candidates: readonly string[],
+  drafts: ReadonlyMap<string, MarkdownImportDraft>,
+): string | null {
+  const importing = candidates.filter((candidate) => drafts.has(candidate));
+  if (importing.length < 2) return importing[0] ?? null;
+  return (
+    importing.find((candidate) =>
+      drafts
+        .get(candidate)!
+        .slots.some(
+          (slot) =>
+            slot.reference.kind === "relative" && slot.reference.path === path,
+        ),
+    ) ?? importing[0]!
+  );
+}
+
+/**
+ * The picked file a reference names. An image shows only an image; a link
+ * may point at an image or at a kept file such as a PDF, and a link to a
+ * Notion database's CSV points at the CSV with every row.
+ */
+function matchImportFile(
+  request: Extract<ImportAssetRequest, { kind: "file" }>,
+  files: ImportFilePaths,
+): string | null {
+  const image = matchImportImagePath(request.path, files.images);
+  if (image || request.use === "image") return image;
+  return matchImportImagePath(
+    files.aliases.get(request.path) ?? request.path,
+    files.attachments,
+  );
 }
 
 function planPage(
   path: string,
   draft: MarkdownImportDraft,
   importing: ReadonlySet<string>,
-  imagePaths: ReadonlySet<string>,
+  files: ImportFilePaths,
 ): { page: PlannedImportPage; linked: Set<string> } {
   const uploads = new Map<string, ImportAssetRequest>();
-  const imageMatches = new Map<string, string>();
+  const fileMatches = new Map<string, string>();
   const linked = new Set<string>();
   const preview = finalizeMarkdownImport(
     draft,
@@ -268,11 +426,14 @@ function planPage(
       asset: (request): ImportAssetResolution => {
         let upload: ImportAssetRequest | null = null;
         if (request.kind === "file") {
-          const match = matchImportImagePath(request.path, imagePaths);
+          const match = matchImportFile(request, files);
           if (match) {
-            imageMatches.set(request.path, match);
+            fileMatches.set(`${request.use}:${request.path}`, match);
             upload = { ...request, path: match };
           }
+        } else if (request.kind === "remote") {
+          // Uploaded from its link when the import is applied.
+          upload = request;
         } else if (isImportImageMediaType(request.mediaType)) {
           const bytes = dataUrlByteLength(request.dataUrl);
           if (bytes !== null && bytes <= MAX_IMPORT_IMAGE_BYTES) {
@@ -295,10 +456,11 @@ function planPage(
   return {
     page: {
       path,
+      parentPath: null,
       draft,
       preview,
       uploads: [...uploads.values()],
-      imageMatches,
+      fileMatches,
     },
     linked,
   };
@@ -320,14 +482,13 @@ export function finalizePlannedPage(
     page.draft,
     {
       asset: (request) => {
-        const match =
-          request.kind === "file" ? page.imageMatches.get(request.path) : null;
-        if (request.kind === "file" && !match) return { status: "missing" };
-        const url = resolved.assetUrl(
-          match && request.kind === "file"
-            ? { ...request, path: match }
-            : request,
-        );
+        let picked = request;
+        if (request.kind === "file") {
+          const match = page.fileMatches.get(`${request.use}:${request.path}`);
+          if (!match) return { status: "missing" };
+          picked = { ...request, path: match };
+        }
+        const url = resolved.assetUrl(picked);
         return url ? { status: "resolved", url } : { status: "missing" };
       },
       link: resolved.pageHref,
@@ -337,7 +498,7 @@ export function finalizePlannedPage(
 }
 
 export function assetKey(request: ImportAssetRequest): string {
-  return request.kind === "file"
-    ? `file:${request.path}`
-    : `data:${request.dataUrl}`;
+  if (request.kind === "file") return `file:${request.path}`;
+  if (request.kind === "remote") return `remote:${request.url}`;
+  return `data:${request.dataUrl}`;
 }

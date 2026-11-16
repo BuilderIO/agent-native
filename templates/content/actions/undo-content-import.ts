@@ -139,10 +139,23 @@ export default defineAction({
         );
       });
 
+      // An imported subpage goes to Trash with its imported parent's
+      // subtree, so parents go first and their subpages aren't moved twice.
+      const liveById = new Map(live.map((page) => [page.id, page]));
+      const depth = (page: (typeof live)[number]): number => {
+        let count = 0;
+        let parent = liveById.get(page.parentId ?? "");
+        while (parent && count < liveById.size) {
+          count++;
+          parent = liveById.get(parent.parentId ?? "");
+        }
+        return count;
+      };
       const trashed: string[] = [];
-      for (const page of live) {
+      for (const page of [...live].sort((a, b) => depth(a) - depth(b))) {
         if (changed.includes(page)) continue;
         assertAgentsMayEditPageText(page, ctx);
+        if (trashed.includes(page.id)) continue;
         // The page's owner now, not at import: moving a page between
         // workspaces makes the mover its owner.
         const subtree = await trashDocumentSubtree(
