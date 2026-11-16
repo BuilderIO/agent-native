@@ -4,7 +4,6 @@ import { defineAction, fail, type ActionRunContext } from "../../action.js";
 import { auditAttribution } from "../../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../../audit/org-admin.js";
 import { canManageOrg } from "../../org/permissions.js";
-import { hasBuilderOAuthSession } from "../../server/builder-oauth.js";
 import {
   readSemanticSearchSetting,
   writeSemanticSearchSetting,
@@ -14,6 +13,7 @@ import {
   forgetSemanticSearchForOrg,
   requeueSemanticSearchForOrg,
 } from "../../search/semantic.js";
+import { hasBuilderOAuthSession } from "../../server/builder-oauth.js";
 import {
   prefetchSecrets,
   resolveBuilderCredentialsDetailed,

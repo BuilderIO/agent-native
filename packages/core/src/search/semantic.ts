@@ -423,7 +423,7 @@ export function semanticAudienceId(
 
 /** The audience ids a searcher may match: their own, and their organizations'. */
 export function semanticSearcherAudienceIds(input: {
-  userEmail?: string | null;
+  userEmail?: string | null | undefined;
   orgIds: readonly string[];
 }): string[] {
   const ids = new Set<string>();

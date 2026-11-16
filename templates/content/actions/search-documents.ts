@@ -91,9 +91,9 @@ type MatchedBy = "words" | "meaning" | "both";
  */
 function semanticSkipReason(
   args: {
-    mode?: "hybrid" | "words";
-    exactTitle?: string;
-    searchFields?: "all" | "title";
+    mode?: "hybrid" | "words" | undefined;
+    exactTitle?: string | undefined;
+    searchFields?: "all" | "title" | undefined;
   },
   parsed: ParsedSearchQuery,
 ): SemanticSkipReason | null {
