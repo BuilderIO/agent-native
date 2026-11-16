@@ -1240,7 +1240,7 @@ return removeSupersededReservations;`,
     failureAnnotations?: (job: Workflow) => Promise<string[]>;
   }): Promise<(pr: Workflow) => Promise<string>> {
     const source = String((coordinator.with as Workflow).script);
-    const helperStart = source.indexOf("async function latestReleaseMergeRun(");
+    const helperStart = source.indexOf("function latestReleaseMergeRun(");
     const helperEnd = source.indexOf(
       "\n\nasync function waitForStablePackagePublish",
       helperStart,
@@ -1533,7 +1533,7 @@ return waitForReleaseMerge;`,
     }
   });
 
-  it("rides out brief release PR read errors but not three minutes of them", async () => {
+  it("rides out brief GitHub read errors but not three minutes of them", async () => {
     const realNow = Date.now;
     let now = 0;
     Date.now = () => now;
@@ -1620,7 +1620,28 @@ return waitForReleaseMerge;`,
       });
       await assert.rejects(sustainedErrors({ number: 9132 }), {
         message:
-          "Stable release PR #9132 could not be read for 3 minutes: HTTP 503: Service Unavailable",
+          "Could not read stable release PR #9132 for 3 minutes: HTTP 503: Service Unavailable",
+      });
+      assert.equal(now, 3 * 60_000);
+
+      now = 0;
+      const sustainedRunErrors = await loadWaitForReleaseMerge({
+        github: {
+          rest: {
+            actions: {
+              listWorkflowRuns: async () => {
+                throw unavailable();
+              },
+            },
+            pulls: { get: async () => ({ data: openPullData }) },
+          },
+        },
+        sleep,
+        pollIntervalMs: 15_000,
+      });
+      await assert.rejects(sustainedRunErrors({ number: 9132 }), {
+        message:
+          "Could not read the merge run for stable release PR #9132 for 3 minutes: HTTP 503: Service Unavailable",
       });
       assert.equal(now, 3 * 60_000);
 

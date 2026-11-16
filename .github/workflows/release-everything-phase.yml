@@ -871,27 +871,9 @@ jobs:
             // concurrency group cancels older runs, so the newest pull_request
             // run for the current head is the only merge still coming. Without
             // this, a merge run that fails in minutes leaves this wait idle for
-            // its full window. Resolves undefined when a transient failure left the
-            // run unread this poll, and null when no run exists yet.
-            async function latestReleaseMergeRun(headSha) {
-              let response;
-              try {
-                response = await github.rest.actions.listWorkflowRuns({
-                  owner,
-                  repo,
-                  workflow_id: "auto-merge-version-packages.yml",
-                  event: "pull_request",
-                  head_sha: headSha,
-                  per_page: 100,
-                });
-              } catch (error) {
-                if (!isTransientDispatchFailure(error)) throw error;
-                core.warning(
-                  `Could not read the release PR merge run for ${headSha} (${describeRequestFailure(error)}); retrying.`,
-                );
-                return undefined;
-              }
-              const runs = response.data?.workflow_runs;
+            // its full window. Resolves null when no run exists yet.
+            function latestReleaseMergeRun(workflowRuns, headSha) {
+              const runs = workflowRuns?.workflow_runs;
               if (!Array.isArray(runs)) {
                 throw new Error("GitHub returned no workflow runs for the release PR merge.");
               }
@@ -923,36 +905,53 @@ jobs:
                 );
               }
               // A brief GitHub error must not end a wait that lasts hours, but this
-              // long with every PR read failing still ends it.
-              const maxPullReadFailureMs = 3 * 60_000;
-              let pullReadsFailingSince = null;
+              // long with every read of one kind failing still ends it.
+              const maxReadFailureMs = 3 * 60_000;
               let lastMergeRunState = "";
 
-              // Resolves undefined when a transient failure left the PR unread.
-              async function readReleasePull() {
-                try {
-                  const pull = (await github.rest.pulls.get({
-                    owner,
-                    repo,
-                    pull_number: pr.number,
-                  })).data;
-                  pullReadsFailingSince = null;
-                  return pull;
-                } catch (error) {
-                  if (!isTransientDispatchFailure(error)) throw error;
-                  pullReadsFailingSince ??= Date.now();
-                  if (Date.now() - pullReadsFailingSince >= maxPullReadFailureMs) {
-                    throw new Error(
-                      `Stable release PR #${pr.number} could not be read for ${maxPullReadFailureMs / 60_000} minutes: ${describeRequestFailure(error)}`,
-                      { cause: error },
-                    );
+              // The returned reader resolves undefined when a transient failure
+              // left it unread.
+              function toleratingBriefFailures(label, read) {
+                let failingSince = null;
+                return async (...args) => {
+                  try {
+                    const result = await read(...args);
+                    failingSince = null;
+                    return result;
+                  } catch (error) {
+                    if (!isTransientDispatchFailure(error)) throw error;
+                    failingSince ??= Date.now();
+                    if (Date.now() - failingSince >= maxReadFailureMs) {
+                      throw new Error(
+                        `Could not read ${label} for ${maxReadFailureMs / 60_000} minutes: ${describeRequestFailure(error)}`,
+                        { cause: error },
+                      );
+                    }
+                    core.warning(`Could not read ${label} (${describeRequestFailure(error)}); retrying.`);
+                    return undefined;
                   }
-                  core.warning(
-                    `Could not read stable release PR #${pr.number} (${describeRequestFailure(error)}); retrying.`,
-                  );
-                  return undefined;
-                }
+                };
               }
+
+              const readReleasePull = toleratingBriefFailures(
+                `stable release PR #${pr.number}`,
+                async () => (await github.rest.pulls.get({
+                  owner,
+                  repo,
+                  pull_number: pr.number,
+                })).data,
+              );
+              const readMergeRuns = toleratingBriefFailures(
+                `the merge run for stable release PR #${pr.number}`,
+                async (headSha) => (await github.rest.actions.listWorkflowRuns({
+                  owner,
+                  repo,
+                  workflow_id: "auto-merge-version-packages.yml",
+                  event: "pull_request",
+                  head_sha: headSha,
+                  per_page: 100,
+                })).data,
+              );
 
               // Resolves the merge commit once the PR merges, otherwise null.
               async function pollReleaseMerge() {
@@ -971,8 +970,9 @@ jobs:
                 if (current.state === "closed") {
                   throw new Error(`Stable release PR #${pr.number} closed without merging: ${pr.html_url}`);
                 }
-                const mergeRun = await latestReleaseMergeRun(current.head.sha);
-                if (mergeRun === undefined) return null;
+                const mergeRuns = await readMergeRuns(current.head.sha);
+                if (mergeRuns === undefined) return null;
+                const mergeRun = latestReleaseMergeRun(mergeRuns, current.head.sha);
                 const mergeRunState = mergeRun
                   ? `${mergeRun.status}/${mergeRun.conclusion || "pending"}`
                   : "not started";
