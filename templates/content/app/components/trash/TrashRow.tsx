@@ -38,6 +38,8 @@ export const TRASH_TABLE_WIDTHS: Record<string, number> = {
   deletedAt: 150,
 };
 export const TRASH_TABLE_GUTTER_WIDTH = 44;
+// Room for a row's Restore and Preview buttons.
+const TRASH_TABLE_ACTION_WIDTH = 104;
 const TRASH_TABLE_MIN_USABLE_NAME_WIDTH = 160;
 const TRASH_TABLE_WIDEST_METADATA_WIDTH = 180;
 
@@ -123,6 +125,7 @@ export function TrashTableHeader({
         header(t("trash.deletedAtColumn"), "deletedAt"),
       ]}
       actions={<span aria-hidden="true" />}
+      actionWidth={TRASH_TABLE_ACTION_WIDTH}
     />
   );
 }
@@ -134,6 +137,8 @@ export function TrashRow({
   onSelect,
   onToggle,
   onOpen,
+  onRestore,
+  restorePending = false,
   focused,
   rowRef,
   onFocus,
@@ -147,6 +152,8 @@ export function TrashRow({
   onSelect: (selected: boolean) => void;
   onToggle: () => void;
   onOpen: () => void;
+  onRestore?: () => void;
+  restorePending?: boolean;
   focused: boolean;
   rowRef: RefCallback<HTMLDivElement>;
   onFocus: () => void;
@@ -265,8 +272,20 @@ export function TrashRow({
             {formatDate(new Date(item.trashedAt), { dateStyle: "medium" })}
           </time>,
         ]}
+        actionWidth={TRASH_TABLE_ACTION_WIDTH}
         actions={
-          <div className="flex items-center justify-center">
+          <div className="flex items-center justify-center gap-0.5">
+            {item.canRestore && onRestore ? (
+              <ContentTableRowActionButton
+                label={t("trash.restore")}
+                showLabel
+                disabled={restorePending}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRestore();
+                }}
+              />
+            ) : null}
             <ContentTableRowActionButton
               label={t("trash.preview")}
               onClick={(event) => {
