@@ -22,6 +22,7 @@ import { extractAgentImagesFromActionResult } from "../agent/tool-result-images.
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { captureError } from "../server/capture-error.js";
+import { getEmbedSessionOrigin } from "../server/embed-request-origin.js";
 import {
   getRequestContext,
   getRequestOrgId,
@@ -498,7 +499,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       const fullAppEmbedResult =
         !directoryCatalog &&
         requiresEmbedSession &&
-        !!getRequestContext()?.requestOrigin &&
+        !!getEmbedSessionOrigin() &&
         !!mcpAppResourceCandidate &&
         directoryWidget === undefined &&
         !mcpResultIsError &&
@@ -584,7 +585,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       const fullAppNotOpened =
         !directoryCatalog &&
         requiresEmbedSession &&
-        !!getRequestContext()?.requestOrigin &&
+        !!getEmbedSessionOrigin() &&
         !Object.hasOwn(config.directoryProfile?.widgetTargets ?? {}, name) &&
         !!mcpAppResourceCandidate &&
         directoryWidget === undefined &&

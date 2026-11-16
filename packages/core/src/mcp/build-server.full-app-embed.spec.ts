@@ -9,8 +9,6 @@ const mint = vi.hoisted(() => vi.fn());
 vi.mock("../server/embed-session.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../server/embed-session.js")>()),
   createEmbedSessionTicket: mint,
-  normalizeEmbedTargetPath: (raw: string) =>
-    raw.startsWith("/") ? raw : new URL(raw).pathname + new URL(raw).search,
 }));
 vi.mock("../server/embed-route.js", () => ({
   buildEmbedStartPath: (ticket: string) =>
@@ -94,6 +92,10 @@ describe("withServerMintedFullAppEmbedStart", () => {
     [{ url: "/b", path: "/c" }, "/b"],
     [{ path: "/c" }, "/c"],
     [{ deepLinkUrl: "[hidden embed URL]", path: "/c" }, "/c"],
+    [{ deepLinkUrl: "//evil.example/inbox", path: "/c" }, "/c"],
+    [{ deepLinkUrl: "/\\evil.example/inbox", path: "/c" }, "/c"],
+    [{ deepLinkUrl: "https://evil.example/inbox", url: "/b" }, "/b"],
+    [{ url: `${ORIGIN}/inbox/full` }, "/inbox/full"],
   ])("picks the open link's target from %j", async (record, target) => {
     await inRequest(() =>
       withServerMintedFullAppEmbedStart(record, entry(), {}, ANCHOR),

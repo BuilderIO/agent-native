@@ -1215,13 +1215,14 @@ function hostSpecificDomainString(value: unknown): string | undefined {
 }
 
 function withMcpChatBridgeParam(urlOrPath: string): string {
+  // `//host/path` names another origin; resolving it against a base would
+  // reduce it to an in-app `/path`, so it passes through for validation.
+  const appRelative = /^\/(?![/\\])/.test(urlOrPath);
   try {
     const base = "http://agent-native.invalid";
-    const url = urlOrPath.startsWith("/")
-      ? new URL(urlOrPath, base)
-      : new URL(urlOrPath);
+    const url = appRelative ? new URL(urlOrPath, base) : new URL(urlOrPath);
     url.searchParams.set(MCP_APP_CHAT_BRIDGE_QUERY_PARAM, "1");
-    return urlOrPath.startsWith("/")
+    return appRelative
       ? `${url.pathname}${url.search}${url.hash}`
       : url.toString();
   } catch {

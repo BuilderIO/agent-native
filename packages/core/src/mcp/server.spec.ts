@@ -11577,6 +11577,51 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       }
     });
 
+    it("mints a full-app session when only the request's origin resolver names the origin", async () => {
+      const { run, serverConfig } = unsupportedCardConfig(
+        "unsupported-card",
+        "startUrl",
+      );
+      const server = await createMCPServerForRequest(
+        serverConfig,
+        {
+          userEmail: "oauth@example.com",
+          orgId: null,
+          orgDomain: undefined,
+          identityAssurance: "user",
+          mcpCredentialIssuedAtMs: Date.now(),
+        },
+        {
+          resolveEmbedRequestOrigin: () => "https://mail.agent-native.com",
+          inlineMcpApps: true,
+          transport: "http",
+        },
+      );
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "resolver-origin", version: "1.0.0" });
+      await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+      ]);
+      try {
+        const result = await client.callTool({
+          name: "unsupported-card",
+          arguments: {},
+        });
+        expect(result.isError).not.toBe(true);
+        expect(
+          (result._meta?.["agent-native/embedStart"] as { startUrl?: string })
+            ?.startUrl,
+        ).toContain(
+          "https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-picker-ticket",
+        );
+        expect(run).toHaveBeenCalledOnce();
+      } finally {
+        await Promise.all([client.close(), server.close()]);
+      }
+    });
+
     // oracle-change: main excludes context runtime tools before link fallback;
     // retain that denial instead of restoring their previous MCP exposure.
     it.each([
