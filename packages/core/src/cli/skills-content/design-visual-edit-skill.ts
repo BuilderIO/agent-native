@@ -51,9 +51,11 @@ no connector installation.
 
 \`open-visual-edit\` accepts \`target\`: \`inline-browser\` (default MCP
 App/page), \`system-browser\`, or \`desktop\` (registered
-\`agentnative://open\`). \`launch.status: "host-required"\` returns
+\`agentnative://open\`, or \`agentnative-nightly://open\` when only Nightly is
+installed). \`launch.status: "host-required"\` returns
 \`browserUrl\`/\`desktopUrl\` for the local opener. Local CLI detects the
-desktop handler; browsers cannot. \`dispatched\` confirms dispatch only;
+desktop handler, prefers stable, and reports \`launch.desktopProtocol\`;
+browsers cannot. \`dispatched\` confirms dispatch only;
 \`desktop-not-detected\`, \`blocked\`, or \`failed\` require browser fallback.
 These URLs transfer no capability; account editing needs sign-in and a paired bridge.
 

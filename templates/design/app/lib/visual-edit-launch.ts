@@ -13,7 +13,7 @@ export async function dispatchVisualEditBrowserLaunch(
       ...launch,
       status: "desktop-not-detected",
       message:
-        "Desktop app not detected by this browser. Verify the installed agentnative protocol handler locally, or open browserUrl instead.",
+        "Desktop app not detected by this browser. Verify an installed agentnative or agentnative-nightly protocol handler locally, or open browserUrl instead.",
     };
   }
   const url =

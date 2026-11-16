@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ exec: vi.fn() }));
 vi.mock("node:child_process", () => ({ execFile: mocks.exec }));
 vi.mock("@agent-native/core/server", () => ({
-  toDesktopOpenUrl: (value: string) =>
-    `agentnative://open?${value.split("?")[1]}`,
+  DESKTOP_DEEP_LINK_PROTOCOLS: ["agentnative", "agentnative-nightly"],
+  toDesktopOpenUrl: (value: string, protocol = "agentnative") =>
+    `${protocol}://open?${value.split("?")[1]}`,
 }));
 import { launchVisualEdit } from "./visual-edit-launch.js";
 
@@ -81,4 +82,64 @@ describe("visual-edit launch contract", () => {
       ).status,
     ).toBe("failed");
   });
+  describe.each(["darwin", "linux", "win32"] as const)(
+    "desktop channel detection on %s",
+    (platform) => {
+      const original = process.platform;
+      beforeEach(() => {
+        Object.defineProperty(process, "platform", { value: platform });
+        return () =>
+          Object.defineProperty(process, "platform", { value: original });
+      });
+      const installed = (schemes: string[]) =>
+        mocks.exec.mockImplementation(
+          (command: string, args: string[], _opts, cb) => {
+            const query = args.join(" ");
+            const scheme = schemes.find((name) =>
+              command === "osascript" || command === "xdg-mime"
+                ? query.includes(`${name}://`) ||
+                  query.endsWith(`x-scheme-handler/${name}`)
+                : command === "reg"
+                  ? query.endsWith(`\\${name}`)
+                  : true,
+            );
+            if (command === "reg" && !scheme) cb(new Error("missing"));
+            else
+              cb(null, {
+                stdout: scheme ? "/Applications/Agent-Native.app\n" : "",
+                stderr: "",
+              });
+          },
+        );
+      it("dispatches the nightly scheme when only nightly is installed", async () => {
+        installed(["agentnative-nightly"]);
+        const launch = await launchVisualEdit({ ...options, localCli: true });
+        expect(launch).toMatchObject({
+          status: "dispatched",
+          desktopProtocol: "agentnative-nightly",
+          desktopUrl: "agentnative-nightly://open?app=design&view=editor",
+        });
+        const opened = mocks.exec.mock.calls.at(-1)?.[1] as string[];
+        expect(opened.at(-1)).toBe(
+          "agentnative-nightly://open?app=design&view=editor",
+        );
+      });
+      it("prefers stable when both channels are installed", async () => {
+        installed(["agentnative", "agentnative-nightly"]);
+        expect(
+          await launchVisualEdit({ ...options, localCli: true }),
+        ).toMatchObject({
+          status: "dispatched",
+          desktopProtocol: "agentnative",
+          desktopUrl: "agentnative://open?app=design&view=editor",
+        });
+      });
+      it("reports no desktop app when neither channel is registered", async () => {
+        installed([]);
+        expect(
+          await launchVisualEdit({ ...options, localCli: true }),
+        ).toMatchObject({ status: "desktop-not-detected" });
+      });
+    },
+  );
 });

@@ -67,8 +67,10 @@ export {
   toVsCodeOpenUrl,
   OPEN_ROUTE_SUBPATH,
   DESKTOP_OPEN_URL,
+  DESKTOP_DEEP_LINK_PROTOCOLS,
   VSCODE_OPEN_URL,
   type DeepLinkInput,
+  type DesktopDeepLinkProtocol,
 } from "./deep-link.js";
 export { createOpenRouteHandler, type OpenRouteOptions } from "./open-route.js";
 export {

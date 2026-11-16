@@ -14,5 +14,7 @@ export interface VisualEditLaunchResult {
     | "failed";
   browserUrl: string;
   desktopUrl: string;
+  /** The installed desktop channel's scheme, set only after local detection. */
+  desktopProtocol?: "agentnative" | "agentnative-nightly";
   message?: string;
 }
