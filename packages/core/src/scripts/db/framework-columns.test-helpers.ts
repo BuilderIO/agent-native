@@ -12,7 +12,9 @@ export function frameworkTables(): Map<
   for (const statement of SCHEMA_SNAPSHOT.statements) {
     const name = CREATE_TABLE.exec(statement)?.[1];
     if (!name) continue;
-    const columns = [...statement.matchAll(COLUMN)].map((match) => match[1]);
+    const columns = [...statement.matchAll(COLUMN)].flatMap((match) =>
+      match[1] ? [match[1]] : [],
+    );
     tables.set(name, { createSql: statement, columns });
   }
   return tables;

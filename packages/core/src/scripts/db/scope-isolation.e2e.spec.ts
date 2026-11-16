@@ -197,6 +197,7 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
             [null, "org-2"],
           ];
       for (const [owner, org] of rows) {
+        // raw-sql-ok: table and column names come from the framework schema snapshot; every value is bound
         await c.execute({
           sql: ownerColumn
             ? `INSERT INTO "${table}" ("${ownerColumn}", "org_id") VALUES (?, ?)`
