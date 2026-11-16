@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 
 import { TweakProperties } from "./edit-panel/tweak-properties";
+import { resolveFloatingTweaksPosition } from "./floating-tweaks-layout";
 
 type TweakValue = string | number | boolean;
 
@@ -38,7 +39,64 @@ export function FloatingTweaksPanel({
   const t = useT();
   const panelRef = useRef<HTMLDivElement>(null);
   const [dragPosition, setDragPosition] = useState(position);
+  const [layoutPosition, setLayoutPosition] = useState({ x: 16, y: 16 });
   useEffect(() => setDragPosition(position), [position.x, position.y]);
+  useEffect(() => {
+    if (!open) return;
+    const updatePosition = () => {
+      const canvas = document.querySelector<HTMLElement>(
+        "[data-design-canvas-container]",
+      );
+      const rect = canvas?.getBoundingClientRect();
+      const panelRect = panelRef.current?.getBoundingClientRect();
+      const viewport = {
+        width: document.documentElement.clientWidth,
+        height: document.documentElement.clientHeight,
+      };
+      const canvasRect = rect ?? {
+        left: 0,
+        top: 0,
+        right: viewport.width,
+        bottom: viewport.height,
+      };
+      const getObstruction = (selector: string) =>
+        document.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+      setLayoutPosition(
+        resolveFloatingTweaksPosition({
+          canvas: canvasRect,
+          panel: {
+            width: panelRect?.width ?? 288,
+            height: panelRect?.height ?? 220,
+          },
+          viewport,
+          position: dragPosition,
+          leftObstruction: getObstruction(
+            '[data-design-chrome-region="left-shell"]',
+          ),
+          rightObstruction: getObstruction(
+            '[data-design-chrome-region="right-panel"]',
+          ),
+          bottomObstruction: getObstruction("[data-design-bottom-toolbar]"),
+        }),
+      );
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    const observer = new ResizeObserver(updatePosition);
+    for (const selector of [
+      "[data-design-canvas-container]",
+      '[data-design-chrome-region="left-shell"]',
+      '[data-design-chrome-region="right-panel"]',
+      "[data-design-bottom-toolbar]",
+    ]) {
+      const element = document.querySelector(selector);
+      if (element) observer.observe(element);
+    }
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      observer.disconnect();
+    };
+  }, [dragPosition, open, collapsed, tweaks.length]);
   if (!open || tweaks.length === 0) return null;
 
   const startDrag = (event: React.PointerEvent) => {
@@ -83,7 +141,7 @@ export function FloatingTweaksPanel({
       ref={panelRef}
       data-design-floating-tweaks
       className="fixed z-[80] w-72 max-h-[min(70vh,36rem)] overflow-auto rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-2xl"
-      style={{ right: dragPosition.x, bottom: dragPosition.y }}
+      style={{ left: layoutPosition.x, top: layoutPosition.y }}
       aria-label={t("designEditor.tweaks")}
     >
       <header className="sticky top-0 flex h-9 items-center gap-1 border-b border-border/60 bg-[var(--design-editor-panel-bg)] px-2">

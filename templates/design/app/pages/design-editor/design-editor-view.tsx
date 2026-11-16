@@ -59,6 +59,7 @@ import {
 import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomToolbar";
 import { EditorTopBar } from "@/components/design/editor/EditorTopBar";
 import { UrlScreenControls } from "@/components/design/editor/UrlScreenControls";
+import { shouldAutoCollapseFloatingTweaks } from "@/components/design/floating-tweaks-layout";
 import { FloatingTweaksPanel } from "@/components/design/FloatingTweaksPanel";
 import { FusionAppMenu } from "@/components/design/FusionAppMenu";
 import { getUnavailableShortcutIds } from "@/components/design/keyboard-shortcuts";
@@ -1627,7 +1628,13 @@ export function renderDesignEditorView({
         values={tweakSelections}
         onChange={handleTweakChange}
         open={editorLayoutAndStructure.viewSettings.tweaksPanelOpen}
-        collapsed={editorLayoutAndStructure.viewSettings.tweaksPanelCollapsed}
+        collapsed={
+          editorLayoutAndStructure.viewSettings.tweaksPanelCollapsed ||
+          shouldAutoCollapseFloatingTweaks(
+            rightSidebarVisible,
+            floatingTweaks.length > 0,
+          )
+        }
         position={editorLayoutAndStructure.viewSettings.tweaksPanelPosition}
         onOpenChange={(open) =>
           editorLayoutAndStructure.updateViewSettings({ tweaksPanelOpen: open })
