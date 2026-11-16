@@ -1,4 +1,5 @@
 import { mkdtemp, open, rm, stat, statfs, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -246,8 +247,10 @@ async function acquireAgentFrameMediaFileAdmission(
   recordAllocation: (blocks: number) => void;
   finishDownload: () => void;
 } | null> {
-  await Promise.allSettled(
-    [...pendingAgentFrameCleanups].map((cleanup) => cleanup()),
+  await Promise.all(
+    [...pendingAgentFrameCleanups].map((cleanup) =>
+      cleanup().catch(logFrameMediaCleanupFailure),
+    ),
   );
   if (
     agentFrameFileReservations.size >= MAX_CONCURRENT_AGENT_FRAME_MEDIA_FILES
@@ -269,12 +272,20 @@ async function acquireAgentFrameMediaFileAdmission(
         { ...value },
       ]),
     );
-    const { bavail, bsize } = await statfs(tempRoot).catch(() => {
+    let space: Awaited<ReturnType<typeof statfs>>;
+    try {
+      space = await statfs(tempRoot);
+    } catch {
+      if (rangeFallbackSize !== undefined) {
+        agentFrameFileReservations.delete(reservation);
+        return null;
+      }
       throw new RecordingMediaFetchError(
         "Recording temporary storage is unavailable.",
         503,
       );
-    });
+    }
+    const { bavail, bsize } = space;
     const available = bavail * bsize;
     if (!Number.isSafeInteger(available) || available < 0) {
       throw new Error("Recording temporary storage availability is invalid.");
@@ -422,6 +433,20 @@ async function readResponseBytesWithLimit(
   return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 }
 
+async function writeAllFrameMediaBytes(file: FileHandle, bytes: Uint8Array) {
+  let offset = 0;
+  while (offset < bytes.byteLength) {
+    const { bytesWritten } = await file.write(bytes.subarray(offset));
+    if (bytesWritten <= 0) {
+      throw new RecordingMediaFetchError(
+        "Recording temporary storage is unavailable.",
+        503,
+      );
+    }
+    offset += bytesWritten;
+  }
+}
+
 async function writeResponseBodyToFileWithLimit(
   response: Response,
   path: string,
@@ -455,7 +480,7 @@ async function writeResponseBodyToFileWithLimit(
         );
       }
       assertFrameMediaFileSize(bytes.byteLength, maxBytes, configuredMaxBytes);
-      await file.write(bytes);
+      await writeAllFrameMediaBytes(file, bytes);
       recordAllocation((await file.stat()).blocks);
       return;
     }
@@ -479,7 +504,7 @@ async function writeResponseBodyToFileWithLimit(
         if (!value) continue;
         totalBytes += value.byteLength;
         assertFrameMediaFileSize(totalBytes, maxBytes, configuredMaxBytes);
-        await file.write(value);
+        await writeAllFrameMediaBytes(file, value);
         recordAllocation((await file.stat()).blocks);
       }
     } catch (error) {
@@ -1618,6 +1643,11 @@ export async function loadRecordingMediaFile(
 
   try {
     if (isLocalRecordingBlob(videoUrl)) {
+      assertFrameMediaFileSize(
+        recording.videoSizeBytes,
+        admission.maxBytes,
+        maxFileBytes,
+      );
       const media = await loadRecordingMediaBytes(recording);
       assertFrameMediaFileSize(
         media.bytes.byteLength,

@@ -548,6 +548,13 @@ describe("frames", () => {
         expect(error.errorCode).toBe("frame_extraction_failed");
         expect(error.statusCode).toBe(502);
         expect(error.message).toContain("Recording media cleanup failed.");
+        expect(error.message).not.toContain("No frame could be returned");
+        expect(error.details).toMatchObject({
+          failureKind: "cleanup",
+          error: "Recording media cleanup failed.",
+          nextStep: expect.any(String),
+        });
+        expect(error.details).not.toHaveProperty("frames");
         expect(JSON.stringify(error)).not.toContain("/private/temp/path");
         expect(log.mock.calls).toEqual([
           ["[agent-frame] Media cleanup failed.", "EACCES"],

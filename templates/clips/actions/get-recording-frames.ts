@@ -415,15 +415,20 @@ export default defineAction({
       throw error;
     }
 
-    const firstFrame = frames[0];
-    if (!firstFrame) {
+    if (frames.length === 0) {
       await cleanupAfterFrameFailure(media.cleanup);
       return failAllFrames(failures);
     }
     try {
       await cleanupAfterFrameSuccess(media.cleanup);
-    } catch (error) {
-      return failAllFrames([frameFailureOf(firstFrame.atMs, error)]);
+    } catch {
+      return failWithNextStep(
+        "frame_extraction_failed",
+        502,
+        "Recording media cleanup failed.",
+        "Retry once; if it continues, report the cleanup error.",
+        "cleanup",
+      );
     }
 
     return {

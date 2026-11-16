@@ -1196,6 +1196,111 @@ describe("loadRecordingMediaBytes", () => {
     },
   );
 
+  it.each([
+    ["streamed", false],
+    ["buffered", false],
+    ["streamed", true],
+    ["buffered", true],
+  ] as const)(
+    "handles %s file writes (zero progress: %s)",
+    async (mode, zeroProgress) => {
+      const originalOpen = mockOpen.getMockImplementation();
+      mockOpen.mockImplementation(async (...args: Parameters<typeof open>) => {
+        if (!originalOpen) throw new Error("Missing file open implementation");
+        const file = await originalOpen(...args);
+        const write = file.write.bind(file);
+        vi.spyOn(file, "write").mockImplementation(
+          async (...args: unknown[]) => {
+            const bytes = args[0];
+            if (!(bytes instanceof Uint8Array))
+              throw new Error("Expected bytes");
+            if (zeroProgress) return { bytesWritten: 0, buffer: bytes };
+            return write(bytes.subarray(0, Math.min(2, bytes.length)));
+          },
+        );
+        return file;
+      });
+      const response = () => {
+        if (mode === "streamed")
+          return new Response(streamFrom([Buffer.from("12345")]));
+        const result = new Response(null);
+        vi.spyOn(result, "arrayBuffer").mockResolvedValue(
+          Uint8Array.from(Buffer.from("12345")).buffer,
+        );
+        return result;
+      };
+      mockSsrfSafeFetch.mockImplementation(async () => response());
+      const recording = makeRecording({
+        videoFormat: "mp4",
+      }) as PublicAgentRecording;
+      try {
+        const outcome = await loadRecordingMediaFile(recording).then(
+          (media) => ({ media }),
+          (error: unknown) => ({ error }),
+        );
+        if ("media" in outcome) {
+          try {
+            expect(zeroProgress).toBe(false);
+            expect(await readFile(outcome.media.path, "utf8")).toBe("12345");
+          } finally {
+            await outcome.media.cleanup();
+          }
+        } else {
+          expect(zeroProgress).toBe(true);
+          expect(outcome.error).toMatchObject({
+            name: "RecordingMediaFetchError",
+            statusCode: 503,
+          });
+        }
+      } finally {
+        if (originalOpen) mockOpen.mockImplementation(originalOpen);
+      }
+    },
+  );
+
+  it("rejects a known oversized local blob before retrieving it when admission is smaller", async () => {
+    process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES = "10";
+    mockStatfs.mockResolvedValueOnce({
+      bsize: 1,
+      bavail: 128 * 1024 * 1024 + 3,
+    });
+    mockAppStateGet.mockResolvedValue({
+      data: Buffer.from("12345").toString("base64"),
+    });
+    await expect(
+      loadRecordingMediaFile(
+        makeRecording({
+          videoUrl: "/api/video/rec-1",
+          videoSizeBytes: 5,
+        }) as PublicAgentRecording,
+      ),
+    ).rejects.toMatchObject({ statusCode: 503 });
+    expect(mockAppStateGet).not.toHaveBeenCalled();
+  });
+
+  it.each([null, 2])(
+    "checks the loaded local blob against admission when its size is %s",
+    async (videoSizeBytes) => {
+      process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES = "10";
+      mockStatfs.mockResolvedValueOnce({
+        bsize: 1,
+        bavail: 128 * 1024 * 1024 + 3,
+      });
+      mockAppStateGet.mockResolvedValue({
+        data: Buffer.from("12345").toString("base64"),
+      });
+      await expect(
+        loadRecordingMediaFile(
+          makeRecording({
+            videoUrl: "/api/video/rec-1",
+            videoSizeBytes,
+          }) as PublicAgentRecording,
+        ),
+      ).rejects.toMatchObject({ statusCode: 503 });
+      expect(mockAppStateGet).toHaveBeenCalledOnce();
+    },
+  );
+
   it("bounds full media files until cleanup and admits a replacement afterward", async () => {
     const recording = makeRecording({
       videoFormat: "mp4",
@@ -1510,6 +1615,53 @@ describe("loadRecordingMediaBytes", () => {
     },
   );
 
+  it.each(["own", "hosted"] as const)(
+    "uses bounded %s ranges if statfs fails",
+    async (storageMode) => {
+      mockStatfs.mockRejectedValueOnce(new Error("/private/temp/path"));
+      mockOpenS3Recording.mockResolvedValueOnce(
+        async () =>
+          new Response("a", {
+            status: 206,
+            headers: { etag: '"stable"', "content-range": "bytes 0-0/5" },
+          }),
+      );
+      const media = await loadRecordingMediaFile(
+        makeRecording({
+          videoFormat: "mp4",
+          videoSizeBytes: 5,
+          storageMode,
+        }) as PublicAgentRecording,
+      );
+      try {
+        expect(media.remote).toBeDefined();
+        expect(mockOpenS3Recording).toHaveBeenCalledOnce();
+        expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+      } finally {
+        await media.cleanup();
+      }
+    },
+  );
+
+  it("returns a sanitized 503 when statfs fails for an ineligible source", async () => {
+    mockStatfs.mockRejectedValueOnce(new Error("/private/temp/path"));
+    await expect(
+      loadRecordingMediaFile(
+        makeRecording({
+          videoSizeBytes: null,
+          storageMode: "own",
+          videoFormat: "mp4",
+        }) as PublicAgentRecording,
+      ),
+    ).rejects.toMatchObject({
+      name: "RecordingMediaFetchError",
+      message: "Recording temporary storage is unavailable.",
+      statusCode: 503,
+    });
+    expect(mockOpenS3Recording).not.toHaveBeenCalled();
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
   it.each([
     { videoSizeBytes: null, storageMode: "own", videoFormat: "mp4" },
     { videoSizeBytes: 5, storageMode: null, videoFormat: "mp4" },
@@ -1558,6 +1710,7 @@ describe("loadRecordingMediaBytes", () => {
       loadRecordingMediaFile(recording),
     ]);
     const remove = mockRm.getMockImplementation();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
     let blocked = true;
     try {
       mockRm.mockImplementation((path: string, options: unknown) => {
@@ -1575,6 +1728,9 @@ describe("loadRecordingMediaBytes", () => {
       await expect(loadRecordingMediaFile(recording)).rejects.toMatchObject({
         statusCode: 503,
       });
+      expect(log.mock.calls).toEqual([
+        ["[agent-frame] Media cleanup failed.", "EACCES"],
+      ]);
       blocked = false;
       const replacement = await loadRecordingMediaFile(recording);
       files.push(replacement);
@@ -1583,6 +1739,7 @@ describe("loadRecordingMediaBytes", () => {
       });
       expect(await readFile(replacement.path, "utf8")).toBe("12345");
     } finally {
+      log.mockRestore();
       if (remove) mockRm.mockImplementation(remove);
       await Promise.all(files.map((media) => media.cleanup()));
     }
