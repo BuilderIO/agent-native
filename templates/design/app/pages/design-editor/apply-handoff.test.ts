@@ -56,4 +56,17 @@ describe("composeApplyHandoff", () => {
     expect(prompt).not.toContain("Locate the source files");
     expect(prompt).not.toContain("verify the running page");
   });
+
+  it("keeps localhost source instructions when a disabled full app has an id", () => {
+    const { prompt } = composeApplyHandoff({
+      localVisualEdits: [],
+      localTweakChanges: [
+        { id: "gap", label: "Gap", oldValue: 1, newValue: 2 },
+      ],
+      fullApp: { enabled: false, designId: "d1" },
+    });
+    expect(prompt).toContain("Apply the remix board changes to source code");
+    expect(prompt).toContain("Locate the source files");
+    expect(prompt).not.toContain("send-builder-message");
+  });
 });
