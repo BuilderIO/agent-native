@@ -62,7 +62,9 @@ function commonPrefixLength(left: string, right: string) {
  */
 function ownOccurrence(quote: CommentQuoteAnchor, text: string) {
   const { quotedText } = quote;
-  const found: { at: number; score: number }[] = [];
+  let best: number | null = null;
+  let bestScore = -Infinity;
+  let tied = false;
   for (
     let at = text.indexOf(quotedText);
     at >= 0;
@@ -83,11 +85,15 @@ function ownOccurrence(quote: CommentQuoteAnchor, text: string) {
     let score = matched.prefix + matched.suffix;
     if (quote.startOffset != null)
       score -= Math.min(CONTEXT_LEN, Math.abs(at - quote.startOffset) / 8);
-    found.push({ at, score });
+    if (score > bestScore) {
+      best = at;
+      bestScore = score;
+      tied = false;
+    } else if (score === bestScore) {
+      tied = true;
+    }
   }
-  if (found.length < 2) return found[0]?.at ?? null;
-  found.sort((left, right) => right.score - left.score);
-  return found[0]!.score === found[1]!.score ? null : found[0]!.at;
+  return tied ? null : best;
 }
 
 /**
