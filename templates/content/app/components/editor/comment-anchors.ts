@@ -238,11 +238,12 @@ export function resolveAnchor(
   let chosen: number | null = null;
   let bestScore = -Infinity;
   // Every copy is scored, as the anchor follower on save scores them, so a
-  // comment's own copy is found however many copies come before it.
+  // comment's own copy is found however many copies come before it, and
+  // where copies overlap, as the second "aa" in "aaa" does.
   for (
     let start = hay.indexOf(quote);
     start !== -1;
-    start = hay.indexOf(quote, start + quote.length)
+    start = hay.indexOf(quote, start + 1)
   ) {
     const before = hay.slice(Math.max(0, start - CONTEXT_LEN), start);
     const after = hay.slice(

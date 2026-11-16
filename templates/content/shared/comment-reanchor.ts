@@ -55,9 +55,10 @@ function commonPrefixLength(left: string, right: string) {
 
 /**
  * Where the comment's own copy of its quote starts, scored as the editor's
- * `resolveAnchor` scores it. Null when no copy keeps enough of the comment's
- * context to be its own (`keepsQuoteContext`), or when two copies fit equally
- * well, where the editor would fall back to the first.
+ * `resolveAnchor` scores it, overlapping copies included. Null when no copy
+ * keeps enough of the comment's context to be its own (`keepsQuoteContext`),
+ * or when two copies fit equally well, where the editor would fall back to the
+ * first.
  */
 function ownOccurrence(quote: CommentQuoteAnchor, text: string) {
   const { quotedText } = quote;
@@ -65,7 +66,7 @@ function ownOccurrence(quote: CommentQuoteAnchor, text: string) {
   for (
     let at = text.indexOf(quotedText);
     at >= 0;
-    at = text.indexOf(quotedText, at + quotedText.length)
+    at = text.indexOf(quotedText, at + 1)
   ) {
     const end = at + quotedText.length;
     const matched = {

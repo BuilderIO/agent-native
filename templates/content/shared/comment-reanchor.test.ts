@@ -311,6 +311,19 @@ describe("commentQuoteFollower", () => {
     ).toEqual({ kind: "left" });
   });
 
+  it("follows its own copy where copies of the quote overlap", () => {
+    const page = "Say aaa now.";
+    const overlapping = {
+      quotedText: "aa",
+      prefix: "Say a",
+      suffix: " now.",
+      startOffset: 5,
+    };
+    expect(
+      commentQuoteFollower(page, `Intro. ${page}`)(overlapping),
+    ).toMatchObject({ kind: "moved", quote: { startOffset: 12 } });
+  });
+
   it("leaves a page that didn't change alone", () => {
     expect(commentQuoteFollower(text, text)(second)).toEqual({
       kind: "unchanged",

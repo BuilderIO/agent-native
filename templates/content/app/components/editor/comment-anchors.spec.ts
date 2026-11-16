@@ -123,6 +123,13 @@ describe("comment-anchors", () => {
     expect(range!.from).toBeGreaterThan(firstParaEnd);
   });
 
+  it("finds its copy where copies of the quote overlap", () => {
+    const doc = mkDoc(["Say aaa now."]);
+    const from = 1 + "Say a".length;
+    const anchor = captureAnchor(doc, from, from + "aa".length);
+    expect(resolveAnchor(doc, anchor)).toEqual({ from, to: from + 2 });
+  });
+
   it("falls back to the first occurrence for a quote-only anchor", () => {
     const doc = mkDoc(["alpha beta alpha beta"]);
     const range = resolveAnchor(doc, { quotedText: "alpha" });
