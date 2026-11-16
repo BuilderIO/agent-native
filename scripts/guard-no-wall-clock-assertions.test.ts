@@ -62,6 +62,83 @@ describe("wall-clock assertion detection", () => {
     assert.deepEqual(flaggedLines(source), []);
   });
 
+  it("resolves each name to its own declaration, not to a same-named one", () => {
+    const source = [
+      'it("times", () => {',
+      "  const start = performance.now();",
+      "  run();",
+      "  expect(performance.now() - start).toBeLessThan(50);",
+      "});",
+      'it("counts", () => {',
+      "  const start = 5;",
+      "  const end = 15;",
+      "  expect(end - start).toBe(10);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source), [4]);
+  });
+
+  it("reads an aliased clock import, and not a local named like a clock", () => {
+    const source = [
+      'import { performance as realPerformance } from "node:perf_hooks";',
+      'it("reads the aliased clock", () => {',
+      "  const started = realPerformance.now();",
+      "  expect(realPerformance.now() - started).toBeLessThan(50);",
+      "});",
+      'it("reads a local named like the clock", () => {',
+      "  const performance = { now: () => 0 };",
+      "  const t0 = performance.now();",
+      "  expect(performance.now() - t0).toBe(0);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source), [4]);
+  });
+
+  it("follows what local functions return", () => {
+    const source = [
+      "function timed(run) {",
+      "  const started = performance.now();",
+      "  run();",
+      "  return performance.now() - started;",
+      "}",
+      "async function measure() {",
+      "  const started = Date.now();",
+      "  const pulled = await pull();",
+      "  const elapsed = Date.now() - started;",
+      "  return { pulled, elapsed };",
+      "}",
+      "const now = () => performance.now();",
+      'it("bounds a helper\'s result", async () => {',
+      "  expect(timed(() => parse(input))).toBeLessThan(200);",
+      "  const { pulled, elapsed } = await measure();",
+      "  expect(pulled).toBe(3);",
+      "  expect(elapsed).toBeLessThan(20_000);",
+      "  const t0 = now();",
+      "  expect(stop() - t0).toBeLessThan(50);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source), [14, 17, 19]);
+  });
+
+  it("treats a clock variable the test advances itself as a fake clock", () => {
+    const source = [
+      "let clockMs = 0;",
+      "beforeEach(() => {",
+      "  clockMs = Date.now();",
+      "});",
+      'it("compares against the clock it advances", () => {',
+      "  clockMs += 20_000;",
+      "  const dispatchedAt = dispatch(clockMs);",
+      "  expect(Math.abs(dispatchedAt - clockMs)).toBeLessThan(1_000);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source), []);
+  });
+
   it("only reports assertions this branch touched, at the first line", () => {
     const source = [
       "const startedAt = Date.now();",
@@ -93,6 +170,24 @@ describe("wall-clock assertion detection", () => {
     assert.deepEqual(flaggedLines(source, new Set([3])), [4]);
     assert.deepEqual(flaggedLines(source, new Set([2])), [4]);
     assert.deepEqual(flaggedLines(source, new Set([7])), []);
+  });
+
+  it("reports an assertion whose clock a setup hook assigns when that line changes", () => {
+    const source = [
+      'describe("timing", () => {',
+      "  let startedAt = 0;",
+      "  beforeEach(() => {",
+      "    startedAt = Date.now();",
+      "  });",
+      '  it("is quick", async () => {',
+      "    await run();",
+      "    expect(stop() - startedAt).toBeLessThan(1_000);",
+      "  });",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source, new Set([4])), [8]);
+    assert.deepEqual(flaggedLines(source, new Set([2])), []);
   });
 
   it("reports every finding when measuring the backlog", () => {
@@ -189,6 +284,70 @@ describe("fake timers", () => {
     assert.deepEqual(flaggedLines(source), [6]);
   });
 
+  it("reads which clocks useFakeTimers fakes from its options", () => {
+    const source = [
+      'it("fakes timeouts only", () => {',
+      '  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });',
+      "  const started = Date.now();",
+      "  expect(Date.now() - started).toBeLessThan(1_000);",
+      "});",
+      'it("fakes Date only", () => {',
+      '  vi.useFakeTimers({ now: 0, toFake: ["Date"] });',
+      "  const started = Date.now();",
+      "  expect(Date.now() - started).toBe(0);",
+      "  const t0 = performance.now();",
+      "  expect(performance.now() - t0).toBeLessThan(50);",
+      "});",
+      'it("advances with real time", async () => {',
+      "  vi.useFakeTimers({ shouldAdvanceTime: true });",
+      "  const started = Date.now();",
+      "  await run();",
+      "  expect(Date.now() - started).toBeLessThan(1_000);",
+      "});",
+      'it("passes options it cannot read", () => {',
+      "  vi.useFakeTimers(timerOptions);",
+      "  const started = Date.now();",
+      "  expect(Date.now() - started).toBe(0);",
+      "});",
+      'it("fakes every clock by default", () => {',
+      "  vi.useFakeTimers({ now: 0 });",
+      "  const t0 = performance.now();",
+      "  expect(performance.now() - t0).toBe(0);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source), [4, 11, 17, 22]);
+  });
+
+  it("lets node:test's mock timers cover Date only", () => {
+    const source = [
+      'test("node timers", (t) => {',
+      '  t.mock.timers.enable({ apis: ["Date"] });',
+      "  const started = Date.now();",
+      "  assert.equal(Date.now() - started, 0);",
+      "  const t0 = performance.now();",
+      "  assert.ok(performance.now() - t0 < 50);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source), [6]);
+  });
+
+  it("counts a fake-timer helper passed to beforeEach by name", () => {
+    const source = [
+      "function freezeClock() {",
+      "  vi.useFakeTimers();",
+      "}",
+      "beforeEach(freezeClock);",
+      'it("stamps", () => {',
+      "  const started = Date.now();",
+      "  expect(Date.now() - started).toBe(0);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source), []);
+  });
+
   it("still flags a real-timer test beside a fake-timer one", () => {
     const source = [
       'describe("mixed", () => {',
@@ -229,6 +388,23 @@ describe("opt-out", () => {
     ].join("\n");
 
     assert.deepEqual(flaggedLines(source), [8]);
+  });
+
+  it("finds the comments above from comment ranges, not lines that look like comments", () => {
+    const source = [
+      'it("waits", async () => {',
+      "  const started = Date.now();",
+      "  // wall-clock-ok: the browser's frame clock is real time",
+      "  await waitFor(() =>",
+      "    expect(Date.now() - started).toBeLessThan(5_000),",
+      "  );",
+      "  const fixture = `",
+      "* bullet`; // wall-clock-ok: this comment is about the fixture",
+      "  expect(Date.now() - started).toBeLessThan(5_000);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source), [9]);
   });
 
   it("rejects a short reason, and pragma text outside a comment", () => {

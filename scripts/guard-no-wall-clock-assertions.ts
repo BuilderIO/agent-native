@@ -20,24 +20,38 @@
  *     (`Date.now()`, `performance.now()`, `process.hrtime.bigint()`,
  *     `new Date().getTime()`) or a variable that holds one
  *     (`const startedAt = Date.now()`), a variable holding such a
- *     subtraction (`const elapsed = performance.now() - start`), or
- *     arithmetic, a comparison or Math.round/floor/... on one of those.
+ *     subtraction (`const elapsed = performance.now() - start`), arithmetic,
+ *     a comparison or Math.round/floor/... on one of those, or what a local
+ *     function returns (`timed(() => parse(input))`,
+ *     `const { elapsed } = await measure()`).
+ *
+ * Names are resolved through TypeScript's binder, not matched as text: a
+ * `start` declared in one test is not the `start` of another, and a local
+ * variable named `performance` or `vi` is not the global or the import. A
+ * variable the test advances itself (`clock += 20_000`) is a fake clock, not
+ * a reading.
  *
  * An assertion counts as added when this branch added a line of it, or a line
- * binding a clock or elapsed variable it reads (in scope at the assertion):
- * changing `const elapsed = ...` can turn an unchanged assertion into a bound.
+ * that gives a variable it reads its clock or elapsed value: changing
+ * `const elapsed = ...` can turn an unchanged assertion into a bound.
  *
  * An assertion that runs under fake timers is skipped: there `Date.now()` is
- * the test's own clock and an exact elapsed value is deterministic. Fake
- * timers count as on when the switches that run before the assertion leave
- * them on: those in a `beforeEach`/`beforeAll` of an enclosing describe block
- * or the file, then those before it in its enclosing functions, where
- * `vi.useFakeTimers` (or the jest, sinon and node:test `mock.timers.enable`
- * spellings, or a call to a local helper that makes one) turns them on and
- * `useRealTimers` off. `vi.setSystemTime` on its own mocks only `Date`, so it
- * covers `Date.now()` and `new Date().getTime()` but not `performance.now()`
- * or `process.hrtime`. A sibling test's fake clock, and a helper the test
- * declares but never calls, do not count.
+ * the test's own clock and an exact elapsed value is deterministic. The guard
+ * replays the switches that run before the assertion - those in a
+ * `beforeEach`/`beforeAll` of an enclosing describe block or the file, then
+ * those before it in its enclosing functions, including calls to local
+ * helpers - and skips the assertion only when every clock it reads is fake:
+ *
+ *   - `vi.useFakeTimers()` (and the jest and sinon spellings) fakes `Date`,
+ *     `performance` and `hrtime`, or the clocks its `toFake` lists; with
+ *     `shouldAdvanceTime` or options it cannot read it fakes none;
+ *   - node:test's `mock.timers.enable()` fakes `Date` only, or what `apis`
+ *     lists;
+ *   - `vi.setSystemTime()` without fake timers mocks `Date` only;
+ *   - `useRealTimers()` / `mock.timers.reset()` restores them all.
+ *
+ * A sibling test's fake clock, and a helper the test declares but never calls,
+ * do not count.
  *
  * Replace the bound with what it was standing in for:
  *
@@ -55,8 +69,8 @@
  *
  *   // wall-clock-ok: <reason>
  *
- * inside a comment on any line of the assertion, or anywhere in the comment
- * block directly above it.
+ * in a comment on any line of the assertion, or in the comments directly
+ * above it or above the statement it is part of.
  *
  * Usage:
  *   tsx scripts/guard-no-wall-clock-assertions.ts         diff-scoped (CI)
@@ -134,6 +148,76 @@ function scriptKind(file: string): ts.ScriptKind {
   return /\.[cm]?[jt]sx$/i.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
 }
 
+/** A test file, parsed and bound so its names resolve to their declarations. */
+interface TestFile {
+  sourceFile: ts.SourceFile;
+  checker: ts.TypeChecker;
+}
+
+function bindTestFile(file: string, source: string): TestFile {
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind(file),
+  );
+  // A program of this one file, with no lib and no imports followed: the
+  // binder still resolves every local name, and a global or an import
+  // resolves to no declaration in this file.
+  const slashed = (name: string) => name.replace(/\\/g, "/");
+  const isThisFile = (name: string) => slashed(name) === slashed(file);
+  const host: ts.CompilerHost = {
+    getSourceFile: (name) => (isThisFile(name) ? sourceFile : undefined),
+    fileExists: isThisFile,
+    readFile: () => undefined,
+    writeFile: () => {},
+    getDefaultLibFileName: () => "lib.d.ts",
+    getCurrentDirectory: () => "",
+    getCanonicalFileName: (name) => name,
+    useCaseSensitiveFileNames: () => true,
+    getNewLine: () => "\n",
+  };
+  const program = ts.createProgram({
+    rootNames: [file],
+    options: { noLib: true, noResolve: true, allowJs: true, types: [] },
+    host,
+  });
+  return { sourceFile, checker: program.getTypeChecker() };
+}
+
+function isImport(declaration: ts.Declaration): boolean {
+  return (
+    ts.isImportSpecifier(declaration) ||
+    ts.isImportClause(declaration) ||
+    ts.isNamespaceImport(declaration) ||
+    ts.isImportEqualsDeclaration(declaration)
+  );
+}
+
+/** The variable or function `identifier` names, when this file declares it. */
+function localSymbol(
+  file: TestFile,
+  identifier: ts.Identifier,
+): ts.Symbol | undefined {
+  const symbol = file.checker.getSymbolAtLocation(identifier);
+  if (!symbol?.declarations?.length || symbol.declarations.every(isImport)) {
+    return undefined;
+  }
+  return file.checker.getExportSymbolOfSymbol(symbol);
+}
+
+/** An import's name in its module: `performance` for `{ performance as perf }`. */
+function importedName(file: TestFile, identifier: ts.Identifier): string {
+  const declaration =
+    file.checker.getSymbolAtLocation(identifier)?.declarations?.[0];
+  return declaration &&
+    ts.isImportSpecifier(declaration) &&
+    declaration.propertyName
+    ? declaration.propertyName.text
+    : identifier.text;
+}
+
 function unwrap(node: ts.Expression): ts.Expression {
   let current = node;
   while (
@@ -149,87 +233,105 @@ function unwrap(node: ts.Expression): ts.Expression {
   return current;
 }
 
-function isIdentifierNamed(node: ts.Expression, name: string): boolean {
+/** Property names from the root identifier, whatever the root resolves to. */
+function propertyChain(node: ts.Expression): string[] | null {
   const target = unwrap(node);
-  return ts.isIdentifier(target) && target.text === name;
+  if (ts.isIdentifier(target)) return [target.text];
+  if (ts.isPropertyAccessExpression(target)) {
+    const head = propertyChain(target.expression);
+    return head ? [...head, target.name.text] : null;
+  }
+  return null;
 }
 
-/** `performance`, `globalThis.performance`, `window.performance`, ... */
-function namesGlobal(node: ts.Expression, name: string): boolean {
+const GLOBAL_OBJECTS = new Set(["globalThis", "window", "self", "global"]);
+
+/**
+ * `vi.useFakeTimers` as "vi.useFakeTimers" when its root is a global or an
+ * import, never a local variable that shares the name. A global-object prefix
+ * is dropped: `globalThis.performance.now` is "performance.now".
+ */
+function apiName(file: TestFile, node: ts.Expression): string | undefined {
   const target = unwrap(node);
-  if (ts.isIdentifier(target)) return target.text === name;
-  return ts.isPropertyAccessExpression(target) && target.name.text === name;
+  if (ts.isIdentifier(target)) {
+    return localSymbol(file, target) ? undefined : importedName(file, target);
+  }
+  if (!ts.isPropertyAccessExpression(target)) return undefined;
+  const head = apiName(file, target.expression);
+  if (head === undefined) return undefined;
+  return GLOBAL_OBJECTS.has(head)
+    ? target.name.text
+    : `${head}.${target.name.text}`;
 }
 
-/** `vi.setSystemTime` alone fakes `date` clocks but not `monotonic` ones. */
-type ClockKind = "date" | "monotonic";
+type ClockKind = "date" | "performance" | "hrtime";
+
+const NO_CLOCKS: ReadonlySet<ClockKind> = new Set();
+const ALL_CLOCKS: ReadonlySet<ClockKind> = new Set([
+  "date",
+  "performance",
+  "hrtime",
+]);
+const DATE_CLOCK: ReadonlySet<ClockKind> = new Set(["date"]);
 
 /** Date.now(), performance.now(), process.hrtime.bigint(), new Date().getTime(). */
-function clockReadKind(node: ts.Expression): ClockKind | undefined {
+function clockReadKind(
+  file: TestFile,
+  node: ts.Expression,
+): ClockKind | undefined {
   const target = unwrap(node);
   if (!ts.isCallExpression(target)) return undefined;
   const callee = unwrap(target.expression);
   if (!ts.isPropertyAccessExpression(callee)) return undefined;
   const method = callee.name.text;
   const receiver = unwrap(callee.expression);
-  if (method === "now") {
-    if (namesGlobal(receiver, "Date")) return "date";
-    return namesGlobal(receiver, "performance") ? "monotonic" : undefined;
-  }
-  if (method === "bigint") {
-    return ts.isPropertyAccessExpression(receiver) &&
-      receiver.name.text === "hrtime" &&
-      isIdentifierNamed(receiver.expression, "process")
-      ? "monotonic"
-      : undefined;
-  }
   if (method === "getTime" || method === "valueOf") {
     return ts.isNewExpression(receiver) &&
-      isIdentifierNamed(receiver.expression, "Date") &&
+      apiName(file, receiver.expression) === "Date" &&
       (receiver.arguments?.length ?? 0) === 0
       ? "date"
       : undefined;
   }
-  return undefined;
-}
-
-/** An identifier read as a value, not a property name or a declared name. */
-function isValueReference(node: ts.Identifier): boolean {
-  const parent = node.parent;
-  if (ts.isPropertyAccessExpression(parent) && parent.name === node) {
-    return false;
+  switch (apiName(file, callee)) {
+    case "Date.now":
+      return "date";
+    case "performance.now":
+      return "performance";
+    case "process.hrtime.bigint":
+      return "hrtime";
+    default:
+      return undefined;
   }
-  if (
-    (ts.isPropertyAssignment(parent) ||
-      ts.isVariableDeclaration(parent) ||
-      ts.isParameter(parent) ||
-      ts.isBindingElement(parent) ||
-      ts.isFunctionDeclaration(parent) ||
-      ts.isMethodDeclaration(parent) ||
-      ts.isPropertyDeclaration(parent)) &&
-    parent.name === node
-  ) {
-    return false;
-  }
-  return true;
 }
 
 interface ClockBinding {
-  /** The declaration or assignment, for its lines and its scope. */
+  /** The declaration or assignment, for its lines. */
   node: ts.Node;
   value: ts.Expression;
+  /** For `const { elapsed } = measure()`, the property the binding reads. */
+  property?: string;
 }
 
 interface ClockNames {
-  /** Clocks a variable holds a read of: `const startedAt = Date.now()`. */
-  clocks: Map<string, Set<ClockKind>>;
+  /** Clocks a variable holds a reading of: `const startedAt = Date.now()`. */
+  readings: Map<ts.Symbol, Set<ClockKind>>;
   /** Clocks an elapsed-time variable measures: `const elapsed = Date.now() - t0`. */
-  elapsed: Map<string, Set<ClockKind>>;
+  elapsed: Map<ts.Symbol, Set<ClockKind>>;
   /** The bindings that give those variables a clock or elapsed value. */
-  bindings: Map<string, ClockBinding[]>;
+  bindings: Map<ts.Symbol, ClockBinding[]>;
+  /** Functions whose returns are being read, so recursion stops. */
+  expanding: Set<ts.Node>;
 }
 
-const NO_CLOCKS: ReadonlySet<ClockKind> = new Set();
+/** What a value is, as far as clocks go. */
+interface ClockValue {
+  /** Clocks it is a reading of: `Date.now()`, `startedAt`. */
+  reading: ReadonlySet<ClockKind>;
+  /** Clocks it is an elapsed time on, or arithmetic or a comparison on one. */
+  elapsed: ReadonlySet<ClockKind>;
+}
+
+const NOT_A_CLOCK: ClockValue = { reading: NO_CLOCKS, elapsed: NO_CLOCKS };
 
 function unionClocks(
   sets: readonly ReadonlySet<ClockKind>[],
@@ -237,16 +339,134 @@ function unionClocks(
   return new Set(sets.flatMap((set) => [...set]));
 }
 
-function heldClocks(
-  node: ts.Expression,
+function unionValues(values: readonly ClockValue[]): ClockValue {
+  return {
+    reading: unionClocks(values.map((value) => value.reading)),
+    elapsed: unionClocks(values.map((value) => value.elapsed)),
+  };
+}
+
+function symbolValue(symbol: ts.Symbol, names: ClockNames): ClockValue {
+  return {
+    reading: names.readings.get(symbol) ?? NO_CLOCKS,
+    elapsed: names.elapsed.get(symbol) ?? NO_CLOCKS,
+  };
+}
+
+/** The local variable an identifier reads, including `{ elapsed }` shorthand. */
+function referencedSymbol(
+  file: TestFile,
+  identifier: ts.Identifier,
+): ts.Symbol | undefined {
+  const parent = identifier.parent;
+  if (ts.isShorthandPropertyAssignment(parent) && parent.name === identifier) {
+    const symbol = file.checker.getShorthandAssignmentValueSymbol(parent);
+    return symbol?.declarations?.every(isImport) === false
+      ? file.checker.getExportSymbolOfSymbol(symbol)
+      : undefined;
+  }
+  return localSymbol(file, identifier);
+}
+
+function propertyNameText(name: ts.PropertyName): string | undefined {
+  return ts.isIdentifier(name) || ts.isStringLiteralLike(name)
+    ? name.text
+    : undefined;
+}
+
+/** The function this file declares under `symbol`: `function f() {}`, `const f = () => ...`. */
+function localFunction(
+  symbol: ts.Symbol,
+): ts.FunctionLikeDeclaration | undefined {
+  const declaration = symbol.valueDeclaration;
+  if (!declaration) return undefined;
+  if (ts.isFunctionDeclaration(declaration)) return declaration;
+  const initializer = ts.isVariableDeclaration(declaration)
+    ? declaration.initializer
+    : undefined;
+  return initializer &&
+    (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer))
+    ? initializer
+    : undefined;
+}
+
+function calledFunction(
+  file: TestFile,
+  call: ts.CallExpression,
+): ts.FunctionLikeDeclaration | undefined {
+  const callee = unwrap(call.expression);
+  const symbol = ts.isIdentifier(callee) && localSymbol(file, callee);
+  return symbol ? localFunction(symbol) : undefined;
+}
+
+/** The expressions `fn` returns, not counting nested functions' returns. */
+function returnedExpressions(fn: ts.FunctionLikeDeclaration): ts.Expression[] {
+  if (!fn.body) return [];
+  if (!ts.isBlock(fn.body)) return [fn.body];
+  const returned: ts.Expression[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isFunctionLike(node)) return;
+    if (ts.isReturnStatement(node) && node.expression) {
+      returned.push(node.expression);
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(fn.body, visit);
+  return returned;
+}
+
+/**
+ * What a call to a local function returns, or the `property` of it when the
+ * caller destructures one: `const { elapsed } = await measure()`.
+ */
+function returnedValue(
+  file: TestFile,
+  call: ts.CallExpression,
+  property: string | undefined,
   names: ClockNames,
-): ReadonlySet<ClockKind> {
+): ClockValue {
+  const fn = calledFunction(file, call);
+  if (!fn || names.expanding.has(fn)) return NOT_A_CLOCK;
+  names.expanding.add(fn);
+  try {
+    return unionValues(
+      returnedExpressions(fn).map((returned) =>
+        property === undefined
+          ? clockValue(file, returned, names)
+          : propertyValue(file, returned, property, names),
+      ),
+    );
+  } finally {
+    names.expanding.delete(fn);
+  }
+}
+
+/** The value of `property` of an object literal or of a local call's result. */
+function propertyValue(
+  file: TestFile,
+  node: ts.Expression,
+  property: string,
+  names: ClockNames,
+): ClockValue {
   const target = unwrap(node);
-  const kind = clockReadKind(target);
-  if (kind) return new Set([kind]);
-  return ts.isIdentifier(target)
-    ? (names.clocks.get(target.text) ?? NO_CLOCKS)
-    : NO_CLOCKS;
+  if (ts.isCallExpression(target)) {
+    return returnedValue(file, target, property, names);
+  }
+  if (!ts.isObjectLiteralExpression(target)) return NOT_A_CLOCK;
+  return unionValues(
+    target.properties.map((member) => {
+      if (!member.name || propertyNameText(member.name) !== property) {
+        return NOT_A_CLOCK;
+      }
+      if (ts.isPropertyAssignment(member)) {
+        return clockValue(file, member.initializer, names);
+      }
+      const symbol =
+        ts.isShorthandPropertyAssignment(member) &&
+        referencedSymbol(file, member.name);
+      return symbol ? symbolValue(symbol, names) : NOT_A_CLOCK;
+    }),
+  );
 }
 
 const DERIVING_OPERATORS = new Set([
@@ -264,232 +484,388 @@ const DERIVING_OPERATORS = new Set([
   ts.SyntaxKind.AmpersandAmpersandToken,
   ts.SyntaxKind.BarBarToken,
 ]);
-const NUMERIC_WRAPPERS =
-  /^(?:Math\.(?:round|floor|ceil|trunc|abs|min|max)|Number)$/;
+const ADVANCING_OPERATORS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.PlusEqualsToken,
+  ts.SyntaxKind.MinusEqualsToken,
+  ts.SyntaxKind.PlusPlusToken,
+  ts.SyntaxKind.MinusMinusToken,
+]);
+const NUMERIC_WRAPPERS = new Set([
+  "Math.round",
+  "Math.floor",
+  "Math.ceil",
+  "Math.trunc",
+  "Math.abs",
+  "Math.min",
+  "Math.max",
+  "Number",
+]);
 
 /**
- * The clocks the value of `node` is an elapsed time on, or arithmetic or a
- * comparison on one, and empty when it is not: `Date.now() - t0`,
- * `elapsed / 1000`, `elapsed < 50`, `Math.round(performance.now() - t0)`.
- * Only the value itself counts, so an object or call that merely holds such an
- * expression somewhere inside it (`run({ since: Date.now() - 1_000 })`) is not
- * elapsed time.
+ * What the value of `node` is, as far as clocks go. It is an elapsed time on
+ * a clock when it subtracts a reading of it (`Date.now() - t0`), or is
+ * arithmetic, a comparison or Math.round/... on an elapsed time
+ * (`elapsed / 1000`, `elapsed < 50`), or is what a local function returns
+ * (`measure()`). Only the value itself counts, so an object or call that
+ * merely holds such an expression somewhere inside it
+ * (`run({ since: Date.now() - 1_000 })`) is not elapsed time.
  */
-function elapsedClocks(
+function clockValue(
+  file: TestFile,
   node: ts.Expression,
   names: ClockNames,
-): ReadonlySet<ClockKind> {
+): ClockValue {
   const target = unwrap(node);
+  const kind = clockReadKind(file, target);
+  if (kind) return { reading: new Set([kind]), elapsed: NO_CLOCKS };
   if (ts.isIdentifier(target)) {
-    return isValueReference(target)
-      ? (names.elapsed.get(target.text) ?? NO_CLOCKS)
-      : NO_CLOCKS;
+    const symbol = localSymbol(file, target);
+    return symbol ? symbolValue(symbol, names) : NOT_A_CLOCK;
   }
   if (ts.isBinaryExpression(target)) {
     const operator = target.operatorToken.kind;
-    if (!DERIVING_OPERATORS.has(operator)) return NO_CLOCKS;
-    const operands = [target.left, target.right];
-    return unionClocks([
-      ...operands.map((operand) => elapsedClocks(operand, names)),
-      ...(operator === ts.SyntaxKind.MinusToken
-        ? operands.map((operand) => heldClocks(operand, names))
-        : []),
-    ]);
+    if (!DERIVING_OPERATORS.has(operator)) return NOT_A_CLOCK;
+    const left = clockValue(file, target.left, names);
+    const right = clockValue(file, target.right, names);
+    return {
+      reading: NO_CLOCKS,
+      elapsed: unionClocks(
+        operator === ts.SyntaxKind.MinusToken
+          ? [left.elapsed, right.elapsed, left.reading, right.reading]
+          : [left.elapsed, right.elapsed],
+      ),
+    };
   }
   if (ts.isPrefixUnaryExpression(target)) {
-    return elapsedClocks(target.operand, names);
+    return {
+      reading: NO_CLOCKS,
+      elapsed: clockValue(file, target.operand, names).elapsed,
+    };
   }
   if (ts.isCallExpression(target)) {
-    const callee = propertyChain(target.expression)?.join(".") ?? "";
-    return NUMERIC_WRAPPERS.test(callee)
-      ? unionClocks(
-          target.arguments.map((argument) => elapsedClocks(argument, names)),
+    const callee = apiName(file, target.expression);
+    return callee && NUMERIC_WRAPPERS.has(callee)
+      ? unionValues(
+          target.arguments.map((argument) => clockValue(file, argument, names)),
         )
-      : NO_CLOCKS;
+      : returnedValue(file, target, undefined, names);
   }
-  return NO_CLOCKS;
+  return NOT_A_CLOCK;
 }
 
-function bindingClocks(
-  value: ts.Expression,
+function bindingValue(
+  file: TestFile,
+  binding: ClockBinding,
   names: ClockNames,
-): { map: Map<string, Set<ClockKind>>; kinds: ReadonlySet<ClockKind> } {
-  const kind = clockReadKind(value);
-  return kind
-    ? { map: names.clocks, kinds: new Set([kind]) }
-    : { map: names.elapsed, kinds: elapsedClocks(value, names) };
+): ClockValue {
+  return binding.property === undefined
+    ? clockValue(file, binding.value, names)
+    : propertyValue(file, binding.value, binding.property, names);
 }
 
-function collectClockNames(sourceFile: ts.SourceFile): ClockNames {
+function isClock(value: ClockValue): boolean {
+  return value.reading.size > 0 || value.elapsed.size > 0;
+}
+
+function collectClockNames(file: TestFile): ClockNames {
   const names: ClockNames = {
-    clocks: new Map(),
+    readings: new Map(),
     elapsed: new Map(),
     bindings: new Map(),
+    expanding: new Set(),
   };
-  const bindings: [name: string, binding: ClockBinding][] = [];
+  const bindings: [symbol: ts.Symbol, binding: ClockBinding][] = [];
+  // A variable the test moves itself (`clock += 20_000`) is a fake clock it
+  // controls, not a reading of real time, whatever it started from.
+  const advanced = new Set<ts.Symbol>();
+  const bind = (name: ts.Node, binding: ClockBinding) => {
+    const symbol = ts.isIdentifier(name) && localSymbol(file, name);
+    if (symbol) bindings.push([symbol, binding]);
+  };
+  const advance = (target: ts.Expression) => {
+    const symbol = ts.isIdentifier(target) && localSymbol(file, target);
+    if (symbol) advanced.add(symbol);
+  };
   const visit = (node: ts.Node) => {
     if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer
+      ts.isBinaryExpression(node) &&
+      ADVANCING_OPERATORS.has(node.operatorToken.kind)
     ) {
-      bindings.push([node.name.text, { node, value: node.initializer }]);
+      advance(node.left);
+    }
+    if (
+      (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+      ADVANCING_OPERATORS.has(node.operator)
+    ) {
+      advance(node.operand);
+    }
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      const value = node.initializer;
+      if (ts.isObjectBindingPattern(node.name)) {
+        for (const element of node.name.elements) {
+          const property = element.propertyName
+            ? propertyNameText(element.propertyName)
+            : ts.isIdentifier(element.name)
+              ? element.name.text
+              : undefined;
+          if (property !== undefined && !element.dotDotDotToken) {
+            bind(element.name, { node, value, property });
+          }
+        }
+      } else {
+        bind(node.name, { node, value });
+      }
     }
     if (
       ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-      ts.isIdentifier(node.left)
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken
     ) {
-      bindings.push([node.left.text, { node, value: node.right }]);
+      bind(node.left, { node, value: node.right });
     }
     ts.forEachChild(node, visit);
   };
-  visit(sourceFile);
+  visit(file.sourceFile);
 
   // An elapsed variable can be derived from another one, so iterate until
   // nothing new is learned.
+  const learn = (
+    map: Map<ts.Symbol, Set<ClockKind>>,
+    symbol: ts.Symbol,
+    kinds: ReadonlySet<ClockKind>,
+  ) => {
+    let learned = false;
+    for (const kind of kinds) {
+      const held = map.get(symbol) ?? new Set<ClockKind>();
+      if (held.has(kind)) continue;
+      held.add(kind);
+      map.set(symbol, held);
+      learned = true;
+    }
+    return learned;
+  };
   for (let changed = true; changed; ) {
     changed = false;
-    for (const [name, { value }] of bindings) {
-      const { map, kinds } = bindingClocks(value, names);
-      for (const kind of kinds) {
-        const held = map.get(name) ?? new Set<ClockKind>();
-        if (held.has(kind)) continue;
-        held.add(kind);
-        map.set(name, held);
-        changed = true;
-      }
+    for (const [symbol, binding] of bindings) {
+      const value = bindingValue(file, binding, names);
+      const learnedReading =
+        !advanced.has(symbol) && learn(names.readings, symbol, value.reading);
+      const learnedElapsed = learn(names.elapsed, symbol, value.elapsed);
+      changed ||= learnedReading || learnedElapsed;
     }
   }
-  for (const [name, binding] of bindings) {
-    if (bindingClocks(binding.value, names).kinds.size === 0) continue;
-    names.bindings.set(name, [...(names.bindings.get(name) ?? []), binding]);
+  for (const [symbol, binding] of bindings) {
+    if (!isClock(bindingValue(file, binding, names))) continue;
+    names.bindings.set(symbol, [
+      ...(names.bindings.get(symbol) ?? []),
+      binding,
+    ]);
   }
   return names;
 }
 
-/** The function, or the file, a binding belongs to. */
-function scopeOf(node: ts.Node): ts.Node {
-  let current = node.parent;
-  while (!ts.isFunctionLike(current) && !ts.isSourceFile(current)) {
-    current = current.parent;
-  }
-  return current;
-}
-
-function encloses(ancestor: ts.Node, node: ts.Node): boolean {
-  for (let current = node.parent; current; current = current.parent) {
-    if (current === ancestor) return true;
-  }
-  return false;
-}
-
 /**
- * Line ranges (1-based) of the bindings in scope at `assertion` that give a
- * variable it reads a clock or elapsed value, and of the bindings those read
- * in turn.
+ * Line ranges (1-based) of the code that gives `values` their clock or
+ * elapsed value: the bindings of the variables they read and the returns of
+ * the local functions they call, followed through what those read in turn.
  */
 function bindingLines(
-  assertion: ts.Node,
+  file: TestFile,
+  values: readonly ts.Expression[],
   names: ClockNames,
-  sourceFile: ts.SourceFile,
 ): [from: number, to: number][] {
-  const lineOf = (pos: number) =>
-    sourceFile.getLineAndCharacterOfPosition(pos).line + 1;
+  const { sourceFile } = file;
+  const rangeOf = (node: ts.Node): [number, number] => [
+    sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line +
+      1,
+    sourceFile.getLineAndCharacterOfPosition(node.end).line + 1,
+  ];
   const ranges: [number, number][] = [];
-  const followed = new Set<string>();
+  const followed = new Set<ts.Symbol | ts.Node>();
   const visit = (node: ts.Node) => {
-    if (
-      ts.isIdentifier(node) &&
-      isValueReference(node) &&
-      !followed.has(node.text)
-    ) {
-      followed.add(node.text);
-      for (const binding of names.bindings.get(node.text) ?? []) {
-        if (!encloses(scopeOf(binding.node), assertion)) continue;
-        ranges.push([
-          lineOf(binding.node.getStart(sourceFile)),
-          lineOf(binding.node.end),
-        ]);
+    const fn = ts.isCallExpression(node) && calledFunction(file, node);
+    if (fn && !followed.has(fn)) {
+      followed.add(fn);
+      for (const returned of returnedExpressions(fn)) {
+        ranges.push(rangeOf(returned));
+        visit(returned);
+      }
+    }
+    const symbol = ts.isIdentifier(node) && referencedSymbol(file, node);
+    if (symbol && !followed.has(symbol)) {
+      followed.add(symbol);
+      for (const binding of names.bindings.get(symbol) ?? []) {
+        ranges.push(rangeOf(binding.node));
         visit(binding.value);
       }
     }
     ts.forEachChild(node, visit);
   };
-  visit(assertion);
+  values.forEach(visit);
   return ranges;
 }
 
-function propertyChain(node: ts.Expression): string[] | null {
-  const target = unwrap(node);
-  if (ts.isIdentifier(target)) return [target.text];
-  if (ts.isPropertyAccessExpression(target)) {
-    const head = propertyChain(target.expression);
-    return head ? [...head, target.name.text] : null;
-  }
-  return null;
+/** What fake timers replace at a point in a test. */
+interface FakeState {
+  /** Whether a fake clock is installed, which `setSystemTime` then moves. */
+  installed: boolean;
+  clocks: ReadonlySet<ClockKind>;
 }
 
-/** Which clocks fake timers replace at a point in a test. */
-type FakeClocks = "none" | "date" | "all";
+const REAL_TIMERS: FakeState = { installed: false, clocks: NO_CLOCKS };
 
-const FAKE_TIMERS_ON =
-  /^(?:(?:vi|jest)\.useFakeTimers|sinon\.useFakeTimers|(?:.+\.)?mock\.timers\.enable)$/;
-// Without fake timers, setSystemTime mocks Date alone: performance.now() and
-// process.hrtime keep real time.
-const DATE_MOCK_ON = /^(?:vi|jest)\.setSystemTime$/;
-const FAKE_TIMERS_OFF =
-  /^(?:(?:vi|jest)\.useRealTimers|(?:.+\.)?mock\.timers\.reset)$/;
-const SETUP_HOOKS = new Set(["beforeEach", "beforeAll"]);
+type TimerEffect =
+  | { op: "install"; clocks: ReadonlySet<ClockKind> }
+  | { op: "setSystemTime" }
+  | { op: "restore" };
 
 interface TimerSwitch {
   pos: number;
-  /** `date` mocks Date on top of whatever is faked; the others replace it. */
-  sets: FakeClocks;
+  effect: TimerEffect;
 }
 
-function applySwitches(
-  state: FakeClocks,
-  switches: readonly TimerSwitch[],
-): FakeClocks {
-  let current = state;
-  for (const { sets } of switches) {
-    current = sets === "date" && current === "all" ? "all" : sets;
+function applyEffect(state: FakeState, effect: TimerEffect): FakeState {
+  switch (effect.op) {
+    case "install":
+      return { installed: true, clocks: effect.clocks };
+    case "restore":
+      return REAL_TIMERS;
+    case "setSystemTime":
+      // With a fake clock installed it moves that clock and fakes nothing
+      // new; without one it mocks Date alone.
+      return state.installed
+        ? state
+        : {
+            installed: false,
+            clocks: unionClocks([state.clocks, DATE_CLOCK]),
+          };
   }
-  return current;
 }
 
-function calleeRoot(call: ts.CallExpression): string | undefined {
-  let target: ts.Expression = call.expression;
-  // it.each(rows)(...), test.skipIf(x)(...), describe.only(...)
-  while (ts.isCallExpression(target) || ts.isPropertyAccessExpression(target)) {
-    target = target.expression;
+function replay(switches: readonly TimerSwitch[]): FakeState {
+  return switches.reduce(
+    (state, entry) => applyEffect(state, entry.effect),
+    REAL_TIMERS,
+  );
+}
+
+const CLOCK_TIMER_NAMES = new Map<string, ClockKind>([
+  ["Date", "date"],
+  ["performance", "performance"],
+  ["hrtime", "hrtime"],
+]);
+const CLOCK_OPTION_KEYS = new Set([
+  "toFake",
+  "doNotFake",
+  "apis",
+  "shouldAdvanceTime",
+  "advanceTimers",
+]);
+
+/** Clocks named in `["Date", "setTimeout"]`, or undefined when unreadable. */
+function listedClocks(node: ts.Expression): Set<ClockKind> | undefined {
+  const target = unwrap(node);
+  if (!ts.isArrayLiteralExpression(target)) return undefined;
+  const clocks = new Set<ClockKind>();
+  for (const element of target.elements) {
+    if (!ts.isStringLiteralLike(element)) return undefined;
+    const kind = CLOCK_TIMER_NAMES.get(element.text);
+    if (kind) clocks.add(kind);
   }
-  return ts.isIdentifier(target) ? target.text : undefined;
+  return clocks;
 }
 
 /**
- * Fake-timer switches `node` makes as it runs, in source order. A nested
- * function (a sibling test, a hook, a helper) switches nothing until it is
- * called, and a call counts only for the local helpers in `installers`.
+ * The clocks a fake-timer install fakes, read from its options (`toFake`,
+ * jest's `doNotFake`, node:test's `apis`). Fake time that advances with real
+ * time, and options this cannot read, fake nothing, so the assertion is still
+ * checked.
+ */
+function installedClocks(
+  options: ts.Expression | undefined,
+  defaults: ReadonlySet<ClockKind>,
+): ReadonlySet<ClockKind> {
+  if (!options) return defaults;
+  const target = unwrap(options);
+  // sinon.useFakeTimers(now)
+  if (ts.isNumericLiteral(target) || ts.isNewExpression(target)) {
+    return defaults;
+  }
+  // mock.timers.enable(["Date"]), node:test's signature before options.
+  if (ts.isArrayLiteralExpression(target)) {
+    return listedClocks(target) ?? NO_CLOCKS;
+  }
+  if (!ts.isObjectLiteralExpression(target)) return NO_CLOCKS;
+  let clocks: ReadonlySet<ClockKind> = defaults;
+  let excluded: ReadonlySet<ClockKind> = NO_CLOCKS;
+  for (const property of target.properties) {
+    if (ts.isSpreadAssignment(property)) return NO_CLOCKS;
+    const key = property.name && propertyNameText(property.name);
+    if (key === undefined || !CLOCK_OPTION_KEYS.has(key)) continue;
+    if (!ts.isPropertyAssignment(property)) return NO_CLOCKS;
+    const value = unwrap(property.initializer);
+    if (key === "shouldAdvanceTime" || key === "advanceTimers") {
+      if (value.kind !== ts.SyntaxKind.FalseKeyword) return NO_CLOCKS;
+      continue;
+    }
+    const listed = listedClocks(value);
+    if (!listed) return NO_CLOCKS;
+    if (key === "doNotFake") excluded = listed;
+    else clocks = listed;
+  }
+  return new Set([...clocks].filter((kind) => !excluded.has(kind)));
+}
+
+/** The timer switch `call` makes, when it makes one. */
+function timerEffect(
+  file: TestFile,
+  call: ts.CallExpression,
+  helpers: ReadonlyMap<ts.Symbol, TimerEffect>,
+): TimerEffect | undefined {
+  const callee = unwrap(call.expression);
+  if (ts.isIdentifier(callee)) {
+    const symbol = localSymbol(file, callee);
+    if (symbol) return helpers.get(symbol);
+  }
+  const options = call.arguments[0];
+  switch (apiName(file, callee)) {
+    case "vi.useFakeTimers":
+    case "jest.useFakeTimers":
+    case "sinon.useFakeTimers":
+      return { op: "install", clocks: installedClocks(options, ALL_CLOCKS) };
+    case "vi.setSystemTime":
+    case "jest.setSystemTime":
+      return { op: "setSystemTime" };
+    case "vi.useRealTimers":
+    case "jest.useRealTimers":
+      return { op: "restore" };
+  }
+  // node:test mocks on the imported `mock` and on a test context's `t.mock`.
+  switch (propertyChain(callee)?.slice(-3).join(".")) {
+    case "mock.timers.enable":
+      return { op: "install", clocks: installedClocks(options, DATE_CLOCK) };
+    case "mock.timers.reset":
+      return { op: "restore" };
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Timer switches `node` makes as it runs, in source order. A nested function
+ * (a sibling test, a hook, a helper) switches nothing until it is called, and
+ * a call counts for the local functions in `helpers`.
  */
 function timerSwitches(
+  file: TestFile,
   node: ts.Node,
-  installers: ReadonlyMap<string, FakeClocks>,
+  helpers: ReadonlyMap<ts.Symbol, TimerEffect>,
 ): TimerSwitch[] {
   const switches: TimerSwitch[] = [];
   const visit = (child: ts.Node) => {
     if (ts.isFunctionLike(child)) return;
     if (ts.isCallExpression(child)) {
-      const chain = propertyChain(child.expression)?.join(".") ?? "";
-      const sets: FakeClocks | undefined = FAKE_TIMERS_ON.test(chain)
-        ? "all"
-        : DATE_MOCK_ON.test(chain)
-          ? "date"
-          : FAKE_TIMERS_OFF.test(chain)
-            ? "none"
-            : installers.get(chain);
-      if (sets) switches.push({ pos: child.getStart(), sets });
+      const effect = timerEffect(file, child, helpers);
+      if (effect) switches.push({ pos: child.getStart(), effect });
     }
     ts.forEachChild(child, visit);
   };
@@ -497,70 +873,85 @@ function timerSwitches(
   return switches;
 }
 
-/** Local functions that fake clocks, by what they leave faked: `function useClock() {...}`. */
-function fakeTimerInstallers(
-  sourceFile: ts.SourceFile,
-): Map<string, FakeClocks> {
-  const installers = new Map<string, FakeClocks>();
+/** Local functions that switch timers, by what calling one does: `function useClock() {...}`. */
+function timerHelpers(file: TestFile): Map<ts.Symbol, TimerEffect> {
+  const helpers = new Map<ts.Symbol, TimerEffect>();
   const visit = (node: ts.Node) => {
-    let name: string | undefined;
+    let name: ts.Node | undefined;
     let body: ts.Node | undefined;
     if (ts.isFunctionDeclaration(node) && node.name && node.body) {
-      name = node.name.text;
+      name = node.name;
       body = node.body;
     } else if (
       ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
       node.initializer &&
       (ts.isArrowFunction(node.initializer) ||
         ts.isFunctionExpression(node.initializer))
     ) {
-      name = node.name.text;
+      name = node.name;
       body = node.initializer.body;
     }
-    if (name && body) {
-      const sets = applySwitches("none", timerSwitches(body, installers));
-      if (sets !== "none") installers.set(name, sets);
+    const symbol = name && ts.isIdentifier(name) && localSymbol(file, name);
+    if (symbol && body) {
+      const switches = timerSwitches(file, body, helpers);
+      if (switches.length > 0) {
+        const state = replay(switches);
+        helpers.set(
+          symbol,
+          state.installed
+            ? { op: "install", clocks: state.clocks }
+            : state.clocks.size > 0
+              ? { op: "setSystemTime" }
+              : { op: "restore" },
+        );
+      }
     }
     ts.forEachChild(node, visit);
   };
-  visit(sourceFile);
-  return installers;
+  visit(file.sourceFile);
+  return helpers;
 }
+
+const SETUP_HOOKS = new Set(["beforeEach", "beforeAll"]);
 
 /** The switches a `beforeEach`/`beforeAll` statement makes before each test. */
 function setupHookSwitches(
+  file: TestFile,
   statement: ts.Statement,
-  installers: ReadonlyMap<string, FakeClocks>,
+  helpers: ReadonlyMap<ts.Symbol, TimerEffect>,
 ): TimerSwitch[] {
   if (!ts.isExpressionStatement(statement)) return [];
   const call = unwrap(statement.expression);
   if (!ts.isCallExpression(call)) return [];
-  const root = calleeRoot(call);
-  if (!root || !SETUP_HOOKS.has(root)) return [];
-  return call.arguments.flatMap((argument) =>
-    ts.isArrowFunction(argument) || ts.isFunctionExpression(argument)
-      ? timerSwitches(argument.body, installers)
-      : [],
-  );
+  const hook = apiName(file, call.expression);
+  if (!hook || !SETUP_HOOKS.has(hook)) return [];
+  return call.arguments.flatMap((argument): TimerSwitch[] => {
+    if (ts.isArrowFunction(argument) || ts.isFunctionExpression(argument)) {
+      return timerSwitches(file, argument.body, helpers);
+    }
+    const symbol = ts.isIdentifier(argument) && localSymbol(file, argument);
+    const effect = symbol && helpers.get(symbol);
+    return effect ? [{ pos: argument.getStart(), effect }] : [];
+  });
 }
 
 /**
- * Which clocks are fake when `assertion` runs: the switches made by the
+ * What fake timers replace when `assertion` runs: the switches made by the
  * `beforeEach`/`beforeAll` hooks of enclosing blocks and the file, outermost
  * first, then those before it in its enclosing functions.
  */
-function fakeClocksAt(
+function fakeStateAt(
+  file: TestFile,
   assertion: ts.Node,
-  installers: ReadonlyMap<string, FakeClocks>,
-): FakeClocks {
+  helpers: ReadonlyMap<ts.Symbol, TimerEffect>,
+): FakeState {
   const start = assertion.getStart();
   const hooks: TimerSwitch[][] = [];
   const inline: TimerSwitch[] = [];
   for (let node = assertion.parent; node; node = node.parent) {
     if (ts.isFunctionLike(node) && "body" in node && node.body) {
       inline.push(
-        ...timerSwitches(node.body, installers).filter(
+        ...timerSwitches(file, node.body, helpers).filter(
           (entry) => entry.pos < start,
         ),
       );
@@ -568,15 +959,12 @@ function fakeClocksAt(
     if (ts.isSourceFile(node) || ts.isBlock(node)) {
       hooks.unshift(
         node.statements.flatMap((statement) =>
-          setupHookSwitches(statement, installers),
+          setupHookSwitches(file, statement, helpers),
         ),
       );
     }
   }
-  return applySwitches("none", [
-    ...hooks.flat(),
-    ...inline.sort((a, b) => a.pos - b.pos),
-  ]);
+  return replay([...hooks.flat(), ...inline.sort((a, b) => a.pos - b.pos)]);
 }
 
 /**
@@ -584,7 +972,10 @@ function fakeClocksAt(
  * values: `expect(x).toBeLessThan(1)`, `expect(x).not.toBe(1)`,
  * `expect.soft(x).toBe(1)`, `await expect(p).resolves.toBe(1)`.
  */
-function expectedValue(call: ts.CallExpression): ts.Expression | undefined {
+function expectedValue(
+  file: TestFile,
+  call: ts.CallExpression,
+): ts.Expression | undefined {
   const callee = call.expression;
   if (!ts.isPropertyAccessExpression(callee)) return undefined;
   if (!COMPARISON_MATCHERS.has(callee.name.text)) return undefined;
@@ -596,20 +987,18 @@ function expectedValue(call: ts.CallExpression): ts.Expression | undefined {
     receiver = receiver.expression;
   }
   if (!ts.isCallExpression(receiver)) return undefined;
-  const chain = propertyChain(receiver.expression)?.join(".");
-  if (chain !== "expect" && chain !== "expect.soft") return undefined;
+  const name = apiName(file, receiver.expression);
+  if (name !== "expect" && name !== "expect.soft") return undefined;
   return receiver.arguments[0];
 }
 
-function isAssertCall(call: ts.CallExpression): boolean {
-  const chain = propertyChain(call.expression);
-  return chain !== null && chain[0] === "assert" && chain.length <= 2;
+function isAssertCall(file: TestFile, call: ts.CallExpression): boolean {
+  const name = apiName(file, call.expression)?.split(".");
+  return name?.[0] === "assert" && name.length <= 2;
 }
 
-function commentRanges(
-  sourceFile: ts.SourceFile,
-  source: string,
-): ts.CommentRange[] {
+function commentRanges(sourceFile: ts.SourceFile): ts.CommentRange[] {
+  const source = sourceFile.text;
   const ranges = new Map<number, ts.CommentRange>();
   // A comment on a token's own line is trailing trivia of the token before
   // it, one on a later line leading trivia of the token after, so visiting
@@ -627,37 +1016,70 @@ function commentRanges(
   return [...ranges.values()];
 }
 
-/** Opt-out reasons by 1-based line. Only text inside a comment counts. */
-function pragmaReasons(
-  sourceFile: ts.SourceFile,
-  source: string,
-): Map<number, string[]> {
-  const reasons = new Map<number, string[]>();
-  const lineStarts = sourceFile.getLineStarts();
-  for (const comment of commentRanges(sourceFile, source)) {
-    const first = sourceFile.getLineAndCharacterOfPosition(comment.pos).line;
-    const last = sourceFile.getLineAndCharacterOfPosition(comment.end).line;
-    for (let line = first; line <= last; line += 1) {
-      const from = Math.max(comment.pos, lineStarts[line] ?? comment.pos);
-      const to = Math.min(comment.end, lineStarts[line + 1] ?? comment.end);
-      const match = PRAGMA.exec(source.slice(from, to).replace(/\r?\n$/, ""));
-      if (!match) continue;
-      const reason = (match[1] ?? "").replace(/\*\/\s*$/, "").trim();
-      reasons.set(line + 1, [...(reasons.get(line + 1) ?? []), reason]);
-    }
+/** The statement, in a block or the file, that `node` is part of. */
+function enclosingStatement(node: ts.Node): ts.Node {
+  let current = node;
+  while (
+    current.parent &&
+    !ts.isBlock(current.parent) &&
+    !ts.isSourceFile(current.parent) &&
+    !ts.isCaseOrDefaultClause(current.parent)
+  ) {
+    current = current.parent;
   }
-  return reasons;
+  return current;
 }
 
-/** Lines of the comment block that ends directly above `line` (1-based). */
-function commentBlockAbove(lines: readonly string[], line: number): number[] {
-  const block: number[] = [];
-  for (let index = line - 2; index >= 0; index -= 1) {
-    const text = (lines[index] ?? "").trim();
-    if (!/^(?:\/\/|\/\*|\*)/.test(text) && !text.endsWith("*/")) break;
-    block.push(index + 1);
+/**
+ * The comments directly above `node`: its leading comments back to the first
+ * blank line. A comment after code on the line above belongs to that code.
+ */
+function commentsAbove(source: string, node: ts.Node): ts.CommentRange[] {
+  const leading = ts.getLeadingCommentRanges(source, node.getFullStart()) ?? [];
+  const above: ts.CommentRange[] = [];
+  let next = node.getStart();
+  for (const comment of leading.toReversed()) {
+    if (source.slice(comment.end, next).split("\n").length > 2) break;
+    above.push(comment);
+    next = comment.pos;
   }
-  return block;
+  return above;
+}
+
+/**
+ * Opt-out reasons for `assertion`: from comments that start on one of its
+ * lines, and from those directly above it or above its statement.
+ */
+function optOutReasons(
+  sourceFile: ts.SourceFile,
+  assertion: ts.Node,
+  comments: readonly ts.CommentRange[],
+): string[] {
+  const source = sourceFile.text;
+  const lineStarts = sourceFile.getLineStarts();
+  const firstLine = sourceFile.getLineAndCharacterOfPosition(
+    assertion.getStart(sourceFile),
+  ).line;
+  const lastLine = sourceFile.getLineAndCharacterOfPosition(assertion.end).line;
+  const from = lineStarts[firstLine] ?? 0;
+  const to = lineStarts[lastLine + 1] ?? source.length;
+  const candidates = new Map<number, ts.CommentRange>();
+  for (const comment of [
+    ...comments.filter((range) => range.pos >= from && range.pos < to),
+    ...commentsAbove(source, assertion),
+    ...commentsAbove(source, enclosingStatement(assertion)),
+  ]) {
+    candidates.set(comment.pos, comment);
+  }
+  return [...candidates.values()].flatMap((comment) =>
+    source
+      .slice(comment.pos, comment.end)
+      .split(/\r?\n/)
+      .flatMap((line) => {
+        const match = PRAGMA.exec(line);
+        return match ? [(match[1] ?? "").replace(/\*\/\s*$/, "").trim()] : [];
+      }),
+  );
 }
 
 /**
@@ -669,53 +1091,44 @@ export function findWallClockAssertions(
   source: string,
   addedLines: ReadonlySet<number> | null,
 ): WallClockFinding[] {
-  const sourceFile = ts.createSourceFile(
-    file,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    scriptKind(file),
-  );
-  const names = collectClockNames(sourceFile);
-  let installers: Map<string, FakeClocks> | undefined;
-  const lines = source.split(/\r?\n/);
-  let reasons: Map<number, string[]> | undefined;
+  const testFile = bindTestFile(file, source);
+  const { sourceFile } = testFile;
+  const names = collectClockNames(testFile);
+  let helpers: Map<ts.Symbol, TimerEffect> | undefined;
+  let comments: ts.CommentRange[] | undefined;
   const findings: WallClockFinding[] = [];
+  const lineOf = (pos: number) =>
+    sourceFile.getLineAndCharacterOfPosition(pos).line + 1;
 
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
-      const checked = expectedValue(node);
-      const clocks = checked
-        ? elapsedClocks(checked, names)
-        : isAssertCall(node)
-          ? unionClocks(
-              node.arguments.map((argument) => elapsedClocks(argument, names)),
-            )
-          : NO_CLOCKS;
+      const checked = expectedValue(testFile, node);
+      const values = checked
+        ? [checked]
+        : isAssertCall(testFile, node)
+          ? [...node.arguments]
+          : [];
+      const clocks = unionClocks(
+        values.map((value) => clockValue(testFile, value, names).elapsed),
+      );
       if (clocks.size > 0) {
-        const start =
-          sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-            .line + 1;
-        const end = sourceFile.getLineAndCharacterOfPosition(node.end).line + 1;
+        const start = lineOf(node.getStart(sourceFile));
+        const end = lineOf(node.end);
         const touched =
           addedLines === null ||
           [
             [start, end] as const,
-            ...bindingLines(node, names, sourceFile),
+            ...bindingLines(testFile, values, names),
           ].some(([from, to]) =>
             [...addedLines].some((line) => line >= from && line <= to),
           );
-        installers ??= fakeTimerInstallers(sourceFile);
-        const faked = fakeClocksAt(node, installers);
-        const underFakeTimers =
-          faked === "all" || (faked === "date" && !clocks.has("monotonic"));
+        helpers ??= timerHelpers(testFile);
+        const faked = fakeStateAt(testFile, node, helpers).clocks;
+        const underFakeTimers = [...clocks].every((kind) => faked.has(kind));
         if (touched && !underFakeTimers) {
-          reasons ??= pragmaReasons(sourceFile, source);
-          const candidates = [
-            ...Array.from({ length: end - start + 1 }, (_, i) => start + i),
-            ...commentBlockAbove(lines, start),
-          ].flatMap((line) => reasons?.get(line) ?? []);
-          const accepted = candidates.some(
+          comments ??= commentRanges(sourceFile);
+          const reasons = optOutReasons(sourceFile, node, comments);
+          const accepted = reasons.some(
             (reason) => reason.length >= MIN_REASON_LENGTH,
           );
           if (!accepted) {
@@ -726,7 +1139,7 @@ export function findWallClockAssertions(
                 .getText(sourceFile)
                 .replace(/\s+/g, " ")
                 .slice(0, 120),
-              ...(candidates.length > 0 ? { shortReason: true as const } : {}),
+              ...(reasons.length > 0 ? { shortReason: true as const } : {}),
             });
           }
         }
