@@ -1,6 +1,5 @@
 import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -10,6 +9,7 @@ import type {
   DocumentHistoryCheckpointDetail,
   DocumentHistoryCheckpointKind,
 } from "../shared/document-history.js";
+import { assertHistoryAccess } from "./_document-history-access.js";
 
 export default defineAction({
   description:
@@ -29,7 +29,7 @@ export default defineAction({
   run: async (
     args,
   ): Promise<{ checkpoint: DocumentHistoryCheckpointDetail }> => {
-    const access = await assertAccess("document", args.documentId, "viewer");
+    const access = await assertHistoryAccess(args.documentId);
     const ownerEmail = access.resource.ownerEmail as string;
     const row = firstRow(
       await getDb()
