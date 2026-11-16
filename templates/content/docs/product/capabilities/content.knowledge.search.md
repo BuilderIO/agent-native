@@ -74,7 +74,11 @@ Given two teammates who can read the same Pages, when one of them opens a Page r
 Existing search paths are in progress donor substrate, but complete indexed, freshness, and agent-parity proof is incomplete. This Capability remains `in_progress`.
 
 The command picker uses the shared paginated search Action, with title-only,
-document-type and modified-date predicates applied before pagination. Parent
+document-type, modified-date and last-editor predicates applied before
+pagination. The last-editor predicate matches the email a Page records for its
+most recent edit, in any case, as Trash's filter does; it is not authorship,
+and the picker's instant title lane stands aside while it is set, because the
+title lists it ranks don't carry the last editor. Parent
 context is independently access-scoped. The query supports a bounded
 Google-style operator set: quoted "exact phrases", `-excludedTerm`,
 uppercase `OR` between terms, `intitle:term`, and implicit AND across bare
