@@ -335,27 +335,43 @@ function uniqueIndexByKey<T>(
   return index;
 }
 
-function characterBigrams(value: string): Set<string> {
-  const normalized = value.toLocaleLowerCase().replace(/\s+/g, " ").trim();
-  if (normalized.length < 2) return new Set(normalized ? [normalized] : []);
-  const result = new Set<string>();
-  for (let index = 0; index < normalized.length - 1; index++) {
-    result.add(normalized.slice(index, index + 2));
+const TEXT_PIECE_LENGTH = 4;
+
+// A block's text as counted, overlapping four-character pieces, with its
+// start and end marked. Whitespace is left out, so the parts of a split or
+// merge yield the same pieces as the text they came from.
+function textPieces(value: string): Map<string, number> {
+  const text = value.toLocaleLowerCase().replace(/\s+/g, "");
+  const pieces = new Map<string, number>();
+  if (!text) return pieces;
+  const marked = `\u0002${text}\u0003`;
+  const last = Math.max(0, marked.length - TEXT_PIECE_LENGTH);
+  for (let index = 0; index <= last; index++) {
+    const piece = marked.slice(index, index + TEXT_PIECE_LENGTH);
+    pieces.set(piece, (pieces.get(piece) ?? 0) + 1);
   }
-  return result;
+  return pieces;
 }
 
-const MIN_EDIT_SIMILARITY = 0.45;
+const MIN_SURVIVING_TEXT = 0.5;
 
-function editSimilarity(left: string, right: string): number {
-  const leftBigrams = characterBigrams(left);
-  const rightBigrams = characterBigrams(right);
-  if (leftBigrams.size === 0 || rightBigrams.size === 0) return 0;
-  let shared = 0;
-  for (const bigram of leftBigrams) {
-    if (rightBigrams.has(bigram)) shared++;
+// The share of the old text that the new text still contains. An edit keeps
+// most of a block's text, however much it adds. Unrelated prose shares common
+// words and letter pairs, but few runs of four characters.
+function survivingText(oldText: string, newText: string): number {
+  const oldPieces = textPieces(oldText);
+  const newPieces = textPieces(newText);
+  let total = 0;
+  let kept = 0;
+  for (const [piece, count] of oldPieces) {
+    total += count;
+    kept += Math.min(count, newPieces.get(piece) ?? 0);
   }
-  return (2 * shared) / (leftBigrams.size + rightBigrams.size);
+  return total === 0 ? 0 : kept / total;
+}
+
+function keepsText(oldText: string, newText: string): boolean {
+  return survivingText(oldText, newText) >= MIN_SURVIVING_TEXT;
 }
 
 function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
@@ -367,12 +383,6 @@ function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
 function startsWithBlock(whole: string, part: string): boolean {
   const prefix = part.trim();
   return prefix.length > 0 && whole.trimStart().startsWith(prefix);
-}
-
-// A split or merge keeps most of its text: the one block on one side reads
-// like the blocks on the other side joined together.
-function keepsText(whole: string, parts: readonly string[]): boolean {
-  return editSimilarity(whole, parts.join("\n")) >= MIN_EDIT_SIMILARITY;
 }
 
 interface PreviousSibling {
@@ -573,17 +583,19 @@ export function reconcileBlocksFieldIdentity(args: {
           if (!firstPrevious || !firstNext) continue;
           const previousMarkdown = firstPrevious.block.markdown;
           const nextMarkdown = firstNext.snapshot.markdown;
+          // A split's new blocks, joined, keep the old block's text; a
+          // merge's one new block keeps the old blocks' text.
           const split =
             !manyPrevious &&
             manyNext &&
             (previousMarkdown === EMPTY_PARAGRAPH_MARKDOWN ||
               (startsWithBlock(previousMarkdown, nextMarkdown) &&
-                keepsText(previousMarkdown, nextTexts)));
+                keepsText(previousMarkdown, nextTexts.join("\n"))));
           const merge =
             manyPrevious &&
             !manyNext &&
             startsWithBlock(nextMarkdown, previousMarkdown) &&
-            keepsText(nextMarkdown, previousTexts);
+            keepsText(previousTexts.join("\n"), nextMarkdown);
           const rewrite = allowRewrite && !manyPrevious && !manyNext;
           if (split || merge || rewrite) {
             pair(firstPrevious, firstNext.index);
@@ -632,8 +644,8 @@ export function reconcileBlocksFieldIdentity(args: {
       if (assigned.has(nextIndex)) continue;
       const snapshot = snapshots[nextIndex]!;
       if (previous.kind !== snapshot.kind) continue;
-      const score = editSimilarity(previous.markdown, snapshot.markdown);
-      if (score < MIN_EDIT_SIMILARITY) continue;
+      const score = survivingText(previous.markdown, snapshot.markdown);
+      if (score < MIN_SURVIVING_TEXT) continue;
       const previousBest = bestNextForPrevious.get(previousIndex);
       if (!previousBest || score > previousBest.score) {
         bestNextForPrevious.set(previousIndex, { index: nextIndex, score });

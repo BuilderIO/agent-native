@@ -506,6 +506,43 @@ describe("Blocks field identity", () => {
       expect(replaced.deleted).toEqual([pearsId]);
     });
 
+    it("never gives a deleted paragraph's ID to unrelated prose that shares its common words", () => {
+      const { initial, applesId, pearsId, cherriesId } = orchard();
+      // Letter-pair similarity rated this 61% alike to the Pears paragraph.
+      const grapes =
+        "Grapes ripen slowly, so growers pick them late and press them indoors.";
+      const oldIds = [applesId, pearsId, cherriesId];
+
+      const afterShortPrefix = save(
+        initial,
+        [apples, "Pears", grapes, cherries].join("\n"),
+      );
+      expect(afterShortPrefix.live[0]).toBe(applesId);
+      expect(afterShortPrefix.live[3]).toBe(cherriesId);
+      expect(oldIds).not.toContain(afterShortPrefix.live[1]);
+      expect(oldIds).not.toContain(afterShortPrefix.live[2]);
+      expect(afterShortPrefix.deleted).toEqual([pearsId]);
+
+      const elsewhere = save(initial, [grapes, apples, cherries].join("\n"));
+      expect(elsewhere.live.slice(1)).toEqual([applesId, cherriesId]);
+      expect(oldIds).not.toContain(elsewhere.live[0]);
+      expect(elsewhere.deleted).toEqual([pearsId]);
+    });
+
+    it("keeps a paragraph's ID when it moves to the top and gains a sentence", () => {
+      const { initial, applesId, pearsId, cherriesId } = orchard();
+      const result = save(
+        initial,
+        [
+          `${cherries} Pick them in the cool of the morning, before the sun reaches the trees.`,
+          apples,
+          pears,
+        ].join("\n"),
+      );
+
+      expect(result.live).toEqual([cherriesId, applesId, pearsId]);
+    });
+
     it("never moves a deleted top-level paragraph's ID into a list item", () => {
       const initial = materializeLegacyBlocksFieldIdentity({
         documentId: "doc-1",
