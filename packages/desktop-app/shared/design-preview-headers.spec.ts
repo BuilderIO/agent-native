@@ -27,9 +27,11 @@ describe("Design native screen response policy", () => {
       "content-security-policy": ["default-src 'self'; script-src 'self'"],
       "Set-Cookie": headers["Set-Cookie"],
     });
-    expect(
-      designPreviewResponseHeaders(partition, "subFrame", headers),
-    ).not.toHaveProperty("X-Frame-Options");
+  });
+  it("keeps framing protections on subframes a visited page creates", () => {
+    expect(designPreviewResponseHeaders(partition, "subFrame", headers)).toBe(
+      headers,
+    );
   });
   it("preserves app windows, unrelated partitions and asset responses", () => {
     for (const other of [
