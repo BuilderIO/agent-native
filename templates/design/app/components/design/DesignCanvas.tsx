@@ -186,11 +186,7 @@ import {
   filterPastedMediaFiles,
   hasSkippedImagePaste,
 } from "./design-canvas/image-paste-files";
-import {
-  buildInteractPreviewDocument,
-  INTERACT_TWEAKS_STYLE_ATTRIBUTE,
-  renderInteractTweakBlock,
-} from "./design-canvas/interact-document";
+import { buildInteractPreviewDocument } from "./design-canvas/interact-document";
 import {
   inlineDesignStylesheets,
   useDesignStylesheets,
@@ -3686,7 +3682,8 @@ export function DesignCanvas({
 
   const designStylesheets = useDesignStylesheets();
   // Interact bakes only the values current when its document is built; later
-  // knob changes are applied in place below, so they never reload the frame.
+  // knob changes reach its tweaks bridge as the replayed `tweak-values`
+  // message, so they never reload the frame.
   const latestTweakValuesRef = useRef(tweakValues);
   latestTweakValuesRef.current = tweakValues;
   const srcdoc = useMemo(() => {
@@ -6473,44 +6470,6 @@ export function DesignCanvas({
     iframe.addEventListener("load", applyOffset);
     return () => iframe.removeEventListener("load", applyOffset);
   }, [embeddedContentOffsetX, embeddedContentOffsetY, iframeElementIdentity]);
-
-  // Interact documents carry no tweak bridge, so knob changes rewrite the
-  // baked tweak stylesheet in the live document instead of rebuilding srcdoc.
-  const interactTweakBlock = interactMode
-    ? renderInteractTweakBlock(tweakValues)
-    : null;
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe || interactTweakBlock === null) return;
-    const applyTweaks = () => {
-      try {
-        const doc = iframe.contentDocument;
-        if (!doc) return;
-        let style = doc.querySelector<HTMLStyleElement>(
-          `style[${INTERACT_TWEAKS_STYLE_ATTRIBUTE}]`,
-        );
-        if (!interactTweakBlock) {
-          style?.remove();
-          return;
-        }
-        if (!style) {
-          style = doc.createElement("style");
-          style.setAttribute(INTERACT_TWEAKS_STYLE_ATTRIBUTE, "");
-          // Last in the document, after the design's own :root rules.
-          doc.documentElement.appendChild(style);
-        }
-        if (style.textContent !== interactTweakBlock) {
-          style.textContent = interactTweakBlock;
-        }
-        // coercion-ok: a cross-origin frame keeps the values baked into its document.
-      } catch {
-        // Cross-origin frames refuse document access; nothing else to apply.
-      }
-    };
-    applyTweaks();
-    iframe.addEventListener("load", applyTweaks);
-    return () => iframe.removeEventListener("load", applyTweaks);
-  }, [interactTweakBlock, iframeElementIdentity]);
 
   const layoutGridStepRef = useRef(layoutGridStep);
   layoutGridStepRef.current = layoutGridStep;

@@ -1024,50 +1024,88 @@ describe("DesignCanvas live embedded-frame offset", () => {
     }
   });
 
-  it("applies an Interact knob change in place without reloading the frame", async () => {
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-    const content = `<!doctype html><html><head><style>:root{--sail-twist:1}</style></head><body><div data-agent-native-node-id="sail"></div></body></html>`;
+  describe("Interact knob changes", () => {
+    const SAIL = `<!doctype html><html><head><style>:root{--sail-twist:1}</style></head><body><div data-agent-native-node-id="sail"></div></body></html>`;
 
-    const render = (twist: string) => (
-      <DesignCanvas
-        content={content}
-        contentKey="screen:sail"
-        screenId="sail"
-        zoom={100}
-        deviceFrame="none"
-        interactMode
-        onElementSelect={() => {}}
-        onElementHover={() => {}}
-        tweakValues={{ "--sail-twist": twist }}
-        editMode={false}
-      />
-    );
-
-    try {
-      await act(async () => root.render(render("0.25")));
-      const before = container.querySelector<HTMLIFrameElement>(
-        "iframe[data-design-preview-iframe]",
+    function renderInteract(
+      tweakValues: Record<string, string>,
+      props: { content?: string; readOnly?: boolean } = {},
+    ) {
+      return (
+        <DesignCanvas
+          content={props.content ?? SAIL}
+          contentKey="screen:sail"
+          screenId="sail"
+          zoom={100}
+          deviceFrame="none"
+          interactMode
+          readOnly={props.readOnly ?? false}
+          registerRuntimeBridge={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={tweakValues}
+          editMode={false}
+        />
       );
-      if (!before) throw new Error("expected an Interact preview frame");
-      const initialSrcdoc = before.srcdoc;
-      expect(initialSrcdoc).toContain("--sail-twist: 0.25;");
-
-      await act(async () => root.render(render("0.75")));
-      const after = container.querySelector<HTMLIFrameElement>(
-        "iframe[data-design-preview-iframe]",
-      );
-      expect(after).toBe(before);
-      expect(before.srcdoc).toBe(initialSrcdoc);
-      const liveTweaks = before.contentDocument?.querySelector(
-        "style[data-agent-native-interact-tweaks]",
-      );
-      expect(liveTweaks?.textContent).toContain("--sail-twist: 0.75;");
-    } finally {
-      await act(async () => root.unmount());
-      container.remove();
     }
+
+    function previewIframe(container: HTMLElement): HTMLIFrameElement {
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      if (!iframe?.contentWindow) throw new Error("no preview iframe");
+      return iframe;
+    }
+
+    async function expectKnobChangePostedWithoutReload(
+      props: { content?: string; readOnly?: boolean },
+      expectSrcdoc: boolean,
+    ) {
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      try {
+        await act(async () =>
+          root.render(renderInteract({ "--sail-twist": "0.25" }, props)),
+        );
+        const before = previewIframe(container);
+        const initialSrcdoc = before.getAttribute("srcdoc");
+        if (expectSrcdoc) {
+          expect(initialSrcdoc).toContain("--sail-twist: 0.25;");
+          expect(initialSrcdoc).toContain(
+            "data-agent-native-interact-tweaks-bridge",
+          );
+        } else {
+          expect(initialSrcdoc).toBeNull();
+        }
+        const frameWindow = before.contentWindow;
+        if (!frameWindow) throw new Error("no preview window");
+        const postMessage = vi.spyOn(frameWindow, "postMessage");
+
+        await act(async () =>
+          root.render(renderInteract({ "--sail-twist": "0.75" }, props)),
+        );
+        const after = previewIframe(container);
+        expect(after).toBe(before);
+        expect(after.getAttribute("srcdoc")).toBe(initialSrcdoc);
+        expect(postMessage).toHaveBeenCalledWith(
+          { type: "tweak-values", values: { "--sail-twist": "0.75" } },
+          "*",
+        );
+      } finally {
+        await act(async () => root.unmount());
+        container.remove();
+      }
+    }
+
+    it("posts the new values to an editable inline frame without reloading it", async () => {
+      await expectKnobChangePostedWithoutReload({}, true);
+    });
+
+    it("posts the new values to a read-only inline frame, whose sandbox hides its document", async () => {
+      await expectKnobChangePostedWithoutReload({ readOnly: true }, true);
+    });
+
   });
 
   it("keeps the iframe identity stable when a board render window reanchors", async () => {

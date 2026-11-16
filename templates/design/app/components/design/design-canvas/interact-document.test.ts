@@ -52,10 +52,11 @@ describe("buildInteractPreviewDocument", () => {
     expect(doc).toContain('<a href="/pricing">Pricing</a>');
   });
 
-  it("carries the theme bridge and the links bridge", () => {
+  it("carries the theme, links and tweaks bridges", () => {
     const doc = build(PAGE);
     expect(doc).toContain("data-agent-native-preview-theme-bridge");
     expect(doc).toContain("data-agent-native-interact-links-bridge");
+    expect(doc).toContain("data-agent-native-interact-tweaks-bridge");
   });
 
   it("carries no editor-only bridge", () => {
@@ -66,13 +67,14 @@ describe("buildInteractPreviewDocument", () => {
     }
   });
 
-  it("adds exactly the two bridges and the session replay probe to the design's own scripts", () => {
+  it("adds exactly the three bridges and the session replay probe to the design's own scripts", () => {
     const all = scriptTags(build(PAGE));
     expect(scriptTags(PAGE)).toHaveLength(2);
-    expect(all).toHaveLength(2 + 3);
+    expect(all).toHaveLength(2 + 4);
     expect(all.filter((tag) => tag.includes("-bridge"))).toEqual([
       "<script data-agent-native-preview-theme-bridge>",
       "<script data-agent-native-interact-links-bridge>",
+      "<script data-agent-native-interact-tweaks-bridge>",
     ]);
     expect(all.filter((tag) => tag === "<script>")).toHaveLength(1);
   });
@@ -152,11 +154,13 @@ describe("buildInteractPreviewDocument", () => {
     const doc = build(page, {
       tweakValues: { "--sail-twist": "0.25", "--sail-color0": "#8b5cf6" },
     });
-    const style = doc.indexOf("data-agent-native-interact-tweaks");
+    const style = doc.indexOf("<style data-agent-native-interact-tweaks>");
     expect(style).toBeGreaterThan(doc.indexOf(":root{--sail-twist:1}"));
     expect(doc).toContain("--sail-twist: 0.25;");
     expect(doc).toContain("--sail-color0: #8b5cf6;");
-    expect(build(PAGE)).not.toContain("data-agent-native-interact-tweaks");
+    expect(build(PAGE)).not.toContain(
+      "<style data-agent-native-interact-tweaks>",
+    );
     expect(
       build(PAGE, { tweakValues: { "--x": "a</style><script>" } }),
     ).not.toContain("a</style><script>");

@@ -2,6 +2,7 @@ import { injectSessionReplayIframeBootstrap } from "@agent-native/core/client/ho
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 
 import { interactLinksBridgeScript } from "../../../../.generated/bridge/interact-links.generated";
+import { interactTweaksBridgeScript } from "../../../../.generated/bridge/interact-tweaks.generated";
 import { renderResolvedRootBlock } from "../../../../shared/resolve-tweaks";
 import type { ScreenHeightMode } from "../multi-screen/screen-height";
 import { contentSizeReportBridge } from "./content-size-report";
@@ -14,16 +15,20 @@ import { withLocalRuntimes } from "./local-runtime";
 import { PREVIEW_THEME_BRIDGE_SCRIPT } from "./preview-theme";
 
 const INTERACT_LINKS_BRIDGE_SCRIPT = `<script data-agent-native-interact-links-bridge>${interactLinksBridgeScript}</script>`;
+const INTERACT_TWEAKS_BRIDGE_SCRIPT = `<script data-agent-native-interact-tweaks-bridge>${interactTweaksBridgeScript}</script>`;
 
 /**
  * What an Interact markup preview adds to the design: the theme bridge, which
- * the Light / Dark picker drives, and the links bridge, which makes a link to
- * another screen switch screens. Nothing here listens for scrolling, dragging,
- * keys or pointer input, so the page runs as it would in a tab. Explicit Hug
- * previews also report dimensions so their host can fit the authored content.
+ * the Light / Dark picker drives, the links bridge, which makes a link to
+ * another screen switch screens, and the tweaks bridge, which applies knob
+ * changes. Nothing here listens for scrolling, dragging, keys or pointer
+ * input, so the page runs as it would in a tab. Explicit Hug previews also
+ * report dimensions so their host can fit the authored content.
  */
 const INTERACT_PREVIEW_BRIDGES =
-  PREVIEW_THEME_BRIDGE_SCRIPT + INTERACT_LINKS_BRIDGE_SCRIPT;
+  PREVIEW_THEME_BRIDGE_SCRIPT +
+  INTERACT_LINKS_BRIDGE_SCRIPT +
+  INTERACT_TWEAKS_BRIDGE_SCRIPT;
 
 export const INTERACT_TWEAKS_STYLE_ATTRIBUTE =
   "data-agent-native-interact-tweaks";
@@ -36,10 +41,9 @@ export function renderInteractTweakBlock(
 }
 
 /**
- * The tweak values as a static stylesheet. Edit applies them through a live
- * bridge; Interact has none, so the canvas seeds them here and rewrites this
- * element in place on later changes. Without it an Interact preview would
- * snap every knob back to its authored default.
+ * The tweak values current when the document is built, so the first paint
+ * already shows them. Later changes reach the tweaks bridge as a message,
+ * which rewrites this element in place.
  */
 function tweakValuesStyle(tweakValues: Record<string, string> | undefined) {
   const block = renderInteractTweakBlock(tweakValues);
@@ -52,7 +56,7 @@ function tweakValuesStyle(tweakValues: Record<string, string> | undefined) {
  * The document an Interact preview loads. It is the design as the editor
  * frames it (local Alpine and Tailwind, the runtimes the design embeds, the
  * frame's fit, background and offset, the current tweak values) with only the
- * two bridges above on top. Edit builds its document separately and keeps
+ * bridges above on top. Edit builds its document separately and keeps
  * every editor bridge.
  */
 export function buildInteractPreviewDocument(args: {
