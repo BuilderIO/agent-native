@@ -189,6 +189,27 @@ describe("app config sections", () => {
     ).toThrow(/different shape/);
   });
 
+  it("refuses a second schema with the same keys and aliases but different defaults", () => {
+    defineAppConfigSection("exampleProvider", providerSection());
+
+    expect(() =>
+      defineAppConfigSection(
+        "exampleProvider",
+        z.object({
+          paused: z
+            .boolean()
+            .default(true)
+            .meta({
+              env: [
+                "EXAMPLE_PROVIDER_PAUSED",
+                "LEGACY_EXAMPLE_PROVIDER_PAUSED",
+              ],
+            }),
+        }),
+      ),
+    ).toThrow(/different shape/);
+  });
+
   it("describes section fields and env keys through the effective schema", () => {
     defineAppConfigSection("locations", locationsSection());
 

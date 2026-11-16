@@ -54,6 +54,9 @@ function sectionSignature(schema: AppConfigSectionSchema): string {
   return JSON.stringify({
     keys: Object.keys(schema.shape).sort(),
     aliases: collectEnvAliases(schema),
+    // Types, defaults and constraints: two schemas with the same keys can
+    // still parse the same environment differently.
+    fields: z.toJSONSchema(schema, { unrepresentable: "any", io: "input" }),
   });
 }
 
