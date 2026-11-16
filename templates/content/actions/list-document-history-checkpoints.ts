@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -8,6 +7,7 @@ import type {
   DocumentHistoryCheckpointKind,
   DocumentHistoryCheckpointPage,
 } from "../shared/document-history.js";
+import { assertHistoryAccess } from "./_document-history-access.js";
 
 interface CheckpointCursor {
   createdAt: string;
@@ -68,7 +68,7 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (args): Promise<DocumentHistoryCheckpointPage> => {
-    const access = await assertAccess("document", args.documentId, "viewer");
+    const access = await assertHistoryAccess(args.documentId);
     const ownerEmail = access.resource.ownerEmail as string;
     const cursor = args.cursor ? decodeCursor(args.cursor) : undefined;
     const checkpointRank = sql<number>`case when ${schema.documentVersions.checkpointKind} = 'after' then 1 else 0 end`;

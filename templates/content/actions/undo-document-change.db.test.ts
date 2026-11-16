@@ -492,6 +492,29 @@ for (const path of ["legacy", "live_copy"] as const) {
         expect((await page(id)).content).toBe(PAGE);
       });
 
+      it("takes back a change that joined the entry after the rest was taken back by hand", async () => {
+        const id = await seedPage();
+        const run = agentRun();
+        await writeLegacy(id, PAGE.replace("Two", "Two by agent"), {
+          ...run,
+          operation: "edit-document",
+        });
+        await writeLegacy(id, PAGE);
+        // With only the first change read, the page already reads as undone.
+        afterEntryRead.run = () =>
+          writeLegacy(id, PAGE.replace("Four", "Four by agent"), {
+            ...run,
+            operation: "edit-document",
+          });
+
+        await expect(undo(id, run.groupId)).resolves.toMatchObject({
+          outcome: "undone",
+          keptBack: [],
+        });
+        expect(afterEntryRead.run).toBeUndefined();
+        expect((await page(id)).content).toBe(PAGE);
+      });
+
       it("refuses to merge into a page the parser can't keep in full", async () => {
         const id = await seedPage();
         const lossy =
@@ -512,6 +535,52 @@ for (const path of ["legacy", "live_copy"] as const) {
         expect((await page(id)).content).toBe(later);
       });
     }
+
+    it("reads and undoes nothing of a page in Trash", async () => {
+      const id = await seedPage();
+      const entry = await agentEdit(id, [
+        { find: "Two", replace: "Two by agent" },
+      ]);
+      const checkpoint = firstRow(
+        await getDb()
+          .select({ id: schema.documentVersions.id })
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, id))
+          .limit(1),
+      );
+      if (!checkpoint) throw new Error("The edit recorded no checkpoint.");
+      await getDb()
+        .update(schema.documents)
+        .set({ trashedAt: new Date().toISOString() })
+        .where(eq(schema.documents.id, id));
+
+      const notFound = { errorCode: "DOCUMENT_NOT_FOUND" };
+      const reads: Array<() => Promise<unknown>> = [
+        () => listDocumentHistory.run({ documentId: id, limit: 30 }, agent),
+        () =>
+          listDocumentHistoryCheckpoints.run(
+            { documentId: id, groupId: entry, limit: 50 },
+            agent,
+          ),
+        () =>
+          getDocumentHistoryCheckpoint.run(
+            { documentId: id, versionId: checkpoint.id },
+            agent,
+          ),
+        () =>
+          getDocumentHistoryChange.run(
+            { documentId: id, groupId: entry },
+            agent,
+          ),
+        () =>
+          undoDocumentChange.run(
+            { documentId: id, groupId: entry, idempotencyKey: "undo-trashed" },
+            agent,
+          ),
+      ];
+      for (const read of reads)
+        await expect(asOwner(read)).rejects.toMatchObject(notFound);
+    });
 
     it("refuses an entry the page has no change for", async () => {
       const id = await seedPage();

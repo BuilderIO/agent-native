@@ -257,8 +257,15 @@ export default defineAction({
       groupId: undoEntry,
     };
     for (let attempt = 1; ; attempt += 1) {
-      const page = await readPage();
+      // The entry before the page, so a change that joins the entry after
+      // this read is on the page and caught by the checks below.
       const changes = await readChanges();
+      const page = await readPage();
+      // An agent still at work can add a change to the entry after the undo
+      // read it.
+      const entryMoved = async (reader: ContentDb) =>
+        (await latestHistoryEntryChange({ db: reader, ...entry })) !==
+        changes[changes.length - 1]?.after.checkpointId;
       // The undo as the restore last prepared it, from the page it read.
       const prepared = { page, undone: undoChanges(changes, page) };
       const unchanged = () =>
@@ -277,13 +284,7 @@ export default defineAction({
               // under the page's lock, so an undo with the same key that
               // landed first is found here instead of written twice.
               if (await undoMade(writer)) throw new UndoAlreadyMade();
-              // An agent still at work can add a change to the entry after
-              // the undo read it.
-              if (
-                (await latestHistoryEntryChange({ db: writer, ...entry })) !==
-                changes[changes.length - 1]?.after.checkpointId
-              )
-                entryMovedOn();
+              if (await entryMoved(writer)) entryMovedOn();
               prepared.page = current;
               prepared.undone = undoChanges(changes, current);
               return prepared.undone;
@@ -319,6 +320,11 @@ export default defineAction({
       // The page may read as undone because an undo with the same key just
       // landed.
       if (await undoMade(db)) return replayed();
+      // Or a change the undo didn't read joined the entry.
+      if (await entryMoved(db)) {
+        if (attempt < MAX_UNDO_ATTEMPTS) continue;
+        entryMovedOn();
+      }
       const { keptBack } = prepared.undone;
       return {
         ...base,
