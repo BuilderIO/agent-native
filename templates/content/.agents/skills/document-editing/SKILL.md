@@ -77,9 +77,13 @@ the returned document `id`, then call `view-screen` and compare its document ID
 with the create result. Navigation is asynchronous: if `view-screen` still
 reports the previous Page, repeat `navigate` and `view-screen` up to two more
 times. Say the Page is open only after the IDs match. If they never match, say
-the Page was created but navigation could not be verified, and provide the
-stable Page link from the create result. Do not navigate for background, batch,
-or API creation unless the caller explicitly asked to open the result.
+the Page was created but navigation could not be verified. Do not navigate for
+background, batch, or API creation unless the caller explicitly asked to open
+the result.
+
+Whether or not you navigate, link every Page you created in your reply, by its
+title and the `urlPath` from the result (`[Meeting Notes](/page/<id>)`). Content
+sends a reply that leaves one out back to you once with the exact links.
 
 When the user names a workspace ("in my Foobar workspace"), pass `spaceName`
 (or a `spaceId` from `list-content-spaces`). A named workspace that does not
@@ -114,7 +118,10 @@ pnpm action import-content --dryRun false --parentId abc123 --idempotencyKey gui
 Run the dry run first and tell the user each page's `status` and `notes`
 before applying. Applying fails with `IMPORT_IMAGE_NOT_UPLOADED` until every
 image named in `uploads` has a `url`; leave an image nobody can supply out of
-`files`, and its references become visible placeholders on the page. Other
+`files`, and its references become visible placeholders on the page. Images
+embedded as `data:` URLs are stored privately, readable by whoever can read the
+page; one whose bytes aren't the image type it names fails the apply with
+`IMPORT_IMAGE_INVALID` before any page is created. Other
 formats come back in `skipped` as not supported yet. Pass an
 `idempotencyKey` on every apply, and reuse it only to retry the same files,
 with the same image `url`s, into the same place. `IMPORT_INCOMPLETE` means
@@ -199,12 +206,18 @@ edit commits. Restore it before editing. A local-folder sync
 ### update-document
 
 Update an existing document's metadata or browser-owned content. External
-callers use the revisioned `edit-document` protocol for every body change.
+callers use the revisioned `edit-document` protocol for every body change. A
+script, CLI call or automation that replaces the body passes the `baseRevision`
+`get-document` returned (that read's `updatedAt` as `baseUpdatedAt` also
+works): with neither, the write refuses with `BASE_REVISION_REQUIRED` (400),
+and if the page changed since that read it fails with
+`DOCUMENT_REVISION_CONFLICT` (409), carrying the page's
+`details.currentRevision`, and writes nothing.
 
 ```bash
 pnpm action update-document --id abc123 --title "New Title"
-pnpm action update-document --id abc123 --content "# Updated Content\n\nNew text here"
-pnpm action update-document --id abc123 --title "New Title" --content "New content"
+pnpm action update-document --id abc123 --baseRevision "<revision from get-document>" --content "# Updated Content\n\nNew text here"
+pnpm action update-document --id abc123 --baseRevision "<revision from get-document>" --title "New Title" --content "New content"
 pnpm action update-document --id abc123 --description "Stable guidance for what belongs on this page"
 ```
 
@@ -420,6 +433,12 @@ Documents are **private by default**; use `share-resource` /
 
 Documents use **markdown** for content. The editor renders markdown in real time.
 
+### Inline code
+
+Text between backticks is literal, as in standard Markdown: `` `<br>` `` is the
+text `<br>`, not a line break. To break a line inside inline code, close the
+code first, as the editor writes it: `` `first`<br>`second` ``.
+
 ### Math
 
 Content renders LaTeX with KaTeX while preserving the source in NFM. Use the
@@ -454,9 +473,10 @@ source is the diagram, so it stays the editable copy.
   generate or upload (SVG, PNG, screenshot), and no other block type. Don't add
   a title or caption the source doesn't have. Swap the source out only when the
   user asks for an image instead of the diagram.
-- Content shows Mermaid code blocks as code; it doesn't draw them yet. When
-  asked to draw or show one as a diagram, say so and leave the source in place.
-  If the source has a syntax error, fix it there.
+- The editor draws a Mermaid code block as its diagram and opens the source
+  when the user clicks it, so a diagram the user asks to see only needs valid
+  source. If the source has a syntax error, the block shows it beside the
+  source; fix it there. Public pages show the source as code.
 
 ## Parent-Child Hierarchy
 

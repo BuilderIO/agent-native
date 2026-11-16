@@ -36,6 +36,7 @@ import {
   isNotNull,
   lt,
   lte,
+  ne,
   not,
   or,
   sql,
@@ -2912,6 +2913,78 @@ export async function listSessionRecordingsPage(
       })),
     ...(frictionApplied ? { frictionCoverageStartedAt } : {}),
   };
+}
+
+// Recordings the caller can open in their active organization, as Sessions
+// lists them. `getSessionReplaySummary` is wider: it also opens an org-visible
+// recording through membership in an organization that isn't active. Reads
+// that must agree between a list and a single row use this one condition.
+function openableSessionRecordingCondition(scope: SessionReplayScope) {
+  return and(
+    accessFilter(
+      schema.sessionRecordings,
+      schema.sessionRecordingShares,
+      scope.orgId
+        ? { userEmail: scope.userEmail, orgId: scope.orgId }
+        : { userEmail: scope.userEmail },
+    ),
+    visibleSessionRecordingCondition(),
+  );
+}
+
+function visibleSessionRecordingCondition() {
+  return and(
+    or(replayVisibleIdentityCondition(), replayAnonymousCondition()),
+    replayPlayableEventsCondition(),
+  );
+}
+
+/** Whether every member of `orgId` can open this recording, as Sessions lists it. */
+export async function isSessionRecordingOpenToOrg(
+  recordingId: string,
+  orgId: string,
+): Promise<boolean> {
+  // guard:allow-unscoped — answers one yes/no about org-wide visibility for a sharing change the framework already authorized; no row data is returned.
+  const rows = await getDb()
+    .select({ id: schema.sessionRecordings.id })
+    .from(schema.sessionRecordings)
+    .where(
+      and(
+        eq(schema.sessionRecordings.id, recordingId),
+        eq(schema.sessionRecordings.orgId, orgId),
+        ne(schema.sessionRecordings.visibility, "private"),
+        visibleSessionRecordingCondition(),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/** Ids of the recordings the caller can open, as a subquery. */
+export function openableSessionRecordingIds(scope: SessionReplayScope) {
+  // guard:allow-unscoped — openableSessionRecordingCondition applies accessFilter.
+  return getDb()
+    .select({ id: schema.sessionRecordings.id })
+    .from(schema.sessionRecordings)
+    .where(openableSessionRecordingCondition(scope));
+}
+
+export async function canOpenSessionRecording(
+  recordingId: string,
+  scope: SessionReplayScope,
+): Promise<boolean> {
+  // guard:allow-unscoped — openableSessionRecordingCondition applies accessFilter.
+  const rows = await getDb()
+    .select({ id: schema.sessionRecordings.id })
+    .from(schema.sessionRecordings)
+    .where(
+      and(
+        eq(schema.sessionRecordings.id, recordingId),
+        openableSessionRecordingCondition(scope),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 export async function getSessionReplaySummary(

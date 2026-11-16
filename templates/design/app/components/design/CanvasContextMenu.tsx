@@ -1,4 +1,5 @@
 import type { AgentShareDestination } from "@agent-native/toolkit/sharing";
+import type { VisualLayerKind } from "@shared/visual-layers";
 import {
   IconComponents,
   IconFrame,
@@ -115,6 +116,7 @@ export interface CanvasMotionMenu {
 
 export interface CanvasContextMenuLabels {
   selectLayer: string;
+  layerKinds: Record<VisualLayerKind, string>;
   editWithAgent: string;
   arrange: string;
   transform: string;
@@ -307,6 +309,16 @@ export interface CanvasContextMenuProps {
 
 const DEFAULT_LABELS: CanvasContextMenuLabels = {
   selectLayer: "Select layer",
+  layerKinds: {
+    webgl: "Canvas · WebGL",
+    canvas: "Canvas",
+    video: "Video",
+    image: "Image",
+    svg: "SVG",
+    embed: "Embed",
+    background: "Background",
+    effect: "Effect",
+  },
   editWithAgent: "Edit with Agent",
   arrange: "Arrange",
   transform: "Transform",
@@ -778,6 +790,11 @@ export const CanvasContextMenu = forwardRef<
                         <CanvasLayerCandidateItem
                           key={candidate.key}
                           candidate={candidate}
+                          kindLabel={
+                            candidate.kind
+                              ? labels.layerKinds[candidate.kind]
+                              : undefined
+                          }
                           onSelect={() => {
                             onSelectLayer(candidate);
                             handleOpenChange(false);
@@ -1262,9 +1279,11 @@ export const CanvasContextMenu = forwardRef<
 
 function CanvasLayerCandidateItem({
   candidate,
+  kindLabel,
   onSelect,
 }: {
   candidate: CanvasLayerHitCandidate;
+  kindLabel?: string;
   onSelect: (event: Event) => void;
 }) {
   const tag = candidate.info.tagName.toLowerCase();
@@ -1283,6 +1302,11 @@ function CanvasLayerCandidateItem({
     <ContextMenuItem onSelect={onSelect}>
       <Icon className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate">{candidate.label}</span>
+      {kindLabel ? (
+        <span className="ml-auto shrink-0 pl-2 text-[11px] text-muted-foreground">
+          {kindLabel}
+        </span>
+      ) : null}
     </ContextMenuItem>
   );
 }

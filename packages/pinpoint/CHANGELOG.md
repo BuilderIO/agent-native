@@ -1,5 +1,29 @@
 # @agent-native/pinpoint
 
+## 0.1.116
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.115
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.114
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.113
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.112
 
 ### Patch Changes
@@ -589,37 +613,5 @@
 ### Patch Changes
 
 - 22e9951: Test-only: the `FileStore.update()` spec now drives the clock with fake timers instead of assuming wall-clock advances between two back-to-back writes, which made it flake when both landed in the same millisecond. No runtime behavior change.
-
-## 0.1.16
-
-### Patch Changes
-
-- 52cce19: Shrink the dispatch and pinpoint install footprint by removing code and
-  dependencies nothing could reach. Dispatch drops the unused pre-auth routing
-  helper — `rootDispatchRedirect` had no callers and was not re-exported from
-  `./server` or any other published subpath — along with the database client and
-  `h3` dependencies, which had no imports in the package but were still installed
-  for every consumer. Pinpoint drops the `HistoryDropdown` and `SettingsPanel`
-  overlay components, which were never rendered by the overlay and were not
-  reachable from any of its `.`, `./react`, `./primitives`, `./server`, or
-  `./types` entry points. No exported API changes.
-
-## 0.1.15
-
-### Patch Changes
-
-- 8df32f6: Publish the latest Builder link tracking updates.
-
-## 0.1.14
-
-### Patch Changes
-
-- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
-
-## 0.1.13
-
-### Patch Changes
-
-- 38ca6fa: Make annotation badges appear from a natural scale and respect reduced-motion preferences.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

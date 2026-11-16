@@ -1835,7 +1835,16 @@ export function resolveBuilderCallbackReturnUrl(options: {
 const BUILDER_CALLBACK_THEME_SCRIPT = `<script>
 (function () {
   try {
-    var stored = window.localStorage && window.localStorage.getItem("theme");
+    var stored = null;
+    if (window.localStorage) {
+      for (var i = 0; i < window.localStorage.length; i++) {
+        var key = window.localStorage.key(i);
+        if (key === "theme" || (key && key.slice(-6) === ":theme")) {
+          var value = window.localStorage.getItem(key);
+          if (value === "light" || value === "dark") { stored = value; if (key === "theme") break; }
+        }
+      }
+    }
     var resolved;
     if (stored === "light" || stored === "dark") {
       resolved = stored;

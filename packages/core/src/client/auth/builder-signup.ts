@@ -99,9 +99,11 @@ export async function getBuilderSignupActivationStatus(): Promise<
 
 /** Starts only a consented, server-verified assignment; otherwise does nothing. */
 export async function startBuilderSignupActivation(): Promise<
-  "eligible" | "disabled"
+  "eligible" | "connected" | "disabled"
 > {
-  return activationEligibility(await request({ operation: "start" }), "start");
+  const result = await request({ operation: "start" });
+  if (result.status === "connected") return "connected";
+  return activationEligibility(result, "start");
 }
 
 export async function activateBuilderSignupAssignment(): Promise<

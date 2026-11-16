@@ -144,6 +144,11 @@ interface DocumentBlockFieldsProps {
   primaryEditor: ReactNode;
   /** The primary body as its editor holds it now, for its tab's word count. */
   primaryContent?: string;
+  /**
+   * True when images uploaded into the page's other Blocks fields are kept
+   * private to the page, as its body's are.
+   */
+  privateImageUploads?: boolean;
   /** The fields the page read returned, used until the property read lands. */
   pageProperties?: DocumentProperty[] | undefined;
   onAdditionalContentChange?: (
@@ -391,6 +396,7 @@ export function DocumentBlockFields({
   onPrimaryFieldAvailabilityChange,
   primaryEditor,
   primaryContent,
+  privateImageUploads = false,
   pageProperties,
   onAdditionalContentChange,
   onFieldTabChange,
@@ -421,6 +427,9 @@ export function DocumentBlockFields({
     propertiesData?.canManageSchema === true &&
     databaseId !== null &&
     databaseDocumentId !== null;
+  // A tab is a property, which a system collection such as Files refuses.
+  const canAddFields =
+    canManageFields && propertiesData.canAddProperties !== false;
   const properties = propertiesData?.properties ?? [];
   const blockFields = useMemo(
     () => blockFieldsFromProperties(properties),
@@ -530,6 +539,7 @@ export function DocumentBlockFields({
               property={state.field}
               canEdit={canEditFields && !suggesting}
               allowPendingSave={canEditFields && enteringSuggestion}
+              privateImageUploads={privateImageUploads}
               onContentChange={onAdditionalContentChange}
             />
           </div>
@@ -553,9 +563,11 @@ export function DocumentBlockFields({
           canEdit={canEditFields && !suggesting}
           allowPendingSave={canEditFields && enteringSuggestion}
           canManageFields={canManageFields}
+          canAddFields={canAddFields}
           blockFields={state.fields}
           primaryEditor={primaryEditor}
           primaryContent={primaryContent}
+          privateImageUploads={privateImageUploads}
           onAdditionalContentChange={onAdditionalContentChange}
           onFieldTabChange={onFieldTabChange}
           t={t}
@@ -616,9 +628,11 @@ function MultiBlockFields({
   canEdit,
   allowPendingSave,
   canManageFields,
+  canAddFields,
   blockFields,
   primaryEditor,
   primaryContent,
+  privateImageUploads,
   onAdditionalContentChange,
   onFieldTabChange,
   t,
@@ -629,9 +643,11 @@ function MultiBlockFields({
   canEdit: boolean;
   allowPendingSave: boolean;
   canManageFields: boolean;
+  canAddFields: boolean;
   blockFields: DocumentProperty[];
   primaryEditor: ReactNode;
   primaryContent?: string;
+  privateImageUploads: boolean;
   onAdditionalContentChange?: (
     documentId: string,
     propertyId: string,
@@ -1382,7 +1398,7 @@ function MultiBlockFields({
               );
             })}
           </div>
-          {canManageFields ? (
+          {canAddFields ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -1434,6 +1450,7 @@ function MultiBlockFields({
                 property={property}
                 canEdit={canEdit}
                 allowPendingSave={allowPendingSave}
+                privateImageUploads={privateImageUploads}
                 onContentChange={handleAdditionalContentChange}
               />
             )}
@@ -2120,6 +2137,7 @@ function AdditionalBlockEditor({
   property,
   canEdit,
   allowPendingSave,
+  privateImageUploads,
   onContentChange,
 }: {
   documentId: string;
@@ -2127,6 +2145,7 @@ function AdditionalBlockEditor({
   property: DocumentProperty;
   canEdit: boolean;
   allowPendingSave: boolean;
+  privateImageUploads: boolean;
   onContentChange?: (
     documentId: string,
     propertyId: string,
@@ -2252,6 +2271,7 @@ function AdditionalBlockEditor({
   return (
     <VisualEditor
       documentId={documentId}
+      privateImageUploads={privateImageUploads}
       content={shownContent}
       contentResetKey={
         preview

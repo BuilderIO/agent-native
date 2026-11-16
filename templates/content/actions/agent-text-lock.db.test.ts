@@ -594,7 +594,7 @@ describe("Agents set to Can comment on a page", () => {
       // agent on the command line can, so the lock has to catch it.
       await expect(
         updateDocument.run(
-          { id: page.id, content: "Changed text" },
+          { id: page.id, content: "Changed text", baseRevision: page.revision },
           { caller: "cli", userEmail: OWNER },
         ),
       ).rejects.toMatchObject(locked);
@@ -1505,6 +1505,10 @@ describe("a lock turned on while a write is under way", () => {
       const row = await collectionRow();
       await setLock.run({ id: row.documentId, locked: false }, person);
       const { listed } = await rowRevision(row.databaseId, row.blocksId, row);
+      if (!listed.baseRevision) {
+        throw new Error("The main Blocks field should list the page revision.");
+      }
+      const { baseRevision } = listed;
       await expect(
         lockedAsTransactionOpens(row.documentId, () =>
           setProperty.run(
@@ -1513,7 +1517,7 @@ describe("a lock turned on while a write is under way", () => {
               documentId: row.documentId,
               propertyId: row.blocksId,
               value: "Changed block",
-              expectedBlocksFieldRevision: listed.fieldRevision,
+              baseRevision,
             },
             agent,
           ),

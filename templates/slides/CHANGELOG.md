@@ -3,6 +3,13 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-13
+
+### Fixed
+
+- Selecting an object whose stylesheet locks its rotation no longer makes it briefly spin back to its inline rotation in current Chrome.
+- Slides refreshes AI availability after automatic Builder setup completes.
+
 ## 2026-11-10
 
 ### Fixed
@@ -13,6 +20,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Share controls use a consistent compact layout.
 - More save failures now say why, such as being offline or lacking permission.
 - Some new accounts now connect to Builder automatically during signup, with the Builder terms and privacy notice shown before signup.
 
@@ -1483,11 +1491,5 @@ time from the command menu (Cmd+K → "What's new").
 ### Fixed
 
 - Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
-
-## 2026-06-26
-
-### Fixed
-
-- Deck links now use the workspace gateway when available so generated workspace URLs open correctly.
 
 For the full list of updates, see the [changelog folder](./changelog/).

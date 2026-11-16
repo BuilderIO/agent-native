@@ -85,6 +85,15 @@ jobs:
               return !Number.isInteger(status) || (status >= 500 && status <= 599);
             }
 
+            // GitHub's 500s can come with an empty message.
+            function describeRequestFailure(error) {
+              const status = error?.status ?? error?.response?.status;
+              return [
+                Number.isInteger(status) && `HTTP ${status}`,
+                error instanceof Error ? error.message : String(error),
+              ].filter(Boolean).join(": ");
+            }
+
             async function findDispatchedRun(workflow, ref, coordinatorRunId) {
               const response = await github.rest.actions.listWorkflowRuns({
                 owner,
@@ -410,6 +419,7 @@ jobs:
               );
               const removed = [];
               const waiting = [];
+              const failed = [];
               for (const [tagPrefix, workflow] of [
                 ["v", "desktop-release.yml"],
                 ["clips-v", "clips-desktop-release.yml"],
@@ -424,15 +434,17 @@ jobs:
                   if (version && (!newest || compareStableVersions(version, newest) > 0)) newest = version;
                 }
                 if (!newest) continue;
-                const tags = await github.paginate(github.rest.git.listMatchingRefs, {
-                  owner,
-                  repo,
-                  ref: `tags/${tagPrefix}`,
-                  per_page: 100,
-                });
+                const tagNames = new Set(
+                  (await github.paginate(github.rest.git.listMatchingRefs, {
+                    owner,
+                    repo,
+                    ref: `tags/${tagPrefix}`,
+                    per_page: 100,
+                  })).map((tag) => tag.ref.replace(/^refs\/tags\//, "")),
+                );
                 const superseded = [
                   ...new Set([
-                    ...tags.map((tag) => tag.ref.replace(/^refs\/tags\//, "")),
+                    ...tagNames,
                     ...releases.filter((release) => release.draft).map((release) => release.tag_name),
                   ]),
                 ].filter((tag) => {
@@ -460,32 +472,37 @@ jobs:
                   continue;
                 }
                 for (const tag of superseded) {
-                  for (const release of releases) {
-                    if (!release.draft || release.tag_name !== tag) continue;
-                    try {
-                      await github.rest.repos.deleteRelease({
+                  try {
+                    for (const release of releases) {
+                      if (!release.draft || release.tag_name !== tag) continue;
+                      try {
+                        await github.rest.repos.deleteRelease({
+                          owner,
+                          repo,
+                          release_id: release.id,
+                        });
+                      } catch (error) {
+                        if (error.status !== 404) throw error;
+                      }
+                    }
+                    // A draft has no tag until it is published, and GitHub
+                    // answers 422, not 404, for deleting a tag that is not there.
+                    if (tagNames.has(tag)) {
+                      await github.rest.git.deleteRef({
                         owner,
                         repo,
-                        release_id: release.id,
+                        ref: `tags/${tag}`,
                       });
-                    } catch (error) {
-                      if (error.status !== 404) throw error;
                     }
-                  }
-                  try {
-                    await github.rest.git.deleteRef({
-                      owner,
-                      repo,
-                      ref: `tags/${tag}`,
-                    });
                   } catch (error) {
-                    if (error.status !== 404) throw error;
+                    failed.push(`${tag} (${error instanceof Error ? error.message : String(error)})`);
+                    continue;
                   }
                   core.info(`Removed superseded stable reservation ${tag}.`);
                   removed.push(tag);
                 }
               }
-              return { removed, waiting };
+              return { removed, waiting, failed };
             }
 
             async function getFirstParentSha(ref) {
@@ -546,7 +563,7 @@ jobs:
                   const retryable = status === 404 ? !readOnce : isTransientDispatchFailure(error);
                   if (!retryable) throw error;
                   failedReads += 1;
-                  const message = error instanceof Error ? error.message : String(error);
+                  const message = describeRequestFailure(error);
                   if (failedReads >= maxFailedRunReads) {
                     throw new Error(
                       `${label} could not be read ${failedReads} times in a row: ${run.url}: ${message}`,
@@ -850,6 +867,36 @@ jobs:
               throw new Error("The stable package Version Packages PR was not created in time.");
             }
 
+            // Only auto-merge-version-packages.yml merges the release PR, and its
+            // concurrency group cancels older runs, so the newest pull_request
+            // run for the current head is the only merge still coming. Without
+            // this, a merge run that fails in minutes leaves this wait idle for
+            // its full window. Resolves null when no run exists yet.
+            function latestReleaseMergeRun(workflowRuns, headSha) {
+              const runs = workflowRuns?.workflow_runs;
+              if (!Array.isArray(runs)) {
+                throw new Error("GitHub returned no workflow runs for the release PR merge.");
+              }
+              return runs
+                .filter((run) => run.head_sha === headSha)
+                .sort((left, right) => right.id - left.id)[0] ?? null;
+            }
+
+            async function releaseMergeRunFailureReason(run) {
+              try {
+                const messages = [];
+                for (const job of await listWorkflowRunJobs(run.id)) {
+                  if (job.conclusion !== "failure") continue;
+                  messages.push(...(await failureAnnotations(job)));
+                }
+                return messages
+                  .filter((message) => !/^Process completed with exit code \d+\.$/.test(message))
+                  .join(" ");
+              } catch (error) {
+                return `its failure annotations could not be read: ${describeRequestFailure(error)}`;
+              }
+            }
+
             async function waitForReleaseMerge(pr) {
               const deadline = phaseDeadline(210 * 60_000);
               if (deadline <= Date.now()) {
@@ -857,12 +904,59 @@ jobs:
                   `Not enough coordinator time remains to wait for stable release PR #${pr.number}.`,
                 );
               }
-              while (Date.now() < deadline) {
-                const current = (await github.rest.pulls.get({
+              // A brief GitHub error must not end a wait that lasts hours, but this
+              // long with every read of one kind failing still ends it.
+              const maxReadFailureMs = 3 * 60_000;
+              let lastMergeRunState = "";
+
+              // The returned reader resolves undefined when a transient failure
+              // left it unread.
+              function toleratingBriefFailures(label, read) {
+                let failingSince = null;
+                return async (...args) => {
+                  try {
+                    const result = await read(...args);
+                    failingSince = null;
+                    return result;
+                  } catch (error) {
+                    if (!isTransientDispatchFailure(error)) throw error;
+                    failingSince ??= Date.now();
+                    if (Date.now() - failingSince >= maxReadFailureMs) {
+                      throw new Error(
+                        `Could not read ${label} for ${maxReadFailureMs / 60_000} minutes: ${describeRequestFailure(error)}`,
+                        { cause: error },
+                      );
+                    }
+                    core.warning(`Could not read ${label} (${describeRequestFailure(error)}); retrying.`);
+                    return undefined;
+                  }
+                };
+              }
+
+              const readReleasePull = toleratingBriefFailures(
+                `stable release PR #${pr.number}`,
+                async () => (await github.rest.pulls.get({
                   owner,
                   repo,
                   pull_number: pr.number,
-                })).data;
+                })).data,
+              );
+              const readMergeRuns = toleratingBriefFailures(
+                `the merge run for stable release PR #${pr.number}`,
+                async (headSha) => (await github.rest.actions.listWorkflowRuns({
+                  owner,
+                  repo,
+                  workflow_id: "auto-merge-version-packages.yml",
+                  event: "pull_request",
+                  head_sha: headSha,
+                  per_page: 100,
+                })).data,
+              );
+
+              // Resolves the merge commit once the PR merges, otherwise null.
+              async function pollReleaseMerge() {
+                const current = await readReleasePull();
+                if (!current) return null;
                 if (current.merged) {
                   // Production treats a blank source_ref as "latest main".
                   if (!/^[0-9a-f]{40}$/.test(current.merge_commit_sha || "")) {
@@ -876,6 +970,37 @@ jobs:
                 if (current.state === "closed") {
                   throw new Error(`Stable release PR #${pr.number} closed without merging: ${pr.html_url}`);
                 }
+                const mergeRuns = await readMergeRuns(current.head.sha);
+                if (mergeRuns === undefined) return null;
+                const mergeRun = latestReleaseMergeRun(mergeRuns, current.head.sha);
+                const mergeRunState = mergeRun
+                  ? `${mergeRun.status}/${mergeRun.conclusion || "pending"}`
+                  : "not started";
+                if (mergeRunState !== lastMergeRunState) {
+                  core.info(
+                    `Stable release PR #${pr.number} merge run: ${mergeRunState}${mergeRun ? ` ${mergeRun.html_url}` : ""}`,
+                  );
+                  lastMergeRunState = mergeRunState;
+                }
+                if (mergeRun?.status !== "completed" || mergeRun.conclusion === "success") {
+                  return null;
+                }
+                // A new head cancels the old head's merge run, possibly between the
+                // PR read above and the run read, so only the still-current head's
+                // run is final.
+                const latest = await readReleasePull();
+                if (!latest || latest.merged || latest.head?.sha !== current.head.sha) {
+                  return null;
+                }
+                const reason = await releaseMergeRunFailureReason(mergeRun);
+                throw new Error(
+                  `Stable release PR #${pr.number} will not merge: its merge run ended ${mergeRun.conclusion}${reason ? ` (${reason})` : ""}: ${mergeRun.html_url}`,
+                );
+              }
+
+              while (Date.now() < deadline) {
+                const mergeSha = await pollReleaseMerge();
+                if (mergeSha) return mergeSha;
                 const remaining = deadline - Date.now();
                 if (remaining <= 0) break;
                 await sleep(Math.min(pollIntervalMs, remaining));
@@ -948,210 +1073,6 @@ jobs:
                 `Stable npm publication was not started for ${mergeSha}.`,
                 "failed",
               );
-            }
-
-            const docsDeploymentPaths = [
-              ".nvmrc",
-              "package.json",
-              "pnpm-lock.yaml",
-              "pnpm-workspace.yaml",
-              "packages/agentkit/**",
-              "packages/core/**",
-              "packages/core-corpus/**",
-              "packages/docs/**",
-              "packages/recap-cli/**",
-              "packages/toolkit/**",
-              "scripts/netlify-prebuilt-target.ts",
-              "scripts/netlify-prebuilt-build.ts",
-              "scripts/netlify-migration-url.ts",
-              "scripts/netlify-api-error.ts",
-              "scripts/netlify-api-request.ts",
-              "scripts/netlify-production-sites.json",
-              "scripts/check-function-size-baseline.mjs",
-              "scripts/ssr-boot-smoke.mjs",
-              "scripts/check-production-cache-contract.mjs",
-              ".github/actions/docs-source-freshness/action.yml",
-              ".github/workflows/deploy-docs-production.yml",
-              ".github/workflows/deploy-netlify-prebuilt.yml",
-            ];
-            const docsSourceFreshnessCache = new Map();
-
-            function matchesDocsDeploymentPath(path) {
-              if (typeof path !== "string") return false;
-              return docsDeploymentPaths.some((pattern) => {
-                if (!pattern.endsWith("/**")) return path === pattern;
-                const directory = pattern.slice(0, -3);
-                return path === directory || path.startsWith(`${directory}/`);
-              });
-            }
-
-            async function docsSourceHasCurrentInputs(sourceSha, mainSha) {
-              if (!/^[0-9a-f]{40}$/.test(sourceSha || "")) return false;
-              if (sourceSha === mainSha) return true;
-              const cacheKey = `${sourceSha}:${mainSha}`;
-              if (docsSourceFreshnessCache.has(cacheKey)) {
-                return docsSourceFreshnessCache.get(cacheKey);
-              }
-
-              const firstPage = (await github.rest.repos.compareCommits({
-                owner,
-                repo,
-                base: sourceSha,
-                head: mainSha,
-                per_page: 100,
-                page: 1,
-              })).data;
-              const totalCommits = firstPage.total_commits;
-              const files = firstPage.files;
-              if (
-                !["ahead", "identical"].includes(firstPage.status) ||
-                !Number.isInteger(totalCommits) ||
-                totalCommits < 0 ||
-                !Array.isArray(firstPage.commits) ||
-                !Array.isArray(files) ||
-                !files.every(
-                  (file) =>
-                    typeof file?.filename === "string" &&
-                    (file.previous_filename === undefined ||
-                      typeof file.previous_filename === "string"),
-                ) ||
-                files.length >= 300
-              ) {
-                return false;
-              }
-
-              const pageSize = 100;
-              const pageCount = Math.max(1, Math.ceil(totalCommits / pageSize));
-              const commitShas = new Set();
-              let commitCount = 0;
-              for (let page = 1; page <= pageCount; page += 1) {
-                const data = page === 1
-                  ? firstPage
-                  : (await github.rest.repos.compareCommits({
-                      owner,
-                      repo,
-                      base: sourceSha,
-                      head: mainSha,
-                      per_page: pageSize,
-                      page,
-                    })).data;
-                const expectedPageCommits = Math.min(
-                  pageSize,
-                  totalCommits - commitCount,
-                );
-                if (
-                  data.status !== firstPage.status ||
-                  data.total_commits !== totalCommits ||
-                  !Array.isArray(data.commits) ||
-                  data.commits.length !== expectedPageCommits
-                ) {
-                  return false;
-                }
-                for (const commit of data.commits) {
-                  if (typeof commit.sha !== "string" || commitShas.has(commit.sha)) {
-                    return false;
-                  }
-                  commitShas.add(commit.sha);
-                  commitCount += 1;
-                }
-              }
-              if (commitCount !== totalCommits) return false;
-
-              const isCurrent = !files.some((file) =>
-                [file.filename, file.previous_filename].some(matchesDocsDeploymentPath),
-              );
-              docsSourceFreshnessCache.set(cacheKey, isCurrent);
-              return isCurrent;
-            }
-
-            async function findSuccessfulDocsPushDeployment() {
-              const deadline = phaseDeadline(60 * 60_000);
-              const docsComparisonWarnings = new Set();
-              while (Date.now() < deadline) {
-                const mainSha = (await github.rest.git.getRef({
-                  owner,
-                  repo,
-                  ref: "heads/main",
-                })).data.object.sha.toLowerCase();
-                const response = await github.rest.actions.listWorkflowRuns({
-                  owner,
-                  repo,
-                  workflow_id: "deploy-docs-production.yml",
-                  branch: "main",
-                  event: "push",
-                  per_page: 100,
-                });
-                const runs = response.data?.workflow_runs;
-                if (!Array.isArray(runs)) {
-                  throw new Error("GitHub returned no docs push runs while reconciling the release.");
-                }
-
-                for (const run of runs) {
-                  if (
-                    run.event !== "push" ||
-                    run.head_branch !== "main" ||
-                    !Number.isInteger(run.id) ||
-                    typeof run.head_sha !== "string" ||
-                    typeof run.html_url !== "string" ||
-                    run.status !== "completed" ||
-                    run.conclusion !== "success"
-                  ) {
-                    continue;
-                  }
-                  const sourceSha = run.head_sha.toLowerCase();
-                  let hasCurrentInputs;
-                  try {
-                    hasCurrentInputs = await docsSourceHasCurrentInputs(sourceSha, mainSha);
-                  } catch (error) {
-                    const warningKey = `${run.id}:${sourceSha}:${mainSha}`;
-                    if (!docsComparisonWarnings.has(warningKey)) {
-                      docsComparisonWarnings.add(warningKey);
-                      core.warning(
-                        `Could not verify docs source freshness for run ${run.id} (${sourceSha}) against current main ${mainSha}; continuing through the remaining docs push runs: ${error instanceof Error ? error.message : String(error)}`,
-                      );
-                    }
-                    continue;
-                  }
-                  if (!hasCurrentInputs) {
-                    continue;
-                  }
-
-                  const jobsResponse = await github.rest.actions.listJobsForWorkflowRun({
-                    owner,
-                    repo,
-                    run_id: run.id,
-                    filter: "latest",
-                    per_page: 100,
-                  });
-                  const jobs = jobsResponse.data?.jobs;
-                  if (
-                    !Array.isArray(jobs) ||
-                    (Number.isInteger(jobsResponse.data?.total_count) &&
-                      jobsResponse.data.total_count > jobs.length)
-                  ) {
-                    continue;
-                  }
-                  const deploy = jobs.find(
-                    (job) =>
-                      job.name === "docs production prebuilt deploy / production fw prebuilt deploy",
-                  );
-                  if (deploy?.conclusion !== "success") continue;
-
-                  const currentMainSha = (await github.rest.git.getRef({
-                    owner,
-                    repo,
-                    ref: "heads/main",
-                  })).data.object.sha.toLowerCase();
-                  if (currentMainSha === mainSha) {
-                    return { id: run.id, url: run.html_url };
-                  }
-                }
-
-                const remaining = deadline - Date.now();
-                if (remaining <= 0) break;
-                await sleep(Math.min(pollIntervalMs, remaining));
-              }
-              return null;
             }
 
             if (process.env.RELEASE_PHASE === "prepare") {
@@ -1241,12 +1162,10 @@ jobs:
               releaseSha,
               "scripts/netlify-production-sites.json",
             );
-            const docsSite = sitesManifest.fw;
-            if (docsSite?.host !== "www.agent-native.com") {
-              throw new Error("The production docs site is not configured for www.agent-native.com.");
-            }
             const productionSites = Object.entries(sitesManifest)
               .filter(([name, site]) =>
+                // fw, the docs site, deploys from deploy-docs-production.yml on
+                // every docs change to main, not from releases.
                 name !== "fw" &&
                 typeof site?.host === "string" &&
                 site.host.endsWith(".agent-native.com"),
@@ -1258,12 +1177,16 @@ jobs:
 
             let reservationCleanup;
             try {
-              const { removed, waiting } = await removeSupersededReservations();
+              const { removed, waiting, failed } = await removeSupersededReservations();
+              if (failed.length > 0) {
+                core.warning(`Could not remove superseded stable reservations: ${failed.join(", ")}`);
+              }
               reservationCleanup = [
                 removed.length > 0 ? `removed ${removed.join(", ")}` : "none removed",
                 ...(waiting.length > 0
                   ? [`kept while a release run is active: ${waiting.join(", ")}`]
                   : []),
+                ...(failed.length > 0 ? [`could not remove ${failed.join(", ")}`] : []),
               ].join("; ");
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
@@ -1377,50 +1300,6 @@ jobs:
 
             // Each child waits independently so one ambiguous dispatch cannot
             // abandon siblings that GitHub already accepted.
-            let reconciledDocsRun = null;
-            async function reconcileDocsDeploymentFailure() {
-              try {
-                reconciledDocsRun = await findSuccessfulDocsPushDeployment();
-                if (reconciledDocsRun) {
-                  core.warning(
-                    `The docs workflow_dispatch failed, but a successful main push deployment verified the current docs inputs: ${reconciledDocsRun.url}`,
-                  );
-                }
-              } catch (error) {
-                core.warning(
-                  `Could not reconcile the docs workflow_dispatch failure against a main push deployment: ${error instanceof Error ? error.message : String(error)}`,
-                );
-              }
-              return reconciledDocsRun;
-            }
-
-            async function dispatchDocsAndReconcile() {
-              let docsResult;
-              try {
-                docsResult = await dispatchAndWait(
-                  "deploy-docs-production.yml",
-                  siteWorkflowRef,
-                  {
-                    source_ref: releaseSha,
-                    smoke: "true",
-                  },
-                  "Agent-Native docs production site",
-                  120 * 60_000,
-                );
-              } catch (error) {
-                if (await reconcileDocsDeploymentFailure()) {
-                  return { run: reconciledDocsRun, error: null };
-                }
-                throw error;
-              }
-
-              if (!docsResult.error) return docsResult;
-              if (await reconcileDocsDeploymentFailure()) {
-                return { ...docsResult, run: reconciledDocsRun, error: null };
-              }
-              return docsResult;
-            }
-
             const downstream = await Promise.allSettled([
               publishStagedBuild(desktopStage),
               publishStagedBuild(clipsStage),
@@ -1436,7 +1315,6 @@ jobs:
                 "Production site fleet",
                 120 * 60_000,
               ),
-              dispatchDocsAndReconcile(),
             ]);
             const failures = [];
             if (publicationError) failures.push(publicationError.message);
@@ -1449,12 +1327,8 @@ jobs:
               "Agent-Native desktop stable release",
               "Clips desktop stable release",
               "Production site fleet",
-              "Agent-Native docs production site",
             ];
             const childResults = downstream.map((result, index) => {
-              if (index === 3 && reconciledDocsRun) {
-                return { run: reconciledDocsRun, error: null, dispatchFailed: false, skipped: false };
-              }
               if (result.status === "rejected") {
                 const error = result.reason instanceof Error
                   ? result.reason.message
@@ -1475,7 +1349,7 @@ jobs:
               }
               return { run: result.value.run, stageRun, error: null, dispatchFailed: false, skipped: false };
             });
-            const [desktop, clips, production, docs] = childResults;
+            const [desktop, clips, production] = childResults;
             const outcomes = childResults.map((result) => {
               if (result.skipped) {
                 return publicationError
@@ -1525,7 +1399,6 @@ jobs:
                 ["Clips desktop", clips.skipped ? outcomes[1] : `${outcomes[1]}: stable v${clipsVersion}`],
                 ["Superseded stable reservations", reservationCleanup],
                 ["Production sites", `${outcomes[2]}: ${productionSites.length} *.agent-native.com apps`],
-                ["Docs site", `${outcomes[3]}: ${docsSite.host}`],
                 ["Source commit", releaseSha],
               ])
               .addLink("Package release PR", releasePr.html_url);
@@ -1535,7 +1408,6 @@ jobs:
               ["Clips build run", clips.stageRun],
               ["Clips release run", clips.run],
               ["Production fleet run", production.run],
-              ["Docs production run", docs.run],
             ]) {
               if (run) summary.addBreak().addLink(label, run.url);
             }

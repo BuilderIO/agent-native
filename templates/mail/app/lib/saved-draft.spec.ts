@@ -28,7 +28,6 @@ describe("savedEmailDraftAttachments", () => {
         originalName: "invoice.pdf",
         mimeType: "application/pdf",
         size: 2048,
-        url: "/api/attachments?messageId=gmail-draft-1&id=abc123.pdf&mimeType=application%2Fpdf",
         source: "gmail",
         gmailMessageId: "gmail-draft-1",
         gmailAttachmentId: "abc123.pdf",
@@ -51,6 +50,23 @@ describe("savedEmailDraftAttachments", () => {
         mimeType: "application/pdf",
         size: 2048,
         url: "https://cdn.builder.io/o/assets/abc123",
+      },
+    ]);
+  });
+
+  it("drops a local draft file's path on this server, which app state refuses", () => {
+    expect(
+      savedEmailDraftAttachments({
+        id: "local-draft-1",
+        attachments: [{ ...attachment, url: "/api/media/abc123.pdf" }],
+      }),
+    ).toEqual([
+      {
+        id: "abc123.pdf",
+        filename: "abc123.pdf",
+        originalName: "invoice.pdf",
+        mimeType: "application/pdf",
+        size: 2048,
       },
     ]);
   });

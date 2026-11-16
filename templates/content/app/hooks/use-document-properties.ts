@@ -432,6 +432,24 @@ export function documentPropertiesPlaceholder(
   };
 }
 
+// A system collection such as Files refuses new properties. A view has read
+// its collection before it draws an Add property button, so the cached read
+// answers here.
+export function useCollectionRefusesNewProperties(
+  databaseDocumentId: string,
+  databaseId: string,
+) {
+  const queryClient = useQueryClient();
+  return queryClient
+    .getQueriesData<ContentDatabaseResponse>(
+      contentDatabaseQueryFilter(databaseDocumentId),
+    )
+    .some(
+      ([, value]) =>
+        value?.database.id === databaseId && value.database.systemRole != null,
+    );
+}
+
 export function useConfigureDocumentProperty(
   documentId: string,
   databaseId: string,

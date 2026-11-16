@@ -181,6 +181,40 @@ describe("defineAction", () => {
     expect(privateAction.persistInChatHistory).toBe(false);
   });
 
+  it("redacts private input failures on direct and prepared calls while preserving public diagnostics", async () => {
+    const body = "QA test private search text";
+    const schema = z.object({ query: z.string(), limit: z.number() }).strict();
+    const run = vi.fn(async () => "ok");
+    const privateAction = defineAction({
+      description: "private query",
+      schema,
+      persistInChatHistory: false,
+      run,
+    });
+    const input = { query: body, limit: "invalid" };
+    const failure = await privateAction
+      .run(input as never)
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ActionInputValidationError);
+    expect((failure as Error).message).toBe("Invalid action parameters");
+    expect((failure as ActionInputValidationError).paths).toEqual(["limit"]);
+    const prepared = await actionCallIntent(privateAction, input);
+    expect(prepared.valid).toBe(false);
+    if (!prepared.valid) {
+      expect(prepared.error).toBeInstanceOf(ActionInputValidationError);
+      expect((prepared.error as Error).message).toBe(
+        "Invalid action parameters",
+      );
+    }
+    expect(run).not.toHaveBeenCalled();
+    const publicAction = defineAction({
+      description: "ordinary query",
+      schema,
+      run,
+    });
+    await expect(publicAction.run(input as never)).rejects.toThrow(body);
+  });
+
   it("infers readOnly=true for GET actions", () => {
     const action = defineAction({
       description: "read things",

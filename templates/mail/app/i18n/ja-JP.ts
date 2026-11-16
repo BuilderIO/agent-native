@@ -477,6 +477,13 @@ const messages = {
       openStorageSettings: "ストレージ設定を開く",
       reconnectBuilderStorage: "Builder.io に再接続",
       useOwnStorage: "独自のストレージを使う",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io が Mail のファイルストレージ接続を拒否したため、ファイルを添付できませんでした。Builder.io に再接続するか、オーナーまたは管理者にストレージの設定を依頼してから、もう一度お試しください。",
+      storageRefusedAskAdmin:
+        "組織のストレージバケットがこのアップロードを拒否したため、ファイルを添付できませんでした。オーナーまたは管理者にバケットとそのキーの確認を依頼してください。",
+      storageNotConfiguredAskAdmin:
+        "ファイルストレージが設定されていないため、ファイルを添付できませんでした。自分の Builder.io アカウントを接続するか、オーナーまたは管理者にストレージの設定を依頼してください。",
+      connectBuilderStorage: "Builder.io に接続",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "メッセージを送信しました。",
       failedToSaveDraft: "下書きを保存できませんでした。",

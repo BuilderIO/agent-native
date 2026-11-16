@@ -6,7 +6,7 @@ import { setTimeout as realDelay } from "node:timers/promises";
 
 import type { Document, DocumentPropertiesResponse } from "@shared/api";
 import { legacyBlocksFieldIdentity } from "@shared/blocks-field-identity";
-import { docToNfm, nfmToDoc } from "@shared/nfm";
+import { docToNfm, nfmToDoc, type PMDoc } from "@shared/nfm";
 import {
   QueryClient,
   QueryClientProvider,
@@ -65,6 +65,7 @@ const fixture = vi.hoisted(() => ({
   pickIcon: null as ((icon: string | null) => Promise<void>) | null,
   recovery: null as ReturnType<typeof useDocumentReconcileRecovery> | null,
   save: vi.fn(),
+  keepalive: vi.fn(),
   flushUpdates: vi.fn(),
   recoverySaveSettled: vi.fn(),
   finishRecovery: Promise.resolve(),
@@ -173,7 +174,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
       : fixture.mutation;
   },
   callAction: vi.fn(async () => null),
-  tryCallActionKeepalive: () => ({ accepted: false }),
+  tryCallActionKeepalive: (...args: unknown[]) => fixture.keepalive(...args),
   setClientAppState: vi.fn(async () => {}),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({ useT: () => fixture.t }));
@@ -358,6 +359,7 @@ vi.mock("./VisualEditor", async (original) => {
     current.current = props;
     const draft = React.useRef(props.content);
     const version = React.useRef({}).current;
+    const reportRemoteSnapshot = props.onRemoteSnapshotChange;
     if (primary)
       fixture.editor = {
         ...props,
@@ -365,6 +367,16 @@ vi.mock("./VisualEditor", async (original) => {
           draft.current = content;
           props.onChange(content);
         },
+        // A remote snapshot is the whole live document, so the editor holds
+        // and serializes it from then on.
+        ...(reportRemoteSnapshot
+          ? {
+              onRemoteSnapshotChange: (content: string) => {
+                draft.current = content;
+                reportRemoteSnapshot(content);
+              },
+            }
+          : {}),
       };
     React.useEffect(() => {
       if (!props.onPersistenceControllerChange) return;
@@ -477,6 +489,7 @@ beforeEach(() => {
   fixture.commentsSidebars = [];
   fixture.toolbar = null;
   fixture.save.mockReset();
+  fixture.keepalive.mockReset().mockReturnValue({ accepted: false });
   fixture.flushUpdates.mockReset().mockResolvedValue(true);
   fixture.recoverySaveSettled.mockReset();
   fixture.finishRecovery = Promise.resolve();
@@ -610,6 +623,22 @@ function acknowledgeCurrentSaves() {
     };
     return fixture.page;
   });
+}
+
+// A save that does not land, and recovery, hash a recovery draft before the
+// next save or retry goes out. WebCrypto settles that hash from Node's thread
+// pool, which neither fake timers nor act() wait for, so hash on this thread.
+function hashOnTestThread() {
+  vi.spyOn(crypto.subtle, "digest").mockImplementation(
+    async (algorithm, data) => {
+      if (algorithm !== "SHA-256")
+        throw new Error(`Unexpected digest ${JSON.stringify(algorithm)}`);
+      const bytes = ArrayBuffer.isView(data)
+        ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+        : new Uint8Array(data);
+      return new Uint8Array(createHash("sha256").update(bytes).digest()).buffer;
+    },
+  );
 }
 
 function connectBarrierStore(propertyId?: string) {
@@ -1081,6 +1110,7 @@ it.each([false, true])(
   "freshly reads an accepted primary title while preserving an independent failed icon and navigation refusal (reverted: %s)",
   async (reverted) => {
     fixture.realPrimaryEditor = true;
+    hashOnTestThread();
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     fixture.page!.revision = documentRevisionToken(1, fixture.page!.content);
     const failure = new Error("The direct icon and title save failed.");
@@ -1207,6 +1237,7 @@ it.each([false, true])(
 it.each(["title", "body"] as const)(
   "preserves attestation and retained recovery for reverted primary %s input until an accepted retry",
   async (field) => {
+    hashOnTestThread();
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     fixture.page!.revision = documentRevisionToken(1, fixture.page!.content);
     const failure = new Error("Primary save failed before revert.");
@@ -1217,6 +1248,16 @@ it.each(["title", "body"] as const)(
     await act(async () => vi.advanceTimersByTimeAsync(500));
     expect(fixture.save).toHaveBeenCalledOnce();
     expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(true);
+    expect(fixture.mutation.mutateAsync).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        operation: "upsert",
+        draft: expect.objectContaining({
+          title: field === "title" ? "Failed title" : "Saved title",
+          content: field === "title" ? "Saved body" : "Failed body",
+          editGeneration: 1,
+        }),
+      }),
+    );
     if (field === "title") pasteTitle("Saved title");
     else act(() => fixture.editor!.onChange("Saved body"));
     let rejectAttestation!: (error: Error) => void;
@@ -1249,6 +1290,9 @@ it.each(["title", "body"] as const)(
     expect(Date.now() - started).toBeLessThanOrEqual(20_200);
     expect(refused.captures).toHaveLength(0);
     expect(fixture.save).toHaveBeenCalledTimes(2);
+    expect(fixture.mutation.mutateAsync).not.toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "delete" }),
+    );
     fixture.save.mockResolvedValue(fixture.page!);
     pasteTitle("Saved title");
     await act(async () => vi.advanceTimersByTimeAsync(500));
@@ -1260,6 +1304,9 @@ it.each(["title", "body"] as const)(
       editorEditGeneration: 3,
     });
     expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(false);
+    expect(fixture.mutation.mutateAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({ operation: "delete" }),
+    );
     const store = connectBarrierStore();
     expect(await runConnectedBarrier()).toMatchObject({
       value: {
@@ -1803,6 +1850,7 @@ it("confirms an exact additional field independently of a dirty primary body and
 });
 
 it("republishes an acknowledged save when recovery alone finishes", async () => {
+  hashOnTestThread();
   let acknowledge!: (document: Document) => void;
   fixture.save.mockReturnValue(
     new Promise<Document>((resolve) => {
@@ -1981,6 +2029,7 @@ describe("a retried save whose edit a peer's save already stored", () => {
   }
 
   async function retryAfterPeerStoredEdit() {
+    hashOnTestThread();
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     fixture.flushUpdates.mockResolvedValueOnce(false);
     await act(async () => renderEditor());
@@ -2056,6 +2105,107 @@ describe("closing a page this tab never edited", () => {
     expect(mounted(fixture.awareness).getLocalState()?.unsavedEdits).toBe(
       false,
     );
+  });
+
+  // An agent's write keeps a blank line between blocks. A real editor that
+  // adopts it holds the same page one block per line.
+  async function adoptBlankLineRewrite() {
+    const written = "## Goal\n\nFinish the row.\n\n## Where it stands\n\nOpen.";
+    const writerDoc = new Y.Doc();
+    const writerMount = document.createElement("div");
+    document.body.append(writerMount);
+    const writer = new Editor({
+      element: writerMount,
+      extensions: createVisualEditorExtensions({ ydoc: writerDoc }),
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+    writer.commands.setContent(nfmToDoc(written));
+    const held = docToNfm(writer.getJSON() as PMDoc);
+    writer.destroy();
+    writerDoc.destroy();
+    writerMount.remove();
+    expect(held).toContain("Finish the row.");
+    expect(held).not.toBe(written);
+    fixture.cachedDocument = true;
+    const page = mounted(fixture.page);
+    page.revision = documentRevisionToken(1, page.content);
+    const key = ["action", "get-document", { id: page.id }];
+    queryClient.setQueryData(key, page);
+    const rewritten = {
+      ...page,
+      content: written,
+      revision: documentRevisionToken(2, written),
+      updatedAt: "2026-10-19T12:00:01.000Z",
+    };
+    // The server keeps the other writer's body rather than this tab's unedited
+    // copy of it, as update-document does for a browser save with no edit. It
+    // takes a title on its own.
+    fixture.save.mockImplementation(async (input) =>
+      input.content === undefined
+        ? { ...rewritten, title: input.title ?? rewritten.title }
+        : {
+            preservationRequired: true,
+            id: page.id,
+            document: rewritten,
+            reason: "provenance",
+            checkpointId: "kept-writer-body",
+          },
+    );
+    await act(async () => renderEditor());
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await act(async () => {
+      queryClient.setQueryData(key, rewritten);
+      renderEditor();
+    });
+    act(() => mounted(mounted(fixture.editor).onRemoteSnapshotChange)(held));
+    // The change settles before the tab saves or closes.
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    return written;
+  }
+
+  it("closes a page another writer rewrote with blank lines", async () => {
+    await adoptBlankLineRewrite();
+    expect(await closeSession()).toBe("closed");
+    expect(fixture.save).not.toHaveBeenCalled();
+  });
+
+  it("renames a page another writer rewrote with blank lines without sending its body", async () => {
+    await adoptBlankLineRewrite();
+    pasteTitle("Renamed row");
+    // The tab goes away before the title's save is due, so the keepalive copy
+    // goes out, and the ordinary save after it when the copy is refused.
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(fixture.keepalive).toHaveBeenCalledOnce();
+    const [action, copy] = mounted(fixture.keepalive.mock.calls[0]);
+    expect(action).toBe("update-document");
+    expect(copy).toMatchObject({ title: "Renamed row" });
+    expect(copy).not.toHaveProperty("content");
+    expect(fixture.save).toHaveBeenCalledOnce();
+    const saved = mounted(fixture.save.mock.calls[0])[0];
+    expect(saved).toMatchObject({ title: "Renamed row" });
+    expect(saved).not.toHaveProperty("content");
+  });
+
+  it("journals a failed rename of a page another writer rewrote on its stored body", async () => {
+    const written = await adoptBlankLineRewrite();
+    fixture.save.mockRejectedValue(
+      new Error("Action update-document failed (500)"),
+    );
+    pasteTitle("Renamed row");
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(fixture.save).toHaveBeenCalledOnce();
+    // Recovery compares the journaled body with the stored one exactly, so
+    // the editor's spelling would come back as a body edit nobody made.
+    const journal = Object.keys(localStorage)
+      .filter((key) => key.startsWith("content-page-draft-journal-v1:"))
+      .map((key) => JSON.parse(mounted(localStorage.getItem(key))));
+    expect(journal).toHaveLength(1);
+    expect(mounted(journal[0]).snapshot).toMatchObject({
+      title: "Renamed row",
+      content: written,
+    });
   });
 
   it.each([

@@ -52,9 +52,15 @@ import {
   motionStarterStyles,
 } from "@/components/design/edit-panel/motion-controls";
 import type { CapturedStyleTarget } from "@/components/design/edit-panel/style-change-types";
+import {
+  tweaksForSelection,
+  tweakTargetsForSelection,
+} from "@/components/design/edit-panel/tweak-scope";
 import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomToolbar";
 import { EditorTopBar } from "@/components/design/editor/EditorTopBar";
 import { UrlScreenControls } from "@/components/design/editor/UrlScreenControls";
+import { shouldAutoCollapseFloatingTweaks } from "@/components/design/floating-tweaks-layout";
+import { FloatingTweaksPanel } from "@/components/design/FloatingTweaksPanel";
 import { FusionAppMenu } from "@/components/design/FusionAppMenu";
 import { getUnavailableShortcutIds } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
@@ -65,6 +71,7 @@ import {
 import type { MotionDockEasingSegment } from "@/components/design/MotionDock";
 import { NudgeAmountDialog } from "@/components/design/NudgeAmountDialog";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
+import { ShareLivePreview } from "@/components/design/ShareLivePreview";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
 import {
@@ -130,6 +137,7 @@ import { shouldRenderDesignShareControl } from "./mcp-widget-write-capabilities"
 import {
   hasMinimalInspectorSelection,
   isRightInspectorVisible,
+  rightInspectorCanvasInset,
 } from "./minimal-inspector";
 import {
   addMotionMarkers,
@@ -354,6 +362,9 @@ export function renderDesignEditorView({
     getComponentExpectedFiles,
     pendingNodeRewriteByFile,
     documentColorFiles,
+    tweaks,
+    tweakSelections,
+    handleTweakChange,
     designSourceType,
     overviewScreens,
     layoutGrids,
@@ -364,6 +375,7 @@ export function renderDesignEditorView({
     canvasFrameGeometryById,
     unsavedChangeCount,
     retryUnsavedChanges,
+    tweakMutationsEnabled,
   } = editorFilesAndSaving;
   const {
     responsiveEditScope,
@@ -373,6 +385,7 @@ export function renderDesignEditorView({
     handleResponsiveEditScopeChange,
     activeScreenBaseWidthPx,
     activeScreenSnapshotOnly,
+    activeOverviewScreen,
     activeCanvasSourceType,
     handleBreakpointBarRemove,
   } = editorActiveScreenAndGeometry;
@@ -1365,6 +1378,15 @@ export function renderDesignEditorView({
 
     return (
       <div className="flex items-center">
+        {canEditDesign && activeOverviewScreen?.sourceType === "localhost" ? (
+          <ShareLivePreview
+            key={activeOverviewScreen.id}
+            designId={id}
+            fileId={activeOverviewScreen.id}
+            tunnelUrl={activeOverviewScreen.tunnelUrl}
+            liveCollaborationEnabled={liveCollaborationEnabled}
+          />
+        ) : null}
         <ShareButton
           resourceType="design"
           resourceId={id}
@@ -1587,6 +1609,53 @@ export function renderDesignEditorView({
     mode,
     canEdit: canEditActiveVisualScreen,
   });
+  const tweakTargets = tweakTargetsForSelection({
+    elements: selectedInspectorElements,
+    ...(activeFile?.id ? { fallbackScreenId: activeFile.id } : {}),
+    ...(selectedScreenGeometry?.id
+      ? { screenId: selectedScreenGeometry.id }
+      : {}),
+  });
+  const floatingTweaks = tweaksForSelection(
+    tweaks,
+    tweakTargets,
+    (screenId) =>
+      documentColorFiles.find((file) => file.id === screenId)?.content,
+  );
+  const floatingTweaksPanel =
+    mode === "edit" ? (
+      <FloatingTweaksPanel
+        tweaks={floatingTweaks}
+        values={tweakSelections}
+        onChange={handleTweakChange}
+        disabled={!tweakMutationsEnabled}
+        open={editorLayoutAndStructure.viewSettings.tweaksPanelOpen}
+        collapsed={editorLayoutAndStructure.viewSettings.tweaksPanelCollapsed}
+        autoCollapse={shouldAutoCollapseFloatingTweaks(
+          rightSidebarVisible,
+          floatingTweaks.length > 0,
+        )}
+        position={editorLayoutAndStructure.viewSettings.tweaksPanelPosition}
+        onOpenChange={(open) =>
+          editorLayoutAndStructure.updateViewSettings({ tweaksPanelOpen: open })
+        }
+        onCollapsedChange={(collapsed) =>
+          editorLayoutAndStructure.updateViewSettings({
+            tweaksPanelCollapsed: collapsed,
+          })
+        }
+        onPositionChange={(position) =>
+          editorLayoutAndStructure.updateViewSettings({
+            tweaksPanelPosition: position,
+          })
+        }
+      />
+    ) : null;
+  const questionFlowInsetRight = rightInspectorCanvasInset({
+    visible: rightSidebarVisible,
+    width: rightSidebarWidth,
+    minimalUi,
+  });
   const chromeInsetLeft = leftSidebarVisible
     ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
     : 0;
@@ -1690,6 +1759,10 @@ export function renderDesignEditorView({
     viewMode,
     mode,
     files: documentColorFiles,
+    tweaks,
+    tweakValues: tweakSelections,
+    onTweakChange:
+      canEditDesign && tweakMutationsEnabled ? handleTweakChange : undefined,
     activeTool,
     scaleToolControls: canEditDesign ? scaleToolControls : undefined,
     onCreateScreenFromPreset: canEditDesign
@@ -2291,7 +2364,10 @@ export function renderDesignEditorView({
         {questionFlowActive ? (
           <div
             className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-panel-bg)]"
-            style={{ paddingLeft: leftChromeOverlayInset }}
+            style={{
+              paddingLeft: leftChromeOverlayInset,
+              paddingRight: questionFlowInsetRight,
+            }}
           >
             <QuestionFlow
               questions={pendingQuestions ?? []}
@@ -2352,6 +2428,7 @@ export function renderDesignEditorView({
           interactFloatingBar,
           rightSidebarVisible,
           editPanelProps,
+          floatingTweaksPanel,
         })}
       </div>
 
