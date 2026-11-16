@@ -1495,6 +1495,7 @@ describe("requestMatchesEmbedTarget", () => {
     ["/api/emails/send", "POST"],
     ["/api/emails/draft/d-1", "DELETE"],
     ["/api/pylon/key", "GET"],
+    ["/_agent-native/mcp/embed-error", "POST"],
   ])(
     "lets a full-app session act as its owner: %s %s",
     async (path, method) => {
@@ -1517,6 +1518,8 @@ describe("requestMatchesEmbedTarget", () => {
 
   it.each([
     ["/_agent-native/mcp", "POST"],
+    ["/_agent-native/mcp/embed-error", "GET"],
+    ["/_agent-native/mcp/embed-error/x", "POST"],
     [
       "/_agent-native/mcp/approvals/0b6b2a4e-6a8d-4d0f-9c64-3f7d1c2b9a10",
       "GET",

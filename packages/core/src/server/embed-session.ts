@@ -923,6 +923,7 @@ const FULL_APP_DENIED_PREFIXES = [
   // Consumes a one-time ticket and sets a session cookie on GET.
   "/_agent-native/embed/start",
 ];
+const FULL_APP_EMBED_ERROR_ROUTE = "/_agent-native/mcp/embed-error";
 // Reads stay open here; changing an account, connection, org, model key or
 // stored setting needs a login.
 const FULL_APP_READ_ONLY_PREFIXES = [
@@ -995,6 +996,9 @@ export function fullAppEmbedAllowsRequest(
     return false;
   }
   const route = decoded.replace(/\/{2,}/g, "/").replace(/\/+$/, "") || "/";
+  // The shell's failure report trusts no identity, and a panel signs every
+  // request under its mount, so refusing the token would drop the report.
+  if (route === FULL_APP_EMBED_ERROR_ROUTE) return method === "POST";
   if (FULL_APP_DENIED_PREFIXES.some((prefix) => underPrefix(route, prefix)))
     return false;
   const segments = route.toLowerCase().split("/");
