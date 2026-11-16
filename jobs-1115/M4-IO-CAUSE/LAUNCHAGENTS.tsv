@@ -1,0 +1,94 @@
+label	interval_seconds	state	launchctl_runs	active_pid	active_elapsed	last_exit	stdout_log_mtime_local
+Clips	on-demand	active	1	789	22:15:54	(never exited)	-
+com.agent-native.measurement-watch	on-demand	active	19	90341	02:54:27	-	-
+com.agent-native.trunk-green-a.checkpoint-20261115-12	calendar	active	1	-	-	0	2026-11-15T12:00:24-08:00
+com.agent-native.trunk-green-a.checkpoint-20261115-16	calendar	active	1	-	-	0	2026-11-15T16:00:43-08:00
+com.agent-native.trunk-green-a.checkpoint-20261115-19	calendar	not running	0	-	-	(never exited)	-
+com.agent-native.trunk-green-a.checkpoint-20261115-22	calendar	not running	0	-	-	(never exited)	-
+com.agent-native.trunk-green-b.checkpoint-20261115-12	calendar	active	1	-	-	1	2026-11-15T12:00:05-08:00
+com.agent-native.trunk-green-b.checkpoint-20261115-16	calendar	active	1	-	-	1	2026-11-15T16:00:00-08:00
+com.agent-native.trunk-green-b.checkpoint-20261115-19	calendar	not running	0	-	-	(never exited)	-
+com.agent-native.trunk-green-b.checkpoint-20261115-22	calendar	not running	0	-	-	(never exited)	-
+com.google.GoogleUpdater.wake	3600	unavailable	-	-	-	-	-
+-	on-demand	-	-	-	-	-	-
+-	on-demand	-	-	-	-	-	-
+com.permaevidence.codex-telegram-bridge	on-demand	active	1	783	22:15:56	(never exited)	2026-11-02T09:47:23-08:00
+com.steve.audit-wave-6h	calendar	not running	0	-	-	(never exited)	2026-11-15T06:18:17-08:00
+com.steve.desktop-version-check	900	active	34	-	-	0	2026-11-15T16:19:39-08:00
+com.steve.disk-free-curve	60	active	225	-	-	0	-
+com.steve.disk-guard-fast	900	active	19	-	-	75: EX_TEMPFAIL	2026-11-15T14:55:45-08:00
+com.steve.disk-guard-hourly	3600	active	13	55319	01:20:07	75: EX_TEMPFAIL	2026-11-15T14:55:45-08:00
+com.steve.disk-guard-shell-fast	900	active	17	73038	06:22	0	2026-11-15T10:19:20-08:00
+com.steve.disk-guard-shell-hourly	3600	active	5	-	-	0	2026-11-15T10:19:20-08:00
+com.steve.fleet-pulse	300	active	65	-	-	1	2026-11-15T13:55:01-08:00
+com.steve.fleet.blocker-census	calendar	not running	0	-	-	(never exited)	-
+com.steve.fleet.p0-to-job	120	unavailable	-	-	-	-	-
+com.steve.keepawake	on-demand	active	1	75507	22:06:25	(never exited)	-
+com.steve.qa-ack-watch	600	active	46	-	-	2	2026-11-15T16:17:00-08:00
+com.steve.re.batch-slots-bridge-1115	on-demand	active	1	81245	08:29:25	(never exited)	2026-11-15T07:50:47-08:00
+com.steve.re.batch-slots-metrics-1115	300	active	88	-	-	0	2026-11-15T16:15:33-08:00
+com.steve.re.boot-resume	on-demand	active	1	4355	12:14:31	(never exited)	2026-11-15T16:12:08-08:00
+com.steve.re.codex-audit	on-demand	active	1	71431	12:02:10	(never exited)	2026-11-15T04:18:05-08:00
+com.steve.re.core-flow-scoreboard	on-demand	active	1	4598	12:14:32	(never exited)	2026-11-15T16:09:29-08:00
+com.steve.re.decks-2-generate-hourly	3600	active	19	-	-	2	2026-11-15T16:15:29-08:00
+com.steve.re.desktop-feed	600	active	131	-	-	0	2026-11-15T16:12:37-08:00
+com.steve.re.fill-pulse-1115	60	active	494	-	-	0	2026-11-15T16:19:26-08:00
+com.steve.re.fleet-asks-report	calendar	not running	0	-	-	(never exited)	-
+com.steve.re.fleet-janitor	3600	unavailable	-	-	-	-	2026-11-12T18:53:51-08:00
+com.steve.re.fleet-loop	on-demand	active	1	9721	12:13:47	(never exited)	2026-11-15T04:06:33-08:00
+com.steve.re.fleet-monitor	on-demand	active	1	4361	12:14:37	(never exited)	2026-11-15T04:05:43-08:00
+com.steve.re.idle-reaper	on-demand	active	1	4366	12:14:39	(never exited)	2026-11-15T16:19:59-08:00
+com.steve.re.integrate-backup	3600	active	22	-	-	0	2026-11-12T23:46:48-08:00
+com.steve.re.kit-sync	on-demand	active	1	4385	12:14:39	(never exited)	2026-11-15T16:06:44-08:00
+com.steve.re.labs-deploy-loop	on-demand	active	26	53410	35:02	0	2026-11-15T14:46:57-08:00
+com.steve.re.labs-merge-retry	30	active	1197	-	-	0	2026-11-15T11:36:00-08:00
+com.steve.re.land-watch	on-demand	active	1	4586	12:14:39	(never exited)	2026-11-15T04:05:44-08:00
+com.steve.re.lane-deadman-mac2	on-demand	active	1	4411	12:14:40	(never exited)	2026-11-15T16:16:41-08:00
+com.steve.re.lane-publish	on-demand	active	1	4426	12:14:40	(never exited)	2026-11-15T16:19:49-08:00
+com.steve.re.ledger-copy	900	active	90	-	-	0	2026-11-15T16:05:20-08:00
+com.steve.re.mail-pause-deadman	on-demand	active	1	69834	12:02:40	(never exited)	2026-11-15T16:19:21-08:00
+com.steve.re.merge-sweep	on-demand	active	1	4440	12:14:41	(never exited)	2026-11-15T16:14:48-08:00
+com.steve.re.offchat-audit	60	active	514	-	-	0	2026-11-15T07:43:37-08:00
+com.steve.re.offchat-intake	60	active	514	-	-	0	2026-11-15T07:43:37-08:00
+com.steve.re.offchat-integrate	300	active	104	-	-	0	2026-11-15T11:11:41-08:00
+com.steve.re.offchat-ledger	60	active	512	-	-	1	2026-11-15T16:19:26-08:00
+com.steve.re.offchat-morning	60	active	514	-	-	0	2026-11-15T07:43:37-08:00
+com.steve.re.offchat-queue	60	active	514	-	-	1	2026-11-15T16:20:04-08:00
+com.steve.re.offchat-sessions	300	active	104	-	-	0	2026-11-15T10:46:48-08:00
+com.steve.re.offchat-statepush	300	active	102	-	-	0	2026-11-15T11:03:22-08:00
+com.steve.re.offchat-usage	900	active	36	-	-	1	2026-11-15T16:16:38-08:00
+com.steve.re.overnight-heal	on-demand	active	2	13451	09:16:39	-	2026-11-15T16:19:41-08:00
+com.steve.re.overnight-summary	on-demand	active	1	92017	11:58:19	(never exited)	2026-11-15T04:22:06-08:00
+com.steve.re.page-route	600	active	1	72974	12:02:04	(never exited)	2026-11-15T04:15:42-08:00
+com.steve.re.pool-landing-drain	120	active	123	99388	02:49	75: EX_TEMPFAIL	2026-11-15T16:15:36-08:00
+com.steve.re.pr-sentinel	on-demand	active	1	4453	12:14:42	(never exited)	2026-11-15T16:19:01-08:00
+com.steve.re.pr-steward-tooling	300	active	1	90018	14:52	(never exited)	2026-11-15T09:42:07-08:00
+com.steve.re.pr-steward	300	active	99	-	-	2	2026-11-15T16:17:18-08:00
+com.steve.re.pr-sweep-deadman-mac2	on-demand	active	1	4466	12:14:43	(never exited)	2026-11-15T16:00:01-08:00
+com.steve.re.prompt-watch	on-demand	active	1	4475	12:14:43	(never exited)	2026-11-15T16:17:48-08:00
+com.steve.re.push-cadence	7200	active	11	-	-	0	2026-11-04T06:37:26-08:00
+com.steve.re.qa-labs-intake	on-demand	unavailable	-	-	-	-	2026-11-15T07:41:49-08:00
+com.steve.re.readiness-review	on-demand	active	1	90781	11:58:34	(never exited)	2026-11-15T04:21:56-08:00
+com.steve.re.retention	3600	unavailable	-	-	-	-	2026-11-12T18:51:27-08:00
+com.steve.re.review-cadence	on-demand	active	18	90334	02:54:52	-	-
+com.steve.re.sentinel	on-demand	active	1	4485	12:14:49	(never exited)	2026-11-15T16:19:57-08:00
+com.steve.re.shell-held-gate-watch-1115	on-demand	active	7	88726	07:54:03	-	2026-11-15T16:17:29-08:00
+com.steve.re.spend-watch	on-demand	active	1	4503	12:14:51	(never exited)	2026-11-15T16:18:40-08:00
+com.steve.re.stall-watchdog	on-demand	active	1	4517	12:14:52	(never exited)	2026-11-15T16:15:42-08:00
+com.steve.re.steve-proxy	3600	active	1	-	-	0	2026-11-15T16:20:05-08:00
+com.steve.re.tester-burndown	on-demand	active	55	52647	12:05:45	1	2026-11-15T16:08:22-08:00
+com.steve.re.thread-collector	on-demand	active	1	11947	05:08:22	(never exited)	2026-11-15T16:15:14-08:00
+com.steve.re.velocity-cycle	on-demand	active	1	4544	12:14:57	(never exited)	2026-11-15T14:46:55-08:00
+com.steve.re.velocity-morning	on-demand	active	1	4551	12:14:59	(never exited)	2026-11-15T06:30:00-08:00
+com.steve.re.watcher-activation	on-demand	active	27	95624	02:54:39	1	2026-11-15T16:20:43-08:00
+com.steve.re.watcher-deadman	on-demand	active	87	12429	01:28	-	2026-11-15T04:10:21-08:00
+com.steve.re.watcher-ssh	on-demand	active	1	29167	12:09:26	(never exited)	2026-11-15T16:20:13-08:00
+com.steve.re.worktree-prune	calendar	not running	0	-	-	(never exited)	-
+com.steve.re.worktree-retire	calendar	unavailable	-	-	-	-	2026-11-12T04:17:02-08:00
+com.steve.spend-watch	300	active	265	-	-	0	-
+local.fleet-agent	on-demand	active	2	56120	04:17:22	-	2026-11-15T16:20:09-08:00
+local.labs.receipt-bridge	60	active	57	26584	21:19	0	2026-11-14T19:31:26-08:00
+local.replica.account-watch	on-demand	active	1	4560	12:15:01	(never exited)	2026-11-15T14:05:25-08:00
+local.replica.batchflip-tasks-lease-1115	on-demand	active	1	43821	06:00:52	(never exited)	2026-11-15T16:20:36-08:00
+local.replica.freshness	on-demand	active	1	69110	03:31:41	(never exited)	2026-11-15T16:16:52-08:00
+local.replica.m4-pool	on-demand	active	27	41018	01:33:44	-	2026-11-14T18:28:44-08:00
