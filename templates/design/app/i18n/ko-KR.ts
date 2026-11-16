@@ -1038,6 +1038,37 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "실시간 미리보기 공유",
+      instructions:
+        "앱의 공개 HTTPS 미리보기 URL(예: ngrok 또는 cloudflared 터널)을 붙여 넣으세요. 내 기기는 localhost를 유지하고 다른 사람은 공개 미리보기를 보거나 게시된 스냅샷에 수정을 제안할 수 있습니다.",
+      tunnelUrl: "공개 미리보기 URL",
+      enableCollaboration:
+        "디자인에 접근할 수 있는 모든 사용자와 실시간 공동 작업 사용",
+      save: "저장",
+      unavailable: "실시간 미리보기를 사용할 수 없습니다 — 스냅샷을 표시합니다",
+      live: "실시간 미리보기",
+      openLive: "{{hostname}}에서 실시간 미리보기 열기",
+      suggest: "스냅샷에 제안",
+      localOnly: "실시간 미리보기는 소유자 기기에서만 가능",
+    },
+    referenceCopy: {
+      staticNotice: "JavaScript가 비활성화되어 동적 콘텐츠가 없을 수 있습니다.",
+      captureAction: "정적 스냅샷 캡처",
+      capturePrompt:
+        "이 공개 참조 URL의 스크린샷과 DOM 스냅샷을 캡처하여 디자인 캔버스에 정적 참조 화면으로 추가하세요. 실시간 페이지가 아닌 스냅샷으로 표시하세요.",
+      unavailable:
+        "이 페이지가 프레임을 차단하거나 로드에 실패했을 수 있습니다.",
+      load: "참조 사본 로드",
+      label: "참조 사본 · 공개 페이지, 읽기 전용",
+      noBridge: "공개 참조 사본을 로드하려면 로컬 브리지를 연결하세요.",
+      snapshot: "게시된 스냅샷 사용",
+      capture: "에이전트에게 스크린샷과 DOM 스냅샷 캡처를 요청하세요.",
+      failed: "참조 사본에 실패했습니다. 스크린샷과 DOM을 캡처하세요.",
+      loading: "참조 사본 로드 중…",
+      original: "원본 페이지 시도",
+    },
+
     sourceLoadFailed: "이 화면을 불러올 수 없습니다.",
     selectionPublishFailed:
       "에이전트가 최신 선택 영역을 보지 못할 수 있습니다. 다시 선택해 주세요.",
@@ -1087,6 +1118,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "레이어 선택",
+      layerKinds: {
+        webgl: "캔버스 · WebGL",
+        canvas: "캔버스",
+        video: "동영상",
+        image: "이미지",
+        svg: "SVG 그래픽",
+        embed: "임베드",
+        background: "배경",
+        effect: "효과",
+      },
       goToMain: "메인 컴포넌트로 이동",
       restore: "컴포넌트 복원",
       swap: "인스턴스 교체",
@@ -2105,6 +2146,7 @@ export default {
       applyAria: "보류 중인 시각 스타일 편집 적용",
       applyButton: "스타일 적용",
       applySharedEdits: "편집 내용 적용",
+      reviewSuggestion: "제안 검토",
       previewLabel: "보류 중인 시각 미리보기",
       applyDesignUpdates: "디자인 업데이트 적용",
       applying: "적용 중…",
@@ -2208,6 +2250,9 @@ export default {
       annotationSendError:
         "주석을 보낼 수 없습니다. 그림은 그대로 남아 있으니 다시 시도하세요.",
       codingHandoffError: "코딩 인계를 만들 수 없음",
+      unknownCollaborator: "공동 작업자",
+      supersededVisualEditSuggestion:
+        "{{authorEmail}}의 이전 제안이 대체되었습니다. 원문: {{text}}",
       visualEditPendingConflict:
         "다른 공동 작업자의 변경 사항이 적용 대기 중입니다. 새 변경 사항을 보내기 전에 적용하거나 지워 주세요.",
       codingHandoffCopied: "코딩 인계가 복사됨",
@@ -3425,6 +3470,10 @@ export default {
     markedUnread: "읽지 않음으로 표시했습니다",
     markUnreadFailed: "읽지 않음으로 표시하지 못했습니다",
     attachImage: "이미지 첨부",
+    removeImage: "이미지 제거",
+    imageUploadFailed: "이미지를 업로드할 수 없습니다",
+    editChanged:
+      "수정을 시작한 후 이 댓글이 변경되었습니다. 바꾸려면 다시 저장하세요.",
     searching: "검색 중…",
     reactionFailed: "리액션을 업데이트하지 못했습니다",
     moveFailed: "댓글을 이동하지 못했습니다",

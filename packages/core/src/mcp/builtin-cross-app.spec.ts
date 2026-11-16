@@ -158,6 +158,38 @@ async function reserveUnusedPort(): Promise<number> {
 }
 
 describe("open_app — same-app / standalone keeps a relative deep link", () => {
+  it("rejects unknown cross-app targets rather than returning a same-app path", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    await expect(
+      tools.open_app.run({ app: "missing-app", path: "/record/1" }),
+    ).rejects.toThrow(/unknown|unavailable/i);
+  });
+
+  it("opens a caller-scoped directory app using its registered base URL", async () => {
+    vi.spyOn(orgDirectory, "fetchOrgApps").mockResolvedValue([
+      {
+        id: "calendar",
+        name: "Calendar",
+        url: "https://calendar.example/base",
+        a2aUrl: "https://calendar.example/base/a2a",
+      },
+    ]);
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    await expect(
+      tools.open_app.run({ app: "calendar", path: "/event/1" }),
+    ).resolves.toMatchObject({
+      app: "calendar",
+      url: "https://calendar.example/base/event/1",
+    });
+  });
+
+  it("rejects unsafe paths rather than reporting a home-page success", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    await expect(
+      tools.open_app.run({ app: "mail", path: "https://outside.example/path" }),
+    ).rejects.toThrow(/path/i);
+  });
+
   it("returns a relative /_agent-native/open path for the current app", async () => {
     const tools = getBuiltinCrossAppTools(baseConfig());
     const result: any = await tools.open_app.run({
@@ -1329,7 +1361,7 @@ describe("ask_app — org-directory routing", () => {
         id: "calendar",
         name: "Calendar",
         url: "https://calendar.acme.com",
-        a2aUrl: "https://calendar.acme.com/_agent-native/a2a",
+        a2aUrl: "https://calendar.acme.com/agent/_agent-native/a2a",
       },
     ]);
     const auth = vi
@@ -1374,7 +1406,7 @@ describe("ask_app — org-directory routing", () => {
       },
     );
     expect(auth).toHaveBeenCalledWith({
-      audience: "https://calendar.acme.com",
+      audience: "https://calendar.acme.com/agent",
     });
     expect(send).toHaveBeenCalledOnce();
     expect(getTask).toHaveBeenCalledWith("peer-task");
@@ -1387,7 +1419,7 @@ describe("ask_app — org-directory routing", () => {
         id: "calendar",
         name: "Calendar",
         url: "https://calendar.acme.com",
-        a2aUrl: "https://calendar.acme.com/_agent-native/a2a",
+        a2aUrl: "https://calendar.acme.com/agent/_agent-native/a2a",
       },
     ]);
     const callAgentSpy = vi
@@ -1412,7 +1444,7 @@ describe("ask_app — org-directory routing", () => {
 
     expect(callAgentSpy).toHaveBeenCalledTimes(1);
     expect(callAgentSpy.mock.calls[0][0]).toBe(
-      "https://calendar.acme.com/_agent-native/a2a",
+      "https://calendar.acme.com/agent/_agent-native/a2a",
     );
     expect(callAgentSpy.mock.calls[0][2]).toMatchObject({
       apiKey: "signed-org-jwt",

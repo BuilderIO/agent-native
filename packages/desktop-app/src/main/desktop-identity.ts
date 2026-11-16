@@ -41,6 +41,9 @@ const DESKTOP_IDENTITY_APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const APP_SESSION_MINT_CONCURRENCY = 3;
 const APP_SESSION_MINT_MAX_ATTEMPTS = 3;
 const APP_SESSION_MINT_MAX_RETRY_DELAY_MS = 5_000;
+// Adoption's per-app step reads cookie stores that can stall; a slow valid
+// read must still finish, so this is far above the 10s status timeout.
+const ADOPTION_APP_STEP_DEADLINE_MS = 30_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -166,6 +169,15 @@ export type DesktopIdentityStatus =
   | "signed-in"
   | "sign-in-required"
   | "failed";
+
+// null means the signed-in account could not be read, which never matches.
+export function desktopIdentityOwnerKey(
+  status: DesktopIdentityStatus,
+  email: string | null,
+): string | null {
+  if (status !== "signed-in") return "no-account";
+  return email ? `account:${email}` : null;
+}
 
 export interface DesktopIdentityEnsureAppSessionOptions {
   preserveExistingSession?: boolean;
@@ -316,6 +328,10 @@ export interface DesktopIdentityBrokerOptions {
   reloadApp: (app: DesktopIdentityApp) => void;
   clearLocalBroker: () => Promise<void> | void;
   onStatus?: (status: DesktopIdentityStatus) => void;
+  // Fires only when the owner key changes from the one recorded at the last
+  // note (the broker's start state at first), including an email change that
+  // leaves the status at signed-in.
+  onOwnerChange?: (owner: string | null) => void;
   timeoutMs?: number;
   sessionCookieWaitMs?: number;
   statusRevalidationIntervalMs?: number;
@@ -534,6 +550,7 @@ export class DesktopIdentityBroker {
   private readonly appSessionMintWaiters: Array<() => void> = [];
   private status: DesktopIdentityStatus = "idle";
   private verifiedIdentityEmail: string | null = null;
+  private ownerKey = desktopIdentityOwnerKey("idle", null);
   private statusVerifiedAt = 0;
   private statusRevalidationRetryAt = 0;
   private ceremonyGeneration = 0;
@@ -598,6 +615,8 @@ export class DesktopIdentityBroker {
     const observedStatus = this.status;
     const observedGeneration = this.ceremonyGeneration;
     if (observedStatus === "signing-in") {
+      // An active adoption owns the signing-in status and its generation.
+      if (this.sessionAdoptionOperation) return;
       if (!authorityApp) return;
       let verifiedEmail: string | null = null;
       try {
@@ -703,6 +722,7 @@ export class DesktopIdentityBroker {
       skipAvailabilityProbe?: boolean;
       preserveStatus?: boolean;
       preserveExistingSession?: boolean;
+      deadlineMs?: number;
     } = {},
   ): Promise<boolean> {
     const pendingKey = this.pendingOperationKey(
@@ -715,29 +735,42 @@ export class DesktopIdentityBroker {
 
     const generation = this.ceremonyGeneration;
     const operation = this.queue.then(async () => {
-      if (options.waitForSignOut !== false) {
-        await this.signOutOperation;
-      }
-      await this.waitForActiveSessionCopies();
-      if (!this.isCeremonyCurrent(generation)) return false;
-      const app = this.options.resolveApp(appId);
-      if (!app) return false;
-      if (options.skipIfPresent) {
-        const hasExistingSession = await this.hasAppSession(app);
-        const alreadySynchronized = options.expectedSessionValue
-          ? await this.hasMatchingAppSession(app, options.expectedSessionValue)
-          : options.verifyExistingSession
-            ? await this.hasMatchingIdentitySession(app)
-            : hasExistingSession;
-        if (alreadySynchronized) {
-          await this.syncAlternateSessionCookies(app);
-          return true;
-        }
-        if (hasExistingSession) {
-          if (options.preserveExistingSession) return false;
-          await this.clearAppSessionCookies(app);
-        }
-      }
+      const prepared = await this.withStepDeadline(
+        appId,
+        options.deadlineMs,
+        async ({ expired, commit }) => {
+          if (options.waitForSignOut !== false) {
+            await this.signOutOperation;
+          }
+          await this.waitForActiveSessionCopies();
+          if (expired() || !this.isCeremonyCurrent(generation)) return false;
+          const app = this.options.resolveApp(appId);
+          if (!app) return false;
+          if (options.skipIfPresent) {
+            const hasExistingSession = await this.hasAppSession(app);
+            if (expired()) return false;
+            const alreadySynchronized = options.expectedSessionValue
+              ? await this.hasMatchingAppSession(
+                  app,
+                  options.expectedSessionValue,
+                )
+              : options.verifyExistingSession
+                ? await this.hasMatchingIdentitySession(app)
+                : hasExistingSession;
+            if (expired()) return false;
+            if (alreadySynchronized) {
+              await this.syncAlternateSessionCookies(app, { expired, commit });
+              return true;
+            }
+            if (hasExistingSession) {
+              if (options.preserveExistingSession || !commit()) return false;
+              await this.clearAppSessionCookies(app);
+            }
+          }
+          return "ceremony" as const;
+        },
+      );
+      if (prepared !== "ceremony") return prepared;
       return this.runCeremony(appId, generation, options);
     });
     this.queue = operation.then(
@@ -751,6 +784,52 @@ export class DesktopIdentityBroker {
       }
     });
     return operation;
+  }
+
+  // Bounds the reads and waits that precede a ceremony. When the deadline
+  // passes the step ends false so the operation queue moves on; the abandoned
+  // work must not change anything afterwards. The deadline only covers up to
+  // the first destructive write: `commit()` marks that point of no return and
+  // returns false if the deadline already passed. Once committed the step runs
+  // to its end, clear and replace, and the deadline no longer resolves it.
+  private async withStepDeadline<T>(
+    appId: string,
+    deadlineMs: number | undefined,
+    work: (step: {
+      expired: () => boolean;
+      commit: () => boolean;
+    }) => Promise<T>,
+  ): Promise<T | false> {
+    if (deadlineMs === undefined)
+      return work({ expired: () => false, commit: () => true });
+    let expired = false;
+    let committed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<false>((resolve) => {
+      timer = setTimeout(() => {
+        if (committed) return;
+        expired = true;
+        console.warn("[desktop identity] app session step timed out", {
+          appId,
+        });
+        resolve(false);
+      }, deadlineMs);
+    });
+    try {
+      return await Promise.race([
+        work({
+          expired: () => expired,
+          commit: () => {
+            if (expired) return false;
+            committed = true;
+            return true;
+          },
+        }),
+        deadline,
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   ensureAppSession(
@@ -2158,12 +2237,15 @@ export class DesktopIdentityBroker {
 
     const previousStatus = this.status;
     const previousStatusVerifiedAt = this.statusVerifiedAt;
+    const previousEmail = this.verifiedIdentityEmail;
     this.setStatus("signing-in");
     const restorePreviousStatus = () => {
       if (!this.isCeremonyCurrent(generation)) return;
       if (previousStatus === "signed-in") {
         this.status = previousStatus;
+        this.verifiedIdentityEmail = previousEmail;
         this.statusVerifiedAt = previousStatusVerifiedAt;
+        this.noteOwner();
         this.options.onStatus?.(previousStatus);
         return;
       }
@@ -2216,6 +2298,7 @@ export class DesktopIdentityBroker {
             interactive: false,
             preserveIdentitySession: true,
             waitForSignOut: false,
+            preserveStatus: true,
           });
       if (!authoritySucceeded || !this.isCeremonyCurrent(generation)) {
         await this.restoreIdentitySessionCookies(
@@ -2240,6 +2323,7 @@ export class DesktopIdentityBroker {
             waitForSignOut: false,
             skipAvailabilityProbe: true,
             preserveStatus: true,
+            deadlineMs: ADOPTION_APP_STEP_DEADLINE_MS,
           });
         } catch (error) {
           console.warn("[desktop identity] automatic app session failed", {
@@ -2501,6 +2585,7 @@ export class DesktopIdentityBroker {
           : null;
       if (verified && this.isCeremonyCurrent(requestGeneration)) {
         this.verifiedIdentityEmail = verified;
+        this.noteOwner();
       }
       return verified;
     } finally {
@@ -2846,12 +2931,17 @@ export class DesktopIdentityBroker {
 
   private async syncAlternateSessionCookies(
     app: DesktopIdentityApp,
+    step: { expired: () => boolean; commit: () => boolean } = {
+      expired: () => false,
+      commit: () => true,
+    },
   ): Promise<void> {
     const alternateOrigins = app.alternateOrigins ?? [];
     if (alternateOrigins.length === 0) return;
 
     const allowed = new Set(app.cookieNames);
     const cookies = await app.session.cookies.get({});
+    if (step.expired()) return;
     const sourceCookies = cookies.filter(
       (cookie) =>
         cookieMatchesOrigin(cookie, app.origin) && allowed.has(cookie.name),
@@ -2863,6 +2953,7 @@ export class DesktopIdentityBroker {
     }
 
     if (this.synchronizedAlternateSessionCookies.has(syncKey)) return;
+    if (!step.commit()) return;
 
     this.synchronizedAlternateSessionCookies.add(syncKey);
 
@@ -3640,6 +3731,17 @@ export class DesktopIdentityBroker {
     if (status !== "signed-in") this.verifiedIdentityEmail = null;
     this.statusVerifiedAt = status === "signed-in" ? Date.now() : 0;
     this.statusRevalidationRetryAt = 0;
+    this.noteOwner();
     if (changed) this.options.onStatus?.(status);
+  }
+
+  private noteOwner(): void {
+    const owner = desktopIdentityOwnerKey(
+      this.status,
+      this.verifiedIdentityEmail,
+    );
+    if (owner === this.ownerKey) return;
+    this.ownerKey = owner;
+    this.options.onOwnerChange?.(owner);
   }
 }

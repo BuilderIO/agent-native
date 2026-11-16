@@ -1458,9 +1458,25 @@ test.describe("public visual edit", () => {
         `/_agent-native/actions/get-visual-edit-collaboration?designId=${collaborationDesignId}`,
       ),
     );
-    expect(await saved.json()).toEqual({
+    const { shareUrl, ...collaboration } = await saved.json();
+    expect(collaboration).toEqual({
       designId: collaborationDesignId,
       enabled: true,
+      previews: [],
+    });
+    const share = new URL(shareUrl);
+    expect({
+      href: `${share.origin}${share.pathname}`,
+      params: Object.fromEntries(share.searchParams),
+    }).toEqual({
+      href: appUrl("/_agent-native/open"),
+      params: {
+        app: "design",
+        view: "editor",
+        to: `/visual-edit/${collaborationDesignId}?share=1&editorView=overview`,
+        designId: collaborationDesignId,
+        agentSidebar: "closed",
+      },
     });
   });
 

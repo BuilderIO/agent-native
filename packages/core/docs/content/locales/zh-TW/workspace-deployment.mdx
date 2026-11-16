@@ -166,6 +166,8 @@ npx @agent-native/core@latest deploy
 
 每次執行都會變動但不會影響建置的變數，例如 `PATH`、`PWD`、`npm_*` 和 `PNPM_*`，已經被排除在金鑰之外。如果部署環境自行加入了這類變數（例如執行 ID），請把它列在 `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` 中；結尾的 `*` 會比對前綴。其他變數都會計入，因此 `VITE_*` 或 `DATABASE_URL` 有變動會讓所有應用程式重新建置。
 
+將 `AGENT_NATIVE_BUILD_ID` 設為其提交的工作區，否則每次提交都會重新建置所有應用程式。啟用快取時，該變數不計入鍵，每個應用程式以從自身鍵衍生的 id（`content-…`）建置，因此未變更的應用程式在新提交上會還原相同的輸出。Netlify 回應仍在 `x-agent-native-build-sha` 中攜帶提交，並在 `x-agent-native-app-build-id` 中攜帶應用程式內建的 id。部署會將預期值寫入 `.netlify/agent-native-served-builds.json`，`@agent-native/core/deploy/served-build` 中的 `checkServedAppBuild` 會將線上回應與之比較。`DEPLOY_ID` 優先，並保留在鍵中。
+
 每次都從乾淨磁碟開始的託管建置器無法從快取中獲益。請在那裡設定 `AGENT_NATIVE_DEPLOY_CACHE=false`，以略過它在每次建置後進行的複製。
 
 ## 使用 Docker Compose 自行架設工作區 {#workspace-docker-compose}

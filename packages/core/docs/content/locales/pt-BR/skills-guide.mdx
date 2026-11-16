@@ -118,7 +118,7 @@ O domínio skills segue o mesmo formato do framework skills. Eles codificam padr
 
 ## skills com suporte de aplicativo {#app-backed-skills}
 
-As skills com suporte de app atuais incluem `visual-plan`, `visual-recap` e `visualize-repo` do Plan, `visual-edit` do Design, `assets` do Assets e `content` para edição docs/blog/MDX apoiada pelo repositório.
+As skills com suporte de app atuais incluem `visual-plan`, `visual-recap` e `visualize-repo` do Plan, `visual-edit` e `remix` do Design, `assets` do Assets e `content` para edição docs/blog/MDX apoiada pelo repositório.
 
 <Callout tone="info">
 
@@ -339,11 +339,14 @@ A visibilidade da habilidade controla o que é enviado:
 Hospedado é o caminho de instalação padrão. O lançamento local é explícito para personalização,
 trabalho off-line ou uso sensível à privacidade.
 
+`remix` também funciona diretamente no repositório sem Design: `/remix add the stripe hero animation to ours but make it blue`. Peça Design para selecionar visualmente na tela. O comportamento é reconstruído a partir de uma especificação com código próprio.
+
 ```bash
 # Caminho feliz: instruções exportadas mais conector MCP hospedado.
 npx @agent-native/core@latest skills add visual-plan
 npx @agent-native/core@latest skills add visualize-repo
 npx @agent-native/core@latest skills add visual-edit
+npx @agent-native/core@latest skills add remix
 npx @agent-native/core@latest skills add assets
 
 # Edição de Content docs/blog/MDX com repo como fonte primária.

@@ -285,9 +285,18 @@ export const listInvitationsHandler = lazyFunction(
 );
 export const createInvitationHandler: (typeof import("./handlers.js"))["createInvitationHandler"] =
   lazyFunction(loadOrgHandlers, "createInvitationHandler");
+export const inviteOrganizationAdmin: (typeof import("./invite-organization-admin.js"))["inviteOrganizationAdmin"] =
+  lazyFunction(
+    () => import("./invite-organization-admin.js"),
+    "inviteOrganizationAdmin",
+  );
 export const acceptInvitationHandler = lazyFunction(
   loadOrgHandlers,
   "acceptInvitationHandler",
+);
+export const cancelInvitationHandler = lazyFunction(
+  loadOrgHandlers,
+  "cancelInvitationHandler",
 );
 export const setA2ASecretHandler = lazyFunction(
   loadOrgHandlers,

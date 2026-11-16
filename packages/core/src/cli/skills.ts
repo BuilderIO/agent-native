@@ -53,6 +53,7 @@ import {
   CONNECTION_REFERENCE_MD,
   CONTENT_SKILL_MD,
   DESIGN_EXPLORATION_SKILL_MD,
+  DESIGN_REMIX_SKILL_MD,
   DESIGN_VISUAL_EDIT_SKILL_MD,
   DOCUMENT_QUALITY_REFERENCE_MD,
   EXEMPLAR_REFERENCE_MD,
@@ -289,6 +290,7 @@ export const BUILT_IN_APP_SKILLS = {
     skillName: "design-exploration",
     extraSkills: {
       "visual-edit": DESIGN_VISUAL_EDIT_SKILL_MD,
+      remix: DESIGN_REMIX_SKILL_MD,
     },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
@@ -317,6 +319,11 @@ export const BUILT_IN_APP_SKILLS = {
           action: "add-localhost-screens",
           path: "/design",
         },
+        {
+          id: "remix",
+          action: "add-localhost-screens",
+          path: "/design",
+        },
       ],
       skills: [
         {
@@ -328,6 +335,11 @@ export const BUILT_IN_APP_SKILLS = {
           path: "skills/visual-edit",
           visibility: "exported",
           exportAs: "visual-edit",
+        },
+        {
+          path: "skills/remix",
+          visibility: "exported",
+          exportAs: "remix",
         },
       ],
       hostAdapters: [
@@ -572,6 +584,8 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "visual-edit": "design",
   "local-visual-edit": "design",
   "design-visual-edit": "design",
+  remix: "design",
+  "design-remix": "design",
   "ux-exploration": "design",
   "agent-native-design": "design",
   "agent-native-design-exploration": "design",
@@ -617,6 +631,7 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "design-exploration",
     "visual-edit",
     "local-visual-edit",
+    "remix",
     "ux-exploration",
     "agent-native-design-exploration",
   ],
@@ -1049,6 +1064,9 @@ function builtInOnlySkillNames(target: string): string[] | undefined {
     normalized === "design-visual-edit"
   ) {
     return ["visual-edit"];
+  }
+  if (normalized === "remix" || normalized === "design-remix") {
+    return ["remix"];
   }
   return undefined;
 }
@@ -2610,6 +2628,11 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     value: "visual-edit",
     label: "visual-edit",
     hint: "Open a running local app in Design overview mode as URL-backed iframe screens.",
+  },
+  {
+    value: "remix",
+    label: "remix",
+    hint: "Rebuild part of another website in your site from Design, with live knobs.",
   },
   {
     value: "context-xray",

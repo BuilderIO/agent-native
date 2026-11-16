@@ -219,6 +219,13 @@ se aplican después de activar `AGENT_NATIVE_ENABLE_KEEP_WARM`:
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Desactiva keep-warm incluso cuando `AGENT_NATIVE_ENABLE_KEEP_WARM` está definida. Se mantiene por compatibilidad con configuraciones antiguas.                                                                                                                       |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Cambia la frecuencia del calentamiento con una expresión cron de 5 campos, como `*/5 * * * *`. El valor predeterminado es `* * * * *`, cada minuto. Un valor que no sea un cron válido **hace fallar la compilación**.                                               |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Omite el calentamiento de la función en segundo plano y sigue calentando la función del servidor. Calentar el servidor es una sola solicitud. Calentar la función en segundo plano inicia un contenedor nuevo que vuelve a comprobar el esquema de la base de datos. |
+| `AGENT_NATIVE_KEEP_WARM_CONCURRENCY`        | Solo workspaces multiaplicación: cuántas instancias del servidor mantiene calientes cada app, de 1 a 50. El valor predeterminado es `1`. Un valor fuera de ese rango **hace fallar el build**.                                                                       |
+
+### Workspaces multiaplicación {#netlify-workspace-keep-warm}
+
+Un despliegue de workspace lee las mismas variables. Con keep-warm activado, emite una función programada, `agent-native-workspace-keep-warm`, que llama al endpoint `/<app>/_agent-native/health` de cada app según el calendario.
+
+Una instancia de función de Netlify atiende una solicitud a la vez, y abrir una app envía una ráfaga de solicitudes paralelas del framework. Cada solicitud que no encuentra una instancia libre arranca una en frío, así que una sola instancia caliente apenas ayuda a cargar la página. Define `AGENT_NATIVE_KEEP_WARM_CONCURRENCY` para enviar esa cantidad de solicitudes de salud superpuestas por app, lo que mantiene calientes esas instancias. Cada ejecución envía `apps x concurrencia` solicitudes, así que combina un valor alto con un calendario más lento como `*/3 * * * *`.
 
 Si tu base de datos está en un plan gratuito o limitado de otra forma, deja
 `AGENT_NATIVE_ENABLE_KEEP_WARM` sin definir. Si lo activas, elige una programación más lenta

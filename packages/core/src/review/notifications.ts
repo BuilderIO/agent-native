@@ -135,6 +135,7 @@ async function deliverReviewCommentEmails(
     logLabel: LOG_LABEL,
     send: async (to) => {
       const wasMentioned = mentioned.has(to);
+      const excerpt = commentExcerpt(comment.body);
       const lead = wasMentioned
         ? `${emailStrong(actor)} mentioned you in a review comment on this ${label}.`
         : isReply
@@ -148,11 +149,9 @@ async function deliverReviewCommentEmails(
           : isReply
             ? "New reply in a review thread"
             : "New review comment",
-        // Paragraphs are HTML; the excerpt is the commenter's own text.
-        paragraphs: [
-          lead,
-          `"${escapeEmailHtml(commentExcerpt(comment.body))}"`,
-        ],
+        // Paragraphs are HTML; the excerpt is the commenter's own text. A
+        // comment that's only an image has none to quote.
+        paragraphs: excerpt ? [lead, `"${escapeEmailHtml(excerpt)}"`] : [lead],
         cta: { label: "Open review", url },
         footer:
           "You received this because you own, were mentioned in, or participated in this review thread.",

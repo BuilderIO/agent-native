@@ -513,7 +513,8 @@ function SecretCard({
           ? t(SOURCE_LABEL_KEY[secret.source])
           : null;
       return (
-        <span className="flex items-center gap-1 text-[10px] text-green-500">
+        // guard:allow-raw-color — no success token exists; green-500 on a light card is 2.2:1, below the 4.5:1 text floor
+        <span className="flex items-center gap-1 text-[10px] text-green-700 dark:text-green-500">
           <IconCheck size={10} />
           {sourceLabel ? `Set · ${sourceLabel}` : "Set"}
         </span>

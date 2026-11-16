@@ -9,10 +9,12 @@ import { fileURLToPath, pathToFileURL } from "url";
 
 import { fetch as fetchWithProxy } from "undici";
 
+import { resolveWorkspaceAppPaths } from "../deploy/workspace-app-paths.js";
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
+import { readAgentNativeJsonConfig } from "../vite/agent-native-config-loader.js";
 import {
   noteCreateCancelled,
   noteCreateProject,
@@ -211,7 +213,7 @@ export async function runCreateCommand(
     opts = { ...opts, inPlace: true };
   }
 
-  const workspace = detectWorkspace(process.cwd());
+  const workspace = opts?.standalone ? null : detectWorkspace(process.cwd());
   const parsed = parseTemplateList(opts?.template);
   noteCreateTemplates(parsed);
   const requestedCommunityTemplate =
@@ -248,7 +250,7 @@ export async function runCreateCommand(
     return;
   }
   const installedApps = workspace
-    ? listInstalledApps(workspace.workspaceRoot)
+    ? await listInstalledApps(workspace.workspaceRoot)
     : [];
   const requestedApps = parsed.filter(
     (template) =>
@@ -413,14 +415,14 @@ export async function createApp(
     assertValidProjectName(name, clack);
   }
 
-  const workspace = detectWorkspace(process.cwd());
-  if (workspace) {
-    await addAppToWorkspace(name, opts);
+  if (opts?.standalone) {
+    await createStandaloneApp(name, opts, clack);
     return;
   }
 
-  if (opts?.standalone) {
-    await createStandaloneApp(name, opts, clack);
+  const workspace = detectWorkspace(process.cwd());
+  if (workspace) {
+    await addAppToWorkspace(name, opts);
     return;
   }
 
@@ -688,7 +690,12 @@ async function createWorkspaceInteractive(
           ? `Downloading ${titleCase(appName)} template (${i + 1}/${templates.length})...`
           : `Scaffolding ${titleCase(appName)} (${i + 1}/${templates.length})...`,
       );
-      const appDir = path.join(targetDir, "apps", appName);
+      const { appsDir, includes } = await scaffoldWorkspaceAppPaths(targetDir);
+      if (!includes(appName))
+        throw new Error(
+          `App name ${appName} does not match workspace appInclude`,
+        );
+      const appDir = path.join(appsDir, appName);
       const resolution = await scaffoldAppTemplate(
         appDir,
         templateName,
@@ -855,7 +862,8 @@ async function scaffoldWorkspaceRoot(
   rewriteCoreDependencyVersions(corePackageDir);
   setupAgentSymlinks(corePackageDir);
 
-  fs.mkdirSync(path.join(targetDir, "apps"), { recursive: true });
+  const { appsDir } = await scaffoldWorkspaceAppPaths(targetDir);
+  fs.mkdirSync(appsDir, { recursive: true });
 
   linkWorkspaceRootSkills(targetDir);
   setupAgentSymlinks(targetDir);
@@ -907,7 +915,7 @@ export async function addAppToWorkspace(
 
   clack.intro("Add an app to your workspace");
 
-  const installed = listInstalledApps(workspace.workspaceRoot);
+  const installed = await listInstalledApps(workspace.workspaceRoot);
 
   const preselected = parseTemplateList(opts?.template);
   if (preselected.includes("headless")) {
@@ -1020,7 +1028,11 @@ async function scaffoldOneAppIntoWorkspace(
   validateWorkspaceAppName(appName, clack, {
     allowDispatch: appName === "dispatch" && templateName === "dispatch",
   });
-  const appsDir = path.join(workspace.workspaceRoot, "apps");
+  const { appsDir, includes } = await scaffoldWorkspaceAppPaths(
+    workspace.workspaceRoot,
+  );
+  if (!includes(appName))
+    throw new Error(`App name ${appName} does not match workspace appInclude`);
   fs.mkdirSync(appsDir, { recursive: true });
   const appDir = path.join(appsDir, appName);
 
@@ -1445,14 +1457,17 @@ async function scaffoldAppTemplate(
     }
   }
 
-  if (!getTemplate(resolved)) {
+  const sourceTemplate = templateSourceName(resolved);
+  const localTemplate = findLocalTemplate(sourceTemplate);
+  if (
+    !getTemplate(resolved) &&
+    !isLocalWorkspaceTemplate(resolved, localTemplate)
+  ) {
     throw new Error(
       `Unknown template "${template}". Known first-party templates: ${allTemplateNames().join(", ")}. For a community template, use community:owner/repo.`,
     );
   }
 
-  const sourceTemplate = templateSourceName(resolved);
-  const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
     copyTemplateTree(localTemplate, targetDir);
     removeWorkspaceOnlyTemplateWiring(targetDir);
@@ -1525,6 +1540,26 @@ function localTemplateSourceKind(
 function templateSourceName(name: string): string {
   if (name === "starter") return "chat";
   return name;
+}
+
+function isLocalWorkspaceTemplate(
+  name: string,
+  templateDir: string | undefined,
+): boolean {
+  if (!templateDir) return false;
+  const registry = path.resolve(
+    templateDir,
+    "../../.agent-native/local-templates.json",
+  );
+  if (!fs.existsSync(registry)) return false;
+  const data = JSON.parse(fs.readFileSync(registry, "utf8"));
+  if (
+    !Array.isArray(data.templates) ||
+    !data.templates.every((entry: unknown) => typeof entry === "string")
+  ) {
+    throw new Error(`Invalid local template registry: ${registry}`);
+  }
+  return data.templates.includes(name);
 }
 
 function findLocalTemplate(name: string): string | undefined {
@@ -2489,12 +2524,23 @@ function parseTemplateList(input?: string): string[] {
     .filter(Boolean);
 }
 
-function listInstalledApps(workspaceRoot: string): string[] {
-  const appsDir = path.join(workspaceRoot, "apps");
+/**
+ * The CLI runs before a workspace has installed `@agent-native/core`, so it
+ * cannot import the TS config; the apps layout is read from agent-native.json.
+ */
+function scaffoldWorkspaceAppPaths(workspaceRoot: string) {
+  return resolveWorkspaceAppPaths(
+    workspaceRoot,
+    readAgentNativeJsonConfig(workspaceRoot),
+  );
+}
+
+async function listInstalledApps(workspaceRoot: string): Promise<string[]> {
+  const { appsDir, includes } = await scaffoldWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return [];
   return fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
+    .filter((e) => e.isDirectory() && includes(e.name))
     .map((e) => e.name);
 }
 
@@ -3206,7 +3252,7 @@ async function resolveCommunityTemplateSource(
     return { sourceDir: stagingDir, sourceIdentity };
   }
 
-  const workspaceApps = discoverCommunityWorkspaceApps(stagingDir);
+  const workspaceApps = await discoverCommunityWorkspaceApps(stagingDir);
   if (workspaceApps.length === 0) {
     throw new ValidationError(
       `Community workspace ${selection.repo} has no installable apps. Dispatch cannot be installed from a community workspace, and apps must directly depend on @agent-native/core.`,
@@ -3245,14 +3291,14 @@ interface DiscoveredCommunityWorkspaceApp extends CommunityWorkspaceAppOption {
   sourceIdentity: ScaffoldSourceIdentity;
 }
 
-function discoverCommunityWorkspaceApps(
+async function discoverCommunityWorkspaceApps(
   workspaceRoot: string,
-): DiscoveredCommunityWorkspaceApp[] {
-  const appsDir = path.join(workspaceRoot, "apps");
+): Promise<DiscoveredCommunityWorkspaceApp[]> {
+  const { appsDir, includes } = await scaffoldWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return [];
   return fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && includes(entry.name))
     .flatMap((entry): DiscoveredCommunityWorkspaceApp[] => {
       const appDir = path.join(appsDir, entry.name);
       const packagePath = path.join(appDir, "package.json");

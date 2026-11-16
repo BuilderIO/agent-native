@@ -35,6 +35,7 @@ import {
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { type MutationContext } from "./_database-row-mutation.js";
 import {
+  assertOrdinaryPropertySetupAllowed,
   runDatabaseSetupMutation,
   setupError,
   setupGuardSchema,
@@ -669,13 +670,7 @@ export async function runConfigureDocumentProperty(
         }
       : {}),
     apply: async (tx, context) => {
-      if (context.database.systemRole) {
-        setupError(
-          "SYSTEM_DATABASE_UNSUPPORTED",
-          "Ordinary property setup is unavailable for system databases.",
-          400,
-        );
-      }
+      assertOrdinaryPropertySetupAllowed(context.database);
       if (input.operation === "create") {
         const propertyId = nanoid();
         const definition = input.definition;
