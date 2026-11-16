@@ -2070,6 +2070,9 @@ export default {
     addTweaks: "बदलाव जोड़ें",
     addTweakControls: "ट्विक नियंत्रण जोड़ें",
     closeTweaks: "बदलाव बंद करें",
+    showFloatingTweaks: "फ़्लोटिंग बदलाव दिखाएँ",
+    collapseTweaks: "बदलाव संक्षिप्त करें",
+    expandTweaks: "बदलाव विस्तृत करें",
     tweaksHelp:
       "ट्वीक्स आधार डिज़ाइन पर लागू ब्रेकपॉइंट और स्थिति-विशिष्ट विज़ुअल ओवरराइड हैं। विरासत में मिले मान पर लौटने के लिए कंट्रोल रीसेट करें।",
     tweaksDocs: "और जानें।",
@@ -2322,6 +2325,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "ट्वीक्स कहीं और बदल दिए गए हैं। फिर से प्रयास करने से पहले डिज़ाइन रीफ़्रेश करें।",
+      tweakBaselineUnreadable:
+        "सहेजा गया tweak baseline पढ़ा नहीं जा सका। डिज़ाइन डेटा ठीक होने तक tweak बदलाव रोक दिए गए हैं.",
+      resetTweakBaseline: "आधार रीसेट करें",
       tweakSaveNotDurable:
         "ट्वीक्स अभी सहेजे नहीं गए हैं। इस टैब को खुला रखें और फिर से प्रयास करें।",
       undoSkippedConcurrentEdit:

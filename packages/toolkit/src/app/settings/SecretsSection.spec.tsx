@@ -190,6 +190,29 @@ describe("SecretsSection", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    ["light", "rgb(71, 57, 130)", "rgb(255, 255, 255)"],
+    ["dark", "rgb(245, 193, 193)", "rgb(11, 13, 20)"],
+  ])(
+    "uses the host's %s primary colors for saving a key",
+    async (_theme, background, foreground) => {
+      const themeStyles = document.createElement("style");
+      themeStyles.textContent = `.bg-primary { background-color: ${background}; } .text-primary-foreground { color: ${foreground}; }`;
+      document.head.appendChild(themeStyles);
+      try {
+        await act(async () => {
+          renderSecretsSection(root, "TAVILY_API_KEY");
+        });
+        const save = findButton("Save");
+        expect(save).toBeTruthy();
+        expect(getComputedStyle(save!).backgroundColor).toBe(background);
+        expect(getComputedStyle(save!).color).toBe(foreground);
+      } finally {
+        themeStyles.remove();
+      }
+    },
+  );
+
   it("fails a stalled secrets response and retries it", async () => {
     vi.useFakeTimers();
     const consoleError = vi

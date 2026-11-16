@@ -2111,6 +2111,9 @@ export default {
     addTweaks: "Ajouter des ajustements",
     addTweakControls: "Ajouter des contrôles de réglage",
     closeTweaks: "Fermer les réglages",
+    showFloatingTweaks: "Afficher les réglages flottants",
+    collapseTweaks: "Réduire les réglages",
+    expandTweaks: "Développer les réglages",
     tweaksHelp:
       "Les ajustements sont des surcharges visuelles propres aux points d’arrêt et aux états, superposées au design de base. Réinitialisez un contrôle pour revenir à la valeur héritée.",
     tweaksDocs: "En savoir plus.",
@@ -2378,6 +2381,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Les réglages ont été modifiés ailleurs. Actualisez le design avant de réessayer.",
+      tweakBaselineUnreadable:
+        "La référence enregistrée des réglages est illisible. Les modifications sont suspendues jusqu’à la réparation des données du design.",
+      resetTweakBaseline: "Réinitialiser la référence",
       tweakSaveNotDurable:
         "Les réglages ne sont pas encore enregistrés. Gardez cet onglet ouvert et réessayez.",
       undoSkippedConcurrentEdit:

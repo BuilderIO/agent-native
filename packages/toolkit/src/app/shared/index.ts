@@ -8,6 +8,7 @@ export * from "./ClientOnly.js";
 export * from "./CommandMenu.js";
 export * from "./import-cell-format.js";
 export * from "./DefaultSpinner.js";
+export * from "./document-title.js";
 export * from "./EnvironmentBadge.js";
 export * from "./ErrorBoundary.js";
 export * from "./LanguagePicker.js";

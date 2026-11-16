@@ -3576,6 +3576,70 @@ export async function resourceMove(
 }
 
 /**
+ * Move a database-backed resource while its identity, version, content, and
+ * metadata still match.
+ */
+export async function resourceMoveIfCurrent(
+  current: Resource,
+  newPath: string,
+): Promise<Resource | null> {
+  if (isWorkspaceResourceOwner(current.owner)) {
+    throw new Error(
+      "Workspace resources cannot be moved with resourceMoveIfCurrent",
+    );
+  }
+  if (
+    !newPath ||
+    newPath.startsWith("/") ||
+    newPath.includes("\\") ||
+    newPath.split("/").some((part) => !part || part === "." || part === "..") ||
+    /[\x00-\x1f\x7f]/.test(newPath)
+  ) {
+    throw new Error("Invalid resource path");
+  }
+  if (newPath === current.path) return null;
+
+  await ensureTable();
+
+  const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
+  let result: Awaited<ReturnType<DbExec["execute"]>>;
+  try {
+    result = await getDbExec().execute({
+      sql: `UPDATE resources SET path = ?, updated_at = ? WHERE id = ? AND owner = ? AND path = ? AND updated_at = ? AND content = ? AND metadata IS NOT DISTINCT FROM ? AND NOT EXISTS (SELECT 1 FROM resources AS destination WHERE destination.owner = resources.owner AND destination.path = ?) RETURNING *`,
+      args: [
+        newPath,
+        updatedAt,
+        current.id,
+        current.owner,
+        current.path,
+        current.updatedAt,
+        current.content,
+        current.metadata,
+        newPath,
+      ],
+    });
+  } catch (error) {
+    // A concurrent insert can win the destination's unique (owner, path) key
+    // after the statement snapshot; PostgreSQL then rejects this whole update.
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "23505"
+    ) {
+      return null;
+    }
+    throw error;
+  }
+
+  const row = result.rows[0];
+  if (!row) return null;
+  const moved = rowToResource(row);
+  emitResourceChange(moved.id, moved.path, moved.owner);
+  return moved;
+}
+
+/**
  * Which of `paths` already hold something a resource stored for `owner`
  * would land on if it moved there. For a local workspace file
  * (`localFiles`), that's a file on disk, found the way a write finds it, so

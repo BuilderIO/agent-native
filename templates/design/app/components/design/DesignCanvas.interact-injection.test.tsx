@@ -135,7 +135,7 @@ function scriptMarkers(html: string): string[] {
 }
 
 describe("DesignCanvas in Interact: a markup screen", () => {
-  it("carries the theme bridge and the links bridge, and no editor bridge", async () => {
+  it("carries the theme, links and tweaks bridges, and no editor bridge", async () => {
     await act(async () => root.render(canvas({ interactMode: true })));
 
     const srcdoc = previewIframe()?.getAttribute("srcdoc") ?? "";
@@ -150,6 +150,7 @@ describe("DesignCanvas in Interact: a markup screen", () => {
     ).toEqual([
       "<script data-agent-native-preview-theme-bridge>",
       "<script data-agent-native-interact-links-bridge>",
+      "<script data-agent-native-interact-tweaks-bridge>",
     ]);
   });
 

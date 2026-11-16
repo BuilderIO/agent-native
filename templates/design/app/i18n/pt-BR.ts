@@ -2097,6 +2097,9 @@ export default {
     addTweaks: "Adicionar ajustes",
     addTweakControls: "Adicionar controles de ajuste",
     closeTweaks: "Fechar ajustes",
+    showFloatingTweaks: "Mostrar ajustes flutuantes",
+    collapseTweaks: "Recolher ajustes",
+    expandTweaks: "Expandir ajustes",
     tweaksHelp:
       "Os ajustes são substituições visuais específicas de breakpoint e estado sobre o design base. Redefina um controle para voltar ao valor herdado.",
     tweaksDocs: "Saiba mais.",
@@ -2365,6 +2368,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Os ajustes foram alterados em outro lugar. Atualize o design antes de tentar novamente.",
+      tweakBaselineUnreadable:
+        "Não foi possível ler a referência salva dos ajustes. As alterações estão pausadas até que os dados do design sejam corrigidos.",
+      resetTweakBaseline: "Redefinir referência",
       tweakSaveNotDurable:
         "Os ajustes ainda não foram salvos. Mantenha esta aba aberta e tente novamente.",
       undoSkippedConcurrentEdit: "Desfazer ignorado — outra pessoa moveu isso",

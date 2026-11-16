@@ -99,6 +99,13 @@ const BUILD_GENERATED_APP_DIRS = [
   ".react-router",
 ];
 
+/**
+ * Files a deploy writes into the app after its build. A split build records
+ * the leg's build id here, so a persistent checkout would otherwise miss on
+ * every rebuild of an unchanged commit.
+ */
+const BUILD_GENERATED_APP_FILES = [".agent-native-app-build-id"];
+
 /** Variables that differ between runs without ever reaching a build output. */
 const VOLATILE_ENV_NAMES = new Set([
   "_",
@@ -155,6 +162,9 @@ const VOLATILE_ENV_NAMES = new Set([
   "LaunchInstanceID",
   "Apple_PubSub_Socket_Render",
   "AGENT_NATIVE_DEPLOY_CONCURRENCY",
+  // Split-build selectors choose which apps a leg builds; no app build reads them.
+  "AGENT_NATIVE_DEPLOY_ONLY_APPS",
+  "AGENT_NATIVE_DEPLOY_PREBUILT_APPS",
 ]);
 // Lowercase, compared case-insensitively.
 const VOLATILE_ENV_PREFIXES = [
@@ -325,6 +335,7 @@ function hashAppSource(workspaceRoot: string, appDirInput: string): string {
   const outputRoots = new Set([
     ...APP_BUILD_OUTPUT_PATHS.map((p) => p.split(path.sep)[0]),
     ...BUILD_GENERATED_APP_DIRS,
+    ...BUILD_GENERATED_APP_FILES,
   ]);
   const hash = crypto.createHash("sha256");
   const files = gitListFiles(rootReal, [appRel]).filter((file) => {

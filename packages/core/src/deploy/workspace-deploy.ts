@@ -150,6 +150,9 @@ const WORKSPACE_APPS_MANIFEST_DIR = ".agent-native";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH = "/_agent-native/google/callback";
 const VERCEL_OUTPUT_DIR = ".vercel/output";
+// A split leg's build id travels with its output; whatever moves a leg's
+// output between machines must carry this path too.
+const APP_BUILD_ID_FILE = ".agent-native-app-build-id";
 
 interface WorkspaceAppManifestEntry {
   id: string;
@@ -404,6 +407,9 @@ export async function runWorkspaceDeploy(
   const concurrency = workspaceBuildConcurrency();
   const runBuild: BuildRunner = opts.execFile ?? spawnBuild;
   const cacheConfig = getAppConfig().deployCache;
+  const selection = workspaceBuildSelection(apps, cacheConfig);
+  const toBuild =
+    selection.only ?? apps.filter((app) => !selection.prebuilt.has(app));
   const cache = cacheConfig.enabled
     ? createDeployCacheRuntime({
         dir: path.resolve(
@@ -423,7 +429,7 @@ export async function runWorkspaceDeploy(
   }
   const buildStartedAt = Date.now();
   const appBuildIds = new Map<string, string>();
-  await runWithConcurrency(apps, concurrency, async (app) => {
+  await runWithConcurrency(toBuild, concurrency, async (app) => {
     appBuildIds.set(
       app,
       await buildOneApp(
@@ -439,11 +445,28 @@ export async function runWorkspaceDeploy(
       ),
     );
   });
+  if (selection.only) {
+    for (const app of selection.only) {
+      fs.writeFileSync(
+        path.join(appsDir, app, APP_BUILD_ID_FILE),
+        appBuildIdFor(appBuildIds, app),
+      );
+    }
+  }
+  for (const app of selection.prebuilt) {
+    appBuildIds.set(app, readPrebuiltAppBuildId(appsDir, app));
+  }
   if (cache) {
     const { hits, misses, savedMs, verified } = cache.stats;
     console.log(
       `[workspace-deploy] Build cache: ${hits} hit, ${misses} miss${verified ? `, ${verified} verified by rebuild` : ""}; build phase ${((Date.now() - buildStartedAt) / 1000).toFixed(1)}s, ~${(savedMs / 1000).toFixed(1)}s saved`,
     );
+  }
+  if (selection.only) {
+    console.log(
+      `[workspace-deploy] Built ${selection.only.join(", ")} only; packaging is left to the job that assembles the workspace`,
+    );
+    return;
   }
   opts.onProgress?.({ step: "package" });
   // Copy in app order after all builds so shared outputs stay deterministic.
@@ -649,6 +672,18 @@ async function buildOneApp(
   return appBuildId;
 }
 
+/** The id a split leg recorded for its build; packaging a prebuilt app cannot recompute it. */
+function readPrebuiltAppBuildId(appsDir: string, app: string): string {
+  const file = path.join(appsDir, app, APP_BUILD_ID_FILE);
+  const id = fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : "";
+  if (!id) {
+    throw new Error(
+      `Expected ${APP_BUILD_ID_FILE} under ${path.join(appsDir, app)} but none existed. Build the app with AGENT_NATIVE_DEPLOY_ONLY_APPS so its build id is recorded.`,
+    );
+  }
+  return id;
+}
+
 function appBuildIdFor(appBuildIds: Map<string, string>, app: string): string {
   const id = appBuildIds.get(app);
   if (!id) throw new Error(`No build id was recorded for ${app}`);
@@ -671,6 +706,36 @@ type BuildRunner = (
   args: string[],
   options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" | "pipe" },
 ) => unknown;
+
+/**
+ * A workspace deploy can be split across machines: `onlyApps` builds just those
+ * apps and stops before packaging, and `prebuiltApps` packages apps whose build
+ * output was put back into the app directory. An id that is not an app of this
+ * workspace is an error, never an empty selection.
+ */
+function workspaceBuildSelection(
+  apps: string[],
+  config: {
+    onlyApps?: string[] | undefined;
+    prebuiltApps?: string[] | undefined;
+  },
+): { only: string[] | null; prebuilt: Set<string> } {
+  const only = config.onlyApps?.length ? config.onlyApps : null;
+  const prebuilt = config.prebuiltApps ?? [];
+  if (only && prebuilt.length > 0) {
+    throw new Error(
+      "AGENT_NATIVE_DEPLOY_ONLY_APPS and AGENT_NATIVE_DEPLOY_PREBUILT_APPS cannot both be set",
+    );
+  }
+  const known = new Set(apps);
+  const unknown = [...(only ?? []), ...prebuilt].filter((id) => !known.has(id));
+  if (unknown.length > 0) {
+    throw new Error(
+      `Deploy selection names ${unknown.map((id) => `"${id}"`).join(", ")}, which ${unknown.length === 1 ? "is" : "are"} not in this workspace (${apps.join(", ")})`,
+    );
+  }
+  return { only, prebuilt: new Set(prebuilt) };
+}
 
 function workspaceBuildConcurrency(): number {
   const raw = process.env.AGENT_NATIVE_DEPLOY_CONCURRENCY?.trim();
