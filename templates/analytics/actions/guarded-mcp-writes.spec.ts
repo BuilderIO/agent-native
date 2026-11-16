@@ -26,6 +26,10 @@ const harness = vi.hoisted(() => ({
   // Runs once, just before the next transaction opens: a peer's write that
   // lands after the action's reads and before its compare-and-swap.
   beforeNextTransaction: null as null | (() => Promise<void>),
+  // Runs once, just before an action's next own `getDashboard` read (the
+  // store's internal reads don't count): a peer's write that lands after the
+  // action's preflight.
+  beforeNextDashboardRead: null as null | (() => Promise<void>),
 }));
 
 vi.mock("../server/db/index.js", async () => ({
@@ -121,6 +125,20 @@ vi.mock("../server/lib/dashboard-collab-sync", async (importOriginal) => ({
   >()),
   queueDashboardCollabSync: async () => undefined,
 }));
+
+vi.mock("../server/lib/dashboards-store", async (importOriginal) => {
+  const store =
+    await importOriginal<typeof import("../server/lib/dashboards-store")>();
+  return {
+    ...store,
+    getDashboard: async (...args: Parameters<typeof store.getDashboard>) => {
+      const peer = harness.beforeNextDashboardRead;
+      harness.beforeNextDashboardRead = null;
+      if (peer) await peer();
+      return store.getDashboard(...args);
+    },
+  };
+});
 
 vi.mock("../server/lib/bigquery", () => ({
   dryRunQuery: async () => null,
@@ -243,6 +261,7 @@ beforeEach(async () => {
   harness.user = { email: ALICE, orgId: null };
   harness.shares.clear();
   harness.beforeNextTransaction = null;
+  harness.beforeNextDashboardRead = null;
 });
 
 afterEach(() => {
@@ -1126,6 +1145,74 @@ describe("write receipts", () => {
     expect(await everything()).toEqual(before);
   });
 
+  it("refuses a compose replay once the caller can no longer see the dashboard", async () => {
+    await seedComposedDashboard("d1");
+    harness.shares.set("dashboard:d1", new Map([[BOB, "editor"]]));
+    as(BOB);
+    const request = {
+      dashboardId: "d1",
+      metrics: ["signups-over-time"],
+      expectedUpdatedAt: SEED_AT,
+      idempotencyKey: newKey(),
+    };
+    const applied = await run(actions.compose, request);
+    expect(applied.writeReceipt.idempotency.result).toBe("applied");
+    const before = await everything();
+
+    harness.shares.clear();
+    await expect(run(actions.compose, request)).rejects.toMatchObject({
+      errorCode: "dashboard_not_found",
+      statusCode: 404,
+    });
+    expect(await everything()).toEqual(before);
+  });
+
+  it("checks access again before answering a failed write from a receipt", async () => {
+    await seedDashboard("d1");
+    harness.shares.set("dashboard:d1", new Map([[BOB, "editor"]]));
+    as(BOB);
+    const request = rename("d1", "Renamed", SEED_AT);
+    // A duplicate commits after this request's preflight, then Bob loses his
+    // share; this request's write then fails on the moved version.
+    harness.beforeNextTransaction = async () => {
+      await run(actions.renameDashboard, request);
+      harness.shares.clear();
+    };
+
+    await expect(run(actions.renameDashboard, request)).rejects.toMatchObject({
+      errorCode: "dashboard_not_found",
+      statusCode: 404,
+    });
+    expect(await rows("analytics_write_receipts")).toHaveLength(1);
+  });
+
+  it("answers a config duplicate that commits after its preflight with the receipt", async () => {
+    await seedDashboard("d1");
+    const request = {
+      dashboardId: "d1",
+      config: seedConfig("Renamed"),
+      expectedUpdatedAt: SEED_AT,
+      idempotencyKey: newKey(),
+    };
+    let first: any;
+    harness.beforeNextDashboardRead = async () => {
+      first = await run(actions.update, request);
+    };
+
+    const second = await run(actions.update, request);
+
+    expect(first.writeReceipt.idempotency.result).toBe("applied");
+    expect(second).toMatchObject({
+      replayed: true,
+      writeReceipt: {
+        receiptId: first.writeReceipt.receiptId,
+        idempotency: { result: "replayed" },
+      },
+    });
+    expect(await rows("analytics_write_receipts")).toHaveLength(1);
+    expect(await rows("dashboard_revisions")).toHaveLength(1);
+  });
+
   it("answers a concurrent duplicate with the committed receipt", async () => {
     await seedDashboard("d1");
     const request = rename("d1", "Renamed", SEED_AT);
@@ -1310,6 +1397,94 @@ describe("write receipts", () => {
     const ids = (await rows("analytics_write_receipts")).map((r) => r.id);
     expect(ids.filter((id) => id.startsWith("expired-"))).toHaveLength(10);
     expect(ids).toContain("recent");
+  });
+});
+
+describe("a no-op that a peer's identical change made", () => {
+  it("returns the stored record, not the one read before the lock", async () => {
+    await seedDashboard("d1");
+    await seedAnalysis("a1");
+
+    harness.beforeNextTransaction = async () => {
+      await run(actions.hideDashboard, { id: "d1", hidden: true }, IN_APP);
+    };
+    const dashboard = await run(
+      actions.hideDashboard,
+      { id: "d1", hidden: true },
+      IN_APP,
+    );
+    const [storedDashboard] = await rows("dashboards");
+    expect(storedDashboard.hidden_at).not.toBeNull();
+    expect(dashboard.hiddenAt).toBe(storedDashboard.hidden_at);
+
+    harness.beforeNextTransaction = async () => {
+      await run(actions.hideAnalysis, { id: "a1", hidden: true }, IN_APP);
+    };
+    const analysis = await run(
+      actions.hideAnalysis,
+      { id: "a1", hidden: true },
+      IN_APP,
+    );
+    let [storedAnalysis] = await rows("analyses");
+    expect(storedAnalysis.hidden_at).not.toBeNull();
+    expect(analysis.hiddenAt).toBe(storedAnalysis.hidden_at);
+
+    const { upsertAnalysis } = await import("../server/lib/dashboards-store");
+    const body = { ...analysisFields(), resultMarkdown: "# Findings v2" };
+    const ctx = { email: ALICE, orgId: null };
+    harness.beforeNextTransaction = async () => {
+      await upsertAnalysis("a1", body, ctx);
+    };
+    const saved = await upsertAnalysis("a1", body, ctx);
+    [storedAnalysis] = await rows("analyses");
+    expect(saved.resultMarkdown).toBe("# Findings v2");
+    expect(saved.updatedAt).toBe(storedAnalysis.updated_at);
+  });
+});
+
+describe("making a record visible again", () => {
+  it("claims an unowned record only when it unhides one", async () => {
+    await seedDashboard("d1");
+    await seedAnalysis("a1");
+    await client.query(`UPDATE dashboards SET owner_email = ''`);
+    await client.query(`UPDATE analyses SET owner_email = ''`);
+    harness.shares.set("dashboard:d1", new Map([[BOB, "viewer"]]));
+    harness.shares.set("analysis:a1", new Map([[BOB, "viewer"]]));
+    as(BOB);
+
+    await run(actions.hideDashboard, { id: "d1", hidden: false }, IN_APP);
+    await run(actions.hideAnalysis, { id: "a1", hidden: false }, IN_APP);
+    expect((await rows("dashboards"))[0].owner_email).toBe("");
+    expect((await rows("analyses"))[0].owner_email).toBe("");
+
+    await client.query(`UPDATE dashboards SET hidden_at = $1`, [SEED_AT]);
+    await client.query(`UPDATE analyses SET hidden_at = $1`, [SEED_AT]);
+    await run(actions.hideDashboard, { id: "d1", hidden: false }, IN_APP);
+    await run(actions.hideAnalysis, { id: "a1", hidden: false }, IN_APP);
+    expect((await rows("dashboards"))[0]).toMatchObject({
+      owner_email: BOB,
+      hidden_at: null,
+    });
+    expect((await rows("analyses"))[0]).toMatchObject({
+      owner_email: BOB,
+      hidden_at: null,
+    });
+  });
+
+  it("refuses to unarchive what a peer archived after the read", async () => {
+    await seedDashboard("d1");
+    // The read sees a visible dashboard, so no name lock is taken.
+    harness.beforeNextTransaction = async () => {
+      await run(actions.archive, { id: "d1", archived: true }, IN_APP);
+    };
+
+    await expect(
+      run(actions.archive, { id: "d1", archived: false }, IN_APP),
+    ).rejects.toMatchObject({
+      errorCode: "dashboard_conflict",
+      statusCode: 409,
+    });
+    expect((await rows("dashboards"))[0].archived_at).not.toBeNull();
   });
 });
 

@@ -26,6 +26,7 @@ import {
   createDashboardOutcome,
   DashboardConflictError,
   getDashboard,
+  isDashboardIdTaken,
   requireDashboardAccess,
   upsertDashboard,
   upsertDashboardWithRetryOutcome,
@@ -229,10 +230,13 @@ export default defineAction({
     });
     guard.requireKey();
     // Composing into an existing dashboard needs edit rights before any SQL
-    // is validated or run for it.
+    // is validated or run for it. Read before the preflight, so a duplicate
+    // that commits after this read fails the store's fence and is replayed.
     const existing = await getDashboard(args.dashboardId, ctx);
+    // Rechecked before a replay after a failed write, so it reads fresh: a
+    // dashboard the caller can no longer see is not a create.
     const replayed = await guard.preflight(async () => {
-      if (existing) {
+      if (await isDashboardIdTaken(args.dashboardId)) {
         await requireDashboardAccess(args.dashboardId, ctx, "editor");
       }
     });

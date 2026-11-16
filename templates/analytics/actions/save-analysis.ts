@@ -12,7 +12,7 @@ import {
 import { z } from "zod";
 
 import {
-  getAnalysis,
+  isAnalysisIdTaken,
   requireAnalysisAccess,
   upsertAnalysis,
 } from "../server/lib/dashboards-store";
@@ -224,8 +224,10 @@ export default defineAction({
     const external = actionContext?.caller === "mcp";
     if (external) guard.requireFence();
     const outcome = await guard.run(
+      // Rechecked before a replay after a failed write: an analysis the
+      // caller can no longer see is not a create.
       async () => {
-        if (external || (await getAnalysis(args.id, ctx))) {
+        if (external || (await isAnalysisIdTaken(args.id))) {
           await requireAnalysisAccess(args.id, ctx, "editor");
         }
       },

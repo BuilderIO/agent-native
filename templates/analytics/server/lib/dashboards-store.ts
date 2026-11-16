@@ -1939,6 +1939,22 @@ export async function requireDashboardAccess(
   return existing;
 }
 
+/**
+ * Whether any dashboard row has this id, whoever can see it. A write that may
+ * create a dashboard is a create only while its id is unclaimed; a dashboard
+ * the caller can no longer see still needs `requireDashboardAccess`.
+ */
+export async function isDashboardIdTaken(id: string): Promise<boolean> {
+  // guard:allow-unscoped — reads whether the id exists, never the row, so an
+  // unseen dashboard is refused by the access check instead of taken as new.
+  const rows = await getDb()
+    .select({ id: schema.dashboards.id })
+    .from(schema.dashboards)
+    .where(eq(schema.dashboards.id, id))
+    .limit(1);
+  return rows.length > 0;
+}
+
 export async function createDashboardRevisionSnapshot(
   dashboardId: string,
   ctx: AccessCtx,
@@ -2801,7 +2817,9 @@ export interface DashboardStatePlan {
     current: typeof schema.dashboards.$inferSelect,
   ) => Partial<typeof schema.dashboards.$inferInsert> | null;
   /** Whether the dashboard ends up listed under its name. */
-  becomesVisible?: (current: DashboardRecord) => boolean;
+  becomesVisible?: (
+    current: Pick<DashboardRecord, "archivedAt" | "hiddenAt">,
+  ) => boolean;
 }
 
 /**
@@ -2847,6 +2865,15 @@ export async function updateDashboardState(
     if (fence !== undefined && current.updatedAt !== fence) {
       throw new DashboardConflictError(id, current.updatedAt, fence);
     }
+    // The name lock was chosen from the read above. If a peer has since
+    // archived, hidden or renamed it, the name this would make visible was
+    // never checked.
+    if (
+      plan.becomesVisible?.(current) === true &&
+      (!lockName || current.title !== existing.title)
+    ) {
+      throw new DashboardConflictError(id, current.updatedAt, fence);
+    }
     const patch = plan.patch(current);
     if (!patch) {
       await guard.onCommit?.(tx, {
@@ -2854,7 +2881,9 @@ export async function updateDashboardState(
         after: current.updatedAt,
         changed: false,
       });
-      return null;
+      // The locked row, not the read above: a peer may have made this same
+      // change in between, and the caller must see that version.
+      return { row: current, changed: false };
     }
     const updated = await tx
       .update(schema.dashboards)
@@ -2880,10 +2909,10 @@ export async function updateDashboardState(
       after: row.updatedAt,
       changed: true,
     });
-    return row;
+    return { row, changed: true };
   });
-  if (!written) return existing;
-  const dashboard = rowToDashboard(written, existing.role);
+  const dashboard = rowToDashboard(written.row, existing.role);
+  if (!written.changed) return dashboard;
   recordScopedChange(
     "dashboards",
     "change",
@@ -2957,11 +2986,11 @@ export async function unhideDashboard(
     {
       role: "viewer",
       patch: (current) => {
+        // Unhide only needs view access, so it claims nothing visible.
+        if (!current.hiddenAt) return null;
         // An unowned cleanup dashboard becomes the unhider's.
         const claim = current.ownerEmail ? {} : { ownerEmail: ctx.email };
-        return current.hiddenAt || !current.ownerEmail
-          ? { hiddenAt: null, hiddenBy: null, ...claim }
-          : null;
+        return { hiddenAt: null, hiddenBy: null, ...claim };
       },
       becomesVisible: (current) => !!current.hiddenAt && !current.archivedAt,
     },
@@ -3428,6 +3457,18 @@ export async function requireAnalysisAccess(
   return existing;
 }
 
+/** `isDashboardIdTaken` for analyses. */
+export async function isAnalysisIdTaken(id: string): Promise<boolean> {
+  // guard:allow-unscoped — reads whether the id exists, never the row, so an
+  // unseen analysis is refused by the access check instead of taken as new.
+  const rows = await getDb()
+    .select({ id: schema.analyses.id })
+    .from(schema.analyses)
+    .where(eq(schema.analyses.id, id))
+    .limit(1);
+  return rows.length > 0;
+}
+
 export async function createAnalysisRevisionSnapshot(
   analysisId: string,
   ctx: AccessCtx,
@@ -3587,7 +3628,7 @@ export async function upsertAnalysis(
         expectedUpdatedAt,
       );
     }
-    const changed = await db.transaction(async (tx) => {
+    const unchanged = await db.transaction(async (tx) => {
       const stored = await lockAnalysisRow(tx, id, expectedUpdatedAt);
       const patch = analysisPatch(stored, body);
       if (!patch) {
@@ -3596,7 +3637,8 @@ export async function upsertAnalysis(
           after: stored.updatedAt,
           changed: false,
         });
-        return false;
+        // A peer may have saved this same body since the read above.
+        return stored;
       }
       const updatedAt = nextRecordVersion(stored.updatedAt);
       const updateResult = await tx
@@ -3622,9 +3664,9 @@ export async function upsertAnalysis(
         changed: true,
         revisionId,
       });
-      return true;
+      return null;
     });
-    if (!changed) return existing;
+    if (unchanged) return rowToAnalysis(unchanged, existing.role);
   } else {
     const createdAt = nowIso();
     await db.transaction(async (tx) => {
@@ -3937,7 +3979,7 @@ async function updateAnalysisState(
     throw new AnalysisConflictError(id, existing.updatedAt, fence);
   }
   const db = getDb();
-  const changed = await db.transaction(async (tx) => {
+  const unchanged = await db.transaction(async (tx) => {
     const stored = await lockAnalysisRow(tx, id, fence);
     const patch = plan.patch(stored);
     if (!patch) {
@@ -3946,7 +3988,8 @@ async function updateAnalysisState(
         after: stored.updatedAt,
         changed: false,
       });
-      return false;
+      // A peer may have made this same change since the read above.
+      return stored;
     }
     const updatedAt = nextRecordVersion(stored.updatedAt);
     const updateResult = await tx
@@ -3964,9 +4007,9 @@ async function updateAnalysisState(
       after: updatedAt,
       changed: true,
     });
-    return true;
+    return null;
   });
-  if (!changed) return existing;
+  if (unchanged) return rowToAnalysis(unchanged, existing.role);
   const [row] = await db
     .select()
     .from(schema.analyses)
@@ -4011,11 +4054,11 @@ export async function unhideAnalysis(
     {
       role: "viewer",
       patch: (current) => {
+        // Unhide only needs view access, so it claims nothing visible.
+        if (!current.hiddenAt) return null;
         // An unowned cleanup analysis becomes the unhider's.
         const claim = current.ownerEmail ? {} : { ownerEmail: ctx.email };
-        return current.hiddenAt || !current.ownerEmail
-          ? { hiddenAt: null, hiddenBy: null, ...claim }
-          : null;
+        return { hiddenAt: null, hiddenBy: null, ...claim };
       },
     },
     guard,

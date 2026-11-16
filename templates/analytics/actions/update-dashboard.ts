@@ -45,11 +45,11 @@ import {
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
   getDashboard,
+  isDashboardIdTaken,
   requireDashboardAccess,
   upsertDashboardOutcome,
   upsertDashboardWithRetryOutcome,
   DashboardConflictError,
-  type DashboardRecord,
   type DashboardUpsertOutcome,
 } from "../server/lib/dashboards-store";
 import { parseDemoDescriptor } from "../server/lib/demo-source";
@@ -1113,6 +1113,10 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
+  // Panel SQL arrives nested in `config` and `ops`, which core's raw-input
+  // gate doesn't match. It gets the checks mutate-dashboard's `code` gets
+  // (scope validation, then verification that returns counts and column
+  // names, never rows), so the two actions follow one policy.
   mcpTool: true,
   mcpApp: {
     compactCatalog: true,
@@ -1165,8 +1169,10 @@ export default defineAction({
     });
     guard.requireKey();
     guard.requireFence();
+    // Rechecked before a replay after a failed write, so it reads fresh: a
+    // dashboard the caller can no longer see is not a create.
     const replayed = await guard.preflight(async () => {
-      if (external || (await getDashboard(dashboardId, ctx))) {
+      if (external || (await isDashboardIdTaken(dashboardId))) {
         await requireDashboardAccess(dashboardId, ctx, "editor");
       }
     });
@@ -1182,20 +1188,25 @@ export default defineAction({
       const before = await getDashboard(dashboardId, ctx);
       if (before) await requireEditableDashboard(dashboardId, ctx, before);
       // The caller's fence names the version the config was built on; a
-      // stale one fails before the slow checks below.
+      // stale one fails before the slow checks below. `before` is read after
+      // the preflight, so the version it passed may be a duplicate of this
+      // request that committed since: answer with that request's receipt.
       if (
         before &&
         guard.expectedUpdatedAt !== undefined &&
         before.updatedAt !== guard.expectedUpdatedAt
       ) {
-        failDashboardConflict(
+        const conflict = new DashboardConflictError(
           dashboardId,
-          new DashboardConflictError(
-            dashboardId,
-            before.updatedAt,
-            guard.expectedUpdatedAt,
-          ).details,
+          before.updatedAt,
+          guard.expectedUpdatedAt,
         );
+        try {
+          return replayedResult(await guard.recover(conflict));
+        } catch (error) {
+          if (error !== conflict) throw error;
+          failDashboardConflict(dashboardId, conflict.details);
+        }
       }
       // A built-in's first saved copy isn't a new dashboard: it keeps its traffic.
       if (!before && !builtinDashboardIdFor(dashboardId)) {

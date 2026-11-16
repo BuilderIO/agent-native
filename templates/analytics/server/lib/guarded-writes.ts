@@ -27,7 +27,7 @@ const TARGET_NOUN: Record<GuardedTargetKind, string> = {
   "dashboard-folder": "dashboard folder",
 };
 
-export const IDEMPOTENCY_KEY_DESCRIPTION = `A new unique string for this write, such as a UUID. Required from external MCP clients. Resending the same key with the same arguments returns the first result (replayed: true) instead of writing again, even after later edits; the same key with different arguments fails with IDEMPOTENCY_KEY_REUSED. Retries are guaranteed to replay for ${WRITE_RECEIPT_RETRY_WINDOW_DAYS} days; receipts are deleted after ${WRITE_RECEIPT_RETENTION_DAYS} days.`;
+export const IDEMPOTENCY_KEY_DESCRIPTION = `A new unique string for this write, such as a UUID. Required from external MCP clients. Resending the same key with the same arguments returns the first write's receipt (replayed: true) instead of writing again, even after later edits; the same key with different arguments fails with IDEMPOTENCY_KEY_REUSED. Retries are guaranteed to replay for ${WRITE_RECEIPT_RETRY_WINDOW_DAYS} days; receipts are deleted after ${WRITE_RECEIPT_RETENTION_DAYS} days.`;
 
 export function expectedUpdatedAtDescription(record: string): string {
   return `The ${record}'s updatedAt from your last read, unchanged. Required from external MCP clients when changing an existing ${record}. If it has changed since, nothing is written and the call fails with a 409 whose details.currentRevision is the current updatedAt: read the ${record} again, redo the edit, and resend with that value.`;
@@ -168,6 +168,7 @@ export class GuardedWrite {
   readonly expectedUpdatedAt: string | undefined;
   private digest: string | undefined;
   private committed: WriteReceipt | undefined;
+  private authorize: (() => Promise<unknown>) | undefined;
 
   constructor(private readonly input: GuardedWriteInput) {
     this.idempotencyKey = input.idempotencyKey || undefined;
@@ -299,6 +300,7 @@ export class GuardedWrite {
     authorize: () => Promise<unknown>,
   ): Promise<WriteReplay | null> {
     if (this.idempotencyKey === undefined) return null;
+    this.authorize = authorize;
     await authorize();
     return this.replay();
   }
@@ -348,12 +350,17 @@ export class GuardedWrite {
 
   /**
    * After a write fails: the receipt a concurrent request with this key
-   * committed first, or the original error.
+   * committed first, or the original error. Access is checked again before
+   * that receipt is returned, since the caller may have lost it after
+   * `preflight`; without a `preflight` there is nothing to check with, so the
+   * error stands.
    */
   async replayAfterFailure(error: unknown): Promise<WriteReplay> {
+    if (!this.authorize) throw error;
     const replay = await this.replay();
-    if (replay) return replay;
-    throw error;
+    if (!replay) throw error;
+    await this.authorize();
+    return replay;
   }
 
   private keyFilter() {

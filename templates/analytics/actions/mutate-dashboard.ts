@@ -516,6 +516,12 @@ export default defineAction({
   }),
   agentInputSchema,
   mcpTool: true,
+  // Its operations can remove or replace panels.
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   // The MCP input gate matches the `code` field by name. It is the
   // constrained dashboard script, parsed and never evaluated; panel SQL in it
   // is validated and verified like every other agent write. Nothing else is
