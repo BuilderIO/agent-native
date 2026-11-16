@@ -33,6 +33,7 @@ import {
   type PMNode,
 } from "../nfm";
 import { legacyMarkdownToNfm } from "../notion-markdown";
+import { isExpiringFileUrl } from "./expiring-links";
 import {
   afterHiddenToken,
   HIDDEN_HTML_ELEMENTS,
@@ -41,7 +42,6 @@ import {
   tokenizeHtml,
   type HtmlToken,
 } from "./html-fragment";
-import { isExpiringFileUrl } from "./expiring-links";
 import { describeDataUrl, ImportNoteBag } from "./notes";
 import { classifyImportReference, type ImportReference } from "./paths";
 import type {
@@ -870,7 +870,7 @@ class MarkdownConverter {
       }
       if (
         this.asideCallouts &&
-        node.type === "html" &&
+        node?.type === "html" &&
         ASIDE_OPEN_RE.test(node.value)
       ) {
         const callout = this.aside(nodes, index);
@@ -1088,7 +1088,7 @@ class MarkdownConverter {
     let depth = 1;
     for (let index = start + 1; index < nodes.length; index++) {
       const node = nodes[index];
-      if (node.type !== "html") continue;
+      if (node?.type !== "html") continue;
       if (ASIDE_OPEN_RE.test(node.value)) depth += 1;
       else if (ASIDE_CLOSE_RE.test(node.value)) depth -= 1;
       if (depth > 0) continue;
@@ -2168,17 +2168,16 @@ function normalizeInline(nodes: readonly PMNode[]): PMNode[] {
  */
 function takeLeadingEmoji(blocks: PMNode[]): string | null {
   const first = blocks[0];
-  const text = first?.type === "paragraph" ? first.content?.[0] : undefined;
+  if (first?.type !== "paragraph") return null;
+  const [text, ...others] = first.content ?? [];
   if (text?.type !== "text" || !text.text) return null;
   const match = LEADING_EMOJI_RE.exec(text.text);
   if (!match) return null;
   const rest = text.text.slice(match[0].length);
-  const content = rest
-    ? [{ ...text, text: rest }, ...(first!.content ?? []).slice(1)]
-    : (first!.content ?? []).slice(1);
-  if (content.length) blocks[0] = { ...first!, content };
+  const content = rest ? [{ ...text, text: rest }, ...others] : others;
+  if (content.length) blocks[0] = { ...first, content };
   else blocks.shift();
-  return match[1];
+  return match[1] ?? null;
 }
 
 function withLeadingParagraph(blocks: PMNode[]): PMNode[] {

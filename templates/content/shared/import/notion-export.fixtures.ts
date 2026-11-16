@@ -70,7 +70,7 @@ export const NOTION_EXPORT_2026: ReadonlyArray<
       "---",
       "",
       "```tsx",
-      "const greeting: string = \"hi\";",
+      'const greeting: string = "hi";',
       "console.log(greeting);",
       "```",
       "",
@@ -106,11 +106,7 @@ export const NOTION_EXPORT_2026: ReadonlyArray<
   },
   {
     path: "Import fixture 2026/Notes 41a7b5df817a815ebd71f728dc757fb7.md",
-    text: [
-      "# Notes",
-      "",
-      "First page called Notes.",
-    ].join("\n"),
+    text: ["# Notes", "", "First page called Notes."].join("\n"),
   },
   {
     path: "Import fixture 2026/Q&A what why 100% [draft] #1 41a7b5df817a810ebabef9b04e31be1e.md",
@@ -144,32 +140,31 @@ export const NOTION_EXPORT_2026: ReadonlyArray<
   },
   {
     path: "Import fixture 2026/Subpage A/Notes 41a7b5df817a814283e6d8a82716bf57.md",
-    text: [
-      "# Notes",
-      "",
-      "Second page called Notes, under Subpage A.",
-    ].join("\n"),
+    text: ["# Notes", "", "Second page called Notes, under Subpage A."].join(
+      "\n",
+    ),
   },
   {
     path: "Import fixture 2026/Subpage A/orange.png",
-    base64: "iVBORw0KGgoAAAANSUhEUgAAADAAAAAgCAIAAADbtmxLAAAAOElEQVR4nO3OQQ0AMAgEMOQgdmKRgIsdjyYV0JrXp1R8ICQkJJQeCAkJCaUHQkJCQumBkJDQ/A0tfNHYiLcGLSQAAAAASUVORK5CYII=",
+    base64:
+      "iVBORw0KGgoAAAANSUhEUgAAADAAAAAgCAIAAADbtmxLAAAAOElEQVR4nO3OQQ0AMAgEMOQgdmKRgIsdjyYV0JrXp1R8ICQkJJQeCAkJCaUHQkJCQumBkJDQ/A0tfNHYiLcGLSQAAAAASUVORK5CYII=",
   },
   {
     path: "Import fixture 2026/Tasks 41a7b5df817a81db89cadaff27c5100b.csv",
     text: [
       "\uFEFFName,Done,Due,Estimate,Link,Status,Tags",
-      "Write the importer,No,\"November 20, 2026\",3,https://example.com/a,In progress,Import",
-      "Review the preview,No,,1,,Not started,\"Docs, Import\"",
-      "Ship it,Yes,\"November 30, 2026\",0.5,,Done,",
+      'Write the importer,No,"November 20, 2026",3,https://example.com/a,In progress,Import',
+      'Review the preview,No,,1,,Not started,"Docs, Import"',
+      'Ship it,Yes,"November 30, 2026",0.5,,Done,',
     ].join("\r\n"),
   },
   {
     path: "Import fixture 2026/Tasks 41a7b5df817a81db89cadaff27c5100b_all.csv",
     text: [
       "\uFEFFName,Done,Due,Estimate,Link,Status,Tags",
-      "Write the importer,No,\"November 20, 2026\",3,https://example.com/a,In progress,Import",
-      "Review the preview,No,,1,,Not started,\"Docs, Import\"",
-      "Ship it,Yes,\"November 30, 2026\",0.5,,Done,",
+      'Write the importer,No,"November 20, 2026",3,https://example.com/a,In progress,Import',
+      'Review the preview,No,,1,,Not started,"Docs, Import"',
+      'Ship it,Yes,"November 30, 2026",0.5,,Done,',
     ].join("\r\n"),
   },
   {
@@ -216,10 +211,12 @@ export const NOTION_EXPORT_2026: ReadonlyArray<
   },
   {
     path: "Import fixture 2026/spec_sheet.pdf",
-    base64: "JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCjIgMCBvYmo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iagozIDAgb2JqPDwvVHlwZS9QYWdlL1BhcmVudCAyIDAgUi9NZWRpYUJveFswIDAgMjAwIDEwMF0vQ29udGVudHMgNCAwIFIvUmVzb3VyY2VzPDwvRm9udDw8L0YxIDUgMCBSPj4+Pj4+ZW5kb2JqCjQgMCBvYmo8PC9MZW5ndGggNDQ+PnN0cmVhbQpCVCAvRjEgMTggVGYgMjAgNTAgVGQgKEZpeHR1cmUgUERGKSBUaiBFVAplbmRzdHJlYW0gZW5kb2JqCjUgMCBvYmo8PC9UeXBlL0ZvbnQvU3VidHlwZS9UeXBlMS9CYXNlRm9udC9IZWx2ZXRpY2E+PmVuZG9iagp0cmFpbGVyPDwvUm9vdCAxIDAgUj4+CiUlRU9GCg==",
+    base64:
+      "JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCjIgMCBvYmo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iagozIDAgb2JqPDwvVHlwZS9QYWdlL1BhcmVudCAyIDAgUi9NZWRpYUJveFswIDAgMjAwIDEwMF0vQ29udGVudHMgNCAwIFIvUmVzb3VyY2VzPDwvRm9udDw8L0YxIDUgMCBSPj4+Pj4+ZW5kb2JqCjQgMCBvYmo8PC9MZW5ndGggNDQ+PnN0cmVhbQpCVCAvRjEgMTggVGYgMjAgNTAgVGQgKEZpeHR1cmUgUERGKSBUaiBFVAplbmRzdHJlYW0gZW5kb2JqCjUgMCBvYmo8PC9UeXBlL0ZvbnQvU3VidHlwZS9UeXBlMS9CYXNlRm9udC9IZWx2ZXRpY2E+PmVuZG9iagp0cmFpbGVyPDwvUm9vdCAxIDAgUj4+CiUlRU9GCg==",
   },
   {
     path: "Import fixture 2026/teal_square.png",
-    base64: "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAe0lEQVR4nO3PwQkAIBDAMEdxat83qkP4CEKhA6Rrz/m6xQUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0MB4xMvABQitYTyq7HEFAAAAAElFTkSuQmCC",
+    base64:
+      "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAe0lEQVR4nO3PwQkAIBDAMEdxat83qkP4CEKhA6Rrz/m6xQUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0MB4xMvABQitYTyq7HEFAAAAAElFTkSuQmCC",
   },
 ];

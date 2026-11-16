@@ -48,7 +48,11 @@ const ATTACHMENT_MEDIA_TYPES = new Map([
   ["csv", "text/csv"],
 ]);
 
-export type ImportFileKind = "markdown" | "image" | "attachment" | "unsupported";
+export type ImportFileKind =
+  | "markdown"
+  | "image"
+  | "attachment"
+  | "unsupported";
 
 /**
  * Why a file in the import did not become a page or an uploaded file. Every
@@ -382,16 +386,15 @@ function chooseParent(
 ): string | null {
   const importing = candidates.filter((candidate) => drafts.has(candidate));
   if (importing.length < 2) return importing[0] ?? null;
-  return (
-    importing.find((candidate) =>
-      drafts
-        .get(candidate)!
-        .slots.some(
-          (slot) =>
-            slot.reference.kind === "relative" && slot.reference.path === path,
-        ),
-    ) ?? importing[0]!
+  const linking = importing.find((candidate) =>
+    drafts
+      .get(candidate)
+      ?.slots.some(
+        (slot) =>
+          slot.reference.kind === "relative" && slot.reference.path === path,
+      ),
   );
+  return linking ?? importing[0] ?? null;
 }
 
 /**

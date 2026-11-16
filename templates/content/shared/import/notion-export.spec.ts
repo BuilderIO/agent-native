@@ -2,13 +2,13 @@ import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 
 import type { PMDoc, PMNode } from "../nfm";
-import { NOTION_EXPORT_2026 } from "./notion-export.fixtures";
 import {
   isNotionExport,
   notionFileTitle,
   planNotionExport,
   prepareNotionMarkdown,
 } from "./notion-export";
+import { NOTION_EXPORT_2026 } from "./notion-export.fixtures";
 import {
   finalizePlannedPage,
   importFileKind,
@@ -18,7 +18,8 @@ import {
 import { readImportZip } from "./zip";
 
 const ROOT = "Import fixture 2026 41a7b5df817a81eca183d7914fa51067.md";
-const SUBPAGE_A = "Import fixture 2026/Subpage A 41a7b5df817a81eca545c5de112bc497.md";
+const SUBPAGE_A =
+  "Import fixture 2026/Subpage A 41a7b5df817a81eca545c5de112bc497.md";
 const GRANDCHILD =
   "Import fixture 2026/Subpage A/Grandchild 41a7b5df817a81909b58f1928827a074.md";
 const NOTES = "Import fixture 2026/Notes 41a7b5df817a815ebd71f728dc757fb7.md";
@@ -26,7 +27,8 @@ const SUBPAGE_NOTES =
   "Import fixture 2026/Subpage A/Notes 41a7b5df817a814283e6d8a82716bf57.md";
 const QA =
   "Import fixture 2026/Q&A what why 100% [draft] #1 41a7b5df817a810ebabef9b04e31be1e.md";
-const TASKS_CSV = "Import fixture 2026/Tasks 41a7b5df817a81db89cadaff27c5100b.csv";
+const TASKS_CSV =
+  "Import fixture 2026/Tasks 41a7b5df817a81db89cadaff27c5100b.csv";
 const TASKS_ALL_CSV =
   "Import fixture 2026/Tasks 41a7b5df817a81db89cadaff27c5100b_all.csv";
 
@@ -205,9 +207,11 @@ describe("Notion export import", () => {
   });
 
   it("names a page by its file when its text has no title", () => {
-    expect(notionFileTitle("Folder/Meeting notes 41a7b5df817a815ebd71f728dc757fb7.md")).toBe(
-      "Meeting notes",
-    );
+    expect(
+      notionFileTitle(
+        "Folder/Meeting notes 41a7b5df817a815ebd71f728dc757fb7.md",
+      ),
+    ).toBe("Meeting notes");
     expect(notionFileTitle("Folder/plain.md")).toBe("plain");
     const { pages } = planMarkdownPages({
       markdown: [

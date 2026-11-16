@@ -117,7 +117,10 @@ export function splitReferenceSuffix(reference: string): {
     }
     at = reference.indexOf("#", at + 1);
   }
-  if (end > first && FILE_EXTENSION_RE.test(safeDecode(reference.slice(0, end)))) {
+  if (
+    end > first &&
+    FILE_EXTENSION_RE.test(safeDecode(reference.slice(0, end)))
+  ) {
     return { path: reference.slice(0, end), suffix: reference.slice(end) };
   }
   return { path: reference.slice(0, first), suffix: reference.slice(first) };

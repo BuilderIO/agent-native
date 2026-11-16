@@ -7,21 +7,28 @@ import {
   isActionContractError,
 } from "@agent-native/core/action";
 import {
+  deletePrivateBlob,
+  isPrivateBlobConfiguredForRequest,
+  putPrivateBlob,
+} from "@agent-native/core/private-blob";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import {
   deleteUploadedFile,
   type FileUploadResult,
   getActiveFileUploadProviderForRequest,
   uploadFile,
 } from "@agent-native/core/file-upload";
 import {
-  deletePrivateBlob,
-  isPrivateBlobConfiguredForRequest,
-  putPrivateBlob,
-} from "@agent-native/core/private-blob";
-import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+  deletePrivateMedia,
+  PrivateMediaStorageUnavailableError,
+  PrivateMediaValidationError,
+  putPrivateMedia,
+} from "@agent-native/core/private-media";
 import { captureError } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
+import { resolveContentSpaceAccess } from "../../actions/_content-space-access.js";
 import { resolveContentSpaceTarget } from "../../actions/_content-space-target.js";
 import createDocument, {
   withinDocumentCreation,
@@ -60,6 +67,7 @@ import {
   type ImportPageStatus,
 } from "../../shared/import/types.js";
 import { docToNfm, nfmToDoc } from "../../shared/nfm.js";
+import { privateMediaPath } from "../../shared/private-media.js";
 import { getDb, schema } from "../db/index.js";
 import { requireDocumentRequestActor } from "./document-attribution.js";
 import { recordDocumentHistoryTransition } from "./document-history.js";
@@ -146,12 +154,14 @@ export async function runContentImport(
     rows: database.rows.length,
     csvKept: usedAssetPaths.has(database.keptCsvPath),
   }));
-  const needsServerUpload = planned.some((page) =>
-    page.uploads.some((request) => request.kind !== "file"),
+  // Originals and images go to private storage. A PDF or CSV a page links
+  // goes to file storage at a public URL: private storage holds images only.
+  const needsFileStorage = [...usedAssetPaths].some(
+    (path) => assets.get(path)?.kind === "attachment",
   );
   const storageReady =
     (await isPrivateBlobConfiguredForRequest()) &&
-    (!needsServerUpload ||
+    (!needsFileStorage ||
       Boolean(await getActiveFileUploadProviderForRequest()));
 
   if (args.dryRun) {
@@ -213,11 +223,19 @@ export async function runContentImport(
     planned.map((page) => [page.path, importPageId(importId, page.path)]),
   );
 
-  // Embedded images and files behind signed links, which the server uploads.
-  // A signed link that couldn't be fetched maps to null and stays a link.
-  const serverUploads = new Map<string, FileUploadResult | null>();
+  // Embedded images and files behind signed links, which the server stores.
+  // A signed link that couldn't be stored maps to null and stays a link.
+  const serverUploads = new Map<string, ServerUpload | null>();
   const usedUploads = new Set<string>();
   const pages: ImportContentPageResult[] = [];
+  // Read once, on the first image the server stores.
+  let mediaOrgId: string | null | undefined;
+  const importedPagesOrg = async () => {
+    if (mediaOrgId === undefined) {
+      mediaOrgId = await importedPagesOrgId(destination);
+    }
+    return mediaOrgId;
+  };
   try {
     // Every new page is filled in and measured before any is created: image
     // urls and page links only exist now, and can make a page longer than its
@@ -229,11 +247,15 @@ export async function runContentImport(
         if (request.kind === "file") continue;
         const key = assetKey(request);
         if (serverUploads.has(key)) continue;
+        const owner = { ownerEmail: actor, orgId: await importedPagesOrg() };
         serverUploads.set(
           key,
           request.kind === "data-url"
-            ? await uploadDataUrl(request, actor)
-            : await uploadExpiringFile(request, actor),
+            ? await uploadDataUrl(request, {
+                ...owner,
+                sourceName: sourceFile(markdown, page.path).name,
+              })
+            : await uploadExpiringFile(request, owner),
         );
       }
       const filled = finalizePlannedPage(page, {
@@ -287,9 +309,9 @@ export async function runContentImport(
         requestSha256,
         destination,
         // Pages come parents first, so an imported parent exists by now.
-        parentId: page.parentPath
-          ? pageIds.get(page.parentPath)!
-          : destination.parentId,
+        parentId:
+          (page.parentPath && pageIds.get(page.parentPath)) ||
+          destination.parentId,
         sourceFormat: notion ? "notion-export" : "markdown",
         source: sourceFile(markdown, page.path),
         page: filled,
@@ -429,19 +451,22 @@ async function incompleteImportError(
   const reason = contract
     ? error.message
     : "The server hit an unexpected error.";
-  return new ActionContractError(
-    `${landed}: ${reason} Import again with the same idempotencyKey to finish, or undo-content-import to move the imported pages to Trash.`,
-    {
-      errorCode: "IMPORT_INCOMPLETE",
-      statusCode: contract ? error.statusCode : 500,
-      details: {
-        importId: input.importId,
-        documentIds,
-        documentIdsComplete,
-        cause: contract ? error.errorCode : "unexpected",
-      },
+  // The same key carries the same image, so importing again with it can't
+  // get past a bad one.
+  const next =
+    contract && error.errorCode === "IMPORT_IMAGE_INVALID"
+      ? "Use undo-content-import to move the imported pages to Trash, then import the fixed files with a new idempotencyKey."
+      : "Import again with the same idempotencyKey to finish, or undo-content-import to move the imported pages to Trash.";
+  return new ActionContractError(`${landed}: ${reason} ${next}`, {
+    errorCode: "IMPORT_INCOMPLETE",
+    statusCode: contract ? error.statusCode : 500,
+    details: {
+      importId: input.importId,
+      documentIds,
+      documentIdsComplete,
+      cause: contract ? error.errorCode : "unexpected",
     },
-  );
+  });
 }
 
 async function resolveImportDestination(
@@ -559,10 +584,51 @@ function importImageUrl(file: ImportContentFileInput): string {
   });
 }
 
+/**
+ * A file the server stored for the import: an image in private storage, or a
+ * PDF in file storage at a public URL, since private storage holds images
+ * only.
+ */
+type ServerUpload =
+  | { url: string; mediaId: string }
+  | { url: string; file: FileUploadResult };
+
+interface UploadOwner {
+  ownerEmail: string;
+  orgId: string | null;
+}
+
+/**
+ * The workspace the imported pages join, as create-document picks it, so
+ * their embedded images are filed under the same one.
+ */
+async function importedPagesOrgId(
+  destination: ImportContentResult["destination"],
+): Promise<string | null> {
+  if (destination.parentId) {
+    const access = await assertAccess(
+      "document",
+      destination.parentId,
+      "editor",
+    );
+    return (access.resource as { orgId?: string | null }).orgId ?? null;
+  }
+  const access = await resolveContentSpaceAccess(
+    destination.spaceId,
+    "contributor",
+  );
+  return access.space.orgId;
+}
+
+/**
+ * Stores an embedded image privately. Nothing links it yet, so only the
+ * importer can load it until create-document binds it to the page whose body
+ * links it, and the page's readers can load it from then on.
+ */
 async function uploadDataUrl(
   request: Extract<ImportAssetRequest, { kind: "data-url" }>,
-  ownerEmail: string,
-): Promise<FileUploadResult> {
+  input: UploadOwner & { sourceName: string },
+): Promise<ServerUpload> {
   const data = dataUrlBytes(request.dataUrl);
   // The preview reports an embedded image with no payload, or one that won't
   // decode, as missing, so only a planning bug sends one here.
@@ -570,37 +636,89 @@ async function uploadDataUrl(
     throw new Error(`An embedded ${request.mediaType} image won't decode`);
   }
   const extension = request.mediaType.split("/")[1]?.split("+")[0] ?? "img";
-  const uploaded = await uploadFile({
-    data,
-    filename: `imported-image.${extension}`,
-    mimeType: request.mediaType,
-    ownerEmail,
-  });
-  if (!uploaded?.url) storageUnavailable();
-  return uploaded;
+  try {
+    const media = await putPrivateMedia({
+      ownerEmail: input.ownerEmail,
+      orgId: input.orgId,
+      data,
+      mimeType: request.mediaType,
+      filename: `imported-image.${extension}`,
+    });
+    return { mediaId: media.id, url: privateMediaPath(media.id) };
+  } catch (error) {
+    if (error instanceof PrivateMediaStorageUnavailableError) {
+      storageUnavailable();
+    }
+    // The preview checks the type and size but not the bytes, which must be
+    // the image the data URL says they are.
+    if (error instanceof PrivateMediaValidationError) {
+      fail(
+        `An embedded image in ${input.sourceName} can't be stored: ${error.message} Replace or remove it, then import again.`,
+        { errorCode: "IMPORT_IMAGE_INVALID", statusCode: error.statusCode },
+      );
+    }
+    throw error;
+  }
 }
 
 /**
- * Uploads the file a signed Notion link names, so the page keeps it once the
- * link lapses. A file that can't be fetched, is too large, or isn't an image
- * or PDF stays linked as written, and the page's report says so. The link
- * itself is never logged: its signature lets anyone fetch the file.
+ * Stores the file a signed Notion link names, so the page keeps it once the
+ * link lapses: an image privately, as embedded images are, and a PDF in file
+ * storage. A file that can't be fetched or stored, is too large, or isn't an
+ * image or PDF stays linked as written, and the page's report says so.
  */
 async function uploadExpiringFile(
   request: Extract<ImportAssetRequest, { kind: "remote" }>,
-  ownerEmail: string,
-): Promise<FileUploadResult | null> {
+  owner: UploadOwner,
+): Promise<ServerUpload | null> {
   const filename = expiringFileLabel(request.url);
+  const fetched = await fetchExpiringFile(request.url, filename);
+  if (!fetched) return null;
+  const { data, mimeType } = fetched;
+  try {
+    if (mimeType === "application/pdf") {
+      const file = await uploadFile({
+        data,
+        filename,
+        mimeType,
+        ownerEmail: owner.ownerEmail,
+      });
+      return file?.url ? { url: file.url, file } : null;
+    }
+    const media = await putPrivateMedia({ ...owner, data, mimeType, filename });
+    return { mediaId: media.id, url: privateMediaPath(media.id) };
+  } catch (error) {
+    if (error instanceof PrivateMediaStorageUnavailableError) {
+      storageUnavailable();
+    }
+    // Bytes that aren't the image the file names, for one, leave the link.
+    console.error(
+      `[content] Imported file ${filename} could not be stored:`,
+      error instanceof Error ? error.name : "unknown error",
+    );
+    return null;
+  }
+}
+
+/**
+ * The image or PDF a signed link names, within the size limit, or null. The
+ * link itself is never logged: its signature lets anyone fetch the file.
+ */
+async function fetchExpiringFile(
+  url: string,
+  filename: string,
+): Promise<{ data: Uint8Array; mimeType: string } | null> {
   try {
     const response = await ssrfSafeFetch(
-      request.url,
+      url,
       { signal: AbortSignal.timeout(30_000) },
       { httpsOnly: true, maxRedirects: 3 },
     );
-    const declared = (response.headers.get("content-type") ?? "")
-      .split(";")[0]!
-      .trim()
-      .toLowerCase();
+    const declared =
+      (response.headers.get("content-type") ?? "")
+        .split(";")[0]
+        ?.trim()
+        .toLowerCase() ?? "";
     // Storage often serves a file as octet-stream; its name says what it is.
     const mimeType = keptFileType(declared)
       ? declared
@@ -616,8 +734,7 @@ async function uploadExpiringFile(
       await response.body?.cancel().catch(() => {});
       return null;
     }
-    const uploaded = await uploadFile({ data, filename, mimeType, ownerEmail });
-    return uploaded?.url ? uploaded : null;
+    return { data, mimeType };
   } catch (error) {
     console.error(
       `[content] Imported file ${filename} could not be fetched from its signed link:`,
@@ -655,25 +772,28 @@ async function readAtMost(
 }
 
 /**
- * Files the server uploaded for a page this attempt didn't create, because
- * the page failed or another attempt with the key created it first. Nothing
+ * Files the server stored for a page this attempt didn't create, because the
+ * page failed or another attempt with the key created it first. Nothing
  * points at them, so they go; a failed delete is logged, never thrown over the
  * import's own result.
  */
 async function deleteUnusedUploads(
-  uploads: ReadonlyMap<string, FileUploadResult | null>,
+  uploads: ReadonlyMap<string, ServerUpload | null>,
   used: ReadonlySet<string>,
 ): Promise<void> {
   for (const [key, upload] of uploads) {
     if (!upload || used.has(key)) continue;
     try {
-      const deleted = await deleteUploadedFile(upload.provider, {
-        url: upload.url,
-        id: upload.id,
-      });
+      const deleted =
+        "mediaId" in upload
+          ? await deletePrivateMedia(upload.mediaId)
+          : await deleteUploadedFile(upload.file.provider, {
+              url: upload.file.url,
+              id: upload.file.id,
+            });
       if (!deleted) {
         console.error(
-          `[content] Unused imported file ${upload.url} was not deleted: the provider kept it`,
+          `[content] Unused imported file ${upload.url} was not deleted: ${"mediaId" in upload ? "it was already gone" : "the provider kept it"}`,
         );
       }
     } catch (error) {

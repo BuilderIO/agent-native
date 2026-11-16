@@ -58,7 +58,11 @@ import { useImportContent, useUndoContentImport } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 
 import { FileStorageStatusGate } from "./FileStorageStatusGate";
-import { uploadImageFile, uploadLinkedFile } from "./image-upload";
+import {
+  ImageStorageUnavailableError,
+  uploadImageFile,
+  uploadLinkedFile,
+} from "./image-upload";
 import { uploadPickedImages } from "./import-image-uploads";
 
 const IMPORT_APP_STATE_KEY = "content-import";
@@ -250,9 +254,18 @@ async function readImportFiles(sources: ImportSource[]) {
   return { payload, skipped, markdownBytes };
 }
 
-function uploadImportSource(source: ImportSource): Promise<string> {
+/**
+ * An image is stored privately, filed under the page the import starts from;
+ * each imported page that links one makes it its own on creation. A PDF or
+ * CSV goes to file storage at a public URL, as the editor's video and audio
+ * uploads do, because private storage holds images only.
+ */
+function uploadImportSource(
+  source: ImportSource,
+  parentId: string,
+): Promise<string> {
   return importFileKind(source.name) === "image"
-    ? uploadImageFile(source.file)
+    ? uploadImageFile(source.file, { documentId: parentId })
     : uploadLinkedFile(source.file);
 }
 
@@ -491,7 +504,7 @@ export function ContentImportDialog({
           return file ? [file] : [];
         }),
         imageUploads.current,
-        uploadImportSource,
+        (source) => uploadImportSource(source, parentId),
       );
       const result = await importContent.mutateAsync({
         files: payload.map((file) =>
@@ -544,8 +557,9 @@ export function ContentImportDialog({
       });
     } catch (importError) {
       if (
+        importError instanceof ImageStorageUnavailableError ||
         (importError as { errorCode?: unknown } | null)?.errorCode ===
-        "IMPORT_STORAGE_UNAVAILABLE"
+          "IMPORT_STORAGE_UNAVAILABLE"
       ) {
         setPhase("previewing");
         setPlan({ ...plan, storageReady: false });

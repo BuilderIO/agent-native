@@ -373,7 +373,7 @@ export async function uploadAudioFile(file: File): Promise<string> {
 
 /**
  * Uploads a PDF or CSV an imported page links to, to the workspace's file
- * storage at a public URL, as imported images go.
+ * storage at a public URL. Private storage holds images only.
  */
 export async function uploadLinkedFile(file: File): Promise<string> {
   return uploadMediaFile(file, "file");

@@ -195,7 +195,8 @@ function inflate(
 function isArchiveLitter(path: string): boolean {
   const segments = path.split("/");
   return (
-    segments.includes("__MACOSX") || segments[segments.length - 1] === ".DS_Store"
+    segments.includes("__MACOSX") ||
+    segments[segments.length - 1] === ".DS_Store"
   );
 }
 

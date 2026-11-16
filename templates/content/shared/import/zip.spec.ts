@@ -6,7 +6,7 @@ import { IMPORT_ZIP_LIMITS, ImportZipError, readImportZip } from "./zip";
 async function zipOf(files: Record<string, string | Uint8Array>) {
   const zip = new JSZip();
   for (const [name, data] of Object.entries(files)) zip.file(name, data);
-  return zip.generateAsync({ type: "uint8array" });
+  return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
 }
 
 async function zipError(
@@ -29,21 +29,23 @@ describe("Import zip reader", () => {
       }),
     );
 
-    expect(
-      entries.map((entry) => [entry.path, entry.data.byteLength]),
-    ).toEqual([
-      ["Export/Page.md", 6],
-      ["Export/images/logo.png", 3],
-    ]);
+    expect(entries.map((entry) => [entry.path, entry.data.byteLength])).toEqual(
+      [
+        ["Export/Page.md", 6],
+        ["Export/images/logo.png", 3],
+      ],
+    );
     expect(skipped).toEqual([]);
   });
 
   it("refuses a path that climbs out or starts at the root, by name", async () => {
+    // JSZip reads paths that climb out to the same file name, so each one
+    // here names a different file.
     const { entries, skipped } = await readImportZip(
       await zipOf({
         "../escape.md": "# Out",
         "/etc/passwd.md": "# Root",
-        "safe/../../escape.md": "# Out again",
+        "safe/../../away.md": "# Out again",
         "kept.md": "# Kept",
       }),
     );
@@ -52,7 +54,7 @@ describe("Import zip reader", () => {
     expect(skipped).toEqual([
       { name: "../escape.md", reason: "invalid-name" },
       { name: "/etc/passwd.md", reason: "invalid-name" },
-      { name: "safe/../../escape.md", reason: "invalid-name" },
+      { name: "safe/../../away.md", reason: "invalid-name" },
     ]);
   });
 
@@ -103,8 +105,8 @@ describe("Import zip reader", () => {
   });
 
   it("names a file that isn't a zip as unreadable", async () => {
-    expect(
-      (await zipError(new TextEncoder().encode("# Not a zip"))).code,
-    ).toBe("unreadable");
+    expect((await zipError(new TextEncoder().encode("# Not a zip"))).code).toBe(
+      "unreadable",
+    );
   });
 });

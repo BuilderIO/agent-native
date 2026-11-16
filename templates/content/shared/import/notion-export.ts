@@ -20,9 +20,9 @@ function notionName(path: string): NotionName | null {
   const file = path.slice(path.lastIndexOf("/") + 1);
   const base = file.replace(/\.[^./]+$/, "");
   const match = NOTION_NAME_RE.exec(base);
-  return match
-    ? { title: match[1]!.trim(), id: match[2]!.toLowerCase(), all: !!match[3] }
-    : null;
+  if (!match) return null;
+  const [, title = "", id = "", all] = match;
+  return { title: title.trim(), id: id.toLowerCase(), all: Boolean(all) };
 }
 
 function folderOf(path: string): string {
@@ -82,8 +82,9 @@ export function planNotionExport(paths: readonly string[]): NotionExportPlan {
   // Folder a page's subpages sit in → the pages it could belong to.
   const pageFolders = new Map<string, string[]>();
   for (const page of pages) {
+    const name = notionName(page);
+    if (!name) continue;
     const folder = folderOf(page);
-    const name = notionName(page)!;
     for (const key of new Set([
       withoutExtension(page),
       joinPath(folder, name.title),
@@ -100,8 +101,8 @@ export function planNotionExport(paths: readonly string[]): NotionExportPlan {
   const csvs = paths.filter((path) => /\.csv$/i.test(path) && notionName(path));
   const csvSet = new Set(csvs);
   for (const csv of csvs) {
-    const name = notionName(csv)!;
-    if (name.all) continue;
+    const name = notionName(csv);
+    if (!name || name.all) continue;
     const folder = folderOf(csv);
     const all = joinPath(folder, `${name.title} ${name.id}_all.csv`);
     const allPath = [...csvSet].find(
@@ -123,8 +124,8 @@ export function planNotionExport(paths: readonly string[]): NotionExportPlan {
   }
   // An `_all` CSV whose view CSV is missing still names a database.
   for (const csv of csvs) {
-    const name = notionName(csv)!;
-    if (!name.all || [...csvAliases.values()].includes(csv)) continue;
+    const name = notionName(csv);
+    if (!name?.all || [...csvAliases.values()].includes(csv)) continue;
     const folder = folderOf(csv);
     const rowFolders = [
       joinPath(folder, `${name.title} ${name.id}`),
@@ -208,7 +209,7 @@ export function prepareNotionMarkdown(text: string): {
 
   if (/^# \S/.test(lines[0] ?? "") && lines[1] === "") {
     let end = 2;
-    while (end < lines.length && PROPERTY_LINE_RE.test(lines[end]!)) end++;
+    while (end < lines.length && PROPERTY_LINE_RE.test(lines[end] ?? "")) end++;
     const count = end - 2;
     // One `Word: text` line under a title is as likely a sentence as a
     // property, so it stays on the page.
@@ -216,7 +217,7 @@ export function prepareNotionMarkdown(text: string): {
       for (const line of lines.slice(2, end)) {
         notes.push({
           kind: "properties-not-shown",
-          sample: PROPERTY_LINE_RE.exec(line)![1]!.trim(),
+          sample: PROPERTY_LINE_RE.exec(line)?.[1]?.trim() ?? line,
         });
       }
       lines.splice(2, end === lines.length ? count : count + 1);
@@ -226,7 +227,7 @@ export function prepareNotionMarkdown(text: string): {
   const out: string[] = [];
   let fence: string | null = null;
   for (let index = 0; index < lines.length; index++) {
-    const line = lines[index]!;
+    const line = lines[index] ?? "";
     const run = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
     if (fence) {
       if (run?.startsWith(fence)) fence = null;
@@ -249,7 +250,7 @@ export function prepareNotionMarkdown(text: string): {
       continue;
     }
     if (/^\s*<\/aside>\s*$/i.test(line)) {
-      if (out.length && out[out.length - 1]!.trim()) out.push("");
+      if (out[out.length - 1]?.trim()) out.push("");
       out.push(line);
       continue;
     }
