@@ -49,6 +49,7 @@ describe("useShareVisibilityTransition resource locks", () => {
       resourceId: "a",
       current: "private",
       orgId: null,
+      confirmOrgVisibility: true,
       canManage: true,
       active: true,
       apply: vi.fn(),
@@ -60,6 +61,78 @@ describe("useShareVisibilityTransition resource locks", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("saves private to organization at once for a type that does not ask", async () => {
+    const apply = vi.fn(async () => undefined);
+    render({ apply, confirmOrgVisibility: false });
+
+    await act(async () => {
+      await transition.request("org");
+    });
+
+    expect(apply).toHaveBeenCalledWith("org");
+    expect(transition.pending).toBeNull();
+  });
+
+  it("holds private to organization for a type that asks", () => {
+    const apply = vi.fn(async () => undefined);
+    render({ apply });
+
+    act(() => {
+      void transition.request("org");
+    });
+
+    expect(apply).not.toHaveBeenCalled();
+    expect(transition.pending).toMatchObject({ from: "private", to: "org" });
+  });
+
+  it("refuses a visibility change while a role save runs", async () => {
+    const role = deferred();
+    const apply = vi.fn(async () => undefined);
+    render({ current: "public", apply, confirmOrgVisibility: false });
+    let saved!: Promise<void>;
+    act(() => {
+      saved = transition.runExclusive(() => role.promise);
+    });
+    expect(transition.submitting).toBe(true);
+
+    await expect(transition.request("private")).rejects.toMatchObject({
+      name: "ShareVisibilityNotSavedError",
+      reason: "ignored",
+    });
+    expect(apply).not.toHaveBeenCalled();
+
+    await act(async () => {
+      role.resolve();
+      await saved;
+    });
+    expect(transition.submitting).toBe(false);
+  });
+
+  it("refuses a role save while a visibility change runs", async () => {
+    const visibility = deferred();
+    render({
+      current: "public",
+      apply: () => visibility.promise,
+      confirmOrgVisibility: false,
+    });
+    let changed!: Promise<void>;
+    act(() => {
+      changed = transition.request("private");
+    });
+    const save = vi.fn(async () => undefined);
+
+    await expect(transition.runExclusive(save)).rejects.toMatchObject({
+      name: "ShareVisibilityNotSavedError",
+      reason: "ignored",
+    });
+    expect(save).not.toHaveBeenCalled();
+
+    await act(async () => {
+      visibility.resolve();
+      await changed;
+    });
   });
 
   it.each(["org", "private"] as const)(

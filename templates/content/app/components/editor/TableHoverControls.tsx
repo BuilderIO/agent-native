@@ -1332,7 +1332,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 value={selectedColumnColor}
               />
               <DropdownMenuItem
-                className="gap-2"
                 onSelect={() =>
                   editAtCell((tr, table, cell) =>
                     insertTableColumn(tr, table, cell.left),
@@ -1342,7 +1341,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 {t("database.insertLeft")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="gap-2"
                 onSelect={() =>
                   editAtCell((tr, table, cell) =>
                     insertTableColumn(tr, table, cell.right),
@@ -1352,20 +1350,18 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 {t("database.insertRight")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="gap-2"
                 onSelect={() => duplicateColumn(getSelectedCellElement())}
               >
                 {t("database.duplicate")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="gap-2"
                 onSelect={() => clearColumnContents(getSelectedCellElement())}
               >
                 {t("database.clearColumn")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                className="gap-2 text-destructive focus:text-destructive"
+                className="text-destructive focus:text-destructive"
                 onSelect={() =>
                   editAtCell((tr, table, cell) => {
                     if (
@@ -1466,7 +1462,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 value={selectedRowColor}
               />
               <DropdownMenuItem
-                className="gap-2"
                 onSelect={() =>
                   editAtCell((tr, table, cell) =>
                     insertTableRow(tr, table, cell.top),
@@ -1476,7 +1471,6 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 {t("database.insertAbove")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="gap-2"
                 onSelect={() =>
                   editAtCell((tr, table, cell) =>
                     insertTableRow(tr, table, cell.bottom),
@@ -1486,20 +1480,18 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 {t("database.insertBelow")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="gap-2"
                 onSelect={() => duplicateRow(getSelectedCellElement())}
               >
                 {t("database.duplicate")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="gap-2"
                 onSelect={() => clearRowContents(getSelectedCellElement())}
               >
                 {t("database.clearRow")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                className="gap-2 text-destructive focus:text-destructive"
+                className="text-destructive focus:text-destructive"
                 onSelect={() =>
                   editAtCell((tr, table, cell) => {
                     if (

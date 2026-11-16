@@ -3,12 +3,41 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-09
+
+### Improved
+
+- More save failures now say why, such as being offline or lacking permission.
+
+## 2026-11-08
+
+### Improved
+
+- Hovering an email action shows its name and shortcut, and keys now follow Superhuman: Space pages, X selects, Enter replies all in an open email, ? asks the agent, and Shift+U opens Unread.
+
+## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
+
+## 2026-11-04
+
+### Improved
+
+- The agent finds the right Mail action more often when you describe a task in your own words, such as auto-archive rules or send later.
+
 ## 2026-11-03
 
 ### Improved
 
 - Opening Gmail messages is faster.
 - Opening Gmail threads is faster.
+
+### Fixed
+
+- Closing a draft addressed to a saved group no longer shows a "Failed to save draft" error.
+- AI rule backfills now wait out Gmail rate limits and retry instead of failing right after you create or edit a rule.
 
 ## 2026-11-02
 

@@ -1,3 +1,4 @@
+import { BROWSER_TAB_QUERY_PARAM } from "../shared/browser-tab-url.js";
 import {
   appBasePath,
   isWorkspaceRuntime,
@@ -43,6 +44,47 @@ function generate(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// A page opened through `/_agent-native/open` arrives with the tab ID the
+// route wrote its `navigate` command under. Take it once and drop it from the
+// URL, so a copied link doesn't give a second tab the same ID.
+function takeIdFromUrl(): string | null {
+  // A stubbed or non-browser window can lack a location.
+  const { location } = window as Partial<Window>;
+  const href = location?.href;
+  if (!href || !URL.canParse(href)) return null;
+  const url = new URL(href);
+  const id = url.searchParams.get(BROWSER_TAB_QUERY_PARAM);
+  if (id === null) return null;
+  url.searchParams.delete(BROWSER_TAB_QUERY_PARAM);
+  try {
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  } catch {
+    // coercion-ok: a sandboxed frame can refuse history writes; the ID still applies and the parameter stays.
+  }
+  return SAFE_BROWSER_TAB_ID_RE.test(id) ? id : null;
+}
+
+// The linked ID replaces any ID this window already holds: an embed can load
+// a new open link into the same window, and the old ID's command is spent.
+function adoptLinkedTabId(key: string, id: string): string {
+  const pending = browserTabIdState.pendingId;
+  if (pending && pending !== id) {
+    browserTabIdAliases.set(pending, { storageKey: key, id });
+  }
+  browserTabIdState.pendingId = null;
+  browserTabIdState.ids.set(key, id);
+  try {
+    sessionStorage.setItem(key, id);
+  } catch {
+    // coercion-ok: without storage the ID lives in memory for this document, as a generated one does.
+  }
+  return id;
+}
+
 function shouldReuseStoredTabId(): boolean {
   if (typeof performance === "undefined") return true;
   const navigation = performance.getEntriesByType?.("navigation")?.[0] as
@@ -64,6 +106,9 @@ export function getBrowserTabId(): string {
   } catch {
     return getOrCreatePendingId();
   }
+
+  const linked = takeIdFromUrl();
+  if (linked) return adoptLinkedTabId(key, linked);
 
   const cached = browserTabIdState.ids.get(key);
   if (cached) {
@@ -166,6 +211,6 @@ function getOrCreateMemoryId(key: string): string {
 }
 
 function getOrCreatePendingId(): string {
-  browserTabIdState.pendingId ??= generate();
+  browserTabIdState.pendingId ??= takeIdFromUrl() ?? generate();
   return browserTabIdState.pendingId;
 }

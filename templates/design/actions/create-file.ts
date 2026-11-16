@@ -1,5 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { seedFromText } from "@agent-native/core/collab";
+import { isUniqueViolation } from "@agent-native/core/db";
+import { nameTaken, nextFreeName } from "@agent-native/core/free-name/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -13,6 +15,7 @@ import {
   checkpointSkippedResultField,
   snapshotDesignBeforeAgentEdit,
 } from "../server/lib/design-versions.js";
+import { readDesignDataForUpdate } from "../server/lib/screen-frame-type-store.js";
 import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
@@ -26,15 +29,29 @@ import {
   assertDesignHtmlCreateIntegrity,
   describeDesignHtmlIntegrityIssue,
 } from "../shared/html-integrity.js";
-import { assertHubSpotEmailFrameContent } from "../shared/hubspot-email-authoring.js";
-import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
+import { assertHubSpotEmailFileType } from "../shared/hubspot-email-authoring.js";
+import {
+  HUBSPOT_EMAIL_FRAME_TYPE,
+  isHubSpotEmailHtml,
+} from "../shared/hubspot-email.js";
 import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import {
+  frameTypeFromStored,
+  resolveScreenFrameType,
+  STORED_SCREEN_FRAME_TYPES,
+  storedScreenFrameType,
+  withScreenFrameTypeLayout,
+  withStoredScreenFrameType,
+  type ScreenFrameType,
+} from "../shared/screen-frame-type.js";
 import { assertDesignWidgetWriteScope } from "./widget-write-scope.js";
 
 const CREATED_SCREEN_WIDTH = 1440;
 const CREATED_SCREEN_HEIGHT = 1024;
 const CREATED_SCREEN_GAP = 96;
+const EDIT_INSTEAD_HINT =
+  "To change the existing file, use edit-design instead.";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -94,7 +111,7 @@ function screenRestoreSnapshotMatches(
 export default defineAction({
   description:
     "Add a new file to a design project. Validates that the design exists and " +
-    "the user has editor access. For HubSpot conversion, save email-safe HTML as a new sibling while preserving its source. Returns the new file's ID, filename, and design URL path when the file is renderable.",
+    "the user has editor access. For HubSpot conversion, save email-safe HTML as a new sibling while preserving its source and pass frameType=hubspot-email. Returns the new file's ID, filename, frameType, and design URL path when the file is renderable.",
   schema: z.object({
     designId: z.string().describe("Design project ID to add the file to"),
     filename: z.string().describe("Filename (e.g. 'index.html', 'styles.css')"),
@@ -113,11 +130,24 @@ export default defineAction({
       .describe(
         "Screen in this design to copy metadata from while duplicating.",
       ),
+    ifNameTaken: z
+      .enum(["fail", "next-free"])
+      .optional()
+      .default("fail")
+      .describe(
+        'What to do when another file in the design already has this filename. "fail" (the default) refuses with errorCode name_taken and details.suggestion, a free name. "next-free" saves under that free name instead, such as "home-2.html", and the result\'s filename says which. A restore always fails.',
+      ),
     fileType: z
       .enum(["html", "css", "jsx", "asset"])
       .optional()
       .default("html")
       .describe("Type of file"),
+    frameType: z
+      .enum(STORED_SCREEN_FRAME_TYPES)
+      .optional()
+      .describe(
+        'Set "hubspot-email" only for a HubSpot marketing email HTML frame: it is placed 600px wide with no device variants and keeps email authoring rules on later edits. "web" keeps a copied screen ordinary when its HTML still carries a legacy email marker. Omit for every other screen.',
+      ),
   }),
   run: async (
     {
@@ -125,8 +155,10 @@ export default defineAction({
       filename,
       content,
       fileType,
+      frameType,
       restoreClaimId,
       duplicateSourceFileId,
+      ifNameTaken,
     },
     context,
   ) => {
@@ -158,7 +190,15 @@ export default defineAction({
 
     await assertAccess("design", designId, "editor");
 
-    assertHubSpotEmailFrameContent({ content, fileType });
+    assertHubSpotEmailFileType({
+      fileType,
+      frameType:
+        frameType === undefined
+          ? isHubSpotEmailHtml(content)
+            ? HUBSPOT_EMAIL_FRAME_TYPE
+            : null
+          : frameTypeFromStored(frameType),
+    });
     const annotatedContent = annotateScreenHtmlForPersist(content, fileType);
     const restoredContentHashes = screenRestoreContentHashes(
       annotatedContent,
@@ -179,9 +219,8 @@ export default defineAction({
     const requestedId = nanoid();
     const now = new Date().toISOString();
 
-    const createdFile = await withDesignSourceMutationTransaction(
-      designId,
-      async (tx) => {
+    const insertFile = () =>
+      withDesignSourceMutationTransaction(designId, async (tx) => {
         let restoreClaim:
           | {
               id: string;
@@ -299,10 +338,16 @@ export default defineAction({
         if (existingRestoredFile) {
           return {
             id,
+            filename: existingRestoredFile.filename,
             content: existingRestoredFile.content,
             fileType: existingRestoredFile.fileType,
             createdAt: existingRestoredFile.createdAt,
             created: false,
+            frameType: resolveScreenFrameType({
+              designData: await readDesignDataForUpdate(tx, designId),
+              fileId: id,
+              content: existingRestoredFile.content,
+            }),
           };
         }
 
@@ -316,17 +361,29 @@ export default defineAction({
             ),
           )
           .limit(1);
+        // The design's lock is held, so a free name picked here is still free
+        // at the insert: two copies made at once both save, under two names.
+        let savedFilename = filename;
         if (existing) {
-          fail(
-            `File "${filename}" already exists in design ${designId} — use edit-design to modify it`,
-            {
-              errorCode: "design_file_already_exists",
-              statusCode: 409,
-            },
+          const takenFilenames = new Set(
+            (
+              await tx
+                .select({ filename: schema.designFiles.filename })
+                .from(schema.designFiles)
+                .where(eq(schema.designFiles.designId, designId))
+            ).map((file) => file.filename),
           );
+          const freeFilename = nextFreeName(filename, takenFilenames);
+          if (ifNameTaken !== "next-free" || restoreClaimId) {
+            throw nameTaken("file", filename, freeFilename, {
+              hint: EDIT_INSTEAD_HINT,
+            });
+          }
+          savedFilename = freeFilename;
         }
 
         let duplicateDesignData: string | undefined;
+        let copiedDesignData: Record<string, unknown> | undefined;
         if (duplicateSourceFileId) {
           if (fileType !== "html" && fileType !== "jsx") {
             fail("Only a Screen can be duplicated.", {
@@ -401,7 +458,41 @@ export default defineAction({
             };
             copiedMetadata = true;
           }
-          if (copiedMetadata) duplicateDesignData = JSON.stringify(nextData);
+          if (copiedMetadata) {
+            copiedDesignData = nextData;
+            duplicateDesignData = JSON.stringify(nextData);
+          }
+        }
+        // The type commits with the insert: markerless email HTML has no
+        // other record of being an email if the placement write below fails.
+        // A duplicate copies its source's stored type, which a leftover
+        // marker in the copied HTML must not override.
+        const insertedFrameType =
+          frameType ??
+          (storedScreenFrameType(copiedDesignData, id) === undefined &&
+          isHubSpotEmailHtml(annotatedContent)
+            ? HUBSPOT_EMAIL_FRAME_TYPE
+            : undefined);
+        if (insertedFrameType !== undefined) {
+          const base =
+            copiedDesignData ?? (await readDesignDataForUpdate(tx, designId));
+          // The type's layout commits with it. A web copy of an email source
+          // arrives with the source's email layout metadata, which the web
+          // type must not keep.
+          duplicateDesignData = JSON.stringify(
+            withScreenFrameTypeLayout(
+              base,
+              id,
+              insertedFrameType,
+              insertedFrameType === "web"
+                ? resolveScreenFrameType({
+                    designData: base,
+                    fileId: id,
+                    content: annotatedContent,
+                  })
+                : null,
+            ),
+          );
         }
 
         const createdAt =
@@ -409,7 +500,7 @@ export default defineAction({
         await tx.insert(schema.designFiles).values({
           id,
           designId,
-          filename,
+          filename: savedFilename,
           fileType: fileType ?? "html",
           content: annotatedContent,
           createdAt,
@@ -448,13 +539,52 @@ export default defineAction({
           .where(eq(schema.designs.id, designId));
         return {
           id,
+          filename: savedFilename,
           content: annotatedContent,
           fileType: fileType ?? "html",
           createdAt,
           created: true,
+          frameType:
+            insertedFrameType === undefined
+              ? resolveScreenFrameType({
+                  designData: copiedDesignData,
+                  fileId: id,
+                  content: annotatedContent,
+                })
+              : frameTypeFromStored(insertedFrameType),
         };
-      },
-    );
+      });
+    // A writer that doesn't take the design's lock, such as an import, can
+    // claim the name between the check and the insert. The unique index
+    // refuses this file then, so nothing is overwritten.
+    const insertUnderFreeName = async (
+      attempt: number,
+    ): Promise<Awaited<ReturnType<typeof insertFile>>> => {
+      try {
+        return await insertFile();
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+        const taken = new Set(
+          (
+            await getDb()
+              .select({ filename: schema.designFiles.filename })
+              .from(schema.designFiles)
+              .where(eq(schema.designFiles.designId, designId))
+          ).map((file) => file.filename),
+        );
+        // If the name is still free, some other key refused the insert, and
+        // that error stands.
+        if (!taken.has(filename)) throw error;
+        // A create that asked for the free name looks for it again.
+        if (ifNameTaken === "next-free" && !restoreClaimId && attempt < 3) {
+          return insertUnderFreeName(attempt + 1);
+        }
+        throw nameTaken("file", filename, nextFreeName(filename, taken), {
+          hint: EDIT_INSTEAD_HINT,
+        });
+      }
+    };
+    const createdFile = await insertUnderFreeName(1);
 
     const { id } = createdFile;
     await seedFromText(id, createdFile.content);
@@ -466,6 +596,7 @@ export default defineAction({
       (resolvedFileType === "html" || resolvedFileType === "jsx") &&
       createdFile.content.trim().length > 0;
 
+    let createdFrameType: ScreenFrameType | null = createdFile.frameType;
     if (renderable && createdFile.created) {
       const screenFiles = await db
         .select({
@@ -483,13 +614,32 @@ export default defineAction({
           const existingFrames = parseCanvasFrameGeometryById(
             current.canvasFrames,
           );
-          if (existingFrames[id]) return current;
+          // A duplicate arrives with its source's metadata, which may already
+          // say "web" for HTML that still carries the legacy email marker.
+          createdFrameType =
+            frameType === undefined
+              ? resolveScreenFrameType({
+                  designData: current,
+                  fileId: id,
+                  content: createdFile.content,
+                })
+              : frameTypeFromStored(frameType);
+          if (id in existingFrames) {
+            const storedType = frameType ?? createdFrameType;
+            return storedType
+              ? withStoredScreenFrameType(current, id, storedType)
+              : current;
+          }
+          const emailFrame = createdFrameType === HUBSPOT_EMAIL_FRAME_TYPE;
+          const currentScreenMetadata = isRecord(current.screenMetadata)
+            ? current.screenMetadata
+            : {};
           const merged = mergeCanvasFramePlacements({
             existing: current.canvasFrames,
             placements: [
               {
                 fileId: id,
-                filename,
+                filename: createdFile.filename,
                 x: 0,
                 y: nextFreeCanvasRowY(
                   current.canvasFrames,
@@ -504,39 +654,42 @@ export default defineAction({
                     },
                   },
                 ),
-                width: isHubSpotEmailHtml(createdFile.content)
-                  ? 600
-                  : CREATED_SCREEN_WIDTH,
-                height: isHubSpotEmailHtml(createdFile.content)
-                  ? 800
-                  : CREATED_SCREEN_HEIGHT,
+                width: emailFrame ? 600 : CREATED_SCREEN_WIDTH,
+                height: emailFrame ? 800 : CREATED_SCREEN_HEIGHT,
               },
             ],
             resolveFileId: (placement) => placement.fileId,
           });
-          return {
+          const placed = {
             ...current,
             canvasFrames: merged.canvasFrames,
-            ...(isHubSpotEmailHtml(createdFile.content)
+            ...(emailFrame
               ? {
                   screenMetadata: {
-                    ...(isRecord(current.screenMetadata)
-                      ? current.screenMetadata
-                      : {}),
+                    ...currentScreenMetadata,
                     [id]: {
+                      ...(isRecord(currentScreenMetadata[id])
+                        ? currentScreenMetadata[id]
+                        : {}),
                       width: 600,
                       height: 800,
                       heightMode: "hug",
                       heightPinned: false,
                       breakpointWidths: [],
+                      frameType: HUBSPOT_EMAIL_FRAME_TYPE,
                     },
                   },
                 }
               : {}),
           };
+          return placed;
         },
         isApplied: (current) =>
-          Boolean(parseCanvasFrameGeometryById(current.canvasFrames)[id]),
+          Boolean(parseCanvasFrameGeometryById(current.canvasFrames)[id]) &&
+          (createdFrameType === HUBSPOT_EMAIL_FRAME_TYPE
+            ? storedScreenFrameType(current, id) === HUBSPOT_EMAIL_FRAME_TYPE
+            : frameType !== "web" ||
+              storedScreenFrameType(current, id) === "web"),
       });
 
       trackDesign(
@@ -554,11 +707,9 @@ export default defineAction({
     return {
       id,
       designId,
-      filename,
+      filename: createdFile.filename,
       fileType: resolvedFileType,
-      frameType: isHubSpotEmailHtml(createdFile.content)
-        ? "hubspot-email"
-        : null,
+      frameType: createdFrameType,
       createdAt: createdFile.createdAt,
       renderable,
       _receipt: designOutputWriteReceipt(designId, createdFile.created ? 1 : 0),

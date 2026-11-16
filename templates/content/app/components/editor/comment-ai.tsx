@@ -17,7 +17,17 @@ import type {
 } from "@shared/comment-ai";
 import { IconCircleCheck } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FocusEvent,
+  type PointerEvent,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -122,6 +132,12 @@ interface CommentAiDispatchRecovery {
 
 export interface CommentAiController {
   requests: CommentAiRequest[];
+  /**
+   * The requests as the server last reported them, before a local dispatch
+   * or continuation error shows one as needing review. What a run wrote to
+   * the page or its comments follows these.
+   */
+  serverRequests: CommentAiRequest[];
   startingThreadIds: ReadonlySet<string>;
   stoppingRequestIds: ReadonlySet<string>;
   continuations: ReadonlyMap<string, CommentAiContinuationState>;
@@ -181,6 +197,55 @@ export function threadHasAppliedAiChange(
 }
 
 /**
+ * The comments finished requests wrote, such as AI's reply or the receipt
+ * for its suggestion or change, that the loaded threads don't have yet, as
+ * one sorted string so a caller can read the list again once per new set.
+ * Nothing counts as missing before the threads first load.
+ */
+export function missingCommentAiReplyIds(
+  requests: readonly CommentAiRequest[],
+  threads: readonly { comments: readonly { id: string }[] }[] | undefined,
+) {
+  if (!threads) return "";
+  const loaded = new Set(
+    threads.flatMap((thread) => thread.comments.map((comment) => comment.id)),
+  );
+  return requests
+    .flatMap((request) =>
+      !ACTIVE_STATUSES.has(request.status) && request.result?.commentId
+        ? [request.result.commentId]
+        : [],
+    )
+    .filter((id) => !loaded.has(id))
+    .sort()
+    .join(" ");
+}
+
+/**
+ * Records each request's status in `known` and says whether one that was
+ * running when last seen has since finished with a change to the page.
+ */
+export function noteCommentAiPageChanges(
+  known: Map<string, CommentAiRequest["status"]>,
+  requests: readonly CommentAiRequest[],
+) {
+  let changed = false;
+  for (const request of requests) {
+    const prior = known.get(request.operationId);
+    known.set(request.operationId, request.status);
+    if (
+      prior !== undefined &&
+      ACTIVE_STATUSES.has(prior) &&
+      !ACTIVE_STATUSES.has(request.status) &&
+      request.result?.editApplied &&
+      !request.result.undone
+    )
+      changed = true;
+  }
+  return changed;
+}
+
+/**
  * Keeps a thread that AI just resolved in view until the person is done with
  * it, instead of letting it vanish from the margin mid-read.
  */
@@ -231,6 +296,174 @@ export function useFreshAiResolutions(
     [requests],
   );
   return { freshResolutions, dismissResolution };
+}
+
+/** How long a fresh AI result stays open once it's left alone. */
+export const AI_RESULT_LEFT_ALONE_MS = 5_000;
+/**
+ * How long the Resolved by AI mark holds once left alone, then fades for. The
+ * fade matches the mark's `duration-1600` class.
+ */
+export const AI_RESOLVED_MARK_HOLD_MS = 3_200;
+export const AI_RESOLVED_MARK_FADE_MS = 1_600;
+
+/**
+ * Whether focus on `element` came from the keyboard. Tabbing to an AI result
+ * holds it open the way a pointer does; the focus a click leaves behind
+ * doesn't, or a result would never go once its card had been clicked.
+ */
+function isKeyboardFocus(element: Element) {
+  return element.matches(":focus-visible");
+}
+
+/**
+ * Counts down while neither the pointer, keyboard focus nor an open menu is
+ * on `ref`'s element: after `holdMs` it starts `fading`, and `fadeMs` later
+ * calls `onGone`. A pointer or focus that comes back at any point stops the count
+ * and brings the element back; leaving again starts it over. Spread
+ * `handlers` on the element. React counts a menu it opens in a portal as
+ * part of it.
+ */
+export function useLeftAloneCountdown({
+  ref,
+  enabled,
+  holdMs,
+  fadeMs = 0,
+  onGone,
+}: {
+  ref: RefObject<HTMLElement | null>;
+  enabled: boolean;
+  holdMs: number;
+  fadeMs?: number;
+  onGone: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState<Element | null>(null);
+  const [fading, setFading] = useState(false);
+  // Where the element's events last put the pointer and keyboard focus,
+  // tracked while the count is off too: a menu it opened in a portal sits
+  // outside it on the page, so only its events can say presence is there.
+  const presence = useRef<{ pointer: Element | null; focus: Element | null }>({
+    pointer: null,
+    focus: null,
+  });
+  const onGoneRef = useRef(onGone);
+  useEffect(() => {
+    onGoneRef.current = onGone;
+  });
+  // A card the pointer or keyboard focus is already on when its result
+  // arrives, or a mark that appears under the pointer, starts out held.
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!enabled || !element) return;
+    const { pointer, focus } = presence.current;
+    setHovered(
+      element.matches(":hover") ||
+        Boolean(pointer?.isConnected && pointer.matches(":hover")),
+    );
+    const active = document.activeElement;
+    setFocused(
+      active &&
+        isKeyboardFocus(active) &&
+        (element.contains(active) || active === focus)
+        ? active
+        : null,
+    );
+    setFading(false);
+  }, [enabled, ref]);
+  // Focus that leaves with its element sends no blur, so watch for the
+  // element going, and start the count over when it does.
+  useEffect(() => {
+    if (!enabled || !focused) return;
+    const release = () => {
+      if (!focused.isConnected) setFocused(null);
+    };
+    const observer = new MutationObserver(release);
+    observer.observe(document.body, { childList: true, subtree: true });
+    release();
+    return () => observer.disconnect();
+  }, [enabled, focused]);
+  // Likewise a portal menu item taken from under the pointer sends no
+  // pointerleave, so the hover would hold the count forever.
+  useEffect(() => {
+    if (!enabled || !hovered) return;
+    const release = () => {
+      const { pointer } = presence.current;
+      if (!pointer || pointer.isConnected) return;
+      presence.current.pointer = null;
+      if (!ref.current?.matches(":hover")) setHovered(false);
+    };
+    const observer = new MutationObserver(release);
+    observer.observe(document.body, { childList: true, subtree: true });
+    release();
+    return () => observer.disconnect();
+  }, [enabled, hovered, ref]);
+  // A menu opened by mouse stays open once the pointer leaves it, and the
+  // focus it takes isn't keyboard focus, so a trigger inside the element
+  // whose menu is open holds the count too.
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    const element = ref.current;
+    if (!enabled || !element) return;
+    const update = () =>
+      setMenuOpen(
+        element.querySelector('[aria-haspopup][aria-expanded="true"]') !== null,
+      );
+    const observer = new MutationObserver(update);
+    observer.observe(element, {
+      attributes: true,
+      attributeFilter: ["aria-expanded"],
+      childList: true,
+      subtree: true,
+    });
+    update();
+    return () => observer.disconnect();
+  }, [enabled, ref]);
+  useEffect(() => {
+    if (!enabled || hovered || menuOpen || focused?.isConnected) return;
+    let fadeTimer: ReturnType<typeof setTimeout> | undefined;
+    const holdTimer = setTimeout(() => {
+      if (fadeMs <= 0) {
+        onGoneRef.current();
+        return;
+      }
+      setFading(true);
+      fadeTimer = setTimeout(() => onGoneRef.current(), fadeMs);
+    }, holdMs);
+    return () => {
+      clearTimeout(holdTimer);
+      clearTimeout(fadeTimer);
+    };
+  }, [enabled, hovered, menuOpen, focused, holdMs, fadeMs]);
+  return {
+    fading: enabled && fading && !hovered && !menuOpen && focused === null,
+    handlers: {
+      onPointerOver: (event: PointerEvent<HTMLElement>) => {
+        if (event.target instanceof Element)
+          presence.current.pointer = event.target;
+      },
+      onPointerEnter: () => {
+        if (!enabled) return;
+        setHovered(true);
+        setFading(false);
+      },
+      onPointerLeave: () => {
+        presence.current.pointer = null;
+        if (enabled) setHovered(false);
+      },
+      onFocus: (event: FocusEvent<HTMLElement>) => {
+        if (!isKeyboardFocus(event.target)) return;
+        presence.current.focus = event.target;
+        if (!enabled) return;
+        setFocused(event.target);
+        setFading(false);
+      },
+      onBlur: () => {
+        presence.current.focus = null;
+        if (enabled) setFocused(null);
+      },
+    },
+  };
 }
 
 export function startCommentAiSubmission(
@@ -1029,6 +1262,7 @@ export function useCommentAiRequests(
   return useMemo(
     () => ({
       requests,
+      serverRequests,
       startingThreadIds,
       stoppingRequestIds,
       continuations,
@@ -1045,6 +1279,7 @@ export function useCommentAiRequests(
     }),
     [
       requests,
+      serverRequests,
       startingThreadIds,
       stoppingRequestIds,
       continuations,

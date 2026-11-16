@@ -84,17 +84,34 @@ import { AudioBlock } from "./AudioBlock";
 import { ImageBlock } from "./ImageBlock";
 import { VideoBlock } from "./VideoBlock";
 
-function mediaNodeProps(type: "image" | "video" | "audio") {
+// The image block puts a pick's id on itself with a transaction of its own.
+function fakeEditor() {
+  const tr = { setNodeAttribute: vi.fn(), setMeta: vi.fn() };
+  tr.setNodeAttribute.mockReturnValue(tr);
+  tr.setMeta.mockReturnValue(tr);
+  return {
+    isEditable: true,
+    isDestroyed: false,
+    state: { tr },
+    view: { dispatch: vi.fn() },
+  };
+}
+
+function mediaNodeProps(
+  type: "image" | "video" | "audio",
+  options: Record<string, unknown> = {},
+  editor = fakeEditor(),
+) {
   return {
     node: {
       attrs: { src: null, alt: "", uploadId: null },
       type: { name: type },
     },
-    editor: { isEditable: true, isDestroyed: false },
+    editor,
     deleteNode: vi.fn(),
     selected: true,
     updateAttributes: vi.fn(),
-    extension: { options: {} },
+    extension: { options },
     getPos: () => 1,
   } as never;
 }
@@ -146,6 +163,44 @@ describe("rich editor media upload storage gates", () => {
       ).not.toBeNull();
     },
   );
+
+  it("sends a private image upload to the picker without file storage", () => {
+    const onImageFilePickerRequest = vi.fn();
+    const editor = fakeEditor();
+    act(() =>
+      root.render(
+        createElement(
+          ImageBlock,
+          mediaNodeProps(
+            "image",
+            {
+              usesPrivateImageUploads: () => true,
+              onImageFilePickerRequest,
+            },
+            editor,
+          ),
+        ),
+      ),
+    );
+
+    const uploadButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "editor.media.uploadFile",
+    );
+    act(() => uploadButton?.click());
+
+    expect(onImageFilePickerRequest).toHaveBeenCalledOnce();
+    // The pick's id goes on the block outside undo history.
+    expect(editor.state.tr.setNodeAttribute).toHaveBeenCalledWith(
+      1,
+      "uploadId",
+      expect.stringMatching(/^image-picker-/),
+    );
+    expect(editor.state.tr.setMeta).toHaveBeenCalledWith("addToHistory", false);
+    expect(editor.view.dispatch).toHaveBeenCalledWith(editor.state.tr);
+    expect(
+      container.querySelector('[data-testid="file-storage-setup-popover"]'),
+    ).toBeNull();
+  });
 
   it.each([
     ["image", "loading", ImageBlock, false],

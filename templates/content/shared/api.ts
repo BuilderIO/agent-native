@@ -38,6 +38,8 @@ export interface Document {
   position: number;
   isFavorite: boolean;
   hideFromSearch: boolean;
+  /** A person has set agents to Can comment on this page. */
+  agentTextLocked?: boolean;
   notionPageId?: string | null;
   notionPageUrl?: string | null;
   visibility?: "private" | "org" | "public";
@@ -204,6 +206,11 @@ export interface ContentNavigationPathEntry {
   databaseId: string | null;
   databaseDocumentId: string | null;
   isFavorite: boolean;
+  /**
+   * Whether the Files tree draws children under this page, by the rule its
+   * own navigation row follows. Absent outside a Files database.
+   */
+  hasChildren?: boolean;
   visibility?: "private" | "org" | "public";
   accessRole?: DocumentAccessRole;
   canView?: boolean;

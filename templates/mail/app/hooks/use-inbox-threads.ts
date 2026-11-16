@@ -438,6 +438,7 @@ export function useInboxSyncPoller(
   >("sync-inbox", {
     method: "POST",
     skipActionQueryInvalidation: true,
+    errorNotification: "caller",
   });
 
   return useQuery<InboxSyncResult>({

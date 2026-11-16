@@ -1,6 +1,7 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { type AppearancePresetId } from "@agent-native/core/client/ui";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   SettingsGroup,
   SettingsRow,
@@ -109,11 +110,11 @@ function useSaveCalendarSettings() {
         (current) => (current ? { ...current, ...patch } : current),
       );
       mutate(patch, {
-        onError: () => {
+        onError: (error) => {
           for (const [key, value] of previous) {
             queryClient.setQueryData(key, value);
           }
-          toast.error(t("settings.saveFailed"));
+          reportWriteFailure(error, { label: t("settings.saveFailed") });
         },
       });
     },
@@ -296,7 +297,10 @@ export function CalendarGeneralGroups() {
                 // The picker applies the preset locally first; the action
                 // keeps it across reloads and devices.
                 callAction("change-appearance" as any, { preset } as any).catch(
-                  () => toast.error(t("settings.saveFailed")),
+                  (error) =>
+                    reportWriteFailure(error, {
+                      label: t("settings.saveFailed"),
+                    }),
                 );
               }}
             />

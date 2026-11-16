@@ -308,6 +308,57 @@ await callAction(
 
 Jede Anfrage von `useActionQuery()`, `useActionMutation()` und `callAction()` ist durch ein 60-Sekunden-Timeout begrenzt, und Timeouts erscheinen als Fehler statt stillschweigend erneut zu versuchen. `useActionQuery()` bricht außerdem automatisch überholte Anfragen ab, mithilfe des Abort-Signals von React Query.
 
+### Fehlgeschlagene Schreibvorgänge {#write-failures}
+
+Wenn ein vom Benutzer gestartetes Speichern fehlschlägt, zeigt die App einen gemeinsamen Toast statt gar keiner Meldung. `useActionMutation()` macht das automatisch. Ein fehlgeschlagenes `mutate()` zeigt den Toast, außer ein `onError` behandelt den Fehler, entweder in den Hook-Optionen oder im Aufruf von `mutate()`. Ein fehlgeschlagenes `mutateAsync()` zeigt ihn nur, wenn die Ablehnung unbehandelt bleibt, etwa bei einem `await` ohne `try/catch` darüber. Ein `catch`, das anstelle des ursprünglichen Fehlers einen neuen `Error` wirft, wird nicht gemeldet.
+
+Die Option `errorNotification` ändert diesen Standard:
+
+| Wert                | Verhalten                                                                                                                                                       |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"auto"` (Standard) | Zeigt den Toast nur, wenn nichts anderes den Fehler behandelt.                                                                                                  |
+| `"shared"`          | Zeigt den Toast bei jedem Fehler, auch neben Ihrem eigenen `onError`. Verwenden Sie das, wenn der Handler nur zurücksetzt oder protokolliert.                   |
+| `"caller"`          | Zeigt nie den Toast. Verwenden Sie das für Hintergrundspeicherungen, einen Fehler, den Sie bewusst ignorieren, oder eine Stelle, die den Fehler selbst anzeigt. |
+
+`errorLabel` ersetzt den Titel des Toasts durch Ihren eigenen, bereits übersetzten Text. Im folgenden Beispiel zeigt ein fehlgeschlagenes Zuweisen diesen Titel statt des allgemeinen.
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const assign = useActionMutation("update-ticket", {
+  errorLabel: t("tickets.assignFailed"),
+});
+
+assign.mutate({ ticketId, assignedToEmail: "jordan@example.com" });
+```
+
+Ein Autosave, der bei der nächsten Änderung erneut versucht, sollte den Benutzer nicht unterbrechen, daher schaltet er die Meldung ab.
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const saveDraft = useActionMutation("save-ticket-draft", {
+  errorNotification: "caller",
+});
+```
+
+Ein Schreibvorgang, der kein `useActionMutation()` ist, etwa ein `fetch` für einen Upload oder ein `catch`, das einen Fehler schluckt, meldet seinen Fehler mit `reportWriteFailure()`. Der Fehler eines rohen `fetch` enthält keinen Status, deshalb zeigt der Toast Ihre Bezeichnung oder den allgemeinen Titel. Ein rohes `useMutation()` nimmt daran teil, indem es `meta: surfaceMutationError(label)` übergibt; die Funktion nimmt dasselbe optionale Label entgegen.
+
+```ts
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+
+try {
+  const response = await fetch(uploadUrl, { method: "PUT", body: file });
+  if (!response.ok) throw new Error(`Upload failed with ${response.status}`);
+} catch (error) {
+  reportWriteFailure(error, { label: t("tickets.uploadFailed") });
+}
+```
+
+Der Text des Toasts hängt vom Fehler ab. Eine abgebrochene Anfrage zeigt nichts. Offline sein, ein Timeout, ein `401` und ein `403` zeigen jeweils eine kurze übersetzte Meldung unter dem Titel. Ein `5xx` zeigt nur den Titel, weil der Server seinen eigenen Fehlertext verbirgt. Wenn eine Action mit einem typisierten `4xx`-Fehler aus `fail()` ablehnt, zeigt der Toast die Meldung, die die Action geschrieben hat; siehe [Eine Action fehlschlagen lassen](/docs/actions-defining#failing). Ein `401` oder `403` zeigt nie Text des Servers.
+
+`AppProviders` rendert immer die Komponente, die auf diese Fehler hört, `WriteFailureToaster`. Sie zeigt ihren Toast über den `Toaster` der App, daher muss eine App, die `toaster={null}` übergibt, einen eigenen rendern. Eine App, die `AppProviders` nicht verwendet, rendert `<WriteFailureToaster />` aus `@agent-native/toolkit/app/shared` innerhalb ihres `QueryClientProvider` und neben ihrem `Toaster`. Ohne sie wird kein Toast angezeigt.
+
 ## useDbSync {#usedbsync}
 
 <Signature

@@ -112,6 +112,43 @@ export function isConfirmedOpenAiEngineStatus(
   }
 }
 
+// Only fixed provider codes and a bounded numeric delay may enter CI logs.
+// Provider messages can echo credentials or organization details.
+const SAFE_OPENAI_ERROR_CODES = new Set([
+  "credit_balance_exhausted",
+  "organization_spend_limit_exceeded",
+  "project_spend_limit_exceeded",
+  "organization_usage_limit_exceeded",
+  "slow_down",
+  "rate_limit_exceeded",
+  "insufficient_quota",
+]);
+
+async function safeOpenAiFailureDetails(response: Response): Promise<string> {
+  const body: unknown = await response.json().catch(() => undefined);
+  const error =
+    body !== null && typeof body === "object" && "error" in body
+      ? body.error
+      : undefined;
+  const code =
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof error.code === "string"
+      ? error.code
+      : undefined;
+  const details: string[] = [];
+  if (code && SAFE_OPENAI_ERROR_CODES.has(code))
+    details.push(`provider_code=${code}`);
+  const retryAfter = response.headers.get("retry-after");
+  if (retryAfter && /^\d{1,6}(?:\.\d+)?$/.test(retryAfter)) {
+    const seconds = Number(retryAfter);
+    if (seconds <= 604800)
+      details.push(`retry_after_seconds=${Math.ceil(seconds)}`);
+  }
+  return details.length ? `; ${details.join("; ")}` : "";
+}
+
 export async function validateOpenAiKey(apiKey: string): Promise<void> {
   let response: Response;
   try {
@@ -165,7 +202,7 @@ export async function validateOpenAiKey(apiKey: string): Promise<void> {
     );
   }
   throw new Error(
-    `OpenAI could not validate the selected credential for ${LUNA_OPENAI_MODEL} (HTTP ${execution.status}).`,
+    `OpenAI could not validate the selected credential for ${LUNA_OPENAI_MODEL} (HTTP ${execution.status}${await safeOpenAiFailureDetails(execution)}).`,
   );
 }
 

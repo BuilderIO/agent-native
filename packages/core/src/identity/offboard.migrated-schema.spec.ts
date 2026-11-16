@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { closeDbExec, getDbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
+import * as org from "../org/index.js";
 import { runFrameworkReleaseMigrations } from "../server/release-migrations.js";
 import { offboardMember } from "./offboard.js";
 import {
@@ -64,6 +65,32 @@ describe("identity registry against the migrated framework schema", () => {
     expect(resolveIdentityColumns(await schemaRows()).length).toBeGreaterThan(
       0,
     );
+  });
+
+  it("lets apps validate their migrated schema through the public org API", async () => {
+    const db = getDbExec();
+    await db.execute("CREATE TABLE app_identity_probe (assignee_email TEXT)");
+    try {
+      expect(org).toHaveProperty("assertIdentityColumnsRegistered");
+      await expect(org.assertIdentityColumnsRegistered(db)).rejects.toThrow(
+        "app_identity_probe.assignee_email",
+      );
+      org.registerIdentityColumns([
+        {
+          table: "app_identity_probe",
+          column: "assignee_email",
+          emailChange: "rekey",
+          offboard: "retain",
+          reason: "Keep assignment attribution on offboarding.",
+        },
+      ]);
+      await expect(
+        org.assertIdentityColumnsRegistered(db),
+      ).resolves.toBeUndefined();
+    } finally {
+      await db.execute("DROP TABLE public.app_identity_probe");
+      __resetAppIdentityColumnsForTests();
+    }
   });
 
   it("dry-runs an email change across the whole schema", async () => {

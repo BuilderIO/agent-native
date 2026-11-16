@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import type { ActionChange } from "../../action-ui.js";
@@ -16,6 +16,12 @@ import {
   requireShareableResource,
   type ShareableResourceRegistration,
 } from "../registry.js";
+import {
+  LINK_PRINCIPAL_ID,
+  LINK_PRINCIPAL_TYPE,
+  LINK_ROLES,
+  type ShareRole,
+} from "../schema.js";
 import { assertWidgetShareWriteGrant } from "../widget-grant.js";
 import { resourceSharingChange } from "./change-result.js";
 import {
@@ -45,10 +51,36 @@ const schema = z
         `Up to ${MAX_VISIBILITY_BATCH} resources of this type to change in one call. Every one is checked before any changes, so if one can't change, none do.`,
       ),
     visibility: z.enum(["private", "org", "public"]),
+    role: z
+      .enum(["viewer", "commenter", "editor"])
+      .optional()
+      .describe(
+        "What the people this visibility opens to can do. With 'org', everyone in the organization: 'viewer' can read, 'commenter' can also comment, 'editor' can edit. With 'public', signed-in people with the link: 'viewer' or 'commenter'. Omit to keep the current role.",
+      ),
+    expectedVisibility: z
+      .enum(["private", "org", "public"])
+      .optional()
+      .describe(
+        "The visibility the caller last saw. When set, a resource that has since changed is refused with a conflict instead of moved, so a role change made from a stale view can't change who can open it.",
+      ),
   })
   .refine((args) => Boolean(args.resourceId) || Boolean(args.resourceIds), {
     message: "Provide resourceId or resourceIds.",
-  });
+  })
+  .refine((args) => !args.role || args.visibility !== "private", {
+    message: "role applies only to visibility 'org' or 'public'.",
+    path: ["role"],
+  })
+  .refine(
+    (args) =>
+      args.visibility !== "public" ||
+      !args.role ||
+      (LINK_ROLES as readonly string[]).includes(args.role),
+    {
+      message: "Anyone with the link can only view or comment.",
+      path: ["role"],
+    },
+  );
 
 type Args = z.infer<typeof schema>;
 
@@ -76,17 +108,78 @@ function requestedIds(args: Args): string[] {
 
 type Access = Awaited<ReturnType<typeof assertAccess>>;
 
+type GeneralAccessPrincipal = "org" | typeof LINK_PRINCIPAL_TYPE;
+
+interface GrantRow {
+  id: string;
+  resourceId: string;
+  principalType: GeneralAccessPrincipal;
+  principalId: string;
+  role: ShareRole;
+  createdBy: string;
+  createdAt: string;
+  notifiedAt: string | null;
+}
+
+/**
+ * General access keeps its role as a share grant: to the resource's own
+ * organization for "Anyone at <org>", to the link principal for "Anyone with
+ * the link". Each lives and dies with its visibility: a grant left behind
+ * after leaving it would keep those people in while the panel says only
+ * invited people are.
+ */
+interface GeneralAccessGrantChange {
+  principalType: GeneralAccessPrincipal;
+  principalId: string;
+  /** Every row this principal had, all of which the write replaces. */
+  before: GrantRow[];
+  /** null removes the grant, leaving the visibility's viewer role. */
+  role: ShareRole | null;
+  /** Marks this call's write, so its rollback touches no newer one. */
+  stamp: string;
+  written: boolean;
+}
+
+/** One row per resource and principal, so concurrent writes upsert it. */
+function generalAccessShareId(
+  principalType: GeneralAccessPrincipal,
+  resourceId: string,
+): string {
+  return `${principalType}:${resourceId}`;
+}
+
 interface PreparedChange {
   resourceId: string;
   access: Access;
   update: Record<string, unknown>;
   visibilityChanged: boolean;
   resourceChanged: boolean;
+  grants: GeneralAccessGrantChange[];
+}
+
+async function readGrants(
+  reg: ShareableResourceRegistration,
+  resourceId: string,
+  principalType: GeneralAccessPrincipal,
+  principalId: string,
+): Promise<GrantRow[]> {
+  const rows = await reg
+    .getDb()
+    .select()
+    .from(reg.sharesTable)
+    .where(
+      and(
+        eq(reg.sharesTable.resourceId, resourceId),
+        eq(reg.sharesTable.principalType, principalType),
+        eq(reg.sharesTable.principalId, principalId),
+      ),
+    );
+  return rows as GrantRow[];
 }
 
 export default defineAction({
   description:
-    "Change the coarse visibility of one or more shareable resources: 'private' keeps them owner-only, 'org' shares them with all members of the owner's organization, 'public' makes them accessible to anyone with the link. Visibility changes require owner or admin role. To change several resources of the same type, pass resourceIds instead of calling once per resource: every resource is checked before any changes, and the result lists each one as changed or unchanged.",
+    "Change the coarse visibility of one or more shareable resources: 'private' keeps them owner-only, 'org' shares them with all members of the owner's organization, 'public' makes them accessible to anyone with the link. Pass role to choose what those people can do: with 'org', view, comment, or edit; with 'public', view or comment. Leaving 'org' or 'public' removes its role. Visibility changes require owner or admin role. To change several resources of the same type, pass resourceIds instead of calling once per resource: every resource is checked before any changes, and the result lists each one as changed or unchanged.",
   toolCallable: false,
   mcpApp: {
     compactCatalog: true,
@@ -97,7 +190,7 @@ export default defineAction({
     const reg = requireShareableResource(args.resourceType);
     if (reg.allowPublic === false) return false;
     // One approval covers the whole call; it is needed when any resource in it
-    // would become public.
+    // would become public, or would let anyone with its link do more.
     for (const resourceId of requestedIds(args)) {
       const access = await assertAccess(
         args.resourceType,
@@ -107,6 +200,17 @@ export default defineAction({
         { skipResourceBody: true },
       );
       if (access.resource.visibility !== "public") return true;
+      if (args.role && args.role !== "viewer") {
+        const current = await readGrants(
+          reg,
+          resourceId,
+          LINK_PRINCIPAL_TYPE,
+          LINK_PRINCIPAL_ID,
+        );
+        if (current.length !== 1 || current[0]?.role !== args.role) {
+          return true;
+        }
+      }
     }
     return false;
   },
@@ -137,6 +241,15 @@ export default defineAction({
 
     const prepare = async (resourceId: string): Promise<PreparedChange> => {
       const access = await assertAccess(args.resourceType, resourceId, "admin");
+      if (
+        args.expectedVisibility &&
+        access.resource.visibility !== args.expectedVisibility
+      ) {
+        fail(
+          `${reg.displayName} ${resourceId} is now ${access.resource.visibility}, not ${args.expectedVisibility}. Reload its sharing and try again.`,
+          { errorCode: "visibility_conflict", statusCode: 409 },
+        );
+      }
       const visibilityChanged = access.resource?.visibility !== args.visibility;
       const update: Record<string, unknown> = { visibility: args.visibility };
       if (args.visibility === "org" && !access.resource?.orgId) {
@@ -165,13 +278,198 @@ export default defineAction({
           change: { kind: "visibility", visibility: args.visibility },
         });
       }
+      const grants = await planGrants(resourceId, access, update);
       return {
         resourceId,
         access,
         update,
         visibilityChanged,
-        resourceChanged: visibilityChanged || update.orgId !== undefined,
+        resourceChanged:
+          visibilityChanged ||
+          update.orgId !== undefined ||
+          grants.some(
+            (grant) => grant.role !== null || grant.before.length > 0,
+          ),
+        grants,
       };
+    };
+
+    const planGrants = async (
+      resourceId: string,
+      access: Access,
+      update: Record<string, unknown>,
+    ): Promise<GeneralAccessGrantChange[]> => {
+      const from = access.resource.visibility as Visibility;
+      const wanted: Array<{
+        principalType: GeneralAccessPrincipal;
+        principalId: string;
+        role: ShareRole | null;
+      }> = [];
+      const resourceOrgId =
+        (access.resource.orgId as string | null | undefined) ?? null;
+      if (from === "org" && args.visibility !== "org" && resourceOrgId) {
+        wanted.push({
+          principalType: "org",
+          principalId: resourceOrgId,
+          role: null,
+        });
+      }
+      if (from === "public" && args.visibility !== "public") {
+        wanted.push({
+          principalType: LINK_PRINCIPAL_TYPE,
+          principalId: LINK_PRINCIPAL_ID,
+          role: null,
+        });
+      }
+      if (args.role) {
+        const role: ShareRole | null =
+          args.role === "viewer" ? null : args.role;
+        if (args.visibility === "public") {
+          wanted.push({
+            principalType: LINK_PRINCIPAL_TYPE,
+            principalId: LINK_PRINCIPAL_ID,
+            role,
+          });
+        } else {
+          const grantOrgId =
+            (update.orgId as string | undefined) ?? resourceOrgId;
+          if (grantOrgId) {
+            wanted.push({
+              principalType: "org",
+              principalId: grantOrgId,
+              role,
+            });
+          } else if (role) {
+            throw new ForbiddenError(
+              `${reg.displayName} has no organization, so its members can only view it.`,
+            );
+          }
+        }
+      }
+      const stamp = new Date().toISOString();
+      const changes: GeneralAccessGrantChange[] = [];
+      for (const target of wanted) {
+        const before = await readGrants(
+          reg,
+          resourceId,
+          target.principalType,
+          target.principalId,
+        );
+        // A removal still runs with nothing read here: a grant another
+        // request writes before this call's own write must go too.
+        if (
+          target.role !== null &&
+          before.length === 1 &&
+          before[0]?.role === target.role
+        ) {
+          continue;
+        }
+        changes.push({ ...target, before, stamp, written: false });
+      }
+      return changes;
+    };
+
+    const grantRows = (
+      change: PreparedChange,
+      grant: GeneralAccessGrantChange,
+    ) =>
+      and(
+        eq(reg.sharesTable.resourceId, change.resourceId),
+        eq(reg.sharesTable.principalType, grant.principalType),
+        eq(reg.sharesTable.principalId, grant.principalId),
+      );
+
+    const writeGrant = async (
+      change: PreparedChange,
+      grant: GeneralAccessGrantChange,
+    ) => {
+      if (!grant.role) {
+        await db.delete(reg.sharesTable).where(grantRows(change, grant));
+        grant.written = true;
+        return;
+      }
+      const resource = {
+        ...change.access.resource,
+        ...change.update,
+        visibility: args.visibility,
+      };
+      await reg.assertSharingChange?.({ resource, change: { kind: "grant" } });
+      const id = generalAccessShareId(grant.principalType, change.resourceId);
+      await db
+        .insert(reg.sharesTable)
+        .values({
+          id,
+          resourceId: change.resourceId,
+          principalType: grant.principalType,
+          principalId: grant.principalId,
+          role: grant.role,
+          createdBy: rawAccess.userEmail ?? "",
+          createdAt: grant.stamp,
+        })
+        .onConflictDoUpdate({
+          target: reg.sharesTable.id,
+          set: {
+            role: grant.role,
+            createdBy: rawAccess.userEmail ?? "",
+            createdAt: grant.stamp,
+          },
+        });
+      grant.written = true;
+      // A grant to the same principal made another way would sit beside this
+      // one, and the stronger of the two would keep counting.
+      await db
+        .delete(reg.sharesTable)
+        .where(and(grantRows(change, grant), ne(reg.sharesTable.id, id)));
+      // The checks before the write miss a change that commits in between; a
+      // refusal or a newer visibility here is undone by the rollback.
+      await reg.assertSharingChange?.({ resource, change: { kind: "grant" } });
+      const [current] = await db
+        .select({ visibility: reg.resourceTable.visibility })
+        .from(reg.resourceTable)
+        .where(eq(reg.resourceTable.id, change.resourceId));
+      if (current?.visibility !== args.visibility) {
+        await db
+          .delete(reg.sharesTable)
+          .where(
+            and(
+              eq(reg.sharesTable.id, id),
+              eq(reg.sharesTable.createdAt, grant.stamp),
+            ),
+          );
+        fail(
+          `${reg.displayName} ${change.resourceId} changed visibility while its role was being saved. Try again.`,
+          { errorCode: "visibility_conflict", statusCode: 409 },
+        );
+      }
+    };
+
+    // Puts back each grant this call replaced. A row this call wrote goes
+    // only while it is still this call's, so a newer request's is kept.
+    const restoreGrants = async (change: PreparedChange) => {
+      for (const grant of [...change.grants].reverse()) {
+        if (!grant.written) continue;
+        if (grant.role) {
+          const removed = await db
+            .delete(reg.sharesTable)
+            .where(
+              and(
+                eq(
+                  reg.sharesTable.id,
+                  generalAccessShareId(grant.principalType, change.resourceId),
+                ),
+                eq(reg.sharesTable.createdAt, grant.stamp),
+              ),
+            )
+            .returning({ id: reg.sharesTable.id });
+          if (!removed.length) continue;
+        }
+        if (grant.before.length) {
+          await db
+            .insert(reg.sharesTable)
+            .values(grant.before)
+            .onConflictDoNothing();
+        }
+      }
     };
 
     // Check every resource before changing any.
@@ -256,6 +554,10 @@ export default defineAction({
           change.access.resource.visibility,
           previous,
         );
+        // Grants go back only while this call's visibility stands, and only
+        // after it is undone: a grant put back first would keep authorizing
+        // if putting the visibility back then failed.
+        await restoreGrants(change);
       }
       invalidateCollabAccessCache(args.resourceType, change.resourceId);
       if (ours) return movedOrg ? "visibility" : null;
@@ -304,6 +606,7 @@ export default defineAction({
             change: { kind: "visibility", visibility: args.visibility },
           });
         }
+        for (const grant of change.grants) await writeGrant(change, grant);
       }
     } catch (error) {
       const stillVisible: string[] = [];
@@ -386,18 +689,26 @@ export default defineAction({
     const changed = prepared.filter((change) => change.resourceChanged);
     const firstChanged = changed.at(0);
     const card = firstChanged
-      ? sharingChangeFor(reg, firstChanged, changed.length, args.visibility)
+      ? sharingChangeFor(
+          reg,
+          firstChanged,
+          changed.length,
+          args.role ? `${args.visibility} · ${args.role}` : args.visibility,
+        )
       : undefined;
+    const roleResult = args.role ? { role: args.role } : {};
     if (!args.resourceIds) {
       return {
         ok: true,
         visibility: args.visibility,
+        ...roleResult,
         ...(card ? { change: card } : {}),
       };
     }
     return {
       ok: true,
       visibility: args.visibility,
+      ...roleResult,
       results: prepared.map((change) => ({
         resourceId: change.resourceId,
         status: change.resourceChanged
@@ -416,13 +727,13 @@ function sharingChangeFor(
   reg: ShareableResourceRegistration,
   firstChanged: PreparedChange,
   changedCount: number,
-  visibility: Visibility,
+  detail: string,
 ): ActionChange {
   const first = resourceSharingChange(
     reg,
     firstChanged.access.resource,
     "updated",
-    visibility,
+    detail,
   ).change;
   if (changedCount === 1) return first;
   const suffix = ` and ${changedCount - 1} more`;

@@ -72,6 +72,9 @@ export const ReviewMentionNode = Node.create({
       label: { default: "" },
       email: { default: null },
       id: { default: null },
+      // The address a written `@[Name](mailto:…)` names its person by, as
+      // written, so the comment saves it as it was.
+      mailto: { default: null },
     };
   },
 

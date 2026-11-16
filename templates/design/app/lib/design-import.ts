@@ -1,5 +1,9 @@
 import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { parseFigmaFileKey } from "@shared/figma-url";
+import {
+  STORED_SCREEN_FRAME_TYPES,
+  type StoredScreenFrameType,
+} from "@shared/screen-frame-type";
 
 import type { PortableStyleSnapshot } from "@/components/design/types";
 
@@ -274,6 +278,7 @@ export interface DesignClipboardScreenEntry {
   fileType?: string;
   content: string;
   sourceScreenId?: string;
+  frameType?: StoredScreenFrameType;
   canvasFrame?: {
     x?: number;
     y?: number;
@@ -429,7 +434,9 @@ function validateDesignClipboardPayload(
       (screen.fileType !== undefined &&
         !clipboardString(screen.fileType, 32)) ||
       (screen.sourceScreenId !== undefined &&
-        !clipboardString(screen.sourceScreenId))
+        !clipboardString(screen.sourceScreenId)) ||
+      (screen.frameType !== undefined &&
+        !STORED_SCREEN_FRAME_TYPES.some((type) => type === screen.frameType))
     ) {
       return null;
     }

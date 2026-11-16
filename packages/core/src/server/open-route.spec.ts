@@ -48,6 +48,8 @@ import {
 } from "../shared/embed-auth.js";
 import { createOpenRouteHandler } from "./open-route.js";
 
+const TAB_ID = "00000000-0000-4000-8000-000000000001";
+
 function fakeEvent(
   url: string,
   method = "GET",
@@ -85,6 +87,7 @@ describe("createOpenRouteHandler", () => {
     appStateGet.mockResolvedValue(null);
     requestHasEmbedAuthMarker.mockReset();
     requestHasEmbedAuthMarker.mockReturnValue(false);
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(TAB_ID);
   });
 
   afterEach(() => {
@@ -93,7 +96,7 @@ describe("createOpenRouteHandler", () => {
     vi.restoreAllMocks();
   });
 
-  it("authenticated GET writes the navigate key under the session email with requestSource deep-link and 302s to /<view>", async () => {
+  it("authenticated GET writes the navigate command for a new tab under the session email and 302s to /<view> naming that tab", async () => {
     getSession.mockResolvedValue({ email: "user@example.com" });
     const handler = createOpenRouteHandler();
 
@@ -106,12 +109,14 @@ describe("createOpenRouteHandler", () => {
     expect(appStatePut).toHaveBeenCalledTimes(1);
     const [sessionId, key, payload, options] = appStatePut.mock.calls[0];
     expect(sessionId).toBe("user@example.com");
-    expect(key).toBe("navigate");
+    expect(key).toBe(`navigate:${TAB_ID}`);
     expect(payload).toEqual({ threadId: "abc123", view: "inbox" });
     expect(options).toEqual({ requestSource: "deep-link" });
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/inbox?agentSidebar=closed");
+    expect(res.headers.get("Location")).toBe(
+      `/inbox?agentSidebar=closed&agentNativeTab=${TAB_ID}`,
+    );
   });
 
   it("carries a Set-Cookie staged during getSession() (e.g. `_session` promotion) onto the 302 response instead of dropping it", async () => {
@@ -272,6 +277,22 @@ describe("createOpenRouteHandler", () => {
     expect(appStatePut).not.toHaveBeenCalled();
   });
 
+  it("redirects a HEAD request without writing a command no page will read", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/_agent-native/open?app=mail&view=inbox&threadId=abc123",
+        "HEAD",
+      ),
+    );
+
+    expect(appStatePut).not.toHaveBeenCalled();
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/inbox?agentSidebar=closed");
+  });
+
   it("rejects non-GET methods with 405", async () => {
     getSession.mockResolvedValue({ email: "user@example.com" });
     const handler = createOpenRouteHandler();
@@ -293,7 +314,9 @@ describe("createOpenRouteHandler", () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/inbox?agentSidebar=closed");
+    expect(res.headers.get("Location")).toBe(
+      `/inbox?agentSidebar=closed&agentNativeTab=${TAB_ID}`,
+    );
   });
 
   it("open-redirect guard rejects an absolute `to` URL and falls back to /<view>", async () => {
@@ -307,7 +330,9 @@ describe("createOpenRouteHandler", () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/dashboard?agentSidebar=closed");
+    expect(res.headers.get("Location")).toBe(
+      `/dashboard?agentSidebar=closed&agentNativeTab=${TAB_ID}`,
+    );
   });
 
   it("open-redirect guard rejects a control-char `to` and, with no view, falls back to /", async () => {
@@ -319,7 +344,9 @@ describe("createOpenRouteHandler", () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/?agentSidebar=closed");
+    expect(res.headers.get("Location")).toBe(
+      `/?agentSidebar=closed&agentNativeTab=${TAB_ID}`,
+    );
   });
 
   it("open-redirect guard rejects an auth entry path as `to` so a deep link cannot land on a login form", async () => {
@@ -331,7 +358,9 @@ describe("createOpenRouteHandler", () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/?agentSidebar=closed");
+    expect(res.headers.get("Location")).toBe(
+      `/?agentSidebar=closed&agentNativeTab=${TAB_ID}`,
+    );
   });
 
   it("forwards f_* filter params onto the redirect Location", async () => {
@@ -425,7 +454,7 @@ describe("createOpenRouteHandler", () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(
-      `/inbox?${EMBED_MODE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=tok_123&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&agentSidebar=closed`,
+      `/inbox?${EMBED_MODE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=tok_123&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&agentSidebar=closed&agentNativeTab=${TAB_ID}`,
     );
 
     const [, , payload] = appStatePut.mock.calls[0];
@@ -442,7 +471,9 @@ describe("createOpenRouteHandler", () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/mail/inbox?agentSidebar=closed");
+    expect(res.headers.get("Location")).toBe(
+      `/mail/inbox?agentSidebar=closed&agentNativeTab=${TAB_ID}`,
+    );
   });
 
   it("does not duplicate APP_BASE_PATH when a safe to param is already mounted", async () => {
@@ -458,7 +489,7 @@ describe("createOpenRouteHandler", () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(
-      "/mail/inbox/abc123?agentSidebar=closed",
+      `/mail/inbox/abc123?agentSidebar=closed&agentNativeTab=${TAB_ID}`,
     );
   });
 
@@ -472,7 +503,7 @@ describe("createOpenRouteHandler", () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(
-      "/inbox/abc123?agentSidebar=closed",
+      `/inbox/abc123?agentSidebar=closed&agentNativeTab=${TAB_ID}`,
     );
   });
 
@@ -488,6 +519,39 @@ describe("createOpenRouteHandler", () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/email/t9?agentSidebar=closed");
+    expect(res.headers.get("Location")).toBe(
+      `/email/t9?agentSidebar=closed&agentNativeTab=${TAB_ID}`,
+    );
+  });
+
+  it("ignores a tab ID supplied in the link and names the route's own", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/_agent-native/open?view=inbox&threadId=t1&agentNativeTab=attacker-tab",
+      ),
+    );
+
+    const [, key, payload] = appStatePut.mock.calls[0];
+    expect(key).toBe(`navigate:${TAB_ID}`);
+    expect(payload).toEqual({ threadId: "t1", view: "inbox" });
+    const sp = new URL(res.headers.get("Location")!, "http://x.invalid")
+      .searchParams;
+    expect(sp.getAll("agentNativeTab")).toEqual([TAB_ID]);
+  });
+
+  it("names no tab when the navigate write fails, so the page keeps its own ID", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    appStatePut.mockRejectedValue(new Error("db down"));
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent("/_agent-native/open?view=inbox&threadId=t1"),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/inbox?agentSidebar=closed");
   });
 });

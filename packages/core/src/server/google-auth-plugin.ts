@@ -1,6 +1,5 @@
 import { createAuthPlugin } from "./auth-plugin.js";
 import type { AuthOptions } from "./auth.js";
-import { getOnboardingHtml } from "./onboarding-html.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -12,6 +11,10 @@ export interface GoogleAuthPluginOptions extends Pick<
   | "renderResetPasswordPage"
 > {}
 
+// The sign-in page renders for each request that shows it, so a renderer that
+// loads after startup (the toolkit's does) reaches the page once it has loaded.
+// A page served before then is core's fallback, cached like the full page, so
+// pass the toolkit's renderer only after `await loadAuthPageRenderers()`.
 export function createGoogleAuthPlugin(
   options?: GoogleAuthPluginOptions,
 ): NitroPluginDef {
@@ -23,10 +26,7 @@ export function createGoogleAuthPlugin(
       "/_agent-native/auth/ba",
       ...(options?.publicPaths ?? []),
     ],
-    loginHtml: getOnboardingHtml({
-      googleOnly: true,
-      googleAuthMode: options?.googleAuthMode,
-      renderSignInPage: options?.renderSignInPage,
-    }),
+    googleOnly: true,
+    rootAuth: true,
   });
 }

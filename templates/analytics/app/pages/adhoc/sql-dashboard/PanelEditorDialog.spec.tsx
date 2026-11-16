@@ -20,7 +20,8 @@ vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   },
 }));
 
-vi.mock("@agent-native/toolkit/app/chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat", async () => ({
+  ...(await import("../../../../../../packages/toolkit/src/app/chat/prepare-prompt-composer-agent-handoff")),
   useSendToAgentChat: () => ({ send: mocks.send, isGenerating: false }),
 }));
 
@@ -146,9 +147,9 @@ describe("AddPanelPopover", () => {
     });
 
     const onSubmit = mocks.promptComposerProps?.onSubmit as
-      | ((text: string) => void)
+      | ((text: string, files: File[], references: [], options: object) => void)
       | undefined;
-    await act(async () => onSubmit?.("Add a metric panel"));
+    await act(async () => onSubmit?.("Add a metric panel", [], [], {}));
 
     expect(mocks.send).toHaveBeenCalledWith(
       expect.objectContaining({

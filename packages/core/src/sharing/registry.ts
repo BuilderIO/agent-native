@@ -1,5 +1,7 @@
+import { registerDbDependency } from "../db/readiness.js";
 import type { EmailCta, EmailLinkBlock } from "../server/email-template.js";
 import type { UserProfile } from "../user-profile/shared.js";
+import { ensureWorkspaceUserGroupsTable } from "../workspace-connections/groups.js";
 
 export interface ShareEmailExtras {
   paragraphs?: string[];
@@ -70,6 +72,13 @@ export interface ShareableResourceRegistration {
       | { kind: "grant" };
   }) => void | Promise<void>;
   allowPublic?: boolean;
+  /**
+   * Ask before a private resource opens to the whole organization. For types
+   * whose content is easy to overlook, such as a chat's messages and files;
+   * everywhere else the panel saves the change at once, and it can be undone
+   * the same way.
+   */
+  confirmOrgVisibility?: boolean;
   publicAccessRole?:
     | "viewer"
     | "commenter"
@@ -211,6 +220,9 @@ export function registerShareableResource(
   entry: ShareableResourceRegistration,
 ): void {
   if (!isTestRuntime() && registrationCameFromTestFile()) return;
+  if (entry.supportsGroupShares) {
+    registerDbDependency(entry.getDb, ensureWorkspaceUserGroupsTable);
+  }
   getRegistry().set(entry.type, entry);
 }
 

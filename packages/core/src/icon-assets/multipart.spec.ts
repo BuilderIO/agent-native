@@ -111,6 +111,36 @@ describe("bounded icon multipart reader", () => {
     );
   });
 
+  it("joins a body that arrives in many small chunks", async () => {
+    // Past the reader's 64 KB starting buffer, so it has to grow.
+    const content = Uint8Array.from({ length: 200_000 }, (_, i) => i % 251);
+    const form = new FormData();
+    form.set("documentId", "document-1");
+    form.set("file", new File([content], "logo.png", { type: "image/png" }));
+    const encoded = new Request("https://app.example.test/upload", {
+      method: "POST",
+      body: form,
+    });
+    const contentType = encoded.headers.get("content-type") ?? "";
+    const bytes = new Uint8Array(await encoded.arrayBuffer());
+    const request = new Request("https://app.example.test/upload", {
+      method: "POST",
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (let start = 0; start < bytes.length; start += 997)
+            controller.enqueue(bytes.slice(start, start + 997));
+          controller.close();
+        },
+      }),
+      duplex: "half",
+      headers: { "content-type": contentType },
+    } as RequestInit);
+    const parsed = await readIconUploadFormData(request);
+    expect(parsed.get("documentId")).toBe("document-1");
+    const file = parsed.get("file") as File;
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(content);
+  });
+
   it("distinguishes malformed multipart from a failed source stream", async () => {
     await expect(
       readIconUploadFormData(

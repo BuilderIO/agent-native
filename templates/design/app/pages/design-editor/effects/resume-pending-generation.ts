@@ -8,6 +8,7 @@ import {
   formatComposerContext,
   hasComposerSystemContext,
 } from "@/lib/composer-context";
+import { figmaReferenceDirectives } from "@/lib/figma-attachment";
 import {
   clearPendingGeneration,
   failPendingGenerationForMissingImagePayload,
@@ -50,6 +51,7 @@ export interface ResumePendingGenerationArgs {
     model?: string;
     engine?: string;
     effort?: PromptComposerSubmitOptions["effort"];
+    references?: PromptComposerSubmitOptions["references"];
   } | null>;
   imageAttachmentUnavailableMessage: string;
   invalidCanvasDimensionsMessage: string;
@@ -227,6 +229,7 @@ export function runResumePendingGeneration({
       fileContext,
       "",
       ...generationDirectives,
+      ...figmaReferenceDirectives(pending.contextItems),
     ].join("\n");
 
     clearGenerationCompleteTimer();
@@ -235,11 +238,13 @@ export function runResumePendingGeneration({
       model: pending.model,
       engine: pending.engine,
       effort: pending.effort,
+      references: pending.references,
     };
     const runTabId = agentSubmit(prompt, context, {
       model: pending.model,
       engine: pending.engine,
       effort: pending.effort,
+      references: pending.references,
       newTab: true,
       images,
     });

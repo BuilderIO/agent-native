@@ -1,3 +1,47 @@
+## 0.31.11
+
+### Patch Changes
+
+- e5e6934: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
+- dd80d09: Keep the full workspace credential workflow reachable from the redesigned integrations catalog.
+- e5e6934: Refresh integration and Dispatch app surfaces with connected-first layouts and two-column cards.
+
+## 0.31.10
+
+### Patch Changes
+
+- a1d24db: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
+
+## 0.31.9
+
+### Patch Changes
+
+- 4ebc74f: Fix Clips, Forms, and Design apps sharing the same fallback icon in the Dispatch "Your apps" list.
+
+## 0.31.8
+
+### Patch Changes
+
+- 4e1ce88: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
+
+## 0.31.7
+
+### Patch Changes
+
+- 97e8cea: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
+
+## 0.31.6
+
+### Patch Changes
+
+- 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
+
+## 0.31.5
+
+### Patch Changes
+
+- d30d701: Move workspace-app sharing into each app's settings menu so cards keep their primary open action focused.
+
 ## 0.31.4
 
 ### Patch Changes

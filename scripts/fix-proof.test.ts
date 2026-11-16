@@ -106,17 +106,18 @@ writeFileSync(
 chmodSync(join(shim, "git"), 0o755);
 
 describe("fix-proof", () => {
-  it("proves a check that is green on HEAD and red without the fix", () => {
+  it("proves a non-test check locally without a line the feedback gate would re-run", () => {
     const r = proof("grep", "-q", "fixed", "app.txt");
     assert.equal(r.status, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /proven, red at/);
+    assert.match(r.stdout, /^fix-proof: proven locally only \(/);
+    assert.doesNotMatch(r.stdout, /fix-proof: proven, red at/);
     assertBackAtHead();
   });
 
   it("accepts an actual failing Node test as red proof", () => {
     const r = proof("node", "--test", "assertion.test.js");
     assert.equal(r.status, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /proven, red at/);
+    assert.match(r.stdout, /^fix-proof: proven, red at/);
     assertBackAtHead();
   });
 

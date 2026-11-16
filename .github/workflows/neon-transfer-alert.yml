@@ -31,7 +31,8 @@ jobs:
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_ORG_ID: ${{ vars.NEON_ORG_ID }}
-      SLACK_NEON_TRANSFER_WEBHOOK_URL: ${{ secrets.SLACK_NEON_TRANSFER_WEBHOOK_URL }}
+      QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+      SLACK_CHANNEL: C0C7A1Y2EF6
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 

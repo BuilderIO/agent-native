@@ -1,15 +1,19 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   getBrowserTabId,
   setClientAppState,
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "@agent-native/toolkit/app/settings";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type { DataGridColumn } from "@agent-native/toolkit/data-grid";
 import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
@@ -137,6 +141,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import {
   memo,
+  useContext,
   useEffect,
   useCallback,
   useId,
@@ -161,6 +166,7 @@ import {
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
 } from "@/components/sidebar/select-content-space";
+import { sidebarPageLinks } from "@/components/sidebar/SidebarRowActions";
 import { WorkspaceSourceMenu } from "@/components/sidebar/WorkspaceSourceMenu";
 import {
   AlertDialog,
@@ -258,6 +264,7 @@ import {
   useDeleteDocument,
   useDocument,
   seedDatabaseItemDocumentCaches,
+  startDatabaseItemPreviewReads,
   useUpdateDocument,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
@@ -285,6 +292,7 @@ import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
 } from "../database-sources/BuilderSourceReviewDialog";
+import { leaveEscapeToPagePanel } from "../document-page-panel-state";
 import {
   PageEditorSurface,
   type PageCommentIntent,
@@ -332,7 +340,10 @@ import {
   useContentTableSelectionGutter,
 } from "./ContentTable";
 import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
-import { DatabaseCellComments } from "./database-cell-comments";
+import {
+  DatabaseCellComments,
+  databaseItemCommentAccess,
+} from "./database-cell-comments";
 import {
   createConstraintMenus,
   useConstraintMenusState,
@@ -341,6 +352,7 @@ import {
 import {
   DatabaseItemCommentsContext,
   DatabaseRowCommentCount,
+  type DatabaseItemCommentTarget,
   type OpenDatabaseItemComments,
 } from "./database-item-comments";
 import {
@@ -381,11 +393,21 @@ import {
 import {
   databaseItemCanDuplicate,
   databaseItemCanRemoveFromDatabase,
+  databaseItemHasRowMenu,
   databaseItemHasViewerAccess,
   databaseItemIsSourceBacked,
 } from "./row-access";
+import {
+  DATABASE_ROW_NESTED_CONTROL_SELECTOR,
+  databaseRowOpenTarget,
+  databaseRowOpenTargetAt,
+} from "./row-open-target";
 import type { DatabaseRowView } from "./row-view-layout";
 import { scopedDatabaseRowTitleUpdateRequest } from "./scoped-row-write";
+import {
+  databaseSortDirectionLabel,
+  databaseSortPropertyType,
+} from "./sort-direction";
 import { DatabaseTimelineView } from "./TimelineView";
 import {
   normalizeClientColumnWrapOverrides,
@@ -937,9 +959,7 @@ export function openDatabaseItemOnClick(onOpen: () => void) {
     const target = event.target;
     if (!(target instanceof Element)) return;
     if (!event.currentTarget.contains(target)) return;
-    if (target.closest("a, button, input, textarea, [role='menuitem']")) {
-      return;
-    }
+    if (target.closest(DATABASE_ROW_NESTED_CONTROL_SELECTOR)) return;
     onOpen();
   };
 }
@@ -1150,16 +1170,38 @@ function DatabaseTable({
   const previewCommentIntentSequenceRef = useRef(0);
   const previewSessionRef = useRef<PageEditorSession | null>(null);
   const previewTransitionRef = useRef(false);
+  const queuedPreviewTransitionRef = useRef<(() => void) | null>(null);
+  const previewTransitionsEndedRef = useRef(false);
+  useEffect(() => {
+    previewTransitionsEndedRef.current = false;
+    return () => {
+      previewTransitionsEndedRef.current = true;
+    };
+  }, []);
   const [previewTransitionPending, setPreviewTransitionPending] =
     useState(false);
+  // The row a switch waiting on the save will show, so the arrows step on
+  // from it rather than from the row still on show.
+  const [previewDestinationId, setPreviewDestinationId] = useState<
+    string | null
+  >(null);
   const handlePreviewSessionChange = useCallback(
     (session: PageEditorSession | null) => {
       previewSessionRef.current = session;
     },
     [],
   );
-  function runPreviewTransition(action: () => void) {
-    if (previewTransitionRef.current) return;
+  function runPreviewTransition(
+    action: () => void,
+    destinationId: string | null = null,
+  ) {
+    // The save in progress holds the switch, and the latest choice is the one
+    // that runs once it lands.
+    if (previewTransitionRef.current) {
+      queuedPreviewTransitionRef.current = action;
+      setPreviewDestinationId(destinationId);
+      return;
+    }
     const session = previewSessionRef.current;
     if (!session) {
       action();
@@ -1167,16 +1209,24 @@ function DatabaseTable({
     }
     previewTransitionRef.current = true;
     setPreviewTransitionPending(true);
+    setPreviewDestinationId(destinationId);
     void session
       .flush()
       .then(() => {
         previewTransitionRef.current = false;
         setPreviewTransitionPending(false);
-        action();
+        setPreviewDestinationId(null);
+        const queued = queuedPreviewTransitionRef.current;
+        queuedPreviewTransitionRef.current = null;
+        // Someone who left the collection while it saved has gone elsewhere.
+        if (previewTransitionsEndedRef.current) return;
+        (queued ?? action)();
       })
       .catch((error: unknown) => {
         previewTransitionRef.current = false;
+        queuedPreviewTransitionRef.current = null;
         setPreviewTransitionPending(false);
+        setPreviewDestinationId(null);
         toast.error(dbText("failedToSavePagePreview"), {
           description:
             error instanceof Error
@@ -1185,13 +1235,23 @@ function DatabaseTable({
         });
       });
   }
+  // Choosing the row already showing takes back a choice waiting on the save.
+  function keepPreviewedRow() {
+    if (previewTransitionRef.current) {
+      queuedPreviewTransitionRef.current = () => {};
+      setPreviewDestinationId(null);
+    }
+  }
   function setPreviewDocumentId(id: string | null) {
-    if (id === previewDocumentId) return;
+    if (id === previewDocumentId) {
+      keepPreviewedRow();
+      return;
+    }
     runPreviewTransition(() => {
       previewSessionRef.current = null;
       setPreviewCommentIntent(null);
       setPreviewDocumentIdState(id);
-    });
+    }, id);
   }
   const [createdPreviewItem, setCreatedPreviewItem] =
     useState<ContentDatabaseItem | null>(null);
@@ -1594,17 +1654,20 @@ function DatabaseTable({
   useEffect(() => {
     lastPreviewItemRef.current = previewItem;
   }, [previewItem]);
-  const previousPreviewItem = previewItem
+  const previewNeighborsOf = previewItem
+    ? (previewDestinationId ?? previewItem.document.id)
+    : null;
+  const previousPreviewItem = previewNeighborsOf
     ? databaseItemPreviewNeighbor(
         screenVisibleItems,
-        previewItem.document.id,
+        previewNeighborsOf,
         "prev",
       )
     : null;
-  const nextPreviewItem = previewItem
+  const nextPreviewItem = previewNeighborsOf
     ? databaseItemPreviewNeighbor(
         screenVisibleItems,
-        previewItem.document.id,
+        previewNeighborsOf,
         "next",
       )
     : null;
@@ -2041,13 +2104,31 @@ function DatabaseTable({
       openItemPage(item);
       return;
     }
+    if (item.document.id !== previewDocumentId) {
+      startDatabaseItemPreviewReads(queryClient, item, document.id);
+    }
     setPreviewDocumentId(item.document.id);
   }
 
-  // Opens the row with its Comments showing, from a count or a cell marker.
+  // A press or a rest on another row, or on an arrow: the switch is likely, so
+  // the reads it draws from start now rather than after it.
+  const prepareRowForPreview = useStableCallback((documentId: string) => {
+    if (documentId === previewDocumentId) return;
+    const item = screenVisibleItems.find(
+      (candidate) => candidate.document.id === documentId,
+    );
+    if (item) {
+      startDatabaseItemPreviewReads(queryClient, item, document.id, {
+        reviewReads: false,
+      });
+    }
+  });
+
+  // Opens the row with its Comments showing, from a count, a cell marker, or
+  // the row menu.
   // Every table cell reads this through context, so it keeps one identity.
   const previewItemComments: OpenDatabaseItemComments = useStableCallback(
-    (item, threadId, propertyId) => {
+    (item, target) => {
       if (openWorkspaceFiles(item)) return;
       seedDatabaseItemDocumentCaches(queryClient, item);
       prioritizeBuilderBodyHydrationForItem(item);
@@ -2058,21 +2139,18 @@ function DatabaseTable({
           document.id,
           activeView.id,
         );
-        const link = threadId
-          ? `${path}&comment=${encodeURIComponent(threadId)}`
-          : propertyId
-            ? `${path}&commentProperty=${encodeURIComponent(propertyId)}`
-            : path;
-        runPreviewTransition(() => void navigate(link));
+        runPreviewTransition(
+          () => void navigate(databaseItemCommentLink(path, target)),
+        );
         return;
       }
       const intent: PageCommentIntent = {
         key: ++previewCommentIntentSequenceRef.current,
         documentId: item.document.id,
-        threadId,
-        ...(propertyId ? { propertyId } : {}),
+        ...target,
       };
       if (item.document.id === previewDocumentId) {
+        keepPreviewedRow();
         setPreviewCommentIntent(intent);
         return;
       }
@@ -2080,18 +2158,24 @@ function DatabaseTable({
         previewSessionRef.current = null;
         setPreviewCommentIntent(intent);
         setPreviewDocumentIdState(item.document.id);
-      });
+      }, item.document.id);
     },
   );
+
+  function previewRowAfterDelete(item: ContentDatabaseItem | null | undefined) {
+    if (item) startDatabaseItemPreviewReads(queryClient, item, document.id);
+    setPreviewDocumentId(item?.document.id ?? null);
+  }
 
   function handleDeletedPreviewItem(item: ContentDatabaseItem) {
     const previewState = previewStateRef.current;
     if (previewState.documentId !== item.document.id) return false;
-    const nextPreviewItem = databaseItemPreviewFallbackAfterDelete(
-      previewState.visibleItems,
-      item.document.id,
+    previewRowAfterDelete(
+      databaseItemPreviewFallbackAfterDelete(
+        previewState.visibleItems,
+        item.document.id,
+      ),
     );
-    setPreviewDocumentId(nextPreviewItem?.document.id ?? null);
     return true;
   }
 
@@ -2104,12 +2188,13 @@ function DatabaseTable({
     ) {
       return false;
     }
-    const nextPreviewItem = databaseItemPreviewFallbackAfterBulkDelete(
-      previewState.visibleItems,
-      previewState.documentId,
-      deletedDocumentIds,
+    previewRowAfterDelete(
+      databaseItemPreviewFallbackAfterBulkDelete(
+        previewState.visibleItems,
+        previewState.documentId,
+        deletedDocumentIds,
+      ),
     );
-    setPreviewDocumentId(nextPreviewItem?.document.id ?? null);
     return true;
   }
 
@@ -2144,29 +2229,34 @@ function DatabaseTable({
       spaces: spacesResponse.spaces,
     });
     if (!space) return false;
-    void workspaceSelectionQueueRef
-      .current(async () => {
-        await selectContentSpace({
-          space,
-          syncApplicationState: (selected) =>
-            setClientAppState(
-              "content-space",
-              {
-                spaceId: selected.id,
-                name: selected.name,
-                kind: selected.kind,
-                filesDatabaseId: selected.filesDatabaseId,
-              },
-              { requestSource: "content-workspaces-database" },
-            ),
-          persistSelection: setStoredSpaceId,
-          openSpace: (spaceId) =>
-            navigate(`/home?spaceId=${encodeURIComponent(spaceId)}`),
+    // Opening the workspace leaves the collection, so an open panel saves
+    // its edits first, as a switch would.
+    runPreviewTransition(() => {
+      void workspaceSelectionQueueRef
+        .current(async () => {
+          await selectContentSpace({
+            space,
+            syncApplicationState: (selected) =>
+              setClientAppState(
+                "content-space",
+                {
+                  spaceId: selected.id,
+                  name: selected.name,
+                  kind: selected.kind,
+                  filesDatabaseId: selected.filesDatabaseId,
+                },
+                { requestSource: "content-workspaces-database" },
+              ),
+            persistSelection: setStoredSpaceId,
+            openSpace: (spaceId) => {
+              void navigate(`/home?spaceId=${encodeURIComponent(spaceId)}`);
+            },
+          });
+        })
+        .catch((error) => {
+          toast.error(error instanceof Error ? error.message : String(error));
         });
-      })
-      .catch((error) => {
-        toast.error(error instanceof Error ? error.message : String(error));
-      });
+    });
     return true;
   }
 
@@ -2529,7 +2619,10 @@ function DatabaseTable({
         clearTimeout(personalViewSaveTimerRef.current);
         personalViewSaveTimerRef.current = null;
       }
-      updatePersonalView.mutate({ databaseId, overrides: null });
+      updatePersonalView.mutate(
+        { databaseId, overrides: null },
+        { onError: (error) => reportWriteFailure(error) },
+      );
       setSavedViewConfig(nextViewConfig);
       setViewConfig(nextViewConfig);
       setPersonalQueryDirty(false);
@@ -2556,10 +2649,10 @@ function DatabaseTable({
         current,
         savedViewConfig,
       );
-      updatePersonalView.mutate({
-        databaseId,
-        overrides: null,
-      });
+      updatePersonalView.mutate(
+        { databaseId, overrides: null },
+        { onError: (error) => reportWriteFailure(error) },
+      );
       setPersonalQueryDirty(false);
       hydratedViewRef.current = databaseViewStateKey(
         databaseId,
@@ -3351,6 +3444,15 @@ function DatabaseTable({
             onViewConfigChange={handleViewConfigChange}
             onViewIconChange={handleViewIconChange}
             onViewSelect={selectPersonalView}
+            viewLink={(viewId) =>
+              `${window.location.origin}${appPath(
+                contentRecentHref({
+                  documentId: document.id,
+                  databaseId,
+                  viewId,
+                }),
+              )}`
+            }
           />
         ) : null}
         <ContentTableToolbar className="ms-auto">
@@ -3647,207 +3749,207 @@ function DatabaseTable({
         </div>
       ) : null}
 
-      {database.itemsFailed ? (
-        <QueryErrorState
-          compact
-          onRetry={() => void database.retryItems()}
-          retrying={database.itemsRetrying}
-        />
-      ) : activeView.type === "form" ? (
-        <DatabaseFormView
-          databaseId={databaseId}
-          databaseDocumentId={document.id}
-          databaseTitle={data?.database.title ?? document.title}
-          view={activeView}
-          properties={orderedProperties}
-          canEdit={effectiveCanEdit}
-        />
-      ) : activeView.type === "board" ? (
-        <DatabaseBoardView
-          databaseId={databaseId}
-          activeView={activeView}
-          properties={orderedProperties}
-          items={visibleItems}
-          groupProperty={boardGroupProperty}
-          databaseDocumentId={document.id}
-          canEdit={effectiveCanEdit}
-          canCreateItems={canCreateItems}
-          isLoading={isDatabaseViewLoading}
-          isCreating={isCreatingDatabaseItem || setProperty.isPending}
-          hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
-          isMoving={setProperty.isPending}
-          source={source}
-          sources={sources}
-          addPropertyOpenRequestId={addPropertyOpenRequestId}
-          onAddPropertyOpenRequestHandled={(requestId) =>
-            setAddPropertyOpenRequestId((current) =>
-              current === requestId ? 0 : current,
-            )
-          }
-          onConnectSource={openSourcesFromAddProperty}
-          collapsedGroupIds={activeView.collapsedGroupIds ?? []}
-          hideEmptyGroups={activeView.hideEmptyGroups === true}
-          onClearResultConstraints={clearSearchAndFilters}
-          onGroupByChange={(propertyId) =>
-            updateActiveView((view) =>
-              setDatabaseViewGroupByProperty(view, propertyId),
-            )
-          }
-          onHideEmptyGroupsChange={setHideEmptyGroups}
-          onGroupsCollapsedChange={setGroupsCollapsed}
-          onCreateCard={createBoardCard}
-          onMoveCard={moveBoardCard}
-          onGroupCollapsedChange={setGroupCollapsed}
-          onPreview={previewItemPage}
-          onDeletedPreviewItem={handleDeletedPreviewItem}
-          onOpenPage={openItemPage}
-        />
-      ) : activeView.type === "list" ? (
-        <DatabaseListView
-          properties={tableProperties}
-          groupableProperties={orderedProperties}
-          layoutProperties={databaseListLayoutProperties(
-            orderedProperties,
-            activeView,
-          )}
-          items={visibleItems}
-          databaseId={databaseId}
-          databaseDocumentId={document.id}
-          itemLayout={activeView.itemLayout ?? null}
-          editingRows={editingListRowsViewId === activeView.id}
-          canEdit={effectiveCanEdit}
-          canCreateItems={canCreateItems}
-          isLoading={isDatabaseViewLoading}
-          isCreating={isCreatingDatabaseItem}
-          activeFilters={activeFilters}
-          hasSearch={!!searchQuery}
-          rowsAreManuallyOrdered={rowsAreManuallyOrdered}
-          groupByPropertyId={activeView.groupByPropertyId ?? null}
-          collapsedGroupIds={activeView.collapsedGroupIds ?? []}
-          hideEmptyGroups={activeView.hideEmptyGroups === true}
-          onClearResultConstraints={clearSearchAndFilters}
-          onCreateRow={createRow}
-          onCreateGroupedRow={createGroupedRow}
-          onGroupCollapsedChange={setGroupCollapsed}
-          onPreview={previewItemPage}
-          onDeletedPreviewItem={handleDeletedPreviewItem}
-          onOpenPage={openItemPage}
-          onItemLayoutChange={setItemLayout}
-          onEditingRowsChange={(editing) =>
-            setEditingListRowsViewId(editing ? activeView.id : null)
-          }
-        />
-      ) : activeView.type === "gallery" ? (
-        <DatabaseGalleryView
-          properties={tableProperties}
-          groupableProperties={orderedProperties}
-          items={visibleItems}
-          databaseDocumentId={document.id}
-          canEdit={effectiveCanEdit}
-          canCreateItems={canCreateItems}
-          isLoading={isDatabaseViewLoading}
-          isCreating={isCreatingDatabaseItem}
-          activeFilters={activeFilters}
-          hasSearch={!!searchQuery}
-          rowsAreManuallyOrdered={rowsAreManuallyOrdered}
-          groupByPropertyId={activeView.groupByPropertyId ?? null}
-          collapsedGroupIds={activeView.collapsedGroupIds ?? []}
-          hideEmptyGroups={activeView.hideEmptyGroups === true}
-          onClearResultConstraints={clearSearchAndFilters}
-          onCreateRow={createRow}
-          onCreateGroupedRow={createGroupedRow}
-          onGroupCollapsedChange={setGroupCollapsed}
-          onPreview={previewItemPage}
-          onDeletedPreviewItem={handleDeletedPreviewItem}
-          onOpenPage={openItemPage}
-        />
-      ) : activeView.type === "calendar" ? (
-        <DatabaseCalendarView
-          databaseId={databaseId}
-          activeView={activeView}
-          properties={orderedProperties}
-          items={visibleItems}
-          databaseDocumentId={document.id}
-          canEdit={effectiveCanEdit}
-          canCreateItems={canCreateItems}
-          isLoading={isDatabaseViewLoading}
-          isCreating={isCreatingDatabaseItem || setProperty.isPending}
-          activeFilters={activeFilters}
-          hasSearch={!!searchQuery}
-          dateProperty={dateViewProperty}
-          month={dateViewMonth}
-          source={source}
-          sources={sources}
-          addPropertyOpenRequestId={addPropertyOpenRequestId}
-          onAddPropertyOpenRequestHandled={(requestId) =>
-            setAddPropertyOpenRequestId((current) =>
-              current === requestId ? 0 : current,
-            )
-          }
-          onConnectSource={openSourcesFromAddProperty}
-          onClearResultConstraints={clearSearchAndFilters}
-          onMonthChange={setDateViewMonth}
-          onDatePropertyChange={(propertyId) =>
-            updateActiveView((view) => ({
-              ...view,
-              datePropertyId: propertyId,
-            }))
-          }
-          onCreateCard={createDatedCard}
-          onPreview={previewItemPage}
-          onDeletedPreviewItem={handleDeletedPreviewItem}
-          onOpenPage={openItemPage}
-        />
-      ) : activeView.type === "timeline" ? (
-        <DatabaseTimelineView
-          databaseId={databaseId}
-          activeView={activeView}
-          properties={orderedProperties}
-          items={visibleItems}
-          databaseDocumentId={document.id}
-          canEdit={effectiveCanEdit}
-          canCreateItems={canCreateItems}
-          isLoading={isDatabaseViewLoading}
-          isCreating={isCreatingDatabaseItem || setProperty.isPending}
-          activeFilters={activeFilters}
-          hasSearch={!!searchQuery}
-          dateProperty={dateViewProperty}
-          month={dateViewMonth}
-          source={source}
-          sources={sources}
-          addPropertyOpenRequestId={addPropertyOpenRequestId}
-          onAddPropertyOpenRequestHandled={(requestId) =>
-            setAddPropertyOpenRequestId((current) =>
-              current === requestId ? 0 : current,
-            )
-          }
-          onConnectSource={openSourcesFromAddProperty}
-          onClearResultConstraints={clearSearchAndFilters}
-          onMonthChange={setDateViewMonth}
-          onDatePropertyChange={(propertyId) =>
-            updateActiveView((view) => ({
-              ...view,
-              datePropertyId: propertyId,
-            }))
-          }
-          onEndDatePropertyChange={(propertyId) =>
-            updateActiveView((view) => ({
-              ...view,
-              endDatePropertyId: propertyId,
-            }))
-          }
-          onCreateCard={createDatedCard}
-          onPreview={previewItemPage}
-          onDeletedPreviewItem={handleDeletedPreviewItem}
-          onOpenPage={openItemPage}
-        />
-      ) : (
-        // The read-only ChatGPT widget can't read or write Comments.
-        <DatabaseItemCommentsContext.Provider
-          value={
-            document.mcpDirectoryWidgetReadOnly ? null : previewItemComments
-          }
-        >
+      {/* Board and calendar cards share the table's row menu, so every view
+          gets the handler. The read-only ChatGPT widget can't read or write
+          Comments. */}
+      <DatabaseItemCommentsContext.Provider
+        value={document.mcpDirectoryWidgetReadOnly ? null : previewItemComments}
+      >
+        {database.itemsFailed ? (
+          <QueryErrorState
+            compact
+            onRetry={() => void database.retryItems()}
+            retrying={database.itemsRetrying}
+          />
+        ) : activeView.type === "form" ? (
+          <DatabaseFormView
+            databaseId={databaseId}
+            databaseDocumentId={document.id}
+            databaseTitle={data?.database.title ?? document.title}
+            view={activeView}
+            properties={orderedProperties}
+            canEdit={effectiveCanEdit}
+          />
+        ) : activeView.type === "board" ? (
+          <DatabaseBoardView
+            databaseId={databaseId}
+            activeView={activeView}
+            properties={orderedProperties}
+            items={visibleItems}
+            groupProperty={boardGroupProperty}
+            databaseDocumentId={document.id}
+            canEdit={effectiveCanEdit}
+            canCreateItems={canCreateItems}
+            isLoading={isDatabaseViewLoading}
+            isCreating={isCreatingDatabaseItem || setProperty.isPending}
+            hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
+            isMoving={setProperty.isPending}
+            source={source}
+            sources={sources}
+            addPropertyOpenRequestId={addPropertyOpenRequestId}
+            onAddPropertyOpenRequestHandled={(requestId) =>
+              setAddPropertyOpenRequestId((current) =>
+                current === requestId ? 0 : current,
+              )
+            }
+            onConnectSource={openSourcesFromAddProperty}
+            collapsedGroupIds={activeView.collapsedGroupIds ?? []}
+            hideEmptyGroups={activeView.hideEmptyGroups === true}
+            onClearResultConstraints={clearSearchAndFilters}
+            onGroupByChange={(propertyId) =>
+              updateActiveView((view) =>
+                setDatabaseViewGroupByProperty(view, propertyId),
+              )
+            }
+            onHideEmptyGroupsChange={setHideEmptyGroups}
+            onGroupsCollapsedChange={setGroupsCollapsed}
+            onCreateCard={createBoardCard}
+            onMoveCard={moveBoardCard}
+            onGroupCollapsedChange={setGroupCollapsed}
+            onPreview={previewItemPage}
+            onDeletedPreviewItem={handleDeletedPreviewItem}
+            onOpenPage={openItemPage}
+          />
+        ) : activeView.type === "list" ? (
+          <DatabaseListView
+            properties={tableProperties}
+            groupableProperties={orderedProperties}
+            layoutProperties={databaseListLayoutProperties(
+              orderedProperties,
+              activeView,
+            )}
+            items={visibleItems}
+            databaseId={databaseId}
+            databaseDocumentId={document.id}
+            itemLayout={activeView.itemLayout ?? null}
+            editingRows={editingListRowsViewId === activeView.id}
+            canEdit={effectiveCanEdit}
+            canCreateItems={canCreateItems}
+            isLoading={isDatabaseViewLoading}
+            isCreating={isCreatingDatabaseItem}
+            activeFilters={activeFilters}
+            hasSearch={!!searchQuery}
+            rowsAreManuallyOrdered={rowsAreManuallyOrdered}
+            groupByPropertyId={activeView.groupByPropertyId ?? null}
+            collapsedGroupIds={activeView.collapsedGroupIds ?? []}
+            hideEmptyGroups={activeView.hideEmptyGroups === true}
+            onClearResultConstraints={clearSearchAndFilters}
+            onCreateRow={createRow}
+            onCreateGroupedRow={createGroupedRow}
+            onGroupCollapsedChange={setGroupCollapsed}
+            onPreview={previewItemPage}
+            onDeletedPreviewItem={handleDeletedPreviewItem}
+            onOpenPage={openItemPage}
+            onItemLayoutChange={setItemLayout}
+            onEditingRowsChange={(editing) =>
+              setEditingListRowsViewId(editing ? activeView.id : null)
+            }
+          />
+        ) : activeView.type === "gallery" ? (
+          <DatabaseGalleryView
+            properties={tableProperties}
+            groupableProperties={orderedProperties}
+            items={visibleItems}
+            databaseDocumentId={document.id}
+            canEdit={effectiveCanEdit}
+            canCreateItems={canCreateItems}
+            isLoading={isDatabaseViewLoading}
+            isCreating={isCreatingDatabaseItem}
+            activeFilters={activeFilters}
+            hasSearch={!!searchQuery}
+            rowsAreManuallyOrdered={rowsAreManuallyOrdered}
+            groupByPropertyId={activeView.groupByPropertyId ?? null}
+            collapsedGroupIds={activeView.collapsedGroupIds ?? []}
+            hideEmptyGroups={activeView.hideEmptyGroups === true}
+            onClearResultConstraints={clearSearchAndFilters}
+            onCreateRow={createRow}
+            onCreateGroupedRow={createGroupedRow}
+            onGroupCollapsedChange={setGroupCollapsed}
+            onPreview={previewItemPage}
+            onDeletedPreviewItem={handleDeletedPreviewItem}
+            onOpenPage={openItemPage}
+          />
+        ) : activeView.type === "calendar" ? (
+          <DatabaseCalendarView
+            databaseId={databaseId}
+            activeView={activeView}
+            properties={orderedProperties}
+            items={visibleItems}
+            databaseDocumentId={document.id}
+            canEdit={effectiveCanEdit}
+            canCreateItems={canCreateItems}
+            isLoading={isDatabaseViewLoading}
+            isCreating={isCreatingDatabaseItem || setProperty.isPending}
+            activeFilters={activeFilters}
+            hasSearch={!!searchQuery}
+            dateProperty={dateViewProperty}
+            month={dateViewMonth}
+            source={source}
+            sources={sources}
+            addPropertyOpenRequestId={addPropertyOpenRequestId}
+            onAddPropertyOpenRequestHandled={(requestId) =>
+              setAddPropertyOpenRequestId((current) =>
+                current === requestId ? 0 : current,
+              )
+            }
+            onConnectSource={openSourcesFromAddProperty}
+            onClearResultConstraints={clearSearchAndFilters}
+            onMonthChange={setDateViewMonth}
+            onDatePropertyChange={(propertyId) =>
+              updateActiveView((view) => ({
+                ...view,
+                datePropertyId: propertyId,
+              }))
+            }
+            onCreateCard={createDatedCard}
+            onPreview={previewItemPage}
+            onDeletedPreviewItem={handleDeletedPreviewItem}
+            onOpenPage={openItemPage}
+          />
+        ) : activeView.type === "timeline" ? (
+          <DatabaseTimelineView
+            databaseId={databaseId}
+            activeView={activeView}
+            properties={orderedProperties}
+            items={visibleItems}
+            databaseDocumentId={document.id}
+            canEdit={effectiveCanEdit}
+            canCreateItems={canCreateItems}
+            isLoading={isDatabaseViewLoading}
+            isCreating={isCreatingDatabaseItem || setProperty.isPending}
+            activeFilters={activeFilters}
+            hasSearch={!!searchQuery}
+            dateProperty={dateViewProperty}
+            month={dateViewMonth}
+            source={source}
+            sources={sources}
+            addPropertyOpenRequestId={addPropertyOpenRequestId}
+            onAddPropertyOpenRequestHandled={(requestId) =>
+              setAddPropertyOpenRequestId((current) =>
+                current === requestId ? 0 : current,
+              )
+            }
+            onConnectSource={openSourcesFromAddProperty}
+            onClearResultConstraints={clearSearchAndFilters}
+            onMonthChange={setDateViewMonth}
+            onDatePropertyChange={(propertyId) =>
+              updateActiveView((view) => ({
+                ...view,
+                datePropertyId: propertyId,
+              }))
+            }
+            onEndDatePropertyChange={(propertyId) =>
+              updateActiveView((view) => ({
+                ...view,
+                endDatePropertyId: propertyId,
+              }))
+            }
+            onCreateCard={createDatedCard}
+            onPreview={previewItemPage}
+            onDeletedPreviewItem={handleDeletedPreviewItem}
+            onOpenPage={openItemPage}
+          />
+        ) : (
           <DatabaseTableView
             startupAnchored={renderMode === "page"}
             columnOrderIds={activeView.tableColumnOrderIds ?? NO_COLUMN_ORDER}
@@ -3947,8 +4049,8 @@ function DatabaseTable({
             onDeletedPreviewItems={handleDeletedPreviewItems}
             onOpenPage={openItemPage}
           />
-        </DatabaseItemCommentsContext.Provider>
-      )}
+        )}
+      </DatabaseItemCommentsContext.Provider>
 
       {hasMoreItems &&
       !isClientQueryExpansionPending &&
@@ -3979,6 +4081,7 @@ function DatabaseTable({
       <DatabaseItemPreviewSheet
         item={previewItem}
         rowView={activeView}
+        collectionEditable={document.canEdit === true}
         transitionPending={previewTransitionPending}
         onSessionChange={handlePreviewSessionChange}
         previousItem={previousPreviewItem}
@@ -4001,8 +4104,10 @@ function DatabaseTable({
         }}
         onPreviewItem={(item) => {
           prioritizeBuilderBodyHydrationForItem(item);
+          startDatabaseItemPreviewReads(queryClient, item, document.id);
           setPreviewDocumentId(item.document.id);
         }}
+        onPrepareRow={prepareRowForPreview}
         onTitleFocused={() => setPreviewTitleFocusDocumentId(null)}
         onOpenPage={(item) => {
           runPreviewTransition(() => openItemPageNow(item));
@@ -4266,6 +4371,19 @@ export function databaseItemPagePath(
   const search = new URLSearchParams({ databaseId, databaseDocumentId });
   if (fromViewId) search.set("fromViewId", fromViewId);
   return `/page/${documentId}?${search.toString()}`;
+}
+
+/** A row's page, from `databaseItemPagePath`, opened with its Comments on `target`. */
+export function databaseItemCommentLink(
+  pagePath: string,
+  target: DatabaseItemCommentTarget | null,
+) {
+  if (!target) return pagePath;
+  if ("threadId" in target)
+    return `${pagePath}&comment=${encodeURIComponent(target.threadId)}`;
+  if ("propertyId" in target)
+    return `${pagePath}&commentProperty=${encodeURIComponent(target.propertyId)}`;
+  return `${pagePath}&commentPage=1`;
 }
 
 export function databaseNavigationState({
@@ -5303,6 +5421,7 @@ export function databaseItemPreviewPosition(
 function DatabaseItemPreviewSheet({
   item,
   rowView,
+  collectionEditable,
   previousItem,
   nextItem,
   position,
@@ -5311,6 +5430,7 @@ function DatabaseItemPreviewSheet({
   focusTitle,
   onOpenChange,
   onPreviewItem,
+  onPrepareRow,
   onTitleFocused,
   onOpenPage,
   transitionPending,
@@ -5319,6 +5439,7 @@ function DatabaseItemPreviewSheet({
 }: {
   item: ContentDatabaseItem | null;
   rowView: DatabaseRowView;
+  collectionEditable: boolean;
   previousItem: ContentDatabaseItem | null;
   nextItem: ContentDatabaseItem | null;
   position: { index: number; total: number } | null;
@@ -5330,15 +5451,52 @@ function DatabaseItemPreviewSheet({
   onSessionChange: (session: PageEditorSession | null) => void;
   onOpenChange: (open: boolean) => void;
   onPreviewItem?: (item: ContentDatabaseItem) => void;
+  onPrepareRow: (documentId: string) => void;
   onTitleFocused?: () => void;
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let restingOn: string | null = null;
+    let timer: number | undefined;
+    function handlePointerOver(event: PointerEvent) {
+      const documentId =
+        databaseRowOpenTargetAt(event.target)?.documentId ?? null;
+      if (documentId === restingOn) return;
+      restingOn = documentId;
+      window.clearTimeout(timer);
+      if (!documentId) return;
+      timer = window.setTimeout(
+        () => onPrepareRow(documentId),
+        DATABASE_ROW_REST_BEFORE_READ_MS,
+      );
+    }
+    window.document.addEventListener("pointerover", handlePointerOver);
+    return () => {
+      window.clearTimeout(timer);
+      window.document.removeEventListener("pointerover", handlePointerOver);
+    };
+  }, [onPrepareRow, open]);
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal={false}>
       <SheetContent
         side="right"
         showOverlay={false}
+        onEscapeKeyDown={(event) => {
+          const preview =
+            event.target instanceof Element
+              ? event.target.closest('[role="dialog"]')
+              : null;
+          if (
+            preview?.querySelector(
+              "[data-document-page-panel]:not([aria-hidden])",
+            )
+          ) {
+            event.preventDefault();
+            leaveEscapeToPagePanel(event);
+          }
+        }}
         onOpenAutoFocus={() => {
           const active = window.document.activeElement;
           returnFocusRef.current =
@@ -5354,17 +5512,24 @@ function DatabaseItemPreviewSheet({
           if (
             transitionPending ||
             isDatabasePreviewPortalInteraction(event.target)
-          )
+          ) {
             event.preventDefault();
+            return;
+          }
+          const rowOpenTarget = databaseRowOpenTargetAt(event.target);
+          if (!rowOpenTarget) return;
+          event.preventDefault();
+          returnFocusRef.current = rowOpenTarget.element;
+          onPrepareRow(rowOpenTarget.documentId);
         }}
         className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:w-[min(72vw,720px)] sm:!max-w-none lg:w-[50vw] lg:!max-w-[860px]"
       >
         {item ? (
           <DatabaseItemPreview
-            key={`${item.databaseId}:${item.id}:${item.document.id}`}
             item={item}
             databaseDocumentId={databaseDocumentId}
             rowView={rowView}
+            collectionEditable={collectionEditable}
             previousItem={previousItem}
             nextItem={nextItem}
             position={position}
@@ -5374,6 +5539,7 @@ function DatabaseItemPreviewSheet({
             transitionPending={transitionPending}
             onSessionChange={onSessionChange}
             onPreviewItem={onPreviewItem}
+            onPrepareRow={onPrepareRow}
             onClose={() => onOpenChange(false)}
             onOpenPage={() => onOpenPage(item)}
           />
@@ -5390,6 +5556,8 @@ function DatabaseItemPreviewSheet({
   );
 }
 
+const DATABASE_ROW_REST_BEFORE_READ_MS = 80;
+
 function isDatabasePreviewPortalInteraction(target: EventTarget | null) {
   if (!(target instanceof Element)) return false;
   return !!target.closest(
@@ -5400,12 +5568,14 @@ function isDatabasePreviewPortalInteraction(target: EventTarget | null) {
 function DatabaseItemPreview({
   item,
   rowView,
+  collectionEditable,
   previousItem,
   nextItem,
   position,
   databaseDocumentId,
   focusTitle,
   onPreviewItem,
+  onPrepareRow,
   onTitleFocused,
   onClose,
   onOpenPage,
@@ -5415,6 +5585,7 @@ function DatabaseItemPreview({
 }: {
   item: ContentDatabaseItem;
   rowView: DatabaseRowView;
+  collectionEditable: boolean;
   previousItem: ContentDatabaseItem | null;
   nextItem: ContentDatabaseItem | null;
   position: { index: number; total: number } | null;
@@ -5424,6 +5595,7 @@ function DatabaseItemPreview({
   transitionPending: boolean;
   onSessionChange: (session: PageEditorSession | null) => void;
   onPreviewItem?: (item: ContentDatabaseItem) => void;
+  onPrepareRow: (documentId: string) => void;
   onTitleFocused?: () => void;
   onClose: () => void;
   onOpenPage: () => void;
@@ -5433,12 +5605,34 @@ function DatabaseItemPreview({
   const deleteDocument = useDeleteDocument();
   const deleteContentSpace = useDeleteContentSpace();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
-  const { data: document } = useDocument(item.document.id, {
-    databaseId: item.databaseId,
-    databaseDocumentId,
-  });
+  // Takes the surface's answer rather than asking again: a second read would
+  // hold the surface's page back behind it.
+  const { data: document } = useDocument(
+    item.document.id,
+    { databaseId: item.databaseId, databaseDocumentId },
+    { enabled: false },
+  );
   const previewTitle = document?.title || databaseItemPreviewTitle(item);
+  // The list's answer holds the Row menu's place through a switch. Writing waits
+  // for this page's own answer.
   const canEdit = document?.canEdit === true;
+  const canEditExpected = (document ?? item.document).canEdit === true;
+  const previousButtonRef = useRef<HTMLButtonElement | null>(null);
+  const nextButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previousDocumentId = previousItem?.document.id;
+  const nextDocumentId = nextItem?.document.id;
+  // After a switch the pointer is still on the arrow, and the row it now leads
+  // to is the likely next one.
+  useEffect(() => {
+    for (const [button, documentId] of [
+      [previousButtonRef.current, previousDocumentId],
+      [nextButtonRef.current, nextDocumentId],
+    ] as const) {
+      if (documentId && button?.matches(":hover, :focus-visible")) {
+        onPrepareRow(documentId);
+      }
+    }
+  }, [nextDocumentId, onPrepareRow, previousDocumentId]);
   const sessionRef = useRef<PageEditorSession | null>(null);
   const handleSessionChange = useCallback(
     (session: PageEditorSession | null) => {
@@ -5507,11 +5701,18 @@ function DatabaseItemPreview({
               </span>
             ) : null}
             <Button
+              ref={previousButtonRef}
               type="button"
               variant="ghost"
               size="icon-sm"
-              disabled={!previousItem || transitionPending}
+              disabled={!previousItem}
               aria-label={dbText("previousDatabasePage")}
+              onPointerEnter={() => {
+                if (previousDocumentId) onPrepareRow(previousDocumentId);
+              }}
+              onFocus={() => {
+                if (previousDocumentId) onPrepareRow(previousDocumentId);
+              }}
               onClick={() => {
                 if (previousItem) onPreviewItem?.(previousItem);
               }}
@@ -5519,11 +5720,18 @@ function DatabaseItemPreview({
               <IconArrowLeft className="size-3.5" />
             </Button>
             <Button
+              ref={nextButtonRef}
               type="button"
               variant="ghost"
               size="icon-sm"
-              disabled={!nextItem || transitionPending}
+              disabled={!nextItem}
               aria-label={dbText("nextDatabasePage")}
+              onPointerEnter={() => {
+                if (nextDocumentId) onPrepareRow(nextDocumentId);
+              }}
+              onFocus={() => {
+                if (nextDocumentId) onPrepareRow(nextDocumentId);
+              }}
               onClick={() => {
                 if (nextItem) onPreviewItem?.(nextItem);
               }}
@@ -5541,7 +5749,8 @@ function DatabaseItemPreview({
               <IconExternalLink className="size-3.5" />
               {dbText("openPage")}
             </Button>
-            {(canEdit && !isWorkspaceCatalog) || removesFavoriteMembership ? (
+            {(canEditExpected && !isWorkspaceCatalog) ||
+            removesFavoriteMembership ? (
               <DropdownMenu
                 modal={false}
                 open={actionsMenuOpen}
@@ -5563,10 +5772,12 @@ function DatabaseItemPreview({
                   align="end"
                   data-database-preview-portal=""
                 >
-                  {canEdit &&
+                  {canEditExpected &&
                   databaseItemCanDuplicate(item, isWorkspaceCatalog) ? (
                     <DropdownMenuItem
-                      disabled={duplicateItem.isPending || transitionPending}
+                      disabled={
+                        !canEdit || duplicateItem.isPending || transitionPending
+                      }
                       onSelect={(event) => {
                         event.preventDefault();
                         void duplicatePreviewRow();
@@ -5604,10 +5815,13 @@ function DatabaseItemPreview({
       >
         <SidebarTriggerContext.Provider value={null}>
           <PageEditorSurface
+            // Each row mounts its own surface, inside a frame that stays put.
+            key={`${item.databaseId}:${item.id}:${item.document.id}`}
             documentId={item.document.id}
             databaseId={item.databaseId}
             databaseDocumentId={databaseDocumentId}
             rowView={rowView}
+            previewRow={{ item, collectionEditable }}
             host="preview"
             focusTitle={focusTitle}
             onTitleFocused={onTitleFocused}
@@ -7115,6 +7329,13 @@ function DatabaseInlineSortControl({
     onSortsChange([...sorts, { key, label, direction: "asc" }]);
   }
 
+  const sortType = databaseSortPropertyType(sort.key, properties);
+  const directionLabel = databaseSortDirectionLabel(
+    sort.direction,
+    sort.key,
+    sortType,
+  );
+
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
@@ -7128,11 +7349,12 @@ function DatabaseInlineSortControl({
           )}
         >
           {sort.direction === "asc" ? (
-            <IconArrowUp className="size-3.5 shrink-0" />
+            <IconArrowUp aria-hidden className="size-3.5 shrink-0" />
           ) : (
-            <IconArrowDown className="size-3.5 shrink-0" />
+            <IconArrowDown aria-hidden className="size-3.5 shrink-0" />
           )}
           <span className="min-w-0 truncate">{sort.label}</span>
+          <span className="sr-only">{`, ${directionLabel}`}</span>
           <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
           {showUnsavedIndicator ? (
             <span
@@ -7142,14 +7364,19 @@ function DatabaseInlineSortControl({
           ) : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[260px] p-0">
+      <DropdownMenuContent
+        align="start"
+        className="w-100 max-w-[calc(100vw-2rem)] p-0"
+      >
         <div
           className="grid gap-1 p-1"
           onKeyDown={(event) => event.stopPropagation()}
         >
-          <div className="flex items-center gap-0.5">
+          {/* The direction keeps its full label ("Unchecked → checked");
+              the property name truncates to make room. */}
+          <div className="flex min-w-0 items-center gap-0.5">
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="min-w-0 flex-1 [&>svg:last-child]:hidden">
+              <DropdownMenuSubTrigger className="min-w-22 flex-1 [&>span:last-child]:hidden">
                 <SortFieldIcon sort={sort} properties={properties} />
                 <span className="min-w-0 flex-1 truncate">{sort.label}</span>
                 <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
@@ -7163,13 +7390,13 @@ function DatabaseInlineSortControl({
             </DropdownMenuSub>
 
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="min-w-0 flex-1 [&>svg:last-child]:hidden">
+              <DropdownMenuSubTrigger className="min-w-0 flex-initial [&>span:last-child]:hidden">
                 <span className="min-w-0 flex-1 truncate">
-                  {databaseSortDirectionLabel(sort.direction)}
+                  {directionLabel}
                 </span>
                 <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-40">
+              <DropdownMenuSubContent className="min-w-40">
                 {(["asc", "desc"] as const).map((direction) => (
                   <DropdownMenuItem
                     key={direction}
@@ -7178,8 +7405,12 @@ function DatabaseInlineSortControl({
                       updateSort({ direction });
                     }}
                   >
-                    <span className="flex-1">
-                      {databaseSortDirectionLabel(direction)}
+                    <span className="flex-1 whitespace-nowrap">
+                      {databaseSortDirectionLabel(
+                        direction,
+                        sort.key,
+                        sortType,
+                      )}
                     </span>
                     {sort.direction === direction ? (
                       <IconCheck className="size-4 text-muted-foreground" />
@@ -7550,7 +7781,7 @@ function DatabaseAdvancedFilterGroupControl({
             />
           ))}
 
-          <DropdownMenuSeparator className="my-1" />
+          <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="text-muted-foreground [&>svg:last-child]:hidden">
               <span className="flex-1">{dbText("addFilterRule")}</span>
@@ -11916,12 +12147,12 @@ function DatabaseOpenPagesInSetting({
           </span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72 p-1">
+      <DropdownMenuContent align="end" className="w-72">
         {DATABASE_OPEN_PAGES_IN.map((option) => {
           return (
             <DropdownMenuItem
               key={option}
-              className="items-start gap-2 py-2"
+              className="items-start"
               onSelect={(event) => {
                 event.preventDefault();
                 onChange(option);
@@ -12941,7 +13172,7 @@ function DatabaseCalendarView({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                <DropdownMenuLabel className="text-muted-foreground">
                   {dbText("calendarBy")}
                 </DropdownMenuLabel>
                 {dateProperties.map((property) => {
@@ -13191,10 +13422,12 @@ function DatabaseCalendarCard({
   onOpenPage: () => void;
 }) {
   const visibleProperties = properties.slice(0, 2);
+  const inWidget = useIsMcpAppWidgetEmbed();
 
   return (
     <div
       className="group/card cursor-pointer rounded border border-border bg-background px-2 py-1.5 text-xs shadow-sm transition-colors hover:bg-accent/60"
+      {...databaseRowOpenTarget(item.document.id)}
       onClick={openDatabaseItemOnClick(onPreview)}
     >
       <div className="flex min-w-0 items-start gap-1">
@@ -13202,6 +13435,7 @@ function DatabaseCalendarCard({
           <button
             type="button"
             className="flex min-w-0 items-center gap-1.5 rounded text-left font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            {...databaseRowOpenTarget(item.document.id)}
             onClick={onPreview}
           >
             <DatabaseItemPageIcon
@@ -13239,10 +13473,11 @@ function DatabaseCalendarCard({
             </span>
           ) : null}
         </div>
-        {canEdit ? (
+        {databaseItemHasRowMenu(item, canEdit, inWidget) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}
@@ -13488,7 +13723,7 @@ function DatabaseBoardView({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel className="text-xs text-muted-foreground">
+              <DropdownMenuLabel className="text-muted-foreground">
                 {dbText("groupBy")}
               </DropdownMenuLabel>
               {groupableProperties.map((property) => {
@@ -13896,6 +14131,7 @@ function DatabaseBoardCard({
   onOpenPage: () => void;
 }) {
   const visibleProperties = properties.slice(0, 3);
+  const inWidget = useIsMcpAppWidgetEmbed();
 
   return (
     // The whole card drags and opens, but only the title is the button, so
@@ -13909,6 +14145,7 @@ function DatabaseBoardCard({
       )}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      {...databaseRowOpenTarget(item.document.id)}
       onClick={openDatabaseItemOnClick(onPreview)}
     >
       <div className="flex min-w-0 items-start gap-1">
@@ -13916,6 +14153,7 @@ function DatabaseBoardCard({
           <button
             type="button"
             className="flex min-w-0 items-center gap-1.5 rounded text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            {...databaseRowOpenTarget(item.document.id)}
             onClick={onPreview}
           >
             <DatabaseItemPageIcon
@@ -13956,10 +14194,11 @@ function DatabaseBoardCard({
             </span>
           ) : null}
         </div>
-        {canEdit ? (
+        {databaseItemHasRowMenu(item, canEdit, inWidget) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}
@@ -16011,6 +16250,7 @@ function DatabaseViewTabs({
   onViewConfigChange,
   onViewIconChange,
   onViewSelect,
+  viewLink,
 }: {
   assetScopeDocumentId: string;
   viewConfig: ContentDatabaseViewConfig;
@@ -16021,6 +16261,8 @@ function DatabaseViewTabs({
     icon: ContentDatabaseView["icon"],
   ) => Promise<void>;
   onViewSelect: (viewId: string) => void;
+  /** The address that opens the collection on one of its saved views. */
+  viewLink: (viewId: string) => string;
 }) {
   const t = useT();
   const normalized = normalizeClientDatabaseViewConfig(viewConfig);
@@ -16068,6 +16310,16 @@ function DatabaseViewTabs({
     onViewConfigChange(renameDatabaseView(normalized, viewId, renameValue));
     setRenameViewId(null);
     setRenameValue("");
+  }
+
+  async function copyViewLink(viewId: string) {
+    if (await writeClipboardText(viewLink(viewId))) {
+      toast.success(dbText("copiedViewLink"));
+    } else {
+      toast.error(t("editor.toolbar.couldNotCopyLink"), {
+        description: t("editor.toolbar.clipboardAccessUnavailable"),
+      });
+    }
   }
 
   function clearDraggedView() {
@@ -16265,7 +16517,7 @@ function DatabaseViewTabs({
           >
             <DropdownMenuTrigger asChild>{tabButton}</DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64">
-              <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
+              <DropdownMenuLabel className="flex items-center gap-2 text-muted-foreground">
                 <button
                   type="button"
                   aria-label={t("editor.emojiChangeIcon")}
@@ -16353,6 +16605,9 @@ function DatabaseViewTabs({
                   >
                     {dbText("duplicateView")}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void copyViewLink(view.id)}>
+                    {dbText("copyLinkToView")}
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     disabled={normalized.views.length <= 1}
@@ -16396,13 +16651,13 @@ function DatabaseViewTabs({
             <button
               type="button"
               aria-label={dbText("addDatabaseView")}
-              className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/viewtabs:opacity-100 group-hover/viewtabs:opacity-100 data-[state=open]:opacity-100"
+              className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/viewtabs:opacity-100 group-hover/viewtabs:opacity-100 data-[state=open]:opacity-100 [@media(any-hover:none)]:opacity-100"
             >
               <IconPlus className="size-4" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-64">
-            <DropdownMenuLabel className="text-xs text-muted-foreground">
+            <DropdownMenuLabel className="text-muted-foreground">
               {dbText("newView")}
             </DropdownMenuLabel>
             <form
@@ -16498,7 +16753,7 @@ function DatabaseNameHeader({
             Aa
           </span>
           <span className="truncate">Name</span>
-          <DatabaseColumnStateIndicators state={columnState} />
+          <DatabaseColumnStateIndicators state={columnState} columnKey="name" />
         </div>
       ) : (
         <>
@@ -16518,7 +16773,10 @@ function DatabaseNameHeader({
                   Aa
                 </span>
                 <span className="truncate">Name</span>
-                <DatabaseColumnStateIndicators state={columnState} />
+                <DatabaseColumnStateIndicators
+                  state={columnState}
+                  columnKey="name"
+                />
                 <IconChevronDown className="ml-auto size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-70 data-[state=open]:opacity-100" />
               </button>
             </DropdownMenuTrigger>
@@ -17333,7 +17591,11 @@ function DatabasePropertyHeader({
             <div className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded px-1 text-xs text-muted-foreground">
               <Icon className={cn("size-4 shrink-0", narrow && "hidden")} />
               <span className="truncate">{property.definition.name}</span>
-              <DatabaseColumnStateIndicators state={columnState} />
+              <DatabaseColumnStateIndicators
+                state={columnState}
+                columnKey={property.definition.id}
+                propertyType={property.definition.type}
+              />
             </div>
           ) : canEdit && !property.definition.systemRole ? (
             <PropertyManagementPopover
@@ -17349,7 +17611,11 @@ function DatabasePropertyHeader({
               )}
               iconClassName={narrow ? "hidden" : undefined}
               triggerTrailing={
-                <DatabaseColumnStateIndicators state={columnState} />
+                <DatabaseColumnStateIndicators
+                  state={columnState}
+                  columnKey={property.definition.id}
+                  propertyType={property.definition.type}
+                />
               }
               sourceField={sourceFieldMappingForColumn(
                 source,
@@ -17381,7 +17647,11 @@ function DatabasePropertyHeader({
                   <span className="truncate" data-property-label="">
                     {property.definition.name}
                   </span>
-                  <DatabaseColumnStateIndicators state={columnState} />
+                  <DatabaseColumnStateIndicators
+                    state={columnState}
+                    columnKey={property.definition.id}
+                    propertyType={property.definition.type}
+                  />
                 </button>
               </DropdownMenuTrigger>
               <ColumnHeaderMenuContent
@@ -17416,8 +17686,12 @@ function DatabasePropertyHeader({
 
 function DatabaseColumnStateIndicators({
   state,
+  columnKey,
+  propertyType,
 }: {
   state: ReturnType<typeof databaseColumnHeaderState>;
+  columnKey: ColumnKey;
+  propertyType?: DocumentPropertyType;
 }) {
   if (!state.sortDirection && state.activeFilterCount === 0) return null;
   const SortIcon =
@@ -17430,7 +17704,11 @@ function DatabaseColumnStateIndicators({
   return (
     <span
       className="flex shrink-0 items-center gap-0.5 text-muted-foreground"
-      aria-label={databaseColumnHeaderStateLabel(state)}
+      aria-label={databaseColumnHeaderStateLabel(
+        state,
+        columnKey,
+        propertyType,
+      )}
     >
       {SortIcon ? <SortIcon className="size-3.5" /> : null}
       {state.activeFilterCount > 0 ? (
@@ -17463,7 +17741,7 @@ function ColumnResizeHandle({
   );
 }
 
-function ColumnHeaderMenuContent({
+export function ColumnHeaderMenuContent({
   onMoveLeft,
   onMoveRight,
   canMove,
@@ -17503,7 +17781,7 @@ function ColumnHeaderMenuContent({
 
   return (
     <DropdownMenuContent align="start" className="w-56">
-      <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
+      <DropdownMenuLabel className="truncate text-muted-foreground">
         {label}
       </DropdownMenuLabel>
       <DropdownMenuSub>
@@ -17557,9 +17835,7 @@ function ColumnHeaderMenuContent({
               }
             >
               <span className="flex-1">
-                {dbText(
-                  direction === "asc" ? "sortAscending" : "sortDescending",
-                )}
+                {databaseSortDirectionLabel(direction, columnKey, propertyType)}
               </span>
               {columnSort?.direction === direction ? (
                 <IconCheck className="size-4" />
@@ -17927,12 +18203,20 @@ export function databaseColumnHeaderState(
   };
 }
 
-function databaseColumnHeaderStateLabel(
+export function databaseColumnHeaderStateLabel(
   state: ReturnType<typeof databaseColumnHeaderState>,
+  columnKey: ColumnKey,
+  propertyType?: DocumentPropertyType,
 ) {
   const parts = [
     state.sortDirection
-      ? `Sorted ${state.sortDirection === "asc" ? "ascending" : "descending"}`
+      ? dbText("sortedInDirection", {
+          direction: databaseSortDirectionLabel(
+            state.sortDirection,
+            columnKey,
+            propertyType,
+          ),
+        })
       : "",
     state.activeFilterCount > 0
       ? `${state.activeFilterCount} active filter${state.activeFilterCount === 1 ? "" : "s"}`
@@ -18128,11 +18412,7 @@ function propertyNumberValue(property: DocumentProperty | null | undefined) {
   return Number.isFinite(value) ? value : Number.NaN;
 }
 
-function databaseSortDirectionLabel(direction: SortDirection) {
-  return direction === "asc" ? "Ascending" : "Descending";
-}
-
-function SortMenu({
+export function SortMenu({
   properties,
   sorts,
   onSortsChange,
@@ -18199,7 +18479,10 @@ function SortMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className={cn("w-[340px]", sorts.length === 0 && "w-64 p-0")}
+        className={cn(
+          "w-100 max-w-[calc(100vw-2rem)]",
+          sorts.length === 0 && "w-64 p-0",
+        )}
       >
         {sorts.length === 0 ? (
           <div onKeyDown={(event) => event.stopPropagation()}>
@@ -18238,10 +18521,14 @@ function SortMenu({
                   </DropdownMenuSub>
                   <button
                     type="button"
-                    className="flex h-8 items-center rounded px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className="flex h-8 items-center whitespace-nowrap rounded px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
                     onClick={() => toggleDirection(index)}
                   >
-                    {sort.direction === "asc" ? "Asc" : "Desc"}
+                    {databaseSortDirectionLabel(
+                      sort.direction,
+                      sort.key,
+                      databaseSortPropertyType(sort.key, properties),
+                    )}
                   </button>
                   <div className="flex items-center">
                     <button
@@ -19667,6 +19954,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
   const longPress = useContentTableLongPress(() => onToggleSelected(item.id));
+  const inWidget = useIsMcpAppWidgetEmbed();
   const columnWrap = (id: string) => columnWrapOverrides[id] ?? wrapCells;
   return (
     <DatabaseTableGrid
@@ -19796,10 +20084,11 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
         );
       })}
       actions={
-        canEdit ? (
+        databaseItemHasRowMenu(item, canEdit, inWidget) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={canReorder}
             canMoveUp={canMoveUp}
             canMoveDown={canMoveDown}
@@ -19816,12 +20105,14 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
 export function RowActionsCell({
   item,
   databaseDocumentId,
+  canEdit,
   onPreviewItem,
   onDeletedPreviewItem,
   onOpenPage,
 }: {
   item: ContentDatabaseItem;
   databaseDocumentId: string;
+  canEdit: boolean;
   canReorder: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -19830,7 +20121,9 @@ export function RowActionsCell({
   onDeletedPreviewItem?: (item: ContentDatabaseItem) => boolean;
   onOpenPage: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
+  const openComments = useContext(DatabaseItemCommentsContext);
   const contentSpaces = useContentSpaces();
   const { data: databaseDocument } = useDocument(databaseDocumentId);
   const databaseQuery = useContentDatabase(databaseDocumentId);
@@ -19839,6 +20132,7 @@ export function RowActionsCell({
   const removeItems = useRemoveDatabaseItems(databaseDocumentId);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const keepFocusOnCloseRef = useRef(false);
   const title = item.document.title || "Untitled";
   const removesFavoriteMembership =
     contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
@@ -19848,7 +20142,7 @@ export function RowActionsCell({
   const isWorkspaceCatalog =
     contentSpaces.data?.catalogDocumentId === databaseDocumentId;
   const canDeleteWorkspace =
-    isWorkspaceCatalog && workspaceSpace?.kind === "user";
+    canEdit && isWorkspaceCatalog && workspaceSpace?.kind === "user";
   const databaseData = isContentDatabaseUnavailable(databaseQuery.data)
     ? undefined
     : databaseQuery.data;
@@ -19856,17 +20150,40 @@ export function RowActionsCell({
     databaseData?.sources,
     databaseData?.source ?? null,
   );
-  const canRemoveFromDatabase = removesFavoriteMembership
-    ? databaseDocument?.canEdit === true
-    : databaseData !== undefined &&
-      databaseItemCanRemoveFromDatabase({
-        item,
-        databaseCanManage: databaseDocument?.canManage === true,
-        databaseSystemRole: databaseData.database.systemRole,
-        isWorkspaceCatalog,
-        sources: databaseSources,
+  const canRemoveFromDatabase =
+    canEdit &&
+    (removesFavoriteMembership
+      ? databaseDocument?.canEdit === true
+      : databaseData !== undefined &&
+        databaseItemCanRemoveFromDatabase({
+          item,
+          databaseCanManage: databaseDocument?.canManage === true,
+          databaseSystemRole: databaseData.database.systemRole,
+          isWorkspaceCatalog,
+          sources: databaseSources,
+        }));
+  const canDuplicateRow =
+    canEdit && databaseItemCanDuplicate(item, isWorkspaceCatalog);
+  // A workspace's row opens the workspace, so a link or comment to its Page
+  // would land somewhere Open page doesn't.
+  const opensAsPage = !isWorkspaceCatalog;
+  const canComment =
+    opensAsPage &&
+    openComments !== null &&
+    databaseItemCommentAccess(item).canComment;
+
+  async function copyLink() {
+    const { shareLink } = sidebarPageLinks(item.document.id, {
+      localFile: item.document.source?.mode === "local-files",
+    });
+    if (await writeClipboardText(shareLink)) {
+      toast.success(t("editor.toolbar.copiedPageLink"));
+    } else {
+      toast.error(t("editor.toolbar.couldNotCopyLink"), {
+        description: t("editor.toolbar.clipboardAccessUnavailable"),
       });
-  const canDuplicateRow = databaseItemCanDuplicate(item, isWorkspaceCatalog);
+    }
+  }
 
   async function duplicateRow() {
     if (!canDuplicateRow) return;
@@ -19926,9 +20243,21 @@ export function RowActionsCell({
     <div className="flex items-center justify-center">
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
-          <ContentTableRowActionButton label={`Row actions for ${title}`} />
+          <ContentTableRowActionButton
+            label={dbText("rowActionsFor", { title })}
+          />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuContent
+          align="end"
+          className="w-44"
+          onCloseAutoFocus={(event) => {
+            // The row preview closes when focus leaves it, so the menu must
+            // not hand focus back to this button after opening the preview.
+            if (!keepFocusOnCloseRef.current) return;
+            keepFocusOnCloseRef.current = false;
+            event.preventDefault();
+          }}
+        >
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault();
@@ -19938,6 +20267,21 @@ export function RowActionsCell({
           >
             {dbText("openPage")}
           </DropdownMenuItem>
+          {opensAsPage ? (
+            <DropdownMenuItem onSelect={() => void copyLink()}>
+              {t("sidebar.copyLink")}
+            </DropdownMenuItem>
+          ) : null}
+          {canComment ? (
+            <DropdownMenuItem
+              onSelect={() => {
+                keepFocusOnCloseRef.current = true;
+                openComments(item, { pageComment: true });
+              }}
+            >
+              {t("editor.comment")}
+            </DropdownMenuItem>
+          ) : null}
           {canDuplicateRow ? (
             <DropdownMenuItem
               disabled={duplicateItem.isPending}
@@ -20101,10 +20445,15 @@ function RowNameCell({
       }
       return;
     }
-    await updateDocument.mutateAsync({
-      id: item.document.id,
-      title: nextTitle,
-    });
+    try {
+      await updateDocument.mutateAsync({
+        id: item.document.id,
+        title: nextTitle,
+      });
+    } catch (error) {
+      reportWriteFailure(error);
+      return;
+    }
     await queryClient.invalidateQueries({
       queryKey: [
         "action",
@@ -20173,6 +20522,7 @@ function RowNameCell({
             "flex min-w-0 flex-1 items-center rounded-sm px-1 text-left text-sm hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             databaseTitleButtonDensityClass(rowDensity, wrapCells),
           )}
+          {...databaseRowOpenTarget(item.document.id)}
           onClick={onPreview}
           aria-label={`Open ${item.document.title || "Untitled"} preview`}
         >

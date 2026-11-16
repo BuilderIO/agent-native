@@ -86,6 +86,15 @@ export const REMOTE_AGENT_RESOURCE_PREFIXES = [
 
 function normalizeFrontmatterValue(value: string): string {
   const trimmed = value.trim();
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    try {
+      const decoded: unknown = JSON.parse(trimmed);
+      if (typeof decoded === "string") return decoded;
+      // coercion-ok: parse attempt; falls through to literal-quote stripping below
+    } catch {
+      // Older resource files can contain literal quotes rather than JSON.
+    }
+  }
   if (
     (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
     (trimmed.startsWith("'") && trimmed.endsWith("'"))

@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { assertHubSpotEmailFrameContent } from "./hubspot-email-authoring.js";
-import { createHubSpotEmailHtml } from "./hubspot-email.js";
+import { assertHubSpotEmailFileType } from "./hubspot-email-authoring.js";
 
 describe("HubSpot email frame authoring contract", () => {
-  it("rejects changing a marked email into a non-HTML file", () => {
+  it("rejects an email frame that is not an HTML file", () => {
     expect(() =>
-      assertHubSpotEmailFrameContent({
-        content: createHubSpotEmailHtml(),
+      assertHubSpotEmailFileType({
         fileType: "jsx",
+        frameType: "hubspot-email",
       }),
     ).toThrow("must be HTML files");
+  });
+
+  it("accepts any file type for a web frame", () => {
+    expect(() =>
+      assertHubSpotEmailFileType({ fileType: "jsx", frameType: null }),
+    ).not.toThrow();
   });
 });

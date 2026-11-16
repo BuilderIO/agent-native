@@ -390,7 +390,6 @@ export default defineAction({
       fileBuffer,
       parsedPresentation,
       title,
-      source: "import-google-slides-reference",
       imageFallbacks,
     });
     await trackDeckCreated(

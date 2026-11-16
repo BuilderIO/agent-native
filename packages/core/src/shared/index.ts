@@ -1,3 +1,4 @@
+export { parseAgentChatReferences } from "./agent-chat-references.js";
 export {
   agentChat,
   type AgentChatMessage,
@@ -58,6 +59,7 @@ export {
   composerSourceListSchema,
   composerSourceReferenceSchema,
   composerSourceResultSchema,
+  composerWebsiteUrlSchema,
   type ComposerSourceRequest,
   type ComposerSourceResult,
 } from "./composer-source.js";

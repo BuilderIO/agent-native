@@ -1,3 +1,4 @@
+import { isProductionServerlessFunctionRuntime } from "../../db/migration-runtime.js";
 import {
   awaitBootstrap,
   markDefaultPluginProvided,
@@ -10,7 +11,10 @@ export function createContextXrayPlugin(): NitroPluginDef {
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "context-xray");
     await awaitBootstrap(nitroApp);
-    await contextXrayStore.ready();
+    // Request functions initialize optional memory storage at its first use,
+    // rather than making every page/action wait for unrelated schema work.
+    if (!isProductionServerlessFunctionRuntime())
+      await contextXrayStore.ready();
   };
 }
 

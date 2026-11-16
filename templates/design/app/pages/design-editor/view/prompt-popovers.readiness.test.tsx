@@ -37,7 +37,9 @@ function renderPromptProps(
       clearGenerationCompleteTimer: noop,
       generationModelRef: { current: {} },
       setHasPendingGeneration: noop,
-      generationOutputBaselineRef: { current: outputBaselineFiles },
+      generationOutputBaselineRef: {
+        current: outputBaselineFiles && (() => outputBaselineFiles),
+      },
       agentSubmit,
       setGenerationChatTabId: noop,
       generating: false,
@@ -136,5 +138,32 @@ describe("Design editor prompt readiness", () => {
       )("Create a design", [], {}),
     ).rejects.toThrow("promptDialog.failedToSubmitPrompt");
     expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
+  it("tells the agent to place an attached Figma design on the first send", async () => {
+    const { promptProps, agentSubmit } = renderPromptProps([]);
+    const generatePrompt = promptProps.find(
+      (props) => props.title === "designEditor.generateDesign",
+    );
+
+    await (
+      generatePrompt?.onSubmit as (
+        prompt: string,
+        files: [],
+        options: Record<string, unknown>,
+      ) => Promise<void>
+    )("Make this Figma design", [], {
+      contextItems: [
+        {
+          key: "figma-reference:file:App.fig:10:1",
+          title: "App.fig",
+          context: "Figma frames",
+        },
+      ],
+    });
+
+    expect(JSON.stringify(agentSubmit.mock.calls)).toContain(
+      "place-figma-frames",
+    );
   });
 });

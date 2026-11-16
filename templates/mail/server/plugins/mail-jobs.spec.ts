@@ -53,11 +53,6 @@ vi.mock("@agent-native/core/settings", () => ({
   writeSetting: mocks.writeSetting,
   removeSetting: mocks.removeSetting,
 }));
-vi.mock("@agent-native/core/settings", () => ({
-  readSetting: mocks.readSetting,
-  writeSetting: mocks.writeSetting,
-  removeSetting: mocks.removeSetting,
-}));
 vi.mock("@agent-native/core/oauth-tokens", () => ({
   getOAuthTokens: mocks.getOAuthTokens,
 }));

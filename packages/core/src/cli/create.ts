@@ -9,10 +9,18 @@ import { fileURLToPath, pathToFileURL } from "url";
 
 import { fetch as fetchWithProxy } from "undici";
 
+import { resolveWorkspaceAppPaths } from "../deploy/workspace-app-paths.js";
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
+import { readAgentNativeJsonConfig } from "../vite/agent-native-config-loader.js";
+import {
+  noteCreateCancelled,
+  noteCreateProject,
+  noteCreateStep,
+  type CreateProjectKind,
+} from "./activation-telemetry.js";
 import type { CreateStartKind } from "./create-tui.js";
 import { releasedFrameworkPackageVersion } from "./framework-package-versions.js";
 import {
@@ -65,49 +73,6 @@ const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/dev": "8.1.0",
   "@react-router/fs-routes": "8.1.0",
   "react-router": "8.1.0",
-};
-const TIPTAP_WORKSPACE_OVERRIDES: Record<string, string> = {
-  '"@tiptap/core"': '"3.28.0"',
-  '"@tiptap/extension-blockquote"': '"3.28.0"',
-  '"@tiptap/extension-bold"': '"3.28.0"',
-  '"@tiptap/extension-bubble-menu"': '"3.28.0"',
-  '"@tiptap/extension-bullet-list"': '"3.28.0"',
-  '"@tiptap/extension-code"': '"3.28.0"',
-  '"@tiptap/extension-code-block"': '"3.28.0"',
-  '"@tiptap/extension-code-block-lowlight"': '"3.28.0"',
-  '"@tiptap/extension-collaboration"': '"3.28.0"',
-  '"@tiptap/extension-collaboration-caret"': '"3.28.0"',
-  '"@tiptap/extension-color"': '"3.28.0"',
-  '"@tiptap/extension-document"': '"3.28.0"',
-  '"@tiptap/extension-dropcursor"': '"3.28.0"',
-  '"@tiptap/extension-floating-menu"': '"3.28.0"',
-  '"@tiptap/extension-gapcursor"': '"3.28.0"',
-  '"@tiptap/extension-hard-break"': '"3.28.0"',
-  '"@tiptap/extension-heading"': '"3.28.0"',
-  '"@tiptap/extension-horizontal-rule"': '"3.28.0"',
-  '"@tiptap/extension-image"': '"3.28.0"',
-  '"@tiptap/extension-italic"': '"3.28.0"',
-  '"@tiptap/extension-link"': '"3.28.0"',
-  '"@tiptap/extension-list"': '"3.28.0"',
-  '"@tiptap/extension-list-item"': '"3.28.0"',
-  '"@tiptap/extension-list-keymap"': '"3.28.0"',
-  '"@tiptap/extension-ordered-list"': '"3.28.0"',
-  '"@tiptap/extension-paragraph"': '"3.28.0"',
-  '"@tiptap/extension-placeholder"': '"3.28.0"',
-  '"@tiptap/extension-strike"': '"3.28.0"',
-  '"@tiptap/extension-table"': '"3.28.0"',
-  '"@tiptap/extension-table-cell"': '"3.28.0"',
-  '"@tiptap/extension-table-header"': '"3.28.0"',
-  '"@tiptap/extension-table-row"': '"3.28.0"',
-  '"@tiptap/extension-task-item"': '"3.28.0"',
-  '"@tiptap/extension-task-list"': '"3.28.0"',
-  '"@tiptap/extension-text"': '"3.28.0"',
-  '"@tiptap/extension-text-style"': '"3.28.0"',
-  '"@tiptap/extension-underline"': '"3.28.0"',
-  '"@tiptap/extensions"': '"3.28.0"',
-  '"@tiptap/pm"': '"3.28.0"',
-  '"@tiptap/react"': '"3.28.0"',
-  '"@tiptap/starter-kit"': '"3.28.0"',
 };
 const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "@react-router/dev",
@@ -224,6 +189,21 @@ export interface CreateAppOptions {
   ) => Promise<string>;
 }
 
+// A community template is reported by that word alone, never its URL.
+function noteCreateTemplates(
+  templates: string[],
+  kind?: CreateProjectKind,
+): void {
+  noteCreateProject(
+    templates.map((template) =>
+      isCommunityTemplateSelection(template)
+        ? COMMUNITY_OPTION.name
+        : normalizeTemplateName(template),
+    ),
+    kind,
+  );
+}
+
 export async function runCreateCommand(
   name?: string,
   opts?: CreateAppOptions,
@@ -233,8 +213,9 @@ export async function runCreateCommand(
     opts = { ...opts, inPlace: true };
   }
 
-  const workspace = detectWorkspace(process.cwd());
+  const workspace = opts?.standalone ? null : detectWorkspace(process.cwd());
   const parsed = parseTemplateList(opts?.template);
+  noteCreateTemplates(parsed);
   const requestedCommunityTemplate =
     parsed.find((template) => isCommunityTemplateSelection(template)) ??
     (parsed.includes(COMMUNITY_OPTION.name)
@@ -269,7 +250,7 @@ export async function runCreateCommand(
     return;
   }
   const installedApps = workspace
-    ? listInstalledApps(workspace.workspaceRoot)
+    ? await listInstalledApps(workspace.workspaceRoot)
     : [];
   const requestedApps = parsed.filter(
     (template) =>
@@ -333,6 +314,7 @@ export async function runCreateCommand(
     coreTemplates().every((template) => installedApps.includes(template.name))
   ) {
     console.log("All available apps are already installed.");
+    noteCreateCancelled();
     return;
   }
 
@@ -376,6 +358,7 @@ export async function runCreateCommand(
   });
   if (!answers) {
     console.log("Cancelled. No files were created.");
+    noteCreateCancelled();
     return;
   }
 
@@ -432,14 +415,14 @@ export async function createApp(
     assertValidProjectName(name, clack);
   }
 
-  const workspace = detectWorkspace(process.cwd());
-  if (workspace) {
-    await addAppToWorkspace(name, opts);
+  if (opts?.standalone) {
+    await createStandaloneApp(name, opts, clack);
     return;
   }
 
-  if (opts?.standalone) {
-    await createStandaloneApp(name, opts, clack);
+  const workspace = detectWorkspace(process.cwd());
+  if (workspace) {
+    await addAppToWorkspace(name, opts);
     return;
   }
 
@@ -667,6 +650,7 @@ async function createWorkspaceInteractive(
           excludeNames: ["dispatch"],
         });
   const templates = ["dispatch", ...optionalPicks];
+  noteCreateTemplates(templates, "workspace");
 
   const targetDir = resolveScaffoldTarget(name, opts?.inPlace, clack);
 
@@ -674,6 +658,7 @@ async function createWorkspaceInteractive(
   for (const template of templates) {
     showCommunityTemplateTrustNote(template, clack);
   }
+  noteCreateStep("scaffold");
   s.start(`Scaffolding workspace "${name}"...`);
   const appNames = new Set<string>();
   const scaffoldedApps: string[] = [];
@@ -705,7 +690,12 @@ async function createWorkspaceInteractive(
           ? `Downloading ${titleCase(appName)} template (${i + 1}/${templates.length})...`
           : `Scaffolding ${titleCase(appName)} (${i + 1}/${templates.length})...`,
       );
-      const appDir = path.join(targetDir, "apps", appName);
+      const { appsDir, includes } = await scaffoldWorkspaceAppPaths(targetDir);
+      if (!includes(appName))
+        throw new Error(
+          `App name ${appName} does not match workspace appInclude`,
+        );
+      const appDir = path.join(appsDir, appName);
       const resolution = await scaffoldAppTemplate(
         appDir,
         templateName,
@@ -771,6 +761,7 @@ async function createWorkspaceInteractive(
       s.stop("Cancelled.");
       cleanupOnFailure(targetDir);
       clack.outro("Cancelled. No files were created.");
+      noteCreateCancelled();
       return;
     }
     s.stop("Failed to scaffold workspace.");
@@ -779,6 +770,7 @@ async function createWorkspaceInteractive(
     process.exit(1);
   }
 
+  noteCreateStep("finish");
   finalizeScaffold(targetDir, opts?.inPlace);
 
   const installSteps = hasPnpm()
@@ -870,7 +862,8 @@ async function scaffoldWorkspaceRoot(
   rewriteCoreDependencyVersions(corePackageDir);
   setupAgentSymlinks(corePackageDir);
 
-  fs.mkdirSync(path.join(targetDir, "apps"), { recursive: true });
+  const { appsDir } = await scaffoldWorkspaceAppPaths(targetDir);
+  fs.mkdirSync(appsDir, { recursive: true });
 
   linkWorkspaceRootSkills(targetDir);
   setupAgentSymlinks(targetDir);
@@ -922,7 +915,7 @@ export async function addAppToWorkspace(
 
   clack.intro("Add an app to your workspace");
 
-  const installed = listInstalledApps(workspace.workspaceRoot);
+  const installed = await listInstalledApps(workspace.workspaceRoot);
 
   const preselected = parseTemplateList(opts?.template);
   if (preselected.includes("headless")) {
@@ -933,6 +926,7 @@ export async function addAppToWorkspace(
   }
   if (name && preselected.length === 1) {
     const tpl = preselected[0];
+    noteCreateTemplates(preselected, "workspace-add");
     await scaffoldOneAppIntoWorkspace(
       workspace,
       name,
@@ -967,6 +961,7 @@ export async function addAppToWorkspace(
     process.exit(0);
   }
 
+  noteCreateTemplates(templates, "workspace-add");
   for (const t of templates) {
     const added = await scaffoldOneAppIntoWorkspace(
       workspace,
@@ -995,6 +990,7 @@ async function addSelectedAppsToWorkspace(
     process.exit(0);
   }
 
+  noteCreateTemplates(templates, "workspace-add");
   for (const template of templates) {
     const added = await scaffoldOneAppIntoWorkspace(
       workspace,
@@ -1032,7 +1028,11 @@ async function scaffoldOneAppIntoWorkspace(
   validateWorkspaceAppName(appName, clack, {
     allowDispatch: appName === "dispatch" && templateName === "dispatch",
   });
-  const appsDir = path.join(workspace.workspaceRoot, "apps");
+  const { appsDir, includes } = await scaffoldWorkspaceAppPaths(
+    workspace.workspaceRoot,
+  );
+  if (!includes(appName))
+    throw new Error(`App name ${appName} does not match workspace appInclude`);
   fs.mkdirSync(appsDir, { recursive: true });
   const appDir = path.join(appsDir, appName);
 
@@ -1043,6 +1043,7 @@ async function scaffoldOneAppIntoWorkspace(
 
   const s = clack.spinner();
   showCommunityTemplateTrustNote(templateName, clack);
+  noteCreateStep("scaffold");
   s.start(
     `Working... no action needed. Scaffolding apps/${appName} from ${templateName}.`,
   );
@@ -1115,6 +1116,7 @@ async function scaffoldOneAppIntoWorkspace(
       s.stop("Cancelled.");
       cleanupOnFailure(appDir);
       clack.outro("Cancelled. No app was added.");
+      noteCreateCancelled();
       return false;
     }
     s.stop(`Failed to scaffold apps/${appName}.`);
@@ -1166,9 +1168,14 @@ async function createStandaloneApp(
   if (template === COMMUNITY_OPTION.name) {
     template = await promptCommunityTemplate(clack);
   }
+  noteCreateTemplates(
+    [template],
+    template === "headless" ? "headless" : "standalone",
+  );
 
   const s = clack.spinner();
   showCommunityTemplateTrustNote(template, clack);
+  noteCreateStep("scaffold");
   const includedAppName =
     template === "headless"
       ? "Headless"
@@ -1209,6 +1216,7 @@ async function createStandaloneApp(
       s.stop("Cancelled.");
       cleanupOnFailure(targetDir);
       clack.outro("Cancelled. No files were created.");
+      noteCreateCancelled();
       return;
     }
     s.stop("Failed to create app.");
@@ -1217,6 +1225,7 @@ async function createStandaloneApp(
     process.exit(1);
   }
 
+  noteCreateStep("finish");
   finalizeScaffold(targetDir, opts?.inPlace);
   const projectPath = opts?.inPlace ? process.cwd() : path.resolve(targetDir);
   const changeDirectory = opts?.inPlace ? "." : name;
@@ -1448,14 +1457,17 @@ async function scaffoldAppTemplate(
     }
   }
 
-  if (!getTemplate(resolved)) {
+  const sourceTemplate = templateSourceName(resolved);
+  const localTemplate = findLocalTemplate(sourceTemplate);
+  if (
+    !getTemplate(resolved) &&
+    !isLocalWorkspaceTemplate(resolved, localTemplate)
+  ) {
     throw new Error(
       `Unknown template "${template}". Known first-party templates: ${allTemplateNames().join(", ")}. For a community template, use community:owner/repo.`,
     );
   }
 
-  const sourceTemplate = templateSourceName(resolved);
-  const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
     copyTemplateTree(localTemplate, targetDir);
     removeWorkspaceOnlyTemplateWiring(targetDir);
@@ -1528,6 +1540,26 @@ function localTemplateSourceKind(
 function templateSourceName(name: string): string {
   if (name === "starter") return "chat";
   return name;
+}
+
+function isLocalWorkspaceTemplate(
+  name: string,
+  templateDir: string | undefined,
+): boolean {
+  if (!templateDir) return false;
+  const registry = path.resolve(
+    templateDir,
+    "../../.agent-native/local-templates.json",
+  );
+  if (!fs.existsSync(registry)) return false;
+  const data = JSON.parse(fs.readFileSync(registry, "utf8"));
+  if (
+    !Array.isArray(data.templates) ||
+    !data.templates.every((entry: unknown) => typeof entry === "string")
+  ) {
+    throw new Error(`Invalid local template registry: ${registry}`);
+  }
+  return data.templates.includes(name);
 }
 
 function findLocalTemplate(name: string): string | undefined {
@@ -2296,12 +2328,6 @@ function postProcessStandalone(
       nf3: '"0.3.17"',
     };
   }
-  if (templateName && getTemplate(firstPartyBaseTemplate(templateName))) {
-    sections.overrides = {
-      ...sections.overrides,
-      ...TIPTAP_WORKSPACE_OVERRIDES,
-    };
-  }
   const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
   if (Object.keys(localFrameworkOverrides).length > 0) {
     sections.overrides ??= {};
@@ -2498,12 +2524,23 @@ function parseTemplateList(input?: string): string[] {
     .filter(Boolean);
 }
 
-function listInstalledApps(workspaceRoot: string): string[] {
-  const appsDir = path.join(workspaceRoot, "apps");
+/**
+ * The CLI runs before a workspace has installed `@agent-native/core`, so it
+ * cannot import the TS config; the apps layout is read from agent-native.json.
+ */
+function scaffoldWorkspaceAppPaths(workspaceRoot: string) {
+  return resolveWorkspaceAppPaths(
+    workspaceRoot,
+    readAgentNativeJsonConfig(workspaceRoot),
+  );
+}
+
+async function listInstalledApps(workspaceRoot: string): Promise<string[]> {
+  const { appsDir, includes } = await scaffoldWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return [];
   return fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
+    .filter((e) => e.isDirectory() && includes(e.name))
     .map((e) => e.name);
 }
 
@@ -3215,7 +3252,7 @@ async function resolveCommunityTemplateSource(
     return { sourceDir: stagingDir, sourceIdentity };
   }
 
-  const workspaceApps = discoverCommunityWorkspaceApps(stagingDir);
+  const workspaceApps = await discoverCommunityWorkspaceApps(stagingDir);
   if (workspaceApps.length === 0) {
     throw new ValidationError(
       `Community workspace ${selection.repo} has no installable apps. Dispatch cannot be installed from a community workspace, and apps must directly depend on @agent-native/core.`,
@@ -3254,14 +3291,14 @@ interface DiscoveredCommunityWorkspaceApp extends CommunityWorkspaceAppOption {
   sourceIdentity: ScaffoldSourceIdentity;
 }
 
-function discoverCommunityWorkspaceApps(
+async function discoverCommunityWorkspaceApps(
   workspaceRoot: string,
-): DiscoveredCommunityWorkspaceApp[] {
-  const appsDir = path.join(workspaceRoot, "apps");
+): Promise<DiscoveredCommunityWorkspaceApp[]> {
+  const { appsDir, includes } = await scaffoldWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return [];
   return fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && includes(entry.name))
     .flatMap((entry): DiscoveredCommunityWorkspaceApp[] => {
       const appDir = path.join(appsDir, entry.name);
       const packagePath = path.join(appDir, "package.json");

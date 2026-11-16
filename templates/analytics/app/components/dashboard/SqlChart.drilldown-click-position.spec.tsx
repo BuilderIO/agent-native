@@ -46,7 +46,7 @@ const ROWS = ["2026-09-28", "2026-10-05", "2026-10-12", "2026-10-19"].map(
   (day, index) => ({ day, people: 100 + index * 10 }),
 );
 
-function panel(chartType: "line" | "area" | "combo"): SqlPanel {
+function panel(chartType: "line" | "area" | "combo" | "bar"): SqlPanel {
   return {
     id: "people",
     title: "New people",
@@ -98,7 +98,7 @@ describe("SqlChart drill-down click position", () => {
   });
 
   async function renderChart(
-    chartType: "line" | "area" | "combo",
+    chartType: "line" | "area" | "combo" | "bar",
     rows: Record<string, unknown>[] = ROWS,
   ) {
     const onDatumClick = vi.fn<(datum: ChartDatum) => void>();
@@ -170,23 +170,50 @@ describe("SqlChart drill-down click position", () => {
     });
   });
 
-  it("opens the row drawn under the click when a null x shifts the axis", async () => {
-    // Recharts leaves null x values off the axis and draws row i at the i-th
-    // tick, so the point drawn at the last tick is the 2026-09-28 row.
-    const onDatumClick = await renderChart("line", [
+  it.each(["line", "area", "combo"] as const)(
+    "keeps each %s chart row at its own x when one x is null",
+    async (chartType) => {
+      const onDatumClick = await renderChart(chartType, [
+        { day: "2026-09-28", people: 100 },
+        { day: null, people: 90 },
+        { day: "2026-10-05", people: 110 },
+      ]);
+      const plot = plotArea();
+
+      await clickChartAt(plot.left + plot.width - 4, plot.top + 10);
+      expect(onDatumClick).toHaveBeenLastCalledWith({
+        x: "2026-10-05",
+        series: undefined,
+        value: undefined,
+      });
+
+      await clickChartAt(plot.left + plot.width / 2, plot.top + 10);
+      expect(onDatumClick).toHaveBeenLastCalledWith({
+        x: "",
+        series: undefined,
+        value: undefined,
+      });
+    },
+  );
+
+  it("gives a null x its own labelled tick and bar", async () => {
+    await renderChart("bar", [
+      { day: "Alpha", people: 100 },
       { day: null, people: 90 },
-      { day: "2026-09-28", people: 100 },
-      { day: "2026-10-05", people: 110 },
+      { day: "Beta", people: 110 },
     ]);
-    const plot = plotArea();
 
-    await clickChartAt(plot.left + plot.width - 4, plot.top + 10);
-
-    expect(onDatumClick).toHaveBeenCalledWith({
-      x: "2026-09-28",
-      series: undefined,
-      value: undefined,
-    });
+    const ticks = container.querySelectorAll(
+      ".recharts-xAxis-tick-labels text",
+    );
+    expect(Array.from(ticks, (tick) => tick.textContent)).toEqual([
+      "Alpha",
+      "sqlDashboard.noXValue",
+      "Beta",
+    ]);
+    expect(container.querySelectorAll(".recharts-bar-rectangle")).toHaveLength(
+      3,
+    );
   });
 
   it("opens the clicked row when x values repeat", async () => {

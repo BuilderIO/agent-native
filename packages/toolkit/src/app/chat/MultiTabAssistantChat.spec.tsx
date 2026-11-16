@@ -5345,6 +5345,27 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
   });
 
+  it("forwards serialized workspace integration references through the app handoff", () => {
+    const references = [
+      {
+        type: "mention" as const,
+        path: "github",
+        name: "GitHub",
+        source: "workspace-integration",
+        refType: "integration",
+        refId: "github",
+      },
+    ];
+    act(() => {
+      dispatchSubmitChat({ message: "Use this integration", references });
+    });
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Use this integration",
+      undefined,
+      { references },
+    );
+  });
+
   it("forwards approval keys as a hidden protocol continuation", () => {
     act(() => {
       dispatchSubmitChat({

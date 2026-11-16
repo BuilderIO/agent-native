@@ -169,6 +169,8 @@ Este modo é o padrão recomendado porque reutiliza a estrutura completa: o back
 
 A autenticação do host é do lado do servidor. Não passe a identidade do navegador como fonte da verdade; use o objeto de solicitação/sessão do host ou um token verificado pelo servidor de curta duração. Se o host não expor e-mails, retorne um `userId` estável e Agent-Native o usará como chave do proprietário.
 
+O callback do servidor do host é a autoridade para a organização que retorna; esse escopo não exige uma linha duplicada de associação local. Os valores de `orgRole` aceitos são `owner`, `admin` e `member`. Omitir a função não concede autoridade de administrador da organização, e funções não aceitas geram erro. `orgId: null` seleciona explicitamente o escopo pessoal; omitir a organização mantém a descoberta de associações locais. Uma seleção pessoal explícita tem prioridade, e credenciais delegadas continuam exigindo verificação de associação. O escopo do host se aplica apenas à sessão autenticada por esse callback na mesma solicitação. Ele não concede permissão para editar recursos: os compartilhamentos e as permissões existentes continuam valendo. Um null explícito no campo principal de organização ou função tem prioridade sobre o alias.
+
 ### Isolamento de banco de dados
 
 O modo incorporado gerencia tabelas Agent-Native em SQL. Para um produto SaaS maduro, o padrão mais seguro é **mesma hospedagem e autenticação, banco de dados/esquema Agent-Native dedicado**:

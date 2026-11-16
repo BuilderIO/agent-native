@@ -60,6 +60,8 @@ export interface SuggestionHighlightSpec {
   frozen?: boolean;
   /** The author's own unsaved suggestion, which follows their typing. */
   draft?: boolean;
+  /** Decided together with the active suggestion, so it lights up with it. */
+  inActiveUnit?: boolean;
   /** A marked range of only line breaks, which shows a "↵" as it has no ink. */
   lineBreak?: boolean;
   settlingBeforePresentation?: SuggestionPresentationContext;
@@ -255,16 +257,38 @@ function settlingWidget(
   };
 }
 
+// A replacement draws its new text right after the struck text, so where it
+// swaps whole words the last struck word would run into the first new one
+// ("madeNo"). Those get a gap; a change inside a word ("gr~~a~~ey") doesn't.
+function replacesWholeWords(
+  doc: ProseMirrorNode,
+  range: { from: number; to: number },
+  insertedText: string | undefined,
+) {
+  const size = doc.content.size;
+  const before = doc.textBetween(Math.max(0, range.from - 1), range.from);
+  const after = doc.textBetween(range.to, Math.min(size, range.to + 1));
+  return (
+    /\S$/.test(doc.textBetween(range.from, range.to)) &&
+    /^\S/.test(insertedText ?? "") &&
+    !WORD_CHARACTER.test(before) &&
+    !WORD_CHARACTER.test(after)
+  );
+}
+
 function insertionWidget(
   spec: SuggestionHighlightSpec,
   active: boolean,
   part?: { text: string; context?: SuggestionPresentationContext },
   position?: number,
+  spaced = false,
 ) {
   return (view: EditorView) => {
     const widget = document.createElement("span");
     widget.className = classes(
-      `${insertionClass(spec)} suggestion-inline-widget`,
+      `${insertionClass(spec)} suggestion-inline-widget${
+        spaced ? " suggestion-insert--spaced" : ""
+      }`,
       active,
     );
     identifyWidget(widget, spec, "Inspect suggested insertion", position);
@@ -387,18 +411,21 @@ function lineShape(text: string): LineShape {
 function lineBoundary(
   doc: ProseMirrorNode,
   point: number,
-  side: "before" | "after",
+  written: "before" | "after",
   shape: LineShape,
-): { position: number; inList: boolean } | null {
+): { position: number; inList: boolean; side: "before" | "after" } | null {
   if (point < 0 || point > doc.content.size) return null;
   const $point = doc.resolve(point);
   // Lines added to code are code text, not blocks of their own.
-  if (
-    !$point.parent.isTextblock ||
-    $point.parent.type.spec.code ||
-    $point.parentOffset !== (side === "before" ? 0 : $point.parent.content.size)
-  )
-    return null;
+  if (!$point.parent.isTextblock || $point.parent.type.spec.code) return null;
+  // The line goes before the block the point starts or after the one it
+  // ends. A line written before the next one can still have its point at the
+  // end of the block above it, as when it is the last line of a callout or
+  // toggle and the next line closes that block.
+  const atStart = $point.parentOffset === 0;
+  const atEnd = $point.parentOffset === $point.parent.content.size;
+  if (!atStart && !atEnd) return null;
+  const side = atStart && atEnd ? written : atStart ? "before" : "after";
   // A Page indents a block one tab per block it sits in; a list's items
   // indent their children, so the list itself adds none.
   const indentInside = (depth: number) => {
@@ -434,6 +461,7 @@ function lineBoundary(
   return {
     position: side === "before" ? $point.before(depth) : $point.after(depth),
     inList,
+    side,
   };
 }
 
@@ -520,6 +548,11 @@ function lineDecorations(
     };
   });
   if (placed.some(({ boundary, nodes }) => !boundary || !nodes)) return null;
+  // The lines share one point, so they all go on one side of its block.
+  const side = placed[0]?.boundary?.side ?? lines.side;
+  // Text that continues a line is drawn at the point, so it keeps its order
+  // only beside lines on the side they were written.
+  if ((lines.head || lines.tail) && side !== lines.side) return null;
   const decorations: Decoration[] = [];
   const inline = (span: SourceSpan | null, part: "head" | "tail") => {
     if (!span) return;
@@ -572,7 +605,7 @@ function lineDecorations(
             !!spec.editableBoundary,
           ]),
           marks: [],
-          side: lines.side === "before" ? index - placed.length : index + 1,
+          side: side === "before" ? index - placed.length : index + 1,
           ...attrs,
         },
       ),
@@ -770,7 +803,7 @@ function buildDecorations(
           settledContent === canonicalizeContent(spec.settlingReadbackContent)))
     )
       continue;
-    const active = activeId === spec.suggestionId;
+    const active = activeId === spec.suggestionId || spec.inActiveUnit === true;
     const range = clampRange(spec.from, spec.to, size);
     const attrs = spec.settling
       ? {}
@@ -860,10 +893,14 @@ function buildDecorations(
       if (lineParts) decorations.push(...lineParts);
       else {
         const side = widgetSide(doc, anchor);
+        const spaced =
+          spec.kind === "replace" &&
+          !!range &&
+          replacesWholeWords(doc, range, spec.insertedText);
         decorations.push(
           Decoration.widget(
             anchor,
-            insertionWidget(spec, active, undefined, anchor),
+            insertionWidget(spec, active, undefined, anchor, spaced),
             {
               // ProseMirror reuses a widget's element while its key holds, so
               // the key covers everything the element shows and where it sits.
@@ -872,6 +909,7 @@ function buildDecorations(
                 active,
                 !!spec.editableBoundary,
                 side,
+                spaced,
               ])}`,
               marks: [],
               side,

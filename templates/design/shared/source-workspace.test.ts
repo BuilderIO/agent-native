@@ -6,9 +6,20 @@ import {
   applySourceEdit,
   normalizeInlineSourcePath,
   previewSourceDiff,
+  SourceInputError,
   sourceContentHash,
   sourceContentPatch,
 } from "./source-workspace";
+
+function sourceInputErrorFrom(run: () => unknown): SourceInputError {
+  try {
+    run();
+  } catch (error) {
+    if (error instanceof SourceInputError) return error;
+    throw error;
+  }
+  throw new Error("Expected a SourceInputError to be thrown");
+}
 
 describe("source workspace helpers", () => {
   it("normalizes inline source paths and rejects traversal", () => {
@@ -39,6 +50,54 @@ describe("source workspace helpers", () => {
         replace: "<p>B</p>",
       }),
     ).toThrow(/more than once/i);
+  });
+
+  it("reports a typed input error for an empty or root-only source path", () => {
+    expect(sourceInputErrorFrom(() => normalizeInlineSourcePath("")).code).toBe(
+      "source_path_required",
+    );
+    expect(
+      sourceInputErrorFrom(() => normalizeInlineSourcePath("/")).code,
+    ).toBe("source_path_required");
+  });
+
+  it("reports a typed input error for a traversal source path", () => {
+    expect(
+      sourceInputErrorFrom(() => normalizeInlineSourcePath("../x")),
+    ).toMatchObject({
+      code: "source_path_invalid",
+      message: "Invalid source path.",
+    });
+  });
+
+  it("reports typed input errors for unusable exact-replace searches", () => {
+    expect(
+      sourceInputErrorFrom(() =>
+        applySourceEdit("<p>A</p>", {
+          kind: "exact-replace",
+          search: "",
+          replace: "<p>B</p>",
+        }),
+      ).code,
+    ).toBe("search_text_required");
+    expect(
+      sourceInputErrorFrom(() =>
+        applySourceEdit("<p>A</p>", {
+          kind: "exact-replace",
+          search: "<h1>Missing</h1>",
+          replace: "<h1>B</h1>",
+        }),
+      ).code,
+    ).toBe("search_text_not_found");
+    expect(
+      sourceInputErrorFrom(() =>
+        applySourceEdit("<p>A</p><p>A</p>", {
+          kind: "exact-replace",
+          search: "<p>A</p>",
+          replace: "<p>B</p>",
+        }),
+      ).code,
+    ).toBe("search_text_ambiguous");
   });
 
   it("reports compact diff metadata", () => {

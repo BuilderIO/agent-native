@@ -61,6 +61,7 @@ const mocks = vi.hoisted(() => {
     gatedReadsRemaining: 0,
     gatedReadCount: 0,
     releaseGatedReads: null as (() => void) | null,
+    afterDesignRead: null as (() => void) | null,
     resultShape: "changes" as ResultShape,
     connections: [] as ConnectionRow[],
     restoreClaims: [] as RestoreClaimRow[],
@@ -262,6 +263,7 @@ vi.mock("../server/db/index.js", () => {
           }
           const snapshot = { ...mocks.state.row };
           await mocks.waitAtReadGate();
+          mocks.state.afterDesignRead?.();
           return matches(predicate, snapshot)
             ? [
                 {
@@ -366,6 +368,7 @@ describe("update-design data concurrency", () => {
       updatedAt: "2026-07-09T00:00:00.000Z",
     };
     mocks.resetReadGate(0);
+    mocks.state.afterDesignRead = null;
     mocks.state.resultShape = "changes";
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.state.connections = [];
@@ -1429,6 +1432,10 @@ describe("update-design data concurrency", () => {
     expect((rejected?.reason as Error).message).toContain(
       "Design data changed while this snapshot was being saved",
     );
+    expect(rejected?.reason).toMatchObject({
+      errorCode: "design_data_conflict",
+      statusCode: 409,
+    });
     const persisted = JSON.parse(mocks.state.row.data!) as typeof BASE_DATA;
     expect([
       [40, 500],
@@ -1808,5 +1815,191 @@ describe("update-design data concurrency", () => {
         ],
       } as never),
     ).rejects.toThrow("did not report an affected-row count");
+  });
+
+  it("refuses an ID-only update as a typed 400", async () => {
+    await expect(action.run({ id: "design-1" } as never)).rejects.toMatchObject(
+      {
+        errorCode: "design_update_empty",
+        statusCode: 400,
+        message: "At least one design field or data operation is required.",
+      },
+    );
+  });
+
+  it("refuses a snapshot that is not valid JSON as a typed 400 and changes no row", async () => {
+    const before = { ...mocks.state.row };
+
+    await expect(
+      action.run({ id: "design-1", data: "{not json" } as never),
+    ).rejects.toMatchObject({
+      errorCode: "invalid_design_data",
+      statusCode: 400,
+      message: "data must be a valid JSON string",
+    });
+    expect(mocks.state.row).toEqual(before);
+  });
+
+  it("refuses a snapshot that is valid JSON but not an object as a typed 400 and changes no row", async () => {
+    const before = { ...mocks.state.row };
+
+    for (const data of ["[]", "null", "42", '"text"']) {
+      await expect(
+        action.run({ id: "design-1", data } as never),
+      ).rejects.toMatchObject({
+        errorCode: "invalid_design_data",
+        statusCode: 400,
+        message: "data must be a JSON object",
+      });
+    }
+    expect(mocks.state.row).toEqual(before);
+  });
+
+  it("refuses string frame dimensions in a snapshot as a typed 400", async () => {
+    const before = { ...mocks.state.row };
+
+    await expect(
+      action.run({
+        id: "design-1",
+        data: JSON.stringify({
+          canvasFrames: { "frame-a": { width: "800" } },
+        }),
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "invalid_design_data",
+      statusCode: 400,
+      message: expect.stringMatching(/must be a finite JSON number/),
+    });
+    expect(mocks.state.row).toEqual(before);
+  });
+
+  it("refuses malformed tweak definitions in a snapshot as a typed 400", async () => {
+    await expect(
+      action.run({
+        id: "design-1",
+        data: JSON.stringify({ tweaks: [[""]] }),
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "invalid_tweak_definitions",
+      statusCode: 400,
+      message: "tweaks must be an array of valid definitions",
+    });
+  });
+
+  it("refuses malformed tweak definitions in path operations as a typed 400 and changes no row", async () => {
+    const before = { ...mocks.state.row };
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [{ op: "set", path: ["tweaks"], value: [{}, {}, {}] }],
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "invalid_tweak_definitions",
+      statusCode: 400,
+      message: expect.stringMatching(/invalid tweak definitions/),
+    });
+    expect(mocks.state.row).toEqual(before);
+  });
+
+  it("refuses a nested frame operation that leaves no geometry as a typed 400 and changes no row", async () => {
+    const before = { ...mocks.state.row };
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["canvasFrames", "missing-frame", "label"],
+            value: "Home",
+          },
+        ],
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "invalid_design_data",
+      statusCode: 400,
+      message: expect.stringMatching(/at least one geometry field/),
+    });
+    expect(mocks.state.row).toEqual(before);
+  });
+
+  it("refuses an operation through a value that is not an object as a typed 409 and changes no row", async () => {
+    mocks.state.row.data = JSON.stringify({ lastPrompt: "text" });
+    const before = { ...mocks.state.row };
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          { op: "set", path: ["lastPrompt", "nested"], value: "x" },
+        ],
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "design_data_path_conflict",
+      statusCode: 409,
+      message:
+        'Cannot apply design data operation through non-object path "lastPrompt.nested".',
+    });
+    expect(mocks.state.row).toEqual(before);
+  });
+
+  it("refuses path operations as a typed 409 once every concurrent-write retry lost the race", async () => {
+    let writes = 0;
+    mocks.state.afterDesignRead = () => {
+      writes += 1;
+      mocks.state.row.data = JSON.stringify({ ...BASE_DATA, raced: writes });
+    };
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [{ op: "set", path: ["lastPrompt"], value: "new" }],
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "design_data_conflict",
+      statusCode: 409,
+      message:
+        "Could not update design design-1 after 5 concurrent attempts. Re-read the design and retry.",
+    });
+    expect(writes).toBe(5);
+  });
+
+  it("refuses a snapshot as a typed 409 when another write lands first", async () => {
+    mocks.state.afterDesignRead = () => {
+      mocks.state.row.data = JSON.stringify({ ...BASE_DATA, raced: true });
+    };
+
+    await expect(
+      action.run({
+        id: "design-1",
+        data: JSON.stringify({ lastPrompt: "new" }),
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "design_data_conflict",
+      statusCode: 409,
+      message: expect.stringMatching(
+        /changed while this snapshot was being saved/,
+      ),
+    });
+  });
+
+  it("keeps a corrupt stored design as a plain error so it stays a 500", async () => {
+    mocks.state.row.data = "{not json";
+
+    const error = await action
+      .run({
+        id: "design-1",
+        dataOperations: [{ op: "set", path: ["lastPrompt"], value: "new" }],
+      } as never)
+      .then(
+        () => undefined,
+        (reason: unknown) => reason,
+      );
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toHaveProperty("statusCode");
+    expect(error).not.toHaveProperty("errorCode");
+    expect((error as Error).message).toMatch(/invalid data JSON/);
   });
 });

@@ -13,10 +13,9 @@ export function normalizeScreenTarget(value: string): string {
     .toLowerCase();
 }
 
-export function findDesignFileByScreenTarget(
-  files: DesignFile[],
-  target: string | null | undefined,
-): DesignFile | null {
+export function findDesignFileByScreenTarget<
+  T extends Pick<DesignFile, "id" | "filename">,
+>(files: readonly T[], target: string | null | undefined): T | null {
   const trimmed = target?.trim();
   if (!trimmed) return null;
   const normalized = normalizeScreenTarget(trimmed);
@@ -33,11 +32,13 @@ export function findDesignFileByScreenTarget(
  * that is the screen already showing. A link that names no screen of the
  * design leads nowhere.
  */
-export function findInteractLinkTarget(
-  files: DesignFile[],
+export function findInteractLinkTarget<
+  T extends Pick<DesignFile, "id" | "filename">,
+>(
+  files: readonly T[],
   target: string | null | undefined,
   activeFileId: string | null,
-): DesignFile | null {
+): T | null {
   const file = findDesignFileByScreenTarget(files, target);
   return file && file.id !== activeFileId ? file : null;
 }

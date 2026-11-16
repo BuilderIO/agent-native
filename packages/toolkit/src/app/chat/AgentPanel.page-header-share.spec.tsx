@@ -64,7 +64,7 @@ describe("AgentPanel page header share trigger", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the default icon and host-provided content through ShareButton", async () => {
+  it("renders the default label and host-provided content through ShareButton", async () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -87,8 +87,8 @@ describe("AgentPanel page header share trigger", () => {
     const defaultButton = container.querySelector<HTMLButtonElement>(
       '[data-testid="share-trigger"]',
     );
-    expect(defaultButton?.querySelector("svg")).not.toBeNull();
-    expect(defaultButton?.dataset.triggerClass).toContain("size-6");
+    expect(defaultButton?.textContent).toBe("Share");
+    expect(defaultButton?.dataset.triggerClass).toBeUndefined();
 
     await renderPanel(
       <span className="flex items-center gap-1.5">
@@ -103,7 +103,7 @@ describe("AgentPanel page header share trigger", () => {
     expect(
       customButton?.querySelector('[data-testid="custom-share-icon"]'),
     ).not.toBeNull();
-    expect(customButton?.dataset.triggerClass).toContain("w-auto");
-    expect(customButton?.dataset.triggerClass).toContain("px-2");
+    // oracle-change: the shared control now owns padding and width for both trigger types.
+    expect(customButton?.dataset.triggerClass).toBeUndefined();
   });
 });

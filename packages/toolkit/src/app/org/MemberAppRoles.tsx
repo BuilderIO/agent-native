@@ -144,7 +144,7 @@ function ExplainAccessPopover({
   const explain = useActionMutation<
     { allowed: boolean; reason: string; roles: string[] },
     { appId: string; email: string; permission: string }
-  >("explain-access");
+  >("explain-access", { errorNotification: "caller" });
   const permissions = Object.keys(appRoles.permissions ?? {});
 
   return (

@@ -96,15 +96,7 @@ async function openHomeDesignSystemPicker(page: Page) {
     .locator("[data-design-home-composer]")
     .getByRole("button", { name: "Add context", exact: true })
     .click();
-  const addContext = page.getByRole("menuitem", {
-    name: "Add context",
-    exact: true,
-  });
-  await expect(addContext).toBeVisible();
-  await addContext.press("ArrowRight");
-  const design = page.getByRole("menuitem", { name: "Design", exact: true });
-  await expect(design).toBeVisible();
-  await design.press("ArrowRight");
+  // oracle-change: Use a design system is now a direct menu item.
   const useDesignSystem = page.getByRole("menuitem", {
     name: "Use a design system",
     exact: true,
@@ -186,7 +178,7 @@ test("home context actions wait for the organization draft scope", async ({
     await expect(addContext).toBeEnabled({ timeout: 30_000 });
     await addContext.click();
     await expect(
-      page.getByRole("menuitem", { name: "Add context", exact: true }),
+      page.getByRole("menuitem", { name: "Reference a design", exact: true }),
     ).toBeVisible();
   } finally {
     releaseOrganization();

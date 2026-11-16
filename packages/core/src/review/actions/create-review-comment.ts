@@ -9,8 +9,10 @@ import {
   notifyReviewCommentWithReceipt,
 } from "../notifications.js";
 import {
-  assertReviewableResourceAccess,
+  assertPersonReviewAnchorKind,
+  assertReviewCommentAccess,
   normalizeReviewVisibility,
+  reviewCommentPolicy,
 } from "../registry.js";
 import {
   insertReviewComment,
@@ -33,6 +35,12 @@ const schema = z.object({
   resourceType: z.string().min(1),
   resourceId: z.string().min(1),
   targetId: z.string().nullable().optional(),
+  surfaceId: z
+    .string()
+    .min(1)
+    .nullable()
+    .optional()
+    .describe("The part of the resource the thread sits on, such as a slide"),
   kind: z
     .enum([
       "comment",
@@ -44,6 +52,19 @@ const schema = z.object({
     ])
     .optional(),
   anchor: z.unknown().nullable().optional(),
+  anchorKind: z
+    .string()
+    .min(1)
+    .nullable()
+    .optional()
+    .describe("The anchor's kind, when the resource declares anchor kinds"),
+  anchorVersion: z
+    .number()
+    .int()
+    .positive()
+    .nullable()
+    .optional()
+    .describe("The version the anchor was written at; defaults to the latest"),
   body: z.string().min(1),
   authorName: z.string().nullable().optional(),
   resolutionTarget: z.enum(["agent", "human"]).nullable().optional(),
@@ -67,25 +88,31 @@ export default defineAction({
   },
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
-    const access = await assertReviewableResourceAccess(
+    const access = await assertReviewCommentAccess(
       args.resourceType,
       args.resourceId,
       actionCtx,
-      "commenter",
     );
     const mentions = normalizeReviewMentions([
       ...normalizeReviewMentions(args.mentions),
       ...extractReviewMentions(args.body),
     ]);
     const resolutionTarget =
-      args.resolutionTarget ?? (mentions.length > 0 ? "human" : "agent");
+      args.resolutionTarget ??
+      (mentions.length > 0
+        ? "human"
+        : reviewCommentPolicy(args.resourceType).unmentionedRoute);
 
+    assertPersonReviewAnchorKind(args.anchorKind);
     const input = {
       resourceType: args.resourceType,
       resourceId: args.resourceId,
       targetId: args.targetId ?? null,
+      surfaceId: args.surfaceId ?? null,
       kind: (args.kind ?? "comment") as ReviewCommentKind,
       anchor: args.anchor ?? null,
+      anchorKind: args.anchorKind ?? null,
+      anchorVersion: args.anchorVersion ?? null,
       body: args.body,
       authorEmail: actionCtx?.userEmail ?? null,
       authorName: args.authorName ?? reviewAuthorNameFromContext(actionCtx),

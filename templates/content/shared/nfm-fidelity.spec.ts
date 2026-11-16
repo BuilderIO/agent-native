@@ -28,18 +28,31 @@ import {
   type PMNode,
 } from "./nfm.js";
 
+// The wall clock keeps running while another process holds the core, which
+// happens to a large input more often than to a small one, and the process's
+// CPU time includes V8's background threads. This thread's CPU time has
+// neither, but on Linux it only advances on a scheduler tick unless a read of
+// the whole process's comes first.
+function threadCpuMs(): number {
+  process.cpuUsage();
+  const { user, system } = process.threadCpuUsage();
+  return (user + system) / 1000;
+}
+
 function expectLinearScaling(
   build: (count: number) => string[],
-  parse: (markdown: string) => unknown = canonicalizeNfm,
+  // Not canonicalizeNfm: it keeps recent results, so it would time a cache hit.
+  parse: (markdown: string) => unknown = (markdown) =>
+    docToNfm(nfmToDoc(markdown)),
 ): void {
   const small = build(1);
   const large = build(4);
   const median = (samples: number[]) =>
     [...samples].sort((a, b) => a - b)[Math.floor(samples.length / 2)]!;
   const measure = (markdown: string) => {
-    const started = performance.now();
+    const started = threadCpuMs();
     parse(markdown);
-    return performance.now() - started;
+    return threadCpuMs() - started;
   };
   for (const [index, markdown] of small.entries()) {
     parse(markdown);

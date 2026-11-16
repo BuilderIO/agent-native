@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { failOnSourceInputError } from "../server/lib/fail-on-source-input-error.js";
 import {
   findSourceWorkspaceFile,
   readLiveSourceFile,
@@ -69,7 +70,9 @@ export default defineAction({
       };
     }
 
-    const next = applySourceEdit(live.content, edit);
+    const next = failOnSourceInputError(() =>
+      applySourceEdit(live.content, edit),
+    );
     return {
       designId,
       path: file.filename,
