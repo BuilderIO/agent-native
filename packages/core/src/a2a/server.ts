@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 
 import {
   defineEventHandler,
@@ -279,6 +279,13 @@ function audienceForRoute(
 
 function tokenHasAudienceClaim(token: string): boolean {
   return typeof jose.decodeJwt(token).aud !== "undefined";
+}
+
+function apiKeyMatches(supplied: string, expected: string): boolean {
+  return timingSafeEqual(
+    createHash("sha256").update(supplied, "utf8").digest(),
+    createHash("sha256").update(expected, "utf8").digest(),
+  );
 }
 
 function isDirectReadSkill(skill: AgentSkill): boolean {
@@ -1167,7 +1174,7 @@ export function mountA2A(
               error: { code: -32001, message: "Authentication required" },
             };
           }
-          if (bearerToken !== expectedKey) {
+          if (!apiKeyMatches(bearerToken, expectedKey)) {
             setResponseStatus(event, 401);
             return {
               jsonrpc: "2.0",

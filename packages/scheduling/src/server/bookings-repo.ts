@@ -26,6 +26,7 @@ function rowToBooking(
   row: any,
   attendees: any[] = [],
   references: any[] = [],
+  { withSecrets }: { withSecrets: boolean },
 ): Booking {
   const filteredAttendees = attendees.filter((a) => a.bookingId === row.id);
   const attendeeOrderKnown =
@@ -66,14 +67,18 @@ function rowToBooking(
         type: r.type,
         externalId: r.externalId,
         meetingUrl: r.meetingUrl ?? undefined,
-        meetingPassword: r.meetingPassword ?? undefined,
+        meetingPassword: withSecrets
+          ? (r.meetingPassword ?? undefined)
+          : undefined,
         credentialId: r.credentialId ?? undefined,
       })),
     customResponses: parseJson(row.customResponses),
     cancellationReason: row.cancellationReason ?? undefined,
     reschedulingReason: row.reschedulingReason ?? undefined,
-    cancelToken: row.cancelToken ?? undefined,
-    rescheduleToken: row.rescheduleToken ?? undefined,
+    cancelToken: withSecrets ? (row.cancelToken ?? undefined) : undefined,
+    rescheduleToken: withSecrets
+      ? (row.rescheduleToken ?? undefined)
+      : undefined,
     fromReschedule: row.fromReschedule ?? undefined,
     iCalUid: row.iCalUid,
     iCalSequence: row.iCalSequence,
@@ -125,7 +130,7 @@ export async function getBookingByUid(uid: string): Promise<Booking | null> {
     .select()
     .from(schema.bookingReferences)
     .where(eq(schema.bookingReferences.bookingId, rows[0].id));
-  return rowToBooking(rows[0], attendees, references);
+  return rowToBooking(rows[0], attendees, references, { withSecrets: true });
 }
 
 export interface ListBookingsFilter {
@@ -142,7 +147,7 @@ export interface ListBookingsFilter {
 export async function listBookings(
   filter: ListBookingsFilter,
 ): Promise<Booking[]> {
-  const { getDb, schema } = getSchedulingContext();
+  const { getDb, schema, getCurrentUserEmail } = getSchedulingContext();
   const db = getDb();
   const now = new Date().toISOString();
   const wheres: any[] = [];
@@ -198,7 +203,15 @@ export async function listBookings(
         ...ids.map((id: string) => eq(schema.bookingReferences.bookingId, id)),
       ),
     );
-  let out = rows.map((r: any) => rowToBooking(r, attendees, references));
+  // Only a booking's host sees its cancel and reschedule tokens and meeting
+  // passwords. getBookingByUid keeps them: the cancel and reschedule actions
+  // check a supplied token against the stored one.
+  const viewerEmail = getCurrentUserEmail();
+  let out = rows.map((r: { hostEmail: string }) =>
+    rowToBooking(r, attendees, references, {
+      withSecrets: !!viewerEmail && viewerEmail === r.hostEmail,
+    }),
+  );
   if (filter.attendeeEmail) {
     out = out.filter((b: (typeof out)[number]) =>
       b.attendees.some(

@@ -1,3 +1,5 @@
+import { createHash, timingSafeEqual } from "node:crypto";
+
 import { and, eq } from "drizzle-orm";
 
 import { getSchedulingContext } from "../server/context.js";
@@ -10,6 +12,17 @@ export function currentUserEmail(): string {
 
 export function currentUserEmailOrNull(): string | null {
   return getSchedulingContext().getCurrentUserEmail() ?? null;
+}
+
+export function bookingTokenMatches(
+  supplied: string | undefined,
+  stored: string | undefined,
+): boolean {
+  if (!supplied || !stored) return false;
+  return timingSafeEqual(
+    createHash("sha256").update(supplied, "utf8").digest(),
+    createHash("sha256").update(stored, "utf8").digest(),
+  );
 }
 
 export function assertBookingHost(

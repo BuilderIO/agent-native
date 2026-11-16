@@ -6,7 +6,7 @@ import {
   rescheduleBooking,
 } from "../server/booking-service.js";
 import { getBookingByUid } from "../server/bookings-repo.js";
-import { currentUserEmailOrNull } from "./_helpers.js";
+import { bookingTokenMatches, currentUserEmailOrNull } from "./_helpers.js";
 
 export default defineAction({
   description:
@@ -54,7 +54,7 @@ async function rescheduleBookingAfterAccessCheck(args: {
   if (!booking) throw new Error(`Booking ${args.uid} not found`);
   const userEmail = currentUserEmailOrNull();
   const isHost = !!userEmail && userEmail === booking.hostEmail;
-  const hasToken = !!args.token && args.token === booking.rescheduleToken;
+  const hasToken = bookingTokenMatches(args.token, booking.rescheduleToken);
   if (!isHost && !hasToken) {
     throw new Error("Not authorized to reschedule this booking");
   }

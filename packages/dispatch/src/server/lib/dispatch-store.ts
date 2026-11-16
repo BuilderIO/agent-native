@@ -753,7 +753,7 @@ export async function createLinkToken(platform: string) {
     targetType: "link-token",
     targetId: recordId,
     summary: `Created ${platform} link token for ${owner}`,
-    metadata: { token, platform },
+    metadata: { platform },
   });
   return {
     token,
