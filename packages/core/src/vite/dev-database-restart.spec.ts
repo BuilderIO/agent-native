@@ -79,17 +79,20 @@ async function waitFor(
 }
 
 async function waitForProbe(
-  url: string,
+  url: () => string | undefined,
   condition: (result: ProbeResult) => boolean,
   signal: AbortSignal,
 ): Promise<ProbeResult> {
   let lastResult = "no response";
 
   while (!signal.aborted) {
+    // Vite has no URL between closing a server and its replacement listening.
+    const target = url();
     let response: Response;
     let body: string;
     try {
-      response = await fetch(url);
+      if (target === undefined) throw new Error("no dev server URL");
+      response = await fetch(target);
       body = await response.text();
     } catch (error) {
       lastResult = error instanceof Error ? error.message : String(error);
@@ -118,9 +121,9 @@ async function waitForProbe(
   throw abandonedWait(`the Nitro probe: ${lastResult}`, signal);
 }
 
-// Nitro reads `server.port: 0` as unset and listens on 3000. Another dev
-// server can take 3000 while this one restarts, and the replacement then moves
-// to 3001 while the probes still go to 3000.
+// Nitro reads `server.port: 0` as unset and listens on 3000, where another dev
+// server is likely. The probes read the server's current URL, so if this port
+// is taken before Vite binds it, or during a restart, they follow the server.
 async function freePort(): Promise<number> {
   const listener = net.createServer();
   await new Promise<void>((resolve, reject) => {
@@ -449,9 +452,20 @@ export default async () => {
       });
       await server.listen();
 
-      const baseUrl = server.resolvedUrls?.local[0];
-      if (!baseUrl) throw new Error("Vite did not report its local dev URL");
-      const probeUrl = new URL("probe", baseUrl).href;
+      // Where the server listens now: Vite takes the next port if its own is
+      // taken when it binds, including on a restart.
+      const probeUrl = () => {
+        const baseUrl = server?.resolvedUrls?.local[0];
+        return baseUrl === undefined
+          ? undefined
+          : new URL("probe", baseUrl).href;
+      };
+      const listeningProbeUrl = () => {
+        const url = probeUrl();
+        if (!url) throw new Error("Vite did not report its local dev URL");
+        return url;
+      };
+      listeningProbeUrl();
       const first = await waitForProbe(probeUrl, () => true, signal);
       expect(first.rows).toEqual([{ id: 1, value: "persisted" }]);
       expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
@@ -459,7 +473,7 @@ export default async () => {
       );
 
       fs.writeFileSync(pauseProbePath, "pause");
-      const pausedProbe = fetch(probeUrl);
+      const pausedProbe = fetch(listeningProbeUrl());
       await waitFor(
         "the probe to pause before using the database",
         () => fs.existsSync(probeEnteredPath),
@@ -505,7 +519,7 @@ export default async () => {
       expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
         false,
       );
-      const pausedDuringResume = await fetch(probeUrl);
+      const pausedDuringResume = await fetch(listeningProbeUrl());
       const pausedDuringResumeBody = await pausedDuringResume.text();
       expect(pausedDuringResume.status).toBe(503);
       expect(pausedDuringResumeBody).toContain("PGlite access is paused");
@@ -567,7 +581,7 @@ export default async () => {
       const acknowledgementsBeforeSlowQuery = databaseCloseAcknowledgements;
       const closeRequestsBeforeSlowQuery = databaseCloseRequestIds.length;
       fs.writeFileSync(slowQueryPath, "run");
-      const slowProbe = fetch(probeUrl).catch(() => undefined);
+      const slowProbe = fetch(listeningProbeUrl()).catch(() => undefined);
       await waitFor(
         "the slow query to start",
         () => fs.existsSync(slowQueryStartedPath),
@@ -655,7 +669,7 @@ export default async () => {
       expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
         false,
       );
-      const unacknowledgedResponse = await fetch(probeUrl);
+      const unacknowledgedResponse = await fetch(listeningProbeUrl());
       const unacknowledgedBody = await unacknowledgedResponse.text();
       expect(unacknowledgedResponse.status).toBe(503);
       expect(unacknowledgedBody).toContain("PGlite access is paused");
@@ -770,16 +784,8 @@ export default async () => {
       });
       await server.listen();
 
-      const replacementBaseUrl = server.resolvedUrls?.local[0];
-      if (!replacementBaseUrl) {
-        throw new Error("Vite did not report its replacement dev URL");
-      }
-      const replacementProbeUrl = new URL("probe", replacementBaseUrl).href;
-      const replacementReady = await waitForProbe(
-        replacementProbeUrl,
-        () => true,
-        signal,
-      );
+      listeningProbeUrl();
+      const replacementReady = await waitForProbe(probeUrl, () => true, signal);
       expect(replacementReady.rows).toEqual([{ id: 1, value: "persisted" }]);
       expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
         true,
@@ -835,6 +841,9 @@ export default async () => {
       expect(server.httpServer?.listening).toBe(false);
       server = undefined;
     } finally {
+      // A failure before the release leaves the probe's transaction open, and
+      // the worker would wait on it while the server closes.
+      fs.writeFileSync(slowQueryReleasePath, "release");
       const releaseResumeRequest = releaseDeferredResumeRequest;
       releaseDeferredResumeRequest = undefined;
       releaseResumeRequest?.();

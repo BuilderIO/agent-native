@@ -5486,6 +5486,7 @@ export {
   getDefaultOptimizeDeps as _getDefaultOptimizeDeps,
   findCorePackageRoot as _findCorePackageRoot,
   getReactRouterAliases as _getReactRouterAliases,
+  nitroDevEnvironmentClosePlugin as _nitroDevEnvironmentClosePlugin,
   nitroStartupGate as _nitroStartupGate,
   nitroStartupRecovery as _nitroStartupRecovery,
   persistent5xxRecovery as _persistent5xxRecovery,
