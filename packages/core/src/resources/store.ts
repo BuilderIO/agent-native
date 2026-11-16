@@ -2624,9 +2624,13 @@ export async function resourceDeleteWithDb(
   };
 }
 
+// Compares each column the way rowToResource reads it, so a row holding an
+// empty string or an unknown creator or visibility still matches the resource
+// read from it. Comparing raw columns would refuse every write over, or delete
+// of, that row.
 function resourceSnapshotMatch(resource: Resource) {
   return {
-    sql: `owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND created_by = ? AND visibility = ? AND thread_id IS NOT DISTINCT FROM ? AND run_id IS NOT DISTINCT FROM ? AND expires_at IS NOT DISTINCT FROM ? AND metadata IS NOT DISTINCT FROM ?`,
+    sql: `owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND (CASE WHEN created_by IN ('agent', 'system', 'user') THEN created_by ELSE 'user' END) = ? AND (CASE WHEN visibility = 'agent_scratch' THEN 'agent_scratch' ELSE 'workspace' END) = ? AND NULLIF(thread_id, '') IS NOT DISTINCT FROM ? AND NULLIF(run_id, '') IS NOT DISTINCT FROM ? AND expires_at IS NOT DISTINCT FROM ? AND NULLIF(metadata, '') IS NOT DISTINCT FROM ?`,
     args: [
       resource.owner,
       resource.path,
@@ -2995,24 +2999,11 @@ export async function resourceDeleteIfCurrent(
   }
 
   const client = getDbExec();
+  const match = resourceSnapshotMatch(resource);
+  // raw-sql-ok: resourceSnapshotMatch is fixed clause text; every value is a bound ? arg.
   const result = await client.execute({
-    sql: `DELETE FROM resources WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND created_by = ? AND visibility = ? AND thread_id IS NOT DISTINCT FROM ? AND run_id IS NOT DISTINCT FROM ? AND expires_at IS NOT DISTINCT FROM ? AND metadata IS NOT DISTINCT FROM ?`,
-    args: [
-      resource.owner,
-      resource.path,
-      resource.id,
-      resource.updatedAt,
-      resource.content,
-      resource.mimeType,
-      resource.size,
-      resource.createdAt,
-      resource.createdBy,
-      resource.visibility,
-      resource.threadId,
-      resource.runId,
-      resource.expiresAt,
-      resource.metadata,
-    ],
+    sql: `DELETE FROM resources WHERE ${match.sql}`,
+    args: match.args,
   });
   const deleted = result.rowsAffected === 1;
   if (deleted) {

@@ -144,6 +144,7 @@ vi.mock("./actions/import-resource-pack.js", async (importOriginal) => {
   };
 });
 
+import { saveRevisionOf } from "../save-conflict/index.js";
 import { getSession } from "../server/auth.js";
 import {
   handleListResources,
@@ -164,6 +165,14 @@ function holdPaths(...held: string[]) {
     async (_owner: string, paths: string[]) =>
       new Set(paths.filter((path) => held.includes(path))),
   );
+}
+
+/** A resource as the routes send it, with the revision of its content. */
+function withRevision<R extends { content: string }>(resource: R) {
+  return {
+    ...resource,
+    revision: saveRevisionOf({ content: resource.content }),
+  };
 }
 
 function localSkill(name: string) {
@@ -348,7 +357,7 @@ describe("resource handlers", () => {
       const event = { _params: { id: "r1" }, _query: {}, context: {} };
       const result = await handleGetResource(event);
 
-      expect(result).toEqual(resource);
+      expect(result).toEqual(withRevision(resource));
     });
 
     it("returns 400 when no ID provided", async () => {
@@ -408,7 +417,7 @@ describe("resource handlers", () => {
       const event = { _params: { id: "workspace_1" }, _query: {}, context: {} };
       const result = await handleGetResource(event);
 
-      expect(result).toEqual(resource);
+      expect(result).toEqual(withRevision(resource));
     });
 
     it("strips content from binary resources in JSON response", async () => {
@@ -430,6 +439,7 @@ describe("resource handlers", () => {
       expect(result.content).toBe("");
       expect(result.id).toBe("img1");
       expect(result.mimeType).toBe("image/jpeg");
+      expect(result).not.toHaveProperty("revision");
     });
 
     it("serves raw content when ?raw query param is set", async () => {
@@ -563,7 +573,9 @@ Legacy webhook.`,
         context: {},
       };
 
-      await expect(handleGetResource(event)).resolves.toEqual(resource);
+      await expect(handleGetResource(event)).resolves.toEqual(
+        withRevision(resource),
+      );
     });
   });
 
@@ -1346,6 +1358,295 @@ Legacy webhook.`,
       );
     });
 
+    describe("with the revision the content was edited from", () => {
+      const doc = {
+        id: "r1",
+        path: "doc.md",
+        owner: "test@test.com",
+        content: "old",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+      };
+
+      it("writes only over the version it read and returns the new revision", async () => {
+        mockResourceGet.mockResolvedValue(doc);
+        const written = { ...doc, content: "new", updatedAt: 2000 };
+        mockResourcePutIfSnapshot.mockResolvedValue({
+          before: doc,
+          resource: written,
+        });
+
+        const result = await handleUpdateResource({
+          _params: { id: "r1" },
+          _body: {
+            content: "new",
+            expectedRevision: withRevision(doc).revision,
+          },
+          context: {},
+        });
+
+        expect(result).toEqual(withRevision(written));
+        expect(mockResourcePutIfSnapshot).toHaveBeenCalledWith({
+          previous: doc,
+          owner: "test@test.com",
+          path: "doc.md",
+          content: "new",
+          mimeType: "text/markdown",
+        });
+        expect(mockResourcePut).not.toHaveBeenCalled();
+      });
+
+      it("refuses content saved over someone else's newer save, with what's there now", async () => {
+        mockResourceGet.mockResolvedValue({ ...doc, content: "theirs" });
+
+        const result = await handleUpdateResource({
+          _params: { id: "r1" },
+          _body: {
+            content: "mine",
+            expectedRevision: withRevision(doc).revision,
+          },
+          context: {},
+        });
+
+        expect(lastStatus).toBe(409);
+        expect(result).toMatchObject({
+          errorCode: "save_conflict",
+          details: {
+            current: { content: "theirs" },
+            currentRevision: withRevision({ content: "theirs" }).revision,
+          },
+        });
+        expect(mockResourceMove).not.toHaveBeenCalled();
+        expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
+        expect(mockResourcePut).not.toHaveBeenCalled();
+      });
+
+      it("refuses a checked content save that also renames", async () => {
+        mockResourceGet.mockResolvedValue(doc);
+
+        const result = await handleUpdateResource({
+          _params: { id: "r1" },
+          _body: {
+            content: "mine",
+            path: "renamed.md",
+            expectedRevision: withRevision(doc).revision,
+          },
+          context: {},
+        });
+
+        expect(lastStatus).toBe(400);
+        expect(result).toMatchObject({ error: expect.any(String) });
+        expect(mockResourceMove).not.toHaveBeenCalled();
+        expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
+        expect(mockResourcePut).not.toHaveBeenCalled();
+      });
+
+      it("catches a save that lands between its check and its write", async () => {
+        mockResourceGet
+          .mockResolvedValueOnce(doc)
+          .mockResolvedValueOnce(doc)
+          .mockResolvedValue({ ...doc, content: "theirs", updatedAt: 1500 });
+        mockResourcePutIfSnapshot.mockResolvedValue(null);
+
+        const result = await handleUpdateResource({
+          _params: { id: "r1" },
+          _body: {
+            content: "mine",
+            expectedRevision: withRevision(doc).revision,
+          },
+          context: {},
+        });
+
+        expect(lastStatus).toBe(409);
+        expect(result).toMatchObject({
+          errorCode: "save_conflict",
+          details: { current: { content: "theirs" } },
+        });
+        expect(mockResourcePutIfSnapshot).toHaveBeenCalledTimes(1);
+        expect(mockResourcePut).not.toHaveBeenCalled();
+      });
+
+      it("treats a repeat of a save that already landed as done", async () => {
+        const saved = { ...doc, content: "new", updatedAt: 2000 };
+        mockResourceGet.mockResolvedValue(saved);
+
+        const result = await handleUpdateResource({
+          _params: { id: "r1" },
+          _body: {
+            content: "new",
+            expectedRevision: withRevision(doc).revision,
+          },
+          context: {},
+        });
+
+        expect(lastStatus).toBe(200);
+        expect(result).toEqual(withRevision(saved));
+        expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
+        expect(mockResourcePut).not.toHaveBeenCalled();
+      });
+
+      it("treats a repeat that names the same type as done", async () => {
+        const saved = { ...doc, content: "new", updatedAt: 2000 };
+        mockResourceGet.mockResolvedValue(saved);
+
+        const result = await handleUpdateResource({
+          _params: { id: "r1" },
+          _body: {
+            content: "new",
+            mimeType: "text/markdown",
+            expectedRevision: withRevision(doc).revision,
+          },
+          context: {},
+        });
+
+        expect(lastStatus).toBe(200);
+        expect(result).toEqual(withRevision(saved));
+        expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
+      });
+
+      it("treats the same save landing between its check and its write as done", async () => {
+        const saved = { ...doc, content: "new", updatedAt: 2000 };
+        mockResourceGet.mockResolvedValueOnce(doc).mockResolvedValue(saved);
+
+        const result = await handleUpdateResource({
+          _params: { id: "r1" },
+          _body: {
+            content: "new",
+            mimeType: "text/markdown",
+            expectedRevision: withRevision(doc).revision,
+          },
+          context: {},
+        });
+
+        expect(lastStatus).toBe(200);
+        expect(result).toEqual(withRevision(saved));
+        expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
+      });
+
+      describe("on a shared resource copied into the organization", () => {
+        const shared = { ...doc, id: "s1", owner: "__shared__" };
+        const copy = {
+          ...doc,
+          id: "copy",
+          owner: "__organization__:org-1",
+          content: "mine",
+        };
+
+        beforeEach(() => {
+          mockGetOrgContext.mockResolvedValue({
+            email: "test@test.com",
+            orgId: "org-1",
+            orgName: "QA Org",
+            role: "admin",
+          });
+          mockResourcePutIfAbsent.mockResolvedValue(copy);
+        });
+
+        const save = () =>
+          handleUpdateResource({
+            _params: { id: "s1" },
+            _body: {
+              content: "mine",
+              expectedRevision: withRevision(shared).revision,
+            },
+            context: {},
+          });
+
+        it("keeps the copy when the shared version is still the one read", async () => {
+          mockResourceGet.mockResolvedValue(shared);
+
+          const result = await save();
+
+          expect(lastStatus).toBe(200);
+          expect(result).toEqual(withRevision(copy));
+          expect(mockResourceDeleteIfCurrent).not.toHaveBeenCalled();
+        });
+
+        it("takes the copy back when someone saved the shared version meanwhile", async () => {
+          mockResourceGet
+            .mockResolvedValueOnce(shared)
+            .mockResolvedValue({ ...shared, content: "theirs" });
+
+          const result = await save();
+
+          expect(lastStatus).toBe(409);
+          expect(result).toMatchObject({
+            errorCode: "save_conflict",
+            details: {
+              current: { content: "theirs" },
+              currentRevision: withRevision({ content: "theirs" }).revision,
+            },
+          });
+          expect(mockResourceDeleteIfCurrent).toHaveBeenCalledExactlyOnceWith(
+            copy,
+          );
+        });
+
+        it("takes the copy back when a legacy source changes before it is removed", async () => {
+          const legacy = {
+            ...shared,
+            metadata: '{"source":"workspace-files"}',
+          };
+          mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+          mockResourceGet
+            .mockResolvedValueOnce(legacy)
+            .mockResolvedValueOnce(legacy)
+            .mockResolvedValue({ ...legacy, content: "theirs" });
+          mockResourceDeleteIfCurrent.mockResolvedValueOnce(false);
+
+          const result = await save();
+
+          expect(lastStatus).toBe(409);
+          expect(result).toMatchObject({
+            errorCode: "save_conflict",
+            details: { current: { content: "theirs" } },
+          });
+          expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(
+            1,
+            legacy,
+          );
+          expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(2, copy);
+        });
+      });
+
+      it("renames without checking the content", async () => {
+        mockResourceGet.mockResolvedValue({ ...doc, content: "theirs" });
+        mockResourceMove.mockResolvedValue(true);
+        mockResourcePut.mockResolvedValue({
+          ...doc,
+          path: "renamed.md",
+          content: "theirs",
+        });
+
+        await handleUpdateResource({
+          _params: { id: "r1" },
+          _body: {
+            path: "renamed.md",
+            expectedRevision: withRevision(doc).revision,
+          },
+          context: {},
+        });
+
+        expect(lastStatus).toBe(200);
+        expect(mockResourceMove).toHaveBeenCalledWith("r1", "renamed.md");
+      });
+
+      it("rejects a revision that isn't a string", async () => {
+        mockResourceGet.mockResolvedValue(doc);
+
+        const result = await handleUpdateResource({
+          _params: { id: "r1" },
+          _body: { content: "new", expectedRevision: 7 },
+          context: {},
+        });
+
+        expect(lastStatus).toBe(400);
+        expect(result).toMatchObject({ error: expect.any(String) });
+        expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
+        expect(mockResourcePut).not.toHaveBeenCalled();
+      });
+    });
+
     it("returns 400 when no ID provided", async () => {
       const event = {
         _params: {},
@@ -1651,7 +1952,7 @@ Legacy webhook.`,
         context: {},
       });
 
-      expect(result).toEqual(moved);
+      expect(result).toEqual(withRevision(moved));
       expect(mockResourcePutIfSnapshot).toHaveBeenCalledWith(
         expect.objectContaining({
           previous: null,
