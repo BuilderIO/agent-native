@@ -19,7 +19,10 @@ describe("redact", () => {
 
   it("leaves text without a credential assignment alone", () => {
     expect(redact("tokenization is fine")).toBe("tokenization is fine");
-    expect(redact('{"token":"abc"}')).toBe('{"token":"abc"}');
+  });
+
+  it("redacts the value of a quoted credential key", () => {
+    expect(redact('{"token":"abc"}')).toBe('{"token":"<redacted>"}');
   });
 
   it("stays linear on 8 KB of repeated key-looking text", () => {
