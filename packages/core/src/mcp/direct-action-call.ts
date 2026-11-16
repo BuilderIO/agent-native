@@ -443,7 +443,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       };
       const projectedRawResult = project(rawResult);
       const projectedResultForClient = project(resultForClient);
-      let appResourceUnresolved = false;
+      const appResource = { unresolved: false };
       const mcpAppResourceCandidate =
         requestMeta?.inlineMcpApps &&
         mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
@@ -456,7 +456,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
               if (directoryCatalog) throw error;
               // The action already ran: report that its app cannot open
               // rather than fail a call whose change was saved.
-              appResourceUnresolved = true;
+              appResource.unresolved = true;
               console.warn(
                 `[mcp] ${name} completed, but the server cannot open its app here: ${describeThrownForLog(error)}`,
               );
@@ -613,7 +613,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       // that has no session must say so rather than leave an empty frame.
       // An `embed: false` result opts out of the frame, not of this signal.
       const fullAppNotOpened =
-        (appResourceUnresolved && !mcpResultIsError) ||
+        (appResource.unresolved && !mcpResultIsError) ||
         (fullAppCandidate && fullAppOrigin !== "none" && !mcpAppResource);
       const fullAppOptedOut =
         metadataObject(projectedRawResult).embed === false;
