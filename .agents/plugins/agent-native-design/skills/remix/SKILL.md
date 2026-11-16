@@ -14,7 +14,7 @@ Use **repo mode** for a source-and-change prompt inside a repository. Use
 **Design mode** when the user asks for Design, a canvas or selection, or wants
 to pick visually. Both modes finish on a **remix board** in Design (below)
 unless the user says no Design, headless, or just the code, or Design is
-unavailable; then finish in repo mode with images.
+unavailable; then use the image finish in **Finish Without Design**.
 
 ## Repo Mode: Run End To End
 
@@ -34,7 +34,7 @@ stack. Follow the repo's instructions and reuse its components and conventions.
 4. Expose knobs as typed props or CSS custom properties with explicit defaults.
    Verify source versus rebuild using matched screenshots and motion clips,
    including the original-colors fidelity check below, then finish on the
-   remix board.
+   remix board, or without Design as described below.
 
 ## Design Mode: Choose On The Canvas
 
@@ -253,7 +253,21 @@ or two, real parameter names and values from the spec, small and light.
 Use system or already-loaded web fonts, never embedded base64 fonts or
 images; a design has a size limit.
 
-Then report: the board link, source-versus-result captures (clips for motion),
-knobs and defaults, swappable assets, and unverified behavior or remaining
-differences. In repo mode also list changed files and verification; in Design
-mode hand off source edits the visual-edit way.
+## Finish Without Design
+
+When the user opts out of Design or Design is unavailable, finish in the repo
+with images:
+
+1. Source versus result: matched screenshots at the same viewport, plus clips
+   for motion.
+2. The original-colors fidelity check, side by side with the source.
+3. Destination before and after: the page as it was, then with the remix in
+   its palette.
+
+## Report
+
+Report source-versus-result captures (clips for motion), knobs and defaults,
+swappable assets, and unverified behavior or remaining differences. With a
+board, lead with its link and, in Design mode, hand off source edits the
+visual-edit way. Without Design, include the three image sets above, changed
+files, and verification; there is no board link.
