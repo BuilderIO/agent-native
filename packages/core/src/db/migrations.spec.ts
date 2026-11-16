@@ -24,6 +24,17 @@ import {
   withMigrationRuntime,
 } from "./migrations.js";
 
+// `vi.clearAllMocks()` clears calls but keeps an earlier case's
+// `mockReturnValue`, so a database URL set by one case leaks into the next
+// describe's "never touches the database" cases. Reset implementations to the
+// factory defaults after every case.
+afterEach(() => {
+  vi.mocked(getMigrationDatabaseUrl).mockReset();
+  vi.mocked(getMigrationDatabaseUrl).mockReturnValue("");
+  vi.mocked(getDbExec).mockReset();
+  vi.mocked(createDbExec).mockReset();
+});
+
 describe("splitSqlStatements", () => {
   it("keeps PostgreSQL function bodies and quoted identifiers intact", () => {
     const sql = `CREATE FUNCTION f() RETURNS trigger LANGUAGE plpgsql AS $body$

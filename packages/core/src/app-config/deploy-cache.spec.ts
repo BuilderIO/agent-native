@@ -32,6 +32,17 @@ describe("deploy cache config", () => {
     });
   });
 
+  it("resolves the split-build app selectors through app config", () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOY_ONLY_APPS", "mail, calendar");
+    vi.stubEnv("AGENT_NATIVE_DEPLOY_PREBUILT_APPS", "slides");
+    resetAppConfigForTests();
+
+    expect(getAppConfig().deployCache).toMatchObject({
+      onlyApps: ["mail", "calendar"],
+      prebuiltApps: ["slides"],
+    });
+  });
+
   it.each([
     { enabled: "false" },
     { dir: "" },

@@ -1477,6 +1477,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "सार्वजनिक",
   "share.publicDescription": "लिंक वाला कोई भी व्यक्ति देख सकता है",
   "share.remove": "हटाएँ",
+  "share.removeInvitee": "{{email}} हटाएँ",
   "share.role": "भूमिका",
   "share.searching": "खोजा जा रहा है...",
   "share.share": "शेयर करें",

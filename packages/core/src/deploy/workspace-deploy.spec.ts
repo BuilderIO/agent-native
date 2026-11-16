@@ -10,6 +10,7 @@ import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
+import { resetAppConfigForTests } from "../app-config/index.js";
 import { WORKSPACE_DEPLOY_BUILD_ENV } from "../cli/process.js";
 import { addVercelSweepCron } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
@@ -1738,6 +1739,97 @@ describe("workspace deploy", () => {
     });
 
     expect(execFile).toHaveBeenCalledTimes(1);
+  });
+
+  describe("split builds", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    });
+
+    function select(env: { only?: string; prebuilt?: string }) {
+      if (env.only) vi.stubEnv("AGENT_NATIVE_DEPLOY_ONLY_APPS", env.only);
+      if (env.prebuilt) {
+        vi.stubEnv("AGENT_NATIVE_DEPLOY_PREBUILT_APPS", env.prebuilt);
+      }
+      resetAppConfigForTests();
+    }
+
+    function deploy() {
+      return runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "netlify",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+    }
+
+    const builtApps = () =>
+      execFile.mock.calls
+        .filter(([, args]) => Array.isArray(args) && args[0] === "--filter")
+        .map(([, args]) => String((args as string[])[1]));
+
+    it("builds only the selected apps, records each build id, and leaves packaging to the assembling job", async () => {
+      for (const app of ["alpha", "beta"]) makeWorkspaceApp(tmpDir, app);
+      select({ only: "alpha" });
+
+      await deploy();
+
+      expect(builtApps()).toEqual(["alpha"]);
+      const recorded = fs
+        .readFileSync(
+          path.join(tmpDir, "apps", "alpha", ".agent-native-app-build-id"),
+          "utf8",
+        )
+        .trim();
+      expect(recorded).not.toBe("");
+      expect(
+        fs.existsSync(path.join(tmpDir, "dist", "_workspace_static")),
+      ).toBe(false);
+    });
+
+    it("packages prebuilt apps with the id their leg recorded and builds the rest", async () => {
+      for (const app of ["alpha", "beta"]) makeWorkspaceApp(tmpDir, app);
+      writeAppBuildOutput(tmpDir, "alpha");
+      fs.writeFileSync(
+        path.join(tmpDir, "apps", "alpha", ".agent-native-app-build-id"),
+        "leg-build-alpha\n",
+      );
+      select({ prebuilt: "alpha" });
+
+      await deploy();
+
+      expect(builtApps()).toEqual(["beta"]);
+      for (const app of ["alpha", "beta"]) {
+        expect(
+          fs.existsSync(path.join(tmpDir, "dist", "_workspace_static", app)),
+        ).toBe(true);
+      }
+    });
+
+    it("refuses a prebuilt app whose leg recorded no build id", async () => {
+      for (const app of ["alpha", "beta"]) makeWorkspaceApp(tmpDir, app);
+      writeAppBuildOutput(tmpDir, "alpha");
+      select({ prebuilt: "alpha" });
+
+      await expect(deploy()).rejects.toThrow(
+        /Expected \.agent-native-app-build-id under .*alpha/,
+      );
+    });
+
+    it.each([
+      [{ only: "alpha", prebuilt: "beta" }, /cannot both be set/],
+      [
+        { only: "alpha,gamma" },
+        /names "gamma", which is not in this workspace/,
+      ],
+    ])("rejects the selection %j before building", async (env, message) => {
+      for (const app of ["alpha", "beta"]) makeWorkspaceApp(tmpDir, app);
+      select(env);
+
+      await expect(deploy()).rejects.toThrow(message);
+      expect(builtApps()).toEqual([]);
+    });
   });
 
   it("builds apps in parallel up to AGENT_NATIVE_DEPLOY_CONCURRENCY", async () => {
