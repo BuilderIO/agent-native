@@ -785,6 +785,10 @@ async function readAppStateForBrowserTab<T>(
   return (await readAppState(tabKey)) as T | null;
 }
 
+function ownerProviderSecretKey(provider: string): string {
+  return PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
+}
+
 async function getOwnerApiKeyDetailed(
   provider: string,
   ownerEmail: string | null | undefined,
@@ -799,8 +803,7 @@ async function getOwnerApiKeyDetailed(
     options?.onLookupFailure?.();
     lookupFailed = false;
   };
-  const secretKey =
-    PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
+  const secretKey = ownerProviderSecretKey(provider);
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   const orgId = getRequestOrgId();
   // Restricted members keep their stored keys, but none of the personal rows
@@ -1088,7 +1091,7 @@ export async function getOwnerApiKeyForEngine(
     if (ownerKey) {
       return {
         apiKey: ownerKey.apiKey,
-        apiKeyEnvVar: envVar,
+        apiKeyEnvVar: ownerProviderSecretKey(provider),
         credentialProvenance: ownerKey.credentialProvenance,
       };
     }
@@ -1144,15 +1147,8 @@ export async function getOwnerActiveApiKey(
 
 /**
  * Resolve the credential to hand `resolveEngine` alongside `engineOption`.
- *
- * The provenance is the point. An explicitly named engine skips the registry's
- * value-comparison path, so an untagged key resolved from the saved
- * `agent-engine` setting would ride along to whatever provider the caller
- * named — shipping, say, a live Anthropic secret to OpenAI's endpoint and
- * making the resulting 401 blame a key the user never saved. Resolving the key
- * for the named engine keeps the two in step; only the no-explicit-engine case
- * may stay untagged, because the registry's automatic branches re-derive the
- * credential themselves.
+ * Preserve its provider tag even for automatic engine selection: legacy settings
+ * are not necessarily discoverable through the registry's secret lookup.
  */
 export async function resolveOwnerEngineApiKey(input: {
   engineOption?: ResolveEngineConfig["engineOption"];
@@ -1200,7 +1196,7 @@ export async function resolveOwnerEngineApiKey(input: {
         activeEngineSetting.engine,
         input.ownerEmail,
       );
-      if (activeKey.apiKey) return { ...activeKey, apiKeyEnvVar: undefined };
+      if (activeKey.apiKey) return activeKey;
     }
   }
   const fallback = input.anthropicFallback?.trim();

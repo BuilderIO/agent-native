@@ -109,6 +109,8 @@ describe("AgentEngine registry", () => {
     vi.doUnmock("../../settings/store.js");
     vi.doUnmock("../../settings/user-settings.js");
     vi.doUnmock("../app-model-defaults.js");
+    vi.doUnmock("../default-agent-engine.js");
+    vi.doUnmock("../../server/personal-provider-key-policy.js");
     vi.doUnmock("../../server/credential-provider.js");
     vi.doUnmock("../../server/chatgpt-subscription-oauth.js");
     vi.doUnmock("../../server/request-context.js");
@@ -1108,6 +1110,82 @@ describe("AgentEngine registry", () => {
     });
   });
 
+  it.each(["transient", "unusable"])(
+    "honors explicit AGENT_ENGINE=builder when its grant is %s",
+    async (failure) => {
+      vi.stubEnv("AGENT_ENGINE", "builder");
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => ({}),
+        getRequestUserEmail: () => "member@example.com",
+        getRequestOrgId: () => "org-example",
+      }));
+      vi.doMock("../../server/credential-provider.js", async (original) => ({
+        ...(await original<
+          typeof import("../../server/credential-provider.js")
+        >()),
+        prefetchSecrets: vi.fn(async () => {}),
+        getProviderCredentialAuthFailure: vi.fn(async () => null),
+        resolveSecretDetailed: vi.fn(async (key: string) =>
+          key === "OPENAI_API_KEY"
+            ? {
+                value: "example-openai",
+                source: "user",
+                scopeId: "member@example.com",
+                lookupFailed: false,
+              }
+            : { value: null, lookupFailed: false },
+        ),
+        resolveBuilderGatewayCredentialsDetailed: vi.fn(async () => ({
+          privateKey: null,
+          publicKey: null,
+          source: null,
+          lookupFailed: false,
+        })),
+      }));
+      const oauth = await import("../../server/builder-oauth.js");
+      const { McpOAuthRefreshUnavailableError } =
+        await import("../../mcp-client/oauth-client.js");
+      if (failure === "transient")
+        vi.mocked(
+          oauth.resolveBuilderOAuthRequestAccessState,
+        ).mockRejectedValue(new McpOAuthRefreshUnavailableError());
+      else
+        vi.mocked(
+          oauth.resolveBuilderOAuthRequestAccessState,
+        ).mockResolvedValue({ kind: "unusable" });
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const builderCreate = vi
+        .fn()
+        .mockReturnValue({ name: "builder", stream: vi.fn() });
+      const otherCreate = vi
+        .fn()
+        .mockReturnValue({ name: "ai-sdk:openai", stream: vi.fn() });
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY"],
+        create: builderCreate,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: otherCreate,
+      });
+      expect((await resolveEngine({})).name).toBe("builder");
+      expect(otherCreate).not.toHaveBeenCalled();
+    },
+  );
+
   it("resolveEngine uses env AGENT_ENGINE when set", async () => {
     const { registerAgentEngine, resolveEngine } =
       await import("./registry.js");
@@ -1241,6 +1319,126 @@ describe("AgentEngine registry", () => {
       "sk-global-config",
     );
     expect(resolved).toBe(fakeEngine);
+  });
+
+  it("does not send a legacy Anthropic setting to an automatically selected OpenAI engine", async () => {
+    vi.doMock("../../server/request-context.js", () => ({
+      getRequestContext: () => ({ orgScope: "personal" }),
+      getRequestUserEmail: () => "member@example.com",
+      getRequestOrgId: () => "org-example",
+      getRequestBuilderStorageCredentialOrgId: () => undefined,
+    }));
+    vi.doMock("../default-agent-engine.js", async (original) => ({
+      ...(await original<typeof import("../default-agent-engine.js")>()),
+      readDefaultAgentEngineSetting: vi.fn(async () => null),
+    }));
+    vi.doMock(
+      "../../server/personal-provider-key-policy.js",
+      async (original) => ({
+        ...(await original<
+          typeof import("../../server/personal-provider-key-policy.js")
+        >()),
+        isPersonalProviderKeyUseRestricted: vi.fn(async () => false),
+        readOrgMemberRole: vi.fn(async () => "member"),
+      }),
+    );
+    vi.doMock("../../settings/store.js", async (original) => ({
+      ...(await original<typeof import("../../settings/store.js")>()),
+      getSetting: vi.fn(async (key: string) =>
+        key === "user-anthropic-api-key:member@example.com"
+          ? { key: "example-legacy-anthropic" }
+          : null,
+      ),
+    }));
+    vi.doMock("../../server/credential-provider.js", async (original) => ({
+      ...(await original<
+        typeof import("../../server/credential-provider.js")
+      >()),
+      getProviderCredentialAuthFailure: vi.fn(async () => null),
+      prefetchSecrets: vi.fn(async () => {}),
+      resolveSecretDetailed: vi.fn(async (key: string) =>
+        key === "OPENAI_API_KEY"
+          ? {
+              value: "example-openai",
+              source: "user",
+              scopeId: "member@example.com",
+              lookupFailed: false,
+            }
+          : { value: null, lookupFailed: false },
+      ),
+    }));
+    const readAppSecret = vi.fn(async ({ key }: { key: string }) =>
+      key === "OPENAI_API_KEY" ? { key, value: "example-openai" } : null,
+    );
+    vi.doMock("../../secrets/storage.js", () => ({
+      readAppSecret,
+      readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+    }));
+    const { McpOAuthRefreshUnavailableError } =
+      await import("../../mcp-client/oauth-client.js");
+    const oauth = await import("../../server/builder-oauth.js");
+    vi.mocked(oauth.resolveBuilderOAuthRequestAccessState).mockRejectedValue(
+      new McpOAuthRefreshUnavailableError(),
+    );
+    const {
+      registerAgentEngine,
+      unregisterAgentEngine,
+      detectEngineFromUserSecrets,
+    } = await import("./registry.js");
+    const { resolveOwnerEngineApiKey, resolveChatEngine } =
+      await import("../production-agent.js");
+    for (const name of ["builder", "ai-sdk:openai", "anthropic"])
+      unregisterAgentEngine(name);
+    const openaiCreate = vi
+      .fn()
+      .mockReturnValue({ name: "ai-sdk:openai", stream: vi.fn() });
+    registerAgentEngine({
+      name: "builder",
+      label: "Builder",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "m",
+      supportedModels: [],
+      requiredEnvVars: ["BUILDER_PRIVATE_KEY"],
+      create: vi.fn() as any,
+    });
+    registerAgentEngine({
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "m",
+      supportedModels: [],
+      requiredEnvVars: ["OPENAI_API_KEY"],
+      create: openaiCreate,
+    });
+    registerAgentEngine({
+      name: "anthropic",
+      label: "Anthropic",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "m",
+      supportedModels: [],
+      requiredEnvVars: ["ANTHROPIC_API_KEY"],
+      create: vi.fn() as any,
+    });
+    const ownerKey = await resolveOwnerEngineApiKey({
+      ownerEmail: "member@example.com",
+    });
+    expect(ownerKey.apiKey).toBe("example-legacy-anthropic");
+    expect(
+      (
+        await detectEngineFromUserSecrets(undefined, {
+          deferBuilderRefreshFailure: true,
+        })
+      )?.name,
+    ).toBe("ai-sdk:openai");
+    const engine = await resolveChatEngine({
+      ownerKey,
+      credentialIdentity: { userEmail: "member@example.com" },
+    });
+    expect(engine.name).toBe("ai-sdk:openai");
+    expect(openaiCreate.mock.calls[0]?.[0].apiKey).toBe("example-openai");
   });
 
   it.each(["app", "stored"])(

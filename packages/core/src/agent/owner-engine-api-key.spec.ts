@@ -56,6 +56,7 @@ vi.mock(
       typeof import("../server/personal-provider-key-policy.js")
     >()),
     readOrgMemberRole: readOrgMemberRoleMock,
+    isPersonalProviderKeyUseRestricted: vi.fn(async () => false),
   }),
 );
 
@@ -141,6 +142,16 @@ describe("getOwnerApiKey scope order", () => {
     expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
   });
 
+  it("keeps the derived provider tag on a noncatalogued owner credential", async () => {
+    ownerSecrets({ EXAMPLE_API_KEY: "example-provider-key" });
+    await expect(
+      getOwnerApiKeyForEngine("ai-sdk:example", "owner@example.com"),
+    ).resolves.toMatchObject({
+      apiKey: "example-provider-key",
+      apiKeyEnvVar: "EXAMPLE_API_KEY",
+    });
+  });
+
   it("can disable deployment-key fallback for a confirmed missing owner key", async () => {
     readDeployCredentialEnvMock.mockReturnValue("deploy-provider-key");
 
@@ -220,7 +231,7 @@ describe("resolveOwnerEngineApiKey", () => {
       resolveOwnerEngineApiKey({ ownerEmail: "owner@example.com" }),
     ).resolves.toEqual({
       apiKey: "test-anthropic-owner",
-      apiKeyEnvVar: undefined,
+      apiKeyEnvVar: "ANTHROPIC_API_KEY",
       credentialProvenance: {
         scope: "user",
         scopeId: "owner@example.com",

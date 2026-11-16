@@ -1529,15 +1529,13 @@ export async function resolveEngine(
       assertAgentEnginePackageInstalled(entry);
       // Synthetic checks cannot use deploy-wide credentials, but may validate
       // the dedicated user-scoped credential they install for the request.
-      const synthetic = getRequestContext()?.isSyntheticTraffic === true;
       const canUseConfiguredEngine =
-        entry.name === "builder" || synthetic
-          ? await usableAutomaticDefault({ engine: entry.name }, entry)
-          : true;
-      if (
-        canUseConfiguredEngine ||
-        (entry.name === "builder" && !synthetic && !deferredBuilder)
-      ) {
+        getRequestContext()?.isSyntheticTraffic !== true ||
+        (await isStoredEngineUsableForRequest({ engine: entry.name }, entry, {
+          credentialIdentity,
+          deferBuilderRefreshFailure: true,
+        })) !== false;
+      if (canUseConfiguredEngine) {
         return await createEngineForEntry(
           entry,
           apiKey,
