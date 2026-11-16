@@ -190,13 +190,14 @@ function Harness({
 }
 async function type(text: string) {
   const area = container.querySelector("textarea");
-  expect(area).not.toBeNull();
+  const setValue = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    "value",
+  )?.set;
+  if (!area || !setValue) throw new Error("No edit box to type in");
   await act(async () => {
-    Object.getOwnPropertyDescriptor(
-      HTMLTextAreaElement.prototype,
-      "value",
-    )!.set!.call(area, text);
-    area!.dispatchEvent(new Event("input", { bubbles: true }));
+    setValue.call(area, text);
+    area.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
 function image(id: string): CommentImage {
@@ -395,8 +396,8 @@ it("leaves images another save added alone when an edit only changes the text", 
   await click("comments.save");
 
   expect(mutateAsync).toHaveBeenCalledTimes(1);
-  const [request] = mutateAsync.mock.calls[0];
-  expect(request.content).toBe("Original comment, revised");
+  const request = mutateAsync.mock.calls[0]?.[0];
+  expect(request).toMatchObject({ content: "Original comment, revised" });
   expect(request).not.toHaveProperty("attachments");
 });
 
