@@ -43,6 +43,7 @@ import {
   openDesktopBuilderConnect,
   registerDesktopChatIpc,
   resolveDesktopTerminalCwd,
+  rotateDesktopBuilderRelayBearer,
   resolveTargetUrl,
   shouldForwardRequestHeader,
   shouldForwardResponseHeader,
@@ -470,6 +471,11 @@ describe("managed Builder Desktop relay", () => {
             { status: 200 },
           );
         }
+        if (requestUrl.endsWith("/_agent-native/auth/session")) {
+          return new Response(JSON.stringify({ email: "a@example.com" }), {
+            status: 200,
+          });
+        }
         return originalFetch(input, init);
       }),
     );
@@ -596,6 +602,640 @@ describe("managed Builder Desktop relay", () => {
     } finally {
       vi.stubGlobal("fetch", originalFetch);
       await closeDesktopChatRelay();
+    }
+  });
+  it("refuses a runner's next request after the relay bearer rotates", async () => {
+    const originalFetch = globalThis.fetch;
+    const upstreamRequests: string[] = [];
+    (net.request as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (options: { url: string }) => {
+        upstreamRequests.push(options.url);
+        const upstreamRequest = new EventEmitter() as EventEmitter & {
+          abort: () => void;
+          end: () => void;
+          setHeader: () => void;
+          write: () => boolean;
+        };
+        upstreamRequest.abort = () => {};
+        upstreamRequest.setHeader = () => {};
+        upstreamRequest.write = () => true;
+        upstreamRequest.end = () => {
+          const upstreamResponse = new EventEmitter() as EventEmitter & {
+            headers: Record<string, string>;
+            statusCode: number;
+          };
+          upstreamResponse.headers = { "content-type": "application/json" };
+          upstreamResponse.statusCode = 200;
+          upstreamRequest.emit("response", upstreamResponse);
+          queueMicrotask(() => upstreamResponse.emit("end"));
+        };
+        return upstreamRequest;
+      },
+    );
+    vi.mocked(readCookieHeaderForUrl).mockResolvedValue("session=owner-a");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (
+          String(input).includes("/_agent-native/connection-status/builder")
+        ) {
+          return new Response(
+            JSON.stringify({
+              configured: true,
+              builderEnabled: true,
+              connectUrl:
+                "https://dispatch.example.test/_agent-native/builder/connect?_an_connect=connect-token",
+              appHost: "dispatch.example.test",
+              apiHost: "dispatch.example.test",
+              publicKeyConfigured: true,
+              privateKeyConfigured: true,
+              credentialSource: "org",
+            }),
+            { status: 200 },
+          );
+        }
+        if (String(input).endsWith("/_agent-native/auth/session")) {
+          return new Response(JSON.stringify({ email: "a@example.com" }), {
+            status: 200,
+          });
+        }
+        return originalFetch(input, init);
+      }),
+    );
+    registerDesktopChatIpc({
+      resolveBuilderDispatchApp: () =>
+        ({
+          id: "dispatch",
+          origin: "https://dispatch.example.test",
+          identityAuthority: true,
+          session: {} as never,
+        }) as never,
+    });
+    const send = (runner: {
+      url: string | undefined;
+      secret: string | undefined;
+    }) =>
+      originalFetch(`${runner.url}/messages?apiKey=desktop-relay`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${runner.secret}`,
+          "content-type": "application/json",
+        },
+        body: '{"messages":[]}',
+      });
+
+    try {
+      const owner = await getDesktopBuilderGatewayRunnerEnvironment();
+      const ownerRunner = {
+        url: owner.env?.BUILDER_GATEWAY_BASE_URL,
+        secret: owner.env?.BUILDER_PRIVATE_KEY,
+      };
+
+      const sameOwner = await send(ownerRunner);
+      expect(sameOwner.status).toBe(200);
+      expect(upstreamRequests).toHaveLength(1);
+
+      rotateDesktopBuilderRelayBearer();
+      const cookieReadsBefore = vi.mocked(readCookieHeaderForUrl).mock.calls
+        .length;
+      const refused = await send(ownerRunner);
+      expect(refused.status).toBe(404);
+      expect(upstreamRequests).toHaveLength(1);
+      expect(vi.mocked(readCookieHeaderForUrl).mock.calls.length).toBe(
+        cookieReadsBefore,
+      );
+
+      const next = await getDesktopBuilderGatewayRunnerEnvironment();
+      const nextRunner = {
+        url: next.env?.BUILDER_GATEWAY_BASE_URL,
+        secret: next.env?.BUILDER_PRIVATE_KEY,
+      };
+      expect(nextRunner.secret).not.toBe(ownerRunner.secret);
+      expect((await send(nextRunner)).status).toBe(200);
+      expect(upstreamRequests).toHaveLength(2);
+    } finally {
+      vi.stubGlobal("fetch", originalFetch);
+      await closeDesktopChatRelay();
+    }
+  });
+});
+
+describe("Builder relay owner handling", () => {
+  const connectedStatus = JSON.stringify({
+    configured: true,
+    builderEnabled: true,
+    connectUrl:
+      "https://dispatch.example.test/_agent-native/builder/connect?_an_connect=connect-token",
+    appHost: "dispatch.example.test",
+    apiHost: "dispatch.example.test",
+    publicKeyConfigured: true,
+    privateKeyConfigured: true,
+    credentialSource: "org",
+  });
+
+  function deferred() {
+    let release = () => {};
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return { promise, release };
+  }
+
+  // A fresh module per scenario, so the last-seen account starts empty.
+  async function harness() {
+    vi.resetModules();
+    const chat = await import("./desktop-chat.js");
+    const { net: freshNet } = await import("electron");
+    const { readCookieHeaderForUrl: freshCookieRead } =
+      await import("../cookie-header");
+    const originalFetch = globalThis.fetch;
+    const upstreamRequests: string[] = [];
+    vi.mocked(freshNet.request).mockImplementation(((options: {
+      url: string;
+    }) => {
+      upstreamRequests.push(options.url);
+      const upstreamRequest = new EventEmitter() as EventEmitter & {
+        abort: () => void;
+        end: () => void;
+        setHeader: () => void;
+        write: () => boolean;
+      };
+      upstreamRequest.abort = () => {};
+      upstreamRequest.setHeader = () => {};
+      upstreamRequest.write = () => true;
+      upstreamRequest.end = () => {
+        const upstreamResponse = new EventEmitter() as EventEmitter & {
+          headers: Record<string, string>;
+          statusCode: number;
+        };
+        upstreamResponse.headers = { "content-type": "application/json" };
+        upstreamResponse.statusCode = 200;
+        upstreamRequest.emit("response", upstreamResponse);
+        queueMicrotask(() => upstreamResponse.emit("end"));
+      };
+      return upstreamRequest;
+    }) as never);
+
+    const gates: {
+      status: ReturnType<typeof deferred> | null;
+      cookie: ReturnType<typeof deferred> | null;
+    } = { status: null, cookie: null };
+    // The Dispatch session as the relay sees it: the cookie header on disk and
+    // the account Dispatch reports for each header ("unreadable" is a 503).
+    const dispatch = {
+      cookie: "session=owner-a",
+      accounts: new Map<string, string>([["session=owner-a", "a@example.com"]]),
+    };
+    vi.mocked(freshCookieRead).mockImplementation(async () => {
+      await gates.cookie?.promise;
+      return dispatch.cookie;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (
+          String(input).includes("/_agent-native/connection-status/builder")
+        ) {
+          await gates.status?.promise;
+          return new Response(connectedStatus, { status: 200 });
+        }
+        if (String(input).endsWith("/_agent-native/auth/session")) {
+          const header = new Headers(init?.headers).get("cookie") ?? "";
+          const account = dispatch.accounts.get(header);
+          if (account === "unreadable")
+            return new Response("", { status: 503 });
+          return account
+            ? new Response(JSON.stringify({ email: account }), { status: 200 })
+            : new Response("{}", { status: 200 });
+        }
+        return originalFetch(input, init);
+      }),
+    );
+    chat.registerDesktopChatIpc({
+      resolveBuilderDispatchApp: () =>
+        ({
+          id: "dispatch",
+          origin: "https://dispatch.example.test",
+          identityAuthority: true,
+          session: {} as never,
+        }) as never,
+    });
+    const send = (runner: {
+      url: string | undefined;
+      secret: string | undefined;
+    }) =>
+      originalFetch(`${runner.url}/messages?apiKey=desktop-relay`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${runner.secret}`,
+          "content-type": "application/json",
+        },
+        body: '{"messages":[]}',
+      });
+    const runner = async () => {
+      const environment =
+        await chat.getDesktopBuilderGatewayRunnerEnvironment();
+      return {
+        url: environment.env?.BUILDER_GATEWAY_BASE_URL,
+        secret: environment.env?.BUILDER_PRIVATE_KEY,
+      };
+    };
+    return {
+      chat,
+      gates,
+      dispatch,
+      send,
+      runner,
+      upstreamRequests,
+      cookieRead: freshCookieRead,
+      cleanup: async () => {
+        vi.stubGlobal("fetch", originalFetch);
+        await chat.closeDesktopChatRelay();
+      },
+    };
+  }
+
+  it("keeps a runner's bearer from no-account to an account", async () => {
+    const h = await harness();
+    try {
+      h.chat.noteDesktopBuilderRelayOwner("no-account");
+      const runner = await h.runner();
+      h.chat.noteDesktopBuilderRelayOwner("account:a@example.com");
+      expect((await h.send(runner)).status).toBe(200);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("keeps a runner's bearer when shared sign-in turns off", async () => {
+    const h = await harness();
+    try {
+      h.chat.noteDesktopBuilderRelayOwner("account:a@example.com");
+      const runner = await h.runner();
+      h.chat.noteDesktopBuilderRelayOwner("no-account");
+      expect((await h.send(runner)).status).toBe(200);
+      h.chat.noteDesktopBuilderRelayOwner(null);
+      expect((await h.send(runner)).status).toBe(200);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("keeps a runner's bearer when the same account returns after no-account", async () => {
+    const h = await harness();
+    try {
+      h.chat.noteDesktopBuilderRelayOwner("account:a@example.com");
+      const runner = await h.runner();
+      h.chat.noteDesktopBuilderRelayOwner("no-account");
+      h.chat.noteDesktopBuilderRelayOwner("account:a@example.com");
+      expect((await h.send(runner)).status).toBe(200);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("rotates the bearer when a different account follows no-account", async () => {
+    const h = await harness();
+    try {
+      h.chat.noteDesktopBuilderRelayOwner("account:a@example.com");
+      const runner = await h.runner();
+      h.chat.noteDesktopBuilderRelayOwner("no-account");
+      expect((await h.send(runner)).status).toBe(200);
+
+      h.chat.noteDesktopBuilderRelayOwner("account:b@example.com");
+      expect((await h.send(runner)).status).toBe(404);
+      expect(h.upstreamRequests).toHaveLength(1);
+
+      const next = await h.runner();
+      expect(next.secret).not.toBe(runner.secret);
+      expect((await h.send(next)).status).toBe(200);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("rotates the bearer when one account replaces another directly", async () => {
+    const h = await harness();
+    try {
+      h.chat.noteDesktopBuilderRelayOwner("account:a@example.com");
+      const runner = await h.runner();
+      h.chat.noteDesktopBuilderRelayOwner("account:b@example.com");
+      expect((await h.send(runner)).status).toBe(404);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  async function setupDuring(
+    h: Awaited<ReturnType<typeof harness>>,
+    during: () => void,
+  ) {
+    h.gates.status = deferred();
+    const setup = h.chat.getDesktopBuilderGatewayRunnerEnvironment();
+    await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
+    during();
+    h.gates.status.release();
+    return setup;
+  }
+
+  it("refuses runner setup when a real account replaces another during setup", async () => {
+    const h = await harness();
+    try {
+      h.chat.noteDesktopBuilderRelayOwner("account:a@example.com");
+      const result = await setupDuring(h, () =>
+        h.chat.noteDesktopBuilderRelayOwner("account:b@example.com"),
+      );
+      expect(result.env).toBeUndefined();
+      expect(result.error).toMatch(/account changed/i);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("starts a runner when no-account becomes an account during setup", async () => {
+    const h = await harness();
+    try {
+      h.chat.noteDesktopBuilderRelayOwner("no-account");
+      const result = await setupDuring(h, () =>
+        h.chat.noteDesktopBuilderRelayOwner("account:a@example.com"),
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.env?.BUILDER_PRIVATE_KEY).toBeTruthy();
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("starts a runner when the owner key goes null during setup", async () => {
+    const h = await harness();
+    try {
+      h.chat.noteDesktopBuilderRelayOwner("account:a@example.com");
+      const result = await setupDuring(h, () =>
+        h.chat.noteDesktopBuilderRelayOwner(null),
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.env?.BUILDER_PRIVATE_KEY).toBeTruthy();
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("hands out a bearer when the owner holds through setup", async () => {
+    const h = await harness();
+    try {
+      h.gates.status = deferred();
+      const setup = h.chat.getDesktopBuilderGatewayRunnerEnvironment();
+      await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
+      h.gates.status.release();
+
+      const result = await setup;
+      expect(result.error).toBeUndefined();
+      expect(result.env?.BUILDER_PRIVATE_KEY).toBeTruthy();
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("refuses an admitted request when rotation lands during the cookie read", async () => {
+    const h = await harness();
+    try {
+      h.chat.noteDesktopBuilderRelayOwner("account:a@example.com");
+      const runner = await h.runner();
+      h.gates.cookie = deferred();
+      const readsBefore = vi.mocked(h.cookieRead).mock.calls.length;
+      const pending = h.send(runner);
+      await vi.waitFor(() =>
+        expect(vi.mocked(h.cookieRead).mock.calls.length).toBeGreaterThan(
+          readsBefore,
+        ),
+      );
+      h.chat.noteDesktopBuilderRelayOwner("account:b@example.com");
+      h.gates.cookie.release();
+
+      expect((await pending).status).toBe(404);
+      expect(h.upstreamRequests).toHaveLength(0);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("forwards an admitted request when no rotation lands during the cookie read", async () => {
+    const h = await harness();
+    try {
+      h.chat.noteDesktopBuilderRelayOwner("account:a@example.com");
+      const runner = await h.runner();
+      h.gates.cookie = deferred();
+      const readsBefore = vi.mocked(h.cookieRead).mock.calls.length;
+      const pending = h.send(runner);
+      await vi.waitFor(() =>
+        expect(vi.mocked(h.cookieRead).mock.calls.length).toBeGreaterThan(
+          readsBefore,
+        ),
+      );
+      h.gates.cookie.release();
+
+      expect((await pending).status).toBe(200);
+      expect(h.upstreamRequests).toHaveLength(1);
+    } finally {
+      await h.cleanup();
+    }
+  });
+  type Harness = Awaited<ReturnType<typeof harness>>;
+  function signInAs(h: Harness, cookie: string, email: string) {
+    h.dispatch.accounts.set(cookie, email);
+    h.dispatch.cookie = cookie;
+  }
+
+  it("keeps a runner started before startup verification notes the same session", async () => {
+    const h = await harness();
+    try {
+      const runner = await h.runner();
+      h.chat.noteDesktopBuilderRelayOwner("account:a@example.com");
+      expect((await h.send(runner)).status).toBe(200);
+      expect(h.upstreamRequests).toHaveLength(1);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("keeps a runner when A signs out and back in as A", async () => {
+    const h = await harness();
+    try {
+      h.chat.noteDesktopBuilderRelayOwner("account:a@example.com");
+      const runner = await h.runner();
+      h.chat.noteDesktopBuilderRelayOwner("no-account");
+      h.dispatch.cookie = "";
+      expect((await h.send(runner)).status).toBe(401);
+      signInAs(h, "session=owner-a-again", "A@Example.com");
+      h.chat.noteDesktopBuilderRelayOwner("account:a@example.com");
+      expect((await h.send(runner)).status).toBe(200);
+      expect(h.upstreamRequests).toHaveLength(1);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("refuses A's runner once B's cookies are written, before B's owner note", async () => {
+    const h = await harness();
+    try {
+      h.chat.noteDesktopBuilderRelayOwner("account:a@example.com");
+      const runner = await h.runner();
+      h.chat.noteDesktopBuilderRelayOwner("no-account");
+      signInAs(h, "session=owner-b", "b@example.com");
+      expect((await h.send(runner)).status).toBe(404);
+      expect(h.upstreamRequests).toHaveLength(0);
+
+      h.chat.noteDesktopBuilderRelayOwner("account:b@example.com");
+      expect((await h.send(runner)).status).toBe(404);
+      expect(h.upstreamRequests).toHaveLength(0);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("refuses A's runner when A was never noted and B signs in", async () => {
+    const h = await harness();
+    try {
+      const runner = await h.runner();
+      signInAs(h, "session=owner-b", "b@example.com");
+      h.chat.noteDesktopBuilderRelayOwner("account:b@example.com");
+      expect((await h.send(runner)).status).toBe(404);
+      expect(h.upstreamRequests).toHaveLength(0);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("refuses a request paused in the cookie read while the session changes", async () => {
+    const h = await harness();
+    try {
+      const runner = await h.runner();
+      h.gates.cookie = deferred();
+      const readsBefore = vi.mocked(h.cookieRead).mock.calls.length;
+      const pending = h.send(runner);
+      await vi.waitFor(() =>
+        expect(vi.mocked(h.cookieRead).mock.calls.length).toBeGreaterThan(
+          readsBefore,
+        ),
+      );
+      signInAs(h, "session=owner-b", "b@example.com");
+      h.gates.cookie.release();
+
+      expect((await pending).status).toBe(404);
+      expect(h.upstreamRequests).toHaveLength(0);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("refuses runner setup paused in the status request while the session changes", async () => {
+    const h = await harness();
+    try {
+      const result = await setupDuring(h, () =>
+        signInAs(h, "session=owner-b", "b@example.com"),
+      );
+      expect(result.env).toBeUndefined();
+      expect(result.error).toMatch(/account changed/i);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("starts a runner when the same account re-signs in during setup", async () => {
+    const h = await harness();
+    try {
+      const result = await setupDuring(h, () =>
+        signInAs(h, "session=owner-a-again", "a@example.com"),
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.env?.BUILDER_PRIVATE_KEY).toBeTruthy();
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("rotates the bearer for a runner started under a different session than the last", async () => {
+    const h = await harness();
+    try {
+      const first = await h.runner();
+      signInAs(h, "session=owner-b", "b@example.com");
+      const second = await h.runner();
+      expect(second.secret).not.toBe(first.secret);
+      expect((await h.send(first)).status).toBe(404);
+      expect((await h.send(second)).status).toBe(200);
+      expect(h.upstreamRequests).toHaveLength(1);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("refuses with a distinct error when the account cannot be read at request time", async () => {
+    const h = await harness();
+    try {
+      const runner = await h.runner();
+      h.dispatch.accounts.set("session=owner-a-later", "unreadable");
+      h.dispatch.cookie = "session=owner-a-later";
+      expect((await h.send(runner)).status).toBe(503);
+      expect(h.upstreamRequests).toHaveLength(0);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("hands out no bearer when the account lookup fails at setup, and a later setup works", async () => {
+    const h = await harness();
+    try {
+      const runner = await h.runner();
+      const message = /could not confirm your builder\.io account/i;
+
+      h.dispatch.accounts.set("session=owner-a-2", "unreadable");
+      h.dispatch.cookie = "session=owner-a-2";
+      const unreadable =
+        await h.chat.getDesktopBuilderGatewayRunnerEnvironment();
+      expect(unreadable.env).toBeUndefined();
+      expect(unreadable.error).toMatch(message);
+
+      h.dispatch.accounts.delete("session=owner-a-2");
+      const signedOut =
+        await h.chat.getDesktopBuilderGatewayRunnerEnvironment();
+      expect(signedOut.env).toBeUndefined();
+      expect(signedOut.error).toMatch(message);
+
+      // The earlier runner keeps its bearer and its binding to A.
+      h.dispatch.accounts.set("session=owner-a-2", "a@example.com");
+      expect((await h.send(runner)).status).toBe(200);
+
+      const next = await h.runner();
+      expect(next.secret).toBe(runner.secret);
+      h.dispatch.accounts.set("session=owner-a-3", "a@example.com");
+      h.dispatch.cookie = "session=owner-a-3";
+      expect((await h.send(next)).status).toBe(200);
+      expect(h.upstreamRequests).toHaveLength(2);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("keeps a runner through ordinary A-to-A cookie refreshes", async () => {
+    const h = await harness();
+    try {
+      const runner = await h.runner();
+      for (const cookie of ["session=owner-a-2", "session=owner-a-3"]) {
+        signInAs(h, cookie, "a@example.com");
+        expect((await h.send(runner)).status).toBe(200);
+      }
+      const lookups = () =>
+        vi
+          .mocked(fetch)
+          .mock.calls.filter(([url]) =>
+            String(url).endsWith("/_agent-native/auth/session"),
+          ).length;
+      const before = lookups();
+      expect((await h.send(runner)).status).toBe(200);
+      expect(lookups()).toBe(before);
+      expect(h.upstreamRequests).toHaveLength(3);
+    } finally {
+      await h.cleanup();
     }
   });
 });
