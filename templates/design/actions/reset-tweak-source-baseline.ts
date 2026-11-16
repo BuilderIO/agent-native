@@ -8,6 +8,10 @@ export default defineAction({
   description:
     "Reset a design's tweak source baseline to its persisted tweak selections after an unreadable baseline paused editing.",
   schema: z.object({ designId: z.string() }),
+  outputSchema: z.object({
+    designId: z.string(),
+    tweakSourceBaseline: z.record(z.string(), z.unknown()),
+  }),
   requiresAuth: false,
   agentTool: false,
   mcpTool: false,
@@ -39,6 +43,13 @@ export default defineAction({
         );
       },
     });
-    return { designId, tweakSourceBaseline: data.tweakSourceBaseline };
+    const baseline = data.tweakSourceBaseline;
+    if (!baseline || typeof baseline !== "object" || Array.isArray(baseline)) {
+      throw new Error("Reset tweak baseline was not persisted as an object.");
+    }
+    return {
+      designId,
+      tweakSourceBaseline: baseline as Record<string, unknown>,
+    };
   },
 });
