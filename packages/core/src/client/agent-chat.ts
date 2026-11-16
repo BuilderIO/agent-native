@@ -11,7 +11,6 @@ import { formatAgentSelectionPreamble } from "../shared/agent-selection.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { trackEvent } from "./analytics.js";
-import { agentNativePath } from "./api-path.js";
 import {
   readClientAppState,
   writeClientAppState,
@@ -265,8 +264,8 @@ let agentChatContextState: AgentChatContextState = {
   updatedAt: 0,
 };
 let pendingAgentChatContextPersistence: Promise<void> = Promise.resolve();
-// Keys a synchronous call removed while a persisted set was in flight, so the
-// set doesn't add its item back. Only one persisted write runs at a time.
+// Keys a synchronous call removed while a persisted write was in flight, so
+// the write doesn't add them back. Only one persisted write runs at a time.
 let agentChatContextRemovedMidWrite: Set<string> | "all" | null = null;
 const agentChatContextListeners = new Set<() => void>();
 let agentChatContextNotifyQueued = false;
@@ -549,19 +548,13 @@ function notifyAgentChatContextListeners(): void {
   }
 }
 
+// Saved through the ordered app-state writer, like the persisted calls, so a
+// save made earlier can't land after a later one and replace it.
 function persistAgentChatContextState(state: AgentChatContextState): void {
   if (typeof window === "undefined" || typeof fetch !== "function") return;
-  fetch(
-    agentNativePath(
-      `/_agent-native/application-state/${AGENT_CHAT_CONTEXT_STATE_KEY}`,
-    ),
-    {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state),
-    },
-  ).catch(() => {});
+  writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, state, {
+    keepalive: true,
+  }).catch(() => {});
 }
 
 export function publishAgentChatContextItems(
@@ -1621,18 +1614,8 @@ export async function setAgentChatContextItemAndPersist(
       items: withReplacedAgentChatContextItem(baseState.items, item),
       updatedAt: Math.max(Date.now(), baseState.updatedAt + 1),
     };
-    agentChatContextRemovedMidWrite = new Set();
-    let removedMidWrite: Set<string> | "all" | null = null;
-    let persistedState: AgentChatContextState | null = null;
-    try {
-      persistedState = normalizeAgentChatContextState(
-        await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
-          keepalive: true,
-        }),
-      );
-    } finally {
-      removedMidWrite = takeAgentChatContextRemovedMidWrite();
-    }
+    const { persistedState, removedMidWrite } =
+      await writeAgentChatContextState(nextState);
     const persistedItem = persistedState?.items.find(
       (candidate) => candidate.key === item.key,
     );
@@ -1651,31 +1634,45 @@ export async function setAgentChatContextItemAndPersist(
       baseState,
       persistedState,
       item.key,
-      removedMidWrite === "all" || !!removedMidWrite?.has(item.key),
+      removedMidWrite,
     );
     return item;
   });
 }
 
-function takeAgentChatContextRemovedMidWrite(): Set<string> | "all" | null {
-  const removed = agentChatContextRemovedMidWrite;
-  agentChatContextRemovedMidWrite = null;
-  return removed;
+/** Save a state, noting the keys a synchronous call removed meanwhile. */
+async function writeAgentChatContextState(
+  state: AgentChatContextState,
+): Promise<{
+  persistedState: AgentChatContextState | null;
+  removedMidWrite: Set<string> | "all" | null;
+}> {
+  agentChatContextRemovedMidWrite = new Set();
+  try {
+    const persistedState = normalizeAgentChatContextState(
+      await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, state, {
+        keepalive: true,
+      }),
+    );
+    return { persistedState, removedMidWrite: agentChatContextRemovedMidWrite };
+  } finally {
+    agentChatContextRemovedMidWrite = null;
+  }
 }
 
 /**
  * Publish a persisted write of one key. A synchronous change can publish while
  * the write is in flight, from items that predate it, and its later clock
- * would hide the write; the two writes can also reach the server in either
- * order. So the key is written onto that newer state, unless the newer state
- * changed the key itself or `cancelled` says it was removed, and the result is
- * saved here, in the queue, so a later queued write can't be overtaken.
+ * would hide the write. So the key is written onto that newer state, unless
+ * the newer state changed the key itself or `removedMidWrite` holds it. That
+ * is saved here, in the queue, so a later queued write can't overtake it, and
+ * published only once saved, by the same rule against whatever is newest then.
  */
 async function publishPersistedAgentChatContextKey(
   baseState: AgentChatContextState,
   persistedState: AgentChatContextState,
   key: string,
-  cancelled: boolean,
+  removedMidWrite: Set<string> | "all" | null,
 ): Promise<void> {
   const currentState = agentChatContextState;
   if (currentState === baseState) {
@@ -1687,31 +1684,35 @@ async function publishPersistedAgentChatContextKey(
   }
   const keyIn = (state: AgentChatContextState) =>
     state.items.find((candidate) => candidate.key === key);
-  const rebase =
-    !cancelled &&
-    sameAgentChatContextItem(keyIn(baseState), keyIn(currentState));
+  if (
+    removedMidWrite === "all" ||
+    removedMidWrite?.has(key) ||
+    !sameAgentChatContextItem(keyIn(baseState), keyIn(currentState))
+  ) {
+    // The newer state's own save, queued after this write, keeps the server
+    // matching it.
+    return;
+  }
   const persistedItem = keyIn(persistedState);
-  const nextState: AgentChatContextState = {
-    items: !rebase
-      ? currentState.items
-      : persistedItem
-        ? withReplacedAgentChatContextItem(currentState.items, persistedItem)
-        : currentState.items.filter((candidate) => candidate.key !== key),
+  const repaired = await writeAgentChatContextState({
+    items: persistedItem
+      ? withReplacedAgentChatContextItem(currentState.items, persistedItem)
+      : currentState.items.filter((candidate) => candidate.key !== key),
     updatedAt: Math.max(
       Date.now(),
       currentState.updatedAt + 1,
       persistedState.updatedAt + 1,
     ),
-  };
-  if (rebase) {
-    publishAgentChatContextItems(nextState.items, {
-      persist: false,
-      updatedAt: nextState.updatedAt,
-    });
-  }
-  await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
-    keepalive: true,
   });
+  if (!repaired.persistedState) {
+    throw new Error("Agent chat context was not persisted.");
+  }
+  await publishPersistedAgentChatContextKey(
+    currentState,
+    repaired.persistedState,
+    key,
+    repaired.removedMidWrite,
+  );
 }
 
 /** Remove a staged context item from persisted state before clearing its composer. */
@@ -1741,11 +1742,8 @@ export async function removeAgentChatContextItemAndPersist(
       items: baseState.items.filter((item) => item.key !== normalizedKey),
       updatedAt: Math.max(Date.now(), baseState.updatedAt + 1),
     };
-    const persistedState = normalizeAgentChatContextState(
-      await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
-        keepalive: true,
-      }),
-    );
+    const { persistedState, removedMidWrite } =
+      await writeAgentChatContextState(nextState);
     if (
       !persistedState ||
       persistedState.items.some((item) => item.key === normalizedKey)
@@ -1757,7 +1755,7 @@ export async function removeAgentChatContextItemAndPersist(
       baseState,
       persistedState,
       normalizedKey,
-      false,
+      removedMidWrite,
     );
   });
 }
