@@ -1518,7 +1518,7 @@ export function generateWorkerEntry(
       : undefined;
     if (
       ${varName}.requiresSignedInBrowser === true &&
-      hasGeneratedEmbedCredential(event)
+      hasGeneratedFullAppEmbedSession(event)
     ) {
       return new Response(
         JSON.stringify({
@@ -1633,7 +1633,7 @@ ${["post", "put", "delete"]
   getFrameworkRoutePrefix as getAgentNativeFrameworkRoutePrefix,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
-${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
+${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasFullAppEmbedSession as hasGeneratedFullAppEmbedSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 

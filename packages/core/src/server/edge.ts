@@ -89,5 +89,8 @@ export {
   mountUiActionCapabilityRoute,
 } from "./ui-action-capability.js";
 export { getBrowserCookieSession, getSession } from "./auth.js";
-export { hasPresentedEmbedSessionCredential } from "./embed-session.js";
+export {
+  hasFullAppEmbedSession,
+  hasPresentedEmbedSessionCredential,
+} from "./embed-session.js";
 export { resolveOrgIdForEmailViaEvent } from "../org/context.js";

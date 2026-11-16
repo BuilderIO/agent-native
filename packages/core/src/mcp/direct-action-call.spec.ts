@@ -3089,6 +3089,7 @@ describe("direct tools/call full-app embeds", () => {
       "open-other-app": act({
         description: "Open another app with its own session",
         readOnly: true,
+        opensAnotherAppEmbed: true,
         mcpApp: fullApp,
         run: async () => ({
           id: "t-3",

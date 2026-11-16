@@ -936,11 +936,11 @@ const FULL_APP_READ_ONLY_PREFIXES = [
   "/_agent-native/settings",
   "/_agent-native/env-status",
   "/_agent-native/credential-probe",
-  // The app's own agent runs as the owner, and its background continuations
-  // carry no mark of this panel; the host's agent works the panel instead.
-  "/_agent-native/agent-chat/runs",
+  // The app's own agent runs as the owner, and its runs, queued prompts and
+  // background continuations carry no mark of this panel; the host's agent
+  // works the panel instead.
+  "/_agent-native/agent-chat",
 ];
-const FULL_APP_READ_ONLY_PATHS = ["/_agent-native/agent-chat"];
 
 function underPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
@@ -964,10 +964,7 @@ export function fullAppEmbedAllowsRequest(
   const route = decoded.replace(/\/{2,}/g, "/").replace(/\/+$/, "") || "/";
   if (FULL_APP_DENIED_PREFIXES.some((prefix) => underPrefix(route, prefix)))
     return false;
-  if (
-    FULL_APP_READ_ONLY_PATHS.includes(route) ||
-    FULL_APP_READ_ONLY_PREFIXES.some((prefix) => underPrefix(route, prefix))
-  )
+  if (FULL_APP_READ_ONLY_PREFIXES.some((prefix) => underPrefix(route, prefix)))
     return method === "GET" || method === "HEAD";
   return true;
 }
@@ -2179,6 +2176,22 @@ export function hasEmbedSessionRequestMarker(event: H3Event): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * Whether the request carries a signed full-app panel credential, not an embed
+ * marker alone. Expired and revoked tokens still count: a panel whose session
+ * lapsed must not fall through to running as a signed-in browser.
+ */
+export function hasFullAppEmbedSession(event: H3Event): boolean {
+  return [
+    queryToken(event),
+    bearerToken(event),
+    getCookie(event, EMBED_SESSION_COOKIE),
+  ].some((token) => {
+    const verified = verifyEmbedSessionToken(token, { allowExpired: true });
+    return verified.ok && verified.claims.scope === FULL_APP_EMBED_SCOPE;
+  });
 }
 
 export function hasPresentedEmbedSessionCredential(event: H3Event): boolean {

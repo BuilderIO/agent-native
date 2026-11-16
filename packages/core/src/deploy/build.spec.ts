@@ -3001,11 +3001,13 @@ export default {
   );
 
   it.each([
-    ["an embedded panel", true, 403],
-    ["a signed-in browser", false, 200],
+    ["an embedded panel", "panel", 403],
+    ["a signed-in browser", "none", 200],
+    ["a signed-in browser with only an embed marker", "marker", 200],
   ] as const)(
     "runs a signed-in-browser action from %s in generated workers",
-    async (_caller, embedded, status) => {
+    async (_caller, credential, status) => {
+      const embedded = credential === "panel";
       vi.stubEnv("OAUTH_STATE_SECRET", randomBytes(32).toString("base64url"));
       const dir = makeTempDir();
       const actionPath = path.join(dir, "rotate-action.mjs");
@@ -3033,6 +3035,9 @@ export default {
           scope: "full-app",
         });
         headers.set("cookie", `${EMBED_SESSION_COOKIE}=${token}`);
+      }
+      if (credential === "marker") {
+        headers.set("x-agent-native-embed-target", "/");
       }
       const response = await worker.fetch(
         new Request("https://app.test/_agent-native/actions/rotate-key", {

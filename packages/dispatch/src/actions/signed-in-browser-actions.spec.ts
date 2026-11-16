@@ -4,6 +4,7 @@ import approveDispatchChange from "./approve-dispatch-change.js";
 import approveVaultRequest from "./approve-vault-request.js";
 import claimWorkspaceAppOrganization from "./claim-workspace-app-organization.js";
 import connectExternalAgent from "./connect-external-agent.js";
+import createBrowserChatSession from "./create-browser-chat-session.js";
 import createLinkToken from "./create-link-token.js";
 import createVaultGrant from "./create-vault-grant.js";
 import createVaultSecret from "./create-vault-secret.js";
@@ -27,6 +28,7 @@ import upsertDestination from "./upsert-destination.js";
 // apps and agents can do as the owner, so a full-app panel hands them to a
 // signed-in browser.
 const actions = [
+  ["create-browser-chat-session", createBrowserChatSession],
   ["set-dispatch-approval-policy", setDispatchApprovalPolicy],
   ["reject-dispatch-change", rejectDispatchChange],
   ["approve-dispatch-change", approveDispatchChange],

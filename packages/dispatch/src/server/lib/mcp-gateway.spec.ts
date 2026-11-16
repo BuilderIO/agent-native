@@ -1753,6 +1753,34 @@ describe("openGrantedDispatchMcpApp", () => {
     warnSpy.mockRestore();
   });
 
+  it("answers with the link when the target is slow to mint a session", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      mocks.managerCallTool.mockImplementationOnce(() => new Promise(() => {}));
+      const pending = runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          openGrantedDispatchMcpApp({
+            app: "analytics",
+            path: "/dashboards",
+            embed: true,
+          }),
+      );
+      await vi.advanceTimersByTimeAsync(15_000);
+      await expect(pending).resolves.toMatchObject({
+        url: "http://localhost:8086/dashboards",
+        embedUnavailable: expect.stringContaining("within 15s"),
+      });
+    } finally {
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects Dispatch-owned extension routes on sibling apps", async () => {
     await expect(
       runWithRequestContext(

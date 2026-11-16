@@ -1600,8 +1600,6 @@ export async function withServerMintedFullAppEmbedStart(
   const requestOrigin = getEmbedSessionOrigin();
   if (!ownerEmail || !requestOrigin) return withoutMcpAppEmbedTicket(record);
   // A ticket for this app must be an unredeemed one issued to this caller.
-  // Another mounted app on this origin keeps its own tickets, so one it
-  // minted for a cross-app open cannot be checked here and is kept.
   const {
     normalizeEmbedTargetPath,
     createEmbedSessionTicket,
@@ -1617,14 +1615,17 @@ export async function withServerMintedFullAppEmbedStart(
     );
     const ownStartPath = new URL(buildEmbedStartPath("x"), requestOrigin)
       .pathname;
-    const otherOrigin =
+    // Another app's ticket cannot be checked here, so only an action that
+    // declares it opens another app may pass one on.
+    const foreign =
       start !== null &&
-      new URL(record.embedStartUrl, requestOrigin).origin !== requestOrigin;
+      (new URL(record.embedStartUrl, requestOrigin).origin !== requestOrigin ||
+        start.pathname !== ownStartPath);
     if (
       start &&
-      (otherOrigin ||
-        start.pathname !== ownStartPath ||
-        (await embedSessionTicketBelongsTo(start.ticket, ownerEmail)))
+      (foreign
+        ? entry.opensAnotherAppEmbed === true
+        : await embedSessionTicketBelongsTo(start.ticket, ownerEmail))
     ) {
       return result;
     }

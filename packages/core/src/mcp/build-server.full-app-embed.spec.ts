@@ -177,13 +177,37 @@ describe("withServerMintedFullAppEmbedStart", () => {
     ],
   ])("keeps a session minted by %s", async (_label, url, checkedHere) => {
     const record = { embedStartUrl: url };
+    const opener = checkedHere
+      ? entry()
+      : ({ ...entry(), opensAnotherAppEmbed: true } as ActionEntry);
     await expect(
       inRequest(() =>
-        withServerMintedFullAppEmbedStart(record, entry(), {}, ANCHOR),
+        withServerMintedFullAppEmbedStart(record, opener, {}, ANCHOR),
       ),
     ).resolves.toBe(record);
     expect(ticketOwner).toHaveBeenCalledTimes(checkedHere ? 1 : 0);
     expect(mint).not.toHaveBeenCalled();
+  });
+
+  it("drops another app's same-origin ticket from an action that does not open apps", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await inRequest(() =>
+        withServerMintedFullAppEmbedStart(
+          {
+            url: "/inbox",
+            embedStartUrl: `${ORIGIN}/calendar/_agent-native/embed/start?ticket=theirs`,
+          },
+          entry(),
+          {},
+          ANCHOR,
+        ),
+      );
+      expect(JSON.stringify(result)).not.toContain("ticket=theirs");
+      expect(ticketOwner).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it.each([

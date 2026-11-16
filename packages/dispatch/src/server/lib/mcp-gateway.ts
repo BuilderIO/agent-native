@@ -60,6 +60,9 @@ const TARGET_EMBED_SESSION_ATTEMPTS = 3;
 const TARGET_EMBED_SESSION_RETRY_BASE_MS = 250;
 const TARGET_EMBED_SESSION_CONNECT_TIMEOUT_MS = 90_000;
 const TARGET_EMBED_SESSION_BUDGET_MS = 95_000;
+// open_app answers with its link by then; a panel is worth a short wait, not
+// the full mint budget.
+const OPEN_APP_EMBED_WAIT_MS = 15_000;
 const DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_POLL_INTERVAL_MS = 1_500;
@@ -1171,13 +1174,27 @@ export async function openGrantedDispatchMcpApp(input: {
   // asked for from a panel that failed to open.
   let embedUnavailable: string | undefined;
   if (input.embed) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      embedSession = await createEmbedSessionForResolvedGrantedApp({
-        app: target.id,
-        resolvedApp: target,
-        url,
-        ...(input.chrome ? { chrome: input.chrome } : {}),
-      });
+      embedSession = await Promise.race([
+        createEmbedSessionForResolvedGrantedApp({
+          app: target.id,
+          resolvedApp: target,
+          url,
+          ...(input.chrome ? { chrome: input.chrome } : {}),
+        }),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `${target.id} did not return an embed session within ${OPEN_APP_EMBED_WAIT_MS / 1000}s.`,
+                ),
+              ),
+            OPEN_APP_EMBED_WAIT_MS,
+          );
+        }),
+      ]);
     } catch (error) {
       console.warn(
         `[dispatch] Could not pre-mint MCP embed session for ${target.id}:`,
@@ -1186,6 +1203,8 @@ export async function openGrantedDispatchMcpApp(input: {
       embedUnavailable = (
         error instanceof Error ? error.message : String(error)
       ).slice(0, 300);
+    } finally {
+      clearTimeout(timer);
     }
   }
   return {
