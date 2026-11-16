@@ -55,8 +55,10 @@ import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cac
 import { advanceMutationEpoch } from "./action-query-cache-mutation.js";
 import {
   claimActionQueryForeground,
+  finishActionQueryOpening,
   invalidateForegroundActionQueries,
   observeActionQuerySurface,
+  refetchActionQueryInForeground,
 } from "./action-query-foreground.js";
 import {
   ACTION_RESOURCES_META_KEY,
@@ -1761,6 +1763,14 @@ export function useActionQuery<
      */
     interactive?: boolean;
     /**
+     * With `interactive`, the returned `refetch()` is a foreground read when the
+     * surface is visible. Opt in only when every caller of `refetch()` is the
+     * person's own request (Try again, a readback after their write): a
+     * foreground-only provider pause refuses background refetches, so such a
+     * retry could otherwise never recover. Timers must not call it.
+     */
+    foregroundRefetch?: boolean;
+    /**
      * Disable the transport's capability-recovery resend. All observers of a
      * shared query must use the same setting. Query retries are separate.
      */
@@ -1793,6 +1803,7 @@ export function useActionQuery<
   const {
     refetchInterval,
     interactive = false,
+    foregroundRefetch = false,
     retry: callerRetry,
     enabled: callerEnabled,
     queryKeyScope,
@@ -1848,7 +1859,7 @@ export function useActionQuery<
         surfaceOptions.current.restOptions.refetchOnWindowFocus !== undefined,
     );
   }, [interactive, queryClient, queryHash]);
-  return useQuery<R>({
+  const result = useQuery<R>({
     queryKey,
     queryFn: async ({ signal, client }) => {
       const key = circuitKey();
@@ -1956,6 +1967,28 @@ export function useActionQuery<
       ? { refetchInterval: guardActionQueryRefetchInterval(refetchInterval) }
       : {}),
     refetchOnWindowFocus: false,
+  });
+  // QueryObserver must apply enabled changes before closing a cached opening.
+  useEffect(() => {
+    if (interactive && result.isEnabled)
+      finishActionQueryOpening(queryClient.getQueryCache().get<R>(queryHash));
+  });
+  const queryRefetch = result.refetch;
+  const refetch = useCallback<typeof queryRefetch>(
+    (refetchOptions) =>
+      interactive && foregroundRefetch
+        ? refetchActionQueryInForeground(
+            queryClient.getQueryCache().get<R>(queryHash),
+            () => queryRefetch(refetchOptions),
+          )
+        : queryRefetch(refetchOptions),
+    [foregroundRefetch, interactive, queryClient, queryHash, queryRefetch],
+  );
+  if (!interactive || !foregroundRefetch) return result;
+  // Proxy, not spread: React Query tracks which result fields a component reads.
+  return new Proxy(result, {
+    get: (target, key) =>
+      key === "refetch" ? refetch : Reflect.get(target, key),
   });
 }
 

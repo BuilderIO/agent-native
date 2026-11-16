@@ -56,6 +56,7 @@ import {
   IconLoader2,
   IconSearchOff,
   IconUsersGroup,
+  IconX,
 } from "@tabler/icons-react";
 import {
   type ComponentPropsWithoutRef,
@@ -172,9 +173,18 @@ export interface ShareButtonProps {
    * confirmation shown before it becomes visible to the organization.
    */
   visibilityConfirmDetail?: ReactNode;
-  roleCopy?: Partial<Record<Role, { label?: string; description?: string }>>;
+  /** `action` names the `roleMenu` item that switches a person to the role. */
+  roleCopy?: Partial<
+    Record<Role, { label?: string; description?: string; action?: string }>
+  >;
   allowedRoles?: readonly ShareButtonRole[] | undefined;
   peopleAccessLabel?: ReactNode;
+  /** Placeholder of the add-people field, in place of the policy's default. */
+  invitePlaceholder?: string;
+  /** Enter turns a typed email into a chip, and Share invites every chip. */
+  stagedInvites?: boolean;
+  /** Each person's role opens a menu of the other roles and Remove. */
+  roleMenu?: boolean;
   generalAccessLabel?: ReactNode;
   /** Resource-specific controls shown with general access. */
   generalAccessExtras?: (controller: ShareButtonController) => ReactNode;
@@ -233,6 +243,7 @@ type OrgMemberSearch = ShareButtonOrgMemberSearch;
 
 type Share = ShareButtonShare;
 
+const STAGED_EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
 const SHARE_SECTION_LABEL = "text-xs font-medium text-muted-foreground";
@@ -601,6 +612,8 @@ function SharePanel(
         basicSharingOnly={props.basicSharingOnly}
         roleCopy={props.roleCopy}
         allowedRoles={allowedRolesFor(props)}
+        invitePlaceholder={props.invitePlaceholder}
+        stagedInvites={props.stagedInvites}
       />
 
       {accessRequests}
@@ -611,6 +624,7 @@ function SharePanel(
           controller={controller}
           roleCopy={props.roleCopy}
           allowedRoles={allowedRolesFor(props)}
+          roleMenu={props.roleMenu}
         />
       </section>
 
@@ -1172,8 +1186,15 @@ export function SharePeopleInvite({
   basicSharingOnly,
   roleCopy,
   allowedRoles,
-}: SharePeopleControlProps & { basicSharingOnly?: boolean | undefined }) {
+  invitePlaceholder,
+  stagedInvites,
+}: SharePeopleControlProps & {
+  basicSharingOnly?: boolean | undefined;
+  invitePlaceholder?: string | undefined;
+  stagedInvites?: boolean | undefined;
+}) {
   const t = useT();
+  const [staged, setStaged] = useState<string[]>([]);
   const {
     inviteEmail,
     setInviteEmail: onInviteEmailChange,
@@ -1201,7 +1222,22 @@ export function SharePeopleInvite({
     handleAdd,
     data,
   } = controller;
-  const hasInviteEmail = inviteEmail.trim().length > 0;
+  const hasInvitees = stagedInvites
+    ? staged.length > 0
+    : inviteEmail.trim().length > 0;
+  const stage = (email: string) => {
+    const next = email.trim().toLowerCase();
+    if (!STAGED_EMAIL.test(next)) return false;
+    setStaged((previous) =>
+      previous.includes(next) ? previous : [...previous, next],
+    );
+    onInviteEmailChange("");
+    return true;
+  };
+  const shareStaged = () => {
+    for (const email of staged) handleAdd(email);
+    setStaged([]);
+  };
   const orgHasAgents = (data?.agents?.length ?? 0) > 0;
   return (
     <>
@@ -1223,27 +1259,59 @@ export function SharePeopleInvite({
                   selectGroup(suggestion);
                 } else if (suggestion.principalType === "agent") {
                   selectAgent(suggestion);
-                } else {
+                } else if (!stagedInvites || !stage(suggestion.email)) {
                   onInviteEmailChange(suggestion.email);
                 }
                 setSuggestionsOpen(false);
                 if (shareError) setShareError(null);
               }}
-              onSubmit={handleAdd}
+              onSubmit={() => {
+                if (!stagedInvites || !stage(inviteEmail)) handleAdd();
+              }}
+              leading={
+                staged.length > 0
+                  ? staged.map((email) => (
+                      <span
+                        key={email}
+                        className="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-foreground"
+                      >
+                        {email}
+                        <button
+                          type="button"
+                          aria-label={t("agentChat.share.removeInvitee", {
+                            email,
+                            defaultValue: "Remove {{email}}",
+                          })}
+                          onClick={() =>
+                            setStaged((previous) =>
+                              previous.filter((value) => value !== email),
+                            )
+                          }
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <IconX size={12} aria-hidden />
+                        </button>
+                      </span>
+                    ))
+                  : null
+              }
               placeholder={
-                orgHasAgents
-                  ? t("agentChat.share.addPeopleOrAgents", {
-                      defaultValue: "Add people or agents",
-                    })
-                  : policy.requireOrgMemberForUserShares
-                    ? t("agentChat.share.addPeopleOrganization", {
-                        defaultValue: "Add people from your organization",
-                      })
-                    : t("agentChat.share.addPeopleEmail", {
-                        defaultValue: policy.supportsGroupShares
-                          ? "Add people or groups"
-                          : "Add people by email",
-                      })
+                staged.length > 0
+                  ? ""
+                  : (invitePlaceholder ??
+                    (orgHasAgents
+                      ? t("agentChat.share.addPeopleOrAgents", {
+                          defaultValue: "Add people or agents",
+                        })
+                      : policy.requireOrgMemberForUserShares
+                        ? t("agentChat.share.addPeopleOrganization", {
+                            defaultValue: "Add people from your organization",
+                          })
+                        : t("agentChat.share.addPeopleEmail", {
+                            defaultValue: policy.supportsGroupShares
+                              ? "Add people or groups"
+                              : "Add people by email",
+                          })))
               }
               suggestions={[
                 ...memberSuggestions.map((member) => ({
@@ -1275,11 +1343,13 @@ export function SharePeopleInvite({
             />
             <Button
               type="button"
-              onClick={handleAdd}
-              disabled={!hasInviteEmail}
+              onClick={() => (stagedInvites ? shareStaged() : handleAdd())}
+              disabled={!hasInvitees}
               className="shrink-0"
             >
-              {t("agentChat.share.invite", { defaultValue: "Invite" })}
+              {stagedInvites
+                ? t("agentChat.share.share", { defaultValue: "Share" })
+                : t("agentChat.share.invite", { defaultValue: "Invite" })}
             </Button>
           </div>
           {shareError ? (
@@ -1290,7 +1360,7 @@ export function SharePeopleInvite({
               {shareError}
             </div>
           ) : null}
-          {hasInviteEmail && !selectedAgent ? (
+          {hasInvitees && !selectedAgent ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
               <label className="inline-flex items-center gap-2">
                 <input
@@ -1321,7 +1391,7 @@ export function SharePeopleInvite({
               ) : null}
             </div>
           ) : null}
-          {hasInviteEmail &&
+          {hasInvitees &&
           !selectedAgent &&
           notifyPeople &&
           messageOpen &&
@@ -1356,7 +1426,8 @@ export function SharePeopleList({
   controller,
   roleCopy,
   allowedRoles,
-}: SharePeopleControlProps) {
+  roleMenu,
+}: SharePeopleControlProps & { roleMenu?: boolean | undefined }) {
   const t = useT();
   const {
     data,
@@ -1440,7 +1511,16 @@ export function SharePeopleList({
                   : undefined
             }
             trailing={
-              canManage ? (
+              canManage && roleMenu ? (
+                <RoleMenu
+                  value={s.role}
+                  onChange={(r) => handleChangeRole(s, r)}
+                  onRemove={() => handleRemove(s)}
+                  disabled={busy}
+                  roleCopy={roleCopy}
+                  allowedRoles={allowedRoles}
+                />
+              ) : canManage ? (
                 <RoleSelect
                   value={s.role}
                   onChange={(r) => handleChangeRole(s, r)}
@@ -1635,6 +1715,8 @@ interface MemberAutocompleteProps {
   search: OrgMemberSearch;
   /** The org's agents could not be read, so none are suggested. */
   agentsUnavailable?: boolean;
+  /** Rendered inside the field, before the input. */
+  leading?: ReactNode;
   /** Rendered inside the field, after the input. */
   trailing?: ReactNode;
 }
@@ -1701,6 +1783,7 @@ function MemberAutocomplete({
   shares,
   search,
   agentsUnavailable,
+  leading,
   trailing,
 }: MemberAutocompleteProps) {
   const t = useT();
@@ -1864,7 +1947,13 @@ function MemberAutocomplete({
   return (
     <Popover open={listOpen} onOpenChange={onOpenChange}>
       <PopoverAnchor asChild>
-        <div className="flex h-9 min-w-0 flex-1 items-center overflow-hidden rounded-md border border-input bg-card focus-within:ring-1 focus-within:ring-ring">
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 items-center overflow-hidden rounded-md border border-input bg-card focus-within:ring-1 focus-within:ring-ring",
+            leading ? "min-h-9 flex-wrap gap-1 ps-1.5" : "h-9",
+          )}
+        >
+          {leading}
           <input
             ref={inputRef}
             type="text"
@@ -2054,6 +2143,63 @@ function SelectItems({ items }: { items: ShadSelectItemProps[] }) {
 }
 
 const REMOVE_ACCESS_VALUE = "__remove";
+
+function RoleMenu(props: {
+  value: Role;
+  onChange: (v: Role) => void;
+  onRemove: () => void;
+  disabled: boolean;
+  roleCopy?: ShareButtonProps["roleCopy"];
+  allowedRoles?: ShareButtonProps["allowedRoles"];
+}) {
+  const t = useT();
+  const others = (
+    props.allowedRoles ?? roleOptions(t).map((option) => option.value)
+  ).filter((role) => role !== props.value);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          data-testid="member-role"
+          disabled={props.disabled}
+          className="h-7 gap-1 px-2 text-xs font-normal text-muted-foreground"
+        >
+          {roleMeta(props.value, t, props.roleCopy).label}
+          <IconChevronDown aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        data-agent-native-share-overlay=""
+        className={cn(SHARE_NESTED_OVERLAY_Z, "min-w-48 p-1")}
+      >
+        {others.map((role) => {
+          const meta = roleMeta(role, t, props.roleCopy);
+          return (
+            <DropdownMenuItem
+              key={role}
+              onSelect={() => props.onChange(role)}
+              className="flex-col items-start gap-0.5"
+            >
+              <span>{props.roleCopy?.[role]?.action ?? meta.label}</span>
+              {meta.description ? (
+                <span className="text-xs text-muted-foreground">
+                  {meta.description}
+                </span>
+              ) : null}
+            </DropdownMenuItem>
+          );
+        })}
+        <DropdownMenuItem onSelect={props.onRemove}>
+          {t("agentChat.share.remove", { defaultValue: "Remove" })}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 function RoleSelect(props: {
   value: Role;

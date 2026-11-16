@@ -1,4 +1,9 @@
-import type { Query, QueryClient, QueryFilters } from "@tanstack/react-query";
+import type {
+  InvalidateOptions,
+  InvalidateQueryFilters,
+  Query,
+  QueryClient,
+} from "@tanstack/react-query";
 
 import {
   addSurfaceVisibilityListener,
@@ -6,6 +11,12 @@ import {
 } from "../shared/surface-visibility.js";
 
 const startedQueries = new WeakSet<object>();
+// A foreground read that failed is still the person's read: its retries stay
+// foreground until its fetch answers, even when a previous result was cached.
+const unansweredForeground = new WeakMap<object, number>();
+// An open tab whose read keeps failing must not stream foreground provider
+// calls on every retry and refetch tick: past this many failures it is background.
+const MAX_FOREGROUND_RETRIES = 3;
 const foregroundScopes = new WeakMap<object, boolean>();
 interface SurfaceObserver {
   query: () => object | undefined;
@@ -25,14 +36,37 @@ export function claimActionQueryForeground(
   query: Pick<Query, "state" | "isActive"> | undefined,
 ): boolean {
   if (!query) return false;
+  // Restored and projected cache rows have update counts, but no request in
+  // this document. Only a fetch claimed here can spend its first-read allowance.
   const initial =
     query.isActive() &&
     !startedQueries.has(query) &&
-    query.state.data === undefined &&
     query.state.error === null &&
     query.state.fetchFailureCount === 0;
   startedQueries.add(query);
-  return foregroundScopes.get(query) ?? initial;
+  const scoped = foregroundScopes.get(query);
+  const retry =
+    unansweredForeground.get(query) === query.state.dataUpdateCount &&
+    query.isActive() &&
+    query.state.fetchFailureCount > 0 &&
+    query.state.fetchFailureCount <= MAX_FOREGROUND_RETRIES;
+  const foreground = scoped ?? (initial || retry);
+  if (foreground) unansweredForeground.set(query, query.state.dataUpdateCount);
+  else unansweredForeground.delete(query);
+  return foreground;
+}
+
+export function finishActionQueryOpening(
+  query: Pick<Query, "state" | "isActive"> | undefined,
+): void {
+  // A fresh cache can answer the opening without a request. Its first later
+  // timer or reconnect fetch must not inherit the opening's allowance.
+  if (
+    query?.isActive() &&
+    query.state.fetchStatus === "idle" &&
+    query.state.data !== undefined
+  )
+    startedQueries.add(query);
 }
 
 function withQueryForeground<T>(
@@ -48,17 +82,48 @@ function withQueryForeground<T>(
   }
 }
 
+export function refetchActionQueryInForeground<T>(
+  query: object | undefined,
+  run: () => T,
+): T {
+  if (!query || isSurfaceHidden()) return run();
+  return withQueryForeground(query, true, run);
+}
+
 export function invalidateForegroundActionQueries(
   client: QueryClient,
-  filters: QueryFilters,
+  filters: InvalidateQueryFilters,
   foreground: boolean,
+  options?: InvalidateOptions,
 ): Promise<void> {
+  // Hydration supplies data before a hook supplies its reader. Keep those rows
+  // stale until the reader can fetch them, without creating a missing-queryFn error.
+  const dataOnly = new Set(
+    client
+      .getQueryCache()
+      .findAll(filters)
+      .filter(
+        (query) =>
+          query.getObserversCount() === 0 &&
+          query.state.data !== undefined &&
+          query.options.queryFn === undefined,
+      ),
+  );
+  for (const query of dataOnly) query.invalidate();
+  const readableFilters: InvalidateQueryFilters = dataOnly.size
+    ? {
+        ...filters,
+        predicate: (query) =>
+          !dataOnly.has(query) &&
+          (!filters.predicate || filters.predicate(query)),
+      }
+    : filters;
   if (!foreground || isSurfaceHidden())
-    return client.invalidateQueries(filters);
-  const queries = client.getQueryCache().findAll(filters);
+    return client.invalidateQueries(readableFilters, options);
+  const queries = client.getQueryCache().findAll(readableFilters);
   for (const query of queries) foregroundScopes.set(query, true);
   try {
-    return client.invalidateQueries(filters);
+    return client.invalidateQueries(readableFilters, options);
   } finally {
     for (const query of queries) foregroundScopes.delete(query);
   }

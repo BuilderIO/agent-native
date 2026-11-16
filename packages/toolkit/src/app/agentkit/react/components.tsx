@@ -7155,8 +7155,11 @@ export interface AgentKitComposerProps extends Omit<
     | "includeDefaultSlashSkills"
     | "onSlashCommand"
     | "plusMenuMode"
+    | "richTextEnabled"
+    | "textBlockSeparator"
     | "voiceEnabled"
     | "voiceChatEnabled"
+    | "enterSubmitMode"
     | "onVoiceChatStart"
     | "autoFocus"
     | "disabled"
@@ -7261,6 +7264,7 @@ export function AgentKitComposer({
   announcePendingSubmission = true,
   queueWhileRunning = true,
   showModelSelector = true,
+  enterSubmitMode,
   slashCommands,
   slashSkills,
   includeDefaultSlashCommands,
@@ -7270,6 +7274,8 @@ export function AgentKitComposer({
   mentionItemsError,
   mentionPopoverDensity,
   plusMenuMode,
+  richTextEnabled,
+  textBlockSeparator,
   voiceEnabled = false,
   // Let a host keep dictation while the primary resting control is Send;
   // defaults to today's behaviour for every other app.
@@ -8212,8 +8218,11 @@ export function AgentKitComposer({
             slashCommands,
             slashSkills,
             onSlashCommand,
+            richTextEnabled,
+            textBlockSeparator,
             voiceEnabled,
             voiceChatEnabled,
+            enterSubmitMode,
             onVoiceChatStart,
             replyPlaceholder: placeholder ?? labels.composerReplyPlaceholder,
             onEscape: editingMessage ? cancelEditing : undefined,

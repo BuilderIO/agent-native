@@ -2,7 +2,7 @@ import { defineEventHandler } from "h3";
 import { createRequestHandler } from "react-router";
 
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
-import { isMcpPublicPath } from "../mcp/route-paths.js";
+import { isMcpPageNavigation, isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SPECULATION_RULES_PATH,
@@ -444,9 +444,12 @@ function textSafeErrorMessage(err: unknown): string {
   );
 }
 
-function isFrameworkOrAssetPath(pathname: string): boolean {
+function isFrameworkPath(request: Request, pathname: string): boolean {
   return (
-    isMcpPublicPath(pathname) ||
+    (isMcpPublicPath(pathname) &&
+      !isMcpPageNavigation(pathname, request.method, (name) =>
+        request.headers.get(name),
+      )) ||
     pathname.startsWith("/.well-known/") ||
     pathname.startsWith("/_agent_native/") ||
     pathname.startsWith("/_agent-native/") ||
@@ -458,9 +461,20 @@ function isFrameworkOrAssetPath(pathname: string): boolean {
     pathname === "/__vite_ping" ||
     pathname === "/__open-in-editor" ||
     pathname === "/favicon.ico" ||
-    pathname === "/favicon.png" ||
-    (/\.\w+$/.test(pathname) && !pathname.endsWith(".data"))
+    pathname === "/favicon.png"
   );
+}
+
+/**
+ * A dotted path fetched as a subresource is a static file that does not exist.
+ * A document navigation keeps the route, since a route param can hold a dot
+ * (`/company/acme.com`).
+ */
+function isMissingAssetRequest(request: Request, pathname: string): boolean {
+  if (!/\.\w+$/.test(pathname) || pathname.endsWith(".data")) return false;
+  const fetchDest = request.headers.get("sec-fetch-dest");
+  if (fetchDest) return fetchDest !== "document" && fetchDest !== "iframe";
+  return !request.headers.get("accept")?.includes("text/html");
 }
 
 async function rewriteMountedResponse(
@@ -551,7 +565,8 @@ export function createH3SSRHandler(getBuild: () => unknown) {
     const isRecoveryAlias = isChunkRecoveryPath(appPath);
     const isLegacyRecovery = isLegacyChunkRecoveryRequest(event.url);
     const p = stripChunkRecoveryPathSuffix(appPath);
-    if (isFrameworkOrAssetPath(p)) {
+    const request = event.req as Request;
+    if (isFrameworkPath(request, p) || isMissingAssetRequest(request, p)) {
       return new Response(null, { status: 404 });
     }
     try {

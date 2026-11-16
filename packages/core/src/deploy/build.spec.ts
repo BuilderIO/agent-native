@@ -7913,6 +7913,113 @@ describe("durable-background Netlify function emit (single-template, default-on)
     );
   });
 
+  function writeIngestionPackage(
+    directory: string,
+    source = "export {};\n",
+  ): void {
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(
+      path.join(directory, "package.json"),
+      JSON.stringify({ main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(directory, "index.js"), source);
+  }
+
+  it("accepts ingestion imports and their transitive imports shipped in the server function", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    writeIngestionPackage(
+      path.join(serverDir, "node_modules", "officeparser"),
+      'import zip from "jszip";\nexport { zip };\n',
+    );
+    writeIngestionPackage(path.join(serverDir, "node_modules", "jszip"));
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("officeparser");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("surfaces an unreadable parser manifest instead of reporting it as unshipped", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    const parserDir = path.join(serverDir, "node_modules", "officeparser");
+    writeIngestionPackage(parserDir);
+    fs.writeFileSync(path.join(parserDir, "package.json"), "{ invalid json");
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("officeparser");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      expect.objectContaining({ code: "ERR_INVALID_PACKAGE_CONFIG" }),
+    );
+  });
+
+  it("rejects a missing transitive parser import despite its parent being shipped", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    writeIngestionPackage(
+      path.join(serverDir, "node_modules", "officeparser"),
+      'import zip from "jszip";\nexport { zip };\n',
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("officeparser");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /jszip .*not shipped inside the server bundle/,
+    );
+  });
+
+  it("rejects a missing parser subpath even when the package entry is shipped", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    writeIngestionPackage(path.join(serverDir, "node_modules", "pdfjs-dist"));
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("pdfjs-dist/legacy/build/pdf.mjs");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /pdfjs-dist\/legacy\/build\/pdf.mjs is not shipped/,
+    );
+  });
+
+  it.each(["ancestor node_modules", "symlink"])(
+    "rejects parser resolution escaping the function through %s",
+    (escape) => {
+      const cwd = setupNetlifyOutput();
+      prepareSingleTemplateNetlifyOutput(cwd);
+      const serverDir = path.dirname(serverEntryPath(cwd));
+      const outsidePackage = path.join(cwd, "node_modules", "officeparser");
+      writeIngestionPackage(outsidePackage);
+      if (escape === "symlink") {
+        const shippedModules = path.join(serverDir, "node_modules");
+        fs.mkdirSync(shippedModules, { recursive: true });
+        fs.symlinkSync(
+          outsidePackage,
+          path.join(shippedModules, "officeparser"),
+          "dir",
+        );
+      }
+      fs.writeFileSync(
+        path.join(serverDir, "parser.mjs"),
+        'export const parser = import("officeparser");\n',
+      );
+
+      expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+        /officeparser .*not shipped inside the server bundle/,
+      );
+    },
+  );
+
   it("fails deploy output with bare ingestion runtime imports", () => {
     const cwd = setupNetlifyOutput();
     prepareSingleTemplateNetlifyOutput(cwd);

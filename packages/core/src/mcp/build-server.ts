@@ -1577,6 +1577,63 @@ export async function withServerMintedMcpAppEmbedStart(
   };
 }
 
+/**
+ * Gives a result the full-session ticket a full-app embed starts from, opening
+ * the page the result or the tool's link names. A ticket the action minted
+ * itself, such as a cross-app open, is kept. Callers mint only for a verified
+ * user, anchored to the credential's issue time so revoking it ends the session.
+ */
+export async function withServerMintedFullAppEmbedStart(
+  result: unknown,
+  entry: ActionEntry,
+  args: Record<string, unknown>,
+  revocationAnchorCreatedAtMs: number,
+): Promise<unknown> {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return result;
+  }
+  const record = result as Record<string, unknown>;
+  if (record.embed === false || typeof record.embedStartUrl === "string") {
+    return result;
+  }
+  const ctx = getRequestContext();
+  const ownerEmail = ctx?.userEmail?.trim();
+  const requestOrigin = getEmbedSessionOrigin();
+  if (!ownerEmail || !requestOrigin) return result;
+  const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
+    await import("../server/embed-session.js");
+  const { buildEmbedStartPath } = await import("../server/embed-route.js");
+  const linked = entry.link?.({ args, result: { ...record, embed: false } });
+  const targetPath = [record.path, record.url, linked?.url]
+    .filter(
+      (value): value is string =>
+        typeof value === "string" &&
+        value !== HIDDEN_EMBED_URL &&
+        !isEmbedStartUrl(value),
+    )
+    .map((value) =>
+      normalizeEmbedTargetPath(withMcpChatBridgeParam(value), requestOrigin),
+    )
+    .find((value): value is string => !!value);
+  if (!targetPath) return result;
+  const ticket = await createEmbedSessionTicket({
+    ownerEmail,
+    ...(ctx?.orgId ? { orgId: ctx.orgId } : {}),
+    targetPath,
+    scope: null,
+    revocationAnchorCreatedAtMs,
+  });
+  return {
+    ...(withoutMcpAppEmbedTicket(record) as Record<string, unknown>),
+    embedStartUrl: new URL(
+      buildEmbedStartPath(ticket.ticket),
+      requestOrigin,
+    ).toString(),
+    embedTargetPath: targetPath,
+    embedExpiresAt: ticket.expiresAt,
+  };
+}
+
 export function withoutMcpAppEmbedTicket(result: unknown): unknown {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     return result;
@@ -2474,10 +2531,12 @@ export async function resolveMcpAppResourceSafely(
 ): Promise<ResolvedMcpAppResource | null> {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
+  // A directory listing only mounts scoped widgets. Elsewhere a tool whose
+  // resource needs an embed session and has no widget target mounts the full
+  // app from the session ticket its own result carries.
   const widgetTargets = config.directoryProfile?.widgetTargets;
   if (
-    (config.catalogMode === "directory" ||
-      resource.requiresEmbedSession === true) &&
+    config.catalogMode === "directory" &&
     (!widgetTargets || !Object.hasOwn(widgetTargets, actionName))
   ) {
     return null;

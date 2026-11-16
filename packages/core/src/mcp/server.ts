@@ -52,6 +52,7 @@ import {
   MCP_DIRECTORY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
   MCP_ROUTE_PREFIXES,
+  isMcpPageNavigation,
   joinMcpRoute,
 } from "./route-paths.js";
 
@@ -349,6 +350,14 @@ async function handleMcpRequestInternal(
   }
 
   const method = getMethod(event);
+  if (
+    routePath === MCP_PUBLIC_ROUTE_PREFIX &&
+    isMcpPageNavigation(routePath, method, (name) =>
+      getRequestHeader(event, name),
+    )
+  ) {
+    return undefined;
+  }
 
   const authHeader = getRequestHeader(event, "authorization");
   const ownerEmailHeader = getRequestHeader(

@@ -1089,6 +1089,56 @@ describe("createH3SSRHandler", () => {
     expect(await response.text()).toContain("anonymous");
   });
 
+  it("renders a document navigation whose route param holds a dot", async () => {
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent("/company/acme.com", "GET", {
+        headers: { "sec-fetch-dest": "document", accept: "text/html" },
+      }),
+    );
+
+    await expect(response.text()).resolves.toBe("GET /company/acme.com");
+  });
+
+  it("answers a missing dotted subresource with an empty 404", async () => {
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const script = await handler(
+      createEvent("/assets/gone.js", "GET", {
+        headers: { "sec-fetch-dest": "script" },
+      }),
+    );
+    const fetched = await handler(createEvent("/logo.png"));
+
+    expect(script.status).toBe(404);
+    expect(fetched.status).toBe(404);
+    expect(mocks.requestHandler).not.toHaveBeenCalled();
+  });
+
+  it("renders a browser page load of /mcp and keeps MCP protocol requests off SSR", async () => {
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const page = await handler(
+      createEvent("/mcp", "GET", {
+        headers: { "sec-fetch-dest": "document", accept: "text/html" },
+      }),
+    );
+    await expect(page.text()).resolves.toBe("GET /mcp");
+
+    mocks.requestHandler.mockClear();
+    const stream = await handler(
+      createEvent("/mcp", "GET", {
+        headers: { accept: "text/event-stream" },
+      }),
+    );
+    const post = await handler(createEvent("/mcp", "POST"));
+
+    expect(stream.status).toBe(404);
+    expect(post.status).toBe(404);
+    expect(mocks.requestHandler).not.toHaveBeenCalled();
+  });
+
   it("does not SSR framework routes under APP_BASE_PATH", async () => {
     process.env.APP_BASE_PATH = "/mail";
     const handler = createH3SSRHandler(() => ({})) as any;

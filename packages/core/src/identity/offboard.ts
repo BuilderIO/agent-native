@@ -13,6 +13,8 @@ export type OffboardMemberOptions = {
   transferTo: string;
   orgId?: string | null;
   actorEmail?: string;
+  /** Keep a Deactivated record of the org membership; requires `orgId`. */
+  deactivate?: boolean;
 };
 
 export type OffboardMemberResult = {
@@ -86,6 +88,8 @@ export async function offboardMember(
     throw new Error(
       "A different successor is required before offboarding a member",
     );
+  if (options.deactivate && !options.orgId?.trim())
+    throw new Error("Deactivating a member requires an organization");
 
   await ensureAuditTables();
 
@@ -377,6 +381,27 @@ export async function offboardMember(
             args: [oldEmail],
           })
         : { rowsAffected: 0 };
+    if (options.deactivate && orgId) {
+      // Every grant reads only 'pending' invitation rows, so this record confers nothing.
+      await tx.execute({
+        sql: `DELETE FROM org_invitations
+              WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated'`,
+        args: [orgId, oldEmail],
+      });
+      await tx.execute({
+        sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role)
+              SELECT ?, org_id, ?, ?, ?, 'deactivated', role FROM org_members
+              WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+        args: [
+          randomUUID(),
+          oldEmail,
+          options.actorEmail ?? "system",
+          Date.now(),
+          orgId,
+          oldEmail,
+        ],
+      });
+    }
     const memberships = await tx.execute({
       sql: `DELETE FROM org_members WHERE LOWER(email) = ?${
         orgId ? " AND org_id = ?" : ""

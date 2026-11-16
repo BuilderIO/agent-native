@@ -69,7 +69,11 @@ export interface ShareableResourceRegistration {
     resource: any;
     change:
       | { kind: "visibility"; visibility: "private" | "org" | "public" }
-      | { kind: "grant" };
+      | {
+          kind: "grant";
+          principalType: "user" | "group" | "org";
+          principalId: string;
+        };
   }) => void | Promise<void>;
   allowPublic?: boolean;
   /**

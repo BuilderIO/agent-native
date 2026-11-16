@@ -4501,15 +4501,68 @@ function hasBareYjsRuntimeImport(source: string): boolean {
 }
 
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
+  return bareRuntimeImportSpecifiers(source, packageName).length > 0;
+}
+
+function bareRuntimeImportSpecifiers(
+  source: string,
+  packageName: string,
+): string[] {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const quote = `["\'\\\`]`;
   const staticModuleReference = new RegExp(
-    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})(${escapedPackageName}(?:/[^"\'\\\`]+)?)\\1`,
+    "g",
   );
   const dynamicImport = new RegExp(
-    `\\bimport\\s*\\(\\s*(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+    `\\bimport\\s*\\(\\s*(${quote})(${escapedPackageName}(?:/[^"\'\\\`]+)?)\\1`,
+    "g",
   );
-  return staticModuleReference.test(source) || dynamicImport.test(source);
+  return [
+    ...source.matchAll(staticModuleReference),
+    ...source.matchAll(dynamicImport),
+  ]
+    .map((match) => match[2])
+    .filter((specifier): specifier is string => specifier !== undefined);
+}
+
+/**
+ * Whether a bare import resolves, from the importing file, to a file shipped
+ * inside the server bundle. A missing dependency or one that resolves outside
+ * the bundle is not shipped; any other resolution failure is thrown.
+ */
+function isShippedRuntimeImport(
+  specifier: string,
+  importingFile: string,
+  serverDir: string,
+): boolean {
+  try {
+    const resolved = fs.realpathSync(
+      createRequire(importingFile).resolve(specifier),
+    );
+    const relative = path.relative(fs.realpathSync(serverDir), resolved);
+    return (
+      relative !== ".." &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative) &&
+      fs.statSync(resolved).isFile()
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      typeof error.code === "string" &&
+      [
+        "MODULE_NOT_FOUND",
+        "ERR_PACKAGE_PATH_NOT_EXPORTED",
+        "ENOENT",
+        "ENOTDIR",
+      ].includes(error.code)
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function hasBareRuntimeRequire(source: string, packageName: string): boolean {
@@ -5097,10 +5150,12 @@ export function assertSingleTemplateNetlifyBuildOutput(
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
     for (const dependency of bundledIngestionPeers) {
-      if (hasBareRuntimeImport(source, dependency)) {
-        bareIngestionImports.push(
-          `${dependency} in ${path.relative(projectCwd, filePath)}`,
-        );
+      for (const specifier of bareRuntimeImportSpecifiers(source, dependency)) {
+        if (!isShippedRuntimeImport(specifier, filePath, serverDir)) {
+          bareIngestionImports.push(
+            `${dependency} in ${path.relative(projectCwd, filePath)} (${specifier} is not shipped inside the server bundle)`,
+          );
+        }
       }
     }
   });

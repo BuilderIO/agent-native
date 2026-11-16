@@ -506,6 +506,44 @@ describe("org handlers", () => {
     );
   });
 
+  it("revokes a deactivated federated member at the identity authority before keeping the Deactivated record", async () => {
+    mockExecute
+      .mockResolvedValueOnce({
+        rows: [{ role: "member", federation_removal_pending_at: null }],
+        rowsAffected: 0,
+      })
+      .mockResolvedValueOnce({
+        rows: [{ email: "successor@example.test" }],
+        rowsAffected: 0,
+      });
+    mockRevokeFederatedOrganizationMember.mockResolvedValue(true);
+
+    await expect(
+      removeMemberHandler(
+        makeEvent("/_agent-native/org/members/member@example.test", {
+          transferTo: "successor@example.test",
+          deactivate: true,
+        }),
+      ),
+    ).resolves.toEqual({ success: true });
+
+    expect(mockRevokeFederatedOrganizationMember).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        orgId: "org-1",
+        memberEmail: "member@example.test",
+      }),
+    );
+    expect(mockOffboardMember).toHaveBeenCalledWith(
+      expect.anything(),
+      "member@example.test",
+      expect.objectContaining({ orgId: "org-1", deactivate: true }),
+    );
+    expect(
+      mockRevokeFederatedOrganizationMember.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockOffboardMember.mock.invocationCallOrder[0]);
+  });
+
   it("does not remove a local member when federated revocation fails", async () => {
     mockExecute
       .mockResolvedValueOnce({

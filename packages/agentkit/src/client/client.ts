@@ -2915,10 +2915,10 @@ export class AgentKitClient implements AgentKitController {
           thread = {
             ...thread,
             queuedMessages: settledSteering
-              ? queuedOverrideMessages.filter(
-                  (message) =>
-                    message.delivery !== "steering" ||
-                    durableIds.has(message.id),
+              ? this.settleUndeliveredSteeringRows(
+                  queuedOverrideMessages,
+                  durableIds,
+                  thread.messages,
                 )
               : queuedOverrideMessages,
           };
@@ -5623,11 +5623,27 @@ export class AgentKitClient implements AgentKitController {
     // thread state too. With no run active a steering row cannot be pending - a waiting row carries
     // after_reply - so this can only remove rows the server has already delivered.
     const settledThread = this.getThread(threadId);
-    if (!hasActiveAgentRuns(settledThread)) {
-      const keptQueued = settledThread.queuedMessages.filter(
-        (message) => message.delivery !== "steering",
+    // A steering row the completed run never put in the transcript was not taken by the run. It is
+    // kept as after_reply so the promotion that is settling sends it as the next turn.
+    const untaken = (message: AgentQueuedMessage) =>
+      completed &&
+      message.delivery === "steering" &&
+      !settledThread.messages.some(
+        (candidate) =>
+          candidate.id === message.id ||
+          metadataRecord(candidate.metadata?.custom)
+            ?.agentNativeQueuedMessageId === message.id,
       );
-      if (keptQueued.length !== settledThread.queuedMessages.length) {
+    const settleRow = (message: AgentQueuedMessage): AgentQueuedMessage =>
+      untaken(message) ? { ...message, delivery: "after_reply" } : message;
+    const rowsChanged = <T>(before: T[], after: T[]) =>
+      after.length !== before.length ||
+      after.some((row, i) => row !== before[i]);
+    if (!hasActiveAgentRuns(settledThread)) {
+      const keptQueued = settledThread.queuedMessages
+        .map(settleRow)
+        .filter((message) => message.delivery !== "steering");
+      if (rowsChanged(settledThread.queuedMessages, keptQueued)) {
         this.setThread(threadId, {
           ...settledThread,
           queuedMessages: keptQueued,
@@ -5636,10 +5652,10 @@ export class AgentKitClient implements AgentKitController {
     }
     const queueOverride = this.queuedMessageOverrides.get(threadId);
     if (queueOverride) {
-      const remaining = queueOverride.messages.filter(
-        (message) => message.delivery !== "steering",
-      );
-      if (remaining.length !== queueOverride.messages.length) {
+      const remaining = queueOverride.messages
+        .map(settleRow)
+        .filter((message) => message.delivery !== "steering");
+      if (rowsChanged(queueOverride.messages, remaining)) {
         if (remaining.length === 0 && queueOverride.removedIds.size === 0) {
           this.queuedMessageOverrides.delete(threadId);
         } else {
@@ -6510,6 +6526,7 @@ export class AgentKitClient implements AgentKitController {
               loaded.queuedMessages,
               live.queuedMessages,
               !hasActiveAgentRuns(loaded),
+              loaded.messages,
             ),
       runs,
       activeRunIds,
@@ -6732,11 +6749,37 @@ export class AgentKitClient implements AgentKitController {
     };
   }
 
+  /**
+   * With no run active, a steering row the server no longer lists was taken by its run when the transcript
+   * shows it; it is dropped. A row the transcript does not show was never taken, so it waits as after_reply
+   * for the promotion that is settling to send it as the next turn.
+   */
+  private settleUndeliveredSteeringRows(
+    rows: AgentQueuedMessage[],
+    durableIds: ReadonlySet<string>,
+    transcript: readonly AgentMessage[],
+  ): AgentQueuedMessage[] {
+    const transcriptIds = new Set<unknown>(
+      transcript.flatMap((message) => [
+        message.id,
+        metadataRecord(message.metadata?.custom)?.agentNativeQueuedMessageId,
+      ]),
+    );
+    return rows.flatMap((message) => {
+      if (message.delivery !== "steering" || durableIds.has(message.id)) {
+        return [message];
+      }
+      if (transcriptIds.has(message.id)) return [];
+      return [{ ...message, delivery: "after_reply" as const }];
+    });
+  }
+
   private mergeQueuedMessages(
     baseline: AgentQueuedMessage[],
     loaded: AgentQueuedMessage[],
     current: AgentQueuedMessage[],
     settleDeliveredSteering = false,
+    transcript: AgentMessage[] = [],
   ): AgentQueuedMessage[] {
     const currentIds = new Set(current.map((message) => message.id));
     const removedIds = new Set(
@@ -6749,20 +6792,10 @@ export class AgentKitClient implements AgentKitController {
     // it on screen as a stuck "Send now" until a reload. Rows the server still
     // lists, and rows waiting for after_reply, keep the union's behaviour.
     const durableIds = new Set(loaded.map((message) => message.id));
-    const settledSteeringIds = settleDeliveredSteering
-      ? new Set(
-          current
-            .filter(
-              (message) =>
-                message.delivery === "steering" && !durableIds.has(message.id),
-            )
-            .map((message) => message.id),
-        )
-      : new Set<string>();
     return this.mergeItemsById(
       loaded.filter((message) => !removedIds.has(message.id)),
-      settledSteeringIds.size
-        ? current.filter((message) => !settledSteeringIds.has(message.id))
+      settleDeliveredSteering
+        ? this.settleUndeliveredSteeringRows(current, durableIds, transcript)
         : current,
     );
   }
@@ -7269,7 +7302,16 @@ export class AgentKitClient implements AgentKitController {
           return;
         }
         this.queuePromotionRetryAttempts.delete(threadId);
-        // The transport retains the queue item and reports the failure.
+        // A refused steer leaves the row queued with no turn to join. Marking it "after this reply" hands it
+        // to the settle step below, which sends it as the next turn once the thread is idle.
+        if (
+          !this.disposed &&
+          this.getThread(threadId).queuedMessages.some(
+            (message) => message.id === queued.id,
+          )
+        ) {
+          this.setQueuedMessageDelivery(threadId, queued.id, "after_reply");
+        }
       })
       .finally(() => {
         this.queuePromotions.delete(threadId);
