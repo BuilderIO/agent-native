@@ -5,13 +5,18 @@ export const DEFAULT_AGENT_NATIVE_MCP_INSTRUCTIONS =
 export function agentNativeMcpInstructions(
   custom?: string,
   keyTools?: readonly string[],
+  hasToolSearch = Boolean(keyTools?.length),
 ): string {
   const extra = custom?.trim();
   const key = keyTools?.length
-    ? `Key tools for this app: ${keyTools.join(", ")}. Call tool-search for anything not listed.`
+    ? `Key tools for this app: ${keyTools.join(", ")}.`
     : "";
-  const base = key
-    ? `${DEFAULT_AGENT_NATIVE_MCP_INSTRUCTIONS}\n\n${key}`
+  const search = hasToolSearch
+    ? "Call tool-search for anything not listed. To get recommendations for a task, provide a short task summary and check ranking and status before using the suggested calls."
+    : "";
+  const guidance = [key, search].filter(Boolean).join(" ");
+  const base = guidance
+    ? `${DEFAULT_AGENT_NATIVE_MCP_INSTRUCTIONS}\n\n${guidance}`
     : DEFAULT_AGENT_NATIVE_MCP_INSTRUCTIONS;
   return extra ? `${base}\n\nApp-specific guidance:\n${extra}` : base;
 }

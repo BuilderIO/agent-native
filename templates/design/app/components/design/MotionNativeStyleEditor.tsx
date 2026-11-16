@@ -1510,11 +1510,10 @@ function NativeTextStaggerDetails({
                 <IconPlus aria-hidden="true" className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-[7.5rem] p-[7px]">
+            <DropdownMenuContent align="end" className="min-w-[7.5rem]">
               {availableEffects.map((effect) => (
                 <DropdownMenuItem
                   key={effect.enabledKey}
-                  className="h-6 gap-2 px-2 text-[12px] leading-none"
                   onSelect={() => addEffect(effect)}
                 >
                   <effect.Icon

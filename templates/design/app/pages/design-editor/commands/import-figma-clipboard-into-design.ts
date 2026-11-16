@@ -193,7 +193,7 @@ export async function runImportFigmaClipboardIntoDesign(
         count: result.unresolvedImages!,
         fileIds,
       });
-    } else if (result?.figmaApiKeyMissing) {
+    } else if (result.figmaApiKeyMissing && result.strategy !== "localKiwi") {
       toast.info(t("designEditor.import.figmaPasteApiKeyHint"));
     } else if (
       result?.strategy === "htmlFallback" &&

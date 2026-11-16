@@ -246,6 +246,19 @@ of the local route unless a matching `view` route or explicit `publicPath`
 identifies the mounted URL. Carry the mounted form separately in `publicPath`;
 never infer that `path` is mounted from its prefix alone.
 
+**Calls from no tab.** An MCP tool call by a signed-in user carries no tab ID,
+so the tab-scoped helpers (`readAppState("navigation")`,
+`readAppStateForCurrentTab`, `writeAppStateForCurrentTab`) act on the tab of
+this app the user used last within 12 hours. `useAgentRouteState` records a
+tab's use when it gains focus or changes route; an app with its own navigation
+sync calls `useBrowserTabUse(route)` from
+`@agent-native/core/client/navigation`. The call doesn't become that tab:
+`getCurrentRequestBrowserTabId()` stays null, and checks that must come from
+the open editor keep requiring it. When no tab was used recently, `navigation`
+reads return null rather than the account-wide row, writes keep going to the
+account-wide row, and the MCP result says no tab was found. To pick a tab the
+same way in your own code, use `resolveCurrentRequestStateTab()`.
+
 ## Jitter Prevention
 
 Agent-side application-state writes are tagged with

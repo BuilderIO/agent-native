@@ -1,3 +1,4 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
@@ -2056,9 +2057,14 @@ function SourceListItem({
           <ShareButton
             resourceType="brain-source"
             resourceId={source.id}
+            shareUrl={
+              typeof window === "undefined"
+                ? undefined
+                : `${window.location.origin}${appPath(`/sources?sourceId=${encodeURIComponent(source.id)}`)}`
+            }
             allowedRoles={["viewer", "editor", "admin"]}
             resourceTitle={sourceName(source)}
-            triggerClassName="h-8 px-2"
+            triggerClassName="px-2"
           />
 
           {hasMenuActions ? (
@@ -2299,13 +2305,14 @@ export default function SourcesRoute() {
   const ensureCompanyContextSource = useActionMutation<
     { created: boolean; source: BrainSource },
     Record<string, never>
-  >("ensure-company-context-source");
+  >("ensure-company-context-source", { errorNotification: "caller" });
   const rotateSourceIngestToken = useActionMutation<
     CreateSourceResponse,
     { sourceId: string }
-  >("rotate-source-ingest-token" as any);
+  >("rotate-source-ingest-token", { errorNotification: "caller" });
   const syncSource = useActionMutation<unknown, { sourceId: string }>(
     "sync-source" as any,
+    { errorNotification: "caller" },
   );
   const syncDueSources = useActionMutation<unknown, { limit: number }>(
     "sync-due-sources" as any,

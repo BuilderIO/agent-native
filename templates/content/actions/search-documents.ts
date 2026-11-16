@@ -9,6 +9,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
 import {
   and,
   asc,
@@ -28,9 +29,9 @@ import { z } from "zod";
 
 import { documentSearchIndex, getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
-import { endsInHtmlComment } from "../shared/og-description.js";
 import {
   parseSearchQuery,
+  type ParsedSearchQuery,
   type SearchQueryTerm,
 } from "../shared/search-query.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
@@ -40,63 +41,24 @@ import {
   documentDiscoveryPagination,
   documentDiscoveryWhere,
 } from "./_document-discovery-query.js";
+import { loadDocumentSearchPreviews } from "./_document-search-preview.js";
+import { documentSearchRanking } from "./_document-search-ranking.js";
 import {
-  documentSearchRanking,
-  searchQueryProximityPattern,
-} from "./_document-search-ranking.js";
-import { loadPageSubtree } from "./_page-subtree.js";
-import { SNIPPET_WINDOW_CONTEXT, searchSnippet } from "./_search-snippet.js";
+  correctSearchQueryTypos,
+  hasCorrectableWord,
+  searchVocabulary,
+  type SpellingCorrection,
+  TYPO_VOCABULARY_LIMIT,
+} from "./_document-search-typo.js";
+import { loadPageSubtree, searchSubtreeDocumentIds } from "./_page-subtree.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
-/** How much of the page before a match window search reads for a comment. */
-const COMMENT_SCAN_CHARS = 20_000;
-
-/**
- * Whether a match window starts inside an HTML comment, from the text before it
- * when that has an open marker. A marker too far back to read counts as one.
- */
-function startsInComment(beforeOpenMarker: string | null | undefined): boolean {
-  if (!beforeOpenMarker) return false;
-  return (
-    !beforeOpenMarker.includes("<!--") || endsInHtmlComment(beforeOpenMarker)
-  );
-}
-
-/**
- * A result's snippet from its match window. The window starts
- * `SNIPPET_WINDOW_CONTEXT` characters before the match, or at the top of the
- * page, and the database counts characters the way `Array.from` does.
- */
-function previewSnippet(
-  preview:
-    | {
-        contentPreview: string | null;
-        snippetNeedle: string | null;
-        matchPosition: number | null;
-        contentLength: number | null;
-        beforeOpenMarker: string | null;
-      }
-    | undefined,
-): string {
-  const window = preview?.contentPreview ?? "";
-  const position = Number(preview?.matchPosition) || 0;
-  const windowStart = Math.max(1, position - SNIPPET_WINDOW_CONTEXT);
-  return searchSnippet(window, preview?.snippetNeedle ?? "", {
-    clippedStart: windowStart > 1,
-    clippedEnd:
-      windowStart - 1 + Array.from(window).length <
-      (Number(preview?.contentLength) || 0),
-    startsInComment: startsInComment(preview?.beforeOpenMarker),
-    matchOffset: position > 0 ? position - windowStart : undefined,
-  });
-}
-
 export default defineAction({
   description:
-    'Search one relevance-ranked, bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Exact and partial title matches rank above description and body matches. Titles and descriptions match anywhere; body text matches from the start of words. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
+    'Search one relevance-ranked, bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Exact and partial title matches rank above description and body matches. Titles and descriptions match anywhere; body text matches from the start of words. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. When nothing matches, each word of four or more letters that appears in no visible title or description is also matched as the closest words that do, and spellingCorrections lists them. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
   deferLoading: false,
   mcpTool: true,
   schema: z
@@ -120,6 +82,13 @@ export default defineAction({
         .optional()
         .describe(
           "Leave out this document and every page beneath it, e.g. to list valid new parents when moving it",
+        ),
+      withinSubtreeOf: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Search only this document and everything inside it: its sub-pages, its collections and their rows. Past 5,000 pages, only the nearest are searched and withinSubtreeTruncated is true",
         ),
       documentType: z
         .enum(["page", "database"])
@@ -177,8 +146,6 @@ export default defineAction({
         ...(!userEmail && activeOrgId ? [activeOrgId] : []),
       ]),
     ];
-    let bodyNeedles: string[] = [];
-    let parsedQuery: ReturnType<typeof parseSearchQuery> | null = null;
     const queryTermPredicate = (term: SearchQueryTerm): SQL => {
       const pattern = `%${escapeLike(term.text)}%`;
       const columns =
@@ -193,32 +160,6 @@ export default defineAction({
         ...columns.map((column) => sql`${column} ILIKE ${pattern} ESCAPE '\\'`),
       )!;
     };
-    const matchPredicates: SQL[] = [];
-    if (args.query) {
-      const parsed = parseSearchQuery(args.query);
-      parsedQuery = parsed;
-      if (parsed.empty) {
-        matchPredicates.push(sql`false`);
-      } else {
-        for (const group of parsed.groups) {
-          matchPredicates.push(or(...group.terms.map(queryTermPredicate))!);
-        }
-        for (const negative of parsed.negatives) {
-          matchPredicates.push(sql`NOT ${queryTermPredicate(negative)}`);
-        }
-      }
-      if (!args.exactTitle && args.searchFields !== "title") {
-        bodyNeedles = [
-          ...new Set(
-            parsed.groups.flatMap((group) =>
-              group.terms
-                .filter((term) => !term.titleOnly)
-                .map((term) => term.text),
-            ),
-          ),
-        ].slice(0, 256);
-      }
-    }
     let excludedIds: string[] = [];
     if (args.excludeSubtreeOf) {
       const [excludedRoot] = await db
@@ -234,27 +175,15 @@ export default defineAction({
           ).map((document) => document.id)
         : [args.excludeSubtreeOf];
     }
-    // The core index answers when it is complete and current and the query
-    // fits it; otherwise this request scans documents directly, as search
-    // did before the index.
-    let indexedSearch: IndexedSearchSql | null = null;
-    if (parsedQuery && !parsedQuery.empty) {
-      try {
-        indexedSearch = indexedSearchSql({
-          registration: documentSearchIndex,
-          query: parsedQuery,
-          fields: args.searchFields === "title" ? "title" : "all",
-        });
-      } catch (error) {
-        if (!(error instanceof SearchTermTooLongError)) throw error;
-      }
-      if (
-        indexedSearch &&
-        !(await prepareSearchIndex(documentSearchIndex)).ready
-      ) {
-        indexedSearch = null;
-      }
+    let withinIds: string[] | null = null;
+    let withinSubtreeTruncated = false;
+    if (args.withinSubtreeOf) {
+      await assertAccess("document", args.withinSubtreeOf, "viewer");
+      const subtree = await searchSubtreeDocumentIds(db, args.withinSubtreeOf);
+      withinIds = subtree.ids;
+      withinSubtreeTruncated = subtree.truncated;
     }
+    const parsedQuery = args.query ? parseSearchQuery(args.query) : null;
     const baseWhere = documentDiscoveryWhere({
       userEmail,
       authorizedOrgIds,
@@ -272,6 +201,7 @@ export default defineAction({
         excludedIds.length > 0
           ? notInArray(schema.documents.id, excludedIds)
           : undefined,
+        withinIds ? inArray(schema.documents.id, withinIds) : undefined,
         args.modifiedAfter
           ? gte(
               sql`${schema.documents.updatedAt}::timestamptz`,
@@ -286,205 +216,201 @@ export default defineAction({
           : undefined,
       ),
     });
-    const where = indexedSearch
-      ? and(baseWhere, indexedSearch.match)
-      : and(baseWhere, ...matchPredicates);
-    const normalizedContent = sql<string>`coalesce(${schema.documents.content}, '')`;
-    const bodyNeedleArray = bodyNeedles.length
-      ? sql`array[${sql.join(
-          bodyNeedles.map((needle) => sql`${needle}`),
-          sql`, `,
-        )}]::text[]`
-      : undefined;
-    const maxOccurrencesPerNeedle = Math.max(
-      1,
-      Math.floor(256 / Math.max(1, bodyNeedles.length)),
-    );
-    const proximityPattern =
-      bodyNeedleArray && parsedQuery
-        ? searchQueryProximityPattern(parsedQuery)
-        : null;
-    const proximityPosition = proximityPattern
-      ? sql<number>`regexp_instr(${normalizedContent}, ${proximityPattern}, 1, 1, 0, 'i')`
-      : undefined;
-    const fallbackBodyPosition =
-      bodyNeedles.length === 1
-        ? sql<number>`nullif(position(lower(${bodyNeedles[0]!}) in lower(${normalizedContent})), 0)`
-        : bodyNeedleArray
-          ? sql<number>`(
-          with recursive body_occurrence(needle, query_order, match_position, occurrence_number) as (
-            select candidate.needle, candidate.query_order,
-              position(lower(candidate.needle) in lower(${normalizedContent})), 1
-            from unnest(${bodyNeedleArray}) with ordinality as candidate(needle, query_order)
-            where position(lower(candidate.needle) in lower(${normalizedContent})) > 0
-            union all
-            select occurrence.needle, occurrence.query_order,
-              occurrence.match_position + position(
-                lower(occurrence.needle)
-                in substring(lower(${normalizedContent}) from occurrence.match_position + 1)
-              ), occurrence.occurrence_number + 1
-            from body_occurrence as occurrence
-            where occurrence.occurrence_number < ${maxOccurrencesPerNeedle} and position(
-              lower(occurrence.needle)
-              in substring(lower(${normalizedContent}) from occurrence.match_position + 1)
-            ) > 0
-          )
-          select candidate.match_position
-          from body_occurrence as candidate
-          order by (
-            select count(*)
-            from unnest(${bodyNeedleArray}) as nearby(needle)
-            where position(
-              lower(nearby.needle)
-              in lower(substr(
-                ${normalizedContent},
-                greatest(1, candidate.match_position - 120),
-                240 + length(candidate.needle)
-              ))
-            ) > 0
-          ) desc,
-          candidate.match_position,
-          candidate.query_order
-          limit 1
-        )`
-          : undefined;
-    const selectedBodyPosition =
-      proximityPosition && fallbackBodyPosition
-        ? sql<number>`coalesce(nullif(${proximityPosition}, 0), ${fallbackBodyPosition})`
-        : fallbackBodyPosition;
-    const selectedBodyNeedle =
-      bodyNeedleArray && selectedBodyPosition
-        ? sql<string>`(
-            select candidate.needle
-            from unnest(${bodyNeedleArray}) with ordinality as candidate(needle, query_order)
-            where lower(substr(${normalizedContent}, ${selectedBodyPosition}, length(candidate.needle))) = lower(candidate.needle)
-            order by candidate.query_order
-            limit 1
-          )`
-        : undefined;
-    // The stored page around the match, with enough on each side to leave
-    // text for the snippet once markup is stripped.
-    const context = sql.raw(String(SNIPPET_WINDOW_CONTEXT));
-    const matchWindow = selectedBodyPosition
-      ? sql<string>`case when ${selectedBodyPosition} is not null then substr(${normalizedContent}, greatest(1, ${selectedBodyPosition} - ${context}), least(5000, 2 * ${context} + coalesce(length(${selectedBodyNeedle}), 0))) else substr(${normalizedContent}, 1, 5000) end`
-      : sql<string>`substr(${normalizedContent}, 1, 5000)`;
-    // The end of the page before the window, only when that text, read
-    // backwards, reaches a `<!--` before any `-->`. The window can only start
-    // inside a comment then, and the marker may still be code, which takes
-    // Markdown to tell.
-    const beforeWindow = selectedBodyPosition
-      ? sql<string>`substr(${normalizedContent}, 1, greatest(0, ${selectedBodyPosition} - ${context} - 1))`
-      : undefined;
-    const beforeOpenMarker = beforeWindow
-      ? sql<
-          string | null
-        >`case when strpos(reverse(${beforeWindow}), '--!<') > 0 and (strpos(reverse(${beforeWindow}), '>--') = 0 or strpos(reverse(${beforeWindow}), '--!<') < strpos(reverse(${beforeWindow}), '>--')) then right(${beforeWindow}, ${sql.raw(String(COMMENT_SCAN_CHARS))}) end`
-      : sql<string | null>`null`;
-    const ranking =
-      !indexedSearch && parsedQuery?.groups.length
-        ? documentSearchRanking(
-            parsedQuery,
-            {
-              title: schema.documents.title,
-              description: schema.documents.description,
-              content: normalizedContent,
-            },
-            {
-              includeNonTitleFields: args.searchFields !== "title",
-            },
-          )
-        : null;
-    const docsQuery = db
-      .select({
-        id: schema.documents.id,
-        parentId: schema.documents.parentId,
-        title: schema.documents.title,
-        description: schema.documents.description,
-        icon: schema.documents.icon,
-        hideFromSearch: schema.documents.hideFromSearch,
-        updatedAt: schema.documents.updatedAt,
-        sourceKind: schema.documents.sourceKind,
-        sourceUpdatedAt: schema.documents.sourceUpdatedAt,
-        documentType: sql<"page" | "database">`case when ${exists(
-          db
-            .select({ id: schema.contentDatabases.id })
-            .from(schema.contentDatabases)
-            .where(
-              and(
-                eq(schema.contentDatabases.documentId, schema.documents.id),
-                isNull(schema.contentDatabases.deletedAt),
+    // Read once per request, so the typo pass sees the same readiness.
+    let indexReady: Promise<boolean> | undefined;
+    const indexIsReady = () =>
+      (indexReady ??= prepareSearchIndex(documentSearchIndex).then(
+        (state) => state.ready,
+      ));
+    const searchPage = async (query: ParsedSearchQuery | null) => {
+      const matchPredicates: SQL[] = [];
+      let bodyNeedles: string[] = [];
+      if (query) {
+        if (query.empty) {
+          matchPredicates.push(sql`false`);
+        } else {
+          for (const group of query.groups) {
+            // A group with no terms would match nothing.
+            matchPredicates.push(
+              or(...group.terms.map(queryTermPredicate)) ?? sql`false`,
+            );
+          }
+          for (const negative of query.negatives) {
+            matchPredicates.push(sql`NOT ${queryTermPredicate(negative)}`);
+          }
+        }
+        if (!args.exactTitle && args.searchFields !== "title") {
+          bodyNeedles = [
+            ...new Set(
+              query.groups.flatMap((group) =>
+                group.terms
+                  .filter((term) => !term.titleOnly)
+                  .map((term) => term.text),
               ),
             ),
-        )} then 'database' else 'page' end`,
-        totalItems: sql<number>`count(*) over()`,
-      })
-      .from(schema.documents)
-      .where(where)
-      .$dynamic();
-    if (indexedSearch) {
-      docsQuery.innerJoin(indexedSearch.join, indexedSearch.on);
-    }
-    const docs = await docsQuery
-      .orderBy(
-        ...(indexedSearch
-          ? indexedSearch.orderBy
-          : ranking
-            ? [
-                desc(ranking.matchTier),
-                desc(ranking.titleCoverage),
-                desc(ranking.descriptionCoverage),
-                desc(
-                  sql<number>`case when count(*) over() <= 1000 then ${ranking.bodyProximity} else 0 end`,
+          ].slice(0, 256);
+        }
+      }
+      // The core index answers when it is complete and current and the query
+      // fits it; otherwise this request scans documents directly, as search
+      // did before the index.
+      let indexedSearch: IndexedSearchSql | null = null;
+      if (query && !query.empty) {
+        try {
+          indexedSearch = indexedSearchSql({
+            registration: documentSearchIndex,
+            query,
+            fields: args.searchFields === "title" ? "title" : "all",
+          });
+        } catch (error) {
+          if (!(error instanceof SearchTermTooLongError)) throw error;
+        }
+        if (indexedSearch && !(await indexIsReady())) {
+          indexedSearch = null;
+        }
+      }
+      const where = indexedSearch
+        ? and(baseWhere, indexedSearch.match)
+        : and(baseWhere, ...matchPredicates);
+      const normalizedContent = sql<string>`coalesce(${schema.documents.content}, '')`;
+      const ranking =
+        !indexedSearch && query?.groups.length
+          ? documentSearchRanking(
+              query,
+              {
+                title: schema.documents.title,
+                description: schema.documents.description,
+                content: normalizedContent,
+              },
+              {
+                includeNonTitleFields: args.searchFields !== "title",
+              },
+            )
+          : null;
+      let docsQuery = db
+        .select({
+          id: schema.documents.id,
+          parentId: schema.documents.parentId,
+          title: schema.documents.title,
+          description: schema.documents.description,
+          icon: schema.documents.icon,
+          hideFromSearch: schema.documents.hideFromSearch,
+          updatedAt: schema.documents.updatedAt,
+          sourceKind: schema.documents.sourceKind,
+          sourceUpdatedAt: schema.documents.sourceUpdatedAt,
+          documentType: sql<"page" | "database">`case when ${exists(
+            db
+              .select({ id: schema.contentDatabases.id })
+              .from(schema.contentDatabases)
+              .where(
+                and(
+                  eq(schema.contentDatabases.documentId, schema.documents.id),
+                  isNull(schema.contentDatabases.deletedAt),
                 ),
-              ]
-            : []),
-        desc(schema.documents.updatedAt),
-        asc(schema.documents.id),
-      )
-      .limit(args.limit)
-      .offset(args.offset);
-    const previews = docs.length
-      ? await db
-          .select({
-            id: schema.documents.id,
-            contentPreview: matchWindow,
-            matchPosition: selectedBodyPosition ?? sql<number | null>`null`,
-            snippetNeedle: selectedBodyNeedle
-              ? sql<string>`coalesce(${selectedBodyNeedle}, '')`
-              : sql<string>`''`,
-            contentLength: sql<number>`length(${normalizedContent})`,
-            beforeOpenMarker,
-          })
-          .from(schema.documents)
-          .where(
-            and(
-              baseWhere,
-              inArray(
-                schema.documents.id,
-                docs.map((doc) => doc.id),
               ),
-            ),
-          )
-      : [];
-    const previewById = new Map(
-      previews.map((preview) => [preview.id, preview]),
-    );
-    const countQuery = db
-      .select({ count: sql<number>`count(*)` })
-      .from(schema.documents)
-      .where(where)
-      .$dynamic();
-    if (indexedSearch) {
-      countQuery.innerJoin(indexedSearch.join, indexedSearch.on);
-    }
-    let totalItems: number;
-    if (docs.length) {
-      totalItems = Number(docs[0]!.totalItems);
-    } else {
-      const [counted] = await countQuery;
-      // guard:allow-bare-error — invariant: count(*) without GROUP BY always returns one row.
-      if (!counted) throw new Error("Counting search results returned no row.");
-      totalItems = Number(counted.count);
+          )} then 'database' else 'page' end`,
+          totalItems: sql<number>`count(*) over()`,
+        })
+        .from(schema.documents)
+        .where(where)
+        .$dynamic();
+      // Reassigned because a new process's database handle replays a query
+      // from its chained steps, so a join added on the side is lost.
+      if (indexedSearch) {
+        docsQuery = docsQuery.innerJoin(indexedSearch.join, indexedSearch.on);
+      }
+      const docs = await docsQuery
+        .orderBy(
+          ...(indexedSearch
+            ? indexedSearch.orderBy
+            : ranking
+              ? [
+                  desc(ranking.matchTier),
+                  desc(ranking.titleCoverage),
+                  desc(ranking.descriptionCoverage),
+                  desc(
+                    sql<number>`case when count(*) over() <= 1000 then ${ranking.bodyProximity} else 0 end`,
+                  ),
+                ]
+              : []),
+          desc(schema.documents.updatedAt),
+          asc(schema.documents.id),
+        )
+        .limit(args.limit)
+        .offset(args.offset);
+      const previewById = await loadDocumentSearchPreviews({
+        db,
+        where: baseWhere,
+        ids: docs.map((doc) => doc.id),
+        needles: bodyNeedles,
+      });
+      let countQuery = db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.documents)
+        .where(where)
+        .$dynamic();
+      if (indexedSearch) {
+        countQuery = countQuery.innerJoin(indexedSearch.join, indexedSearch.on);
+      }
+      let totalItems: number;
+      if (docs.length) {
+        totalItems = Number(docs[0].totalItems);
+      } else {
+        // count(*) without GROUP BY always returns one row.
+        const counted: ({ count: number } | undefined)[] = await countQuery;
+        totalItems = Number(counted[0]?.count ?? 0);
+      }
+      return { docs, previewById, totalItems };
+    };
+    // Words the caller's own search can return, so a correction never
+    // reveals a word from a document they can't open.
+    const visibleVocabulary = async () => {
+      const text =
+        args.searchFields === "title"
+          ? sql`coalesce(${schema.documents.title}, '')`
+          : sql`coalesce(${schema.documents.title}, '') || ' ' || coalesce(${schema.documents.description}, '')`;
+      // Split on whitespace and ASCII punctuation here, so "roadmap," and
+      // "roadmap" count as one word; searchVocabulary splits the rest.
+      // `[:punct:]` would also split at combining accents in UTF-8 locales.
+      const words = db
+        .select({
+          word: sql<string>`regexp_split_to_table(lower(${text}), ${"[\\s\\x21-\\x2f\\x3a-\\x40\\x5b-\\x60\\x7b-\\x7e]+"})`.as(
+            "word",
+          ),
+        })
+        .from(schema.documents)
+        .where(baseWhere)
+        .as("visible_words");
+      const rows = await db
+        .select({ word: words.word })
+        .from(words)
+        .where(sql`${words.word} <> ''`)
+        .groupBy(words.word)
+        .orderBy(desc(sql`count(*)`), asc(words.word))
+        .limit(TYPO_VOCABULARY_LIMIT);
+      return searchVocabulary(rows.map((row) => row.word));
+    };
+
+    let { docs, previewById, totalItems } = await searchPage(parsedQuery);
+    let spellingCorrections: SpellingCorrection[] | undefined;
+    if (
+      totalItems === 0 &&
+      parsedQuery &&
+      !parsedQuery.empty &&
+      !args.exactTitle &&
+      hasCorrectableWord(parsedQuery)
+    ) {
+      const corrected = correctSearchQueryTypos(
+        parsedQuery,
+        await visibleVocabulary(),
+      );
+      if (corrected) {
+        const correctedPage = await searchPage(corrected.query);
+        if (correctedPage.totalItems > 0) {
+          ({ docs, previewById, totalItems } = correctedPage);
+          spellingCorrections = corrected.corrections;
+        }
+      }
     }
 
     const parentIds = [
@@ -521,8 +447,8 @@ export default defineAction({
           title: doc.title,
           description: doc.description,
           icon: doc.icon,
-          snippet: previewSnippet(preview),
-          contentLength: Number(preview?.contentLength) || 0,
+          snippet: preview?.snippet ?? "",
+          contentLength: preview?.contentLength ?? 0,
           hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
           updatedAt: doc.updatedAt,
         };
@@ -533,6 +459,8 @@ export default defineAction({
         totalItems,
         returnedItems: docs.length,
       }),
+      ...(spellingCorrections ? { spellingCorrections } : {}),
+      ...(args.withinSubtreeOf ? { withinSubtreeTruncated } : {}),
     };
   },
 });

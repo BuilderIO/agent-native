@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveFilterVars } from "../../app/pages/adhoc/sql-dashboard/filter-vars";
 import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
+import { newDashboardTrafficFilter } from "../../shared/traffic-environment";
 
 const mocks = vi.hoisted(() => ({
   resolve: vi.fn(),
@@ -43,6 +44,7 @@ const {
   formatVerificationFailure,
   isAgentCaller,
   pageDashboardConfig,
+  resolveDashboardPanelQueries,
   resolveVerificationVars,
   touchedPanelIds,
   touchedVisualPanels,
@@ -157,6 +159,45 @@ describe("resolveVerificationVars", () => {
   });
 });
 
+describe("resolveDashboardPanelQueries", () => {
+  const panels = [
+    { id: "events", source: "first-party", chartType: "line", sql: "SELECT 1" },
+    { id: "spend", source: "bigquery", chartType: "line", sql: "SELECT 2" },
+  ];
+  const trafficOf = (filters: unknown[], overrides?: Record<string, string>) =>
+    resolveDashboardPanelQueries({ panels, filters }, overrides).map((panel) =>
+      "trafficEnvironment" in panel ? panel.trafficEnvironment : undefined,
+    );
+
+  it("carries the traffic a fresh tab shows to first-party panels only", () => {
+    const traffic = newDashboardTrafficFilter();
+
+    expect(trafficOf([traffic])).toEqual(["production", undefined]);
+    expect(trafficOf([traffic], { traffic_environment: "all" })).toEqual([
+      undefined,
+      undefined,
+    ]);
+    // An older dashboard shows the filter without storing it.
+    expect(trafficOf([], { f_traffic_environment: "beta" })).toEqual([
+      "beta",
+      undefined,
+    ]);
+    expect(trafficOf([])).toEqual([undefined, undefined]);
+  });
+
+  it("fails first-party panels on a traffic value the filter doesn't offer", () => {
+    const resolved = resolveDashboardPanelQueries(
+      { panels, filters: [newDashboardTrafficFilter()] },
+      { f_traffic_environment: "staging" },
+    );
+
+    expect(resolved.map((panel) => "error" in panel && panel.error)).toEqual([
+      'The traffic filter is "staging". Set f_traffic_environment to all, production or beta.',
+      false,
+    ]);
+  });
+});
+
 describe("verifyDashboardPanels", () => {
   it("runs the exact SQL the browser sends for the page's variable state", async () => {
     mocks.resolve.mockResolvedValue(rows(WIDE));
@@ -188,6 +229,61 @@ describe("verifyDashboardPanels", () => {
     );
     expect(request.source).toBe("bigquery");
     expect(context).toEqual({ userEmail: "alice@example.com", orgId: null });
+  });
+
+  it.each([
+    ["its id", { traffic_environment: "beta" }],
+    ["its URL name", { f_traffic_environment: "beta" }],
+  ])("reads the traffic a caller names by %s", async (_form, filters) => {
+    mocks.resolve.mockResolvedValue(rows(WIDE));
+
+    await verifyDashboardPanels(dashboard([panel()]), ["p1"], { filters });
+
+    expect(mocks.resolve.mock.calls[0]?.[0]).toMatchObject({
+      trafficEnvironment: "beta",
+    });
+  });
+
+  it("refuses a traffic value the filter doesn't offer, without running the panel", async () => {
+    mocks.resolve.mockResolvedValue(rows(WIDE));
+
+    const result = await verifyDashboardPanels(dashboard([panel()]), ["p1"], {
+      filters: { f_traffic_environment: "staging" },
+    });
+
+    expect(result.panels[0]).toMatchObject({
+      status: "query-error",
+      error:
+        'The traffic filter is "staging". Set f_traffic_environment to all, production or beta.',
+    });
+    expect(mocks.resolve).not.toHaveBeenCalled();
+  });
+
+  it("refuses a panel the dashboard's traffic default can't load, without running it", async () => {
+    mocks.resolve.mockResolvedValue(rows([{ n: 1 }]));
+    const rollup = { source: "first-party", chartType: "metric" };
+    const config = dashboard(
+      [
+        panel({
+          ...rollup,
+          sql: "SELECT SUM(event_count) AS n FROM analytics_event_daily_rollups",
+        }),
+        panel({
+          ...rollup,
+          id: "p2",
+          sql: "SELECT SUM(event_count) AS n FROM analytics_event_daily_rollups WHERE event_date >= '2026-01-01'",
+        }),
+      ],
+      { filters: [newDashboardTrafficFilter()] },
+    );
+
+    const result = await verifyDashboardPanels(config, ["p1", "p2"]);
+
+    const [undated, dated] = result.panels;
+    expect(undated).toMatchObject({ status: "query-error" });
+    expect(undated?.error).toMatch(/needs a start date/);
+    expect(dated?.status).not.toBe("query-error");
+    expect(mocks.resolve).toHaveBeenCalledTimes(1);
   });
 
   it("reports ok with columns, counts, bounded sample rows and resolved filters", async () => {
@@ -1425,7 +1521,17 @@ describe("cost of a write", () => {
     true;
 
   it("prices only the changed panel and reports monthly runs for its email reports", async () => {
-    mocks.resolve.mockResolvedValue(rows(WIDE));
+    const { newBigQueryJobUsage } = await import("./bigquery-usage");
+    mocks.resolve.mockImplementation(async (_request, context) => {
+      expect(
+        newBigQueryJobUsage("fixture-project", "fixture-job", context),
+      ).toMatchObject({
+        workload: "panel-verification",
+        dashboardId: "d1",
+        panelId: "p1",
+      });
+      return rows(WIDE);
+    });
     mocks.dryRun.mockResolvedValue({
       error: null,
       totalBytesProcessed: 2 * GIB,

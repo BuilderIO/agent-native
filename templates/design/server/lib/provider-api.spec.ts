@@ -11,11 +11,13 @@ const mocks = vi.hoisted(() => ({
     orgId: "org-one",
   })),
   listProviderApiIdsForTemplateUse: vi.fn(() => ["figma", "github"]),
+  register: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/provider-api", () => ({
   createProviderApiRuntime: mocks.create,
   listProviderApiIdsForTemplateUse: mocks.listProviderApiIdsForTemplateUse,
+  registerProviderApiActionRuntime: mocks.register,
 }));
 vi.mock("@agent-native/core/server", () => ({
   getCredentialContext: mocks.getCredentialContext,

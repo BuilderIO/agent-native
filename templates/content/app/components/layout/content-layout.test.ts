@@ -8,6 +8,7 @@ import {
   type ContentLayoutInput,
   contentPageWidth,
   resolveContentLayout,
+  resolveContentPanel,
   resolveContentSidebar,
 } from "./content-layout";
 import {
@@ -29,14 +30,12 @@ function input(
     agentWidth = AGENT_WIDTH,
     collapsed = false,
     sidebarWidth = DEFAULT_SIDEBAR_WIDTH,
-    utilityRail = false,
     previous,
   }: {
     agentOpen?: boolean;
     agentWidth?: number;
     collapsed?: boolean;
     sidebarWidth?: number;
-    utilityRail?: boolean;
     previous?: ContentLayout;
   } = {},
 ): ContentLayoutInput {
@@ -46,10 +45,47 @@ function input(
     agentPanel: agentOpen
       ? { open: true, width: agentWidth }
       : { open: false, width: 0 },
-    utilityRail,
     previous,
   };
 }
+
+describe("resolveContentPanel", () => {
+  it("is 400 px wide from 1440 px and 380 px below that", () => {
+    expect(
+      resolveContentPanel({ rowWidth: 1200, viewportWidth: 1440 }),
+    ).toEqual({ mode: "dock", width: 400 });
+    expect(
+      resolveContentPanel({ rowWidth: 1190, viewportWidth: 1439 }),
+    ).toEqual({ mode: "dock", width: 380 });
+  });
+
+  it("docks while the text keeps its column, and covers the page after that", () => {
+    const fits = CONTENT_TEXT_MIN_WIDTH + 380;
+    expect(
+      resolveContentPanel({ rowWidth: fits, viewportWidth: 1024 }).mode,
+    ).toBe("dock");
+    expect(
+      resolveContentPanel({ rowWidth: fits - 1, viewportWidth: 1024 }).mode,
+    ).toBe("over");
+  });
+
+  it("is a sheet in a window under 600 px, whatever the row", () => {
+    expect(
+      resolveContentPanel({ rowWidth: 599, viewportWidth: 599 }).mode,
+    ).toBe("sheet");
+    expect(
+      resolveContentPanel({ rowWidth: 600, viewportWidth: 600 }).mode,
+    ).toBe("over");
+  });
+
+  it("has one mode at each width, however the window got there", () => {
+    for (let rowWidth = 900; rowWidth < 1000; rowWidth += 1) {
+      const narrowing = resolveContentPanel({ rowWidth, viewportWidth: 1280 });
+      const widening = resolveContentPanel({ rowWidth, viewportWidth: 1280 });
+      expect(narrowing).toEqual(widening);
+    }
+  });
+});
 
 describe("resolveContentLayout", () => {
   it("draws a phone with a drawer sidebar, cards on the text, and the comments sheet", () => {
@@ -58,7 +94,7 @@ describe("resolveContentLayout", () => {
         sidebar: "drawer",
         sidebarAutoCollapsed: true,
         agentPanel: agentOpen ? "overlay" : "closed",
-        comments: { margin: "anchored", list: "sheet" },
+        comments: { margin: "anchored" },
       });
     }
     expect(resolveContentLayout(input(560)).sidebar).toBe("drawer");
@@ -69,7 +105,7 @@ describe("resolveContentLayout", () => {
       sidebar: "rail",
       sidebarAutoCollapsed: true,
       agentPanel: "closed",
-      comments: { margin: "anchored", list: "region-list" },
+      comments: { margin: "anchored" },
     });
   });
 
@@ -105,7 +141,7 @@ describe("resolveContentLayout", () => {
       sidebar: "rail",
       sidebarAutoCollapsed: true,
       agentPanel: "docked",
-      comments: { margin: "anchored", list: "region-list" },
+      comments: { margin: "anchored" },
     });
     expect(contentPageWidth(opened, layout.sidebar)).toBeGreaterThanOrEqual(
       CONTENT_TEXT_MIN_WIDTH,
@@ -123,68 +159,18 @@ describe("resolveContentLayout", () => {
     expect(layout.agentPanel).toBe("docked");
     expect(layout.comments).toEqual({
       margin: "anchored",
-      list: "region-list",
     });
     expect(contentPageWidth(opened, layout.sidebar)).toBeGreaterThanOrEqual(
       CONTENT_TEXT_MIN_WIDTH,
     );
   });
-
-  it("gives up the sidebar before an open comments list covers the text", () => {
-    const opened = input(1280, {
-      agentOpen: true,
-      utilityRail: true,
-      previous: resolveContentLayout(input(1280, { utilityRail: true })),
-    });
-    const layout = resolveContentLayout(opened);
-
-    expect(layout.sidebar).toBe("drawer");
-    expect(layout.comments.list).toBe("rail");
-    expect(contentPageWidth(opened, layout.sidebar)).toBeGreaterThanOrEqual(
-      CONTENT_TEXT_MIN_WIDTH + CONTENT_COMMENT_SURFACE_WIDTH,
-    );
-    expect(
-      resolveContentLayout(input(1100, { utilityRail: true })),
-    ).toMatchObject({ sidebar: "rail", comments: { list: "rail" } });
-    expect(
-      resolveContentLayout(input(1280, { utilityRail: true })),
-    ).toMatchObject({ sidebar: "docked", comments: { list: "rail" } });
-  });
-
-  it("does not place the comments rail beneath a forced agent overlay", () => {
-    const commentsRail = input(944, {
-      collapsed: true,
-      utilityRail: true,
-    });
-    const previous = resolveContentLayout(commentsRail);
-    expect(previous.comments.list).toBe("rail");
-
-    const opened = input(920, {
-      agentOpen: true,
-      collapsed: true,
-      utilityRail: true,
-      previous,
-    });
-    const layout = resolveContentLayout(opened);
-
-    expect(layout.agentPanel).toBe("overlay");
-    expect(layout.comments.list).toBe("region-list");
-  });
-
-  it("keeps the sidebar for the text when even a drawer leaves no room for the list", () => {
-    expect(
-      resolveContentLayout(input(1024, { agentOpen: true, utilityRail: true })),
-    ).toMatchObject({ sidebar: "rail", comments: { list: "region-list" } });
-    expect(
-      resolveContentLayout(input(375, { utilityRail: true })),
-    ).toMatchObject({ sidebar: "drawer", comments: { list: "sheet" } });
-  });
+  // oracle-change: the sidebar no longer gives way to a page's panel, so its rail cases are gone.
 
   it("keeps the comment lane and rail at 1600, with or without the agent", () => {
     for (const agentOpen of [false, true]) {
       expect(resolveContentLayout(input(1600, { agentOpen }))).toMatchObject({
         sidebar: "docked",
-        comments: { margin: "lane", list: "rail" },
+        comments: { margin: "lane" },
       });
     }
   });
@@ -231,13 +217,12 @@ describe("resolveContentLayout", () => {
       CONTENT_TEXT_MIN_WIDTH +
       CONTENT_COMMENT_SURFACE_WIDTH;
     const lane = resolveContentLayout(input(laneEdge));
-    expect(lane.comments).toEqual({ margin: "lane", list: "rail" });
+    expect(lane.comments).toEqual({ margin: "lane" });
     expect(
       resolveContentLayout(input(laneEdge - 16, { previous: lane })).comments,
-    ).toEqual({ margin: "lane", list: "rail" });
+    ).toEqual({ margin: "lane" });
     expect(resolveContentLayout(input(laneEdge - 16)).comments).toEqual({
       margin: "anchored",
-      list: "region-list",
     });
   });
 

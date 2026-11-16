@@ -2,6 +2,7 @@
 
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import type { DocumentProperty } from "@shared/api";
+import { CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER } from "@shared/blocks-field-suggestions";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -170,8 +171,28 @@ function suggestion(id: string): ResourceSuggestion {
   } as ResourceSuggestion;
 }
 
+/** A suggested edit to another Blocks field tab than the body. */
+function tabSuggestion(id: string, fieldId: string): ResourceSuggestion {
+  return {
+    ...suggestion(id),
+    adapterKind: CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
+    baseRevision: `blocks-field:${fieldId}:1`,
+    operations: [
+      {
+        id: `${id}-op`,
+        ordinal: 0,
+        kind: "replace_text",
+        targetId: fieldId,
+        before: { markdown: "Filler notes." },
+        after: { markdown: "Filler notes, edited." },
+      },
+    ],
+  } as ResourceSuggestion;
+}
+
 const commentAi = {
   requests: [],
+  serverRequests: [],
   startingThreadIds: new Set<string>(),
   stoppingRequestIds: new Set<string>(),
   continuations: new Map(),
@@ -195,6 +216,7 @@ type Options = {
   pending?: PendingCommentSelection | null;
   commentAi?: CommentAiController;
   scrollContainer?: HTMLDivElement;
+  canDecideFieldSuggestions?: boolean;
 };
 
 let replies: ReturnType<typeof useCommentReplyDrafts>;
@@ -226,6 +248,8 @@ function Owner({
       currentUserEmail="reviewer@example.test"
       canComment
       canResolve
+      canDecideSuggestions
+      canDecideFieldSuggestions={options.canDecideFieldSuggestions ?? true}
       alignToAnchors={false}
       scrollContainerRef={
         options.scrollContainer
@@ -282,6 +306,9 @@ describe("comments across Blocks field tabs", () => {
     return [...(list?.children ?? [])].map((child) => {
       if (child.hasAttribute("data-comments-tab-group")) {
         return `# ${child.textContent}`;
+      }
+      if (child.hasAttribute("data-discussion-section")) {
+        return `§ ${child.textContent}`;
       }
       const card = child.matches("[data-thread-card], [data-suggestion-id]")
         ? child
@@ -366,6 +393,57 @@ describe("comments across Blocks field tabs", () => {
     expect(feed()).toHaveLength(7);
   });
 
+  it("lists a tab's suggested edit under its tab, and filters it with that tab (CMT-2)", () => {
+    render(tabThreads, {
+      documentProperties: twoFields,
+      suggestions: [suggestion("edit-1"), tabSuggestion("notes-edit", "notes")],
+    });
+    expect(feed()).toEqual([
+      "# Content",
+      "body-1",
+      "edit-1",
+      "# Notes",
+      "notes-1",
+      "notes-edit",
+      "# comments.fieldRemoved:Old notes",
+      "gone-1",
+    ]);
+
+    act(() => replies.setHistoryFilters({ tab: "notes" }));
+    expect(feed()).toEqual(["# Notes", "notes-1", "notes-edit"]);
+
+    act(() => replies.setHistoryFilters({ tab: "" }));
+    expect(feed()).toEqual(["# Content", "body-1", "edit-1"]);
+  });
+
+  it("offers accepting a tab's suggestion only to the Collection's editors", () => {
+    const decisions = (id: string) =>
+      [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          `[data-suggestion-id="${id}"] button[data-suggestion-decision]`,
+        ),
+      ].map(
+        (button) =>
+          `${button.dataset.suggestionDecision}${button.disabled ? " (off)" : ""}`,
+      );
+    const suggestions = [
+      suggestion("edit-1"),
+      tabSuggestion("notes-edit", "notes"),
+    ];
+
+    // Rejecting writes nothing, so whoever decides on the page can reject.
+    render(tabThreads, {
+      documentProperties: twoFields,
+      suggestions,
+      canDecideFieldSuggestions: false,
+    });
+    expect(decisions("edit-1")).toEqual(["accepted", "rejected"]);
+    expect(decisions("notes-edit")).toEqual(["accepted (off)", "rejected"]);
+
+    render(tabThreads, { documentProperties: twoFields, suggestions });
+    expect(decisions("notes-edit")).toEqual(["accepted", "rejected"]);
+  });
+
   it("shows every tab again when the chosen one is gone", () => {
     render(tabThreads, { documentProperties: twoFields });
     act(() => replies.setHistoryFilters({ tab: "gone" }));
@@ -379,7 +457,7 @@ describe("comments across Blocks field tabs", () => {
     render([thread("body-1", null), thread("body-22", null)], {
       documentProperties: oneField,
     });
-    expect(feed()).toEqual(["body-1", "body-22"]);
+    expect(feed()).toEqual(["§ comments.sectionText", "body-1", "body-22"]);
     await openFilterMenu();
     expect(
       document.querySelector('[data-discussion-filter-group="person"]'),
@@ -416,7 +494,7 @@ describe("comments across Blocks field tabs", () => {
 
     // Until the page's fields are read, nothing is known to be deleted.
     render(threads, { documentProperties: undefined });
-    expect(feed()).toEqual(["body-1", "gone-1"]);
+    expect(feed()).toEqual(["§ comments.sectionText", "body-1", "gone-1"]);
   });
 
   it("starts a new comment in the tab its text is in (CMT-1)", async () => {
@@ -462,15 +540,15 @@ describe("comments across Blocks field tabs", () => {
     expect(actions.create.mock.calls[0]?.[0]).not.toHaveProperty("fieldId");
   });
 
-  it("offers Ask AI only on the page body's threads", () => {
+  it("offers Ask AI on a tab's threads, as on the page body's", () => {
     render([thread("notes-1", "notes", "Notes")], {
       presentation: "inline",
       selected: "notes-1",
       commentAi,
     });
     expect(richEditor(container)).not.toBeNull();
-    expect(actions.aiEnabled.length).toBeGreaterThan(0);
-    expect(actions.aiEnabled.every((enabled) => !enabled)).toBe(true);
+    // oracle-change: a tab's thread now offers Ask AI, so it is enabled rather than disabled everywhere.
+    expect(actions.aiEnabled).toContain(true);
 
     actions.aiEnabled.length = 0;
     render([thread("body-1", null)], {
@@ -481,14 +559,14 @@ describe("comments across Blocks field tabs", () => {
     expect(actions.aiEnabled).toContain(true);
   });
 
-  it("offers Ask AI only on new comments in the page body", () => {
+  it("offers Ask AI on new comments in a tab, as in the page body", () => {
     render([], {
       presentation: "inline",
       pending: { quotedText: "Notes", offsetTop: 0, fieldId: "notes" },
       commentAi,
     });
     expect(richEditor(container)).not.toBeNull();
-    expect(actions.aiEnabled.every((enabled) => !enabled)).toBe(true);
+    expect(actions.aiEnabled).toContain(true);
 
     actions.aiEnabled.length = 0;
     render([], {

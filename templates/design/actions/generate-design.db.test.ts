@@ -109,7 +109,9 @@ beforeAll(async () => {
     id TEXT PRIMARY KEY, design_id TEXT NOT NULL, filename TEXT NOT NULL,
     content TEXT NOT NULL, file_type TEXT NOT NULL,
     content_operation_source TEXT, content_operation_revision INTEGER,
-    content_operation_result_hash TEXT, created_at TEXT, updated_at TEXT
+    content_operation_result_hash TEXT,
+    content_operation_revisions TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT, updated_at TEXT
   )`,
   });
 });

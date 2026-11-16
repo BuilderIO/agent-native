@@ -47,6 +47,7 @@ import {
 import { useFileUploadStatus } from "@agent-native/core/client/uploads/use-file-upload-status";
 import { useUploadResource } from "@agent-native/core/client/uploads/use-upload-resource";
 import { actionErrorMessage } from "@agent-native/core/client/use-action";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { OrgInfo } from "@agent-native/core/org/types";
 import { serializeFrontmatter } from "@agent-native/core/resources/metadata";
 import { RESOURCE_PACK_MAX_BODY_BYTES } from "@agent-native/core/resources/pack-constants";
@@ -1559,7 +1560,7 @@ export function ResourcesPanel({
   const deleteResource = useDeleteResource();
   const exportResourcePack = useExportResourcePack();
   const importResourcePack = useImportResourcePack();
-  const { mutate: uploadResourceFile } = useUploadResource();
+  const { mutateAsync: uploadResourceFile } = useUploadResource();
   const processResourceUploads = useCallback(
     (
       uploads: PendingResourceUpload[],
@@ -1578,7 +1579,11 @@ export function ResourcesPanel({
           "shared",
           upload.targetScope === "shared" ? "true" : "false",
         );
-        uploadResourceFile(formData);
+        // A per-call `onError` only fires for the latest `mutate`, so a
+        // multi-file drop reports each failure through its own promise.
+        uploadResourceFile(formData).catch((error: unknown) =>
+          reportWriteFailure(error),
+        );
       }
       if (needsStorage.length) {
         pendingResourceUploadsRef.current = mergePendingResourceUploads(
@@ -1685,6 +1690,7 @@ export function ResourcesPanel({
           onSuccess: (data) => {
             setSelectedResourceId(data.id);
           },
+          onError: (error) => reportWriteFailure(error),
         },
       );
     },
@@ -1694,7 +1700,10 @@ export function ResourcesPanel({
   const handleCreateFolder = useCallback(
     (parentPath: string, name: string, scope: ResourceScope) => {
       const path = parentPath ? `${parentPath}/${name}/.keep` : `${name}/.keep`;
-      createResource.mutate({ path, content: "", shared: scope === "shared" });
+      createResource.mutate(
+        { path, content: "", shared: scope === "shared" },
+        { onError: (error) => reportWriteFailure(error) },
+      );
     },
     [createResource],
   );
@@ -1713,6 +1722,7 @@ export function ResourcesPanel({
           onSuccess: (data) => {
             setSelectedResourceId(data.id);
           },
+          onError: (error) => reportWriteFailure(error),
         },
       );
     },
@@ -1745,7 +1755,8 @@ export function ResourcesPanel({
             opts?.onSuccess?.(data);
           },
           onError: (err) => {
-            opts?.onError?.(err);
+            if (opts?.onError) opts.onError(err);
+            else reportWriteFailure(err);
           },
         },
       );
@@ -1763,12 +1774,15 @@ export function ResourcesPanel({
             onSuccess: () => {
               if (selectedResourceId === id) setSelectedResourceId(null);
             },
+            onError: (error) => reportWriteFailure(error),
           },
         );
         return;
       }
       if (parseMcpBuiltinVirtualId(id)) return;
-      deleteResource.mutate(id);
+      deleteResource.mutate(id, {
+        onError: (error) => reportWriteFailure(error),
+      });
       if (selectedResourceId === id) {
         setSelectedResourceId(null);
       }
@@ -1792,7 +1806,10 @@ export function ResourcesPanel({
 
   const handleRename = useCallback(
     (id: string, newPath: string) => {
-      updateResource.mutate({ id, path: newPath });
+      updateResource.mutate(
+        { id, path: newPath },
+        { onError: (error) => reportWriteFailure(error) },
+      );
     },
     [updateResource],
   );

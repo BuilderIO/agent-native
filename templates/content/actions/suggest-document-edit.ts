@@ -14,7 +14,12 @@ import { roleSatisfies } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import {
+  createWithSavedUnits,
+  modelUnits,
+} from "../server/lib/suggestion-model-units.js";
 import {
   resolveDocumentTextEdits,
   type DocumentTextEdit,
@@ -30,7 +35,6 @@ import {
   contentSuggestionPath,
   contentSuggestionReviewPath,
 } from "../shared/suggestion-link.js";
-import { sentenceUnits } from "../shared/suggestion-units.js";
 import { resolveDocumentAccess } from "./_document-access.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 
@@ -58,7 +62,7 @@ const suggestDocumentEditSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Existing proposal ID for another edit in the same review pass. Reuse its summary.",
+      "Adds this edit to an earlier edit's review: the proposalId (not the suggestionId) an earlier suggest-document-edit call on this page returned. Pass that call's summary too.",
     ),
   find: z
     .string()
@@ -381,6 +385,7 @@ export default defineAction({
   agentInputSchema: externalSuggestDocumentEditSchema,
   schema: suggestDocumentEditSchema,
   http: false,
+  changeResource: (input) => documentChangeResource(input.id),
   // MCP Apps hosts embed this link as the inline review card. Every other
   // caller gets a link that forwards to the suggestion on its page.
   link: ({ args, result }) => {
@@ -597,44 +602,51 @@ export default defineAction({
     }
 
     const summary = effectiveSummary;
-    // Unit labels come from the creation key, so a retry writes the same ones
-    // and a later call that extends this proposal never joins its units.
+    // Unit labels come from the creation key, so a later call that extends this
+    // proposal never joins its units. A retry that reached the receipt above has
+    // already returned; one racing the first call keeps the labels it saved.
     const creationKey = args.idempotencyKey ?? crypto.randomUUID();
-    const units = sentenceUnits(operations);
+    const units = await modelUnits({ ownerEmail: ctx?.userEmail, operations });
 
-    const grouped = await createResourceSuggestionProposal.run(
-      {
-        resourceType: "document",
-        resourceId: id,
-        adapterKind: "content.document-markdown",
-        baseRevision:
-          args.baseRevision ||
-          documentRevisionToken(existing.bodyRevision, content),
-        summary,
-        proposalId: args.proposalId,
-        idempotencyKey: creationKey,
-        suggestions: operations.map((operation, index) => {
-          const unit =
-            operations.length > 1
-              ? { reviewUnit: `${creationKey}:${units[index]}` }
-              : undefined;
-          return {
-            summary: markdownSuggestionOperationSummary(operation),
-            operations: [{ ...operation, ordinal: 0 }],
-            metadata:
-              index === 0
-                ? {
-                    sourceFind: args.find,
-                    sourceReplace: args.replace ?? "",
-                    sourceProposalId: args.proposalId ?? null,
-                    ...unit,
-                  }
-                : unit,
-          };
-        }),
-      },
-      suggestionContext,
-    );
+    const grouped = await createWithSavedUnits({
+      labels: units.map((unit) => `${creationKey}:${unit}`),
+      idempotencyKey: creationKey,
+      ctx: suggestionContext,
+      create: (labels) =>
+        createResourceSuggestionProposal.run(
+          {
+            resourceType: "document",
+            resourceId: id,
+            adapterKind: "content.document-markdown",
+            baseRevision:
+              args.baseRevision ||
+              documentRevisionToken(existing.bodyRevision, content),
+            summary,
+            proposalId: args.proposalId,
+            idempotencyKey: creationKey,
+            suggestions: operations.map((operation, index) => {
+              const unit =
+                operations.length > 1
+                  ? { reviewUnit: labels[index] }
+                  : undefined;
+              return {
+                summary: markdownSuggestionOperationSummary(operation),
+                operations: [{ ...operation, ordinal: 0 }],
+                metadata:
+                  index === 0
+                    ? {
+                        sourceFind: args.find,
+                        sourceReplace: args.replace ?? "",
+                        sourceProposalId: args.proposalId ?? null,
+                        ...unit,
+                      }
+                    : unit,
+              };
+            }),
+          },
+          suggestionContext,
+        ),
+    });
     const first = grouped.suggestions[0]!;
 
     if (isExternalCaller) {

@@ -1,3 +1,17 @@
+import {
+  resolveDeployEnvironment,
+  resolveDeployPlatform,
+} from "../server/deploy-environment.js";
+import { isHostedWorkspaceRuntime } from "../server/deployment-protection.js";
+
+export function isLocalMcpRuntime(): boolean {
+  return (
+    resolveDeployEnvironment() === "local" &&
+    resolveDeployPlatform() === "local" &&
+    !isHostedWorkspaceRuntime()
+  );
+}
+
 const BLOCKED_HOSTNAME_PATTERNS: RegExp[] = [
   /^localhost$/i,
   /\.localhost$/i,
@@ -63,7 +77,10 @@ function isBlockedHostname(hostname: string): boolean {
   return BLOCKED_HOSTNAME_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
-export function validateRemoteUrl(raw: string): {
+export function validateRemoteUrl(
+  raw: string,
+  options: { allowedPrivateOrigins?: readonly string[] } = {},
+): {
   ok: boolean;
   url?: URL;
   error?: string;
@@ -74,8 +91,11 @@ export function validateRemoteUrl(raw: string): {
   } catch {
     return { ok: false, error: "Not a valid URL" };
   }
+  const configuredPrivateOrigin = options.allowedPrivateOrigins?.includes(
+    url.origin,
+  );
   if (url.protocol === "https:") {
-    if (isBlockedHostname(url.hostname)) {
+    if (isBlockedHostname(url.hostname) && !configuredPrivateOrigin) {
       return {
         ok: false,
         error: `Host "${url.hostname}" is not allowed (private/internal address)`,
@@ -85,10 +105,15 @@ export function validateRemoteUrl(raw: string): {
   }
   if (url.protocol === "http:") {
     const host = url.hostname;
-    if (host === "localhost" || host === "127.0.0.1") {
+    if (configuredPrivateOrigin) return { ok: true, url };
+    if ((host === "localhost" || host === "127.0.0.1") && isLocalMcpRuntime()) {
       return { ok: true, url };
     }
-    return { ok: false, error: "Plain http is only allowed for localhost" };
+    return {
+      ok: false,
+      error:
+        "Plain http is only allowed for localhost during local development",
+    };
   }
   return { ok: false, error: `Unsupported protocol: ${url.protocol}` };
 }

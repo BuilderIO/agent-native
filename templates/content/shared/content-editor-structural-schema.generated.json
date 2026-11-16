@@ -219,6 +219,11 @@
           "default": null
         },
         {
+          "name": "assetId",
+          "hasDefault": true,
+          "default": null
+        },
+        {
           "name": "uploadId",
           "hasDefault": true,
           "default": null
@@ -448,7 +453,13 @@
     },
     {
       "name": "notionColumn",
-      "attrs": [],
+      "attrs": [
+        {
+          "name": "ratio",
+          "hasDefault": true,
+          "default": null
+        }
+      ],
       "content": "block+",
       "defining": true
     },

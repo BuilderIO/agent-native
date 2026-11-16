@@ -376,28 +376,50 @@ export function getLayerMoveIterationOrder<T>(
   return placement === "after" ? [...orderedIds].reverse() : [...orderedIds];
 }
 
-export function removeUndoRedoOrderKind<T extends string>(
-  order: readonly T[],
-  kind: T,
-): T[] {
-  return order.filter((entry) => entry !== kind);
+export type PendingHistoryOrderKind = "pending-style" | "pending-live";
+export interface PendingHistoryOrderEntry {
+  kind: PendingHistoryOrderKind;
+  id: string;
 }
 
-export type UndoRedoOrderKind =
+export type UndoRedoOrderName =
   | "content"
   | "file-content"
   | "geometry"
   | "clipboard-paste"
   | "file-created"
   | "file-deleted"
-  | "pending-style"
-  | "pending-live";
+  | PendingHistoryOrderKind;
+export type UndoRedoOrderKind = UndoRedoOrderName | PendingHistoryOrderEntry;
+
+export function firstArrayValue<T>(values: readonly T[]): T | undefined {
+  return values[0];
+}
+
+export function lastArrayValue<T>(values: readonly T[]): T | undefined {
+  return values[values.length - 1];
+}
+
+export function undoRedoOrderKind(
+  entry: UndoRedoOrderKind | undefined,
+): UndoRedoOrderName | undefined {
+  if (!entry) return undefined;
+  return typeof entry === "string" ? entry : entry.kind;
+}
+
+export function removeUndoRedoOrderKind<T extends UndoRedoOrderKind>(
+  order: readonly T[],
+  kind: string,
+): T[] {
+  return order.filter((entry) => undoRedoOrderKind(entry) !== kind);
+}
 
 export function getUndoRedoPriorityOrder(
   preferred: UndoRedoOrderKind | undefined,
-): UndoRedoOrderKind[] {
-  if (preferred === "clipboard-paste") return ["clipboard-paste"];
-  if (preferred === "file-deleted")
+): UndoRedoOrderName[] {
+  const preferredKind = undoRedoOrderKind(preferred);
+  if (preferredKind === "clipboard-paste") return ["clipboard-paste"];
+  if (preferredKind === "file-deleted")
     return [
       "file-deleted",
       "file-created",
@@ -405,7 +427,7 @@ export function getUndoRedoPriorityOrder(
       "file-content",
       "geometry",
     ];
-  if (preferred === "file-created")
+  if (preferredKind === "file-created")
     return [
       "file-created",
       "file-deleted",
@@ -413,8 +435,9 @@ export function getUndoRedoPriorityOrder(
       "file-content",
       "geometry",
     ];
-  if (preferred === "geometry") return ["geometry", "content", "file-content"];
-  if (preferred === "file-content")
+  if (preferredKind === "geometry")
+    return ["geometry", "content", "file-content"];
+  if (preferredKind === "file-content")
     return ["file-content", "content", "geometry"];
   return ["content", "file-content", "geometry"];
 }

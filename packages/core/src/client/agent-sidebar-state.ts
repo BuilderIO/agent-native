@@ -25,6 +25,8 @@ export interface AgentSidebarStateChangeDetail {
   open: boolean;
   source: AgentSidebarStateSource;
   mode: AgentSidebarStateMode;
+  /** The panel draws inside the app's `panelHost`, not beside the page. */
+  hosted?: boolean;
 }
 
 function resolveViewportWidth(viewportWidth?: number): number {

@@ -25,7 +25,7 @@ Apply requests about multiple named frames to those frames; ask for a target
 only when the available context leaves materially different choices.
 
 - Create the design if needed, then author complete email HTML with
-  `create-file` (`fileType: "html"`) or `generate-design` (`devices: []`, a
+  `create-file` (`fileType: "html"`) or `generate-design` (`fixedCanvas: true`, a
   600px-wide `canvasFrames` placement), passing `frameType: "hubspot-email"`
   on each email file. The frame type is stored with the screen and keeps email
   authoring defaults on future edits; do not add a frame-type meta tag. To make

@@ -377,7 +377,6 @@ describe("content database source actions", () => {
 
     expect(calls).toEqual([
       {
-        allowCached: true,
         model: "blog-article",
         fieldPaths: ["topics", "tags"],
         limit: 10_000,

@@ -1,5 +1,9 @@
 // @vitest-environment happy-dom
 
+import {
+  WRITE_FAILURE_EVENT,
+  type WriteFailureDetail,
+} from "@agent-native/core/client/write-failure";
 import type { CalendarEvent } from "@shared/api";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -431,5 +435,57 @@ describe("EventAttendeesSection attendee controls", () => {
       expect.objectContaining({ onError: expect.any(Function) }),
     );
     expect(document.querySelector("textarea")).toBeNull();
+  });
+
+  it("announces a failed response after rolling the response back", () => {
+    const reports: WriteFailureDetail[] = [];
+    const onReport = (event: Event) => {
+      reports.push((event as CustomEvent<WriteFailureDetail>).detail);
+    };
+    window.addEventListener(WRITE_FAILURE_EVENT, onReport);
+    const event: CalendarEvent = {
+      id: "event-3",
+      title: "Planning",
+      description: "",
+      location: "",
+      start: "2026-07-10T16:00:00.000Z",
+      end: "2026-07-10T17:00:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "me@example.com",
+      createdAt: "2026-07-10T15:00:00.000Z",
+      updatedAt: "2026-07-10T15:00:00.000Z",
+      responseStatus: "needsAction",
+      attendees: [
+        {
+          email: "me@example.com",
+          displayName: "Me",
+          responseStatus: "needsAction",
+          self: true,
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(<EventAttendeesSection event={event} />);
+    });
+
+    const yesButton = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === "eventForm.rsvpYes",
+    );
+    if (!yesButton) throw new Error("The Yes response button is missing");
+    act(() => {
+      yesButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const [, options] = rsvpMutate.mock.calls[0] as [
+      unknown,
+      { onError: (error: Error) => void },
+    ];
+    const failure = new Error("Forbidden");
+    act(() => options.onError(failure));
+    window.removeEventListener(WRITE_FAILURE_EVENT, onReport);
+
+    expect(reports.map((report) => report.error)).toEqual([failure]);
   });
 });

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "path";
 
@@ -45,7 +46,7 @@ interface SeriesData {
 
 function filenameStem(title: string, explicitFilename?: string): string {
   const stem = slugify(explicitFilename || title) || "chart";
-  return explicitFilename ? stem : `${stem}-${Date.now()}`;
+  return `${stem}-${randomUUID()}`;
 }
 
 function chartUrl(filename: string): string {
@@ -273,7 +274,7 @@ export default defineAction({
       });
       const buffer = await canvas.renderToBuffer(chartConfig);
       noteExternalWrite("local-disk");
-      writeFileSync(pngFilepath, buffer);
+      writeFileSync(pngFilepath, buffer, { flag: "wx" });
 
       track(
         "chart_created",
@@ -311,7 +312,10 @@ export default defineAction({
         stacked: isStacked,
       });
       noteExternalWrite("local-disk");
-      writeFileSync(join(mediaDir, svgFilename), svg, "utf8");
+      writeFileSync(join(mediaDir, svgFilename), svg, {
+        encoding: "utf8",
+        flag: "wx",
+      });
 
       track(
         "chart_created",

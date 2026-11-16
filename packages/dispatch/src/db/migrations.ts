@@ -133,21 +133,10 @@ export const dispatchMigrations: MigrationEntry[] = [
   },
   {
     version: 2,
+    // The retired vault_secrets table was created here. A fresh install no
+    // longer gets it; a database that already has it keeps it, and version 10
+    // still reads it where it exists.
     sql: `
-      CREATE TABLE IF NOT EXISTS vault_secrets (
-        id TEXT PRIMARY KEY,
-        owner_email TEXT NOT NULL,
-        org_id TEXT,
-        name TEXT NOT NULL,
-        credential_key TEXT NOT NULL,
-        value TEXT NOT NULL,
-        provider TEXT,
-        description TEXT,
-        created_by TEXT NOT NULL,
-        created_at BIGINT NOT NULL,
-        updated_at BIGINT NOT NULL
-      );
-
       CREATE TABLE IF NOT EXISTS vault_grants (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL,
@@ -364,6 +353,25 @@ export const dispatchMigrations: MigrationEntry[] = [
         ADD COLUMN IF NOT EXISTS auth_provider TEXT;
       ALTER TABLE identity_sso_bootstrap
         ADD COLUMN IF NOT EXISTS browser_binding_hash TEXT;
+    `,
+  },
+  {
+    version: 10,
+    name: "vault-grants-credential-key",
+    sql: `
+      ALTER TABLE IF EXISTS vault_grants ADD COLUMN IF NOT EXISTS credential_key TEXT;
+      DO $$
+      BEGIN
+        IF to_regclass('vault_secrets') IS NOT NULL
+          AND to_regclass('vault_grants') IS NOT NULL THEN
+          UPDATE vault_grants AS g
+          SET credential_key = s.credential_key
+          FROM vault_secrets AS s
+          WHERE g.credential_key IS NULL
+            AND s.id = g.secret_id
+            AND s.org_id = g.org_id;
+        END IF;
+      END $$;
     `,
   },
 ];
