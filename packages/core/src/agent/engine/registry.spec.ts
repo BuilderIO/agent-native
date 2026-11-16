@@ -1385,13 +1385,24 @@ describe("AgentEngine registry", () => {
       unregisterAgentEngine,
       detectEngineFromUserSecrets,
     } = await import("./registry.js");
-    const { resolveOwnerEngineApiKey, resolveChatEngine } =
-      await import("../production-agent.js");
+    const {
+      resolveOwnerEngineApiKey,
+      resolveChatEngine,
+      getOwnerActiveApiKey,
+    } = await import("../production-agent.js");
+    const { completeText } = await import("../../server/complete-text.js");
+    const { registerBuiltinEngines } = await import("./index.js");
+    registerBuiltinEngines();
     for (const name of ["builder", "ai-sdk:openai", "anthropic"])
       unregisterAgentEngine(name);
-    const openaiCreate = vi
-      .fn()
-      .mockReturnValue({ name: "ai-sdk:openai", stream: vi.fn() });
+    const openaiCreate = vi.fn().mockReturnValue({
+      name: "ai-sdk:openai",
+      defaultModel: "m",
+      supportedModels: [],
+      stream: async function* () {
+        yield { type: "stop", reason: "end_turn" };
+      },
+    });
     registerAgentEngine({
       name: "builder",
       label: "Builder",
@@ -1439,6 +1450,26 @@ describe("AgentEngine registry", () => {
     });
     expect(engine.name).toBe("ai-sdk:openai");
     expect(openaiCreate.mock.calls[0]?.[0].apiKey).toBe("example-openai");
+    const legacyKey = await getOwnerActiveApiKey("member@example.com");
+    expect(legacyKey).toBe("example-legacy-anthropic");
+    await completeText({ apiKey: legacyKey, input: "example request" });
+    expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe("example-openai");
+    const countBeforeUnrecognized = openaiCreate.mock.calls.length;
+    await expect(
+      completeText({
+        apiKey: "example-unrecognized",
+        input: "example request",
+      }),
+    ).rejects.toThrow(/explicit engine/i);
+    expect(openaiCreate).toHaveBeenCalledTimes(countBeforeUnrecognized);
+    await completeText({
+      engine: "ai-sdk:openai",
+      apiKey: "example-opaque-openai",
+      input: "example request",
+    });
+    expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe(
+      "example-opaque-openai",
+    );
   });
 
   it.each(["app", "stored"])(

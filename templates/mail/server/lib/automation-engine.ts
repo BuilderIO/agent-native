@@ -1101,6 +1101,7 @@ async function callModel(
     const engine = await resolveEngine({
       engineOption: settings.engine,
       apiKey: anthropicKey,
+      ...(anthropicKey ? { apiKeyEnvVar: "ANTHROPIC_API_KEY" } : {}),
     });
     const model = settings.model || engine.defaultModel;
     const timeoutSignal = AbortSignal.timeout(30_000);

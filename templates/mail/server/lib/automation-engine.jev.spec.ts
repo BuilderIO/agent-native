@@ -1021,6 +1021,35 @@ describe("Mail decision automation routing", () => {
     expect(result.evaluatedCount).toBe(420);
   });
 
+  it("binds a legacy Anthropic key to Anthropic when choosing an automatic rewrite engine", async () => {
+    mocks.resolveTextAutomationModelSettings.mockResolvedValue({
+      model: "test-model",
+    });
+    mocks.userSettings.set(
+      "owner@example.com:anthropic-api-key",
+      "example-legacy-anthropic",
+    );
+    mocks.resolveEngine.mockResolvedValue({
+      defaultModel: "test-model",
+      stream: async function* () {
+        yield { type: "text-delta", text: "Rewritten rule" };
+      },
+    });
+    await expect(
+      rewriteAutomationRuleCondition(
+        "owner@example.com",
+        { id: "rule-1", name: "Important", condition: "Old rule", actions: [] },
+        [],
+      ),
+    ).resolves.toBe("Rewritten rule");
+    expect(mocks.resolveEngine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: "example-legacy-anthropic",
+        apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      }),
+    );
+  });
+
   it("continues to use a text model for rewriting AI-filter rules", async () => {
     mocks.resolveTextAutomationModelSettings.mockResolvedValue({
       engine: "anthropic",

@@ -148,13 +148,21 @@ function createCompletionAbortSignal(
 async function resolveCompletionApiKey(
   options: CompleteTextOptions,
 ): Promise<ResolvedOwnerApiKey> {
-  if (options.apiKey) {
+  if (options.apiKey && options.engine) {
     return { apiKey: options.apiKey, apiKeyEnvVar: undefined };
   }
-  return resolveOwnerEngineApiKey({
+  const ownerKey = await resolveOwnerEngineApiKey({
     engineOption: options.engine,
     ownerEmail: getRequestUserEmail(),
   });
+  if (options.apiKey) {
+    if (ownerKey.apiKey === options.apiKey && ownerKey.apiKeyEnvVar)
+      return ownerKey;
+    throw new Error(
+      "An explicit engine is required for an unrecognized completion API key.",
+    );
+  }
+  return ownerKey;
 }
 
 async function runCompleteText(
