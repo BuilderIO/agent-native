@@ -1,5 +1,11 @@
 # @agent-native/recap-cli
 
+## 0.5.104
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.103
 
 ### Patch Changes
@@ -638,11 +644,5 @@
 ### Patch Changes
 
 - 16cbc53: Stop PR Visual Recap gate skips from creating visible pull request comments.
-
-## 0.5.4
-
-### Patch Changes
-
-- 061896a: Use the recap CLI package as the single implementation source for Core's recap skill, Plan block, and publish-token helpers while preserving Core compatibility exports.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

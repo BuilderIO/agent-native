@@ -114,4 +114,20 @@ describe("NotificationsBell", () => {
     expect((failures[0]?.error as { status?: number }).status).toBe(500);
     expect(document.body.textContent).toContain("Chat is failing");
   });
+
+  it("keeps the notification timestamp at full opacity so 10px text can meet 4.5:1", async () => {
+    await act(async () => root.render(<NotificationsBell pollMs={0} />));
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(".an-notifications-bell__trigger")
+        ?.click();
+    });
+    const stamp = [...document.body.querySelectorAll("span")].find(
+      (span) =>
+        /text-\[10px\]/.test(span.className) &&
+        /text-muted-foreground/.test(span.className),
+    );
+    expect(stamp).toBeTruthy();
+    expect(stamp?.className).not.toMatch(/text-muted-foreground\/\d+/);
+  });
 });

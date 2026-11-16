@@ -2082,6 +2082,9 @@ export default {
     addTweaks: "조정 추가",
     addTweakControls: "조정 컨트롤 추가",
     closeTweaks: "조정 닫기",
+    showFloatingTweaks: "떠 있는 조정 표시",
+    collapseTweaks: "조정 접기",
+    expandTweaks: "조정 펼치기",
     tweaksHelp:
       "조정은 기본 디자인 위에 적용되는 중단점 및 상태별 시각적 재정의입니다. 컨트롤을 재설정하면 상속된 값으로 돌아갑니다.",
     tweaksDocs: "자세히 알아보기.",
@@ -2333,6 +2336,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "조정 값이 다른 곳에서 변경되었습니다. 디자인을 새로고침한 후 다시 시도하세요.",
+      tweakBaselineUnreadable:
+        "저장된 조정 기준을 읽을 수 없습니다. 디자인 데이터를 복구할 때까지 조정 변경이 일시 중지됩니다.",
+      resetTweakBaseline: "기준선 재설정",
       tweakSaveNotDurable:
         "조정 값이 아직 저장되지 않았습니다. 이 탭을 열어 둔 채 다시 시도하세요.",
       undoSkippedConcurrentEdit:

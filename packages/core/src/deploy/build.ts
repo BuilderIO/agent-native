@@ -4501,15 +4501,68 @@ function hasBareYjsRuntimeImport(source: string): boolean {
 }
 
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
+  return bareRuntimeImportSpecifiers(source, packageName).length > 0;
+}
+
+function bareRuntimeImportSpecifiers(
+  source: string,
+  packageName: string,
+): string[] {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const quote = `["\'\\\`]`;
   const staticModuleReference = new RegExp(
-    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})(${escapedPackageName}(?:/[^"\'\\\`]+)?)\\1`,
+    "g",
   );
   const dynamicImport = new RegExp(
-    `\\bimport\\s*\\(\\s*(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+    `\\bimport\\s*\\(\\s*(${quote})(${escapedPackageName}(?:/[^"\'\\\`]+)?)\\1`,
+    "g",
   );
-  return staticModuleReference.test(source) || dynamicImport.test(source);
+  return [
+    ...source.matchAll(staticModuleReference),
+    ...source.matchAll(dynamicImport),
+  ]
+    .map((match) => match.at(2))
+    .filter((specifier): specifier is string => specifier !== undefined);
+}
+
+/**
+ * Whether a bare import resolves, from the importing file, to a file shipped
+ * inside the server bundle. A missing dependency or one that resolves outside
+ * the bundle is not shipped; any other resolution failure is thrown.
+ */
+function isShippedRuntimeImport(
+  specifier: string,
+  importingFile: string,
+  serverDir: string,
+): boolean {
+  try {
+    const resolved = fs.realpathSync(
+      createRequire(importingFile).resolve(specifier),
+    );
+    const relative = path.relative(fs.realpathSync(serverDir), resolved);
+    return (
+      relative !== ".." &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative) &&
+      fs.statSync(resolved).isFile()
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      typeof error.code === "string" &&
+      [
+        "MODULE_NOT_FOUND",
+        "ERR_PACKAGE_PATH_NOT_EXPORTED",
+        "ENOENT",
+        "ENOTDIR",
+      ].includes(error.code)
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function hasBareRuntimeRequire(source: string, packageName: string): boolean {
@@ -4831,13 +4884,37 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
 const NITRO_AGENT_NATIVE_SERVER_CHUNK_RE =
   /@agent-native[\\/](?:core|creative-context)(?:[\\/]|$)/;
 
+// Packages whose modules extend classes defined in their own other modules.
+// Split across chunks, they can import each other in a cycle, and whichever
+// chunk an app reaches first evaluates `class X extends Y` before Y exists:
+// "Class extends value undefined is not a constructor or null" at module load.
+// On 11/16 drizzle-orm was split into seven `_libs/drizzle-orm*.mjs` chunks
+// once the Core group became entries-aware, and four workspace apps crashed
+// on every request. Each of these packages stays in one chunk.
+const NITRO_SINGLE_CHUNK_SERVER_PACKAGES = ["drizzle-orm"] as const;
+
+function nodeModulesPackageRe(packageName: string): RegExp {
+  const escaped = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`[\\\\/]node_modules[\\\\/]${escaped}[\\\\/]`);
+}
+
 export function nitroServerCodeSplittingGroupsForPreset(targetPreset: string) {
   return shouldBundleYjsRuntimeForPreset(targetPreset) ||
     isAwsAmplifyPreset(targetPreset)
     ? [
+        ...NITRO_SINGLE_CHUNK_SERVER_PACKAGES.map((packageName) => ({
+          test: nodeModulesPackageRe(packageName),
+          name: () => `_libs/${packageName}`,
+          // Names the group in the bundler timing report; `name` is a function.
+          debugName: packageName,
+          // Above Nitro's per-package `_libs` group and the Core group, so
+          // nothing else claims part of the package.
+          priority: 20,
+        })),
         {
           test: NITRO_AGENT_NATIVE_SERVER_CHUNK_RE,
           name: () => "agent-native-core",
+          debugName: "agent-native-core",
           // Preserve dynamic-import boundaries. A package-wide chunk pulls
           // optional agent, integration and rendering code into every cold
           // request, even when that request only reads application data.
@@ -5097,10 +5174,12 @@ export function assertSingleTemplateNetlifyBuildOutput(
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
     for (const dependency of bundledIngestionPeers) {
-      if (hasBareRuntimeImport(source, dependency)) {
-        bareIngestionImports.push(
-          `${dependency} in ${path.relative(projectCwd, filePath)}`,
-        );
+      for (const specifier of bareRuntimeImportSpecifiers(source, dependency)) {
+        if (!isShippedRuntimeImport(specifier, filePath, serverDir)) {
+          bareIngestionImports.push(
+            `${dependency} in ${path.relative(projectCwd, filePath)} (${specifier} is not shipped inside the server bundle)`,
+          );
+        }
       }
     }
   });

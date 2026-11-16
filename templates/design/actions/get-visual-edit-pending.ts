@@ -5,6 +5,34 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js";
+import {
+  parseHandoffRecords,
+  type VisualEditHandoffRecord,
+} from "../shared/visual-edit-handoff.js";
+
+function readyHandoffRecords(pending: {
+  handoffRecords: string;
+  prompt: string;
+  revision: number;
+}): VisualEditHandoffRecord[] {
+  const parsed = parseHandoffRecords(pending.handoffRecords);
+  if (parsed.status === "readable" && parsed.records.length > 0) {
+    return parsed.records;
+  }
+  // A row published before handoff records existed is one opaque change:
+  // its prompt is the only description of what it contains.
+  return [
+    {
+      kind: "style",
+      key: `revision:${pending.revision}`,
+      value: pending.revision,
+      prompt: pending.prompt.replace(
+        /<exact-handoff-revision>/g,
+        String(pending.revision),
+      ),
+    },
+  ];
+}
 
 export default defineAction({
   title: "Pull pending visual edits into app source",
@@ -28,7 +56,7 @@ export default defineAction({
   },
   mcpTool: true,
   http: { method: "GET" },
-  maxResultChars: 64 * 1024,
+  maxResultChars: 160 * 1024,
   run: async ({ designId }) => {
     await assertAccess("design", designId, "editor");
 
@@ -37,6 +65,7 @@ export default defineAction({
         pendingEditCount: schema.designVisualEditPending.pendingEditCount,
         status: schema.designVisualEditPending.status,
         prompt: schema.designVisualEditPending.prompt,
+        handoffRecords: schema.designVisualEditPending.handoffRecords,
         authorEmail: schema.designVisualEditPending.authorEmail,
         revision: schema.designVisualEditPending.revision,
         publisherId: schema.designVisualEditPending.publisherId,
@@ -54,6 +83,10 @@ export default defineAction({
       pendingEditCount: pending?.pendingEditCount ?? 0,
       status: pending?.status ?? "empty",
       prompt: suggested ? "" : (pending?.prompt ?? ""),
+      records:
+        pending?.status === "ready" && pending.prompt
+          ? readyHandoffRecords(pending)
+          : [],
       suggestion: suggested
         ? {
             trusted: false as const,
