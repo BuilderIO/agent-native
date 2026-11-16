@@ -69,6 +69,7 @@ const changesetsRequire = createRequire(
 const semver = changesetsRequire("semver") as {
   inc: (version: string, release: ReleaseBump) => string | null;
   satisfies: (version: string, range: string) => boolean;
+  gte: (version: string, other: string) => boolean;
   minVersion: (range: string) => {
     major: number;
     minor: number;
@@ -1493,10 +1494,9 @@ esac
         ["full", "install --frozen-lockfile"],
         ["no-scripts", "install --frozen-lockfile --ignore-scripts"],
       ]) {
-        const script = String(install.run).replaceAll(
-          "${{ inputs.install }}",
-          mode,
-        );
+        const script = String(install.run)
+          .replaceAll("${{ inputs.install }}", mode)
+          .replaceAll("${{ inputs.filter }}", "");
         const env = { ...process.env, PATH: `${dir}:${process.env.PATH}` };
         const success = spawnSync("bash", ["-e", "-c", script], {
           env,
@@ -1852,7 +1852,10 @@ esac
     assert(corePeerRange);
     const minimum = semver.minVersion(corePeerRange);
     assert(minimum);
-    assert(semver.satisfies(minimum.version, ">=0.222.0-0"));
+    // Not `satisfies`: a prerelease of a newer tuple never satisfies a range
+    // floor on an older one, so this broke each time the release raised the
+    // peer floor.
+    assert(semver.gte(minimum.version, "0.222.0-0"));
     const tuple = `${minimum.major}.${minimum.minor}.${minimum.patch}`;
     const core = JSON.parse(
       readFileSync("packages/core/package.json", "utf8"),
