@@ -22,6 +22,7 @@ const MCP_APP_IMPORT =
 
 export const MCP_APP_REQUEST_ORIGIN_CSP_SOURCE = "$requestOrigin";
 const MCP_APP_WRAPPER_CHROME_HEIGHT = 44;
+const EMBED_REQUEST_FAILURES_WINDOW_KEY = "__agentNativeEmbedRequestFailures";
 const MCP_APP_INLINE_LAUNCHER_HEIGHT = 56;
 export const DEFAULT_MCP_APP_SHELL_HEIGHT = 560;
 export const DEFAULT_MCP_APP_VIEWPORT_HEIGHT =
@@ -963,6 +964,32 @@ export function embedApp(
         }
         return headers;
       }
+      // The host shows no console for this document, so read_view reports
+      // the app's failed requests and whether each carried the panel session.
+      function observedRequest(promise, method, url, headers) {
+        function note(detail) {
+          var list = window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}] ||
+            (window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}] = []);
+          var path;
+          try {
+            path = new URL(url).pathname;
+          } catch (_err) {
+            path = String(url);
+          }
+          var text = String(method || "GET").toUpperCase() + " " + path + " " + detail +
+            (headers.has("Authorization") ? "" : " (sent without the panel session)");
+          if (list.length < 5 && list.indexOf(text) < 0) list.push(text);
+        }
+        return promise.then(function(response) {
+          if (!response.ok) note("HTTP " + response.status);
+          return response;
+        }, function(error) {
+          if (!error || error.name !== "AbortError") {
+            note("failed: " + String((error && error.message) || error).slice(0, 120));
+          }
+          throw error;
+        });
+      }
       if (typeof fetch === "function") {
         const originalFetch = fetch.bind(window);
         var pageFetch = fetch;
@@ -974,36 +1001,40 @@ export function embedApp(
             headers: authHeaders(input, init),
             credentials: "omit"
           });
-          if (input instanceof Request) {
-            const requestInit = {
-              method: input.method,
-              mode: input.mode,
-              cache: input.cache,
-              redirect: input.redirect,
-              referrer: input.referrer,
-              referrerPolicy: input.referrerPolicy,
-              integrity: input.integrity,
-              keepalive: input.keepalive,
-              signal: input.signal
-            };
-            // A body in init replaces the Request's, which may already be spent.
-            if (nextInit.body !== undefined) {
-              return originalFetch(url, Object.assign(requestInit, nextInit));
+          const method = (init && init.method) || (input instanceof Request ? input.method : "GET");
+          return observedRequest(sendRewritten(), method, url, nextInit.headers);
+          function sendRewritten() {
+            if (input instanceof Request) {
+              const requestInit = {
+                method: input.method,
+                mode: input.mode,
+                cache: input.cache,
+                redirect: input.redirect,
+                referrer: input.referrer,
+                referrerPolicy: input.referrerPolicy,
+                integrity: input.integrity,
+                keepalive: input.keepalive,
+                signal: input.signal
+              };
+              // A body in init replaces the Request's, which may already be spent.
+              if (nextInit.body !== undefined) {
+                return originalFetch(url, Object.assign(requestInit, nextInit));
+              }
+              // Read the body first: a Request used as init sends it as a stream,
+              // which needs HTTP/2 and which not every browser can send.
+              return input.arrayBuffer().then(function(body) {
+                return originalFetch(
+                  url,
+                  Object.assign(
+                    requestInit,
+                    body.byteLength > 0 ? { body: body } : null,
+                    nextInit
+                  )
+                );
+              });
             }
-            // Read the body first: a Request used as init sends it as a stream,
-            // which needs HTTP/2 and which not every browser can send.
-            return input.arrayBuffer().then(function(body) {
-              return originalFetch(
-                url,
-                Object.assign(
-                  requestInit,
-                  body.byteLength > 0 ? { body: body } : null,
-                  nextInit
-                )
-              );
-            });
+            return originalFetch(url, nextInit);
           }
-          return originalFetch(url, nextInit);
         };
         // The requests it signs go out on a transport of their own, one per
         // token. It signs only on the target's mount and with a token; its
@@ -2752,6 +2783,8 @@ export function embedApp(
         ? document.body.getAttribute("data-agent-native-hydration-error")
         : null;
       if (loadError) rememberViewError(loadError);
+      const requestFailures = window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}];
+      if (Array.isArray(requestFailures)) requestFailures.forEach(rememberViewError);
       if (viewErrors.length) state.errors = viewErrors.slice();
       return state;
     }

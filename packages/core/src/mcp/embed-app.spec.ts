@@ -622,6 +622,9 @@ describe("embedApp", () => {
       "/deck/reports",
     );
 
+    fetch.mockResolvedValueOnce(new Response("", { status: 503 }));
+    await installedFetch("/deck/_agent-native/auth/session");
+
     const installedEventSource = windowObject.EventSource as (
       url: string,
     ) => unknown;
@@ -677,6 +680,19 @@ describe("embedApp", () => {
         "__an_embed_token",
       ),
     ).toBe(false);
+
+    // read_view reports these: the host shows no console for the panel.
+    fetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(
+      installedFetch("/mail/_agent-native/auth/session"),
+    ).rejects.toThrow("Failed to fetch");
+    fetch.mockResolvedValueOnce(new Response("", { status: 404 }));
+    await installedFetch("/mail/_agent-native/actions/x", { method: "post" });
+    expect(windowObject.__agentNativeEmbedRequestFailures).toEqual([
+      "GET /deck/_agent-native/auth/session HTTP 503",
+      "GET /mail/_agent-native/auth/session failed: Failed to fetch (sent without the panel session)",
+      "POST /mail/_agent-native/actions/x HTTP 404 (sent without the panel session)",
+    ]);
 
     // Off the target's mount its reads go out unsigned, still without
     // cookies: neither the signed transport nor the page's.
