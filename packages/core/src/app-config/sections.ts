@@ -86,7 +86,7 @@ export function registerAppConfigSection(
       `App config section "${key}" must be a lower-camel-case identifier.`,
     );
   }
-  if (Object.hasOwn(appConfigSchema.shape, key)) {
+  if (Object.prototype.hasOwnProperty.call(appConfigSchema.shape, key)) {
     throw new Error(
       `App config section "${key}" collides with the framework's "${key}" config. Pick an app-specific name.`,
     );
