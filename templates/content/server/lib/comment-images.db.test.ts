@@ -15,6 +15,9 @@ import { firstRow } from "./first-row.js";
 
 const owners = vi.hoisted(() => new Map<string, string>());
 const session = vi.hoisted(() => ({ email: "" }));
+const notify = vi.hoisted(() => ({
+  edited: vi.fn(async (_input: unknown) => undefined),
+}));
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/server")>()),
   getSession: async () => (session.email ? { email: session.email } : null),
@@ -51,7 +54,7 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
 }));
 vi.mock("./comment-notifications.js", () => ({
   notifyDocumentComment: vi.fn(async () => undefined),
-  notifyEditedCommentMentions: vi.fn(async () => undefined),
+  notifyEditedCommentMentions: notify.edited,
 }));
 
 const TEST_DB_PATH = join(
@@ -65,7 +68,6 @@ const OTHER = "someone-else@example.test";
 
 let db: ReturnType<typeof import("../db/index.js").getDb>;
 let schema: typeof import("../db/schema.js");
-let images: typeof import("./comment-images.js");
 let bindUploadedPrivateMedia: typeof import("./private-media-references.js").bindUploadedPrivateMedia;
 let addComment: typeof import("../../actions/add-comment.js").default;
 let updateComment: typeof import("../../actions/update-comment.js").default;
@@ -85,14 +87,18 @@ function image(id: string) {
   };
 }
 
-/** An upload by `ownerEmail` through the comment box of `documentId`. */
-async function uploaded(ownerEmail: string, documentId: string) {
+/** An upload by `ownerEmail` to `documentId`, as its comment box makes one. */
+async function uploaded(
+  ownerEmail: string,
+  documentId: string,
+  mimeType = "image/png",
+) {
   const id = mediaId();
   owners.set(id, ownerEmail);
   await db.insert(privateMedia).values({
     id,
     ownerEmail,
-    mimeType: "image/png",
+    mimeType,
     size: 3,
     sha256: "0",
     blobHandleJson: "{}",
@@ -149,6 +155,10 @@ function comment(
   );
 }
 
+function stored(images: string | null) {
+  return JSON.parse(images ?? "[]") as unknown;
+}
+
 async function storedImages(commentId: string) {
   const rows = await db
     .select({ attachmentsJson: schema.documentComments.attachmentsJson })
@@ -158,10 +168,11 @@ async function storedImages(commentId: string) {
   return firstRow(rows)?.attachmentsJson ?? null;
 }
 
-async function status(id: string, email = "") {
+/** The image's response status for `email`, or for no one; `query` is a link's. */
+async function status(id: string, email = "", query = "") {
   session.email = email;
   try {
-    return (await readMedia(`http://content.test/media/${id}`)).status;
+    return (await readMedia(`http://content.test/media/${id}${query}`)).status;
   } finally {
     session.email = "";
   }
@@ -172,7 +183,6 @@ beforeAll(async () => {
   const module = await import("../db/index.js");
   db = module.getDb();
   schema = module.schema;
-  images = await import("./comment-images.js");
   ({ bindUploadedPrivateMedia } =
     await import("./private-media-references.js"));
   addComment = (await import("../../actions/add-comment.js")).default;
@@ -227,6 +237,12 @@ describe("comment images", () => {
         url: expect.stringContaining(`/api/private-media/${id}?`),
       },
     ]);
+    const link = listed.privateMediaLinks?.links.find(
+      ({ src }) => src === `/api/private-media/${id}`,
+    )?.url;
+    if (!link) throw new Error("The agent got no link");
+    expect(await status(id)).toBe(404);
+    expect(await status(id, "", new URL(link).search)).toBe(200);
   });
 
   it("stops showing it once the comment is deleted or the page is in Trash", async () => {
@@ -266,6 +282,26 @@ describe("comment images", () => {
     expect(await status(id, VIEWER)).toBe(404);
   });
 
+  it("opens nothing through a comment whose image was uploaded to another page", async () => {
+    const doc = await page();
+    const elsewhere = await page();
+    const id = await uploaded(COMMENTER, elsewhere);
+    await db.insert(schema.documentComments).values({
+      id: `comment-images-unbound-${++count}`,
+      documentId: doc,
+      threadId: `comment-images-unbound-${count}`,
+      content: "Imported",
+      authorEmail: COMMENTER,
+      ownerEmail: OWNER,
+      attachmentsJson: JSON.stringify([image(id)]),
+    });
+    expect(await status(id, VIEWER)).toBe(404);
+    const listed = await as(VIEWER, () =>
+      listComments.run({ documentId: doc }, { caller: "mcp" }),
+    );
+    expect(listed.privateMediaLinks).toBeUndefined();
+  });
+
   it("attaches only images the writer uploaded to this page", async () => {
     const doc = await page();
     const elsewhere = await page();
@@ -287,28 +323,72 @@ describe("comment images", () => {
 
     // Repeats count once; more than five is refused.
     const repeated = await uploaded(COMMENTER, doc);
-    const own = [
-      repeated,
-      ...(await Promise.all(
-        Array.from({ length: 5 }, () => uploaded(COMMENTER, doc)),
-      )),
-    ];
+    const once = await comment(
+      COMMENTER,
+      doc,
+      Array.from({ length: 6 }, () => image(repeated)),
+    );
+    expect(stored(await storedImages(once.id))).toEqual([image(repeated)]);
+    const six = await Promise.all(
+      Array.from({ length: 6 }, () => uploaded(COMMENTER, doc)),
+    );
+    await expect(comment(COMMENTER, doc, six.map(image))).rejects.toMatchObject(
+      { errorCode: "comment_too_many_images" },
+    );
+  });
+
+  it("takes PNG, JPEG, GIF or WebP uploads, by the type each was stored with", async () => {
+    const doc = await page();
+    const svg = await uploaded(COMMENTER, doc, "image/svg+xml");
+    for (const attachment of [
+      image(svg),
+      { url: `/api/private-media/${svg}`, name: "art.svg" },
+    ]) {
+      await expect(comment(COMMENTER, doc, [attachment])).rejects.toMatchObject(
+        { errorCode: "comment_image_invalid" },
+      );
+    }
+    const gif = await uploaded(COMMENTER, doc, "image/gif");
+    const created = await comment(COMMENTER, doc, [image(gif)]);
+    expect(stored(await storedImages(created.id))).toEqual([
+      { ...image(gif), contentType: "image/gif" },
+    ]);
+  });
+
+  it("lets an agent keep a comment's images but not attach any", async () => {
+    const doc = await page();
+    const kept = await uploaded(COMMENTER, doc);
+    const another = await uploaded(COMMENTER, doc);
+    const created = await comment(COMMENTER, doc, [image(kept)]);
     await expect(
       as(COMMENTER, () =>
-        images.attachableCommentImages({
-          documentId: doc,
-          userEmail: COMMENTER,
-          images: [image(repeated), image(repeated)],
-        }),
+        addComment.run(
+          {
+            documentId: doc,
+            content: "From an agent",
+            attachments: [image(another)],
+          },
+          { caller: "mcp" },
+        ),
       ),
-    ).resolves.toEqual([image(repeated)]);
-    await expect(
-      images.attachableCommentImages({
-        documentId: doc,
-        userEmail: COMMENTER,
-        images: own.map(image),
-      }),
-    ).rejects.toMatchObject({ errorCode: "comment_too_many_images" });
+    ).rejects.toMatchObject({ errorCode: "comment_image_not_attachable" });
+    const edit = (attachments: unknown[]) =>
+      as(COMMENTER, () =>
+        updateComment.run(
+          {
+            id: created.id,
+            documentId: doc,
+            content: "Edited by an agent",
+            attachments,
+          },
+          { caller: "mcp" },
+        ),
+      );
+    await expect(edit([image(kept), image(another)])).rejects.toMatchObject({
+      errorCode: "comment_image_not_attachable",
+    });
+    await edit([image(kept)]);
+    expect(stored(await storedImages(created.id))).toEqual([image(kept)]);
   });
 
   it("keeps a comment's images through an edit and takes only the editor's own new ones", async () => {
@@ -348,5 +428,45 @@ describe("comment images", () => {
     await edit([]);
     expect(await storedImages(created.id)).toBeNull();
     expect(await status(kept, VIEWER)).toBe(404);
+    await expect(
+      as(COMMENTER, () =>
+        updateComment.run({ id: created.id, documentId: doc, content: "" }),
+      ),
+    ).rejects.toThrow();
+    expect(await storedImages(created.id)).toBeNull();
+  });
+
+  it("lets an editor keep the author's images on an edit and add their own", async () => {
+    const doc = await page();
+    const authors = await uploaded(COMMENTER, doc);
+    const editors = await uploaded(OWNER, doc);
+    const created = await comment(COMMENTER, doc, [image(authors)]);
+    await as(OWNER, () =>
+      updateComment.run({
+        id: created.id,
+        documentId: doc,
+        attachments: [image(authors), image(editors)],
+      }),
+    );
+    expect(stored(await storedImages(created.id))).toEqual([
+      image(authors),
+      image(editors),
+    ]);
+    expect(await status(authors, VIEWER)).toBe(200);
+    expect(await status(editors, VIEWER)).toBe(200);
+
+    // A mention added later tells the person how many images the comment has.
+    notify.edited.mockClear();
+    await as(COMMENTER, () =>
+      updateComment.run({
+        id: created.id,
+        documentId: doc,
+        content: "Here's what I see, @Vic",
+        mentions: [{ email: VIEWER, name: "Vic" }],
+      }),
+    );
+    expect(notify.edited).toHaveBeenCalledWith(
+      expect.objectContaining({ imageCount: 2 }),
+    );
   });
 });

@@ -105,8 +105,8 @@ export async function privateMediaAgentLinks(input: {
 /**
  * Expiring links to the images on a page's comments, for a reader that can't
  * send Content's sign-in cookie. The caller must already have checked that
- * the reader can read `documentId`. Links come only while the page is live,
- * as the browser would load them only then.
+ * the reader can read `documentId`. As in the browser, only images uploaded
+ * to that page get a link, and only while the page is live.
  */
 export async function commentImageAgentLinks(input: {
   documentId: string;
@@ -115,19 +115,27 @@ export async function commentImageAgentLinks(input: {
 }): Promise<PrivateMediaAgentLinks | undefined> {
   const ids = [...new Set(input.mediaIds)];
   if (ids.length === 0) return undefined;
-  // guard:allow-unscoped — the caller checked the reader can read the page; this reads only whether it is live.
-  const live = await getDb()
-    .select({ id: schema.documents.id })
-    .from(schema.documents)
+  // guard:allow-unscoped — the caller checked the reader can read the page; this reads only which of its images are bound to it while it is live.
+  const rows = await getDb()
+    .select({ mediaId: schema.privateMediaReferences.mediaId })
+    .from(schema.privateMediaReferences)
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.privateMediaReferences.documentId),
+    )
     .where(
       and(
-        eq(schema.documents.id, input.documentId),
+        eq(schema.privateMediaReferences.documentId, input.documentId),
+        inArray(schema.privateMediaReferences.mediaId, ids),
         isNull(schema.documents.trashedAt),
         ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
       ),
-    )
-    .limit(1);
-  return live.length ? agentLinksTo(ids, input.origin) : undefined;
+    );
+  const bound = new Set(rows.map((row) => row.mediaId));
+  return agentLinksTo(
+    ids.filter((id) => bound.has(id)),
+    input.origin,
+  );
 }
 
 function agentLinksTo(

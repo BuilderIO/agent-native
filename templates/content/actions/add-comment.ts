@@ -18,7 +18,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveCommentBlocksField } from "../server/lib/comment-blocks-field.js";
-import { attachableCommentImages } from "../server/lib/comment-images.js";
+import {
+  attachableCommentImages,
+  commentWriteByAgent,
+} from "../server/lib/comment-images.js";
 import {
   assertMentionsInText,
   submittedCommentMentions,
@@ -33,6 +36,7 @@ import {
 } from "../shared/comment-block-anchor.js";
 import {
   MAX_COMMENT_IMAGES,
+  MAX_SUBMITTED_COMMENT_IMAGES,
   serializeStoredCommentImages,
 } from "../shared/comment-images.js";
 import {
@@ -146,10 +150,10 @@ const commentSchema = z.object({
     ),
   attachments: z
     .array(z.unknown())
-    .max(MAX_COMMENT_IMAGES)
+    .max(MAX_SUBMITTED_COMMENT_IMAGES)
     .optional()
     .describe(
-      `Up to ${MAX_COMMENT_IMAGES} images, each { url, name, contentType } as uploaded to this page through the comment box, which only a signed-in person can do. Each must be one the caller uploaded to this page.`,
+      `Up to ${MAX_COMMENT_IMAGES} images, each { url, name, contentType } as uploaded to this page through the comment box, which only a signed-in person can do. Each must be one the caller uploaded to this page; an agent can't attach images.`,
     ),
 });
 
@@ -391,6 +395,7 @@ export async function addCommentWithGuard(
         documentId,
         userEmail: email,
         images: args.attachments,
+        byAgent: commentWriteByAgent(ctx),
       })
     : [];
   const submissionSource = commentSubmissionSource(ctx?.caller);

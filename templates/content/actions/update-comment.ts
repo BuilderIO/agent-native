@@ -9,7 +9,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { attachableCommentImages } from "../server/lib/comment-images.js";
+import {
+  attachableCommentImages,
+  commentWriteByAgent,
+} from "../server/lib/comment-images.js";
 import {
   assertMentionsInText,
   submittedCommentMentions,
@@ -20,6 +23,7 @@ import { documentChangeResource } from "../server/lib/document-change-resource.j
 import { firstRow } from "../server/lib/first-row.js";
 import {
   MAX_COMMENT_IMAGES,
+  MAX_SUBMITTED_COMMENT_IMAGES,
   readStoredCommentImages,
   serializeStoredCommentImages,
 } from "../shared/comment-images.js";
@@ -41,7 +45,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Comment ID"),
     documentId: z.string().optional().describe("Document ID"),
-    content: z.string().optional().describe("New comment text"),
+    content: z.string().min(1).optional().describe("New comment text"),
     mentions: z
       .union([z.string(), z.array(z.unknown())])
       .optional()
@@ -50,10 +54,10 @@ export default defineAction({
       ),
     attachments: z
       .array(z.unknown())
-      .max(MAX_COMMENT_IMAGES)
+      .max(MAX_SUBMITTED_COMMENT_IMAGES)
       .optional()
       .describe(
-        `The comment's images after the edit, up to ${MAX_COMMENT_IMAGES}, each { url, name, contentType }: the ones list-comments shows it keeping, plus any the caller uploaded to this page through the comment box. An empty list removes them all.`,
+        `The comment's images after the edit, up to ${MAX_COMMENT_IMAGES}, each { url, name, contentType }: the ones list-comments shows it keeping, plus any the caller uploaded to this page through the comment box, which an agent can't do. An empty list removes them all.`,
       ),
     resolved: z.coerce.boolean().optional().describe("Resolved state"),
   }),
@@ -136,6 +140,7 @@ export default defineAction({
             userEmail,
             images: args.attachments,
             kept: readStoredCommentImages(comment.attachmentsJson),
+            byAgent: commentWriteByAgent(ctx),
           });
     const contentUpdates: Partial<typeof schema.documentComments.$inferInsert> =
       {
@@ -247,6 +252,9 @@ export default defineAction({
           submissionSource: commentSubmissionSource(ctx?.caller),
           content: args.content ?? comment.content,
           mentions: addedMentions,
+          imageCount: (
+            images ?? readStoredCommentImages(comment.attachmentsJson)
+          ).length,
           isReply: comment.threadId !== args.id,
         })
       : undefined;

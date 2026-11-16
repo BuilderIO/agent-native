@@ -1036,6 +1036,8 @@ export type PendingCommentSelection = {
 
 type PendingCommentDraft = PendingCommentSelection & {
   id: symbol;
+  /** Names this comment to its image uploads, so the next one doesn't get them. */
+  uploadKey: string;
   documentId: string;
   text: string;
   mentions: MentionEntry[];
@@ -1051,6 +1053,8 @@ type PendingCommentDraft = PendingCommentSelection & {
 type PendingCommentChange = (
   draft: PendingCommentDraft,
 ) => Partial<Pick<PendingCommentDraft, "text" | "mentions" | "submitting">>;
+
+let pendingCommentCount = 0;
 
 export function usePendingCommentDraft(documentId: string) {
   const pendingDraft = useCommentDraft("pending");
@@ -1083,6 +1087,7 @@ export function usePendingCommentDraft(documentId: string) {
         ? {
             ...selection,
             id: Symbol("pending-comment"),
+            uploadKey: `pending-${++pendingCommentCount}`,
             documentId: currentDocumentId.current,
             text: "",
             mentions: [],
@@ -4389,6 +4394,7 @@ export function CommentsSidebar({
                       : pendingDraft.setImages
                   }
                   imageDocumentId={documentId}
+                  imageDraftKey={displayedPendingComment.uploadKey}
                   onSubmit={() => void handlePendingSubmit()}
                   onAiSubmit={
                     commentAi && !displayedPendingComment.clip

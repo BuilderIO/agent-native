@@ -36,7 +36,13 @@ describe("CommentComposer images", () => {
   let root: Root;
   const submit = vi.fn();
 
-  function Owner({ initialImages }: { initialImages: CommentImage[] }) {
+  function Owner({
+    initialImages,
+    draftKey,
+  }: {
+    initialImages: CommentImage[];
+    draftKey: string;
+  }) {
     const [value, setValue] = useState("Here's what I see");
     const [images, setImages] = useState(initialImages);
     return (
@@ -49,12 +55,18 @@ describe("CommentComposer images", () => {
         images={images}
         onImagesChange={setImages}
         imageDocumentId="doc-1"
+        imageDraftKey={draftKey}
       />
     );
   }
 
-  async function render(initialImages: CommentImage[] = []) {
-    await act(async () => root.render(<Owner initialImages={initialImages} />));
+  async function render(
+    initialImages: CommentImage[] = [],
+    draftKey = "draft",
+  ) {
+    await act(async () =>
+      root.render(<Owner initialImages={initialImages} draftKey={draftKey} />),
+    );
   }
 
   const settle = () =>
@@ -69,6 +81,22 @@ describe("CommentComposer images", () => {
   const editor = () => find(".ProseMirror");
   const removeButton = (name: string) =>
     find<HTMLButtonElement>(`[aria-label="Remove image: ${name}.png"]`);
+  const pickImage = async (name: string) => {
+    const input = find<HTMLInputElement>("[data-comment-image-input]");
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File([new Uint8Array(3)], name, { type: "image/png" })],
+    });
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  };
+  const finishUpload = async (image: CommentImage) => {
+    const finish = uploads.finish.shift();
+    if (!finish) throw new Error("The image never started uploading");
+    await act(async () => finish(image));
+    await settle();
+  };
   const pressEnter = () =>
     act(async () => {
       editor().focus();
@@ -118,14 +146,7 @@ describe("CommentComposer images", () => {
 
   it("keeps the text on Enter while an image uploads, and sends once it's done", async () => {
     await render();
-    const input = find<HTMLInputElement>("[data-comment-image-input]");
-    Object.defineProperty(input, "files", {
-      configurable: true,
-      value: [new File([new Uint8Array(3)], "shot.png", { type: "image/png" })],
-    });
-    await act(async () => {
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    await pickImage("shot.png");
     expect(uploads.finish).toHaveLength(1);
 
     await pressEnter();
@@ -133,13 +154,24 @@ describe("CommentComposer images", () => {
     expect(submit).not.toHaveBeenCalled();
     expect(richEditorValue(editor())).toBe("Here's what I see");
 
-    const finish = uploads.finish.shift();
-    if (!finish) throw new Error("The image never started uploading");
-    await act(async () => finish(image("shot")));
-    await settle();
+    await finishUpload(image("shot"));
     expect(removeButton("shot").isConnected).toBe(true);
     await pressEnter();
     await settle();
     expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  // Starting another comment on the page reuses the same box, so an image
+  // the first one was still uploading must not land on the second.
+  it("leaves an image still uploading off the next comment the box writes", async () => {
+    await render([], "first");
+    await pickImage("shot.png");
+    await render([], "second");
+    await finishUpload(image("shot"));
+    expect(container.querySelector("[data-review-composer-image]")).toBeNull();
+
+    await pickImage("next.png");
+    await finishUpload(image("next"));
+    expect(removeButton("next").isConnected).toBe(true);
   });
 });

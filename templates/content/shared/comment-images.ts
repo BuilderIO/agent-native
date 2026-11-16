@@ -16,6 +16,13 @@ export interface CommentImage {
 /** As many images as one comment keeps, the kit's limit too. */
 export const MAX_COMMENT_IMAGES = 5;
 
+/**
+ * As many images as one comment write may list. Repeats count once, so the
+ * five-image limit is checked after they're dropped; this only bounds the
+ * request.
+ */
+export const MAX_SUBMITTED_COMMENT_IMAGES = 50;
+
 /** The image types a comment takes: the usual screenshot formats. */
 export const COMMENT_IMAGE_TYPES = [
   "image/png",

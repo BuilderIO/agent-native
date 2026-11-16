@@ -133,6 +133,11 @@ interface CommentComposerProps {
   onImagesChange?: (images: CommentImage[]) => void;
   /** The page the comment is on, which its images are uploaded to. */
   imageDocumentId?: string;
+  /**
+   * Names the draft the box is writing when one box writes several in turn.
+   * An image still uploading when it changes stays off the next draft.
+   */
+  imageDraftKey?: string;
   onAiSubmit?: (payload: CommentAiSubmitPayload) => void;
   aiDraft?: CommentAiDraft | null;
   onAiDraftChange?: (draft: CommentAiDraft | null) => void;
@@ -340,6 +345,7 @@ export const CommentComposer = forwardRef<
     images = NO_IMAGES,
     onImagesChange,
     imageDocumentId,
+    imageDraftKey,
     onAiSubmit,
     aiDraft = null,
     onAiDraftChange,
@@ -457,7 +463,10 @@ export const CommentComposer = forwardRef<
     },
     disabled: disabled || imageStorageOff,
     maxImages: MAX_COMMENT_IMAGES,
-    target: imageDocumentId,
+    target:
+      imageDraftKey === undefined
+        ? imageDocumentId
+        : `${imageDocumentId ?? ""}#${imageDraftKey}`,
   });
   // Uploads the files the comment can take and says why it left any out.
   // True when the files were the box's, so nothing else handles them.
