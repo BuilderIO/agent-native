@@ -1986,9 +1986,11 @@ function captureBuilderGatewayNoDetailError(context: {
   gatewayUrl?: URL;
   errorCode?: string;
 }): void {
+  const normalizedErrorCode = context.errorCode?.trim().toLowerCase();
   const providerErrorCode =
-    context.errorCode && NO_DETAIL_PROVIDER_ERROR_CODES.has(context.errorCode)
-      ? context.errorCode
+    normalizedErrorCode &&
+    NO_DETAIL_PROVIDER_ERROR_CODES.has(normalizedErrorCode)
+      ? normalizedErrorCode
       : undefined;
   const err = new Error(
     context.requestId

@@ -3038,6 +3038,7 @@ describe("createBuilderEngine", () => {
 
   it.each([
     { code: "overloaded_error", classification: "overloaded_error" },
+    { code: "  OvErLoAdEd_ErRoR  ", classification: "overloaded_error" },
     { code: "rate_limited", classification: "rate_limited" },
     { code: "rate_limit_exceeded", classification: "rate_limit_exceeded" },
     {
@@ -3061,6 +3062,7 @@ describe("createBuilderEngine", () => {
     { code: "input_too_long", classification: "input_too_long" },
     { code: undefined, classification: undefined },
     { code: "private_canary_code_4c7d1e", classification: undefined },
+    { code: "  private_canary_Unknown_4c7d1e  ", classification: undefined },
     {
       code: "overloaded_error_private_canary_4c7d1e",
       classification: undefined,
