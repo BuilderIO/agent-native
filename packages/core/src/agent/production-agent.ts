@@ -15466,6 +15466,12 @@ export function createProductionAgentHandler(
         typeof requestedContinueOfRunId === "string",
     });
     const isQueuedPromotion = admittedQueuedMessage !== null;
+    // Only an admitted promotion's claim may save a refused turn over its
+    // queue entry. An unadmitted claim is refused below, so it consumes nothing.
+    const admittedQueuedMessageClaimId =
+      admittedQueuedMessage && typeof queuedMessageClaimId === "string"
+        ? queuedMessageClaimId.trim()
+        : "";
     if (admittedQueuedMessage) {
       // A claim admits the persisted queue payload, not extra fields in this request.
       const promotionOptions = admittedQueuedMessage.options ?? {};
@@ -15569,9 +15575,8 @@ export function createProductionAgentHandler(
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
             ? { queuedMessageId: queuedMessageId.trim() }
             : {}),
-          ...(typeof queuedMessageClaimId === "string" &&
-          queuedMessageClaimId.trim()
-            ? { queuedMessageClaimId: queuedMessageClaimId.trim() }
+          ...(admittedQueuedMessageClaimId
+            ? { queuedMessageClaimId: admittedQueuedMessageClaimId }
             : {}),
           ...(agentKitMessageId ? { agentKitMessageId } : {}),
           retryContext: retryContextFromRequest(body, (dropped) =>
@@ -16152,9 +16157,8 @@ export function createProductionAgentHandler(
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
             ? { queuedMessageId: queuedMessageId.trim() }
             : {}),
-          ...(typeof queuedMessageClaimId === "string" &&
-          queuedMessageClaimId.trim()
-            ? { queuedMessageClaimId: queuedMessageClaimId.trim() }
+          ...(admittedQueuedMessageClaimId
+            ? { queuedMessageClaimId: admittedQueuedMessageClaimId }
             : {}),
           ...(agentKitMessageId ? { agentKitMessageId } : {}),
           retryContext: retryContextFromRequest(body, (dropped) =>

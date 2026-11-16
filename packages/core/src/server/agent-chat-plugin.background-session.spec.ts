@@ -890,6 +890,59 @@ describe("background agent sessions through the agent-chat plugin", () => {
     }
   });
 
+  it("keeps a queued message when a refused request carries its claim with different text", async () => {
+    const threadId = "unadmitted-queued-promotion-thread";
+    const queuedId = "unadmitted-queued-message";
+    const claimId = "unadmitted-queued-claim";
+    await createThread(OWNER, {
+      id: threadId,
+      source: { appId: BACKGROUND_APP_ID },
+    });
+    await mutateThreadQueuedMessages(threadId, {
+      type: "append",
+      message: { id: queuedId, text: "The queued prompt", threadId },
+    });
+    await mutateThreadQueuedMessages(threadId, {
+      type: "claim",
+      messageId: queuedId,
+      claimId,
+    });
+    // The text doesn't match the queue entry, so the promotion isn't admitted
+    // and the request meets the setup gate like a direct send.
+    harness.requireAgentChatAiSetup.mockRejectedValueOnce(
+      Object.assign(new Error("Connect AI first"), {
+        statusCode: 403,
+        data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+      }),
+    );
+
+    const response = await fetch("/_agent-native/agent-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: "Some other text",
+        queuedMessageId: queuedId,
+        queuedMessageClaimId: claimId,
+        threadId,
+        turnId: `queue-${queuedId}`,
+        history: [],
+        engine: ENGINE_NAME,
+      }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(harness.requireAgentChatAiSetup).toHaveBeenCalled();
+    expect(await userMessagesFor(threadId, queuedId)).toHaveLength(0);
+    const repo = JSON.parse((await getThread(threadId))?.threadData || "{}");
+    expect(repo.queuedMessages).toEqual([
+      expect.objectContaining({
+        id: queuedId,
+        text: "The queued prompt",
+        promotionClaim: expect.objectContaining({ id: claimId }),
+      }),
+    ]);
+  });
+
   it("allows an anonymous read-only visitor to queue a prompt without a user AI identity", async () => {
     const threadId = "anonymous-queued-thread";
     await createThread("anonymous-owner@example.com", {
