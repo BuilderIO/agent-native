@@ -208,7 +208,41 @@ one board, left to right, at the same viewport size:
 Title screens with `rename-screen` ("Original · stripe.com", "Remix", "1 ·
 Folded plane"), then size and place them in one `update-design` call:
 `screenMetadata.<id>` `{ width, height, heightMode: "fixed" }` and
-`canvasFrames.<id>` `{ x, y, width, height }`.
+`canvasFrames.<id>` `{ x, y, width, height }`. A layout that reads well:
+Original at (0, 0), Remix 400 px to its right, and the explainer row centered
+about 870 px below them, with 160 px between frames.
+
+### Annotate The Canvas
+
+The board should read like a FigJam board, with guidance drawn on the canvas
+itself. Canvas annotations live in the design's board file, `__board__.html`.
+Call `migrate-board-objects-to-file` once; it is idempotent and creates the
+file. Then find the file's id in `get-design` `files` and write it with
+`update-file`. Each annotation is a direct `<body>` child, absolutely
+positioned in canvas coordinates (the same space as `canvasFrames`), with
+`data-agent-native-node-id`, `data-agent-native-layer-name` and
+`data-an-primitive` (`rectangle`, `text`, `ellipse` or `arrow`). That
+makes each one an editable layer. Add:
+
+- A pale, rounded region behind each group (Original, Remix, How it works), one
+  tint per group, extending 80 px past the frames. Earlier body children paint
+  below later ones, and screens paint above the board.
+- A big bold section title (about 120 px) in each region's top band. Leave
+  about 100 px above each screen for Design's own screen label. Put a board title
+  and a one-line technique above everything.
+- Numbered badges 1→n above the explainers, each with a short step name, and
+  arrows between the frames.
+- Arrows from Original to Remix and from Remix down into How it works. An arrow
+  is an `<svg data-an-primitive="arrow" overflow="visible">` with a `<path
+  d="M 0 0 L 192 0" stroke-width="10" marker-end="url(#id)">` and a triangle
+  `<marker id="id">` in its `<defs>`.
+- Two or three sticky notes: pale yellow, slightly tilted, with about 40 px
+  text. Use the source URL, "Only colors, fonts, icons changed" and "Same knobs
+  as the remix".
+
+Size the text for the fitted overview (about 25%): titles 100 px or more, and
+labels and stickies 40 px or more. Inside a `style` attribute, quote font
+names with single quotes; a double quote ends the attribute.
 Explainer and Remix knobs are the same tweaks: the explainer's speed knob is
 the remix's speed tweak, scoped to both screens, and both read its one cssVar.
 Turning a knob in any frame updates the remix too. Every frame runs live in
