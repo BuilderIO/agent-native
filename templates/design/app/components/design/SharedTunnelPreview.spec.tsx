@@ -29,6 +29,8 @@ it("keeps live tunnel content inert while its snapshot suggestion control stays 
     const frame = host.querySelector("iframe");
     expect(frame?.getAttribute("src")).toBe("https://demo.ngrok-free.app/flow");
     expect(frame?.tabIndex).toBe(-1);
+    // A redirect to the Design origin must stay in an opaque-origin sandbox.
+    expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
     expect(frame?.closest("[inert]")).not.toBeNull();
     const button = host.querySelector("button");
     expect(button?.closest("[inert]")).toBeNull();

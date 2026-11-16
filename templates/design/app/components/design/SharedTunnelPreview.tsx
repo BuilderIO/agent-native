@@ -28,7 +28,10 @@ export function SharedTunnelPreview({
             title={t("designEditor.livePreview.live")}
             src={url}
             onError={() => setLive(false)}
-            sandbox="allow-scripts allow-same-origin"
+            // No allow-same-origin: a tunnel may redirect to this origin, and the
+            // sandbox must stay opaque even then. Apps that need cookies or
+            // storage lose them here; viewers fall back to the snapshot.
+            sandbox="allow-scripts"
             referrerPolicy="no-referrer"
             className="pointer-events-none size-full border-0"
           />
