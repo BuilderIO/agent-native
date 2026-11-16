@@ -42,6 +42,7 @@ describe("composeApplyHandoff", () => {
     expect(result.prompt).toContain("acknowledge-visual-edit-pending");
     expect(result.includes.tweakIds).toEqual(["speed"]);
     expect(result.includes.remote).toBe(false);
+    expect(result.prompt).toContain("revision: <exact-handoff-revision>");
     expect(getDurableApplyHandoff(result, 0)).toEqual({
       pendingEditCount: 1,
       prompt: result.prompt,
