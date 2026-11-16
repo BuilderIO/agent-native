@@ -1345,7 +1345,7 @@ export function DocumentSidebar({
     : favoritesDatabase.data;
   // A first pin shows at once, before the Favorites collection it creates
   // has loaded.
-  const firstPins = useFirstPins();
+  const firstPins = useFirstPins(selectedSpace?.id);
   const firstPinsData = useMemo(
     () =>
       favoritesData || firstPins.length === 0

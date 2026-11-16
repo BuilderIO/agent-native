@@ -10,24 +10,40 @@ export const MOVE_DOCUMENT_MUTATION_KEY = ["content", "move-document"];
 export type MoveDocumentContext = { move?: FilesRowMove };
 
 /**
- * The pages whose move is still waiting on the server, by page ID, the latest
- * move of a page last. The Files tree draws each under its new parent, so a
- * page moves with the click, a read that started before the move can't put it
- * back, and a failed move shows it where it was.
+ * The pages whose move is still waiting on the server, by page ID. The Files
+ * tree draws each under its new parent, so a page moves with the click, a read
+ * that started before the move can't put it back, and a failed move shows it
+ * where it was. A page's latest move decides: an older move still waiting
+ * doesn't draw a page where a newer, finished one took it from.
  */
 export function usePendingMoves(): ReadonlyMap<string, FilesRowMove> {
   const moves = useMutationState({
-    filters: { mutationKey: MOVE_DOCUMENT_MUTATION_KEY, status: "pending" },
-    select: (mutation) =>
-      (mutation.state.context as MoveDocumentContext | undefined)?.move ?? null,
+    filters: {
+      mutationKey: MOVE_DOCUMENT_MUTATION_KEY,
+      // Only a move to a new parent changes where a page shows.
+      predicate: (mutation) =>
+        (mutation.state.variables as MoveVariables | undefined)?.parentId !==
+        undefined,
+    },
+    select: (mutation) => ({
+      documentId: (mutation.state.variables as MoveVariables).id,
+      move:
+        mutation.state.status === "pending"
+          ? ((mutation.state.context as MoveDocumentContext | undefined)
+              ?.move ?? null)
+          : null,
+    }),
   });
-  return useMemo(
-    () =>
-      new Map(
-        moves.flatMap((move) =>
-          move ? [[move.documentId, move] as const] : [],
-        ),
+  return useMemo(() => {
+    // Moves come oldest first, so a page's latest move is its last.
+    const latest = new Map<string, FilesRowMove | null>();
+    for (const { documentId, move } of moves) latest.set(documentId, move);
+    return new Map(
+      [...latest].flatMap(([documentId, move]) =>
+        move ? [[documentId, move] as const] : [],
       ),
-    [moves],
-  );
+    );
+  }, [moves]);
 }
+
+type MoveVariables = { id: string; parentId?: string | null };

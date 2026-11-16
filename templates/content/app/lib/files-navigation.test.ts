@@ -22,6 +22,7 @@ import {
   filesRowMove,
   forgetCreatedFilesRows,
   isFilesRowCreationPending,
+  keepMovedFilesRow,
   moveCachedFilesRow,
   readFilesNavigationPage,
   removeCreatedFilesRows,
@@ -103,7 +104,10 @@ function ids(queryClient: QueryClient, parentId: string | null = null) {
 async function reread(
   queryClient: QueryClient,
   answer: ContentDatabaseNavigationPageResponse,
-  { parentId = null, expanded = [] as string[] } = {},
+  {
+    parentId = null,
+    expanded = [],
+  }: { parentId?: string | null; expanded?: string[] } = {},
 ) {
   callActionWithRetry.mockResolvedValueOnce(answer);
   const params = filesNavigationPageParams({ databaseId: FILES, parentId });
@@ -363,13 +367,25 @@ describe("a page moved in the Files tree", () => {
   let queryClient: QueryClient;
 
   beforeEach(() => {
+    callActionWithRetry.mockReset();
     queryClient = new QueryClient();
   });
 
-  function move(documentId: string, parentId: string | null) {
+  function plan(documentId: string, parentId: string | null) {
     const planned = filesRowMove(queryClient, { documentId, parentId });
-    expect(planned).toBeDefined();
-    moveCachedFilesRow(queryClient, planned!);
+    if (!planned) throw new Error(`${documentId} has no cached Files row`);
+    return planned;
+  }
+
+  function move(documentId: string, parentId: string | null) {
+    moveCachedFilesRow(queryClient, plan(documentId, parentId));
+  }
+
+  /** The server answered the move, as `useMoveDocument` handles it. */
+  function moved(documentId: string, parentId: string | null) {
+    const planned = plan(documentId, parentId);
+    keepMovedFilesRow(queryClient, planned);
+    moveCachedFilesRow(queryClient, planned);
   }
 
   function hasChildren(documentId: string, parentId: string | null = null) {
@@ -459,6 +475,53 @@ describe("a page moved in the Files tree", () => {
       queryClient.getQueryCache().find({ queryKey: branchKey(), exact: true })
         ?.state.isInvalidated,
     ).toBe(true);
+  });
+
+  it("stays in a folder that hadn't loaded when the folder's first read answers from before the move", async () => {
+    queryClient.setQueryData(branchKey(), page([row("folder"), row("b")]));
+    // The folder opens with the click and reads its children while the move
+    // is still on its way.
+    const answers: Array<
+      (answer: ContentDatabaseNavigationPageResponse) => void
+    > = [];
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => answers.push(resolve)),
+    );
+    const read = readFilesNavigationPage(
+      queryClient,
+      filesNavigationPageParams({ databaseId: FILES, parentId: "folder" }),
+      [],
+    );
+
+    moved("b", "folder");
+    for (const answer of answers) answer(page([]));
+
+    const answered = await read;
+    if ("available" in answered) throw new Error("The Files read failed");
+    expect(answered.items.map((item) => item.documentId)).toEqual(["b"]);
+  });
+
+  it("stays at the end of a long folder's first page while the server lists it further on", async () => {
+    const children = Array.from({ length: 20 }, (_, index) =>
+      row(`child-${index}`, { parentId: "folder" }),
+    );
+    queryClient.setQueryData(
+      branchKey(),
+      page([row("folder", { hasChildren: true }), row("b")]),
+    );
+    queryClient.setQueryData(branchKey("folder"), page(children, true));
+
+    moved("b", "folder");
+    const shown = await reread(queryClient, page(children, true), {
+      parentId: "folder",
+    });
+    expect(shown).toHaveLength(21);
+    expect(shown[20]).toBe("b");
+
+    // A read of the whole folder without it, once it moved on, lets it go.
+    expect(
+      await reread(queryClient, page(children), { parentId: "folder" }),
+    ).toHaveLength(20);
   });
 
   it("has no move to plan for a page no Files page lists", () => {

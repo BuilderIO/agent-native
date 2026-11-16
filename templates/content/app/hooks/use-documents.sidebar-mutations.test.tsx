@@ -41,7 +41,11 @@ import {
   useMoveDocument,
   useUpdateDocument,
 } from "./use-documents";
-import { MOVE_DOCUMENT_MUTATION_KEY } from "./use-pending-moves";
+import {
+  MOVE_DOCUMENT_MUTATION_KEY,
+  type MoveDocumentContext,
+  usePendingMoves,
+} from "./use-pending-moves";
 
 const FILES = "files";
 const SPACE = "space";
@@ -105,10 +109,11 @@ function seedSpaces(
 
 /** The options the hook hands the action mutation, as TanStack Query runs them. */
 function mutationOptions(name: string) {
-  const calls = useActionMutation.mock.calls.filter(
-    ([action]) => action === name,
-  );
-  return calls[calls.length - 1]![1];
+  const call = useActionMutation.mock.calls
+    .filter(([action]) => action === name)
+    .pop();
+  if (!call) throw new Error(`${name} was never set up`);
+  return call[1];
 }
 
 describe("Move to in the Files tree", () => {
@@ -248,7 +253,13 @@ describe("pinning from the hosted Files tree", () => {
 
     expect(context).toMatchObject({
       createsFavorites: true,
-      firstPin: { id: "page", title: "Page page", isFavorite: true },
+      // Its Files collection says which space it was pinned in.
+      firstPin: {
+        id: "page",
+        title: "Page page",
+        spaceId: SPACE,
+        isFavorite: true,
+      },
     });
 
     options.onSuccess(
@@ -264,16 +275,17 @@ describe("pinning from the hosted Files tree", () => {
     expect(
       queryClient
         .getQueryCache()
-        .find({ queryKey: ["action", "list-content-spaces"] })?.state
+        .find({ queryKey: ["action", "list-content-spaces", undefined] })?.state
         .isInvalidated,
     ).toBe(true);
   });
 });
 
 describe("useFirstPins", () => {
-  const pinned = (id: string) =>
+  const pinned = (id: string, spaceId = SPACE) =>
     ({
       id,
+      spaceId,
       parentId: null,
       title: id,
       content: "",
@@ -285,11 +297,11 @@ describe("useFirstPins", () => {
       updatedAt: "2026-11-16T00:00:00.000Z",
     }) satisfies Document;
 
-  it("holds first pins newest first until the page is unpinned or its pin fails", async () => {
+  it("holds first pins of the space newest first until the page is unpinned or its pin fails", async () => {
     const queryClient = new QueryClient();
     const seen = { current: [] as string[] };
     function Probe() {
-      const ids = useFirstPins().map((document) => document.id);
+      const ids = useFirstPins(SPACE).map((document) => document.id);
       useEffect(() => {
         seen.current = ids;
       });
@@ -303,20 +315,25 @@ describe("useFirstPins", () => {
         </QueryClientProvider>,
       ),
     );
-    const answers: Array<{
-      resolve: () => void;
-      reject: (error: Error) => void;
-    }> = [];
-    const toggle = (id: string, isFavorite: boolean, firstPin = isFavorite) =>
+    const answers = new Map<
+      string,
+      { resolve: () => void; reject: (error: Error) => void }
+    >();
+    const toggle = (
+      id: string,
+      isFavorite: boolean,
+      firstPin = isFavorite,
+      spaceId = SPACE,
+    ) =>
       queryClient
         .getMutationCache()
         .build(queryClient, {
           mutationKey: ["content", "update-document"],
           mutationFn: () =>
             new Promise<void>((resolve, reject) =>
-              answers.push({ resolve, reject }),
+              answers.set(id, { resolve, reject }),
             ),
-          onMutate: () => (firstPin ? { firstPin: pinned(id) } : {}),
+          onMutate: () => (firstPin ? { firstPin: pinned(id, spaceId) } : {}),
         })
         .execute({ id, isFavorite })
         .catch(() => {});
@@ -327,16 +344,82 @@ describe("useFirstPins", () => {
 
     void toggle("a", true);
     void toggle("b", true);
+    // Pinned in another space, so another space's Pinned shows it.
+    void toggle("elsewhere", true, true, "other-space");
     await settle();
     expect(seen.current).toEqual(["b", "a"]);
 
     // A's pin lands; B's fails.
-    answers[0]!.resolve();
-    answers[1]!.reject(new Error("refused"));
+    answers.get("a")?.resolve();
+    answers.get("b")?.reject(new Error("refused"));
     await settle();
     expect(seen.current).toEqual(["a"]);
 
     void toggle("a", false);
+    await settle();
+    expect(seen.current).toEqual([]);
+
+    await act(async () => root.unmount());
+  });
+});
+
+describe("usePendingMoves", () => {
+  const plan = (parentId: string): MoveDocumentContext => ({
+    move: {
+      documentId: "page",
+      databaseId: FILES,
+      parentId,
+      from: { databaseId: FILES, parentId: null },
+      item: row("page", { parentId }),
+    },
+  });
+
+  it("draws a page where its latest move takes it, even when an older move is still waiting", async () => {
+    const queryClient = new QueryClient();
+    const seen = { current: [] as Array<string | null> };
+    function Probe() {
+      const moves = usePendingMoves();
+      const parents = [...moves.values()].map((move) => move.parentId);
+      useEffect(() => {
+        seen.current = parents;
+      });
+      return null;
+    }
+    const root = createRoot(document.createElement("div"));
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      ),
+    );
+    const answers = new Map<string, () => void>();
+    const moveTo = (parentId: string) =>
+      queryClient
+        .getMutationCache()
+        .build(queryClient, {
+          mutationKey: MOVE_DOCUMENT_MUTATION_KEY,
+          mutationFn: () =>
+            new Promise<void>((resolve) => answers.set(parentId, resolve)),
+          onMutate: () => plan(parentId),
+        })
+        .execute({ id: "page", parentId });
+    const settle = async () =>
+      act(async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+
+    void moveTo("b");
+    void moveTo("c");
+    await settle();
+    expect(seen.current).toEqual(["c"]);
+
+    // The move to C answers first; the move to B is still waiting.
+    answers.get("c")?.();
+    await settle();
+    expect(seen.current).toEqual([]);
+
+    answers.get("b")?.();
     await settle();
     expect(seen.current).toEqual([]);
 

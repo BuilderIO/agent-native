@@ -77,6 +77,7 @@ import {
   filesRowDocument,
   filesRowMove,
   forgetCreatedFilesRows,
+  keepMovedFilesRow,
   moveCachedFilesRow,
   removeCreatedFilesRows,
   showCreatedFilesRow,
@@ -1711,7 +1712,12 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
         if (variables.isFavorite === true) {
           const document = cachedDocumentForPinned(queryClient, variables.id);
           if (document && createsFavorites) {
-            firstPin = { ...document, isFavorite: true };
+            // Pinned lists the pins of one space.
+            firstPin = {
+              ...document,
+              spaceId: documentSpaceId ?? null,
+              isFavorite: true,
+            };
           }
           if (document) {
             for (const [
@@ -2288,8 +2294,13 @@ export function useMoveDocument() {
       });
       return move ? { move } : {};
     },
-    onSuccess: (_data, variables) =>
-      forgetCreatedFilesRows(queryClient, [variables.id]),
+    // Before the reread starts, so a read the move didn't wait for can't take
+    // the page out of its new branch.
+    onSuccess: (_data, variables, context) => {
+      const move = (context as MoveDocumentContext | undefined)?.move;
+      if (move) keepMovedFilesRow(queryClient, move);
+      else forgetCreatedFilesRows(queryClient, [variables.id]);
+    },
     // After the reread starts, so it still finds the branches that listed the
     // page; the tree then keeps the page in place until the reread lands.
     onSettled: (_data, error, _variables, context) => {
@@ -2435,7 +2446,7 @@ function currentDocumentSpaceId(queryClient: QueryClient, documentId: string) {
   for (const [, data] of queryClient.getQueriesData<ListContentSpacesResponse>({
     queryKey: ["action", "list-content-spaces"],
   })) {
-    const space = data?.spaces?.find(
+    const space = data?.spaces.find(
       (candidate) => candidate.filesDatabaseId === row.databaseId,
     );
     if (space) return space.id;
@@ -2474,12 +2485,12 @@ function favoritesCollectionExists(queryClient: QueryClient) {
 }
 
 /**
- * Pages pinned before this person had a Favorites collection, newest pin
- * first, as Pinned lists a new pin. The first pin creates the collection, so
- * Pinned draws these until the collection's own read lands. A failed pin
- * leaves, and so does a page unpinned since.
+ * Pages pinned in `spaceId` before this person had a Favorites collection,
+ * newest pin first, as Pinned lists a new pin. The first pin creates the
+ * collection, so Pinned draws these until the collection's own read lands. A
+ * failed pin leaves, and so does a page unpinned since.
  */
-export function useFirstPins(): Document[] {
+export function useFirstPins(spaceId: string | null | undefined): Document[] {
   const toggles = useMutationState({
     filters: {
       mutationKey: DOCUMENT_UPDATE_MUTATION_KEY,
@@ -2506,9 +2517,12 @@ export function useFirstPins(): Document[] {
       latest.set(toggle.id, toggle.firstPin);
     }
     return [...latest.values()]
-      .filter((document): document is Document => document !== null)
+      .filter(
+        (document): document is Document =>
+          document !== null && Boolean(spaceId) && document.spaceId === spaceId,
+      )
       .reverse();
-  }, [toggles]);
+  }, [spaceId, toggles]);
 }
 
 function currentContentSidebarState(

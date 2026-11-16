@@ -51,10 +51,16 @@ export function useMovePageDialog({
       const { spaceId, parentId } = destination;
       const crossSpace = spaceId !== page.spaceId;
       const settle = onMove?.(page, destination);
-      moveDocument.mutate(
-        { id: page.documentId, parentId, ...(crossSpace ? { spaceId } : {}) },
-        {
-          onSuccess: () => {
+      // Each move answers for itself: callbacks given to `mutate` run only for
+      // the latest of several moves still waiting.
+      void moveDocument
+        .mutateAsync({
+          id: page.documentId,
+          parentId,
+          ...(crossSpace ? { spaceId } : {}),
+        })
+        .then(
+          () => {
             settle?.(true);
             if (crossSpace) {
               const space = contentSpaces.find(
@@ -68,7 +74,7 @@ export function useMovePageDialog({
               );
             }
           },
-          onError: (error) => {
+          (error: unknown) => {
             settle?.(false);
             toast.error(t("sidebar.failedMovePage"), {
               description:
@@ -77,8 +83,7 @@ export function useMovePageDialog({
                   : t("empty.genericError"),
             });
           },
-        },
-      );
+        );
     },
     [contentSpaces, moveDocument, onMove, t],
   );

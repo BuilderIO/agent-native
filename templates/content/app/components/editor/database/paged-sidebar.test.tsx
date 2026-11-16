@@ -583,7 +583,7 @@ describe("PagedContentFilesSidebarView", () => {
   });
 
   it("draws a page under its new parent while its move is pending and back where it was when the move fails", async () => {
-    const branches: Record<string, ContentDatabaseNavigationItem[]> = {
+    const branches: Partial<Record<string, ContentDatabaseNavigationItem[]>> = {
       root: [
         navigationItem("folder"),
         navigationItem("page-a"),
@@ -661,6 +661,73 @@ describe("PagedContentFilesSidebarView", () => {
       ["/page/folder", 0],
       ["/page/page-a", 0],
       ["/page/page-b", 0],
+    ]);
+
+    await act(async () => root.unmount());
+  });
+
+  it("draws a page moved into a folder that hasn't loaded below the folder's placeholder rows", async () => {
+    useFilesNavigationPage.mockImplementation((args) =>
+      args.navigation.parentId === "folder"
+        ? {
+            data: undefined,
+            isLoading: true,
+            isError: false,
+            isFetching: true,
+            refetch: vi.fn(),
+          }
+        : {
+            data: page([navigationItem("folder"), navigationItem("page-b")]),
+            isLoading: false,
+            isError: false,
+            isFetching: false,
+            refetch: vi.fn(),
+          },
+    );
+    const queryClient = new QueryClient();
+    const { container, root } = await renderHarness({
+      initiallyExpanded: ["folder"],
+      queryClient,
+    });
+    // Each link with how many rows it sits inside.
+    const shown = () =>
+      Array.from(container.querySelectorAll("a"), (link) => {
+        let depth = 0;
+        for (let node: Element | null = link; node; node = node.parentElement)
+          if (node.classList.contains("gap-0.5")) depth += 1;
+        return [link.getAttribute("href"), depth] as const;
+      });
+    const topDepth = shown().shift()?.[1] ?? 0;
+    expect(shown()).toEqual([
+      ["/page/folder", topDepth],
+      ["/page/page-b", topDepth],
+    ]);
+
+    await act(async () => {
+      void queryClient
+        .getMutationCache()
+        .build(queryClient, {
+          mutationKey: MOVE_DOCUMENT_MUTATION_KEY,
+          mutationFn: (_variables: { id: string; parentId: string }) =>
+            new Promise<never>(() => {}),
+          onMutate: (): MoveDocumentContext => ({
+            move: {
+              documentId: "page-b",
+              databaseId: "files",
+              parentId: "folder",
+              from: { databaseId: "files", parentId: null },
+              item: { ...navigationItem("page-b"), parentId: "folder" },
+            },
+          }),
+        })
+        .execute({ id: "page-b", parentId: "folder" });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+
+    // The folder's children are still loading; the moved page shows under them.
+    expect(shown()).toEqual([
+      ["/page/folder", topDepth],
+      ["/page/page-b", topDepth + 1],
     ]);
 
     await act(async () => root.unmount());

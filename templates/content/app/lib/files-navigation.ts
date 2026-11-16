@@ -88,12 +88,13 @@ type FilesNavigationRead =
   | ContentDatabaseNavigationPageResponse
   | ContentDatabaseUnavailableResponse;
 
-// Pages this tab created, by page ID. The server lists a page only once its
-// create commits, and lists a new page last, after the first page of a branch
-// longer than one page. Each read of a branch's first page keeps these rows at
-// its end, so a new page stays in the sidebar while its create is in flight,
-// when another create or a move rereads the branch, and after the person opens
-// another page.
+// Pages this tab created, by page ID, and pages it moved into a new branch.
+// The server lists a page only once its create commits, and lists a new page
+// last, after the first page of a branch longer than one page. Each read of a
+// branch's first page keeps these rows at its end, so a new page stays in the
+// sidebar while its create is in flight, when another create or a move rereads
+// the branch, and after the person opens another page. A moved page stays the
+// same way through a read that started before its move committed.
 type CreatedFilesRow = {
   databaseId: string;
   item: ContentDatabaseNavigationItem;
@@ -236,6 +237,27 @@ export function forgetCreatedFilesRows(
   const rows = createdFilesRows.get(queryClient);
   if (!rows) return;
   for (const documentId of documentIds) rows.delete(documentId);
+}
+
+/**
+ * The server moved a page: reads of its new branch keep it at the end of the
+ * first page, as for a page this tab created, until a read that started from
+ * now on lists it or reads the whole branch without it.
+ */
+export function keepMovedFilesRow(
+  queryClient: QueryClient,
+  move: FilesRowMove,
+) {
+  let rows = createdFilesRows.get(queryClient);
+  if (!rows) {
+    rows = new Map();
+    createdFilesRows.set(queryClient, rows);
+  }
+  rows.set(move.documentId, {
+    databaseId: move.databaseId,
+    item: move.item,
+    confirmedMark: nextFilesMark(),
+  });
 }
 
 /**
@@ -449,21 +471,23 @@ export function moveCachedFilesRow(
     !("available" in oldBranch) &&
     oldBranch.items.length === 0 &&
     !oldBranch.pagination.hasMore;
-  updateCachedFilesPages(queryClient, (page) => {
-    let changed = false;
-    const items = page.items.map((item) => {
-      const hasChildren =
-        item.documentId === move.parentId
-          ? true
-          : oldParentEmptied && item.documentId === oldParentId
-            ? false
-            : item.hasChildren;
-      if (hasChildren === item.hasChildren) return item;
-      changed = true;
-      return { ...item, hasChildren };
-    });
-    return changed ? { ...page, items } : undefined;
-  });
+  const hasChildrenAfterMove = (item: ContentDatabaseNavigationItem) =>
+    item.documentId === move.parentId
+      ? true
+      : oldParentEmptied && item.documentId === oldParentId
+        ? false
+        : item.hasChildren;
+  updateCachedFilesPages(queryClient, (page) =>
+    page.items.some((item) => hasChildrenAfterMove(item) !== item.hasChildren)
+      ? {
+          ...page,
+          items: page.items.map((item) => ({
+            ...item,
+            hasChildren: hasChildrenAfterMove(item),
+          })),
+        }
+      : undefined,
+  );
 }
 
 /**
