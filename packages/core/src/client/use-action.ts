@@ -1968,27 +1968,24 @@ export function useActionQuery<
       : {}),
     refetchOnWindowFocus: false,
   });
-  // QueryObserver must apply enabled changes before closing a cached opening.
+  // QueryObserver must apply enabled changes before closing a cached opening. The result is not
+  // read here: React Query tracks the fields a render reads, and reading extra ones narrows what
+  // re-renders a caller that reads `data` outside render.
   useEffect(() => {
-    if (interactive && result.isEnabled)
+    if (interactive)
       finishActionQueryOpening(queryClient.getQueryCache().get<R>(queryHash));
   });
-  const queryRefetch = result.refetch;
-  const refetch = useCallback<typeof queryRefetch>(
-    (refetchOptions) =>
-      interactive && foregroundRefetch
-        ? refetchActionQueryInForeground(
-            queryClient.getQueryCache().get<R>(queryHash),
-            () => queryRefetch(refetchOptions),
-          )
-        : queryRefetch(refetchOptions),
-    [foregroundRefetch, interactive, queryClient, queryHash, queryRefetch],
-  );
   if (!interactive || !foregroundRefetch) return result;
   // Proxy, not spread: React Query tracks which result fields a component reads.
   return new Proxy(result, {
     get: (target, key) =>
-      key === "refetch" ? refetch : Reflect.get(target, key),
+      key === "refetch"
+        ? (refetchOptions?: Parameters<typeof result.refetch>[0]) =>
+            refetchActionQueryInForeground(
+              queryClient.getQueryCache().get<R>(queryHash),
+              () => target.refetch(refetchOptions),
+            )
+        : Reflect.get(target, key),
   });
 }
 
