@@ -73,8 +73,7 @@ for your own PR. For anyone else's PR, `ship`'s ownership rules apply.
    If the head moved, someone pushed. Redo steps 2-4 for the new head before
    you merge it. Don't wait for remote CI or release checks.
 
-6. Fetch `origin/main` and confirm the merge commit is in it, then rotate with
-   `/new-branch`'s post-merge step.
+6. Fetch `origin/main` and confirm the merge commit is in it.
 
 ## After the merge
 
@@ -90,7 +89,7 @@ A failed query, or no runs listed yet, means unknown, not green. Keep checking u
 Stop watching once the PR checks have all finished and the merge commit's
 runs have finished, or successful queries have shown none for 10 minutes.
 In that last case, report "no merge-commit runs seen", which is usually path
-filters but unverified, rather than calling them green. Fix any failure on the fresh branch and send
+filters but unverified, rather than calling them green. Fix any failure on the branch and send
 it through `/ship`. If the PR body has a `Reports` section, run
 `/review-latest-feedback` step 5 for those threads. Merging publishes beta
 automatically. Beyond the merge commit's own workflows, beta, docs, and

@@ -80,8 +80,7 @@ gh pr list --head "$(git branch --show-current)" --state open
 ```
 
 In a task-owned worktree, do not require a checkpoint or `ship:push` just to
-create a fresh branch; preserve and carry the current task's changes. For
-post-merge rotation, follow `new-branch`'s dedicated safety checks.
+create a fresh branch; preserve and carry the current task's changes.
 
 For an explicitly authorized branch-wide checkpoint, publish one complete
 snapshot with `corepack pnpm ship:push -m "<specific change>"`. Do not publish

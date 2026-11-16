@@ -2,9 +2,9 @@
 name: ship
 description: >-
   Commit and push the current work, open a ready PR, babysit it through CI and
-  review, and admin-merge it once it's green and clean, then rotate the
-  worktree to a fresh branch once the flow is done. Use when the user asks to ship, publish, or hand
-  off local changes. Merging to main deploys beta automatically; production
+  review, and admin-merge it once it's green and clean. Use when the user asks
+  to ship, publish, or hand off local changes. Merging to main deploys beta
+  automatically; production
   promotion is manual.
 user-invocable: true
 scope: dev
@@ -16,7 +16,7 @@ metadata:
 
 `/ship` means: get the requested work merged to `main`. That covers
 committing, pushing, opening a ready PR, fixing CI and review feedback,
-merging, and leaving the worktree ready for the next task. Don't stop at
+and merging. Don't stop at
 "PR opened" or "CI green", and don't ask for approval of routine steps along
 the way. The request to ship already authorized them.
 
@@ -93,7 +93,7 @@ a handoff, so keep going until the merge. Every tick:
 - Read failing CI logs and fix repo-owned causes. Classify provider outages,
   cancelled runs, and missing secrets before touching code.
 - In Codex, set a goal (`create_goal`, or reuse one that covers this PR)
-  whose endpoint is "merged, in `origin/main`, worktree rotated", plus one
+  whose endpoint is "merged, in `origin/main`", plus one
   same-thread heartbeat (about every 5 minutes, backing off to 30 after three
   unchanged wakes) so CI waits resume on their own. The heartbeat stays silent
   unless something changed, and you delete it after the merge. In Claude Code,
@@ -115,13 +115,10 @@ before merging, then:
 gh pr merge <number> --squash --admin --match-head-commit <head-oid-you-just-checked>
 ```
 
-Write the checked OID into the transcript as `ship_merge_head_oid` before
-running the merge. `/new-branch`'s post-merge rotation uses it. If the head
-changed, restart the 10 minutes. Never enable auto-merge.
+If the head changed, restart the 10 minutes. Never enable auto-merge.
 
 If the user said to leave the PR open, or you only have permission to push to
-someone else's PR, stop at a green, review-clean, mergeable PR, and don't
-rotate.
+someone else's PR, stop at a green, review-clean, mergeable PR.
 
 ## 6. After merge
 
@@ -131,16 +128,6 @@ rotate.
   5 ("Close the loop") for exactly those threads. That step owns the reply
   format, the skip rules, and the no-duplicate check. Never reply on threads
   that aren't listed.
-- In a task-owned worktree, rotate to a fresh branch from the new
-  `origin/main` (`/new-branch`), provided nothing is unpushed or dirty. This is
-  the only rotation point: between changes of one flow, keep committing on the
-  same branch. Leave a shared checkout's branch alone.
-- A throwaway worktree for one run (automations create these under
-  `~/.codex/worktrees`) isn't rotated; it is left for
-  `pnpm worktrees:prune --apply` from the main checkout, which removes agent
-  worktrees that are clean, pushed or merged, idle, and not in use. Never
-  leave one dirty or unpushed on purpose.
-
 Merging to `main` publishes beta automatically
 (`deploy-beta-sites-prebuilt.yml`), so "it'll be on beta shortly" is accurate
 after a merge. Docs on `main` publish to production automatically. All other
@@ -149,5 +136,5 @@ without checking; use `/ship-and-monitor` when the user wants that proof.
 
 ## Report
 
-Give the PR link, the merge commit, the checks run, the branch disposition,
-and anything left for a person, each in a line or two.
+Give the PR link, the merge commit, the checks run, and anything left for a
+person, each in a line or two.

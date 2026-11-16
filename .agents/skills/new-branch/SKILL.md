@@ -1,10 +1,8 @@
 ---
 name: new-branch
 description: >-
-  Name and create a task branch from fresh origin/main, and rotate a
-  task-owned worktree to a new branch after its PR merges. Use when asked for
-  a fresh branch, when /ship needs a branch for detached work, and after a
-  merge.
+  Name and create a task branch from fresh origin/main. Use when asked for a
+  fresh branch or when /ship needs a branch for detached work.
 user-invocable: true
 scope: dev
 metadata:
@@ -16,8 +14,7 @@ metadata:
 Creating or switching branches never needs permission, but a branch is for
 new work, not for the next change of a flow already on a branch. A whole demo
 flow or batch of rows is one branch and one PR with one commit per change, so
-mid-flow work goes on the existing branch, and a new branch starts only after
-that flow's PR merges. In a checkout other
+mid-flow work goes on the existing branch. In a checkout other
 sessions are using, branch in a new worktree instead of switching that
 checkout's branch under them. Platform-assigned Builder.io and Fusion branches
 stay where they are. Never move a branch that another worktree has checked out
@@ -64,37 +61,3 @@ Never branch from a local `main`, which can be stale. If the branch is for an
 existing PR update, base it on that PR's freshly fetched live head instead of
 `origin/main` (see `babysit-pr` for the push target). Don't push the new branch
 until it has changes to ship.
-
-## After a merge
-
-Rotate only when the flow's PR merged, the tree is clean, and nothing is
-unpushed.
-
-```bash
-git fetch origin --quiet || { echo "fetch failed: keeping this branch" >&2; exit 1; }
-git merge-base --is-ancestor <mergeCommit.oid> origin/main
-git status --porcelain --untracked-files=all -- ':/' ':(top,exclude)learnings.md' ':(top,exclude)bridge/**' ':(top,exclude)data/**'
-git log --oneline <ship_merge_head_oid>..HEAD
-```
-
-- `mergeCommit.oid` comes from `gh pr view <number> --json mergeCommit`. If it
-  isn't in `origin/main` yet, wait a few seconds and fetch again.
-- `ship_merge_head_oid` is the head `/ship` saved before merging. The `git log`
-  must print nothing, which means no commits landed after the merged head.
-  Also confirm the PR's final head is the one that merged:
-  `gh pr view <number> --json headRefOid --jq .headRefOid` must print
-  `ship_merge_head_oid`. This works even when the source branch was deleted
-  or lives on a fork. If the command fails, keep the branch.
-- `git cat-file -e "<ship_merge_head_oid>^{commit}"` and
-  `git merge-base --is-ancestor <ship_merge_head_oid> HEAD` must both succeed
-  first, which proves this checkout holds the merged head. If
-  the saved OID is missing or invalid, an empty `git log` proves nothing, so
-  keep the branch.
-- If any of these commands fails, or anything is dirty or unpushed, keep the
-  branch and list what you found.
-
-When it's all clear, compute `$branch` as above and run
-`git switch -c "$branch" origin/main`. Always use `origin/main` here, never the
-HEAD-keeping branch from "Create": a squash merge leaves the source commits
-off `main`'s history, so HEAD would carry already-merged work. In a shared
-checkout, don't rotate; leave its branch as it is.

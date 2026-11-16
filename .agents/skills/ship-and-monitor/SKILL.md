@@ -14,8 +14,8 @@ metadata:
 # Ship and Monitor
 
 Use the normal `/ship` workflow, then add the post-merge monitoring described
-below. Read `.agents/skills/ship/SKILL.md` and follow every step through
-`/new-branch`; `/ship` intentionally ends after merge and branch rotation. A
+below. Read `.agents/skills/ship/SKILL.md` and follow every step through the
+merge. A
 merge-triggered beta publish alone is not a reason for an independent beta
 browser, URL, or E2E check.
 
@@ -74,7 +74,7 @@ done.
 
 ## Post-merge monitoring
 
-After `/new-branch`:
+After the merge:
 
 1. Confirm the merged PR and merge commit are present in `origin/main`.
 2. Check applicable workflows and package publication. Wait for the affected
@@ -88,9 +88,8 @@ After `/new-branch`:
    separately. Otherwise report those other production sites as intentionally
    not promoted, not as blocked by Netlify.
 4. Re-read the merged PR for new review or bot feedback. If actionable
-   post-merge feedback or a release/deploy failure appears, fix it on the fresh
-   branch, run the smallest meaningful check, and invoke `/ship` for the
-   follow-up.
+   post-merge feedback or a release/deploy failure appears, run the smallest
+   meaningful check and invoke `/ship` for the follow-up.
 5. When beta verification is in scope, correct a beta update already posted in
    an owned feedback thread if the matching publish fails or the affected site
    is still not current 24 hours after the update. The task running that check
@@ -104,4 +103,3 @@ or green test alone is not live proof.
 
 - `/ship` for the normal guarded flow without post-merge monitoring.
 - `/ship-now` for the fast admin-merge path; it watches the merge commit's workflows itself.
-- `/new-branch` for the required branch rotation after merge.

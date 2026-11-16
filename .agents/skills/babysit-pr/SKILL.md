@@ -170,6 +170,4 @@ Under `/ship`, or standalone when the user asks you to merge, merge only once
 before merging, rerun the unreplied-comments query and the review-bodies call
 above so no new bot round slips in, and confirm
 `git rev-parse HEAD` equals the live `headRefOid` (nothing local left
-unpushed, nothing remote you haven't seen). Record `ship_merge_head_oid` as `ship`
-describes. Under `/ship`, follow its post-merge step. Standalone, leave the
-branch where it is unless the user also asked to rotate.
+unpushed, nothing remote you haven't seen). Under `/ship`, follow its post-merge step.

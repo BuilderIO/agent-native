@@ -4106,6 +4106,12 @@ const PATTERNS = [
     re: /\b(write|add).{0,24}(failing|red) test|test.{0,16}fail(s|ed)? first|where'?s the (failing )?test|no test for (this|that) (fix|bug)|prove it fails\b/i,
   },
   {
+    key: "batch-related-fixes-before-ship",
+    label: "Had to correct splitting related fixes or testing after merge",
+    fixedBy: "AGENTS.md Dev flow + daily cohesion drift check (2026-11-15)",
+    re: /\b(?:same[- ]flow|related fixes?|batch(?:ed|ing)?|follow[- ]up)\b[^.!?\n]{0,100}\b(?:one (?:open )?pr|same pr|one worktree|test(?:ing)? after (?:merge|shipping)|merge to find out|don['’]?t merge|do not merge)\b|\b(?:merge to find out|testing after merge|tested after merge|split(?:ting)? (?:it|this|them) into (?:another )?prs?)\b/i,
+  },
+  {
     key: "shipping-churn",
     label: "Had to stop routine ship commits or main merges",
     fixedBy: ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
