@@ -1106,6 +1106,13 @@ describe("DesignCanvas live embedded-frame offset", () => {
       await expectKnobChangePostedWithoutReload({ readOnly: true }, true);
     });
 
+    it("posts the new values to a URL-backed frame", async () => {
+      await expectKnobChangePostedWithoutReload(
+        { content: "https://clips.example/library" },
+        false,
+      );
+    });
+
   });
 
   it("keeps the iframe identity stable when a board render window reanchors", async () => {

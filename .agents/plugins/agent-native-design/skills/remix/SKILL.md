@@ -299,7 +299,9 @@ names with single quotes; a double quote ends the attribute.
 Explainer and Remix knobs are the same tweaks: the explainer's speed knob is
 the remix's speed tweak, scoped to both screens, and both read its one cssVar.
 Turning a knob in any frame updates the remix too. Every frame runs live in
-Interact mode.
+Interact mode; inline frames keep the knob values there, but a localhost or URL
+screen loads as itself in Interact and shows its source defaults, so judge its
+knobs in Edit.
 
 Explainer frames: one idea per frame, diagram first, a caption of a sentence
 or two, real parameter names and values from the spec, small and light.
