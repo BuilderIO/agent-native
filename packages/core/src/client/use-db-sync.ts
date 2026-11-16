@@ -17,7 +17,10 @@ import {
   isHostSurfaceHidden,
   isSurfaceHidden,
 } from "../shared/surface-visibility.js";
-import { actionQueryAffectedByResources } from "./action-query-scope.js";
+import {
+  actionQueryAffectedByChanges,
+  type ActionResourceChange,
+} from "./action-query-scope.js";
 import { agentNativePath, apiBaseUrl, isApiBaseUrl } from "./api-path.js";
 import { getBrowserTabId, resolveBrowserTabIdAlias } from "./browser-tab-id.js";
 import { isTerminalAuthFailure } from "./create-query-client.js";
@@ -577,17 +580,18 @@ function hasTerminalAuthFailure(query: Query): boolean {
  */
 function changedActionResources(
   actionEvents: readonly SyncEvent[],
-): ReadonlySet<string> | undefined {
-  const resources = new Set<string>();
+): ActionResourceChange[] | undefined {
+  const resources: ActionResourceChange[] = [];
   for (const evt of actionEvents) {
     if (typeof evt.resourceType !== "string" || !evt.resourceType) {
       return undefined;
     }
-    resources.add(
-      typeof evt.resourceId === "string" && evt.resourceId
-        ? `${evt.resourceType}:${evt.resourceId}`
-        : evt.resourceType,
-    );
+    resources.push({
+      type: evt.resourceType,
+      ...(typeof evt.resourceId === "string" && evt.resourceId
+        ? { id: evt.resourceId }
+        : {}),
+    });
   }
   return resources;
 }
@@ -1882,7 +1886,7 @@ export function useDbSync(
               ? (query: Query) =>
                   (!appPredicate || appPredicate(query, invalidating)) &&
                   (changedResources === undefined ||
-                    actionQueryAffectedByResources(query, changedResources))
+                    actionQueryAffectedByChanges(query, changedResources))
               : undefined;
           invalidateWithoutCancel(
             predicate ? { predicate } : { queryKey: ["action"] },

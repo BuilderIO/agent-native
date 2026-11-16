@@ -180,6 +180,50 @@ describe("useDbSync action-event invalidation scope", () => {
     expect(nonAction.state.isInvalidated).toBe(false);
   });
 
+  it.each([
+    {
+      name: "an exact ID",
+      resourceId: "a:b",
+      expected: ["layer-a-b", "layer-list", "untagged"],
+    },
+    {
+      name: "a missing ID",
+      resourceId: undefined,
+      expected: [
+        "layer-a",
+        "layer-a-b",
+        "layer-list",
+        "layer-other",
+        "untagged",
+      ],
+    },
+  ])(
+    "matches a colon-containing event type with $name",
+    async ({ resourceId, expected }) => {
+      const client = new QueryClient();
+      cacheActionQuery(client, "design-list", ["design"]);
+      cacheActionQuery(client, "layer-list", ["design:layer"]);
+      cacheActionQuery(client, "layer-a", ["design:layer:a"]);
+      cacheActionQuery(client, "layer-a-b", ["design:layer:a:b"]);
+      cacheActionQuery(client, "layer-other", ["design:layer:other"]);
+      cacheActionQuery(client, "document", ["document"]);
+      cacheActionQuery(client, "untagged");
+
+      await syncEvents(client, [
+        {
+          version: 1,
+          source: "action",
+          type: "change",
+          key: "update-layer",
+          resourceType: "design:layer",
+          resourceId,
+        },
+      ]);
+
+      expect(invalidatedActionNames(client)).toEqual(expected);
+    },
+  );
+
   it("invalidates only the action queries tagged for the changed resource", async () => {
     const client = new QueryClient();
     cacheActionQuery(client, "list-designs", ["design"]);

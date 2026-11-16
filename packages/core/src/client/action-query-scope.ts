@@ -12,15 +12,21 @@ export interface ActionScopedQuery {
   meta?: Record<string, unknown> | undefined;
 }
 
-export function actionQueryAffectedByResources(
+function actionQueryMatches(
   query: ActionScopedQuery,
-  resourceTypes: ReadonlySet<string>,
+  matches: (tag: string) => boolean,
 ): boolean {
   if (query.queryKey[0] !== "action") return false;
   const tags = query.meta?.[ACTION_RESOURCES_META_KEY];
   if (!Array.isArray(tags) || tags.length === 0) return true;
-  return tags.some((tag) => {
-    if (typeof tag !== "string") return false;
+  return tags.some((tag) => typeof tag === "string" && matches(tag));
+}
+
+export function actionQueryAffectedByResources(
+  query: ActionScopedQuery,
+  resourceTypes: ReadonlySet<string>,
+): boolean {
+  return actionQueryMatches(query, (tag) => {
     const separator = tag.indexOf(":");
     if (separator !== -1) {
       return (
@@ -32,4 +38,22 @@ export function actionQueryAffectedByResources(
     }
     return false;
   });
+}
+
+export interface ActionResourceChange {
+  type: string;
+  id?: string;
+}
+
+export function actionQueryAffectedByChanges(
+  query: ActionScopedQuery,
+  changes: readonly ActionResourceChange[],
+): boolean {
+  return actionQueryMatches(query, (tag) =>
+    changes.some(({ type, id }) =>
+      id
+        ? tag === type || tag === `${type}:${id}`
+        : tag === type || tag.startsWith(`${type}:`),
+    ),
+  );
 }

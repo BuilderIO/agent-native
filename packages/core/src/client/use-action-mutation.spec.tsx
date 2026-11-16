@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  MutationCache,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -350,6 +354,350 @@ describe("useActionMutation resource-scoped invalidation", () => {
       expect(refetchedActionNames(fetch)).toEqual(expected);
       expect(
         client.getQueryCache().find({ queryKey: ["other", "design"] })?.state
+          .isInvalidated,
+      ).toBe(false);
+    },
+  );
+
+  it.each([false, true])(
+    "invalidates the invoked resources after options change (marker failure: %s)",
+    async (markerFailed) => {
+      let finishRequest: ((response: Response) => void) | undefined;
+      let requestStarted: (() => void) | undefined;
+      const started = new Promise<void>((resolve) => {
+        requestStarted = resolve;
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => {
+          requestStarted?.();
+          return new Promise<Response>((resolve) => {
+            finishRequest = resolve;
+          });
+        }),
+      );
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      const client = new QueryClient({
+        defaultOptions: { mutations: { retry: false } },
+      });
+      for (const id of ["old", "new", "other"]) {
+        client.getQueryCache().build(client, {
+          queryKey: ["action", id],
+          queryFn: async () => null,
+          meta: { actionResources: [`design:${id}`] },
+        });
+      }
+      let run: (() => Promise<unknown>) | undefined;
+      function Probe({ id }: { id: string }) {
+        const mutation = useActionMutation("update-design", {
+          resources: [`design:${id}`],
+          skipActionQueryInvalidation: markerFailed,
+        });
+        run = () => mutation.mutateAsync({ id });
+        return null;
+      }
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      containers.push(container);
+      const root = createRoot(container);
+      roots.push(root);
+      const render = (id: string) => (
+        <QueryClientProvider client={client}>
+          <Probe id={id} />
+        </QueryClientProvider>
+      );
+      await act(async () => root.render(render("old")));
+      let pending: Promise<unknown> | undefined;
+      await act(async () => {
+        pending = run!();
+        await started;
+      });
+      await act(async () => root.render(render("new")));
+      await act(async () => {
+        finishRequest!(
+          new Response(JSON.stringify({ ok: true }), {
+            headers: {
+              "Content-Type": "application/json",
+              ...(markerFailed
+                ? { "X-Agent-Native-Change-Marker": "failed" }
+                : {}),
+            },
+          }),
+        );
+        await pending;
+      });
+      expect(
+        client.getQueryCache().find({ queryKey: ["action", "old"] })?.state
+          .isInvalidated,
+      ).toBe(true);
+      expect(
+        client.getQueryCache().find({ queryKey: ["action", "new"] })?.state
+          .isInvalidated,
+      ).toBe(false);
+      expect(
+        client.getQueryCache().find({ queryKey: ["action", "other"] })?.state
+          .isInvalidated,
+      ).toBe(false);
+    },
+  );
+
+  it("keeps independent resource scopes for overlapping mutations", async () => {
+    const requests = new Map<string, (response: Response) => void>();
+    let notifyStarted: ((id: string) => void) | undefined;
+    let started = new Promise<string>((resolve) => {
+      notifyStarted = resolve;
+    });
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_input: unknown, init: RequestInit) => {
+        const { id } = JSON.parse(String(init.body));
+        notifyStarted?.(id);
+        return new Promise<Response>((resolve) => {
+          requests.set(id, resolve);
+        });
+      }),
+    );
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    for (const id of ["old", "new", "other"]) {
+      client.getQueryCache().build(client, {
+        queryKey: ["action", id],
+        queryFn: async () => null,
+        meta: { actionResources: [`design:${id}`] },
+      });
+    }
+    let run: (() => Promise<unknown>) | undefined;
+    function Probe({ id }: { id: string }) {
+      const mutation = useActionMutation("update-design", {
+        resources: [`design:${id}`],
+      });
+      run = () => mutation.mutateAsync({ id });
+      return null;
+    }
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+    const render = (id: string) => (
+      <QueryClientProvider client={client}>
+        <Probe id={id} />
+      </QueryClientProvider>
+    );
+    await act(async () => root.render(render("old")));
+    let first: Promise<unknown> | undefined;
+    await act(async () => {
+      first = run!();
+      expect(await started).toBe("old");
+    });
+    await act(async () => root.render(render("new")));
+    started = new Promise<string>((resolve) => {
+      notifyStarted = resolve;
+    });
+    let second: Promise<unknown> | undefined;
+    await act(async () => {
+      second = run!();
+      expect(await started).toBe("new");
+    });
+    await act(async () => root.render(render("other")));
+    const response = () =>
+      new Response(JSON.stringify({ ok: true }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    await act(async () => {
+      requests.get("new")!(response());
+      await second;
+    });
+    expect(
+      client.getQueryCache().find({ queryKey: ["action", "new"] })?.state
+        .isInvalidated,
+    ).toBe(true);
+    expect(
+      client.getQueryCache().find({ queryKey: ["action", "old"] })?.state
+        .isInvalidated,
+    ).toBe(false);
+    await act(async () => {
+      requests.get("old")!(response());
+      await first;
+    });
+    expect(
+      client.getQueryCache().find({ queryKey: ["action", "old"] })?.state
+        .isInvalidated,
+    ).toBe(true);
+    expect(
+      client.getQueryCache().find({ queryKey: ["action", "other"] })?.state
+        .isInvalidated,
+    ).toBe(false);
+  });
+
+  it("covers both scopes if overlapping calls share variables while cache callbacks wait", async () => {
+    const release: Array<() => void> = [];
+    const started: Array<() => void> = [];
+    const starts = [0, 1].map(
+      () =>
+        new Promise<void>((resolve) => {
+          started.push(resolve);
+        }),
+    );
+    const mutationCache = new MutationCache({
+      onMutate: () => {
+        const index = release.length;
+        const gate = new Promise<void>((resolve) => {
+          release.push(resolve);
+        });
+        started[index]();
+        return gate;
+      },
+    });
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("fetch", actionFetchMock());
+    const client = new QueryClient({
+      mutationCache,
+      defaultOptions: { mutations: { retry: false } },
+    });
+    for (const id of ["old", "new", "other"]) {
+      client.getQueryCache().build(client, {
+        queryKey: ["action", id],
+        queryFn: async () => null,
+        meta: { actionResources: [`design:${id}`] },
+      });
+    }
+    const variables = { id: "same" };
+    let run: (() => Promise<unknown>) | undefined;
+    function Probe({ id }: { id: string }) {
+      const mutation = useActionMutation("update-design", {
+        resources: [`design:${id}`],
+      });
+      run = () => mutation.mutateAsync(variables);
+      return null;
+    }
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+    const render = (id: string) => (
+      <QueryClientProvider client={client}>
+        <Probe id={id} />
+      </QueryClientProvider>
+    );
+    await act(async () => root.render(render("old")));
+    let first: Promise<unknown> | undefined;
+    await act(async () => {
+      first = run!();
+      await starts[0];
+    });
+    await act(async () => root.render(render("new")));
+    let second: Promise<unknown> | undefined;
+    await act(async () => {
+      second = run!();
+      await starts[1];
+    });
+    await act(async () => {
+      release[1]();
+      await second;
+    });
+    expect(
+      client.getQueryCache().find({ queryKey: ["action", "old"] })?.state
+        .isInvalidated,
+    ).toBe(true);
+    expect(
+      client.getQueryCache().find({ queryKey: ["action", "new"] })?.state
+        .isInvalidated,
+    ).toBe(true);
+    expect(
+      client.getQueryCache().find({ queryKey: ["action", "other"] })?.state
+        .isInvalidated,
+    ).toBe(false);
+    await act(async () => {
+      release[0]();
+      await first;
+    });
+  });
+
+  it.each(["hook", "default", "cache"])(
+    "keeps resources when options change while %s onMutate is pending",
+    async (source) => {
+      let releaseMutate: (() => void) | undefined;
+      let notifyStarted: (() => void) | undefined;
+      const started = new Promise<void>((resolve) => {
+        notifyStarted = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        releaseMutate = resolve;
+      });
+      const onMutate = vi.fn(async () => {
+        notifyStarted?.();
+        await gate;
+        return "context";
+      });
+      const onSuccess = vi.fn();
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      vi.stubGlobal("fetch", actionFetchMock());
+      const client = new QueryClient({
+        mutationCache: new MutationCache(
+          source === "cache" ? { onMutate } : {},
+        ),
+        defaultOptions: {
+          mutations: {
+            retry: false,
+            ...(source === "default" ? { onMutate } : {}),
+          },
+        },
+      });
+      for (const id of ["old", "new"]) {
+        client.getQueryCache().build(client, {
+          queryKey: ["action", id],
+          queryFn: async () => null,
+          meta: { actionResources: [`design:${id}`] },
+        });
+      }
+      let run: (() => Promise<unknown>) | undefined;
+      function Probe({ id }: { id: string }) {
+        const mutation = useActionMutation("update-design", {
+          resources: [`design:${id}`],
+          ...(source === "hook" ? { onMutate } : {}),
+          onSuccess,
+        });
+        run = () => mutation.mutateAsync({ id });
+        return null;
+      }
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      containers.push(container);
+      const root = createRoot(container);
+      roots.push(root);
+      const render = (id: string) => (
+        <QueryClientProvider client={client}>
+          <Probe id={id} />
+        </QueryClientProvider>
+      );
+      await act(async () => root.render(render("old")));
+      let pending: Promise<unknown> | undefined;
+      await act(async () => {
+        pending = run!();
+        await started;
+      });
+      await act(async () => root.render(render("new")));
+      await act(async () => {
+        releaseMutate!();
+        await pending;
+      });
+      expect(onMutate).toHaveBeenCalledOnce();
+      expect(onSuccess).toHaveBeenCalledWith(
+        { ok: true },
+        { id: "old" },
+        source === "cache" ? undefined : "context",
+        expect.any(Object),
+      );
+      expect(
+        client.getQueryCache().find({ queryKey: ["action", "old"] })?.state
+          .isInvalidated,
+      ).toBe(true);
+      expect(
+        client.getQueryCache().find({ queryKey: ["action", "new"] })?.state
           .isInvalidated,
       ).toBe(false);
     },
