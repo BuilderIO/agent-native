@@ -1828,6 +1828,9 @@ describe("script writes", () => {
       payloadDigest: "d",
     }),
     reconcile: async () => ({ status: "absent" as const }),
+    fence: async (): Promise<
+      { status: "committed"; receipt: unknown } | { status: "fenced" }
+    > => ({ status: "fenced" }),
     destructive,
   });
   const writeEntry = (fields: Record<string, unknown> = {}) =>
@@ -1966,7 +1969,7 @@ describe("script writes", () => {
     ).toEqual({ allowed: false, reason: "mutating" });
   });
 
-  it("checks the write contract on defineAction and freezes a copy", () => {
+  it("checks the write contract on defineAction and freezes a copy", async () => {
     const declared = contract(true);
     const action = defineAction({
       description: "Save a doc",
@@ -1982,8 +1985,27 @@ describe("script writes", () => {
     const rows = action.mcpScriptWrite!.rowBound({ id: "doc_1" });
     declared.destructive = false;
     declared.rowBound = () => 999;
+    declared.fence = async () => ({ status: "committed", receipt: null });
     expect(action.mcpScriptWrite?.destructive).toBe(true);
     expect(action.mcpScriptWrite!.rowBound({ id: "doc_1" })).toBe(rows);
+    await expect(
+      action.mcpScriptWrite!.fence({
+        scope: "docs",
+        idempotencyKey: "doc_1",
+        payloadDigest: "d",
+      }),
+    ).resolves.toEqual({ status: "fenced" });
+    // Without fence, recovery could never prove a lost write did not apply.
+    const { fence: _fence, ...withoutFence } = contract();
+    expect(() =>
+      defineAction({
+        description: "Save a doc",
+        schema: z.object({ id: z.string() }),
+        mcpScript: "write",
+        mcpScriptWrite: withoutFence,
+        run: async () => ({}),
+      } as never),
+    ).toThrow(/reconcile and fence functions/);
     expect(() =>
       defineAction({
         description: "Save a doc",

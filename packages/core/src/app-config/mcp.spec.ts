@@ -11,7 +11,7 @@ describe("MCP app config", () => {
       scriptTools: false,
       scriptWrites: false,
       scriptWriteRowBudget: 200,
-      scriptWriteRecoveryMs: 20 * 60_000,
+      scriptWriteRecoveryMs: 2 * 60_000,
     });
   });
 
@@ -34,7 +34,7 @@ describe("MCP app config", () => {
       { scriptWriteRowBudget: 0 },
       { scriptWriteRowBudget: 10_001 },
       { scriptWriteRowBudget: 1.5 },
-      { scriptWriteRecoveryMs: 59_999 },
+      { scriptWriteRecoveryMs: 2 * 60_000 - 1 },
     ]) {
       expect(mcpConfig.safeParse(fields).success, JSON.stringify(fields)).toBe(
         false,

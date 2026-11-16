@@ -86,7 +86,9 @@ export function ensureScriptLedgerTables(): Promise<void> {
 /**
  * `pending` from before the write runs until something settles it.
  * `committed`: its receipt exists, or the run said it finished. `not-applied`:
- * it never ran, or recovery found no receipt after it could have committed.
+ * the call never ran or the run saw it change nothing, or recovery fenced
+ * its key, so it can never commit. Another call with the same key may still
+ * commit after a call of the first kind; never after a fenced one.
  * `unknown`: it may have run, and nothing yet says either way.
  */
 export type ScriptWriteEffect =
@@ -179,7 +181,8 @@ export interface PendingScriptWrite {
   rowBound: number;
   /** Rows this call reserved; 0 when it reuses a reservation of the run's. */
   reservedRows: number;
-  /** After this, a missing receipt proves the write did not commit. */
+  /** From this time, recovery fences the write's key instead of waiting for
+   *  its receipt. */
   recoverAfter: number;
 }
 
@@ -224,7 +227,9 @@ export type ScriptOutboxItem =
  * once, so a row that says committed always has them; a crash between the
  * two leaves the row unsettled, and recovery enqueues them again, which
  * keeps the first copy. Only an unsettled row moves, except that `committed`
- * may replace `unknown` or `not-applied` when a receipt turns up.
+ * may replace `unknown` or `not-applied` when a receipt turns up. A fenced
+ * key never gets a receipt, so that replaces only a `not-applied` the run
+ * itself recorded.
  */
 export async function settleScriptWriteRow(
   owner: ScriptRunOwner,

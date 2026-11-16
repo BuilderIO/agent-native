@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type {
+  McpScriptFenceResult,
   McpScriptReceiptLocator,
   McpScriptReconcileResult,
 } from "../action.js";
@@ -105,6 +106,7 @@ afterAll(async () => {
 beforeEach(async () => {
   failing = undefined;
   receipts.clear();
+  refused.clear();
   audits.insert.mockReset().mockResolvedValue(undefined);
   audits.change.mockReset().mockResolvedValue(undefined);
   audits.isAdmin.mockReset().mockResolvedValue(false);
@@ -113,10 +115,21 @@ beforeEach(async () => {
 });
 
 const T0 = 1_800_000_000_000;
-const RECOVERY_MS = 20 * 60_000;
+const RECOVERY_MS = 10 * 60_000;
 
-// Receipts the fake action commits with its change, by idempotency key.
+// Receipts the fake action commits with its change, and refusals its fence
+// stores, by idempotency key. One key holds one or the other, as a unique
+// key would make it.
 const receipts = new Set<string>();
+const refused = new Set<string>();
+
+/** The write's receipt insert, which a refusal under its key makes fail. */
+function commitReceipt(key: string) {
+  if (refused.has(key) || receipts.has(key)) {
+    throw new Error(`duplicate key: ${key}`);
+  }
+  receipts.add(key);
+}
 
 function owner(fields: Partial<ScriptRunOwner> = {}): ScriptRunOwner {
   return {
@@ -134,6 +147,7 @@ function writeEntry(
     reconcile?: (
       locator: McpScriptReceiptLocator,
     ) => Promise<McpScriptReconcileResult>;
+    fence?: (locator: McpScriptReceiptLocator) => Promise<McpScriptFenceResult>;
     changeEvents?: boolean;
   } = {},
 ): ActionEntry {
@@ -157,6 +171,15 @@ function writeEntry(
         (async (locator) => ({
           status: receipts.has(locator.idempotencyKey) ? "committed" : "absent",
         })),
+      fence:
+        fields.fence ??
+        (async (locator) => {
+          if (receipts.has(locator.idempotencyKey)) {
+            return { status: "committed", receipt: locator.idempotencyKey };
+          }
+          refused.add(locator.idempotencyKey);
+          return { status: "fenced" };
+        }),
       destructive: false,
     },
     run: async () => ({}),
@@ -675,7 +698,7 @@ describe("recoverScriptWrites", () => {
     );
   });
 
-  it("keeps a write with no receipt unknown until it could no longer commit", async () => {
+  it("keeps a write with no receipt unknown, then closes its key before settling it not-applied", async () => {
     await leavePending(0, "a");
     await expect(
       recoverScriptWrites({ appId: "app-a", actions, now: T0 + 5 * 60_000 }),
@@ -686,6 +709,7 @@ describe("recoverScriptWrites", () => {
         reconcile_attempts: 1,
       }),
     );
+    expect(refused.size).toBe(0);
     await expect(
       recoverScriptWrites({
         appId: "app-a",
@@ -696,26 +720,76 @@ describe("recoverScriptWrites", () => {
     expect((await rows())[0]).toEqual(
       expect.objectContaining({ effect_status: "not-applied" }),
     );
+    // The write, still running somewhere, can no longer commit.
+    expect(() => commitReceipt("a")).toThrow(/duplicate key/);
+    expect(receipts.has("a")).toBe(false);
     expect(audits.insert).not.toHaveBeenCalled();
   });
 
-  it("reconciles as the person who made the call", async () => {
-    const seen: Array<string | undefined> = [];
+  it("settles committed when the fence finds the write's receipt", async () => {
+    await leavePending(0, "a");
+    commitReceipt("a");
+    await expect(
+      recoverScriptWrites({ appId: "app-a", actions, now: T0 + RECOVERY_MS }),
+    ).resolves.toEqual({ settled: 1, unsettled: 0 });
+    expect((await rows())[0]).toEqual(
+      expect.objectContaining({ effect_status: "committed" }),
+    );
+    expect(refused.size).toBe(0);
+  });
+
+  it("keeps a write unknown when its fence fails, gives another answer, or outlasts the sweep", async () => {
+    const withFence = (fence: () => Promise<unknown>) => ({
+      "save-thing": writeEntry({
+        fence: fence as () => Promise<McpScriptFenceResult>,
+      }),
+    });
+    const cases = [
+      withFence(async () => {
+        throw new Error("receipt table locked");
+      }),
+      withFence(async () => ({ status: "absent" })),
+      withFence(async () => undefined),
+      withFence(() => new Promise(() => {})),
+    ];
+    await leavePending(0, "a");
+    for (const fenced of cases) {
+      await expect(
+        recoverScriptWrites({
+          appId: "app-a",
+          actions: fenced,
+          now: T0 + RECOVERY_MS,
+          deadlineAt: Date.now() + 1_000,
+        }),
+      ).resolves.toEqual({ settled: 0, unsettled: 1 });
+    }
+    expect((await rows())[0]).toEqual(
+      expect.objectContaining({ effect_status: "unknown" }),
+    );
+  });
+
+  it("reconciles and fences as the person who made the call", async () => {
+    const seen: string[] = [];
     const watching = {
       "save-thing": writeEntry({
         reconcile: async () => {
-          seen.push(getRequestUserEmail());
-          return { status: "committed" };
+          seen.push(`reconcile ${getRequestUserEmail()}`);
+          return { status: "absent" };
+        },
+        fence: async () => {
+          seen.push(`fence ${getRequestUserEmail()}`);
+          return { status: "fenced" };
         },
       }),
     };
     await leavePending(0, "a");
-    await recoverScriptWrites({
-      appId: "app-a",
-      actions: watching,
-      now: T0 + 3 * 60_000,
-    });
-    expect(seen).toEqual(["ada@example.com"]);
+    for (const now of [T0 + 3 * 60_000, T0 + RECOVERY_MS]) {
+      await recoverScriptWrites({ appId: "app-a", actions: watching, now });
+    }
+    expect(seen).toEqual([
+      "reconcile ada@example.com",
+      "fence ada@example.com",
+    ]);
   });
 
   it("reaches a write it can settle behind a batch it never can", async () => {
@@ -765,7 +839,7 @@ describe("recoverScriptWrites", () => {
       recoverScriptWrites({
         appId: "app-a",
         actions: broken,
-        now: T0 + 2 * RECOVERY_MS,
+        now: T0 + 3 * 60_000,
       }),
     ).resolves.toEqual({ settled: 0, unsettled: 1 });
   });

@@ -6,7 +6,9 @@ import { actionChangeResource } from "../action-call-classification.js";
  * and its ledger row is written, naming the receipt the write commits with
  * its change. A write whose row cannot be written does not run. After it
  * runs, the row is settled from what the run did; when that is unclear, the
- * write's own `reconcile` decides, now or from the recovery sweep. Audit rows
+ * write's own `reconcile` decides, now or from the recovery sweep, and the
+ * sweep settles a write as not applied only after its `fence` closed the
+ * write's key, so it can never commit after. Audit rows
  * and change markers go through the ledger's outbox, never the best-effort
  * audit log, and only for writes known to have committed.
  */
@@ -577,6 +579,10 @@ export async function deliverScriptOutbox(
 /** A write started this recently may still be running where it started. */
 const RECOVERY_GRACE_MS = 2 * 60_000;
 const RECOVERY_BATCH = 50;
+/** How long the sweep waits on one write's `reconcile` or `fence`, or less
+ *  when its deadline comes sooner. One that takes longer leaves the write
+ *  `unknown` for the next sweep. */
+const RECOVERY_CALL_TIMEOUT_MS = 20_000;
 
 export interface RecoverScriptWritesOptions {
   appId: string;
@@ -589,9 +595,12 @@ export interface RecoverScriptWritesOptions {
 /**
  * The recovery sweep: settles `pending` and `unknown` writes from their
  * receipts, delivers the outbox, and prunes the ledger. A receipt means
- * `committed`. No receipt keeps the write `unknown` until it could no longer
- * commit, and then means `not-applied`. A write whose action is gone, or has
- * no `reconcile` now, stays `unknown`: nothing can prove it either way.
+ * `committed`. Before the write's `recoverAfter`, no receipt keeps it
+ * `unknown`. From then, the sweep fences the write's key: a receipt found
+ * there means `committed`, and a refusal stored there means `not-applied`,
+ * since the write can no longer commit. A write whose action is gone, or has
+ * no contract now, or whose check fails or takes too long, stays `unknown`:
+ * nothing proves it either way.
  */
 export async function recoverScriptWrites(
   options: RecoverScriptWritesOptions,
@@ -609,7 +618,12 @@ export async function recoverScriptWrites(
       unsettled += 1;
       continue;
     }
-    const effect = await recoveredEffect(row, options.actions, now);
+    const effect = await recoveredEffect(
+      row,
+      options.actions,
+      now,
+      options.deadlineAt,
+    );
     if (effect === undefined) {
       unsettled += 1;
       await noteScriptReconcileAttempt(row, row.seq);
@@ -650,13 +664,15 @@ async function recoveredEffect(
   row: UnsettledScriptWrite,
   actions: Readonly<Record<string, ActionEntry>>,
   now: number,
+  deadlineAt: number | undefined,
 ): Promise<"committed" | "not-applied" | undefined> {
   const entry = Object.hasOwn(actions, row.action)
     ? actions[row.action]
     : undefined;
   const contract = scriptWriteContract(entry);
   if (!contract) return undefined;
-  let found;
+  const closing = now >= row.recoverAfter;
+  let found: { status?: unknown } | typeof TIMED_OUT | undefined;
   try {
     // As the person who made the call, so the receipt is read with their
     // access and no one else's.
@@ -665,16 +681,51 @@ async function recoveredEffect(
         ...(row.ownerEmail ? { userEmail: row.ownerEmail } : {}),
         ...(row.orgId ? { orgId: row.orgId } : {}),
       },
-      () => contract.reconcile(row.locator),
+      // Typed as loosely as an app's answer can be, since it's checked below.
+      () =>
+        withinRecoveryTimeout<{ status?: unknown } | undefined>(
+          closing
+            ? contract.fence(row.locator)
+            : contract.reconcile(row.locator),
+          deadlineAt,
+        ),
     );
   } catch (error) {
     console.warn(
-      `[mcp] Recovery could not reconcile a script write for run ${row.runId}: ${describeThrownForLog(error)}`,
+      `[mcp] Recovery could not ${closing ? "fence" : "reconcile"} a script write for run ${row.runId}: ${describeThrownForLog(error)}`,
     );
     return undefined;
   }
-  if (found.status === "committed") return "committed";
-  return now >= row.recoverAfter ? "not-applied" : undefined;
+  if (found === TIMED_OUT) {
+    console.warn(
+      `[mcp] Recovery's ${closing ? "fence" : "reconcile"} of a script write for run ${row.runId} took too long; it stays unknown.`,
+    );
+    return undefined;
+  }
+  // Checked at run time: only these two answers settle a write.
+  if (found?.status === "committed") return "committed";
+  if (closing && found?.status === "fenced") return "not-applied";
+  return undefined;
+}
+
+const TIMED_OUT = Symbol("timed out");
+
+function withinRecoveryTimeout<T>(
+  work: Promise<T>,
+  deadlineAt: number | undefined,
+): Promise<T | typeof TIMED_OUT> {
+  const waitMs =
+    deadlineAt === undefined
+      ? RECOVERY_CALL_TIMEOUT_MS
+      : Math.max(
+          0,
+          Math.min(RECOVERY_CALL_TIMEOUT_MS, deadlineAt - Date.now()),
+        );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), waitMs);
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
 
 /**

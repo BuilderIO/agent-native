@@ -756,7 +756,7 @@ export function mcpScriptToolDescriptors(catalog: McpScriptCatalog): Array<{
     ? [
         {
           name: MCP_SCRIPT_STATUS_TOOL,
-          description: `Return the ledger of one ${MCP_SCRIPT_RUN_TOOL} run, in call order: each write it started, whether that write committed, did not apply or is not yet known, and each call it was refused. Pass the \`runId\` a run returned. Use it before retrying a write whose result the script did not see.`,
+          description: `Return the ledger of one ${MCP_SCRIPT_RUN_TOOL} run, in call order: each write it started, whether that write committed, did not apply or is not yet known, and each call it was refused. Pass the \`runId\` a run returned. Use it before retrying a write whose result the script did not see. Recovery checks a write not yet known from about two minutes after it started; one it cannot check stays not yet known. To retry a write that did not apply, use a new idempotency key: the old one may be closed for good.`,
           inputSchema: {
             type: "object",
             properties: {

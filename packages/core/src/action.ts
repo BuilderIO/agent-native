@@ -1029,7 +1029,9 @@ export interface ActionMcpToolAnnotations {
 
 /**
  * Where a write's own receipt for one call is kept: the receipt the action
- * commits in the same transaction as its change, keyed by these three.
+ * commits in the same transaction as its change. The store holds one record
+ * per `scope` and `idempotencyKey`; `payloadDigest` tells whether the
+ * record there is for this call.
  */
 export interface McpScriptReceiptLocator {
   /** The resource the receipt belongs to, such as a database id. */
@@ -1044,10 +1046,16 @@ export type McpScriptReconcileResult =
   | { status: "committed"; receipt: unknown }
   | { status: "absent" };
 
+export type McpScriptFenceResult =
+  | { status: "committed"; receipt: unknown }
+  | { status: "fenced" };
+
 /**
  * What a write must say for a script to call it. The script ledger records
  * the locator before the call runs, so whatever happens to the process after,
- * `reconcile` can tell whether the write committed.
+ * `reconcile` can tell whether the write committed. The action awaits all
+ * of its database work before it returns or throws, so a call that fails
+ * with no effect has nothing left that could commit.
  */
 export interface McpScriptWriteContract<TArgs = unknown> {
   /** The most rows this call can change, from its validated arguments. A row
@@ -1059,10 +1067,33 @@ export interface McpScriptWriteContract<TArgs = unknown> {
   receiptLocator(args: TArgs): McpScriptReceiptLocator;
   /** Reads the receipt as the caller, in the caller's request context, and
    *  changes nothing. `absent` must mean the transaction that would have
-   *  stored it has not committed. */
+   *  stored it has not committed. A refusal stored by `fence` is `absent`.
+   *  A record under the key with another `payloadDigest` must throw. */
   reconcile(
     locator: McpScriptReceiptLocator,
   ): Promise<McpScriptReconcileResult>;
+  /**
+   * Closes the key for good unless the write already committed, as the
+   * caller, in the caller's request context. Recovery calls it before it
+   * records a lost write as not applied, so the write can never commit after.
+   *
+   * It must first try to store a refusal under the key, with an insert that
+   * leaves any record already there as it is (in SQL, `INSERT … ON CONFLICT
+   * DO NOTHING`), then read back what holds the key in a new statement:
+   * `fenced` only once a refusal is committed there, `committed` for this
+   * call's receipt, and a throw for anything else, including a record with
+   * another `payloadDigest`. Reading first and storing after can miss a
+   * receipt that commits in between.
+   *
+   * For the refusal to hold, the write stores its receipt with a plain
+   * insert in the transaction that makes its change, never an upsert or an
+   * insert that ignores conflicts, and lets a failed insert fail the whole
+   * transaction. A refusal is never overwritten or deleted. It may go only
+   * with its scope, once nothing can bring that scope back, so a write still
+   * running never finds the key free. A later call with a refused key is
+   * refused and changes nothing.
+   */
+  fence(locator: McpScriptReceiptLocator): Promise<McpScriptFenceResult>;
   /** A call can remove or overwrite data the caller cannot get back. */
   destructive: boolean;
 }
@@ -1076,6 +1107,7 @@ export function isMcpScriptWriteContract(
     typeof contract.rowBound === "function" &&
     typeof contract.receiptLocator === "function" &&
     typeof contract.reconcile === "function" &&
+    typeof contract.fence === "function" &&
     typeof contract.destructive === "boolean"
   );
 }
@@ -1086,12 +1118,13 @@ export function isMcpScriptWriteContract(
 function frozenMcpScriptWriteContract(
   contract: McpScriptWriteContract,
 ): McpScriptWriteContract {
-  const { rowBound, receiptLocator, reconcile, destructive } = contract;
+  const { rowBound, receiptLocator, reconcile, fence, destructive } = contract;
   return Object.freeze({
     rowBound: (args: unknown) => rowBound.call(contract, args),
     receiptLocator: (args: unknown) => receiptLocator.call(contract, args),
     reconcile: (locator: McpScriptReceiptLocator) =>
       reconcile.call(contract, locator),
+    fence: (locator: McpScriptReceiptLocator) => fence.call(contract, locator),
     destructive,
   });
 }
@@ -1866,7 +1899,7 @@ export function defineAction(options: any) {
     }
     if (!isMcpScriptWriteContract(options.mcpScriptWrite)) {
       throw new TypeError(
-        'mcpScript: "write" needs mcpScriptWrite with rowBound, receiptLocator and reconcile functions and a boolean destructive.',
+        'mcpScript: "write" needs mcpScriptWrite with rowBound, receiptLocator, reconcile and fence functions and a boolean destructive.',
       );
     }
     return "write" as const;

@@ -26,10 +26,10 @@ export const mcpConfig = z.object({
   scriptWriteRecoveryMs: z
     .number()
     .int()
-    .min(60_000)
-    .default(20 * 60_000)
+    .min(2 * 60_000)
+    .default(2 * 60_000)
     .meta({
       env: "AGENT_NATIVE_MCP_SCRIPT_WRITE_RECOVERY_MS",
-      doc: "How long after a script write starts its ledger row may still become committed: the longest a server function can run on this platform, plus a margin. Past it, a write with no receipt is recorded as not applied.",
+      doc: "How long after a script write starts before recovery may close a write whose result was lost and that left no receipt. Recovery then fences the write's key, so it can never commit, and records it as not applied. A busy database can make that later, never sooner. At least 2 minutes, the age at which recovery first looks at a write.",
     }),
 });
