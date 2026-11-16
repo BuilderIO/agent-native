@@ -27,6 +27,7 @@ import {
   readTrashOperationId,
   reconcileTrashBrowseFilters,
   isRestoreBusyError,
+  restoredTrashItemIds,
   selectedTrashItems,
   trashActionError,
   trashFilterMembershipKey,
@@ -228,15 +229,20 @@ export function TrashBrowser({
   async function restoreItem(documentId: string) {
     try {
       await restore.mutateAsync({ id: documentId });
-      // A row restored from its own button leaves the rest of the selection.
+      // Restoring a row brings back its trashed subtree. Those rows leave the
+      // selection and the preview; the rest of the selection stays.
+      const restored = restoredTrashItemIds(
+        [...items, ...Object.values(nestedItems).flat()],
+        documentId,
+      );
       setSelection((current) =>
         current.mode === "loaded"
           ? loadedTrashSelection(
-              current.documentIds.filter((id) => id !== documentId),
+              current.documentIds.filter((id) => !restored.has(id)),
             )
           : current,
       );
-      if (previewId === documentId) {
+      if (previewId && restored.has(previewId)) {
         setPreviewId(null);
         void navigate("/trash");
       }
