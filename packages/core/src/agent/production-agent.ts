@@ -1376,6 +1376,7 @@ export interface ActionEntry {
   requiresAuth?: boolean;
   maxBodyBytes?: number;
   uiOnly?: boolean;
+  requiresSignedInBrowser?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
   /** True when this entry's raw tool schema was authored by an external MCP

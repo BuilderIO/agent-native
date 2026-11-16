@@ -237,6 +237,7 @@ async function recordChoiceAudit(
 }
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     'Read or change which provider powers each organization service: Voice input (dictation in every app), Image generation (Slides and Design), and Embeddings (semantic search in Brain). Providers: voice builder, gemini, groq, openai; images builder, gemini, openai; embeddings builder, gemini, cohere, voyage. Omit `provider` to read: each service returns the organization\'s choice (null means the default order, Builder.io first), the provider that answers next, and each option\'s key state ("org", "personal", "none", or "unavailable"). Pass `service` and `provider` to change one; owners and admins only. "builder" returns a service to Builder.io, and null resets it to the default order. Voice and images fall back through the other providers when the chosen one has no key; embeddings use only the chosen provider. A non-Builder provider needs its API key saved for the organization (see keyName). Changing embeddings means Brain must re-index (backfill-search-embeddings) before semantic search covers existing items. A member\'s own Voice source setting (Mac native, Google realtime, or a specific batch provider) still wins over the organization choice.',
   schema: z.object({

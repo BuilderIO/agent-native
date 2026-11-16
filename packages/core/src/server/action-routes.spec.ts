@@ -564,6 +564,76 @@ describe("mountActionRoutes", () => {
     },
   );
 
+  it.each([
+    ["a full-app panel", "refused"],
+    ["the signed-in browser", "runs"],
+  ] as const)(
+    "runs a signed-in-browser action from %s: %s",
+    async (caller, outcome) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      mockHasUiActionCapability.mockReturnValue(true);
+      mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
+      mockResolveEmbedSessionFromRequest.mockResolvedValue(
+        caller === "a full-app panel"
+          ? {
+              email: "owner@example.com",
+              token: "panel-token",
+              targetPath: "/inbox",
+              scope: "full-app",
+            }
+          : null,
+      );
+      mockHasEmbedSessionRequestMarker.mockReturnValue(
+        caller === "a full-app panel",
+      );
+      try {
+        mountActionRoutes(
+          nitroApp,
+          {
+            "create-org-service-token": {
+              run,
+              requiresSignedInBrowser: true,
+            } as any,
+          },
+          { getOwnerFromEvent: async () => "owner@example.com" },
+        );
+        const event = {
+          _method: "POST",
+          _headers: {
+            "sec-fetch-site": "same-origin",
+            "x-agent-native-frontend": "1",
+            ...(caller === "a full-app panel"
+              ? { authorization: "Bearer panel-token" }
+              : {}),
+          },
+          req: { json: async () => ({}) },
+        };
+        const result = await mounted[0]!.handler(event);
+        if (outcome === "runs") {
+          expect(result).toEqual({ ok: true });
+          expect(run).toHaveBeenCalledOnce();
+        } else {
+          expect(result).toMatchObject({
+            errorCode: "signed_in_browser_required",
+          });
+          expect(event._status).toBe(403);
+          expect(run).not.toHaveBeenCalled();
+        }
+      } finally {
+        mockResolveEmbedSessionFromRequest.mockReset();
+        mockHasEmbedSessionRequestMarker.mockReset();
+        mockHasUiActionCapability.mockReset();
+      }
+    },
+  );
+
   describe("approval on the HTTP action route", () => {
     type Caller =
       | "proven UI"

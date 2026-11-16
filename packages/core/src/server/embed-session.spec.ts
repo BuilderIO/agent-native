@@ -1538,6 +1538,13 @@ describe("requestMatchesEmbedTarget", () => {
     ["/_agent-native/agent-model-defaults", "PUT"],
     ["/_agent-native/agent-loop-settings", "DELETE"],
     ["/_agent-native/settings/mcp-servers", "PUT"],
+    ["/_agent-native/agent-chat/save-key", "POST"],
+    ["/_agent-native/connections/oauth/zoom/start", "GET"],
+    ["/_agent-native/google/auth-url", "GET"],
+    ["/_agent-native/google/callback", "GET"],
+    ["/_agent-native/builder/connect", "GET"],
+    ["/_agent-native/auth/ba/callback/google", "GET"],
+    ["/_agent-native/auth/desktop-exchange", "GET"],
     ["/_agent-native/actions/x/%2e%2e/%2e%2e/mcp", "POST"],
   ])("keeps a full-app session off %s %s", async (path, method) => {
     const token = signEmbedSessionToken({

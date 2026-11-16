@@ -1053,6 +1053,10 @@ interface DefineActionWithSchema<
   requiresAuth?: boolean;
   maxBodyBytes?: number;
   uiOnly?: boolean;
+  /** Refuse this action from a full-app embed session, such as an app panel
+   *  in an MCP host: minting credentials, changing passwords, members or
+   *  provider keys needs the owner's own signed-in browser. */
+  requiresSignedInBrowser?: boolean;
   agentTool?: boolean;
   /** Whether this action is exposed to EXTERNAL agents over MCP (and the direct
    *  A2A action surface, which shares the same policy).
@@ -1225,6 +1229,10 @@ interface DefineActionWithParams<
   requiresAuth?: boolean;
   maxBodyBytes?: number;
   uiOnly?: boolean;
+  /** Refuse this action from a full-app embed session, such as an app panel
+   *  in an MCP host: minting credentials, changing passwords, members or
+   *  provider keys needs the owner's own signed-in browser. */
+  requiresSignedInBrowser?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
@@ -1282,6 +1290,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly requiresAuth?: boolean;
   readonly maxBodyBytes?: number;
   readonly uiOnly?: boolean;
+  readonly requiresSignedInBrowser?: boolean;
   readonly agentTool?: boolean;
   readonly mcpTool?: boolean;
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
@@ -1805,6 +1814,9 @@ export function defineAction(options: any) {
       ? { maxBodyBytes: options.maxBodyBytes }
       : {}),
     ...(typeof uiOnly === "boolean" ? { uiOnly } : {}),
+    ...(options.requiresSignedInBrowser === true
+      ? { requiresSignedInBrowser: true }
+      : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
     ...(mcpAnnotations ? { mcpAnnotations } : {}),

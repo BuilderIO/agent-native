@@ -1397,6 +1397,16 @@ function mountActionRoutesInternal(
               : UI_CAPABILITY_REQUIRED_ERROR_CODE,
           };
         }
+        if (
+          entry.requiresSignedInBrowser === true &&
+          embedSession?.scope === FULL_APP_EMBED_SCOPE
+        ) {
+          setResponseStatus(event, 403);
+          return {
+            error: "Sign in to the app in your browser to do this.",
+            errorCode: "signed_in_browser_required",
+          };
+        }
         const privateScope = getHeader(event, PRIVATE_ACTION_SCOPE_HEADER);
         if (
           privateScope !== undefined &&

@@ -903,6 +903,22 @@ const FULL_APP_DENIED_PREFIXES = [
   "/_agent-native/sandbox",
   "/_agent-native/agent-terminal-info",
   "/_agent-native/available-clis",
+  "/_agent-native/agent-chat/save-key",
+  "/_agent-native/agent-chat/_process-run",
+  // OAuth starts and callbacks change state on GET: they set flow state and
+  // cookies, then hand the browser to a provider.
+  "/_agent-native/connections/oauth",
+  "/_agent-native/google/auth-url",
+  "/_agent-native/google/callback",
+  "/_agent-native/google/add-account",
+  "/_agent-native/builder/connect",
+  "/_agent-native/builder/callback",
+  "/_agent-native/builder/provision",
+  "/_agent-native/builder/relay",
+  "/_agent-native/auth/ba/callback",
+  "/_agent-native/auth/ba/oauth2",
+  "/_agent-native/auth/desktop-exchange",
+  "/_agent-native/integrations/remote",
 ];
 // Reads stay open here; changing an account, connection, org, model key or
 // stored setting needs a login.
