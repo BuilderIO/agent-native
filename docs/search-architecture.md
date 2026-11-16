@@ -498,6 +498,10 @@ OpenAI's `text-embedding-3-small`.
   Each embedding call times out after 15 seconds or at the drain's deadline,
   whichever comes first, and none starts after the deadline. When a batch
   fails, the drain retries its pages one at a time only until its deadline.
+  When the provider answers 429 (rate limited), any call would fail, so the
+  drain stops instead: the batch and the rest of its claim go back together,
+  with no attempt counted, for the provider's `Retry-After` (at least 60
+  seconds, at most 15 minutes), and are embedded together after it.
   Changes left when time runs out stay claimed until their lease expires, so
   an outage can't hold claims past their lease. An app adds the consumer with
   `semanticSearchMigration()`, which queues a backfill.
@@ -572,7 +576,8 @@ runs the meaning query beside the word query, then:
 1. Checks each meaning match against the same access rules and filters as word
    matches, keeping at most 20.
 2. Fuses the top 20 word matches with those meaning matches by reciprocal rank
-   (k = 60), for at most 40 results.
+   (k = 60), for at most 40 results. A word match titled exactly as searched
+   (ignoring case and spacing) stays first, as it is in words alone.
 3. Lists the remaining word matches after the fused ones, leaving out any
    already shown. Paging reaches every result exactly once, and `totalItems`
    stays exact.

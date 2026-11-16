@@ -825,6 +825,56 @@ describe("when something fails part way", () => {
     expect(await pendingIds()).toEqual([]);
   });
 
+  it("waits out a rate limit with the whole batch, counting no attempt", async () => {
+    const { EmbeddingProviderError } = await import("../embeddings/index.js");
+    for (const id of ["busy-1", "busy-2", "busy-3"]) {
+      await insertPage(id, "Busy laptop", `Hardware ${id}.`);
+    }
+    await settle();
+    const embed = family.embed;
+    let refused = 0;
+    family.embed = async () => {
+      refused += 1;
+      throw new EmbeddingProviderError(
+        "Embedding provider fake failed with status 429.",
+        429,
+        90_000,
+      );
+    };
+    try {
+      await drain();
+    } finally {
+      family.embed = embed;
+    }
+    // One call met the limit, and no page was then tried alone.
+    expect(refused).toBe(1);
+    const { rows } = await run(
+      `SELECT resource_id, attempts, available_at > now() + interval '80 seconds' AS waiting
+       FROM app_resource_changes
+       WHERE consumer = 'search-embeddings' AND resource_id LIKE 'busy-%'
+       ORDER BY resource_id`,
+    );
+    expect(rows).toEqual(
+      ["busy-1", "busy-2", "busy-3"].map((id) => ({
+        resource_id: id,
+        attempts: 0,
+        waiting: true,
+      })),
+    );
+
+    // Once the wait is over, the three are embedded in one call.
+    await settle();
+    await drain();
+    const busyCalls = embedCalls.filter((call) =>
+      call.texts.some((text) => text.includes("busy")),
+    );
+    expect(busyCalls).toHaveLength(1);
+    expect(
+      busyCalls[0]?.texts.filter((text) => text.includes("busy")),
+    ).toHaveLength(3);
+    expect(await pendingIds()).toEqual([]);
+  });
+
   it("never starts an embedding call after its time is up", async () => {
     const long = "laptop ".repeat(2500);
     for (let index = 0; index < 4; index++) {

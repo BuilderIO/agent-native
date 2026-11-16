@@ -130,6 +130,32 @@ function builderEmbeddingBatches(inputs: readonly MultimodalEmbeddingInput[]) {
   if (batch.length) batches.push(batch);
   return batches;
 }
+
+/**
+ * An embedding provider's answer that wasn't 2xx. Status 429 means the
+ * caller is rate limited, so any input would fail until the wait is over.
+ */
+export class EmbeddingProviderError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    /** How long the provider's Retry-After asked callers to wait. */
+    readonly retryAfterMs?: number,
+  ) {
+    super(message);
+    this.name = "EmbeddingProviderError";
+  }
+}
+
+/** A Retry-After header, in seconds or as a date, as milliseconds. */
+function retryAfterMs(header: string | null): number | undefined {
+  if (!header?.trim()) return undefined;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const at = Date.parse(header);
+  return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now());
+}
+
 async function postJson(
   url: string,
   headers: Record<string, string>,
@@ -154,8 +180,10 @@ async function postJson(
       }),
     );
     if (!response.ok)
-      throw new Error(
+      throw new EmbeddingProviderError(
         `Embedding provider ${providerModel} failed with status ${response.status}.`,
+        response.status,
+        retryAfterMs(response.headers.get("retry-after")),
       );
     const bytes = await readBoundedResponseBytes(response, 1_000_000);
     return JSON.parse(new TextDecoder().decode(bytes)) as Record<

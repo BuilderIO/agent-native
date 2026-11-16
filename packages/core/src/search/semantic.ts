@@ -21,12 +21,14 @@ import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import type { MigrationEntry } from "../db/migrations.js";
 import { defineStore } from "../db/store-registry.js";
 import {
+  EmbeddingProviderError,
   resolveDefaultEmbeddingFamily,
   type EmbeddingFamily,
 } from "../embeddings/index.js";
 import {
   claimResourceChanges,
   completeResourceChanges,
+  deferResourceChanges,
   enqueueAllResourceChanges,
   enqueueSelectedResourceChanges,
   ensureResourceChangeTables,
@@ -89,6 +91,12 @@ const QUERY_EMBED_TIMEOUT_MS = 4_000;
  * deadline, fails, so a stalled provider can't hold a claim past its lease.
  */
 const DOCUMENT_EMBED_TIMEOUT_MS = 15_000;
+/**
+ * How long changes wait after the provider answers "rate limited", unless
+ * its Retry-After asks for longer, up to the cap.
+ */
+const RATE_LIMIT_WAIT_SECONDS = 60;
+const RATE_LIMIT_MAX_WAIT_SECONDS = 15 * 60;
 
 /** Thrown when a drain's time is up before its next embedding call. */
 class DrainDeadlineReached extends Error {
@@ -631,22 +639,77 @@ async function drain(
       { settledSeconds: SETTLED_SECONDS },
     );
     if (!claimed.length) return;
+    // New changes embed together; one that has failed before goes alone.
     const fresh = claimed.filter((change) => change.attempts <= 1);
-    const retries = claimed.filter((change) => change.attempts > 1);
-    if (fresh.length) {
-      await embedGroup(exec, store, registration, feed, fresh, deadline);
-    }
-    for (const change of retries) {
+    const batches = [
+      ...(fresh.length ? [fresh] : []),
+      ...claimed
+        .filter((change) => change.attempts > 1)
+        .map((change) => [change]),
+    ];
+    for (const [index, batch] of batches.entries()) {
       // Changes left claimed are claimed again when their lease expires.
       if (Date.now() >= deadline) return;
-      await embedGroup(exec, store, registration, feed, [change], deadline);
+      const wait = await embedGroup(
+        exec,
+        store,
+        registration,
+        feed,
+        batch,
+        deadline,
+      );
+      if (wait !== undefined) {
+        // The provider is rate limiting, so the rest wait with the batch.
+        await deferAfterRateLimit(
+          exec,
+          feed,
+          batches.slice(index + 1).flat(),
+          wait,
+        );
+        return;
+      }
     }
   }
 }
 
 /**
+ * The seconds to wait when the provider refused a call because the caller is
+ * rate limited, which every other call would meet too until the wait is over.
+ */
+function rateLimitWaitSeconds(error: unknown): number | undefined {
+  if (!(error instanceof EmbeddingProviderError) || error.status !== 429) {
+    return undefined;
+  }
+  const asked = Math.ceil((error.retryAfterMs ?? 0) / 1000);
+  return Math.min(
+    RATE_LIMIT_MAX_WAIT_SECONDS,
+    Math.max(RATE_LIMIT_WAIT_SECONDS, asked),
+  );
+}
+
+/** Puts changes back untried, logging rather than throwing when it can't. */
+async function deferAfterRateLimit(
+  exec: DbExec,
+  feed: ResourceChangeFeed,
+  changes: ClaimedResourceChange[],
+  seconds: number,
+): Promise<void> {
+  // Changes not put back are claimed again when their lease expires.
+  await deferResourceChanges(exec, feed, changes, seconds).catch(
+    (error: unknown) => {
+      console.error(
+        `[search] Putting back ${changes.length} ${feed.app}/${feed.resourceType} changes after a rate limit failed, so they are retried when their claim expires:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    },
+  );
+}
+
+/**
  * Embeds a claimed batch. When a batch fails, each change is retried alone,
- * so one resource that can't be embedded only holds back itself.
+ * so one resource that can't be embedded only holds back itself. When the
+ * provider is rate limiting, the batch is put back whole without counting an
+ * attempt, and the seconds to wait are returned so the drain stops.
  */
 async function embedGroup(
   exec: DbExec,
@@ -655,27 +718,54 @@ async function embedGroup(
   feed: ResourceChangeFeed,
   changes: ClaimedResourceChange[],
   deadline: number,
-): Promise<void> {
+): Promise<number | undefined> {
   const label = `${registration.app}/${registration.type}`;
   try {
     await embedChanges(exec, store, registration, feed, changes, deadline);
   } catch (error) {
     // Out of time isn't a failure: the changes stay claimed, and are claimed
     // again when their lease expires.
-    if (error instanceof DrainDeadlineReached || Date.now() >= deadline) return;
+    if (error instanceof DrainDeadlineReached || Date.now() >= deadline) {
+      return undefined;
+    }
     const message = error instanceof Error ? error.message : String(error);
+    const wait = rateLimitWaitSeconds(error);
+    if (wait !== undefined) {
+      console.warn(
+        `[search] The embedding provider is rate limiting, so ${changes.length} ${label} changes wait ${wait}s together:`,
+        message,
+      );
+      await deferAfterRateLimit(exec, feed, changes, wait);
+      return wait;
+    }
     const only = changes.length === 1 ? changes.at(0) : undefined;
     if (!only) {
       console.warn(
         `[search] Embedding ${changes.length} ${label} changes together failed, so each is retried alone:`,
         message,
       );
-      for (const change of changes) {
+      for (const [index, change] of changes.entries()) {
         // Changes left claimed are claimed again when their lease expires.
-        if (Date.now() >= deadline) return;
-        await embedGroup(exec, store, registration, feed, [change], deadline);
+        if (Date.now() >= deadline) return undefined;
+        const aloneWait = await embedGroup(
+          exec,
+          store,
+          registration,
+          feed,
+          [change],
+          deadline,
+        );
+        if (aloneWait !== undefined) {
+          await deferAfterRateLimit(
+            exec,
+            feed,
+            changes.slice(index + 1),
+            aloneWait,
+          );
+          return aloneWait;
+        }
       }
-      return;
+      return undefined;
     }
     console.error(
       `[search] Embedding ${label} "${only.resourceId}" failed on attempt ${only.attempts}` +
@@ -696,6 +786,7 @@ async function embedGroup(
       },
     );
   }
+  return undefined;
 }
 
 interface StoredEmbedding {

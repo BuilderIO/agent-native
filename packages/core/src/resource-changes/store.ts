@@ -557,6 +557,45 @@ export async function failResourceChanges(
 }
 
 /**
+ * Puts claimed changes back untried for `seconds`, without counting the
+ * claim as an attempt: for a wait that is no change's fault, such as a
+ * provider rate limiting every call.
+ */
+export async function deferResourceChanges(
+  exec: DbExec,
+  feed: ResourceChangeFeed,
+  changes: readonly ClaimedResourceChange[],
+  seconds: number,
+  fence?: ResourceChangeFence,
+): Promise<void> {
+  if (!changes.length) return;
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    throw new Error("seconds must be a non-negative number.");
+  }
+  const values = valuesList(changes);
+  const guard = fenced(fence);
+  // raw-sql-ok: the table name is a constant, and the VALUES list and guard bind their values.
+  await exec.execute({
+    sql: `UPDATE ${RESOURCE_CHANGES_TABLE} AS c
+          SET available_at = clock_timestamp() + make_interval(secs => ?),
+              attempts = greatest(c.attempts - 1, 0)
+          FROM (VALUES ${values.sql}) AS deferred (resource_id, seq)
+          WHERE c.consumer = ? AND c.app = ? AND c.resource_type = ?
+            AND c.resource_id IN (${values.ids})
+            AND c.resource_id = deferred.resource_id AND c.seq = deferred.seq${guard.sql}`,
+    args: [
+      seconds,
+      ...values.args,
+      feed.consumer,
+      feed.app,
+      feed.resourceType,
+      ...values.idArgs,
+      ...guard.args,
+    ],
+  });
+}
+
+/**
  * Two boolean columns for a caller's own SELECT, so checking the feed costs
  * no extra round trip: `pending` while any change is waiting, leased, or
  * backing off, and `failing` while any has used up its attempts.
