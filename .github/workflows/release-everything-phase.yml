@@ -922,13 +922,42 @@ jobs:
                   `Not enough coordinator time remains to wait for stable release PR #${pr.number}.`,
                 );
               }
+              // A brief GitHub error must not end a wait that lasts hours, but this
+              // long with every PR read failing still ends it.
+              const maxPullReadFailureMs = 3 * 60_000;
+              let pullReadsFailingSince = null;
               let lastMergeRunState = "";
-              while (Date.now() < deadline) {
-                const current = (await github.rest.pulls.get({
-                  owner,
-                  repo,
-                  pull_number: pr.number,
-                })).data;
+
+              // Resolves undefined when a transient failure left the PR unread.
+              async function readReleasePull() {
+                try {
+                  const pull = (await github.rest.pulls.get({
+                    owner,
+                    repo,
+                    pull_number: pr.number,
+                  })).data;
+                  pullReadsFailingSince = null;
+                  return pull;
+                } catch (error) {
+                  if (!isTransientDispatchFailure(error)) throw error;
+                  pullReadsFailingSince ??= Date.now();
+                  if (Date.now() - pullReadsFailingSince >= maxPullReadFailureMs) {
+                    throw new Error(
+                      `Stable release PR #${pr.number} could not be read for ${maxPullReadFailureMs / 60_000} minutes: ${describeRequestFailure(error)}`,
+                      { cause: error },
+                    );
+                  }
+                  core.warning(
+                    `Could not read stable release PR #${pr.number} (${describeRequestFailure(error)}); retrying.`,
+                  );
+                  return undefined;
+                }
+              }
+
+              // Resolves the merge commit once the PR merges, otherwise null.
+              async function pollReleaseMerge() {
+                const current = await readReleasePull();
+                if (!current) return null;
                 if (current.merged) {
                   // Production treats a blank source_ref as "latest main".
                   if (!/^[0-9a-f]{40}$/.test(current.merge_commit_sha || "")) {
@@ -943,33 +972,35 @@ jobs:
                   throw new Error(`Stable release PR #${pr.number} closed without merging: ${pr.html_url}`);
                 }
                 const mergeRun = await latestReleaseMergeRun(current.head.sha);
-                if (mergeRun !== undefined) {
-                  const mergeRunState = mergeRun
-                    ? `${mergeRun.status}/${mergeRun.conclusion || "pending"}`
-                    : "not started";
-                  if (mergeRunState !== lastMergeRunState) {
-                    core.info(
-                      `Stable release PR #${pr.number} merge run: ${mergeRunState}${mergeRun ? ` ${mergeRun.html_url}` : ""}`,
-                    );
-                    lastMergeRunState = mergeRunState;
-                  }
-                  if (mergeRun?.status === "completed" && mergeRun.conclusion !== "success") {
-                    // A new head cancels the old head's merge run, possibly between the
-                    // PR read above and the run read, so only the still-current head's
-                    // run is final.
-                    const latest = (await github.rest.pulls.get({
-                      owner,
-                      repo,
-                      pull_number: pr.number,
-                    })).data;
-                    if (!latest.merged && latest.head?.sha === current.head.sha) {
-                      const reason = await releaseMergeRunFailureReason(mergeRun);
-                      throw new Error(
-                        `Stable release PR #${pr.number} will not merge: its merge run ended ${mergeRun.conclusion}${reason ? ` (${reason})` : ""}: ${mergeRun.html_url}`,
-                      );
-                    }
-                  }
+                if (mergeRun === undefined) return null;
+                const mergeRunState = mergeRun
+                  ? `${mergeRun.status}/${mergeRun.conclusion || "pending"}`
+                  : "not started";
+                if (mergeRunState !== lastMergeRunState) {
+                  core.info(
+                    `Stable release PR #${pr.number} merge run: ${mergeRunState}${mergeRun ? ` ${mergeRun.html_url}` : ""}`,
+                  );
+                  lastMergeRunState = mergeRunState;
                 }
+                if (mergeRun?.status !== "completed" || mergeRun.conclusion === "success") {
+                  return null;
+                }
+                // A new head cancels the old head's merge run, possibly between the
+                // PR read above and the run read, so only the still-current head's
+                // run is final.
+                const latest = await readReleasePull();
+                if (!latest || latest.merged || latest.head?.sha !== current.head.sha) {
+                  return null;
+                }
+                const reason = await releaseMergeRunFailureReason(mergeRun);
+                throw new Error(
+                  `Stable release PR #${pr.number} will not merge: its merge run ended ${mergeRun.conclusion}${reason ? ` (${reason})` : ""}: ${mergeRun.html_url}`,
+                );
+              }
+
+              while (Date.now() < deadline) {
+                const mergeSha = await pollReleaseMerge();
+                if (mergeSha) return mergeSha;
                 const remaining = deadline - Date.now();
                 if (remaining <= 0) break;
                 await sleep(Math.min(pollIntervalMs, remaining));

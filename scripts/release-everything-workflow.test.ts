@@ -1533,6 +1533,121 @@ return waitForReleaseMerge;`,
     }
   });
 
+  it("rides out brief release PR read errors but not three minutes of them", async () => {
+    const realNow = Date.now;
+    let now = 0;
+    Date.now = () => now;
+    const sleep = async (ms: number) => {
+      now += ms;
+    };
+    const unavailable = () =>
+      Object.assign(new Error("Service Unavailable"), { status: 503 });
+    const openPullData = {
+      merged: false,
+      state: "open",
+      head: { sha: releaseHeadSha },
+    };
+    const actions = {
+      listWorkflowRuns: async () => ({
+        data: {
+          workflow_runs: [
+            now >= 29 * 60_000
+              ? releaseMergeRun(2, "completed", "failure")
+              : releaseMergeRun(2, "in_progress", null),
+          ],
+        },
+      }),
+    };
+    const readsAt = new Map<number, number>();
+    const warnings: string[] = [];
+    try {
+      const briefErrors = await loadWaitForReleaseMerge({
+        github: {
+          rest: {
+            actions,
+            pulls: {
+              get: async () => {
+                const reads = (readsAt.get(now) ?? 0) + 1;
+                readsAt.set(now, reads);
+                if (
+                  now === 15_000 ||
+                  now === 30_000 ||
+                  (now === 29 * 60_000 && reads === 2)
+                ) {
+                  throw unavailable();
+                }
+                return { data: openPullData };
+              },
+            },
+          },
+        },
+        sleep,
+        pollIntervalMs: 15_000,
+        core: {
+          info: () => {},
+          warning: (message: string) => warnings.push(message),
+        },
+        listWorkflowRunJobs: async () => [{ id: 20, conclusion: "failure" }],
+        failureAnnotations: async () => [
+          "Required release PR checks are not green: Fast tests.",
+        ],
+      });
+      await assert.rejects(briefErrors({ number: 9132 }), {
+        message:
+          "Stable release PR #9132 will not merge: its merge run ended failure (Required release PR checks are not green: Fast tests.): https://github.com/BuilderIO/agent-native/actions/runs/2",
+      });
+      assert.equal(now, 29 * 60_000 + 15_000);
+      assert.deepEqual(warnings, [
+        "Could not read stable release PR #9132 (HTTP 503: Service Unavailable); retrying.",
+        "Could not read stable release PR #9132 (HTTP 503: Service Unavailable); retrying.",
+        "Could not read stable release PR #9132 (HTTP 503: Service Unavailable); retrying.",
+      ]);
+
+      now = 0;
+      const sustainedErrors = await loadWaitForReleaseMerge({
+        github: {
+          rest: {
+            actions,
+            pulls: {
+              get: async () => {
+                throw unavailable();
+              },
+            },
+          },
+        },
+        sleep,
+        pollIntervalMs: 15_000,
+      });
+      await assert.rejects(sustainedErrors({ number: 9132 }), {
+        message:
+          "Stable release PR #9132 could not be read for 3 minutes: HTTP 503: Service Unavailable",
+      });
+      assert.equal(now, 3 * 60_000);
+
+      now = 0;
+      const deniedRead = await loadWaitForReleaseMerge({
+        github: {
+          rest: {
+            actions,
+            pulls: {
+              get: async () => {
+                throw Object.assign(new Error("Forbidden"), { status: 403 });
+              },
+            },
+          },
+        },
+        sleep,
+        pollIntervalMs: 15_000,
+      });
+      await assert.rejects(deniedRead({ number: 9132 }), {
+        message: "Forbidden",
+      });
+      assert.equal(now, 0);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   it("recovers only a hosted-runner failure after stable npm publication", () => {
     const source = String((coordinator.with as Workflow).script);
     const AsyncFunction = Object.getPrototypeOf(
