@@ -45,6 +45,25 @@ describe("desktop app mode defaults", () => {
     expect(loadDesktopAppPreferences().desktopSsoEnabled).toBe(false);
   });
 
+  it("preserves a built-in app's native manifest through canonicalization", () => {
+    const [builtIn] = loadApps();
+    if (!builtIn) throw new Error("Expected a built-in app");
+    const native = {
+      uses: ["capture.audio@1"],
+      background: { keepAlive: true },
+    };
+    fs.writeFileSync(
+      path.join(electronState.userData, "app-config.json"),
+      JSON.stringify([{ ...builtIn, native }]),
+    );
+    expect(loadApps().find((app) => app.id === builtIn.id)?.native).toEqual(
+      native,
+    );
+    expect(loadApps().find((app) => app.id === builtIn.id)?.native).toEqual(
+      native,
+    );
+  });
+
   it("uses the default for an existing preferences file without a choice", () => {
     fs.writeFileSync(
       path.join(electronState.userData, "desktop-app-preferences.json"),
