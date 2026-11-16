@@ -875,6 +875,91 @@ describe("when something fails part way", () => {
     expect(await pendingIds()).toEqual([]);
   });
 
+  it("keeps the pages it embedded before a rate limit, and finishes over later windows", async () => {
+    const { EmbeddingProviderError } = await import("../embeddings/index.js");
+    // Twelve chunks each, so a call takes two pages and eight take four calls.
+    const long = "Quota laptop notes. ".repeat(900);
+    const ids = Array.from({ length: 8 }, (_, index) => `quota-${index}`);
+    for (const id of ids) await insertPage(id, "Quota laptop", long);
+    await settle();
+    const embed = family.embed;
+    // Three calls a window, as Builder's gateway allowed.
+    let allowed = 3;
+    family.embed = async (inputs, purpose, options) => {
+      if (allowed <= 0) {
+        throw new EmbeddingProviderError(
+          "Embedding provider fake failed with status 429.",
+          429,
+        );
+      }
+      allowed -= 1;
+      return embed(inputs, purpose, options);
+    };
+    const embedded = () =>
+      ids.filter((id) => store.keys().includes(`wiki/page/${id}/0`));
+    try {
+      await drain();
+      expect(embedded()).toHaveLength(6);
+      for (let window = 0; window < 3; window++) {
+        if (embedded().length === ids.length) break;
+        allowed = 3;
+        await settle();
+        await drain();
+      }
+    } finally {
+      family.embed = embed;
+    }
+    expect(embedded()).toEqual(ids);
+    expect(await pendingIds()).toEqual([]);
+  });
+
+  it("embeds other organizations' pages while one organization is rate limited", async () => {
+    const { EmbeddingProviderError } = await import("../embeddings/index.js");
+    // The limited organization's page is older, so it leads the claim.
+    await insertPage("limited-page", "Limited laptop", "Hardware limited.", {
+      orgId: "org-limited",
+    });
+    await insertPage("free-page", "Free laptop", "Hardware free.");
+    await settle();
+    let limitedCalls = 0;
+    const limitedFamily: EmbeddingFamily = {
+      ...family,
+      async embed() {
+        limitedCalls += 1;
+        throw new EmbeddingProviderError(
+          "Embedding provider fake failed with status 429.",
+          429,
+        );
+      },
+    };
+    search.configureSemanticSearch({
+      vectorStore: store,
+      resolveEmbeddingFamily: async (identity) =>
+        identity?.orgId === "org-limited" ? limitedFamily : family,
+    });
+    try {
+      await drain();
+    } finally {
+      restoreStore();
+    }
+    expect(limitedCalls).toBe(1);
+    expect(keysFor("free-page")).toEqual(["wiki/page/free-page/0"]);
+    expect(keysFor("limited-page")).toEqual([]);
+    const { rows } = await run(
+      `SELECT resource_id, attempts, available_at > now() AS waiting
+       FROM app_resource_changes
+       WHERE consumer = 'search-embeddings' AND resource_id IN ('limited-page', 'free-page')`,
+    );
+    expect(rows).toEqual([
+      { resource_id: "limited-page", attempts: 0, waiting: true },
+    ]);
+
+    await run(`DELETE FROM pages WHERE id = 'limited-page'`);
+    await settle();
+    await drain();
+    expect(await pendingIds()).toEqual([]);
+  });
+
   it("never starts an embedding call after its time is up", async () => {
     const long = "laptop ".repeat(2500);
     for (let index = 0; index < 4; index++) {

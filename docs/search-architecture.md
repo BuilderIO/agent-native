@@ -498,10 +498,12 @@ OpenAI's `text-embedding-3-small`.
   Each embedding call times out after 15 seconds or at the drain's deadline,
   whichever comes first, and none starts after the deadline. When a batch
   fails, the drain retries its pages one at a time only until its deadline.
-  When the provider answers 429 (rate limited), any call would fail, so the
-  drain stops instead: the batch and the rest of its claim go back together,
-  with no attempt counted, for the provider's `Retry-After` (at least 60
-  seconds, at most 15 minutes), and are embedded together after it.
+  Each call carries whole pages, which are stored before the next call. When
+  the provider answers 429 (rate limited), the pages it hasn't embedded yet
+  for that organization (or owner, when none governs) go back with no attempt
+  counted for the provider's `Retry-After` (at least 60 seconds, at most 15
+  minutes), and the drain makes no more calls for it. Other organizations'
+  pages carry on.
   Changes left when time runs out stay claimed until their lease expires, so
   an outage can't hold claims past their lease. An app adds the consumer with
   `semanticSearchMigration()`, which queues a backfill.

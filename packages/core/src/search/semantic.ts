@@ -630,6 +630,7 @@ async function drain(
   // Without a vector store the changes stay queued, ready for when one exists.
   if (!(await storeAvailable(exec, store))) return;
   const feed = feedFor(registration);
+  const limits: RateLimits = new Map();
   while (Date.now() < deadline) {
     const claimed = await claimResourceChanges(
       exec,
@@ -639,37 +640,36 @@ async function drain(
       { settledSeconds: SETTLED_SECONDS },
     );
     if (!claimed.length) return;
-    // New changes embed together; one that has failed before goes alone.
     const fresh = claimed.filter((change) => change.attempts <= 1);
-    const batches = [
-      ...(fresh.length ? [fresh] : []),
-      ...claimed
-        .filter((change) => change.attempts > 1)
-        .map((change) => [change]),
-    ];
-    for (const [index, batch] of batches.entries()) {
+    const retries = claimed.filter((change) => change.attempts > 1);
+    if (fresh.length) {
+      await embedGroup(exec, store, registration, feed, fresh, {
+        deadline,
+        limits,
+      });
+    }
+    for (const change of retries) {
       // Changes left claimed are claimed again when their lease expires.
       if (Date.now() >= deadline) return;
-      const wait = await embedGroup(
-        exec,
-        store,
-        registration,
-        feed,
-        batch,
+      await embedGroup(exec, store, registration, feed, [change], {
         deadline,
-      );
-      if (wait !== undefined) {
-        // The provider is rate limiting, so the rest wait with the batch.
-        await deferAfterRateLimit(
-          exec,
-          feed,
-          batches.slice(index + 1).flat(),
-          wait,
-        );
-        return;
-      }
+        limits,
+      });
     }
   }
+}
+
+/**
+ * Providers that answered "rate limited" during one drain, by the
+ * credentials they were called with, and the seconds their pages wait. Their
+ * other pages wait too, without another call.
+ */
+type RateLimits = Map<string, number>;
+
+/** Changes put back untried, and for how many seconds. */
+interface DeferredChanges {
+  changes: ClaimedResourceChange[];
+  seconds: number;
 }
 
 /**
@@ -691,8 +691,7 @@ function rateLimitWaitSeconds(error: unknown): number | undefined {
 async function deferAfterRateLimit(
   exec: DbExec,
   feed: ResourceChangeFeed,
-  changes: ClaimedResourceChange[],
-  seconds: number,
+  { changes, seconds }: DeferredChanges,
 ): Promise<void> {
   // Changes not put back are claimed again when their lease expires.
   await deferResourceChanges(exec, feed, changes, seconds).catch(
@@ -707,9 +706,7 @@ async function deferAfterRateLimit(
 
 /**
  * Embeds a claimed batch. When a batch fails, each change is retried alone,
- * so one resource that can't be embedded only holds back itself. When the
- * provider is rate limiting, the batch is put back whole without counting an
- * attempt, and the seconds to wait are returned so the drain stops.
+ * so one resource that can't be embedded only holds back itself.
  */
 async function embedGroup(
   exec: DbExec,
@@ -717,55 +714,29 @@ async function embedGroup(
   registration: SearchableResourceRegistration,
   feed: ResourceChangeFeed,
   changes: ClaimedResourceChange[],
-  deadline: number,
-): Promise<number | undefined> {
+  context: { deadline: number; limits: RateLimits },
+): Promise<void> {
+  const { deadline } = context;
   const label = `${registration.app}/${registration.type}`;
   try {
-    await embedChanges(exec, store, registration, feed, changes, deadline);
+    await embedChanges(exec, store, registration, feed, changes, context);
   } catch (error) {
     // Out of time isn't a failure: the changes stay claimed, and are claimed
     // again when their lease expires.
-    if (error instanceof DrainDeadlineReached || Date.now() >= deadline) {
-      return undefined;
-    }
+    if (error instanceof DrainDeadlineReached || Date.now() >= deadline) return;
     const message = error instanceof Error ? error.message : String(error);
-    const wait = rateLimitWaitSeconds(error);
-    if (wait !== undefined) {
-      console.warn(
-        `[search] The embedding provider is rate limiting, so ${changes.length} ${label} changes wait ${wait}s together:`,
-        message,
-      );
-      await deferAfterRateLimit(exec, feed, changes, wait);
-      return wait;
-    }
     const only = changes.length === 1 ? changes.at(0) : undefined;
     if (!only) {
       console.warn(
         `[search] Embedding ${changes.length} ${label} changes together failed, so each is retried alone:`,
         message,
       );
-      for (const [index, change] of changes.entries()) {
+      for (const change of changes) {
         // Changes left claimed are claimed again when their lease expires.
-        if (Date.now() >= deadline) return undefined;
-        const aloneWait = await embedGroup(
-          exec,
-          store,
-          registration,
-          feed,
-          [change],
-          deadline,
-        );
-        if (aloneWait !== undefined) {
-          await deferAfterRateLimit(
-            exec,
-            feed,
-            changes.slice(index + 1),
-            aloneWait,
-          );
-          return aloneWait;
-        }
+        if (Date.now() >= deadline) return;
+        await embedGroup(exec, store, registration, feed, [change], context);
       }
-      return undefined;
+      return;
     }
     console.error(
       `[search] Embedding ${label} "${only.resourceId}" failed on attempt ${only.attempts}` +
@@ -786,7 +757,6 @@ async function embedGroup(
       },
     );
   }
-  return undefined;
 }
 
 interface StoredEmbedding {
@@ -843,13 +813,15 @@ async function embedChanges(
   registration: SearchableResourceRegistration,
   feed: ResourceChangeFeed,
   changes: ClaimedResourceChange[],
-  deadline: number,
+  context: { deadline: number; limits: RateLimits },
 ): Promise<void> {
+  const { deadline, limits } = context;
   const ids = changes.map((change) => change.resourceId);
   const documents = await registration.load(ids);
   const byId = new Map(documents.map((document) => [document.id, document]));
   const stored = await storedEmbeddings(exec, registration, ids);
   const done: ClaimedResourceChange[] = [];
+  const deferred: DeferredChanges[] = [];
   const groups = new Map<string, AudienceGroup>();
   for (const change of changes) {
     const document = byId.get(change.resourceId);
@@ -887,10 +859,15 @@ async function embedChanges(
     if (Date.now() >= deadline) break;
     await embedAudienceGroup(exec, store, registration, feed, group, stored, {
       done,
+      deferred,
       deadline,
+      limits,
     });
   }
   await completeResourceChanges(exec, feed, done);
+  for (const waiting of deferred) {
+    await deferAfterRateLimit(exec, feed, waiting);
+  }
 }
 
 async function embedAudienceGroup(
@@ -900,7 +877,17 @@ async function embedAudienceGroup(
   feed: ResourceChangeFeed,
   group: AudienceGroup,
   stored: Map<string, StoredEmbedding>,
-  { done, deadline }: { done: ClaimedResourceChange[]; deadline: number },
+  {
+    done,
+    deferred,
+    deadline,
+    limits,
+  }: {
+    done: ClaimedResourceChange[];
+    deferred: DeferredChanges[];
+    deadline: number;
+    limits: RateLimits;
+  },
 ): Promise<void> {
   // An unreadable setting or membership throws, so nothing is sent until it
   // reads as on.
@@ -957,6 +944,112 @@ async function embedAudienceGroup(
     pending.push({ change, chunks, hash, stored: previous });
   }
   if (!pending.length) return;
+  const label = `${registration.app}/${registration.type}`;
+  // A provider rate limits the credentials it's called with, which resolve
+  // for the governing organization, or for the owner when none governs.
+  const scope = `${family.id}\u0000${orgId ?? group.identity.userEmail ?? ""}`;
+  // Each call embeds whole pages, stored before the next call, so a provider
+  // that starts refusing part way keeps what it already embedded.
+  const slices = wholePageSlices(pending);
+  for (const [index, slice] of slices.entries()) {
+    const left = slices.slice(index).flat();
+    const limited = limits.get(scope);
+    if (limited !== undefined) {
+      deferred.push({
+        changes: left.map((item) => item.change),
+        seconds: limited,
+      });
+      return;
+    }
+    let on: boolean;
+    try {
+      on = await embedAndStore(
+        exec,
+        store,
+        registration,
+        feed,
+        group,
+        stored,
+        slice,
+        { family, setId, orgId, done, deadline },
+      );
+    } catch (error) {
+      const wait = rateLimitWaitSeconds(error);
+      if (wait === undefined) throw error;
+      console.warn(
+        `[search] The embedding provider is rate limiting ${label}, so ${left.length} changes wait ${wait}s:`,
+        error instanceof Error ? error.message : String(error),
+      );
+      limits.set(scope, wait);
+      deferred.push({
+        changes: left.map((item) => item.change),
+        seconds: wait,
+      });
+      return;
+    }
+    if (!on) {
+      // The lane was turned off, so the pages not embedded yet are recorded
+      // off without being sent.
+      for (const item of slices.slice(index + 1).flat()) {
+        await recordOff(
+          exec,
+          store,
+          registration,
+          item.change,
+          group.audienceId,
+          stored,
+        );
+        done.push(item.change);
+      }
+      return;
+    }
+  }
+}
+
+/** Pending pages in runs of whole pages that each fit one embedding call. */
+function wholePageSlices(pending: PendingEmbedding[]): PendingEmbedding[][] {
+  const slices: PendingEmbedding[][] = [];
+  let slice: PendingEmbedding[] = [];
+  let chunks = 0;
+  for (const item of pending) {
+    if (slice.length && chunks + item.chunks.length > EMBED_BATCH) {
+      slices.push(slice);
+      slice = [];
+      chunks = 0;
+    }
+    slice.push(item);
+    chunks += item.chunks.length;
+  }
+  if (slice.length) slices.push(slice);
+  return slices;
+}
+
+/**
+ * Embeds pages and stores their vectors. Returns false, with the pages
+ * recorded off, when the organization turned the lane off meanwhile.
+ */
+async function embedAndStore(
+  exec: DbExec,
+  store: SearchVectorStore,
+  registration: SearchableResourceRegistration,
+  feed: ResourceChangeFeed,
+  group: AudienceGroup,
+  stored: Map<string, StoredEmbedding>,
+  pending: PendingEmbedding[],
+  {
+    family,
+    setId,
+    orgId,
+    done,
+    deadline,
+  }: {
+    family: EmbeddingFamily;
+    setId: string;
+    orgId: string | undefined;
+    done: ClaimedResourceChange[];
+    deadline: number;
+  },
+): Promise<boolean> {
   const vectors = await embedDocumentChunks(
     family,
     pending.flatMap((item) => item.chunks),
@@ -979,7 +1072,7 @@ async function embedAudienceGroup(
       );
       done.push(item.change);
     }
-    return;
+    return false;
   }
   const written: { change: ClaimedResourceChange; chunkCount: number }[] = [];
   let offset = 0;
@@ -1089,7 +1182,9 @@ async function embedAudienceGroup(
         seq: change.seq,
       });
     }
+    return false;
   }
+  return true;
 }
 
 /**
