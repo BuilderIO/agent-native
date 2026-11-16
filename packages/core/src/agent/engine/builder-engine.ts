@@ -1967,6 +1967,18 @@ function captureBuilderGatewayTransportError(
   });
 }
 
+const NO_DETAIL_PROVIDER_ERROR_CODES = new Set([
+  "overloaded_error",
+  "rate_limited",
+  "rate_limit_exceeded",
+  "invalid_request",
+  "invalid_request_error",
+  "provider_internal_error",
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  "context_length_exceeded",
+  "input_too_long",
+]);
+
 function captureBuilderGatewayNoDetailError(context: {
   requestId?: string;
   model: string;
@@ -1974,7 +1986,7 @@ function captureBuilderGatewayNoDetailError(context: {
   errorCode?: string;
 }): void {
   const providerErrorCode =
-    context.errorCode && /^[a-z\d_.-]{1,64}$/i.test(context.errorCode)
+    context.errorCode && NO_DETAIL_PROVIDER_ERROR_CODES.has(context.errorCode)
       ? context.errorCode
       : undefined;
   const err = new Error(
@@ -1991,6 +2003,7 @@ function captureBuilderGatewayNoDetailError(context: {
       phase: "stream",
       model: context.model,
       errorCode: "builder_gateway_error",
+      ...(providerErrorCode ? { providerErrorCode } : {}),
       ...(context.requestId ? { gatewayRequestId: context.requestId } : {}),
     },
     extra: {
