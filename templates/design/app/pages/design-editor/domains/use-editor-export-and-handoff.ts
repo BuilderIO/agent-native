@@ -51,7 +51,10 @@ import {
   pageHasWebMcpHost,
 } from "../design-editor-shared";
 import { isCurrentRuntimeLayerSnapshot } from "../export-snapshot-frame";
-import { countRemovedPendingStyleEntries } from "../history-cleanup";
+import {
+  countRemovedPendingStyleEntries,
+  retainPendingVisualStyleUndoTargets,
+} from "../history-cleanup";
 import {
   captureNativeCurrentFramePng,
   NativeCurrentFramePngError,
@@ -595,20 +598,8 @@ export function useEditorExportAndHandoff({
             counts[direction]["pending-style"] +=
               countRemovedPendingStyleEntries(stack.current, included);
             stack.current = stack.current.flatMap((entry) => {
-              const targets = entry.groupedTargets ?? [entry];
-              const kept = targets.filter(
-                (target) => !included.has(stackId(target.edit)),
-              );
-              if (kept.length === 0) return [];
-              if (kept.length === targets.length) return [entry];
-              const first = kept[0];
-              return [
-                {
-                  ...entry,
-                  ...first,
-                  ...(kept.length > 1 ? { groupedTargets: kept } : {}),
-                },
-              ];
+              const kept = retainPendingVisualStyleUndoTargets(entry, included);
+              return kept ? [kept] : [];
             });
           }
           const liveStacks = [

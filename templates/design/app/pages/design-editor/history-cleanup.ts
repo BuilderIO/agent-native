@@ -1,21 +1,43 @@
+import {
+  pendingVisualStyleUndoTargets,
+  type PendingVisualStyleUndoEntry,
+} from "./pending-edits";
+
 interface StyleEditKey {
   screenId: string;
   selector: string;
   updatedAt: number;
 }
 
-interface PendingStyleEntry {
-  edit: StyleEditKey;
-  groupedTargets?: Array<{ edit: StyleEditKey }>;
+export function retainPendingVisualStyleUndoTargets(
+  entry: PendingVisualStyleUndoEntry,
+  included: ReadonlySet<string>,
+): PendingVisualStyleUndoEntry | undefined {
+  const targets = pendingVisualStyleUndoTargets(entry);
+  const kept = targets.filter(
+    (target) => !included.has(styleEditId(target.edit)),
+  );
+  if (kept.length === 0) return undefined;
+  if (kept.length === targets.length) return entry;
+
+  const [head, ...groupedTargets] = kept;
+  return {
+    ...entry,
+    edit: head!.edit,
+    revertStyles: head!.revertStyles,
+    ...(groupedTargets.length > 0
+      ? { groupedTargets }
+      : { groupedTargets: undefined }),
+  };
 }
 
 export function countRemovedPendingStyleEntries(
-  entries: PendingStyleEntry[],
+  entries: PendingVisualStyleUndoEntry[],
   included: ReadonlySet<string>,
 ): number {
   return entries.filter((entry) => {
-    const targets = entry.groupedTargets ?? [entry];
-    return targets.some((target) => included.has(styleEditId(target.edit)));
+    const targets = pendingVisualStyleUndoTargets(entry);
+    return targets.every((target) => included.has(styleEditId(target.edit)));
   }).length;
 }
 
