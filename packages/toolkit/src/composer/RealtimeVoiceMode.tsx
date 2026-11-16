@@ -166,7 +166,7 @@ export function RealtimeVoiceComposerControls({
                 ? "user"
                 : "idle"
           }
-          className="flex h-[var(--agentkit-composer-toolbar-control-size,1.5rem)] min-w-0 shrink items-center gap-1.5 overflow-hidden rounded-full bg-muted ps-2 pe-2.5 transition-[width,background-color] duration-150 ease-out starting:bg-transparent motion-reduce:transition-none"
+          className="flex h-[var(--agentkit-composer-toolbar-control-size,1.5rem)] min-w-0 shrink items-center gap-1.5 overflow-hidden rounded-[var(--agent-kit-radius-xs,0.25rem)] bg-muted ps-2 pe-2.5 transition-[width,background-color] duration-150 ease-out starting:bg-transparent motion-reduce:transition-none"
         >
           {state === "connecting" ? (
             <IconLoader2
@@ -270,7 +270,7 @@ export function RealtimeVoiceEndButton({
           onClick={() =>
             voice.state === "error" ? voice.dismissError() : voice.end()
           }
-          className="agent-composer-send-button shrink-0 flex size-[var(--agentkit-composer-primary-control-size,1.75rem)] items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
+          className="agent-composer-send-button shrink-0 flex size-[var(--agentkit-composer-primary-control-size,1.75rem)] items-center justify-center rounded-[var(--agent-kit-radius-sm,0.5rem)] bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
         >
           <span
             key={settling ? "settling" : "end"}

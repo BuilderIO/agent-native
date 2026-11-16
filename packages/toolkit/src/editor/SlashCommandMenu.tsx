@@ -19,6 +19,8 @@ export interface SlashCommandItem {
   searchText?: string;
   icon: string;
   requires?: "tables" | "tasks" | "codeBlock";
+  /** Open the table size picker instead of running `action` directly. */
+  opensTablePicker?: boolean;
   action: (editor: Editor) => void;
 }
 
@@ -156,9 +158,10 @@ export const DEFAULT_SLASH_COMMANDS: SlashCommandItem[] = [
   },
   {
     title: "Table",
-    description: "Three by three table",
+    description: "Pick a table size",
     icon: "tbl",
     requires: "tables",
+    opensTablePicker: true,
     action: (editor) =>
       editor
         .chain()
@@ -193,6 +196,8 @@ export function SlashCommandMenu({
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const [tablePickerSize, setTablePickerSize] = useState({ cols: 1, rows: 1 });
   const [position, setPosition] = useState<{
     top: number;
     left: number;
@@ -218,8 +223,34 @@ export function SlashCommandMenu({
     slashPosRef.current = null;
   }, []);
 
+  const insertTable = useCallback(
+    (cols: number, rows: number) => {
+      if (slashPosRef.current !== null) {
+        const { from } = editor.state.selection;
+        editor
+          .chain()
+          .focus()
+          .deleteRange({ from: slashPosRef.current, to: from })
+          .run();
+      }
+      editor
+        .chain()
+        .focus()
+        .insertTable({ rows, cols, withHeaderRow: true })
+        .run();
+      setTablePickerOpen(false);
+      close();
+    },
+    [close, editor],
+  );
+
   const executeCommand = useCallback(
     (command: SlashCommandItem) => {
+      if (command.opensTablePicker) {
+        setTablePickerSize({ cols: 1, rows: 1 });
+        setTablePickerOpen(true);
+        return;
+      }
       if (slashPosRef.current !== null) {
         const { from } = editor.state.selection;
         const anchorPosition = slashPosRef.current;
@@ -242,6 +273,13 @@ export function SlashCommandMenu({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!isOpen) return;
+      if (tablePickerOpen) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setTablePickerOpen(false);
+        }
+        return;
+      }
       if (event.key === "ArrowDown") {
         event.preventDefault();
         if (filteredCommands.length === 0) return;
@@ -263,7 +301,14 @@ export function SlashCommandMenu({
     };
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [close, executeCommand, filteredCommands, isOpen, selectedIndex]);
+  }, [
+    close,
+    executeCommand,
+    filteredCommands,
+    isOpen,
+    selectedIndex,
+    tablePickerOpen,
+  ]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -346,28 +391,62 @@ export function SlashCommandMenu({
       onPointerDown={(event) => event.stopPropagation()}
     >
       <div className="an-rich-md-slash-heading">{heading}</div>
-      {filteredCommands.map((command, index) => (
-        <button
-          key={command.title}
-          ref={index === selectedIndex ? selectedItemRef : undefined}
-          type="button"
-          className={cn(
-            "an-rich-md-slash-item",
-            index === selectedIndex && "an-rich-md-slash-item--active",
-          )}
-          onMouseEnter={() => setSelectedIndex(index)}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => executeCommand(command)}
+      {tablePickerOpen ? (
+        <div
+          className="an-rich-md-table-picker"
+          role="group"
+          aria-label="Table size"
         >
-          <span className="an-rich-md-slash-icon">{command.icon}</span>
-          <span className="an-rich-md-slash-copy">
-            <span className="an-rich-md-slash-title">{command.title}</span>
-            <span className="an-rich-md-slash-description">
-              {command.description}
+          {Array.from({ length: 10 }).map((_, row) => (
+            <div key={row} className="an-rich-md-table-picker-row">
+              {Array.from({ length: 5 }).map((_, col) => (
+                <button
+                  key={col}
+                  type="button"
+                  aria-label={`${col + 1} by ${row + 1} table`}
+                  className={cn(
+                    "an-rich-md-table-picker-cell",
+                    col + 1 <= tablePickerSize.cols &&
+                      row + 1 <= tablePickerSize.rows &&
+                      "an-rich-md-table-picker-cell--active",
+                  )}
+                  onMouseEnter={() =>
+                    setTablePickerSize({ cols: col + 1, rows: row + 1 })
+                  }
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => insertTable(col + 1, row + 1)}
+                />
+              ))}
+            </div>
+          ))}
+          <div className="an-rich-md-table-picker-label">
+            {tablePickerSize.cols} × {tablePickerSize.rows}
+          </div>
+        </div>
+      ) : (
+        filteredCommands.map((command, index) => (
+          <button
+            key={command.title}
+            ref={index === selectedIndex ? selectedItemRef : undefined}
+            type="button"
+            className={cn(
+              "an-rich-md-slash-item",
+              index === selectedIndex && "an-rich-md-slash-item--active",
+            )}
+            onMouseEnter={() => setSelectedIndex(index)}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => executeCommand(command)}
+          >
+            <span className="an-rich-md-slash-icon">{command.icon}</span>
+            <span className="an-rich-md-slash-copy">
+              <span className="an-rich-md-slash-title">{command.title}</span>
+              <span className="an-rich-md-slash-description">
+                {command.description}
+              </span>
             </span>
-          </span>
-        </button>
-      ))}
+          </button>
+        ))
+      )}
     </div>,
     document.body,
   );

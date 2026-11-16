@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   formatDisplayP3Css,
   formatOklchCss,
@@ -36,7 +37,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
 import {
@@ -882,8 +882,10 @@ export function DesignColorPicker({
         instanceId: activeNativeFill.id,
       })
         .then(() => applyPaintType(nextType))
-        .catch(() => {
-          toast.error(t("editPanel.shaders.saveFailed"));
+        .catch((error) => {
+          reportWriteFailure(error, {
+            label: t("editPanel.shaders.saveFailed"),
+          });
         });
       return;
     }

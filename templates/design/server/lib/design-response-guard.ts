@@ -4,6 +4,7 @@ import type {
 } from "@agent-native/core/server";
 import { splitAgentChatContextFromMessage } from "@agent-native/core/shared";
 
+import { DESIGN_OUTPUT_ACTIONS } from "../../shared/generation-output-receipt.js";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "../../shared/mutation-turn.js";
 import {
   isRepromptSelectionMessage,
@@ -35,6 +36,7 @@ const DESIGN_MUTATION_ACTIONS = new Set([
   "insert-asset",
   "insert-design-native-asset",
   "insert-figma-library-asset",
+  "move-design-element",
   "present-design-variants",
   "update-design",
   "update-file",
@@ -290,6 +292,8 @@ function hasSuccessfulMutation(
         parsed.stale !== true
       );
     }
+
+    if (name === "move-design-element") return parsed.moved === true;
 
     if (name === "update-file") {
       return parsed.updated === true && parsed.skippedStaleMirror !== true;
@@ -577,7 +581,19 @@ export function designFinalResponseGuard(
   const requestText =
     context.requestText?.trim() || latestUserText(context.messages);
   if (!requiresPersistedDesignOutput(requestText)) return null;
-  if (hasSuccessfulMutation(context.toolResults)) return null;
+  // A verified, changed receipt from a Design output action is the same proof
+  // the editor's output check trusts; receipts from other writers are not.
+  if (
+    context.receipts?.some(
+      (receipt) =>
+        DESIGN_OUTPUT_ACTIONS.has(receipt.tool) &&
+        receipt.changed &&
+        receipt.verified === true,
+    ) ||
+    hasSuccessfulMutation(context.toolResults)
+  ) {
+    return null;
+  }
 
   return {
     retryMessage:

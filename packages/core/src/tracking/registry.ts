@@ -308,6 +308,15 @@ function emitTrackedEvent(
     delete safeProperties.experiment_id;
     delete safeProperties.experiment_variant;
   }
+  if (name === "builder_signup_experiment_client_failed") {
+    const onboarding = getAppConfig().onboarding;
+    if (
+      onboarding.builderSignupExperimentOverride ??
+      onboarding.builderSignupExperiment
+    ) {
+      safeProperties.experiment_id = onboarding.builderSignupExperimentId;
+    }
+  }
   if (authUserId) safeProperties.auth_user_id = authUserId;
   const firstRunExperiment =
     authUserId &&

@@ -59,6 +59,11 @@ import {
   MAX_CONCURRENT_SQL_QUERIES,
 } from "../../shared/sql-query-limits";
 import { numberTableColumns } from "../../shared/table-columns";
+import {
+  readTrafficFilterValue,
+  TRAFFIC_FILTER_ID,
+  type TrafficEnvironment,
+} from "../../shared/traffic-environment";
 import type { DashboardPanelSource } from "./dashboard-panel-query";
 import {
   buildPanelQuery,
@@ -175,6 +180,7 @@ async function fetchOnePanel(
   vars: Record<string, string>,
   ctx: { userEmail: string; orgId: string | null },
   timeoutMs: number,
+  dashboardId: string,
 ): Promise<ReportPanelData> {
   const source = panel.source as DashboardPanelSource;
   let query: string;
@@ -183,7 +189,26 @@ async function fetchOnePanel(
   } catch (error) {
     return { status: "query-failed", message: describeError(error) };
   }
-  return runResolvedPanel({ source, query, ctx, timeoutMs });
+  // Only the report's own saved filters choose its traffic, not the
+  // dashboard's default: a report saved without one keeps reading all traffic.
+  let trafficEnvironment: TrafficEnvironment | undefined;
+  try {
+    trafficEnvironment = readTrafficFilterValue(vars[TRAFFIC_FILTER_ID]);
+  } catch (error) {
+    return { status: "query-failed", message: describeError(error) };
+  }
+  return runResolvedPanel({
+    source,
+    query,
+    ctx,
+    timeoutMs,
+    usageAttribution: {
+      workload: "dashboard-report",
+      dashboardId,
+      panelId: panel.id,
+    },
+    ...(trafficEnvironment ? { trafficEnvironment } : {}),
+  });
 }
 
 export async function fetchReportPanelData(args: {
@@ -253,6 +278,7 @@ export async function fetchReportPanelData(args: {
             vars,
             ctx,
             Math.min(perPanelTimeoutMs, remaining),
+            args.snapshot.dashboardId,
           ),
         );
       }

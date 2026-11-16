@@ -87,7 +87,7 @@ describe("list-workspace-apps", () => {
         { ...input, orgAccessInventory: true },
         context("admin@example.com", "org-1"),
       ),
-    ).resolves.toEqual(apps);
+    ).resolves.toEqual({ inventoryKind: "org-access", apps });
     expect(mocks.listWorkspaceAppsForOrgAccessInventory).toHaveBeenCalledOnce();
     expect(mocks.listWorkspaceApps).not.toHaveBeenCalled();
   });

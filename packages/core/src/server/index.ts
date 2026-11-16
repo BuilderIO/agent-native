@@ -100,6 +100,7 @@ export {
   mountAuthMiddleware,
   autoMountAuth,
   registerAuthPublicPaths,
+  recordBuilderSignupBinding,
   getSession,
   getBrowserCookieSession,
   isSessionResolutionUnavailable,
@@ -126,6 +127,7 @@ export {
   type AuthOptions,
 } from "./auth.js";
 export { hasSameOriginBrowserEvidence } from "./request-origin.js";
+export { declaredLinkOrigin } from "./origin-allowlist.js";
 export { getEmbedSessionOrigin } from "./embed-request-origin.js";
 export {
   handleIdentitySso,
@@ -263,6 +265,10 @@ export {
   resolveEngine,
 } from "../agent/engine/index.js";
 export {
+  resolveChatModelAvailability,
+  type ChatModelAvailability,
+} from "../agent/engine/chat-model-availability.js";
+export {
   completeText,
   type CompleteTextMessage,
   type CompleteTextOptions,
@@ -396,6 +402,7 @@ export {
   listThreads,
   searchThreads,
   updateThreadData,
+  replaceThreadData,
   deleteThread,
   setThreadArchived,
   setThreadPinned,
@@ -586,6 +593,7 @@ export {
   getRequestUserEmail,
   getRequestUserName,
   getRequestOrgId,
+  getRequestIdentityAuthenticatedAtMs,
   getAmbientUserEmail,
   getAmbientOrgId,
   getRequestTimezone,
@@ -704,6 +712,7 @@ export {
 
 export {
   CredentialStoreUnavailableError,
+  CredentialStoreLookupError,
   FeatureNotConfiguredError,
   hasBuilderPrivateKey,
   isBuilderEnvManaged,

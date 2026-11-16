@@ -93,6 +93,7 @@ import {
   type PastedImageFilesClientAnchor,
   type PastedImageFilesTarget,
 } from "../commands/pasted-image-files";
+import { runReportSkippedImagePaste } from "../commands/report-skipped-image-paste";
 import { runSendRuntimeLayerSemanticHandoff } from "../commands/send-runtime-layer-semantic-handoff";
 import {
   runContextMenuPaste,
@@ -1181,8 +1182,10 @@ export function useEditorClipboard({
   );
 
   const handleCanvasImagePaste = useCallback(
-    ({ files, screenId }: IframeImagePastePayload) => {
-      if (files.length === 0 || !canEditDesign) return;
+    ({ files, screenId, skipped }: IframeImagePastePayload) => {
+      if (!canEditDesign) return;
+      if (skipped) runReportSkippedImagePaste({ t }, skipped);
+      if (files.length === 0) return;
       const fileObjects = files.map(({ dataUrl, type, name }) => {
         const comma = dataUrl.indexOf(",");
         const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
@@ -1215,6 +1218,7 @@ export function useEditorClipboard({
       canvasFrameGeometryById,
       handlePastedImageFiles,
       overviewScreens,
+      t,
     ],
   );
 

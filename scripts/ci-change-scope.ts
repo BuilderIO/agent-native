@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { devModuleUrl } from "./guard-blocker-safe-module-names.ts";
 import { isMutationScopePath } from "./lib/mutation-scope.ts";
 import { DEPLOY_GUIDE_PATHS } from "./qa-deploy-paths-lib.ts";
 
@@ -54,12 +55,15 @@ const INSTRUCTION_WORKSPACE_FILTERS = [
 // exercised by the guards job; no workspace build or test imports them.
 const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
 const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
-const RELATED_SCRIPT_TESTS = new Map([
+const RELATED_SCRIPT_TESTS = new Map<string, string | readonly string[]>([
   [".github/workflows/ci.yml", "scripts/feedback-fix-proof.test.ts"],
   ["scripts/fix-proof.ts", "scripts/fix-proof.test.ts"],
   ["scripts/feedback-fix-proof.ts", "scripts/feedback-fix-proof.test.ts"],
   ["scripts/ci-wait.ts", "scripts/ci-wait.test.ts"],
-  ["scripts/chat-health.mjs", "scripts/chat-health.test.ts"],
+  [
+    "scripts/chat-health.mjs",
+    ["scripts/chat-health.test.ts", "scripts/chat-health-terminal.test.ts"],
+  ],
   ["scripts/prune-worktrees.ts", "scripts/prune-worktrees.test.ts"],
   [
     "scripts/design-e2e-regression-pins.ts",
@@ -995,6 +999,13 @@ function isReadmePath(path: string): boolean {
   return basename(normalizeChangedPath(path)) === "README.md";
 }
 
+// Browsers load some docs as modules, such as core's docs pages, and
+// guard:blocker-safe-module-names checks their names. Adding or renaming one
+// still has to reach the guards job; an edit keeps the name.
+function isUnderBrowserRoot(path: string): boolean {
+  return devModuleUrl(normalizeChangedPath(path)) !== null;
+}
+
 function isMarkdownPath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
   // Any change under the execution-lease model keeps running its verifier.
@@ -1035,8 +1046,12 @@ export function scriptTestsForPaths(
 ): string[] {
   const tests = new Set<string>();
   for (const path of paths.map(normalizeChangedPath)) {
-    const relatedTest = RELATED_SCRIPT_TESTS.get(path);
-    if (relatedTest && fileExists(relatedTest)) tests.add(relatedTest);
+    const relatedTests = RELATED_SCRIPT_TESTS.get(path);
+    for (const relatedTest of typeof relatedTests === "string"
+      ? [relatedTests]
+      : (relatedTests ?? [])) {
+      if (fileExists(relatedTest)) tests.add(relatedTest);
+    }
     if (SCRIPT_TEST_RE.test(path)) {
       if (fileExists(path)) tests.add(path);
       continue;
@@ -2543,6 +2558,7 @@ export function classifyChangedPaths(
   sameDirectoryPureDesignSpecRenames: readonly string[] = [],
   repositoryRoot = process.cwd(),
   deletedPaths: readonly string[] = [],
+  addedPaths: readonly string[] = [],
 ): ChangeScope {
   const changedPaths = paths.map(normalizeChangedPath);
   const deletedPathSet = new Set(deletedPaths.map(normalizeChangedPath));
@@ -2587,7 +2603,9 @@ export function classifyChangedPaths(
           name,
           name === "lint" ||
             (name === "guards" &&
-              (!docsOnly || changedPaths.some(isReadmePath))) ||
+              (!docsOnly ||
+                changedPaths.some(isReadmePath) ||
+                addedPaths.some(isUnderBrowserRoot))) ||
             (name === "deploy_paths" && changedPaths.some(isDeployGuidePath)) ||
             (name === "changeset" && changedPaths.some(isChangesetPath)),
         ]),
@@ -2666,6 +2684,30 @@ export function readDeletedPaths(
   const output = execFileSync(
     "git",
     ["diff", "--name-only", "--diff-filter=D", "-z", `${baseSha}...${headSha}`],
+    {
+      encoding: "utf8",
+      cwd,
+    },
+  );
+  return output.split("\0").filter(Boolean);
+}
+
+// Files added, copied or renamed, under their new names.
+export function readAddedPaths(
+  baseSha: string,
+  headSha: string,
+  cwd = process.cwd(),
+): string[] {
+  const output = execFileSync(
+    "git",
+    [
+      "diff",
+      "--name-only",
+      "--find-renames",
+      "--diff-filter=ACR",
+      "-z",
+      `${baseSha}...${headSha}`,
+    ],
     {
       encoding: "utf8",
       cwd,
@@ -2813,6 +2855,7 @@ function main(): void {
 
   const changedPaths = readChangedPaths(baseSha, headSha);
   const deletedPaths = readDeletedPaths(baseSha, headSha);
+  const addedPaths = readAddedPaths(baseSha, headSha);
   const sameDirectoryPureDesignSpecRenames =
     readSameDirectoryPureDesignSpecRenames(baseSha, headSha);
   const runtimeSourceChanges = runtimeSourceChangesInTestTitledPr(
@@ -2833,6 +2876,7 @@ function main(): void {
     sameDirectoryPureDesignSpecRenames,
     process.cwd(),
     deletedPaths,
+    addedPaths,
   );
   console.log(JSON.stringify(scope, null, 2));
   writeOutputs(scope);

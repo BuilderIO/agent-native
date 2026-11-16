@@ -27,6 +27,7 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import { runWithRequestContext } from "./request-context.js";
+import { loadRequiredEnv } from "./required-env-config.js";
 import type { ScopedKeySaveRequestScope } from "./scoped-key-storage.js";
 
 const getSession: (typeof import("./auth.js"))["getSession"] = (...args) =>
@@ -172,6 +173,7 @@ export function createServer(
           ...(event.url?.searchParams.get("database") === "0"
             ? { databaseRequired: false }
             : {}),
+          requiredEnv: await loadRequiredEnv(),
         };
         return {
           message,
@@ -193,12 +195,12 @@ export function createServer(
       "/_agent-native/env-status",
       defineEventHandler(async (event) => {
         const { resolveSecret } = await import("./credential-provider.js");
-        const session = await getSession(event).catch(() => null);
+        const session = await getSession(event);
         const userEmail = session?.email;
         let orgId: string | undefined;
         if (userEmail) {
           const { getOrgContext } = await import("../org/context.js");
-          const orgCtx = await getOrgContext(event).catch(() => null);
+          const orgCtx = await getOrgContext(event);
           orgId = orgCtx?.orgId ?? undefined;
         }
         return Promise.all(
@@ -255,8 +257,7 @@ export function createServer(
             setResponseStatus(event, err.statusCode);
             return { error: err.message };
           }
-          setResponseStatus(event, 500);
-          return { error: "Failed to save keys" };
+          throw err;
         }
       }),
     );

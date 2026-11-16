@@ -14,8 +14,12 @@ const state = vi.hoisted(() => ({ rows: [] as Row[] }));
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockGetUserEmail = vi.hoisted(() => vi.fn(() => "author@example.com"));
 
+const mockResolveAccess = vi.hoisted(() => vi.fn());
+
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
+  resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
+  ROLE_RANK: { viewer: 0, commenter: 1, editor: 2, owner: 3 },
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -26,6 +30,7 @@ vi.mock("drizzle-orm", () => ({
   and: (...conds: unknown[]) => ({ __and: conds }),
   eq: (col: unknown, value: unknown) => ({ __eq: [col, value] }),
   asc: (column: unknown) => ({ __asc: column }),
+  inArray: (col: unknown, values: unknown[]) => ({ __in: [col, values] }),
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
     strings,
     values,
@@ -39,12 +44,18 @@ function matches(row: Row, cond: any): boolean {
     const key = String(col).split(".").pop() as keyof Row;
     return row[key] === value;
   }
+  if (cond.__in) {
+    const [col, values] = cond.__in;
+    const key = String(col).split(".").pop() as keyof Row;
+    return values.includes(row[key]);
+  }
   return true;
 }
 
 vi.mock("../server/db/index.js", () => {
   const col = (name: string) => `slideComments.${name}`;
   const schema = {
+    decks: { id: "decks.id" },
     slideComments: {
       id: col("id"),
       deckId: col("deckId"),
@@ -58,8 +69,10 @@ vi.mock("../server/db/index.js", () => {
 
   const db = {
     select: (projection?: Record<string, unknown>) => ({
-      from: () => ({
+      from: (table?: unknown) => ({
         where: (cond: any) => {
+          if (table === schema.decks)
+            return { for: async () => [{ id: "deck-1" }] };
           const matched = state.rows.filter((r) => matches(r, cond));
           const project = (row: Row) => {
             if (!projection) return row;
@@ -78,9 +91,17 @@ vi.mock("../server/db/index.js", () => {
           const orderedLimit = async (n: number) =>
             ordered.slice(0, n).map(project);
           const forUpdate = async () => ordered.map(project);
+          const all = async () => matched.map(project);
           return {
             limit,
-            orderBy: () => ({ limit: orderedLimit, for: forUpdate }),
+            then: (resolve: (rows: unknown) => unknown, reject?: unknown) =>
+              all().then(resolve, reject as never),
+            orderBy: () => ({
+              limit: orderedLimit,
+              for: forUpdate,
+              then: (resolve: (rows: unknown) => unknown, reject?: unknown) =>
+                forUpdate().then(resolve, reject as never),
+            }),
           };
         },
       }),
@@ -104,12 +125,26 @@ vi.mock("../server/db/index.js", () => {
 
 import action from "./delete-slide-comment";
 
-function run(args: { id: string; deckId: string }) {
-  return (action as any).run(args);
+type DeleteArgs = { id: string; deckId: string };
+type DeleteAction = {
+  changeResource: (args: { deckId: string }) => unknown;
+  needsApproval: (
+    args: DeleteArgs,
+    ctx?: { caller: string },
+  ) => Promise<boolean>;
+  audit: { target: (args: DeleteArgs, result: unknown) => unknown };
+  run: (args: DeleteArgs, ctx?: { caller: string }) => Promise<unknown>;
+};
+const deleteAction = action as unknown as DeleteAction;
+
+function run(args: DeleteArgs, ctx?: { caller: string }) {
+  return deleteAction.run(args, ctx);
 }
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mockResolveAccess.mockResolvedValue({ role: "editor" });
+
   mockGetUserEmail.mockReturnValue("author@example.com");
   state.rows = [
     {
@@ -144,21 +179,119 @@ beforeEach(() => {
 
 describe("delete-slide-comment", () => {
   it("announces its change to every collaborator on the deck", () => {
-    expect((action as any).changeResource({ deckId: "deck-1" })).toEqual({
+    expect(deleteAction.changeResource({ deckId: "deck-1" })).toEqual({
       resourceType: "deck",
       resourceId: "deck-1",
     });
   });
 
+  it("does not ask when a commenter targets another person's comment that run would refuse", async () => {
+    mockResolveAccess.mockResolvedValueOnce({ role: "commenter" });
+
+    expect(
+      await deleteAction.needsApproval(
+        { id: "c-3", deckId: "deck-1" },
+        { caller: "tool" },
+      ),
+    ).toBe(false);
+  });
+
+  it("asks before an agent deletes another person's comment", async () => {
+    const needsApproval = deleteAction.needsApproval;
+    expect(
+      await needsApproval({ id: "c-3", deckId: "deck-1" }, { caller: "tool" }),
+    ).toBe(true);
+    expect(
+      await needsApproval(
+        { id: "c-3", deckId: "deck-1" },
+        { caller: "frontend" },
+      ),
+    ).toBe(false);
+  });
+
+  it("asks before an agent deletes a thread root that holds another user's reply", async () => {
+    const needsApproval = deleteAction.needsApproval;
+    expect(
+      await needsApproval({ id: "c-1", deckId: "deck-1" }, { caller: "tool" }),
+    ).toBe(true);
+  });
+
+  it("asks before an agent deletes another user's agent comment", async () => {
+    state.rows.push({
+      id: "c-4",
+      deckId: "deck-1",
+      slideId: "slide-1",
+      authorEmail: "other@example.com",
+      authorKind: "agent",
+      threadId: "c-4",
+      parentId: null,
+      createdAt: "2026-01-03T00:00:00.000Z",
+    } as Row);
+    const needsApproval = deleteAction.needsApproval;
+    expect(
+      await needsApproval({ id: "c-4", deckId: "deck-1" }, { caller: "tool" }),
+    ).toBe(true);
+  });
+
+  it("does not ask when the agent deletes the user's own agent comment", async () => {
+    state.rows.push({
+      id: "c-5",
+      deckId: "deck-1",
+      slideId: "slide-1",
+      authorEmail: "author@example.com",
+      authorKind: "agent",
+      threadId: "c-5",
+      parentId: null,
+      createdAt: "2026-01-03T00:00:00.000Z",
+    } as Row);
+    const needsApproval = deleteAction.needsApproval;
+    expect(
+      await needsApproval({ id: "c-5", deckId: "deck-1" }, { caller: "tool" }),
+    ).toBe(false);
+  });
+
+  it("does not ask an agent that lacks commenter access, since run() refuses it", async () => {
+    mockResolveAccess.mockResolvedValueOnce({ role: "viewer" });
+    expect(
+      await deleteAction.needsApproval(
+        { id: "c-3", deckId: "deck-1" },
+        { caller: "tool" },
+      ),
+    ).toBe(false);
+  });
+
+  it("records the deleted comment as the audit target", () => {
+    expect(
+      deleteAction.audit.target({ id: "c-3", deckId: "deck-1" }, { ok: true }),
+    ).toEqual({ type: "slide-comment", id: "c-3" });
+  });
+
   it("lets the author delete their own comment with commenter access", async () => {
     const result = await run({ id: "c-1", deckId: "deck-1" });
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, removedIds: ["c-1", "c-2"] });
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "deck",
       "deck-1",
       "commenter",
     );
+    expect(state.rows.map((r) => r.id)).toEqual(["c-3"]);
+  });
+
+  it("refuses an agent delete whose thread now holds another person's reply", async () => {
+    await expect(
+      run({ id: "c-1", deckId: "deck-1" }, { caller: "tool" }),
+    ).rejects.toThrow("Ask the user");
+    expect(state.rows.map((r) => r.id)).toEqual(["c-1", "c-2", "c-3"]);
+  });
+
+  it("lets an agent delete another person's reply once the user approved the call", async () => {
+    const result = await deleteAction.run({ id: "c-1", deckId: "deck-1" }, {
+      caller: "tool",
+      approvedToolCallKey: "key-1",
+    } as never);
+
+    expect(result).toMatchObject({ ok: true });
     expect(state.rows.map((r) => r.id)).toEqual(["c-3"]);
   });
 

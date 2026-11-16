@@ -22,6 +22,7 @@ import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import { assertRecapWireframesHaveContent } from "../server/lib/visual-recap-validation.js";
 import { serializePlanContent } from "../server/plan-content.js";
 import { parsePlanMdxFolder, planMdxFileSchema } from "../server/plan-mdx.js";
+import { planSaveConflict } from "../server/plan-save-conflict.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -66,6 +67,14 @@ function containsSalvagedBlock(
   );
 }
 
+/** A revision later than `previous`, even when the clock hasn't moved on. */
+function revisionAfter(previous: string): string {
+  const current = nowIso();
+  return current > previous
+    ? current
+    : new Date(Date.parse(previous) + 1).toISOString();
+}
+
 export default defineAction({
   description:
     "Create or replace a plan from source-control friendly MDX files (repo check-in workflows). Use ONLY when working with exported MDX source files; for live plans prefer update-visual-plan with contentPatches. The MDX folder is the authoring/export surface; the runtime model remains normalized structured JSON. When replacing an existing plan, pass expectedUpdatedAt to guard against concurrent edits.",
@@ -74,6 +83,12 @@ export default defineAction({
       .string()
       .optional()
       .describe("Existing plan ID to replace. Omit to create a new plan."),
+    expectedRevision: z
+      .string()
+      .optional()
+      .describe(
+        "The same as expectedUpdatedAt, for sending back a save_conflict's details.currentRevision. Its details.current is the structured plan, so redo a source edit on what read-visual-plan-source returns.",
+      ),
     expectedUpdatedAt: z
       .string()
       .optional()
@@ -156,6 +171,23 @@ export default defineAction({
     const db = getDb();
 
     if (args.planId) {
+      const expectedRevision = args.expectedRevision ?? args.expectedUpdatedAt;
+      if (expectedRevision) {
+        const updatedRows = await db
+          .update(schema.plans)
+          .set({ updatedAt: expectedRevision })
+          .where(
+            and(
+              eq(schema.plans.id, args.planId),
+              eq(schema.plans.updatedAt, expectedRevision),
+            ),
+          )
+          .returning({ id: schema.plans.id });
+        if (updatedRows.length === 0) {
+          throw await planSaveConflict(args.planId);
+        }
+      }
+
       const incomingAssets = args.mdx["assets/"];
       if (incomingAssets && Object.keys(incomingAssets).length > 0) {
         const srcByFilename = await importPlanAssets(
@@ -165,30 +197,12 @@ export default defineAction({
         content = applyImportedAssets(content, srcByFilename);
       }
 
-      if (args.expectedUpdatedAt) {
-        const updatedRows = await db
-          .update(schema.plans)
-          .set({ updatedAt: args.expectedUpdatedAt })
-          .where(
-            and(
-              eq(schema.plans.id, args.planId),
-              eq(schema.plans.updatedAt, args.expectedUpdatedAt),
-            ),
-          )
-          .returning({ id: schema.plans.id });
-        if (updatedRows.length === 0) {
-          throw new Error(
-            "Plan changed while the source import was being prepared. Reload the plan and retry.",
-          );
-        }
-      }
-
       await createPlanVersionSnapshot(args.planId, {
         force: true,
         label: "Before source import",
         createdBy: "agent",
       });
-      await db
+      const importedRows = await db
         .update(schema.plans)
         .set({
           title,
@@ -206,7 +220,18 @@ export default defineAction({
           updatedAt: now,
           approvedAt: args.status === "approved" ? now : null,
         })
-        .where(eq(schema.plans.id, args.planId));
+        .where(
+          and(
+            eq(schema.plans.id, args.planId),
+            ...(expectedRevision
+              ? [eq(schema.plans.updatedAt, expectedRevision)]
+              : []),
+          ),
+        )
+        .returning({ id: schema.plans.id });
+      if (expectedRevision && importedRows.length === 0) {
+        throw await planSaveConflict(args.planId);
+      }
 
       await writeEvent({
         planId: args.planId,
@@ -273,14 +298,53 @@ export default defineAction({
         : {}),
     });
 
+    const warnings: string[] = [];
     const incomingAssetsCreate = args.mdx["assets/"];
     if (incomingAssetsCreate && Object.keys(incomingAssetsCreate).length > 0) {
       const srcByFilename = await importPlanAssets(id, incomingAssetsCreate);
-      content = applyImportedAssets(content, srcByFilename);
-      await db
-        .update(schema.plans)
-        .set({ content: serializePlanContent(content) })
-        .where(eq(schema.plans.id, id));
+      // The plan is listed from the insert on, so an editor can already have
+      // it open, and can save it while the assets upload. Rewrite what the plan
+      // holds at a revision only while it still holds that revision, and move
+      // the revision, which is what tells an open editor the content changed.
+      let base: { content: PlanContent; updatedAt: string } = {
+        content,
+        updatedAt: now,
+      };
+      let rewritten = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const written = await db
+          .update(schema.plans)
+          .set({
+            content: serializePlanContent(
+              applyImportedAssets(base.content, srcByFilename),
+            ),
+            updatedAt: revisionAfter(base.updatedAt),
+          })
+          .where(
+            and(
+              eq(schema.plans.id, id),
+              eq(schema.plans.updatedAt, base.updatedAt),
+            ),
+          )
+          .returning({ id: schema.plans.id });
+        if (written.length > 0) {
+          rewritten = true;
+          break;
+        }
+        const { plan } = await loadPlanBundle(id);
+        // Content that only reads with some blocks salvaged would lose those
+        // blocks' stored data if it were written back, so leave it as it is.
+        if (!plan.content || containsSalvagedBlock(plan.content.blocks)) break;
+        base = { content: plan.content, updatedAt: plan.updatedAt };
+      }
+      if (!rewritten) {
+        const uploaded = Object.entries(srcByFilename)
+          .map(([filename, src]) => `assets/${filename} is at ${src}`)
+          .join(", ");
+        warnings.push(
+          `The plan changed while its assets uploaded, so its image links weren't rewritten and still point at assets/ paths. ${uploaded}.`,
+        );
+      }
     }
 
     await writeEvent({
@@ -317,6 +381,7 @@ export default defineAction({
       path: planPath(id, kind),
       url: planPath(id, kind),
       ...(local?.written ? { localFiles: local } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   },
   link: ({ result }) => {

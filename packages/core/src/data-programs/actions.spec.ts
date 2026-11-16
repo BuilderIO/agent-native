@@ -13,7 +13,8 @@ const mocks = vi.hoisted(() => ({
       `hash:${viewerKey ?? ""}:${orgKey ?? ""}:${JSON.stringify(params ?? {})}`,
   ),
   getDataProgram: vi.fn(),
-  getLatestRun: vi.fn(),
+  getLatestFinishedRun: vi.fn(),
+  getLatestSuccessfulRun: vi.fn(),
   resolveAccess: vi.fn(),
 }));
 
@@ -29,7 +30,8 @@ vi.mock("./execute.js", () => ({
 vi.mock("./store.js", () => ({
   archiveDataProgram: mocks.archiveDataProgram,
   getDataProgram: mocks.getDataProgram,
-  getLatestRun: mocks.getLatestRun,
+  getLatestFinishedRun: mocks.getLatestFinishedRun,
+  getLatestSuccessfulRun: mocks.getLatestSuccessfulRun,
   listDataPrograms: vi.fn(),
   upsertDataProgram: vi.fn(),
   MIN_REFRESH_TTL_MS: 60_000,
@@ -100,7 +102,7 @@ describe("data-programs/actions", () => {
       archivedAt: null,
       outputColumns: null,
     });
-    mocks.getLatestRun.mockResolvedValue({
+    mocks.getLatestFinishedRun.mockResolvedValue({
       status: "succeeded",
       rowCount: 10000,
       truncated: true,
@@ -120,7 +122,7 @@ describe("data-programs/actions", () => {
       "alice@example.com",
       "org_1",
     );
-    expect(mocks.getLatestRun).toHaveBeenCalledWith(
+    expect(mocks.getLatestFinishedRun).toHaveBeenCalledWith(
       "dp_1",
       'hash:alice@example.com:org_1:{"segment":"enterprise"}',
     );
@@ -131,6 +133,60 @@ describe("data-programs/actions", () => {
         truncated: true,
       }),
     );
+    expect(mocks.getLatestSuccessfulRun).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty("lastGoodRun");
+  });
+
+  it("returns get-data-program lastGoodRun rows when the newest finished run failed", async () => {
+    mocks.getDataProgram.mockResolvedValue({
+      id: "dp_1",
+      name: "collector",
+      title: "Collector",
+      description: "",
+      code: "emit([])",
+      paramsSchema: null,
+      defaultParams: null,
+      refreshMode: "ttl",
+      refreshTtlMs: 300_000,
+      background: true,
+      archivedAt: null,
+      outputColumns: null,
+    });
+    mocks.getLatestFinishedRun.mockResolvedValue({
+      status: "failed",
+      rowCount: 0,
+      truncated: false,
+      errorCode: "sandbox_error",
+      errorMessage: "GitHub returned 502",
+      finishedAt: 900,
+      rowsJson: null,
+    });
+    mocks.getLatestSuccessfulRun.mockResolvedValue({
+      status: "succeeded",
+      rowCount: 1,
+      truncated: false,
+      finishedAt: 800,
+      rowsJson: JSON.stringify([{ repo: "agent-native" }]),
+    });
+
+    const result = await makeActions()["get-data-program"].run(
+      { programId: "dp_1", includeRows: true },
+      { userEmail: "alice@example.com", orgId: "org_1", caller: "tool" },
+    );
+
+    expect(result.lastRun).toEqual(
+      expect.objectContaining({
+        status: "failed",
+        errorMessage: "GitHub returned 502",
+      }),
+    );
+    expect(result.lastRun).not.toHaveProperty("rows");
+    expect(result.lastGoodRun).toEqual({
+      rowCount: 1,
+      truncated: false,
+      finishedAt: 800,
+      rows: [{ repo: "agent-native" }],
+    });
   });
 
   it("scopes delete-data-program archives to the current app", async () => {

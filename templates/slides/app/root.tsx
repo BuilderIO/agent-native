@@ -29,6 +29,7 @@ import {
   useHomeSuggestionSeedForHome,
 } from "@agent-native/toolkit/app-shell";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import { useStartupInteractionBlocked } from "@agent-native/toolkit/app/onboarding";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import {
   AppShellSkeleton,
@@ -415,11 +416,15 @@ function AppContent() {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const startupInteractionBlocked = useStartupInteractionBlocked();
+  useEffect(() => {
+    if (startupInteractionBlocked) setCmdkOpen(false);
+  }, [startupInteractionBlocked]);
   const t = useT();
   const navigate = useNavigate();
   const handleCommandMenuShortcut = useCallback(() => {
-    setCmdkOpen(true);
-  }, []);
+    if (!startupInteractionBlocked) setCmdkOpen(true);
+  }, [startupInteractionBlocked]);
   const shouldHandleContentEditableCommandMenuShortcut = useCallback(
     (event: KeyboardEvent) =>
       location.pathname !== "/home" &&
@@ -455,8 +460,10 @@ function AppContent() {
   ) : (
     <>
       <CommandMenu
-        open={cmdkOpen}
-        onOpenChange={setCmdkOpen}
+        open={cmdkOpen && !startupInteractionBlocked}
+        onOpenChange={(open) => {
+          if (!open || !startupInteractionBlocked) setCmdkOpen(open);
+        }}
         changelog={changelog}
         changelogKey="slides"
         chatStorageKey="slides"
@@ -628,6 +635,7 @@ export default function Root() {
     >
       <AppToolkitProvider>
         <AppProviders
+          builderSignupExperiment="slides_builder_signup_v1"
           queryClient={queryClient}
           skeletonLayout="prompt-library"
           {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}

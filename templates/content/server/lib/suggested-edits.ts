@@ -30,7 +30,9 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
+import { lockExistingDatabaseMemberships } from "../../actions/_database-membership-lock.js";
 import { accessibleDocumentIds } from "../../actions/_document-access.js";
+import { assertAgentsMayEditPageText } from "../../actions/_document-agent-lock.js";
 import {
   documentContentHash,
   documentRevisionToken,
@@ -152,18 +154,32 @@ async function acceptOnLegacyWriter<T>(
     (ydoc) =>
       // A conversion locks the Page, then the suggestions it moves onto the
       // new body. Core's decision claims the suggestion before `apply`
-      // locks the Page, so the Page is locked first here, in the transaction
-      // the decision then runs in; the other order deadlocks.
+      // locks the Page, so the Page and its memberships are locked first
+      // here, in the transaction the decision then runs in; the other order
+      // deadlocks.
       db.transaction!(async (tx) => {
+        const heldMembershipIds = await lockSuggestionPage(
+          tx,
+          context.resourceId,
+        );
         // guard:allow-unscoped — core's decide action asserted edit access to this Page before coordinating.
-        await tx.execute({
-          sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
+        const lockedPage = await tx.execute({
+          sql: "SELECT agent_text_locked FROM documents WHERE id = ?",
           args: [context.resourceId],
         });
+        // A person's switch waits for the Page row `lockSuggestionPage` holds,
+        // so this read has the last word.
+        assertAgentsMayEditPageText(
+          {
+            agentTextLocked: Number(lockedPage.rows[0]?.agent_text_locked ?? 0),
+          },
+          context.ctx as ActionRunContext | undefined,
+        );
         return run(
           {
             ydoc,
             sync,
+            heldMembershipIds,
             deferPersistence: context.proposalDecision === true,
           } satisfies ContentDecisionCoordination,
           { transaction: tx },
@@ -174,6 +190,15 @@ async function acceptOnLegacyWriter<T>(
   return result;
 }
 
+/** The edits a Content suggestion can make, on the body or on a tab. */
+export const CONTENT_SUGGESTION_OPERATION_KINDS: readonly string[] = [
+  "insert_text",
+  "delete_text",
+  "replace_text",
+  "add_text_block",
+  "set_inline_mark",
+];
+
 function validateOperations(
   operations: SuggestionOperation[],
 ): SuggestionOperation[] {
@@ -183,15 +208,7 @@ function validateOperations(
     );
   }
   const operation = operations[0]!;
-  if (
-    ![
-      "insert_text",
-      "delete_text",
-      "replace_text",
-      "add_text_block",
-      "set_inline_mark",
-    ].includes(operation.kind)
-  ) {
+  if (!CONTENT_SUGGESTION_OPERATION_KINDS.includes(operation.kind)) {
     throw new Error(
       `Unsupported Content suggestion operation: ${operation.kind}`,
     );
@@ -259,6 +276,8 @@ type DeferredProposalCommit = LockedSuggestionTarget & {
 type ContentDecisionCoordination = {
   ydoc: PreparedYDocMutationLease;
   sync: TransactionalChange;
+  /** The Page's memberships, locked before the Page. */
+  heldMembershipIds?: ReadonlySet<string>;
   deferPersistence?: boolean;
   proposal?: DeferredProposalCommit;
 };
@@ -285,7 +304,7 @@ export function acceptedSuggestionRequestSource(
   return requestSource === "agent" ? "agent" : undefined;
 }
 
-function validateSuggestionStructure(
+export function validateSuggestionStructure(
   beforeMarkdown: string,
   afterMarkdown: string,
   refusal: string,
@@ -300,7 +319,7 @@ function validateSuggestionStructure(
   return after;
 }
 
-function drizzleTransactionForExec(transaction: DbExec) {
+export function drizzleTransactionForExec(transaction: DbExec) {
   return drizzle(
     async (sql, args, method) => {
       const result = await transaction.execute({ sql, args });
@@ -399,7 +418,7 @@ const INLINE_DATABASE_ACCEPT_MESSAGE =
   "Pages containing inline databases cannot accept suggestions yet.";
 
 /** Core turns this into a 409 `suggestion_stale` and keeps it pending. */
-function suggestionStaleError(message: string) {
+export function suggestionStaleError(message: string) {
   const error = new Error(message);
   error.name = "SuggestionStaleError";
   return error;
@@ -490,17 +509,19 @@ async function openInEditor(tx: DbExec, documentId: string): Promise<boolean> {
 
 /**
  * Accepting an AI suggestion leaves the comment that asked for it open, so its
- * quote follows the rewritten text instead of losing its highlight.
- * `followedOnto` is the body a live-copy commit already moved the anchors of
- * intact quotes onto; such an anchor no longer describes `before`.
+ * quote follows the rewritten text instead of losing its highlight. `fieldId`
+ * is the tab the text is in, or null for the body. `followedOnto` is the body
+ * a live-copy commit already moved the anchors of intact quotes onto; such an
+ * anchor no longer describes `before`.
  */
-async function reanchorSourceComment(
+export async function reanchorSourceComment(
   tx: DbExec,
   documentId: string,
   suggestion: ResourceSuggestion,
   before: string,
   after: string,
   now: string,
+  fieldId: string | null,
   followedOnto?: string,
 ) {
   const threadId = suggestion.metadata?.sourceThreadId;
@@ -512,8 +533,9 @@ async function reanchorSourceComment(
     return;
   const root = (
     await tx.execute({
-      sql: "SELECT id,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset FROM document_comments WHERE document_id = ? AND thread_id = ? AND parent_id IS NULL AND field_id IS NULL ORDER BY created_at ASC LIMIT 1",
-      args: [documentId, threadId],
+      // The page body's comments have no field.
+      sql: "SELECT id,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset FROM document_comments WHERE document_id = ? AND thread_id = ? AND parent_id IS NULL AND COALESCE(field_id, '') = ? ORDER BY created_at ASC LIMIT 1",
+      args: [documentId, threadId, fieldId ?? ""],
     })
   ).rows[0];
   if (!root || root.quoted_text == null) return;
@@ -667,6 +689,7 @@ async function applyOnLiveCopy(
     before,
     placed,
     commit.updatedAt,
+    null,
     commit.after,
   );
   const revision = documentRevisionToken(commit.bodyRevision, commit.after);
@@ -726,7 +749,36 @@ async function placeSuggestion(
   return nextContent;
 }
 
-async function lockSuggestionTarget(tx: DbExec, documentId: string) {
+/**
+ * Locks a Page for a legacy accept in Content's row-lock order
+ * (`_row-lock-order.ts`): its memberships, then the Page. Returns the
+ * memberships it holds, for `lockSuggestionTarget`.
+ */
+export async function lockSuggestionPage(
+  tx: DbExec,
+  documentId: string,
+): Promise<ReadonlySet<string>> {
+  const memberships = await tx.execute({
+    sql: "SELECT id FROM content_database_items WHERE document_id = ?",
+    args: [documentId],
+  });
+  const held = await lockExistingDatabaseMemberships(
+    drizzleTransactionForExec(tx),
+    memberships.rows.map((row) => String(row.id)),
+  );
+  // guard:allow-unscoped — core's decide action asserted edit access to this Page before coordinating.
+  await tx.execute({
+    sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
+    args: [documentId],
+  });
+  return held;
+}
+
+async function lockSuggestionTarget(
+  tx: DbExec,
+  documentId: string,
+  heldMembershipIds: ReadonlySet<string>,
+) {
   const eligiblePrimaryIds = await assertSuggestionBodyTarget(tx, documentId);
   const identityTx = drizzleTransactionForExec(tx);
   // guard:allow-unscoped — core's decide action asserted edit access to this Page before applying.
@@ -734,29 +786,23 @@ async function lockSuggestionTarget(tx: DbExec, documentId: string) {
     sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
     args: [documentId],
   });
-  // Memberships have no document foreign key. Never wait for the table after
-  // locking the Page: other editors lock memberships before the Page.
-  try {
-    await tx.execute(
-      "LOCK TABLE content_database_items IN SHARE ROW EXCLUSIVE MODE NOWAIT",
+  // Memberships have no document foreign key, so one added since
+  // `lockSuggestionPage` isn't held. Never wait for it after locking the
+  // Page: other editors lock memberships before the Page.
+  const memberships = await tx.execute({
+    sql: "SELECT id FROM content_database_items WHERE document_id = ?",
+    args: [documentId],
+  });
+  if (memberships.rows.some((row) => !heldMembershipIds.has(String(row.id)))) {
+    fail(
+      "The Page was added to a collection during the accept. Try accepting the suggestion again.",
+      { statusCode: 409, errorCode: "suggestion_conflict" },
     );
-  } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "55P03"
-    ) {
-      fail("The Page is busy. Try accepting the suggestion again.", {
-        statusCode: 409,
-        errorCode: "suggestion_conflict",
-      });
-    }
-    throw error;
   }
   const primaryBlocksFields = await lockPrimaryBlocksFields(
     identityTx,
     documentId,
+    { heldMembershipIds },
   );
   const currentTargets = await tx.execute({
     sql: `SELECT d.system_role, p.id FROM content_database_items i
@@ -952,6 +998,93 @@ async function commitAcceptedContent(input: {
   };
 }
 
+/**
+ * An Ask AI suggestion is bound to the request that made it: the request's
+ * own thread, unchanged since the AI read it, and the text that thread is on,
+ * the body or one tab. The UI reviews the suggestion in that thread, and
+ * accepting it re-anchors the thread's root comment.
+ */
+export async function assertCommentAiSuggestionBinding(
+  transaction: DbExec,
+  input: Pick<
+    Parameters<SuggestionAdapter["validateProposal"]>[0],
+    "resourceId" | "metadata" | "ctx"
+  >,
+  fieldId: string,
+) {
+  const commentAiRequestId = input.metadata?.commentAiRequestId;
+  const request =
+    typeof commentAiRequestId === "string"
+      ? (
+          await transaction.execute({
+            sql: `SELECT id,document_id,thread_id,field_id,requester_email,thread_digest
+                  FROM comment_ai_requests
+                  WHERE id = ? AND document_id = ? AND requester_email = ? AND intent = 'suggest'
+                  FOR UPDATE`,
+            args: [
+              commentAiRequestId,
+              input.resourceId,
+              typeof input.ctx?.userEmail === "string"
+                ? input.ctx.userEmail
+                : "",
+            ],
+          })
+        ).rows[0]
+      : undefined;
+  if (!request) throw new Error("The bound comment AI request is unavailable");
+  if (input.metadata?.sourceThreadId !== String(request.thread_id)) {
+    fail("The source thread does not match the comment AI request", {
+      statusCode: 409,
+      errorCode: "comment_ai_thread_conflict",
+    });
+  }
+  if (String(request.field_id) !== fieldId) {
+    fail("The suggestion edits text its comment AI request isn't on", {
+      statusCode: 409,
+      errorCode: "comment_ai_thread_conflict",
+    });
+  }
+  const comments = (
+    await transaction.execute({
+      sql: `SELECT id,parent_id,content,resolved,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset
+            FROM document_comments
+            WHERE document_id = ? AND thread_id = ?
+            FOR UPDATE`,
+      args: [request.document_id, request.thread_id],
+    })
+  ).rows.map((comment) => ({
+    id: String(comment.id),
+    parentId: comment.parent_id == null ? null : String(comment.parent_id),
+    content: String(comment.content),
+    resolved: Number(comment.resolved),
+    quotedText:
+      comment.quoted_text == null ? null : String(comment.quoted_text),
+    anchorPrefix:
+      comment.anchor_prefix == null ? null : String(comment.anchor_prefix),
+    anchorSuffix:
+      comment.anchor_suffix == null ? null : String(comment.anchor_suffix),
+    anchorStartOffset:
+      comment.anchor_start_offset == null
+        ? null
+        : Number(comment.anchor_start_offset),
+  }));
+  const receiptId = commentIdForIdempotency(
+    String(request.requester_email),
+    String(request.document_id),
+    `comment-ai:${commentAiRequestId}:receipt`,
+  );
+  if (
+    commentThreadDigest(
+      comments.filter((comment) => comment.id !== receiptId),
+    ) !== request.thread_digest
+  ) {
+    fail("The comment changed before this suggestion was committed.", {
+      statusCode: 409,
+      errorCode: "suggestion_conflict",
+    });
+  }
+}
+
 export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
   kind: CONTENT_DOCUMENT_SUGGESTION_ADAPTER,
   version: 1,
@@ -979,78 +1112,8 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
             sourcePath: row.source_path,
           }
         : undefined;
-      const commentAiRequestId = input.metadata?.commentAiRequestId;
-      if (typeof commentAiRequestId === "string") {
-        const request = (
-          await transaction.execute({
-            sql: `SELECT id,document_id,thread_id,requester_email,thread_digest
-                  FROM comment_ai_requests
-                  WHERE id = ? AND document_id = ? AND requester_email = ? AND intent = 'suggest'
-                  FOR UPDATE`,
-            args: [
-              commentAiRequestId,
-              input.resourceId,
-              typeof input.ctx?.userEmail === "string"
-                ? input.ctx.userEmail
-                : "",
-            ],
-          })
-        ).rows[0];
-        if (!request)
-          throw new Error("The bound comment AI request is unavailable");
-        // The UI reviews the suggestion in this thread and accepting re-anchors
-        // its root comment, so the claimed thread must be the request's own.
-        if (input.metadata?.sourceThreadId !== String(request.thread_id)) {
-          fail("The source thread does not match the comment AI request", {
-            statusCode: 409,
-            errorCode: "comment_ai_thread_conflict",
-          });
-        }
-        const comments = (
-          await transaction.execute({
-            sql: `SELECT id,parent_id,content,resolved,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset
-                  FROM document_comments
-                  WHERE document_id = ? AND thread_id = ?
-                  FOR UPDATE`,
-            args: [request.document_id, request.thread_id],
-          })
-        ).rows.map((comment) => ({
-          id: String(comment.id),
-          parentId:
-            comment.parent_id == null ? null : String(comment.parent_id),
-          content: String(comment.content),
-          resolved: Number(comment.resolved),
-          quotedText:
-            comment.quoted_text == null ? null : String(comment.quoted_text),
-          anchorPrefix:
-            comment.anchor_prefix == null
-              ? null
-              : String(comment.anchor_prefix),
-          anchorSuffix:
-            comment.anchor_suffix == null
-              ? null
-              : String(comment.anchor_suffix),
-          anchorStartOffset:
-            comment.anchor_start_offset == null
-              ? null
-              : Number(comment.anchor_start_offset),
-        }));
-        const receiptId = commentIdForIdempotency(
-          String(request.requester_email),
-          String(request.document_id),
-          `comment-ai:${commentAiRequestId}:receipt`,
-        );
-        if (
-          commentThreadDigest(
-            comments.filter((comment) => comment.id !== receiptId),
-          ) !== request.thread_digest
-        ) {
-          fail("The comment changed before this suggestion was committed.", {
-            statusCode: 409,
-            errorCode: "suggestion_conflict",
-          });
-        }
-      }
+      if (input.metadata?.commentAiRequestId !== undefined)
+        await assertCommentAiSuggestionBinding(transaction, input, "body");
     }
     if (!document) throw new Error("Document access context is unavailable");
     if (document.trashedAt)
@@ -1105,6 +1168,16 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     return operations;
   },
   async coordinateDecision(context, run) {
+    // Accepting writes the text, so a page locked against agents needs a
+    // person to do it. Core only coordinates accepts.
+    const [lockState] = await getDb()
+      .select({ agentTextLocked: schema.documents.agentTextLocked })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, context.resourceId));
+    assertAgentsMayEditPageText(
+      lockState,
+      context.ctx as ActionRunContext | undefined,
+    );
     // A Page can change writers between reading the gate and writing; the
     // writer then refuses, and the gate is read again to choose the writer.
     for (let attempt = 1; ; attempt += 1) {
@@ -1196,7 +1269,11 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     }
     const target = placed ?? {
       current,
-      ...(await lockSuggestionTarget(tx, context.resourceId)),
+      ...(await lockSuggestionTarget(
+        tx,
+        context.resourceId,
+        coordination.heldMembershipIds ?? new Set(),
+      )),
     };
     const now = placed?.now ?? new Date().toISOString();
     const currentDocument =
@@ -1238,6 +1315,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         currentContent,
         nextContent,
         now,
+        null,
       );
       const intermediateContents = placed?.intermediateContents ?? [];
       // Blocks IDs are matched edit by edit, as when each edit was saved.
@@ -1280,6 +1358,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
           currentContent,
           nextContent,
           now,
+          null,
         );
         await coordination.ydoc.persist(tx, collabContent);
         await coordination.sync.persist(tx);

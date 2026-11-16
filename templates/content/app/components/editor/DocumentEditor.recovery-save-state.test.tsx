@@ -6,7 +6,7 @@ import { setTimeout as realDelay } from "node:timers/promises";
 
 import type { Document, DocumentPropertiesResponse } from "@shared/api";
 import { legacyBlocksFieldIdentity } from "@shared/blocks-field-identity";
-import { docToNfm, nfmToDoc } from "@shared/nfm";
+import { docToNfm, nfmToDoc, type PMDoc } from "@shared/nfm";
 import {
   QueryClient,
   QueryClientProvider,
@@ -37,6 +37,13 @@ import type {
 
 const fixture = vi.hoisted(() => ({
   page: null as Document | null,
+  commentsSidebars: [] as {
+    presentation?: "inline" | "history";
+    focusPageComposer?: boolean;
+  }[],
+  toolbar: null as {
+    onUtilityPanelChange?: (tab: "info" | "comments" | null) => void;
+  } | null,
   fields: null as DocumentPropertiesResponse | null,
   realAdditionalEditors: false,
   realPrimaryEditor: false,
@@ -58,6 +65,7 @@ const fixture = vi.hoisted(() => ({
   pickIcon: null as ((icon: string | null) => Promise<void>) | null,
   recovery: null as ReturnType<typeof useDocumentReconcileRecovery> | null,
   save: vi.fn(),
+  keepalive: vi.fn(),
   flushUpdates: vi.fn(),
   recoverySaveSettled: vi.fn(),
   finishRecovery: Promise.resolve(),
@@ -166,7 +174,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
       : fixture.mutation;
   },
   callAction: vi.fn(async () => null),
-  tryCallActionKeepalive: () => ({ accepted: false }),
+  tryCallActionKeepalive: (...args: unknown[]) => fixture.keepalive(...args),
   setClientAppState: vi.fn(async () => {}),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({ useT: () => fixture.t }));
@@ -257,9 +265,14 @@ vi.mock("@/hooks/use-comments", () => ({
 vi.mock("./comment-ai", () => ({
   useCommentAiRequests: () => ({ requests: [], freshResolutions: new Map() }),
   isCommentAiWorkingOn: () => false,
+  missingCommentAiReplyIds: () => "",
+  noteCommentAiPageChanges: () => false,
 }));
 vi.mock("./CommentsSidebar", () => ({
-  CommentsSidebar: () => null,
+  CommentsSidebar: (props: (typeof fixture.commentsSidebars)[number]) => {
+    fixture.commentsSidebars.push(props);
+    return null;
+  },
   preserveCommentComposerEscape: () => {},
   useCommentReplyDrafts: () => ({
     setOpenReply: vi.fn(),
@@ -270,7 +283,12 @@ vi.mock("./CommentsSidebar", () => ({
 vi.mock("./PageDraftRecovery", () => ({
   PageDraftRecovery: ({ children }: { children: ReactNode }) => children,
 }));
-vi.mock("./DocumentToolbar", () => ({ DocumentToolbar: () => null }));
+vi.mock("./DocumentToolbar", () => ({
+  DocumentToolbar: (props: NonNullable<typeof fixture.toolbar>) => {
+    fixture.toolbar = props;
+    return null;
+  },
+}));
 vi.mock("./ContentImportDialog", () => ({ ContentImportDialog: () => null }));
 vi.mock("./NotionConflictBanner", () => ({ NotionConflictBanner: () => null }));
 vi.mock("./EmojiPicker", () => ({
@@ -341,6 +359,7 @@ vi.mock("./VisualEditor", async (original) => {
     current.current = props;
     const draft = React.useRef(props.content);
     const version = React.useRef({}).current;
+    const reportRemoteSnapshot = props.onRemoteSnapshotChange;
     if (primary)
       fixture.editor = {
         ...props,
@@ -348,6 +367,16 @@ vi.mock("./VisualEditor", async (original) => {
           draft.current = content;
           props.onChange(content);
         },
+        // A remote snapshot is the whole live document, so the editor holds
+        // and serializes it from then on.
+        ...(reportRemoteSnapshot
+          ? {
+              onRemoteSnapshotChange: (content: string) => {
+                draft.current = content;
+                reportRemoteSnapshot(content);
+              },
+            }
+          : {}),
       };
     React.useEffect(() => {
       if (!props.onPersistenceControllerChange) return;
@@ -457,7 +486,10 @@ beforeEach(() => {
     updatedAt: "2026-10-19T12:00:00.000Z",
     canEdit: true,
   } as Document;
+  fixture.commentsSidebars = [];
+  fixture.toolbar = null;
   fixture.save.mockReset();
+  fixture.keepalive.mockReset().mockReturnValue({ accepted: false });
   fixture.flushUpdates.mockReset().mockResolvedValue(true);
   fixture.recoverySaveSettled.mockReset();
   fixture.finishRecovery = Promise.resolve();
@@ -513,20 +545,23 @@ afterEach(async () => {
   __resetBlockFieldSaveRegistry();
 });
 
-function renderEditor() {
+function renderEditor({
+  host = "preview",
+  location = "/",
+}: { host?: "page" | "preview"; location?: string } = {}) {
   root.render(
     createElement(
       QueryClientProvider,
       { client: queryClient },
       createElement(
         MemoryRouter,
-        null,
+        { initialEntries: [location] },
         createElement(
           TooltipProvider,
           null,
           createElement(PageEditorSurface, {
             documentId: fixture.page!.id,
-            host: "preview",
+            host,
             onSessionChange: (session) => {
               fixture.session = session;
             },
@@ -2036,6 +2071,107 @@ describe("closing a page this tab never edited", () => {
     );
   });
 
+  // An agent's write keeps a blank line between blocks. A real editor that
+  // adopts it holds the same page one block per line.
+  async function adoptBlankLineRewrite() {
+    const written = "## Goal\n\nFinish the row.\n\n## Where it stands\n\nOpen.";
+    const writerDoc = new Y.Doc();
+    const writerMount = document.createElement("div");
+    document.body.append(writerMount);
+    const writer = new Editor({
+      element: writerMount,
+      extensions: createVisualEditorExtensions({ ydoc: writerDoc }),
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+    writer.commands.setContent(nfmToDoc(written));
+    const held = docToNfm(writer.getJSON() as PMDoc);
+    writer.destroy();
+    writerDoc.destroy();
+    writerMount.remove();
+    expect(held).toContain("Finish the row.");
+    expect(held).not.toBe(written);
+    fixture.cachedDocument = true;
+    const page = mounted(fixture.page);
+    page.revision = documentRevisionToken(1, page.content);
+    const key = ["action", "get-document", { id: page.id }];
+    queryClient.setQueryData(key, page);
+    const rewritten = {
+      ...page,
+      content: written,
+      revision: documentRevisionToken(2, written),
+      updatedAt: "2026-10-19T12:00:01.000Z",
+    };
+    // The server keeps the other writer's body rather than this tab's unedited
+    // copy of it, as update-document does for a browser save with no edit. It
+    // takes a title on its own.
+    fixture.save.mockImplementation(async (input) =>
+      input.content === undefined
+        ? { ...rewritten, title: input.title ?? rewritten.title }
+        : {
+            preservationRequired: true,
+            id: page.id,
+            document: rewritten,
+            reason: "provenance",
+            checkpointId: "kept-writer-body",
+          },
+    );
+    await act(async () => renderEditor());
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await act(async () => {
+      queryClient.setQueryData(key, rewritten);
+      renderEditor();
+    });
+    act(() => mounted(mounted(fixture.editor).onRemoteSnapshotChange)(held));
+    // The change settles before the tab saves or closes.
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    return written;
+  }
+
+  it("closes a page another writer rewrote with blank lines", async () => {
+    await adoptBlankLineRewrite();
+    expect(await closeSession()).toBe("closed");
+    expect(fixture.save).not.toHaveBeenCalled();
+  });
+
+  it("renames a page another writer rewrote with blank lines without sending its body", async () => {
+    await adoptBlankLineRewrite();
+    pasteTitle("Renamed row");
+    // The tab goes away before the title's save is due, so the keepalive copy
+    // goes out, and the ordinary save after it when the copy is refused.
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(fixture.keepalive).toHaveBeenCalledOnce();
+    const [action, copy] = mounted(fixture.keepalive.mock.calls[0]);
+    expect(action).toBe("update-document");
+    expect(copy).toMatchObject({ title: "Renamed row" });
+    expect(copy).not.toHaveProperty("content");
+    expect(fixture.save).toHaveBeenCalledOnce();
+    const saved = mounted(fixture.save.mock.calls[0])[0];
+    expect(saved).toMatchObject({ title: "Renamed row" });
+    expect(saved).not.toHaveProperty("content");
+  });
+
+  it("journals a failed rename of a page another writer rewrote on its stored body", async () => {
+    const written = await adoptBlankLineRewrite();
+    fixture.save.mockRejectedValue(
+      new Error("Action update-document failed (500)"),
+    );
+    pasteTitle("Renamed row");
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(fixture.save).toHaveBeenCalledOnce();
+    // Recovery compares the journaled body with the stored one exactly, so
+    // the editor's spelling would come back as a body edit nobody made.
+    const journal = Object.keys(localStorage)
+      .filter((key) => key.startsWith("content-page-draft-journal-v1:"))
+      .map((key) => JSON.parse(mounted(localStorage.getItem(key))));
+    expect(journal).toHaveLength(1);
+    expect(mounted(journal[0]).snapshot).toMatchObject({
+      title: "Renamed row",
+      content: written,
+    });
+  });
+
   it.each([
     ["stored", "Saved body"],
     ["legacy", "Saved body.\n\n\nCost $2.21.\n"],
@@ -2722,5 +2858,40 @@ describe("actual additional field freshness", () => {
     await act(async () => release());
     expect(publishedAcks()).toHaveLength(0);
     expect(fieldState().lastSaved).toBe("Additional body held input");
+  });
+});
+
+describe("a link that starts a comment on the whole page", () => {
+  const link = "/page/recovery-page?commentPage=1";
+  const discussions = () =>
+    fixture.commentsSidebars.filter(
+      (props) => props.presentation === "history",
+    );
+  // The page panel's tabs sit in the toolbar, which these tests leave out.
+  async function selectTab(name: "info" | "comments") {
+    const change = fixture.toolbar?.onUtilityPanelChange;
+    if (!change) throw new Error("No page panel tabs.");
+    await act(async () => change(name));
+  }
+
+  beforeEach(() => {
+    fixture.page = { ...fixture.page, canComment: true } as Document;
+  });
+
+  it("opens Discussion on the page it addresses and asks for its composer", async () => {
+    await act(async () => renderEditor({ host: "page", location: link }));
+    expect(discussions().pop()?.focusPageComposer).toBe(true);
+  });
+
+  it("drops the request when Discussion closes before the composer takes it", async () => {
+    await act(async () => renderEditor({ host: "page", location: link }));
+    await selectTab("info");
+    await selectTab("comments");
+    expect(discussions().pop()?.focusPageComposer).toBe(false);
+  });
+
+  it("leaves a row previewed beside that page alone", async () => {
+    await act(async () => renderEditor({ host: "preview", location: link }));
+    expect(discussions()).toEqual([]);
   });
 });

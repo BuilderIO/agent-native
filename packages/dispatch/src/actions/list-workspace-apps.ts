@@ -74,6 +74,9 @@ export default defineAction({
   http: { method: "GET" },
   run: async (input, context) =>
     input.orgAccessInventory
-      ? listWorkspaceAppsForOrgAccessInventory()
+      ? {
+          inventoryKind: "org-access" as const,
+          apps: await listWorkspaceAppsForOrgAccessInventory(),
+        }
       : listWorkspaceAppsForRequest(input, context),
 });

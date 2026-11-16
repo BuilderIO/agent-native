@@ -16,7 +16,6 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
-import { PhysicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
@@ -38,6 +37,7 @@ import {
   parseMeetingAskSuggestions,
   type MeetingAskChip,
 } from "../lib/meeting-ask";
+import { createHoverPeek, type HoverPeek } from "../lib/pill-hover-peek";
 import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
 import { writeClipboardText } from "../lib/recording-link";
 import { speakerFor, type TranscriptLine } from "../lib/transcription-engine";
@@ -52,12 +52,8 @@ const CAP_HEIGHT_RATIO = 0.72;
 /** A cursor crossing the capsule should not open it. Matches the recorder. */
 const HOVER_INTENT_MS = 150;
 
-/** The capsule's one spacing step, matched in styles.css. */
-const TRANSPORT_GAP_PX = 8;
-
-/** Longer than any reveal transition. Past this the browser is not advancing
- *  the animation, so the reveal has to finish itself. */
-const TRANSITION_STALL_MS = 400;
+/** Lets the cursor slip off the edge of a peeked transcript and come back. */
+const HOVER_CLOSE_GRACE_MS = 300;
 
 /** Matches `pill-ask-sheet-out` in styles.css. */
 const ASK_SHEET_EXIT_MS = 200;
@@ -257,6 +253,16 @@ export function MeetingPill() {
   // CSS `:hover` never fires on the pill — we mirror the polled state into a
   // class and key the hover styling off that too.
   const [hovered, setHovered] = useState(false);
+  const hoverPeekRef = useRef<HoverPeek | null>(null);
+  hoverPeekRef.current ??= createHoverPeek({
+    openDelayMs: HOVER_INTENT_MS,
+    closeDelayMs: HOVER_CLOSE_GRACE_MS,
+    setExpanded: (next) => {
+      setExpanded(next);
+      invoke("recording_pill_expand", { expanded: next }).catch(() => {});
+    },
+  });
+  const hoverPeek = hoverPeekRef.current;
   const startedAtRef = useRef<number>(Date.now());
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Mic and system audio share one calm activity meter, matching Granola's
@@ -327,7 +333,10 @@ export function MeetingPill() {
         setStopping(false);
         setFinishedMeetingId(null);
         setError(null);
+        hoverPeek.reset();
         setExpanded(false);
+        // The reused window may still be expanded from the last session.
+        invoke("recording_pill_expand", { expanded: false }).catch(() => {});
         // Reset transcript state for the new session.
         setPreloadedLines([]);
         transcriptLinesRef.current = [];
@@ -408,7 +417,9 @@ export function MeetingPill() {
     );
     trackListen(
       listen<{ hovered: boolean }>("clips:pill-hover", (ev) => {
-        setHovered(!!ev.payload?.hovered);
+        const next = ev.payload.hovered;
+        setHovered(next);
+        hoverPeek.hover(next);
       }),
     );
     trackListen(
@@ -416,7 +427,10 @@ export function MeetingPill() {
         setDetached(!!ev.payload?.detached);
         // Detached pill auto-collapses — there's not enough room for the
         // expanded transcript view in the small floating footprint.
-        if (ev.payload?.detached) setExpanded(false);
+        if (ev.payload.detached) {
+          hoverPeek.reset();
+          setExpanded(false);
+        }
       }),
     );
     // Signal that all listeners are registered. app.tsx listens for this and
@@ -456,7 +470,7 @@ export function MeetingPill() {
         setCtx(ctxRef.current);
       }, 4_000);
       activeMeetingIdRef.current = "demo";
-      setExpanded(true);
+      hoverPeek.pin();
       setPreloadedLines([
         {
           source: "system",
@@ -523,14 +537,8 @@ export function MeetingPill() {
     };
   }, [ctx.mode, finished, paused]);
 
-  async function toggleExpanded() {
-    const next = !expanded;
-    setExpanded(next);
-    try {
-      await invoke("recording_pill_expand", { expanded: next });
-    } catch {
-      // ignore — best effort
-    }
+  function toggleExpanded() {
+    hoverPeek.toggle();
   }
 
   async function onPauseClick() {
@@ -548,8 +556,7 @@ export function MeetingPill() {
     }
     setStopping(false);
     setFinishedMeetingId(meetingId);
-    setExpanded(true);
-    invoke("recording_pill_expand", { expanded: true }).catch(() => {});
+    hoverPeek.pin();
   }
 
   async function onStopClick() {
@@ -583,10 +590,6 @@ export function MeetingPill() {
    * session, so anything that could only happen after capture attached also
    * clears it.
    */
-  /** The capsule and the transport segment inside it, for measured growth. */
-  const capsuleRef = useRef<HTMLDivElement | null>(null);
-  const transportRef = useRef<HTMLDivElement | null>(null);
-  const windowOpChainRef = useRef<Promise<void>>(Promise.resolve());
   const clearStartingRef = useRef<() => void>(() => {});
 
   const clearStarting = useCallback(() => {
@@ -597,137 +600,13 @@ export function MeetingPill() {
 
   clearStartingRef.current = clearStarting;
 
-  /**
-   * Serialize window ops. Two resizes in flight read each other's stale
-   * geometry and the capsule ends up the wrong size — the same queue the
-   * recorder pill runs its segment growth through.
-   */
-  const queueWindowOp = (op: () => Promise<void>) => {
-    windowOpChainRef.current = windowOpChainRef.current
-      .then(op)
-      .catch((err) => {
-        console.warn("[clips-pill] window op failed", err);
-      });
-  };
-
-  /**
-   * Size the window around the capsule's own layout, keeping the top edge
-   * fixed so growth extends downward — away from the cursor that is sitting
-   * on the logo at the top.
-   */
-  const syncCapsuleWindow = useCallback((extraLogicalHeight: number) => {
-    const el = capsuleRef.current;
-    if (!el || pillDemoMode) return;
-    // offsetHeight is a layout metric, immune to a transition in flight; a
-    // rect read mid-animation locks the window to a half-open size.
-    const contentH = el.offsetHeight + extraLogicalHeight;
-    const contentW = el.offsetWidth;
-    queueWindowOp(async () => {
-      const win = getCurrentWindow();
-      const [size, scale] = await Promise.all([
-        win.outerSize(),
-        win.scaleFactor(),
-      ]);
-      const w = Math.ceil(contentW * scale);
-      const h = Math.ceil(contentH * scale);
-      if (size.width === w && size.height === h) return;
-      await win.setSize(new PhysicalSize(w, h));
-    });
-  }, []);
-
-  /**
-   * Grow the capsule to reveal pause and stop, then let the segment animate
-   * its own height open — window first so there is room to grow into, and on
-   * the way out the window shrinks only once the segment has closed.
-   */
+  // Hovering a live meeting's pill peeks its transcript; clip recordings,
+  // the floating pill and the finished banner keep their own layout.
   useEffect(() => {
-    if (expanded || detached || ctx.mode !== "meeting" || finished) return;
-    const seg = transportRef.current;
-    if (!seg) return;
-    // Nothing to pause or end until capture has attached.
-    const open = hovered && !ctx.starting;
+    hoverPeek.setEnabled(ctx.mode === "meeting" && !detached && !finished);
+  }, [hoverPeek, ctx.mode, detached, finished]);
 
-    let release: (() => void) | null = null;
-
-    /**
-     * The segment's own content height. `scrollHeight` cannot be used: the
-     * transport buttons carry hit-target overlays that extend past their box,
-     * and scrollHeight counts that overflow — which showed up as dead space
-     * under the last control.
-     */
-    const contentHeight = () => {
-      const kids = Array.from(seg.children).filter(
-        (kid): kid is HTMLElement =>
-          kid instanceof HTMLElement &&
-          window.getComputedStyle(kid).display !== "none",
-      );
-      const gap = parseFloat(window.getComputedStyle(seg).rowGap) || 0;
-      const stacked = kids.reduce((total, kid) => total + kid.offsetHeight, 0);
-      return stacked + gap * Math.max(0, kids.length - 1);
-    };
-
-    const apply = () => {
-      const target = open ? contentHeight() : 0;
-      if (open) seg.dataset.open = "true";
-      else delete seg.dataset.open;
-      seg.style.transition = "";
-      seg.style.height = `${target}px`;
-      seg.style.marginTop = open ? `${TRANSPORT_GAP_PX}px` : "0px";
-      seg.style.opacity = open ? "1" : "0";
-      // Grow the window first so the capsule has somewhere to open into. It
-      // is transparent below the capsule, so the extra frame is invisible
-      // until the segment fills it.
-      if (open) syncCapsuleWindow(target + TRANSPORT_GAP_PX);
-
-      // This window is never the key window, and the browser can stop
-      // advancing animations in one — the transition then never progresses
-      // and the capsule stays at the size it started from. Wait for the real
-      // transition, and if it never arrives, drop it and snap to the end.
-      let settled = false;
-      const settle = () => {
-        if (settled) return;
-        settled = true;
-        if (!open) syncCapsuleWindow(0);
-      };
-      const forceSnap = () => {
-        if (settled) return;
-        seg.style.transition = "none";
-        seg.style.height = `${target}px`;
-        seg.style.marginTop = open ? `${TRANSPORT_GAP_PX}px` : "0px";
-        seg.style.opacity = open ? "1" : "0";
-        // Read back so the snapped value commits before the transition is
-        // restored, or the restore just re-animates from the old value.
-        void seg.offsetHeight;
-        seg.style.transition = "";
-        settle();
-      };
-      seg.addEventListener("transitionend", settle, { once: true });
-      const stalled = setTimeout(forceSnap, TRANSITION_STALL_MS);
-      release = () => {
-        seg.removeEventListener("transitionend", settle);
-        clearTimeout(stalled);
-      };
-    };
-
-    // Opening waits out a cursor that is only passing over. Closing does not,
-    // so the capsule never lingers open under a cursor that has left.
-    let intent: ReturnType<typeof setTimeout> | null = null;
-    if (open && !seg.dataset.open) intent = setTimeout(apply, HOVER_INTENT_MS);
-    else apply();
-
-    return () => {
-      if (intent) clearTimeout(intent);
-      release?.();
-    };
-  }, [
-    hovered,
-    expanded,
-    detached,
-    ctx.mode,
-    ctx.starting,
-    finished,
-    syncCapsuleWindow,
-  ]);
+  useEffect(() => () => hoverPeek.dispose(), [hoverPeek]);
 
   /**
    * Put the header's glyphs on the title's optical centre line.
@@ -1050,6 +929,7 @@ export function MeetingPill() {
 
   const handlePillMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
+    hoverPeek.interact();
     const target = e.target as HTMLElement;
     if (target.closest("[data-no-drag]")) return;
     dragStartScreenPointRef.current = { x: e.screenX, y: e.screenY };
@@ -1064,7 +944,7 @@ export function MeetingPill() {
     const start = dragStartScreenPointRef.current;
     dragStartScreenPointRef.current = null;
     if (!isDirectPillClick(start, { x: e.screenX, y: e.screenY })) return;
-    void toggleExpanded();
+    toggleExpanded();
   };
 
   const handlePillMouseUp = (e: React.MouseEvent) => {
@@ -1101,7 +981,6 @@ export function MeetingPill() {
       <div
         ref={(node) => {
           pillInnerRef.current = node;
-          capsuleRef.current = node;
         }}
         className={`pill-inner${expanded ? "" : " pill-inner-compact"}${
           hovered ? " pill-hovered" : ""
@@ -1137,7 +1016,7 @@ export function MeetingPill() {
               />
             )}
           </div>
-          <div className="pill-controls" ref={transportRef}>
+          <div className="pill-controls">
             {ctx.starting ? (
               <span className="pill-timer pill-timer-starting">
                 <Spinner className="size-3" />

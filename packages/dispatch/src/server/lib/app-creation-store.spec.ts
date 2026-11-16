@@ -795,6 +795,30 @@ describe("listWorkspaceApps", () => {
     }
   });
 
+  it("fails admin inventory for a domainless hosted organization instead of using the manifest", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "retired", name: "Retired", path: "/retired" },
+    ]);
+    mocks.getOrgDomain.mockResolvedValueOnce(null);
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "admin@example.test", orgId: "org-123" },
+        () => listWorkspaceAppsForOrgAccessInventory(),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_inventory_unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("derives manifest app URLs from the Vercel preview when no workspace origin is configured", async () => {
     stubNoPendingContext();
     stubManifest([
@@ -3860,6 +3884,7 @@ describe("setAppCreationSettings", () => {
     expect(mocks.putSetting).toHaveBeenCalledWith(
       "dispatch-app-creation-settings:org:builder_io",
       { builderProjectId: projectId },
+      { orgId },
     );
     expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
@@ -3881,9 +3906,11 @@ describe("setAppCreationSettings", () => {
     expect(mocks.settings.get(settingsKey)).toEqual({
       builderProjectId: projectId,
     });
-    expect(mocks.putSetting).toHaveBeenCalledWith(settingsKey, {
-      builderProjectId: projectId,
-    });
+    expect(mocks.putSetting).toHaveBeenCalledWith(
+      settingsKey,
+      { builderProjectId: projectId },
+      { owner: "dev@example.test" },
+    );
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
   });
 
@@ -3896,6 +3923,7 @@ describe("setAppCreationSettings", () => {
     expect(mocks.putSetting).toHaveBeenCalledWith(
       "dispatch-app-creation-settings:org:builder_io",
       { builderProjectId: null },
+      { orgId },
     );
     expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();

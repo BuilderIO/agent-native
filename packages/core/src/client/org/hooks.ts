@@ -23,6 +23,7 @@ import {
   assertAgentNativeApiEnabled,
 } from "../api-surface.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
+import { surfaceMutationError } from "../write-failure.js";
 
 const ORG_BASE = "/_agent-native/org";
 
@@ -285,6 +286,23 @@ export function useRemoveMember() {
   });
 }
 
+/**
+ * Withdraw a pending invitation. Without this an invite is final: a typo stays in the
+ * roster, and a person who was never going to join cannot be taken back out.
+ */
+export function useCancelInvitation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`${orgBasePath()}/invitations/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-invitations"] });
+    },
+  });
+}
+
 export function useUpdateOrg() {
   const qc = useQueryClient();
   return useMutation({
@@ -418,6 +436,7 @@ export type WorkspaceAppDefaultVisibility = "private" | "org";
 export function useSetWorkspaceAppDefaultVisibility() {
   const qc = useQueryClient();
   return useMutation({
+    meta: surfaceMutationError(),
     mutationFn: (visibility: WorkspaceAppDefaultVisibility) =>
       apiFetch(`${orgBasePath()}/workspace-app-default-visibility`, {
         method: "PUT",
@@ -450,6 +469,7 @@ export function useWorkspaceAppAccess(options: { enabled?: boolean } = {}) {
 export function useSetWorkspaceAppAccess() {
   const qc = useQueryClient();
   return useActionMutation("set-workspace-app-access", {
+    errorNotification: "caller",
     onSuccess: async () => {
       await qc.invalidateQueries({
         queryKey: ["action", "list-workspace-app-access"],
