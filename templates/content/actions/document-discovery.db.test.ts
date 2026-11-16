@@ -784,7 +784,7 @@ describe("bounded document discovery", () => {
     const recent = await asUser(OWNER, () =>
       listDocuments.run({
         parentId: PARENT_ID,
-        sort: "recent",
+        sort: "lastEdited",
         limit: 3,
         offset: 0,
       }),
@@ -828,7 +828,7 @@ describe("bounded document discovery", () => {
       ]);
 
     const recent = await asUser(OWNER, () =>
-      listDocuments.run({ exactTitle: title, sort: "recent" }),
+      listDocuments.run({ exactTitle: title, sort: "lastEdited" }),
     );
     expect(recent.documents.map((document) => document.id)).toEqual([
       "list-recent-late-postgres-text",
@@ -838,7 +838,7 @@ describe("bounded document discovery", () => {
     const afterNoon = await asUser(OWNER, () =>
       listDocuments.run({
         exactTitle: title,
-        sort: "recent",
+        sort: "lastEdited",
         modifiedAfter: "2030-01-01T12:00:00.000Z",
       }),
     );

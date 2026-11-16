@@ -67,7 +67,7 @@ function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
 
 export default defineAction({
   description:
-    'List one bounded page of access-scoped document metadata, in sidebar order by default. To find recently edited documents, pass sort "recent", which puts the most recently edited first; the first page usually answers. Returns explicit pagination; request nextOffset only when the task needs more documents than this page holds. Does not return full document bodies; use get-document to read one document.',
+    'List one bounded page of access-scoped document metadata, in sidebar order by default. To find recently edited documents, pass sort "lastEdited", which puts the most recently edited first; the first page usually answers. Returns explicit pagination; request nextOffset only when the task needs more documents than this page holds. Does not return full document bodies; use get-document to read one document.',
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -101,10 +101,10 @@ export default defineAction({
       .optional()
       .describe("Only ordinary pages or collection pages"),
     sort: z
-      .enum(["position", "recent"])
+      .enum(["position", "lastEdited"])
       .default("position")
       .describe(
-        "position: sidebar order (default). recent: most recently edited first",
+        "position: sidebar order (default). lastEdited: most recently edited first",
       ),
     modifiedAfter: z.iso
       .datetime()
@@ -189,7 +189,7 @@ export default defineAction({
       .from(schema.documents)
       .where(where)
       .orderBy(
-        ...(args.sort === "recent"
+        ...(args.sort === "lastEdited"
           ? // Not every stored time is an ISO string, so sort by the
             // timestamp, not the text.
             [desc(sql`${schema.documents.updatedAt}::timestamptz`)]
