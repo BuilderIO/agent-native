@@ -564,6 +564,24 @@ describe("Blocks field identity", () => {
       expect(result.deleted).toEqual([openingId]);
     });
 
+    it("keeps a two-letter paragraph's ID when it moves and grows, but not for other text with its letters", () => {
+      const marker = "Stable marker";
+      const initial = materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        markdown: ["Hi", marker].join("\n"),
+      });
+      const [hiId, markerId] = initial.blocks.map((block) => block.id);
+
+      const grown = save(initial, [marker, "Hi there"].join("\n"));
+      expect(grown.live).toEqual([markerId, hiId]);
+
+      const replaced = save(initial, [marker, "This is history"].join("\n"));
+      expect(replaced.live[0]).toBe(markerId);
+      expect(replaced.live[1]).not.toBe(hiId);
+      expect(replaced.deleted).toEqual([hiId]);
+    });
+
     it("never moves a deleted top-level paragraph's ID into a list item", () => {
       const initial = materializeLegacyBlocksFieldIdentity({
         documentId: "doc-1",

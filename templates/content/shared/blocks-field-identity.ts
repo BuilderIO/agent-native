@@ -337,11 +337,15 @@ function uniqueIndexByKey<T>(
 
 const TEXT_PIECE_LENGTH = 4;
 
-// A block's text as counted, overlapping four-character pieces, with its
-// start and end marked. Whitespace is left out, so the parts of a split or
-// merge yield the same pieces as the text they came from.
-function textPieces(value: string): Map<string, number> {
-  const text = value.toLocaleLowerCase().replace(/\s+/g, "");
+// Whitespace is left out, so the parts of a split or merge read the same as
+// the text they came from.
+function comparableText(value: string): string {
+  return value.toLocaleLowerCase().replace(/\s+/g, "");
+}
+
+// Comparable text as counted, overlapping four-character pieces, with its
+// start and end marked.
+function textPieces(text: string): Map<string, number> {
   const pieces = new Map<string, number>();
   if (!text) return pieces;
   const marked = `\u0002${text}\u0003`;
@@ -361,8 +365,19 @@ function survivingText(
   oldText: string,
   newText: string,
 ): { kept: number; total: number } {
-  const oldPieces = textPieces(oldText);
-  const newPieces = textPieces(newText);
+  const oldComparable = comparableText(oldText);
+  const newComparable = comparableText(newText);
+  // One or two characters and both marks make a single piece, which any
+  // added text breaks. Text that short survives where the new text starts or
+  // ends with it.
+  if (oldComparable && oldComparable.length + 2 <= TEXT_PIECE_LENGTH) {
+    const survives =
+      newComparable.startsWith(oldComparable) ||
+      newComparable.endsWith(oldComparable);
+    return { kept: survives ? 1 : 0, total: 1 };
+  }
+  const oldPieces = textPieces(oldComparable);
+  const newPieces = textPieces(newComparable);
   let total = 0;
   let kept = 0;
   for (const [piece, count] of oldPieces) {
