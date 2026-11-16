@@ -2436,6 +2436,7 @@ function applyImmutableAssetCacheHeaders(response, request) {
   headers.set("Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
   headers.set("CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
   headers.set("Netlify-CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
+  headers.set("Access-Control-Allow-Origin", "*");
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
