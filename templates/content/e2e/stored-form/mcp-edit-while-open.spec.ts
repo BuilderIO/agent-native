@@ -356,10 +356,15 @@ test.describe(
           const typing = await tabs.open("A", id);
           await tabs.quiet();
 
-          // The agent writes the Delta paragraph a second into the typing,
-          // and the tab must show it while the typing goes on.
+          // The agent writes the Delta paragraph once the tab has typed its
+          // first word, and the tab must show it while the typing goes on.
           const shown = (async () => {
-            await typing.waitForTimeout(1_000);
+            await expect
+              .poll(async () => {
+                const text = await typing.locator(ACTIVE_EDITOR).innerText();
+                return markers.all.some((marker) => text.includes(marker));
+              })
+              .toBe(true);
             const edit = await agentEdit(agent, page, id, markers);
             await expectShownInTime([typing], edit);
             return edit;
