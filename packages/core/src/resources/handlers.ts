@@ -815,14 +815,16 @@ export async function handleUpdateResource(event: any) {
     expectedRevision !== undefined && typeof body.content === "string";
   // True when this save is already there, as when a request is resent after
   // its response was lost. Metadata is stored as sent when it's a string or
-  // null, and as JSON otherwise.
+  // null, and as JSON otherwise. An empty MIME type is stored as Markdown, and
+  // empty metadata reads back as null.
   const isSameSaveOver = (resource: Resource) =>
     resource.content === body.content &&
-    (body.mimeType === undefined || body.mimeType === resource.mimeType) &&
+    (body.mimeType === undefined ||
+      (body.mimeType || "text/markdown") === resource.mimeType) &&
     (body.metadata === undefined ||
-      (body.metadata === null || typeof body.metadata === "string"
+      ((body.metadata === null || typeof body.metadata === "string"
         ? body.metadata
-        : JSON.stringify(body.metadata)) === resource.metadata);
+        : JSON.stringify(body.metadata)) || null) === resource.metadata);
   // The move and the content write are separate statements, so a conflict
   // found after the move would leave the resource renamed but not saved.
   if (
@@ -906,7 +908,11 @@ export async function handleUpdateResource(event: any) {
     // copy first, it stays, and it's what's there.
     const takeCopyBack = async (source: Resource) => {
       let current: Resource = source;
-      if (!(await resourceDeleteIfCurrent(resource))) {
+      // The copy is deleted only if it's still as made, compared as a read
+      // sees it, and a read sees empty metadata as null.
+      const made =
+        resource.metadata === "" ? { ...resource, metadata: null } : resource;
+      if (!(await resourceDeleteIfCurrent(made))) {
         current =
           (await resourceGet(resource.id, { userEmail: email, orgId })) ??
           source;

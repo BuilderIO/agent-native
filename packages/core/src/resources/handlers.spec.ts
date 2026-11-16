@@ -1551,6 +1551,31 @@ Legacy webhook.`,
         expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
       });
 
+      it("treats a repeat with empty metadata and MIME type as done", async () => {
+        const saved = {
+          ...doc,
+          content: "new",
+          metadata: null,
+          updatedAt: 2000,
+        };
+        mockResourceGet.mockResolvedValue(saved);
+
+        const result = await handleUpdateResource({
+          _params: { id: "r1" },
+          _body: {
+            content: "new",
+            mimeType: "",
+            metadata: "",
+            expectedRevision: withRevision(doc).revision,
+          },
+          context: {},
+        });
+
+        expect(lastStatus).toBe(200);
+        expect(result).toEqual(withRevision(saved));
+        expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
+      });
+
       it("treats the same save landing between its check and its write as done", async () => {
         const saved = { ...doc, content: "new", updatedAt: 2000 };
         mockResourceGet.mockResolvedValueOnce(doc).mockResolvedValue(saved);
@@ -1627,6 +1652,33 @@ Legacy webhook.`,
           expect(mockResourceDeleteIfCurrent).toHaveBeenCalledExactlyOnceWith(
             copy,
           );
+        });
+
+        it("takes back a copy made with empty metadata as a read sees it", async () => {
+          mockResourcePutIfAbsent.mockResolvedValue({ ...copy, metadata: "" });
+          mockResourceGet
+            .mockResolvedValueOnce(shared)
+            .mockResolvedValue({ ...shared, content: "theirs" });
+
+          const result = await handleUpdateResource({
+            _params: { id: "s1" },
+            _body: {
+              content: "mine",
+              metadata: "",
+              expectedRevision: withRevision(shared).revision,
+            },
+            context: {},
+          });
+
+          expect(lastStatus).toBe(409);
+          expect(result).toMatchObject({
+            errorCode: "save_conflict",
+            details: { current: { content: "theirs" } },
+          });
+          expect(mockResourceDeleteIfCurrent).toHaveBeenCalledExactlyOnceWith({
+            ...copy,
+            metadata: null,
+          });
         });
 
         it("takes the copy back when a legacy source changes before it is removed", async () => {
