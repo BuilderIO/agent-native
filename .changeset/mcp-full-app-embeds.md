@@ -13,6 +13,8 @@ An action that returns another app's embed start URL, such as `open_app`, declar
 
 When `open_app` cannot get a session from the target app, its result says why in `embedUnavailable` instead of looking like a plain link, and it waits at most 15 seconds for the target before answering with the link, stopping the target request when it gives up.
 
+In a workspace that shares one sign-in across apps, a page open in an MCP host's side panel reads its session under its own app mount, which the panel session covers, instead of the shared origin route, so the panel no longer reports that it couldn't reach the server.
+
 `read_view` reports load errors and failed requests from the app open beside the chat in `errors`, including whether a failed request carried the panel session, so a blank or stuck panel says why instead of returning empty text.
 
 Hashed build assets are served with `Access-Control-Allow-Origin: *`, so an app opened in an MCP host's side panel can load its code from the host's sandbox instead of rendering blank.
