@@ -388,6 +388,66 @@ describe("createFetchToolEntry", () => {
     expect(result).not.toContain("sk-secret");
   });
 
+  describe("a key substituted into the request URL", () => {
+    const secret = "synthetic-key-9f3a1c";
+    const html =
+      '<!doctype html><html><head><title>Docs</title></head><body><main><article><p>Article content for the reader.</p><a href="#top">Top</a><a href="next">Next page</a><a href="/root">Root page</a></article></main></body></html>';
+    const entry = () =>
+      createFetchToolEntry({
+        resolveKeys: async (text) => ({
+          resolved: text.replaceAll("${keys.DOCS_KEY}", secret),
+          usedKeys: text.includes("${keys.DOCS_KEY}") ? ["DOCS_KEY"] : [],
+          secretValues: text.includes("${keys.DOCS_KEY}") ? [secret] : [],
+        }),
+      })["web-request"];
+
+    it.each([
+      {
+        place: "path",
+        url: "https://93.184.216.34/bot${keys.DOCS_KEY}/docs",
+      },
+      {
+        place: "query",
+        url: "https://93.184.216.34/docs?api_key=${keys.DOCS_KEY}",
+      },
+    ])(
+      "does not come back in a link resolved against the $place",
+      async ({ url }) => {
+        vi.spyOn(globalThis, "fetch").mockImplementation(
+          async () =>
+            new Response(html, { headers: { "content-type": "text/html" } }),
+        );
+
+        for (const responseMode of ["auto", "links"]) {
+          const result = await entry().run({ url, responseMode });
+          expect(result).toContain("Root page");
+          expect(String(result)).not.toContain(secret);
+        }
+      },
+    );
+
+    it("does not come back in a saved file's links", async () => {
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        async () =>
+          new Response(html, { headers: { "content-type": "text/html" } }),
+      );
+
+      await runWithRequestContext(
+        { userEmail: "ada@example.com", orgId: "org-1" },
+        () =>
+          entry().run({
+            url: "https://93.184.216.34/bot${keys.DOCS_KEY}/docs",
+            saveToFile: "scratch/docs.md",
+            includeLinks: true,
+          }),
+      );
+
+      const saved = String(mockWriteWorkspaceFile.mock.calls[0]?.[2]);
+      expect(saved).toContain("Root page");
+      expect(saved).not.toContain(secret);
+    });
+  });
+
   it("does not persist failed responses to durable files", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("error_code,permission_denied\n", {

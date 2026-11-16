@@ -529,6 +529,7 @@ import {
   describeToolResultImages,
   extractAgentImagesFromActionResult,
 } from "./tool-result-images.js";
+import { redactToolResultForHistory } from "./tool-result-redaction.js";
 import {
   createToolSearchEntry,
   extractToolSearchResultNames,
@@ -6112,7 +6113,11 @@ export async function executeAgentToolCall(
     if (event.type === "text" && event.text === "Tool execution complete.") {
       return;
     }
-    options.send?.(event);
+    options.send?.(
+      event.type === "tool_done" && !event.isError
+        ? { ...event, result: redactToolResultForHistory(event.result) }
+        : event,
+    );
   };
   const controller = options.signal ? null : new AbortController();
   const signal = options.signal ?? controller!.signal;
@@ -6161,6 +6166,7 @@ export async function executeAgentToolCall(
       isToolAlwaysAllowed: options.isToolAlwaysAllowed,
       requireWriteApproval: options.requireWriteApproval,
       beforeWrite: options.beforeWrite,
+      rawToolResults: true,
     });
   } catch (error) {
     if (
@@ -7694,6 +7700,11 @@ export async function runAgentLoop(opts: {
   isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
   /** Unattended MCP runs require approval for every prepared write call. */
   requireWriteApproval?: boolean;
+  /**
+   * `send` carries each call's raw result, for a caller that returns it as
+   * data and redacts what it forwards.
+   */
+  rawToolResults?: boolean;
   processors?: Processor[];
 }): Promise<AgentLoopUsage> {
   const {
@@ -9881,6 +9892,9 @@ export async function runAgentLoop(opts: {
         const persisted = Promise.resolve(
           send({
             ...event,
+            ...(event.isError || opts.rawToolResults
+              ? {}
+              : { result: redactToolResultForHistory(event.result) }),
             ...(event.outcomeUnknown && unknownOutcomeCause
               ? { unknownCause: unknownOutcomeCause }
               : {}),
