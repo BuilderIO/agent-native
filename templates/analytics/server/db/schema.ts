@@ -206,6 +206,35 @@ export const analysisRevisions = table(
 
 export const analysisShares = createSharesTable("analysis_shares");
 
+/**
+ * One row per keyed write to a dashboard, analysis, or dashboard folder,
+ * committed in the same transaction as the write, so a retry with the same
+ * idempotency key replays this result instead of writing again.
+ */
+export const analyticsWriteReceipts = table(
+  "analytics_write_receipts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    targetKind: text("target_kind").notNull(),
+    /** Empty for a create whose id the server assigns. */
+    targetId: text("target_id").notNull(),
+    action: text("action").notNull(),
+    callerScope: text("caller_scope").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestDigest: text("request_digest").notNull(),
+    resultJson: text("result_json").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => ({
+    targetScopeKeyIdx: uniqueIndex(
+      "analytics_write_receipts_target_scope_key_idx",
+    ).on(t.targetKind, t.targetId, t.callerScope, t.idempotencyKey),
+    createdIdx: index("analytics_write_receipts_created_idx").on(t.createdAt),
+  }),
+);
+
 export const bigqueryCache = table("bigquery_cache", {
   key: text("key").primaryKey(),
   sql: text("sql").notNull(),
