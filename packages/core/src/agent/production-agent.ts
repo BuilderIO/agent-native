@@ -423,6 +423,7 @@ import {
 import { applyUncheckedDefaultModelReplacement } from "./provider-model-selection.js";
 import {
   IncompleteAgentRunError,
+  canRetryRunWithoutReplayingWork,
   incompleteAgentRunFailure,
   RUN_RATE_LIMITED_MESSAGE,
 } from "./run-errors.js";
@@ -12676,6 +12677,14 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       hasSuccessfulToolOutput: producedToolOutput,
       reason: "continuation_limit",
       lastResumableError,
+      safeToRetry: lastResumableError
+        ? await canRetryRunWithoutReplayingWork({
+            events: localTurnEvents,
+            threadId: opts.threadId,
+            turnId: opts.turnId,
+            recoverCompletedExecutionSteps: opts.recoverCompletedExecutionSteps,
+          })
+        : false,
     });
     try {
       opts.onOutcome?.({

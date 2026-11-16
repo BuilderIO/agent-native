@@ -1293,6 +1293,57 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
   });
 
+  it.each(["text", "failed-tool", "successful-tool"] as const)(
+    "does not mark an exhausted 503 retryable after %s",
+    async (progress) => {
+      let attempts = 0;
+      const outcomes: AgentLoopOutcome[] = [];
+      mockRunAgentLoop.mockImplementation(async (opts) => {
+        attempts++;
+        opts.onModelDispatchStarted?.();
+        if (attempts === 1) {
+          if (progress === "text")
+            opts.send({ type: "text", text: "Already visible" });
+          else {
+            opts.send({ type: "tool_start", tool: "write", input: {} });
+            opts.send({
+              type: "tool_done",
+              tool: "write",
+              result: "result",
+              ...(progress === "failed-tool"
+                ? { isError: true, outcomeUnknown: true }
+                : { completedSideEffect: true }),
+            });
+          }
+        }
+        throw new EngineError("temporarily unavailable", {
+          errorCode: "http_503",
+          statusCode: 503,
+          providerRetryable: true,
+        });
+      });
+      await expect(
+        runAgentLoopDirectWithSoftTimeout(
+          makeOpts(
+            [{ role: "user", content: [{ type: "text", text: "go" }] }],
+            new AbortController().signal,
+            undefined,
+            undefined,
+            outcomes,
+          ),
+          60_000,
+        ),
+      ).rejects.toMatchObject({
+        errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+        providerRetryable: false,
+      });
+      expect(outcomes.at(-1)).toMatchObject({
+        state: "failed",
+        retryable: false,
+      });
+    },
+  );
+
   it("does not carry a prior 503 over a later no-output continuation", async () => {
     let attempts = 0;
     mockRunAgentLoop.mockImplementation(async (opts) => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { vi } from "vitest";
 
 import { EngineError } from "./engine/types.js";
 import {
@@ -15,8 +16,81 @@ import {
   RUN_STREAM_ENDED_ERROR_CODE,
   RUN_STREAM_ENDED_MESSAGE,
   RUN_TIMEOUT_MESSAGE,
+  canRetryRunWithoutReplayingWork,
   incompleteAgentRunFailure,
 } from "./run-errors.js";
+
+describe("retry safety for an incomplete run", () => {
+  it.each([
+    { events: [{ type: "text", text: "Visible" }, { type: "clear" }] },
+    { events: [{ type: "thinking", text: "Partial" }] },
+    { events: [{ type: "text", text: " " }] },
+    { events: [{ type: "agent_call", agent: "worker", status: "start" }] },
+    {
+      events: [
+        {
+          type: "agent_task",
+          taskId: "task",
+          threadId: "thread",
+          description: "work",
+          status: "running",
+        },
+      ],
+    },
+    { events: [{ type: "tool_start", tool: "write", input: {} }] },
+    {
+      events: [
+        {
+          type: "tool_done",
+          tool: "write",
+          result: "unknown",
+          isError: true,
+          outcomeUnknown: true,
+        },
+      ],
+    },
+  ] as const)(
+    "refuses to replay local output or tool work",
+    async ({ events }) => {
+      expect(await canRetryRunWithoutReplayingWork({ events })).toBe(false);
+    },
+  );
+
+  it("fails closed when persisted turn work exists or cannot be read", async () => {
+    const journal = await import("./engine/tool-call-journal-seed.js");
+    const read = vi.spyOn(journal, "loadPriorTurnToolCallJournal");
+    try {
+      read.mockResolvedValueOnce({
+        status: "read",
+        events: [{ type: "tool_start", tool: "write", input: {} }],
+        toolCallJournal: null,
+        priorToolCalls: [],
+        priorToolResults: [],
+        priorToolCallSequence: [],
+      });
+      read.mockResolvedValueOnce({
+        status: "unreadable",
+        error: "unavailable",
+      });
+      await expect(
+        canRetryRunWithoutReplayingWork({
+          events: [],
+          threadId: "thread-test",
+          turnId: "turn-test",
+        }),
+      ).resolves.toBe(false);
+      await expect(
+        canRetryRunWithoutReplayingWork({
+          events: [],
+          threadId: "thread-test",
+          turnId: "turn-test",
+        }),
+      ).resolves.toBe(false);
+    } finally {
+      read.mockRestore();
+    }
+  });
+});
 
 describe("incompleteAgentRunFailure", () => {
   it("distinguishes a run that never produced output from an exhausted run", () => {
@@ -65,6 +139,7 @@ describe("incompleteAgentRunFailure", () => {
         hasVisibleText: false,
         hasSuccessfulToolOutput: false,
         reason: "continuation_limit",
+        safeToRetry: true,
         lastResumableError: new EngineError("rejected", {
           errorCode: "http_503",
           statusCode: 503,
@@ -84,6 +159,7 @@ describe("incompleteAgentRunFailure", () => {
         hasVisibleText: true,
         hasSuccessfulToolOutput: true,
         reason: "continuation_limit",
+        safeToRetry: true,
         lastResumableError: new EngineError("unavailable", {
           errorCode: "http_503",
           statusCode: 503,

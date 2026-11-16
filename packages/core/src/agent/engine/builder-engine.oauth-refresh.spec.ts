@@ -71,6 +71,7 @@ vi.mock("../../server/request-context.js", () => ({
   getRequestUserEmail: vi.fn(() => "person@example.com"),
 }));
 
+import { resetAppConfigForTests } from "../../app-config/index.js";
 import { McpOAuthRefreshUnavailableError } from "../../mcp-client/oauth-client.js";
 import { createBuilderEngine } from "./builder-engine.js";
 import {
@@ -139,6 +140,8 @@ describe("Builder engine OAuth refresh lifecycle", () => {
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    resetAppConfigForTests();
     vi.restoreAllMocks();
   });
 
@@ -365,6 +368,100 @@ describe("Builder engine OAuth refresh lifecycle", () => {
     );
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it.each(
+    (["main-chat", "background"] as const).flatMap((lane) =>
+      [false, true].map((privateContent) => ({ lane, privateContent })),
+    ),
+  )(
+    "preserves retryable forced-refresh failure after dispatched gateway 401s in $lane (private=$privateContent)",
+    async ({ lane, privateContent }) => {
+      vi.stubEnv("DATABASE_URL", "pglite:memory");
+      vi.stubEnv("AGENT_RUN_SOFT_TIMEOUT_MS", "60000");
+      resetAppConfigForTests();
+      const { getDbExec } = await import("../../db/client.js");
+      await getDbExec().execute("SELECT 1");
+      const { runAgentLoopWithMainChatInternalContinuations } =
+        await import("../production-agent.js");
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../run-loop-with-resume.js");
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      {
+        mocks.rows.set(owner, grant(Date.now() + 3_600_000));
+        mocks.refresh.mockRejectedValue(new Error("private upstream detail"));
+        vi.mocked(fetch).mockImplementation(
+          async () => new Response("private gateway detail", { status: 401 }),
+        );
+        let dispatched = 0;
+        const outcomes: Array<{
+          state: string;
+          code?: string;
+          retryable?: boolean;
+        }> = [];
+        const events: unknown[] = [];
+        const opts = {
+          engine: createBuilderEngine({ privateKey: null, publicKey: null }),
+          model: "auto",
+          systemPrompt: "system",
+          messages: [
+            {
+              role: "user" as const,
+              content: [{ type: "text" as const, text: "go" }],
+            },
+          ],
+          tools: [],
+          actions: {},
+          send: (event: unknown) => events.push(event),
+          signal: new AbortController().signal,
+          historyPrivacyState: { private: privateContent },
+          budgetStartedAt: Date.now() - 600_000,
+          onModelDispatchStarted: () => dispatched++,
+          onOutcome: (outcome: {
+            state: string;
+            code?: string;
+            retryable?: boolean;
+          }) => outcomes.push(outcome),
+        };
+        const run =
+          lane === "main-chat"
+            ? runAgentLoopWithMainChatInternalContinuations({
+                ...opts,
+                maxContinuations: 2,
+                resumeResumableErrorsInProcess: true,
+              })
+            : runAgentLoopDirectWithSoftTimeout(opts, 60_000);
+        const failure = await run.then(
+          () => null,
+          (error: unknown) => error,
+        );
+        expect(failure).toMatchObject({
+          errorCode: "http_503",
+          statusCode: 503,
+          providerRetryable: true,
+          ...(privateContent
+            ? { message: "The private completion failed." }
+            : {}),
+        });
+        expect(dispatched).toBeGreaterThan(0);
+        expect(fetch).toHaveBeenCalledTimes(dispatched);
+        expect(mocks.refresh).toHaveBeenCalledTimes(dispatched);
+        expect(outcomes.at(-1)).toMatchObject({
+          state: "failed",
+          code: "http_503",
+          retryable: true,
+        });
+        expect(JSON.stringify({ failure, events, outcomes })).not.toContain(
+          "private upstream detail",
+        );
+        expect(JSON.stringify({ failure, events, outcomes })).not.toContain(
+          "private gateway detail",
+        );
+        expect(mocks.rows.get(owner)).not.toHaveProperty(
+          "oauthLifecycle.reconnectReason",
+        );
+      }
+    },
+  );
 
   it.each([false, true])(
     "preserves retryable status after a 401 and transient forced refresh (private=%s)",

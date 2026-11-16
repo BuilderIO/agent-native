@@ -10,6 +10,7 @@ import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import { EngineError, type EngineMessage } from "./engine/types.js";
 import {
   IncompleteAgentRunError,
+  canRetryRunWithoutReplayingWork,
   incompleteAgentRunFailure,
 } from "./run-errors.js";
 export {
@@ -688,6 +689,14 @@ export async function runAgentLoopDirectWithSoftTimeout(
       ),
       reason: "continuation_limit",
       lastResumableError,
+      safeToRetry: lastResumableError
+        ? await canRetryRunWithoutReplayingWork({
+            events: localTurnEvents,
+            threadId: opts.threadId,
+            turnId: opts.turnId,
+            recoverCompletedExecutionSteps: opts.recoverCompletedExecutionSteps,
+          })
+        : false,
     });
     reportFinalOutcome({
       state: "failed",

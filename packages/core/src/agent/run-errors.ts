@@ -1,8 +1,10 @@
+import { loadPriorTurnToolCallJournal } from "./engine/tool-call-journal-seed.js";
 import { EngineError } from "./engine/types.js";
 import type {
   AgentLoopContinuationReason,
   AgentLoopUsage,
 } from "./production-agent.js";
+import type { AgentChatEvent } from "./types.js";
 
 export const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
 export const RUN_BUDGET_EXHAUSTED_MESSAGE =
@@ -40,36 +42,77 @@ interface IncompleteAgentRunFailure {
   providerRetryable?: boolean;
 }
 
+export async function canRetryRunWithoutReplayingWork(input: {
+  events: readonly AgentChatEvent[];
+  threadId?: string;
+  turnId?: string;
+  recoverCompletedExecutionSteps?: boolean;
+}): Promise<boolean> {
+  const hasOutputOrToolActivity = (events: readonly AgentChatEvent[]) =>
+    events.some((event) =>
+      event.type === "text" || event.type === "thinking"
+        ? event.text.length > 0
+        : event.type === "tool_start" ||
+          event.type === "tool_done" ||
+          event.type === "tool_input_start" ||
+          event.type === "tool_input_delta" ||
+          event.type === "rich_event" ||
+          event.type === "suggestions" ||
+          event.type === "approval_required" ||
+          event.type === "connection_required" ||
+          event.type === "agent_call" ||
+          event.type === "agent_call_progress" ||
+          event.type === "agent_call_text" ||
+          event.type === "agent_call_activity" ||
+          event.type === "agent_task" ||
+          event.type === "agent_task_update" ||
+          event.type === "agent_task_complete",
+    );
+  if (hasOutputOrToolActivity(input.events)) return false;
+  const journal = await loadPriorTurnToolCallJournal(
+    input.threadId,
+    input.turnId,
+    {
+      recoverCompletedExecutionSteps: input.recoverCompletedExecutionSteps,
+    },
+  );
+  return journal.status === "read" && !hasOutputOrToolActivity(journal.events);
+}
+
 export function incompleteAgentRunFailure(input: {
   dispatchedModelCalls: number;
   hasVisibleText: boolean;
   hasSuccessfulToolOutput: boolean;
   lastResumableError?: unknown;
+  safeToRetry?: boolean;
   reason?:
     | "continuation_limit"
     | Exclude<AgentLoopContinuationReason, "max_tokens">;
 }): IncompleteAgentRunFailure {
+  const error = input.lastResumableError;
+  if (
+    input.safeToRetry === true &&
+    !input.hasVisibleText &&
+    !input.hasSuccessfulToolOutput &&
+    error instanceof EngineError &&
+    error.errorCode &&
+    error.statusCode !== undefined &&
+    error.statusCode >= 500 &&
+    error.statusCode <= 599 &&
+    error.providerRetryable !== false
+  ) {
+    return {
+      code: error.errorCode,
+      message: error.message,
+      statusCode: error.statusCode,
+      providerRetryable: true,
+    };
+  }
   const hasNoOutput =
     input.dispatchedModelCalls === 0 &&
     !input.hasVisibleText &&
     !input.hasSuccessfulToolOutput;
   if (hasNoOutput) {
-    const error = input.lastResumableError;
-    if (
-      error instanceof EngineError &&
-      error.errorCode &&
-      error.statusCode !== undefined &&
-      error.statusCode >= 500 &&
-      error.statusCode <= 599 &&
-      error.providerRetryable !== false
-    ) {
-      return {
-        code: error.errorCode,
-        message: error.message,
-        statusCode: error.statusCode,
-        providerRetryable: true,
-      };
-    }
     return {
       code: AGENT_RUN_NO_OUTPUT_ERROR_CODE,
       message: AGENT_RUN_NO_OUTPUT_MESSAGE,
