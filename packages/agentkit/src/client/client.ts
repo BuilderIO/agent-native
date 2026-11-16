@@ -5623,10 +5623,9 @@ export class AgentKitClient implements AgentKitController {
     // thread state too. With no run active a steering row cannot be pending - a waiting row carries
     // after_reply - so this can only remove rows the server has already delivered.
     const settledThread = this.getThread(threadId);
-    // A steering row the completed run never put in the transcript was not taken by the run. It is
-    // kept as after_reply so the promotion that is settling sends it as the next turn.
+    // A steering row the run never put in the transcript was not taken by the run, whether it completed,
+    // failed or was cancelled. It is kept as after_reply so it stays available to send as the next turn.
     const untaken = (message: AgentQueuedMessage) =>
-      completed &&
       message.delivery === "steering" &&
       !settledThread.messages.some(
         (candidate) =>
@@ -7397,12 +7396,21 @@ export class AgentKitClient implements AgentKitController {
           message.status === "error",
       );
       if (!this.disposed && !retainedAsError) {
-        await this.queueMessage({ ...input, queueWhileRunning: true }).catch(
-          () => {
-            // Requeueing failed too: keep the row, and tell the override the
-            // row is wanted again, or the next snapshot filters it out as removed.
-            const thread = this.getThread(threadId);
-            if (thread.queuedMessages.some((m) => m.id === queued.id)) return;
+        const requeued = await this.queueMessage({
+          ...input,
+          queueWhileRunning: true,
+        }).then(
+          () => true,
+          () => false,
+        );
+        if (requeued) {
+          // The thread is idle, so nothing else would deliver the restored row.
+          this.scheduleQueuePromotionIfIdle(threadId);
+        } else {
+          // Requeueing failed too: keep the row, and tell the override the
+          // row is wanted again, or the next snapshot filters it out as removed.
+          const thread = this.getThread(threadId);
+          if (!thread.queuedMessages.some((m) => m.id === queued.id)) {
             const queuedMessages = [...thread.queuedMessages, queued];
             this.setThread(threadId, { ...thread, queuedMessages });
             const previous = this.queuedMessageOverrides.get(threadId);
@@ -7412,8 +7420,8 @@ export class AgentKitClient implements AgentKitController {
               messages: queuedMessages,
               removedIds,
             });
-          },
-        );
+          }
+        }
       }
       throw error;
     }
