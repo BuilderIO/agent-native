@@ -46,6 +46,17 @@ function matches(row: Row, cond: any): boolean {
   return true;
 }
 
+const mirror = vi.hoisted(() => ({
+  comments: vi.fn(async (..._args: unknown[]) => undefined),
+  deleted: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+vi.mock("@agent-native/core/review", () => ({
+  ensureReviewTables: vi.fn(async () => undefined),
+}));
+vi.mock("../server/lib/slide-comment-mirror.js", () => ({
+  mirrorSlideComments: mirror.comments,
+  deleteMirroredSlideComments: mirror.deleted,
+}));
 vi.mock("../server/db/index.js", () => {
   const col = (name: string) => `slideComments.${name}`;
   const schema = {
@@ -225,6 +236,48 @@ describe("update-slide-comment", () => {
     expect(state.rows[1].resolved).toBe(true);
   });
 
+  it("mirrors the resolved thread into the review kit after the edit", async () => {
+    let seen: { content: string; resolved: boolean } | null = null;
+    mirror.comments.mockImplementationOnce(async () => {
+      seen = {
+        content: state.rows[0].content,
+        resolved: state.rows[1].resolved,
+      };
+    });
+
+    await run({
+      id: "c-1",
+      deckId: "deck-1",
+      content: "Edited and resolved",
+      resolved: true,
+    });
+
+    expect(mirror.comments).toHaveBeenCalledOnce();
+    expect(mirror.comments).toHaveBeenCalledWith(expect.anything(), "deck-1", [
+      "c-1",
+      "c-2",
+    ]);
+    expect(seen).toEqual({ content: "Edited and resolved", resolved: true });
+  });
+
+  it("mirrors only the edited comment when the thread's state stays", async () => {
+    await run({ id: "c-2", deckId: "deck-1", content: "A sharper reply" });
+
+    expect(mirror.comments).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      "deck-1",
+      ["c-2"],
+    );
+  });
+
+  it("writes and mirrors nothing when only the current resolved state is sent", async () => {
+    const result = await run({ id: "c-1", deckId: "deck-1", resolved: false });
+
+    expect(result).toEqual({ ok: true });
+    expect(mirror.comments).not.toHaveBeenCalled();
+    expect(state.rows[0].updatedAt).toBe("2026-01-01T00:00:00.000Z");
+  });
+
   it("author editing own text with unchanged resolved does not need editor access", async () => {
     const result = await run({
       id: "c-1",
@@ -291,6 +344,16 @@ describe("update-slide-comment", () => {
     await run({ id: "c-1", deckId: "deck-1", content: "Hijacked" });
 
     expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
+  });
+
+  it("mirrors nothing when the comment disappears before the edit", async () => {
+    state.deleteBeforeContentUpdate = true;
+
+    await expect(
+      run({ id: "c-1", deckId: "deck-1", content: "Too late" }),
+    ).rejects.toThrow();
+
+    expect(mirror.comments).not.toHaveBeenCalled();
   });
 
   it("throws when the comment does not exist", async () => {

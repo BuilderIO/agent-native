@@ -1,4 +1,5 @@
 import {
+  deferMigration,
   ensureAdditiveColumns,
   getDbExec,
   runMigrations,
@@ -8,6 +9,7 @@ import { setResponseHeader, setResponseStatus } from "h3";
 
 import "../db/index.js";
 import * as schema from "../db/schema.js";
+import { copySlideCommentsToReviewKit } from "../lib/slide-comment-mirror.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -355,6 +357,30 @@ ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS content_hash TEXT`,
       version: 37,
       name: "slides-comment-author-kind",
       sql: `ALTER TABLE slide_comments ADD COLUMN IF NOT EXISTS author_kind TEXT`,
+    },
+    {
+      version: 38,
+      name: "slides-comments-copy-to-review-kit",
+      sql: {},
+      // Comment actions mirror each comment they change into the review kit
+      // from now on; this brings over the comments written before. A deck
+      // that fails, or still differs after its copy, leaves the copy pending,
+      // so it runs again on the next start.
+      run: async () => {
+        const report = await copySlideCommentsToReviewKit();
+        const summary = `[db] Copied ${report.comments} comment(s) on ${report.decks} deck(s) to the review kit`;
+        if (report.differences.length > 0) {
+          console.warn(
+            `${summary}; ${report.differences.length} still differ:`,
+            report.differences.slice(0, 20),
+          );
+        } else {
+          console.log(summary);
+        }
+        if (report.failedDecks.length > 0 || report.differences.length > 0) {
+          return deferMigration();
+        }
+      },
     },
   ],
   { table: "slides_migrations" },

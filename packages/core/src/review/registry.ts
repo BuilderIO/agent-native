@@ -66,6 +66,19 @@ export async function resolveReviewableResourceAccess(
   resourceId: string,
   ctx?: ReviewResourceContext,
 ): Promise<ReviewResourceAccess | null> {
+  const access = await resolveResourceAccess(resourceType, resourceId, ctx);
+  // The app's own actions write these comments, so through the kit everyone
+  // only reads them.
+  return access && getReviewableResource(resourceType)?.commentsWrittenByApp
+    ? { ...access, role: "viewer" }
+    : access;
+}
+
+async function resolveResourceAccess(
+  resourceType: string,
+  resourceId: string,
+  ctx?: ReviewResourceContext,
+): Promise<ReviewResourceAccess | null> {
   const registration = getReviewableResource(resourceType);
   if (registration?.resolveAccess) {
     return registration.resolveAccess(resourceId, ctx);
@@ -105,7 +118,8 @@ export async function assertReviewableResourceAccess(
   );
   if (!access || !roleSatisfies(access.role, minimumRole)) {
     throw new ForbiddenError(
-      `Not allowed to access ${resourceType}:${resourceId}`,
+      (access && getReviewableResource(resourceType)?.commentsWrittenByApp) ||
+        `Not allowed to access ${resourceType}:${resourceId}`,
     );
   }
   return access;
@@ -139,7 +153,8 @@ export function reviewSuggestionAuthorRole(
  * Whether this access lets its holder comment, reply and react, and edit or
  * delete their own comments. A viewer-level policy opens that to signed-in
  * viewers only: a caller who isn't signed in, such as a visitor to a public
- * resource, still needs the commenter role.
+ * resource, still needs the commenter role. No one may on a resource whose
+ * comments the app writes.
  */
 export function canCommentOnReviewableResource(
   resourceType: string,
@@ -148,6 +163,7 @@ export function canCommentOnReviewableResource(
 ): access is ReviewResourceAccess {
   return Boolean(
     access &&
+    !getReviewableResource(resourceType)?.commentsWrittenByApp &&
     roleSatisfies(access.role, reviewCommentPolicy(resourceType).minimumRole) &&
     (signedIn || roleSatisfies(access.role, "commenter")),
   );
@@ -164,6 +180,10 @@ export async function assertReviewCommentAccess(
     resourceId,
     ctx,
   );
+  // Someone who can see the resource learns where its comments are written.
+  const writtenByApp = access
+    ? getReviewableResource(resourceType)?.commentsWrittenByApp
+    : undefined;
   if (
     !canCommentOnReviewableResource(
       resourceType,
@@ -172,7 +192,7 @@ export async function assertReviewCommentAccess(
     )
   ) {
     throw new ForbiddenError(
-      `Not allowed to comment on ${resourceType}:${resourceId}`,
+      writtenByApp || `Not allowed to comment on ${resourceType}:${resourceId}`,
     );
   }
   return access;

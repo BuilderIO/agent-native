@@ -17,6 +17,7 @@ export {
 export {
   getDbExec,
   withDbExec,
+  insideDbTransaction,
   createDbExec,
   getDatabaseUrl,
   getMigrationDatabaseUrl,

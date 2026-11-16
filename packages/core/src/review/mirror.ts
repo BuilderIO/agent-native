@@ -1,0 +1,550 @@
+import { getDbExec, insideDbTransaction, type DbExec } from "../db/client.js";
+import { sql, type SqlFragment } from "../db/sql.js";
+import type { Visibility } from "../sharing/schema.js";
+import { ReviewCommentResourceConflictError } from "./errors.js";
+import { ensureReviewTables } from "./store.js";
+import type { ReviewActorKind, ReviewMention } from "./types.js";
+
+/**
+ * One comment as an app's own comment table holds it, in the kit's terms.
+ *
+ * An app moving its comments onto the kit writes them both ways for a
+ * release: to its own table, which it still reads, and through
+ * `mirrorReviewComments` to the kit's, in the same transaction. A startup
+ * copy brings over what it wrote before, and `compareMirroredReviewComments`
+ * checks the two stores agree before the app reads from the kit.
+ */
+export interface ReviewCommentCopy {
+  id: string;
+  threadId: string;
+  parentCommentId: string | null;
+  targetId?: string | null;
+  surfaceId?: string | null;
+  anchor?: unknown;
+  anchorKind?: string | null;
+  anchorVersion?: number | null;
+  body: string;
+  authorEmail: string | null;
+  authorName: string | null;
+  createdBy: ReviewActorKind;
+  mentions?: ReviewMention[];
+  resolved: boolean;
+  /**
+   * Who resolved it and when. The kit keeps the first copy's values while the
+   * comment stays resolved, so a later edit doesn't move them. Left out, a
+   * newly resolved comment counts as resolved at `updatedAt`.
+   */
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  metadata?: Record<string, unknown> | null;
+  /** Who reacted with what. Left out, the comment has no reactions. */
+  reactions?: ReadonlyArray<{ actorEmail: string; reaction: string }>;
+}
+
+/** The resource mirrored comments sit on, with its sharing at the time. */
+export interface ReviewMirrorResource {
+  resourceType: string;
+  resourceId: string;
+  ownerEmail?: string | null;
+  orgId?: string | null;
+  visibility?: Visibility | null;
+}
+
+export interface ReviewMirrorDifference {
+  id: string;
+  /**
+   * `missing`: the app has it and the kit doesn't, or has it deleted.
+   * `extra`: the kit has it live and the app doesn't.
+   * `different`: both have it; `fields` names what differs.
+   */
+  problem: "missing" | "extra" | "different";
+  fields?: string[];
+}
+
+export interface ReviewMirrorComparison {
+  /** How many of the app's comments were checked. */
+  checked: number;
+  differences: ReviewMirrorDifference[];
+}
+
+const BATCH_SIZE = 100;
+
+// In the order `copyValues` binds them.
+const COPY_COLUMNS = [
+  "id",
+  "resource_type",
+  "resource_id",
+  "thread_id",
+  "parent_comment_id",
+  "target_id",
+  "surface_id",
+  "kind",
+  "status",
+  "anchor_json",
+  "anchor_kind",
+  "anchor_version",
+  "revision",
+  "body",
+  "author_email",
+  "author_name",
+  "created_by",
+  "resolution_target",
+  "reply_route_target",
+  "notification_completed_at",
+  "mentions_json",
+  "owner_email",
+  "org_id",
+  "visibility",
+  "resolved_by",
+  "resolved_at",
+  "consumed_at",
+  "deleted_by",
+  "deleted_at",
+  "created_at",
+  "updated_at",
+  "metadata_json",
+] as const;
+
+// What a later copy of the same comment may change. Identity, the resource,
+// and the kit's own bookkeeping (revision, routing, the agent queue and
+// email) stay as the kit has them, and so do who resolved it and when while
+// it stays resolved (`RESOLUTION_UPDATES`).
+const UPDATED_COLUMNS = [
+  "thread_id",
+  "parent_comment_id",
+  "target_id",
+  "surface_id",
+  "status",
+  "anchor_json",
+  "anchor_kind",
+  "anchor_version",
+  "body",
+  "author_email",
+  "author_name",
+  "created_by",
+  "mentions_json",
+  "owner_email",
+  "org_id",
+  "visibility",
+  "deleted_by",
+  "deleted_at",
+  "created_at",
+  "updated_at",
+  "metadata_json",
+] as const;
+
+const RESOLUTION_UPDATES = ["resolved_by", "resolved_at"]
+  .map(
+    (column) => `${column} = CASE
+      WHEN agent_review_comments.status = 'resolved' AND EXCLUDED.status = 'resolved'
+        THEN agent_review_comments.${column}
+      ELSE EXCLUDED.${column} END`,
+  )
+  .join(", ");
+
+function chunks<T>(items: readonly T[], size = BATCH_SIZE): T[][] {
+  const result: T[][] = [];
+  for (let start = 0; start < items.length; start += size) {
+    result.push(items.slice(start, start + size));
+  }
+  return result;
+}
+
+function jsonOrNull(value: unknown): string | null {
+  return value === null || value === undefined ? null : JSON.stringify(value);
+}
+
+function copyValues(
+  resource: ReviewMirrorResource,
+  copy: ReviewCommentCopy,
+): unknown[] {
+  return [
+    copy.id,
+    resource.resourceType,
+    resource.resourceId,
+    copy.threadId,
+    copy.parentCommentId,
+    copy.targetId ?? null,
+    copy.surfaceId ?? null,
+    "comment",
+    copy.resolved ? "resolved" : "open",
+    jsonOrNull(copy.anchor),
+    copy.anchorKind ?? null,
+    copy.anchorVersion ?? null,
+    1,
+    copy.body,
+    copy.authorEmail,
+    copy.authorName,
+    copy.createdBy,
+    null,
+    null,
+    // The app sent this comment's email when it was written, so the kit
+    // never sends it again.
+    copy.createdAt,
+    jsonOrNull(copy.mentions?.length ? copy.mentions : null),
+    resource.ownerEmail ?? copy.authorEmail,
+    resource.orgId ?? null,
+    resource.visibility === "org" || resource.visibility === "public"
+      ? resource.visibility
+      : "private",
+    copy.resolved ? (copy.resolvedBy ?? null) : null,
+    copy.resolved ? (copy.resolvedAt ?? copy.updatedAt) : null,
+    null,
+    null,
+    null,
+    copy.createdAt,
+    copy.updatedAt,
+    jsonOrNull(
+      copy.metadata && Object.keys(copy.metadata).length > 0
+        ? copy.metadata
+        : null,
+    ),
+  ];
+}
+
+// Preparing the kit's tables can change the schema, which mustn't happen in
+// the middle of the app's write, so a caller inside a transaction prepares
+// them before opening it.
+async function prepareTables(): Promise<void> {
+  if (!insideDbTransaction()) await ensureReviewTables();
+}
+
+function inWrite<T>(run: (client: DbExec) => Promise<T>): Promise<T> {
+  const client = getDbExec();
+  // Inside the app's transaction the kit's rows join it, so they commit or
+  // roll back with the app's own.
+  if (insideDbTransaction() || !client.transaction) return run(client);
+  return client.transaction(run);
+}
+
+// Run after the upsert, which locks every row it touched, so another write
+// can't claim one of these IDs for another resource after the check.
+async function assertSameResource(
+  client: DbExec,
+  resource: ReviewMirrorResource,
+  ids: readonly string[],
+): Promise<void> {
+  const { rows } =
+    await client.execute(sql`SELECT id, resource_type, resource_id
+      FROM agent_review_comments
+     WHERE id IN ${sql.in(ids)}`);
+  for (const row of rows) {
+    if (
+      row.resource_type !== resource.resourceType ||
+      row.resource_id !== resource.resourceId
+    ) {
+      throw new ReviewCommentResourceConflictError(String(row.id));
+    }
+  }
+}
+
+function reactionKey(reaction: { actorEmail: string; reaction: string }) {
+  return JSON.stringify([reaction.actorEmail, reaction.reaction]);
+}
+
+async function mirrorReactions(
+  client: DbExec,
+  copies: readonly ReviewCommentCopy[],
+): Promise<void> {
+  const ids = copies.map((copy) => copy.id);
+  const { rows } =
+    await client.execute(sql`SELECT comment_id, actor_email, reaction
+      FROM agent_review_comment_reactions
+     WHERE comment_id IN ${sql.in(ids)}`);
+  const current = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const id = String(row.comment_id);
+    let keys = current.get(id);
+    if (!keys) current.set(id, (keys = new Set()));
+    keys.add(
+      reactionKey({
+        actorEmail: String(row.actor_email),
+        reaction: String(row.reaction),
+      }),
+    );
+  }
+  const removed: SqlFragment[] = [];
+  const added: SqlFragment[] = [];
+  const now = new Date().toISOString();
+  for (const copy of copies) {
+    const have = current.get(copy.id) ?? new Set<string>();
+    const want = new Set((copy.reactions ?? []).map(reactionKey));
+    for (const key of have) {
+      if (want.has(key)) continue;
+      const [actorEmail, reaction] = JSON.parse(key) as [string, string];
+      removed.push(
+        sql`(comment_id = ${sql.value(copy.id)} AND actor_email = ${sql.value(actorEmail)} AND reaction = ${sql.value(reaction)})`,
+      );
+    }
+    for (const key of want) {
+      if (have.has(key)) continue;
+      const [actorEmail, reaction] = JSON.parse(key) as [string, string];
+      added.push(
+        sql`(${sql.value(copy.id)}, ${sql.value(actorEmail)}, ${sql.value(reaction)}, ${sql.value(now)})`,
+      );
+    }
+  }
+  for (const batch of chunks(removed)) {
+    await client.execute(sql`DELETE FROM agent_review_comment_reactions
+       WHERE ${sql.join(batch, sql` OR `)}`);
+  }
+  for (const batch of chunks(added)) {
+    await client.execute(sql`INSERT INTO agent_review_comment_reactions
+        (comment_id, actor_email, reaction, created_at)
+      VALUES ${sql.join(batch, sql`, `)}
+      ON CONFLICT (comment_id, actor_email, reaction) DO NOTHING`);
+  }
+}
+
+/**
+ * Makes the kit's rows for these comments match the app's: adds the ones it
+ * lacks, rewrites the ones that changed (a changed row's revision goes up),
+ * and sets their reactions. A comment the kit has deleted comes back if the
+ * app still has it. Comments not passed are left alone; delete them with
+ * `deleteMirroredReviewComments`.
+ *
+ * Writes straight to the kit's tables, without its write hook or email, since
+ * the app's own action did both. Run inside the app's transaction, it joins
+ * it; call `ensureReviewTables()` before opening that transaction. A comment
+ * ID the kit holds on another resource is refused with a
+ * `ReviewCommentResourceConflictError`, which rolls the write back.
+ */
+export async function mirrorReviewComments(
+  resource: ReviewMirrorResource,
+  copies: readonly ReviewCommentCopy[],
+): Promise<{ written: number }> {
+  if (copies.length === 0) return { written: 0 };
+  await prepareTables();
+  return inWrite(async (client) => {
+    const row = `(${COPY_COLUMNS.map(() => "?").join(", ")})`;
+    const updates = UPDATED_COLUMNS.map(
+      (column) => `${column} = EXCLUDED.${column}`,
+    ).join(", ");
+    const current = UPDATED_COLUMNS.map(
+      (column) => `agent_review_comments.${column}`,
+    ).join(", ");
+    const incoming = UPDATED_COLUMNS.map((column) => `EXCLUDED.${column}`).join(
+      ", ",
+    );
+    let written = 0;
+    for (const batch of chunks(copies)) {
+      // raw-sql-ok: the column lists and placeholders are constant text; every value is bound.
+      const { rows } = await client.execute({
+        sql: `INSERT INTO agent_review_comments (${COPY_COLUMNS.join(", ")})
+          VALUES ${batch.map(() => row).join(", ")}
+          ON CONFLICT (id) DO UPDATE SET ${updates}, ${RESOLUTION_UPDATES},
+            revision = agent_review_comments.revision + 1
+          WHERE agent_review_comments.resource_type = EXCLUDED.resource_type
+            AND agent_review_comments.resource_id = EXCLUDED.resource_id
+            AND (${current}) IS DISTINCT FROM (${incoming})
+          RETURNING id`,
+        args: batch.flatMap((copy) => copyValues(resource, copy)),
+      });
+      written += rows.length;
+      await assertSameResource(
+        client,
+        resource,
+        batch.map((copy) => copy.id),
+      );
+      await mirrorReactions(client, batch);
+    }
+    return { written };
+  });
+}
+
+/**
+ * Marks the app's deleted comments deleted in the kit and clears what someone
+ * wrote in them, as the kit's own delete does. Pass `"all"` when the whole
+ * resource went. Comments the kit lacks or has deleted already are skipped.
+ */
+export async function deleteMirroredReviewComments(
+  resource: ReviewMirrorResource,
+  ids: readonly string[] | "all",
+  deletedBy?: string | null,
+): Promise<{ deleted: number }> {
+  if (ids !== "all" && ids.length === 0) return { deleted: 0 };
+  await prepareTables();
+  const now = new Date().toISOString();
+  const clear = (match: SqlFragment) =>
+    sql`UPDATE agent_review_comments
+          SET status = 'deleted',
+              body = '',
+              mentions_json = NULL,
+              anchor_json = NULL,
+              metadata_json = NULL,
+              deleted_by = ${sql.value(deletedBy ?? null)},
+              deleted_at = ${sql.value(now)},
+              updated_at = ${sql.value(now)},
+              revision = revision + 1
+        WHERE resource_type = ${sql.value(resource.resourceType)}
+          AND resource_id = ${sql.value(resource.resourceId)}
+          AND deleted_at IS NULL
+          ${match}`;
+  return inWrite(async (client) => {
+    if (ids === "all") {
+      const result = await client.execute(clear(sql``));
+      return { deleted: result.rowsAffected };
+    }
+    let deleted = 0;
+    for (const batch of chunks(ids)) {
+      const result = await client.execute(
+        clear(sql`AND id IN ${sql.in(batch)}`),
+      );
+      deleted += result.rowsAffected;
+    }
+    return { deleted };
+  });
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map(
+        (key) =>
+          `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`,
+      )
+      .join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+function parsedJson(value: unknown): unknown {
+  if (typeof value !== "string" || value === "") return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Compares the app's comments on one resource with the kit's: which are
+ * missing, which the kit has extra, and for the rest, any difference in
+ * thread, parent, surface, anchor, text, author, mentions, resolution,
+ * creation time, metadata or reactions. Who resolved a comment and when are
+ * compared only where the app passes them. Sharing and update times aren't
+ * compared.
+ */
+export async function compareMirroredReviewComments(
+  resource: ReviewMirrorResource,
+  copies: readonly ReviewCommentCopy[],
+): Promise<ReviewMirrorComparison> {
+  await prepareTables();
+  const client = getDbExec();
+  const kitRows = new Map<string, Record<string, unknown>>();
+  let after = "";
+  for (;;) {
+    // Paged by id, so a resource with many comments is read a page at a time.
+    const { rows } =
+      await client.execute(sql`SELECT id, thread_id, parent_comment_id, target_id,
+          surface_id, status, anchor_json, anchor_kind, anchor_version, body,
+          author_email, author_name, created_by, mentions_json, resolved_by,
+          resolved_at, created_at, metadata_json, deleted_at
+       FROM agent_review_comments
+      WHERE resource_type = ${sql.value(resource.resourceType)}
+        AND resource_id = ${sql.value(resource.resourceId)}
+        AND id > ${sql.value(after)}
+      ORDER BY id
+      LIMIT 500`);
+    for (const row of rows) kitRows.set(String(row.id), row);
+    const last = rows.at(-1);
+    if (rows.length < 500 || !last) break;
+    after = String(last.id);
+  }
+
+  const kitReactions = new Map<string, string[]>();
+  for (const batch of chunks([...kitRows.keys()])) {
+    const { rows } =
+      await client.execute(sql`SELECT comment_id, actor_email, reaction
+        FROM agent_review_comment_reactions
+       WHERE comment_id IN ${sql.in(batch)}`);
+    for (const row of rows) {
+      const id = String(row.comment_id);
+      const list = kitReactions.get(id) ?? [];
+      list.push(
+        reactionKey({
+          actorEmail: String(row.actor_email),
+          reaction: String(row.reaction),
+        }),
+      );
+      kitReactions.set(id, list);
+    }
+  }
+
+  const differences: ReviewMirrorDifference[] = [];
+  const seen = new Set<string>();
+  for (const copy of copies) {
+    seen.add(copy.id);
+    const row = kitRows.get(copy.id);
+    if (!row || row.deleted_at !== null) {
+      differences.push({ id: copy.id, problem: "missing" });
+      continue;
+    }
+    const expected: Record<string, unknown> = {
+      threadId: copy.threadId,
+      parentCommentId: copy.parentCommentId,
+      targetId: copy.targetId ?? null,
+      surfaceId: copy.surfaceId ?? null,
+      anchor: copy.anchor ?? null,
+      anchorKind: copy.anchorKind ?? null,
+      anchorVersion: copy.anchorVersion ?? null,
+      body: copy.body,
+      authorEmail: copy.authorEmail,
+      authorName: copy.authorName,
+      createdBy: copy.createdBy,
+      mentions: copy.mentions?.length ? copy.mentions : null,
+      status: copy.resolved ? "resolved" : "open",
+      createdAt: copy.createdAt,
+      metadata:
+        copy.metadata && Object.keys(copy.metadata).length > 0
+          ? copy.metadata
+          : null,
+      reactions: (copy.reactions ?? []).map(reactionKey).sort(),
+    };
+    const actual: Record<string, unknown> = {
+      threadId: row.thread_id,
+      parentCommentId: row.parent_comment_id ?? null,
+      targetId: row.target_id ?? null,
+      surfaceId: row.surface_id ?? null,
+      anchor: parsedJson(row.anchor_json),
+      anchorKind: row.anchor_kind ?? null,
+      anchorVersion:
+        row.anchor_version === null || row.anchor_version === undefined
+          ? null
+          : Number(row.anchor_version),
+      body: row.body,
+      authorEmail: row.author_email ?? null,
+      authorName: row.author_name ?? null,
+      createdBy: row.created_by,
+      mentions: parsedJson(row.mentions_json),
+      status: row.status,
+      createdAt: row.created_at,
+      metadata: parsedJson(row.metadata_json),
+      reactions: (kitReactions.get(copy.id) ?? []).sort(),
+    };
+    if (copy.resolvedBy !== undefined) {
+      expected.resolvedBy = copy.resolved ? copy.resolvedBy : null;
+      actual.resolvedBy = row.resolved_by ?? null;
+    }
+    if (copy.resolvedAt != null) {
+      expected.resolvedAt = copy.resolved ? copy.resolvedAt : null;
+      actual.resolvedAt = row.resolved_at ?? null;
+    }
+    const fields = Object.keys(expected).filter(
+      (field) => stableJson(expected[field]) !== stableJson(actual[field]),
+    );
+    if (fields.length > 0) {
+      differences.push({ id: copy.id, problem: "different", fields });
+    }
+  }
+  for (const [id, row] of kitRows) {
+    if (!seen.has(id) && row.deleted_at === null) {
+      differences.push({ id, problem: "extra" });
+    }
+  }
+  return { checked: copies.length, differences };
+}

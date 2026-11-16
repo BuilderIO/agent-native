@@ -2503,6 +2503,20 @@ export function insideDbTransactionCallback(): boolean {
   return transactionCallbacks.getStore()?.active === true;
 }
 
+/**
+ * True inside any open transaction: a Drizzle `db.transaction()` scope,
+ * PGlite's included, or a `getDbExec().transaction()` callback. Code that
+ * should join the caller's transaction rather than open its own asks this,
+ * since PGlite can't nest one.
+ */
+export function insideDbTransaction(): boolean {
+  return (
+    getScopedDbExec() !== undefined ||
+    insideDbTransactionCallback() ||
+    (pgliteTransactionStorage?.getStore()?.size ?? 0) > 0
+  );
+}
+
 async function inTransactionCallback<T>(
   exec: DbExec,
   run: () => Promise<T>,
