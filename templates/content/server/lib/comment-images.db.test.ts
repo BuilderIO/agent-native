@@ -11,6 +11,8 @@ import { eq } from "drizzle-orm";
 import { H3 } from "h3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { firstRow } from "./first-row.js";
+
 const owners = vi.hoisted(() => new Map<string, string>());
 const session = vi.hoisted(() => ({ email: "" }));
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
@@ -148,11 +150,12 @@ function comment(
 }
 
 async function storedImages(commentId: string) {
-  const [row] = await db
+  const rows = await db
     .select({ attachmentsJson: schema.documentComments.attachmentsJson })
     .from(schema.documentComments)
     .where(eq(schema.documentComments.id, commentId));
-  return row.attachmentsJson;
+  expect(rows).toHaveLength(1);
+  return firstRow(rows)?.attachmentsJson ?? null;
 }
 
 async function status(id: string, email = "") {
@@ -218,7 +221,7 @@ describe("comment images", () => {
     const listed = await as(VIEWER, () =>
       listComments.run({ documentId: doc }, { caller: "mcp" }),
     );
-    expect(listed.privateMediaLinks.links).toEqual([
+    expect(listed.privateMediaLinks?.links).toEqual([
       {
         src: `/api/private-media/${id}`,
         url: expect.stringContaining(`/api/private-media/${id}?`),

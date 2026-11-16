@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   getRequestUserEmail,
@@ -64,8 +64,9 @@ export default defineAction({
       args.attachments === undefined &&
       args.resolved === undefined
     ) {
-      throw new Error(
+      fail(
         "Provide content, mentions, attachments, or resolved to update a comment",
+        { statusCode: 400, errorCode: "comment_update_empty" },
       );
     }
 
