@@ -1,4 +1,9 @@
-import { parse, serialize, type DefaultTreeAdapterMap } from "parse5";
+import {
+  defaultTreeAdapter,
+  parse,
+  serialize,
+  type DefaultTreeAdapterMap,
+} from "parse5";
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 
@@ -142,20 +147,23 @@ function inertReferenceHtml(
   );
   if (!htmlNode || !("childNodes" in htmlNode))
     throw new ReferenceCopyError("Reference document has no HTML root.", 422);
-  let head = htmlNode.childNodes.find(
+  const existingHead = htmlNode.childNodes.find(
     (node) => "tagName" in node && node.tagName === "head",
   );
-  if (!head || !("childNodes" in head)) {
-    head = {
-      nodeName: "head",
-      tagName: "head",
-      attrs: [],
-      childNodes: [],
-      parentNode: htmlNode,
-    } as typeof head;
-    htmlNode.childNodes.unshift(head);
+  let headNode: DefaultTreeAdapterMap["element"];
+  if (existingHead && "tagName" in existingHead) {
+    headNode = existingHead;
+  } else {
+    headNode = defaultTreeAdapter.createElement(
+      "head",
+      htmlNode.namespaceURI,
+      [],
+    );
+    const firstChild = htmlNode.childNodes[0];
+    if (firstChild)
+      defaultTreeAdapter.insertBefore(htmlNode, headNode, firstChild);
+    else defaultTreeAdapter.appendChild(htmlNode, headNode);
   }
-  const headNode = head as DefaultTreeAdapterMap["element"];
   const bridgeOrigin = new URL(bridgeUrl).origin;
   const csp = [
     "default-src 'none'",
@@ -169,28 +177,30 @@ function inertReferenceHtml(
   ]
     .map((directive) => directive.trim())
     .join("; ");
-  headNode.childNodes.unshift(
-    {
-      nodeName: "meta",
-      tagName: "meta",
-      attrs: [
-        { name: "http-equiv", value: "Content-Security-Policy" },
-        { name: "content", value: csp },
-      ],
-      childNodes: [],
-      parentNode: headNode,
-    },
-    {
-      nodeName: "meta",
-      tagName: "meta",
-      attrs: [
-        { name: "name", value: "referrer" },
-        { name: "content", value: "no-referrer" },
-      ],
-      childNodes: [],
-      parentNode: headNode,
-    },
+  const cspMeta = defaultTreeAdapter.createElement(
+    "meta",
+    headNode.namespaceURI,
+    [
+      { name: "http-equiv", value: "Content-Security-Policy" },
+      { name: "content", value: csp },
+    ],
   );
+  const referrerMeta = defaultTreeAdapter.createElement(
+    "meta",
+    headNode.namespaceURI,
+    [
+      { name: "name", value: "referrer" },
+      { name: "content", value: "no-referrer" },
+    ],
+  );
+  const firstHeadChild = headNode.childNodes[0];
+  if (firstHeadChild) {
+    defaultTreeAdapter.insertBefore(headNode, referrerMeta, firstHeadChild);
+    defaultTreeAdapter.insertBefore(headNode, cspMeta, referrerMeta);
+  } else {
+    defaultTreeAdapter.appendChild(headNode, cspMeta);
+    defaultTreeAdapter.appendChild(headNode, referrerMeta);
+  }
   return serialize(document);
 }
 
