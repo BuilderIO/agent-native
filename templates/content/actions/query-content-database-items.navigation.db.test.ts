@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { ActionRunContext } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import {
@@ -23,11 +24,18 @@ import {
 import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
   type ContentDatabaseFilter,
+  type ContentDatabaseFilterMode,
   type ContentDatabaseItem,
   type ContentDatabaseNavigationPageResponse,
   type DocumentProperty,
 } from "../shared/api.js";
-import { applyContentDatabaseTableQuery } from "../shared/database-query.js";
+import {
+  applyContentDatabaseTableQuery,
+  contentDatabaseFilterOperatorNeedsValue,
+  contentDatabaseFilterOperatorsForType,
+  contentDatabaseFilterToday,
+} from "../shared/database-query.js";
+import type { DocumentPropertyType } from "../shared/properties.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -2260,5 +2268,638 @@ describe("Files navigation text and date filters", () => {
     expect(await navigatedIds(isToday, "America/New_York")).toEqual(
       ids("oct-29"),
     );
+  });
+});
+
+describe("Files navigation filters on stored property values", () => {
+  const PARENT_ID = "stored-filter-parent";
+  const color = "gray";
+  const definitions = {
+    notes: { id: "stored-notes", name: "Notes", type: "text", options: {} },
+    site: { id: "stored-site", name: "Site", type: "url", options: {} },
+    points: {
+      id: "stored-points",
+      name: "Points",
+      type: "number",
+      options: {},
+    },
+    done: { id: "stored-done", name: "Done", type: "checkbox", options: {} },
+    stage: {
+      id: "stored-stage",
+      name: "Stage",
+      type: "select",
+      options: {
+        options: [
+          { id: "stage-idea", name: "Idea", color },
+          { id: "stage-draft", name: "Draft", color },
+          { id: "stage-live", name: "Live", color },
+        ],
+      },
+    },
+    state: {
+      id: "stored-state",
+      name: "State",
+      type: "status",
+      options: {
+        options: [
+          { id: "state-todo", name: "Not started", color },
+          { id: "state-doing", name: "In progress", color },
+          { id: "state-done", name: "Done", color },
+        ],
+      },
+    },
+    tags: {
+      id: "stored-tags",
+      name: "Tags",
+      type: "multi_select",
+      options: {
+        options: [
+          { id: "tag-red", name: "Red", color },
+          { id: "tag-blue", name: "Blue", color },
+          { id: "tag-green", name: "Light green", color },
+        ],
+      },
+    },
+    owner: { id: "stored-owner", name: "Owner", type: "person", options: {} },
+    due: { id: "stored-due", name: "Due", type: "date", options: {} },
+  } satisfies Record<
+    string,
+    Pick<DocumentProperty["definition"], "id" | "name" | "type" | "options">
+  >;
+  type Key = keyof typeof definitions;
+  const keys = Object.keys(definitions) as Key[];
+  // Each page's stored values. A property left out has no stored value, and
+  // null is stored as JSON null. Some are shapes the app no longer writes.
+  const files: Array<{ id: string; values: Partial<Record<Key, unknown>> }> = [
+    {
+      id: "launch",
+      values: {
+        notes: "Ship the launch plan",
+        site: "https://example.com/Launch",
+        points: 5,
+        done: true,
+        stage: "stage-draft",
+        state: "state-doing",
+        tags: ["tag-red", "tag-blue"],
+        owner: ["alice@example.com"],
+        due: { start: "2026-10-22", includeTime: false },
+      },
+    },
+    {
+      id: "recap",
+      values: {
+        notes: "  Launch recap\t",
+        site: "",
+        points: "12",
+        done: false,
+        stage: "stage-live",
+        state: "state-done",
+        tags: ["tag-green"],
+        owner: ["bo@example.com", "alice@example.com"],
+        due: { start: "2026-10-22T09:30", includeTime: true },
+      },
+    },
+    {
+      id: "retired",
+      values: {
+        notes: null,
+        points: -3.5,
+        stage: "Retired",
+        state: null,
+        tags: [],
+        due: { start: "2026-10-23T03:30", includeTime: true },
+      },
+    },
+    {
+      id: "odd",
+      values: {
+        notes: "",
+        points: 0,
+        done: "yes",
+        tags: ["tag-unknown"],
+        owner: [],
+        due: "2026-10-21",
+      },
+    },
+    { id: "empty", values: {} },
+    {
+      id: "draft",
+      values: {
+        notes: "Draft",
+        points: "abc",
+        stage: "stage-idea",
+        state: "state-todo",
+        tags: ["tag-blue"],
+        due: { start: "2026-10-22T20:00:00+02:00", includeTime: true },
+      },
+    },
+    {
+      id: "range",
+      values: {
+        notes: "launch",
+        points: " 7 ",
+        tags: ["tag-red"],
+        due: { start: "2026-10-20", end: "2026-10-25", includeTime: false },
+      },
+    },
+    {
+      id: "bad-date",
+      values: {
+        points: 1e21,
+        due: { start: "2026-02-30T10:00", includeTime: true },
+      },
+    },
+    // New York skips 02:00 to 03:00 on 8 March 2026, and runs 01:00 to 02:00
+    // twice on 1 November.
+    {
+      id: "gap",
+      values: { due: { start: "2026-03-08T02:30", includeTime: true } },
+    },
+    {
+      id: "after-gap",
+      values: { due: { start: "2026-03-08T03:15", includeTime: true } },
+    },
+    {
+      id: "overlap",
+      values: { due: { start: "2026-11-01T01:30", includeTime: true } },
+    },
+  ];
+  const fileIds = files.map((file) => file.id);
+  // Types whose values are worked out as a row is read.
+  const computedTypes = [
+    "formula",
+    "rollup",
+    "relation",
+    "files_media",
+    "blocks",
+    "id",
+  ] as const;
+
+  beforeAll(async () => {
+    for (const definition of Object.values(definitions)) {
+      await getDb()
+        .insert(schema.documentPropertyDefinitions)
+        .values({
+          id: definition.id,
+          ownerEmail: OWNER,
+          databaseId: DATABASE_ID,
+          name: definition.name,
+          type: definition.type,
+          optionsJson: JSON.stringify(definition.options),
+        });
+    }
+    for (const type of computedTypes) {
+      await getDb()
+        .insert(schema.documentPropertyDefinitions)
+        .values({
+          id: `stored-computed-${type}`,
+          ownerEmail: OWNER,
+          databaseId: DATABASE_ID,
+          name: type,
+          type,
+        });
+    }
+    await addFile({ id: PARENT_ID, position: 800 });
+    for (const [position, file] of files.entries()) {
+      await addFile({
+        id: `stored-${file.id}`,
+        title: file.id,
+        parentId: PARENT_ID,
+        position,
+      });
+      for (const key of keys) {
+        if (!(key in file.values)) continue;
+        await getDb()
+          .insert(schema.documentPropertyValues)
+          .values({
+            id: `stored-value-${file.id}-${key}`,
+            ownerEmail: OWNER,
+            documentId: `stored-${file.id}`,
+            propertyId: definitions[key].id,
+            valueJson: JSON.stringify(file.values[key]),
+          });
+      }
+    }
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: "{}" })
+      .where(eq(schema.contentDatabases.id, DATABASE_ID));
+  });
+
+  // Each Files row as the shared evaluator sees it, with every value read
+  // back from its JSON as the table reads it.
+  const propertyByKey = keys.map((key, position) => ({
+    key,
+    property: {
+      definition: {
+        ...definitions[key],
+        databaseId: DATABASE_ID,
+        visibility: "always_show",
+        position,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      value: null,
+      editable: true,
+    } satisfies DocumentProperty,
+  }));
+  const evaluatorProperties: DocumentProperty[] = propertyByKey.map(
+    ({ property }) => property,
+  );
+  const evaluatorItems: ContentDatabaseItem[] = files.map((file, position) => ({
+    id: `membership-stored-${file.id}`,
+    databaseId: DATABASE_ID,
+    position,
+    document: {
+      id: file.id,
+      parentId: PARENT_ID,
+      title: file.id,
+      content: "",
+      icon: null,
+      position,
+      isFavorite: false,
+      hideFromSearch: false,
+      visibility: "private",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    properties: propertyByKey.map(({ key, property }) => {
+      const value = file.values[key];
+      return {
+        ...property,
+        value: value === undefined ? null : JSON.parse(JSON.stringify(value)),
+      };
+    }),
+  }));
+
+  async function setView(
+    filters: ContentDatabaseFilter[],
+    filterMode: ContentDatabaseFilterMode = "and",
+  ) {
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: JSON.stringify({
+          activeViewId: "default",
+          views: [
+            {
+              id: "default",
+              name: "Table",
+              type: "table",
+              sorts: [],
+              filters,
+              filterMode,
+              columnWidths: {},
+            },
+          ],
+        }),
+      })
+      .where(eq(schema.contentDatabases.id, DATABASE_ID));
+  }
+
+  const readPage = (
+    timezone: string,
+    options: { cursor?: string; limit?: number } = {},
+  ) =>
+    runWithRequestContext({ userEmail: OWNER, timezone }, () =>
+      action.run(
+        {
+          databaseId: DATABASE_ID,
+          navigation: {
+            parentId: PARENT_ID,
+            viewId: "default",
+            cursor: options.cursor,
+          },
+          ...(options.limit ? { limit: options.limit } : {}),
+        },
+        // Without a caller, as the other tests here call it.
+        { userEmail: OWNER } as ActionRunContext,
+      ),
+    ) as Promise<ContentDatabaseNavigationPageResponse>;
+
+  async function navigatedIds(
+    filters: ContentDatabaseFilter[],
+    timezone: string,
+    filterMode: ContentDatabaseFilterMode = "and",
+  ) {
+    await setView(filters, filterMode);
+    const page = await readPage(timezone);
+    return page.items
+      .map((item) => item.documentId.replace(/^stored-/, ""))
+      .sort();
+  }
+
+  function evaluatedIds(
+    filters: ContentDatabaseFilter[],
+    timeZone: string,
+    filterMode: ContentDatabaseFilterMode = "and",
+  ) {
+    return applyContentDatabaseTableQuery(
+      evaluatorItems,
+      evaluatorProperties,
+      { search: "", filters, sorts: [], filterMode },
+      { today: contentDatabaseFilterToday(timeZone), timeZone },
+    )
+      .map((item) => item.document.id)
+      .sort();
+  }
+
+  const on = (
+    key: Key | "name",
+    operator: ContentDatabaseFilter["operator"],
+    value = "",
+  ): ContentDatabaseFilter => ({
+    key: key === "name" ? "name" : definitions[key].id,
+    label: key,
+    operator,
+    value,
+  });
+  const except = (...excluded: string[]) =>
+    fileIds.filter((id) => !excluded.includes(id)).sort();
+  const rows = (...included: string[]) => [...included].sort();
+
+  // 12:00 on 22 October in New York, 01:00 on the 23rd in Tokyo.
+  const NOW = new Date("2026-10-22T16:00:00.000Z");
+
+  it("matches the shared evaluator on each property type", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const october22 = ["launch", "recap", "draft"];
+    const expected: Array<[ContentDatabaseFilter, string[]]> = [
+      // Text, trimmed and lowercased; an unset or JSON null value is empty.
+      [on("notes", "contains", "launch"), rows("launch", "recap", "range")],
+      [on("notes", "equals", "Launch Recap"), rows("recap")],
+      [on("notes", "starts_with", "ship"), rows("launch")],
+      [on("notes", "ends_with", "RECAP"), rows("recap")],
+      [
+        on("notes", "does_not_contain", "launch"),
+        except("launch", "recap", "range"),
+      ],
+      [on("notes", "is_empty"), except("launch", "recap", "draft", "range")],
+      [on("site", "contains", "example.com/launch"), rows("launch")],
+      [on("site", "is_not_empty"), rows("launch")],
+      // Numbers, stored as numbers or as numeric text.
+      [
+        on("points", "greater_than", "4"),
+        rows("launch", "recap", "range", "bad-date"),
+      ],
+      [on("points", "less_than_or_equal", "0"), rows("retired", "odd")],
+      [on("points", "equals", "12"), rows("recap")],
+      [on("points", "greater_than", "many"), []],
+      [on("points", "is_empty"), rows("empty", "gap", "after-gap", "overlap")],
+      // Only true is checked, and an unset checkbox is unchecked.
+      [on("done", "is_checked"), rows("launch")],
+      [on("done", "is_unchecked"), except("launch")],
+      // Options by name or ID, in any case; an unknown ID stands for itself.
+      [on("stage", "equals", "draft"), rows("launch")],
+      [
+        on("stage", "contains", JSON.stringify(["Idea", "stage-live"])),
+        rows("draft", "recap"),
+      ],
+      [on("stage", "does_not_equal", "Draft"), except("launch")],
+      [on("stage", "equals", "retired"), rows("retired")],
+      [on("stage", "starts_with", "dr"), rows("launch")],
+      [on("state", "equals", "In progress"), rows("launch")],
+      [on("state", "is_empty"), except("launch", "recap", "draft")],
+      // Lists match when any of their values does.
+      [on("tags", "contains", "red"), rows("launch", "range")],
+      [
+        on("tags", "contains", JSON.stringify(["Light green", "tag-blue"])),
+        rows("launch", "recap", "draft"),
+      ],
+      [on("tags", "does_not_equal", "Red"), except("launch", "range")],
+      [
+        on("tags", "is_empty"),
+        rows("retired", "empty", "bad-date", "gap", "after-gap", "overlap"),
+      ],
+      [on("tags", "contains", "tag-unknown"), rows("odd")],
+      [on("tags", "starts_with", "red b"), rows("launch")],
+      [on("owner", "contains", "ALICE@example.com"), rows("launch", "recap")],
+      [
+        on("owner", "does_not_equal", "alice@example.com"),
+        except("launch", "recap"),
+      ],
+      // Dates by the day they're written on.
+      [on("due", "equals", "2026-10-22"), rows(...october22)],
+      [
+        on("due", "before", "today"),
+        rows("odd", "range", "bad-date", "gap", "after-gap"),
+      ],
+      [on("due", "is_within", "next_7_days"), rows(...october22, "retired")],
+      [
+        on("due", "between", JSON.stringify(["2026-10-21", "2026-10-22"])),
+        rows(...october22, "odd"),
+      ],
+      // A moment: times without an offset are New York's, and a date without
+      // a time is compared by the day the moment falls on there.
+      [
+        on("due", "on_or_after", "2026-10-22T12:00"),
+        rows("launch", "retired", "draft", "overlap"),
+      ],
+      [
+        on("due", "does_not_equal", "2026-10-22T09:30"),
+        except("launch", "recap"),
+      ],
+      [
+        on("due", "after", "2026-10-22T17:59:00.000Z"),
+        rows("retired", "draft", "overlap"),
+      ],
+      // 02:30 doesn't exist and reads as 03:30, after 03:15.
+      [on("due", "before", "2026-03-08T07:20:00.000Z"), rows("after-gap")],
+      // 01:30 happens twice and reads as the first.
+      [on("due", "on_or_after", "2026-11-01T05:30:00.000Z"), rows("overlap")],
+      [on("due", "on_or_after", "2026-11-01T05:31:00.000Z"), []],
+    ];
+    for (const [filter, ids] of expected) {
+      const label = JSON.stringify(filter);
+      expect(await navigatedIds([filter], "America/New_York"), label).toEqual(
+        ids,
+      );
+      expect(evaluatedIds([filter], "America/New_York"), label).toEqual(ids);
+    }
+  });
+
+  it("matches the shared evaluator on every operator a property offers", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const dates = [
+      "2026-10-22",
+      "today",
+      "yesterday",
+      "2026-10-22T12:00",
+      "2026-10-22T18:00:00.000Z",
+      "2026-03-08T07:20:00.000Z",
+      "2026-11-01T01:30",
+      "2026-02-30",
+    ];
+    const valuesByType: Partial<Record<DocumentPropertyType, string[]>> = {
+      text: ["launch", "Launch Recap", "draft", "ship the"],
+      url: ["example.com/launch", "https://example.com/launch", "HTTPS"],
+      number: ["5", "12", "-3.5", "0", "1e21", "abc"],
+      select: [
+        "Draft",
+        "stage-live",
+        JSON.stringify(["Idea", "stage-live"]),
+        "Retired",
+      ],
+      status: ["In progress", "state-done", "Not started"],
+      multi_select: [
+        "Red",
+        JSON.stringify(["Light green", "tag-blue"]),
+        "tag-unknown",
+      ],
+      person: ["alice@example.com", JSON.stringify(["bo@example.com"])],
+      date: dates,
+    };
+    const valuesFor = (
+      type: DocumentPropertyType,
+      operator: ContentDatabaseFilter["operator"],
+    ) => {
+      if (!contentDatabaseFilterOperatorNeedsValue(operator)) return [""];
+      if (operator === "between") {
+        return [
+          JSON.stringify(["2026-10-21", "2026-10-22"]),
+          JSON.stringify(["2026-10-22T09:00", "tomorrow"]),
+        ];
+      }
+      if (operator === "is_within") {
+        return ["next_7_days", "past_7_days", "this_week"];
+      }
+      return valuesByType[type] ?? [];
+    };
+    const sweep = keys.flatMap((key) =>
+      contentDatabaseFilterOperatorsForType(definitions[key].type).flatMap(
+        (operator) =>
+          valuesFor(definitions[key].type, operator).map((value) => ({
+            filter: on(key, operator, value),
+            zones:
+              key === "due"
+                ? ["America/New_York", "Asia/Tokyo"]
+                : ["America/New_York"],
+          })),
+      ),
+    );
+    let narrowing = 0;
+    for (const { filter, zones } of sweep) {
+      for (const zone of zones) {
+        const label = `${JSON.stringify(filter)} in ${zone}`;
+        const evaluated = evaluatedIds([filter], zone);
+        expect(await navigatedIds([filter], zone), label).toEqual(evaluated);
+        if (evaluated.length > 0 && evaluated.length < files.length)
+          narrowing++;
+      }
+    }
+    // Most filters keep some rows and drop others, so agreeing means something.
+    expect(narrowing).toBeGreaterThan(sweep.length / 2);
+  }, 120_000);
+
+  it("combines stored-value filters with other filters and groups", async () => {
+    const cases: Array<
+      [ContentDatabaseFilter[], ContentDatabaseFilterMode, string[]]
+    > = [
+      [
+        [on("stage", "equals", "Draft"), on("tags", "contains", "Light green")],
+        "or",
+        rows("launch", "recap"),
+      ],
+      [
+        [on("name", "contains", "a"), on("tags", "is_not_empty")],
+        "and",
+        rows("launch", "recap", "draft", "range"),
+      ],
+      [
+        [
+          on("state", "equals", "Not started"),
+          {
+            ...on("points", "greater_than", "4"),
+            filterGroupId: "high",
+            filterGroupMode: "and",
+          },
+          {
+            ...on("done", "is_unchecked"),
+            filterGroupId: "high",
+            filterGroupMode: "and",
+          },
+        ],
+        "or",
+        rows("recap", "range", "bad-date", "draft"),
+      ],
+    ];
+    for (const [filters, mode, ids] of cases) {
+      const label = JSON.stringify(filters);
+      expect(await navigatedIds(filters, "UTC", mode), label).toEqual(ids);
+      expect(evaluatedIds(filters, "UTC", mode), label).toEqual(ids);
+    }
+  });
+
+  it("pages through rows a stored-value filter keeps", async () => {
+    await setView([on("tags", "is_not_empty")]);
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const page = await readPage("UTC", { cursor, limit: 2 });
+      seen.push(...page.items.map((item) => item.documentId));
+      cursor = page.pagination.nextCursor ?? undefined;
+      pages++;
+    } while (cursor);
+    expect(pages).toBe(3);
+    expect(seen.map((id) => id.replace(/^stored-/, "")).sort()).toEqual(
+      rows("launch", "recap", "odd", "draft", "range"),
+    );
+  });
+
+  it("gives a row children only when a child passes the filter", async () => {
+    await addFile({ id: "stored-launch-child", parentId: "stored-launch" });
+    await addFile({ id: "stored-recap-child", parentId: "stored-recap" });
+    await getDb()
+      .insert(schema.documentPropertyValues)
+      .values([
+        {
+          id: "stored-value-launch-child-notes",
+          ownerEmail: OWNER,
+          documentId: "stored-launch-child",
+          propertyId: definitions.notes.id,
+          valueJson: JSON.stringify("Launch notes"),
+        },
+        {
+          id: "stored-value-recap-child-notes",
+          ownerEmail: OWNER,
+          documentId: "stored-recap-child",
+          propertyId: definitions.notes.id,
+          valueJson: JSON.stringify("Other notes"),
+        },
+      ]);
+    await setView([on("notes", "contains", "launch")]);
+    const page = await readPage("UTC");
+    expect(
+      Object.fromEntries(
+        page.items.map((item) => [item.documentId, item.hasChildren]),
+      ),
+    ).toEqual({
+      "stored-launch": true,
+      "stored-recap": false,
+      "stored-range": false,
+    });
+  });
+
+  it("refuses filters on values worked out as a row is read", async () => {
+    for (const type of computedTypes) {
+      await setView([
+        {
+          key: `stored-computed-${type}`,
+          label: type,
+          operator: "is_not_empty",
+          value: "",
+        },
+      ]);
+      await expect(readPage("UTC"), type).rejects.toMatchObject({
+        errorCode: "unsupported_navigation_filter_expression",
+      });
+    }
   });
 });
