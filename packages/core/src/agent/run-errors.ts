@@ -33,19 +33,43 @@ export const AGENT_RUN_NO_OUTPUT_ERROR_CODE = "agent_run_no_output";
 export const AGENT_RUN_NO_OUTPUT_MESSAGE =
   "The agent run ended without producing a response.";
 
+interface IncompleteAgentRunFailure {
+  code: string;
+  message: string;
+  statusCode?: number;
+  providerRetryable?: boolean;
+}
+
 export function incompleteAgentRunFailure(input: {
   dispatchedModelCalls: number;
   hasVisibleText: boolean;
   hasSuccessfulToolOutput: boolean;
+  lastResumableError?: unknown;
   reason?:
     | "continuation_limit"
     | Exclude<AgentLoopContinuationReason, "max_tokens">;
-}): { code: string; message: string } {
+}): IncompleteAgentRunFailure {
   const hasNoOutput =
     input.dispatchedModelCalls === 0 &&
     !input.hasVisibleText &&
     !input.hasSuccessfulToolOutput;
   if (hasNoOutput) {
+    const error = input.lastResumableError;
+    if (
+      error instanceof EngineError &&
+      error.errorCode &&
+      error.statusCode !== undefined &&
+      error.statusCode >= 500 &&
+      error.statusCode <= 599 &&
+      error.providerRetryable !== false
+    ) {
+      return {
+        code: error.errorCode,
+        message: error.message,
+        statusCode: error.statusCode,
+        providerRetryable: true,
+      };
+    }
     return {
       code: AGENT_RUN_NO_OUTPUT_ERROR_CODE,
       message: AGENT_RUN_NO_OUTPUT_MESSAGE,
@@ -90,13 +114,13 @@ export function incompleteAgentRunFailure(input: {
 export class IncompleteAgentRunError extends EngineError {
   readonly usage: AgentLoopUsage;
 
-  constructor(
-    failure: { code: string; message: string },
-    usage: AgentLoopUsage,
-  ) {
+  constructor(failure: IncompleteAgentRunFailure, usage: AgentLoopUsage) {
     super(failure.message, {
       errorCode: failure.code,
-      providerRetryable: false,
+      ...(failure.statusCode !== undefined
+        ? { statusCode: failure.statusCode }
+        : {}),
+      providerRetryable: failure.providerRetryable ?? false,
     });
     this.usage = { ...usage };
   }

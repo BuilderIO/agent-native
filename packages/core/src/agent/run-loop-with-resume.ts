@@ -400,6 +400,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       : MAX_RUN_LOOP_CONTINUATIONS;
   let backgroundRateLimitContinuations = 0;
   let lastAttemptWasUnfinishedContinuation = false;
+  let lastResumableError: unknown;
   while (!turnSignal.aborted && attempts < maxRunLoopContinuations) {
     const roundTimeoutMs =
       timeoutMs <= 0
@@ -416,6 +417,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
     }
     attempts++;
     lastAttemptWasUnfinishedContinuation = false;
+    lastResumableError = undefined;
     const controller = new AbortController();
     const abortFromUpstream = () => controller.abort();
     const roundChunkSignal = chunkSignal;
@@ -640,6 +642,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
         isResumableStreamFailure(err, localTurnEvents.slice(attemptStartIndex))
       ) {
         lastAttemptWasUnfinishedContinuation = true;
+        lastResumableError = err;
         await clearUnseenDraftIfSafe();
         await appendContinuationAndJournal(
           opts.messages,
@@ -684,11 +687,12 @@ export async function runAgentLoopDirectWithSoftTimeout(
         (event) => event.type === "tool_done" && event.isError !== true,
       ),
       reason: "continuation_limit",
+      lastResumableError,
     });
     reportFinalOutcome({
       state: "failed",
       code: failure.code,
-      retryable: false,
+      retryable: failure.providerRetryable === true,
       message: failure.message,
     });
     throw new IncompleteAgentRunError(failure, usage);

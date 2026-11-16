@@ -1293,6 +1293,42 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
   });
 
+  it("does not carry a prior 503 over a later no-output continuation", async () => {
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        throw new EngineError("temporarily unavailable", {
+          errorCode: "http_503",
+          statusCode: 503,
+          providerRetryable: true,
+        });
+      }
+      opts.send({ type: "auto_continue", reason: "stream_ended" });
+      return {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+        ),
+        60_000,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "agent_run_no_output",
+      providerRetryable: false,
+    });
+    expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
+  });
+
   it("throws a loud typed error when the continuation budget is exhausted mid-step", async () => {
     const sentEvents: AgentChatEvent[] = [];
     const outcomes: AgentLoopOutcome[] = [];

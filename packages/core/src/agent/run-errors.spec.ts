@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { EngineError } from "./engine/types.js";
 import {
   AGENT_RUN_NO_OUTPUT_ERROR_CODE,
   AGENT_RUN_NO_OUTPUT_MESSAGE,
@@ -56,6 +57,44 @@ describe("incompleteAgentRunFailure", () => {
       });
     },
   );
+
+  it("does not replace a no-output failure with a non-retryable upstream error", () => {
+    expect(
+      incompleteAgentRunFailure({
+        dispatchedModelCalls: 0,
+        hasVisibleText: false,
+        hasSuccessfulToolOutput: false,
+        reason: "continuation_limit",
+        lastResumableError: new EngineError("rejected", {
+          errorCode: "http_503",
+          statusCode: 503,
+          providerRetryable: false,
+        }),
+      }),
+    ).toEqual({
+      code: AGENT_RUN_NO_OUTPUT_ERROR_CODE,
+      message: AGENT_RUN_NO_OUTPUT_MESSAGE,
+    });
+  });
+
+  it("keeps continuation exhaustion terminal after partial work", () => {
+    expect(
+      incompleteAgentRunFailure({
+        dispatchedModelCalls: 1,
+        hasVisibleText: true,
+        hasSuccessfulToolOutput: true,
+        reason: "continuation_limit",
+        lastResumableError: new EngineError("unavailable", {
+          errorCode: "http_503",
+          statusCode: 503,
+          providerRetryable: true,
+        }),
+      }),
+    ).toEqual({
+      code: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      message: RUN_CONTINUATION_LIMIT_EXHAUSTED_MESSAGE,
+    });
+  });
 
   it("reports continuation-count exhaustion without claiming time ran out", () => {
     expect(

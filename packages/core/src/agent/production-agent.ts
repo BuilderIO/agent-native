@@ -12593,12 +12593,14 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     historyPrivacyState,
   );
   let lastAttemptWasUnfinishedContinuation = false;
+  let lastResumableError: unknown;
   for (
     let attempt = 0;
     !opts.signal.aborted && attempt < maxContinuations;
     attempt++
   ) {
     lastAttemptWasUnfinishedContinuation = false;
+    lastResumableError = undefined;
     continuationReason = undefined;
     const attemptStartIndex = localTurnEvents.length;
 
@@ -12634,6 +12636,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       ) {
         throw err;
       }
+      lastResumableError = err;
       continuationReason = continuationReasonForResumableError(err);
     }
 
@@ -12672,12 +12675,13 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       hasVisibleText: turnHasVisibleText(localTurnEvents),
       hasSuccessfulToolOutput: producedToolOutput,
       reason: "continuation_limit",
+      lastResumableError,
     });
     try {
       opts.onOutcome?.({
         state: "failed",
         code: failure.code,
-        retryable: false,
+        retryable: failure.providerRetryable === true,
         message: failure.message,
       });
     } catch {

@@ -5,7 +5,10 @@ import type {
   EngineEvent,
   EngineMessage,
 } from "./engine/types.js";
-import { AGENT_INTERNAL_CONTINUE_PROMPT } from "./production-agent.js";
+import {
+  AGENT_INTERNAL_CONTINUE_PROMPT,
+  runAgentLoopWithMainChatInternalContinuations,
+} from "./production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "./run-loop-with-resume.js";
 
 function fakeEngineWithGatewayTimeoutThenSuccess(): {
@@ -132,6 +135,106 @@ describe("end-to-end: gateway timeout → resume", () => {
       .join("");
     expect(finalText).toContain("Here is your design (resumed cleanly).");
   });
+
+  it.each(
+    (["main-chat", "background"] as const).flatMap((lane) =>
+      [false, true].map((privateContent) => ({ lane, privateContent })),
+    ),
+  )(
+    "preserves a retryable pre-dispatch 503 when $lane continuations are exhausted (private=$privateContent)",
+    async ({ lane, privateContent }) => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      vi.spyOn(Math, "random").mockReturnValue(0.5);
+      try {
+        let streamCalls = 0;
+        let dispatched = 0;
+        const engine: AgentEngine = {
+          name: "builder",
+          label: "Builder",
+          defaultModel: "test-model",
+          supportedModels: ["test-model"],
+          capabilities: {
+            thinking: false,
+            promptCaching: false,
+            vision: false,
+            computerUse: false,
+            parallelToolCalls: false,
+          },
+          async *stream(): AsyncIterable<EngineEvent> {
+            streamCalls++;
+            yield {
+              type: "stop",
+              reason: "error",
+              error: privateContent
+                ? "The private completion failed."
+                : "MCP OAuth token refresh failed; the saved connection can be retried.",
+              errorCode: "http_503",
+              statusCode: 503,
+              ...(privateContent ? {} : { providerRetryable: true }),
+            };
+          },
+        };
+        const outcomes: Array<{
+          state: string;
+          code?: string;
+          retryable?: boolean;
+        }> = [];
+        const opts = {
+          engine,
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [
+            {
+              role: "user" as const,
+              content: [{ type: "text" as const, text: "go" }],
+            },
+          ],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+          onModelDispatchStarted: () => dispatched++,
+          historyPrivacyState: { private: privateContent },
+          onOutcome: (outcome: {
+            state: string;
+            code?: string;
+            retryable?: boolean;
+          }) => outcomes.push(outcome),
+        };
+        const run =
+          lane === "main-chat"
+            ? runAgentLoopWithMainChatInternalContinuations({
+                ...opts,
+                maxContinuations: 2,
+                resumeResumableErrorsInProcess: true,
+              })
+            : runAgentLoopDirectWithSoftTimeout(opts, 60_000);
+        const result = run.then(
+          () => null,
+          (error: unknown) => error,
+        );
+        await vi.runAllTimersAsync();
+        expect(await result).toMatchObject({
+          errorCode: "http_503",
+          statusCode: 503,
+          providerRetryable: true,
+          ...(privateContent
+            ? { message: "The private completion failed." }
+            : {}),
+        });
+        expect(streamCalls).toBeGreaterThan(1);
+        expect(dispatched).toBe(0);
+        expect(outcomes.at(-1)).toMatchObject({
+          state: "failed",
+          code: "http_503",
+          retryable: true,
+        });
+      } finally {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+      }
+    },
+  );
 
   it("recovers a chat where the engine's transport interruption is not engine-level retryable", async () => {
     let calls = 0;
