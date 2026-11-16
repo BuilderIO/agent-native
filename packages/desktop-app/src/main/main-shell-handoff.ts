@@ -92,10 +92,8 @@ export function createMainShellHandoff<W extends ShellWindow>(deps: {
   }
 
   function dropPendingOpenRequestsNotOwnedBy(owner: string | null): void {
-    for (let index = pending.length - 1; index >= 0; index -= 1) {
-      const entry = pending[index];
-      if (!belongsToOwner(entry, owner)) pending.splice(index, 1);
-    }
+    const kept = pending.filter((entry) => belongsToOwner(entry, owner));
+    pending.splice(0, pending.length, ...kept);
   }
 
   return {
