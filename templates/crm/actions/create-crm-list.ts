@@ -26,10 +26,9 @@ const DEFAULT_STAGE_OPTIONS = [
 ] as const;
 
 /**
- * How many slugs a create tries before giving up on a run of clashes. Each
- * clash is a slug another list really holds, so every retry gets closer; the
- * cap covers a burst of creates of one name and slugs in other members'
- * private lists.
+ * How many slugs a create tries before giving up on a run of clashes. The
+ * slug picker already skips every slug on the connection, so a clash is a
+ * create of the same name at the same moment; the cap covers a burst of them.
  */
 const SLUG_CLAIM_ATTEMPTS = 10;
 

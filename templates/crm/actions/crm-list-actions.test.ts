@@ -263,6 +263,45 @@ describe("create-crm-list", () => {
     expect(list.ownerEmail).toBe(OWNER);
   });
 
+  it("skips slugs held by more private lists than it has tries", async () => {
+    const now = new Date().toISOString();
+    const hiddenIds = Array.from(
+      { length: 11 },
+      (_, index) => `list_hidden_board_${index + 1}`,
+    );
+    await getDb()
+      .insert(schema.crmLists)
+      .values(
+        hiddenIds.map((id, index) => ({
+          id,
+          connectionId: CONNECTION_ID,
+          name: "Hidden Board",
+          apiSlug: index === 0 ? "hidden_board" : `hidden_board_${index + 1}`,
+          parentObjectType: "companies",
+          description: "",
+          defaultViewId: null,
+          archived: false,
+          position: 0,
+          source: "local",
+          ownerEmail: OTHER,
+          orgId: null,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+
+    try {
+      const list = await newList("Hidden Board");
+      expect(list.apiSlug).toBe("hidden_board_12");
+      expect(list.ownerEmail).toBe(OWNER);
+    } finally {
+      await getDb()
+        .delete(schema.crmLists)
+        .where(inArray(schema.crmLists.id, hiddenIds));
+    }
+  });
+
   it("finds a free slug past more than a page of taken ones", async () => {
     const now = new Date().toISOString();
     const crowdedIds = Array.from(

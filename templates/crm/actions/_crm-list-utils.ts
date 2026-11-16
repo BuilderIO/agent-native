@@ -96,13 +96,15 @@ export function crmApiSlug(value: string): string {
 
 /**
  * A free api_slug for a new list on this connection: `base`, then `base_2`,
- * `base_3`. It's picked from the slugs the caller can see, but the unique
- * index covers every list on the connection, including other people's private
- * ones, and another create can take the slug at the same moment. So the
- * insert that claims it can still find it taken; create-crm-list then asks
- * again, passing the slugs it found taken as `alsoTaken`. The read has no
- * cap: one that stopped early could leave out slugs that are taken, and the
- * claims could run out on those before reaching a free one.
+ * `base_3`. The unique index covers every list on the connection, other
+ * people's private ones included, so the slugs are read from all of them, not
+ * only the lists the caller can see. Otherwise each hidden slug would cost
+ * create-crm-list a claim, and enough of them would use up its tries. Another
+ * create can still take the slug at the same moment, so the insert that claims
+ * it can find it taken; create-crm-list then asks again, passing the slugs it
+ * found taken as `alsoTaken`. The read has no cap: one that stopped early
+ * could leave out slugs that are taken, and the claims could run out on those
+ * before reaching a free one.
  */
 export async function uniqueCrmListSlug(
   db: CrmDb,
@@ -110,6 +112,9 @@ export async function uniqueCrmListSlug(
   base: string,
   alsoTaken: ReadonlySet<string> = new Set(),
 ): Promise<string> {
+  // guard:allow-unscoped — reads only the api_slug values the connection's
+  // unique index covers, to skip them; no list or slug is returned, and the
+  // insert would refuse each one anyway.
   const rows = await db
     .select({ apiSlug: schema.crmLists.apiSlug })
     .from(schema.crmLists)
@@ -117,7 +122,6 @@ export async function uniqueCrmListSlug(
       and(
         eq(schema.crmLists.connectionId, connectionId),
         like(schema.crmLists.apiSlug, `${base}%`),
-        accessFilter(schema.crmLists, schema.crmListShares),
       ),
     );
   const taken = new Set(rows.map((row) => row.apiSlug));
