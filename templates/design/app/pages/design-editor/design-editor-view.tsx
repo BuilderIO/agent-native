@@ -1630,13 +1630,11 @@ export function renderDesignEditorView({
         onChange={handleTweakChange}
         disabled={!tweakMutationsEnabled}
         open={editorLayoutAndStructure.viewSettings.tweaksPanelOpen}
-        collapsed={
-          editorLayoutAndStructure.viewSettings.tweaksPanelCollapsed ||
-          shouldAutoCollapseFloatingTweaks(
-            rightSidebarVisible,
-            floatingTweaks.length > 0,
-          )
-        }
+        collapsed={editorLayoutAndStructure.viewSettings.tweaksPanelCollapsed}
+        autoCollapse={shouldAutoCollapseFloatingTweaks(
+          rightSidebarVisible,
+          floatingTweaks.length > 0,
+        )}
         position={editorLayoutAndStructure.viewSettings.tweaksPanelPosition}
         onOpenChange={(open) =>
           editorLayoutAndStructure.updateViewSettings({ tweaksPanelOpen: open })

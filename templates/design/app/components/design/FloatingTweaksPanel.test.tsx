@@ -70,6 +70,7 @@ describe("FloatingTweaksPanel", () => {
             onChange={onChange}
             open
             collapsed={false}
+            autoCollapse={false}
             position={{ x: 16, y: 64 }}
             onOpenChange={vi.fn()}
             onCollapsedChange={vi.fn()}
@@ -103,6 +104,7 @@ describe("FloatingTweaksPanel", () => {
             onChange={vi.fn()}
             open
             collapsed={false}
+            autoCollapse={false}
             position={{ x: 16, y: 64 }}
             onOpenChange={vi.fn()}
             onCollapsedChange={onCollapsedChange}
@@ -120,5 +122,44 @@ describe("FloatingTweaksPanel", () => {
     expect(collapse).not.toBeNull();
     await act(async () => collapse?.click());
     expect(onCollapsedChange).toHaveBeenCalledWith(true);
+  });
+
+  it("auto-collapses once when the inspector appears and lets Expand win until reset", async () => {
+    const onCollapsedChange = vi.fn();
+    const renderPanel = (autoCollapse: boolean, collapsed: boolean) => (
+      <TooltipProvider>
+        <FloatingTweaksPanel
+          tweaks={TWEAKS.slice(0, 1)}
+          values={{}}
+          onChange={vi.fn()}
+          open
+          collapsed={collapsed}
+          autoCollapse={autoCollapse}
+          position={{ x: 16, y: 64 }}
+          onOpenChange={vi.fn()}
+          onCollapsedChange={onCollapsedChange}
+          onPositionChange={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+    await act(async () => root.render(renderPanel(true, false)));
+    expect(onCollapsedChange).toHaveBeenCalledTimes(1);
+    expect(onCollapsedChange).toHaveBeenLastCalledWith(true);
+
+    await act(async () => root.render(renderPanel(true, true)));
+    expect(onCollapsedChange).toHaveBeenCalledTimes(1);
+    const expand = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Expand tweaks"]',
+    );
+    expect(expand).not.toBeNull();
+    await act(async () => expand?.click());
+    expect(onCollapsedChange).toHaveBeenLastCalledWith(false);
+
+    await act(async () => root.render(renderPanel(true, false)));
+    expect(onCollapsedChange).toHaveBeenCalledTimes(2);
+
+    await act(async () => root.render(renderPanel(false, false)));
+    await act(async () => root.render(renderPanel(true, false)));
+    expect(onCollapsedChange).toHaveBeenCalledTimes(3);
   });
 });

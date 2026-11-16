@@ -62,3 +62,30 @@ export function shouldAutoCollapseFloatingTweaks(
 ): boolean {
   return inspectorVisible && inspectorHasTweaks;
 }
+
+export function floatingTweaksPositionAfterDrag({
+  panel,
+  viewport,
+  delta,
+}: {
+  panel: Pick<DOMRect, "right" | "bottom" | "width" | "height">;
+  viewport: { width: number; height: number };
+  delta: { x: number; y: number };
+}): FloatingPanelPosition {
+  return {
+    x: Math.max(
+      8,
+      Math.min(
+        viewport.width - panel.width - 8,
+        viewport.width - (panel.right + delta.x),
+      ),
+    ),
+    y: Math.max(
+      8,
+      Math.min(
+        viewport.height - panel.height - 8,
+        viewport.height - (panel.bottom + delta.y),
+      ),
+    ),
+  };
+}
