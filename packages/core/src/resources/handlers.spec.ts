@@ -1608,6 +1608,35 @@ Legacy webhook.`,
           expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(2, copy);
         });
 
+        it("treats a resent save the copy already holds as done", async () => {
+          mockResourceGet.mockResolvedValue(shared);
+          mockResourcePutIfAbsent.mockResolvedValue(null);
+          mockResourceGetByPath.mockResolvedValue(copy);
+
+          const result = await save();
+
+          expect(lastStatus).toBe(200);
+          expect(result).toEqual(withRevision(copy));
+          expect(mockResourceGetByPath).toHaveBeenCalledWith(
+            "__organization__:org-1",
+            shared.path,
+            { orgId: "org-1" },
+          );
+        });
+
+        it("refuses a save when the copy holds other content", async () => {
+          mockResourceGet.mockResolvedValue(shared);
+          mockResourcePutIfAbsent.mockResolvedValue(null);
+          mockResourceGetByPath.mockResolvedValue({
+            ...copy,
+            content: "other",
+          });
+
+          await save();
+
+          expect(lastStatus).toBe(409);
+        });
+
         it("keeps the copy when the shared version was deleted meanwhile", async () => {
           mockResourceGet.mockResolvedValueOnce(shared).mockResolvedValue(null);
 

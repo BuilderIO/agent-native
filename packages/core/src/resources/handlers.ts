@@ -863,6 +863,12 @@ export async function handleUpdateResource(event: any) {
       if (nextPath !== existing.path) {
         return resourcePathTaken(event, activeSharedOwner, nextPath, false);
       }
+      // A resent save whose first try made the copy and lost its response:
+      // the copy holds this save already, so it's done.
+      const copy = await resourceGetByPath(activeSharedOwner, nextPath, {
+        orgId,
+      });
+      if (copy && isSameSaveOver(copy)) return withContentRevision(copy);
       setResponseStatus(event, 409);
       return { error: `A resource already exists at path "${nextPath}"` };
     }
