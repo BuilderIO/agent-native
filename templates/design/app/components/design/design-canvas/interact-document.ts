@@ -25,16 +25,27 @@ const INTERACT_LINKS_BRIDGE_SCRIPT = `<script data-agent-native-interact-links-b
 const INTERACT_PREVIEW_BRIDGES =
   PREVIEW_THEME_BRIDGE_SCRIPT + INTERACT_LINKS_BRIDGE_SCRIPT;
 
+export const INTERACT_TWEAKS_STYLE_ATTRIBUTE =
+  "data-agent-native-interact-tweaks";
+
+/** The tweak values as `:root` CSS that cannot close its `<style>` element. */
+export function renderInteractTweakBlock(
+  tweakValues: Record<string, string> | undefined,
+): string {
+  return renderResolvedRootBlock(tweakValues ?? {}).replace(/</g, "\\3c ");
+}
+
 /**
- * The current tweak values as a static stylesheet. Edit applies them through
- * a live bridge; Interact has none, so without this an Interact preview would
+ * The tweak values as a static stylesheet. Edit applies them through a live
+ * bridge; Interact has none, so the canvas seeds them here and rewrites this
+ * element in place on later changes. Without it an Interact preview would
  * snap every knob back to its authored default.
  */
 function tweakValuesStyle(tweakValues: Record<string, string> | undefined) {
-  const block = renderResolvedRootBlock(tweakValues ?? {});
+  const block = renderInteractTweakBlock(tweakValues);
   if (!block) return "";
   // Placed after the design's own :root rules, so it wins at equal specificity.
-  return `<style data-agent-native-interact-tweaks>${block.replace(/</g, "\\3c ")}</style>`;
+  return `<style ${INTERACT_TWEAKS_STYLE_ATTRIBUTE}>${block}</style>`;
 }
 
 /**

@@ -1024,6 +1024,52 @@ describe("DesignCanvas live embedded-frame offset", () => {
     }
   });
 
+  it("applies an Interact knob change in place without reloading the frame", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const content = `<!doctype html><html><head><style>:root{--sail-twist:1}</style></head><body><div data-agent-native-node-id="sail"></div></body></html>`;
+
+    const render = (twist: string) => (
+      <DesignCanvas
+        content={content}
+        contentKey="screen:sail"
+        screenId="sail"
+        zoom={100}
+        deviceFrame="none"
+        interactMode
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{ "--sail-twist": twist }}
+        editMode={false}
+      />
+    );
+
+    try {
+      await act(async () => root.render(render("0.25")));
+      const before = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(before).not.toBeNull();
+      const initialSrcdoc = before!.srcdoc;
+      expect(initialSrcdoc).toContain("--sail-twist: 0.25;");
+
+      await act(async () => root.render(render("0.75")));
+      const after = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(after).toBe(before);
+      expect(after!.srcdoc).toBe(initialSrcdoc);
+      const liveTweaks = after!.contentDocument?.querySelector(
+        "style[data-agent-native-interact-tweaks]",
+      );
+      expect(liveTweaks?.textContent).toContain("--sail-twist: 0.75;");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
   it("keeps the iframe identity stable when a board render window reanchors", async () => {
     const container = document.createElement("div");
     document.body.append(container);
