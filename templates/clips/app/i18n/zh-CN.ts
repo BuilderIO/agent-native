@@ -1106,6 +1106,10 @@ const messages = {
     reconnect: "重新连接",
     connectedAs: "已连接为 {{account}}",
     needsReconnect: "{{account}} 需要重新连接。",
+    calendarsDescription: "Clips 会显示你开启的日历中的会议。",
+    mainCalendar: "主日历",
+    showCalendar: "显示 {{calendar}} 中的会议",
+    calendarsLoadFailed: "无法加载此账号的日历。",
     disconnectFailed: "无法断开日历连接。",
     disconnectCalendarDescription:
       "Clips 将停止同步 {{account}} 中即将开始的会议。",

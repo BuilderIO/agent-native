@@ -1213,6 +1213,12 @@ const messages = {
     reconnect: "Volver a conectar",
     connectedAs: "Conectado como {{account}}",
     needsReconnect: "Hay que volver a conectar {{account}}.",
+    calendarsDescription:
+      "Clips muestra las reuniones de los calendarios que actives.",
+    mainCalendar: "Calendario principal",
+    showCalendar: "Mostrar reuniones de {{calendar}}",
+    calendarsLoadFailed:
+      "No se pudieron cargar los calendarios de esta cuenta.",
     disconnectFailed: "No se pudo desconectar el calendario.",
     disconnectCalendarDescription:
       "Clips deja de sincronizar las próximas reuniones de {{account}}.",

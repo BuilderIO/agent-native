@@ -1,10 +1,11 @@
 /**
  * Minimal Google Calendar v3 client.
  *
- * Hand-rolled fetch-only — no `googleapis` SDK. We use this for two narrow
+ * Hand-rolled fetch-only — no `googleapis` SDK. We use this for three narrow
  * operations:
  *   1. Exchange / refresh OAuth tokens.
  *   2. List events for a connected calendar account.
+ *   3. List the calendars in a connected account.
  *
  * Tokens themselves live in `app_secrets` (see `connect-calendar.ts` /
  * `sync-calendars.ts`); this module never persists them.
@@ -13,6 +14,7 @@
  *   Auth:    https://accounts.google.com/o/oauth2/v2/auth
  *   Token:   https://oauth2.googleapis.com/token
  *   Events:  https://www.googleapis.com/calendar/v3/calendars/{calId}/events
+ *   Calendars: https://www.googleapis.com/calendar/v3/users/me/calendarList
  *   Userinfo: https://www.googleapis.com/oauth2/v2/userinfo
  */
 
@@ -60,6 +62,7 @@ export interface GoogleUserInfo {
 
 export interface CalendarEvent {
   id: string;
+  iCalUID?: string;
   status?: string;
   summary?: string;
   description?: string;
@@ -280,6 +283,45 @@ async function listEventsPage(
 }
 
 const MAX_EVENT_PAGES = 5;
+const MAX_CALENDAR_LIST_PAGES = 5;
+
+export interface CalendarListEntry {
+  id: string;
+  summary?: string;
+  summaryOverride?: string;
+  backgroundColor?: string;
+  accessRole?: string;
+  primary?: boolean;
+}
+
+/** Every calendar the Google account has in its calendar list. */
+export async function listCalendarList(args: {
+  accessToken: string;
+}): Promise<CalendarListEntry[]> {
+  const entries: CalendarListEntry[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < MAX_CALENDAR_LIST_PAGES; page++) {
+    const params = new URLSearchParams({ maxResults: "250" });
+    if (pageToken) params.set("pageToken", pageToken);
+    const res = await fetch(
+      `${GOOGLE_CALENDAR_API}/users/me/calendarList?${params.toString()}`,
+      { headers: { Authorization: `Bearer ${args.accessToken}` } },
+    );
+    if (!res.ok) {
+      // coercion-ok: the thrown status reports the failure; the body only adds detail
+      const text = await res.text().catch(() => "");
+      throw new Error(`Google calendar list failed (${res.status}): ${text}`);
+    }
+    const json = (await res.json()) as {
+      items?: CalendarListEntry[];
+      nextPageToken?: string;
+    };
+    entries.push(...(json.items ?? []));
+    pageToken = json.nextPageToken;
+    if (!pageToken) break;
+  }
+  return entries;
+}
 
 export async function listEvents(
   args: ListEventsArgs,

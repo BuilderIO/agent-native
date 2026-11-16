@@ -1416,6 +1416,14 @@ export const migrations = runMigrations(
       name: "recording-transcript-earlier-audio-removed-at",
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_removed_at TEXT`,
     },
+    {
+      version: 103,
+      name: "calendar-enabled-calendars",
+      // Additive. Mirrors `enabledCalendarIdsJson` on `calendarAccounts` and
+      // `calendarId` on `calendarEvents` in server/db/schema.ts.
+      sql: `ALTER TABLE calendar_accounts ADD COLUMN IF NOT EXISTS enabled_calendar_ids_json TEXT;
+      ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS calendar_id TEXT`,
+    },
   ]),
   { table: "clips_migrations" },
 );
