@@ -1,5 +1,28 @@
 # @agent-native/toolkit
 
+## 0.229.0
+
+### Minor Changes
+
+- f152dfe: Shared workspace UI improvements: the agent composer keeps drafts per session and can show filled, stacked suggestion cards; chat history can group by date and collapse edits; profile settings can remove a photo and say when email delivery is not set up; the rich editor gains a table context menu and isolates a crashing node inline; Mermaid blocks keep their labels; settings return to the right page under a mounted base path; and share, integrations and org switcher menus are clearer.
+- e79c1ae: Comments & Review Kit: the comment box formats. Select text for a bar with bold, italic, strikethrough, code and links, use their shortcuts, or type Markdown as you go, including lists, quotes and code blocks. The box saves Markdown that shows the way it looked, opens a saved comment the way it shows, and reads pasted text as Markdown. `@agent-native/core/review/markdown` converts between a comment's Markdown and the box's document, and `findCommentMentions` in `@agent-native/core/review/plain-text` finds a comment's mentions the way the renderer chips them. Cmd/Ctrl+K in the box opens its link field even in apps whose command menu takes the shortcut from editable text: the command menu now leaves it to any field inside `data-command-menu-shortcut="own"`. The box shows its placeholder again once a comment is sent.
+- a6ccc79: Comments & Review Kit: the comment box keeps drafts and takes images. `useReviewCommentDraft()` keeps a box's unsent text, mentions and images in the browser per thread, reply or edit, so a reload doesn't lose them. Give `ReviewCommentComposer` `images` and `onImagesChange` and it uploads pasted, dropped or picked images, up to five, and sends a comment that's only an image; a paste with text in it still pastes as text. Give the box the draft's `target` as `imageTarget`, so an image still uploading when the box moves to another draft isn't added to it. `create-review-comment` and `reply-review-comment` take an empty body when the comment keeps an image, and refuse one with neither as `empty_comment`. `update-review-comment` takes `attachments` to change an author's images, checked as a new comment's are; sent without `expectedRevision`, an image edit is refused as `revision_conflict` if the comment changes before it saves.
+
+### Patch Changes
+
+- a4a4f9e: Background tasks started with `agent-teams` now finish in Chat's task list once the agent reads their result, keep their name and description after a reload, and no longer repeat as separate status cards. The answers summary after guided questions is given once. An `@`-mentioned agent's reply shows as one message in its step instead of one row per streamed piece.
+- 988cdee: The shared command menu can show an app's chip in its search field (`inputAdornment`), let the app handle keys first (`onInputKeyDown`), run a command without closing (`closeOnSelect: false`), and tell custom content which row is highlighted (`selectedValue` in `renderContent`), for app-owned previews.
+- dfe5aa0: Return a typed 409 instead of a 500 when the organization changes during a Builder credit check, and send explicit personal scope from the shared notice.
+- fceb6b5: Keep app toasters available outside session gates while sharing the app's locale.
+- 425c9ac: Fix first-run hydration when Core is externalized during server rendering.
+- Release all public npm packages with a patch version bump.
+- 9af0433: Add an optional `menuHeader` slot to `OrgSwitcher` for app-owned content above the organization list.
+- 79bc394: Refresh AI readiness after automatic Builder account setup succeeds.
+- cf9ff10: Fix a crash when dictated text finishes after the composer draft was cleared or edited.
+- Updated dependencies [f152dfe]
+- Updated dependencies
+  - @agent-native/agentkit@0.229.0
+
 ## 0.228.2
 
 ### Patch Changes
@@ -1649,11 +1672,5 @@
 ### Patch Changes
 
 - 60b7e74: Pin Tiptap bubble-menu and floating-menu to 3.30.1 so npm no longer warns on optional peer mismatches when installing the CLI.
-
-## 0.16.7
-
-### Patch Changes
-
-- fc85cb2: Allow external prompt handoffs to insert text through the shared composer without publishing a runtime message update.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
