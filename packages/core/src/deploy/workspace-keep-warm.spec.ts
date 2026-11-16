@@ -80,6 +80,22 @@ describe("workspace keep-warm", () => {
     expect(entry).toContain(`schedule: "*/3 * * * *"`);
   });
 
+  it("warms the health route under a custom framework route prefix", () => {
+    process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
+    expect(
+      emitNetlifyWorkspaceKeepWarmFunction(tmp, ["fleet"], "/_platform"),
+    ).toBe(true);
+    const entry = fs.readFileSync(
+      path.join(
+        tmp,
+        NETLIFY_WORKSPACE_KEEP_WARM_FUNCTION_NAME,
+        `${NETLIFY_WORKSPACE_KEEP_WARM_FUNCTION_NAME}.mjs`,
+      ),
+      "utf8",
+    );
+    expect(entry).toContain(`["/fleet/_platform/health"]`);
+  });
+
   it("respects the keep-warm kill switch", () => {
     process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
     process.env.AGENT_NATIVE_DISABLE_KEEP_WARM = "1";

@@ -37,16 +37,21 @@ export function resolveKeepWarmConcurrency(
   return parsed;
 }
 
-export function workspaceKeepWarmHealthPaths(apps: string[]): string[] {
-  return apps.map((app) => `/${app}/_agent-native/health`);
+export function workspaceKeepWarmHealthPaths(
+  apps: string[],
+  frameworkRoutePrefix = "/_agent-native",
+): string[] {
+  return apps.map((app) => `/${app}${frameworkRoutePrefix}/health`);
 }
 
 export function renderWorkspaceKeepWarmEntry(options: {
   apps: string[];
   concurrency: number;
   schedule: string;
+  /** The workspace's public framework route prefix, `/_agent-native` by default. */
+  frameworkRoutePrefix?: string;
 }): string {
-  return `const HEALTH_PATHS = ${JSON.stringify(workspaceKeepWarmHealthPaths(options.apps))};
+  return `const HEALTH_PATHS = ${JSON.stringify(workspaceKeepWarmHealthPaths(options.apps, options.frameworkRoutePrefix))};
 // Parallel health requests per app. Requests that overlap land on separate
 // instances, so this is the number of warm instances each app keeps.
 const CONCURRENCY = ${JSON.stringify(options.concurrency)};
@@ -158,6 +163,7 @@ export const config = {
 export function emitNetlifyWorkspaceKeepWarmFunction(
   functionsDir: string,
   apps: string[],
+  frameworkRoutePrefix?: string,
 ): boolean {
   if (!isKeepWarmDeployEnabled() || apps.length === 0) return false;
   const concurrency = resolveKeepWarmConcurrency();
@@ -170,7 +176,12 @@ export function emitNetlifyWorkspaceKeepWarmFunction(
   fs.mkdirSync(dest, { recursive: true });
   fs.writeFileSync(
     path.join(dest, `${NETLIFY_WORKSPACE_KEEP_WARM_FUNCTION_NAME}.mjs`),
-    renderWorkspaceKeepWarmEntry({ apps, concurrency, schedule }),
+    renderWorkspaceKeepWarmEntry({
+      apps,
+      concurrency,
+      schedule,
+      frameworkRoutePrefix,
+    }),
   );
   console.log(
     `[workspace-deploy] Emitted Netlify scheduled keep-warm function ` +

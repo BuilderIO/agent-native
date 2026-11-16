@@ -474,6 +474,7 @@ export async function runWorkspaceDeploy(
     emitNetlifyWorkspaceKeepWarmFunction(
       netlifyFunctionsDir(workspaceRoot),
       apps,
+      workspaceFrameworkRoutePrefix(),
     );
     writeServedBuildManifest(workspaceRoot, {
       revision: workspaceSourceRevision() ?? null,
