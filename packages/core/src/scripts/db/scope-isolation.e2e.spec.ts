@@ -157,6 +157,7 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
       await c.execute(
         `CREATE TABLE ${table} (id TEXT PRIMARY KEY, org_id TEXT, body TEXT)`,
       );
+      // raw-sql-ok: the table name is one of the fixed names in this test's list; every value is bound
       await c.execute({
         sql: `INSERT INTO ${table} VALUES (?, ?, ?)`,
         args: ["row-a", "org-1", "A-private-run"],
