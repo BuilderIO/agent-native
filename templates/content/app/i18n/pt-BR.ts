@@ -1083,6 +1083,10 @@ const editor = {
     fourColumns: "4 colunas",
     codeBlock: "Bloco de código",
     codeBlockDescription: "Trecho de código",
+    toggleHeading1: "Título recolhível 1",
+    toggleHeading2: "Título recolhível 2",
+    toggleHeading3: "Título recolhível 3",
+    toggleHeadingDescription: "Título que abre e fecha",
     collapsibleBlockDescription: "Bloco dobrável",
     database: "Coleção",
     databaseDescription: "Coleção embutida nesta página",
@@ -1891,6 +1895,18 @@ const overrides = {
       "Isso exclui “{{name}}” e o texto dele de todas as linhas desta coleção. Não é possível desfazer.",
     deleteBlockFieldBodyWarning:
       "“{{name}}” é o corpo da página, então o texto principal de cada linha também será excluído.",
+    blockFieldFrozen: "Congelado enquanto {{column}} for {{value}}",
+    blockFieldFrozenDescription:
+      "Uma regra desta coleção impede que qualquer um, pessoa ou agente, altere esta aba. Mude {{column}} para um valor diferente de {{value}} para editá-la.",
+    blockFieldFrozenByManagers:
+      "Congelado enquanto {{column}} for {{value}}. Só quem tem acesso total à coleção pode mudar isso.",
+    blockFieldFrozenSaveRefused:
+      "Esta aba está congelada, então sua edição não foi salva",
+    freezeBlockField: "Congelar enquanto…",
+    freezeBlockFieldWhile: "Enquanto {{column}} for",
+    freezeBlockFieldNoColumns:
+      "Adicione uma coluna de status ou de seleção para congelar por ela",
+    unfreezeBlockField: "Não congelar",
   },
   comments: {
     add: "Adicionar comentário...",

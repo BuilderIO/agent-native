@@ -1043,6 +1043,10 @@ const editor = {
     fourColumns: "4 أعمدة",
     codeBlock: "كتلة الكود",
     codeBlockDescription: "مقتطف الكود",
+    toggleHeading1: "عنوان قابل للطي 1",
+    toggleHeading2: "عنوان قابل للطي 2",
+    toggleHeading3: "عنوان قابل للطي 3",
+    toggleHeadingDescription: "عنوان يفتح ويغلق",
     collapsibleBlockDescription: "كتلة قابلة للطي",
     database: "المجموعة",
     databaseDescription: "مجموعة مضمنة في هذه الصفحة",
@@ -1841,6 +1845,16 @@ const overrides = {
       "سيؤدي هذا إلى حذف «{{name}}» ونصه من كل صف في هذه المجموعة. لا يمكن التراجع عن ذلك.",
     deleteBlockFieldBodyWarning:
       "«{{name}}» هو متن الصفحة، لذا سيُحذف النص الرئيسي لكل صف أيضًا.",
+    blockFieldFrozen: "مجمّد ما دام {{column}} هو {{value}}",
+    blockFieldFrozenDescription:
+      "تمنع قاعدة في هذه المجموعة أي أحد، شخصًا كان أو وكيلًا، من تغيير علامة التبويب هذه. غيّر {{column}} إلى قيمة غير {{value}} لتعديلها.",
+    blockFieldFrozenByManagers:
+      "مجمّد ما دام {{column}} هو {{value}}. لا يستطيع تغيير ذلك إلا من لديهم وصول كامل إلى المجموعة.",
+    blockFieldFrozenSaveRefused: "علامة التبويب هذه مجمّدة، لذلك لم يُحفظ تعديلك",
+    freezeBlockField: "تجميد ما دام…",
+    freezeBlockFieldWhile: "ما دام {{column}} هو",
+    freezeBlockFieldNoColumns: "أضف عمود حالة أو تحديد للتجميد بحسبه",
+    unfreezeBlockField: "عدم التجميد",
   },
   comments: {
     add: "إضافة تعليق...",

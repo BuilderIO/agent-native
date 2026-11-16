@@ -1091,6 +1091,10 @@ const editor = {
     fourColumns: "4 colonnes",
     codeBlock: "Bloc de code",
     codeBlockDescription: "Extrait de code",
+    toggleHeading1: "Titre dépliable 1",
+    toggleHeading2: "Titre dépliable 2",
+    toggleHeading3: "Titre dépliable 3",
+    toggleHeadingDescription: "Titre qui s’ouvre et se referme",
     collapsibleBlockDescription: "Bloc pliable",
     database: "Collection",
     databaseDescription: "Collection intégrée dans cette page",
@@ -1904,6 +1908,18 @@ const overrides = {
       "« {{name}} » et son texte seront supprimés de toutes les lignes de cette collection. Cette action est irréversible.",
     deleteBlockFieldBodyWarning:
       "« {{name}} » est le corps de la page : le texte principal de chaque ligne sera aussi supprimé.",
+    blockFieldFrozen: "Figé tant que {{column}} vaut {{value}}",
+    blockFieldFrozenDescription:
+      "Une règle de cette collection empêche quiconque, personne ou agent, de modifier cet onglet. Donnez à {{column}} une autre valeur que {{value}} pour le modifier.",
+    blockFieldFrozenByManagers:
+      "Figé tant que {{column}} vaut {{value}}. Seules les personnes ayant un accès complet à la collection peuvent changer cela.",
+    blockFieldFrozenSaveRefused:
+      "Cet onglet est figé, votre modification n'a donc pas été enregistrée",
+    freezeBlockField: "Figer tant que…",
+    freezeBlockFieldWhile: "Tant que {{column}} vaut",
+    freezeBlockFieldNoColumns:
+      "Ajoutez une colonne de statut ou de sélection pour figer selon elle",
+    unfreezeBlockField: "Ne pas figer",
   },
   comments: {
     add: "Ajouter un commentaire...",

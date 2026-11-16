@@ -1014,6 +1014,10 @@ const editor = {
     fourColumns: "4 列",
     codeBlock: "代码块",
     codeBlockDescription: "代码片段",
+    toggleHeading1: "折叠标题 1",
+    toggleHeading2: "折叠标题 2",
+    toggleHeading3: "折叠标题 3",
+    toggleHeadingDescription: "可展开和收起的标题",
     collapsibleBlockDescription: "可折叠块",
     database: "集合",
     databaseDescription: "在此页面中插入内联集合",
@@ -1879,6 +1883,16 @@ const overrides = {
       "这会从此集合的每一行中删除“{{name}}”及其文本。此操作无法撤销。",
     deleteBlockFieldBodyWarning:
       "“{{name}}”是页面正文，因此每一行的正文也会被删除。",
+    blockFieldFrozen: "{{column}} 为 {{value}} 时已冻结",
+    blockFieldFrozenDescription:
+      "此集合的一条规则禁止任何人（无论是人还是智能体）更改此标签页。将 {{column}} 改为 {{value}} 以外的值即可编辑。",
+    blockFieldFrozenByManagers:
+      "{{column}} 为 {{value}} 时已冻结。只有对此集合拥有完全访问权限的人才能更改。",
+    blockFieldFrozenSaveRefused: "此标签页已冻结，你的编辑未保存",
+    freezeBlockField: "冻结条件…",
+    freezeBlockFieldWhile: "当 {{column}} 为",
+    freezeBlockFieldNoColumns: "添加一个状态列或选择列作为冻结条件",
+    unfreezeBlockField: "不冻结",
   },
   comments: {
     add: "添加评论...",
