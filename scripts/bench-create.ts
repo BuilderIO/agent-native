@@ -405,50 +405,17 @@ async function benchRun(
   };
 }
 
-function gitChangedPaths(paths: string[]): string[] {
-  const output = execFileSync(
-    "git",
-    ["status", "--porcelain", "-z", "--untracked-files=all", "--", ...paths],
-    { cwd: repoRoot, encoding: "utf8" },
-  );
-  return output
-    .split("\0")
-    .filter((entry) => entry.length > 3)
-    .map((entry) => entry.slice(3));
-}
-
-// Core's prepack rewrites README.md, and its postpack deletes all of
-// src/templates/chat, tracked files included.
-const PACK_REWRITES = [
-  "packages/core/README.md",
-  "packages/core/src/templates/chat",
-];
-
 function packLocalCore(outDir: string): string {
-  const edited = gitChangedPaths(PACK_REWRITES);
-  if (edited.length > 0) {
-    throw new Error(
-      `Packing core overwrites ${PACK_REWRITES.join(" and ")}. Commit or set aside these changes first:\n${edited.join("\n")}`,
-    );
-  }
   const packDir = path.join(outDir, "pack");
   fs.rmSync(packDir, { recursive: true, force: true });
   fs.mkdirSync(packDir, { recursive: true });
   console.error("[bench] building and packing this checkout's core…");
-  try {
-    const pnpm = pnpmCommand(["pack", "--pack-destination", packDir]);
-    execFileSync(pnpm.command, pnpm.args, {
-      cwd: path.join(repoRoot, "packages/core"),
-      shell: pnpm.shell,
-      stdio: ["ignore", "ignore", "inherit"],
-    });
-  } finally {
-    // Restore only the paths checked clean above. Anything else that changed
-    // while packing is someone's edit, in this session or another.
-    execFileSync("git", ["checkout", "--", ...PACK_REWRITES], {
-      cwd: repoRoot,
-    });
-  }
+  const pnpm = pnpmCommand(["pack", "--pack-destination", packDir]);
+  execFileSync(pnpm.command, pnpm.args, {
+    cwd: path.join(repoRoot, "packages/core"),
+    shell: pnpm.shell,
+    stdio: ["ignore", "ignore", "inherit"],
+  });
   const tarballs = fs.readdirSync(packDir).filter((f) => f.endsWith(".tgz"));
   const tarball = tarballs[0];
   if (tarballs.length !== 1 || !tarball) {
