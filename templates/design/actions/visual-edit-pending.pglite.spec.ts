@@ -45,6 +45,7 @@ import {
   getRuntimeDatabaseUrl,
   withMigrationRuntime,
 } from "@agent-native/core/db";
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 
 import { runDesignMigrations } from "../server/plugins/db.js";
@@ -454,6 +455,58 @@ describe("visual-edit handoff records", () => {
           publisherId: foreignPublisher,
         },
         { caller: "frontend", userEmail: "editor@example.com" },
+      ),
+    ).resolves.toMatchObject({ cleared: true, handoffCleared: true });
+    expect(await readDesignData(designId)).toMatchObject({
+      tweakSelections: { accent: "#00dff6" },
+    });
+  });
+
+  it("lets a design-scoped editor capability clear its exact handoff", async () => {
+    const designId = "design_clear_capability_publisher";
+    await seedChangedTweaks(designId);
+    const published = await publish(designId, 1, [
+      tweakRecord("accent", "#1b7585"),
+    ]);
+
+    await expect(
+      clearEditsAction.run(
+        {
+          designId,
+          revision: published.revision ?? 0,
+          publisherId,
+        },
+        { caller: "frontend" },
+      ),
+    ).rejects.toThrow(/handoff author or design owner/);
+
+    await expect(
+      runWithRequestContext(
+        { authCapability: "capability:visual-edit:design:another_design" },
+        () =>
+          clearEditsAction.run(
+            {
+              designId,
+              revision: published.revision ?? 0,
+              publisherId,
+            },
+            { caller: "frontend" },
+          ),
+      ),
+    ).rejects.toThrow(/handoff author or design owner/);
+
+    await expect(
+      runWithRequestContext(
+        { authCapability: `capability:visual-edit:design:${designId}` },
+        () =>
+          clearEditsAction.run(
+            {
+              designId,
+              revision: published.revision ?? 0,
+              publisherId,
+            },
+            { caller: "frontend" },
+          ),
       ),
     ).resolves.toMatchObject({ cleared: true, handoffCleared: true });
     expect(await readDesignData(designId)).toMatchObject({

@@ -3,6 +3,8 @@ import {
   defineActionErrors,
   fail,
 } from "@agent-native/core/action";
+import { visualEditCapabilityDesignId } from "@agent-native/core/server";
+import { getRequestAuthCapability } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -21,7 +23,7 @@ function firstOrUndefined<T>(rows: T[]): T | undefined {
 
 export default defineAction({
   description:
-    "Discard pending design edits without applying them to source: reset tweak selections to tweakSourceBaseline and clear the exact visual-edit handoff revision and publisherId. Read get-visual-edit-pending first. The handoff author or design owner can clear it; clearing another publisher's handoff requires owner access.",
+    "Discard pending design edits without applying them to source: reset tweak selections to tweakSourceBaseline and clear the exact visual-edit handoff revision and publisherId. Read get-visual-edit-pending first. The handoff author or design owner can clear it; a design-scoped editor capability can clear only its exact current handoff. Clearing another publisher's handoff requires owner access.",
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,
@@ -136,6 +138,13 @@ export default defineAction({
       const hasHandoff =
         pending !== undefined &&
         (pending.status !== "empty" || pending.pendingEditCount > 0);
+      const capabilityOwnsHandoff =
+        ctx?.caller === "frontend" &&
+        access.role === "editor" &&
+        visualEditCapabilityDesignId(getRequestAuthCapability()) === designId &&
+        revision !== undefined &&
+        revision === pending?.revision &&
+        publisherId === pending?.publisherId;
       if (
         pending &&
         hasHandoff &&
@@ -163,7 +172,8 @@ export default defineAction({
         hasHandoff &&
         pending &&
         access.role !== "owner" &&
-        (!ctx?.userEmail || pending.authorEmail !== ctx.userEmail)
+        (!ctx?.userEmail || pending.authorEmail !== ctx.userEmail) &&
+        !capabilityOwnsHandoff
       ) {
         fail("Only the handoff author or design owner can clear these edits.", {
           errorCode: "invalid_design_state",

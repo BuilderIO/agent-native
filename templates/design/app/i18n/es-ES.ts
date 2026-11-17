@@ -2217,6 +2217,8 @@ export default {
         "Pégalo en tu agente de programación y pídele que aplique los cambios visuales.",
       abortedToast: "Vista previa pendiente descartada",
       clearedToast: "Se borraron los cambios pendientes",
+      localPreviewsClearedToast:
+        "Se descartaron las vistas previas locales; los ajustes pendientes de otra persona siguen sin cambios.",
       clearFailedToast:
         "No se pudieron borrar los cambios pendientes. Inténtalo de nuevo.",
       interactBlocked:

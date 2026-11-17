@@ -1317,7 +1317,13 @@ export function useEditorModes({
         toast.dismiss("design-visual-edit-pending-publication");
       }
       window.setTimeout(() => handleModeChange("edit"), 50);
-      toast.success(t("designEditor.pendingVisualStyles.clearedToast"));
+      if (!result.resetTweakSelections && pendingTweakChanges.length > 0) {
+        toast.warning(
+          t("designEditor.pendingVisualStyles.localPreviewsClearedToast"),
+        );
+      } else {
+        toast.success(t("designEditor.pendingVisualStyles.clearedToast"));
+      }
     } catch {
       toast.error(t("designEditor.pendingVisualStyles.clearFailedToast"));
     }
