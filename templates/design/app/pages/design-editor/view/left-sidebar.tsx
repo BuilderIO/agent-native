@@ -1,7 +1,6 @@
 import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 import { IconClipboard } from "@tabler/icons-react";
 import { memo, type ReactElement } from "react";
-import { Link } from "react-router";
 
 import { CodeWorkbenchLoader } from "@/components/design/code-workbench/CodeWorkbenchLoader";
 import {
@@ -91,7 +90,7 @@ export function renderLeftSidebar({
   editorSourceAndSync: EditorSourceAndSync;
   id: string;
   canApplyPendingVisualEditsWithAgent: boolean;
-  projectMenu: ReactElement;
+  projectMenu: ReactElement | null;
   projectTitleControl: ReactElement;
   minimalUiToggle: ReactElement | null;
   leftContentWidth: number;
@@ -222,17 +221,13 @@ export function renderLeftSidebar({
               )}
             >
               <LeftPanelHeader>
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  {projectTitleControl}
-                  {hostEmbeddedEditor ? null : (
-                    <Link
-                      to="/home"
-                      className="-mx-1 self-start rounded px-1 text-xs leading-4 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                    >
-                      {t("designEditor.fileMenu.allDesigns")}
-                    </Link>
-                  )}
-                </div>
+                {hostEmbeddedEditor ? (
+                  projectTitleControl
+                ) : (
+                  <span className="photoshop-panel-tab-active">
+                    {t("designEditor.leftRail.layers")}
+                  </span>
+                )}
                 {minimalUiToggle}
               </LeftPanelHeader>
               <div className="min-h-0 flex-1">

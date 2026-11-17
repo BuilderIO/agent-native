@@ -20,6 +20,7 @@ export function renderRightRail({
   topBarVisible,
   interactFloatingBar,
   rightSidebarVisible,
+  dockWidth,
   editPanelProps,
   floatingTweaksPanel,
 }: {
@@ -33,6 +34,7 @@ export function renderRightRail({
   topBarVisible: boolean;
   interactFloatingBar: ReactElement | null;
   rightSidebarVisible: boolean;
+  dockWidth?: number;
   editPanelProps: Omit<
     import("react").ComponentProps<typeof EditPanel>,
     "width"
@@ -58,12 +60,12 @@ export function renderRightRail({
           style={
             topBarVisible && !minimalUi
               ? {
-                  width: rightSidebarWidth,
+                  width: dockWidth ?? rightSidebarWidth,
                   top: TOP_BAR_HEIGHT_PX,
                   bottom: 0,
                   height: "auto",
                 }
-              : { width: rightSidebarWidth }
+              : { width: dockWidth ?? rightSidebarWidth }
           }
         >
           <div
@@ -83,9 +85,20 @@ export function renderRightRail({
               {localPreviewRow}
             </div>
           ) : null}
+          <div className="photoshop-panel-tabs">
+            <span className="photoshop-panel-tab-active">
+              {t("editPanel.properties")}
+            </span>
+            <span aria-hidden="true">
+              {t("editPanel.labels.imageAdjustments")}
+            </span>
+          </div>
           {mode === "edit" ? (
             <div className="min-h-0 flex-1">
-              <EditPanel {...editPanelProps} width={rightSidebarWidth} />
+              <EditPanel
+                {...editPanelProps}
+                width={dockWidth ?? rightSidebarWidth}
+              />
             </div>
           ) : (
             <div className="min-h-0 flex-1" />

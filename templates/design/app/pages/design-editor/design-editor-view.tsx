@@ -1657,7 +1657,9 @@ export function renderDesignEditorView({
     minimalUi,
   });
   const chromeInsetLeft = leftSidebarVisible
-    ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
+    ? hostOwnsChrome || minimalUi
+      ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
+      : 42
     : 0;
   const selectedRouteScreen = overviewScreens.find(
     (screen) => screen.id === selectedScreenGeometry?.id,
@@ -2209,7 +2211,10 @@ export function renderDesignEditorView({
   return (
     <div
       data-design-editor
-      className="relative flex h-full flex-col overflow-hidden bg-[var(--design-editor-canvas-bg)]"
+      className={cn(
+        "relative flex h-full flex-col overflow-hidden bg-[var(--design-editor-canvas-bg)]",
+        !hostOwnsChrome && !minimalUi && "photoshop-theme dark",
+      )}
     >
       {id ? <VisualEditWebMcp getPrompt={visualEditPromptResult} /> : null}
       {/* ── Render: Builder embed preview ── */}
@@ -2236,6 +2241,21 @@ export function renderDesignEditorView({
             title={t("designEditor.designPreview")}
             allow="fullscreen"
           />
+        </div>
+      )}
+      {!hostOwnsChrome && !minimalUi && (
+        <div className="photoshop-menu-bar">
+          {projectMenu}
+          <span aria-hidden="true">Edit</span>
+          <span aria-hidden="true">Image</span>
+          <span aria-hidden="true">Layer</span>
+          <span aria-hidden="true">Type</span>
+          <span aria-hidden="true">Select</span>
+          <span aria-hidden="true">Filter</span>
+          <span aria-hidden="true">View</span>
+          <span aria-hidden="true">Window</span>
+          <span aria-hidden="true">Help</span>
+          <div className="photoshop-document-title">{projectTitleControl}</div>
         </div>
       )}
       {/* ── Render: main canvas area ── */}
@@ -2298,7 +2318,7 @@ export function renderDesignEditorView({
           editorSourceAndSync,
           id,
           canApplyPendingVisualEditsWithAgent,
-          projectMenu,
+          projectMenu: hostOwnsChrome || minimalUi ? projectMenu : null,
           projectTitleControl,
           minimalUiToggle,
           leftContentWidth,
@@ -2427,6 +2447,10 @@ export function renderDesignEditorView({
           topBarVisible,
           interactFloatingBar,
           rightSidebarVisible,
+          dockWidth:
+            !hostOwnsChrome && !minimalUi && activeLeftPanel
+              ? leftContentWidth + DESIGN_CHROME_RAIL_WIDTH_PX
+              : rightSidebarWidth,
           editPanelProps,
           floatingTweaksPanel,
         })}

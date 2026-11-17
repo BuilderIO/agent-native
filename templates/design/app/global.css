@@ -924,3 +924,170 @@
 .dark .design-editor-app-menu-content {
   box-shadow: 0 12px 28px rgb(0 0 0 / 0.34);
 }
+
+/* Compact dark editor chrome for the staged customization demo. */
+.photoshop-theme {
+  --background: 0 0% 17%;
+  --foreground: 0 0% 86%;
+  --card: 0 0% 20%;
+  --card-foreground: 0 0% 86%;
+  --popover: 0 0% 20%;
+  --popover-foreground: 0 0% 90%;
+  --secondary: 0 0% 20%;
+  --secondary-foreground: 0 0% 86%;
+  --muted: 0 0% 20%;
+  --muted-foreground: 0 0% 65%;
+  --accent: 0 0% 25%;
+  --accent-foreground: 0 0% 96%;
+  --border: 0 0% 23%;
+  --input: 0 0% 23%;
+  --radius: 0.2rem;
+  --design-editor-dock-bg: hsl(0 0% 17%);
+  --design-editor-panel-bg: hsl(0 0% 17%);
+  --design-editor-panel-raised-bg: hsl(0 0% 20%);
+  --design-editor-panel-divider-color: hsl(0 0% 23%);
+  --design-editor-control-bg: hsl(0 0% 20%);
+  --design-editor-control-border: hsl(0 0% 23%);
+  --design-editor-canvas-bg: hsl(0 0% 15%);
+  --design-editor-skeleton-canvas-bg: hsl(0 0% 15%);
+  --design-editor-active-row-color: hsl(0 0% 25%);
+  color: hsl(var(--foreground));
+  font-size: 12px;
+}
+
+.photoshop-theme .photoshop-menu-bar,
+.photoshop-theme .photoshop-tool-options {
+  background: var(--design-editor-panel-bg);
+  border-bottom: 1px solid var(--design-editor-panel-divider-color);
+  color: hsl(var(--foreground));
+  font-size: 11px;
+}
+
+.photoshop-theme .photoshop-tool-rail {
+  background: var(--design-editor-panel-bg);
+  border-right: 1px solid var(--design-editor-panel-divider-color);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.photoshop-theme .photoshop-menu-bar {
+  display: flex;
+  height: 30px;
+  flex: none;
+  align-items: center;
+  gap: 14px;
+  padding: 0 10px;
+}
+
+.photoshop-theme .photoshop-menu-bar > button {
+  height: 24px;
+  margin-left: -8px;
+  font-size: 11px;
+}
+
+.photoshop-theme .photoshop-document-title {
+  margin-left: auto;
+  min-width: 160px;
+  max-width: 240px;
+  padding-left: 8px;
+}
+
+.photoshop-theme .photoshop-panel-tabs {
+  display: flex;
+  flex: none;
+  gap: 16px;
+  align-items: center;
+  height: 32px;
+  border-bottom: 1px solid var(--design-editor-panel-divider-color);
+  padding: 0 12px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+
+.photoshop-theme .photoshop-panel-tab-active {
+  color: hsl(var(--foreground));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+@media (min-width: 768px) {
+  .photoshop-theme [data-design-chrome-region="left-shell"] {
+    left: auto;
+    right: 0;
+    top: 55%;
+    bottom: 0;
+    flex-direction: row-reverse;
+    border-top: 1px solid var(--design-editor-panel-divider-color);
+  }
+
+  .photoshop-theme [data-design-chrome-region="right-panel"] {
+    bottom: 45% !important;
+    height: auto !important;
+  }
+
+  .photoshop-theme [data-design-top-bar] {
+    left: 42px;
+  }
+
+  .photoshop-theme .photoshop-tool-rail {
+    position: absolute;
+    top: 48px;
+    bottom: 0;
+    left: 0;
+    width: 42px;
+    max-width: none;
+    transform: none;
+    translate: none;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 2px;
+    overflow: visible;
+    padding: 6px 2px;
+  }
+
+  .photoshop-theme .photoshop-tool-ornaments {
+    display: contents;
+  }
+
+  .photoshop-theme .photoshop-tool-ornaments svg {
+    width: 17px;
+    height: 17px;
+    margin: 8px auto;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .photoshop-theme .photoshop-color-swatches {
+    position: relative;
+    width: 32px;
+    height: 34px;
+    flex: none;
+    margin-top: auto;
+  }
+
+  .photoshop-theme .photoshop-color-swatches span {
+    position: absolute;
+    width: 19px;
+    height: 19px;
+    border: 1px solid hsl(var(--muted-foreground));
+    background: hsl(var(--foreground));
+  }
+
+  .photoshop-theme .photoshop-color-swatches span:first-child {
+    z-index: 1;
+    top: 2px;
+    left: 2px;
+    background: hsl(var(--background));
+  }
+
+  .photoshop-theme .photoshop-color-swatches span:last-child {
+    right: 2px;
+    bottom: 2px;
+  }
+}
+
+@media (max-width: 767px) {
+  .photoshop-theme .photoshop-tool-ornaments,
+  .photoshop-theme .photoshop-color-swatches {
+    display: none;
+  }
+}
