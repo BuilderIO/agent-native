@@ -79,7 +79,7 @@ export type AssertionType =
 export interface Assertion {
   type: AssertionType;
   value: string | number;
-  header?: string;
+  header?: string | undefined;
 }
 
 export type StatusMatcher =
@@ -88,24 +88,24 @@ export type StatusMatcher =
   | { mode: "range"; min: number; max: number };
 
 export interface MonitorInput {
-  id?: string;
+  id?: string | undefined;
   name: string;
   url: string;
-  method?: MonitorMethod;
-  requestHeaders?: Record<string, string>;
-  requestBody?: string | null;
-  intervalSeconds?: number;
-  timeoutMs?: number;
-  expectedStatus?: StatusMatcher;
-  assertions?: Assertion[];
-  followRedirects?: boolean;
-  severity?: MonitorSeverity;
-  channels?: string[];
-  emailRecipients?: string[];
-  slackWebhookUrl?: string | null;
-  webhookUrl?: string | null;
-  cooldownMinutes?: number;
-  enabled?: boolean;
+  method?: MonitorMethod | undefined;
+  requestHeaders?: Record<string, string> | undefined;
+  requestBody?: string | null | undefined;
+  intervalSeconds?: number | undefined;
+  timeoutMs?: number | undefined;
+  expectedStatus?: StatusMatcher | undefined;
+  assertions?: Assertion[] | undefined;
+  followRedirects?: boolean | undefined;
+  severity?: MonitorSeverity | undefined;
+  channels?: string[] | undefined;
+  emailRecipients?: string[] | undefined;
+  slackWebhookUrl?: string | null | undefined;
+  webhookUrl?: string | null | undefined;
+  cooldownMinutes?: number | undefined;
+  enabled?: boolean | undefined;
 }
 
 export interface Monitor {
@@ -1512,7 +1512,7 @@ async function computeUptime(
 
 export async function saveMonitor(
   input: MonitorInput,
-  ctx: AccessCtx & { caller?: ActionCaller },
+  ctx: AccessCtx & { caller?: ActionCaller | undefined },
 ): Promise<Monitor> {
   const db = getDb() as any;
   const updatedAt = nowIso();
