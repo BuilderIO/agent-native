@@ -305,7 +305,7 @@ describe("Docs SSR cache key wrapper", () => {
       "Netlify-CDN-Cache-Control: public, durable, s-maxage=300, stale-while-revalidate=300, stale-if-error=3600",
     );
     expect(netlifyHeaders).toContain(
-      "/assets/*\n  Cache-Control: public, max-age=31536000, immutable",
+      "/assets/*\n  Access-Control-Allow-Origin: *\n  Cache-Control: public, max-age=31536000, immutable",
     );
   });
 
@@ -318,7 +318,7 @@ describe("Docs SSR cache key wrapper", () => {
     expect(netlifyHeaders).toContain("  CDN-Cache-Control: no-store");
     expect(netlifyHeaders).toContain("  Netlify-CDN-Cache-Control: no-store");
     expect(netlifyHeaders).toContain(
-      "/assets/*\n  Cache-Control: public, max-age=31536000, immutable",
+      "/assets/*\n  Access-Control-Allow-Origin: *\n  Cache-Control: public, max-age=31536000, immutable",
     );
   });
 
