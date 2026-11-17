@@ -78,6 +78,8 @@ import {
 } from "./analytics-chart/analytics-chart-share";
 
 const NO_CHARTS: AnalyticsChartData[] = [];
+// How often an open Share dialog reads the sub-pages' charts again.
+const SUB_PAGE_CHARTS_REFRESH_MS = 10_000;
 // A widget can't make a page public when that would carry sub-pages: core
 // refuses the change and sends the person to the app.
 const WIDGET_SUB_PAGES: ChartsRead = { charts: NO_CHARTS, unread: false };
@@ -1134,7 +1136,12 @@ export function DocumentToolbar({
     {
       enabled: shareMounted && !inWidget && Boolean(documentId),
       retry: false,
-      refetchOnWindowFocus: false,
+      // The question is asked on the click and can't wait for a read, so
+      // the answer is kept within seconds of it: read again while Share is
+      // open and on coming back to the tab. Tables are refused at the write
+      // whatever this says.
+      refetchInterval: SUB_PAGE_CHARTS_REFRESH_MS,
+      refetchOnWindowFocus: true,
     },
   );
   const subPageRead = useMemo(

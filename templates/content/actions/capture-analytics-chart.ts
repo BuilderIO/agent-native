@@ -117,7 +117,9 @@ export default defineAction({
       .string()
       .refine(isRegistryBlockId, "Not a block id")
       .optional()
-      .describe("The chart's block id, to refresh it in place."),
+      .describe(
+        "The chart's block id, to refresh it in place. Required with purpose refresh.",
+      ),
     acknowledgeWiderAudience: z
       .boolean()
       .optional()
@@ -133,6 +135,13 @@ export default defineAction({
   // tag to write with edit-document, under the same checks.
   mcpTool: true,
   run: async (args, ctx) => {
+    // A refresh replaces the tag with the same id, so it must be given.
+    if (args.purpose === "refresh" && !args.blockId) {
+      fail(
+        "To refresh a chart, pass its blockId: the id in its AnalyticsChart tag.",
+        { errorCode: "analytics_chart_block_id_required", statusCode: 400 },
+      );
+    }
     const page = await authorizeAnalyticsChartPage(args.documentId, "editor");
 
     const request = args.link

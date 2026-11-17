@@ -188,6 +188,21 @@ describe("capture-analytics-chart", () => {
     expect(forAgent).toHaveProperty("analyticsChartTag");
   });
 
+  it("asks for the chart's block id to refresh it, before asking Analytics", async () => {
+    await expect(
+      failureOf(
+        captureAnalyticsChart.run(
+          { documentId: "doc_1", link: LINK, purpose: "refresh" },
+          { caller: "mcp", maxResultChars: 75_000 },
+        ),
+      ),
+    ).resolves.toEqual({
+      errorCode: "analytics_chart_block_id_required",
+      statusCode: 400,
+    });
+    expect(mocks.requestAnalytics).not.toHaveBeenCalled();
+  });
+
   it("is offered to outside agents over MCP, who get the tag too", async () => {
     expect(isActionExposedToExternalAgents(captureAnalyticsChart)).toBe(true);
     const overMcp = await captureAnalyticsChart.run(
