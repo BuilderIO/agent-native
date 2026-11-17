@@ -19,6 +19,10 @@ import {
   preserveCommentComposerEscape,
   useCommentReplyDrafts,
 } from "./CommentsSidebar";
+import {
+  escapeWasHandled,
+  leaveEscapeToPagePanel,
+} from "./document-page-panel-state";
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -402,11 +406,53 @@ describe("the Discussion panel", () => {
     const field = container.querySelector<HTMLInputElement>(
       'input[aria-label="comments.searchDiscussion"]',
     );
-    // Escape there closes the search, not the panel.
     expect(field?.closest("[data-discussion-toolbar]")).toBeInstanceOf(
       HTMLElement,
     );
     expect(head.querySelector("input")).toBeNull();
+
+    // Escape there closes the search, not the panel. The panel reads the key
+    // after the field is gone, so the search must mark it handled.
+    const pressEscape = async () => {
+      const open = container.querySelector(
+        'input[aria-label="comments.searchDiscussion"]',
+      );
+      expect(open).toBeInstanceOf(HTMLInputElement);
+      const escape = new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      });
+      await act(async () => open?.dispatchEvent(escape));
+      expect(
+        container.querySelector(
+          'input[aria-label="comments.searchDiscussion"]',
+        ),
+      ).toBeNull();
+      return escape;
+    };
+    expect(escapeWasHandled(await pressEscape())).toBe(true);
+
+    // A row preview around the page leaves Escape to its panel before the
+    // search sees it; the search still keeps it.
+    const rowPreview = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      leaveEscapeToPagePanel(event);
+    };
+    document.addEventListener("keydown", rowPreview, true);
+    try {
+      await act(async () =>
+        head
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="comments.searchDiscussion"]',
+          )
+          ?.click(),
+      );
+      expect(escapeWasHandled(await pressEscape())).toBe(true);
+    } finally {
+      document.removeEventListener("keydown", rowPreview, true);
+    }
   });
 
   it("shows a chip for each filter someone chose and clears it from the chip", async () => {
