@@ -11994,7 +11994,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "minted-picker-ticket",
     );
     expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledWith(
-      expect.objectContaining({ targetPath: "/inbox", scope: null }),
+      expect.objectContaining({ targetPath: "/inbox", scope: "full-app" }),
     );
     embedSessionMocks.createEmbedSessionTicket.mockClear();
     const refused = await callWeb(

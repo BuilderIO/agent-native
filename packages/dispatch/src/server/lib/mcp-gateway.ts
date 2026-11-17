@@ -21,6 +21,7 @@ import {
   buildDeepLink,
   buildEmbedStartPath,
   createEmbedSessionTicket,
+  FULL_APP_EMBED_SCOPE,
   getAppProductionUrl,
   getConfiguredAppBasePath,
   getRequestContext,
@@ -1676,7 +1677,8 @@ async function createDispatchSelfEmbedSession(input: {
     ownerEmail: input.ownerEmail,
     orgId: input.orgId,
     targetPath: input.path,
-    scope: input.chrome ?? null,
+    // A full panel is Dispatch's own UI shown to its owner; minimal stays read-only.
+    scope: input.chrome === "minimal" ? input.chrome : FULL_APP_EMBED_SCOPE,
   });
   const startPath = buildEmbedStartPath(ticket.ticket);
   return {

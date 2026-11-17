@@ -62,6 +62,14 @@ const mockRegisterAuthPublicPaths = vi.hoisted(() => vi.fn());
 const mockHasUiActionCapability = vi.hoisted(() => vi.fn(() => false));
 const mockCountActionFailure = vi.hoisted(() => vi.fn());
 const mockCountCredentialState = vi.hoisted(() => vi.fn());
+const mockEmbedDbExecute = vi.hoisted(() => vi.fn(async () => ({ rows: [] })));
+
+vi.mock("../db/client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/client.js")>()),
+  getDbExec: () => ({
+    execute: (...args: unknown[]) => mockEmbedDbExecute(...args),
+  }),
+}));
 
 vi.mock("../tracking/failure-counters.js", () => ({
   countActionFailure: mockCountActionFailure,
@@ -150,14 +158,23 @@ vi.mock("./auth.js", () => ({
     mockRegisterAuthPublicPaths(...args),
   isLoopbackRequest: () => false,
 }));
-vi.mock("./embed-session.js", () => ({
+vi.mock("./embed-session.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./embed-session.js")>()),
   FULL_APP_EMBED_SCOPE: "full-app",
   hasEmbedSessionRequestMarker: (event: any) =>
     mockHasEmbedSessionRequestMarker(event),
   hasFullAppEmbedSession: (event: any) =>
     event._hasFullAppEmbedSession ?? false,
-  presentsFullAppEmbedBearer: (event: any) =>
-    event._presentsFullAppEmbedBearer ?? false,
+  presentsFullAppEmbedBearer: (
+    ...args: Parameters<
+      typeof import("./embed-session.js").presentsFullAppEmbedBearer
+    >
+  ) =>
+    args[0]._useRealEmbedSession
+      ? importOriginal<typeof import("./embed-session.js")>().then((actual) =>
+          actual.presentsFullAppEmbedBearer(...args),
+        )
+      : (args[0]._presentsFullAppEmbedBearer ?? false),
   hasLiveEmbedCapabilityCookie: (event: any) =>
     event._hasLiveEmbedCapabilityCookie ?? false,
   hasPresentedEmbedSessionCredential: (event: any) =>
@@ -172,8 +189,16 @@ vi.mock("./embed-session.js", () => ({
         (event._headers?.["x-agent-native-embed-target"] ||
           event._query?.__an_embed_target)),
     ),
-  resolveEmbedSessionFromRequest: (...args: unknown[]) =>
-    mockResolveEmbedSessionFromRequest(...args),
+  resolveEmbedSessionFromRequest: (
+    ...args: Parameters<
+      typeof import("./embed-session.js").resolveEmbedSessionFromRequest
+    >
+  ) =>
+    args[0]._useRealEmbedSession
+      ? importOriginal<typeof import("./embed-session.js")>().then((actual) =>
+          actual.resolveEmbedSessionFromRequest(...args),
+        )
+      : mockResolveEmbedSessionFromRequest(...args),
   resolvedEmbedCapabilityScope: (session: { scope?: string } | null) =>
     session?.scope?.startsWith("capability:") ? session.scope : undefined,
 }));
@@ -811,6 +836,68 @@ describe("mountActionRoutes", () => {
       );
 
       expect(result.error).toContain("a service identity can never give it");
+    });
+
+    it("lets a full-app panel owner's frontend perform an approval-gated action", async () => {
+      vi.stubEnv("OAUTH_STATE_SECRET", "full-app-panel-test-secret");
+      mockEmbedDbExecute.mockReset().mockResolvedValue({ rows: [] });
+      const { signEmbedSessionToken } = await import("./embed-session.js");
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        targetPath: "/tasks-2",
+        audienceHost: "https://app.example.com",
+        scope: "full-app",
+      });
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "manage-issue-trash": {
+            run,
+            needsApproval: ({ operation }: { operation: string }) =>
+              operation !== "restore",
+            changeResource: "issue",
+            mcpAnnotations: { destructiveHint: true },
+          } as any,
+        },
+        {
+          getOwnerFromEvent: async () => "owner@example.com",
+          resolveOrgId: async () => "org-1",
+        },
+      );
+      const event: any = {
+        _method: "POST",
+        _useRealEmbedSession: true,
+        _headers: {
+          authorization: `Bearer ${token}`,
+          "x-agent-native-embed-target": "/tasks-2",
+          "x-agent-native-frontend": "1",
+          origin: "https://claude.ai",
+          host: "app.example.com",
+          "sec-fetch-site": "cross-site",
+        },
+        url: new URL(
+          "https://app.example.com/_agent-native/actions/manage-issue-trash",
+        ),
+        req: {
+          method: "POST",
+          url: "https://app.example.com/_agent-native/actions/manage-issue-trash",
+          json: async () => ({ operation: "trash", issueId: "issue-1" }),
+        },
+      };
+
+      const result = await mounted[0]!.handler(event);
+
+      expect(event._status).toBeUndefined();
+      expect(result).toEqual({ ok: true });
+      expect(run).toHaveBeenCalledOnce();
     });
 
     it.each([
