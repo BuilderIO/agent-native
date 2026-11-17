@@ -15,7 +15,7 @@
 import { randomUUID } from "node:crypto";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, notInArray } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -376,6 +376,14 @@ export async function handleFinalizeTracks(event: H3Event) {
           schema.recordings.editsJson,
           existing.editsJson,
         );
+        // The tracks belong to the upload attempt read here. A retry that
+        // starts a new one, or an abort that fails the recording, keeps none.
+        const attemptUnchanged = and(
+          generationId === null
+            ? isNull(schema.recordings.uploadGenerationId)
+            : eq(schema.recordings.uploadGenerationId, generationId),
+          notInArray(schema.recordings.status, ["uploading", "failed"]),
+        );
         const listed = new Map(input.tracks.map((track) => [track.id, track]));
         const stored = new Map(
           (await listRecordingTracks(recordingId, ownerEmail)).map((row) => [
@@ -554,6 +562,7 @@ export async function handleFinalizeTracks(event: H3Event) {
                   recordingWhere,
                   eq(schema.recordings.mediaFormat, "flat"),
                   editsUnchanged,
+                  attemptUnchanged,
                 ),
               )
               .for("update")
@@ -684,6 +693,7 @@ export async function handleFinalizeTracks(event: H3Event) {
                 eq(schema.recordings.mediaFormat, "flat"),
                 // A redaction marked since the read would make these tracks stale.
                 editsUnchanged,
+                attemptUnchanged,
               ),
             )
             .for("update")

@@ -138,6 +138,7 @@ export async function handleTrackChunk(event: H3Event) {
       const found = await getDb()
         .select({
           id: schema.recordings.id,
+          status: schema.recordings.status,
           storageMode: schema.recordings.storageMode,
           uploadGenerationId: schema.recordings.uploadGenerationId,
           mediaFormat: schema.recordings.mediaFormat,
@@ -173,6 +174,15 @@ export async function handleTrackChunk(event: H3Event) {
           ok: false,
           error: "This recording's tracks are already finalized.",
           tracksFinalized: true,
+        };
+      }
+      // Finalize keeps no tracks for a failed recording, so none are taken.
+      if (existing.status === "failed") {
+        setResponseStatus(event, 409);
+        return {
+          ok: false,
+          error: "The recording failed, so its tracks were not kept.",
+          tracksStopped: true,
         };
       }
       // Pending redaction marks don't stop the chunks of a track upload under

@@ -77,8 +77,14 @@ describe("sanitizeTrackMeta", () => {
     ).toEqual({ sampleRate: 48_000, channels: 1 });
   });
 
-  it("keeps nothing from fields of the wrong shape", () => {
-    expect(sanitizeTrackMeta("screen", { widthPx: "wide" })).toEqual({});
+  it("drops only the fields of the wrong shape", () => {
+    expect(
+      sanitizeTrackMeta("screen", {
+        widthPx: "wide",
+        codec: "avc1.640028",
+        sync: [[1_000, 0]],
+      }),
+    ).toEqual({ codec: "avc1.640028", sync: [[1_000, 0]] });
     expect(sanitizeTrackMeta("input", undefined)).toEqual({});
   });
 });
@@ -139,6 +145,7 @@ describe("buildRichRecordingManifest", () => {
         file: "mic.webm",
         bytes: 200,
         complete: false,
+        sampleRate: 48_000,
       },
     ]);
   });

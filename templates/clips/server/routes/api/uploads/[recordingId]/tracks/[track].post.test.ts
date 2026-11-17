@@ -332,6 +332,16 @@ describe("POST /api/uploads/:recordingId/tracks/:track", () => {
     expect(provider.resumable.startSession).not.toHaveBeenCalled();
   });
 
+  it("stops tracks once the recording failed", async () => {
+    mocks.recording = { ...mocks.recording, status: "failed" };
+    const { status, body } = await send(
+      chunk(0, 4, { uploadGenerationId: "gen-1" }),
+    );
+    expect(status).toBe(409);
+    expect(body).toMatchObject({ tracksStopped: true });
+    expect(provider.resumable.startSession).not.toHaveBeenCalled();
+  });
+
   it("stops tracks once a redaction was burned into the recording", async () => {
     mocks.recording = {
       ...mocks.recording,

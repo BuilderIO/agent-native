@@ -682,6 +682,21 @@ describe("POST /api/uploads/:recordingId/tracks/finalize", () => {
     });
   });
 
+  it("keeps no track when a retry starts a new upload attempt mid-finalize", async () => {
+    session("screen", 10);
+    resumable.completeSession.mockImplementationOnce(async () => {
+      await client.query(
+        "UPDATE recordings SET upload_generation_id='gen-2', status='uploading'",
+      );
+      return trackUrl("screen");
+    });
+    const { status, body: result } = await finalize(body([listed("screen")]));
+    expect(status).toBe(409);
+    expect(result).toMatchObject({ retryable: true });
+    expect(await trackRows()).toEqual([]);
+    expect(await recordingRow()).toMatchObject({ media_format: "flat" });
+  });
+
   it("stays flat and asks for a retry when the recording's edits change mid-finalize", async () => {
     session("screen", 10);
     mocks.upload.mockImplementationOnce(async () => {

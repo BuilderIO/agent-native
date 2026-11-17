@@ -27,11 +27,8 @@ const sync = z
 
 // A track's kind-specific fields. Anything a recorder sends beyond these is
 // dropped, so the manifest only ever says what this version understands.
-const TRACK_META_SCHEMAS: Record<
-  RichTrackFamily,
-  z.ZodType<Record<string, unknown>>
-> = {
-  video: z.object({
+const TRACK_META_FIELDS: Record<RichTrackFamily, Record<string, z.ZodType>> = {
+  video: {
     initBytes: z.number().int().min(0).optional(),
     codec: label.optional(),
     widthPx: z.number().int().min(0).optional(),
@@ -40,26 +37,26 @@ const TRACK_META_SCHEMAS: Record<
     maxFps: z.number().finite().min(0).max(1000).optional(),
     cursor: z.enum(["hidden", "in-pixels", "in-pixels-when-moving"]).optional(),
     sync,
-  }),
-  audio: z.object({
+  },
+  audio: {
     initBytes: z.number().int().min(0).optional(),
     codec: label.optional(),
     sampleRate: z.number().int().min(0).optional(),
     channels: z.number().int().min(1).max(8).optional(),
     sync,
-  }),
-  events: z.object({
+  },
+  events: {
     space: z.enum(["screen-px"]).optional(),
     moveIntervalMs: z.number().int().min(0).optional(),
     covers: z.enum(["global", "page"]).optional(),
     rrweb: label.optional(),
     checkoutMs: z.number().int().min(0).optional(),
     sync,
-  }),
-  transcript: z.object({
+  },
+  transcript: {
     provider: label.optional(),
     language: label.optional(),
-  }),
+  },
 };
 
 const finalizeTrackSchema = z
@@ -138,15 +135,24 @@ export type FinalizeRichRecordingInput = z.infer<
   typeof finalizeRichRecordingSchema
 >;
 
-/** The track's kind-specific fields this version keeps, or `{}`. */
+/**
+ * The track's kind-specific fields this version keeps. Each is checked on its
+ * own, so one of the wrong shape doesn't lose the others, such as clock sync.
+ */
 export function sanitizeTrackMeta(
   track: RichTrackId,
   meta: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  const parsed = TRACK_META_SCHEMAS[richTrackFamily(track)].safeParse(
-    meta ?? {},
-  );
-  return parsed.success ? parsed.data : {};
+  const kept: Record<string, unknown> = {};
+  if (!meta) return kept;
+  for (const [field, schema] of Object.entries(
+    TRACK_META_FIELDS[richTrackFamily(track)],
+  )) {
+    if (meta[field] === undefined) continue;
+    const parsed = schema.safeParse(meta[field]);
+    if (parsed.success && parsed.data !== undefined) kept[field] = parsed.data;
+  }
+  return kept;
 }
 
 export interface ManifestTrackRow {
