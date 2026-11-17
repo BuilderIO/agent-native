@@ -47,9 +47,10 @@ Options:
   --out <file>          results JSON (default: .tmp/bench/create-<time>.json)
   --keep                keep each run's folder instead of deleting it
 
-A local or .tgz target skips the package's own registry metadata and tarball,
-so its install phase undercounts by about that much (11.9 MB of metadata for
-@agent-native/core). Bytes are what crossed the wire, TLS included.`;
+A local, .tgz, or tarball-URL target skips the package's own registry metadata
+(11.9 MB for @agent-native/core), and a local or .tgz one its tarball too, so
+its install phase undercounts by about that much. Bytes are what crossed the
+wire, TLS included.`;
 
 export interface HostTraffic {
   received: number;
@@ -226,7 +227,8 @@ interface RunResult {
 interface Target {
   label: string;
   spec: string;
-  local: boolean;
+  /** False when npm skips this package's registry metadata. */
+  fromRegistry: boolean;
 }
 
 function isolatedEnv(runDir: string, proxyUrl: string): NodeJS.ProcessEnv {
@@ -618,17 +620,20 @@ async function main(): Promise<void> {
         return {
           label: `local ${gitLabel()}`,
           spec: packLocalCore(packDir),
-          local: true,
+          fromRegistry: false,
         };
+      }
+      if (/^https?:\/\//.test(spec)) {
+        return { label: spec, spec, fromRegistry: false };
       }
       if (spec.endsWith(".tgz")) {
         return {
           label: path.basename(spec),
           spec: path.resolve(spec),
-          local: true,
+          fromRegistry: false,
         };
       }
-      return { label: spec, spec, local: false };
+      return { label: spec, spec, fromRegistry: true };
     });
     results = targets.map((target) => ({ target, runs: [] }));
     // Alternate targets within each round so a slow minute hits all of them.
@@ -690,9 +695,9 @@ async function main(): Promise<void> {
     `${scenario} · ${runs} run(s) per target, times are medians · Node ${process.version} · ${process.platform}\n`,
   );
   console.log(report(results, phases));
-  if (results.some(({ target }) => target.local)) {
+  if (results.some(({ target }) => !target.fromRegistry)) {
     console.log(
-      "\nLocal and .tgz targets skip the package's own registry metadata and tarball in the install phase.",
+      "\nLocal, .tgz, and tarball-URL targets skip the package's own registry metadata in the install phase.",
     );
   }
   console.log(`\nResults: ${outFile}`);
