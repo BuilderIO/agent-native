@@ -5057,8 +5057,8 @@ export class AgentKitClient implements AgentKitController {
     );
     this.assertActive();
     const key = this.runKey(threadId, runId);
-    const status = this.getThread(threadId).runs[runId]?.status;
-    if (status && this.isTerminalStatus(status)) {
+    const run = this.findRun(threadId, runId);
+    if (run && this.isTerminalStatus(run.status)) {
       // The consumer that applied the run's end is saving the thread; the
       // Stop resolves once that save has.
       await this.consumers.get(key)?.catch(() => undefined);
@@ -7214,6 +7214,11 @@ export class AgentKitClient implements AgentKitController {
     status: AgentRunSnapshot["status"],
   ): status is "completed" | "failed" | "cancelled" {
     return ["completed", "failed", "cancelled"].includes(status);
+  }
+
+  /** The run's state, or undefined for a run this client never saw. */
+  private findRun(threadId: ThreadId, runId: RunId): AgentRunState | undefined {
+    return this.getThread(threadId).runs[runId];
   }
 
   private scheduleQueuePromotion(threadId: ThreadId, expedite = false): void {
