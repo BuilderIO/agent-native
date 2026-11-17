@@ -303,7 +303,7 @@ async function runPhase(
   if (exit.code !== 0) {
     const tail = fs.readFileSync(logFile, "utf8").split("\n").slice(-30);
     throw new Error(
-      `${[command, ...args].join(" ")} ${timedOut ? `timed out after ${PHASE_TIMEOUT_MS / 60_000} minutes` : `exited with ${exit.signal ?? exit.code}`}. Last lines of ${logFile}:\n${tail.join("\n")}`,
+      `${[command, ...args].join(" ")} ${timedOut ? `timed out after ${PHASE_TIMEOUT_MS / 60_000} minutes` : `exited with ${exit.signal ?? exit.code}`}. Last lines of ${path.basename(logFile)} (--keep keeps the whole log):\n${tail.join("\n")}`,
     );
   }
   return { ms, hosts: diffTraffic(before, proxy.snapshot()) };
@@ -383,93 +383,98 @@ async function benchRun(
   options: ScaffoldOptions & { pnpmInstall: boolean; keep: boolean },
 ): Promise<RunResult> {
   const runDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-bench-"));
-  const env = isolatedEnv(runDir, proxy.url);
-  const cliDir = path.join(runDir, "cli");
-  const workDir = path.join(runDir, "work");
-  fs.mkdirSync(cliDir);
-  fs.mkdirSync(workDir);
-  fs.writeFileSync(path.join(cliDir, "package.json"), '{"private":true}\n');
-  const phases: RunResult["phases"] = {};
+  try {
+    const env = isolatedEnv(runDir, proxy.url);
+    const cliDir = path.join(runDir, "cli");
+    const workDir = path.join(runDir, "work");
+    fs.mkdirSync(cliDir);
+    fs.mkdirSync(workDir);
+    fs.writeFileSync(path.join(cliDir, "package.json"), '{"private":true}\n');
+    const phases: RunResult["phases"] = {};
 
-  phases.install = await runPhase(
-    proxy,
-    path.join(runDir, "install.log"),
-    {
-      command: process.execPath,
-      args: [
-        npmCliPath(),
-        "install",
-        "--no-audit",
-        "--no-fund",
-        "--loglevel=error",
-        target.spec,
-      ],
-      shell: false,
-    },
-    { cwd: cliDir, env },
-  );
-  if (totalTraffic(phases.install.hosts).connections === 0) {
-    throw new Error(
-      "npm installed with no traffic through the counting proxy, so it bypassed it. Check for a proxy or noproxy setting in the global npmrc.",
-    );
-  }
-  const pkg = installedPackage(cliDir);
-  const args = scaffoldArgs(pkg.name, options);
-  phases.create = await runPhase(
-    proxy,
-    path.join(runDir, "create.log"),
-    {
-      command: process.execPath,
-      args: [pkg.bin, ...args.create],
-      shell: false,
-    },
-    { cwd: workDir, env },
-  );
-  const workspaceDir = path.join(workDir, WORKSPACE_NAME);
-  if (!fs.existsSync(workspaceDir)) {
-    throw new Error(`create exited 0 but wrote no ${workspaceDir}.`);
-  }
-  if (args.addApp) {
-    // Users run the workspace's own CLI through `pnpm exec`, which works only
-    // after a pnpm install. This is the same command without that wait.
-    phases["add-app"] = await runPhase(
+    phases.install = await runPhase(
       proxy,
-      path.join(runDir, "add-app.log"),
+      path.join(runDir, "install.log"),
       {
         command: process.execPath,
-        args: [pkg.bin, ...args.addApp],
+        args: [
+          npmCliPath(),
+          "install",
+          "--no-audit",
+          "--no-fund",
+          "--loglevel=error",
+          target.spec,
+        ],
         shell: false,
       },
-      { cwd: workspaceDir, env },
+      { cwd: cliDir, env },
     );
-    const appDir = path.join(workspaceDir, "apps", ADDED_APP_NAME);
-    if (!fs.existsSync(appDir) || countFiles(appDir).files === 0) {
-      throw new Error(`add-app exited 0 but wrote nothing to ${appDir}.`);
+    if (totalTraffic(phases.install.hosts).connections === 0) {
+      throw new Error(
+        "npm installed with no traffic through the counting proxy, so it bypassed it. Check for a proxy or noproxy setting in the global npmrc.",
+      );
+    }
+    const pkg = installedPackage(cliDir);
+    const args = scaffoldArgs(pkg.name, options);
+    phases.create = await runPhase(
+      proxy,
+      path.join(runDir, "create.log"),
+      {
+        command: process.execPath,
+        args: [pkg.bin, ...args.create],
+        shell: false,
+      },
+      { cwd: workDir, env },
+    );
+    const workspaceDir = path.join(workDir, WORKSPACE_NAME);
+    if (!fs.existsSync(workspaceDir)) {
+      throw new Error(`create exited 0 but wrote no ${workspaceDir}.`);
+    }
+    if (args.addApp) {
+      // Users run the workspace's own CLI through `pnpm exec`, which works only
+      // after a pnpm install. This is the same command without that wait.
+      phases["add-app"] = await runPhase(
+        proxy,
+        path.join(runDir, "add-app.log"),
+        {
+          command: process.execPath,
+          args: [pkg.bin, ...args.addApp],
+          shell: false,
+        },
+        { cwd: workspaceDir, env },
+      );
+      const appDir = path.join(workspaceDir, "apps", ADDED_APP_NAME);
+      if (!fs.existsSync(appDir) || countFiles(appDir).files === 0) {
+        throw new Error(`add-app exited 0 but wrote nothing to ${appDir}.`);
+      }
+    }
+    const written = countFiles(workspaceDir);
+    if (written.files === 0) {
+      throw new Error(`create exited 0 but ${workspaceDir} is empty.`);
+    }
+    if (options.pnpmInstall) {
+      phases["pnpm-install"] = await runPhase(
+        proxy,
+        path.join(runDir, "pnpm-install.log"),
+        pnpmCommand(["install", "--reporter=append-only"]),
+        { cwd: workspaceDir, env },
+      );
+    }
+    return {
+      version: pkg.version,
+      phases,
+      workspaceFiles: written.files,
+      workspaceBytes: written.bytes,
+    };
+  } finally {
+    // A failed run is deleted too: its caches run to hundreds of MB, and the
+    // error already carries the log's last lines.
+    if (options.keep) {
+      console.error(`[bench] kept ${runDir}`);
+    } else {
+      fs.rmSync(runDir, { recursive: true, force: true });
     }
   }
-  const written = countFiles(workspaceDir);
-  if (written.files === 0) {
-    throw new Error(`create exited 0 but ${workspaceDir} is empty.`);
-  }
-  if (options.pnpmInstall) {
-    phases["pnpm-install"] = await runPhase(
-      proxy,
-      path.join(runDir, "pnpm-install.log"),
-      pnpmCommand(["install", "--reporter=append-only"]),
-      { cwd: workspaceDir, env },
-    );
-  }
-  if (options.keep) {
-    console.error(`[bench] kept ${runDir}`);
-  } else {
-    fs.rmSync(runDir, { recursive: true, force: true });
-  }
-  return {
-    version: pkg.version,
-    phases,
-    workspaceFiles: written.files,
-    workspaceBytes: written.bytes,
-  };
 }
 
 function packLocalCore(packDir: string): string {
