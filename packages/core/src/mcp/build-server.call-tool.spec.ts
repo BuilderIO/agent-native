@@ -402,8 +402,9 @@ describe("tool-search with unlisted tools", () => {
 });
 
 describe("the widget of an unlisted tool", () => {
-  // No listed tool here has a widget, so only the unlisted one can turn on
-  // MCP App resources.
+  // No listed action here has a widget, and each grant below leaves out
+  // `open_app`, which has its own, so only the unlisted tool can turn on MCP
+  // App resources.
   function withUnlistedWidget(): MCPConfig {
     const all = {
       ...actions(),
@@ -420,6 +421,7 @@ describe("the widget of an unlisted tool", () => {
   const cards = { inlineMcpApps: true };
 
   it("can be read after call-tool names it in the result", async () => {
+    grant = ["tool-search", "call-tool", "get-plan", "plan-history"];
     const client = await clientFor(withUnlistedWidget(), false, cards);
     const out = await viaCallTool(client, { name: "plan-history" });
     expect(out.isError).toBeFalsy();
