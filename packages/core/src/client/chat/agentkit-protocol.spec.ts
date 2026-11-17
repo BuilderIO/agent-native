@@ -7325,6 +7325,73 @@ describe("createAgentKitProtocolAdapter", () => {
   });
 
   describe("continuing a stopped run", () => {
+    it("resumes a continued run from its earliest retained event when its history was trimmed before the first read", async () => {
+      const continueTurn = vi.fn(async () => ({
+        id: "turn-1",
+        runId: "run-continued",
+        sessionId: "thread-1",
+        events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          for (let index = 0; index < 20; index += 1) {
+            yield {
+              type: "status",
+              id: `s-${index}`,
+              message: `Step ${index}`,
+            };
+          }
+          yield { type: "done", reason: "complete" };
+        })(),
+      }));
+      const runtime = createRuntime(async function* () {}, {
+        readRunState: async () => ({
+          status: "errored" as const,
+          runId: "run-capped",
+          turnId: "turn-1",
+          terminalReason: "stale_run" as const,
+        }),
+        subscribe: async () => (async function* () {})(),
+      });
+      runtime.createSession = async () => ({
+        id: "thread-1",
+        runtimeId: runtime.id,
+        startTurn: async () => {
+          throw new Error("Continuing must not start a new turn.");
+        },
+        continueTurn,
+      });
+      const transport = createAgentKitProtocolAdapter(runtime, {
+        maxRetainedEvents: 4,
+      });
+      try {
+        const { runId } = await transport.continueRun!({
+          threadId: "thread-1",
+          runId: "run-capped",
+        });
+        await vi.waitFor(async () => {
+          const run = await transport.getRun?.({ threadId: "thread-1", runId });
+          expect(run?.status).toBe("completed");
+        });
+
+        const events = await drain(
+          transport.subscribeToRun({
+            threadId: "thread-1",
+            runId,
+            afterSequence: 0,
+          }),
+        );
+
+        expect(events[0]).toMatchObject({
+          type: "x-agent-native.persisted-event-omission-range",
+          sequence: 1,
+        });
+        expect(events.at(-1)?.type).toBe("run.completed");
+        expect(new Set(events.map((event) => event.runId))).toEqual(
+          new Set(["run-continued"]),
+        );
+      } finally {
+        await transport.dispose();
+      }
+    });
+
     function stoppedRunRuntime(state: ServerRunState) {
       const continueTurn = vi.fn(async () => ({
         id: "turn-1",
@@ -7824,7 +7891,7 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
-  it("bounds process-local event retention and rejects stale cursors", async () => {
+  it("bounds process-local event retention and marks stale cursors as trimmed", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       for (let index = 0; index < 6; index += 1) {
         yield {
@@ -7847,10 +7914,28 @@ describe("createAgentKitProtocolAdapter", () => {
       expect(run?.status).toBe("completed");
     });
 
-    await expect(
-      drain(transport.subscribeToRun({ threadId: "thread-1", runId })),
-    ).rejects.toThrow("earliest available sequence");
     const run = await transport.getRun?.({ threadId: "thread-1", runId });
+    const fromStart = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    expect(fromStart[0]).toMatchObject({
+      type: "x-agent-native.persisted-event-omission-range",
+      runId,
+      sequence: 1,
+      payload: {
+        lastSequence: (run?.lastSequence ?? 0) - 4,
+        sourceType: "retained_event_trim",
+      },
+    });
+    expect(fromStart.slice(1).map((event) => event.sequence)).toEqual([
+      (run?.lastSequence ?? 0) - 3,
+      (run?.lastSequence ?? 0) - 2,
+      (run?.lastSequence ?? 0) - 1,
+      run?.lastSequence,
+    ]);
+    fromStart.forEach((event) =>
+      expect(() => parseAgentEvent(event)).not.toThrow(),
+    );
     const replay = await drain(
       transport.subscribeToRun({
         threadId: "thread-1",

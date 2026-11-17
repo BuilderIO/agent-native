@@ -3947,9 +3947,19 @@ export function createAgentKitProtocolAdapter(
     try {
       while (!signal?.aborted) {
         if (nextSequence < run.firstRetainedSequence) {
-          throw new Error(
-            `AgentKit run ${run.runId} no longer retains sequence ${nextSequence}; the earliest available sequence is ${run.firstRetainedSequence}.`,
-          );
+          yield {
+            id: `${run.runId}:retained-trim:${nextSequence}`,
+            threadId: run.threadId,
+            runId: run.runId,
+            sequence: nextSequence,
+            occurredAt: now(),
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: {
+              lastSequence: run.firstRetainedSequence - 1,
+              sourceType: "retained_event_trim",
+            },
+          } as AgentEvent;
+          nextSequence = run.firstRetainedSequence;
         }
         while (nextSequence <= run.sequence) {
           const event = run.events[nextSequence - run.firstRetainedSequence];
