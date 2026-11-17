@@ -94,9 +94,10 @@ it("reports a protected conversation read failure and keeps retry available", as
 
   function Probe() {
     const controller = useCommentAiRequests("document-1", { enabled: true });
+    const continuation = controller.continuations.get(request.operationId);
     return createElement(CommentAiRequestStatus, {
       request,
-      continuation: controller.continuations.get(request.operationId),
+      ...(continuation ? { continuation } : {}),
       onRetry: () => controller.retry(request),
       onStop: () => controller.stop(request),
     });
