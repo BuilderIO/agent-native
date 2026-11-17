@@ -483,15 +483,14 @@ export function withTransientDatabaseFallback(
         try {
           return await handler(event);
         } catch (error) {
-          const retryDelay = TRANSIENT_DATABASE_RETRY_DELAYS_MS[attempt];
           if (
             !retrySafe ||
-            retryDelay === undefined ||
+            attempt >= TRANSIENT_DATABASE_RETRY_DELAYS_MS.length ||
             !isTransientDatabaseError(error)
           ) {
             throw error;
           }
-          await sleep(retryDelay);
+          await sleep(TRANSIENT_DATABASE_RETRY_DELAYS_MS[attempt]);
         }
       }
     } catch (error) {
