@@ -68,7 +68,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         var effect = animation.effect;
         if (!effect || !effect.target) continue;
         var target = effect.target;
-        if (!target.isConnected || target.closest("[data-agent-native-edit-overlay]"))
+        if (!target.isConnected || target.getRootNode() !== document || target.closest("[data-agent-native-edit-overlay]"))
           continue;
         var pseudo = effect.pseudoElement;
         var selector = animationTargetSelector(target) + (pseudo || "");
@@ -121,7 +121,9 @@ export const embeddedWheelBridgeScript: string = `"use strict";
     syncEditingSafetyStyle();
     function inlineAnimationDeclarations(value) {
       return (value || "").split(";").filter(function(declaration) {
-        return /^\\s*(?:-webkit-)?animation(?:-[\\w-]+)?\\s*:/.test(declaration);
+        return /^\\s*(?:--[\\w-]+|(?:-webkit-)?animation(?:-[\\w-]+)?)\\s*:/.test(
+          declaration
+        );
       }).join(";");
     }
     function containsFrozenAnimationTarget(root) {
@@ -141,8 +143,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
             return inlineAnimationDeclarations(record.oldValue) !== inlineAnimationDeclarations(target.getAttribute("style"));
           return target.getAnimations({ subtree: true }).length > 0 || containsFrozenAnimationTarget(target);
         }
-        if (target && containsFrozenAnimationTarget(target))
-          return true;
+        if (target && containsFrozenAnimationTarget(target)) return true;
         return Array.from(record.addedNodes).concat(Array.from(record.removedNodes)).some(function(node) {
           return node instanceof Element && node !== freezeStyle && (node.matches("style") || !!node.querySelector("style") || node.getAnimations({ subtree: true }).length > 0);
         });
@@ -157,6 +158,13 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       attributeOldValue: true
     });
     window.addEventListener("resize", syncEditingSafetyStyle);
+    document.addEventListener(
+      "load",
+      function(event) {
+        if (event.target instanceof HTMLLinkElement) syncEditingSafetyStyle();
+      },
+      true
+    );
     function clamp(value, limit) {
       var number = Number(value) || 0;
       if (number > limit) return limit;

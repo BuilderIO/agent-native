@@ -148,8 +148,11 @@ declare var __INTERACTION_MODE__: boolean;
       var effect = animation.effect as KeyframeEffect | null;
       if (!effect || !effect.target) continue;
       var target = effect.target;
+      // A document stylesheet cannot select into a shadow tree; a path built
+      // from the shadow host down would match light-DOM nodes instead.
       if (
         !target.isConnected ||
+        target.getRootNode() !== document ||
         target.closest("[data-agent-native-edit-overlay]")
       )
         continue;
@@ -234,7 +237,10 @@ declare var __INTERACTION_MODE__: boolean;
     return (value || "")
       .split(";")
       .filter(function (declaration) {
-        return /^\s*(?:-webkit-)?animation(?:-[\w-]+)?\s*:/.test(declaration);
+        // Custom properties count: `animation: var(--motion)` changes with them.
+        return /^\s*(?:--[\w-]+|(?:-webkit-)?animation(?:-[\w-]+)?)\s*:/.test(
+          declaration,
+        );
       })
       .join(";");
   }
@@ -287,6 +293,14 @@ declare var __INTERACTION_MODE__: boolean;
     attributeOldValue: true,
   });
   window.addEventListener("resize", syncEditingSafetyStyle);
+  // A stylesheet applies after its link is inserted, without a DOM mutation.
+  document.addEventListener(
+    "load",
+    function (event) {
+      if (event.target instanceof HTMLLinkElement) syncEditingSafetyStyle();
+    },
+    true,
+  );
 
   function clamp(value: number, limit: number): number {
     var number = Number(value) || 0;
