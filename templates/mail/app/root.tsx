@@ -383,6 +383,11 @@ const MAIL_QUERY_MUTATION_ACTIONS = new Set([
   "update-queued-draft",
 ]);
 
+const INTEGRATION_KEY_ACTIONS = new Set([
+  "save-integration-key",
+  "delete-integration-key",
+]);
+
 const SCHEDULED_JOB_MUTATION_ACTIONS = new Set([
   "cancel-scheduled-email",
   "confirm-uncertain-scheduled-email",
@@ -486,6 +491,13 @@ export function createMailSyncEventHandler(qc: QueryClient) {
         }
       }
     } else if (data.source === "action") {
+      if (data.key && INTEGRATION_KEY_ACTIONS.has(data.key)) {
+        void qc.invalidateQueries({
+          queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
+        });
+        void qc.invalidateQueries({ queryKey: ["integration-data"] });
+        return;
+      }
       if (!data.key || !MAIL_QUERY_MUTATION_ACTIONS.has(data.key)) return;
       if (SCHEDULED_JOB_MUTATION_ACTIONS.has(data.key)) {
         void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
