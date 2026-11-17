@@ -15,6 +15,7 @@ import {
   composeAttachmentLink,
   moveGmailAttachments,
 } from "@shared/compose-attachments.js";
+import { DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE } from "@shared/draft-mailbox.js";
 import {
   gmailReadState,
   GMAIL_QUOTA_COOLDOWN_ERROR_CODE,
@@ -1651,7 +1652,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
           setResponseStatus(event, 502);
           return {
             error: updated.attachmentsError.message,
-            errorCode: "draft_attachments_unconfirmed",
+            errorCode: DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE,
             draftId: updated.draftId,
             backend: "gmail" as const,
             accountEmail: acct,

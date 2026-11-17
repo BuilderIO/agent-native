@@ -67,3 +67,24 @@ export function moveGmailAttachments<T extends ComposeAttachment>(
   });
   return unused.length < moved.length ? next : attachments;
 }
+
+const sameGmailRef = (a: GmailAttachmentRef, b: GmailAttachmentRef) =>
+  a.gmailMessageId === b.gmailMessageId &&
+  a.gmailAttachmentId === b.gmailAttachmentId;
+
+/**
+ * `earlier` and then `later`, as one list that takes a ref from before either,
+ * or from between them, to where it lives after `later`.
+ */
+export function followGmailAttachmentMoves(
+  earlier: readonly MovedGmailAttachment[],
+  later: readonly MovedGmailAttachment[],
+): MovedGmailAttachment[] {
+  return [
+    ...earlier.map((move) => {
+      const next = later.find(({ from }) => sameGmailRef(from, move.to));
+      return next ? { from: move.from, to: next.to } : move;
+    }),
+    ...later,
+  ];
+}

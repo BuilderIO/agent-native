@@ -2056,18 +2056,13 @@ describe("manage-draft updates of a reopened Gmail draft with its own file", () 
     expect(second.draft.savedDraftId).toBe("r-draft-7");
   });
 
-  const failure = (run: Promise<unknown>) =>
-    run.then(
-      () => {
-        throw new Error("expected the update to fail");
-      },
-      (error: {
-        errorCode?: string;
-        details?: { current?: unknown; currentRevision?: string };
-      }) => error,
+  /** The Gmail draft each write named; any other ID makes a second draft. */
+  const savedDraftIds = () =>
+    mocks.saveGmailDraft.mock.calls.map(
+      ([args]) => (args as { draftId?: string }).draftId,
     );
 
-  it("keeps the file when the person's edit wins the store after Gmail took the update", async () => {
+  it("keeps the Gmail draft and its file when the person edits while Gmail takes the update", async () => {
     const save = mocks.saveGmailDraft.getMockImplementation();
     mocks.saveGmailDraft.mockImplementationOnce(async (args) => {
       const result = await save?.(args);
@@ -2078,36 +2073,14 @@ describe("manage-draft updates of a reopened Gmail draft with its own file", () 
       return result;
     });
 
-    const conflict = await failure(
-      action.run({
-        action: "update",
-        id: "reopened",
-        expectedRevision: revisionOf("reopened"),
-        subject: "Agent subject",
-      }),
-    );
-
-    expect(conflict.errorCode).toBe("save_conflict");
-    const moved = {
-      ...draftFile,
-      gmailMessageId: "message-2",
-      gmailAttachmentId: "part-2",
-    };
-    expect(conflict.details?.current).toMatchObject({
-      body: "Person's edit",
-      subject: "Brief",
-      savedDraftId: "r-draft-7",
-      attachments: [moved],
-    });
-
-    const retry = await action.run({
+    const updated = await action.run({
       action: "update",
       id: "reopened",
-      expectedRevision: conflict.details?.currentRevision,
+      expectedRevision: revisionOf("reopened"),
       subject: "Agent subject",
     });
 
-    expect(retry.draft).toMatchObject({
+    const current = {
       body: "Person's edit",
       subject: "Agent subject",
       savedDraftId: "r-draft-7",
@@ -2118,10 +2091,14 @@ describe("manage-draft updates of a reopened Gmail draft with its own file", () 
           gmailAttachmentId: "part-3",
         },
       ],
-    });
+    };
+    expect(updated.mailboxSync).toEqual({ status: "synced" });
+    expect(updated.draft).toMatchObject(current);
+    expect(appState.get("compose-reopened")).toMatchObject(current);
+    expect(savedDraftIds()).toEqual(["message-of-draft", "r-draft-7"]);
   });
 
-  it("stores the Gmail draft's ID before failing on files it couldn't confirm", async () => {
+  it("stores the Gmail draft's ID when Mail couldn't confirm its files, and finds them on the next update", async () => {
     mocks.saveGmailDraft.mockResolvedValueOnce({
       draftId: "r-draft-7",
       accountEmail: "owner@example.com",
@@ -2132,30 +2109,48 @@ describe("manage-draft updates of a reopened Gmail draft with its own file", () 
       ),
     });
 
-    const error = await failure(
-      action.run({
-        action: "update",
-        id: "reopened",
-        expectedRevision: revisionOf("reopened"),
-        body: "Agent edit",
-      }),
-    );
+    const partial = await action.run({
+      action: "update",
+      id: "reopened",
+      expectedRevision: revisionOf("reopened"),
+      body: "Agent edit",
+    });
 
-    expect(error).toMatchObject({
+    expect(partial.mailboxSync).toMatchObject({
+      status: "pending",
       errorCode: "draft_attachments_unconfirmed",
-      details: { id: "reopened", revision: revisionOf("reopened") },
+      savedDraft: { draftId: "r-draft-7" },
     });
     expect(appState.get("compose-reopened")).toMatchObject({
       body: "Agent edit",
       savedDraftId: "r-draft-7",
       attachments: [draftFile],
     });
+
+    const next = await action.run({
+      action: "update",
+      id: "reopened",
+      expectedRevision: partial.revision,
+      body: "Second edit",
+    });
+
+    expect(next.mailboxSync).toEqual({ status: "synced" });
+    expect(next.draft).toMatchObject({
+      savedDraftId: "r-draft-7",
+      attachments: [
+        {
+          ...draftFile,
+          gmailMessageId: "message-2",
+          gmailAttachmentId: "part-2",
+        },
+      ],
+    });
+    expect(savedDraftIds()).toEqual(["message-of-draft", "r-draft-7"]);
   });
 
   /**
-   * Gmail takes the agent's update, then the person's edit beats the agent's
-   * write to the store, and each later write in `edits` is beaten by one more
-   * edit of the person's.
+   * The person's edit lands while Gmail takes the agent's update, and each
+   * later write to the store in `edits` is beaten by one more edit.
    */
   function racedByEdits(edits: Record<string, unknown>[]) {
     const save = mocks.saveGmailDraft.getMockImplementation();
@@ -2181,69 +2176,64 @@ describe("manage-draft updates of a reopened Gmail draft with its own file", () 
     );
   }
 
-  it("records the Gmail draft and its file after more edits beat the first repair", async () => {
+  it("records the Gmail draft and its file after more edits beat the first adoption", async () => {
     racedByEdits([{ cc: "copy@example.com" }]);
 
-    const conflict = await failure(
-      action.run({
-        action: "update",
-        id: "reopened",
-        expectedRevision: revisionOf("reopened"),
-        subject: "Agent subject",
-      }),
-    );
+    const updated = await action.run({
+      action: "update",
+      id: "reopened",
+      expectedRevision: revisionOf("reopened"),
+      subject: "Agent subject",
+    });
 
-    const repaired = {
+    const current = {
       body: "Person's edit",
       cc: "copy@example.com",
-      subject: "Brief",
+      subject: "Agent subject",
       savedDraftId: "r-draft-7",
       attachments: [
         {
           ...draftFile,
-          gmailMessageId: "message-2",
-          gmailAttachmentId: "part-2",
+          gmailMessageId: "message-3",
+          gmailAttachmentId: "part-3",
         },
       ],
     };
-    expect(conflict.errorCode).toBe("save_conflict");
-    expect(conflict.details?.current).toMatchObject(repaired);
-    expect(appState.get("compose-reopened")).toMatchObject(repaired);
-    expect(conflict.details).not.toHaveProperty("unrecordedGmailDraftId");
+    expect(updated.mailboxSync).toEqual({ status: "synced" });
+    expect(appState.get("compose-reopened")).toMatchObject(current);
+    expect(savedDraftIds()).toEqual(["message-of-draft", "r-draft-7"]);
   });
 
-  it("says which Gmail draft it saved when every repair loses to another edit", async () => {
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
+  it("says which Gmail draft it saved when every adoption loses to another edit", async () => {
     racedByEdits([
       { cc: "one@example.com" },
       { cc: "two@example.com" },
       { cc: "three@example.com" },
     ]);
 
-    const conflict = (await failure(
-      action.run({
-        action: "update",
-        id: "reopened",
-        expectedRevision: revisionOf("reopened"),
-        subject: "Agent subject",
-      }),
-    )) as { errorCode?: string; message?: string; details?: object };
+    const updated = await action.run({
+      action: "update",
+      id: "reopened",
+      expectedRevision: revisionOf("reopened"),
+      subject: "Agent subject",
+    });
 
-    expect(conflict.errorCode).toBe("save_conflict");
-    expect(conflict.details).toMatchObject({
+    expect(updated.mailboxSync).toMatchObject({
+      status: "pending",
       unrecordedGmailDraftId: "r-draft-7",
     });
-    expect(conflict.message).toContain(
-      "Gmail saved this update as draft r-draft-7, but Mail couldn't update the draft's Gmail draft ID and file refs",
+    expect(updated.message).toContain(
+      "Mail's copy doesn't name Gmail draft r-draft-7 yet",
     );
     expect(appState.get("compose-reopened")).toMatchObject({
       cc: "three@example.com",
       savedDraftId: "message-of-draft",
       attachments: [draftFile],
     });
-    expect(consoleError).toHaveBeenCalled();
-    consoleError.mockRestore();
+    expect(savedDraftIds()).toEqual([
+      "message-of-draft",
+      "r-draft-7",
+      "r-draft-7",
+    ]);
   });
 });
