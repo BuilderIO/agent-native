@@ -32,6 +32,7 @@ describe("renderNetlifyStaticHeaders", () => {
       .split("\n\n")
       .find((block) => block.startsWith("/assets/*"));
     expect(assetsBlock).toContain("Access-Control-Allow-Origin: *");
+    expect(assetsBlock.match(/Access-Control-Allow-Origin/g)).toHaveLength(1);
     const rootBlock = rendered
       .split("\n\n")
       .find((block) => block.startsWith("/*"));

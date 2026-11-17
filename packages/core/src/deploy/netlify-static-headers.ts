@@ -47,7 +47,6 @@ export function renderNetlifyStaticHeaders(
     ["Netlify-CDN-Cache-Control", ssrHeaders["netlify-cdn-cache-control"]],
   ];
   const immutableAssetHeaders: HeaderEntries = [
-    ["Access-Control-Allow-Origin", IMMUTABLE_ASSET_CORS_ORIGIN],
     ["Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL],
     ["CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL],
     ["Netlify-CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL],
