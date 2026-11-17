@@ -165,6 +165,7 @@ it("lets a flush of the edits so far end while typing goes on", async () => {
     await vi.advanceTimersByTimeAsync(0);
   });
   expect(held).toHaveLength(1);
+  expect(settled).toEqual({});
 
   // The next keystroke lands while the first post is still on its way.
   await act(async () => {
