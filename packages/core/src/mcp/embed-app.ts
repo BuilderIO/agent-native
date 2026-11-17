@@ -981,7 +981,22 @@ export function embedApp(
           if (list.length < 5 && list.indexOf(text) < 0) list.push(text);
         }
         return promise.then(function(response) {
-          if (!response.ok) note("HTTP " + response.status);
+          if (!response.ok) {
+            // The refusal's own words name the failing check; a status alone
+            // cannot tell an approval gate from an expired session.
+            response.clone().text().then(function(body) {
+              var reason = "";
+              try {
+                var parsed = JSON.parse(body);
+                reason = [parsed.errorCode, parsed.error || parsed.statusMessage || parsed.message]
+                  .filter(function(part) { return typeof part === "string" && part; })
+                  .join(": ");
+              } catch (_err) {}
+              note("HTTP " + response.status + (reason ? " " + reason.slice(0, 160) : ""));
+            }, function() {
+              note("HTTP " + response.status);
+            });
+          }
           return response;
         }, function(error) {
           if (!error || error.name !== "AbortError") {

@@ -686,12 +686,21 @@ describe("embedApp", () => {
     await expect(
       installedFetch("/mail/_agent-native/auth/session"),
     ).rejects.toThrow("Failed to fetch");
-    fetch.mockResolvedValueOnce(new Response("", { status: 404 }));
+    fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: "Approve this call first.",
+          errorCode: "approval_required",
+        }),
+        { status: 409 },
+      ),
+    );
     await installedFetch("/mail/_agent-native/actions/x", { method: "post" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(windowObject.__agentNativeEmbedRequestFailures).toEqual([
       "GET /deck/_agent-native/auth/session HTTP 503",
       "GET /mail/_agent-native/auth/session failed: Failed to fetch (sent without the panel session)",
-      "POST /mail/_agent-native/actions/x HTTP 404 (sent without the panel session)",
+      "POST /mail/_agent-native/actions/x HTTP 409 approval_required: Approve this call first. (sent without the panel session)",
     ]);
 
     // Off the target's mount its reads go out unsigned, still without
