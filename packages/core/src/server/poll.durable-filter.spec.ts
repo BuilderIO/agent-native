@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import { AppSyncState } from "./poll.js";
 
 beforeEach(() => {
@@ -60,5 +61,50 @@ describe("access check bookkeeping", () => {
 
     state.getChangeVisibilityForUser(event, "a@x.test", "o");
     expect(resolveAccess).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("durable read filter against stored rows", () => {
+  it("matches a stored owner with mixed case and padding", async () => {
+    const db = await createTestPglite();
+    try {
+      await db.exec(`CREATE TABLE sync_events (
+        id TEXT PRIMARY KEY, version BIGINT NOT NULL, event_json TEXT NOT NULL,
+        source TEXT NOT NULL, type TEXT NOT NULL, event_key TEXT, owner TEXT,
+        org_id TEXT, resource_type TEXT, resource_id TEXT, created_at BIGINT NOT NULL)`);
+      const event = { source: "action", type: "change", version: 10 };
+      await (
+        await db.prepare(
+          "INSERT INTO sync_events (id, version, event_json, source, type, owner, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+      ).run(
+        "e1",
+        10,
+        JSON.stringify(event),
+        "action",
+        "change",
+        " Alice@Example.TEST ",
+        1,
+      );
+      const execute = async (
+        input: string | { sql: string; args?: unknown[] },
+      ) => {
+        const q = typeof input === "string" ? { sql: input, args: [] } : input;
+        return {
+          rows: await (await db.prepare(q.sql)).all(...(q.args ?? [])),
+          rowsAffected: 0,
+        };
+      };
+      const state = new AppSyncState({ getDb: () => ({ execute }) as never });
+      const result = await state.getDurableChangesSinceForUser(
+        5,
+        "alice@example.test",
+        undefined,
+        { version: 5, id: "" },
+      );
+      expect(result.events.map((e) => e.version)).toEqual([10]);
+    } finally {
+      await db.close();
+    }
   });
 });

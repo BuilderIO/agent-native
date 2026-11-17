@@ -1411,7 +1411,7 @@ export class AppSyncState {
               WHERE (version > ? OR (? = TRUE AND version = ? AND id > ?))
               AND (
                 event_json::jsonb ->> 'visibility' = 'public'
-                OR owner = ?
+                OR lower(btrim(owner)) = ?
                 OR org_id = ?
                 OR resource_type IS NOT NULL
               )
