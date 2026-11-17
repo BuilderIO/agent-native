@@ -1654,18 +1654,7 @@ async function recordExecutionOutcome(
     isPausedByFramework(current.meta) &&
     current.meta.pausedReason === "write_tool_outcome_unknown";
   if (safetyPause) {
-    extra = failed
-      ? {
-          lastStatus: "paused",
-          lastError:
-            failed.recordedError ??
-            withDeliveryNote(
-              failed.failure.message,
-              failed.failure.deliveryNote,
-            ),
-          lastErrorCode: failed.failure.code,
-        }
-      : { lastStatus: "paused", lastError: current.meta.lastError };
+    extra = { lastStatus: "paused", lastError: current.meta.lastError };
   } else if (failed) {
     const transition = failed.pauseImmediately
       ? pauseNow(

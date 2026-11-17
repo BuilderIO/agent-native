@@ -1476,6 +1476,48 @@ describe("stale automation run-lock recovery across trigger types", () => {
     },
   );
 
+  it("keeps an unknown-write pause after a manual failure", async () => {
+    const resource = {
+      id: "manual-resource",
+      owner: "owner@example.com",
+      path: "jobs/manual.md",
+      content:
+        '---\nschedule: "*/2 * * * *"\nenabled: false\npausedReason: write_tool_outcome_unknown\nlastErrorCode: write_tool_outcome_unknown\nlastError: Check the earlier write.\n---\nRun manual work.',
+    };
+    resourceListAllOwnersMock.mockResolvedValue([resource]);
+    resourceGetByPathMock.mockImplementation(async () => ({ ...resource }));
+    resourcePutMock.mockImplementation(async (_owner, _path, content) => {
+      resource.content = content;
+    });
+    const start = vi
+      .spyOn(runHistory, "startAutomationRun")
+      .mockImplementation(async (_input, options) => {
+        await options?.afterInsert?.(
+          { execute: dbExecuteMock },
+          "manual-history",
+        );
+        options?.afterCommit?.();
+        return "manual-history";
+      });
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue(undefined);
+    runAgentLoopMock.mockRejectedValueOnce(new Error("Manual failure"));
+    try {
+      await runJobNow(resource.owner, "manual", recoveryDeps);
+      expect(
+        parseJobResource(resourcePutMock.mock.calls.at(-1)![2]).meta,
+      ).toMatchObject({
+        enabled: false,
+        lastStatus: "paused",
+        pausedReason: "write_tool_outcome_unknown",
+      });
+    } finally {
+      start.mockRestore();
+      finish.mockRestore();
+    }
+  });
+
   it("persists manual firing policy before starting its worker", async () => {
     const resource = {
       id: "manual-resource",

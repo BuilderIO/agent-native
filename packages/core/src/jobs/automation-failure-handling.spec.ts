@@ -817,9 +817,8 @@ describe("scheduled automations that cannot run", () => {
         lastStatus: "paused",
         pausedReason: "write_tool_outcome_unknown",
         pausedAt: "2026-09-30T23:00:00.000Z",
-        lastErrorCode:
-          failure === "unknown" ? "write_tool_outcome_unknown" : "http_502",
-        lastError: latestRun.error,
+        lastErrorCode: "write_tool_outcome_unknown",
+        lastError: "Check the earlier write.",
         consecutiveFailures: 1,
       });
       expect(await historyOf("safety-paused-failure")).toMatchObject([
