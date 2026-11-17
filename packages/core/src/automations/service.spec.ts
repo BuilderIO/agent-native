@@ -123,6 +123,7 @@ import { nextOccurrence } from "../jobs/cron.js";
 import { parseJobResource } from "../jobs/frontmatter.js";
 import {
   automationMatchesEventOwner,
+  automationRunScopeContext,
   canQueueAutomationRunNow,
   canUpdateAutomationResource,
   defineAutomation,
@@ -2177,5 +2178,50 @@ Run the job.`,
       );
       expect(await queue(workflowJob, ["factory-workflows"])).toBe(true);
     });
+  });
+});
+
+describe("automationRunScopeContext", () => {
+  it("runs a personal automation as personal, with its creator's org for keys", () => {
+    expect(
+      automationRunScopeContext({
+        userEmail: "member@example.com",
+        eventOwner: "member@example.com",
+        orgScope: "personal",
+        providerKeyOrgId: "org-a",
+      }),
+    ).toEqual({
+      orgScope: "personal",
+      providerKeyOrg: { orgId: "org-a", userEmail: "member@example.com" },
+    });
+  });
+
+  it("gives a personal run no org for keys when its creator has none", () => {
+    expect(
+      automationRunScopeContext({
+        userEmail: "member@example.com",
+        eventOwner: "member@example.com",
+        orgScope: "personal",
+        providerKeyOrgId: null,
+      }),
+    ).toEqual({ orgScope: "personal" });
+  });
+
+  it("adds only the deployment engine scope to an organization run", () => {
+    expect(
+      automationRunScopeContext({
+        userEmail: "member@example.com",
+        eventOwner: "__organization__:org-a",
+        orgId: "org-a",
+        defaultAgentEngineScope: "deployment",
+      }),
+    ).toEqual({ defaultAgentEngineScope: "deployment" });
+    expect(
+      automationRunScopeContext({
+        userEmail: "member@example.com",
+        eventOwner: "__organization__:org-a",
+        orgId: "org-a",
+      }),
+    ).toEqual({});
   });
 });

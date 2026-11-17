@@ -31,9 +31,15 @@ vi.mock("./request-context.js", () => ({
 }));
 
 import {
+  OLLAMA_BASE_URL_ENV_VAR,
+  OPENAI_BASE_URL_ENV_VAR,
+} from "../agent/engine/provider-env-vars.js";
+import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
   personalProviderKeyWriteDenial,
+  personalRunBuilderGatewayOrgId,
+  personalRunProviderKeyOrgId,
   readOrgMemberRole,
   readPersonalProviderKeyPolicy,
   resolvePersonalProviderKeySaveDenial,
@@ -80,6 +86,90 @@ describe("isPersonalProviderPolicyKey", () => {
     for (const key of ["NOTION_TOKEN", "RESEND_API_KEY", "S3_BUCKET"]) {
       expect(isPersonalProviderPolicyKey(key)).toBe(false);
     }
+  });
+});
+
+/** A personal automation run by member@example.com, whose org is org-a. */
+function personalRun(userEmail = "member@example.com") {
+  mocks.request.ctx = { providerKeyOrg: { orgId: "org-a", userEmail } };
+  mocks.request.email = "member@example.com";
+}
+
+describe("personalRunProviderKeyOrgId", () => {
+  it("names the creator's org for a model key in the creator's own personal run", () => {
+    personalRun(" Member@Example.com ");
+    mocks.request.email = " MEMBER@example.com";
+    expect(personalRunProviderKeyOrgId("OPENAI_API_KEY")).toBe("org-a");
+    expect(personalRunProviderKeyOrgId("ANTHROPIC_API_KEY")).toBe("org-a");
+  });
+
+  it("names no org outside the creator's own personal run", () => {
+    expect(personalRunProviderKeyOrgId("OPENAI_API_KEY")).toBeUndefined();
+    personalRun();
+    mocks.request.email = undefined;
+    expect(personalRunProviderKeyOrgId("OPENAI_API_KEY")).toBeUndefined();
+    mocks.request.email = "someone@example.com";
+    expect(personalRunProviderKeyOrgId("OPENAI_API_KEY")).toBeUndefined();
+    mocks.request.email = "member@example.com";
+    mocks.request.orgId = "org-b";
+    expect(personalRunProviderKeyOrgId("OPENAI_API_KEY")).toBeUndefined();
+  });
+
+  it("names no org for keys outside the policy or for the Builder.io key pair", () => {
+    personalRun();
+    expect(personalRunProviderKeyOrgId("NOTION_TOKEN")).toBeUndefined();
+    expect(personalRunProviderKeyOrgId("BUILDER_PRIVATE_KEY")).toBeUndefined();
+    expect(personalRunProviderKeyOrgId("BUILDER_PUBLIC_KEY")).toBeUndefined();
+  });
+
+  it("names the org for an endpoint only when the key sent with it is that org's", () => {
+    personalRun();
+    for (const key of [OPENAI_BASE_URL_ENV_VAR, OLLAMA_BASE_URL_ENV_VAR]) {
+      expect(personalRunProviderKeyOrgId(key)).toBeUndefined();
+      expect(
+        personalRunProviderKeyOrgId(key, {
+          scope: "user",
+          scopeId: "member@example.com",
+        }),
+      ).toBeUndefined();
+      expect(
+        personalRunProviderKeyOrgId(key, { scope: "org", scopeId: "org-b" }),
+      ).toBeUndefined();
+      expect(
+        personalRunProviderKeyOrgId(key, { scope: "user", scopeId: "org-a" }),
+      ).toBeUndefined();
+      expect(
+        personalRunProviderKeyOrgId(key, { scope: "org", scopeId: "org-a" }),
+      ).toBe("org-a");
+      expect(
+        personalRunProviderKeyOrgId(key, {
+          scope: "workspace",
+          scopeId: "org-a",
+        }),
+      ).toBe("org-a");
+    }
+  });
+});
+
+describe("personalRunBuilderGatewayOrgId", () => {
+  it("names the creator's org for the creator's own personal run", () => {
+    personalRun(" Member@Example.com ");
+    expect(personalRunBuilderGatewayOrgId(" MEMBER@example.com")).toBe("org-a");
+  });
+
+  it("names no org without a personal run, for another user, or on an org request", () => {
+    expect(
+      personalRunBuilderGatewayOrgId("member@example.com"),
+    ).toBeUndefined();
+    personalRun();
+    expect(personalRunBuilderGatewayOrgId(undefined)).toBeUndefined();
+    expect(personalRunBuilderGatewayOrgId(null)).toBeUndefined();
+    expect(personalRunBuilderGatewayOrgId("  ")).toBeUndefined();
+    expect(personalRunBuilderGatewayOrgId("other@example.com")).toBeUndefined();
+    mocks.request.orgId = "org-b";
+    expect(
+      personalRunBuilderGatewayOrgId("member@example.com"),
+    ).toBeUndefined();
   });
 });
 

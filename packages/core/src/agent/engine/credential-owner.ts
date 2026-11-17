@@ -73,7 +73,5 @@ export function automationUsageOrgId(
 ): string | undefined {
   if (runOrgId !== undefined) return runOrgId;
   const paidByOrgId = getEngineCredentialOrgId(engine);
-  return paidByOrgId !== undefined && paidByOrgId === providerKeyOrgId
-    ? paidByOrgId
-    : undefined;
+  return paidByOrgId === providerKeyOrgId ? paidByOrgId : undefined;
 }
