@@ -332,6 +332,11 @@ export function useCreateResource() {
       mimeType?: string;
       shared?: boolean;
       uniqueSkillPath?: boolean;
+      /**
+       * Create it only if nothing is at `path`. If something is, nothing is
+       * written and that resource comes back, with its own content.
+       */
+      ifNotExists?: boolean;
     }) => {
       const res = await fetch(agentNativePath("/_agent-native/resources"), {
         method: "POST",

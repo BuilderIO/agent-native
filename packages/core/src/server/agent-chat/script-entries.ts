@@ -19,7 +19,10 @@ import {
   getRequestRunContext,
   getRequestUserEmail,
 } from "../request-context.js";
-import { createResourceWriteEntry } from "./resource-write-tool.js";
+import {
+  createResourceWriteEntry,
+  RESOURCE_EXPECTED_REVISION_DESCRIPTION,
+} from "./resource-write-tool.js";
 
 type CliMain = (args: string[]) => Promise<void>;
 
@@ -434,7 +437,7 @@ export async function createResourceScriptEntries(): Promise<
       resources: {
         tool: {
           description:
-            'Manage workspace resources: list/read files; inspect workspace -> org/app -> personal inheritance; write personal/shared resources (workspace only for local file mode controls); promote scratch; delete personal/shared resources (workspace controls only). Agent scratch stays hidden in Workspace; use visibility="workspace" only for files the user wants to keep/manage. Shared writes, promotions, and deletions require per-action approval. For creating or replacing file content, prefer write-resource; load write-resource with tool-search if it is not available.',
+            'Manage workspace resources: list/read files; inspect workspace -> org/app -> personal inheritance; write personal/shared resources (workspace only for local file mode controls); promote scratch; delete personal/shared resources (workspace controls only). A read starts with a [revision …, scope …] line; to replace a file you read, write it in that scope with that expectedRevision, so a save made since then is kept. Agent scratch stays hidden in Workspace; use visibility="workspace" only for files the user wants to keep/manage. Shared writes, promotions, and deletions require per-action approval. For creating or replacing file content, prefer write-resource; load write-resource with tool-search if it is not available.',
           parameters: {
             type: "object",
             properties: {
@@ -481,6 +484,10 @@ export async function createResourceScriptEntries(): Promise<
               mime: {
                 type: "string",
                 description: "write: MIME type (default: from extension)",
+              },
+              expectedRevision: {
+                type: "string",
+                description: RESOURCE_EXPECTED_REVISION_DESCRIPTION,
               },
               format: {
                 type: "string",
@@ -533,6 +540,7 @@ export async function createResourceScriptEntries(): Promise<
             const result = await captureCliOutput(async () => {
               try {
                 await read.default(serializeCliArgs(rest), {
+                  withRevision: true,
                   ...(context?.maxResultChars !== undefined && {
                     maxResultChars: context.maxResultChars,
                   }),

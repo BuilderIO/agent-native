@@ -599,7 +599,7 @@ Legacy webhook.`,
       const result = await handleCreateResource(event);
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
     });
 
     it("returns 400 when path is missing", async () => {
@@ -635,7 +635,57 @@ Legacy webhook.`,
       };
       const result = await handleCreateResource(event);
 
-      expect(result).toEqual(existing);
+      expect(result).toEqual(withRevision(existing));
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("creates with ifNotExists only where no file is", async () => {
+      const created = {
+        id: "new-1",
+        path: "AGENTS.md",
+        owner: "test@test.com",
+        content: "mine",
+      };
+      mockResourcePutIfAbsent.mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: "AGENTS.md",
+          content: "mine",
+          mimeType: "text/markdown",
+          ifNotExists: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(withRevision(created));
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
+        "test@test.com",
+        "AGENTS.md",
+        "mine",
+        "text/markdown",
+        undefined,
+      );
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("returns the other create's file when two ifNotExists creates race", async () => {
+      const theirs = {
+        id: "theirs",
+        path: "AGENTS.md",
+        owner: "test@test.com",
+        content: "theirs",
+      };
+      mockResourceGetByPath
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(theirs);
+
+      const result = await handleCreateResource({
+        _body: { path: "AGENTS.md", content: "mine", ifNotExists: true },
+      });
+
+      expect(lastStatus).toBe(200);
+      expect(result).toEqual(withRevision(theirs));
       expect(mockResourcePut).not.toHaveBeenCalled();
     });
 

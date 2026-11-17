@@ -1,13 +1,24 @@
 import { getOrgRoleForEmail } from "../../mcp/actions/service-token-access.js";
 import { canManageOrg } from "../../org/permissions.js";
 import {
+  RESOURCE_CONTENT_RECORD,
+  resourceContentRevision,
+} from "../../resources/revision.js";
+import {
   canWriteLocalWorkspaceResourcePath,
+  resourceGetByPath,
   resourcePut,
+  resourcePutIfSnapshot,
+  SHARED_OWNER,
   sharedResourceOwner,
   WORKSPACE_OWNER,
+  type Resource,
   type ResourceCreatedBy,
   type ResourceVisibility,
+  type ResourceWriteOptions,
 } from "../../resources/store.js";
+import { SAVE_CONFLICT_ERROR_CODE } from "../../save-conflict/index.js";
+import { countSaveOutcome } from "../../save-conflict/server.js";
 import {
   getAmbientUserEmail,
   getRequestOrgId,
@@ -80,6 +91,88 @@ function parseOptionalNumber(
   return parsed;
 }
 
+/**
+ * Writes only over the content the caller read, by its revision. A stale write
+ * fails with errorCode save_conflict and the revision there now. The message
+ * leaves the content out: tool errors hide secret-looking text, and an agent
+ * that copied it back would write the hidden version. Reads print it whole.
+ */
+async function writeIfCurrent(input: {
+  owner: string;
+  scope: string;
+  path: string;
+  content: string;
+  mimeType: string;
+  options: ResourceWriteOptions;
+  expectedRevision: string;
+}): Promise<Resource> {
+  const orgId = getRequestOrgId() ?? null;
+  const lookup = input.scope === "personal" ? undefined : { orgId };
+  for (let attempt = 0; ; attempt += 1) {
+    const current = await resourceGetByPath(input.owner, input.path, lookup);
+    // A read of shared files falls back to the copy from before organizations,
+    // and the write makes the organization's own copy of it.
+    const legacy =
+      !current && input.scope === "shared" && input.owner !== SHARED_OWNER
+        ? await resourceGetByPath(SHARED_OWNER, input.path, lookup)
+        : null;
+    const seen = current ?? legacy;
+    if (!seen) {
+      countSaveOutcome(RESOURCE_CONTENT_RECORD, "conflict");
+      fail(
+        `"${input.path}" (scope ${input.scope}) no longer exists: it was deleted or moved after you read it. Nothing was written. To create it again, write without expectedRevision.`,
+        {
+          errorCode: SAVE_CONFLICT_ERROR_CODE,
+          statusCode: 409,
+          details: { current: null, currentRevision: null },
+        },
+      );
+    }
+    const revision = resourceContentRevision(seen);
+    if (revision !== input.expectedRevision) {
+      if (seen.content === input.content) {
+        // A repeat of a write that already landed.
+        countSaveOutcome(RESOURCE_CONTENT_RECORD, "already_applied");
+        return seen;
+      }
+      countSaveOutcome(RESOURCE_CONTENT_RECORD, "conflict");
+      fail(
+        `"${input.path}" (scope ${input.scope}) changed after you read it, so nothing was written. Its revision is now ${revision}. Read it again, redo your edit on what's there now, and write with expectedRevision ${revision}.`,
+        {
+          errorCode: SAVE_CONFLICT_ERROR_CODE,
+          statusCode: 409,
+          details: { currentRevision: revision },
+        },
+      );
+    }
+    const written = await resourcePutIfSnapshot({
+      previous: current,
+      owner: input.owner,
+      path: input.path,
+      content: input.content,
+      mimeType: input.mimeType,
+      options: input.options,
+    });
+    if (written) {
+      countSaveOutcome(RESOURCE_CONTENT_RECORD, "written");
+      return written.resource;
+    }
+    // Something changed between the read and the write. Read again, once, so
+    // the refusal names the revision that won.
+    if (attempt > 0) {
+      countSaveOutcome(RESOURCE_CONTENT_RECORD, "conflict");
+      fail(
+        `"${input.path}" (scope ${input.scope}) is changing as you write, so nothing was written. Read it again, redo your edit, and write with the revision you read.`,
+        {
+          errorCode: SAVE_CONFLICT_ERROR_CODE,
+          statusCode: 409,
+          details: { currentRevision: null },
+        },
+      );
+    }
+  }
+}
+
 export default async function resourceWriteScript(
   args: string[],
 ): Promise<void> {
@@ -102,6 +195,10 @@ Options:
   --thread-id <id>         Agent thread id for scratch/provenance
   --run-id <id>            Agent run id for scratch/provenance
   --expires-at <ms>        Expiry timestamp in epoch milliseconds
+  --expected-revision <revision>
+                           The revision from your read of this file. If it
+                           changed since, nothing is written and the write
+                           fails with errorCode save_conflict.
   --help                   Show this help message`,
     );
     return;
@@ -160,8 +257,25 @@ Options:
   const hasWriteOptions = Object.values(writeOptions).some(
     (value) => value !== undefined,
   );
-  const resource = hasWriteOptions
-    ? await resourcePut(owner, resourcePath, content, mimeType, writeOptions)
-    : await resourcePut(owner, resourcePath, content, mimeType);
-  console.log(`Wrote resource: ${resource.path} (${resource.size} bytes)`);
+  const expectedRevision =
+    parsed["expected-revision"] ?? parsed.expectedRevision;
+  if (expectedRevision !== undefined && !expectedRevision.trim()) {
+    fail("--expected-revision must be the revision from your read.");
+  }
+  const resource = expectedRevision
+    ? await writeIfCurrent({
+        owner,
+        scope,
+        path: resourcePath,
+        content,
+        mimeType,
+        options: writeOptions,
+        expectedRevision,
+      })
+    : hasWriteOptions
+      ? await resourcePut(owner, resourcePath, content, mimeType, writeOptions)
+      : await resourcePut(owner, resourcePath, content, mimeType);
+  console.log(
+    `Wrote resource: ${resource.path} (${resource.size} bytes, revision ${resourceContentRevision(resource)})`,
+  );
 }

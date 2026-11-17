@@ -6,6 +6,7 @@ import {
   WORKSPACE_OWNER,
   type Resource,
 } from "../../resources/store.js";
+import { resourceContentRevision } from "../../resources/revision.js";
 import { parseSkillFrontmatter } from "../../server/agent-chat/skill-frontmatter.js";
 import {
   getAmbientUserEmail,
@@ -94,16 +95,39 @@ function isInsideSurrogatePair(content: string, offset: number): boolean {
   );
 }
 
+type ReadScope = "personal" | "shared" | "workspace";
+
+/**
+ * The line an agent's read starts with: the revision to send back as
+ * expectedRevision when it replaces the file, and the scope to write it in.
+ */
+export function resourceRevisionLine(
+  resource: { content: string },
+  scope: ReadScope,
+): string {
+  return `[revision ${resourceContentRevision(resource)}, scope ${scope}]
+`;
+}
+
 async function writeResource(
   resource: Resource,
   resourcePath: string,
   owner: string,
   orgId: string | null,
   range: { offset: number | undefined; length: number | undefined },
-  maxResultChars: number,
+  limit: { maxResultChars: number; revisionScope: ReadScope | null },
 ): Promise<void> {
   await requireSkillLabAccess(resource, resourcePath, owner, orgId);
   const { content } = resource;
+  const revisionLine = limit.revisionScope
+    ? resourceRevisionLine(resource, limit.revisionScope)
+    : "";
+  const maxResultChars = limit.maxResultChars - revisionLine.length;
+  if (maxResultChars < 0) {
+    throw new ResourceReadResultLimitError(
+      "Resource read result limit is too small for the revision line.",
+    );
+  }
   const offset = range.offset ?? 0;
   const length = Math.min(
     range.length ?? RESOURCE_READ_PAGE_CHARS,
@@ -114,7 +138,7 @@ async function writeResource(
     content.length <= length &&
     content.length <= maxResultChars
   ) {
-    process.stdout.write(content);
+    process.stdout.write(revisionLine + content);
     return;
   }
   if (offset >= content.length) {
@@ -159,14 +183,20 @@ async function writeResource(
       );
     }
   }
-  process.stdout.write(header(end) + content.slice(offset, end));
+  process.stdout.write(revisionLine + header(end) + content.slice(offset, end));
 }
 
 export default async function resourceReadScript(
   args: string[],
-  options: { maxResultChars?: number } = {},
+  options: {
+    maxResultChars?: number;
+    /** Start the output with the revision and scope, for an agent's read. */
+    withRevision?: boolean;
+  } = {},
 ): Promise<void> {
   const maxResultChars = options.maxResultChars ?? Infinity;
+  const revisionScope = (scope: ReadScope) =>
+    options.withRevision ? scope : null;
   if (
     maxResultChars !== Infinity &&
     (!Number.isSafeInteger(maxResultChars) || maxResultChars < 0)
@@ -228,7 +258,7 @@ Options:
       owner,
       orgId,
       range,
-      maxResultChars,
+      { maxResultChars, revisionScope: revisionScope("workspace") },
     );
     return;
   }
@@ -253,7 +283,7 @@ Options:
       owner,
       orgId,
       range,
-      maxResultChars,
+      { maxResultChars, revisionScope: revisionScope("shared") },
     );
     return;
   }
@@ -266,7 +296,7 @@ Options:
       owner,
       getRequestOrgId() ?? null,
       range,
-      maxResultChars,
+      { maxResultChars, revisionScope: revisionScope("personal") },
     );
     return;
   }
@@ -292,7 +322,7 @@ Options:
       owner,
       orgId,
       range,
-      maxResultChars,
+      { maxResultChars, revisionScope: revisionScope("shared") },
     );
     return;
   }
@@ -307,7 +337,7 @@ Options:
       owner,
       orgId,
       range,
-      maxResultChars,
+      { maxResultChars, revisionScope: revisionScope("workspace") },
     );
     return;
   }

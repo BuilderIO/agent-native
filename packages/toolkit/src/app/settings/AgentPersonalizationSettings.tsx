@@ -4,8 +4,15 @@ import {
   useResource,
   useResources,
   useUpdateResource,
+  type Resource,
   type ResourceMeta,
 } from "@agent-native/core/client/resources/use-resources";
+import {
+  SAVE_CONFLICT_ERROR_CODE,
+  saveRevisionOf,
+  saveWithMerge,
+  type SavedRecord,
+} from "@agent-native/core/save-conflict";
 import {
   ActionButton,
   Skeleton,
@@ -13,13 +20,43 @@ import {
 } from "@agent-native/toolkit/design-system";
 import { useRef, useState } from "react";
 
+import { useSaveConflictPrompt } from "../save-conflict.js";
 import { SettingsGroup } from "./SettingsRow.js";
+
+type Field = "instructions" | "memory";
+
+interface InstructionsContent {
+  content: string;
+}
 
 function resourceAtPath(
   resources: ResourceMeta[] | undefined,
   path: string,
 ): ResourceMeta | undefined {
   return resources?.find((resource) => resource.path === path);
+}
+
+/** The saved version an edit starts from. No file yet has no revision. */
+function savedRecord(
+  resource: Pick<Resource, "content" | "revision"> | undefined,
+): SavedRecord<InstructionsContent> {
+  return resource
+    ? {
+        value: { content: resource.content },
+        revision: resource.revision ?? null,
+      }
+    : { value: { content: "" }, revision: null };
+}
+
+/** Someone made the file between this page's read and its create. */
+function createdMeanwhile(content: string): Error {
+  return Object.assign(new Error("The file was created meanwhile"), {
+    errorCode: SAVE_CONFLICT_ERROR_CODE,
+    details: {
+      current: { content },
+      currentRevision: saveRevisionOf({ content }),
+    },
+  });
 }
 
 export function AgentPersonalizationSettings() {
@@ -39,6 +76,12 @@ export function AgentPersonalizationSettings() {
   );
   const [memoryDraft, setMemoryDraft] = useState<string | null>(null);
   const savedContents = useRef<{ instructions?: string; memory?: string }>({});
+  // The saved version each draft started from, and the file it saves to once
+  // this page has made it.
+  const bases = useRef<
+    Partial<Record<Field, SavedRecord<InstructionsContent>>>
+  >({});
+  const createdIds = useRef<Partial<Record<Field, string>>>({});
   const [savingField, setSavingField] = useState<string | null>(null);
   const [savedField, setSavedField] = useState<string | null>(null);
   const [failedField, setFailedField] = useState<string | null>(null);
@@ -62,36 +105,104 @@ export function AgentPersonalizationSettings() {
     memoryValue !==
       (memoryInstructions.data?.content ?? savedContents.current.memory ?? "");
 
-  const save = async (input: {
-    field: "instructions" | "memory";
-    path: string;
-    resource: ResourceMeta | undefined;
-    content: string;
-  }) => {
+  const startDraft = (field: Field) => {
+    if (bases.current[field]) return;
+    bases.current[field] = savedRecord(
+      field === "instructions" ? instructions.data : memoryInstructions.data,
+    );
+  };
+
+  const fields = {
+    instructions: {
+      path: "AGENTS.md",
+      resource: instructionsMeta,
+      value: instructionsValue,
+      setDraft: setInstructionsDraft,
+    },
+    memory: {
+      path: "memory/INSTRUCTIONS.md",
+      resource: memoryInstructionsMeta,
+      value: memoryValue,
+      setDraft: setMemoryDraft,
+    },
+  };
+  const fieldsRef = useRef(fields);
+  fieldsRef.current = fields;
+
+  // Saves over the version the draft started from. When the agent or another
+  // tab saved meanwhile, the change merges onto theirs, and only when both
+  // changed the text the prompt asks which to keep.
+  const save = async (field: Field, content: string) => {
+    const { path, resource, setDraft } = fieldsRef.current[field];
     setSavedField(null);
     setFailedField(null);
-    setSavingField(input.field);
+    setSavingField(field);
     try {
-      const saved = input.resource
-        ? await updateResource.mutateAsync({
-            id: input.resource.id,
-            content: input.content,
-          })
-        : await createResource.mutateAsync({
-            path: input.path,
-            content: input.content,
+      let id = resource?.id ?? createdIds.current[field];
+      const saved = await saveWithMerge<InstructionsContent>({
+        base: bases.current[field] ?? savedRecord(undefined),
+        mine: { content },
+        resolveOverlap: conflictsRef.current[field].resolveOverlap,
+        save: async ({ value, revision }) => {
+          if (id) {
+            const result = await updateResource.mutateAsync({
+              id,
+              content: value.content,
+              expectedRevision: revision ?? undefined,
+            });
+            return savedRecord(result);
+          }
+          const result = await createResource.mutateAsync({
+            path,
+            content: value.content,
             mimeType: "text/markdown",
+            ifNotExists: true,
           });
-      savedContents.current[input.field] = saved.content;
-      setSavedField(input.field);
-      if (input.field === "instructions") setInstructionsDraft(saved.content);
-      else setMemoryDraft(saved.content);
+          id = result.id;
+          createdIds.current[field] = result.id;
+          if (result.content !== value.content) {
+            throw createdMeanwhile(result.content);
+          }
+          return {
+            value: { content: result.content },
+            revision:
+              result.revision ?? saveRevisionOf({ content: result.content }),
+          };
+        },
+      });
+      bases.current[field] = saved;
+      savedContents.current[field] = saved.value.content;
+      setSavedField(field);
+      setDraft(saved.value.content);
     } catch {
-      setFailedField(input.field);
+      setFailedField(field);
     } finally {
       setSavingField(null);
     }
   };
+
+  // Getting the other version back saves it, as the resource editor does.
+  const restore =
+    (field: Field) =>
+    (restoreOnto: (current: InstructionsContent) => InstructionsContent) => {
+      const { content } = restoreOnto({
+        content: fieldsRef.current[field].value,
+      });
+      fieldsRef.current[field].setDraft(content);
+      void save(field, content);
+    };
+  const conflicts = {
+    instructions: useSaveConflictPrompt<InstructionsContent>({
+      record: "resource_content",
+      onRestore: restore("instructions"),
+    }),
+    memory: useSaveConflictPrompt<InstructionsContent>({
+      record: "resource_content",
+      onRestore: restore("memory"),
+    }),
+  };
+  const conflictsRef = useRef(conflicts);
+  conflictsRef.current = conflicts;
 
   const labels = {
     customInstructions: t("agentChat.personalization.customInstructions"),
@@ -170,6 +281,7 @@ export function AgentPersonalizationSettings() {
             aria-label={labels.customInstructions}
             value={instructionsValue}
             onChange={(value) => {
+              startDraft("instructions");
               setInstructionsDraft(value);
               setSavedField(null);
               setFailedField(null);
@@ -184,14 +296,7 @@ export function AgentPersonalizationSettings() {
               type="button"
               emphasis="solid"
               disabled={!canSaveInstructions || saving}
-              onPress={() =>
-                void save({
-                  field: "instructions",
-                  path: "AGENTS.md",
-                  resource: instructionsMeta,
-                  content: instructionsValue,
-                })
-              }
+              onPress={() => void save("instructions", instructionsValue)}
             >
               {savingField === "instructions" ? labels.saving : labels.save}
             </ActionButton>
@@ -210,6 +315,7 @@ export function AgentPersonalizationSettings() {
             aria-label={labels.memoryInstructions}
             value={memoryValue}
             onChange={(value) => {
+              startDraft("memory");
               setMemoryDraft(value);
               setSavedField(null);
               setFailedField(null);
@@ -224,14 +330,7 @@ export function AgentPersonalizationSettings() {
               type="button"
               emphasis="solid"
               disabled={!canSaveMemory || saving}
-              onPress={() =>
-                void save({
-                  field: "memory",
-                  path: "memory/INSTRUCTIONS.md",
-                  resource: memoryInstructionsMeta,
-                  content: memoryValue,
-                })
-              }
+              onPress={() => void save("memory", memoryValue)}
             >
               {savingField === "memory" ? labels.saving : labels.save}
             </ActionButton>
@@ -239,6 +338,8 @@ export function AgentPersonalizationSettings() {
           </div>
         </div>
       </SettingsGroup>
+      {conflicts.instructions.prompt}
+      {conflicts.memory.prompt}
     </div>
   );
 }
