@@ -8,6 +8,7 @@ import {
 } from "../server/lib/google-calendar-client.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Get the OAuth URL to connect a Google Calendar account. Open the returned URL in a popup or new tab — the callback persists tokens in app_secrets.",
   schema: z.object({

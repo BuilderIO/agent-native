@@ -56,17 +56,23 @@ const mocks = vi.hoisted(() => {
       pendingEditCount: "pending.pendingEditCount",
       status: "pending.status",
       prompt: "pending.prompt",
+      handoffRecords: "pending.handoffRecords",
       authorEmail: "pending.authorEmail",
       revision: "pending.revision",
       publisherId: "pending.publisherId",
       clientRevision: "pending.clientRevision",
       updatedAt: "pending.updatedAt",
     },
-    designs: {},
+    designs: { id: "designs.id", data: "designs.data" },
     getDb: vi.fn(() => ({
       insert: vi.fn(() => insertChain),
       update: vi.fn(() => updateChain),
       select: vi.fn(() => selectChain),
+      transaction: (callback: (tx: unknown) => Promise<unknown>) =>
+        callback({
+          update: () => updateChain,
+          select: () => selectChain,
+        }),
     })),
     insertChain,
     updateChain,
@@ -253,13 +259,31 @@ describe("visual-edit pending handoff", () => {
             pendingEditCount: 1,
             status: "ready",
             prompt: "Adjust heading spacing",
+            records: [
+              {
+                kind: "style",
+                key: "visual-1",
+                value: "v1",
+                prompt: "Adjust heading spacing",
+              },
+            ],
           },
         },
         { caller: "frontend", requestHeaders: new Headers() },
       ),
     ).resolves.toMatchObject({ status: "ready" });
     expect(mocks.insertChain.values).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "ready" }),
+      expect.objectContaining({
+        status: "ready",
+        handoffRecords: JSON.stringify([
+          {
+            kind: "style",
+            key: "visual-1",
+            value: "v1",
+            prompt: "Adjust heading spacing",
+          },
+        ]),
+      }),
     );
   });
 
@@ -715,6 +739,7 @@ describe("visual-edit pending handoff", () => {
   });
 
   it("acknowledges only the exact applied handoff revision", async () => {
+    mocks.selectChain.limit.mockResolvedValueOnce([{ handoffRecords: "[]" }]);
     mocks.updateChain.returning.mockResolvedValueOnce([
       { designId: "design_public" },
     ]);
@@ -732,8 +757,70 @@ describe("visual-edit pending handoff", () => {
         pendingEditCount: 0,
         status: "empty",
         prompt: "",
+        handoffRecords: "[]",
       }),
     );
+  });
+
+  it("reports zero persisted tweaks when the acknowledgement revision is stale", async () => {
+    mocks.selectChain.limit
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: "ready", pendingEditCount: 2 }]);
+
+    await expect(
+      acknowledgePendingAction.run({
+        designId: "design_public",
+        revision: 7,
+        appliedTweaks: [{ id: "speed", value: 3 }],
+      }),
+    ).resolves.toMatchObject({
+      status: "stale",
+      stale: true,
+      tweakAcknowledgedCount: 0,
+      notAcknowledgedTweaks: [{ id: "speed", value: 3 }],
+    });
+    expect(mocks.updateChain.set).not.toHaveBeenCalled();
+  });
+
+  it("requires an exact handoff revision before acknowledging tweaks", async () => {
+    await expect(
+      acknowledgePendingAction.run({
+        designId: "design_public",
+        appliedTweaks: [{ id: "speed", value: 3 }],
+      }),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_revision_required" });
+    expect(mocks.updateChain.set).not.toHaveBeenCalled();
+  });
+
+  it("advances only acknowledged tweak ids and values after source verification", async () => {
+    mocks.updateChain.returning
+      .mockResolvedValueOnce([{ designId: "design_public" }])
+      .mockResolvedValueOnce([{ id: "design_public" }]);
+    mocks.selectChain.limit
+      .mockResolvedValueOnce([
+        {
+          handoffRecords: JSON.stringify([
+            { kind: "tweak", key: "speed", value: 3, prompt: "speed 1 → 3" },
+          ]),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          data: JSON.stringify({
+            tweakSourceBaseline: { speed: 1, color: "red" },
+          }),
+        },
+      ]);
+
+    await acknowledgePendingAction.run({
+      designId: "design_public",
+      revision: 7,
+      appliedTweaks: [{ id: "speed", value: 3 }],
+    });
+
+    expect(mocks.updateChain.set).toHaveBeenLastCalledWith({
+      data: JSON.stringify({ tweakSourceBaseline: { speed: 3, color: "red" } }),
+    });
   });
 
   it("rejects a plain public viewer from acknowledging a handoff", async () => {
@@ -768,11 +855,14 @@ describe("visual-edit pending handoff", () => {
         pendingEditCount: 1,
         status: "ready",
         prompt: "x".repeat(64 * 1024 + 1),
+        records: [{ kind: "style", key: "visual-1", value: "v1", prompt: "" }],
       },
     });
 
     expect(parsed.success).toBe(false);
-    expect(getPendingAction.maxResultChars).toBe(64 * 1024);
+    expect(parsed.error?.issues.map((issue) => issue.path.join("."))).toEqual([
+      "pending.prompt",
+    ]);
   });
 
   it("bounds browser-local revisions to their database column range", () => {

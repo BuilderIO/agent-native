@@ -30,6 +30,7 @@ import { isVectorEndpointProperty } from "@shared/vector-endpoints";
 import type { RelativeStyleOperation } from "@/components/design/edit-panel/style-change-types";
 import type { ElementInfo } from "@/components/design/types";
 
+import type { PendingHistoryOrderEntry } from "./editor-state";
 import {
   buildReactSemanticHandoff,
   buildRuntimeReactLayerStateHandoff,
@@ -619,6 +620,7 @@ export type PendingVisualStyleUndoTarget = {
 export type PendingVisualStyleUndoEntry = PendingVisualStyleUndoTarget & {
   gestureId?: string;
   groupedTargets?: PendingVisualStyleUndoTarget[];
+  historyOrderEntry?: PendingHistoryOrderEntry;
 };
 export interface PendingVisualStyleGestureState {
   sequence: number;
@@ -659,21 +661,25 @@ export type PendingLiveTextUndoEntry = {
   edit: PendingLiveTextEdit;
   revertValue: string;
   revertHtml?: string;
+  historyOrderEntry?: PendingHistoryOrderEntry;
 };
 export type PendingLiveStructureUndoEntry = {
   kind: "structure";
   edit: PendingLiveStructureEdit;
   groupedEdits?: PendingLiveStructureEdit[];
+  historyOrderEntry?: PendingHistoryOrderEntry;
 };
 export type PendingLiveLayerStateUndoEntry = {
   kind: "layer-state";
   edit: PendingLiveLayerStateEdit;
   revertEnabled: boolean;
+  historyOrderEntry?: PendingHistoryOrderEntry;
 };
 export type PendingLiveLayerNameUndoEntry = {
   kind: "layer-name";
   edit: PendingLiveLayerNameEdit;
   revertName: string;
+  historyOrderEntry?: PendingHistoryOrderEntry;
 };
 export type PendingLiveNonStyleUndoEntry =
   | PendingLiveTextUndoEntry
@@ -847,6 +853,20 @@ export function pendingLiveEditFrameTargets(
     for (const member of members) addTarget(member.screenId, "primary");
   }
   return targets;
+}
+
+export function discardPendingLiveEditCollections<TStyle, TLive>({
+  stylesRef,
+  liveRef,
+  clearState,
+}: {
+  stylesRef: { current: TStyle[] };
+  liveRef: { current: TLive[] };
+  clearState: () => void;
+}) {
+  clearState();
+  stylesRef.current = [];
+  liveRef.current = [];
 }
 
 export function shouldClearPendingLiveEditsAfterReload(

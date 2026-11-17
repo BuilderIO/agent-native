@@ -15,14 +15,23 @@ vi.mock("@/lib/agent-chat", () => ({
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
+const writeClipboardTextMock = vi.hoisted(() =>
+  vi.fn((_text: string) => Promise.resolve(true)),
+);
+vi.mock("@agent-native/toolkit/clipboard", () => ({
+  writeClipboardText: writeClipboardTextMock,
+}));
 
 import type { PendingStructureVerificationSession } from "@/pages/design-editor/command-types";
 import type { PendingLiveStructureEdit } from "@/pages/design-editor/pending-edits";
+import type { PendingVisualStyleEdit } from "@/pages/design-editor/pending-edits";
 
 import {
   PENDING_STRUCTURE_HARD_TIMEOUT_MS,
   PENDING_STRUCTURE_RUNTIME_POLL_MS,
 } from "../editor-constants";
+import { handleHostChatState } from "../host-chat-state";
+import { formatTweakHandoffPrompt } from "../tweak-handoff";
 import { runApplyPendingVisualStylesWithAgent } from "./apply-pending-visual-styles-with-agent";
 
 function structureEdit(index: number): PendingLiveStructureEdit {
@@ -52,7 +61,11 @@ function argsFor(
     current: undefined,
   } as { current: PendingStructureVerificationSession | undefined };
   const pendingEditsRef = { current: edits };
+  const pendingStyleEditsRef = { current: [] as PendingVisualStyleEdit[] };
   const stagedSourceHandoffRef = { current: "idle" as const };
+  const stagedHandoffStartedRef = {
+    current: undefined as (() => void) | undefined,
+  };
   const sourceVersions = new Map(
     edits.map((edit) => [edit.sourceAnchor!.relPath, "v0"]),
   );
@@ -128,17 +141,23 @@ function argsFor(
       pendingLiveNonStyleEdits: edits,
       stagedHandoffStartTimerRef: { current: undefined },
       stagedSourceHandoffRef,
+      stagedHandoffStartedRef,
       pendingStructureVerificationRevisionRef: { current: 0 },
       pendingStructureVerificationSessionRef: sessionRef,
       pendingLiveNonStyleEditsRef: pendingEditsRef,
+      pendingVisualStyleEditsRef: pendingStyleEditsRef,
       pendingStructureVerificationSnapshotsRef: { current: snapshots },
       pendingStructureVerificationStatus: "idle" as const,
-      pendingVisualStyleEdits: [],
+      pendingVisualStyleEdits: [] as PendingVisualStyleEdit[],
       pendingVisualStylePrompt: "Apply the pending structure edits.",
+      includedVisualEditIds: edits.length ? ["local-visual-edits"] : [],
+      finalizeIncludedHistory: vi.fn(),
+      hasStandalonePrompt: false,
       setActiveLeftPanel: vi.fn(),
       setApplyingViaHost: vi.fn(),
       setPendingAgentHandoffBusy: vi.fn(),
       setPendingLiveNonStyleEdits: vi.fn(),
+      setPendingVisualStyleEdits: vi.fn(),
       setPendingStructureAckRequest,
       setPendingStructureVerificationStatus: vi.fn(),
       setPendingVisualStyleBaselineResetRequest: vi.fn(),
@@ -149,6 +168,8 @@ function argsFor(
     ackRequests,
     cancelPendingStructureVerification,
     clearPendingLiveEditState,
+    pendingStyleEditsRef,
+    stagedHandoffStartedRef,
     runtimeRequests,
   };
 }
@@ -166,6 +187,266 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     });
     callActionMock.mockReset();
     sendDesignSourceHandoffAndConfirmMock.mockClear();
+    writeClipboardTextMock.mockClear();
+  });
+
+  const tweakPrompt = formatTweakHandoffPrompt({
+    designId: "design",
+    changes: [
+      {
+        id: "twist",
+        label: "Twist",
+        oldValue: 1,
+        newValue: 1.67,
+        cssVar: "--sail-twist",
+      },
+    ],
+    sourceFiles: ["Remix.html"],
+  });
+  if (!tweakPrompt) throw new Error("a tweak change formats a prompt");
+
+  it("sends a tweak-only Apply prompt to the MCP App host chat", async () => {
+    sendDesignSourceHandoffAndConfirmMock.mockResolvedValueOnce({
+      target: "host",
+      delivered: true,
+    });
+    const setup = argsFor([], new Map());
+
+    await runApplyPendingVisualStylesWithAgent({
+      ...setup.args,
+      pendingVisualStylePrompt: tweakPrompt,
+      hasPendingTweakChanges: true,
+    });
+
+    expect(sendDesignSourceHandoffAndConfirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.stringContaining(
+          "Twist (id: `twist`): 1 → 1.67; CSS variable: `--sail-twist`",
+        ),
+        submit: true,
+      }),
+      { timeoutMs: 10_000 },
+    );
+    expect(writeClipboardTextMock).not.toHaveBeenCalled();
+    expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
+  });
+
+  it("copies the Apply prompt when no host or agent chat takes it", async () => {
+    sendDesignSourceHandoffAndConfirmMock.mockResolvedValueOnce({
+      target: "host",
+      delivered: false,
+      reason: "host-rejected",
+    } as never);
+    const setup = argsFor([], new Map());
+
+    await runApplyPendingVisualStylesWithAgent({
+      ...setup.args,
+      pendingVisualStylePrompt: tweakPrompt,
+      hasPendingTweakChanges: true,
+      includedVisualEditIds: [],
+    });
+
+    expect(writeClipboardTextMock).toHaveBeenCalledExactlyOnceWith(tweakPrompt);
+    expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
+  });
+
+  it("finalizes only delivered edits after the host turn starts", async () => {
+    sendDesignSourceHandoffAndConfirmMock.mockResolvedValueOnce({
+      target: "host",
+      delivered: true,
+      awaitingHostTurn: true,
+    } as never);
+    const setup = argsFor([], new Map());
+    const edits: PendingVisualStyleEdit[] = [
+      {
+        screenId: "screen-1",
+        filename: "screen.html",
+        screenName: "Screen",
+        selector: ".delivered",
+        classes: [],
+        styles: { color: "red" },
+        originalStyles: {},
+        updatedAt: 1,
+      },
+      {
+        screenId: "screen-1",
+        filename: "screen.html",
+        screenName: "Screen",
+        selector: ".later",
+        classes: [],
+        styles: { color: "blue" },
+        originalStyles: {},
+        updatedAt: 2,
+      },
+    ];
+    setup.pendingStyleEditsRef.current = edits;
+    setup.args.pendingVisualStyleEdits = edits;
+    setup.args.includedVisualEditIds = ["style:screen-1:.delivered:1"];
+    setup.args.pendingVisualStylePrompt = "Apply delivered edit.";
+
+    await runApplyPendingVisualStylesWithAgent(setup.args);
+    expect(setup.args.setPendingVisualStyleEdits).not.toHaveBeenCalled();
+
+    const hostChatGeneratingRef = { current: false };
+    const applyingStates: boolean[] = [];
+    handleHostChatState({
+      next: "generating",
+      hostChatGeneratingRef,
+      stagedSourceHandoffRef: setup.args.stagedSourceHandoffRef,
+      stagedHandoffStartedRef: setup.stagedHandoffStartedRef,
+      clearStartTimer: vi.fn(),
+      setApplyingViaHost: (value) => {
+        if (typeof value === "boolean") applyingStates.push(value);
+      },
+      reloadRunningAppPreviewFrames: vi.fn(),
+    });
+
+    expect(setup.pendingStyleEditsRef.current).toEqual([edits[1]]);
+    expect(setup.args.setPendingVisualStyleEdits).toHaveBeenLastCalledWith([
+      edits[1],
+    ]);
+
+    handleHostChatState({
+      next: "idle",
+      hostChatGeneratingRef,
+      stagedSourceHandoffRef: setup.args.stagedSourceHandoffRef,
+      stagedHandoffStartedRef: setup.stagedHandoffStartedRef,
+      clearStartTimer: vi.fn(),
+      setApplyingViaHost: (value) => {
+        if (typeof value === "boolean") applyingStates.push(value);
+      },
+      reloadRunningAppPreviewFrames: vi.fn(),
+    });
+    expect(applyingStates).toEqual([false]);
+    expect(setup.args.stagedSourceHandoffRef.current).toBe("idle");
+  });
+
+  it("waits for host start and removes only included local visual edits", async () => {
+    const setup = argsFor([], new Map());
+    const localEdit = {
+      screenId: "screen-1",
+      filename: "index.html",
+      screenName: "Home",
+      selector: "button",
+      classes: [],
+      styles: { color: "red" },
+      originalStyles: { color: "blue" },
+      updatedAt: 1,
+    } satisfies PendingVisualStyleEdit;
+
+    setup.pendingStyleEditsRef.current = [localEdit];
+    sendDesignSourceHandoffAndConfirmMock.mockResolvedValueOnce({
+      target: "host",
+      delivered: true,
+      awaitingHostTurn: true,
+    } as never);
+    await runApplyPendingVisualStylesWithAgent({
+      ...setup.args,
+      pendingVisualStyleEdits: [localEdit],
+      pendingVisualStylePrompt: "Remote instructions\n\nLocal visual edits",
+      includedVisualEditIds: ["style:screen-1:button:1"],
+      hasStandalonePrompt: true,
+    });
+
+    expect(sendDesignSourceHandoffAndConfirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.stringContaining("Remote instructions"),
+      }),
+      { timeoutMs: 10_000 },
+    );
+    expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
+    expect(setup.stagedHandoffStartedRef.current).toBeTypeOf("function");
+    setup.stagedHandoffStartedRef.current?.();
+    expect(setup.args.setPendingVisualStyleEdits).toHaveBeenCalledWith([]);
+    expect(setup.args.finalizeIncludedHistory).toHaveBeenCalledWith([
+      "style:screen-1:button:1",
+    ]);
+  });
+
+  it("preserves edits created while delivery is waiting", async () => {
+    const setup = argsFor([], new Map());
+    const included = {
+      screenId: "s",
+      filename: "a",
+      screenName: "A",
+      selector: "a",
+      classes: [],
+      styles: { color: "red" },
+      originalStyles: {},
+      updatedAt: 1,
+    } satisfies PendingVisualStyleEdit;
+    const later = { ...included, selector: "b", updatedAt: 2 };
+    setup.pendingStyleEditsRef.current = [included];
+    let resolveDelivery!: (value: {
+      target: string;
+      delivered: boolean;
+      awaitingHostTurn: boolean;
+    }) => void;
+    sendDesignSourceHandoffAndConfirmMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveDelivery = resolve;
+      }) as never,
+    );
+    const apply = runApplyPendingVisualStylesWithAgent({
+      ...setup.args,
+      pendingVisualStyleEdits: [included],
+      includedVisualEditIds: ["style:s:a:1"],
+      hasStandalonePrompt: true,
+    });
+    setup.pendingStyleEditsRef.current = [included, later];
+    resolveDelivery({
+      target: "host",
+      delivered: true,
+      awaitingHostTurn: true,
+    });
+    await apply;
+    setup.stagedHandoffStartedRef.current?.();
+    expect(setup.args.setPendingVisualStyleEdits).toHaveBeenCalledWith([later]);
+  });
+
+  it("removes nothing when the host does not start the accepted turn", async () => {
+    const setup = argsFor([], new Map());
+    const edit = {
+      screenId: "s",
+      filename: "a",
+      screenName: "A",
+      selector: "a",
+      classes: [],
+      styles: { color: "red" },
+      originalStyles: {},
+      updatedAt: 1,
+    } satisfies PendingVisualStyleEdit;
+    setup.pendingStyleEditsRef.current = [edit];
+    sendDesignSourceHandoffAndConfirmMock.mockResolvedValueOnce({
+      target: "host",
+      delivered: true,
+      awaitingHostTurn: true,
+    } as never);
+    await runApplyPendingVisualStylesWithAgent({
+      ...setup.args,
+      pendingVisualStyleEdits: [edit],
+      includedVisualEditIds: ["style:s:a:1"],
+      hasStandalonePrompt: true,
+    });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(setup.args.setPendingVisualStyleEdits).not.toHaveBeenCalled();
+  });
+
+  it("records the tweak baseline only after confirmed delivery", async () => {
+    const setup = argsFor([], new Map());
+    sendDesignSourceHandoffAndConfirmMock.mockResolvedValueOnce({
+      target: "host",
+      delivered: false,
+      reason: "host-rejected",
+    } as never);
+
+    await runApplyPendingVisualStylesWithAgent({
+      ...setup.args,
+      pendingVisualStylePrompt: tweakPrompt,
+      hasPendingTweakChanges: true,
+    });
+
+    expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
   });
 
   it("hands off a shared prompt without clearing it before source acknowledgement", async () => {
@@ -174,7 +455,8 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     await runApplyPendingVisualStylesWithAgent({
       ...setup.args,
       pendingVisualStylePrompt: "Shared canvas changes",
-      allowPromptOnly: true,
+      includedVisualEditIds: [],
+      hasStandalonePrompt: true,
     });
 
     expect(sendDesignSourceHandoffAndConfirmMock).toHaveBeenCalledWith(
@@ -191,6 +473,10 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     const edits = [structureEdit(1), structureEdit(2), structureEdit(3)];
     const snapshots = new Map();
     const setup = argsFor(edits, snapshots);
+    setup.args.includedVisualEditIds = edits.map(
+      (edit) =>
+        `live:structure:${edit.screenId}:${edit.selector}:${edit.updatedAt}`,
+    );
     const applyPromise = runApplyPendingVisualStylesWithAgent(setup.args);
 
     const wakeAt = async (time: number) => {
@@ -207,7 +493,8 @@ describe("runApplyPendingVisualStylesWithAgent", () => {
     await expect(applyPromise).resolves.toBeUndefined();
 
     expect(setup.cancelPendingStructureVerification).not.toHaveBeenCalled();
-    expect(setup.clearPendingLiveEditState).toHaveBeenCalledTimes(1);
+    expect(setup.clearPendingLiveEditState).not.toHaveBeenCalled();
+    expect(setup.args.setPendingLiveNonStyleEdits).toHaveBeenLastCalledWith([]);
     expect(setup.runtimeRequests).toHaveLength(3);
     expect(setup.ackRequests).toHaveLength(3);
     expect(setup.ackRequests.flatMap((request) => request.acks)).toEqual(

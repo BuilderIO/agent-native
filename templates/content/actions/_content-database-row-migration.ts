@@ -17,6 +17,10 @@ import {
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
 import {
+  assertNoColumnRuleOn,
+  toColumnRuleDefinition,
+} from "./_column-rules.js";
+import {
   assertAgentsMayEditPagesText,
   type CallProvenance,
 } from "./_document-agent-lock.js";
@@ -292,7 +296,9 @@ export function validatePlan(
   );
   if (duplicate(plan.legacyPropertyIds))
     throw new Error("Legacy property IDs must be unique.");
+  const ruleDefinitions = snapshot.definitions.map(toColumnRuleDefinition);
   for (const propertyId of plan.legacyPropertyIds) {
+    assertNoColumnRuleOn(ruleDefinitions, propertyId, "delete");
     const definition = oldDefs.get(propertyId);
     if (!definition || definition.systemRole || definition.type === "blocks")
       throw new Error("Legacy property is missing or unsafe to finalize.");

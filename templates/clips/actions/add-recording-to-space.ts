@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -75,6 +76,14 @@ async function setSpaceOne(
 }
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  // A space widens who can see a clip, so an outside agent asks a person first.
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   description:
     "Append or remove a space from the space list of one or more recordings. Use op='add' or op='remove'.",
   schema: z

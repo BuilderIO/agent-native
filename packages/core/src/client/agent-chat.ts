@@ -31,7 +31,9 @@ import {
   readEmbedMcpChatBridgeFlagFromUrl,
 } from "./embed-auth.js";
 import {
+  getFrameOrigin,
   getFramePostMessageTargetOrigin,
+  isInFrame,
   isTrustedFrameMessage,
 } from "./frame.js";
 import {
@@ -84,6 +86,8 @@ export interface AgentChatMessage {
    * {@link AGENT_CHAT_SUBMIT_RESULT_EVENT}. Auto-generated if omitted.
    */
   submitMessageId?: string;
+  /** @internal Parent-frame chat confirmation is an explicit relay opt-in. */
+  confirmParentFrame?: true;
   /** Drop a queued submit instead of handing it to chat after this time. */
   submissionExpiresAt?: number;
   usageLabel?: string;
@@ -282,6 +286,28 @@ function queueAgentChatContextPersistence<T>(
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event) => {
     if (!isTrustedFrameMessage(event) && !isTrustedBuilderMessage(event)) {
+      return;
+    }
+    if (event.data?.type === "agentNative.submitChatResult") {
+      if (
+        window.parent === window ||
+        event.source !== window.parent ||
+        event.origin !== getFrameOrigin()
+      ) {
+        return;
+      }
+      const data = event.data.data;
+      if (
+        data &&
+        typeof data.submitMessageId === "string" &&
+        typeof data.delivered === "boolean"
+      ) {
+        reportAgentChatSubmitResult(
+          data.submitMessageId,
+          data.delivered,
+          typeof data.reason === "string" ? data.reason : undefined,
+        );
+      }
       return;
     }
     if (
@@ -1442,7 +1468,13 @@ export interface SendToAgentChatAndConfirmResult {
 
 function confirmAgentChatSubmit(
   opts: Omit<AgentChatMessage, "submitMessageId">,
-  options: { submitMessageId?: string; timeoutMs?: number } | undefined,
+  options:
+    | {
+        submitMessageId?: string;
+        timeoutMs?: number;
+        confirmParentFrame?: boolean;
+      }
+    | undefined,
   tabId: string,
   dispatch: (submission: AgentChatMessage) => void,
 ): Promise<SendToAgentChatAndConfirmResult> {
@@ -1482,7 +1514,16 @@ function confirmAgentChatSubmit(
     );
     timer = window.setTimeout(() => finish(false, "timeout", true), timeoutMs);
     try {
-      dispatch({ ...opts, tabId, submitMessageId });
+      dispatch({
+        ...opts,
+        tabId,
+        submitMessageId,
+        ...(options?.confirmParentFrame === true &&
+        opts.chatTarget !== "local" &&
+        isInFrame()
+          ? { confirmParentFrame: true as const }
+          : {}),
+      });
     } catch {
       finish(false, "send-failed", true);
     }
@@ -1491,14 +1532,19 @@ function confirmAgentChatSubmit(
 
 export function sendToAgentChatAndConfirm(
   opts: Omit<AgentChatMessage, "submitMessageId">,
-  options?: { submitMessageId?: string; timeoutMs?: number },
+  options?: {
+    submitMessageId?: string;
+    timeoutMs?: number;
+    confirmParentFrame?: boolean;
+  },
 ): Promise<SendToAgentChatAndConfirmResult> {
   const tabId = opts.tabId ?? generateTabId();
   if (typeof window === "undefined") {
     return Promise.resolve({ tabId, delivered: false, reason: "no-window" });
   }
   if (
-    opts.chatTarget !== "local" ||
+    (opts.chatTarget !== "local" &&
+      !(options?.confirmParentFrame === true && isInFrame())) ||
     routesToCodeFrame(opts) ||
     opts.submit === false
   ) {

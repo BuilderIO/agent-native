@@ -1693,6 +1693,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "Public",
   "share.publicDescription": "Toute personne disposant du lien peut consulter",
   "share.remove": "Retirer",
+  "share.removeInvitee": "Retirer {{email}}",
   "share.role": "Rôle",
   "share.searching": "Recherche en cours...",
   "share.share": "Partager",
@@ -1716,6 +1717,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Toutes les personnes de {{organization}}, y compris les nouveaux membres, pourront l'ouvrir et voir tout son contenu, y compris les messages, les fichiers et les autres éléments. Vous pourrez modifier ce réglage plus tard.",
   "share.confirmOrganizationAction": "Partager avec l'organisation",
   "share.confirmOrganizationSharing": "Partage en cours...",
+  "share.confirmPublicTitle":
+    "Partager avec toute personne disposant du lien ?",
+  "share.confirmPublicDescription":
+    "Toute personne disposant du lien, y compris en dehors de votre organisation, pourra ouvrir ceci et en voir tout le contenu. Vous pourrez modifier ce choix plus tard.",
+  "share.confirmPublicAction": "Partager publiquement",
   "settings.emailTitle": "Adresse e-mail",
   "settings.emailChange": "Changer d’adresse e-mail",
   "settings.emailChanging": "Envoi...",
@@ -2467,11 +2473,14 @@ const messages: ToolkitAgentChatTranslation = {
     "Utiliser des données d’exemple dans ce navigateur pour les présentations.",
   "settingsShell.appGroup.labsFootnote":
     "Ces nouvelles fonctionnalités instables peuvent comporter des bugs.",
+  "settingsShell.appGroup.labsHostDecided":
+    "Ce réglage est défini pour vous et ne peut pas être modifié ici.",
   "settingsShell.appGroup.labsLoadError": "Impossible de charger vos Labs.",
   "settingsShell.appGroup.labsReadError":
     "Impossible de lire ce choix enregistré. Choisissez Activé ou Désactivé pour le définir à nouveau.",
   "settingsShell.appGroup.labsSaveError":
     "Impossible de modifier {{lab}}. Réessayez.",
+  "settingsShell.appGroup.labsUseDefault": "Utiliser la valeur par défaut",
   "settingsShell.appGroup.mcpAbout":
     "Connectez {{app}} à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans {{app}} pour vous. Elle ne voit que ce que vous pouvez voir.",
   "settingsShell.appGroup.mcpAppCards":
@@ -3276,6 +3285,19 @@ const messages: ToolkitAgentChatTranslation = {
     "Génère des images pour les diapositives et les designs.",
   "settingsInfra.whyEmbeddings":
     "Améliore la recherche sémantique. La recherche par mots-clés fonctionne toujours sans.",
+  "settingsInfra.semanticSearch": "Recherche sémantique",
+  "settingsInfra.semanticSearchOn":
+    "Trouve les pages par leur sens, en plus de leurs mots. Le texte des pages et les recherches sont envoyés au fournisseur d’Embeddings.",
+  "settingsInfra.semanticSearchOff":
+    "Désactivée. La recherche ne trouve que les mots, et aucun texte de page n’est envoyé au fournisseur d’Embeddings.",
+  "settingsInfra.semanticSearchUnknown":
+    "Impossible de savoir si la recherche sémantique est activée.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "La recherche sémantique est activée. Les pages existantes sont indexées en arrière-plan.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "La recherche sémantique est désactivée. Les vecteurs de pages enregistrés ont été supprimés.",
+  "settingsInfra.semanticSearchSaveFailed":
+    "Impossible de modifier la recherche sémantique.",
   "settingsInfra.designSystem": "Intelligence du système de design",
   "settingsInfra.whyDesignSystem":
     "Garde les diapositives et designs générés fidèles à votre marque.",
@@ -4043,6 +4065,68 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "Impossible d’enregistrer les paramètres du chat vocal.",
   "voice.dictation.cancelTranscription": "Annuler la transcription",
+  "common.noData": "Aucune donnée",
+  "common.rowsPerPage": "Lignes par page :",
+  "dashboardMode.columnResizePersonal":
+    "Faites glisser pour redimensionner pour vous seul. Double-cliquez pour réinitialiser.",
+  "dashboardMode.columnResizeShared":
+    "Faites glisser pour redimensionner pour tout le monde",
+  "sessions.watchReplay": "Voir la relecture",
+  "sqlDashboard.calloutSeverityCritical": "Critique",
+  "sqlDashboard.calloutSeverityInfo": "Information",
+  "sqlDashboard.calloutSeverityWarning": "Avertissement",
+  "sqlDashboard.chartPointLimitFirst":
+    "Affichage des {{shown}} premiers points sur {{total}}",
+  "sqlDashboard.chartPointLimitLast":
+    "Affichage des {{shown}} derniers points sur {{total}}",
+  "sqlDashboard.chartPointLimitNewest":
+    "Affichage des {{shown}} points les plus récents sur {{total}}",
+  "sqlDashboard.collapseDescription": "Réduire la description",
+  "sqlDashboard.columnFormat": "Format",
+  "sqlDashboard.columnFormatCurrency": "Devise",
+  "sqlDashboard.columnFormatDate": "Date",
+  "sqlDashboard.columnFormatDuration": "Durée (secondes)",
+  "sqlDashboard.columnFormatNumber": "Nombre",
+  "sqlDashboard.columnFormatPercent": "Pourcentage",
+  "sqlDashboard.columnFormatText": "Texte brut",
+  "sqlDashboard.columnHide": "Masquer la colonne",
+  "sqlDashboard.columnName": "Nom de la colonne",
+  "sqlDashboard.columnRename": "Renommer la colonne",
+  "sqlDashboard.columnResize": "Redimensionner la colonne",
+  "sqlDashboard.columnShow": "Afficher « {{name}} »",
+  "sqlDashboard.columnShowHidden": "Afficher les colonnes masquées",
+  "sqlDashboard.drilldownChartPoints": "Points du graphique",
+  "sqlDashboard.drilldownNextPage": "Page suivante des points du graphique",
+  "sqlDashboard.drilldownPageRange":
+    "Affichage de {{start}} à {{end}} sur {{total}}",
+  "sqlDashboard.drilldownPreviousPage":
+    "Page précédente des points du graphique",
+  "sqlDashboard.expandDescription": "Développer la description",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "Terminé",
+  "sqlDashboard.funnelLeft": "A quitté l'app",
+  "sqlDashboard.funnelLeftHere": "A quitté l'app ici",
+  "sqlDashboard.funnelMovedOn": "Continué sans l'un ni l'autre",
+  "sqlDashboard.funnelOptional": "Facultatif",
+  "sqlDashboard.funnelShown": "{{count}} l'ont vu",
+  "sqlDashboard.funnelShownLabel": "L'ont vu",
+  "sqlDashboard.funnelSkipped": "Ignoré",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}} (mieux)",
+  "sqlDashboard.metricComparisonDown":
+    "En baisse de {{change}} par rapport à {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonFlat":
+    "Aucun changement par rapport à {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonNoChange": "Aucun changement",
+  "sqlDashboard.metricComparisonPoints": "{{value}} pt",
+  "sqlDashboard.metricComparisonPreviousPeriod": "la période précédente",
+  "sqlDashboard.metricComparisonUp":
+    "En hausse de {{change}} par rapport à {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonVs": "par rapport à {{period}}",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}} (moins bien)",
+  "sqlDashboard.multiColumnSortHelp":
+    "Cliquez pour trier. Maj-cliquez pour ajouter un autre tri.",
+  "sqlDashboard.noXValue": "Sans valeur",
 };
 
 export default messages;

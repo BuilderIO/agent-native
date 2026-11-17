@@ -28,6 +28,8 @@ import {
   localContentComponents,
 } from "@/local-components";
 
+import { useEditorEditable } from "../useEditorEditable";
+
 export const LOCAL_FILE_USER_EDIT_META = "localFileUserEdit";
 
 function parseProps(propsJson: unknown): Record<string, unknown> {
@@ -237,6 +239,7 @@ function LocalMdxComponentView({
   updateAttributes,
 }: NodeViewProps) {
   const t = useT();
+  const editable = useEditorEditable(editor);
   const name = typeof node.attrs.name === "string" ? node.attrs.name : "";
   const Component = name ? localContentComponents[name] : null;
   const inputs = name ? localContentComponentInputs[name] : undefined;
@@ -282,7 +285,7 @@ function LocalMdxComponentView({
       contentEditable={false}
       data-local-mdx-component={name}
     >
-      {editor.isEditable && inputs ? (
+      {editable && inputs ? (
         <LocalComponentInputEditor
           componentName={name}
           inputs={inputs}

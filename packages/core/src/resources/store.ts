@@ -2624,9 +2624,13 @@ export async function resourceDeleteWithDb(
   };
 }
 
+// Compares each column the way rowToResource reads it, so a row holding an
+// empty string or an unknown creator or visibility still matches the resource
+// read from it. Comparing raw columns would refuse every write over, or delete
+// of, that row.
 function resourceSnapshotMatch(resource: Resource) {
   return {
-    sql: `owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND created_by = ? AND visibility = ? AND thread_id IS NOT DISTINCT FROM ? AND run_id IS NOT DISTINCT FROM ? AND expires_at IS NOT DISTINCT FROM ? AND metadata IS NOT DISTINCT FROM ?`,
+    sql: `owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND (CASE WHEN created_by IN ('agent', 'system', 'user') THEN created_by ELSE 'user' END) = ? AND (CASE WHEN visibility = 'agent_scratch' THEN 'agent_scratch' ELSE 'workspace' END) = ? AND NULLIF(thread_id, '') IS NOT DISTINCT FROM ? AND NULLIF(run_id, '') IS NOT DISTINCT FROM ? AND expires_at IS NOT DISTINCT FROM ? AND NULLIF(metadata, '') IS NOT DISTINCT FROM ?`,
     args: [
       resource.owner,
       resource.path,
@@ -2995,24 +2999,11 @@ export async function resourceDeleteIfCurrent(
   }
 
   const client = getDbExec();
+  const match = resourceSnapshotMatch(resource);
+  // raw-sql-ok: resourceSnapshotMatch is fixed clause text; every value is a bound ? arg.
   const result = await client.execute({
-    sql: `DELETE FROM resources WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND created_by = ? AND visibility = ? AND thread_id IS NOT DISTINCT FROM ? AND run_id IS NOT DISTINCT FROM ? AND expires_at IS NOT DISTINCT FROM ? AND metadata IS NOT DISTINCT FROM ?`,
-    args: [
-      resource.owner,
-      resource.path,
-      resource.id,
-      resource.updatedAt,
-      resource.content,
-      resource.mimeType,
-      resource.size,
-      resource.createdAt,
-      resource.createdBy,
-      resource.visibility,
-      resource.threadId,
-      resource.runId,
-      resource.expiresAt,
-      resource.metadata,
-    ],
+    sql: `DELETE FROM resources WHERE ${match.sql}`,
+    args: match.args,
   });
   const deleted = result.rowsAffected === 1;
   if (deleted) {
@@ -3572,6 +3563,70 @@ export async function resourceMove(
   if (moved) {
     emitResourceChange(id, newPath, rows[0].owner as string);
   }
+  return moved;
+}
+
+/**
+ * Move a database-backed resource while its identity, version, content, and
+ * metadata still match.
+ */
+export async function resourceMoveIfCurrent(
+  current: Resource,
+  newPath: string,
+): Promise<Resource | null> {
+  if (isWorkspaceResourceOwner(current.owner)) {
+    throw new Error(
+      "Workspace resources cannot be moved with resourceMoveIfCurrent",
+    );
+  }
+  if (
+    !newPath ||
+    newPath.startsWith("/") ||
+    newPath.includes("\\") ||
+    newPath.split("/").some((part) => !part || part === "." || part === "..") ||
+    /[\x00-\x1f\x7f]/.test(newPath)
+  ) {
+    throw new Error("Invalid resource path");
+  }
+  if (newPath === current.path) return null;
+
+  await ensureTable();
+
+  const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
+  let result: Awaited<ReturnType<DbExec["execute"]>>;
+  try {
+    result = await getDbExec().execute({
+      sql: `UPDATE resources SET path = ?, updated_at = ? WHERE id = ? AND owner = ? AND path = ? AND updated_at = ? AND content = ? AND metadata IS NOT DISTINCT FROM ? AND NOT EXISTS (SELECT 1 FROM resources AS destination WHERE destination.owner = resources.owner AND destination.path = ?) RETURNING *`,
+      args: [
+        newPath,
+        updatedAt,
+        current.id,
+        current.owner,
+        current.path,
+        current.updatedAt,
+        current.content,
+        current.metadata,
+        newPath,
+      ],
+    });
+  } catch (error) {
+    // A concurrent insert can win the destination's unique (owner, path) key
+    // after the statement snapshot; PostgreSQL then rejects this whole update.
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "23505"
+    ) {
+      return null;
+    }
+    throw error;
+  }
+
+  const row = result.rows[0];
+  if (!row) return null;
+  const moved = rowToResource(row);
+  emitResourceChange(moved.id, moved.path, moved.owner);
   return moved;
 }
 

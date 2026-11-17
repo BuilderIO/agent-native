@@ -16,6 +16,21 @@ describe("parseStoredViewSettings", () => {
     );
   });
 
+  it("restores the floating tweaks panel's open, collapsed, and docked state", () => {
+    expect(
+      parseStoredViewSettings({
+        tweaksPanelOpen: false,
+        tweaksPanelCollapsed: true,
+        tweaksPanelPosition: { x: 32, y: 96 },
+      }),
+    ).toEqual({
+      ...DEFAULT_VIEW_SETTINGS,
+      tweaksPanelOpen: false,
+      tweaksPanelCollapsed: true,
+      tweaksPanelPosition: { x: 32, y: 96 },
+    });
+  });
+
   it("throws on a stored value of the wrong type instead of resetting it", () => {
     expect(() => parseStoredViewSettings({ rulers: "yes" })).toThrow();
   });
