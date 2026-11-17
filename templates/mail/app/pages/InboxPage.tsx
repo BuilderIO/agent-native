@@ -398,7 +398,9 @@ export function InboxPage() {
     isLoading: settingsLoading,
     isError: settingsError,
   } = useSettings();
-  const readingPane = useReadingPane(settings?.previewPane !== "off");
+  const readingPane = useReadingPane(
+    settings ? settings.previewPane !== "off" : undefined,
+  );
   const paneLayout =
     readingPane.layout?.mode === "pane" ? readingPane.layout : null;
   const paneListRef = useRef<HTMLDivElement>(null);

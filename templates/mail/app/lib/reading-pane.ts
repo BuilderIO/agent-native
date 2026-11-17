@@ -11,6 +11,7 @@ export const READING_PANE_LIST_DEFAULT_WIDTH = 340;
 export const READING_PANE_SIDE_PANEL_WIDTH = 260;
 
 const LIST_WIDTH_STORAGE_KEY = "mail-reading-pane-list-width";
+const ENABLED_STORAGE_KEY = "mail-reading-pane-enabled";
 
 export type ReadingPaneLayout =
   | { mode: "off" }
@@ -75,4 +76,15 @@ export function readStoredListWidth(storage: Storage): number | null {
 
 export function storeListWidth(storage: Storage, width: number) {
   storage.setItem(LIST_WIDTH_STORAGE_KEY, String(Math.round(width)));
+}
+
+export function readStoredPaneEnabled(storage: Storage): boolean | null {
+  const raw = storage.getItem(ENABLED_STORAGE_KEY);
+  if (raw === "on") return true;
+  if (raw === "off") return false;
+  return null;
+}
+
+export function storePaneEnabled(storage: Storage, enabled: boolean) {
+  storage.setItem(ENABLED_STORAGE_KEY, enabled ? "on" : "off");
 }

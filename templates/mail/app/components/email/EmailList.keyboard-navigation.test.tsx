@@ -1552,6 +1552,24 @@ describe("EmailList keyboard navigation interactions", () => {
     );
   });
 
+  it("replaces history for clicks and Enter once the route shows an email", () => {
+    const { rerender } = render(<Harness readingPane />);
+    mocks.threadId = "thread-first";
+    rerender(<Harness readingPane />);
+
+    press("Enter");
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-first?accountEmail=synthetic%40example.test",
+      { replace: true },
+    );
+
+    fireEvent.click(screen.getByText("Subject middle"));
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-middle?accountEmail=synthetic%40example.test",
+      { replace: true },
+    );
+  });
+
   it("leaves j and k to the open email when it owns the keyboard", () => {
     render(<Harness readingPane keyboardEnabled={false} />);
     press("j");

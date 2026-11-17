@@ -4,7 +4,9 @@ import {
   clampListWidth,
   readingPaneLayout,
   readStoredListWidth,
+  readStoredPaneEnabled,
   storeListWidth,
+  storePaneEnabled,
 } from "./reading-pane";
 
 function memoryStorage(initial: Record<string, string> = {}): Storage {
@@ -97,6 +99,23 @@ describe("stored list width", () => {
     expect(
       readStoredListWidth(
         memoryStorage({ "mail-reading-pane-list-width": "120" }),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("remembered pane choice", () => {
+  it("round-trips on and off and reads anything else as unknown", () => {
+    const storage = memoryStorage();
+    expect(readStoredPaneEnabled(storage)).toBeNull();
+    storePaneEnabled(storage, false);
+    expect(readStoredPaneEnabled(storage)).toBe(false);
+    storePaneEnabled(storage, true);
+    expect(readStoredPaneEnabled(storage)).toBe(true);
+
+    expect(
+      readStoredPaneEnabled(
+        memoryStorage({ "mail-reading-pane-enabled": "true" }),
       ),
     ).toBeNull();
   });

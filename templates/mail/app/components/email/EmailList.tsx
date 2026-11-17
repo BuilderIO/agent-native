@@ -1411,6 +1411,7 @@ export function EmailList({
     navigate,
     markThreadRead,
     searchParams,
+    threadId,
     queryClient,
     setSelectedIds,
   ]);
@@ -2224,6 +2225,7 @@ export function EmailList({
       navigate,
       view,
       searchParams,
+      threadId,
       markThreadRead,
     ],
   );

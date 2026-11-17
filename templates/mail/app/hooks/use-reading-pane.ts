@@ -1,10 +1,12 @@
-import { useCallback, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 
 import {
   clampListWidth,
   readingPaneLayout,
   readStoredListWidth,
+  readStoredPaneEnabled,
   storeListWidth,
+  storePaneEnabled,
   type ReadingPaneLayout,
 } from "@/lib/reading-pane";
 
@@ -18,13 +20,27 @@ function initialListWidth(): number | null {
   }
 }
 
+function initialPaneEnabled(): boolean | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return readStoredPaneEnabled(window.localStorage);
+    // coercion-ok: blocked storage (private browsing) has no remembered choice to read.
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Measures the inbox and decides whether the list and the open email sit side
  * by side. `layout` is null until the container has been measured, which
  * happens before the first paint, so callers render nothing in that frame
  * rather than one layout and then the other.
+ *
+ * `enabled` is undefined until the saved setting has been read, and stays
+ * undefined if that read fails. Until then the choice last seen on this device
+ * decides, so someone who turned the pane off doesn't see it open and close.
  */
-export function useReadingPane(enabled: boolean) {
+export function useReadingPane(enabled: boolean | undefined) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
   const [size, setSize] = useState<{
     container: number;
@@ -32,6 +48,15 @@ export function useReadingPane(enabled: boolean) {
   } | null>(null);
   const [preferredListWidth, setPreferredListWidth] =
     useState(initialListWidth);
+  const [rememberedEnabled] = useState(initialPaneEnabled);
+
+  useEffect(() => {
+    if (enabled === undefined) return;
+    try {
+      storePaneEnabled(window.localStorage, enabled);
+      // coercion-ok: with storage blocked the saved setting still decides once it loads.
+    } catch {}
+  }, [enabled]);
 
   useLayoutEffect(() => {
     if (!container) return;
@@ -58,7 +83,7 @@ export function useReadingPane(enabled: boolean) {
 
   const layout: ReadingPaneLayout | null = size
     ? readingPaneLayout({
-        enabled,
+        enabled: enabled ?? rememberedEnabled ?? true,
         viewportWidth: size.viewport,
         containerWidth: size.container,
         preferredListWidth,
