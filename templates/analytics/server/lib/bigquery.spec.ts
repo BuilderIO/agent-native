@@ -3199,6 +3199,49 @@ describe("runQuery cancellation", () => {
         ]);
       });
 
+      it("records an existing job without a verdict when the call stops while reading it", async () => {
+        vi.useFakeTimers();
+        const { fetchMock } = fakeBigQuery({ complete: () => false });
+        vi.stubGlobal("fetch", fetchMock);
+        await callUntilDeadline();
+
+        let lookupStarted!: () => void;
+        const started = new Promise<void>((resolve) => {
+          lookupStarted = resolve;
+        });
+        vi.stubGlobal(
+          "fetch",
+          vi.fn<typeof globalThis.fetch>().mockImplementation((input, init) => {
+            if (!/\/jobs\/[^/?]+\?/.test(String(input))) {
+              return fetchMock(input, init);
+            }
+            lookupStarted();
+            return new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener(
+                "abort",
+                () => reject(init.signal?.reason),
+                { once: true },
+              );
+            });
+          }),
+        );
+        const deadline = new AbortController();
+        const trace = newBigQueryQueryTrace();
+        const stopped = expect(
+          runQuery(sql, {
+            signal: deadline.signal,
+            resumeAfter: deadline.signal,
+            trace,
+          }),
+        ).rejects.toMatchObject({ name: "AbortError" });
+        await started;
+        deadline.abort();
+        await stopped;
+
+        expect(trace.stage).toBe("checking_existing_job");
+        expect(trace.jobs).toEqual([{ job: "existing", slot: 1 }]);
+      });
+
       it("records the time spent waiting while another call ran the same query", async () => {
         vi.useFakeTimers();
         const { fetchMock } = fakeBigQuery({ complete: () => false });

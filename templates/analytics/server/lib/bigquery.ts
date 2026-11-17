@@ -1047,7 +1047,10 @@ export interface BigQueryJobAttempt {
   job: "new" | "existing";
   /** Which of the IDs named after the query it used, or null for a random one. */
   slot: number | null;
-  /** For an existing job: whether this call could collect it. */
+  /**
+   * For an existing job: whether this call could collect it. Absent when the
+   * call stopped before it found out.
+   */
   collectable?: boolean;
   /** Its BigQuery state when read. */
   state?: string | null;
@@ -1907,7 +1910,12 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
           signal,
         );
       } catch (error) {
-        trace?.jobs.push({ job: "existing", slot, unreadable: true });
+        // A lookup the call itself stopped says nothing about the job.
+        trace?.jobs.push(
+          signal?.aborted
+            ? { job: "existing", slot }
+            : { job: "existing", slot, unreadable: true },
+        );
         // Another call's job: it keeps running for a later call to collect.
         jobLocation = knownLocation;
         jobId = null;
