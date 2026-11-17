@@ -1,3 +1,4 @@
+import { useActionMutation } from "@agent-native/core/client/hooks";
 import { getFrameGroupBounds } from "@shared/canvas-math";
 import { type CodeLayerNode } from "@shared/code-layer";
 import { type NodeRewriteProposal } from "@shared/node-rewrite";
@@ -119,6 +120,7 @@ export function useEditorModes({
     activeFileId,
     setActiveFileId,
     previewThemeStatusByScreenId,
+    pendingVisualEditPublisherIdRef,
   } = editorCore;
   const {
     pendingVisualStyleEdits,
@@ -169,6 +171,10 @@ export function useEditorModes({
     overviewScreens,
     remoteVisualEditPending,
     designSourceType,
+    visualEditPendingQuery,
+    settlePendingTweakSaves,
+    resetTweakSelectionsToSourceBaseline,
+    pendingTweakChanges,
   } = editorFilesAndSaving;
   const {
     setScreenZoom,
@@ -1254,30 +1260,67 @@ export function useEditorModes({
       collectCodeLayerAncestors(parentOwner.tree, parentOwner.node.id),
     );
   }, [selectCodeLayerNodesForHotkey, selectedLayerIdsState]);
-  const handleAbortPendingVisualStyles = useCallback(() => {
-    if (
-      pendingVisualStyleEdits.length === 0 &&
-      pendingLiveNonStyleEdits.length === 0
-    ) {
-      return;
+  const clearEditsMutation = useActionMutation("clear-edits");
+  const handleClearPendingVisualEdits = useCallback(async () => {
+    const pending = visualEditPendingQuery.data;
+    const ownsHandoff =
+      pending?.status !== "empty" &&
+      pending?.publisherId === pendingVisualEditPublisherIdRef.current &&
+      pending?.revision !== null &&
+      pending?.revision !== undefined;
+    const hasLocalEdits =
+      pendingVisualStyleEdits.length > 0 ||
+      pendingLiveNonStyleEdits.length > 0 ||
+      pendingTweakChanges.length > 0;
+    if (!id || (!hasLocalEdits && !ownsHandoff)) return;
+
+    try {
+      await settlePendingTweakSaves();
+      const result = await clearEditsMutation.mutateAsync({
+        designId: id,
+        ...(pending &&
+        ownsHandoff &&
+        pending.revision !== null &&
+        pending.revision !== undefined &&
+        pending.publisherId
+          ? { revision: pending.revision, publisherId: pending.publisherId }
+          : {}),
+      });
+      if (!result.cleared || result.stale) {
+        throw new Error(
+          "The pending edits changed before they could be cleared.",
+        );
+      }
+      requestPendingVisualStyleRevert(pendingVisualStyleEdits);
+      requestPendingLiveNonStyleRevert(pendingLiveNonStyleEdits);
+      discardPendingLiveEditCollections({
+        stylesRef: pendingVisualStyleEditsRef,
+        liveRef: pendingLiveNonStyleEditsRef,
+        clearState: clearPendingLiveEditState,
+      });
+      resetTweakSelectionsToSourceBaseline();
+      window.setTimeout(() => handleModeChange("edit"), 50);
+      toast.success(t("designEditor.pendingVisualStyles.clearedToast"));
+    } catch {
+      toast.error(t("designEditor.pendingVisualStyles.clearFailedToast"));
     }
-    requestPendingVisualStyleRevert(pendingVisualStyleEdits);
-    requestPendingLiveNonStyleRevert(pendingLiveNonStyleEdits);
-    discardPendingLiveEditCollections({
-      stylesRef: pendingVisualStyleEditsRef,
-      liveRef: pendingLiveNonStyleEditsRef,
-      clearState: clearPendingLiveEditState,
-    });
-    window.setTimeout(() => handleModeChange("edit"), 50);
-    toast.success(t("designEditor.pendingVisualStyles.abortedToast"));
   }, [
+    clearEditsMutation,
     clearPendingLiveEditState,
     handleModeChange,
+    id,
     pendingLiveNonStyleEdits,
+    pendingLiveNonStyleEditsRef,
+    pendingTweakChanges.length,
+    pendingVisualEditPublisherIdRef,
     pendingVisualStyleEdits,
+    pendingVisualStyleEditsRef,
     requestPendingLiveNonStyleRevert,
     requestPendingVisualStyleRevert,
+    resetTweakSelectionsToSourceBaseline,
+    settlePendingTweakSaves,
     t,
+    visualEditPendingQuery.data,
   ]);
   const handleOverviewEditBreakpoint = useCallback(
     (screenId: string, _widthPx: number) => {
@@ -1319,7 +1362,7 @@ export function useEditorModes({
     handleEnterHotkey,
     handleCycleSibling,
     handleSelectParentLayer,
-    handleAbortPendingVisualStyles,
+    handleClearPendingVisualEdits,
     handleOverviewEditBreakpoint,
     ...interactControls,
   };

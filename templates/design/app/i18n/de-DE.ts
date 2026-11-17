@@ -2210,6 +2210,7 @@ export default {
       copyPrompt: "Prompt an deinen Agent kopieren",
       copyAgentPrompt: "Agentenprompt kopieren",
       copyFullPrompt: "Vollständigen Prompt kopieren",
+      clearEdits: "Änderungen löschen",
       abortPreview: "Vorschau abbrechen und interagieren",
       agentMessage:
         "Wende die ausstehenden visuellen Stiländerungen auf die Quelle an.",
@@ -2225,6 +2226,9 @@ export default {
       copiedToastDescription:
         "Füge ihn in deinen Programmier-Agenten ein und bitte ihn, die visuellen Änderungen umzusetzen.",
       abortedToast: "Ausstehende Vorschau verworfen",
+      clearedToast: "Ausstehende Änderungen gelöscht",
+      clearFailedToast:
+        "Ausstehende Änderungen konnten nicht gelöscht werden. Versuchen Sie es erneut.",
       interactBlocked:
         "Wende ausstehende Live-Änderungen an oder brich sie ab, bevor du zu Interagieren wechselst.",
       leaveTitle: "Design-Updates vor dem Verlassen anwenden?",
