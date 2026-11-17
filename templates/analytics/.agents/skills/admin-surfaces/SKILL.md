@@ -1,7 +1,7 @@
 ---
 name: admin-surfaces
 description: >-
-  Use when an admin asks about feature flags and rollouts, dashboard usage stats, or connecting another app's database (the /agents admin home for Analytics).
+  Use when an admin asks about feature flags and rollouts, dashboard usage stats, outside-agent BigQuery budgets, or connecting another app's database (the /agents admin home for Analytics).
 ---
 
 # Admin Surfaces (`/agents`)
@@ -49,6 +49,15 @@ access to all Analytics data.
 
 Keep future admin additions inside this route instead of adding many
 top-level sidebar tabs.
+
+## Outside-Agent BigQuery Budgets
+
+BigQuery jobs that connected MCP agents start count against daily limits:
+$1 per person without asking, a $5 person ceiling, $50 per organization, and
+50 GB per job, resetting at 00:00 UTC. Analytics' own agent and dashboards are
+not limited. When an owner or admin asks to raise or reset a limit, call
+`set-bigquery-agent-budget` (`scope` `org` or `person`, `dailyLimitUsd`, `null`
+for the default) and report the limits it returns.
 
 ## Related Skills
 

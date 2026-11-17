@@ -1,10 +1,20 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { outsideAgentIdentity } from "../server/lib/bigquery-agent-budget.js";
+import {
+  outsideAgentBigQueryReportSchema,
+  outsideAgentRefusalReport,
+  runOutsideAgentBigQueryCall,
+} from "../server/lib/bigquery-agent-calls.js";
+import {
+  isOutsideAgentCaller,
+  OutsideAgentBigQueryRefusalError,
+} from "../server/lib/bigquery-agent-context.js";
 import { BigQueryMaximumBytesBilledError } from "../server/lib/bigquery.js";
 import {
   getFirstPartyAnalyticsHealth,
@@ -50,7 +60,11 @@ const healthSchema = z.object({
       }),
       z.object({
         kind: z.literal("unavailable"),
-        reason: z.enum(["maximum_bytes_billed", "health_read_failed"]),
+        reason: z.enum([
+          "maximum_bytes_billed",
+          "health_read_failed",
+          "outside_agent_budget",
+        ]),
       }),
     ]),
     eventCount: z.number().nullable(),
@@ -88,11 +102,13 @@ const healthSchema = z.object({
     missingRequiredKeys: z.array(z.string()),
     setupLink: z.string(),
   }),
+  /** Outside agents (MCP) only: what this call's BigQuery jobs cost against today's budget. */
+  bigQueryBudget: outsideAgentBigQueryReportSchema.optional(),
 });
 
 export default defineAction({
   description:
-    "Check first-party Analytics source health before a large or historical query. Returns query pressure, delivery health, and external backend recommendations. Neon/Postgres reads compact all-time daily rollups; BigQuery reads at most the last 30 UTC calendar days (including today) with a small billed-byte cap. BigQuery eventCount, dailyRollupRows, and lastEventDate cover only the dates in metrics.coverage (kind recent_window), while all-time firstEventDate and spanDays are null with an explicit reason. A cap failure returns unavailable coverage, null event metrics, and reason maximum_bytes_billed. Both sinks read the small query-pressure ledger. To learn only where queries run, without querying BigQuery, call get-first-party-analytics-backend. For Neon/Postgres, event volume or query pressure can recommend BigQuery; for an existing BigQuery sink, only query pressure or delivery lag can produce monitor. A pending delivery-queue migration is reported as degraded delivery health. External options include BigQuery for warehouse SQL and history and Amplitude for product analytics, with safe setup links. Connecting a backend does not reroute /track or backfill existing events.",
+    "Check first-party Analytics source health before a large or historical query. Returns query pressure, delivery health, and external backend recommendations. Neon/Postgres reads compact all-time daily rollups; BigQuery reads at most the last 30 UTC calendar days (including today) with a small billed-byte cap. BigQuery eventCount, dailyRollupRows, and lastEventDate cover only the dates in metrics.coverage (kind recent_window), while all-time firstEventDate and spanDays are null with an explicit reason. A cap failure returns unavailable coverage, null event metrics, and reason maximum_bytes_billed. Both sinks read the small query-pressure ledger. To learn only where queries run, without querying BigQuery, call get-first-party-analytics-backend. For Neon/Postgres, event volume or query pressure can recommend BigQuery; for an existing BigQuery sink, only query pressure or delivery lag can produce monitor. A pending delivery-queue migration is reported as degraded delivery health. External options include BigQuery for warehouse SQL and history and Amplitude for product analytics, with safe setup links. Connecting a backend does not reroute /track or backfill existing events. For an outside agent over MCP, the BigQuery read counts against its daily BigQuery budget and the response adds bigQueryBudget; a budget refusal returns unavailable coverage with reason outside_agent_budget and bigQueryBudget.refusal naming when it resets.",
   schema: z.object({}),
   outputSchema: healthSchema,
   outputErrorStrategy: "strict",
@@ -101,11 +117,29 @@ export default defineAction({
   readOnly: true,
   mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
-  run: async () => {
+  run: async (_args, context?: ActionRunContext) => {
     const scope = resolveScope();
     try {
+      if (isOutsideAgentCaller(context?.caller)) {
+        const { value, report } = await runOutsideAgentBigQueryCall(
+          {
+            identity: outsideAgentIdentity(scope.userEmail, scope.orgId),
+            source: "get-first-party-analytics-health",
+            reservation: "full-cap",
+            leaseMs: 60_000,
+          },
+          () => getFirstPartyAnalyticsHealth(scope),
+        );
+        return { ...value, bigQueryBudget: report };
+      }
       return await getFirstPartyAnalyticsHealth(scope);
     } catch (error) {
+      if (error instanceof OutsideAgentBigQueryRefusalError) {
+        return {
+          ...unavailableFirstPartyAnalyticsHealth("outside_agent_budget"),
+          bigQueryBudget: outsideAgentRefusalReport(error),
+        };
+      }
       console.warn("[first-party-analytics] Health check unavailable:", error);
       return unavailableFirstPartyAnalyticsHealth(
         error instanceof BigQueryMaximumBytesBilledError
