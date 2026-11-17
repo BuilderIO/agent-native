@@ -1055,6 +1055,41 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Live-Vorschau teilen",
+      instructions:
+        "Füge eine öffentliche HTTPS-Vorschau-URL für deine App ein, etwa einen ngrok- oder cloudflared-Tunnel. Dein Rechner nutzt weiter localhost; andere sehen die öffentliche Vorschau oder schlagen Änderungen am veröffentlichten Abbild vor.",
+      tunnelUrl: "Öffentliche Vorschau-URL",
+      enableCollaboration:
+        "Live-Zusammenarbeit für alle mit Zugriff auf das Design aktivieren",
+      save: "Speichern",
+      unavailable:
+        "Live-Vorschau nicht verfügbar — Momentaufnahme wird angezeigt",
+      live: "Live-Vorschau",
+      openLive: "Live-Vorschau auf {{hostname}} öffnen",
+      suggest: "Am Abbild vorschlagen",
+      localOnly: "Live-Vorschau nur auf dem Rechner des Eigentümers",
+    },
+    referenceCopy: {
+      staticNotice:
+        "JavaScript ist deaktiviert; dynamische Inhalte fehlen möglicherweise.",
+      captureAction: "Statisches Abbild erfassen",
+      capturePrompt:
+        "Erfasse Screenshot und DOM dieser öffentlichen Referenz-URL und füge sie als statischen Referenzbildschirm zur Designfläche hinzu. Kennzeichne ihn als Abbild, nicht als Live-Seite.",
+      unavailable:
+        "Diese Seite blockiert möglicherweise Frames oder konnte nicht geladen werden.",
+      load: "Referenzkopie laden",
+      label: "Referenzkopie · öffentliche Seite, schreibgeschützt",
+      noBridge:
+        "Verbinde eine lokale Bridge, um eine öffentliche Referenzkopie zu laden.",
+      snapshot: "Veröffentlichtes Abbild verwenden",
+      capture: "Bitte den Agenten um einen Screenshot und ein DOM-Abbild.",
+      failed:
+        "Referenzkopie fehlgeschlagen. Erfasse stattdessen Screenshot und DOM.",
+      loading: "Referenzkopie wird geladen…",
+      original: "Originalseite versuchen",
+    },
+
     sourceLoadFailed: "Dieser Bildschirm konnte nicht geladen werden.",
     selectionPublishFailed:
       "Der Agent sieht deine neueste Auswahl möglicherweise nicht. Wähle sie erneut aus.",
@@ -1105,6 +1140,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Ebene auswählen",
+      layerKinds: {
+        webgl: "Leinwand · WebGL",
+        canvas: "Leinwand",
+        video: "Video",
+        image: "Bild",
+        svg: "SVG-Grafik",
+        embed: "Einbettung",
+        background: "Hintergrund",
+        effect: "Effekt",
+      },
       goToMain: "Zur Hauptkomponente",
       restore: "Komponente wiederherstellen",
       swap: "Instanz austauschen",
@@ -1726,6 +1771,20 @@ export default {
         "Demnächst: Bildschirme und Komponenten direkt aus einem Repository importieren.",
       localDescription: "Verbinde jede laufende lokale App mit /visual-edit.",
       warningsToast: "Import mit Warnungen abgeschlossen",
+      pasteUnreadable: "Die kopierten Ebenen konnten nicht gelesen werden.",
+      pasteInexact: "Details, die nicht exakt eingefügt wurden: {{count}}",
+      pasteLayerTypes:
+        "{{tool}}-Ebenentypen als einfache Frames eingefügt: {{count}}",
+      pasteImagePlaceholders:
+        "Als Platzhalter eingefügte Bilder: {{count}}. {{tool}} kopiert keine Bilddaten.",
+      pasteImagesLinked:
+        "Weiterhin mit {{tool}} verknüpfte Bilder: {{count}}. Sie konnten nicht in deinen Dateispeicher kopiert werden.",
+      pasteImagesUnsaved:
+        "Bilder, die möglicherweise nicht mehr geladen werden, weil ihr Speichern nicht bestätigt wurde: {{count}}",
+      pasteNeedsEditAccess:
+        "Zum Einfügen in dieses Design brauchst du Bearbeitungszugriff.",
+      pastePartialImport:
+        "Das Einfügen ist fehlgeschlagen, und einige Screens wurden möglicherweise erstellt. Prüfe deine Screens.",
       figmaSuccess: "Figma-Einfügung importiert",
       htmlSuccess: "HTML importiert",
       uploadSuccess: "Datei importiert",
@@ -1736,6 +1795,8 @@ export default {
         notHtml: "Füge gültiges HTML ein oder wähle es zum Importieren aus.",
         importFailed: "Import fehlgeschlagen",
         figmaPasteFailed: "Figma-Einfügeimport fehlgeschlagen",
+        paperPasteFailed: "Paper-Einfügeimport fehlgeschlagen",
+        wonderPasteFailed: "Wonder-Einfügeimport fehlgeschlagen",
         uploadFailed: "Dateiupload fehlgeschlagen",
         invalidFigFile: "Wähle eine Datei mit der Endung .fig.",
         unsupportedFileType: "Wähle eine .fig-, .html- oder .htm-Datei.",
@@ -2070,6 +2131,9 @@ export default {
     addTweaks: "Fügen Sie Optimierungen hinzu",
     addTweakControls: "Fügen Sie Optimierungssteuerelemente hinzu",
     closeTweaks: "Enge Optimierungen",
+    showFloatingTweaks: "Schwebende Optimierungen anzeigen",
+    collapseTweaks: "Optimierungen einklappen",
+    expandTweaks: "Optimierungen ausklappen",
     tweaksHelp:
       "Anpassungen sind breakpoint- und zustandsspezifische visuelle Überschreibungen über dem Basisdesign. Setzen Sie ein Steuerelement zurück, um den geerbten Wert wiederherzustellen.",
     tweaksDocs: "Mehr erfahren.",
@@ -2137,6 +2201,7 @@ export default {
       applyAria: "Ausstehende visuelle Stiländerungen anwenden",
       applyButton: "Stile anwenden",
       applySharedEdits: "Änderungen anwenden",
+      reviewSuggestion: "Vorschlag prüfen",
       previewLabel: "Ausstehende visuelle Vorschau",
       applyDesignUpdates: "Design-Updates anwenden",
       applying: "Wird angewendet…",
@@ -2243,6 +2308,9 @@ export default {
       annotationSendError:
         "Die Anmerkungen konnten nicht gesendet werden. Deine Zeichnung ist noch da – versuche es erneut.",
       codingHandoffError: "Code-Übergabe konnte nicht erstellt werden",
+      unknownCollaborator: "Mitwirkende Person",
+      supersededVisualEditSuggestion:
+        "Ein früherer Vorschlag von {{authorEmail}} wurde ersetzt. Originaltext: {{text}}",
       visualEditPendingConflict:
         "Bei einem anderen Mitwirkenden warten Änderungen. Wende sie an oder verwerfe sie, bevor du neue Änderungen sendest.",
       codingHandoffCopied: "Code-Übergabe kopiert",
@@ -2329,6 +2397,8 @@ export default {
         "Doppelklicke auf eine Zeile auf der Leinwand, um ihren Text zu bearbeiten",
       eyedropperUnsupported:
         "Die Pipette wird von diesem Browser nicht unterstützt",
+      claimBoardError:
+        "Dieses Board konnte nicht in dein Konto verschoben werden",
       saveCopyError:
         "Eine Kopie dieses Designs konnte nicht gespeichert werden",
       auditRunFailed: "Design-Audit konnte nicht ausgefuehrt werden",
@@ -2336,6 +2406,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Die Anpassungen wurden an anderer Stelle geändert. Aktualisiere das Design, bevor du es erneut versuchst.",
+      tweakBaselineUnreadable:
+        "Die gespeicherte Tweaks-Basis konnte nicht gelesen werden. Änderungen an Tweaks sind pausiert, bis die Designdaten repariert sind.",
+      resetTweakBaseline: "Ausgangswert zurücksetzen",
       tweakSaveNotDurable:
         "Die Anpassungen sind noch nicht gespeichert. Lass diesen Tab geöffnet und versuche es erneut.",
       undoSkippedConcurrentEdit:
@@ -3504,6 +3577,10 @@ export default {
     markedUnread: "Als ungelesen markiert",
     markUnreadFailed: "Konnte nicht als ungelesen markiert werden",
     attachImage: "Bild anhängen",
+    removeImage: "Bild entfernen",
+    imageUploadFailed: "Das Bild konnte nicht hochgeladen werden",
+    editChanged:
+      "Dieser Kommentar wurde geändert, nachdem Sie mit dem Bearbeiten begonnen haben. Speichern Sie erneut, um ihn zu ersetzen.",
     searching: "Suche…",
     reactionFailed: "Reaktion konnte nicht aktualisiert werden",
     moveFailed: "Kommentar konnte nicht verschoben werden",
@@ -3547,6 +3624,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "Verbinde ein KI-Modell, um Agenten zu nutzen",
       startFailed: "Der Agent konnte nicht gestartet werden",
+      hostChatUnconfirmed:
+        "Es ließ sich nicht bestätigen, dass die Nachricht den Host-Chat erreicht hat. Prüfe den Host-Chat, bevor du es erneut versuchst.",
       cancelFailed: "Der Agent konnte nicht gestoppt werden",
       busy: "Ein Agent arbeitet bereits an diesem Thread",
       error: {

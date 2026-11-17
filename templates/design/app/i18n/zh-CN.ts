@@ -1023,6 +1023,35 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "分享实时预览",
+      instructions:
+        "粘贴应用的公开 HTTPS 预览地址，例如 ngrok 或 cloudflared 隧道。你的设备继续加载 localhost；其他人可查看公开预览或在已发布快照上提出修改。",
+      tunnelUrl: "公开预览地址",
+      enableCollaboration: "为所有有权访问此设计的人启用实时协作",
+      save: "保存",
+      unavailable: "实时预览不可用 — 正在显示快照",
+      live: "实时预览",
+      openLive: "在 {{hostname}} 打开实时预览",
+      suggest: "在快照上建议",
+      localOnly: "实时预览仅限所有者的设备",
+    },
+    referenceCopy: {
+      staticNotice: "JavaScript 已禁用；动态内容可能缺失。",
+      captureAction: "捕获静态快照",
+      capturePrompt:
+        "捕获此公开参考地址的截图和 DOM 快照，并作为静态参考屏幕添加到此设计画布。请标注为快照，而非实时页面。",
+      unavailable: "此页面可能禁止嵌入或加载失败。",
+      load: "加载参考副本",
+      label: "参考副本 · 公开页面，只读",
+      noBridge: "连接本地桥接以加载公开参考副本。",
+      snapshot: "使用已发布快照",
+      capture: "请让代理捕获截图和 DOM 快照。",
+      failed: "参考副本加载失败，请改为捕获截图和 DOM 快照。",
+      loading: "正在加载参考副本…",
+      original: "尝试原页面",
+    },
+
     sourceLoadFailed: "无法加载此屏幕。",
     selectionPublishFailed: "智能体可能看不到你最新的选择。请重新选择。",
     liveCollaboration: {
@@ -1070,6 +1099,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "选择图层",
+      layerKinds: {
+        webgl: "画布 · WebGL",
+        canvas: "画布",
+        video: "视频",
+        image: "图片",
+        svg: "SVG 图形",
+        embed: "嵌入",
+        background: "背景",
+        effect: "效果",
+      },
       goToMain: "转到主组件",
       restore: "恢复组件",
       swap: "交换实例",
@@ -1665,6 +1704,16 @@ export default {
       githubDescription: "即将推出：直接从仓库导入屏幕和组件。",
       localDescription: "使用 /visual-edit 连接任何正在运行的本地 app。",
       warningsToast: "导入完成但有警告",
+      pasteUnreadable: "无法读取复制的图层。",
+      pasteInexact: "未能精确粘贴的细节：{{count}}",
+      pasteLayerTypes: "以普通框架粘贴的 {{tool}} 图层类型：{{count}}",
+      pasteImagePlaceholders:
+        "以占位符粘贴的图片：{{count}}。{{tool}} 不会复制图片数据。",
+      pasteImagesLinked:
+        "仍链接到 {{tool}} 的图片：{{count}}。无法将它们复制到你的文件存储。",
+      pasteImagesUnsaved: "因无法确认已保存而可能无法继续加载的图片：{{count}}",
+      pasteNeedsEditAccess: "粘贴到此设计需要编辑权限。",
+      pastePartialImport: "粘贴失败，可能已创建部分画面。请检查你的画面。",
       figmaSuccess: "已导入 Figma 粘贴内容",
       htmlSuccess: "已导入 HTML",
       uploadSuccess: "已导入文件",
@@ -1674,6 +1723,8 @@ export default {
         notHtml: "请粘贴或选择有效的 HTML 进行导入。",
         importFailed: "导入失败",
         figmaPasteFailed: "Figma 粘贴导入失败",
+        paperPasteFailed: "Paper 粘贴导入失败",
+        wonderPasteFailed: "Wonder 粘贴导入失败",
         uploadFailed: "文件上传失败",
         invalidFigFile: "请选择以 .fig 结尾的文件。",
         unsupportedFileType: "请选择 .fig、.html 或 .htm 文件。",
@@ -1992,6 +2043,9 @@ export default {
     addTweaks: "添加调整",
     addTweakControls: "添加调整控件",
     closeTweaks: "关闭调整",
+    showFloatingTweaks: "显示浮动调整",
+    collapseTweaks: "折叠调整",
+    expandTweaks: "展开调整",
     tweaksHelp:
       "调整项是叠加在基础设计上的断点和状态专属视觉覆盖。重置控件可恢复继承值。",
     tweaksDocs: "了解详情。",
@@ -2055,6 +2109,7 @@ export default {
       applyAria: "应用待处理的视觉样式编辑",
       applyButton: "应用样式",
       applySharedEdits: "应用修改",
+      reviewSuggestion: "查看建议",
       previewLabel: "待处理的视觉预览",
       applyDesignUpdates: "应用设计更新",
       applying: "正在应用…",
@@ -2153,6 +2208,9 @@ export default {
     toasts: {
       annotationSendError: "无法发送批注。你的绘图仍保留在这里，请重试。",
       codingHandoffError: "无法创建编码交接",
+      unknownCollaborator: "协作者",
+      supersededVisualEditSuggestion:
+        "来自 {{authorEmail}} 的先前建议已被替换。原文：{{text}}",
       visualEditPendingConflict:
         "另一位协作者有待应用的更改。请先应用或清除这些更改，再发送新更改。",
       codingHandoffCopied: "编码交接已复制",
@@ -2219,11 +2277,15 @@ export default {
       repeatListNotEditable: "无法更新此重复列表",
       repeatRowPickOnCanvas: "在画布上双击某一行以编辑其文本",
       eyedropperUnsupported: "此浏览器不支持取色器",
+      claimBoardError: "无法将此画板移到你的账户",
       saveCopyError: "无法保存此设计的副本",
       auditRunFailed: "无法运行设计审核",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict: "微调设置已在其他位置更改。请刷新设计后重试。",
+      tweakBaselineUnreadable:
+        "无法读取已保存的微调基线。修复设计数据前，微调更改已暂停。",
+      resetTweakBaseline: "重置基准",
       tweakSaveNotDurable: "微调设置尚未保存。请保持此标签页打开并重试。",
       undoSkippedConcurrentEdit: "已跳过撤消 — 其他人移动了该内容",
       redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",
@@ -3315,6 +3377,9 @@ export default {
     markedUnread: "已标记为未读",
     markUnreadFailed: "无法标记为未读",
     attachImage: "附加图片",
+    removeImage: "移除图片",
+    imageUploadFailed: "无法上传图片",
+    editChanged: "你开始编辑后，这条评论已被更改。再次保存即可替换。",
     searching: "搜索中…",
     reactionFailed: "无法更新反应",
     moveFailed: "无法移动评论",
@@ -3354,6 +3419,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "连接 AI 模型后才能使用智能体",
       startFailed: "无法启动智能体",
+      hostChatUnconfirmed:
+        "无法确认消息是否已送达宿主聊天。请先检查宿主聊天，再重试。",
       cancelFailed: "无法停止智能体",
       busy: "已有智能体正在处理此讨论",
       error: {

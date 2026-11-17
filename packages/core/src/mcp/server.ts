@@ -4,6 +4,7 @@ import {
   setResponseStatus,
   setResponseHeader,
   getMethod,
+  getQuery,
   getRequestHeader,
 } from "h3";
 
@@ -54,6 +55,11 @@ import {
   MCP_ROUTE_PREFIXES,
   joinMcpRoute,
 } from "./route-paths.js";
+import {
+  hasUserTurnActions,
+  isAgentTurnGrantContext,
+  MCP_TURN_GRANT_HEADER,
+} from "./turn-grant-scope.js";
 
 export { createMCPServerForRequest } from "./build-server.js";
 export {
@@ -65,6 +71,19 @@ export {
   selectMcpDirectoryWidgetWriteActions,
 };
 export type { MCPConfig, MCPCallerIdentity, MCPRequestMeta };
+
+// The URL parameter is for clients that can only be given a URL.
+function requestsScriptCatalogByQuery(event: H3Event): boolean {
+  try {
+    const catalog = getQuery(event).catalog;
+    return (
+      typeof catalog === "string" && catalog.trim().toLowerCase() === "script"
+    );
+  } catch {
+    // coercion-ok: an event without a readable URL asks for no catalog by query.
+    return false;
+  }
+}
 
 function deriveRequestMeta(event: H3Event): MCPRequestMeta {
   const forwardedProto = getRequestHeader(event, "x-forwarded-proto");
@@ -107,9 +126,16 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     inlineAppsHeader === "1" ||
     inlineAppsHeader === "true" ||
     inlineAppsHeader === "yes";
+  const scriptCatalog =
+    getRequestHeader(event, "x-agent-native-mcp-catalog")
+      ?.trim()
+      .toLowerCase() === "script" || requestsScriptCatalogByQuery(event);
   const basePath = getConfiguredAppBasePath();
+  const turnGrant = getRequestHeader(event, MCP_TURN_GRANT_HEADER);
   return {
     origin,
+    ...(turnGrant !== undefined ? { turnGrant } : {}),
+    ...(isAgentTurnGrantContext() ? { turnGrantExcluded: true } : {}),
     ...(basePath ? { basePath } : {}),
     target,
     transport: "http",
@@ -118,6 +144,7 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     ...(mcpRetryToken ? { mcpRetryToken } : {}),
     ...(fullCatalog ? { fullCatalog } : {}),
     ...(inlineAppsRequested ? { inlineMcpApps: true } : {}),
+    ...(scriptCatalog ? { scriptCatalog: true } : {}),
   };
 }
 
@@ -454,7 +481,13 @@ async function handleMcpRequestInternal(
   const serverRequestMeta: MCPRequestMeta = {
     ...requestMeta,
     resolveEmbedRequestOrigin: () => resolveEmbedRequestOrigin(event),
-    approvalRoute,
+    // A turn-grant call's review opens on the app's own page, which reads the
+    // browser session the grant was minted from.
+    approvalRoute:
+      requestMeta.turnGrant !== undefined &&
+      hasUserTurnActions(config.productionActions ?? config.actions)
+        ? mcpApprovalRoute("")
+        : approvalRoute,
     ...(requestConfig.createLocalAgentTaskClient
       ? {
           localAgentTaskClient: requestConfig.createLocalAgentTaskClient(event),
@@ -565,6 +598,18 @@ export function mountMCP(
     },
     routePrefix,
   );
+  const approvalActions = config.productionActions ?? config.actions;
+  if (routePrefix === "/_agent-native" && hasUserTurnActions(approvalActions)) {
+    mountMcpApprovalRoute(
+      nitroApp,
+      {
+        appId: mcpApprovalAppId(config),
+        actions: approvalActions,
+        appPage: config.appApprovalPage === true,
+      },
+      "",
+    );
+  }
   for (const routePath of routePaths) {
     getH3App(nitroApp).use(
       routePath,

@@ -53,6 +53,57 @@ export function isPersonalProviderPolicyKey(key: string): boolean {
   return PERSONAL_PROVIDER_POLICY_KEYS.has(key);
 }
 
+const PROVIDER_ENDPOINT_KEYS: ReadonlySet<string> = new Set([
+  OPENAI_BASE_URL_ENV_VAR,
+  OLLAMA_BASE_URL_ENV_VAR,
+]);
+
+export function personalRunProviderKeyOrgId(
+  key: string,
+  sentKeyProvenance?: { scope: string; scopeId?: string },
+): string | undefined {
+  const decision = getRequestContext()?.providerKeyOrg;
+  const email = getRequestUserEmail()?.trim().toLowerCase();
+  if (
+    !decision ||
+    !email ||
+    decision.userEmail.trim().toLowerCase() !== email ||
+    getRequestOrgId() ||
+    !isPersonalProviderPolicyKey(key) ||
+    (BUILDER_CREDENTIAL_KEYS as readonly string[]).includes(key)
+  ) {
+    return undefined;
+  }
+  const { orgId } = decision;
+  if (!PROVIDER_ENDPOINT_KEYS.has(key)) return orgId;
+  const fromOrg =
+    (sentKeyProvenance?.scope === "org" ||
+      sentKeyProvenance?.scope === "workspace") &&
+    sentKeyProvenance.scopeId === orgId;
+  return fromOrg ? orgId : undefined;
+}
+
+/**
+ * The org whose Builder.io connection a personal run's model calls may fall
+ * back to: the one chat would use for `email`. Only the model gateway asks, so
+ * the run's data, sharing and identity-bearing Builder calls stay personal.
+ */
+export function personalRunBuilderGatewayOrgId(
+  email: string | null | undefined,
+): string | undefined {
+  const decision = getRequestContext()?.providerKeyOrg;
+  const normalized = email?.trim().toLowerCase();
+  if (
+    !decision ||
+    !normalized ||
+    decision.userEmail.trim().toLowerCase() !== normalized ||
+    getRequestOrgId()
+  ) {
+    return undefined;
+  }
+  return decision.orgId;
+}
+
 export function listPersonalProviderPolicyKeys(): string[] {
   return [...PERSONAL_PROVIDER_POLICY_KEYS];
 }
@@ -75,11 +126,13 @@ export class PersonalProviderKeysRestrictedError extends Error {
 /** Throws when the settings store cannot be read; never reports "off" instead. */
 export async function readPersonalProviderKeyPolicy(
   orgId: string,
+  options: { fresh?: boolean } = {},
 ): Promise<PersonalProviderKeyPolicy> {
-  const row = await getOrgSetting(
-    orgId,
-    PERSONAL_PROVIDER_KEY_POLICY_SETTING_KEY,
-  );
+  const row = options.fresh
+    ? await getOrgSetting(orgId, PERSONAL_PROVIDER_KEY_POLICY_SETTING_KEY, {
+        bypassCache: true,
+      })
+    : await getOrgSetting(orgId, PERSONAL_PROVIDER_KEY_POLICY_SETTING_KEY);
   return {
     restricted: row?.restricted === true,
     updatedAt: typeof row?.updatedAt === "number" ? row.updatedAt : null,
@@ -209,11 +262,16 @@ async function resolvePolicyOrgId(
  *
  * Throws when the policy, the org, or the role cannot be read. Callers treat
  * that as a failed credential lookup, never as "not restricted".
+ *
+ * `fresh: true` bypasses both the per-request answer memo and the settings
+ * read snapshot, then replaces the memo with the new answer. The default
+ * remains one answer per (email, org) per request.
  */
 export async function isPersonalProviderKeyUseRestricted(input: {
   email: string;
   orgId?: string | null;
   role?: string | null;
+  fresh?: boolean;
 }): Promise<boolean> {
   const email = input.email.trim().toLowerCase();
   if (!email) return false;
@@ -222,11 +280,15 @@ export async function isPersonalProviderKeyUseRestricted(input: {
 
   const cache = requestRestrictionCache();
   const cacheKey = `${email}\u0000${orgId}`;
-  const cached = cache?.get(cacheKey);
-  if (cached) return cached;
+  if (input.fresh !== true) {
+    const cached = cache?.get(cacheKey);
+    if (cached) return cached;
+  }
 
   const pending = (async () => {
-    const policy = await readPersonalProviderKeyPolicy(orgId);
+    const policy = await readPersonalProviderKeyPolicy(orgId, {
+      fresh: input.fresh === true,
+    });
     if (!policy.restricted) return false;
     const role =
       input.role !== undefined
@@ -236,8 +298,11 @@ export async function isPersonalProviderKeyUseRestricted(input: {
   })();
   if (cache) {
     cache.set(cacheKey, pending);
-    // A failed read must be retried, not remembered.
-    pending.catch(() => cache.delete(cacheKey));
+    // A failed read must be retried, not remembered. Only delete this exact
+    // pending answer: a newer fresh read may already have replaced it.
+    pending.catch(() => {
+      if (cache.get(cacheKey) === pending) cache.delete(cacheKey);
+    });
   }
   return pending;
 }
@@ -251,6 +316,7 @@ export async function personalProviderKeyWriteDenial(input: {
   email: string;
   orgId?: string | null;
   role?: string | null;
+  fresh?: boolean;
 }): Promise<string | null> {
   if (!isPersonalProviderPolicyKey(input.key)) return null;
   return (await isPersonalProviderKeyUseRestricted(input))

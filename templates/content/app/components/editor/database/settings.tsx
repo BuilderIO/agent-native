@@ -758,7 +758,8 @@ function DatabaseSettingsSourcePanel({
           if (
             !secondary ||
             secondary.sourceType === "local-folder" ||
-            secondary.sourceType === "github"
+            secondary.sourceType === "github" ||
+            secondary.sourceType === "github-pull-requests"
           )
             return;
           onNavPush({
@@ -1127,6 +1128,7 @@ function DatabaseSettingsSourcePanel({
           canAddDetails={
             source.sourceType !== "local-folder" &&
             source.sourceType !== "github" &&
+            source.sourceType !== "github-pull-requests" &&
             sources.some(
               (item) => item.id !== source.id && !sourceAddsDetails(item),
             )
@@ -1136,7 +1138,8 @@ function DatabaseSettingsSourcePanel({
           onAddDetails={() => {
             if (
               source.sourceType === "local-folder" ||
-              source.sourceType === "github"
+              source.sourceType === "github" ||
+              source.sourceType === "github-pull-requests"
             )
               return;
             onNavPush({

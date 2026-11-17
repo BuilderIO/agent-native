@@ -746,7 +746,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "モデルプロバイダーが、添付ファイルの形式またはサイズを理由に拒否しました。画像は小さい PNG、JPEG、GIF、WebP として書き出してください。文書は対応形式を使うか、関連するテキストを貼り付けてから、もう一度添付してください。",
   "errorMessages.noProviderConnected":
-    "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io（無料プランあり）を使用するか、プロバイダーキーを追加してください。",
+    "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io を接続するか、プロバイダーキーを追加してください。",
   "errorMessages.openBuilderSpaceSettings": "Builder スペース設定を開く",
   "errorMessages.providerAuthentication":
     "モデルプロバイダーが保存済みの API キーを拒否しました。設定 → 連携 → API キーでキーを更新してから再試行してください。",
@@ -788,6 +788,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "検索中...",
   "history.untitledChat": "チャット",
   "history.yesterday": "昨日",
+  "history.today": "今日",
+  "commandMenu.systemGroup": "アプリケーション",
+  "share.alreadyInvited": "招待済み",
+  "share.notInvitedToPage": "ページに招待されていません",
   "history.mine": "自分のチャット",
   "history.sharedWithYou": "共有されたチャット",
   "history.showAll": "すべて表示",
@@ -1523,6 +1527,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "公開",
   "share.publicDescription": "リンクを知っているすべてのユーザーが閲覧可能",
   "share.remove": "削除",
+  "share.removeInvitee": "{{email}} を削除",
   "share.role": "役割",
   "share.searching": "検索中...",
   "share.share": "共有",
@@ -1546,6 +1551,10 @@ const messages: ToolkitAgentChatTranslation = {
     "新しいメンバーを含む、{{organization}} のすべてのユーザーが、これを開いて、メッセージやファイルなどを含むすべての内容を見られるようになります。この設定は後から変更できます。",
   "share.confirmOrganizationAction": "組織と共有",
   "share.confirmOrganizationSharing": "共有しています...",
+  "share.confirmPublicTitle": "リンクを知っている全員と共有しますか？",
+  "share.confirmPublicDescription":
+    "リンクを知っている人は、組織外の人も含め、これを開いて中身をすべて見られるようになります。この設定は後で変更できます。",
+  "share.confirmPublicAction": "一般公開する",
   "status.resuming": "再開中",
   "status.stillWorking": "処理を続けています",
   "status.thinking": "思考中",
@@ -2220,6 +2229,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "パスワードを更新しました",
   "settingsShell.account.photoError": "写真を更新できませんでした。",
   "settingsShell.account.photoUpdated": "写真を更新しました",
+  "settingsShell.account.photoRemoved": "写真を削除しました",
+  "settingsShell.account.removePhoto": "写真を削除",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "ここではメール送信が設定されていません",
   "settingsShell.account.profilePhoto": "プロフィール写真",
   "settingsShell.account.requestCopyDescription":
     "管理者が本人確認を行い、対応します。",
@@ -2288,11 +2301,14 @@ const messages: ToolkitAgentChatTranslation = {
     "プレゼンテーション用に、このブラウザでサンプルデータを使用します。",
   "settingsShell.appGroup.labsFootnote":
     "これらの新しい不安定な機能にはバグがある可能性があります。",
+  "settingsShell.appGroup.labsHostDecided":
+    "この設定はあらかじめ決められているため、ここでは変更できません。",
   "settingsShell.appGroup.labsLoadError": "ラボを読み込めませんでした。",
   "settingsShell.appGroup.labsReadError":
     "保存された設定を読み込めませんでした。オンまたはオフを選んで設定し直してください。",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} を変更できませんでした。もう一度お試しください。",
+  "settingsShell.appGroup.labsUseDefault": "デフォルトを使用",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって {{app}} で作業できます。アプリが見られるのは、あなたが見られるものだけです。",
   "settingsShell.appGroup.mcpAppCards": "チャットアプリでのアプリカード",
@@ -3037,6 +3053,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "スライドとデザインの画像を生成します。",
   "settingsInfra.whyEmbeddings":
     "セマンティック検索を改善します。キーワード検索はこれがなくても使えます。",
+  "settingsInfra.semanticSearch": "セマンティック検索",
+  "settingsInfra.semanticSearchOn":
+    "言葉だけでなく意味でもページを見つけます。ページのテキストと検索語は埋め込みのプロバイダーに送信されます。",
+  "settingsInfra.semanticSearchOff":
+    "オフ。検索は言葉の一致だけで、ページのテキストは埋め込みのプロバイダーに送信されません。",
+  "settingsInfra.semanticSearchUnknown":
+    "セマンティック検索がオンかどうかを読み取れませんでした。",
+  "settingsInfra.semanticSearchTurnedOn":
+    "セマンティック検索をオンにしました。既存のページはバックグラウンドでインデックスされます。",
+  "settingsInfra.semanticSearchTurnedOff":
+    "セマンティック検索をオフにしました。保存されていたページのベクトルは削除されました。",
+  "settingsInfra.semanticSearchSaveFailed":
+    "セマンティック検索を変更できませんでした。",
   "settingsInfra.designSystem": "デザインシステムインテリジェンス",
   "settingsInfra.whyDesignSystem":
     "生成したスライドとデザインをブランドに沿わせます。",
@@ -3421,7 +3450,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "応答に失敗しました",
   "message.waitingForApproval": "承認待ち",
   "message.waitingForInput": "入力待ち",
-  "message.workSummaryFailedCount": "{{summary}}、{{count}} 件失敗",
+  "message.workSummaryFailedCount": "{{summary}}、失敗した試行: {{count}}",
   "message.taskStatusPending": "保留中",
   "message.taskStatusRunning": "実行中",
   "message.taskStatusCompleted": "完了",
@@ -3775,6 +3804,65 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "音声チャットの設定を保存できませんでした。",
   "voice.dictation.cancelTranscription": "文字起こしをキャンセル",
+  "common.noData": "データがありません",
+  "common.rowsPerPage": "1ページあたりの行数:",
+  "dashboardMode.columnResizePersonal":
+    "ドラッグしてあなただけの列幅に変更します。ダブルクリックでリセットします。",
+  "dashboardMode.columnResizeShared": "ドラッグして全員の列幅を変更します",
+  "sessions.watchReplay": "リプレイを見る",
+  "sqlDashboard.calloutSeverityCritical": "重大",
+  "sqlDashboard.calloutSeverityInfo": "情報",
+  "sqlDashboard.calloutSeverityWarning": "警告",
+  "sqlDashboard.chartPointLimitFirst":
+    "{{total}} 件中、最初の {{shown}} 件のポイントを表示しています",
+  "sqlDashboard.chartPointLimitLast":
+    "{{total}} 件中、最後の {{shown}} 件のポイントを表示しています",
+  "sqlDashboard.chartPointLimitNewest":
+    "{{total}} 件中、最新の {{shown}} 件のポイントを表示しています",
+  "sqlDashboard.collapseDescription": "説明を折りたたむ",
+  "sqlDashboard.columnFormat": "形式",
+  "sqlDashboard.columnFormatCurrency": "通貨",
+  "sqlDashboard.columnFormatDate": "日付",
+  "sqlDashboard.columnFormatDuration": "所要時間（秒）",
+  "sqlDashboard.columnFormatNumber": "数値",
+  "sqlDashboard.columnFormatPercent": "パーセント",
+  "sqlDashboard.columnFormatText": "プレーンテキスト",
+  "sqlDashboard.columnHide": "列を非表示",
+  "sqlDashboard.columnName": "列名",
+  "sqlDashboard.columnRename": "列の名前を変更",
+  "sqlDashboard.columnResize": "列の幅を変更",
+  "sqlDashboard.columnShow": '"{{name}}" を表示',
+  "sqlDashboard.columnShowHidden": "非表示の列を表示",
+  "sqlDashboard.drilldownChartPoints": "グラフのデータポイント",
+  "sqlDashboard.drilldownNextPage": "グラフのデータポイントの次のページ",
+  "sqlDashboard.drilldownPageRange":
+    "全{{total}}件中{{start}}～{{end}}件を表示",
+  "sqlDashboard.drilldownPreviousPage": "グラフのデータポイントの前のページ",
+  "sqlDashboard.expandDescription": "説明を展開する",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "完了",
+  "sqlDashboard.funnelLeft": "アプリを離脱",
+  "sqlDashboard.funnelLeftHere": "ここでアプリを離脱",
+  "sqlDashboard.funnelMovedOn": "どちらもせずに次へ",
+  "sqlDashboard.funnelOptional": "任意",
+  "sqlDashboard.funnelShown": "{{count}} 人に表示",
+  "sqlDashboard.funnelShownLabel": "表示",
+  "sqlDashboard.funnelSkipped": "スキップ",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}}（改善）",
+  "sqlDashboard.metricComparisonDown":
+    "{{period}}の{{previous}}から{{change}}減少",
+  "sqlDashboard.metricComparisonFlat": "{{period}}の{{previous}}から変化なし",
+  "sqlDashboard.metricComparisonNoChange": "変化なし",
+  "sqlDashboard.metricComparisonPoints": "{{value}}ポイント",
+  "sqlDashboard.metricComparisonPreviousPeriod": "前の期間",
+  "sqlDashboard.metricComparisonUp":
+    "{{period}}の{{previous}}から{{change}}増加",
+  "sqlDashboard.metricComparisonVs": "{{period}}との比較",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}}（悪化）",
+  "sqlDashboard.multiColumnSortHelp":
+    "クリックして並べ替え。Shiftキーを押しながらクリックすると別の並べ替えを追加できます。",
+  "sqlDashboard.noXValue": "値なし",
 };
 
 export default messages;

@@ -7,7 +7,9 @@ import {
   docToNfm,
   inspectNfmFidelity,
   nfmToDoc,
+  notionMarkdownToNfm,
   parseNfmWithLosses,
+  type PMDoc,
 } from "./nfm";
 
 function found<T>(value: T | null | undefined): T {
@@ -693,7 +695,8 @@ describe("nfm converter — inline round-trips", () => {
     "***bold italic***",
     "~~strike~~",
     "`code span`",
-    "`multi<br>line code`",
+    "`literal <br> tag`",
+    "`multi`<br>`line code`",
     '<span underline="true">u</span>',
     '<span color="purple">colored</span>',
     '<span color="green_bg">bg</span>',
@@ -708,6 +711,111 @@ describe("nfm converter — inline round-trips", () => {
       expect(canonicalizeNfm(text)).toBe(text);
     });
   }
+
+  it.each(["`<br>`", "`a<br/>b`", "``x`<br>``"])(
+    "reads a tag between backticks as text: %s",
+    (nfm) => {
+      const paragraph = nfmToDoc(nfm).content?.[0];
+
+      expect(paragraph?.content).toEqual([
+        {
+          type: "text",
+          text: nfm.replace(/^`+ ?| ?`+$/g, ""),
+          marks: [{ type: "code" }],
+        },
+      ]);
+      expect(docToNfm(nfmToDoc(nfm))).toBe(nfm);
+    },
+  );
+
+  it.each([
+    ["first\nsecond", "`first`<br>`second`"],
+    ["a`b\n c ", "``a`b``<br>`  c  `"],
+    ["one\n\ntwo\n", "`one`<br><br>`two`<br>"],
+    ["\n", "<br>"],
+  ])("writes a line break in code %j between code spans", (text, nfm) => {
+    const doc: PMDoc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [{ type: "text", text, marks: [{ type: "code" }] }],
+        },
+      ],
+    };
+
+    expect(docToNfm(doc)).toBe(nfm);
+    const read = nfmToDoc(nfm).content?.[0]?.content ?? [];
+    expect(
+      read.map((node) => (node.type === "hardBreak" ? "\n" : node.text)),
+    ).toEqual(text.split(/(\n)/).filter(Boolean));
+    expect(
+      read.every(
+        (node) =>
+          node.type === "hardBreak" ||
+          node.marks?.some((mark) => mark.type === "code"),
+      ),
+    ).toBe(true);
+    expect(canonicalizeNfm(nfm)).toBe(nfm);
+  });
+
+  it("keeps every mark on both sides of a line break in code", () => {
+    const doc: PMDoc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "a\nb",
+              marks: [
+                { type: "link", attrs: { href: "https://x.com" } },
+                { type: "bold" },
+                { type: "code" },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const nfm = docToNfm(doc);
+    const read = nfmToDoc(nfm).content?.[0]?.content ?? [];
+
+    expect(nfm).toBe("[**`a`**](https://x.com)<br>[**`b`**](https://x.com)");
+    expect(read.filter((node) => node.type === "text")).toEqual([
+      expect.objectContaining({ text: "a" }),
+      expect.objectContaining({ text: "b" }),
+    ]);
+    for (const node of read.filter((child) => child.type === "text"))
+      expect(node.marks?.map((mark) => mark.type).sort()).toEqual([
+        "bold",
+        "code",
+        "link",
+      ]);
+    expect(canonicalizeNfm(nfm)).toBe(nfm);
+  });
+
+  it.each([
+    ["`a<br>b`", "`a`<br>`b`"],
+    ["Run `a<br/>b` now", "Run `a`<br>`b` now"],
+    ["**`a<br>b`**", "**`a`**<br>**`b`**"],
+    ["`<br>`", "<br>"],
+    ["`a`<br>`b`", "`a`<br>`b`"],
+  ])("reads Notion's %j with its line break in code", (notion, nfm) => {
+    expect(notionMarkdownToNfm(notion)).toBe(nfm);
+    // What a pull saves reads the same in Content, and in Notion again.
+    expect(canonicalizeNotionNfm(nfm)).toBe(nfm);
+    expect(notionMarkdownToNfm(nfm)).toBe(nfm);
+  });
+
+  it("reads Content's own Markdown literally after a Notion read", () => {
+    notionMarkdownToNfm("`a<br>b`");
+    expect(nfmToDoc("`a<br>b`").content?.[0]?.content).toEqual([
+      { type: "text", text: "a<br>b", marks: [{ type: "code" }] },
+    ]);
+    expect(canonicalizeNotionNfm("`a<br>b`")).toBe("`a<br>b`");
+  });
 
   it("canonicalizes GitHub-style inline math without changing the expression", () => {
     expect(canonicalizeNfm("before $`a^2 + b^2`$ after")).toBe(
@@ -1066,7 +1174,7 @@ describe("bug fixes — reliability sweep", () => {
         ],
       } as any;
 
-      expect(docToNfm(doc)).toBe("**One** \tTwo`<br>`");
+      expect(docToNfm(doc)).toBe("**One** \tTwo<br>");
     });
 
     it.each([

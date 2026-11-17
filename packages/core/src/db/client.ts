@@ -1268,6 +1268,18 @@ export function dbOpTimeoutMs(): number {
   return isServerlessRuntime() ? 8_000 : 30_000;
 }
 
+/**
+ * When the database last timed out a query, so background work can stand down for a
+ * moment instead of retrying into a slow database. 11/5 evening: with the pool no
+ * longer exhausted, ~6 query timeouts a minute remained, each one a sweep handler
+ * failing against a database that had just timed out another one.
+ */
+let lastDbTimeoutAt = 0;
+
+export function dbRecentTimeoutMs(): number {
+  return lastDbTimeoutAt ? Date.now() - lastDbTimeoutAt : Infinity;
+}
+
 class DbTimeoutError extends Error {
   code = "CONNECT_TIMEOUT";
   constructor(op: string, ms: number) {
@@ -1349,6 +1361,7 @@ export async function withDbTimeout<T>(
         await runCleanup();
         recordQueryResult();
         finishTelemetry("timeout");
+        lastDbTimeoutAt = Date.now();
         reject(new DbTimeoutError(op, ms));
       })();
     }, ms);
@@ -1571,6 +1584,22 @@ export class DbConnectCooldownError extends Error {
     );
     this.name = "DbConnectCooldownError";
   }
+}
+
+/**
+ * How long the process must still wait before it will attempt a database connect,
+ * or 0 when connects are allowed. Exposed so background work can stand down while a
+ * saturated database is in cooldown instead of piling on: the hosted database pooler
+ * answered "Too many connections" to hundreds of requests a minute, and every sweep
+ * handler retried it independently.
+ */
+export function dbConnectGateRemainingMs(): number {
+  let remaining = 0;
+  const now = Date.now();
+  for (const gate of connectCooldowns.values()) {
+    if (gate.until > now) remaining = Math.max(remaining, gate.until - now);
+  }
+  return remaining;
 }
 
 const connectCooldowns = new Map<
@@ -2438,12 +2467,23 @@ const transactionCallbacks = new AsyncLocalStorage<{
   executors: WeakSet<DbExec>;
 }>();
 
+// The handles `createGetDb` gives `db.transaction()` callbacks. `withDbExec`
+// also scopes executors that aren't in a transaction.
+const drizzleTransactionExecs = new WeakSet<DbExec>();
+
+/** Marks the handle of a Drizzle transaction, which `withDbExec` then scopes. */
+export function markDrizzleTransactionExec(exec: DbExec): DbExec {
+  drizzleTransactionExecs.add(exec);
+  return exec;
+}
+
 export function withDbExec<T>(exec: DbExec, run: () => T): T {
   const guarded = guardSchemaMutations(exec);
   const callback = transactionCallbacks.getStore();
   if (callback?.active && callback.executors.has(exec)) {
     callback.executors.add(guarded);
   }
+  if (drizzleTransactionExecs.has(exec)) drizzleTransactionExecs.add(guarded);
   return scopedDbExec.run(guarded, run);
 }
 
@@ -2459,6 +2499,12 @@ export function getScopedTransactionDbExec(): DbExec | undefined {
     : undefined;
 }
 
+/** Whether an executor is the live handle supplied to the active transaction callback. */
+export function isActiveTransactionExec(exec: DbExec): boolean {
+  const callback = transactionCallbacks.getStore();
+  return callback?.active === true && callback.executors.has(exec);
+}
+
 /**
  * True while a `getDbExec().transaction()` callback runs. That callback leaves
  * `getScopedDbExec()` unset, so code that must not run inside a caller's
@@ -2466,6 +2512,30 @@ export function getScopedTransactionDbExec(): DbExec | undefined {
  */
 export function insideDbTransactionCallback(): boolean {
   return transactionCallbacks.getStore()?.active === true;
+}
+
+/**
+ * The executor that writes in the transaction this code runs in, or undefined
+ * outside one: a transaction's handle that `withDbExec` scoped, as a Drizzle
+ * `db.transaction()` does, or inside a PGlite transaction `getDbExec()`, which
+ * joins it. An executor scoped outside a transaction doesn't count. For code
+ * that should join the caller's transaction rather than open its own, since
+ * PGlite can't nest one. A `getDbExec().transaction()` callback that hasn't
+ * scoped its handle with `withDbExec` keeps it to itself, so this throws there
+ * rather than return an executor that writes outside it.
+ */
+export function getEnclosingTransactionDbExec(): DbExec | undefined {
+  const scoped = getScopedDbExec();
+  if (scoped && drizzleTransactionExecs.has(scoped)) return scoped;
+  const callbackScoped = getScopedTransactionDbExec();
+  if (callbackScoped) return callbackScoped;
+  if ((pgliteTransactionStorage?.getStore()?.size ?? 0) > 0) return getDbExec();
+  if (insideDbTransactionCallback()) {
+    throw new Error(
+      "Scope this transaction's handle with withDbExec(tx, …) so the code it calls writes in it.",
+    );
+  }
+  return undefined;
 }
 
 async function inTransactionCallback<T>(

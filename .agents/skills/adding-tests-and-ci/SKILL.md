@@ -62,7 +62,11 @@ its junk patterns. This section covers where it lives and what runs it.
   the property instead.
 - **A surviving mutant is a line no test can fail on.** `pnpm mutation:changed`
   runs Stryker on the lines this branch added in `packages/core/src`. CI runs it
-  as `Mutation test changed Core lines`.
+  as `Mutation test changed Core lines`. It runs only specs named `<module>.*`
+  beside the mutated file (`poll.ts` runs `poll.spec.ts` and
+  `poll.settings-scope.spec.ts`, not `poll-settings-scope.spec.ts`; a dash names
+  a different module). A spec with the wrong prefix passes locally but counts as
+  no coverage there.
 - Snapshot output is for reading; reviewers read its diff beside the code diff.
 - Never skip, disable, or quarantine a test to get green.
   `guard:no-oracle-loosening` fails a branch that adds `.skip`/`.only`, test
@@ -111,13 +115,13 @@ core. The shared config's 25% default is for laptops, and on CI's 4-vCPU
 runners it meant one worker: a core shard took 542 s at one worker and 201 s
 at four, on the same CPU time. On the 60-slot pool that let two full-width
 lanes replace five, but each lane then ran ~18 min of packages one after
-another. With 500 slots CI plans eight lanes (`LANES` in `ci.yml`): each costs
+another. With 500 slots CI plans twelve lanes (`LANES` in `ci.yml`): each costs
 ~100 s of setup, and the planner balances lanes by test-file count.
 
 - **Large packages are sharded too.** `splitLargePackages` in
   `scripts/ci-test-lanes.ts` splits a package heavier than a fair lane share
   into Vitest `--shard`s, so Design no longer sets the floor for every lane.
-  Only a bare `vitest` test script can be sharded, and no shard drops below
+  Only a `vitest` test script (optionally behind a `pnpm <script> &&` prefix, as Design has) can be sharded, and no shard drops below
   `MIN_SHARD_FILES`.
 
 - **Let CI override the worker count.** A package that pins `maxWorkers`

@@ -1,4 +1,8 @@
-import { requestEmailChange } from "@agent-native/core/client/auth/change-email";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  EmailChangeRequestError,
+  requestEmailChange,
+} from "@agent-native/core/client/auth/change-email";
 import {
   disableTwoFactor,
   enableTwoFactor,
@@ -10,7 +14,11 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { uploadAvatar, useAvatarUrl } from "@agent-native/core/client/hooks";
+import {
+  invalidateAvatarCache,
+  uploadAvatar,
+  useAvatarUrl,
+} from "@agent-native/core/client/hooks";
 import { useSession } from "@agent-native/core/client/hooks";
 import { PASSWORD_MIN_LENGTH } from "@agent-native/core/shared/password-policy";
 import { useCallback, useEffect, useState } from "react";
@@ -41,7 +49,7 @@ export function useAuthMethods() {
   });
 }
 
-export type AvatarUploadStatus = "idle" | "saved" | "error";
+export type AvatarUploadStatus = "idle" | "saved" | "error" | "removed";
 
 export function useAvatarUpload(email: string | undefined) {
   const avatarUrl = useAvatarUrl(email);
@@ -65,7 +73,27 @@ export function useAvatarUpload(email: string | undefined) {
     [email],
   );
 
-  return { avatarUrl, uploading, status, upload };
+  // Clearing the photo leaves the initials fallback, which is the only state a
+  // teammate can get back to once a photo is uploaded.
+  const remove = useCallback(async () => {
+    if (!email) return;
+    setUploading(true);
+    setStatus("idle");
+    try {
+      const res = await fetch(agentNativePath("/_agent-native/avatar"), {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error(`avatar removal failed: ${res.status}`);
+      invalidateAvatarCache(email);
+      setStatus("removed");
+    } catch {
+      setStatus("error");
+    } finally {
+      setUploading(false);
+    }
+  }, [email]);
+
+  return { avatarUrl, uploading, status, upload, remove };
 }
 
 export type EmailChangeStatus = "idle" | "sent" | "error";
@@ -73,24 +101,31 @@ export type EmailChangeStatus = "idle" | "sent" | "error";
 export function useEmailChange() {
   const [pending, setPending] = useState(false);
   const [status, setStatus] = useState<EmailChangeStatus>("idle");
+  const [serverMessage, setServerMessage] = useState<string | null>(null);
 
   /** Resolves true once the auth server has sent the confirmation. */
   const submit = useCallback(async (newEmail: string): Promise<boolean> => {
     setPending(true);
     setStatus("idle");
+    setServerMessage(null);
     try {
       await requestEmailChange(newEmail);
       setStatus("sent");
       return true;
-    } catch {
+    } catch (error) {
       setStatus("error");
+      // The auth server names the cause when it can (a deployment with no email
+      // provider, for example). Keep that sentence instead of discarding it.
+      setServerMessage(
+        error instanceof EmailChangeRequestError ? error.serverMessage : null,
+      );
       return false;
     } finally {
       setPending(false);
     }
   }, []);
 
-  return { pending, status, setStatus, submit };
+  return { pending, status, setStatus, submit, serverMessage };
 }
 
 export type PasswordValidationError = "length" | "mismatch";

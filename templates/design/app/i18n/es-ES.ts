@@ -1051,6 +1051,38 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Compartir vista previa en vivo",
+      instructions:
+        "Pega una URL HTTPS pública de vista previa para tu aplicación, como un túnel de ngrok o cloudflared. Tu equipo sigue usando localhost; los demás pueden ver la vista previa pública o sugerir cambios en la captura publicada.",
+      tunnelUrl: "URL pública de vista previa",
+      enableCollaboration:
+        "Habilitar la colaboración en vivo para todas las personas con acceso al diseño",
+      save: "Guardar",
+      unavailable:
+        "Vista previa en vivo no disponible; se muestra la instantánea",
+      live: "Vista previa en vivo",
+      openLive: "Abrir la vista previa en vivo en {{hostname}}",
+      suggest: "Sugerir en la captura",
+      localOnly: "La vista en vivo solo está en el equipo del propietario",
+    },
+    referenceCopy: {
+      staticNotice:
+        "JavaScript está desactivado; puede faltar contenido dinámico.",
+      captureAction: "Capturar instantánea estática",
+      capturePrompt:
+        "Captura la pantalla y el DOM de esta URL de referencia pública y añádelos como pantalla estática de referencia al lienzo. Etiquétala como captura, no como página en vivo.",
+      unavailable: "Esta página puede bloquear marcos o no haberse cargado.",
+      load: "Cargar copia de referencia",
+      label: "Copia de referencia · página pública, solo lectura",
+      noBridge: "Conecta un puente local para cargar una copia pública.",
+      snapshot: "Usar captura publicada",
+      capture: "Pide al agente una captura de pantalla y del DOM.",
+      failed: "La copia falló. Captura la pantalla y el DOM.",
+      loading: "Cargando copia de referencia…",
+      original: "Probar página original",
+    },
+
     sourceLoadFailed: "No se pudo cargar esta pantalla.",
     selectionPublishFailed:
       "Es posible que el agente no vea tu selección más reciente. Vuelve a seleccionarla.",
@@ -1101,6 +1133,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Seleccionar capa",
+      layerKinds: {
+        webgl: "Lienzo · WebGL",
+        canvas: "Lienzo",
+        video: "Vídeo",
+        image: "Imagen",
+        svg: "Gráfico SVG",
+        embed: "Insertado",
+        background: "Fondo",
+        effect: "Efecto",
+      },
       goToMain: "Ir al componente principal",
       restore: "Restaurar componente",
       swap: "Intercambiar instancia",
@@ -1723,6 +1765,20 @@ export default {
       localDescription:
         "Conecta cualquier app local en ejecución con /visual-edit.",
       warningsToast: "La importación terminó con advertencias",
+      pasteUnreadable: "No se pudieron leer las capas copiadas.",
+      pasteInexact: "Detalles no pegados con exactitud: {{count}}",
+      pasteLayerTypes:
+        "Tipos de capa de {{tool}} pegados como marcos simples: {{count}}",
+      pasteImagePlaceholders:
+        "Imágenes pegadas como marcadores de posición: {{count}}. {{tool}} no copia los datos de imagen.",
+      pasteImagesLinked:
+        "Imágenes aún vinculadas a {{tool}}: {{count}}. No se pudieron copiar a tu almacenamiento de archivos.",
+      pasteImagesUnsaved:
+        "Imágenes que podrían dejar de cargarse porque no se confirmó su guardado: {{count}}",
+      pasteNeedsEditAccess:
+        "Necesitas acceso de edición para pegar en este diseño.",
+      pastePartialImport:
+        "El pegado falló y es posible que se hayan creado algunas pantallas. Revisa tus pantallas.",
       figmaSuccess: "Pegado de Figma importado",
       htmlSuccess: "HTML importado",
       uploadSuccess: "Archivo importado",
@@ -1733,6 +1789,8 @@ export default {
         notHtml: "Pega o elige HTML válido para importar.",
         importFailed: "Error al importar",
         figmaPasteFailed: "Error al importar el pegado de Figma",
+        paperPasteFailed: "Error al importar el pegado de Paper",
+        wonderPasteFailed: "Error al importar el pegado de Wonder",
         uploadFailed: "Error al subir el archivo",
         invalidFigFile: "Elige un archivo que termine en .fig.",
         unsupportedFileType: "Elige un archivo .fig, .html o .htm.",
@@ -2063,6 +2121,9 @@ export default {
     addTweaks: "Agregar ajustes",
     addTweakControls: "Agregar controles de ajuste",
     closeTweaks: "Cerrar ajustes",
+    showFloatingTweaks: "Mostrar ajustes flotantes",
+    collapseTweaks: "Contraer ajustes",
+    expandTweaks: "Expandir ajustes",
     tweaksHelp:
       "Los ajustes son modificaciones visuales por punto de quiebre y estado superpuestas al diseño base. Restablece un control para volver al valor heredado.",
     tweaksDocs: "Más información.",
@@ -2130,6 +2191,7 @@ export default {
       applyAria: "Aplicar ediciones visuales de estilo pendientes",
       applyButton: "Aplicar estilos",
       applySharedEdits: "Aplicar ediciones",
+      reviewSuggestion: "Revisar sugerencia",
       previewLabel: "Vista previa visual pendiente",
       applyDesignUpdates: "Aplicar actualizaciones de diseño",
       applying: "Aplicando…",
@@ -2235,6 +2297,9 @@ export default {
       annotationSendError:
         "No se pudieron enviar las anotaciones. Tu dibujo sigue aquí; inténtalo de nuevo.",
       codingHandoffError: "No se pudo crear la entrega para código",
+      unknownCollaborator: "un colaborador",
+      supersededVisualEditSuggestion:
+        "Se reemplazó una sugerencia anterior de {{authorEmail}}. Texto original: {{text}}",
       visualEditPendingConflict:
         "Otro colaborador tiene cambios pendientes. Aplícalos o elimínalos antes de enviar cambios nuevos.",
       codingHandoffCopied: "Entrega para código copiada",
@@ -2320,12 +2385,16 @@ export default {
         "Haz doble clic en una fila del lienzo para editar su texto",
       eyedropperUnsupported:
         "El cuentagotas no es compatible con este navegador",
+      claimBoardError: "No se pudo mover este tablero a tu cuenta",
       saveCopyError: "No se pudo guardar una copia de este diseño",
       auditRunFailed: "No se pudo ejecutar la auditoria de diseno",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Los ajustes cambiaron en otro lugar. Actualiza el diseño antes de intentarlo de nuevo.",
+      tweakBaselineUnreadable:
+        "No se pudo leer la referencia guardada de los ajustes. Los cambios están en pausa hasta que se reparen los datos del diseño.",
+      resetTweakBaseline: "Restablecer referencia",
       tweakSaveNotDurable:
         "Los ajustes aún no se han guardado. Mantén esta pestaña abierta e inténtalo de nuevo.",
       undoSkippedConcurrentEdit: "Se omitió deshacer: otra persona movió eso",
@@ -3481,6 +3550,10 @@ export default {
     markedUnread: "Marcado como no leído",
     markUnreadFailed: "No se pudo marcar como no leído",
     attachImage: "Adjuntar imagen",
+    removeImage: "Quitar imagen",
+    imageUploadFailed: "No se pudo subir la imagen",
+    editChanged:
+      "Este comentario cambió después de que empezaras a editarlo. Guarda de nuevo para reemplazarlo.",
     searching: "Buscando…",
     reactionFailed: "No se pudo actualizar la reacción",
     moveFailed: "No se pudo mover el comentario",
@@ -3528,6 +3601,8 @@ export default {
       fallbackName: "IA",
       setupRequired: "Conecta un modelo de IA para usar agentes",
       startFailed: "No se pudo iniciar el agente",
+      hostChatUnconfirmed:
+        "No se pudo confirmar que el mensaje haya llegado al chat anfitrión. Comprueba ese chat antes de volver a intentarlo.",
       cancelFailed: "No se pudo detener el agente",
       busy: "Ya hay un agente trabajando en este hilo",
       error: {

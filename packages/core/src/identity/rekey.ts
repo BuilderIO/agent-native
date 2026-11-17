@@ -168,6 +168,7 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "tool_hidden_extensions", column: "owner_email" },
   { table: "tool_consents", column: "viewer_email", mode: "viewer-consent" },
   { table: "integration_identity_links", column: "user_email" },
+  { table: "integration_user_grants", column: "owner_email" },
   {
     table: "workspace_user_groups",
     column: "member_emails_json",
@@ -324,6 +325,10 @@ export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   "tool_history.actor_email",
   "tool_history.owner_email",
   "agent_resource_versions.created_by",
+  // Per-turn grants, chat-turn admissions and mint counters expire within minutes; they lapse instead of rekeying.
+  "mcp_turn_grants.owner_email",
+  "mcp_chat_turn_admissions.owner",
+  "mcp_chat_turn_mints.owner",
   // Creator attribution on a Vault key, kept as written; the key is owned by its scope.
   "app_secrets.created_by",
   "agent_review_comments.created_by",

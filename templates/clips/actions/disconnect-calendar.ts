@@ -11,6 +11,7 @@ import { lockCalendarAccount } from "../server/lib/calendar-event-meetings.js";
 import { revokeToken } from "../server/lib/google-calendar-client.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Disconnect a calendar account. Revokes the Google tokens (best-effort), deletes secrets, and removes synced events.",
   schema: z.object({
