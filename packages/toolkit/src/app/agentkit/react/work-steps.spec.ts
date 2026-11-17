@@ -533,7 +533,7 @@ describe("agentWorkCallObject and agentWorkCallVerb", () => {
     });
     expect(
       agentWorkCallObject(call("c", "read", { path: "/repo/src/app.tsx" })),
-    ).toEqual({ kind: "file", text: "app.tsx" });
+    ).toEqual({ kind: "file", text: "app.tsx", id: "/repo/src/app.tsx" });
     expect(
       agentWorkCallObject(call("c", "bash", { command: "ls -la" })),
     ).toEqual({ kind: "command", text: "ls -la" });
@@ -580,6 +580,7 @@ describe("agentWorkCallObject and agentWorkCallVerb", () => {
     expect(agentWorkCallObject(read)).toEqual({
       kind: "document",
       text: "Launch plan",
+      id: "doc-1",
       uri: "/page/doc-1",
     });
     expect(agentWorkCallVerb(read)).toBe("readDocuments");
@@ -597,7 +598,18 @@ describe("agentWorkCallObject and agentWorkCallVerb", () => {
           },
         ),
       ),
-    ).toEqual({ kind: "document", text: "Notes" });
+    ).toEqual({ kind: "document", text: "Notes", id: "d" });
+    // The page a read returned outranks the address it was asked to read.
+    expect(
+      agentWorkCallObject(
+        call(
+          "c",
+          "read",
+          { url: "https://content.example/p/d" },
+          { output: { id: "d", title: "Roadmap", deepLink: "/p/d" } },
+        ),
+      ),
+    ).toEqual({ kind: "document", text: "Roadmap", id: "d", uri: "/p/d" });
     // A failed read, a result without an id, or a write names no page.
     expect(
       agentWorkCallObject(
@@ -650,6 +662,79 @@ describe("agentWorkSources", () => {
         { kind: "file", text: "notes.md", uri: undefined },
       ],
     );
+    expect(failures).toEqual([]);
+  });
+
+  it("tells sources apart by id and path, not by the name they show", () => {
+    const { sources, failures } = agentWorkSources([
+      call(
+        "a",
+        "get-document",
+        { id: "a" },
+        { output: { id: "a", title: "Notes" } },
+      ),
+      call(
+        "b",
+        "get-document",
+        { id: "b" },
+        { output: { id: "b", title: "Notes" } },
+      ),
+      // A page seen on screen, then read, is one page with the read's link.
+      call(
+        "c",
+        "view-screen",
+        {},
+        { output: { document: { id: "d", title: "Plan" } } },
+      ),
+      call(
+        "d",
+        "get-document",
+        { id: "d" },
+        { output: { id: "d", title: "Plan", deepLink: "/p/d" } },
+      ),
+      call("e", "read", { path: "/a/notes.md" }),
+      call("f", "read", { path: "/b/notes.md" }),
+      call(
+        "g",
+        "get-document",
+        { id: "x" },
+        { status: "failed", output: "Not found" },
+      ),
+      call(
+        "h",
+        "get-document",
+        { id: "y" },
+        { status: "failed", output: "Not found" },
+      ),
+    ]);
+    expect(sources.map(({ kind, text, uri }) => ({ kind, text, uri }))).toEqual(
+      [
+        { kind: "document", text: "Notes", uri: undefined },
+        { kind: "document", text: "Notes", uri: undefined },
+        { kind: "document", text: "Plan", uri: "/p/d" },
+        { kind: "file", text: "notes.md", uri: undefined },
+        { kind: "file", text: "notes.md", uri: undefined },
+      ],
+    );
+    expect(failures).toHaveLength(2);
+  });
+
+  it("never counts writes or navigation as sources, even with addresses", () => {
+    const { sources, failures } = agentWorkSources([
+      call("a", "create-content-webhook", {
+        url: "https://hooks.example/events",
+        documentId: "d",
+      }),
+      call("b", "navigate", { path: "/p/d" }),
+      call(
+        "c",
+        "create-content-webhook",
+        { url: "https://hooks.example/events" },
+        { status: "failed", output: "Denied" },
+      ),
+      call("d", "edit-document", { query: "launch" }),
+    ]);
+    expect(sources).toEqual([]);
     expect(failures).toEqual([]);
   });
 

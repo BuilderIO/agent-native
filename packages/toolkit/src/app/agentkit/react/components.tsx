@@ -3153,12 +3153,14 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
       </div>
     ) : null;
   // The work row moves to the reply's footer; what the work read and what
-  // failed stays here, between the person's message and the reply.
+  // failed stays here, between the person's message and the reply. A call
+  // shown as a result card is still a source.
   const sourcesLine =
     part === "row" ? null : (
       <AgentWorkSourcesLine
         {...agentWorkSources(
-          activityItems.flatMap((activity): AgentWorkCall[] => {
+          items.flatMap((activity): AgentWorkCall[] => {
+            if (isInternalActivity(activity)) return [];
             if (reasoningEntries.has(activity.id)) return [];
             const tool = toolFor(activity.id);
             return [{ id: activity.id, activity, ...(tool ? { tool } : {}) }];

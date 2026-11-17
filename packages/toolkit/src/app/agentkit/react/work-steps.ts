@@ -297,6 +297,8 @@ export interface AgentWorkObject {
   /** `document` is a page in the app itself, named by the read's result. */
   kind: "query" | "url" | "file" | "command" | "document";
   text: string;
+  /** What tells two objects with the same text apart: a page's id, a file's path. */
+  id?: string;
   /** Where a document opens, when its read returned a link. */
   uri?: string;
 }
@@ -419,7 +421,7 @@ function documentRecord(
   const title = firstString(record, ["title", "name"]);
   if (!id || !title) return undefined;
   const uri = firstString(record, ["deepLink", "url"]);
-  return { kind: "document", text: title, ...(uri ? { uri } : {}) };
+  return { kind: "document", text: title, id, ...(uri ? { uri } : {}) };
 }
 
 // A page read's result can be the whole page, so each call's is parsed once.
@@ -449,17 +451,18 @@ export function agentWorkCallObject(
   const input = inputRecord(call.tool?.input);
   const query = firstString(input, QUERY_KEYS);
   if (query) return { kind: "query", text: query };
+  // The page a read returned names it better than the address it was asked for.
+  const document = documentObject(call);
+  if (document) return document;
   const url = firstString(input, URL_KEYS) ?? call.activity.object?.uri;
   const domain = url ? urlDomain(url) : undefined;
   if (url && domain) return { kind: "url", text: domain, uri: url };
-  const document = documentObject(call);
-  if (document) return document;
   const file =
     firstString(input, FILE_KEYS) ??
     (call.activity.object?.kind === "file"
       ? call.activity.object.label
       : undefined);
-  if (file) return { kind: "file", text: fileName(file) };
+  if (file) return { kind: "file", text: fileName(file), id: file };
   const command = firstString(input, COMMAND_KEYS);
   if (command) return { kind: "command", text: command };
   return undefined;
@@ -726,20 +729,32 @@ const SOURCE_KINDS: Partial<Record<AgentWorkVerb, AgentWorkSourceKind>> = {
   searched: "search",
 };
 
+// Work that changes or moves through the app is not a source, whatever
+// addresses, paths or queries its input carries.
+const NOT_SOURCE_ACTIVITY_KINDS = new Set<string>([
+  "write",
+  "edit",
+  "command",
+  "navigation",
+  "delegation",
+  "approval",
+  "connection",
+]);
+
 /**
  * The sources a segment's calls read or searched, each once in call order,
  * and the reads and searches that failed, each once per object and reason.
- * Writes, commands and running calls are not sources.
+ * Writes, commands, navigation and running calls are not sources.
  */
 export function agentWorkSources(
   calls: readonly AgentWorkCall[],
 ): AgentWorkSources {
-  const sources: AgentWorkSource[] = [];
-  const failures: AgentWorkSourceFailure[] = [];
-  const seen = new Set<string>();
+  const sources = new Map<string, AgentWorkSource>();
+  const failures = new Map<string, AgentWorkSourceFailure>();
   for (const call of calls) {
     const status = call.activity.status;
     if (status === "running" || status === "cancelled") continue;
+    if (NOT_SOURCE_ACTIVITY_KINDS.has(call.activity.kind)) continue;
     const verb = agentWorkCallVerb(call);
     const object = agentWorkCallObject(call);
     if (status === "failed") {
@@ -753,17 +768,21 @@ export function agentWorkSources(
             ? "document"
             : undefined);
       if (!kind) continue;
-      const text = object?.kind === "command" ? undefined : object?.text;
+      const named = object?.kind === "command" ? undefined : object;
+      const text = named?.text;
       const reason = agentWorkFailureReason(call);
       const key = [
         "failed",
         kind,
-        text ?? call.activity.label,
+        named?.id ??
+          named?.uri ??
+          text ??
+          firstString(inputRecord(call.tool?.input), ["id", "documentId"]) ??
+          call.activity.label,
         reason ?? "",
       ].join("\u0001");
-      if (seen.has(key)) continue;
-      seen.add(key);
-      failures.push({
+      if (failures.has(key)) continue;
+      failures.set(key, {
         key,
         kind,
         ...(text ? { text } : {}),
@@ -774,15 +793,19 @@ export function agentWorkSources(
     }
     const kind = SOURCE_KINDS[verb];
     if (!kind || !object) continue;
-    const key = [kind, object.uri ?? object.text].join("\u0001");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    sources.push({
+    const key = [kind, object.id ?? object.uri ?? object.text].join("\u0001");
+    const existing = sources.get(key);
+    if (existing) {
+      // A page first seen on screen gains the link a later read returned.
+      if (!existing.uri && object.uri) existing.uri = object.uri;
+      continue;
+    }
+    sources.set(key, {
       key,
       kind,
       text: object.text,
       ...(object.uri ? { uri: object.uri } : {}),
     });
   }
-  return { sources, failures };
+  return { sources: [...sources.values()], failures: [...failures.values()] };
 }
