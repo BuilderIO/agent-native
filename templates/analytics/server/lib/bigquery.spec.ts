@@ -67,6 +67,7 @@ const {
   BigQueryQueryTimeoutError,
   dryRunQuery,
   dryRunQuerySchema,
+  newBigQueryQueryTrace,
   renderCurrentDateLiterals,
   runQuery,
 } = await import("./bigquery");
@@ -2833,13 +2834,16 @@ describe("runQuery cancellation", () => {
     }
 
     /** One call its deadline stops while the job runs. */
-    async function callUntilDeadline() {
+    async function callUntilDeadline(
+      trace?: ReturnType<typeof newBigQueryQueryTrace>,
+    ) {
       const deadline = new AbortController();
       await stopWhilePolling(
         deadline,
         runQuery(sql, {
           signal: deadline.signal,
           resumeAfter: deadline.signal,
+          ...(trace ? { trace } : {}),
         }),
       );
     }
@@ -3037,12 +3041,17 @@ describe("runQuery cancellation", () => {
       await callUntilDeadline();
 
       lookupStatus = 503;
+      const trace = newBigQueryQueryTrace();
       await expect(
-        runQuery(sql, { resumeAfter: new AbortController().signal }),
+        runQuery(sql, { resumeAfter: new AbortController().signal, trace }),
       ).rejects.toMatchObject({
         name: "BigQueryBackendError",
         operation: "job",
         backendStatus: 503,
+      });
+      expect(trace).toMatchObject({
+        stage: "checking_existing_job",
+        jobs: [{ job: "existing", slot: 1, unreadable: true }],
       });
 
       const [jobId, ...rest] = submissions(fetchMock);
@@ -3093,6 +3102,136 @@ describe("runQuery cancellation", () => {
       expect(jobId).toMatch(/^agent_native_[a-f0-9]{32}$/);
       expect(jobTimeouts(fetchMock)).toEqual([undefined]);
       expect(cancellations(fetchMock)).toHaveLength(1);
+    });
+
+    describe("trace", () => {
+      it.each([
+        {
+          name: "failed",
+          lookup: () => ({
+            status: { state: "DONE", errorResult: { reason: "backendError" } },
+          }),
+          attempt: {
+            state: "DONE",
+            sameQuery: true,
+            failureReason: "backend_error",
+          },
+        },
+        {
+          name: "ran other SQL",
+          lookup: () => ({
+            configuration: { query: { query: "SELECT 'planted'" } },
+            status: { state: "DONE" },
+          }),
+          attempt: {
+            state: "DONE",
+            sameQuery: false,
+            queryDifference: {
+              at: "SELECT ".length,
+              existingLength: "SELECT 'planted'".length,
+              submittedLength: sql.length,
+            },
+            failureReason: null,
+          },
+        },
+      ])(
+        "records why an existing job that $name couldn't be collected, and the job started instead",
+        async ({ lookup, attempt }) => {
+          vi.useFakeTimers();
+          let complete = false;
+          const { fetchMock } = fakeBigQuery({
+            complete: () => complete,
+            lookup,
+          });
+          vi.stubGlobal("fetch", fetchMock);
+          const stopped = newBigQueryQueryTrace();
+          await callUntilDeadline(stopped);
+          expect(stopped).toMatchObject({
+            stage: "polling",
+            jobs: [{ job: "new", slot: 1 }],
+          });
+          expect(stopped.polls).toBeGreaterThan(0);
+
+          complete = true;
+          const trace = newBigQueryQueryTrace();
+          await runQuery(sql, {
+            resumeAfter: new AbortController().signal,
+            trace,
+          });
+
+          expect(trace.stage).toBe("finished");
+          expect(trace.jobs).toEqual([
+            {
+              job: "existing",
+              slot: 1,
+              collectable: false,
+              ageSeconds: 0,
+              ...attempt,
+            },
+            { job: "new", slot: 2 },
+          ]);
+        },
+      );
+
+      it("records an existing job too old to collect", async () => {
+        vi.useFakeTimers({ now: new Date("2026-11-16T10:00:00.000Z") });
+        const { fetchMock } = fakeBigQuery({ complete: () => false });
+        vi.stubGlobal("fetch", fetchMock);
+        await callUntilDeadline();
+
+        vi.setSystemTime(new Date("2026-11-16T11:01:00.000Z"));
+        const trace = newBigQueryQueryTrace();
+        await callUntilDeadline(trace);
+
+        expect(trace.stage).toBe("polling");
+        expect(trace.jobs).toEqual([
+          {
+            job: "existing",
+            slot: 1,
+            collectable: false,
+            state: "RUNNING",
+            ageSeconds: 3_660,
+            sameQuery: true,
+            failureReason: null,
+            tooOld: true,
+          },
+          { job: "new", slot: 2 },
+        ]);
+      });
+
+      it("records the time spent waiting while another call ran the same query", async () => {
+        vi.useFakeTimers();
+        const { fetchMock } = fakeBigQuery({ complete: () => false });
+        vi.stubGlobal("fetch", fetchMock);
+        const holder = new AbortController();
+        const holding = expect(
+          runQuery(sql, { signal: holder.signal }),
+        ).rejects.toMatchObject({ name: "AbortError" });
+        await vi.advanceTimersByTimeAsync(0);
+
+        const waiter = new AbortController();
+        const trace = newBigQueryQueryTrace();
+        const waiting = expect(
+          runQuery(sql, { signal: waiter.signal, trace }),
+        ).rejects.toMatchObject({ name: "AbortError" });
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(trace.stage).toBe("waiting_for_lock");
+        expect(trace.lockWaitStartedAt).not.toBeNull();
+
+        waiter.abort();
+        await waiting;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(trace).toMatchObject({
+          stage: "waiting_for_lock",
+          lockWaitMs: 3_000,
+          lockWaitStartedAt: null,
+          staleLockCleared: false,
+          jobs: [],
+        });
+
+        holder.abort();
+        await holding;
+      });
     });
   });
 });
