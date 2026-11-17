@@ -666,6 +666,32 @@ describe("handleMcpConnect", () => {
       expect(body).toContain('aria-labelledby="mcp-guide-tab-claude"');
     });
 
+    it("keeps each install guide's manual step out of the numbered steps", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({}), "/");
+      const body = await res.text();
+      const panels = new Map(
+        body
+          .split('data-panel="')
+          .slice(1)
+          .map((chunk) => [chunk.slice(0, chunk.indexOf('"')), chunk]),
+      );
+      for (const id of ["claude", "cursor", "vscode"]) {
+        const panel = panels.get(id) ?? "";
+        const steps = panel.slice(
+          panel.indexOf("<ol>"),
+          panel.indexOf("</ol>"),
+        );
+        const manual = panel.slice(
+          panel.indexOf('<details class="advanced">'),
+          panel.indexOf("</details>"),
+        );
+        expect(manual, id).toContain("Manual setup");
+        expect(manual, id).toMatch(/For manual setup|Without the button/);
+        expect(steps, id).not.toMatch(/For manual setup|Without the button/);
+      }
+    });
+
     it("uses a validated locale from the Settings connect link", async () => {
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       const res = await handleMcpConnect(
