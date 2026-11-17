@@ -93,7 +93,7 @@ export {
   FULL_APP_EMBED_SCOPE,
   hasFullAppEmbedSession,
   hasPresentedEmbedSessionCredential,
-  presentsFullAppEmbedBearer,
+  presentsFullAppEmbedToken,
   resolveEmbedSessionFromRequest,
 } from "./embed-session.js";
 export { resolveOrgIdForEmailViaEvent } from "../org/context.js";

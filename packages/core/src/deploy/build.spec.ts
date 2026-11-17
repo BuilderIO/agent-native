@@ -3137,7 +3137,7 @@ export default {
       const getContext = new Function(
         "resolveGeneratedEmbedSession",
         "GENERATED_FULL_APP_EMBED_SCOPE",
-        "presentsGeneratedFullAppEmbedBearer",
+        "presentsGeneratedFullAppEmbedToken",
         "hasGeneratedSameOriginBrowserEvidence",
         "hasGeneratedUiActionCapability",
         "resolveGeneratedOrgId",

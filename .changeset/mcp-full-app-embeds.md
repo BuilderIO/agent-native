@@ -17,6 +17,8 @@ When `open_app` cannot get a session from the target app, its result says why in
 
 In a workspace that shares one sign-in across apps, a page open in an MCP host's side panel reads its session under its own app mount, which the panel session covers, instead of the shared origin route, so the panel no longer reports that it couldn't reach the server.
 
-`read_view` reports load errors and failed requests from the app open beside the chat in `errors`, including whether a failed request carried the panel session and the server's reason for refusing it, so a blank or stuck panel says why instead of returning empty text.
+`read_view` reports load errors and failed requests from the app open beside the chat in `errors`, including whether a failed request carried the panel session (or a different one) and the server's reason for refusing it, so a blank or stuck panel says why instead of returning empty text.
 
 Hashed build assets are served with `Access-Control-Allow-Origin: *`, so an app opened in an MCP host's side panel can load its code from the host's sandbox instead of rendering blank.
+
+A full-app panel's reads that carry its session in the URL, as the app's own requests do, now count as the panel's own, so it can get the UI capability its approval-gated actions need. Only a session cookie still needs same-origin proof.

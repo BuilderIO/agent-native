@@ -20,7 +20,7 @@ import {
 import {
   FULL_APP_EMBED_SCOPE,
   hasEmbedSessionRequestMarker,
-  presentsFullAppEmbedBearer,
+  presentsFullAppEmbedToken,
   resolveEmbedSessionFromRequest,
 } from "./embed-session.js";
 import { getH3App } from "./framework-request-handler.js";
@@ -79,14 +79,14 @@ async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
       : await getBrowserCookieSession(event);
     ownerEmail = normalizedEmail(session?.email);
   }
-  let panelBearer = false;
+  let panelToken = false;
   if (!ownerEmail) {
     // A full-app panel is the app's own UI, run by its verified owner.
     const embedSession = await resolveEmbedSessionFromRequest(event);
     if (embedSession?.scope === FULL_APP_EMBED_SCOPE) {
       ownerEmail = normalizedEmail(embedSession.email);
-      panelBearer =
-        !!ownerEmail && presentsFullAppEmbedBearer(event, ownerEmail);
+      panelToken =
+        !!ownerEmail && presentsFullAppEmbedToken(event, embedSession);
     } else if (embedMarked) {
       setResponseStatus(event, 403);
       return { error: "Browser cookie session required" };
@@ -100,8 +100,8 @@ async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
   }
 
   // A panel runs on its MCP host's origin; its own token is its proof, and
-  // its actions accept that header where this cookie cannot be kept.
-  if (!panelBearer && !hasSameOriginBrowserEvidence(event)) {
+  // its actions accept that token where this cookie cannot be kept.
+  if (!panelToken && !hasSameOriginBrowserEvidence(event)) {
     setResponseStatus(event, 403);
     return { error: "Same-origin request required" };
   }

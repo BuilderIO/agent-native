@@ -971,12 +971,23 @@ export function embedApp(
           var list = window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}] ||
             (window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}] = []);
           var path;
+          var queryToken = null;
           try {
-            path = new URL(url).pathname;
+            var parsedUrl = new URL(url);
+            path = parsedUrl.pathname;
+            queryToken = parsedUrl.searchParams.get(activeConfig().embedTokenParam || "__an_embed_token");
           } catch (_err) {
             path = String(url);
           }
-          var suffix = headers.has("Authorization") ? "" : " (sent without the panel session)";
+          var sent = headers.get("Authorization");
+          var panelToken = activeConfig().token;
+          var suffix = !sent
+            ? " (sent without the panel session)"
+            : panelToken && sent !== "Bearer " + panelToken
+              ? " (sent with a session other than the panel's)"
+              : queryToken && queryToken !== panelToken
+                ? " (its URL carried a session other than the panel's)"
+                : "";
           var text = String(method || "GET").toUpperCase() + " " + path + " " + detail;
           if (list.length >= 5 || list.indexOf(text + suffix) >= 0) return function() {};
           // The entry keeps its place in request order while its reason loads.

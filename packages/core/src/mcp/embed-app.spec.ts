@@ -715,6 +715,16 @@ describe("embedApp", () => {
     expect(fetchTransport(installedFetch as typeof fetch)).toBe(
       signedTransport,
     );
+
+    // A token the app attached itself is named when it is not the panel's.
+    fetch.mockResolvedValueOnce(new Response("{}", { status: 403 }));
+    await installedFetch("/deck/_agent-native/actions/y", {
+      method: "POST",
+      headers: { Authorization: "Bearer another-session" },
+    });
+    expect(windowObject.__agentNativeEmbedRequestFailures.at(-1)).toBe(
+      "POST /deck/_agent-native/actions/y HTTP 403 (sent with a session other than the panel's)",
+    );
   });
 
   it("tells a blocked tab from an opened one", () => {

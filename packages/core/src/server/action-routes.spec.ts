@@ -165,16 +165,16 @@ vi.mock("./embed-session.js", async (importOriginal) => ({
     mockHasEmbedSessionRequestMarker(event),
   hasFullAppEmbedSession: (event: any) =>
     event._hasFullAppEmbedSession ?? false,
-  presentsFullAppEmbedBearer: (
+  presentsFullAppEmbedToken: (
     ...args: Parameters<
-      typeof import("./embed-session.js").presentsFullAppEmbedBearer
+      typeof import("./embed-session.js").presentsFullAppEmbedToken
     >
   ) =>
     args[0]._useRealEmbedSession
       ? importOriginal<typeof import("./embed-session.js")>().then((actual) =>
-          actual.presentsFullAppEmbedBearer(...args),
+          actual.presentsFullAppEmbedToken(...args),
         )
-      : (args[0]._presentsFullAppEmbedBearer ?? false),
+      : (args[0]._presentsFullAppEmbedToken ?? false),
   hasLiveEmbedCapabilityCookie: (event: any) =>
     event._hasLiveEmbedCapabilityCookie ?? false,
   hasPresentedEmbedSessionCredential: (event: any) =>
@@ -575,7 +575,7 @@ describe("mountActionRoutes", () => {
             authorization: "Bearer panel-token",
             "x-agent-native-frontend": "1",
           },
-          _presentsFullAppEmbedBearer: panelBearer,
+          _presentsFullAppEmbedToken: panelBearer,
           req: { json: async () => ({}) },
         };
         const result = await mounted[0]!.handler(event);

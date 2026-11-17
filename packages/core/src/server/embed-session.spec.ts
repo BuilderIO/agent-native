@@ -43,7 +43,7 @@ import {
   createEmbedSessionTicket as createEmbedSessionTicketForAudience,
   hasExplicitEmbedSessionCredential,
   hasPresentedEmbedSessionCredential,
-  presentsFullAppEmbedBearer,
+  presentsFullAppEmbedToken,
   hasEmbedSessionRequestMarker,
   isExpiredMcpDirectoryWidgetSessionRequest,
   readMcpDirectoryWidgetRenewalTicket as readMcpDirectoryWidgetRenewalTicketForAudience,
@@ -1481,55 +1481,60 @@ describe("requestMatchesEmbedTarget", () => {
   }
 
   it.each([
-    [
-      "the owner's full-app token in the header",
-      "bearer",
-      "full-app",
-      "owner@example.com",
-      true,
-    ],
-    [
-      "a full-app token only in the cookie",
-      "cookie",
-      "full-app",
-      "owner@example.com",
-      false,
-    ],
+    ["a full-app token in the header", "bearer", "full-app", true],
+    ["a full-app token in the URL", "query", "full-app", true],
+    ["a full-app token only in the cookie", "cookie", "full-app", false],
     [
       "a scoped widget token in the header",
       "bearer",
       "capability:visual-edit:design:d-1",
-      "owner@example.com",
-      false,
-    ],
-    [
-      "another owner's full-app token",
-      "bearer",
-      "full-app",
-      "other@example.com",
       false,
     ],
   ] as const)(
     "treats %s as a full-app panel's own request",
-    (_name, transport, scope, ownerEmail, expected) => {
+    async (_name, transport, scope, expected) => {
       const token = signEmbedSessionToken({
-        ownerEmail,
+        ownerEmail: "owner@example.com",
         audienceHost: "http://mail.test",
         targetPath: "/inbox",
         scope,
       });
+      const event = credentialEvent(
+        "/_agent-native/actions/send-draft",
+        token,
+        transport,
+        { "x-agent-native-embed-target": "/inbox" },
+      );
       expect(
-        presentsFullAppEmbedBearer(
-          credentialEvent(
-            "/_agent-native/actions/send-draft",
-            token,
-            transport,
-          ),
-          "Owner@example.com",
+        presentsFullAppEmbedToken(
+          event,
+          await resolveEmbedSessionFromRequest(event),
         ),
       ).toBe(expected);
     },
   );
+
+  it("does not count a header token that is not the resolved session's", async () => {
+    const sign = (audienceHost: string) =>
+      signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost,
+        targetPath: "/inbox",
+        scope: "full-app",
+      });
+    const event = credentialEvent(
+      "/_agent-native/actions/send-draft",
+      sign("http://mail.test"),
+      "cookie",
+      {
+        authorization: `Bearer ${sign("http://other.test")}`,
+        "x-agent-native-embed-target": "/inbox",
+      },
+    );
+    const session = await resolveEmbedSessionFromRequest(event);
+    expect(session?.scope).toBe("full-app");
+    expect(presentsFullAppEmbedToken(event, session)).toBe(false);
+  });
 
   it.each([
     ["/inbox/t-1", "GET"],

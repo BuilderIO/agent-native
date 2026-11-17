@@ -1633,7 +1633,7 @@ ${["post", "put", "delete"]
   getFrameworkRoutePrefix as getAgentNativeFrameworkRoutePrefix,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
-${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasFullAppEmbedSession as hasGeneratedFullAppEmbedSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  FULL_APP_EMBED_SCOPE as GENERATED_FULL_APP_EMBED_SCOPE,\n  resolveEmbedSessionFromRequest as resolveGeneratedEmbedSession,\n  presentsFullAppEmbedBearer as presentsGeneratedFullAppEmbedBearer,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
+${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasFullAppEmbedSession as hasGeneratedFullAppEmbedSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  FULL_APP_EMBED_SCOPE as GENERATED_FULL_APP_EMBED_SCOPE,\n  resolveEmbedSessionFromRequest as resolveGeneratedEmbedSession,\n  presentsFullAppEmbedToken as presentsGeneratedFullAppEmbedToken,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
@@ -2648,7 +2648,7 @@ ${
       const userEmail = embedSession.email.trim().toLowerCase();
       if (
         !userEmail ||
-        (!presentsGeneratedFullAppEmbedBearer(event, userEmail) &&
+        (!presentsGeneratedFullAppEmbedToken(event, embedSession) &&
           (!hasGeneratedSameOriginBrowserEvidence(event) ||
             !hasGeneratedUiActionCapability(event, userEmail)))
       ) {

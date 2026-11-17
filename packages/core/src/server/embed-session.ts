@@ -2244,23 +2244,21 @@ export function hasFullAppEmbedSession(event: H3Event): boolean {
 }
 
 /**
- * Whether the request carries the owner's full-app panel token in its
- * Authorization header. A panel runs on the MCP host's origin, where it can
- * neither send same-origin evidence nor keep a capability cookie; a page on
- * another site cannot attach this header, while a cookie-borne session still
- * needs same-origin proof against cross-site requests.
+ * Whether a resolved full-app session came from a token the request itself
+ * carries (its Authorization header or embed-token query), not the cookie. A
+ * panel runs on the MCP host's origin, where it can neither send same-origin
+ * evidence nor keep a capability cookie; a page on another site cannot attach
+ * the panel's token, while the cookie rides along with any cross-site request.
+ * Compare against the resolved session rather than re-verifying the token: a
+ * renewable panel token keeps its scope server-side and outlives its own exp.
  */
-export function presentsFullAppEmbedBearer(
+export function presentsFullAppEmbedToken(
   event: H3Event,
-  ownerEmail: string,
+  session: ResolvedEmbedSession | null,
 ): boolean {
-  const verified = verifyEmbedSessionToken(bearerToken(event));
+  if (session?.scope !== FULL_APP_EMBED_SCOPE) return false;
   return (
-    verified.ok &&
-    verified.claims.scope === FULL_APP_EMBED_SCOPE &&
-    embedTokenMatchesRequestAudience(event, verified.claims) &&
-    verified.claims.ownerEmail.trim().toLowerCase() ===
-      ownerEmail.trim().toLowerCase()
+    session.token === bearerToken(event) || session.token === queryToken(event)
   );
 }
 

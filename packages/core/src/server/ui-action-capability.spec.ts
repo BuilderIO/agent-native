@@ -267,9 +267,10 @@ describe("UI action capability", () => {
 
   it.each([
     ["bearer", 200],
+    ["query", 200],
     ["cookie", 403],
   ] as const)(
-    "mints from another site only for a full-app panel's %s token in the header",
+    "mints from another site for a full-app panel's %s token only when the request carries it",
     async (source, status) => {
       mockGetBrowserCookieSession.mockResolvedValue(null);
       const embedToken = signEmbedSessionToken({
@@ -280,17 +281,24 @@ describe("UI action capability", () => {
       });
       const app = createApp();
       mountUiActionCapabilityRoute(app);
+      const url = new URL("https://example.test/_agent-native/ui-capability");
+      if (source === "query") {
+        url.searchParams.set("__an_embed_token", embedToken);
+        url.searchParams.set("__an_embed_target", "/inbox");
+      }
       const response = await app.fetch(
-        new Request("https://example.test/_agent-native/ui-capability", {
+        new Request(url, {
           headers: {
             "sec-fetch-site": "cross-site",
             origin: "https://panel.claudemcpcontent.com",
             ...(source === "cookie"
               ? { cookie: `an_embed_session=${embedToken}` }
-              : {
-                  authorization: `Bearer ${embedToken}`,
-                  "x-agent-native-embed-target": "/inbox",
-                }),
+              : source === "bearer"
+                ? {
+                    authorization: `Bearer ${embedToken}`,
+                    "x-agent-native-embed-target": "/inbox",
+                  }
+                : {}),
           },
         }),
       );
