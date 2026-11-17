@@ -516,6 +516,15 @@ describe("embedApp", () => {
         this.headers.set(name.toLowerCase(), value);
       }
     }
+    const appended: Array<{ hasAttribute: (n: string) => boolean }> = [];
+    const fakeDocument = {
+      head: {
+        appendChild(node: { hasAttribute: (n: string) => boolean }) {
+          appended.push(node);
+          return node;
+        },
+      },
+    };
     const sessionStorageObject = { setItem: vi.fn() };
     const installRuntime = new Function(
       "window",
@@ -525,6 +534,7 @@ describe("embedApp", () => {
       "fetch",
       "XMLHttpRequest",
       "EventSource",
+      "document",
       `${runtimeSource}; return installExternalEmbedRuntime;`,
     )(
       windowObject,
@@ -534,6 +544,7 @@ describe("embedApp", () => {
       fetch,
       MockXMLHttpRequest,
       MockEventSource,
+      fakeDocument,
     ) as (config: Record<string, unknown>) => void;
 
     installRuntime({
@@ -656,6 +667,34 @@ describe("embedApp", () => {
         "__an_embed_token",
       ),
     ).toBe(false);
+
+    const stylesheet = {
+      nodeName: "LINK",
+      rel: "stylesheet",
+      href: "https://host.example/mail/assets/route-abc123.css",
+      attrs: new Map([["crossorigin", ""]]),
+      getAttribute(name: string) {
+        return this.attrs.get(name) ?? null;
+      },
+      hasAttribute(name: string) {
+        return this.attrs.has(name);
+      },
+      removeAttribute(name: string) {
+        this.attrs.delete(name);
+      },
+    };
+    const credentialed = {
+      ...stylesheet,
+      attrs: new Map([
+        ["crossorigin", "use-credentials"],
+        ["integrity", "sha384-x"],
+      ]),
+    };
+    fakeDocument.head.appendChild(credentialed as never);
+    expect(credentialed.attrs.has("crossorigin")).toBe(true);
+    fakeDocument.head.appendChild(stylesheet as never);
+    expect(appended).toContain(stylesheet);
+    expect(stylesheet.hasAttribute("crossorigin")).toBe(false);
 
     locationObject.pathname = "/mail/settings";
     locationObject.href = "https://host.example/mail/settings";

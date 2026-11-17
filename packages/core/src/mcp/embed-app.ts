@@ -1023,6 +1023,27 @@ export function embedApp(
           throw error;
         });
       }
+      // Vite's preload helper adds lazy-route stylesheets as empty-valued CORS-mode
+      // links under the app's assets; only those are rewritten, never a stylesheet
+      // that asks for a CORS mode or an integrity check itself.
+      // The sandbox loads the document's own stylesheets without CORS, so load these
+      // the same way instead of failing the route with "Unable to preload CSS".
+      if (typeof document !== "undefined" && document.head) {
+        const originalAppendChild = document.head.appendChild.bind(document.head);
+        document.head.appendChild = function(node) {
+          if (
+            node &&
+            node.nodeName === "LINK" &&
+            String(node.rel).toLowerCase() === "stylesheet" &&
+            node.getAttribute("crossorigin") === "" &&
+            !node.hasAttribute("integrity") &&
+            String(node.href).indexOf("/assets/") >= 0
+          ) {
+            node.removeAttribute("crossorigin");
+          }
+          return originalAppendChild(node);
+        };
+      }
       if (typeof fetch === "function") {
         const originalFetch = fetch.bind(window);
         var pageFetch = fetch;
