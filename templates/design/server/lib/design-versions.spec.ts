@@ -1194,6 +1194,54 @@ describe("createDesignVersionSnapshot", () => {
     expect(captureMocks.revisions).toHaveLength(0);
   });
 
+  it("retries a changed source with a fresh snapshot and removes the stale blob", async () => {
+    const blobs = [
+      {
+        id: "stale-blob",
+        provider: "test",
+        opaque: true as const,
+        encrypted: true,
+      },
+      {
+        id: "fresh-blob",
+        provider: "test",
+        opaque: true as const,
+        encrypted: true,
+      },
+    ];
+    const uploads: string[] = [];
+    captureMocks.liveSnapshot.files[0]!.content = "x".repeat(300 * 1024);
+    putPrivateBlob.mockImplementation(async ({ data }: { data: Buffer }) => {
+      uploads.push(data.toString());
+      if (uploads.length === 1) {
+        captureMocks.liveSnapshot.files[0]!.content =
+          "peer edit " + "y".repeat(300 * 1024);
+        captureMocks.collaborationVersion = 2;
+      }
+      return blobs[uploads.length - 1];
+    });
+    deletePrivateBlob.mockResolvedValue({ deleted: true, provider: "test" });
+
+    const run = { threadId: "thread-transient", runId: "run-transient" };
+    const result = await createDesignChatBeginningSnapshot("design-1", run);
+
+    expect(result).not.toBeNull();
+    expect(uploads).toHaveLength(2);
+    expect(JSON.parse(uploads[0]!).files[0].content).toBe(
+      "x".repeat(300 * 1024),
+    );
+    expect(JSON.parse(uploads[1]!).files[0].content).toBe(
+      "peer edit " + "y".repeat(300 * 1024),
+    );
+    expect(deletePrivateBlob).toHaveBeenCalledTimes(1);
+    expect(deletePrivateBlob).toHaveBeenCalledWith(blobs[0]);
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(
+      JSON.parse(captureMocks.revisions[0]!.snapshot as string).blob,
+    ).toEqual(blobs[1]);
+    expect(await createDesignChatBeginningSnapshot("design-1", run)).toBeNull();
+  });
+
   it("aborts and cleans the blob when source changes during upload", async () => {
     const blob = {
       id: "blob-1",
@@ -1233,17 +1281,42 @@ describe("createDesignVersionSnapshot", () => {
       errorCode: "design-version-checkpoint-changed",
     });
 
+    expect(deletePrivateBlob).toHaveBeenCalledTimes(3);
     expect(deletePrivateBlob).toHaveBeenCalledWith(blob);
-    expect(captureMocks.sourceMutationEvents).toEqual([
-      "access-outside",
-      "snapshot",
-      "blob-upload-outside",
-      "access-outside",
-      "lock",
-      "access-inside",
-      "blob-delete-outside",
-    ]);
+    expect(captureMocks.sourceMutationEvents).toEqual(
+      Array(3)
+        .fill([
+          "access-outside",
+          "snapshot",
+          "blob-upload-outside",
+          "access-outside",
+          "lock",
+          "access-inside",
+          "blob-delete-outside",
+        ])
+        .flat(),
+    );
     expect(captureMocks.revisions).toHaveLength(0);
+  });
+
+  it("does not retry a conflict when transaction rollback is unconfirmed", async () => {
+    captureMocks.liveSnapshot.files[0]!.content = "x".repeat(300 * 1024);
+    captureMocks.transactionRollbackMode = "unknown";
+    putPrivateBlob.mockImplementation(async () => {
+      captureMocks.collaborationVersion = 2;
+      return { id: "blob-1", provider: "test", opaque: true, encrypted: true };
+    });
+    deletePrivateBlob.mockResolvedValue({ deleted: true, provider: "test" });
+
+    await expect(
+      createDesignChatBeginningSnapshot("design-1", {
+        threadId: "thread-uncertain-conflict",
+        runId: "run-uncertain-conflict",
+      }),
+    ).rejects.toThrow("transaction outcome is uncertain");
+    expect(putPrivateBlob).toHaveBeenCalledOnce();
+    expect(deletePrivateBlob).toHaveBeenCalledOnce();
+    expect(captureMocks.revisions).toEqual([]);
   });
 
   it("aborts when the latest checkpoint changes during upload", async () => {
@@ -1284,9 +1357,13 @@ describe("createDesignVersionSnapshot", () => {
     });
 
     await expect(
-      createDesignChatBeginningSnapshot("design-1", {
-        threadId: "thread-latest-changed",
-        runId: "run-latest-changed",
+      createDesignVersionSnapshot("design-1", {
+        label: "Before chat",
+        chatContext: {
+          threadId: "thread-latest-changed",
+          runId: "run-latest-changed",
+          phase: "start",
+        },
       }),
     ).rejects.toBeInstanceOf(DesignVersionCheckpointChangedError);
 

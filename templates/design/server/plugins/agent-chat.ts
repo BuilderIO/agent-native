@@ -3,6 +3,7 @@ import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
@@ -290,6 +291,8 @@ async function autosaveDesignBeforeAgentTurn(
   run: { threadId?: string; runId?: string },
 ): Promise<void> {
   if (scope.type !== "design" || !run.threadId || !run.runId) return;
+  const access = await resolveAccess("design", scope.id);
+  if (!access || !["owner", "admin", "editor"].includes(access.role)) return;
   const { createDesignChatBeginningSnapshot } =
     await import("../lib/design-versions.js");
   await createDesignChatBeginningSnapshot(scope.id, {
@@ -301,6 +304,7 @@ async function autosaveDesignBeforeAgentTurn(
 export default createAgentChatPlugin({
   appId: "design",
   onAgentTurnStart: autosaveDesignBeforeAgentTurn,
+  requireAgentTurnStart: true,
   onAgentTurnComplete: autosaveDesignAfterAgentTurn,
   resolveActionSurface: resolveReviewAgentActionSurface,
   onAgentRunComplete: finalizeReviewAgentRun,

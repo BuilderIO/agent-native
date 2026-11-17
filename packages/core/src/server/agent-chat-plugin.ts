@@ -742,6 +742,7 @@ export async function runPreAgentTurnAutosave(
   callback: AgentChatPluginOptions["onAgentTurnStart"] | undefined,
   scope: AgentChatScope | null | undefined,
   run: Pick<ActiveRun, "threadId" | "runId">,
+  required = false,
 ): Promise<void> {
   if (!callback || !scope) return;
 
@@ -763,6 +764,7 @@ export async function runPreAgentTurnAutosave(
       },
     });
     console.error("[agent-chat] pre-agent-turn autosave failed:", error);
+    if (required) throw error;
   }
 }
 
@@ -5733,6 +5735,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             options?.onAgentTurnStart,
             runCtx?.chatScope,
             { threadId, runId },
+            options?.requireAgentTurnStart,
           );
         },
         onRunComplete: async (
@@ -6076,6 +6079,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               options?.onAgentTurnStart,
               runCtx?.chatScope,
               { threadId, runId },
+              options?.requireAgentTurnStart,
             );
           },
           onRunComplete: async (

@@ -4,6 +4,7 @@ import { mockEvent } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PNG_BASE64 } from "../file-upload/test-image-fixtures.js";
+import { runPreAgentTurnAutosave } from "../server/agent-chat-plugin.js";
 import {
   getRequestRunContext,
   runWithRequestContext,
@@ -669,6 +670,34 @@ describe("run trace metadata", () => {
         "experimentAssignments",
       );
     });
+  });
+});
+
+describe("required pre-turn checkpoints", () => {
+  it("ends a run before model dispatch when the checkpoint fails", async () => {
+    const error = new Error("checkpoint unavailable");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const completed: string[] = [];
+    try {
+      const result = await firstPrompt({
+        onRunStart: (_send, threadId, runId) =>
+          runPreAgentTurnAutosave(
+            async () => {
+              throw error;
+            },
+            { type: "design", id: "design-1", label: "Design" },
+            { threadId, runId },
+            true,
+          ),
+        onRunComplete: (run) => {
+          completed.push(run.status);
+        },
+      });
+      expect(result.text).toBe("");
+      expect(completed).toEqual(["errored"]);
+    } finally {
+      log.mockRestore();
+    }
   });
 });
 
