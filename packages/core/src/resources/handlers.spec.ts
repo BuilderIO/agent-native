@@ -2752,7 +2752,7 @@ Legacy webhook.`,
     it("stores text uploads in SQL", async () => {
       const resource = {
         id: "doc",
-        path: "/note.md",
+        path: "/café/note.md",
         owner: "test@test.com",
         content: "# Note",
         mimeType: "text/markdown",
@@ -2768,6 +2768,7 @@ Legacy webhook.`,
             type: "text/markdown",
             data: Buffer.from("# Note"),
           },
+          { name: "path", data: new TextEncoder().encode("/café/note.md") },
         ],
       });
 
@@ -2775,7 +2776,7 @@ Legacy webhook.`,
       expect(mockUploadFile).not.toHaveBeenCalled();
       expect(mockResourcePut).toHaveBeenCalledWith(
         "test@test.com",
-        "/note.md",
+        "/café/note.md",
         "# Note",
         "text/markdown",
       );
@@ -2840,8 +2841,84 @@ Legacy webhook.`,
       });
     });
 
+    it("stores shared uploads in the organization scope", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "Test",
+        role: "admin",
+      });
+
+      await handleUploadResource({
+        _multipart: [
+          {
+            name: "file",
+            filename: "shared.md",
+            type: "text/markdown",
+            data: new TextEncoder().encode("# Shared"),
+          },
+          { name: "shared", data: new TextEncoder().encode("true") },
+        ],
+      });
+
+      expect(mockResourcePut).toHaveBeenCalledWith(
+        "__organization__:org-1",
+        "/shared.md",
+        "# Shared",
+        "text/markdown",
+      );
+    });
+
     it("rejects unauthenticated shared uploads", async () => {
       vi.mocked(getSession).mockResolvedValue(null as any);
+
+      await expect(
+        handleUploadResource({
+          _multipart: [
+            {
+              name: "file",
+              filename: "shared.md",
+              type: "text/markdown",
+              data: Buffer.from("# Shared"),
+            },
+            { name: "shared", data: new TextEncoder().encode("true") },
+          ],
+        }),
+      ).rejects.toMatchObject({ statusCode: 401 });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("rejects shared uploads from a caller with no organization", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: null,
+        orgName: null,
+        role: null,
+      });
+
+      await expect(
+        handleUploadResource({
+          _multipart: [
+            {
+              name: "file",
+              filename: "shared.md",
+              type: "text/markdown",
+              data: Buffer.from("# Shared"),
+            },
+            { name: "shared", data: new TextEncoder().encode("true") },
+          ],
+        }),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("rejects shared uploads from non-admin organization members", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "Test",
+        role: "member",
+      });
 
       const event = {
         _multipart: [
@@ -2851,12 +2928,12 @@ Legacy webhook.`,
             type: "text/markdown",
             data: Buffer.from("# Shared"),
           },
-          { name: "shared", data: Buffer.from("true") },
+          { name: "shared", data: new TextEncoder().encode("true") },
         ],
       };
 
       await expect(handleUploadResource(event)).rejects.toMatchObject({
-        statusCode: 401,
+        statusCode: 403,
       });
       expect(mockResourcePut).not.toHaveBeenCalled();
     });

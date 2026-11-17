@@ -36,6 +36,14 @@
   --ring: 0 0% 15%;
   --suggestion: 207 39% 46%;
 
+  /* Analytics charts kept in a page draw with Analytics' colors. */
+  --brand-blue: #0284c7;
+  --brand-green: #16a34a;
+  --brand-orange: #d97706;
+  --brand-purple: #7c3aed;
+  --brand-red: #dc2626;
+  --brand-teal: #0d9488;
+
   --radius: 0.375rem;
 
   --sidebar-background: 0 0% 98%;
@@ -122,6 +130,13 @@
   --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 100%;
   --suggestion: 207 55% 68%;
+
+  --brand-blue: #00b5ff;
+  --brand-green: #22c55e;
+  --brand-orange: #f59e0b;
+  --brand-purple: #a78bfa;
+  --brand-red: #ef4444;
+  --brand-teal: #48ffe4;
 
   --border: 0 0% 24%;
   --input: 0 0% 24%;
