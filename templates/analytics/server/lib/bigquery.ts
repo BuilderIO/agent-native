@@ -1858,10 +1858,11 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     // Its admission records whose credentials send it, read with the token
     // itself, so only that principal's listing can later prove it absent.
     let principal: string | null = null;
+    const accessOptions = signal ? { signal } : {};
     if (agentGate) {
-      ({ token, principal } = await getBigQueryAccess({ signal }));
+      ({ token, principal } = await getBigQueryAccess(accessOptions));
     } else {
-      token = await getBigQueryAccessToken({ signal });
+      token = await getBigQueryAccessToken(accessOptions);
     }
     assertDateUnchanged();
     const credentialContext = requireRequestCredentialContext(

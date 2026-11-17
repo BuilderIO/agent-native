@@ -1428,11 +1428,13 @@ export async function verifyPanelWrite(
   );
   const verify = () =>
     verifyDashboardPanels(next, [...direct, ...affected, ...visualIds], {
-      signal: options.signal,
+      ...(options.signal ? { signal: options.signal } : {}),
       ...(options.dashboardId ? { dashboardId: options.dashboardId } : {}),
       base,
-      memo: options.memo,
-      serverAuthoredPanelIds: options.serverAuthoredPanelIds,
+      ...(options.memo ? { memo: options.memo } : {}),
+      ...(options.serverAuthoredPanelIds
+        ? { serverAuthoredPanelIds: options.serverAuthoredPanelIds }
+        : {}),
     });
   const verification = await (
     budget ? withOutsideAgentBigQueryGate(budget.gate, verify) : verify()
