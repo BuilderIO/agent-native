@@ -4022,8 +4022,15 @@ export async function getRunStatus(runId: string): Promise<string | null> {
 
 const RECOVERABLE_ABORT_REASONS = new Set(["background_worker_died"]);
 
+/** What a user's Stop request reports about the run it stops. */
+export interface UserStopOptions {
+  /** The last event of the run the user's browser had shown. */
+  shownThroughSeq?: number;
+}
+
 export function terminalEventForAbortReason(
   reason: string | undefined,
+  stop?: UserStopOptions,
 ): AgentChatEvent {
   const normalized = (reason ?? "").trim() || "user";
   if (isContinuationTerminalReason(normalized)) {
@@ -4033,9 +4040,13 @@ export function terminalEventForAbortReason(
     };
   }
   if (isRequestedStopAbortReason(normalized)) {
+    if (normalized === "displaced") return { type: "done" };
     return {
       type: "done",
-      ...(normalized !== "displaced" ? { reason: "user" } : {}),
+      reason: "user",
+      ...(stop?.shownThroughSeq !== undefined
+        ? { shownThroughSeq: stop.shownThroughSeq }
+        : {}),
     };
   }
   return {
@@ -4049,22 +4060,25 @@ export function terminalEventForAbortReason(
 export async function markRunAborted(
   runId: string,
   reason?: string,
+  stop?: UserStopOptions,
 ): Promise<boolean> {
-  return updateRunAborted(runId, reason, false);
+  return updateRunAborted(runId, reason, false, stop);
 }
 
 /** Abort only when no model or tool work has crossed its dispatch boundary. */
 export async function markRunAbortedAtSafeBoundary(
   runId: string,
   reason?: string,
+  stop?: UserStopOptions,
 ): Promise<boolean> {
-  return updateRunAborted(runId, reason, true);
+  return updateRunAborted(runId, reason, true, stop);
 }
 
 async function updateRunAborted(
   runId: string,
   reason: string | undefined,
   requireSafeBoundary: boolean,
+  stop?: UserStopOptions,
 ): Promise<boolean> {
   await ensureRunTables();
   const fence = currentExecutionFenceForScope({ runId });
@@ -4072,10 +4086,10 @@ async function updateRunAborted(
   if (!client.transaction) {
     throw new Error("Atomic run cancellation requires transaction support");
   }
-  const abortEvent = terminalEventForAbortReason(reason) as unknown as Record<
-    string,
-    unknown
-  >;
+  const abortEvent = terminalEventForAbortReason(
+    reason,
+    stop,
+  ) as unknown as Record<string, unknown>;
   const commitAbort = async (tx: DbExec) => {
     await lockExecutionLeasesForRuns(tx, [runId]);
     await lockAndAssertCurrentExecutionFences(tx);

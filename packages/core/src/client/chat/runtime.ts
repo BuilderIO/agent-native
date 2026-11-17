@@ -1271,6 +1271,10 @@ async function* streamResponseEvents<TEvent extends AgentChatRuntimeEventBase>(
         runId?: string;
       },
     ) => TEvent | readonly TEvent[] | null;
+    /** Once aborted, events already read from the stream aren't handed on. */
+    signal?: AbortSignal;
+    /** Called with each server event's sequence number before it is handed on. */
+    onEventSeq?: (seq: number) => void;
   },
 ): AsyncGenerator<TEvent> {
   const context = {
@@ -1281,7 +1285,13 @@ async function* streamResponseEvents<TEvent extends AgentChatRuntimeEventBase>(
   const contentType = response.headers.get("content-type") ?? "";
   if (response.body && !contentType.includes("application/json")) {
     for await (const raw of readJsonEventStream(response.body)) {
+      if (input.signal?.aborted) return;
+      const seq = asRecord(raw)?.seq;
+      if (typeof seq === "number" && Number.isSafeInteger(seq) && seq >= 0) {
+        input.onEventSeq?.(seq);
+      }
       for (const event of normalizeMappedEvents(input.mapEvent(raw, context))) {
+        if (input.signal?.aborted) return;
         yield event;
       }
     }
@@ -1708,6 +1718,9 @@ export function createHttpAgentChatRuntime<
       } catch {
         // coercion-ok: an observer of a started turn must not stop it.
       }
+      // The last event of the run this browser has been handed, so a Stop can
+      // tell the server where the reply it shows ends.
+      let shownThroughSeq: number | undefined;
       const events = (async function* () {
         let retryableFailure = false;
         try {
@@ -1716,6 +1729,10 @@ export function createHttpAgentChatRuntime<
             turnId,
             runId,
             mapEvent,
+            signal: controller.signal,
+            onEventSeq: (seq) => {
+              shownThroughSeq = seq;
+            },
           })) {
             if (event.type === "error") {
               retryableFailure = isRetryableRuntimeFailure(event);
@@ -1748,6 +1765,7 @@ export function createHttpAgentChatRuntime<
         events,
         closeEvents,
         cancel: async (cancelInput) => {
+          const shownThrough = shownThroughSeq;
           closeEvents();
           if (!options.cancelEndpoint) return { status: "cancelled" };
           const endpoint =
@@ -1777,6 +1795,9 @@ export function createHttpAgentChatRuntime<
               runId,
               reason: cancelInput?.reason ?? "user",
               metadata: cancelInput?.metadata,
+              ...(shownThrough !== undefined
+                ? { shownThroughSeq: shownThrough }
+                : {}),
             }),
             signal: cancelInput?.abortSignal,
           });

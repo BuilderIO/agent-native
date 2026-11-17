@@ -180,6 +180,7 @@ function startStoppableRun(input: {
  */
 async function stopOnAnotherServer(
   input: Parameters<typeof startStoppableRun>[0],
+  shownThrough?: (run: ActiveRun) => number,
 ) {
   const abortChecked = new Promise<void>((resolve) => {
     batchHarness.abortStateRead = { runId: input.runId, read: resolve };
@@ -189,9 +190,31 @@ async function stopOnAnotherServer(
   await abortChecked;
   batchHarness.abortStateRead = null;
 
-  expect(await markRunAborted(input.runId, "user")).toBe(true);
+  expect(
+    await markRunAborted(
+      input.runId,
+      "user",
+      shownThrough ? { shownThroughSeq: shownThrough(started.run) } : undefined,
+    ),
+  ).toBe(true);
   await started.run.finalized;
   return started;
+}
+
+/** The sequence number of the event that streamed `text`. */
+function seqOfText(run: ActiveRun, text: string): number {
+  const found = run.events.find(
+    ({ event }) => event.type === "text" && event.text === text,
+  );
+  if (!found) throw new Error(`The run streamed no "${text}"`);
+  return found.seq;
+}
+
+function savedText(reply: { content: { type: string; text?: string }[] }) {
+  return reply.content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("");
 }
 
 describe("a stopped leased run's completion", () => {
@@ -244,6 +267,45 @@ describe("a stopped leased run's completion", () => {
         .map((part: { text: string }) => part.text)
         .join(""),
     ).toContain("Rain taps softly on the slow br");
+  });
+
+  it("saves the reply only up to what the user's browser showed at Stop", async () => {
+    const runId = "run-user-stop-shown-through";
+    const { run, ready, completion } = startStoppableRun({
+      runId,
+      threadId: "thread-user-stop-shown-through",
+      text: "1. Tides turn. 2. Moons pull. 3. Reefs",
+    });
+    await ready;
+
+    await abortRunAndTurnDurably(runId, "user", {
+      shownThroughSeq: seqOfText(run, "pull. "),
+    });
+    await run.finalized;
+
+    expect(completion.error).toBeUndefined();
+    const reply = JSON.parse((await savedReply(runId)) ?? "null");
+    expect(reply).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: { runId, custom: { userStopped: true } },
+    });
+    expect(savedText(reply).trim()).toBe("1. Tides turn. 2. Moons pull.");
+  });
+
+  it("saves the reply only up to what the browser showed when another server handles the Stop", async () => {
+    const runId = "run-user-stop-other-server-shown-through";
+    const { completion } = await stopOnAnotherServer(
+      {
+        runId,
+        threadId: "thread-user-stop-other-server-shown-through",
+        text: "1. Tides turn. 2. Moons pull. 3. Reefs",
+      },
+      (run) => seqOfText(run, "turn. "),
+    );
+
+    expect(completion.error).toBeUndefined();
+    const reply = JSON.parse((await savedReply(runId)) ?? "null");
+    expect(savedText(reply).trim()).toBe("1. Tides turn.");
   });
 
   it("leaves a run another server stopped for the projection retry when its save fails", async () => {

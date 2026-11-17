@@ -5373,6 +5373,66 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it("makes a second Stop wait until the first has stopped the run", async () => {
+    const streamClosed = Promise.withResolvers<void>();
+    const cancelSettled = Promise.withResolvers<void>();
+    async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "status", message: "Working" };
+      await streamClosed.promise;
+    }
+    const cancel = vi.fn(async () => {
+      streamClosed.resolve();
+      await cancelSettled.promise;
+      return { status: "cancelled" as const };
+    });
+    const runtime = createRuntime(activeEvents);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: activeEvents(),
+        cancel,
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Copy the slides")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    const drained = (async () => {
+      while (!(await iterator.next()).done) {
+        // Read the run to its end.
+      }
+    })();
+
+    const first = transport.cancelRun({ threadId: "thread-1", runId });
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    let secondReturned = false;
+    const second = transport
+      .cancelRun({ threadId: "thread-1", runId })
+      .then(() => {
+        secondReturned = true;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(secondReturned).toBe(false);
+
+    cancelSettled.resolve();
+    await Promise.all([first, second]);
+    await drained;
+
+    expect(cancel).toHaveBeenCalledOnce();
+    await expect(
+      transport.getRun?.({ threadId: "thread-1", runId }),
+    ).resolves.toMatchObject({ status: "cancelled" });
+    await transport.dispose();
+  });
+
   it("keeps the text a run streamed before the server stopped it", async () => {
     const stopSent = Promise.withResolvers<void>();
     const trailingArrived = Promise.withResolvers<void>();

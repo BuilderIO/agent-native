@@ -3,4 +3,4 @@
 "@agent-native/agentkit": patch
 ---
 
-Keep a stopped chat reply's text the same live and after reload: the browser keeps what the server streamed before the stop and saves its copy, and a run whose Stop reached another server still saves its reply.
+Keep a stopped chat reply's text the same live and after reload: Stop tells the server the last part of the reply the browser showed, the server saves the reply only up to there, and a run whose Stop reached another server still saves its reply.

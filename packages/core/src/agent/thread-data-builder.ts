@@ -241,6 +241,41 @@ export function containsInlineAttachmentPayload(value: unknown): boolean {
   return visit(value);
 }
 
+/**
+ * The last event a user's browser had shown when they pressed Stop, as their
+ * Stop request reported it. A stopped reply keeps none of the prose streamed
+ * after it, so a reload ends where the live view did. Tool calls and results
+ * stay: their effects happened either way.
+ */
+export function userStopShownThroughSeq(
+  events: Iterable<RunEvent>,
+): number | undefined {
+  for (const { event } of events) {
+    if (
+      event.type === "done" &&
+      event.reason === "user" &&
+      typeof event.shownThroughSeq === "number"
+    ) {
+      return event.shownThroughSeq;
+    }
+  }
+  return undefined;
+}
+
+/** Prose a stopped reply leaves out because its user never saw it. */
+export function isStreamedAfterStop(
+  { seq, event }: RunEvent,
+  shownThroughSeq: number | undefined,
+): boolean {
+  return (
+    shownThroughSeq !== undefined &&
+    seq > shownThroughSeq &&
+    (event.type === "text" ||
+      event.type === "thinking" ||
+      event.type === "clear")
+  );
+}
+
 function isInternalContinuationError(event: {
   error: string;
   errorCode?: string;
@@ -350,8 +385,11 @@ export function buildAssistantMessage(
   ) {
     lastNonClearIndex -= 1;
   }
+  const shownThroughSeq = userStopShownThroughSeq(events);
 
-  for (const [index, { event }] of events.entries()) {
+  for (const [index, runEvent] of events.entries()) {
+    const { event } = runEvent;
+    if (isStreamedAfterStop(runEvent, shownThroughSeq)) continue;
     if (event.type === "clear") {
       if (index > lastNonClearIndex) continue;
       clearAssistantDraftContent(content, event.allText === true);
@@ -715,10 +753,18 @@ export interface SteeredRunSegment {
  * written after it. A run without one is exactly `buildAssistantMessage`.
  */
 export function buildAssistantTurnSegments(
-  events: RunEvent[],
+  runEvents: RunEvent[],
   runId?: string,
   options: BuildAssistantMessageOptions = {},
 ): { assistant: AssistantMessage | null; steered: SteeredRunSegment[] } {
+  // Only the last segment holds the Stop, so its cutoff is applied here to all.
+  const shownThroughSeq = userStopShownThroughSeq(runEvents);
+  const events =
+    shownThroughSeq === undefined
+      ? runEvents
+      : runEvents.filter(
+          (entry) => !isStreamedAfterStop(entry, shownThroughSeq),
+        );
   const boundaries = events.flatMap((entry, index) =>
     entry.event.type === "user_message" ? [{ index, event: entry.event }] : [],
   );

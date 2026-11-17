@@ -192,6 +192,8 @@ interface ProtocolRun {
   pipeClosedBeforeTerminal?: boolean;
   /** A Stop in flight saw the stream end or reach how the run ends. */
   cancelStreamDrained?: boolean;
+  /** The Stop in flight; a second Stop waits on it rather than returning early. */
+  pendingCancellation?: Promise<void>;
   /** A restored decline must verify its request against the replayed stream. */
   requiresRestoredConnectionRequestReplay?: boolean;
   outcomeReported?: boolean;
@@ -4253,38 +4255,52 @@ export function createAgentKitProtocolAdapter(
         run = await restoreRunFromRuntime(input);
       }
       touchRun(run);
-      if (isRunTerminal(run) || run.phase.type === "cancelling") return;
+      if (isRunTerminal(run)) return;
+      if (run.pendingCancellation) return run.pendingCancellation;
+      const stopping = run;
       // "user" is the server's turn-wide stop: it also stops any successor
       // run the turn would otherwise hand off to.
-      const cancellation = cancelCoreTurn(run, "user");
+      const cancellation = cancelCoreTurn(stopping, "user");
       // Keep readers attached until the cancellation has produced its events.
-      run.cancelStreamDrained = false;
-      run.phase = transition(run.phase, { type: "cancelStarted" });
-      try {
-        let result;
+      stopping.cancelStreamDrained = false;
+      stopping.phase = transition(stopping.phase, { type: "cancelStarted" });
+      const pending = (async () => {
         try {
-          result = await cancellation;
-        } catch (error) {
-          run.phase = transition(run.phase, { type: "cancelFailed" });
-          throw error;
+          let result;
+          try {
+            result = await cancellation;
+          } catch (error) {
+            stopping.phase = transition(stopping.phase, {
+              type: "cancelFailed",
+            });
+            throw error;
+          }
+          if (result.status === "unsupported") {
+            stopping.phase = transition(stopping.phase, {
+              type: "cancelFailed",
+            });
+            throw new Error(
+              "The Core runtime does not support run cancellation.",
+            );
+          }
+          if (stopping.phase.type === "disposed") return;
+          await waitForCancelStreamDrain(stopping);
+          if (isRunPhase(stopping, "disposed")) return;
+          delete stopping.pendingApprovalId;
+          stopping.terminalSource = "local";
+          stopping.phase = transition(stopping.phase, {
+            type: "cancelSucceeded",
+          });
+          append(stopping, { type: "run.status", status: "cancelled" });
+          append(stopping, { type: "run.cancelled" });
+        } finally {
+          // Runs after the assignment below: the body awaits before it ends.
+          delete stopping.pendingCancellation;
+          for (const listener of stopping.listeners) listener();
         }
-        if (result.status === "unsupported") {
-          run.phase = transition(run.phase, { type: "cancelFailed" });
-          throw new Error(
-            "The Core runtime does not support run cancellation.",
-          );
-        }
-        if (run.phase.type === "disposed") return;
-        await waitForCancelStreamDrain(run);
-        if (isRunPhase(run, "disposed")) return;
-        delete run.pendingApprovalId;
-        run.terminalSource = "local";
-        run.phase = transition(run.phase, { type: "cancelSucceeded" });
-        append(run, { type: "run.status", status: "cancelled" });
-        append(run, { type: "run.cancelled" });
-      } finally {
-        for (const listener of run.listeners) listener();
-      }
+      })();
+      stopping.pendingCancellation = pending;
+      return pending;
     },
     async dispose() {
       if (disposed) return;

@@ -302,6 +302,7 @@ import {
   resolveCompletedRunRetentionMs,
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
+  readAbortStateBeforeDeadline,
   replayCompletedTurn,
   nextSqlSubscriptionEmptyPolls,
   resolveSqlSubscriptionPollMs,
@@ -11208,5 +11209,48 @@ describe("engineRequestShapeTags", () => {
 
   it("emits nothing when the failure happened before a request was built", () => {
     expect(engineRequestShapeTags(undefined)).toEqual({});
+  });
+});
+
+describe("readAbortStateBeforeDeadline", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("retries a failed read until one succeeds", async () => {
+    const read = vi
+      .fn<() => Promise<{ aborted: boolean }>>()
+      .mockRejectedValueOnce(new Error("connection reset"))
+      .mockResolvedValueOnce({ aborted: true });
+
+    await expect(readAbortStateBeforeDeadline(read, 2_000)).resolves.toEqual({
+      aborted: true,
+    });
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up on a read still pending at the deadline", async () => {
+    vi.useFakeTimers();
+    const result = readAbortStateBeforeDeadline(
+      () => new Promise<{ aborted: boolean }>(() => {}),
+      2_000,
+    );
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await expect(result).resolves.toBeNull();
+  });
+
+  it("gives up when every read fails until the deadline", async () => {
+    vi.useFakeTimers();
+    const read = vi
+      .fn<() => Promise<{ aborted: boolean }>>()
+      .mockRejectedValue(new Error("database unavailable"));
+    const result = readAbortStateBeforeDeadline(read, 1_000);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(result).resolves.toBeNull();
+    expect(read.mock.calls.length).toBeGreaterThan(1);
   });
 });

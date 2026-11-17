@@ -567,6 +567,11 @@ type AgentChatEventPayload =
       type: "done";
       reason?: "user" | "loop_breaker" | "action_settled";
       message?: string;
+      /**
+       * On a user's Stop: the last event of the run their browser had shown.
+       * The saved reply keeps no text or reasoning written after it.
+       */
+      shownThroughSeq?: number;
     }
   | {
       type: "error";
