@@ -107,22 +107,16 @@ function laterApprovalOnTask(
 
 // Another call on the task that is working means the task is being resumed,
 // from this tab or another one, and Continue would only resume it twice. A
-// call names its task only once it ends, so a working call to the same peer
-// with no task yet counts too. A run that stopped can leave its call marked
-// working, so this holds only while the chat has a run going.
+// resume names its task from its first event. A run that stopped can leave its
+// call marked working, so this holds only while the chat has a run going.
 function resumeRunning(
   thread: AgentThread,
-  approval: AgentCallApprovalWidgetData,
+  calls: readonly AgentParticipant[],
+  callId: string,
 ): boolean {
   return (
     thread.activeRunIds.length > 0 &&
-    Object.values(thread.agents).some(
-      (call) =>
-        call.id !== approval.callId &&
-        call.status === "working" &&
-        (call.activeTaskId === approval.taskId ||
-          (call.activeTaskId === undefined && call.name === approval.agent)),
-    )
+    calls.some((call) => call.id !== callId && call.status === "working")
   );
 }
 
@@ -148,7 +142,7 @@ export function AgentKitAgentCallApproval({
   if (
     calls.some((call) => call.status === "completed") ||
     laterApprovalOnTask(thread, widget.id, approval.taskId) ||
-    resumeRunning(thread, approval)
+    resumeRunning(thread, calls, approval.callId)
   ) {
     return null;
   }

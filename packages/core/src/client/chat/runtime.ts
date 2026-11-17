@@ -3829,6 +3829,8 @@ interface AgentNativeMessageProjectionState {
     activityParticipants?: Set<string>;
     /** Text each delegated call has streamed and not yet sent. */
     agentCallText?: Map<string, HeldAgentCallText>;
+    /** The task each delegated call named, so a progress event keeps it. */
+    agentCallTasks?: Map<string, string>;
     /** Background tasks by id, so a progress event keeps the task's name. */
     backgroundTasks?: Map<string, AgentChatRuntimeTask>;
     /** Ids given to tool input that streamed without one, by tool name. */
@@ -4321,6 +4323,7 @@ function mapAgentNativeEvent(
       omitFromPersistedHistory?: boolean;
       activityParticipants?: Set<string>;
       agentCallText?: Map<string, HeldAgentCallText>;
+      agentCallTasks?: Map<string, string>;
       backgroundTasks?: Map<string, AgentChatRuntimeTask>;
       pendingToolInputIds?: Map<string, string>;
     };
@@ -4762,6 +4765,12 @@ function mapAgentNativeEvent(
   if (ev.type === "agent_call") {
     const agent = ev.agent ?? "agent";
     const participantId = agentNativeParticipantId(ev);
+    if (ev.taskId) {
+      (input.message.agentCallTasks ??= new Map()).set(
+        participantId,
+        ev.taskId,
+      );
+    }
     const participantStatus = agentNativeParticipantStatus(ev.status);
     const taskStatus = agentNativeTaskStatus(ev.status);
     const participant: AgentChatRuntimeParticipant = {
@@ -4865,6 +4874,9 @@ function mapAgentNativeEvent(
   if (ev.type === "agent_call_progress") {
     const agent = ev.agent ?? "agent";
     const participantId = agentNativeParticipantId(ev);
+    // An update replaces the participant, so it repeats the call's task; an
+    // approval card goes by it to tell its own task is being resumed.
+    const activeTaskId = input.message.agentCallTasks?.get(participantId);
     return [
       {
         type: "participant",
@@ -4875,6 +4887,7 @@ function mapAgentNativeEvent(
           name: agent,
           kind: "delegated-agent",
           status: "working",
+          ...(activeTaskId ? { activeTaskId } : {}),
           origin: agentNativeAgentReference(agent),
         },
       },

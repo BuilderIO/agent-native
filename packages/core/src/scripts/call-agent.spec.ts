@@ -1399,6 +1399,26 @@ describe("call-agent action", () => {
       expect(pending).not.toHaveProperty("approval");
     });
 
+    it("names the resumed task on the call's first event", async () => {
+      // An approval card hides while its own task is resumed.
+      callAgentMock.mockResolvedValueOnce("Deleted the deck.");
+      const { run } = await import("./call-agent.js");
+      const send = vi.fn();
+
+      await run({ agent: "slides", taskId: "task-child" }, {
+        send,
+        blockedA2ATargets: new Map(),
+      } as any);
+
+      expect(
+        send.mock.calls
+          .map(([event]) => event)
+          .find(
+            (event) => event.type === "agent_call" && event.status === "start",
+          ),
+      ).toMatchObject({ taskId: "task-child" });
+    });
+
     it("types a connection request in telemetry", async () => {
       const tracked: TrackingEvent[] = [];
       registerTrackingProvider({

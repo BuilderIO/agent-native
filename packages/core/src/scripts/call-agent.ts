@@ -1231,11 +1231,14 @@ export async function run(
         return existingContinuationText;
       }
 
+      // A resume names its task from the start, so the chat can tell which
+      // paused task is running again before the call ends.
       context.send({
         type: "agent_call",
         agent: agent.name,
         status: "start",
         agentCallId,
+        ...(taskId ? { taskId } : {}),
       });
 
       const emitNewText = (newText: string) => {

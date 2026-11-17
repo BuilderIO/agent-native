@@ -358,23 +358,12 @@ describe("AgentKitAgentCallApproval", () => {
       expect(container.textContent).toBe("");
     });
 
-    it("hides before the resumed call has named its task", async () => {
-      // A call's start and progress events carry no task ID.
+    it("still shows while a new request to the same app runs", async () => {
+      // A new request names no task until it ends; a resume names its own.
       await renderCard(
         await runGoing([
           waiting("call-1"),
           { id: "call-2", name: "Slides", status: "working" },
-        ]),
-      );
-
-      expect(container.textContent).toBe("");
-    });
-
-    it("still shows while a call to another app runs", async () => {
-      await renderCard(
-        await runGoing([
-          waiting("call-1"),
-          { id: "call-2", name: "Mail", status: "working" },
         ]),
       );
 

@@ -5388,6 +5388,12 @@ describe("createAgentNativeChatRuntime", () => {
         activeTaskId: "remote-task-1",
       },
     });
+    // Progress replaces the participant, so it keeps the task the call named.
+    expect(events[3]).toMatchObject({
+      type: "participant",
+      operation: "update",
+      participant: { status: "working", activeTaskId: "remote-task-1" },
+    });
     expect(events[4]).toMatchObject({
       type: "activity",
       activity: {
