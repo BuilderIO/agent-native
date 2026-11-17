@@ -5056,10 +5056,15 @@ export class AgentKitClient implements AgentKitController {
       this.transport.cancelRun({ threadId, runId }, context),
     );
     this.assertActive();
-    const status = this.getThread(threadId).runs[runId]?.status;
-    if (status && this.isTerminalStatus(status)) return;
-    this.markRunCancelled(threadId, runId);
     const key = this.runKey(threadId, runId);
+    const status = this.getThread(threadId).runs[runId]?.status;
+    if (status && this.isTerminalStatus(status)) {
+      // The consumer that applied the run's end is saving the thread; the
+      // Stop resolves once that save has.
+      await this.consumers.get(key)?.catch(() => undefined);
+      return;
+    }
+    this.markRunCancelled(threadId, runId);
     const hasOtherConsumers = [...this.consumers.keys()].some(
       (candidate) => candidate !== key,
     );
