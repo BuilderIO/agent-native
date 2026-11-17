@@ -297,7 +297,7 @@ describe("buildReviewThreadAgentContext", () => {
             id: `comment-reply-${index}`,
             parentCommentId: "comment-root",
             authorName: "Alex",
-            body: replyBody,
+            body: `${index}: ${replyBody}`,
           }),
         ),
       );
@@ -308,6 +308,11 @@ describe("buildReviewThreadAgentContext", () => {
       expect(comments[0]?.body).toBe(rootBody.slice(0, 2_000));
       expect(comments.slice(1).every((record) => record.role === "reply")).toBe(
         true,
+      );
+      expect(comments.slice(1).map((record) => record.body)).toEqual(
+        Array.from({ length: replies }, (_, index) =>
+          `${replyCount - replies + index}: ${replyBody}`.slice(0, 2_000),
+        ),
       );
       if (truncated) {
         expect(records[records.length - 1]).toEqual({ truncated: true });

@@ -53,9 +53,7 @@ export function buildReviewThreadAgentContext({
 }): string {
   const comments = [
     fenceComment("root", root),
-    ...replies
-      .slice(0, MAX_REPLIES)
-      .map((reply) => fenceComment("reply", reply)),
+    ...replies.slice(-MAX_REPLIES).map((reply) => fenceComment("reply", reply)),
   ];
   const truncated =
     replies.length > MAX_REPLIES ||
