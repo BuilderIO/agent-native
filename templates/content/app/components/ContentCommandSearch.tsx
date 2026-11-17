@@ -338,7 +338,8 @@ export interface SearchEditor {
   name: string | null;
 }
 
-const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+$/;
+// A half-typed address such as "bo@ex" isn't offered until it has a dot.
+const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
 
 /**
  * Picks who last edited the pages a search returns: anyone, the signed-in

@@ -109,6 +109,50 @@ describe("useShareOrgMemberSearch", () => {
       { headers: { "content-type": "application/json" } },
     );
 
+  it("loads more for a new search while a page for the old one was still loading", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const fetchMock = vi
+      .fn<(input: string) => Promise<Response>>()
+      .mockResolvedValueOnce(page(["ana@example.com"], 1))
+      .mockReturnValueOnce(new Promise<Response>(() => {}))
+      .mockResolvedValueOnce(page(["bo@example.com"], 1))
+      .mockResolvedValueOnce(page(["bea@example.com"], null));
+    vi.stubGlobal("fetch", fetchMock);
+    let search: ShareOrgMemberSearchResult | undefined;
+    function Probe({ query }: { query: string }) {
+      search = useShareOrgMemberSearch(query, true, {
+        limit: 1,
+        debounceMs: 0,
+      });
+      return null;
+    }
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    const mounted = createRoot(container);
+    root = mounted;
+    await act(async () => mounted.render(createElement(Probe, { query: "" })));
+    const current = () => {
+      if (!search) throw new Error("Hook didn't render");
+      return search;
+    };
+
+    // The next page for "" never answers before the search changes.
+    await act(async () => current().loadMore());
+    expect(current().isLoadingMore).toBe(true);
+    await act(async () => mounted.render(createElement(Probe, { query: "b" })));
+    expect(current().isLoadingMore).toBe(false);
+    expect(current().members.map((member) => member.email)).toEqual([
+      "bo@example.com",
+    ]);
+
+    await act(async () => current().loadMore());
+    expect(fetchMock.mock.calls[3]?.[0]).toContain("search=b");
+    expect(current().members.map((member) => member.email)).toEqual([
+      "bo@example.com",
+      "bea@example.com",
+    ]);
+  });
+
   it("lets a later page that failed be loaded again", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const fetchMock = vi

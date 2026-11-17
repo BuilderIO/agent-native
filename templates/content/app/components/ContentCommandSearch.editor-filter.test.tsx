@@ -186,6 +186,9 @@ describe("EditorSearchChoice", () => {
     );
     expect(pickerDialog().textContent).not.toContain("root.searchNoPeople");
 
+    await typePeopleSearch("sam@example");
+    expect(optionTexts()).toEqual([]);
+
     await typePeopleSearch("sam@example.com");
     expect(optionTexts()).toEqual(["sam@example.com"]);
     const typedEmail =
