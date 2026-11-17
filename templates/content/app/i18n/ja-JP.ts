@@ -1987,6 +1987,8 @@ const overrides = {
     aiOpenConversation: "AI 会話を開く",
     aiConversationPrefill: "このコメントの会話を続ける…",
     aiConversationUnavailable: "この AI 会話は利用できません。",
+    aiRequestsUnavailable:
+      "AI リクエストの状態を確認できません。送信前にもう一度お試しください。",
     aiFollowUpYou: "あなた",
     aiFollowUpIncomplete: "この返信は完了前に終了しました。",
     aiRequestCouldNotBeConfirmed: "AI リクエストを確認できませんでした",

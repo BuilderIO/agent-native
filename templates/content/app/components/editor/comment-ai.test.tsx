@@ -273,6 +273,57 @@ describe("comment AI controls", () => {
     expect(active.status).toBe("running");
   });
 
+  it("monitors and offers Stop for an active request whose scope is unavailable", async () => {
+    api.requests = [
+      request({
+        status: "running",
+        scopeUnavailable: true,
+        error: null,
+        agentThreadId: "agent-thread-1",
+        agentTurnId: "turn-1",
+      }),
+    ];
+    api.getBackgroundAgentSessionStatus.mockResolvedValue({
+      status: "completed",
+      runId: "run-1",
+      operationId: "request-1",
+      threadId: "agent-thread-1",
+      turnId: "turn-1",
+    });
+    function Probe() {
+      const controller = useCommentAiRequests("document-1", { enabled: true });
+      const current = controller.requests[0]!;
+      return createElement(CommentAiRequestStatus, {
+        request: current,
+        onRetry: () => controller.retry(current),
+        onStop: () => controller.stop(current),
+      });
+    }
+    await act(async () => {
+      root.render(createElement(Probe));
+    });
+    expect(api.callAction).toHaveBeenCalledWith(
+      "reconcile-comment-ai-session",
+      expect.objectContaining({
+        operationId: "request-1",
+        status: "completed",
+        runId: "run-1",
+      }),
+    );
+    const stop = [
+      ...document.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent === "comments.aiStop");
+    expect(stop).toBeDefined();
+    await act(async () => {
+      stop!.click();
+    });
+    expect(api.cancelBackgroundAgentSession).toHaveBeenCalledWith({
+      threadId: "agent-thread-1",
+      turnId: "turn-1",
+      reason: "user",
+    });
+  });
+
   it("shows actionable errors and retries with the same request id", async () => {
     const failed = request();
     const onRetry = vi.fn().mockResolvedValue(undefined);

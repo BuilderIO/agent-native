@@ -1,19 +1,38 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { loadCommentAiConversation, parseCommentAiConversation } from "./comment-ai-client";
+import {
+  loadCommentAiConversation,
+  parseCommentAiConversation,
+} from "./comment-ai-client";
 
 const action = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/client/hooks", () => ({ callAction: action }));
 
 describe("protected conversation loading", () => {
   it("requires history evidence from the authorized action and rejects a lost submitted transcript", async () => {
-    const options = { operationId: "request", agentThreadId: "thread", initialTurnId: "" };
-    action.mockResolvedValueOnce({ threadData: "{}", receiptTurnIds: [], historyExpected: false });
+    const options = {
+      operationId: "request",
+      agentThreadId: "thread",
+      initialTurnId: "",
+    };
+    action.mockResolvedValueOnce({
+      threadData: "{}",
+      receiptTurnIds: [],
+      historyExpected: false,
+    });
     await expect(loadCommentAiConversation(options)).resolves.toEqual([]);
-    action.mockResolvedValueOnce({ threadData: "{}", receiptTurnIds: [], historyExpected: true });
-    await expect(loadCommentAiConversation(options)).rejects.toThrow("could not be read");
+    action.mockResolvedValueOnce({
+      threadData: "{}",
+      receiptTurnIds: [],
+      historyExpected: true,
+    });
+    await expect(loadCommentAiConversation(options)).rejects.toThrow(
+      "could not be read",
+    );
     action.mockResolvedValueOnce({ threadData: "{}", receiptTurnIds: [] });
-    await expect(loadCommentAiConversation(options)).rejects.toThrow("could not be read");
+    await expect(loadCommentAiConversation(options)).rejects.toThrow(
+      "could not be read",
+    );
   });
 });
 
@@ -203,10 +222,18 @@ describe("parseCommentAiConversation", () => {
 
   it("accepts an empty fresh thread but rejects missing established history", () => {
     expect(parseCommentAiConversation("{}", "")).toEqual([]);
-    expect(() => parseCommentAiConversation("{}", "initial")).toThrow("could not be read");
-    expect(() => parseCommentAiConversation("{}", "", ["receipted-turn"])).toThrow("could not be read");
-    expect(() => parseCommentAiConversation("{}", "", [], true)).toThrow("could not be read");
-    expect(() => parseCommentAiConversation('{"messages":[]}', "", [], true)).toThrow("could not be read");
+    expect(() => parseCommentAiConversation("{}", "initial")).toThrow(
+      "could not be read",
+    );
+    expect(() =>
+      parseCommentAiConversation("{}", "", ["receipted-turn"]),
+    ).toThrow("could not be read");
+    expect(() => parseCommentAiConversation("{}", "", [], true)).toThrow(
+      "could not be read",
+    );
+    expect(() =>
+      parseCommentAiConversation('{"messages":[]}', "", [], true),
+    ).toThrow("could not be read");
   });
 
   it("fails loudly when persisted thread data is unreadable", () => {

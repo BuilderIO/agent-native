@@ -4148,7 +4148,12 @@ export function CommentsSidebar({
         {commentAi?.listUnavailable ? (
           <div role="alert" className="px-4 py-2 text-xs text-destructive">
             {t("comments.aiRequestsUnavailable")}{" "}
-            <button type="button" onClick={() => void commentAi.reloadRequests?.()}>{t("comments.retry")}</button>
+            <button
+              type="button"
+              onClick={() => void commentAi.reloadRequests?.()}
+            >
+              {t("comments.retry")}
+            </button>
           </div>
         ) : null}
         {composer}

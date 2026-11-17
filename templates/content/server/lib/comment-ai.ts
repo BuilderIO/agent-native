@@ -7,7 +7,6 @@ import {
   getRequestOrgId,
   getRequestRunContext,
   getRequestUserEmail,
-  getRunStatus,
   getThread,
 } from "@agent-native/core/server";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
@@ -19,9 +18,7 @@ import {
   eq,
   inArray,
   isNull,
-  isNotNull,
   notInArray,
-  or,
   sql,
 } from "drizzle-orm";
 import { z } from "zod";
@@ -652,10 +649,7 @@ export async function getCommentAiConversation(requestId: string) {
         eq(schema.commentAiRequests.threadId, request.threadId),
         eq(schema.commentAiRequests.rootCommentId, request.rootCommentId),
         eq(schema.commentAiRequests.agentThreadId, request.agentThreadId ?? ""),
-        or(
-          inArray(schema.commentAiRequests.status, [...TERMINAL_SUCCESS]),
-          isNotNull(schema.commentAiRequests.runId),
-        ),
+        inArray(schema.commentAiRequests.status, [...TERMINAL_SUCCESS]),
       ),
     )
     .limit(1001);
@@ -675,17 +669,22 @@ export async function getCommentAiConversation(requestId: string) {
     const result = resultSchema.parse(JSON.parse(resultJson));
     return result.commentId || result.suggestionId ? [turnId] : [];
   });
-  let historyExpected = thread.messageCount > 0 || receipts.length > 0;
-  if (!historyExpected) {
-    // Initialize Core's run tables through its public API before the bounded
-    // existence check. The thread binding and current Page access were checked above.
-    await getRunStatus("");
-    const { rows } = await getDbExec().execute({
-      sql: "SELECT 1 FROM agent_runs WHERE thread_id = ? AND dispatch_mode IS DISTINCT FROM 'turn-abort' LIMIT 1",
-      args: [thread.id],
-    });
-    historyExpected = rows.length > 0;
+  // Core derives its public count from threadData, so an empty/corrupt blob can
+  // hide the separately persisted count. Read that count by the authorized ID.
+  const { rows } = await getDbExec().execute({
+    sql: "SELECT message_count FROM chat_threads WHERE id = ? LIMIT 1",
+    args: [thread.id],
+  });
+  const storedCount = Number(rows[0]?.message_count);
+  if (
+    rows[0]?.message_count == null ||
+    !Number.isSafeInteger(storedCount) ||
+    storedCount < 0
+  ) {
+    throw new Error("The AI conversation could not be read");
   }
+  const historyExpected =
+    storedCount > 0 || thread.messageCount > 0 || receipts.length > 0;
   return { threadData: thread.threadData, receiptTurnIds, historyExpected };
 }
 
@@ -2077,10 +2076,12 @@ export async function listCommentAiRequests(documentId: string) {
         error.errorCode !== "comment_ai_ancestry_limit"
       )
         throw error;
+      const serialized = serializeCommentAiRequest(row);
       requests.push({
-        ...serializeCommentAiRequest(row),
+        ...serialized,
         scopeUnavailable: true,
-        pendingSession: null,
+        pendingSession:
+          row.status === "classifying" ? serialized.pendingSession : null,
       });
     }
   }

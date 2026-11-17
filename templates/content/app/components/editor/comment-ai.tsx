@@ -861,7 +861,6 @@ export function useCommentAiRequests(
       const receipt = sessionReceipt(request);
       if (
         !ACTIVE_STATUSES.has(request.status) ||
-        request.scopeUnavailable ||
         !receipt ||
         monitoredRequestsRef.current.has(request.operationId)
       )
@@ -1274,8 +1273,7 @@ export function useCommentAiRequests(
       const request = serverRequests.find(
         (candidate) => candidate.operationId === operationId,
       );
-      if (request && !request.scopeUnavailable && !listUnavailable)
-        void monitorContinuation(request, continuation);
+      if (request) void monitorContinuation(request, continuation);
     }
   }, [continuations, monitorContinuation, serverRequests, listUnavailable]);
 
@@ -1624,8 +1622,23 @@ export function CommentAiRequestStatus({
   const t = useT();
   if (request.scopeUnavailable) {
     return (
-      <div role="alert" className="text-xs text-destructive">
-        {t("comments.aiConversationUnavailable")}
+      <div className="flex items-center gap-2">
+        <div role="alert" className="text-xs text-destructive">
+          {t("comments.aiConversationUnavailable")}
+        </div>
+        {ACTIVE_STATUSES.has(request.status) ||
+        continuation?.status === "queued" ||
+        continuation?.status === "running" ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={stopping}
+            onClick={() => void onStop()}
+          >
+            {t("comments.aiStop")}
+          </Button>
+        ) : null}
       </div>
     );
   }

@@ -561,7 +561,15 @@ describe("comment AI durable action binding", () => {
     });
     expect(await read()).toMatchObject({
       threadData: "{}",
-      historyExpected: true,
+      historyExpected: false,
+    });
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "failed", runId: "preparation-run" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    expect(await read()).toMatchObject({
+      threadData: "{}",
+      historyExpected: false,
     });
     await getDb()
       .update(schema.commentAiRequests)
@@ -577,12 +585,30 @@ describe("comment AI durable action binding", () => {
     });
     await getDb()
       .update(schema.commentAiRequests)
-      .set({ status: "failed", resultJson: null, runId: "submitted-run" })
+      .set({ status: "failed", resultJson: null, runId: "preparation-run" })
       .where(eq(schema.commentAiRequests.id, OP_A));
     expect(await read()).toMatchObject({
       threadData: "{}",
-      historyExpected: true,
+      historyExpected: false,
     });
+  });
+
+  it("uses Core's persisted message count as evidence of missing history", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(OP_A, ROOT_A),
+        agentThreadId: `agent-thread-${crypto.randomUUID()}`,
+      }),
+    );
+    await createThread(OWNER, {
+      id: requiredId(started.agentThreadId),
+      scope: started.backgroundSession.scope,
+      source: { appId: "content" },
+      initialData: { threadData: "{}", messageCount: 1, preview: "Submitted" },
+    });
+    expect(
+      await asUser(() => commentAi.getCommentAiConversation(OP_A)),
+    ).toMatchObject({ threadData: "{}", historyExpected: true });
   });
 
   it("lists the latest requests of a long continuation chain with bounded ancestry reads", async () => {

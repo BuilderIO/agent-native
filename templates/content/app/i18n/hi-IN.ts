@@ -1935,6 +1935,8 @@ const overrides = {
     aiOpenConversation: "AI बातचीत खोलें",
     aiConversationPrefill: "इस टिप्पणी की बातचीत जारी रखें…",
     aiConversationUnavailable: "यह AI बातचीत उपलब्ध नहीं है।",
+    aiRequestsUnavailable:
+      "AI अनुरोधों की स्थिति उपलब्ध नहीं है। भेजने से पहले फिर कोशिश करें।",
     aiFollowUpYou: "आप",
     aiFollowUpIncomplete: "यह जवाब पूरा होने से पहले समाप्त हो गया।",
     aiRequestCouldNotBeConfirmed: "AI अनुरोध की पुष्टि नहीं हो सकी",
