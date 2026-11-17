@@ -78,7 +78,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "6decfe1416df91435c67ba600996918dbca14bd9",
+    "syncCommit": "f1dd48f4684c197fd093f78a55db53cce5b80d23",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -148,7 +148,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "updateRunAborted",
-        "sha256": "3ce3470b98e68773f4f0638d921517a0df31c8632c35aaa27bdde09627aa8f84"
+        "sha256": "16c9b7bbad101afb547b6bb9447aab90931bfe94781caf5ad2057cc934f1efb1"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
