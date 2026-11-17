@@ -112,6 +112,7 @@ vi.mock("@/components/recorder/recorder-engine", () => ({
   RecorderEngine: class {
     acquire = acquireRecorder;
     cancel = cancelRecorder;
+    getState = vi.fn(() => "idle");
     getUploadAbortFence = vi.fn(() => ({}));
     hasRecordingAtRisk = vi.fn(() => false);
     release = vi.fn(async () => {});
