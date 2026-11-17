@@ -1194,17 +1194,17 @@ describe("Notion export import", () => {
           dryRun: false,
         }),
       );
-      const page = applied.pages[0];
+      const page = present(applied.pages[0]);
       const [stored] = await getDb()
         .select()
         .from(schema.documents)
-        .where(eq(schema.documents.id, present(page?.id)));
+        .where(eq(schema.documents.id, present(page.id)));
 
       expect(signedFiles.fetch).toHaveBeenCalledTimes(1);
       expect(signedFiles.fetch.mock.calls[0]?.[0]).toBe(CHART);
       expect(stored.content).toMatch(PRIVATE_IMAGE_LINK);
       expect(stored.content).toContain(later.split("?")[0]);
-      expect(page?.notes).toEqual(
+      expect(page.notes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             kind: "expiring-link-not-rehosted",
