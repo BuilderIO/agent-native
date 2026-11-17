@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   assertFullCoverage,
   catalogContractCoreSpecs,
+  isShardableTestScript,
   partitionTargetedWeighted,
   partitionWeighted,
   readChangedPaths,
@@ -220,6 +221,23 @@ test("shards a Vitest package heavier than a fair lane share", () => {
   assert.ok(lanes.every((lane) => !lane.packages.includes("design")));
   assert.ok(Math.max(...lanes.map((lane) => lane.files)) <= 450);
   assertFullCoverage(lanes, rest, true);
+});
+
+test("shards a Vitest script behind a pnpm prefix such as Design's bridge codegen", () => {
+  assert.equal(isShardableTestScript("vitest --run"), true);
+  assert.equal(
+    isShardableTestScript("pnpm codegen:bridge && vitest --run"),
+    true,
+  );
+  assert.equal(isShardableTestScript("tsx scripts/run.ts"), false);
+  assert.equal(isShardableTestScript("pnpm build && tsx run-tests.ts"), false);
+  assert.equal(isShardableTestScript("vitestx --run"), false);
+  assert.equal(isShardableTestScript("vitest --run && tsc"), false);
+  assert.equal(isShardableTestScript("vitest --run; echo done"), false);
+  assert.equal(isShardableTestScript("vitest --run | tee out.log"), false);
+  assert.equal(isShardableTestScript("vitest --run\necho done"), false);
+  assert.equal(isShardableTestScript("vitest --run # note"), false);
+  assert.equal(isShardableTestScript("vitest\t--run"), true);
 });
 
 test("keeps packages whole when they are unshardable or too small to split", () => {
