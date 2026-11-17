@@ -144,6 +144,17 @@ describe("assertPgVectorAvailable", () => {
 });
 
 describe("ensurePgVectorIndex", () => {
+  it("refuses a size pgvector can't index before sending anything", async () => {
+    const { db, sql } = recordingDb();
+    await expect(
+      ensurePgVectorIndex(db, 2001, { namespace: "brain" }),
+    ).rejects.toThrow("at most 2000 dimensions");
+    expect(sql()).toEqual([]);
+    await expect(
+      ensurePgVectorIndex(db, 2000, { namespace: "brain" }),
+    ).resolves.toBeUndefined();
+  });
+
   it("checks what exists, then creates the extension, the table and both indexes", async () => {
     const { db, sql, statements: sent } = recordingDb();
     await ensurePgVectorIndex(db, 3, { namespace: "brain" });
@@ -264,6 +275,16 @@ describe("pgVectorIndexMigration", () => {
         dimensions: [1024, 0],
       }),
     ).toThrow("Embedding dimensions must be an integer");
+    // Past pgvector's limit for an HNSW index, the table would be made and
+    // its index refused.
+    expect(() =>
+      pgVectorIndexMigration({
+        version: 7,
+        name: "brain-vectors",
+        namespace: "brain",
+        dimensions: [1024, 3072],
+      }),
+    ).toThrow("at most 2000 dimensions");
     expect(() =>
       pgVectorIndexMigration({
         version: 7,

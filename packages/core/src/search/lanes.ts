@@ -97,6 +97,17 @@ function checkedDimensions(value: number): number {
   return value;
 }
 
+// pgvector's HNSW index on a vector column takes at most 2,000 dimensions.
+const PGVECTOR_HNSW_MAX_DIMENSIONS = 2_000;
+
+function checkedIndexDimensions(dimensions: number): void {
+  if (dimensions > PGVECTOR_HNSW_MAX_DIMENSIONS) {
+    throw new Error(
+      `pgvector indexes vectors of at most ${PGVECTOR_HNSW_MAX_DIMENSIONS} dimensions, so a ${dimensions}-dimension vector table can't be made.`,
+    );
+  }
+}
+
 function vectorLiteral(vector: readonly number[], dimensions: number): string {
   if (vector.length !== dimensions) {
     throw new Error(
@@ -138,6 +149,7 @@ export async function ensurePgVectorIndex(
 ): Promise<void> {
   const resolved = pgVectorOptions(options);
   const names = searchNamespaceIdentifiers(resolved.namespace, dimensions);
+  checkedIndexDimensions(dimensions);
   assertPgVectorAvailable(resolved.postgres);
   try {
     // Hosted request functions refuse any schema statement, even one that
@@ -225,6 +237,7 @@ export function pgVectorIndexMigration(entry: {
   // table, so a bad one can't leave the first tables made and this pending.
   for (const dimensions of entry.dimensions) {
     searchNamespaceIdentifiers(entry.namespace, dimensions);
+    checkedIndexDimensions(dimensions);
   }
   return {
     version: entry.version,
