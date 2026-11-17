@@ -106,15 +106,13 @@ function equalRoleDescriptors(left: unknown, right: unknown): boolean {
     for (const key of keys) {
       const first = Object.getOwnPropertyDescriptor(a, key);
       const second = Object.getOwnPropertyDescriptor(b, key);
-      if (!first || !second) return false;
+      if (!first || !second || !("value" in first) || !("value" in second))
+        return false;
       if (
         first.enumerable !== second.enumerable ||
         first.configurable !== second.configurable ||
         first.writable !== second.writable ||
-        first.get !== second.get ||
-        first.set !== second.set ||
-        "value" in first !== "value" in second ||
-        ("value" in first && !equal(first.value, second.value))
+        !equal(first.value, second.value)
       )
         return false;
     }

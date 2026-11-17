@@ -585,6 +585,38 @@ describe("app roles", () => {
       expect(getRegisteredAppRoles(appId)).toBe(first);
     });
 
+    it("rejects the same getter when its receiver changes permission grants", () => {
+      const appId = uniqueAppId("accessor-grant");
+      const grants = new WeakMap<object, readonly string[]>();
+      function getGrant(this: object) {
+        return grants.get(this);
+      }
+      const permissions = () =>
+        Object.defineProperty({}, "edit", { get: getGrant }) as Record<
+          string,
+          readonly string[]
+        >;
+      const firstPermissions = permissions();
+      const changedPermissions = permissions();
+      grants.set(firstPermissions, ["editor"]);
+      grants.set(changedPermissions, ["reviewer"]);
+      const first = {
+        appId,
+        roles: ["editor", "reviewer"] as const,
+        permissions: firstPermissions,
+      };
+      const changed = { ...first, permissions: changedPermissions };
+
+      expect(first.permissions.edit).toEqual(["editor"]);
+      expect(changed.permissions.edit).toEqual(["reviewer"]);
+      defineAppRoles(first);
+      expect(() => defineAppRoles(first)).not.toThrow();
+      expect(() => defineAppRoles(changed)).toThrow(
+        `defineAppRoles: appId "${appId}" is already declared with a different descriptor`,
+      );
+      expect(getRegisteredAppRoles(appId)).toBe(first);
+    });
+
     it("compares hidden properties without rejecting the same object", () => {
       const appId = uniqueAppId("hidden-equal");
       const makeDescriptor = () => ({
