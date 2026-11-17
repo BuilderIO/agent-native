@@ -676,7 +676,7 @@ export function BlockActionsMenu({
 
     const moveInGroup = (event: KeyboardEvent<HTMLDivElement>) => {
       const rtl = getComputedStyle(event.currentTarget).direction === "rtl";
-      const steps: Record<string, number> = {
+      const steps: Partial<Record<string, number>> = {
         ArrowDown: 1,
         ArrowUp: -1,
         ArrowRight: rtl ? -1 : 1,
