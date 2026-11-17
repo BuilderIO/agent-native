@@ -54,6 +54,9 @@ vi.mock("@agent-native/core/settings", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/settings")>()),
   getOrgSetting: async () => null,
   getUserSetting: async () => null,
+  deleteOrgSetting: async () => undefined,
+  deleteUserSetting: async () => undefined,
+  listSettingsByPrefix: async () => [],
 }));
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/server")>()),
