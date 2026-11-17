@@ -1951,7 +1951,7 @@ async function executeBackgroundAutomation(
             });
             const unknownWrite = findUnknownAutomationWrite([
               ...priorEvents,
-              ...(run.events ?? []).map(({ event }) => event),
+              ...run.events.map(({ event }) => event),
             ]);
             if (
               unknownWrite &&
@@ -2116,7 +2116,7 @@ async function executeBackgroundAutomation(
             const failure = backgroundRunTerminalError(activeRun);
             const unknownWrite = findUnknownAutomationWrite([
               ...priorEvents,
-              ...(activeRun.events ?? []).map(({ event }) => event),
+              ...activeRun.events.map(({ event }) => event),
             ]);
             reject(
               new BackgroundAutomationRunError(
@@ -2149,7 +2149,7 @@ async function executeBackgroundAutomation(
             .then(async () => {
               const unknownWrite = findUnknownAutomationWrite([
                 ...priorEvents,
-                ...(activeRun.events ?? []).map(({ event }) => event),
+                ...activeRun.events.map(({ event }) => event),
               ]);
               const finalError = unknownWrite
                 ? new BackgroundAutomationRunError(

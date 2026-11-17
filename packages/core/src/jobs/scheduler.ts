@@ -1224,7 +1224,7 @@ async function executeJob(
     !isPausedByFramework(meta) ||
     meta.pausedReason !== "write_tool_outcome_unknown"
   ) {
-    runningMeta.lastError = undefined;
+    delete runningMeta.lastError;
   }
   let markerWritten: boolean;
   if (!historyId && !remoteHostId) {
