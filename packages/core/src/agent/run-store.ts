@@ -4573,8 +4573,17 @@ export async function getRunAbortState(
   let shownThroughSeq: number | undefined;
   try {
     shownThroughSeq = await readUserStopCutoff(client, runId);
-  } catch {
-    // coercion-ok: the run still stops; its saved reply reads the cutoff itself.
+  } catch (error) {
+    // Failing the read here would end a stopped run as a lost lease, which
+    // saves nothing. Without the cutoff only this server's copy of the final
+    // event lacks it; the saved reply reads it from the run's events.
+    captureError(error, {
+      tags: {
+        component: "agent-run-store",
+        operation: "read-user-stop-cutoff",
+      },
+      extra: { runId },
+    });
   }
   return {
     aborted: true,
