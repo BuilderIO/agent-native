@@ -191,6 +191,9 @@ export function preserveActionFlags(
   ) {
     out.needsApproval = entry.needsApproval as Flag<"needsApproval">;
   }
+  if (typeof entry.approvalLabel === "function") {
+    out.approvalLabel = entry.approvalLabel as Flag<"approvalLabel">;
+  }
   if (typeof entry.allowPersistentApproval === "boolean") {
     out.allowPersistentApproval = entry.allowPersistentApproval;
   }
