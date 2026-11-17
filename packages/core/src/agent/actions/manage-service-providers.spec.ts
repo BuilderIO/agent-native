@@ -324,6 +324,18 @@ describe("manage-service-providers", () => {
     expect(mocks.requeueSemanticSearchForOrg).toHaveBeenCalledTimes(2);
   });
 
+  it("queues pages again even when recording an embeddings provider change fails", async () => {
+    mocks.builder.source = "org";
+    mocks.keys.set("GOOGLE_GENERATIVE_AI_API_KEY", { shared: "g-test" });
+    mocks.recordActionAudit.mockRejectedValueOnce(
+      new Error("audit unavailable"),
+    );
+    await expect(
+      action.run({ service: "embeddings", provider: "gemini" }, ctx(ADMIN)),
+    ).rejects.toThrow("audit unavailable");
+    expect(mocks.requeueSemanticSearchForOrg).toHaveBeenCalledWith("org-1");
+  });
+
   it("reads semantic search as on until an admin turns it off", async () => {
     const read = await action.run({}, ctx(MEMBER));
     expect(read.semanticSearch).toEqual({
@@ -372,6 +384,28 @@ describe("manage-service-providers", () => {
     const again = await action.run({ semanticSearch: false }, ctx(ADMIN));
     expect(again.changed).toBe(false);
     expect(mocks.forgetSemanticSearchForOrg).toHaveBeenCalledTimes(2);
+  });
+
+  it("deletes stored embeddings even when recording semantic search turning off fails", async () => {
+    mocks.recordActionAudit.mockRejectedValueOnce(
+      new Error("audit unavailable"),
+    );
+    await expect(
+      action.run({ semanticSearch: false }, ctx(ADMIN)),
+    ).rejects.toThrow("audit unavailable");
+    expect(mocks.forgetSemanticSearchForOrg).toHaveBeenCalledWith("org-1");
+  });
+
+  it("records the change even when deleting stored embeddings fails", async () => {
+    mocks.forgetSemanticSearchForOrg.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+    await expect(
+      action.run({ semanticSearch: false }, ctx(ADMIN)),
+    ).rejects.toMatchObject({ statusCode: 500 });
+    expect(mocks.recordActionAudit.mock.calls[0]?.[0]).toMatchObject({
+      status: "success",
+    });
   });
 
   it("refuses a member turning semantic search off, and records the refusal", async () => {

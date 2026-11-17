@@ -67,6 +67,9 @@ const store = createMemorySearchVectorStore();
 const NOTE_COUNT = 25;
 
 async function drainEmbeddings() {
+  // The first drain runs the migration's backfill, which queues every page
+  // again; once settled, they embed on the drain after it.
+  await drainSemanticIndex(documentSearchIndex, Date.now() + 30_000);
   await getDbExec().execute(
     `UPDATE app_resource_changes SET changed_at = changed_at - interval '5 minutes'
      WHERE consumer = 'search-embeddings'`,

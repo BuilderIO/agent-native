@@ -375,14 +375,6 @@ export default defineAction({
         updatedBy: email,
       });
       const changed = before.enabled !== after.enabled;
-      if (changed) {
-        await recordSemanticSearchAudit(ctx, {
-          email,
-          orgId,
-          enabled,
-          status: "success",
-        });
-      }
       // Run on every call, not only on a change, so calling again finishes
       // a call that failed part way.
       try {
@@ -399,6 +391,17 @@ export default defineAction({
             : "Semantic search is off, so nothing new is embedded or searched, but deleting stored embeddings failed. Try again to finish.",
           { statusCode: 500 },
         );
+      } finally {
+        // Recorded after finishing, so failing to record it can't stop that,
+        // and whether or not finishing worked, since the setting is saved.
+        if (changed) {
+          await recordSemanticSearchAudit(ctx, {
+            email,
+            orgId,
+            enabled,
+            status: "success",
+          });
+        }
       }
       const [settings, states] = await Promise.all([
         readServiceProviderSettings(orgId),
@@ -449,45 +452,50 @@ export default defineAction({
         updatedBy: email,
       },
     );
-    if (changed) {
-      await recordChoiceAudit(ctx, {
-        email,
-        orgId,
-        service,
-        provider,
-        status: "success",
-      });
-    }
-    const [states, semanticSearch] = await Promise.all([
-      inContext(readProviderStates),
-      readSemanticSearchState(orgId),
-    ]);
-    const reindexRequired =
-      service === "embeddings" &&
-      effectiveProviderFor(service, previous, states) !==
-        effectiveProviderFor(service, provider, states);
-    // Page vectors from the old provider don't match searches with the new one.
-    // Choosing the same provider again queues them too, so calling again
-    // finishes a call whose queuing failed after the choice was saved; pages
-    // already embedded with it are skipped.
-    if (service === "embeddings" && (reindexRequired || !changed)) {
-      try {
-        await requeueSemanticSearchForOrg(orgId);
-      } catch (cause) {
-        console.error(
-          "[manage-service-providers] The embeddings provider was saved, but queuing pages to embed again failed:",
-          cause instanceof Error ? cause.message : String(cause),
-        );
-        fail(
-          "The embeddings provider is saved, but queuing pages to embed again failed. Try again with the same provider to finish.",
-          { statusCode: 500 },
-        );
+    try {
+      const [states, semanticSearch] = await Promise.all([
+        inContext(readProviderStates),
+        readSemanticSearchState(orgId),
+      ]);
+      const reindexRequired =
+        service === "embeddings" &&
+        effectiveProviderFor(service, previous, states) !==
+          effectiveProviderFor(service, provider, states);
+      // Page vectors from the old provider don't match searches with the new
+      // one. Choosing the same provider again queues them too, so calling
+      // again finishes a call whose queuing failed after the choice was
+      // saved; pages already embedded with it are skipped.
+      if (service === "embeddings" && (reindexRequired || !changed)) {
+        try {
+          await requeueSemanticSearchForOrg(orgId);
+        } catch (cause) {
+          console.error(
+            "[manage-service-providers] The embeddings provider was saved, but queuing pages to embed again failed:",
+            cause instanceof Error ? cause.message : String(cause),
+          );
+          fail(
+            "The embeddings provider is saved, but queuing pages to embed again failed. Try again with the same provider to finish.",
+            { statusCode: 500 },
+          );
+        }
+      }
+      return {
+        ...buildStatus(settings, states, canManage, semanticSearch),
+        changed,
+        ...(reindexRequired ? { reindexRequired: true } : {}),
+      };
+    } finally {
+      // Recorded after queuing, so failing to record it can't stop that, and
+      // whether or not queuing worked, since the choice is saved.
+      if (changed) {
+        await recordChoiceAudit(ctx, {
+          email,
+          orgId,
+          service,
+          provider,
+          status: "success",
+        });
       }
     }
-    return {
-      ...buildStatus(settings, states, canManage, semanticSearch),
-      changed,
-      ...(reindexRequired ? { reindexRequired: true } : {}),
-    };
   },
 });

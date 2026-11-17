@@ -24,6 +24,24 @@ vi.mock("../usage/store.js", async (importOriginal) => ({
   recordUsage: (record: unknown) => recordUsage(record),
 }));
 
+// Lets a test pause a drain right after it reads the setting.
+const afterSettingRead = vi.hoisted(() => ({
+  hook: null as ((enabled: boolean) => Promise<void>) | null,
+}));
+vi.mock("./semantic-setting.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./semantic-setting.js")>();
+  return {
+    ...actual,
+    async readSemanticSearchSetting(
+      ...args: Parameters<typeof actual.readSemanticSearchSetting>
+    ) {
+      const setting = await actual.readSemanticSearchSetting(...args);
+      await afterSettingRead.hook?.(setting.enabled);
+      return setting;
+    },
+  };
+});
+
 type Client = typeof import("../db/client.js");
 type Search = typeof import("./index.js");
 type Context = typeof import("../server/request-context.js");
@@ -246,15 +264,18 @@ beforeEach(() => {
 });
 
 describe("the meaning lane", () => {
-  it("embeds existing pages once their backfill settles, and answers questions in other words", async () => {
+  it("queues existing pages on its first drain, embeds them once they settle, and answers questions in other words", async () => {
+    // The migration only asks for a backfill, so booting queues no page.
+    expect(await pendingIds()).toEqual([]);
+    // The first drain queues every page; changes younger than the settle
+    // window wait.
+    await drain();
     expect(await pendingIds()).toEqual([
       "mine",
       "other-org",
       "refunds",
       "vacation",
     ]);
-    // Changes younger than the settle window wait.
-    await drain();
     expect(embedCalls).toEqual([]);
 
     await settle();
@@ -379,6 +400,50 @@ describe("the meaning lane", () => {
     expect(
       store.keys().filter((key) => key.startsWith("wiki/page/vacation/")),
     ).toEqual(["wiki/page/vacation/0"]);
+  });
+
+  it("embeds a page again for a new version of its model, whose searches never match the old version's vectors", async () => {
+    await insertPage("versioned", "Laptop policy", "Hardware goes to IT.");
+    await settle();
+    await drain();
+    const found = async () => {
+      const result = await searchAs(
+        { userEmail: "reader@a.com", orgId: "org-a" },
+        "laptop hardware",
+      );
+      return result.status === "used" ? result.hits.map((hit) => hit.id) : [];
+    };
+    expect(await found()).toContain("versioned");
+
+    search.configureSemanticSearch({
+      vectorStore: store,
+      resolveEmbeddingFamily: async () => ({ ...family, version: "2" }),
+    });
+    try {
+      expect(await found()).not.toContain("versioned");
+      // An edit that leaves its text alone embeds it with the new version.
+      await run(
+        `UPDATE pages SET owner_email = 'editor@a.com' WHERE id = 'versioned'`,
+      );
+      expect(await pendingIds()).toContain("versioned");
+      await settle();
+      embedCalls.length = 0;
+      await drain();
+      expect(embedCalls.flatMap((call) => call.texts).join(" ")).toContain(
+        "Hardware goes to IT.",
+      );
+      expect(await found()).toContain("versioned");
+
+      await run(`DELETE FROM pages WHERE id = 'versioned'`);
+      await settle();
+      await drain();
+    } finally {
+      search.configureSemanticSearch({
+        vectorStore: store,
+        resolveEmbeddingFamily: async (identity) =>
+          identity?.orgId === "org-no-provider" ? null : family,
+      });
+    }
   });
 
   it("forgets a deleted page", async () => {
@@ -700,6 +765,25 @@ describe("when something fails part way", () => {
       resolveEmbeddingFamily: async (identity) =>
         identity?.orgId === "org-no-provider" ? null : family,
     });
+  }
+
+  function gate() {
+    let open: () => void = () => {};
+    const opened = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    let reached: () => void = () => {};
+    const waiting = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    return {
+      open,
+      waiting,
+      async pass() {
+        reached();
+        await opened;
+      },
+    };
   }
 
   it("sees the setting turned off by another request while it embeds", async () => {
@@ -1219,6 +1303,44 @@ describe("when something fails part way", () => {
     await drain();
   });
 
+  it("embeds pages again when semantic search is turned back on while turning it off still runs", async () => {
+    await insertPage("flip", "Laptop", "Hardware to flip.");
+    await settle();
+    await drain();
+    const deleting = gate();
+    useStore({
+      async removeAudience(target, input) {
+        await deleting.pass();
+        await store.removeAudience(target, input);
+      },
+    });
+    try {
+      await search.writeSemanticSearchSetting("org-a", {
+        enabled: false,
+        updatedBy: "admin@a.com",
+      });
+      const turningOff = search.forgetSemanticSearchForOrg("org-a");
+      await deleting.waiting;
+      // Another admin turns it back on before the deletion runs.
+      await turnSemanticSearch("org-a", true);
+      await settle();
+      await drain();
+      deleting.open();
+      await turningOff;
+    } finally {
+      restoreStore();
+    }
+    // The late deletion cleared the page, so it's queued again.
+    expect(await pendingIds()).toContain("flip");
+    await settle();
+    await drain();
+    expect(keysFor("flip")).toEqual(["wiki/page/flip/0"]);
+
+    await run(`DELETE FROM pages WHERE id = 'flip'`);
+    await settle();
+    await drain();
+  });
+
   describe("when two drains store one page at once", () => {
     // A second copy of the module drains like another process would.
     const secondCopy = "./semantic.js?second-drain";
@@ -1229,25 +1351,6 @@ describe("when something fails part way", () => {
         /* @vite-ignore */ secondCopy
       )) as typeof import("./semantic.js");
     });
-
-    function gate() {
-      let open: () => void = () => {};
-      const opened = new Promise<void>((resolve) => {
-        open = resolve;
-      });
-      let reached: () => void = () => {};
-      const waiting = new Promise<void>((resolve) => {
-        reached = resolve;
-      });
-      return {
-        open,
-        waiting,
-        async pass() {
-          reached();
-          await opened;
-        },
-      };
-    }
 
     async function row(id: string) {
       return (
@@ -1514,6 +1617,56 @@ describe("when something fails part way", () => {
       await drain();
       expect(keysFor("stale-forget")).toEqual([]);
       expect(await row("stale-forget")).toEqual([]);
+    });
+
+    it("never deletes a later change's vectors when an older drain read the lane as off", async () => {
+      await insertPage("stale-off", "Laptop", "Old hardware");
+      await settle();
+      await drain();
+      await run(
+        `UPDATE pages SET body = 'Middle laptop' WHERE id = 'stale-off'`,
+      );
+      await settle();
+      const reading = gate();
+      afterSettingRead.hook = async (enabled) => {
+        if (enabled) return;
+        afterSettingRead.hook = null;
+        await reading.pass();
+      };
+      other.configureSemanticSearch({
+        vectorStore: store,
+        resolveEmbeddingFamily: async () => family,
+      });
+      try {
+        await search.writeSemanticSearchSetting("org-a", {
+          enabled: false,
+          updatedBy: "admin@a.com",
+        });
+        // The older drain reads the lane as off, then pauses before
+        // recording the page off.
+        const older = drain();
+        await reading.waiting;
+        await search.forgetSemanticSearchForOrg("org-a");
+        await turnSemanticSearch("org-a", true);
+        await run(
+          `UPDATE pages SET body = 'Newest computer' WHERE id = 'stale-off'`,
+        );
+        await settle();
+        await other.drainSemanticIndex(registration, Date.now() + 10_000);
+        reading.open();
+        await older;
+      } finally {
+        afterSettingRead.hook = null;
+        other.configureSemanticSearch({});
+      }
+      expect(keysFor("stale-off")).toEqual(["wiki/page/stale-off/0"]);
+      expect(await row("stale-off")).toMatchObject([{ chunk_count: 1 }]);
+      expect(await pendingIds()).toEqual([]);
+
+      await run(`DELETE FROM pages WHERE id = 'stale-off'`);
+      await settle();
+      await drain();
+      expect(keysFor("stale-off")).toEqual([]);
     });
 
     it("records nothing over a later change an owner with no provider recorded", async () => {

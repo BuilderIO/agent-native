@@ -33,6 +33,7 @@ import {
   enqueueSelectedResourceChanges,
   ensureResourceChangeTables,
   failResourceChanges,
+  hasPendingResourceChanges,
   subscribeResourceChangeConsumer,
   RESOURCE_CHANGE_MAX_ATTEMPTS,
   type ClaimedResourceChange,
@@ -61,6 +62,16 @@ import { readSemanticSearchSetting } from "./semantic-setting.js";
 
 /** The change-feed consumer name the meaning lane subscribes as. */
 export const SEMANTIC_CHANGE_CONSUMER = "search-embeddings";
+
+/**
+ * The feed that carries a registration's backfill: one change, queued by
+ * `semanticSearchMigration`, which a drain runs by queueing every resource
+ * for the lane. That writes a row a resource, so it runs in the background,
+ * not in a migration boot waits for. The feed's claim, lease and retries run
+ * it again if a process stops part way.
+ */
+const BACKFILL_CONSUMER = "search-embeddings-backfill";
+const BACKFILL_RESOURCE_ID = "all";
 
 export const SEARCH_EMBEDDINGS_TABLE = "search_embeddings";
 
@@ -471,11 +482,16 @@ export function semanticChunks(document: SearchableResourceDocument): string[] {
     .map((text) => (head ? `${head}\n${text}` : text));
 }
 
+/**
+ * The set a resource's vectors belong to. It names the model's version too,
+ * so a new version's queries never match vectors an older one made, and a
+ * page embedded with an older one counts as changed.
+ */
 function embeddingSetId(
   registration: SearchableResourceRegistration,
   family: EmbeddingFamily,
 ): string {
-  return `${registration.app}/${registration.type}/${family.id}`;
+  return `${registration.app}/${registration.type}/${family.id}@${family.version}`;
 }
 
 function chunkKeyPrefix(
@@ -537,9 +553,10 @@ const REPAIR_HASH = "repair";
 
 /**
  * A named migration that subscribes the meaning lane to the registration's
- * change feed and queues every resource once. Add it to the app's
- * `runMigrations` list after `searchIndexMigration`, whose capture records
- * the changes.
+ * change feed and asks for a backfill, which the next drain runs by queueing
+ * every resource once. Add it to the app's `runMigrations` list after
+ * `searchIndexMigration`, whose capture records the changes. Adding another
+ * one later embeds every resource again, as a new model needs.
  */
 export function semanticSearchMigration(
   registration: SearchableResourceRegistration,
@@ -565,14 +582,61 @@ export function semanticSearchMigration(
         source,
         SEMANTIC_CHANGE_CONSUMER,
       );
-      await enqueueAllResourceChanges(
+      await enqueueSelectedResourceChanges(
         exec,
-        source,
-        SEMANTIC_CHANGE_CONSUMER,
+        backfillFeedFor(registration),
+        {
+          sql: `SELECT CAST(? AS TEXT) AS resource_id`,
+          args: [BACKFILL_RESOURCE_ID],
+        },
         "semantic-backfill",
       );
     },
   };
+}
+
+function backfillFeedFor(
+  registration: SearchableResourceRegistration,
+): ResourceChangeFeed {
+  return {
+    consumer: BACKFILL_CONSUMER,
+    app: registration.app,
+    resourceType: registration.type,
+  };
+}
+
+/** Registrations whose backfill this process has seen finished. */
+const backfilled = new Set<string>();
+
+/**
+ * Runs the registration's backfill if one is waiting: queues every resource
+ * for the lane, then marks the backfill done. The queued changes wait out
+ * the settle window like any other.
+ */
+async function runBackfill(
+  exec: DbExec,
+  registration: SearchableResourceRegistration,
+): Promise<void> {
+  const key = `${registration.app}:${registration.type}`;
+  if (backfilled.has(key)) return;
+  const feed = backfillFeedFor(registration);
+  const claimed = await claimResourceChanges(exec, feed, 1);
+  if (claimed.length) {
+    try {
+      await enqueueAllResourceChanges(
+        exec,
+        searchableResourceSource(registration),
+        SEMANTIC_CHANGE_CONSUMER,
+        "semantic-backfill",
+      );
+    } catch (error) {
+      await failResourceChanges(exec, feed, claimed);
+      throw error;
+    }
+    await completeResourceChanges(exec, feed, claimed);
+  }
+  // Another process may hold it, or be waiting to retry it.
+  if (!(await hasPendingResourceChanges(exec, feed))) backfilled.add(key);
 }
 
 function feedFor(
@@ -629,6 +693,7 @@ async function drain(
   const store = vectorStore();
   // Without a vector store the changes stay queued, ready for when one exists.
   if (!(await storeAvailable(exec, store))) return;
+  await runBackfill(exec, registration);
   const feed = feedFor(registration);
   const context: DrainContext = {
     deadline,
@@ -1494,6 +1559,9 @@ async function recordOff(
   stored: Map<string, StoredEmbedding>,
 ): Promise<void> {
   const previous = stored.get(change.resourceId);
+  // Claimed for the change first, as `forgetResource` does, so vectors a
+  // later change stored under the same keys are never deleted.
+  if (previous && !(await markPending(exec, registration, change))) return;
   await removeVectors(exec, store, registration, change.resourceId, previous);
   await recordEmbedding(exec, registration, {
     resourceId: change.resourceId,
@@ -1598,6 +1666,12 @@ export async function forgetSemanticSearchForOrg(orgId: string): Promise<void> {
       },
       "semantic-requeue",
     );
+  }
+  // Another admin may have turned the lane back on while this ran, and
+  // queued the pages before the update above cleared their rows. Queued
+  // again, the drain embeds them.
+  if ((await readSemanticSearchSetting(orgId, { fresh: true })).enabled) {
+    await requeueSemanticSearchForOrg(orgId);
   }
 }
 

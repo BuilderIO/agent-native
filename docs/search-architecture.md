@@ -509,7 +509,9 @@ OpenAI's `text-embedding-3-small`.
   each meet the limit with one refused call.
   Changes left when time runs out stay claimed until their lease expires, so
   an outage can't hold claims past their lease. An app adds the consumer with
-  `semanticSearchMigration()`, which queues a backfill.
+  `semanticSearchMigration()`, which asks for a backfill: the next drain
+  queues every page, so boot doesn't wait on a write for each one. Adding
+  another later embeds every page again.
 - **Chunks.** About 1,200 characters each, cut at sentence ends and led by the
   title and summary (cut to 400 characters), with at most 12 per page. A page
   scores as its best chunk. A resource whose `load` returns `semantic: false`,
@@ -517,6 +519,9 @@ OpenAI's `text-embedding-3-small`.
   embedded, and its vectors are deleted; restoring it embeds it again.
 - **Tables.** `search_embeddings` keeps one row per resource: its audience,
   embedding set, chunk count, a hash of its chunks, and the change it embedded.
+  The embedding set names the model and its version, so a new version's
+  searches never match an older version's vectors; its pages embed again as
+  they change, or all at once after another `semanticSearchMigration()`.
   An unchanged hash skips the embedding call. Before storing vectors, the row
   is marked pending with a count covering old and new chunks; it gets the hash
   only after the vectors are stored and stale chunks removed. A failed store is
@@ -561,8 +566,10 @@ OpenAI's `text-embedding-3-small`.
   a store that fails part way, are found and deleted when the drain retries.
   Turning it on queues the pages it governs again, along with any queued page
   never embedded. If deleting or queuing fails, the setting stays changed and
-  calling again finishes the job; the settings page offers Retry. Each change
-  is audited.
+  calling again finishes the job; the settings page offers Retry. Turning it
+  off checks the setting again when it's done, and if another admin turned it
+  back on meanwhile, queues the pages again. Each change is audited, after
+  that work, so a failed audit can't stop it.
 - **Querying.** `searchSemanticIndex()` embeds the query (cached for 10
   minutes, with a 4-second timeout) and asks the store for the 100 nearest
   chunks in the searcher's audiences. It drops chunks below the model's
