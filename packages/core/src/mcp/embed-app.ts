@@ -976,26 +976,33 @@ export function embedApp(
           } catch (_err) {
             path = String(url);
           }
-          var text = String(method || "GET").toUpperCase() + " " + path + " " + detail +
-            (headers.has("Authorization") ? "" : " (sent without the panel session)");
-          if (list.length < 5 && list.indexOf(text) < 0) list.push(text);
+          var suffix = headers.has("Authorization") ? "" : " (sent without the panel session)";
+          var text = String(method || "GET").toUpperCase() + " " + path + " " + detail;
+          if (list.length >= 5 || list.indexOf(text + suffix) >= 0) return function() {};
+          // The entry keeps its place in request order while its reason loads.
+          var index = list.push(text + suffix) - 1;
+          return function(reason) {
+            if (list[index] === text + suffix) list[index] = text + " " + reason + suffix;
+          };
         }
         return promise.then(function(response) {
           if (!response.ok) {
+            var addReason = note("HTTP " + response.status);
             // The refusal's own words name the failing check; a status alone
             // cannot tell an approval gate from an expired session.
             response.clone().text().then(function(body) {
-              var reason = "";
+              var parsed;
               try {
-                var parsed = JSON.parse(body);
-                reason = [parsed.errorCode, parsed.error || parsed.statusMessage || parsed.message]
-                  .filter(function(part) { return typeof part === "string" && part; })
-                  .join(": ");
-              } catch (_err) {}
-              note("HTTP " + response.status + (reason ? " " + reason.slice(0, 160) : ""));
-            }, function() {
-              note("HTTP " + response.status);
-            });
+                parsed = JSON.parse(body);
+              } catch (_err) {
+                // coercion-ok: a body that is not JSON names no reason; the status stays.
+                return;
+              }
+              var reason = parsed && [parsed.errorCode, parsed.error || parsed.statusMessage || parsed.message]
+                .filter(function(part) { return typeof part === "string" && part; })
+                .join(": ");
+              if (reason) addReason(reason.slice(0, 160));
+            }, function() {});
           }
           return response;
         }, function(error) {
