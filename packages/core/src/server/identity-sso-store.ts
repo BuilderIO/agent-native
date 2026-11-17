@@ -53,9 +53,10 @@ const NETLIFY_PREVIEW_SITE_NAMES = new Set(
     return appId === "chat" ? "agent-native-starter" : `agent-native-${appId}`;
   }),
 );
+const NETLIFY_LABS_WORKSPACE_SITE_NAME = "agent-native-labs-workspace";
 const NETLIFY_PREVIEW_GOOGLE_OAUTH_SITE_NAMES = new Set([
   ...NETLIFY_PREVIEW_SITE_NAMES,
-  "agent-native-labs-workspace",
+  NETLIFY_LABS_WORKSPACE_SITE_NAME,
 ]);
 const NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES = new Set(
   [...NETLIFY_PREVIEW_SITE_NAMES].filter(
@@ -233,12 +234,15 @@ function isNetlifyDeployPermalinkHost(
 ): boolean {
   const normalizedHost = host.toLowerCase();
   const siteNames = siteName ? [siteName] : [...allowedSiteNames];
-  const prefix = allowBranchAlias
-    ? "(?:[a-f0-9]{24}|c-[a-f0-9]{12})"
-    : "[a-f0-9]{24}";
-  return siteNames.some((name) =>
-    new RegExp(`^${prefix}--${name}\\.netlify\\.app$`).test(normalizedHost),
-  );
+  return siteNames.some((name) => {
+    const prefix =
+      allowBranchAlias && name === NETLIFY_LABS_WORKSPACE_SITE_NAME
+        ? "(?:[a-f0-9]{24}|c-[a-f0-9]{12})"
+        : "[a-f0-9]{24}";
+    return new RegExp(`^${prefix}--${name}\\.netlify\\.app$`).test(
+      normalizedHost,
+    );
+  });
 }
 
 export function isNetlifyDeployPermalinkIdentitySsoClientOrigin(

@@ -305,6 +305,12 @@ describe("identity SSO feature switch and request classifiers", () => {
       ),
     ).toBe(false);
 
+    delete process.env.SITE_NAME;
+    delete process.env.NETLIFY_SITE_NAME;
+    const mailAlias = "c-f53058ae5fc7--agent-native-mail.netlify.app";
+    expect(googleRequest(mailAlias, "https")).toBe(false);
+    expect(googleOrigin(`https://${mailAlias}`)).toBe(false);
+
     process.env.SITE_NAME = "agent-native-labs-workspace";
     expect(googleRequest(alias, "https")).toBe(true);
     expect(
