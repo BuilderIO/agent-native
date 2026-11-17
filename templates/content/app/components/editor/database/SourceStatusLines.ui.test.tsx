@@ -235,15 +235,17 @@ describe("Notion source status line", () => {
     expect(line("notion").querySelector('[role="alert"]')).toBe(null);
   });
 
-  it("shows an error the source has stored", () => {
+  it("shows an error the source has stored, ended as a sentence", () => {
     renderNotion(
       source("notion-database", {
         syncState: "error",
-        lastError: "The integration lost access.",
+        lastError: "The integration lost access",
       }),
     );
     expect(
       line("notion").querySelector('[role="alert"]')?.textContent,
-    ).toContain("Couldn’t update from Notion. The integration lost access.");
+    ).toContain(
+      "Couldn’t update from Notion. The integration lost access. Showing details as of 5 minutes ago.",
+    );
   });
 });

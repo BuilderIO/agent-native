@@ -16,6 +16,13 @@ import {
 } from "./SourceStatusLine";
 import { dbText } from "./text";
 
+/** Ends Notion's reason like a sentence, so the sentence after it reads apart. */
+function asSentence(reason: string | null) {
+  const trimmed = reason?.trim();
+  if (!trimmed) return null;
+  return /[.!?…。！？]$/u.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
 /**
  * The status line of a Notion database that adds details to a collection:
  * which database, when its details last updated, and what went wrong if they
@@ -104,7 +111,7 @@ export function NotionSourceStatusLine({
           ? {
               text: [
                 dbText("sourceProblemNotion"),
-                reason,
+                asSentence(reason),
                 source.lastRefreshedAt
                   ? dbText("sourceShowingDetailsAsOf", {
                       time: sourceRelativeTime(source.lastRefreshedAt, now),
