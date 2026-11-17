@@ -62,6 +62,124 @@ describe("editing safety bridge", () => {
     },
   );
 
+  it("keeps managed timelines editable while finite authored entrances play", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<iframe id="preview"></iframe>`);
+      const iframe = page.frames()[1];
+      if (!iframe) throw new Error("Preview iframe did not load");
+      await iframe.setContent(`<!doctype html><html><head><style>
+        #managed { width: 100px; height: 100px; }
+        #mixed, #conditional { opacity: 0; animation: entrance .1s linear forwards; }
+        #mixed { animation: pulse 5s linear infinite, entrance .1s linear forwards; }
+        #loop { animation-name: pulse; animation-duration: 5s; }
+        .endless { animation-iteration-count: infinite; animation-play-state: paused; }
+        .loop { animation: pulse 5s linear infinite; }
+        .entrance { animation: entrance .1s linear forwards; }
+        @keyframes entrance { to { opacity: 1; } }
+        @keyframes pulse { from { opacity: .5; } to { opacity: 1; } }
+        @keyframes timeline { from { width: 200px; } to { width: 300px; } }
+      </style><style data-agent-native-motion>
+        @supports (display: grid) { #managed { animation: timeline 5s linear both; } }
+        @media (max-width: 0px) { #conditional { animation: timeline 5s linear both; } }
+      </style></head><body>
+        <div id="managed"></div><div id="mixed">Entrance</div>
+        <div id="conditional">Conditional entrance</div><div id="loop" class="endless">Loop</div>
+        <div id="cascade" class="loop entrance">Cascade entrance</div>
+      </body></html>`);
+      await iframe.addScriptTag({ content: editingSafetyBridgeScript() });
+
+      await expect
+        .poll(() =>
+          iframe.locator("#managed").evaluate((element) => {
+            const style = getComputedStyle(element);
+            return [style.animationName, style.width];
+          }),
+        )
+        .toEqual(["none", "100px"]);
+      await iframe.locator("#managed").evaluate((element) => {
+        (element as HTMLElement).style.width = "61px";
+      });
+      expect(
+        await iframe
+          .locator("#managed")
+          .evaluate((element) => getComputedStyle(element).width),
+      ).toBe("61px");
+      await expect
+        .poll(() =>
+          iframe.locator("#mixed").evaluate((element) => {
+            const style = getComputedStyle(element);
+            return [
+              style.animationName,
+              style.animationDuration,
+              style.opacity,
+            ];
+          }),
+        )
+        .toEqual(["none, entrance", "0s, 0.1s", "1"]);
+      expect(
+        await iframe
+          .locator("#loop")
+          .evaluate((element) => getComputedStyle(element).animationDuration),
+      ).toBe("0s");
+      await expect
+        .poll(() =>
+          iframe
+            .locator("#conditional")
+            .evaluate((element) => getComputedStyle(element).opacity),
+        )
+        .toBe("1");
+      await expect
+        .poll(() =>
+          iframe.locator("#cascade").evaluate((element) => {
+            const style = getComputedStyle(element);
+            return [style.animationName, style.opacity];
+          }),
+        )
+        .toEqual(["entrance", "1"]);
+
+      await iframe.evaluate(() => {
+        const style = document.querySelector("style[data-agent-native-motion]");
+        if (!style) throw new Error("Managed timeline style is missing");
+        style.textContent +=
+          "#managed { animation: timeline 10s linear both; }";
+      });
+      await expect
+        .poll(() =>
+          iframe
+            .locator("#managed")
+            .evaluate((element) => getComputedStyle(element).width),
+        )
+        .toBe("61px");
+      await page.evaluate(() => {
+        document
+          .querySelector<HTMLIFrameElement>("#preview")
+          ?.contentWindow?.postMessage(
+            {
+              type: "embedded-canvas-gesture-mode",
+              editingSafetyEnabled: false,
+            },
+            "*",
+          );
+      });
+      await expect
+        .poll(() =>
+          iframe
+            .locator("#managed")
+            .evaluate((element) => getComputedStyle(element).animationName),
+        )
+        .toBe("timeline");
+      expect(
+        await iframe
+          .locator("#loop")
+          .evaluate((element) => getComputedStyle(element).animationDuration),
+      ).toBe("5s");
+    } finally {
+      await browser.close();
+    }
+  });
+
   it(
     "captures Space-drag in the iframe without forwarding host hotkeys unless enabled",
     { timeout: 30_000 },
@@ -386,8 +504,8 @@ describe("editing safety bridge", () => {
         page.on("pageerror", (error) => pageErrors.push(error.message));
         await page.setContent(`<!doctype html><html><head><style>
           @keyframes drift { to { opacity: 0.8 } }
-          html, body { animation: drift 3s linear infinite; transition: opacity 1s }
-          #animated { animation: drift 3s linear infinite; transition: opacity 1s }
+          html, body { animation: drift 3s linear forwards; transition: opacity 1s }
+          #animated { animation: drift 3s linear forwards; transition: opacity 1s }
         </style></head><body>
           <a id="link" href="/escaped">Navigate</a>
           <form id="form" action="/submitted" method="post"><button>Submit</button></form>
@@ -450,7 +568,7 @@ describe("editing safety bridge", () => {
         const page = await browser.newPage();
         await page.setContent(`<!doctype html><html><head><style>
           @keyframes drift { to { transform: translateX(20px) } }
-          #animated { animation: drift 3s linear infinite; transition: opacity 1s }
+          #animated { animation: drift 3s linear forwards; transition: opacity 1s }
         </style></head><body><div id="animated">Animated</div></body></html>`);
         await page.addScriptTag({ content: editingSafetyBridgeScript(false) });
 

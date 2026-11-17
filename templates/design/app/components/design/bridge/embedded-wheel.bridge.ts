@@ -13,7 +13,7 @@
  *   __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__ — boolean literal controlling
  *     Space hotkey relay to the host; local Space-pan is always available
  *   __EDITING_SAFETY_ENABLED__ — boolean literal; true outside Interact mode
- *     to freeze authored motion and block native link/form navigation
+ *     to stabilize managed/endless motion and block native link/form navigation
  *   __INTERACTION_MODE__ — boolean literal; true while Interact owns the
  *     page. Every gesture below is then inert: the wheel, the middle button,
  *     Space and a drag are the page's own, so none is cancelled or forwarded
@@ -99,6 +99,103 @@ declare var __INTERACTION_MODE__: boolean;
   var wheelSeq = 0;
   var hostAnswersWheels = false;
 
+  var frozenAnimationTargets = new Set<Element>();
+
+  function managedAnimationNames(rules: CSSRuleList, names: Set<string>): void {
+    for (var i = 0; i < rules.length; i++) {
+      var rule = rules[i];
+      if (rule.type === CSSRule.KEYFRAMES_RULE)
+        names.add((rule as CSSKeyframesRule).name);
+      else if (rule.type === CSSRule.STYLE_RULE) {
+        for (var name of (rule as CSSStyleRule).style.animationName.split(","))
+          if (name.trim() && name.trim() !== "none") names.add(name.trim());
+      } else if ("cssRules" in rule)
+        managedAnimationNames((rule as CSSGroupingRule).cssRules, names);
+    }
+  }
+
+  function animationTargetSelector(element: Element): string {
+    var parts: string[] = [];
+    for (
+      var current = element;
+      current.parentElement;
+      current = current.parentElement
+    ) {
+      var index = 1;
+      for (
+        var sibling = current.previousElementSibling;
+        sibling;
+        sibling = sibling.previousElementSibling
+      )
+        index++;
+      parts.unshift("*:nth-child(" + index + ")");
+    }
+    return ":root" + (parts.length ? ">" + parts.join(">") : "");
+  }
+
+  function animationSafetyRules(): string {
+    var managed = new Set<string>();
+    var styles = document.querySelectorAll("style[data-agent-native-motion]");
+    for (var i = 0; i < styles.length; i++) {
+      var sheet = (styles[i] as HTMLStyleElement).sheet;
+      if (sheet) managedAnimationNames(sheet.cssRules, managed);
+    }
+    var output = "";
+    var inspected = new Set<string>();
+    frozenAnimationTargets.clear();
+    for (var animation of document.getAnimations()) {
+      if (!(animation instanceof CSSAnimation)) continue;
+      var effect = animation.effect as KeyframeEffect | null;
+      if (!effect || !effect.target) continue;
+      var target = effect.target;
+      if (
+        !target.isConnected ||
+        target.closest("[data-agent-native-edit-overlay]")
+      )
+        continue;
+      var pseudo = effect.pseudoElement;
+      var selector = animationTargetSelector(target) + (pseudo || "");
+      if (inspected.has(selector)) continue;
+      inspected.add(selector);
+      var style = getComputedStyle(target, pseudo);
+      var names = style.animationName.split(",");
+      var iterations = style.animationIterationCount.split(",");
+      var durations = style.animationDuration.split(",");
+      var suppressed = names.map(function (name, index) {
+        return (
+          managed.has(name.trim()) ||
+          iterations[index % iterations.length].trim() === "infinite"
+        );
+      });
+      if (
+        !suppressed.some(function (value) {
+          return value;
+        })
+      )
+        continue;
+      frozenAnimationTargets.add(target);
+      // Keep finite slots intact: changing a neighboring loop must not restart an entrance.
+      output +=
+        selector +
+        "{animation-name:" +
+        names
+          .map(function (name, index) {
+            return suppressed[index] ? "none" : name;
+          })
+          .join(",") +
+        "!important;animation-duration:" +
+        names
+          .map(function (_name, index) {
+            return suppressed[index]
+              ? "0s"
+              : durations[index % durations.length];
+          })
+          .join(",") +
+        "!important}";
+    }
+    return output;
+  }
+
   function syncEditingSafetyStyle(): void {
     var currentStyle =
       freezeStyle ||
@@ -110,24 +207,89 @@ declare var __INTERACTION_MODE__: boolean;
         currentStyle.parentNode.removeChild(currentStyle);
       }
       freezeStyle = null;
+      frozenAnimationTargets.clear();
       return;
     }
-    if (currentStyle && currentStyle.isConnected) {
-      freezeStyle = currentStyle;
-      return;
-    }
-    freezeStyle = document.createElement("style");
+    freezeStyle = currentStyle || document.createElement("style");
     freezeStyle.setAttribute("data-agent-native-editing-safety-style", "");
-    freezeStyle.textContent =
+    var css =
       "html,body{transition:none!important;scroll-behavior:auto!important}" +
       "body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *){" +
       "transition:none!important;scroll-behavior:auto!important}" +
       "body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::before," +
       "body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::after{" +
       "transition:none!important}";
-    (document.head || document.documentElement).appendChild(freezeStyle);
+    // Read the authored cascade, including split declarations and conditional rules.
+    if (freezeStyle.sheet) freezeStyle.sheet.disabled = true;
+    try {
+      css += animationSafetyRules();
+      if (freezeStyle.textContent !== css) freezeStyle.textContent = css;
+      if (!freezeStyle.isConnected) document.head.appendChild(freezeStyle);
+    } finally {
+      if (freezeStyle.sheet) freezeStyle.sheet.disabled = false;
+    }
   }
   syncEditingSafetyStyle();
+  function inlineAnimationDeclarations(value: string | null): string {
+    return (value || "")
+      .split(";")
+      .filter(function (declaration) {
+        return /^\s*(?:-webkit-)?animation(?:-[\w-]+)?\s*:/.test(declaration);
+      })
+      .join(";");
+  }
+  new MutationObserver(function (records) {
+    var changed = records.some(function (record) {
+      var target =
+        record.target instanceof Element
+          ? record.target
+          : record.target.parentElement;
+      var style = target && target.closest("style");
+      if (style) return style !== freezeStyle;
+      if (record.type === "attributes") {
+        if (!target || target.closest("[data-agent-native-edit-overlay]"))
+          return false;
+        if (record.attributeName === "style")
+          return (
+            inlineAnimationDeclarations(record.oldValue) !==
+            inlineAnimationDeclarations(target.getAttribute("style"))
+          );
+        return (
+          target.getAnimations({ subtree: true }).length > 0 ||
+          Array.from(frozenAnimationTargets).some(function (element) {
+            return target.contains(element);
+          })
+        );
+      }
+      if (
+        target &&
+        Array.from(frozenAnimationTargets).some(function (element) {
+          return target.contains(element);
+        })
+      )
+        return true;
+      return Array.from(record.addedNodes)
+        .concat(Array.from(record.removedNodes))
+        .some(function (node) {
+          return (
+            node instanceof Element &&
+            node !== freezeStyle &&
+            (node.matches("style") ||
+              !!node.querySelector("style") ||
+              node.getAnimations({ subtree: true }).length > 0)
+          );
+        });
+    });
+    if (changed) syncEditingSafetyStyle();
+  }).observe(document.documentElement, {
+    childList: true,
+    characterData: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["class", "style"],
+    attributeOldValue: true,
+  });
+  window.addEventListener("resize", syncEditingSafetyStyle);
 
   function clamp(value: number, limit: number): number {
     var number = Number(value) || 0;
