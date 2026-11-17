@@ -75,11 +75,21 @@ export function DashboardPanelChart({
     [chartType, rows, xKey],
   );
 
-  // A section is a heading and an extension is another app's view: neither
-  // draws rows.
-  if (chartType === "section" || chartType === "extension") {
-    return null;
+  // A section is a heading: like a dashboard, it shows its description and
+  // draws no rows. An extension is another app's view, so it draws nothing.
+  if (chartType === "section") {
+    const description = panel.config?.description;
+    if (typeof description !== "string" || !description) return null;
+    return (
+      <div className="px-1 py-2">
+        <DashboardPanelDescription
+          description={description}
+          className="text-xs leading-relaxed text-muted-foreground"
+        />
+      </div>
+    );
   }
+  if (chartType === "extension") return null;
 
   const colors = panel.config?.colors?.length
     ? panel.config.colors
