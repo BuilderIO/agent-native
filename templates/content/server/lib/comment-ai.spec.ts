@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runWithRequestContext } from "@agent-native/core/server";
+import { createThread, runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -210,6 +210,12 @@ describe("comment AI request persistence", () => {
     const prior = await asUser(OWNER, () =>
       commentAi.startCommentAiRequest(startArgs()),
     );
+    if (!prior.agentThreadId) throw new Error("Missing prior agent thread");
+    await createThread(OWNER, {
+      id: prior.agentThreadId,
+      scope: prior.backgroundSession.scope,
+      source: { appId: "content" },
+    });
     await getDb()
       .update(schema.commentAiRequests)
       .set({ status: "replied" })
@@ -234,6 +240,13 @@ describe("comment AI request persistence", () => {
     );
 
     expect(classified.request.agentThreadId).toBe(prior.agentThreadId);
+    expect(classified.pendingSession.backgroundSession.scope).toEqual(
+      prior.backgroundSession.scope,
+    );
+    expect(classified.pendingSession.backgroundSession.actionScope).toEqual({
+      kind: "content-comment-ai",
+      requestId: SECOND_REQUEST_ID,
+    });
     expect(classified.request.agentThreadId).not.toBe(freshExecutionThread);
     expect(classified.request.continuationOfRequestId).toBe(FIRST_REQUEST_ID);
   });
@@ -242,6 +255,12 @@ describe("comment AI request persistence", () => {
     const prior = await asUser(OWNER, () =>
       commentAi.startCommentAiRequest(startArgs()),
     );
+    if (!prior.agentThreadId) throw new Error("Missing prior agent thread");
+    await createThread(OWNER, {
+      id: prior.agentThreadId,
+      scope: prior.backgroundSession.scope,
+      source: { appId: "content" },
+    });
     await getDb()
       .update(schema.commentAiRequests)
       .set({ status: "replied" })

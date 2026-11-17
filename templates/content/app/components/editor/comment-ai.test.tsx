@@ -736,6 +736,86 @@ describe("comment AI controls", () => {
     });
   });
 
+  it.each([true, false])(
+    "loads the protected transcript before dispatching a continued reply (readable: %s)",
+    async (readable) => {
+      let controller: CommentAiController;
+      function Probe() {
+        controller = useCommentAiRequests("document-1", { enabled: true });
+        return null;
+      }
+      const session = {
+        operationId: "request-1",
+        threadId: "agent-thread-1",
+        turnId: "turn-1",
+        scope: { type: "content-comment-ai", id: "original-request" },
+        actionScope: { kind: "content-comment-ai", requestId: "request-1" },
+      };
+      api.callAction.mockResolvedValue({
+        ...request({
+          status: "queued",
+          intent: "reply",
+          error: null,
+          continuationOfRequestId: "original-request",
+        }),
+        outcome: "confirmed-start",
+        dispatch: true,
+        pendingSession: {
+          phase: "execution",
+          backgroundSession: session,
+          prompt: "Explain further",
+          context: "Use scoped context",
+        },
+      });
+      if (readable) {
+        api.loadCommentAiConversation.mockResolvedValue([
+          {
+            turnId: "original-turn",
+            userText: "Why?",
+            assistantText: "Because.",
+            status: "complete",
+          },
+        ]);
+      } else {
+        api.loadCommentAiConversation.mockRejectedValue(
+          new Error("unreadable transcript"),
+        );
+      }
+      act(() => root.render(createElement(Probe)));
+      const start = () =>
+        controller.start({
+          threadId: "thread-1",
+          rootCommentId: "comment-1",
+          submittedMode: "reply",
+          instructions: "Explain further",
+          continuationOfRequestId: "original-request",
+        });
+      if (readable) {
+        await act(async () => {
+          await start();
+        });
+        expect(api.startBackgroundAgentSession).toHaveBeenCalledWith(
+          expect.objectContaining({
+            ...session,
+            instructions: expect.stringContaining("Assistant: Because."),
+          }),
+        );
+      } else {
+        await expect(act(async () => start())).rejects.toThrow(
+          "comments.aiConversationUnavailable",
+        );
+        expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
+        expect(api.callAction).toHaveBeenCalledWith(
+          "reconcile-comment-ai-session",
+          expect.objectContaining({
+            operationId: "request-1",
+            status: "unavailable",
+          }),
+        );
+      }
+    },
+  );
+
   it("does not dispatch an active request returned by a racing start", async () => {
     let controller: CommentAiController;
     function Probe() {
@@ -1214,6 +1294,8 @@ describe("comment AI controls", () => {
       status: "replied",
       errorCode: null,
       error: null,
+      continuationOfRequestId: "previous-request",
+      agentThreadScopeId: "original-request",
       agentThreadId: "agent-thread-1",
       agentTurnId: "initial-turn-1",
     });
@@ -1283,6 +1365,8 @@ describe("comment AI controls", () => {
       message: "What about accessibility?",
       operationId: "continuation-1",
       threadId: "agent-thread-1",
+      scope: { type: "content-comment-ai", id: "original-request" },
+      actionScope: { kind: "content-comment-ai", requestId: "request-1" },
     });
     expect(api.loadCommentAiConversation).toHaveBeenCalledWith({
       operationId: "request-1",

@@ -126,8 +126,11 @@ export interface CommentAiContinuationState {
 }
 
 class CommentAiConversationUnavailableError extends Error {
-  constructor(message: string, cause: unknown) {
-    super(message, { cause });
+  constructor(
+    message: string,
+    readonly cause: unknown,
+  ) {
+    super(message);
   }
 }
 
@@ -931,12 +934,42 @@ export function useCommentAiRequests(
               prompt: started.prompt,
               context: started.context,
             } as const);
+          let context = pendingSession.context;
+          if (
+            pendingSession.phase === "execution" &&
+            started.continuationOfRequestId &&
+            pendingSession.backgroundSession.scope.id !== started.operationId
+          ) {
+            try {
+              const turns = await loadCommentAiConversation({
+                operationId: started.operationId,
+                agentThreadId: pendingSession.backgroundSession.threadId,
+                initialTurnId: "",
+              });
+              const priorConversation = boundedContinuationContext(turns);
+              if (priorConversation) {
+                context = `${context ?? ""}\n\nProtected conversation context:\n\n${priorConversation}`;
+              }
+            } catch (error) {
+              await callAction("reconcile-comment-ai-session", {
+                operationId: started.operationId,
+                threadId: pendingSession.backgroundSession.threadId,
+                turnId: pendingSession.backgroundSession.turnId,
+                status: "unavailable",
+              });
+              await query.refetch();
+              throw new CommentAiConversationUnavailableError(
+                t("comments.aiConversationUnavailable"),
+                error,
+              );
+            }
+          }
           resumedPendingRequestsRef.current.add(
             `${started.operationId}:${started.status}`,
           );
           const options = {
             message: pendingSession.prompt,
-            instructions: pendingSession.context,
+            instructions: context,
             ...pendingSession.backgroundSession,
             usageLabel: "content:comment-ai",
           } satisfies BackgroundAgentSessionStartOptions;
@@ -951,7 +984,14 @@ export function useCommentAiRequests(
         setStartingThreadIds(new Set(startingRef.current));
       }
     },
-    [dispatch, dispatchRecoveryRecord, documentId, query, updateContinuation],
+    [
+      dispatch,
+      dispatchRecoveryRecord,
+      documentId,
+      query,
+      t,
+      updateContinuation,
+    ],
   );
 
   useEffect(() => {
@@ -1056,6 +1096,12 @@ export function useCommentAiRequests(
           existing.error ?? "This AI follow-up is already in progress",
         );
       }
+      const threadScopeId =
+        request.agentThreadScopeId ??
+        (request.continuationOfRequestId ? null : request.operationId);
+      if (!threadScopeId) {
+        throw new Error("This AI conversation is not available yet");
+      }
       const operationId = globalThis.crypto.randomUUID();
       let continuation: CommentAiContinuationState | null = null;
       try {
@@ -1079,7 +1125,7 @@ export function useCommentAiRequests(
           message,
           operationId,
           threadId: request.agentThreadId,
-          scope: { type: "content-comment-ai", id: request.operationId },
+          scope: { type: "content-comment-ai", id: threadScopeId },
           actionScope: {
             kind: "content-comment-ai",
             requestId: request.operationId,

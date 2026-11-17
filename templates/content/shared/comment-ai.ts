@@ -93,6 +93,7 @@ export interface CommentAiRequest {
   attemptCount: number;
   runId: string | null;
   agentThreadId: string | null;
+  agentThreadScopeId?: string;
   agentTurnId: string | null;
   model: string | null;
   engine: string | null;

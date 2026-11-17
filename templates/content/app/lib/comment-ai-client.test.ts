@@ -70,8 +70,10 @@ describe("parseCommentAiConversation", () => {
   });
 
   it("fails loudly when persisted thread data is unreadable", () => {
-    expect(() => parseCommentAiConversation("not-json", "initial")).toThrow(
-      "could not be read",
-    );
+    for (const data of ["not-json", "null", "{}", '{"messages":{}}']) {
+      expect(() => parseCommentAiConversation(data, "initial")).toThrow(
+        "could not be read",
+      );
+    }
   });
 });

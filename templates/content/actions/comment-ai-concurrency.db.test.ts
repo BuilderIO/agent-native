@@ -41,6 +41,11 @@ let replyRequest: typeof import("./reply-to-comment-ai-request.js").default;
 const asUser = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, run);
 
+function requiredId(value: string | null) {
+  if (!value) throw new Error("Expected a persisted agent session ID");
+  return value;
+}
+
 function startArgs(
   requestId: string,
   rootCommentId: string,
@@ -369,12 +374,210 @@ describe("comment AI operation isolation", () => {
 });
 
 describe("comment AI durable action binding", () => {
+  it("continues a reply using the persisted thread scope and the new operation's action scope", async () => {
+    const agentThreadId = `agent-thread-${crypto.randomUUID()}`;
+    const original = await asUser(() =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(OP_A, ROOT_A),
+        agentThreadId,
+      }),
+    );
+    await createThread(OWNER, {
+      id: agentThreadId,
+      scope: original.backgroundSession.scope,
+      source: { appId: "content" },
+      initialData: {
+        threadData: JSON.stringify({
+          messages: [{ role: "user", content: "original question" }],
+        }),
+        preview: "original question",
+        messageCount: 1,
+      },
+    });
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "replied" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+
+    const continuation = await asUser(() =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(OP_B, ROOT_A),
+        agentThreadId,
+        continuationOfRequestId: OP_A,
+      }),
+    );
+    expect(continuation.backgroundSession.scope).toEqual(
+      original.backgroundSession.scope,
+    );
+    expect(continuation.backgroundSession.actionScope).toEqual({
+      kind: "content-comment-ai",
+      requestId: OP_B,
+    });
+    await expect(
+      asUser(() =>
+        commentAi.resolveCommentAiActionSurface({
+          ownerEmail: OWNER,
+          threadId: agentThreadId,
+          queuedMessageId: OP_B,
+          requestedTurnId: requiredId(continuation.agentTurnId),
+          actionScope: continuation.backgroundSession.actionScope,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      actionScope: { kind: "content-comment-ai", requestId: OP_B },
+    });
+    await expect(
+      asUser(() =>
+        commentAi.resolveCommentAiActionSurface({
+          ownerEmail: OWNER,
+          threadId: agentThreadId,
+          queuedMessageId: OP_B,
+          requestedTurnId: requiredId(continuation.agentTurnId),
+          actionScope: { kind: "content-comment-ai", requestId: OP_A },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_operation_conflict" });
+    const transcript = await asUser(() =>
+      commentAi.getCommentAiConversation(OP_B),
+    );
+    expect(JSON.parse(transcript.threadData)).toEqual({
+      messages: [{ role: "user", content: "original question" }],
+    });
+    await expect(
+      runWithRequestContext({ userEmail: OTHER_USER }, () =>
+        commentAi.getCommentAiConversation(OP_B),
+      ),
+    ).rejects.toThrow("Comment AI request not found");
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "replied" })
+      .where(eq(schema.commentAiRequests.id, OP_B));
+    const thirdArgs = {
+      ...startArgs(OP_C, ROOT_A),
+      agentThreadId,
+      continuationOfRequestId: OP_B,
+    };
+    const third = await asUser(() =>
+      commentAi.startCommentAiRequest(thirdArgs),
+    );
+    const retry = await asUser(() =>
+      commentAi.startCommentAiRequest(thirdArgs),
+    );
+    expect(third.backgroundSession.scope).toEqual(
+      original.backgroundSession.scope,
+    );
+    expect(retry.backgroundSession).toEqual(third.backgroundSession);
+    expect(retry.dispatch).toBe(true);
+    expect(
+      (await asUser(() => commentAi.listCommentAiRequests(DOCUMENT_ID)))
+        .requests,
+    ).toContainEqual(
+      expect.objectContaining({ operationId: OP_C, agentThreadScopeId: OP_A }),
+    );
+    await expect(
+      asUser(() => commentAi.getCommentAiConversation(OP_C)),
+    ).resolves.toEqual(transcript);
+    await expect(
+      asUser(() =>
+        commentAi.startCommentAiRequest({
+          ...startArgs("44444444-4444-4444-8444-444444444444", ROOT_B),
+          continuationOfRequestId: OP_B,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_operation_conflict" });
+  });
+
+  it("denies a requester's transcript and continuation after Page access is revoked", async () => {
+    await getDb().insert(schema.documentShares).values({
+      id: "comment-ai-reader-share",
+      resourceId: DOCUMENT_ID,
+      principalType: "user",
+      principalId: OTHER_USER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    const asCollaborator = <T>(run: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: OTHER_USER }, run);
+    const original = await asCollaborator(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+    await createThread(OTHER_USER, {
+      id: requiredId(original.agentThreadId),
+      scope: original.backgroundSession.scope,
+      source: { appId: "content" },
+      initialData: {
+        threadData: '{"messages":[]}',
+        preview: "",
+        messageCount: 0,
+      },
+    });
+    await expect(
+      asCollaborator(() => commentAi.getCommentAiConversation(OP_A)),
+    ).resolves.toEqual({ threadData: '{"messages":[]}' });
+    await getDb()
+      .delete(schema.documentShares)
+      .where(eq(schema.documentShares.id, "comment-ai-reader-share"));
+    await expect(
+      asCollaborator(() => commentAi.getCommentAiConversation(OP_A)),
+    ).rejects.toThrow();
+    await expect(
+      asCollaborator(() =>
+        commentAi.startCommentAiRequest({
+          ...startArgs(OP_B, ROOT_A),
+          continuationOfRequestId: OP_A,
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it.each(["owner", "org", "app", "scope"])(
+    "rejects a prior thread with a different %s before starting a continuation",
+    async (mismatch) => {
+      const original = await asUser(() =>
+        commentAi.startCommentAiRequest({
+          ...startArgs(OP_A, ROOT_A),
+          agentThreadId: `agent-thread-${crypto.randomUUID()}`,
+        }),
+      );
+      await createThread(mismatch === "owner" ? OTHER_USER : OWNER, {
+        id: requiredId(original.agentThreadId),
+        scope: {
+          type: "content-comment-ai",
+          id: mismatch === "scope" ? OP_C : OP_A,
+        },
+        source: { appId: mismatch === "app" ? "another-app" : "content" },
+        orgId: mismatch === "org" ? "another-org" : null,
+      });
+      await getDb()
+        .update(schema.commentAiRequests)
+        .set({ status: "replied" })
+        .where(eq(schema.commentAiRequests.id, OP_A));
+      await expect(
+        asUser(() =>
+          commentAi.startCommentAiRequest({
+            ...startArgs(OP_B, ROOT_A),
+            agentThreadId: requiredId(original.agentThreadId),
+            continuationOfRequestId: OP_A,
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "comment_ai_thread_unavailable" });
+      expect(
+        await getDb()
+          .select()
+          .from(schema.commentAiRequests)
+          .where(eq(schema.commentAiRequests.id, OP_B)),
+      ).toHaveLength(0);
+    },
+  );
+
   it("binds the initial generated turn before client acknowledgement and repeats idempotently", async () => {
     const agentThreadId = `agent-thread-${crypto.randomUUID()}`;
     const agentTurnId = backgroundAgentTurnIdForReceipt(agentThreadId, OP_A);
     await createThread(OWNER, {
       id: agentThreadId,
       scope: { type: "content-comment-ai", id: OP_A },
+      source: { appId: "content" },
     });
     await asUser(() =>
       commentAi.startCommentAiRequest({
@@ -476,6 +679,7 @@ describe("comment AI durable action binding", () => {
     await createThread(OWNER, {
       id: agentThreadId,
       scope: { type: "content-comment-ai", id: OP_A },
+      source: { appId: "content" },
     });
     await asUser(() =>
       commentAi.startCommentAiRequest({

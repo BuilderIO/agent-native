@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
 
 export interface CommentAiConversationTurn {
   turnId: string;
@@ -54,7 +54,13 @@ export function parseCommentAiConversation(
   } catch {
     throw new Error("The AI conversation could not be read");
   }
-  if (!Array.isArray(parsed.messages)) return [];
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    !Array.isArray(parsed.messages)
+  ) {
+    throw new Error("The AI conversation could not be read");
+  }
 
   const turns = new Map<string, CommentAiConversationTurn>();
   for (const entry of parsed.messages) {
@@ -92,21 +98,11 @@ export async function loadCommentAiConversation(options: {
   operationId: string;
   signal?: AbortSignal;
 }): Promise<CommentAiConversationTurn[]> {
-  const params = new URLSearchParams({
-    scopeType: "content-comment-ai",
-    scopeId: options.operationId,
-  });
-  const response = await fetch(
-    `${agentNativePath("/_agent-native/agent-chat/threads")}/${encodeURIComponent(options.agentThreadId)}?${params}`,
-    { credentials: "same-origin", cache: "no-store", signal: options.signal },
+  const thread = await callAction<{ threadData?: unknown }>(
+    "get-comment-ai-conversation",
+    { requestId: options.operationId },
+    { method: "GET", signal: options.signal },
   );
-  if (response.status === 404) {
-    throw new Error("This AI conversation is no longer available");
-  }
-  if (!response.ok) {
-    throw new Error("The AI conversation could not be loaded");
-  }
-  const thread = (await response.json()) as { threadData?: unknown };
   if (typeof thread.threadData !== "string") {
     throw new Error("The AI conversation could not be read");
   }
