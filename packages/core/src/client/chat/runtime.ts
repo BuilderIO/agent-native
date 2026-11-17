@@ -5410,6 +5410,12 @@ export function createAgentNativeChatRuntime(
           headers.set("x-agent-native-session-id", browserSessionId);
         }
       }
+      // Tool calls read the user's zone from this header (getRequestTimezone);
+      // without it every chat-run action saw no zone and quoted UTC.
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (timeZone && !headers.has("x-user-timezone")) {
+        headers.set("x-user-timezone", timeZone);
+      }
       return headers;
     },
     capabilities: {

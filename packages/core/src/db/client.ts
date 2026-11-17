@@ -2467,12 +2467,23 @@ const transactionCallbacks = new AsyncLocalStorage<{
   executors: WeakSet<DbExec>;
 }>();
 
+// The handles `createGetDb` gives `db.transaction()` callbacks. `withDbExec`
+// also scopes executors that aren't in a transaction.
+const drizzleTransactionExecs = new WeakSet<DbExec>();
+
+/** Marks the handle of a Drizzle transaction, which `withDbExec` then scopes. */
+export function markDrizzleTransactionExec(exec: DbExec): DbExec {
+  drizzleTransactionExecs.add(exec);
+  return exec;
+}
+
 export function withDbExec<T>(exec: DbExec, run: () => T): T {
   const guarded = guardSchemaMutations(exec);
   const callback = transactionCallbacks.getStore();
   if (callback?.active && callback.executors.has(exec)) {
     callback.executors.add(guarded);
   }
+  if (drizzleTransactionExecs.has(exec)) drizzleTransactionExecs.add(guarded);
   return scopedDbExec.run(guarded, run);
 }
 
@@ -2501,6 +2512,30 @@ export function isActiveTransactionExec(exec: DbExec): boolean {
  */
 export function insideDbTransactionCallback(): boolean {
   return transactionCallbacks.getStore()?.active === true;
+}
+
+/**
+ * The executor that writes in the transaction this code runs in, or undefined
+ * outside one: a transaction's handle that `withDbExec` scoped, as a Drizzle
+ * `db.transaction()` does, or inside a PGlite transaction `getDbExec()`, which
+ * joins it. An executor scoped outside a transaction doesn't count. For code
+ * that should join the caller's transaction rather than open its own, since
+ * PGlite can't nest one. A `getDbExec().transaction()` callback that hasn't
+ * scoped its handle with `withDbExec` keeps it to itself, so this throws there
+ * rather than return an executor that writes outside it.
+ */
+export function getEnclosingTransactionDbExec(): DbExec | undefined {
+  const scoped = getScopedDbExec();
+  if (scoped && drizzleTransactionExecs.has(scoped)) return scoped;
+  const callbackScoped = getScopedTransactionDbExec();
+  if (callbackScoped) return callbackScoped;
+  if ((pgliteTransactionStorage?.getStore()?.size ?? 0) > 0) return getDbExec();
+  if (insideDbTransactionCallback()) {
+    throw new Error(
+      "Scope this transaction's handle with withDbExec(tx, …) so the code it calls writes in it.",
+    );
+  }
+  return undefined;
 }
 
 async function inTransactionCallback<T>(

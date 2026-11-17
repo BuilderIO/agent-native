@@ -780,6 +780,62 @@ describe("bounded document discovery", () => {
     expect(terminal.documents.at(-1)?.description).toBe("last page marker");
   });
 
+  it("lists the most recently edited documents first in one page", async () => {
+    const newest = await asUser(OWNER, () =>
+      listDocuments.run({
+        parentId: PARENT_ID,
+        sort: "newest",
+        limit: 3,
+        offset: 0,
+      }),
+    );
+
+    expect(newest.documents.map((document) => document.id)).toEqual([
+      "bounded-discovery-document-204",
+      "bounded-discovery-document-203",
+      "bounded-discovery-document-202",
+    ]);
+    expect(newest.pagination).toEqual({
+      offset: 0,
+      limit: 3,
+      totalItems: 205,
+      returnedItems: 3,
+      hasMore: true,
+      nextOffset: 3,
+    });
+  });
+
+  it("sorts newest documents by timestamp, not stored text", async () => {
+    const title = "Recently edited timestamp probe";
+    // As text, the ISO time sorts after the later Postgres-format one.
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "list-recent-late-postgres-text",
+          ownerEmail: OWNER,
+          title,
+          content: "",
+          updatedAt: "2030-01-01 23:00:00+00",
+        },
+        {
+          id: "list-recent-early-iso",
+          ownerEmail: OWNER,
+          title,
+          content: "",
+          updatedAt: "2030-01-01T01:00:00.000Z",
+        },
+      ]);
+
+    const newest = await asUser(OWNER, () =>
+      listDocuments.run({ exactTitle: title, sort: "newest" }),
+    );
+    expect(newest.documents.map((document) => document.id)).toEqual([
+      "list-recent-late-postgres-text",
+      "list-recent-early-iso",
+    ]);
+  });
+
   it("keeps a parent listed on another page and hides one the caller cannot list", async () => {
     const children = await asUser(OWNER, () =>
       listDocuments.run({ parentId: PARENT_ID, limit: 10, offset: 100 }),

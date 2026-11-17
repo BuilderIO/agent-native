@@ -88,6 +88,7 @@ export {
   type EmbedStartRouteOptions,
 } from "./embed-route.js";
 export {
+  FULL_APP_EMBED_SCOPE,
   createEmbedSessionTicket,
   consumeEmbedSessionTicket,
   normalizeEmbedTargetPath,

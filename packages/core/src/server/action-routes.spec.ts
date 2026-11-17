@@ -62,6 +62,14 @@ const mockRegisterAuthPublicPaths = vi.hoisted(() => vi.fn());
 const mockHasUiActionCapability = vi.hoisted(() => vi.fn(() => false));
 const mockCountActionFailure = vi.hoisted(() => vi.fn());
 const mockCountCredentialState = vi.hoisted(() => vi.fn());
+const mockEmbedDbExecute = vi.hoisted(() => vi.fn(async () => ({ rows: [] })));
+
+vi.mock("../db/client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/client.js")>()),
+  getDbExec: () => ({
+    execute: (...args: unknown[]) => mockEmbedDbExecute(...args),
+  }),
+}));
 
 vi.mock("../tracking/failure-counters.js", () => ({
   countActionFailure: mockCountActionFailure,
@@ -150,9 +158,23 @@ vi.mock("./auth.js", () => ({
     mockRegisterAuthPublicPaths(...args),
   isLoopbackRequest: () => false,
 }));
-vi.mock("./embed-session.js", () => ({
+vi.mock("./embed-session.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./embed-session.js")>()),
+  FULL_APP_EMBED_SCOPE: "full-app",
   hasEmbedSessionRequestMarker: (event: any) =>
     mockHasEmbedSessionRequestMarker(event),
+  hasFullAppEmbedSession: (event: any) =>
+    event._hasFullAppEmbedSession ?? false,
+  presentsFullAppEmbedToken: (
+    ...args: Parameters<
+      typeof import("./embed-session.js").presentsFullAppEmbedToken
+    >
+  ) =>
+    args[0]._useRealEmbedSession
+      ? importOriginal<typeof import("./embed-session.js")>().then((actual) =>
+          actual.presentsFullAppEmbedToken(...args),
+        )
+      : (args[0]._presentsFullAppEmbedToken ?? false),
   hasLiveEmbedCapabilityCookie: (event: any) =>
     event._hasLiveEmbedCapabilityCookie ?? false,
   hasPresentedEmbedSessionCredential: (event: any) =>
@@ -167,8 +189,16 @@ vi.mock("./embed-session.js", () => ({
         (event._headers?.["x-agent-native-embed-target"] ||
           event._query?.__an_embed_target)),
     ),
-  resolveEmbedSessionFromRequest: (...args: unknown[]) =>
-    mockResolveEmbedSessionFromRequest(...args),
+  resolveEmbedSessionFromRequest: (
+    ...args: Parameters<
+      typeof import("./embed-session.js").resolveEmbedSessionFromRequest
+    >
+  ) =>
+    args[0]._useRealEmbedSession
+      ? importOriginal<typeof import("./embed-session.js")>().then((actual) =>
+          actual.resolveEmbedSessionFromRequest(...args),
+        )
+      : mockResolveEmbedSessionFromRequest(...args),
   resolvedEmbedCapabilityScope: (session: { scope?: string } | null) =>
     session?.scope?.startsWith("capability:") ? session.scope : undefined,
 }));
@@ -500,6 +530,144 @@ describe("mountActionRoutes", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["the UI capability cookie on its own origin", true, false, "runs"],
+    ["neither its header token nor the capability", false, false, "refused"],
+    ["its token in the header from the host's origin", false, true, "runs"],
+  ] as const)(
+    "treats a full-app panel's own request as the app UI with %s",
+    async (_name, capability, panelBearer, outcome) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      mockHasUiActionCapability.mockReturnValue(capability);
+      mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
+      mockResolveEmbedSessionFromRequest.mockResolvedValue({
+        email: "owner@example.com",
+        token: "panel-token",
+        targetPath: "/inbox",
+        scope: "full-app",
+      });
+      mockHasEmbedSessionRequestMarker.mockReturnValue(true);
+      try {
+        mountActionRoutes(
+          nitroApp,
+          {
+            "get-thread": {
+              run,
+              uiOnly: true,
+              agentTool: false,
+              mcpTool: false,
+              toolCallable: false,
+            } as any,
+          },
+          { getOwnerFromEvent: async () => "owner@example.com" },
+        );
+        const event = {
+          _method: "POST",
+          _headers: {
+            "sec-fetch-site": panelBearer ? "cross-site" : "same-origin",
+            authorization: "Bearer panel-token",
+            "x-agent-native-frontend": "1",
+          },
+          _presentsFullAppEmbedToken: panelBearer,
+          req: { json: async () => ({}) },
+        };
+        const result = await mounted[0]!.handler(event);
+        if (outcome === "runs") {
+          expect(result).toEqual({ ok: true });
+          expect(run).toHaveBeenCalledOnce();
+        } else {
+          expect(result).toMatchObject({ errorCode: "ui_only_action" });
+          expect(event._status).toBe(403);
+          expect(run).not.toHaveBeenCalled();
+        }
+      } finally {
+        mockResolveEmbedSessionFromRequest.mockReset();
+        mockHasEmbedSessionRequestMarker.mockReset();
+        mockHasUiActionCapability.mockReset();
+      }
+    },
+  );
+
+  it.each([
+    ["a full-app panel", "refused"],
+    ["an expired full-app panel", "refused"],
+    ["the signed-in browser", "runs"],
+  ] as const)(
+    "runs a signed-in-browser action from %s: %s",
+    async (caller, outcome) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      mockHasUiActionCapability.mockReturnValue(true);
+      mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
+      mockResolveEmbedSessionFromRequest.mockResolvedValue(
+        caller === "a full-app panel"
+          ? {
+              email: "owner@example.com",
+              token: "panel-token",
+              targetPath: "/inbox",
+              scope: "full-app",
+            }
+          : null,
+      );
+      mockHasEmbedSessionRequestMarker.mockReturnValue(
+        caller === "a full-app panel",
+      );
+      try {
+        mountActionRoutes(
+          nitroApp,
+          {
+            "create-org-service-token": {
+              run,
+              requiresSignedInBrowser: true,
+            } as any,
+          },
+          { getOwnerFromEvent: async () => "owner@example.com" },
+        );
+        const event = {
+          _method: "POST",
+          _headers: {
+            "sec-fetch-site": "same-origin",
+            "x-agent-native-frontend": "1",
+            ...(caller === "a full-app panel"
+              ? { authorization: "Bearer panel-token" }
+              : {}),
+          },
+          req: { json: async () => ({}) },
+          // A lapsed panel token no longer resolves, but it is still signed.
+          _hasFullAppEmbedSession: caller !== "the signed-in browser",
+        };
+        const result = await mounted[0]!.handler(event);
+        if (outcome === "runs") {
+          expect(result).toEqual({ ok: true });
+          expect(run).toHaveBeenCalledOnce();
+        } else {
+          expect(result).toMatchObject({
+            errorCode: "signed_in_browser_required",
+          });
+          expect(event._status).toBe(403);
+          expect(run).not.toHaveBeenCalled();
+        }
+      } finally {
+        mockResolveEmbedSessionFromRequest.mockReset();
+        mockHasEmbedSessionRequestMarker.mockReset();
+        mockHasUiActionCapability.mockReset();
+      }
+    },
+  );
+
   describe("approval on the HTTP action route", () => {
     type Caller =
       | "proven UI"
@@ -668,6 +836,68 @@ describe("mountActionRoutes", () => {
       );
 
       expect(result.error).toContain("a service identity can never give it");
+    });
+
+    it("lets a full-app panel owner's frontend perform an approval-gated action", async () => {
+      vi.stubEnv("OAUTH_STATE_SECRET", "full-app-panel-test-secret");
+      mockEmbedDbExecute.mockReset().mockResolvedValue({ rows: [] });
+      const { signEmbedSessionToken } = await import("./embed-session.js");
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        targetPath: "/tasks-2",
+        audienceHost: "https://app.example.com",
+        scope: "full-app",
+      });
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "manage-issue-trash": {
+            run,
+            needsApproval: ({ operation }: { operation: string }) =>
+              operation !== "restore",
+            changeResource: "issue",
+            mcpAnnotations: { destructiveHint: true },
+          } as any,
+        },
+        {
+          getOwnerFromEvent: async () => "owner@example.com",
+          resolveOrgId: async () => "org-1",
+        },
+      );
+      const event: any = {
+        _method: "POST",
+        _useRealEmbedSession: true,
+        _headers: {
+          authorization: `Bearer ${token}`,
+          "x-agent-native-embed-target": "/tasks-2",
+          "x-agent-native-frontend": "1",
+          origin: "https://claude.ai",
+          host: "app.example.com",
+          "sec-fetch-site": "cross-site",
+        },
+        url: new URL(
+          "https://app.example.com/_agent-native/actions/manage-issue-trash",
+        ),
+        req: {
+          method: "POST",
+          url: "https://app.example.com/_agent-native/actions/manage-issue-trash",
+          json: async () => ({ operation: "trash", issueId: "issue-1" }),
+        },
+      };
+
+      const result = await mounted[0]!.handler(event);
+
+      expect(event._status).toBeUndefined();
+      expect(result).toEqual({ ok: true });
+      expect(run).toHaveBeenCalledOnce();
     });
 
     it.each([

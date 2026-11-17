@@ -120,7 +120,10 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import {
+  FULL_APP_EMBED_SCOPE,
   hasEmbedSessionRequestMarker,
+  hasFullAppEmbedSession,
+  presentsFullAppEmbedToken,
   hasPresentedEmbedSessionCredential,
   isExpiredMcpDirectoryWidgetSessionRequest,
   resolveEmbedSessionFromRequest,
@@ -303,7 +306,21 @@ async function isProvenUiRequest(
   caller: ActionCaller,
   userEmail: string | undefined,
   embedded: boolean,
+  embedSession: ResolvedEmbedSession | null,
 ): Promise<boolean> {
+  // A full-app panel's own requests: the host's agent can navigate the panel
+  // but cannot send them, so they carry the owner's UI authority.
+  if (embedSession && embedSession.scope === FULL_APP_EMBED_SCOPE) {
+    return (
+      caller === "frontend" &&
+      !!userEmail &&
+      embedSession.email.trim().toLowerCase() ===
+        userEmail.trim().toLowerCase() &&
+      (presentsFullAppEmbedToken(event, embedSession) ||
+        (hasSameOriginBrowserEvidence(event) &&
+          hasUiActionCapability(event, userEmail)))
+    );
+  }
   if (
     caller !== "frontend" ||
     !userEmail ||
@@ -1333,6 +1350,7 @@ function mountActionRoutesInternal(
           requestCaller,
           userEmail,
           embedded,
+          embedSession,
         );
         if (entry.uiOnly === true && !provenUiRequest) {
           setResponseStatus(event, 403);
@@ -1341,6 +1359,17 @@ function mountActionRoutesInternal(
             errorCode: embedded
               ? "ui_only_action"
               : UI_CAPABILITY_REQUIRED_ERROR_CODE,
+          };
+        }
+        if (
+          entry.requiresSignedInBrowser === true &&
+          (embedSession?.scope === FULL_APP_EMBED_SCOPE ||
+            hasFullAppEmbedSession(event))
+        ) {
+          setResponseStatus(event, 403);
+          return {
+            error: "Sign in to the app in your browser to do this.",
+            errorCode: "signed_in_browser_required",
           };
         }
         const privateScope = getHeader(event, PRIVATE_ACTION_SCOPE_HEADER);

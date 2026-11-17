@@ -1178,6 +1178,12 @@ const editor = {
     agentLevelNote: "Agentes podem comentar",
     agentLevelNoteHint:
       "Agentes podem comentar nesta página. Altere isso em Compartilhar.",
+    agentLevelViewDescription:
+      "Podem ler esta página, mas não comentar, sugerir nem editar.",
+    agentLevelViewConfirm: "Agora os agentes só podem ler esta página.",
+    agentLevelViewNote: "Agentes só podem ver",
+    agentLevelViewNoteHint:
+      "Agentes só podem ver esta página. Altere isso em Compartilhar.",
     sendPageToAgent: "Enviar esta página para um agente",
     connectAgentOverMcp: "Conectar um agente por MCP",
     importingFromNotion: "Importando do Notion...",
@@ -1566,6 +1572,9 @@ const exactEnglish = {
       temporaryAgentLink: "Link temporário para agentes",
       privateLinkCanView: "Somente pessoas com acesso podem visualizar",
       publicLinkCanView: "Qualquer pessoa com o link pode visualizar",
+      publicSubPagesOne: "Esta página e sua subpágina",
+      publicSubPages: "Esta página e suas {{count}} subpáginas",
+      publicSubPagesMore: "Esta página e mais de {{count}} subpáginas",
       copiedAgentPrompt: "Instruções para o agente copiadas",
       couldNotCopyAgentPrompt:
         "Não foi possível copiar as instruções para o agente",

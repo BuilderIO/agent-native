@@ -1728,6 +1728,16 @@ export default {
       githubDescription: "قريبا: استيراد الشاشات والمكونات مباشرة من مستودع.",
       localDescription: "وصّل أي تطبيق محلي قيد التشغيل باستخدام /visual-edit.",
       warningsToast: "اكتمل الاستيراد مع تحذيرات",
+      pasteUnreadable: "تعذّرت قراءة الطبقات المنسوخة.",
+      pasteInexact: "تفاصيل لم تُلصق بدقة: {{count}}",
+      pasteLayerTypes: "أنواع طبقات {{tool}} الملصقة كإطارات بسيطة: {{count}}",
+      pasteImagePlaceholders:
+        "الصور الملصقة كعناصر نائبة: {{count}}. لا ينسخ {{tool}} بيانات الصور.",
+      pasteImagesLinked:
+        "الصور التي ما زالت مرتبطة بـ {{tool}}: {{count}}. تعذّر نسخها إلى مساحة تخزين ملفاتك.",
+      pasteImagesUnsaved: "صور قد يتوقف تحميلها لأنه لم يتأكد حفظها: {{count}}",
+      pasteNeedsEditAccess: "تحتاج إلى صلاحية التعديل للصق في هذا التصميم.",
+      pastePartialImport: "فشل اللصق وربما أُنشئت بعض الشاشات. تحقق من شاشاتك.",
       figmaSuccess: "تم استيراد لصق Figma",
       htmlSuccess: "تم استيراد HTML",
       uploadSuccess: "تم استيراد الملف",
@@ -1737,6 +1747,8 @@ export default {
         notHtml: "الصق أو اختر HTML صالحا للاستيراد.",
         importFailed: "فشل الاستيراد",
         figmaPasteFailed: "فشل استيراد لصق Figma",
+        paperPasteFailed: "فشل استيراد لصق Paper",
+        wonderPasteFailed: "فشل استيراد لصق Wonder",
         uploadFailed: "فشل رفع الملف",
         invalidFigFile: "اختر ملفا ينتهي بـ .fig.",
         unsupportedFileType: "اختر ملف ‎.fig‎ أو ‎.html‎ أو ‎.htm‎.",
@@ -3523,6 +3535,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "اربط نموذج ذكاء اصطناعي لاستخدام الوكلاء",
       startFailed: "تعذّر تشغيل الوكيل",
+      hostChatUnconfirmed:
+        "تعذّر تأكيد وصول الرسالة إلى محادثة المضيف. تحقّق من محادثة المضيف قبل المحاولة مجددًا.",
       cancelFailed: "تعذّر إيقاف الوكيل",
       busy: "يعمل وكيل على هذه المحادثة بالفعل",
       error: {

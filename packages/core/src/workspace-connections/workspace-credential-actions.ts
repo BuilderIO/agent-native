@@ -51,6 +51,7 @@ export function createWorkspaceCredentialActions(
   );
   return Object.freeze({
     create: defineAction({
+      requiresSignedInBrowser: true,
       uiOnly: true,
       agentTool: false,
       mcpTool: false,
@@ -93,6 +94,7 @@ export function createWorkspaceCredentialActions(
       run: (input) => runPrivate(() => service.create(input)),
     }),
     update: defineAction({
+      requiresSignedInBrowser: true,
       uiOnly: true,
       agentTool: false,
       mcpTool: false,
@@ -136,6 +138,7 @@ export function createWorkspaceCredentialActions(
       run: (input) => runPrivate(() => service.update(input)),
     }),
     recover: defineAction({
+      requiresSignedInBrowser: true,
       uiOnly: true,
       agentTool: false,
       mcpTool: false,
@@ -153,6 +156,7 @@ export function createWorkspaceCredentialActions(
       run: (input) => runPrivate(() => service.findCreatedConnection(input)),
     }),
     archiveConnection: defineAction({
+      requiresSignedInBrowser: true,
       uiOnly: true,
       agentTool: false,
       mcpTool: false,
@@ -169,6 +173,7 @@ export function createWorkspaceCredentialActions(
       run: (input) => runPrivate(() => service.archiveConnection(input)),
     }),
     archive: defineAction({
+      requiresSignedInBrowser: true,
       uiOnly: true,
       agentTool: false,
       mcpTool: false,
