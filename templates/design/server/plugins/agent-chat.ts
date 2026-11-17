@@ -118,7 +118,6 @@ const INITIAL_TOOL_NAMES = [
   "get-design-template",
   "open-visual-edit",
   "get-visual-edit-pending",
-  "clear-edits",
   "add-localhost-screens",
   "list-localhost-connections",
   "update-screen-source",

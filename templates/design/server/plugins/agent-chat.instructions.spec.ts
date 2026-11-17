@@ -71,7 +71,7 @@ describe("external design authoring catalog", () => {
       agentChatSource.indexOf("const INITIAL_TOOL_NAMES = ["),
       agentChatSource.indexOf("const DESIGN_EDIT_TOOLS = new Set(["),
     );
-    expect(initialTools).toContain('"clear-edits"');
+    expect(initialTools).not.toContain('"clear-edits"');
     expect(connectorCatalog).toContain('"delete-file"');
     expect(agentChatSource).toContain(
       'externalAgents: { writes: "allowlisted" }',
