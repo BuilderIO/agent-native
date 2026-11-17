@@ -266,7 +266,8 @@ import {
   approvalKeyWithArguments,
 } from "./approval-key.js";
 import {
-  APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+  approvedToolCallContinuationMessage,
+  approvedToolCallDidNotRunMessage,
   CONTINUE_UNAVAILABLE_CODE,
   type ContinueTrigger,
 } from "./auto-continue.js";
@@ -14265,6 +14266,23 @@ export function resolveAgentModelSelection(options: {
   return { model: options.defaultModel, source: "default" };
 }
 
+function replaceUserPromptInMessages(
+  messages: EngineMessage[],
+  from: string,
+  to: string,
+): void {
+  const prompt = from.trim();
+  const replacement = to.trim();
+  if (!prompt || prompt === replacement) return;
+  for (const message of messages) {
+    if (message.role !== "user") continue;
+    for (const part of message.content) {
+      if (part.type !== "text" || !part.text.includes(prompt)) continue;
+      part.text = part.text.split(prompt).join(replacement);
+    }
+  }
+}
+
 export function createProductionAgentHandler(
   options: ProductionAgentOptions,
 ): H3EventHandler {
@@ -14352,6 +14370,7 @@ export function createProductionAgentHandler(
       scope,
       harness: submittedHarness,
       trackInRunsTray,
+      approvedContinuationPrompt: submittedApprovedContinuationPrompt,
       skipPendingSelectionContext,
     } = body;
     let requestHistory = submittedHistory;
@@ -15442,17 +15461,13 @@ export function createProductionAgentHandler(
           ),
         ]
       : requestedApprovedToolCalls;
-    if (approvedToolCallsForExecution?.length) {
-      // The server runs the approved call itself. Keep the model from being
-      // told to "go ahead and run" that same action after its result.
-      requestMessage = APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT;
-      mutableBody.message = APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT;
-      requestContext = buildRecentUserRequestContext({
-        request: requestMessage,
-        history: requestHistory,
-        structuredHistory: requestStructuredHistory,
-      });
-    }
+    const approvedContinuationCallerPrompt =
+      approvedToolCallsForExecution?.length &&
+      submittedApprovedContinuationPrompt === true
+        ? requestMessage
+        : undefined;
+    const approvedContinuationOriginalPrompt =
+      approvedToolCallsForExecution?.length ? requestMessage : undefined;
     const resolvedApprovalTurnId =
       ownerEmail && threadId && approvedToolCallsForExecution?.length
         ? await resolveAgentToolApprovalTurnId({
@@ -16995,9 +17010,13 @@ export function createProductionAgentHandler(
 
     if (threadId && !isBackgroundWorker) {
       if (
-        typeof requestTurnId === "string" &&
-        requestTurnId &&
-        (await isTurnAborted(threadId, requestTurnId))
+        (typeof requestTurnId === "string" &&
+          requestTurnId &&
+          (await isTurnAborted(threadId, requestTurnId))) ||
+        // An approval resolved to its stored turn can outlive the client turn
+        // id, so the paused turn's own stop state gates the continuation too.
+        (resolvedApprovalTurnId &&
+          (await isTurnAborted(threadId, resolvedApprovalTurnId)))
       ) {
         return { ok: true, stopped: true };
       }
@@ -17034,6 +17053,12 @@ export function createProductionAgentHandler(
         await queuedSubmissionStore?.ensureChatThreadTables();
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,
+          ...(typeof requestTurnId === "string" &&
+          requestTurnId.trim() &&
+          resolvedApprovalTurnId &&
+          requestTurnId.trim() !== resolvedApprovalTurnId
+            ? { alsoAbortedTurnIds: [requestTurnId.trim()] }
+            : {}),
           ...(admittedQueuedMessage?.interruptActiveRun === true
             ? { interruptApprovalPause: true }
             : {}),
@@ -18517,7 +18542,27 @@ export function createProductionAgentHandler(
               (approvedExecution.status === "failed" &&
                 approvedExecution.terminalError)
             ) {
+              if (approvedContinuationOriginalPrompt !== undefined) {
+                replaceUserPromptInMessages(
+                  messages,
+                  approvedContinuationOriginalPrompt,
+                  approvedToolCallDidNotRunMessage(
+                    approvedContinuationCallerPrompt,
+                  ),
+                );
+              }
               return;
+            }
+            if (approvedContinuationOriginalPrompt !== undefined) {
+              const continuation = approvedToolCallContinuationMessage(
+                approvedContinuationCallerPrompt,
+              );
+              replaceUserPromptInMessages(
+                messages,
+                approvedContinuationOriginalPrompt,
+                continuation,
+              );
+              agentLoopOpts.finalResponseGuardRequestText = continuation;
             }
             if (isBackgroundWorker) return;
             if (privateRequestHistory) {

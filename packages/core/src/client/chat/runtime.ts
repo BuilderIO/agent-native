@@ -5161,6 +5161,8 @@ const AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY =
   "agentNativeApprovedToolCalls";
 const AGENT_NATIVE_APPROVED_TOOL_CALL_ASK_IDS_METADATA_KEY =
   "agentNativeApprovedToolCallAskIds";
+const AGENT_NATIVE_APPROVED_CONTINUATION_PROMPT_METADATA_KEY =
+  "agentNativeApprovedContinuationPrompt";
 const AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY =
   "agentNativeContinuationTurnId";
 const AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY =
@@ -5569,6 +5571,11 @@ export function createAgentNativeChatRuntime(
           : {}),
         ...(approvedToolCalls ? { approvedToolCalls } : {}),
         ...(approvedToolCallAskIds ? { approvedToolCallAskIds } : {}),
+        ...(turn.metadata?.[
+          AGENT_NATIVE_APPROVED_CONTINUATION_PROMPT_METADATA_KEY
+        ] === true
+          ? { approvedContinuationPrompt: true }
+          : {}),
         ...(options.mode ? { mode: options.mode } : {}),
         ...((turn.model ?? options.model)
           ? { model: turn.model ?? options.model }
@@ -5713,6 +5720,8 @@ export function createAgentNativeChatRuntime(
         [AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY]: _approvedToolCalls,
         [AGENT_NATIVE_APPROVED_TOOL_CALL_ASK_IDS_METADATA_KEY]:
           _approvedToolCallAskIds,
+        [AGENT_NATIVE_APPROVED_CONTINUATION_PROMPT_METADATA_KEY]:
+          _approvedContinuationPrompt,
         ...previousMetadata
       } = previousTurn?.metadata ?? {};
       const continuationMetadata = { ...continuation.metadata };
@@ -5726,6 +5735,9 @@ export function createAgentNativeChatRuntime(
       ];
       delete continuationMetadata[
         AGENT_NATIVE_APPROVED_TOOL_CALL_ASK_IDS_METADATA_KEY
+      ];
+      delete continuationMetadata[
+        AGENT_NATIVE_APPROVED_CONTINUATION_PROMPT_METADATA_KEY
       ];
       const turnToContinue = continuation.attachments?.length
         ? { ...previousTurn, attachments: continuation.attachments }
@@ -5858,9 +5870,14 @@ export function createAgentNativeChatRuntime(
         );
       }
       if (messageState) messageState.message.approvalPending = false;
+      const callerContinuationPrompt =
+        typeof continuation.prompt === "string" && continuation.prompt.trim()
+          ? continuation.prompt
+          : undefined;
       return startTurn({
         ...continuationTurn,
-        prompt: continuation.prompt ?? APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+        prompt:
+          callerContinuationPrompt ?? APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
         metadata: {
           ...previousMetadata,
           ...continuationMetadata,
@@ -5870,6 +5887,13 @@ export function createAgentNativeChatRuntime(
                 [AGENT_NATIVE_APPROVED_TOOL_CALL_ASK_IDS_METADATA_KEY]: [
                   approvalAskId,
                 ],
+              }
+            : {}),
+          // Marks the prompt as the approver's own words so the server keeps
+          // it beside its already-ran note instead of replacing it.
+          ...(callerContinuationPrompt
+            ? {
+                [AGENT_NATIVE_APPROVED_CONTINUATION_PROMPT_METADATA_KEY]: true,
               }
             : {}),
           [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]: continuationTurnId,
