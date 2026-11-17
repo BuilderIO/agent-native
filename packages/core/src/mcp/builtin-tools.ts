@@ -505,6 +505,11 @@ async function submitAskAppA2ATask(
     message,
   );
   const mint = await mintMcpChatTurn(route.app);
+  // Only `not-registered` means "send without a proof"; a refused mint (owner
+  // cap, storage or signing failure) must not quietly drop the interactive grant.
+  if (mint.status === "refused") {
+    throw new Error(`MCP chat-turn proof refused: ${mint.reason}`);
+  }
   const task = await client.send(
     {
       ...(mint.status === "minted"

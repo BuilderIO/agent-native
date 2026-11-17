@@ -231,8 +231,8 @@ export function useSettingsCollectionAdd(
           return next;
         });
         return true;
-      } catch {
-        // coercion-ok: `false` is "not saved"; the model reports why and the form keeps its values.
+      } catch (cause) {
+        setSubmitError(cause instanceof Error ? cause.message : String(cause));
         return false;
       } finally {
         setSubmitting(false);
@@ -253,6 +253,7 @@ type TextRow = Extract<
  */
 export function useSettingsTextDraft(row: TextRow) {
   const binding = row.binding;
+  const store = useContext(WriteErrors);
   const commit =
     row.mode === "view" ? "explicit" : (binding.commit ?? "change");
   const [draft, setDraft] = useState<string | null>(null);
@@ -279,13 +280,17 @@ export function useSettingsTextDraft(row: TextRow) {
       if (row.mode === "view") setEditing(false);
       return;
     }
+    store?.report(row.id, null);
     void (async () => {
       try {
         await binding.set?.(next);
         setDraft((current) => (current === next ? null : current));
         if (row.mode === "view") setEditing(false);
-      } catch {
-        // coercion-ok: the model reports the failure through `error` or `status`.
+      } catch (cause) {
+        store?.report(
+          row.id,
+          cause instanceof Error ? cause.message : String(cause),
+        );
       }
     })();
   };
@@ -299,8 +304,19 @@ export function useSettingsTextDraft(row: TextRow) {
       setEditing(true);
     },
     change(next: string) {
-      if (commit === "change") void settle(() => binding.set?.(next));
-      else setDraft(next);
+      if (commit === "change") {
+        store?.report(row.id, null);
+        void (async () => {
+          try {
+            await binding.set?.(next);
+          } catch (cause) {
+            store?.report(
+              row.id,
+              cause instanceof Error ? cause.message : String(cause),
+            );
+          }
+        })();
+      } else setDraft(next);
     },
     blur() {
       if (commit === "blur") flush();

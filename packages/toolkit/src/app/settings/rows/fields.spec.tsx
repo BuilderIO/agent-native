@@ -265,6 +265,42 @@ describe("settings rows: fields real settings pages needed", () => {
     ).toBe("Out of range for this plan");
   });
 
+  it("shows why a text row's write was rejected", async () => {
+    const sections: SettingsSectionDefinition[] = [
+      {
+        id: "profile",
+        rows: [
+          {
+            id: "settings.profile.name",
+            kind: "text",
+            label: "Name",
+            binding: {
+              value: "",
+              set: async () => {
+                throw new Error("Name is reserved");
+              },
+            },
+          },
+        ],
+      },
+    ];
+    act(() => root.render(<SettingsSections sections={sections} />));
+    const input = document.querySelector(
+      '[data-row-kind="text"] input',
+    ) as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "root");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(
+      tagged("settings.profile.name", "settings.row.error")?.textContent,
+    ).toBe("Name is reserved");
+  });
+
   it("keeps an add form open with its values and shows the message when a submit does not save", async () => {
     const submits: unknown[] = [];
     let result: SettingsSubmitResult = { error: "That name is taken" };
