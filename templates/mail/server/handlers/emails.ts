@@ -496,6 +496,20 @@ function gmailErrorStatus(error: unknown): {
   return { status: parsed ? Number(parsed) : 502 };
 }
 
+/**
+ * Whether Gmail, not the file, failed a read: an outage, a rate limit or an
+ * account Mail couldn't refresh, which a retry can clear.
+ */
+function isGmailOutage(error: unknown): boolean {
+  if (error instanceof GmailQuotaCooldownError) return true;
+  const { status, statusCode } = (error ?? {}) as {
+    status?: unknown;
+    statusCode?: unknown;
+  };
+  const code = typeof status === "number" ? status : statusCode;
+  return typeof code === "number" && (code === 429 || code >= 500);
+}
+
 /** Error body for a failed Gmail call; a cooldown carries its typed fields. */
 function gmailErrorBody(error: unknown): Record<string, unknown> {
   return {
@@ -1625,9 +1639,18 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
         }),
         reader.moved,
       );
-    } catch {
-      setResponseStatus(event, 400);
-      return { error: "One or more attachments could not be read" };
+    } catch (error) {
+      // Finding a file Gmail moved reads Gmail, which can fail on its own.
+      if (!isGmailOutage(error)) {
+        setResponseStatus(event, 400);
+        return { error: "One or more attachments could not be read" };
+      }
+      const { status, retryAfterSeconds } = gmailErrorStatus(error);
+      setResponseStatus(event, status);
+      if (retryAfterSeconds !== undefined) {
+        setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
+      }
+      return gmailErrorBody(error);
     }
     try {
       const draftFrom = draftAccountEmail || "me";

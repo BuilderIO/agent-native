@@ -445,6 +445,47 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
       });
     });
 
+    it.each([
+      [
+        "Gmail's failure, which a retry can clear",
+        Object.assign(new Error("Google API error (503): Backend Error"), {
+          status: 503,
+        }),
+        503,
+        { error: "Google API error (503): Backend Error" },
+      ],
+      [
+        "a file Mail can't read as a bad request",
+        new Error(
+          `Mail couldn't tell which file in the Gmail draft is "brief.pdf".`,
+        ),
+        400,
+        { error: "One or more attachments could not be read" },
+      ],
+    ])(
+      "reports %s while reading the draft's files",
+      async (_case, error, status, body) => {
+        mocks.readBody.mockResolvedValue({
+          to: "recipient@example.com",
+          subject: "Edited draft",
+          body: "Edited body",
+          draftId: "r-draft-7",
+          savedDraftBackend: "gmail",
+          accountEmail: managedAccountEmail,
+          attachments: [draftFile],
+        });
+        mocks.resolveComposeAttachments.mockRejectedValue(error);
+
+        const result = await (
+          saveDraft as (event: unknown) => Promise<unknown>
+        )({});
+
+        expect(mocks.setResponseStatus).toHaveBeenCalledWith({}, status);
+        expect(result).toEqual(body);
+        expect(mocks.googleFetch).not.toHaveBeenCalled();
+      },
+    );
+
     it("asks Gmail nothing more when the save carries only uploads", async () => {
       const upload = {
         id: "upload.pdf",
