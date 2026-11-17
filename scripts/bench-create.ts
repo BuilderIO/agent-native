@@ -508,6 +508,8 @@ interface PhaseSummary {
   received: number;
   sent: number;
   connections: number;
+  /** Summed across runs, not a median, so one failed run still shows. */
+  failedConnections: number;
   hosts: string;
 }
 
@@ -532,6 +534,7 @@ function summarizePhase(
     received: median(totals.map((total) => total.received)),
     sent: median(totals.map((total) => total.sent)),
     connections: median(totals.map((total) => total.connections)),
+    failedConnections: totals.reduce((sum, total) => sum + total.errors, 0),
     hosts,
   };
 }
@@ -562,7 +565,7 @@ function report(
           ? `time ${formatChange(base.ms, summary.ms)}, bytes ${formatChange(base.received + base.sent, summary.received + summary.sent)}`
           : "not comparable";
       lines.push(
-        `| ${target.label} (${version}) | ${phase} | ${(summary.ms / 1000).toFixed(1)} s | ${formatBytes(summary.received)} | ${formatBytes(summary.sent)} | ${summary.connections} | ${summary.hosts} | ${change} |`,
+        `| ${target.label} (${version}) | ${phase} | ${(summary.ms / 1000).toFixed(1)} s | ${formatBytes(summary.received)} | ${formatBytes(summary.sent)} | ${summary.connections}${summary.failedConnections > 0 ? ` (${summary.failedConnections} failed)` : ""} | ${summary.hosts} | ${change} |`,
       );
     }
   }
@@ -699,6 +702,18 @@ async function main(): Promise<void> {
     `${scenario} · ${runs} run(s) per target, times are medians · Node ${process.version} · ${process.platform}\n`,
   );
   console.log(report(results, phases));
+  if (
+    results.some(({ runs: targetRuns }) =>
+      phases.some(
+        (phase) =>
+          (summarizePhase(targetRuns, phase)?.failedConnections ?? 0) > 0,
+      ),
+    )
+  ) {
+    console.log(
+      "\nFailed connections ended in a network error, so their phase's bytes and time include whatever retried them.",
+    );
+  }
   if (results.some(({ target }) => target.source !== "registry")) {
     console.log(
       "\nLocal, .tgz, and tarball-URL targets skip the package's own registry metadata in the install phase, and local and .tgz ones its tarball too, so install is compared only between targets from the same source.",
