@@ -27,21 +27,21 @@ marking, replying to, or closing any Slack report.
 
 Slack reactions on a report's root message mean exactly this:
 
-| Mark | Meaning          | When to add                                                                               |
-| ---- | ---------------- | ----------------------------------------------------------------------------------------- |
-| 👀   | "I'm on this"    | Before you investigate, and only on reports you will finish answering in this run         |
-| ✅   | "Fixed"          | After the fix is merged to `main` (main deploys to beta automatically)                    |
-| 🎫   | "Needs a person" | A product call, access or credentials, info from the reporter, or a fix you couldn't land |
+| Mark | Meaning                                   | When to add                                                                                      |
+| ---- | ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| 👀   | "I'm on this"                             | Before you investigate, and only on reports you will finish answering in this run               |
+| ✅   | "Fixed"                                   | After the fix is merged to `main` (main deploys to beta automatically)                           |
+| 🎫   | "Needs a person"                          | A product call, access or credentials, info from the reporter, or a fix you couldn't land        |
 
 A maintainer is a Builder.io team member in the workspace who is not the
 reporter and not a bot. Maintainers steer the sweep with reactions on a root:
 
-| A maintainer adds | Meaning                                                                                                                 |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `:mag:`           | Don't work on this; someone else will. Wins over everything below                                                       |
+| A maintainer adds | Meaning                                                                                   |
+| ----------------- | ----------------------------------------------------------------------------------------- |
+| `:mag:`           | Don't work on this; someone else will. Wins over everything below                        |
 | `:yes-party:`     | Definitely do this, even if it looks ambiguous or like a UX change. Build the smallest version that does what was asked |
-| `:upvote:`        | Same as `:yes-party:` for a feature request                                                                             |
-| 👀 by hand        | They're working on it themselves; leave it (see "Open items first" for how to tell their 👀 from ours)                  |
+| `:upvote:`        | Same as `:yes-party:` for a feature request                                               |
+| 👀 by hand        | They're working on it themselves; leave it (see "Open items first" for how to tell their 👀 from ours) |
 
 Reactions can't be removed through the Slack connector, so never add one you
 might need to take back. Every 👀 you add ends the run with a reply, plus
@@ -112,16 +112,16 @@ thanks - the <https://github.com/BuilderIO/agent-native/pull/1234|fix> so the ex
 
 Real replies that missed, and what to send instead:
 
-| Sent                                                                                                                                                     | Instead                                                                                                                                                         |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "Could you send the recording link, approximate time, and browser so we can trace whether the clip produced media before it tried to save?"              | Find the recording from the reporter and message time first. If you still can't: "thanks - I couldn't find which recording this was; could you paste its link?" |
-| "cleanup now waits for the transcript, and a fix is ready. It should be on beta shortly." (sent before the merge)                                        | "thanks - recordings will keep their transcript once this <url\|fix> is merged; it's in review now."                                                            |
-| "I've left moving it somewhere easier to find for product to decide."                                                                                    | "thanks - where the editor should live is logged for a product decision."                                                                                       |
-| "Partially fixed - PR #7512 merged the project-instructions/context carryover fix", after she'd asked whether FullStory could be added for the whole org | Answer that question first: "yes - I'll add it for everyone" or "not yet - that's logged for a decision".                                                       |
-| "All fixed and verified. Please try again!" plus instructions to pull main and reinstall                                                                 | "thanks - this <url\|fix> is merged and will be on beta shortly." No homework.                                                                                  |
-| More replies after Shawn wrote "bot please stop! I've got this all fixed and in flight"                                                                  | Nothing. A person has it.                                                                                                                                       |
-| "Thanks for correcting me, Julia - I misread the replies. ... Open - no question: I don't have enough source evidence to claim a fix."                   | Nothing: the thread was a joke.                                                                                                                                 |
-| Asked for the app URL, what was clicked, and the time; then, in a second reply, for the time zone.                                                       | One reply, one question, only for what you can't look up. The message's own timestamp already says when.                                                        |
+| Sent | Instead |
+| --- | --- |
+| "Could you send the recording link, approximate time, and browser so we can trace whether the clip produced media before it tried to save?" | Find the recording from the reporter and message time first. If you still can't: "thanks - I couldn't find which recording this was; could you paste its link?" |
+| "cleanup now waits for the transcript, and a fix is ready. It should be on beta shortly." (sent before the merge) | "thanks - recordings will keep their transcript once this <url\|fix> is merged; it's in review now." |
+| "I've left moving it somewhere easier to find for product to decide." | "thanks - where the editor should live is logged for a product decision." |
+| "Partially fixed - PR #7512 merged the project-instructions/context carryover fix", after she'd asked whether FullStory could be added for the whole org | Answer that question first: "yes - I'll add it for everyone" or "not yet - that's logged for a decision". |
+| "All fixed and verified. Please try again!" plus instructions to pull main and reinstall | "thanks - this <url\|fix> is merged and will be on beta shortly." No homework. |
+| More replies after Shawn wrote "bot please stop! I've got this all fixed and in flight" | Nothing. A person has it. |
+| "Thanks for correcting me, Julia - I misread the replies. ... Open - no question: I don't have enough source evidence to claim a fix." | Nothing: the thread was a joke. |
+| Asked for the app URL, what was clicked, and the time; then, in a second reply, for the time zone. | One reply, one question, only for what you can't look up. The message's own timestamp already says when. |
 
 ## Boundaries
 
@@ -398,7 +398,6 @@ Keep the recap short, for the maintainer reading it:
 
 ```md
 ## Feedback sweep - <date, Pacific>
-
 Fixed and merged (N): <one line each, with Slack thread link> · PR <link>
 Closed out from earlier runs (N): <Slack thread link> · PR <link>
 Needs a person (N): <what's needed, who, what you tried>

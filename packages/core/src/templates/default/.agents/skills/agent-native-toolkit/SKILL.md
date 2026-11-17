@@ -216,14 +216,14 @@ has a reusable connection, use its catalog, app grant, and scoped credential
 resolver rather than registering a parallel secret. Only then classify fields
 that still need app-local setup by lifecycle and scope:
 
-| Need                                                   | Default primitive                                                                       |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| Deploy- or app-level configuration                     | Runtime configuration or deployment env vars                                            |
-| Existing workspace/provider connection                 | Workspace-connection catalog/grant plus `resolveWorkspaceConnectionCredential(s)ForApp` |
-| App-local API/service key with no reusable connection  | `registerRequiredSecret({ kind: "api-key" })` and the vault                             |
-| Authorization-code or refresh-token flow               | `kind: "oauth"` with `@agent-native/core/oauth-tokens`                                  |
-| Account, customer, or other non-secret identifiers     | Scoped connection metadata or app data                                                  |
-| Provider-specific prerequisites, sequencing, or health | A thin app-local guide over the shared primitives                                       |
+| Need | Default primitive |
+| --- | --- |
+| Deploy- or app-level configuration | Runtime configuration or deployment env vars |
+| Existing workspace/provider connection | Workspace-connection catalog/grant plus `resolveWorkspaceConnectionCredential(s)ForApp` |
+| App-local API/service key with no reusable connection | `registerRequiredSecret({ kind: "api-key" })` and the vault |
+| Authorization-code or refresh-token flow | `kind: "oauth"` with `@agent-native/core/oauth-tokens` |
+| Account, customer, or other non-secret identifiers | Scoped connection metadata or app data |
+| Provider-specific prerequisites, sequencing, or health | A thin app-local guide over the shared primitives |
 
 Do not register every provider field as a generic secret, mark every field as
 required, or create a second credential-management surface. One logical

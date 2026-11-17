@@ -335,11 +335,7 @@ export default defineAction({
     const draft = (result as { draft?: Record<string, string> }).draft;
     const id = (result as { id?: string }).id;
     if (!draft || !id) return null;
-    return {
-      url: composeDeepLink(draft),
-      label: "Open draft in Mail",
-      view: "inbox",
-    };
+    return { url: composeDeepLink(draft), label: "Open draft in Mail", view: "inbox" };
   },
 });
 ```

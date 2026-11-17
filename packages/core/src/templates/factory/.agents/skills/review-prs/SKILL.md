@@ -54,40 +54,40 @@ review noise.
 Before selecting a PR for review, read only enough metadata to determine its
 author and draft state:
 
-- Ignore every bot-authored PR, including Dependabot and
-  `builder-io-integration[bot]`, and ignore every PR authored by the active
-  GitHub login (`gh api user --jq .login`). Do not inspect their diff, checks, reviews, membership,
-  or source links; do not take any review or merge action; and do not add
-  them to the end-of-run recap.
+ - Ignore every bot-authored PR, including Dependabot and
+   `builder-io-integration[bot]`, and ignore every PR authored by the active
+   GitHub login (`gh api user --jq .login`). Do not inspect their diff, checks, reviews, membership,
+   or source links; do not take any review or merge action; and do not add
+   them to the end-of-run recap.
 
-- Ignore draft PRs completely. Do not inspect their diff, checks, reviews,
-  membership, or source links; do not take any review action; and do not add
-  them to the end-of-run recap.
+ - Ignore draft PRs completely. Do not inspect their diff, checks, reviews,
+   membership, or source links; do not take any review action; and do not add
+   them to the end-of-run recap.
 
-- Verify each remaining human author's current BuilderIO membership using the
-  organization membership API below before applying any existing-approval
-  filter. For a PR from a fork, check assignees before any other gate: if any
-  assignee is a verified current BuilderIO member, ignore the PR completely,
-  like a draft. That member owns it under `community-prs`. Take no review,
-  reply, action, or merge action, and leave it out of the recap. This exclusion
-  applies in Factory governance too.
+ - Verify each remaining human author's current BuilderIO membership using the
+   organization membership API below before applying any existing-approval
+   filter. For a PR from a fork, check assignees before any other gate: if any
+   assignee is a verified current BuilderIO member, ignore the PR completely,
+   like a draft. That member owns it under `community-prs`. Take no review,
+   reply, action, or merge action, and leave it out of the recap. This exclusion
+   applies in Factory governance too.
 
-- For every other confirmed external PR in Factory governance, call
-  `govern-factory-pull-request` so the action records a manual disposition,
-  even when the PR already has a current-head approval. Do not use the manual
-  external-scope or reply path for that PR, and never approve it. In other
-  invocations, apply the external-contribution scope gate before reading
-  review summaries or entering the evidence sweep. For PRs that continue,
-  determine whether any existing current-head approval is eligible to suppress
-  duplicate code review under the reviewer and newer-event rules below.
+ - For every other confirmed external PR in Factory governance, call
+   `govern-factory-pull-request` so the action records a manual disposition,
+   even when the PR already has a current-head approval. Do not use the manual
+   external-scope or reply path for that PR, and never approve it. In other
+   invocations, apply the external-contribution scope gate before reading
+   review summaries or entering the evidence sweep. For PRs that continue,
+   determine whether any existing current-head approval is eligible to suppress
+   duplicate code review under the reviewer and newer-event rules below.
 
-- Reuse that review as the code assessment only after verifying the reviewer
-  is a different, current BuilderIO member and is eligible under the PR's
-  author- and scope-specific rules, including any independent-review
-  requirement. An unknown or ineligible reviewer never suppresses a full diff
-  review. A valid approval suppresses duplicate code review only while no
-  newer commit, comment, review, or check result exists; the PR still enters
-  the merge-readiness pass and recap.
+ - Reuse that review as the code assessment only after verifying the reviewer
+   is a different, current BuilderIO member and is eligible under the PR's
+   author- and scope-specific rules, including any independent-review
+   requirement. An unknown or ineligible reviewer never suppresses a full diff
+   review. A valid approval suppresses duplicate code review only while no
+   newer commit, comment, review, or check result exists; the PR still enters
+   the merge-readiness pass and recap.
 
 All non-draft human PRs that pass the author and external-scope gates enter the
 evidence sweep below. For PRs with a verified eligible current-head approval and
@@ -101,16 +101,16 @@ disposition or a full-sweep recap.
 
 For every PR you inspect, read:
 
-- the title, body, linked issue, and source links;
-- for PRs requiring a new or repeat code review, the complete changed-file
-  list and diff, including generated or migration files; a current-head
-  approval from a verified eligible reviewer with no newer event is the
-  existing code assessment, so check its merge evidence without repeating that
-  review;
-- all current human and bot review summaries, inline comments, and replies;
-- every current check/status context and actual conclusion, marking pending,
-  skipped, unknown, or failing separately;
-- the repository ownership and the affected app or framework boundary.
+ - the title, body, linked issue, and source links;
+ - for PRs requiring a new or repeat code review, the complete changed-file
+   list and diff, including generated or migration files; a current-head
+   approval from a verified eligible reviewer with no newer event is the
+   existing code assessment, so check its merge evidence without repeating that
+   review;
+ - all current human and bot review summaries, inline comments, and replies;
+ - every current check/status context and actual conclusion, marking pending,
+   skipped, unknown, or failing separately;
+ - the repository ownership and the affected app or framework boundary.
 
 Inspect repository rulesets as well as branch protection. List every page with
 `gh api --paginate 'repos/BuilderIO/agent-native/rulesets?includes_parents=true'`
@@ -248,20 +248,20 @@ not authorize a merge.
 The user has explicitly authorized a practical internal-author exception for
 this skill:
 
-- For a verified current BuilderIO member, failed, pending, skipped, or
-  unknown CI/check evidence does not by itself block approval. Record the
-  exact state in the recap and assume the author will resolve it before merge.
-- For a verified current BuilderIO member, ordinary unresolved review
-  feedback, including bot findings, does not by itself block approval. Record
-  the unresolved feedback and assume it will be handled before merge.
-- These exceptions do not waive the ultra-scary safety gate below. Do not
-  approve when the current diff or review evidence indicates a credible auth
-  bypass, permission or tenant-isolation failure, secret or credential leak,
-  destructive data loss or migration, remote code execution, SSRF, payment
-  compromise, deployment compromise, or similarly severe production risk.
-- Do not claim that ignored checks are green or that ignored feedback is
-  resolved. The recap must distinguish approval under the internal exception
-  from a clean merge state.
+ - For a verified current BuilderIO member, failed, pending, skipped, or
+   unknown CI/check evidence does not by itself block approval. Record the
+   exact state in the recap and assume the author will resolve it before merge.
+ - For a verified current BuilderIO member, ordinary unresolved review
+   feedback, including bot findings, does not by itself block approval. Record
+   the unresolved feedback and assume it will be handled before merge.
+ - These exceptions do not waive the ultra-scary safety gate below. Do not
+   approve when the current diff or review evidence indicates a credible auth
+   bypass, permission or tenant-isolation failure, secret or credential leak,
+   destructive data loss or migration, remote code execution, SSRF, payment
+   compromise, deployment compromise, or similarly severe production risk.
+ - Do not claim that ignored checks are green or that ignored feedback is
+   resolved. The recap must distinguish approval under the internal exception
+   from a clean merge state.
 
 When an exception requires independent review, it means a separate,
 attributable, non-dismissed `APPROVED` PR review from a different verified
@@ -277,13 +277,13 @@ use the exception.
 
 The verified owner exceptions are:
 
-- Alice (`3mdistal`) - Content
-- Nick (`NKoech123`) - Slides
-- Shomix (`shomix`, GitHub user ID `100691266`) - any app or framework area
-- Enzo (`enzoames`) - Factory, only when the PR is specific to the Factory
-  app
-- Sid (`sidmohanty11`) - Design
-- Manu (`manucorporat`) - any app or framework area
+ - Alice (`3mdistal`) - Content
+ - Nick (`NKoech123`) - Slides
+ - Shomix (`shomix`, GitHub user ID `100691266`) - any app or framework area
+ - Enzo (`enzoames`) - Factory, only when the PR is specific to the Factory
+   app
+ - Sid (`sidmohanty11`) - Design
+ - Manu (`manucorporat`) - any app or framework area
 
 For a verified PR authored by Alice and limited to Content app or template
 behavior, including supporting shared framework or Desktop plumbing required
@@ -392,12 +392,12 @@ decision is pending.
 The app-owner map is for approval exceptions only; an owner approval is not a
 separate code-readiness requirement:
 
-- Alice (`3mdistal`) - Content
-- Shomix (`shomix`) - Clips
-- Nick (`NKoech123`) - Slides
-- Nicholas - Analytics
-- Enzo (`enzoames`) - Factory
-- Sid (`sidmohanty11`) - Design
+ - Alice (`3mdistal`) - Content
+ - Shomix (`shomix`) - Clips
+ - Nick (`NKoech123`) - Slides
+ - Nicholas - Analytics
+ - Enzo (`enzoames`) - Factory
+ - Sid (`sidmohanty11`) - Design
 
 Verify the author's GitHub identity and affected app before applying an owner
 exception. An app owner's status does not waive the ultra-scary safety gate or
@@ -515,16 +515,16 @@ to the Factory workflow.
 Once all the conditions hold, record the live `headRefOid`; they must remain
 true for 10 consecutive minutes on that same head:
 
-- every status context required by branch protection or an applicable
-  repository ruleset is satisfied on the recorded head according to GitHub's
-  merge rules. Record the actual conclusion; count `neutral` or `skipped` only
-  when GitHub treats that result as satisfied. Pending, failed, and unknown
-  contexts are not satisfied. Every other applicable merge requirement (such
-  as a required deployment) must also be satisfied;
-- every actionable review finding has a verified fix or terminal disposition;
-- the PR is `MERGEABLE` with no conflicts;
-- the same recorded `headRefOid` remains unchanged for the entire 10-minute
-  interval, and all checks and review dispositions apply to that head.
+ - every status context required by branch protection or an applicable
+   repository ruleset is satisfied on the recorded head according to GitHub's
+   merge rules. Record the actual conclusion; count `neutral` or `skipped` only
+   when GitHub treats that result as satisfied. Pending, failed, and unknown
+   contexts are not satisfied. Every other applicable merge requirement (such
+   as a required deployment) must also be satisfied;
+ - every actionable review finding has a verified fix or terminal disposition;
+ - the PR is `MERGEABLE` with no conflicts;
+ - the same recorded `headRefOid` remains unchanged for the entire 10-minute
+   interval, and all checks and review dispositions apply to that head.
 
 Reset the 10-minute gate after a push, failed check, new actionable feedback,
 new commit, or merge conflict. Do not treat this skill or a ready disposition
@@ -735,9 +735,9 @@ Use this shape:
 ```md
 ## PR review
 
-| PR          | Author / org status                                | Review disposition                | Merge readiness                                                                               | Merge result                                                          | UX / screenshot                                                       | Author-facing reply                                               | Why and evidence |
-| ----------- | -------------------------------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------- | ---------------- |
-| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready for your final approval / Needs updates / Needs a maintainer's decision / Cannot assess | Merged (SHA) / Waiting on 10-minute gate / Held (reason) / Not merged | Unknown / unable to inspect; No UI; UI - screenshot present or needed | Draft / Waiting on contributor / Internal - no draft / Not needed | ...              |
+| PR | Author / org status | Review disposition | Merge readiness | Merge result | UX / screenshot | Author-facing reply | Why and evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready for your final approval / Needs updates / Needs a maintainer's decision / Cannot assess | Merged (SHA) / Waiting on 10-minute gate / Held (reason) / Not merged | Unknown / unable to inspect; No UI; UI - screenshot present or needed | Draft / Waiting on contributor / Internal - no draft / Not needed | ... |
 
 Unavailable or unverified: ...
 ```

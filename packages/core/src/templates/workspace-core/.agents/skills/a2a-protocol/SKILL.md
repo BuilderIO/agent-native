@@ -92,12 +92,12 @@ adapter is being used, but browser code must never receive the credential.
 
 Four ways to create it, all writing the same row:
 
-| Surface                                                           | Where                                                 |
-| ----------------------------------------------------------------- | ----------------------------------------------------- |
-| Settings → Agent → Sub-agents → Connect agent (owners and admins) | any app with the Settings shell                       |
-| Agent page → Connections                                          | apps mounting `AgentTabsPage`                         |
-| Dispatch → Agents → Add external agent                            | workspace dispatch                                    |
-| The agent itself                                                  | `resources` tool, `action: "write"`, `--scope shared` |
+| Surface | Where |
+| --- | --- |
+| Settings → Agent → Sub-agents → Connect agent (owners and admins) | any app with the Settings shell |
+| Agent page → Connections | apps mounting `AgentTabsPage` |
+| Dispatch → Agents → Add external agent | workspace dispatch |
+| The agent itself | `resources` tool, `action: "write"`, `--scope shared` |
 
 The last one matters for template apps with no Code tab: "connect me to
 https://analytics.example.com" is a complete instruction. `remote-agents/` is
@@ -141,9 +141,9 @@ for legacy callers; document and test that boundary when adding such a route.
 
 The framework supports two credential scopes:
 
-| Secret           | Scope                                                           | How it is set                                |
-| ---------------- | --------------------------------------------------------------- | -------------------------------------------- |
-| `A2A_SECRET`     | User identity across a deployment                               | env var, **never auto-generated**            |
+| Secret | Scope | How it is set |
+| --- | --- | --- |
+| `A2A_SECRET` | User identity across a deployment | env var, **never auto-generated** |
 | org `a2a_secret` | Organization principal, with optional current-member delegation | auto-generated on org creation; Team page UI |
 
 An ordinary org-secret JWT proves only that the caller holds the organization's
@@ -169,7 +169,7 @@ member-identity delegation setting is owner-only and defaults off.
 
 `A2A_SECRET` is the deploy-level path. `workspace-deploy` refuses a production
 workspace deploy without it and prints the generator command. Peers that must
-trust deployment-secret user assertions need the _same_ value on both sides.
+trust deployment-secret user assertions need the *same* value on both sides.
 Keep it different from every org `a2a_secret`; a shared value cannot
 distinguish a deployment user assertion from an organization credential. An
 org secret equal to `A2A_SECRET` is verified as an organization principal and
@@ -180,11 +180,11 @@ retry. Mismatched `A2A_SECRET` values are rejected with `401`
 
 With no secret configured at all:
 
-| Runtime                                  | Result                                      |
-| ---------------------------------------- | ------------------------------------------- |
-| local dev                                | open, one-time console warning              |
-| production                               | `503` — "A2A authentication not configured" |
-| production, secret set, bad/absent token | `401`                                       |
+| Runtime | Result |
+| --- | --- |
+| local dev | open, one-time console warning |
+| production | `503` — "A2A authentication not configured" |
+| production, secret set, bad/absent token | `401` |
 
 "Production" is detected broadly (NODE_ENV, Netlify, Lambda, Vercel, Render,
 Fly, Cloud Run, …) and unrecognized deployed hosts fail closed unless the
@@ -264,7 +264,7 @@ reads. Verified sibling callers see two concise kinds of capability:
 - Authenticated read-only actions selected by connector policy include their
   input schemas and may be invoked directly.
 - Authenticated writes marked `publicAgent: { expose: true, readOnly: false,
-requiresAuth: true }` are advertised without schemas as message-only
+  requiresAuth: true }` are advertised without schemas as message-only
   capabilities. A sibling delegates an objective; the receiving agent chooses
   and validates its own local actions.
 
@@ -462,11 +462,11 @@ submitted → working → completed
 
 Messages contain typed parts:
 
-| Part type | Fields                            | Use for                   |
-| --------- | --------------------------------- | ------------------------- |
-| `text`    | `{ type: "text", text: "..." }`   | Natural language messages |
-| `file`    | `{ type: "file", file: { ... } }` | Stored file URI           |
-| `data`    | `{ type: "data", data: { ... } }` | Structured JSON data      |
+| Part type | Fields                              | Use for                    |
+| --------- | ----------------------------------- | -------------------------- |
+| `text`    | `{ type: "text", text: "..." }`     | Natural language messages  |
+| `file`    | `{ type: "file", file: { ... } }`   | Stored file URI            |
+| `data`    | `{ type: "data", data: { ... } }`   | Structured JSON data       |
 
 The receiver rejects inline file bytes and `data:` URLs before creating a task:
 task history, status messages, artifacts, and approval inputs are durable SQL
@@ -537,5 +537,5 @@ import type {
 - **authentication** — Org creation, membership, and where the org secret lives.
 - **actions** — A2A calls typically happen inside actions; `publicAgent` marks what peers can see.
 - **storing-data** — Results from A2A calls are stored in SQL like any other data.
-  </content>
-  </invoke>
+</content>
+</invoke>

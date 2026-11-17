@@ -27,12 +27,12 @@ existing schedule-only integrations and delivery metadata.
 
 ## The Persisted Trigger Types
 
-| Type       | Fires when                                       | Trigger-specific fields                    |
-| ---------- | ------------------------------------------------ | ------------------------------------------ |
-| `schedule` | Cron expression matches (same as recurring jobs) | `schedule` (required), `timezone`          |
-| `event`    | A matching event is emitted on the event bus     | `event` (required), `condition` (optional) |
-| `manual`   | A user explicitly invokes `run-now`              | None                                       |
-| `webhook`  | A POST reaches its generated webhook endpoint    | None                                       |
+| Type | Fires when | Trigger-specific fields |
+| --- | --- | --- |
+| `schedule` | Cron expression matches (same as recurring jobs) | `schedule` (required), `timezone` |
+| `event` | A matching event is emitted on the event bus | `event` (required), `condition` (optional) |
+| `manual` | A user explicitly invokes `run-now` | None |
+| `webhook` | A POST reaches its generated webhook endpoint | None |
 
 Event triggers can optionally include a `condition` -- a natural-language
 string evaluated by a model against the event payload before dispatch. If the
@@ -95,42 +95,42 @@ Use the web-request tool with ${keys.SLACK_WEBHOOK}.
 
 ### Frontmatter Fields
 
-| Field                 | Type                                             | Purpose                                                                                                           |
-| --------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| `schedule`            | `string`                                         | Cron expression; new scheduled automations default to once per hour (`0 * * * *`) when omitted                    |
-| `enabled`             | `boolean`                                        | Whether the automation is active                                                                                  |
-| `triggerType`         | `"schedule" \| "event" \| "manual" \| "webhook"` | How the automation fires                                                                                          |
-| `event`               | `string?`                                        | Event name to subscribe to (event triggers only)                                                                  |
-| `condition`           | `string?`                                        | Natural-language event condition (event triggers only)                                                            |
-| `mode`                | `"agentic"`                                      | Full agent loop (only supported mode; `"deterministic"` was removed — never implemented, rejected at define time) |
-| `model`               | `string?`                                        | Override the model for this trigger's agent loop                                                                  |
-| `reasoningEffort`     | `string?`                                        | Override reasoning effort for this trigger's model; omitted uses the model's default                              |
-| `domain`              | `string?`                                        | Grouping tag (mail, calendar, clips, etc.)                                                                        |
-| `createdBy`           | `string?`                                        | Creator email; required for organization event automations                                                        |
-| `orgId`               | `string?`                                        | Organization scope                                                                                                |
-| `runAs`               | `"creator" \| "shared"`                          | Execution identity; trigger-aware automations use `creator`                                                       |
-| `mcpTools`            | `string[]?`                                      | Exact MCP tool allowlist for this automation                                                                      |
-| `lastRun`             | `string?`                                        | ISO timestamp of last execution                                                                                   |
-| `lastStatus`          | `string?`                                        | `success`, `error`, `running`, `skipped`, or `paused`                                                             |
-| `lastError`           | `string?`                                        | The last failure cause or declared skip reason                                                                    |
-| `lastErrorCode`       | `string?`                                        | Typed code of the last failure (see Failure handling)                                                             |
-| `consecutiveFailures` | `number?`                                        | Run of identical `lastErrorCode` failures                                                                         |
-| `pausedReason`        | `string?`                                        | Set with `enabled: false` when the framework paused it                                                            |
-| `pausedAt`            | `string?`                                        | ISO timestamp of that pause                                                                                       |
+| Field         | Type                           | Purpose                                                |
+| ------------- | ------------------------------ | ------------------------------------------------------ |
+| `schedule`    | `string`                       | Cron expression; new scheduled automations default to once per hour (`0 * * * *`) when omitted |
+| `enabled`     | `boolean`                      | Whether the automation is active                       |
+| `triggerType` | `"schedule" \| "event" \| "manual" \| "webhook"` | How the automation fires |
+| `event`       | `string?`                      | Event name to subscribe to (event triggers only)       |
+| `condition`   | `string?`                      | Natural-language event condition (event triggers only) |
+| `mode`        | `"agentic"`                    | Full agent loop (only supported mode; `"deterministic"` was removed — never implemented, rejected at define time) |
+| `model`       | `string?`                      | Override the model for this trigger's agent loop       |
+| `reasoningEffort` | `string?`                   | Override reasoning effort for this trigger's model; omitted uses the model's default |
+| `domain`      | `string?`                      | Grouping tag (mail, calendar, clips, etc.)             |
+| `createdBy`   | `string?`                      | Creator email; required for organization event automations |
+| `orgId`       | `string?`                      | Organization scope                                     |
+| `runAs`       | `"creator" \| "shared"`        | Execution identity; trigger-aware automations use `creator` |
+| `mcpTools`    | `string[]?`                    | Exact MCP tool allowlist for this automation           |
+| `lastRun`     | `string?`                      | ISO timestamp of last execution                        |
+| `lastStatus`  | `string?`                      | `success`, `error`, `running`, `skipped`, or `paused`  |
+| `lastError`   | `string?`                      | The last failure cause or declared skip reason          |
+| `lastErrorCode` | `string?`                    | Typed code of the last failure (see Failure handling)  |
+| `consecutiveFailures` | `number?`              | Run of identical `lastErrorCode` failures              |
+| `pausedReason` | `string?`                     | Set with `enabled: false` when the framework paused it |
+| `pausedAt`    | `string?`                      | ISO timestamp of that pause                            |
 
 ## Agent Tools
 
 All automation operations are accessed through a single `manage-automations` tool with an `action` parameter:
 
-| Action        | Purpose                                                                                                         |
-| ------------- | --------------------------------------------------------------------------------------------------------------- |
+| Action        | Purpose                                                              |
+| ------------- | -------------------------------------------------------------------- |
 | `list-events` | Discover registered event names, descriptions, and payload schemas before defining or changing an event trigger |
-| `list`        | List automations and their trigger, status, model, tools, and delivery metadata                                 |
-| `define`      | Create an automation after confirming the summary with the user; requires `name`, `trigger_type`, and `body`    |
-| `update`      | Update an existing automation in its original scope without changing its creator                                |
-| `delete`      | Delete an automation (always confirm with user first)                                                           |
-| `fire-test`   | Emit a `test.event.fired` event to validate event automations                                                   |
-| `run-now`     | Explicitly run one automation immediately with real actions and side effects                                    |
+| `list` | List automations and their trigger, status, model, tools, and delivery metadata |
+| `define` | Create an automation after confirming the summary with the user; requires `name`, `trigger_type`, and `body` |
+| `update` | Update an existing automation in its original scope without changing its creator |
+| `delete` | Delete an automation (always confirm with user first) |
+| `fire-test` | Emit a `test.event.fired` event to validate event automations |
+| `run-now` | Explicitly run one automation immediately with real actions and side effects |
 
 Use `list-events` only when selecting an event trigger; schedule, manual, and
 webhook triggers do not need event discovery. For **Email received**, use the
@@ -196,44 +196,36 @@ registerEvent({
     attendeeEmail: z.string(),
     startTime: z.string(),
   }),
-  example: {
-    bookingId: "abc",
-    attendeeEmail: "jane@co.com",
-    startTime: "2025-01-15T10:00:00Z",
-  },
+  example: { bookingId: "abc", attendeeEmail: "jane@co.com", startTime: "2025-01-15T10:00:00Z" },
 });
 
 // Emit the event (from an action, webhook handler, etc.)
-emit(
-  "calendar.booking.created",
-  {
-    bookingId: "abc",
-    attendeeEmail: "jane@co.com",
-    startTime: "2025-01-15T10:00:00Z",
-  },
-  { owner: "user@example.com" },
-);
+emit("calendar.booking.created", {
+  bookingId: "abc",
+  attendeeEmail: "jane@co.com",
+  startTime: "2025-01-15T10:00:00Z",
+}, { owner: "user@example.com" });
 ```
 
 ### Built-in Events
 
-| Event                  | Source                                       |
-| ---------------------- | -------------------------------------------- |
-| `test.event.fired`     | Manual / manage-automations action=fire-test |
-| `agent.turn.completed` | Agent chat                                   |
-| `calendar.*`           | Calendar integration                         |
-| `clip.*`               | Clips integration                            |
-| `mail.*`               | Mail integration                             |
+| Event                     | Source              |
+| ------------------------- | ------------------- |
+| `test.event.fired`        | Manual / manage-automations action=fire-test |
+| `agent.turn.completed`    | Agent chat          |
+| `calendar.*`              | Calendar integration |
+| `clip.*`                  | Clips integration   |
+| `mail.*`                  | Mail integration    |
 
 ### Event Bus API
 
-| Function        | Purpose                                       |
-| --------------- | --------------------------------------------- |
-| `registerEvent` | Declare an event type with schema             |
-| `emit`          | Fire an event (validates payload)             |
-| `subscribe`     | Listen for an event (returns subscription ID) |
-| `unsubscribe`   | Remove a subscription by ID                   |
-| `listEvents`    | List all registered event definitions         |
+| Function         | Purpose                                     |
+| ---------------- | ------------------------------------------- |
+| `registerEvent`  | Declare an event type with schema           |
+| `emit`           | Fire an event (validates payload)           |
+| `subscribe`      | Listen for an event (returns subscription ID) |
+| `unsubscribe`    | Remove a subscription by ID                 |
+| `listEvents`     | List all registered event definitions       |
 
 ## Condition Evaluator
 
@@ -261,10 +253,10 @@ Automations use the `web-request` tool for outbound HTTP. It supports `${keys.NA
 An automation fails once, with its real cause, instead of re-failing every
 tick. The runner classifies each failure (`jobs/automation-outcome.ts`):
 
-| Class        | Codes                                                                                                              | Pauses after                                       |
-| ------------ | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| Class        | Codes                                                                 | Pauses after |
+| ------------ | --------------------------------------------------------------------- | ------------ |
 | Precondition | `missing_credentials`, `missing_tools`, `owner_missing`, `owner_reserved`, `config_invalid`, `connection_required` | 3 identical (owner/identity failures: immediately) |
-| Runtime      | the run's own code, e.g. `http_502`                                                                                | 5, with a widening gap between attempts            |
+| Runtime      | the run's own code, e.g. `http_502`                                   | 5, with a widening gap between attempts |
 
 - An event or webhook automation counts a failure once per event
   (`lastFailedEventId`): queue retries of the same event never pause it alone.
@@ -336,18 +328,18 @@ Agent flow:
 
 ## Key Files
 
-| File                                                     | Purpose                                                       |
-| -------------------------------------------------------- | ------------------------------------------------------------- |
-| `packages/core/src/triggers/types.ts`                    | `TriggerFrontmatter` interface                                |
-| `packages/core/src/triggers/actions.ts`                  | Agent tools (define, list, update, delete, test)              |
-| `packages/core/src/triggers/dispatcher.ts`               | Event subscription and agentic dispatch                       |
-| `packages/core/src/jobs/background-automation-runner.ts` | Shared schedule/event/manual/webhook execution lifecycle      |
-| `packages/core/src/jobs/automation-outcome.ts`           | Failure classification, pause thresholds, reserved identities |
-| `packages/core/src/jobs/stale-reaper.ts`                 | Bounded reaping of stuck runs and A2A tasks                   |
-| `packages/core/src/triggers/condition-evaluator.ts`      | Engine-resolved condition classification with caching         |
-| `packages/core/src/event-bus/`                           | Event bus (register, emit, subscribe)                         |
-| `packages/core/src/tools/fetch-tool.ts`                  | `web-request` tool with key substitution                      |
-| `packages/core/src/secrets/substitution.ts`              | `resolveKeyReferences()` and `validateUrlAllowlist()`         |
+| File                                           | Purpose                                          |
+| ---------------------------------------------- | ------------------------------------------------ |
+| `packages/core/src/triggers/types.ts`          | `TriggerFrontmatter` interface                   |
+| `packages/core/src/triggers/actions.ts`        | Agent tools (define, list, update, delete, test)  |
+| `packages/core/src/triggers/dispatcher.ts`     | Event subscription and agentic dispatch          |
+| `packages/core/src/jobs/background-automation-runner.ts` | Shared schedule/event/manual/webhook execution lifecycle |
+| `packages/core/src/jobs/automation-outcome.ts` | Failure classification, pause thresholds, reserved identities |
+| `packages/core/src/jobs/stale-reaper.ts`       | Bounded reaping of stuck runs and A2A tasks      |
+| `packages/core/src/triggers/condition-evaluator.ts` | Engine-resolved condition classification with caching |
+| `packages/core/src/event-bus/`                 | Event bus (register, emit, subscribe)            |
+| `packages/core/src/tools/fetch-tool.ts`        | `web-request` tool with key substitution         |
+| `packages/core/src/secrets/substitution.ts`    | `resolveKeyReferences()` and `validateUrlAllowlist()` |
 
 ## Related Skills
 

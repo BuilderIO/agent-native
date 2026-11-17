@@ -16,7 +16,7 @@ metadata:
 
 Actions in `actions/` are the **single source of truth** for app operations. The agent calls them as tools, the frontend calls them through `useActionQuery` / `useActionMutation`, and the framework owns the HTTP transport behind those hooks — no duplicate `/api/` routes.
 
-Before creating any custom route for app data, check `actions/` and the action table in `AGENTS.md`. An action already exists? Call it directly. Missing? Create or update a `defineAction`. **Stop trigger:** about to add a file under `server/routes/api/` (or middleware to guard one)? Check it against the exception list in _Custom `/api/` Routes_ below first — even if you already started the route.
+Before creating any custom route for app data, check `actions/` and the action table in `AGENTS.md`. An action already exists? Call it directly. Missing? Create or update a `defineAction`. **Stop trigger:** about to add a file under `server/routes/api/` (or middleware to guard one)? Check it against the exception list in *Custom `/api/` Routes* below first — even if you already started the route.
 
 ## Keep Actions Deterministic
 
@@ -55,7 +55,7 @@ Some models (GPT-6 Luna in strict mode) send every optional field they aren't us
 
 Use Drizzle's PostgreSQL query builder, not raw SQL/`getDbExec()` or direct driver imports, unless Drizzle can't express the query. Never hardcode API keys/tokens/secrets - read via `readAppSecret` / `resolveCredential` / OAuth helpers; `process.env` is deploy-level config only.
 
-**Decision order:** existing action → extend/create a `defineAction` → custom route as last resort (_Custom `/api/` Routes_ below). Actions are already callable by agents, CLIs, hooks, HTTP, and MCP/A2A — don't wrap them in an umbrella REST API.
+**Decision order:** existing action → extend/create a `defineAction` → custom route as last resort (*Custom `/api/` Routes* below). Actions are already callable by agents, CLIs, hooks, HTTP, and MCP/A2A — don't wrap them in an umbrella REST API.
 
 ## Keep the Action Surface Small and Orthogonal
 
@@ -76,13 +76,13 @@ When MCP is enabled, its `Key tools` line is generated from `mcp.keyToolNames ??
 
 Controls HTTP exposure:
 
-| Value                          | Behavior                            | Use for                             |
-| ------------------------------ | ----------------------------------- | ----------------------------------- |
-| _(omitted)_                    | `POST /_agent-native/actions/:name` | Write operations (default)          |
-| `{ method: "GET" }`            | `GET /_agent-native/actions/:name`  | Read-only queries                   |
-| `{ method: "PUT"/"DELETE" }`   | matching verb                       | Update / delete                     |
-| `{ method: "GET", path: "x" }` | custom route path                   | Non-default path                    |
-| `false`                        | never exposed as HTTP               | `navigate`, `view-screen`, internal |
+| Value | Behavior | Use for |
+| --- | --- | --- |
+| _(omitted)_ | `POST /_agent-native/actions/:name` | Write operations (default) |
+| `{ method: "GET" }` | `GET /_agent-native/actions/:name` | Read-only queries |
+| `{ method: "PUT"/"DELETE" }` | matching verb | Update / delete |
+| `{ method: "GET", path: "x" }` | custom route path | Non-default path |
+| `false` | never exposed as HTTP | `navigate`, `view-screen`, internal |
 
 Mutating actions (anything but `GET`) auto-refresh the UI on success — don't call `refresh-screen` after a normal action. Overrides (`readOnly`, `parallelSafe`) and exact trigger rules: `references/action-fields.md`.
 
@@ -177,14 +177,10 @@ Import from focused `@agent-native/core/client/*` entry points; the broad
 hand-written `fetch("/_agent-native/actions/...")`.
 
 ```ts
-import {
-  useActionQuery,
-  useActionMutation,
-  callAction,
-} from "@agent-native/core/client/hooks";
+import { useActionQuery, useActionMutation, callAction } from "@agent-native/core/client/hooks";
 
 const { data: meals } = useActionQuery("list-meals", { date: "2025-01-01" }); // GET, types auto-inferred
-const { mutate } = useActionMutation("log-meal"); // POST/PUT/DELETE
+const { mutate } = useActionMutation("log-meal");                             // POST/PUT/DELETE
 mutate({ name: "Salad", calories: 350 });
 const people = await callAction("search-people", { query }, { method: "GET" }); // imperative (debounce, prefetch)
 ```
@@ -218,7 +214,7 @@ Everything else — CRUD, settings, search, list/detail reads, auth state, anyth
 - **Do** signal failure by throwing, using `fail()` for expected caller-readable failures. Never return `{ error: ... }` as a failure result: a normal return is treated as a successful action. Reserve bare errors for unexpected internal faults.
 - **Do** use `fail()` rather than a bare `Error` for caller-readable failures. It carries the action's message, `errorCode`, and `details` to the browser and to agents; unexpected errors become a generic 500. Reserve bare throws for internal faults.
 - **Do** give `fail()` the status that matches the cause: it defaults to `400`, and `useActionQuery` retries only `429`, `502`, `503`, and `504`. Mutations do not retry; use transient statuses only for retryable failures.
-- **Do** validate inputs before the first write. A rejection raised before any write the framework can see is "nothing saved", so the agent can fix its request and retry. Don't reorder code just to add labels. See _Failed Writes_.
+- **Do** validate inputs before the first write. A rejection raised before any write the framework can see is "nothing saved", so the agent can fix its request and retry. Don't reorder code just to add labels. See *Failed Writes*.
 - **Do** render `actionErrorMessage(error) ?? yourCopy` in UI, never bare `error.message`. The message keeps an `Action <name> failed:` prefix that belongs in a console, so a toast built from it reads "Action update-brand-kit failed: That name is taken." The helper returns only what the action wrote, and `undefined` when nothing did (network drop, proxy HTML page), which is why the fallback is not optional.
 - **Do** pass a real `errorCode` when the agent should branch on the failure rather than re-read it. Codes other than the default `action_failed` are appended to the tool result as `(errorCode: not_found)`, on both the in-app agent and MCP. `details` follow as an `Error details: {...}` JSON line, and as `structuredContent.error` over MCP, capped at 2,000 characters, so keep them to what the agent acts on next: ids, limits, field names. The status never reaches either.
 - **Don't** re-export actions as REST — `/_agent-native/actions/:name` is already the REST surface; duplicating it under `/api/*` hides the operation from agents.

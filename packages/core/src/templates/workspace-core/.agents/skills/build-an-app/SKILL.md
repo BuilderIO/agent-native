@@ -181,7 +181,6 @@ made from a stale view. See `real-time-sync`.
    Inspect console and network failures. Fix errors from the new route or actions
    and identify existing scaffold messages separately. The only expected 4xx/5xx
    is the rejection being tested. Capture the finished workflow.
-
 5. Stop the dev server and close the tab.
 
 Skip the production build, unrelated test suites, and README or DESIGN rewrites.

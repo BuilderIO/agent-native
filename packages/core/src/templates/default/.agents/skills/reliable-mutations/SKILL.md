@@ -46,7 +46,7 @@ turns a hopeful ✓ into a fact.
    panels (ids …)" or "updated 5 rows". Do not infer success from the presence
    of a tool ✓ on an individual call.
 5. **On a time-budget cutoff, fail loud.** If the turn is cut before the change
-   is fully committed and verified, say so explicitly and report what _did_
+   is fully committed and verified, say so explicitly and report what *did*
    persist (M of N) and what remains. Never round a partial or unverified write
    up to "done".
 

@@ -71,12 +71,12 @@ update.
 
 Skills are resources at `skills/<slug>/SKILL.md`.
 
-| User intent                      | Save path                                                                                                                         |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Just me or personal reuse        | Use the `resources` tool with `action: "write"`, `scope: "personal"`, `visibility: "workspace"`, and the generated skill content. |
-| Shared organization or app reuse | Use the `resources` tool with `action: "write"`, `scope: "shared"`, `visibility: "workspace"`, and the generated skill content.   |
-| Every workspace app              | Use `create-workspace-resource` with `kind: "skill"`, `scope: "all"`, the generated path, name, description, and content.         |
-| Only selected apps               | Use the workspace resource flow with `scope: "selected"` only when the user names the app set.                                    |
+| User intent | Save path |
+| --- | --- |
+| Just me or personal reuse | Use the `resources` tool with `action: "write"`, `scope: "personal"`, `visibility: "workspace"`, and the generated skill content. |
+| Shared organization or app reuse | Use the `resources` tool with `action: "write"`, `scope: "shared"`, `visibility: "workspace"`, and the generated skill content. |
+| Every workspace app | Use `create-workspace-resource` with `kind: "skill"`, `scope: "all"`, the generated path, name, description, and content. |
+| Only selected apps | Use the workspace resource flow with `scope: "selected"` only when the user names the app set. |
 
 For an all-app workspace skill, use the workspace resource action when it is
 available. If the current app does not expose it, discover or delegate to the

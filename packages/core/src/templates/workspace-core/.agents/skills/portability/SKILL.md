@@ -35,20 +35,18 @@ export const meals = pgTable("meals", {
   calories: integer("calories").notNull(),
   weight: doublePrecision("weight"),
   archived: boolean("archived").notNull().default(false),
-  createdAt: text("created_at")
-    .notNull()
-    .default(sql`now()`),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 ```
 
-| Export            | Purpose                                          |
-| ----------------- | ------------------------------------------------ |
-| `pgTable`         | Defines a PostgreSQL table                       |
+| Export            | Purpose                                      |
+| ----------------- | -------------------------------------------- |
+| `pgTable`         | Defines a PostgreSQL table                   |
 | `text`            | Defines a text column, with optional enum values |
-| `integer`         | Defines an integer column                        |
-| `boolean`         | Defines a boolean column                         |
-| `doublePrecision` | Defines a double-precision column                |
-| `sql`             | Builds SQL expressions such as `now()`           |
+| `integer`         | Defines an integer column                    |
+| `boolean`         | Defines a boolean column                     |
+| `doublePrecision` | Defines a double-precision column            |
+| `sql`             | Builds SQL expressions such as `now()`       |
 
 Use `@agent-native/core/db/schema` only for framework-owned sharing helpers such
 as `ownableColumns()` and `createSharesTable()`.
