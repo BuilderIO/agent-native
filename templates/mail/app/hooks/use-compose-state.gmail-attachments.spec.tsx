@@ -612,6 +612,25 @@ describe("sending a draft whose last save couldn't confirm where its file moved"
     expect(sendable?.attachments).toEqual([healed]);
   });
 
+  it("sends without another save once the person removed the file", async () => {
+    const { result, local, saves, stored } = await afterUnconfirmedSave([
+      "unconfirmed",
+    ]);
+    act(() => result.current.update("reopened", { attachments: [] }));
+    await waitFor(() => expect(stored().attachments).toEqual([]));
+    const staged = local();
+    act(() => result.current.stageForSend("reopened"));
+
+    let sendable: ComposeState | undefined;
+    await act(async () => {
+      sendable = staged && (await result.current.settleForSend(staged));
+    });
+
+    expect(sendable?.attachments).toEqual([]);
+    expect(saves).toHaveLength(1);
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+  });
+
   it("doesn't send a draft Mail's store refused when Mail's draft route can't find the file either", async () => {
     const { result, local, saves } = await afterUnconfirmedSave(
       ["unconfirmed"],

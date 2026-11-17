@@ -20,7 +20,12 @@ import {
   DRAFT_MAILBOX_BUSY_ERROR_CODE,
 } from "@shared/draft-mailbox";
 import { appendSignatureToBody } from "@shared/signature";
-import type { Alias, ComposeState, UserSettings } from "@shared/types";
+import type {
+  Alias,
+  ComposeAttachment,
+  ComposeState,
+  UserSettings,
+} from "@shared/types";
 import {
   useQuery,
   useMutation,
@@ -664,7 +669,6 @@ export async function syncDraftToMailboxBestEffort(
           retryAfterMs: result.retryAfterMs,
         }),
         ...(result.savedDraft ? { savedDraft: result.savedDraft } : {}),
-        ...(result.savedDraft ? { savedDraft: result.savedDraft } : {}),
         // Gmail took the update as that draft, but Mail's copy still names
         // the message Gmail replaced: only this write can record it.
         ...(result.savedDraft && result.unrecordedGmailDraftId
@@ -685,6 +689,15 @@ export async function syncDraftToMailboxBestEffort(
  */
 export function mailboxCopyOvertaken(result: DraftSaveResult): boolean {
   return failedWith(result, DRAFT_MAILBOX_BUSY_ERROR_CODE);
+}
+
+/** An attachment Mail reads from a Gmail message when it saves or sends. */
+function isGmailFileRef(attachment: ComposeAttachment): boolean {
+  return Boolean(
+    attachment.source === "gmail" &&
+    attachment.gmailMessageId &&
+    attachment.gmailAttachmentId,
+  );
 }
 
 /**
@@ -1406,6 +1419,10 @@ export function useComposeState() {
     async (staged: ComposeState): Promise<ComposeState> => {
       await pendingDraftSavesRef.current.get(staged.id);
       let sendable = staged;
+      // Files removed since that save leave nothing for another to find.
+      if (!staged.attachments?.some(isGmailFileRef)) {
+        unconfirmedDraftFilesRef.current.delete(staged.id);
+      }
       if (unconfirmedDraftFilesRef.current.has(staged.id)) {
         const getLatest = () =>
           (qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []).find(
