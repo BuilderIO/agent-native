@@ -100,6 +100,7 @@ const guards = [
   "guard:no-oracle-loosening",
   "guard:no-wall-clock-assertions",
   "guard:no-new-legacy-mcp-hints",
+  "guard:no-new-mcp-parity-gaps",
   "guard:action-output-schema",
   "guard:no-new-escape-hatches",
   "guard:compiler-strictness",
