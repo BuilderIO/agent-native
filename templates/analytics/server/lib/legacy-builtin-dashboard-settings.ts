@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 
 import { table, text } from "@agent-native/core/db/schema";
+import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
 import { and, asc, eq, gt, isNull, or, sql } from "drizzle-orm";
 
 import { SEED_BUILTIN_DASHBOARD_IDS } from "../../shared/builtin-dashboard-ids";
-import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 
 const legacySettings = table("settings", {

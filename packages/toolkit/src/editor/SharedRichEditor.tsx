@@ -17,12 +17,14 @@ import {
   type SharedEditorFeatures,
 } from "./extensions.js";
 import type { ImageUploadFn } from "./ImageExtension.js";
+import { RichEditorErrorBoundary } from "./RichEditorErrorBoundary.js";
 import {
   DEFAULT_SLASH_COMMANDS,
   filterSlashCommandItems,
   SlashCommandMenu,
   type SlashCommandItem,
 } from "./SlashCommandMenu.js";
+import { TableContextMenu } from "./TableContextMenu.js";
 import {
   useCollabReconcile,
   getEditorMarkdown,
@@ -251,10 +253,7 @@ export function SharedRichEditor({
     if (!editor || editor.isDestroyed) return;
     // Flipping editability around a server seed is not a content change, so it
     // must not emit `update`, which would save the document.
-    editor.setEditable(
-      editable && !collabState.initialSeedPending,
-      !requestInitialSeed,
-    );
+    editor.setEditable(editable && !collabState.initialSeedPending, false);
   }, [editable, editor, collabState.initialSeedPending, requestInitialSeed]);
 
   // A document seeded from empty starts with its caret at the very top, where
@@ -320,7 +319,12 @@ export function SharedRichEditor({
       {editable ? (
         <SlashCommandMenu editor={editor} items={effectiveSlashItems} />
       ) : null}
-      <EditorContent editor={editor} className="an-rich-md-content" />
+      {editable && features?.tables !== false ? (
+        <TableContextMenu editor={editor} />
+      ) : null}
+      <RichEditorErrorBoundary>
+        <EditorContent editor={editor} className="an-rich-md-content" />
+      </RichEditorErrorBoundary>
     </div>
   );
 }

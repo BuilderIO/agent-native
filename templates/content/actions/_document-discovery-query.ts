@@ -11,6 +11,7 @@ import {
   type SQL,
   type SQLWrapper,
 } from "drizzle-orm";
+import { QueryBuilder } from "drizzle-orm/pg-core";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentDiscoveryFilter } from "../server/lib/documents.js";
@@ -30,8 +31,12 @@ export interface DocumentDiscoveryFilters {
   additional?: SQL;
 }
 
+/**
+ * Built without a connection. Before the database is up, and inside a PGlite
+ * transaction, `getDb()` returns a lazy proxy, which another query can't embed.
+ */
 export function softDeletedDatabaseDocumentExclusions(documentId: SQLWrapper) {
-  const db = getDb();
+  const builder = new QueryBuilder();
   const deletedDatabases = alias(
     schema.contentDatabases,
     "deleted_database_document_exclusions",
@@ -40,7 +45,7 @@ export function softDeletedDatabaseDocumentExclusions(documentId: SQLWrapper) {
     schema.contentDatabaseItems,
     "deleted_database_membership_exclusions",
   );
-  const deletedDatabaseDocument = db
+  const deletedDatabaseDocument = builder
     .select({ id: deletedDatabases.id })
     .from(deletedDatabases)
     .where(
@@ -49,7 +54,7 @@ export function softDeletedDatabaseDocumentExclusions(documentId: SQLWrapper) {
         isNotNull(deletedDatabases.deletedAt),
       ),
     );
-  const deletedDatabaseMembership = db
+  const deletedDatabaseMembership = builder
     .select({ id: deletedDatabaseItems.id })
     .from(deletedDatabaseItems)
     .innerJoin(

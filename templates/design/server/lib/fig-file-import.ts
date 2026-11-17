@@ -1,12 +1,12 @@
 import { deleteUploadedFile, uploadFile } from "@agent-native/core/file-upload";
 
+import type { DecodedFig } from "../../shared/fig-file-decoder.js";
 import {
   convertDecodedFigToEditableHtml as convertShared,
   importFigFileToEditableHtml as importShared,
   type FigFileImportResult,
   type ImageUploader,
 } from "../../shared/fig-to-frames.js";
-import type { DecodedFig } from "./fig-file-decoder.js";
 import { normalizeImportedHtmlDocument } from "./import-design-files.js";
 
 export type { FigFileImportResult, ImageUploader };

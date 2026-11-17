@@ -12,8 +12,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import type { ContentNavigationContext } from "../shared/api.js";
+import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
+import { filesNavigationParentsWithChildren } from "./_database-navigation.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   getContentSourceMode,
@@ -125,6 +127,55 @@ async function resolveNavigationFilesContext(
     );
   }
   return authorized[0];
+}
+
+/**
+ * Whether each Files page on the path has children in the Files tree, by the
+ * rule its own navigation row follows, so the sidebar can draw the row before
+ * that row's page loads. A view the tree cannot read fails its own page; its
+ * pages are left out here.
+ */
+async function filesChildrenOnPath(
+  db: ReturnType<typeof getDb>,
+  userEmail: string | undefined,
+  memberships: ReadonlyArray<{ documentId: string; databaseId: string }>,
+): Promise<Map<string, boolean>> {
+  const hasChildren = new Map<string, boolean>();
+  if (!userEmail) return hasChildren;
+  const documentIdsByDatabase = new Map<string, string[]>();
+  for (const membership of memberships) {
+    documentIdsByDatabase.set(membership.databaseId, [
+      ...(documentIdsByDatabase.get(membership.databaseId) ?? []),
+      membership.documentId,
+    ]);
+  }
+  for (const [databaseId, documentIds] of documentIdsByDatabase) {
+    const [[database = null], overrides] = await Promise.all([
+      db
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId))
+        .limit(1),
+      readPersonalDatabaseViewOverrides(userEmail, databaseId),
+    ]);
+    if (!database) continue;
+    let parents: Set<string>;
+    try {
+      parents = await filesNavigationParentsWithChildren({
+        database,
+        userEmail,
+        overrides,
+        documentIds,
+      });
+    } catch (error) {
+      if (error instanceof ActionContractError) continue;
+      throw error;
+    }
+    for (const documentId of documentIds) {
+      hasChildren.set(documentId, parents.has(documentId));
+    }
+  }
+  return hasChildren;
 }
 
 function permissions(role: string) {
@@ -339,6 +390,11 @@ export default defineAction({
         ? favoriteDocumentIds(db, userEmail, chainIds)
         : new Set<string>(),
     ]);
+    const childrenOnPath = await filesChildrenOnPath(
+      db,
+      userEmail,
+      membershipRows,
+    );
 
     let activeRow: (typeof chain)[number] | undefined;
     let activeMembership:
@@ -383,6 +439,9 @@ export default defineAction({
         databaseId: navigationMembership?.databaseId ?? null,
         databaseDocumentId: navigationMembership?.databaseDocumentId ?? null,
         isFavorite: favorites.has(row.id),
+        ...(childrenOnPath.has(row.id)
+          ? { hasChildren: childrenOnPath.get(row.id) }
+          : {}),
         visibility: row.visibility as "private" | "org" | "public",
         ...permissions(role),
         source: serializeDocumentSource(row),

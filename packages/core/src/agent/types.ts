@@ -464,6 +464,12 @@ type AgentChatEventPayload =
       notExecuted?: true;
       /** Compact action write evidence retained even when `result` is truncated. */
       receipt?: WriteReceipt;
+      /** A successful invocation explicitly settled its work. */
+      actionSettled?: true;
+      /** The model completed the tool-call round before the action ran. */
+      settledOnCleanToolStop?: true;
+      /** The action emitted warnings the model must reconcile. */
+      hasAgentWarnings?: true;
       /**
        * Exact identity of the arguments the call ran with, defaults applied. A
        * continued turn replays a committed call only for the same identity.
@@ -496,6 +502,8 @@ type AgentChatEventPayload =
        * server-side approval record binds it with `approvalKeyWithArguments`.
        */
       argumentsHash?: string;
+      /** The question the approval card asks; omitted for the generic one. */
+      label?: string;
       allowPersistentApproval?: false;
       toolCallId?: string;
       askId?: string;
@@ -543,6 +551,7 @@ type AgentChatEventPayload =
       taskId: string;
       threadId: string;
       description: string;
+      name?: string;
       status: "running" | "completed" | "errored";
     }
   | {
@@ -558,7 +567,7 @@ type AgentChatEventPayload =
     }
   | {
       type: "done";
-      reason?: "user" | "loop_breaker";
+      reason?: "user" | "loop_breaker" | "action_settled";
       message?: string;
     }
   | {

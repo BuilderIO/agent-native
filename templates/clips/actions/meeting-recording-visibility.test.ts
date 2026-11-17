@@ -313,7 +313,7 @@ describe("meeting-linked recording visibility with real sharing", () => {
         .update(schema.recordings)
         .set(
           gate === "password"
-            ? { password: "FAKE_RECORDING_PASSWORD" }
+            ? { visibility: "public", password: "FAKE_RECORDING_PASSWORD" }
             : gate === "trash"
               ? { trashedAt: now }
               : gate === "expiry"
@@ -332,7 +332,7 @@ describe("meeting-linked recording visibility with real sharing", () => {
       .set({ visibility: "public", shareTranscript: true });
     await db
       .update(schema.recordings)
-      .set({ password: "FAKE_RECORDING_PASSWORD" });
+      .set({ visibility: "public", password: "FAKE_RECORDING_PASSWORD" });
     const { loader } =
       await import("../app/routes/share.meeting.$meetingId.js");
     const result = await loader({
@@ -529,12 +529,34 @@ describe("meeting-linked recording visibility with real sharing", () => {
       });
     },
   );
+  it.each(["private", "org"])(
+    "keeps %s recording ACLs effective with a dormant password",
+    async (visibility) => {
+      await db.update(schema.recordings).set({
+        visibility,
+        password: "FAKE_RECORDING_PASSWORD",
+      });
+      await asUser(viewerEmail, async () => {
+        expect(await getMeeting.run({ id: "fake-meeting" })).toMatchObject({
+          recording: null,
+          transcript: null,
+        });
+      });
+      await grantRecording();
+      await asUser(viewerEmail, async () => {
+        expect(await getMeeting.run({ id: "fake-meeting" })).toMatchObject({
+          recording: { id: "fake-clip" },
+          transcript: { fullText: "Fake private transcript" },
+        });
+      });
+    },
+  );
   it("does not let a meeting opt-in bypass a protected Clip", async () => {
     await grantRecording();
     await db.update(schema.meetings).set({ shareTranscript: true });
     await db
       .update(schema.recordings)
-      .set({ password: "FAKE_RECORDING_PASSWORD" });
+      .set({ visibility: "public", password: "FAKE_RECORDING_PASSWORD" });
     await asUser(viewerEmail, async () => {
       expect(await getMeeting.run({ id: "fake-meeting" })).toMatchObject({
         recording: null,

@@ -222,6 +222,42 @@ describe("CanvasContextMenu Select layer", () => {
     expect(onSelectLayer).toHaveBeenCalledWith(candidates[1]);
     await view.cleanup();
   });
+
+  it("hints the paint kind of a layer that sits behind the pointer", async () => {
+    const onSelectLayer = vi.fn();
+    const layerInfo = (tagName: string, sourceId: string) => ({
+      tagName,
+      sourceId,
+      selector: `[data-agent-native-node-id="${sourceId}"]`,
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 600, height: 400 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    });
+    const candidates = [
+      { key: "hero", label: "Hero", info: layerInfo("div", "hero") },
+      {
+        key: "hero-canvas",
+        label: "CANVAS",
+        kind: "webgl" as const,
+        info: layerInfo("canvas", "hero-canvas"),
+      },
+    ];
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: candidates,
+      onSelectLayer,
+    });
+
+    const canvas = view.findButton("Canvas · WebGL");
+    expect(canvas?.textContent).toContain("CANVAS");
+    expect(view.findButton("Hero")?.textContent).toBe("Hero");
+
+    await act(async () => canvas?.click());
+    expect(onSelectLayer).toHaveBeenCalledWith(candidates[1]);
+    await view.cleanup();
+  });
 });
 
 describe("CanvasContextMenu edit with agent", () => {

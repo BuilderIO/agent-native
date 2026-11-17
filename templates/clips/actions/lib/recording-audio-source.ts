@@ -1,14 +1,14 @@
 import { createWriteStream } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, statfs, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
 import { readAppState } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
-import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
+import { formatUploadBytes, MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 
 import { isBuilderCdnHost } from "../../server/lib/builder-cdn.js";
 import { fetchS3ObjectByUrl } from "../../server/lib/s3-upload-provider.js";
@@ -25,6 +25,9 @@ interface RecordingAudioTimeouts {
 }
 
 type MediaFetcher = (url: string, init: RequestInit) => Promise<Response>;
+
+// Free bytes on the filesystem holding `dir`, or null when it can't be read.
+type FreeSpaceReader = (dir: string) => Promise<number | null>;
 
 type RecordingMediaTarget =
   | { kind: "local-blob" }
@@ -70,9 +73,27 @@ export function resolveRecordingMediaTarget(
 const safeFetch: MediaFetcher = (url, init) =>
   ssrfSafeFetch(url, init, { maxRedirects: 3 });
 
-function tooLargeError(bytes: number): Error {
-  return new Error(
-    `Recording media is too large to transcribe (${bytes} bytes, max ${MAX_UPLOAD_BYTES}).`,
+// Room kept for ffmpeg's audio output, which shares the temp filesystem with
+// the downloaded video: about an hour and a half of transcription audio.
+const AUDIO_OUTPUT_RESERVE_BYTES = 32 * 1024 * 1024;
+
+const readFreeSpace: FreeSpaceReader = async (dir) => {
+  try {
+    const stats = await statfs(dir);
+    return stats.bavail * stats.bsize;
+    // coercion-ok: null means unknown, so the caller downloads unchecked, as before.
+  } catch {
+    return null;
+  }
+};
+
+// Serverless temp space is small (512 MB on AWS Lambda) next to the upload
+// limit, so a video that can't fit fails with a plain reason instead of a raw
+// ENOSPC, and isn't retried, since every attempt would fail the same way.
+function tooLargeError(reason: string): AudioOnlyExtractionError {
+  return new AudioOnlyExtractionError(
+    "MEDIA_TOO_LARGE",
+    `This video is too large to transcribe. ${reason}`,
   );
 }
 
@@ -95,12 +116,17 @@ async function downloadToFile(
   path: string,
   fetcher: MediaFetcher,
   timeoutMs: number,
+  freeSpace: FreeSpaceReader,
 ): Promise<void> {
   const res = await fetcher(url, { signal: AbortSignal.timeout(timeoutMs) });
-  await writeResponseToFile(res, path);
+  await writeResponseToFile(res, path, freeSpace);
 }
 
-async function writeResponseToFile(res: Response, path: string): Promise<void> {
+async function writeResponseToFile(
+  res: Response,
+  path: string,
+  freeSpace: FreeSpaceReader,
+): Promise<void> {
   if (!res.ok) {
     // guard:allow-bare-error — invariant: request-transcript records media preparation errors as a failed transcript.
     throw new Error(
@@ -108,7 +134,19 @@ async function writeResponseToFile(res: Response, path: string): Promise<void> {
     );
   }
   const declaredBytes = Number(res.headers.get("content-length") ?? "0");
-  if (declaredBytes > MAX_UPLOAD_BYTES) throw tooLargeError(declaredBytes);
+  if (declaredBytes > MAX_UPLOAD_BYTES) {
+    throw tooLargeError(
+      `It is ${formatUploadBytes(declaredBytes, "up")}, over the ${formatUploadBytes(MAX_UPLOAD_BYTES, "down")} limit.`,
+    );
+  }
+  if (declaredBytes > 0) {
+    const free = await freeSpace(dirname(path));
+    if (free !== null && declaredBytes + AUDIO_OUTPUT_RESERVE_BYTES > free) {
+      throw tooLargeError(
+        `It is ${formatUploadBytes(declaredBytes, "up")}, and the server has room for ${formatUploadBytes(Math.max(0, free - AUDIO_OUTPUT_RESERVE_BYTES), "down")}.`,
+      );
+    }
+  }
   // guard:allow-bare-error — invariant: request-transcript catches media preparation errors and records them as a failed transcript.
   if (!res.body) throw new Error("Failed to fetch videoUrl: empty body");
 
@@ -117,7 +155,11 @@ async function writeResponseToFile(res: Response, path: string): Promise<void> {
     transform(chunk: Buffer, _encoding, callback) {
       receivedBytes += chunk.length;
       if (receivedBytes > MAX_UPLOAD_BYTES) {
-        callback(tooLargeError(receivedBytes));
+        callback(
+          tooLargeError(
+            `It is over the ${formatUploadBytes(MAX_UPLOAD_BYTES, "down")} limit.`,
+          ),
+        );
         return;
       }
       callback(null, chunk);
@@ -137,6 +179,7 @@ export async function prepareRecordingTranscriptionAudio({
   timeouts,
   extractor = extractAudioOnlyWithFfmpeg,
   fetchers = { app: fetch, safe: safeFetch },
+  freeSpace = readFreeSpace,
 }: {
   recordingId: string;
   videoUrl: string;
@@ -144,11 +187,20 @@ export async function prepareRecordingTranscriptionAudio({
   timeouts: RecordingAudioTimeouts;
   extractor?: AudioExtractor;
   fetchers?: { app: MediaFetcher; safe: MediaFetcher };
+  freeSpace?: FreeSpaceReader;
 }): Promise<AudioOnlyTranscriptionMedia> {
   const extractFromFile = (write: (path: string) => Promise<void>) =>
     withTempDir(async (dir) => {
       const path = join(dir, "input");
-      await write(path);
+      try {
+        await write(path);
+      } catch (err) {
+        // A download without a declared size can still fill the disk.
+        if ((err as NodeJS.ErrnoException)?.code !== "ENOSPC") throw err;
+        throw tooLargeError(
+          "The server ran out of temporary space while saving it.",
+        );
+      }
       return extractor({
         source: { kind: "file", path },
         timeoutMs: timeouts.extractionMs,
@@ -156,7 +208,7 @@ export async function prepareRecordingTranscriptionAudio({
     });
   const downloadAndExtract = (url: string, fetcher: MediaFetcher) =>
     extractFromFile((path) =>
-      downloadToFile(url, path, fetcher, timeouts.downloadMs),
+      downloadToFile(url, path, fetcher, timeouts.downloadMs, freeSpace),
     );
 
   if (storageMode === "hosted") {
@@ -168,7 +220,7 @@ export async function prepareRecordingTranscriptionAudio({
       });
       // guard:allow-bare-error — invariant: request-transcript records media preparation errors as a failed transcript.
       if (!res) throw new Error("Failed to fetch hosted recording media");
-      await writeResponseToFile(res, path);
+      await writeResponseToFile(res, path, freeSpace);
     });
   }
 

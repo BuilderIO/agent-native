@@ -17,6 +17,8 @@ Node.js `22.22+`가 필요합니다.
 
 Vercel 계정도 필요합니다. 이 가이드의 명령은 자신의 컴퓨터에서 실행하세요. 완성된 빌드는 Vercel CLI가 Vercel에 업로드합니다.
 
+에이전트 턴에는 스트리밍 시간을 포함한 Vercel Functions 실행 시간 제한이 적용됩니다. Function Max Duration을 설정하고 실제 설정과 [Vercel 제한](https://vercel.com/docs/functions/configuring-functions/duration)을 확인하세요. 제한을 늘려도 완료가 보장되지는 않습니다.
+
 ## 1단계: 앱 만들기 {#step-1-create-the-app}
 
 새 독립 실행형 앱을 만듭니다. 아래 예시는 Chat 템플릿으로 앱을 만들지만, 어떤 템플릿으로든 시작할 수 있습니다. 앱 폴더로 이동한 뒤 의존성을 설치하세요. `corepack enable`은 앱이 기대하는 `pnpm` 버전을 활성화하므로 `pnpm`을 직접 설치할 필요가 없습니다.

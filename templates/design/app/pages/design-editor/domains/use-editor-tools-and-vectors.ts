@@ -2,6 +2,7 @@ import {
   setAgentChatContextItem,
   removeAgentChatContextItem,
 } from "@agent-native/core/client/agent-chat";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { ReviewComment } from "@agent-native/core/review";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import {
@@ -49,7 +50,12 @@ import {
   isDesignHotkeyEditableTarget,
   isNativeKeyboardActivationTarget,
 } from "@/hooks/useDesignHotkeys";
-import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import {
+  isDesignHostChatEmbed,
+  sendDesignHostFollowUp,
+  sendToDesignAgentChat,
+} from "@/lib/agent-chat";
+import { isDefaultAgentMention } from "@/lib/review-agent/review-agent-models";
 import type { ReviewAgentController } from "@/lib/review-agent/use-review-agent-requests";
 import {
   buildReviewThreadAgentContext,
@@ -377,10 +383,48 @@ export function useEditorToolsAndVectors({
 
   const handleDispatchCommentToAgent = useCallback(
     (comment: ReviewComment) => {
-      if (!canEditDesign) return;
+      if (!canEditDesign || !id) return;
+      if (
+        isDesignHostChatEmbed() &&
+        comment.mentions.some(isDefaultAgentMention)
+      ) {
+        const threadComments = [
+          ...new Map(
+            [
+              ...reviewComments.filter(
+                (item) => item.threadId === comment.threadId,
+              ),
+              comment,
+            ].map((item) => [item.id, item]),
+          ).values(),
+        ];
+        const root =
+          threadComments.find((item) => item.parentCommentId === null) ??
+          comment;
+        const replies = threadComments.filter(
+          (item) => item.id !== root.id && item.parentCommentId !== null,
+        );
+        const prompt = comment.body.replace(/^\s*@agent\b\s*/i, "").trim();
+        void sendDesignHostFollowUp({
+          message: prompt || "Please review this comment on the design.", // i18n-ignore agent dispatch prompt
+          context: buildReviewThreadAgentContext({
+            designId: id,
+            root,
+            replies,
+          }),
+          submit: true,
+        }).then((result) => {
+          if (result.delivered === "unconfirmed") {
+            toast.message(t("review.agent.hostChatUnconfirmed"));
+          } else if (!result.delivered) {
+            toast.error(t("review.agent.startFailed"));
+          }
+        });
+        return;
+      }
       dispatchReviewFeedbackToAgent(comment);
     },
-    [canEditDesign, dispatchReviewFeedbackToAgent],
+    [canEditDesign, dispatchReviewFeedbackToAgent, id, reviewComments, t],
   );
 
   const handleSendReviewThreadToAgent = useCallback(
@@ -422,9 +466,9 @@ export function useEditorToolsAndVectors({
         },
         {
           onSuccess: openChat,
-          onError: () => {
+          onError: (error) => {
             setReviewSendingThreadId(null);
-            toast.error(t("review.sendToAgentFailed"));
+            reportWriteFailure(error, { label: t("review.sendToAgentFailed") });
           },
         },
       );
@@ -1677,6 +1721,7 @@ export function useEditorToolsAndVectors({
     ],
   );
 
+  const selectionPublishFailedLabel = t("designEditor.selectionPublishFailed");
   const screenFrameTypeCacheRef = useRef<ScreenFrameTypeCache>(new Map());
   const agentSelectionScreens = useMemo(
     () =>
@@ -1708,6 +1753,7 @@ export function useEditorToolsAndVectors({
         },
         interactTheme,
         isSignedIn,
+        selectionPublishFailedLabel,
         mode,
         motionAutoKeyframeEnabled,
         motionDockOpen,
@@ -1758,6 +1804,7 @@ export function useEditorToolsAndVectors({
       selectedStateId,
       openReviewThreadId,
       isSignedIn,
+      selectionPublishFailedLabel,
       interactDeviceName,
       interactDeviceSize.width,
       interactDeviceSize.height,

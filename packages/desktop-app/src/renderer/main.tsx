@@ -1,5 +1,7 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import { QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import ReactDOM from "react-dom/client";
 
@@ -27,6 +29,7 @@ configureTracking({
   }),
 });
 
+const queryClient = createAgentNativeQueryClient();
 const platform = window.electronAPI?.platform ?? "unknown";
 document.body.classList.add(`platform-${platform}`);
 
@@ -69,9 +72,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         endpoints. The shell is served from file://, so those can only ever
         fail here — there is no hosted origin behind this window to persist to.
       */}
-      <AgentNativeI18nProvider persistPreference={false}>
-        {isQuickPromptSurface ? quickPromptSurface : <App />}
-      </AgentNativeI18nProvider>
+      <QueryClientProvider client={queryClient}>
+        <AgentNativeI18nProvider persistPreference={false}>
+          {isQuickPromptSurface ? quickPromptSurface : <App />}
+        </AgentNativeI18nProvider>
+      </QueryClientProvider>
     </RendererErrorBoundary>
   </React.StrictMode>,
 );

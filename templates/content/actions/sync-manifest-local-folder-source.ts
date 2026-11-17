@@ -30,7 +30,7 @@ export default defineAction({
     spaceId: z.string().optional(),
     dryRun: z.boolean().optional().default(false),
   }),
-  run: async ({ connectionId, file, spaceId, dryRun }) => {
+  run: async ({ connectionId, file, spaceId, dryRun }, ctx) => {
     const options = localOptions();
     const app = await getLocalArtifactApp(options);
     const root = app.roots.find(
@@ -108,11 +108,14 @@ export default defineAction({
         requestedDocumentId: null,
       };
     }
-    const result = await syncLocalFolderSource.run({
-      sourceId: connection.sourceId,
-      files,
-      dryRun,
-    });
+    const result = await syncLocalFolderSource.run(
+      {
+        sourceId: connection.sourceId,
+        files,
+        dryRun,
+      },
+      ctx,
+    );
     return {
       ...result,
       connectionId,

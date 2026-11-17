@@ -57,3 +57,76 @@ export async function resolveDevUserEmail(): Promise<string | undefined> {
     return undefined;
   }
 }
+
+/**
+ * Set to "personal" on a child process whose caller acts in no org, so a
+ * `pnpm action` it runs stays out of the user's orgs too. The agent's shell
+ * tool sets it for a request with no org.
+ */
+export const AGENT_ORG_SCOPE_ENV = "AGENT_ORG_SCOPE";
+
+export interface DevOrgChoice {
+  /** An org the caller named: `AGENT_ORG_ID` or a forwarded org header. */
+  orgId?: string | undefined;
+  /** The caller acts in no org and must not be given one. */
+  personal?: boolean | undefined;
+}
+
+/** The org choice this CLI process inherited from its environment. */
+export function devOrgChoiceFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): DevOrgChoice {
+  return {
+    orgId: env.AGENT_ORG_ID || undefined,
+    personal: env[AGENT_ORG_SCOPE_ENV] === "personal",
+  };
+}
+
+/**
+ * Resolve the org scope a local CLI call acts in, for `userEmail`, as fields
+ * for its request context.
+ *
+ * An inherited personal scope wins, then a named org. Otherwise this is the
+ * org the signed-in app uses for the same user: their active org, else their
+ * first membership, or none when they chose their personal space or have no
+ * org. Without it, `pnpm action` ran with no org and saw only the user's
+ * personal rows while the app showed their org's.
+ *
+ * Like the app, a membership table that can't be read counts as no org;
+ * transient database errors still throw.
+ */
+export async function resolveDevOrgScope(
+  userEmail: string | undefined,
+  choice: DevOrgChoice,
+): Promise<{ orgId?: string; orgScope?: "personal" }> {
+  // Personal comes first. Only the agent's shell sets it, for a request with
+  // no org, and the child's own env loading can put an AGENT_ORG_ID from
+  // `.env` back, which must not give the command an org.
+  if (choice.personal) return { orgScope: "personal" };
+  if (choice.orgId) return { orgId: choice.orgId };
+  if (!userEmail) return {};
+  if (await localDatabaseIsMissing()) return {};
+  const { resolveOrgIdForEmail } = await import("../org/context.js");
+  const orgId = await resolveOrgIdForEmail(userEmail);
+  return orgId ? { orgId } : {};
+}
+
+/**
+ * True when the app's local PGlite database hasn't been created yet. It has
+ * no orgs, and opening it to look would create it and run every migration,
+ * which takes many seconds for an action that may not touch the database.
+ */
+async function localDatabaseIsMissing(): Promise<boolean> {
+  const {
+    getRuntimeDatabaseUrl,
+    isPgliteUrl,
+    pgliteDataDirFromUrl,
+    pgliteRuntimeDataDir,
+  } = await import("../db/client.js");
+  const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
+  if (!isPgliteUrl(url)) return false;
+  const dataDir = pgliteRuntimeDataDir(pgliteDataDirFromUrl(url));
+  if (dataDir === "memory://") return false;
+  const fs = await import("node:fs");
+  return !fs.existsSync(dataDir);
+}

@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { ensureReviewTables } from "@agent-native/core/review";
 import {
   getRequestUserEmail,
   getRequestUserName,
@@ -9,6 +10,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyDeckComment } from "../server/lib/comment-notifications.js";
+import { mirrorSlideComments } from "../server/lib/slide-comment-mirror.js";
+import {
+  AGENT_AUTHOR_NAME,
+  commentAuthorKind,
+} from "../shared/comment-author.js";
 import {
   serializeSlideCommentAnchor,
   slideCommentAnchorSchema,
@@ -65,6 +71,12 @@ export default defineAction({
     resourceType: "deck",
     resourceId: deckId,
   }),
+  audit: {
+    target: (_args, result) => ({
+      type: "slide-comment",
+      id: (result as { id: string }).id,
+    }),
+  },
   run: async (args, ctx) => {
     const {
       deckId,
@@ -95,12 +107,14 @@ export default defineAction({
     const threadId = requestedThreadId ?? id;
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) throw new Error("no authenticated user");
+    const authorKind = commentAuthorKind(ctx?.caller);
     const authorName =
-      ctx?.caller === "tool"
-        ? "AI Agent"
+      authorKind === "agent"
+        ? AGENT_AUTHOR_NAME
         : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
 
     const db = getDb();
+    await ensureReviewTables();
     await db.transaction(async (tx) => {
       const [deck] = await tx
         .select({ id: schema.decks.id, data: schema.decks.data })
@@ -183,7 +197,9 @@ export default defineAction({
         anchor: serializeSlideCommentAnchor(anchor),
         authorEmail,
         authorName,
+        authorKind,
       });
+      await mirrorSlideComments(tx, deckId, [id]);
     });
 
     const notified = await notifyDeckComment({

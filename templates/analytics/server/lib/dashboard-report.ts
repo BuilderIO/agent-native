@@ -1,16 +1,20 @@
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { getAppProductionUrl, sendEmail } from "@agent-native/core/server";
-
-import { normalizeMultiSelectValue } from "../../app/pages/adhoc/sql-dashboard/filter-vars";
-import { listReportablePanelIds } from "../../app/pages/adhoc/sql-dashboard/report-panel-window";
 import type {
   DashboardAnnotations,
   DashboardFilter,
   FilterType,
   SqlDashboardConfig,
-} from "../../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
+import { normalizeMultiSelectValue } from "../../app/pages/adhoc/sql-dashboard/filter-vars";
+import { listReportablePanelIds } from "../../app/pages/adhoc/sql-dashboard/report-panel-window";
 import { dataNotesForPanel } from "../../shared/data-notes";
 import { keyDateEvents } from "../../shared/key-dates";
+import {
+  ALL_TRAFFIC,
+  TRAFFIC_FILTER_PARAM,
+} from "../../shared/traffic-environment";
 import {
   fetchReportPanelData,
   renderReportEmail,
@@ -66,9 +70,9 @@ function resolveDefault(raw: string | undefined, type: FilterType): string {
   return raw;
 }
 
-function defaultFilterValues(
-  config: SqlDashboardConfig,
-): Record<string, string> {
+function defaultFilterValues(config: {
+  filters?: DashboardFilter[] | undefined;
+}): Record<string, string> {
   const values: Record<string, string> = {};
   const filters = Array.isArray(config.filters) ? config.filters : [];
   for (const f of filters as DashboardFilter[]) {
@@ -162,8 +166,15 @@ export async function collectReportSnapshot(
   }
 
   const config = dashboardConfigFromRecord(dashboard.config);
+  // A report reads only the traffic it was saved with, so a dashboard default
+  // set later can't move it, and its link opens on the traffic it read.
+  const { [TRAFFIC_FILTER_PARAM]: dashboardTraffic, ...defaults } =
+    defaultFilterValues(config);
   const linkFilters = {
-    ...defaultFilterValues(config),
+    ...defaults,
+    ...(dashboardTraffic && dashboardTraffic !== ALL_TRAFFIC
+      ? { [TRAFFIC_FILTER_PARAM]: ALL_TRAFFIC }
+      : {}),
     ...sub.filters,
   };
   // Links keep a cleared multi-select's marker, because a link without it reopens with the default selected. The query and filter line read the normalized map.

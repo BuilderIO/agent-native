@@ -334,14 +334,14 @@ describe("delete-file transactional access compatibility", () => {
       .filter((query) =>
         query?.sql.replaceAll('"', "").includes("public.settings"),
       );
-    expect(settingsQueries).toHaveLength(2);
+    expect(settingsQueries).toHaveLength(1);
     expect(settingsQueries.every((query) => !query?.sql.includes("?"))).toBe(
       true,
     );
-    expect(settingsQueries.map((query) => query?.params)).toEqual(
+    expect(settingsQueries[0]?.params).toEqual(
       expect.arrayContaining([
-        ["o:org-1:feature-flag:organization.cross-app-federation"],
-        ["feature-flag:organization.cross-app-federation"],
+        "o:org-1:feature-flag:organization.cross-app-federation",
+        "feature-flag:organization.cross-app-federation",
       ]),
     );
   });

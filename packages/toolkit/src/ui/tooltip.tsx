@@ -21,7 +21,14 @@ const TooltipTrigger = React.forwardRef<
     onFocus={(event) => {
       onFocus?.(event);
       // Radix skips its own open-on-focus for a default-prevented event.
-      if (!event.currentTarget.matches(":focus-visible")) {
+      // Check the element that took focus: it can sit inside the trigger,
+      // like a column header's menu button. Focus in a portaled menu also
+      // bubbles here through React, but it isn't inside the trigger.
+      const focused = event.target;
+      if (
+        !event.currentTarget.contains(focused) ||
+        !focused.matches(":focus-visible")
+      ) {
         event.preventDefault();
       }
     }}

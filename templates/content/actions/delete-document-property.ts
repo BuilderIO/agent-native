@@ -17,8 +17,13 @@ import {
   deleteBlocksFieldIdentity,
   lockPrimaryBlocksFieldsForDocuments,
 } from "./_blocks-field-identity.js";
+import {
+  assertNoColumnRuleOn,
+  columnRuleDefinitions,
+} from "./_column-rules.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { lockPagesAndAssertAgentsMayEditText } from "./_document-agent-lock.js";
 import {
   listPropertiesForDocument,
   parseDatabaseViewConfig,
@@ -40,7 +45,7 @@ export default defineAction({
       ),
     propertyId: z.string().describe("Property definition ID to delete"),
   }),
-  run: async ({ documentId, databaseId, propertyId }) => {
+  run: async ({ documentId, databaseId, propertyId }, ctx) => {
     const access = await assertAccess("document", documentId, "editor");
     const document = access.resource;
     const db = getDb();
@@ -101,6 +106,14 @@ export default defineAction({
       if (lockedDefinition.systemRole) {
         throw new Error("System properties cannot be deleted.");
       }
+      assertNoColumnRuleOn(
+        await columnRuleDefinitions(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+        ),
+        propertyId,
+        "delete",
+      );
 
       const isBlocks = isBlocksPropertyType(
         lockedDefinition.type as DocumentPropertyType,
@@ -129,6 +142,14 @@ export default defineAction({
           items.map((item) => item.id),
         );
       }
+
+      // A Blocks property holds rows' text, and its last one holds their bodies.
+      if (isBlocks)
+        await lockPagesAndAssertAgentsMayEditText(
+          tx as unknown as ReturnType<typeof getDb>,
+          items.map((item) => item.documentId),
+          ctx,
+        );
 
       await tx
         .delete(schema.documentPropertyValues)

@@ -1128,6 +1128,44 @@ describe("update-document compare-and-swap", () => {
     });
   });
 
+  it("saves an editor generation for a page over 500,000 characters", async () => {
+    // The body copies were capped at 500,000 while `content` was not, so the
+    // editor's every save of a longer page was refused and the page never opened.
+    const before = `${"A long working note.\n\n".repeat(30_000)}Before`;
+    const after = `${before}\n\nAfter`;
+    const id = await createDocument({ content: before });
+    const baseRevision = documentRevisionToken(0, before);
+    const args = {
+      id,
+      content: after,
+      baseRevision,
+      authoredBaseRevision: baseRevision,
+      authoredBaseContent: before,
+      authoredCandidateContent: after,
+      editorSessionId: nextId("long-page-session"),
+      editorEditGeneration: 1,
+      editorSnapshotTitle: "Untitled",
+      editorSnapshotContent: after,
+      browserSaveAttemptId: nextId("long-page-attempt"),
+    };
+
+    const parsed =
+      await updateDocumentAction.schema["~standard"].validate(args);
+    expect(parsed.issues).toBeUndefined();
+    const saved = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run(args, {
+        caller: "frontend",
+        userEmail: OWNER,
+      }),
+    );
+
+    expect(saved).toMatchObject({ browserSaveAttempt: { result: "applied" } });
+    expect(await documentRow(id)).toMatchObject({
+      content: after,
+      bodyRevision: 1,
+    });
+  });
+
   it("allows a frontend metadata save that echoes the unchanged body", async () => {
     const id = await createDocument({ title: "Before", content: "Body" });
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -2485,6 +2523,122 @@ describe("update-document compare-and-swap", () => {
     expect((await documentRow(documentId)).content).toBe("original");
   });
 
+  it.each(["http", "cli", "automation"] as const)(
+    "requires a readable base for a %s full-body write",
+    async (caller) => {
+      const documentId = await createDocument({ content: "original" });
+      const write = (fields: {
+        baseRevision?: string;
+        baseUpdatedAt?: string;
+        loadedUpdatedAt?: string;
+        content?: string;
+      }) =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          updateDocumentAction.run(
+            { id: documentId, content: "scripted rewrite", ...fields },
+            { caller, userEmail: OWNER },
+          ),
+        );
+
+      await expect(write({})).rejects.toMatchObject({
+        errorCode: "BASE_REVISION_REQUIRED",
+        statusCode: 400,
+      });
+      for (const baseRevision of ["", "not-a-revision"]) {
+        await expect(write({ baseRevision })).rejects.toMatchObject({
+          errorCode: "INVALID_BASE_REVISION",
+          statusCode: 400,
+        });
+      }
+      const row = await documentRow(documentId);
+      const refused = {
+        errorCode: "DOCUMENT_REVISION_CONFLICT",
+        statusCode: 409,
+        details: {
+          currentRevision: documentRevisionToken(row.bodyRevision, row.content),
+        },
+      };
+      await expect(write({ baseUpdatedAt: "" })).rejects.toMatchObject(refused);
+      expect((await documentRow(documentId)).content).toBe("original");
+      await expect(
+        write({ baseRevision: documentRevisionToken(0, "An older body") }),
+      ).rejects.toMatchObject(refused);
+      expect((await documentRow(documentId)).content).toBe("original");
+      await expect(
+        write({
+          baseRevision: documentRevisionToken(0, "An older body"),
+          loadedUpdatedAt: "2000-01-01T00:00:00.000Z",
+          content: "",
+        }),
+      ).rejects.toMatchObject(refused);
+      expect((await documentRow(documentId)).content).toBe("original");
+      await expect(
+        write({ baseRevision: "not-a-revision", content: "original" }),
+      ).rejects.toMatchObject({
+        errorCode: "INVALID_BASE_REVISION",
+        statusCode: 400,
+      });
+      await expect(
+        write({
+          baseRevision: documentRevisionToken(0, "An older body"),
+          content: "original",
+        }),
+      ).rejects.toMatchObject(refused);
+      await expect(
+        write({
+          baseUpdatedAt: "2000-01-01T00:00:00.000Z",
+          content: "original",
+        }),
+      ).rejects.toMatchObject(refused);
+      await expect(
+        write({ baseUpdatedAt: row.updatedAt, content: "original" }),
+      ).resolves.toMatchObject({ content: "original" });
+
+      await write({
+        baseRevision: documentRevisionToken(row.bodyRevision, row.content),
+      });
+      expect((await documentRow(documentId)).content).toBe("scripted rewrite");
+    },
+  );
+
+  it("refuses alt text for a page that changed after the action read it", async () => {
+    const setImageAltText = (await import("./set-image-alt-text.js")).default;
+    const image = "![](/uploads/alt-text-race.png)";
+    const documentId = await createDocument({ content: `Intro\n${image}` });
+    const update = updateDocumentAction.run.bind(updateDocumentAction);
+    const spy = vi
+      .spyOn(updateDocumentAction, "run")
+      .mockImplementationOnce(async (args, ctx) => {
+        await getDb()
+          .update(schema.documents)
+          .set({ content: `Edited meanwhile\n${image}` })
+          .where(eq(schema.documents.id, documentId));
+        return update(args, ctx);
+      });
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          setImageAltText.run(
+            {
+              documentId,
+              imageUrl: "/uploads/alt-text-race.png",
+              altText: "Chart",
+            },
+            { caller: "mcp", userEmail: OWNER },
+          ),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_REVISION_CONFLICT",
+        statusCode: 409,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await documentRow(documentId)).content).toBe(
+      `Edited meanwhile\n${image}`,
+    );
+  });
+
   it("uses a canonical Files database rename as the workspace name", async () => {
     const { provisionContentSpaces, systemIdsForContentSpace } =
       await import("./_content-spaces.js");
@@ -3448,17 +3602,15 @@ describe("update-document save outcome counts", () => {
               { caller: "http", userEmail: OWNER },
             ),
           );
-          if (bodyChanges)
-            await expect(saved).rejects.toMatchObject({
-              errorCode: "INVALID_BASE_REVISION",
-            });
-          else expect((await saved).content).toBe("Body");
+          await expect(saved).rejects.toMatchObject({
+            errorCode: "INVALID_BASE_REVISION",
+          });
         },
         {
-          outcome: bodyChanges ? "refused" : "unchanged",
+          outcome: "refused",
           stale_base: "unknown",
           history_effect: "none",
-          ...(bodyChanges ? { reason_code: "INVALID_BASE_REVISION" } : {}),
+          reason_code: "INVALID_BASE_REVISION",
         },
       );
       expect(await documentRow(id)).toEqual(before);

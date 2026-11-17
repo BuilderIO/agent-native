@@ -11,7 +11,7 @@ import {
   uniqueIndex,
 } from "@agent-native/core/db/schema";
 import { sql } from "drizzle-orm";
-import { boolean, check, varchar } from "drizzle-orm/pg-core";
+import { boolean, check, primaryKey, varchar } from "drizzle-orm/pg-core";
 
 export * from "./schema-monitoring.js";
 export * from "./schema-errors.js";
@@ -205,6 +205,35 @@ export const analysisRevisions = table(
 );
 
 export const analysisShares = createSharesTable("analysis_shares");
+
+/**
+ * One row per keyed write to a dashboard, analysis, or dashboard folder,
+ * committed in the same transaction as the write, so a retry with the same
+ * idempotency key replays this result instead of writing again.
+ */
+export const analyticsWriteReceipts = table(
+  "analytics_write_receipts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    targetKind: text("target_kind").notNull(),
+    /** Empty for a create whose id the server assigns. */
+    targetId: text("target_id").notNull(),
+    action: text("action").notNull(),
+    callerScope: text("caller_scope").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestDigest: text("request_digest").notNull(),
+    resultJson: text("result_json").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => ({
+    targetScopeKeyIdx: uniqueIndex(
+      "analytics_write_receipts_target_scope_key_idx",
+    ).on(t.targetKind, t.targetId, t.callerScope, t.idempotencyKey),
+    createdIdx: index("analytics_write_receipts_created_idx").on(t.createdAt),
+  }),
+);
 
 export const bigqueryCache = table("bigquery_cache", {
   key: text("key").primaryKey(),
@@ -1070,6 +1099,31 @@ export const sessionRecordingSessionAssociations = table(
   }),
 );
 
+// recording_id has no foreign key: a report keeps its saved text after
+// replay retention deletes the recording it cites.
+export const sessionReports = table(
+  "session_reports",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    title: text("title").notNull(),
+    summary: text("summary").notNull().default(""),
+    keyMoments: text("key_moments").notNull().default("[]"),
+    reproSteps: text("repro_steps").notNull().default("[]"),
+    errorIssueId: text("error_issue_id"),
+    build: text("build"),
+    fromMs: integer("from_ms"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    ...ownableColumns(),
+  },
+  (report) => ({
+    recordingIdx: index("session_reports_recording_idx").on(report.recordingId),
+  }),
+);
+
+export const sessionReportShares = createSharesTable("session_report_shares");
+
 export const sessionReplayChunks = table(
   "session_replay_chunks",
   {
@@ -1217,5 +1271,46 @@ export const analyticsContentCollectionRuns = table(
     tenantStepStartedIdx: index(
       "analytics_content_collection_runs_step_idx",
     ).on(t.tenantKey, t.step, t.startedAt),
+  }),
+);
+
+/** Observed warehouse jobs, not invoice totals. Unknown byte counts stay null. */
+export const analyticsBigqueryUsage = table(
+  "analytics_bigquery_usage",
+  {
+    projectId: text("project_id").notNull(),
+    jobId: text("job_id").notNull(),
+    location: text("location"),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    credentialScope: text("credential_scope").notNull(),
+    workload: text("workload").notNull(),
+    dashboardId: text("dashboard_id"),
+    panelId: text("panel_id"),
+    startedAt: text("started_at").notNull(),
+    observedAt: text("observed_at").notNull(),
+    submissionState: text("submission_state").notNull(),
+    usageStatus: text("usage_status").notNull(),
+    providerState: text("provider_state"),
+    outcome: text("outcome"),
+    bytesProcessed: text("bytes_processed"),
+    bytesBilled: text("bytes_billed"),
+    providerCacheHit: boolean("provider_cache_hit"),
+  },
+  (t) => ({
+    jobKey: primaryKey({ columns: [t.projectId, t.jobId] }),
+    started: index("analytics_bigquery_usage_started_idx").on(
+      t.startedAt,
+      t.projectId,
+      t.jobId,
+    ),
+    orgStarted: index("analytics_bigquery_usage_org_started_idx").on(
+      t.orgId,
+      t.startedAt,
+    ),
+    ownerStarted: index("analytics_bigquery_usage_owner_started_idx").on(
+      t.ownerEmail,
+      t.startedAt,
+    ),
   }),
 );

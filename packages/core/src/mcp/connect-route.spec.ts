@@ -586,7 +586,7 @@ describe("handleMcpConnect", () => {
         "claude mcp add --transport http agent-native-mail",
       );
       expect(body).toContain(
-        "npx @agent-native/core@latest connect https://mail.agent-native.com",
+        "codex mcp add agent-native-mail --url https://mail.agent-native.com/mcp",
       );
       expect(body).toContain('<details id="assistantSetup" class="hosts">');
       expect(body).not.toContain(
@@ -656,8 +656,8 @@ describe("handleMcpConnect", () => {
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       const res = await handleMcpConnect(ev({ acceptLanguage: "es-ES" }), "/");
       const body = await res.text();
-      expect(body).toContain("Abre Customize → Connectors en Claude.");
-      expect(body).not.toContain("Open Customize → Connectors in Claude.");
+      expect(body).toContain("En Claude, ve a Customize → Connectors.");
+      expect(body).not.toContain("In Claude, go to Customize → Connectors.");
       expect(body).toContain("Tu URL de MCP");
       expect(body).toContain("Conexiones existentes");
       expect(body).not.toContain("Existing connections");
@@ -673,8 +673,8 @@ describe("handleMcpConnect", () => {
         "/",
       );
       const body = await res.text();
-      expect(body).toContain("Abre Customize → Connectors en Claude.");
-      expect(body).not.toContain("Open Customize → Connectors in Claude.");
+      expect(body).toContain("En Claude, ve a Customize → Connectors.");
+      expect(body).not.toContain("In Claude, go to Customize → Connectors.");
       expect(body).toContain('<html lang="es-ES" dir="ltr">');
     });
 

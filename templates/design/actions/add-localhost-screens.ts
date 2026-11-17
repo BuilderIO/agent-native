@@ -4,6 +4,7 @@ import {
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
+import { nextFreeName } from "@agent-native/core/free-name";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, isNull } from "drizzle-orm";
@@ -316,13 +317,10 @@ function uniqueFilename(
 ) {
   const base =
     preferred ?? `localhost-${slugForPath(pathOrUrl, includeOrigin)}.html`;
-  const [stem, extension = "html"] = base.split(/\.(?=[^.]+$)/);
-  let filename = `${stem}.${extension}`;
-  let suffix = 2;
-  while (used.has(filename)) {
-    filename = `${stem}-${suffix}.${extension}`;
-    suffix += 1;
-  }
+  const filename = nextFreeName(
+    /\.[^.]+$/.test(base) ? base : `${base}.html`,
+    used,
+  );
   used.add(filename);
   return filename;
 }

@@ -9,8 +9,14 @@ import {
 } from "@agent-native/toolkit/sharing";
 import { useCallback, useState } from "react";
 
+import {
+  agentLinkExpiresAt,
+  isAgentLinkExpiring,
+} from "./agent-link-expiry.js";
+
 interface AgentResourceLink {
   contextUrl?: string;
+  expiresAt?: string;
 }
 
 export interface AgentShareSectionProps {
@@ -34,10 +40,38 @@ export function AgentShareSection({
     { resourceType: string; resourceId: string }
   >("create-agent-resource-link");
   const [open, setOpen] = useState(false);
-  const [contextUrl, setContextUrl] = useState("");
+  const [link, setLink] = useState<{
+    url: string;
+    expiresAt: number | null;
+  } | null>(null);
   const [linkError, setLinkError] = useState(false);
+
+  const loadContextUrl = useCallback(() => {
+    setLink(null);
+    setLinkError(false);
+    createAgentLink.mutate(
+      { resourceType, resourceId },
+      {
+        onSuccess: (result) => {
+          if (result.contextUrl) {
+            setLink({
+              url: result.contextUrl,
+              expiresAt: agentLinkExpiresAt(result.expiresAt),
+            });
+          } else setLinkError(true);
+        },
+        onError: () => setLinkError(true),
+      },
+    );
+  }, [createAgentLink, resourceId, resourceType]);
+
   const handleCopy = useCallback(
     async (value: string) => {
+      // A link left open past its expiry would copy dead; fetch a fresh one to copy instead.
+      if (link && isAgentLinkExpiring(link.expiresAt)) {
+        loadContextUrl();
+        return false;
+      }
       const copied = await writeClipboardText(value);
       if (copied) {
         trackEvent("share_link_copied", {
@@ -48,30 +82,17 @@ export function AgentShareSection({
       }
       return copied;
     },
-    [resourceId, resourceType],
+    [link, loadContextUrl, resourceId, resourceType],
   );
-
-  const loadContextUrl = useCallback(() => {
-    setContextUrl("");
-    setLinkError(false);
-    createAgentLink.mutate(
-      { resourceType, resourceId },
-      {
-        onSuccess: (result) => {
-          if (result.contextUrl) setContextUrl(result.contextUrl);
-          else setLinkError(true);
-        },
-        onError: () => setLinkError(true),
-      },
-    );
-  }, [createAgentLink, resourceId, resourceType]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       setOpen(nextOpen);
-      if (nextOpen && !contextUrl) loadContextUrl();
+      if (nextOpen && (!link || isAgentLinkExpiring(link.expiresAt))) {
+        loadContextUrl();
+      }
     },
-    [contextUrl, loadContextUrl],
+    [link, loadContextUrl],
   );
 
   if (!enabled) return null;
@@ -89,7 +110,7 @@ export function AgentShareSection({
       className={className}
     >
       <div className="space-y-2">
-        {contextUrl ? (
+        {link ? (
           <ShareCopyRow
             label={t("agentChat.share.agentContext", {
               defaultValue: "Agent context link",
@@ -97,7 +118,7 @@ export function AgentShareSection({
             description={t("agentChat.share.agentContextDescription", {
               defaultValue: "Read-only context for an external agent.",
             })}
-            value={contextUrl}
+            value={link.url}
             copyLabel={t("agentChat.share.copy", { defaultValue: "Copy" })}
             copiedLabel={t("agentChat.share.copied", {
               defaultValue: "Copied",

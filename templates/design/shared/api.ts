@@ -68,6 +68,20 @@ export interface TweakDefinition {
   defaultValue: string | number | boolean;
   cssVar?: string;
   unit?: string;
+  /**
+   * Absent means the tweak applies to every screen. A list shows one shared
+   * knob on each place it drives, such as a remix and its explainer frames.
+   */
+  scope?: TweakScope | TweakScope[];
+}
+
+export interface TweakScope {
+  /** Screen (file) id; absent means any screen. */
+  screenId?: string;
+  /** `data-agent-native-node-id` of the element the tweak drives. */
+  nodeId?: string;
+  /** CSS selector of that element, for URL-backed screens without node ids. */
+  selector?: string;
 }
 
 export interface QuestionFlowQuestion {

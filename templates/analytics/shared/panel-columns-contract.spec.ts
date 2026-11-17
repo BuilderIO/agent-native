@@ -1,6 +1,5 @@
+import { unknownPanelConfigKeys } from "@agent-native/toolkit/dashboard/panel-render-contract";
 import { describe, expect, it } from "vitest";
-
-import { unknownPanelConfigKeys } from "./panel-render-contract";
 
 describe("config.columns on save", () => {
   it("rejects an object keyed by column name", () => {

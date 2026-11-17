@@ -235,6 +235,13 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       ),
   ],
   [
+    "integration_user_grants",
+    () =>
+      import("../integrations/user-grants-store.js").then(
+        (m) => m.userIntegrationGrantsStore,
+      ),
+  ],
+  [
     "mcp_approvals",
     () => import("../mcp/approval-store.js").then((m) => m.mcpApprovalsStore),
   ],
@@ -272,6 +279,10 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       import("../integrations/pending-tasks-store.js").then(
         (m) => m.pendingTasksStore,
       ),
+  ],
+  [
+    "private_media",
+    () => import("../private-media/store.js").then((m) => m.privateMediaStore),
   ],
   [
     "progress",
@@ -358,6 +369,10 @@ export const FRAMEWORK_STORES: ReadonlyArray<
     "scheduler_health",
     () =>
       import("../jobs/scheduler-health.js").then((m) => m.schedulerHealthStore),
+  ],
+  [
+    "search_embeddings",
+    () => import("../search/semantic.js").then((m) => m.semanticSearchStore),
   ],
   [
     "search_resources",

@@ -12,6 +12,7 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowMessage,
+  isProviderTokenRateLimitMessage,
   isRejectedRequestErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
@@ -188,6 +189,10 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
   ],
   [
     "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
+    "agentChat.errorMessages.noProviderConnected",
+  ],
+  [
+    "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.",
     "agentChat.errorMessages.noProviderConnected",
   ],
   [
@@ -436,6 +441,11 @@ export function normalizeChatError(
     return { message: CREDITS_LIMIT_REACHED_MESSAGE };
   }
   if (isServerChosenVisitorMessage(text)) return { message: text };
+
+  const providerDetail = providerPayload?.message ?? text;
+  if (isProviderTokenRateLimitMessage(providerDetail)) {
+    return { message: providerDetail };
+  }
 
   const providerMessage =
     providerPayload?.errorCode === "overloaded_error"

@@ -375,6 +375,7 @@ function EmailSettings({ email }: { email: string }) {
     status,
     setStatus,
     submit: requestChange,
+    serverMessage,
   } = useEmailChange();
 
   useEffect(() => {
@@ -399,7 +400,7 @@ function EmailSettings({ email }: { email: string }) {
           </span>
         ) : status === "error" ? (
           <span className="text-destructive" role="alert">
-            {t("settings.emailChangeError")}
+            {serverMessage ?? t("settings.emailChangeError")}
           </span>
         ) : (
           email
@@ -621,6 +622,7 @@ export function AccountSettingsForm({
   );
   const updateProfile = useActionMutation<UserProfile, { name: string }>(
     "update-user-profile",
+    { errorNotification: "caller" },
   );
   const {
     avatarUrl,

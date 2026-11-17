@@ -11,6 +11,10 @@ const mocks = vi.hoisted(() => ({
   writeAppState: vi.fn(async () => undefined),
 }));
 
+vi.mock("@agent-native/core/server", () => ({
+  resolveChatModelAvailability: async () => "available",
+}));
+
 vi.mock("@agent-native/core/application-state", () => ({
   compareAndSetManyAppState: mocks.compareAndSetManyAppState,
   readAppState: mocks.readAppState,

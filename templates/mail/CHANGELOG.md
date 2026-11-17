@@ -3,6 +3,48 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-14
+
+### Fixed
+
+- Mailbox updates now refresh for the account that owns them.
+
+## 2026-11-13
+
+### Fixed
+
+- Mail opens reliably in embedded views without a first-run page error
+
+## 2026-11-12
+
+### Fixed
+
+- Forwarding a message with attachments, or reopening a saved draft that has them, no longer fails with Failed to save draft
+
+## 2026-11-11
+
+### Fixed
+
+- Links to an email from an agent or chat open that email instead of the inbox list.
+
+## 2026-11-09
+
+### Improved
+
+- More save failures now say why, such as being offline or lacking permission.
+
+## 2026-11-08
+
+### Improved
+
+- Hovering an email action shows its name and shortcut, and keys now follow Superhuman: Space pages, X selects, Enter replies all in an open email, ? asks the agent, and Shift+U opens Unread.
+
+## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
+
 ## 2026-11-04
 
 ### Improved
@@ -18,6 +60,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Closing a draft addressed to a saved group no longer shows a "Failed to save draft" error.
 - AI rule backfills now wait out Gmail rate limits and retry instead of failing right after you create or edit a rule.
 
 ## 2026-11-02

@@ -39,11 +39,18 @@ export function resolveMaxWorkers(
   return count;
 }
 
+// Node 25+ defines its own `localStorage` global, unusable without
+// --localstorage-file, and it shadows jsdom's so specs lose storage.
+const WEBSTORAGE_OFF = "--no-experimental-webstorage";
+
 const vitestBaseConfig: ViteUserConfig = {
   // App tests import server modules that load `?bounded-task` sources.
   plugins: [boundedTaskSourcePlugin()],
   test: {
     maxWorkers: resolveMaxWorkers(),
+    execArgv: process.allowedNodeEnvironmentFlags.has(WEBSTORAGE_OFF)
+      ? [WEBSTORAGE_OFF]
+      : [],
     // Vitest's 5 s default only holds while a worker has a core to itself.
     // With every core busy, booting PGlite or importing a generated server
     // bundle inside a test takes several times longer, and which test crosses

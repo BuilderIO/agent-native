@@ -22,7 +22,16 @@ import {
 } from "./custom-provider-registration.js";
 import { buildProviderApiAuditSummary } from "./provider-api-audit.js";
 
-const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
+const MethodSchema = z.enum([
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "PROPFIND",
+  "REPORT",
+]);
 
 const PaginationSchema = z
   .object({

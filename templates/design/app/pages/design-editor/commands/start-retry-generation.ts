@@ -9,6 +9,7 @@ import {
   formatComposerContext,
   hasComposerSystemContext,
 } from "@/lib/composer-context";
+import { figmaReferenceDirectives } from "@/lib/figma-attachment";
 import {
   failPendingGenerationForMissingImagePayload,
   patchPendingGeneration,
@@ -208,6 +209,7 @@ async function startRetryGeneration(
     "",
     retryLine,
     ...generationDirectives,
+    ...figmaReferenceDirectives(promptState.contextItems),
   ].join("\n");
   clearGenerationCompleteTimer();
   setGenerationIssue(null);

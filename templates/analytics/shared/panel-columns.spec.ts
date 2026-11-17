@@ -1,8 +1,8 @@
+import { unknownPanelConfigKeys } from "@agent-native/toolkit/dashboard/panel-render-contract";
 import { describe, expect, it } from "vitest";
 
 import { activePersonalColumnWidths } from "../app/lib/personal-column-widths";
 import { isValidPanelColumns, readPanelColumns } from "./panel-columns";
-import { unknownPanelConfigKeys } from "./panel-render-contract";
 
 describe("panel columns", () => {
   it("accepts the documented column list", () => {

@@ -83,20 +83,22 @@ export function CreateFusionAppButton() {
 
 </Steps>
 
-Depois que uma flag é declarada e registrada, ativá-la para contas reais passa por três actions montadas. `get-feature-flags` é a que o próprio `useFeatureFlag()` chama: está aberta a qualquer chamador logado, já que todo usuário precisa verificar suas próprias flags. `list-feature-flags` e `set-feature-flag` são as duas actions de gerenciamento. Ambas são restritas a owners e admins de uma org (ou ao administrador sem org), e ambas são auditadas.
+Depois que uma flag é declarada e registrada, ativá-la para contas reais passa por três actions montadas. `get-feature-flags` é a que o próprio `useFeatureFlag()` chama: está aberta a qualquer chamador logado, já que todo usuário precisa verificar suas próprias flags. `list-feature-flags` e `set-feature-flag` são as duas actions de gerenciamento, e ambas são auditadas.
 
-`set-feature-flag` é como um operador de fato muda para quem a flag está ativa:
+Uma flag pode ter duas regras salvas. A regra global vale em todas as orgs, e só os e-mails da lista `AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS` do app podem alterá-la, seja qual for a org em que estejam logados. A regra própria de uma org vale só dentro dessa org, e só os owners e admins dela podem alterá-la; estar na lista de admins não dá esse direito. Quando uma org tem regra própria, essa regra substitui a regra global por completo. As duas não são mescladas, então ativar uma flag globalmente não alcança uma org com regra própria. `list-feature-flags` informa as duas regras de cada flag, qual delas está valendo e qualquer regra salva que não pôde ser lida.
 
-| Operação                                         | O que faz                                                    | Args de exemplo                                                                                                 |
-| ------------------------------------------------ | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `enable-for-current-user`                        | Ativa a flag apenas para sua própria conta.                  | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
-| `off`                                            | Desativa a flag para todo mundo, resetando quaisquer regras. | `{ key: "full-app-building", operation: "off" }`                                                                |
-| `replace-rules`, modo `"on"`                     | Ativa a flag para todo mundo.                                | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
-| `replace-rules`, modo `"rules"` com `emails`     | Ativa para uma lista específica de contas.                   | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
-| `replace-rules`, modo `"rules"` com `orgIds`     | Ativa para organizações específicas.                         | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
-| `replace-rules`, modo `"rules"` com `percentage` | Ativa para um rollout percentual.                            | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+`set-feature-flag` é como um operador de fato muda para quem a flag está ativa. O argumento `scope` escolhe a regra: `"org"` altera a regra da org ativa e `"global"` altera a regra global, como em `{ key: "full-app-building", operation: "off", scope: "global" }`. Sem `scope`, altera a regra da org ativa, ou a regra global quando o chamador não tem org ativa, e `scope.kind` no resultado indica a regra gravada. Cada operação age sobre a regra escolhida:
 
-UIs de operador de frota chamam essas mesmas actions através de delegação A2A com escopo restrito em vez de um login compartilhado, e Analytics é a única UI de operador para elas. Apps não devem construir seu próprio painel de configurações de flag, e escritas de flag nunca devem passar por endpoints de configurações genéricos ou SQL bruto.
+| Operação                                         | O que faz                                     | Args de exemplo                                                                                                 |
+| ------------------------------------------------ | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                        | Ativa a flag apenas para sua própria conta.   | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                            | Desativa a flag para todos que a regra cobre. | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`, modo `"on"`                     | Ativa a flag para todos que a regra cobre.    | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`, modo `"rules"` com `emails`     | Ativa para uma lista específica de contas.    | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`, modo `"rules"` com `orgIds`     | Ativa para organizações específicas.          | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`, modo `"rules"` com `percentage` | Ativa para um rollout percentual.             | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+
+UIs de operador de frota chamam essas mesmas actions através de delegação A2A com escopo restrito em vez de um login compartilhado, e Analytics é a única UI de operador para elas. Uma alteração global delegada só funciona quando o e-mail delegado está na própria lista de admins do app de destino. Apps não devem construir seu próprio painel de configurações de flag, e escritas de flag nunca devem passar por endpoints de configurações genéricos ou SQL bruto.
 
 <Callout id="doc-block-actions-advanced-1" tone="warning">
 

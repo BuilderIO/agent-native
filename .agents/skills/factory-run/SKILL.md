@@ -135,8 +135,9 @@ itself.
 ## Confidence and design
 
 Read [confidence.md](references/confidence.md) before the first triage of a
-run. Score each triage and each join with its rubric and record the score on
-the report; record the scores and design questions your workers return. A
+run. Score each triage and each join with its signals and record the score
+and its signal ids on the report; record the scores, signal ids, and design
+questions your workers return. A
 join under 70 doesn't attach, and a PR-review approval under 70 is never
 posted. A design, workflow, or UX question gets a design signal, not a guess.
 The watcher flags low scores and design questions for a person and pings
@@ -413,7 +414,8 @@ For each report the branch covered (the item's `reports`, which include
 attached ones), upsert `gitBranch`, `proof`, `wouldReact`, `wouldReply`, and
 `prUrl` (the item's `prUrl`, else the reply's `PR:` line). Put the
 `ROOT CAUSE` line in `note`, the `CONFIDENCE` line's scores in
-`confidence`, and a `DESIGN` question other than `none` in `design`. A
+`confidence` (each bracketed id list goes in that score's `signals`; a line
+without brackets records no `signals`), and a `DESIGN` question other than `none` in `design`. A
 branch that predates those two lines isn't a failure; record no score. When it is `unconfirmed`, the PR still ships, and
 the reply describes what the change does without claiming it fixes the
 reporter's case. `OUTCOME: not-code` (config, data, or an outage) and

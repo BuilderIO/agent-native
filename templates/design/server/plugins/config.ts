@@ -4,6 +4,7 @@ export default defineAppConfig({
   onboarding: {
     firstRunCreditsExperiment: "v2",
     builderSignupExperiment: true,
+    builderSignupAutomaticPercent: 80,
   },
   analytics: { authSessionReplay: true },
   agent: {

@@ -433,6 +433,8 @@ Skills 是 `skills/` 路径（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 | `DELETE` | `/_agent-native/resources/:id`                | 删除资源             |
 | `POST`   | `/_agent-native/resources/upload`             | 上传文件作为资源     |
 
+通过 `GET /_agent-native/resources/:id` 读取的资源会带有 `revision`。在 `PUT` 时将它作为 `expectedRevision` 与新的 `content` 一起发回；如果在你读取之后有人保存了其他内容，则不会写入任何内容：响应为 409，包含 `errorCode: "save_conflict"`，当前内容在 `details.current.content` 中，其修订版本在 `details.currentRevision` 中。不带 `expectedRevision` 的 `PUT` 仍会覆盖已保存的内容。带修订检查的保存不能同时重命名资源：请先用单独的 `PUT` 发送新的 `path`。`<ResourceEditor saveContent>` 会替你完成这些：如果编辑期间有其他人保存了不同的内容，它会询问保留哪个版本，并在之后提供找回另一个版本的选项。
+
 ### 动作API {#script-api}
 
 代理使用这些内置的 actions。您也可以从您自己的 actions 中调用它们：

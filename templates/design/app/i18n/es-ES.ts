@@ -1051,8 +1051,39 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Compartir vista previa en vivo",
+      instructions:
+        "Pega una URL HTTPS pública de vista previa para tu aplicación, como un túnel de ngrok o cloudflared. Tu equipo sigue usando localhost; los demás pueden ver la vista previa pública o sugerir cambios en la captura publicada.",
+      tunnelUrl: "URL pública de vista previa",
+      enableCollaboration:
+        "Habilitar la colaboración en vivo para todas las personas con acceso al diseño",
+      save: "Guardar",
+      unavailable:
+        "Vista previa en vivo no disponible; se muestra la instantánea",
+      live: "Vista previa en vivo",
+      openLive: "Abrir la vista previa en vivo en {{hostname}}",
+      suggest: "Sugerir en la captura",
+      localOnly: "La vista en vivo solo está en el equipo del propietario",
+    },
+    referenceCopy: {
+      staticNotice:
+        "JavaScript está desactivado; puede faltar contenido dinámico.",
+      captureAction: "Capturar instantánea estática",
+      capturePrompt:
+        "Captura la pantalla y el DOM de esta URL de referencia pública y añádelos como pantalla estática de referencia al lienzo. Etiquétala como captura, no como página en vivo.",
+      unavailable: "Esta página puede bloquear marcos o no haberse cargado.",
+      load: "Cargar copia de referencia",
+      label: "Copia de referencia · página pública, solo lectura",
+      noBridge: "Conecta un puente local para cargar una copia pública.",
+      snapshot: "Usar captura publicada",
+      capture: "Pide al agente una captura de pantalla y del DOM.",
+      failed: "La copia falló. Captura la pantalla y el DOM.",
+      loading: "Cargando copia de referencia…",
+      original: "Probar página original",
+    },
+
     sourceLoadFailed: "No se pudo cargar esta pantalla.",
-    writeFailed: "No se pudo guardar ese cambio.",
     selectionPublishFailed:
       "Es posible que el agente no vea tu selección más reciente. Vuelve a seleccionarla.",
     liveCollaboration: {
@@ -1102,6 +1133,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Seleccionar capa",
+      layerKinds: {
+        webgl: "Lienzo · WebGL",
+        canvas: "Lienzo",
+        video: "Vídeo",
+        image: "Imagen",
+        svg: "Gráfico SVG",
+        embed: "Insertado",
+        background: "Fondo",
+        effect: "Efecto",
+      },
       goToMain: "Ir al componente principal",
       restore: "Restaurar componente",
       swap: "Intercambiar instancia",
@@ -1651,32 +1692,18 @@ export default {
       editColor: "Editar el color de {{name}}",
     },
     import: {
-      title: "Importar",
       description:
         "Trae HTML del portapapeles de Figma o HTML independiente como pantallas de Design.",
-      figmaUrlTitle: "URL de marco de Figma",
-      figmaUrlDescription:
-        "Importa un marco o archivo desde un enlace de Figma.",
       figmaUrlLabel: "URL de marco o archivo de Figma",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "Comprobando la conexión con Figma…",
-      figmaConnected: "Figma conectado",
-      figmaConnectedWithSuffix: "Figma conectado · ••••{{suffix}}",
       figmaTokenLabel: "Token de acceso de Figma",
       figmaTokenDocs: "Obtener un token",
       figmaTokenPlaceholder: "Pega tu token de acceso personal de Figma",
-      figmaTokenDescription:
-        "Se guarda de forma segura para importaciones y chat. El token nunca se añade al chat.",
-      importFigmaUrl: "Importar desde Figma",
-      saveKeyAndImport: "Guardar clave e importar",
       figmaUrlSuccess: "Importado desde Figma.",
       figmaImageFallbackWarning:
         "Alternativas de imagen: {{count}}. Se conserva la apariencia, pero estas capas no son totalmente editables.",
       figmaApproximationWarning:
         "Capas aproximadas: {{count}}. HTML/CSS no puede representar todas las propiedades de Figma con exactitud.",
-      figmaPasteTitle: "Pegar desde Figma",
-      figmaPasteDescription:
-        "Copia un marco o capa en Figma y pégalo en el lienzo de Design. Design importa el HTML visible del portapapeles.",
       figmaPasteTarget: "Pega en el lienzo",
       figmaPasteApiKeyHint:
         "Conecta tu token de acceso de Figma para importaciones exactas de nodos.",
@@ -1685,10 +1712,10 @@ export default {
       figmaPasteMatchGuidance:
         "No se pudo hacer coincidir con nodos específicos de Figma. Pega un enlace de marco para una importación exacta.",
       figmaPasteUnreadable:
-        "Ese portapapeles no contiene capas copiadas de Figma. Selecciona un marco en Figma, cópialo con Cmd+C y vuelve a pegar, o importa un enlace de Figma desde el panel Importar.",
+        "Ese portapapeles no contiene capas copiadas de Figma. Selecciona un marco en Figma, cópialo con Cmd+C y vuelve a pegar, o pega un enlace al marco en el chat.",
       figmaPasteRestLabel: "Importado mediante la API de Figma",
       figmaPasteHtmlLabel: "Importado desde la vista previa del portapapeles",
-      figmaPasteLocalKiwiLabel: "Importado sin token — solo geometría y texto",
+      figmaPasteLocalKiwiLabel: "Importado desde el portapapeles de Figma",
       figmaPasteImagesNeedToken:
         "{{count}} imagen{{plural}} necesita{{plural}} acceso a Figma para cargarse.",
       figmaPasteImagesDontShowAgain: "No mostrar de nuevo",
@@ -1720,85 +1747,59 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: "Subir .fig",
       figUploadDescription:
         "Experimental: el formato .fig de Figma es propietario y puede cambiar. Las capas compatibles se convierten en pantallas editables; algunas funciones pueden variar. Máximo {{max}} MB.",
-      chooseFigFile: "Elegir archivo .fig",
       figUploadUploading: "Subiendo {{progress}}%",
       figUploadProcessing: "Convirtiendo…",
-      figImportWarningTitle: "Importación .fig grande",
-      figImportWarningDescription:
-        "Este archivo contiene {{frames}} marcos y {{nodes}} capas. Importarlo todo puede ralentizar el editor. Elige las páginas que necesitas.",
-      figImportFrameCount: "{{selected}} de {{total}} marcos seleccionados",
-      figImportSelectAll: "Seleccionar todo",
-      figImportClearAll: "Borrar todo",
-      figImportCancel: "Cancelar",
-      figImportSelected: "Importar {{count}} seleccionados",
-      figImportAll: "Importar todo",
       figImportAnalyzing: "Analizando…",
       figImportSaving: "Guardando {{saved}} de {{total}} marcos",
-      figImportFrameLimit: "Elige páginas con {{max}} marcos o menos en total.",
       figImportFramesSkippedWarning:
         "Se omitieron {{count}} marcos demasiado complejos para importar: {{names}}",
-      figUploadLimits: "Hasta {{size}} GB · {{frames}} marcos por importación",
-      figUploadDescriptionShort:
-        "Importación local — sin cuota de la API de Figma. Se incluyen las imágenes incrustadas compatibles.",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "Design ha pausado esta importación",
-      quotaCooldownBody:
-        "Design está regulando sus propias solicitudes a Figma tras alcanzar un límite de cuota. Se restablece automáticamente.",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "Importar HTML",
       htmlDescription:
         "Pega o sube HTML independiente. Design lo guarda como una pantalla nueva sin inyectarlo en esta interfaz.",
-      htmlPlaceholder: "<main>Pega HTML independiente aquí...</main>",
-      importHtml: "Importar HTML",
-      chooseHtmlFile: "Elegir archivo HTML",
       allSupportedFiles: "Todos los archivos compatibles",
-      githubTitle: "GitHub",
       githubDescription:
         "Próximamente: importar pantallas y componentes directamente desde un repositorio.",
-      localTitle: "App local",
       localDescription:
         "Conecta cualquier app local en ejecución con /visual-edit.",
-      visualEditGuidance:
-        "Instala la skill /visual-edit, inicia cualquier app local y ejecuta el comando de puente desde ese repo para que tu agente añada pantallas con URL.",
-      comingSoon: "Próximamente",
       warningsToast: "La importación terminó con advertencias",
+      pasteUnreadable: "No se pudieron leer las capas copiadas.",
+      pasteInexact: "Detalles no pegados con exactitud: {{count}}",
+      pasteLayerTypes:
+        "Tipos de capa de {{tool}} pegados como marcos simples: {{count}}",
+      pasteImagePlaceholders:
+        "Imágenes pegadas como marcadores de posición: {{count}}. {{tool}} no copia los datos de imagen.",
+      pasteImagesLinked:
+        "Imágenes aún vinculadas a {{tool}}: {{count}}. No se pudieron copiar a tu almacenamiento de archivos.",
+      pasteImagesUnsaved:
+        "Imágenes que podrían dejar de cargarse porque no se confirmó su guardado: {{count}}",
+      pasteNeedsEditAccess:
+        "Necesitas acceso de edición para pegar en este diseño.",
+      pastePartialImport:
+        "El pegado falló y es posible que se hayan creado algunas pantallas. Revisa tus pantallas.",
       figmaSuccess: "Pegado de Figma importado",
       htmlSuccess: "HTML importado",
       uploadSuccess: "Archivo importado",
-      lastImport: "Última importación",
       errors: {
         figmaTokenMustBeToken:
           "Pega un token de acceso de Figma, no un enlace a un archivo de Figma.",
-        figmaUrlRequired: "Pega una URL de marco o archivo de Figma.",
-        invalidFigmaUrl: "Introduce una URL válida de figma.com.",
         figmaImportFailed: "No se pudo importar desde Figma",
         notHtml: "Pega o elige HTML válido para importar.",
         importFailed: "Error al importar",
         figmaPasteFailed: "Error al importar el pegado de Figma",
+        paperPasteFailed: "Error al importar el pegado de Paper",
+        wonderPasteFailed: "Error al importar el pegado de Wonder",
         uploadFailed: "Error al subir el archivo",
         invalidFigFile: "Elige un archivo que termine en .fig.",
         unsupportedFileType: "Elige un archivo .fig, .html o .htm.",
         importBusy:
-          "Hay otra importación en curso. Termínala o cancélala primero.",
+          "Hay otra importación en curso. Vuelve a intentarlo cuando termine.",
         figFileTooLarge:
-          "Ese .fig es demasiado grande: las subidas están limitadas a {{max}} MB. En Figma, copia solo el frame que quieras a un archivo nuevo y exporta ese archivo como .fig, o usa Pegar desde Figma.",
+          "Este archivo es demasiado grande para importarlo aquí. Pega un enlace a la página o al marco de Figma.",
+        figFileUnreadable:
+          "No se puede leer este archivo como archivo .fig. Guarda una nueva copia local desde Figma e impórtala.",
       },
     },
     generationMayHaveStopped:
@@ -1824,7 +1825,6 @@ export default {
     signInToRequestAccessTitle: "Inicia sesión para solicitar acceso",
     signInToRequestAccessDescription:
       "Inicia sesión o crea una cuenta para solicitar acceso al propietario.",
-    signInOrSignUp: "Iniciar sesión o registrarse",
     accessCheckFailed: "No se pudo comprobar el acceso a este diseño.",
     retryAccessCheck: "Reintentar",
     saveAsTemplate: "Guardar como plantilla…",
@@ -1858,9 +1858,12 @@ export default {
         "Aplica o descarta tus ediciones visuales pendientes antes de duplicar.",
       allDesigns: "Todos los diseños",
       rename: "Renombrar",
+      builtFrom: "Creado a partir de {{title}}",
+      builtFromPage: "Creado a partir de una página de Content",
       duplicate: "Duplicar",
       versionHistory: "Historial de versiones",
       import: "Importar…",
+      connectLocalApp: "Conectar app local",
       delete: "Eliminar",
       deleteError: "No se pudo eliminar este diseño",
     },
@@ -2118,6 +2121,9 @@ export default {
     addTweaks: "Agregar ajustes",
     addTweakControls: "Agregar controles de ajuste",
     closeTweaks: "Cerrar ajustes",
+    showFloatingTweaks: "Mostrar ajustes flotantes",
+    collapseTweaks: "Contraer ajustes",
+    expandTweaks: "Expandir ajustes",
     tweaksHelp:
       "Los ajustes son modificaciones visuales por punto de quiebre y estado superpuestas al diseño base. Restablece un control para volver al valor heredado.",
     tweaksDocs: "Más información.",
@@ -2185,6 +2191,7 @@ export default {
       applyAria: "Aplicar ediciones visuales de estilo pendientes",
       applyButton: "Aplicar estilos",
       applySharedEdits: "Aplicar ediciones",
+      reviewSuggestion: "Revisar sugerencia",
       previewLabel: "Vista previa visual pendiente",
       applyDesignUpdates: "Aplicar actualizaciones de diseño",
       applying: "Aplicando…",
@@ -2290,10 +2297,25 @@ export default {
       annotationSendError:
         "No se pudieron enviar las anotaciones. Tu dibujo sigue aquí; inténtalo de nuevo.",
       codingHandoffError: "No se pudo crear la entrega para código",
+      unknownCollaborator: "un colaborador",
+      supersededVisualEditSuggestion:
+        "Se reemplazó una sugerencia anterior de {{authorEmail}}. Texto original: {{text}}",
       visualEditPendingConflict:
         "Otro colaborador tiene cambios pendientes. Aplícalos o elimínalos antes de enviar cambios nuevos.",
       codingHandoffCopied: "Entrega para código copiada",
       clipboardBlocked: "Portapapeles bloqueado",
+      pasteMediaTooMany_one:
+        "No se pegó {{count}} archivo. Puedes pegar hasta {{limit}} archivos a la vez.",
+      pasteMediaTooMany_many:
+        "No se pegaron {{count}} archivos. Puedes pegar hasta {{limit}} archivos a la vez.",
+      pasteMediaTooMany_other:
+        "No se pegaron {{count}} archivos. Puedes pegar hasta {{limit}} archivos a la vez.",
+      pasteMediaTooLarge_one:
+        "No se pegó {{count}} archivo porque supera los {{limitMb}} MB.",
+      pasteMediaTooLarge_many:
+        "No se pegaron {{count}} archivos porque superan los {{limitMb}} MB.",
+      pasteMediaTooLarge_other:
+        "No se pegaron {{count}} archivos porque superan los {{limitMb}} MB.",
       htmlCreateError: "No se pudo crear la descarga HTML",
       htmlDownloaded: "HTML descargado",
       htmlExportError: "No se pudo exportar HTML",
@@ -2369,6 +2391,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Los ajustes cambiaron en otro lugar. Actualiza el diseño antes de intentarlo de nuevo.",
+      tweakBaselineUnreadable:
+        "No se pudo leer la referencia guardada de los ajustes. Los cambios están en pausa hasta que se reparen los datos del diseño.",
+      resetTweakBaseline: "Restablecer referencia",
       tweakSaveNotDurable:
         "Los ajustes aún no se han guardado. Mantén esta pestaña abierta e inténtalo de nuevo.",
       undoSkippedConcurrentEdit: "Se omitió deshacer: otra persona movió eso",
@@ -2659,6 +2684,9 @@ export default {
     changesDiscarded:
       "Algunos cambios no se pudieron guardar porque el archivo ya no existe y se descartaron.",
     offline: "Sin conexión",
+    unsaved: "No guardado",
+    saveRetrying:
+      "No se pudieron guardar tus cambios. Reintentando automáticamente.",
     saving: "Guardando...",
     clearedAllAnnotations: "Se borraron todas las anotaciones",
     annotationsDiscardedOnViewChange:
@@ -2716,7 +2744,6 @@ export default {
     websiteReferenceMenu: "Añadir sitio web…",
     websiteUrlLabel: "URL del sitio web",
     websiteUrl: "Pega la URL de un sitio web",
-    figmaUrlLabel: "Enlace de Figma",
     invalidFigmaUrl:
       "Introduce una URL válida de un marco o archivo de figma.com.",
     tooMany: "Elige hasta 20 referencias.",
@@ -2725,16 +2752,14 @@ export default {
     noSystems:
       "Aún no tienes un sistema de diseño. Crea uno a partir de un sitio web, archivos o Figma.",
     searchSystems: "Buscar sistemas de diseño…",
-    searchFrames: "Buscar marcos de Figma…",
     searchDesigns: "Buscar diseños…",
     searchPresentations: "Buscar presentaciones…",
+    searchPages: "Buscar páginas…",
     searchDesign: "Buscar diseño…",
     useDesignSystem: "Usar un sistema de diseño",
     notReady:
       "La solicitud aún no está lista. Revisa el contexto seleccionado y la conexión, e inténtalo de nuevo.",
     search: "Buscar contexto…",
-    figmaUrl: "Pega un enlace de Figma",
-    browse: "Explorar marcos",
     loadFailed: "No se pudo cargar esta referencia.",
     retry: "Reintentar",
     empty: "No hay referencias coincidentes.",
@@ -2742,9 +2767,29 @@ export default {
     design: "Referencias de diseño",
     slides: "Diapositivas",
     referenceDesign: "Usar un diseño como referencia",
+    contentPage: "Página de Content",
     connectFigma: "Conectar Figma",
-    figmaDisconnected: "Conecta Figma para explorar diseños.",
-    figmaReference: "Diseño de Figma",
+    figmaReference: "Diseño de Figma…",
+    figmaDialogTitle: "Añadir diseño de Figma",
+    figmaDropTitle: "Suelta un archivo .fig",
+    figmaChooseFile: "Elegir archivo",
+    figmaPasteHint:
+      "También puedes pegar un marco copiado directamente en la indicación.",
+    figmaAddToPrompt: "Añadir a la indicación",
+    figmaLinkNeedsConnection:
+      "Los enlaces necesitan una cuenta de Figma conectada. Suelta un archivo .fig o pega un marco copiado.",
+    figmaReferenceMore: "{{name}} y {{count}} más",
+    figmaReferenceEmpty:
+      "No llegó ningún marco. Copia un marco en Figma e inténtalo de nuevo.",
+    figmaSelection: "Selección de Figma",
+    figmaFileTooLarge:
+      "Este archivo es demasiado grande para leerlo aquí. Pega en su lugar un enlace a su página o marco.",
+    figmaSearch: "Buscar páginas y marcos",
+    figmaSelectedCount: "{{count}} seleccionados",
+    figmaShowFrames: "Mostrar los marcos de {{name}}",
+    figmaLinkNotFrame: "Enlaza a una página o un marco de Figma.",
+    figmaPageFrameCap:
+      "Añade los primeros {{limit}} marcos. Marca marcos para elegir cuáles.",
     referenceDeck: "Usar una presentación como referencia",
     quickSaas: "Crear una página de SaaS",
     quickDashboard: "Crear un panel",
@@ -2910,7 +2955,6 @@ export default {
     import: "Importar",
     importFromFigma: "Importar desde Figma",
     figmaFile: "Archivo de Figma (.fig)",
-    figmaFileMaxSize: "Hasta {{max}} GB",
     openImport: "Abrir importación",
     importSelectedFile: "Importar archivo seleccionado",
     starterSaasPrompt:
@@ -3467,6 +3511,18 @@ export default {
     addEmoji: "Añadir emoji",
     mention: "Mencionar a alguien",
     noMentions: "No se encontraron personas",
+    format: {
+      toolbar: "Formato",
+      bold: "Negrita",
+      italic: "Cursiva",
+      strike: "Tachado",
+      code: "Código",
+      link: "Enlace",
+      linkField: "Dirección del enlace",
+      linkPlaceholder: "Pega un enlace",
+      applyLink: "Aplicar enlace",
+      removeLink: "Quitar enlace",
+    },
     mentionsFailed: "No se pudo cargar a las personas",
     reopen: "Reabrir",
     reopening: "Reabriendo…",
@@ -3493,6 +3549,10 @@ export default {
     markedUnread: "Marcado como no leído",
     markUnreadFailed: "No se pudo marcar como no leído",
     attachImage: "Adjuntar imagen",
+    removeImage: "Quitar imagen",
+    imageUploadFailed: "No se pudo subir la imagen",
+    editChanged:
+      "Este comentario cambió después de que empezaras a editarlo. Guarda de nuevo para reemplazarlo.",
     searching: "Buscando…",
     reactionFailed: "No se pudo actualizar la reacción",
     moveFailed: "No se pudo mover el comentario",
@@ -3540,6 +3600,8 @@ export default {
       fallbackName: "IA",
       setupRequired: "Conecta un modelo de IA para usar agentes",
       startFailed: "No se pudo iniciar el agente",
+      hostChatUnconfirmed:
+        "No se pudo confirmar que el mensaje haya llegado al chat anfitrión. Comprueba ese chat antes de volver a intentarlo.",
       cancelFailed: "No se pudo detener el agente",
       busy: "Ya hay un agente trabajando en este hilo",
       error: {

@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { isApplePlatform } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 
 import {
@@ -70,6 +71,10 @@ const TURN_INTO: Record<TurnIntoTarget, { labelKey: string }> = {
     labelKey: "editor.slash.numberedList",
   },
   todoList: { labelKey: "editor.slash.todoList" },
+  toggle: { labelKey: "editor.slash.toggle" },
+  toggleHeading1: { labelKey: "editor.slash.toggleHeading1" },
+  toggleHeading2: { labelKey: "editor.slash.toggleHeading2" },
+  toggleHeading3: { labelKey: "editor.slash.toggleHeading3" },
   quote: { labelKey: "editor.slash.quote" },
   codeBlock: { labelKey: "editor.slash.codeBlock" },
 };
@@ -79,12 +84,6 @@ const LOCK_REASON_KEYS: Record<BlockLock, string> = {
   suggesting: "editor.blockMenu.lockedSuggesting",
   page: "editor.blockMenu.lockedPage",
 };
-
-// ProseMirror's test for `Mod`, so each hint names the key its shortcut
-// listens for.
-const isApplePlatform = () =>
-  typeof navigator !== "undefined" &&
-  /Mac|iP(hone|[oa]d)/.test(navigator.platform);
 
 const ENABLED_ITEMS = '[role^="menuitem"]:not([data-disabled])';
 
@@ -390,7 +389,6 @@ export function BlockActionsMenu({
       <DropdownMenuItem
         key={target}
         aria-checked={checked}
-        className="gap-2"
         onSelect={() => turnInto(target)}
         role="menuitemradio"
       >
@@ -496,9 +494,7 @@ export function BlockActionsMenu({
       <>
         {!needle && turnTargets.length > 0 ? (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="gap-2">
-              {turnIntoLabel}
-            </DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger>{turnIntoLabel}</DropdownMenuSubTrigger>
             <DropdownMenuSubContent
               className={cn(
                 "max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto",
@@ -529,7 +525,6 @@ export function BlockActionsMenu({
           <DropdownMenuItem
             aria-describedby={lockReasonId(locks.duplicate)}
             aria-keyshortcuts={ariaShortcut("D")}
-            className="gap-2"
             disabled={!canDuplicate}
             onSelect={request.duplicate}
           >
@@ -543,7 +538,7 @@ export function BlockActionsMenu({
           <DropdownMenuItem
             aria-describedby={lockReasonId(locks.remove)}
             aria-keyshortcuts="Delete"
-            className="gap-2 text-destructive focus:text-destructive"
+            className="text-destructive focus:text-destructive"
             disabled={!canRemove}
             onSelect={request.remove}
           >
@@ -554,7 +549,7 @@ export function BlockActionsMenu({
           </DropdownMenuItem>
         ) : null}
         {showInsert ? (
-          <DropdownMenuItem className="gap-2" onSelect={request.insertBelow}>
+          <DropdownMenuItem onSelect={request.insertBelow}>
             {t("editor.blockMenu.insertBelow")}
           </DropdownMenuItem>
         ) : null}
@@ -575,7 +570,6 @@ export function BlockActionsMenu({
       "comment",
       <DropdownMenuItem
         aria-keyshortcuts={ariaShortcut("M", true)}
-        className="gap-2"
         onSelect={comment}
       >
         {t("editor.comment")}
