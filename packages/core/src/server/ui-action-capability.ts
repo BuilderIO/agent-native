@@ -4,11 +4,16 @@ import {
   getCookie,
   getHeader,
   getMethod,
+  getQuery,
   setCookie,
   setResponseHeader,
   setResponseStatus,
 } from "h3";
 
+import {
+  EMBED_TARGET_HEADER,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   getConfiguredAppBasePath,
   normalizeAppBasePath,
@@ -71,6 +76,20 @@ export function hasUiActionCapability(
   }
 }
 
+// Names which credentials reached the server, never their values: a panel on
+// a host's origin cannot show its own network log, so the refusal must.
+function receivedCredentials(event: H3Event): string {
+  const seen = [
+    getHeader(event, "authorization") ? "an authorization header" : null,
+    getHeader(event, "cookie") ? "cookies" : null,
+    getHeader(event, EMBED_TARGET_HEADER) ? "an embed target" : null,
+    getQuery(event)[EMBED_TOKEN_QUERY_PARAM] ? "a URL session" : null,
+  ].filter(Boolean);
+  return seen.length
+    ? `the request carried ${seen.join(", ")} and no same-origin proof`
+    : "the request carried no credentials";
+}
+
 async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
   let ownerEmail: string | undefined;
   const embedMarked = hasEmbedSessionRequestMarker(event);
@@ -111,7 +130,9 @@ async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
           error: `Same-origin request required; ${await fullAppEmbedTokenRefusal(event)}`,
           errorCode: "panel_session_rejected",
         }
-      : { error: "Same-origin request required" };
+      : {
+          error: `Same-origin request required; ${receivedCredentials(event)}`,
+        };
   }
 
   const token = signShortLivedToken({

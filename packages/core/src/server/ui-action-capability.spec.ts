@@ -161,11 +161,31 @@ describe("UI action capability", () => {
 
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({
-        error: "Same-origin request required",
+        error:
+          "Same-origin request required; the request carried no credentials",
       });
       expect(response.headers.get("set-cookie")).toBeNull();
     },
   );
+
+  it("names the credentials a refused request carried, not their values", async () => {
+    const app = createApp();
+    mountUiActionCapabilityRoute(app);
+    const response = await app.fetch(
+      new Request("https://example.test/_agent-native/ui-capability", {
+        headers: {
+          host: "example.test",
+          "sec-fetch-site": "cross-site",
+          cookie: "session=secret-value",
+        },
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error:
+        "Same-origin request required; the request carried cookies and no same-origin proof",
+    });
+  });
 
   it("mints for a matching Origin without fetch metadata", async () => {
     const app = createApp();
