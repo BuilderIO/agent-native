@@ -221,6 +221,11 @@ export function pgVectorIndexMigration(entry: {
       `"${entry.name}" needs at least one vector size to make a table for.`,
     );
   }
+  // Every size and the namespace are checked before a release makes any
+  // table, so a bad one can't leave the first tables made and this pending.
+  for (const dimensions of entry.dimensions) {
+    searchNamespaceIdentifiers(entry.namespace, dimensions);
+  }
   return {
     version: entry.version,
     name: entry.name,

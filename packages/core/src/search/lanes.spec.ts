@@ -255,6 +255,25 @@ describe("pgVectorIndexMigration", () => {
     ).toThrow("needs at least one vector size");
   });
 
+  it("refuses a bad size or namespace before a release makes any table", () => {
+    expect(() =>
+      pgVectorIndexMigration({
+        version: 7,
+        name: "brain-vectors",
+        namespace: "brain",
+        dimensions: [1024, 0],
+      }),
+    ).toThrow("Embedding dimensions must be an integer");
+    expect(() =>
+      pgVectorIndexMigration({
+        version: 7,
+        name: "brain-vectors",
+        namespace: "Brain",
+        dimensions: [1024],
+      }),
+    ).toThrow("Search namespace must start with a lowercase letter");
+  });
+
   it("defers, sending nothing else, when the database has no pgvector", async () => {
     const { db, sql } = recordingDb();
     await expect(migration.run?.(db)).resolves.toBe(MIGRATION_DEFERRED);
