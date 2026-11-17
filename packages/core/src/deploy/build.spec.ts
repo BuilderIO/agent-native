@@ -8384,9 +8384,9 @@ describe("Node preset external SSR runtime output", { timeout: 60_000 }, () => {
       const requireFromOutput = createRequire(
         path.join(serverDir, "index.mjs"),
       );
-      expect(
-        requireFromOutput.resolve("@agent-native/core-undici"),
-      ).toContain(path.join("node_modules", "@agent-native", "core-undici"));
+      expect(requireFromOutput.resolve("@agent-native/core-undici")).toContain(
+        path.join("node_modules", "@agent-native", "core-undici"),
+      );
       const entrypoint = path.join(serverDir, "load-undici.mjs");
       fs.writeFileSync(
         entrypoint,

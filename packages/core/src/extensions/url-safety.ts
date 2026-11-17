@@ -230,7 +230,15 @@ async function createSsrfSafeDispatcherUncached(
     const fallbackUndiciSpecifier = "undici";
     try {
       undici = await import(/* @vite-ignore */ coreUndiciSpecifier);
-    } catch {
+    } catch (error) {
+      // Fall back only when Core's dedicated copy is genuinely absent. A broken
+      // or incompatible copy must surface instead of silently switching the
+      // SSRF dispatcher to the app's possibly different undici version.
+      const code =
+        typeof error === "object" && error !== null && "code" in error
+          ? (error as { code?: unknown }).code
+          : undefined;
+      if (code !== "ERR_MODULE_NOT_FOUND") throw error;
       undici = await import(/* @vite-ignore */ fallbackUndiciSpecifier);
     }
     dnsModule = await import("node:dns");
