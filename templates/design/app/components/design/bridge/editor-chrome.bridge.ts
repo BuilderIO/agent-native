@@ -30,6 +30,7 @@
 import { createCanvasGestureController } from "@agent-native/toolkit/canvas-interactions";
 import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
+import { designToolClipboardContent } from "../../../../shared/design-tool-markers";
 import {
   copyExportImageSource,
   isResponsiveExportImage,
@@ -29536,24 +29537,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     true,
   );
 
-  function hasFigmaClipboardPayload(value) {
-    var content = String(value || "");
-    return (
-      /\((figmeta|figma)\)[\s\S]*?\(\/(figmeta|figma)\)/i.test(content) ||
-      /<[^>]+\sdata-(metadata|buffer)=["'][^"']*\((figmeta|figma)\)[^"']*["']/i.test(
-        content,
-      )
-    );
-  }
-
-  function getFigmaClipboardContent(data) {
-    if (!data || !data.getData) return "";
-    var html = data.getData("text/html") || "";
-    if (hasFigmaClipboardPayload(html)) return html;
-    var text = data.getData("text/plain") || "";
-    return hasFigmaClipboardPayload(text) ? text : "";
-  }
-
   document.addEventListener(
     "paste",
     function (e) {
@@ -29566,7 +29549,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       // Only a branch that relays the paste may cancel the deferred Cmd+V
       // hotkey: a paste this listener ignores (a copy that only lives in the
       // editor's memory) still needs the editor to run its own paste.
-      var content = getFigmaClipboardContent(e.clipboardData);
+      var content = designToolClipboardContent(e.clipboardData);
       if (content) {
         clearPendingPlainPasteHotkey();
         stopNativeInteraction(e);

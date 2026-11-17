@@ -43,6 +43,7 @@ import {
   createEmbedSessionTicket as createEmbedSessionTicketForAudience,
   hasExplicitEmbedSessionCredential,
   hasPresentedEmbedSessionCredential,
+  presentsFullAppEmbedToken,
   hasEmbedSessionRequestMarker,
   isExpiredMcpDirectoryWidgetSessionRequest,
   readMcpDirectoryWidgetRenewalTicket as readMcpDirectoryWidgetRenewalTicketForAudience,
@@ -55,6 +56,7 @@ import {
   signEmbedSessionToken,
   verifyEmbedSessionToken,
   embedSessionsStore,
+  embedSessionTicketBelongsTo,
 } from "./embed-session.js";
 import { getRequestContext, runWithRequestContext } from "./request-context.js";
 
@@ -163,6 +165,26 @@ describe("workspace host chat ticket lifecycle", () => {
     expect(response.headers.get("location")).toBeNull();
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(await response.text()).not.toContain("agent_native_embed_token");
+  });
+  it("tells whose unredeemed ticket it is without redeeming it", async () => {
+    const ticket = await createEmbedSessionTicket({
+      ownerEmail: "Owner@Example.com",
+      targetPath: "/inbox",
+      scope: "full-app",
+    });
+    expect(
+      await embedSessionTicketBelongsTo(ticket.ticket, "other@example.com"),
+    ).toBe(false);
+    expect(
+      await embedSessionTicketBelongsTo("missing", "owner@example.com"),
+    ).toBe(false);
+    expect(
+      await embedSessionTicketBelongsTo(ticket.ticket, " owner@example.com "),
+    ).toBe(true);
+    expect(await consumeEmbedSessionTicket(ticket.ticket)).not.toBeNull();
+    expect(
+      await embedSessionTicketBelongsTo(ticket.ticket, "owner@example.com"),
+    ).toBe(false);
   });
   it("refuses unbound chat ticket redemption", async () => {
     const ticket = await createEmbedSessionTicket(input());
@@ -1457,6 +1479,180 @@ describe("requestMatchesEmbedTarget", () => {
       responseHeaders,
     } as any;
   }
+
+  it.each([
+    ["a full-app token in the header", "bearer", "full-app", true],
+    ["a full-app token in the URL", "query", "full-app", true],
+    ["a full-app token only in the cookie", "cookie", "full-app", false],
+    [
+      "a scoped widget token in the header",
+      "bearer",
+      "capability:visual-edit:design:d-1",
+      false,
+    ],
+  ] as const)(
+    "treats %s as a full-app panel's own request",
+    async (_name, transport, scope, expected) => {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost: "http://mail.test",
+        targetPath: "/inbox",
+        scope,
+      });
+      const event = credentialEvent(
+        "/_agent-native/actions/send-draft",
+        token,
+        transport,
+        { "x-agent-native-embed-target": "/inbox" },
+      );
+      expect(
+        presentsFullAppEmbedToken(
+          event,
+          await resolveEmbedSessionFromRequest(event),
+        ),
+      ).toBe(expected);
+    },
+  );
+
+  it("does not count a header token that is not the resolved session's", async () => {
+    const sign = (audienceHost: string) =>
+      signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost,
+        targetPath: "/inbox",
+        scope: "full-app",
+      });
+    const event = credentialEvent(
+      "/_agent-native/actions/send-draft",
+      sign("http://mail.test"),
+      "cookie",
+      {
+        authorization: `Bearer ${sign("http://other.test")}`,
+        "x-agent-native-embed-target": "/inbox",
+      },
+    );
+    const session = await resolveEmbedSessionFromRequest(event);
+    expect(session?.scope).toBe("full-app");
+    expect(presentsFullAppEmbedToken(event, session)).toBe(false);
+  });
+
+  it.each([
+    ["/inbox/t-1", "GET"],
+    ["/calendar/week", "GET"],
+    ["/_agent-native/actions/send-draft", "POST"],
+    ["/_agent-native/application-state/navigation", "PUT"],
+    ["/api/threads/t-1", "PATCH"],
+    ["/_agent-native/auth/session", "GET"],
+    ["/_agent-native/org/me", "GET"],
+    ["/_agent-native/agent-engine/status", "GET"],
+    ["/_agent-native/settings/theme", "GET"],
+    ["/_agent-native/agent-chat", "GET"],
+    ["/_agent-native/agent-chat/runs/run-1", "GET"],
+    ["/_agent-native/automations", "GET"],
+    ["/api/emails/send", "POST"],
+    ["/api/emails/draft/d-1", "DELETE"],
+    ["/api/pylon/key", "GET"],
+    ["/_agent-native/mcp/embed-error", "POST"],
+  ])(
+    "lets a full-app session act as its owner: %s %s",
+    async (path, method) => {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost: "http://mail.test",
+        targetPath: "/inbox",
+        scope: "full-app",
+      });
+      const request = credentialEvent(path, token, "cookie");
+      request.req.method = method;
+      await expect(
+        resolveEmbedSessionFromRequest(request),
+      ).resolves.toMatchObject({
+        email: "owner@example.com",
+        scope: "full-app",
+      });
+    },
+  );
+
+  it.each([
+    ["/_agent-native/mcp", "POST"],
+    ["/_agent-native/mcp/embed-error", "GET"],
+    ["/_agent-native/mcp/embed-error/x", "POST"],
+    [
+      "/_agent-native/mcp/approvals/0b6b2a4e-6a8d-4d0f-9c64-3f7d1c2b9a10",
+      "GET",
+    ],
+    ["/_agent-native/mcp/approvals/grant", "POST"],
+    ["/_agent-native/a2a/approvals", "POST"],
+    [
+      "/_agent-native/integrations/remote/computer/approvals/a-1/decision",
+      "POST",
+    ],
+    ["/_agent-native/auth/logout", "POST"],
+    ["/_agent-native/auth/ba/update-user", "POST"],
+    ["/_agent-native/embed/start", "POST"],
+    ["/_agent-native/embed/start", "GET"],
+    ["/api/pylon/key", "PUT"],
+    ["/api/hubspot/key", "DELETE"],
+    ["/calendar/api/gong/key", "PUT"],
+    ["/api/auth/logout", "POST"],
+    ["/api/settings/API-Keys", "POST"],
+    ["/api/provider/oauth/start", "POST"],
+    ["/api/provider/oauth/start", "GET"],
+    ["/_agent-native/zoom/disconnect", "POST"],
+    ["/_agent-native/google-docs/disconnect", "POST"],
+    ["/_agent-native/oauth/github/disconnect", "POST"],
+    ["/calendar/_agent-native/zoom/auth-url", "GET"],
+    ["/_agent-native/google-docs/auth-url", "GET"],
+    ["/_agent-native/google/add-account/auth-url", "GET"],
+    ["/api/auth/google-calendar", "GET"],
+    ["/api/notion/auth-url", "GET"],
+    ["/_agent-native/org/members", "POST"],
+    ["/_agent-native/connections/oauth/zoom/start", "POST"],
+    ["/_agent-native/env-vars", "GET"],
+    ["/_agent-native/secrets", "GET"],
+    ["/_agent-native/secrets/OPENAI_API_KEY", "PUT"],
+    ["/_agent-native/browser-sessions/start", "POST"],
+    ["/_agent-native/process-run", "POST"],
+    ["/_agent-native/sandbox/run", "POST"],
+    ["/_agent-native/agent-engine/api-key", "POST"],
+    ["/_agent-native/agent-engine/disconnect", "POST"],
+    ["/_agent-native/agent-model-defaults", "PUT"],
+    ["/_agent-native/agent-loop-settings", "DELETE"],
+    ["/_agent-native/settings/mcp-servers", "PUT"],
+    ["/_agent-native/agent-chat/save-key", "POST"],
+    ["/_agent-native/agent-chat", "POST"],
+    ["/_agent-native/agent-chat/", "POST"],
+    ["/_agent-native/agent-chat/threads", "POST"],
+    ["/_agent-native/agent-chat/threads/t-1/queued", "POST"],
+    ["/_agent-native/automations", "PATCH"],
+    ["/_agent-native/automations/fire-test", "POST"],
+    ["/mcp", "POST"],
+    ["/mcp/oauth/authorize", "GET"],
+    ["/_agent-native/%6dcp", "POST"],
+    ["/_agent-native/s%65crets", "GET"],
+    ["/_agent-native//secrets", "GET"],
+    ["/_agent-native/%E0%A4%A", "GET"],
+    ["/_agent-native/agent-chat//", "POST"],
+    ["/_agent-native/secrets/", "GET"],
+    ["/_agent-native/agent-chat/runs/run-1/retry-projection", "POST"],
+    ["/_agent-native/connections/oauth/zoom/start", "GET"],
+    ["/_agent-native/google/auth-url", "GET"],
+    ["/_agent-native/google/callback", "GET"],
+    ["/_agent-native/builder/connect", "GET"],
+    ["/_agent-native/auth/ba/callback/google", "GET"],
+    ["/_agent-native/auth/desktop-exchange", "GET"],
+    ["/_agent-native/actions/x/%2e%2e/%2e%2e/mcp", "POST"],
+  ])("keeps a full-app session off %s %s", async (path, method) => {
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "http://mail.test",
+      targetPath: "/inbox",
+      scope: "full-app",
+    });
+    const request = credentialEvent(path, token, "cookie");
+    request.req.method = method;
+    await expect(resolveEmbedSessionFromRequest(request)).resolves.toBeNull();
+  });
 
   it("resolves Visual Edit metadata without granting other framework routes", async () => {
     const token = signEmbedSessionToken({

@@ -1704,6 +1704,16 @@ export default {
       githubDescription: "即将推出：直接从仓库导入屏幕和组件。",
       localDescription: "使用 /visual-edit 连接任何正在运行的本地 app。",
       warningsToast: "导入完成但有警告",
+      pasteUnreadable: "无法读取复制的图层。",
+      pasteInexact: "未能精确粘贴的细节：{{count}}",
+      pasteLayerTypes: "以普通框架粘贴的 {{tool}} 图层类型：{{count}}",
+      pasteImagePlaceholders:
+        "以占位符粘贴的图片：{{count}}。{{tool}} 不会复制图片数据。",
+      pasteImagesLinked:
+        "仍链接到 {{tool}} 的图片：{{count}}。无法将它们复制到你的文件存储。",
+      pasteImagesUnsaved: "因无法确认已保存而可能无法继续加载的图片：{{count}}",
+      pasteNeedsEditAccess: "粘贴到此设计需要编辑权限。",
+      pastePartialImport: "粘贴失败，可能已创建部分画面。请检查你的画面。",
       figmaSuccess: "已导入 Figma 粘贴内容",
       htmlSuccess: "已导入 HTML",
       uploadSuccess: "已导入文件",
@@ -1713,6 +1723,8 @@ export default {
         notHtml: "请粘贴或选择有效的 HTML 进行导入。",
         importFailed: "导入失败",
         figmaPasteFailed: "Figma 粘贴导入失败",
+        paperPasteFailed: "Paper 粘贴导入失败",
+        wonderPasteFailed: "Wonder 粘贴导入失败",
         uploadFailed: "文件上传失败",
         invalidFigFile: "请选择以 .fig 结尾的文件。",
         unsupportedFileType: "请选择 .fig、.html 或 .htm 文件。",
@@ -3406,6 +3418,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "连接 AI 模型后才能使用智能体",
       startFailed: "无法启动智能体",
+      hostChatUnconfirmed:
+        "无法确认消息是否已送达宿主聊天。请先检查宿主聊天，再重试。",
       cancelFailed: "无法停止智能体",
       busy: "已有智能体正在处理此讨论",
       error: {

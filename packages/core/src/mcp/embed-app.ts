@@ -971,17 +971,50 @@ export function embedApp(
           var list = window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}] ||
             (window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}] = []);
           var path;
+          var queryToken = null;
           try {
-            path = new URL(url).pathname;
+            var parsedUrl = new URL(url);
+            path = parsedUrl.pathname;
+            queryToken = parsedUrl.searchParams.get(activeConfig().embedTokenParam || "__an_embed_token");
           } catch (_err) {
             path = String(url);
           }
-          var text = String(method || "GET").toUpperCase() + " " + path + " " + detail +
-            (headers.has("Authorization") ? "" : " (sent without the panel session)");
-          if (list.length < 5 && list.indexOf(text) < 0) list.push(text);
+          var sent = headers.get("Authorization");
+          var panelToken = activeConfig().token;
+          var suffix = !sent
+            ? " (sent without the panel session)"
+            : panelToken && sent !== "Bearer " + panelToken
+              ? " (sent with a session other than the panel's)"
+              : queryToken && queryToken !== panelToken
+                ? " (its URL carried a session other than the panel's)"
+                : "";
+          var text = String(method || "GET").toUpperCase() + " " + path + " " + detail;
+          if (list.length >= 5 || list.indexOf(text + suffix) >= 0) return function() {};
+          // The entry keeps its place in request order while its reason loads.
+          var index = list.push(text + suffix) - 1;
+          return function(reason) {
+            if (list[index] === text + suffix) list[index] = text + " " + reason + suffix;
+          };
         }
         return promise.then(function(response) {
-          if (!response.ok) note("HTTP " + response.status);
+          if (!response.ok) {
+            var addReason = note("HTTP " + response.status);
+            // The refusal's own words name the failing check; a status alone
+            // cannot tell an approval gate from an expired session.
+            response.clone().text().then(function(body) {
+              var parsed;
+              try {
+                parsed = JSON.parse(body);
+              } catch (_err) {
+                // coercion-ok: a body that is not JSON names no reason; the status stays.
+                return;
+              }
+              var reason = parsed && [parsed.errorCode, parsed.error || parsed.statusMessage || parsed.message]
+                .filter(function(part) { return typeof part === "string" && part; })
+                .join(": ");
+              if (reason) addReason(reason.slice(0, 160));
+            }, function() {});
+          }
           return response;
         }, function(error) {
           if (!error || error.name !== "AbortError") {
@@ -1019,45 +1052,40 @@ export function embedApp(
             credentials: "omit"
           });
           const method = (init && init.method) || (input instanceof Request ? input.method : "GET");
-          return observedRequest(
-            sendRewritten(input, url, nextInit),
-            method,
-            url,
-            nextInit.headers
-          );
-        };
-        function sendRewritten(input, url, nextInit) {
-          if (input instanceof Request) {
-            const requestInit = {
-              method: input.method,
-              mode: input.mode,
-              cache: input.cache,
-              redirect: input.redirect,
-              referrer: input.referrer,
-              referrerPolicy: input.referrerPolicy,
-              integrity: input.integrity,
-              keepalive: input.keepalive,
-              signal: input.signal
-            };
-            // A body in init replaces the Request's, which may already be spent.
-            if (nextInit.body !== undefined) {
-              return originalFetch(url, Object.assign(requestInit, nextInit));
+          return observedRequest(sendRewritten(), method, url, nextInit.headers);
+          function sendRewritten() {
+            if (input instanceof Request) {
+              const requestInit = {
+                method: input.method,
+                mode: input.mode,
+                cache: input.cache,
+                redirect: input.redirect,
+                referrer: input.referrer,
+                referrerPolicy: input.referrerPolicy,
+                integrity: input.integrity,
+                keepalive: input.keepalive,
+                signal: input.signal
+              };
+              // A body in init replaces the Request's, which may already be spent.
+              if (nextInit.body !== undefined) {
+                return originalFetch(url, Object.assign(requestInit, nextInit));
+              }
+              // Read the body first: a Request used as init sends it as a stream,
+              // which needs HTTP/2 and which not every browser can send.
+              return input.arrayBuffer().then(function(body) {
+                return originalFetch(
+                  url,
+                  Object.assign(
+                    requestInit,
+                    body.byteLength > 0 ? { body: body } : null,
+                    nextInit
+                  )
+                );
+              });
             }
-            // Read the body first: a Request used as init sends it as a stream,
-            // which needs HTTP/2 and which not every browser can send.
-            return input.arrayBuffer().then(function(body) {
-              return originalFetch(
-                url,
-                Object.assign(
-                  requestInit,
-                  body.byteLength > 0 ? { body: body } : null,
-                  nextInit
-                )
-              );
-            });
+            return originalFetch(url, nextInit);
           }
-          return originalFetch(url, nextInit);
-        }
+        };
         // The requests it signs go out on a transport of their own, one per
         // token. It signs only on the target's mount and with a token; its
         // other requests still omit cookies, so they go out on another

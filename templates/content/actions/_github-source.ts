@@ -157,29 +157,24 @@ function parseJsonObject(value: string | null | undefined) {
     : {};
 }
 
-/** Runs as the person who linked the folder, in the collection's workspace. */
-async function asLinker<T>(
-  state: Pick<GitHubSourceState, "linkedBy">,
-  orgId: string | null,
-  run: () => Promise<T>,
-): Promise<T> {
-  return await runWithRequestContext(
-    { userEmail: state.linkedBy, ...(orgId ? { orgId } : {}) },
-    run,
-  );
-}
-
 /**
- * Reads GitHub as the person who linked the folder. Their connection is saved
- * under the workspace they linked it from, so a collection with no workspace
- * of its own, in a Personal space, reads through that one.
+ * Runs as the person who linked the folder, in the collection's workspace.
+ * A collection in a Personal space has none, so it runs in the workspace the
+ * folder was linked from: the linker's GitHub connection is saved there, and
+ * that workspace's file storage keeps the collection's images, encrypted and
+ * loadable only through the pages that show them. An image uploaded to a
+ * Personal page is stored the same way, through the uploader's workspace.
  */
-async function readAsLinker<T>(
+async function asLinker<T>(
   state: Pick<GitHubSourceState, "linkedBy" | "linkedOrgId">,
   orgId: string | null,
   run: () => Promise<T>,
 ): Promise<T> {
-  return await asLinker(state, orgId ?? state.linkedOrgId, run);
+  const workspace = orgId ?? state.linkedOrgId;
+  return await runWithRequestContext(
+    { userEmail: state.linkedBy, ...(workspace ? { orgId: workspace } : {}) },
+    run,
+  );
 }
 
 async function mapLimit<T, R>(
@@ -1311,7 +1306,7 @@ async function uploadAsset(
   if (run.failedAssetShas.has(entry.sha)) return "failed";
   if (storageDown(run)) return "no-storage";
   await beforeUpload();
-  const data = await readAsLinker(run.state, run.database.orgId, () =>
+  const data = await asLinker(run.state, run.database.orgId, () =>
     readGitHubBlob({
       owner: run.state.owner,
       repo: run.state.repo,
@@ -1622,7 +1617,7 @@ type FileOutcome =
 
 async function readFileText(run: SyncRun, file: PlannedFile) {
   if (file.text !== undefined) return file.text;
-  const bytes = await readAsLinker(run.state, run.database.orgId, () =>
+  const bytes = await asLinker(run.state, run.database.orgId, () =>
     readGitHubBlob({
       owner: run.state.owner,
       repo: run.state.repo,
@@ -1655,7 +1650,7 @@ async function readTextsAhead(run: SyncRun, work: PlannedFile[], from: number) {
   );
   if (batch.length < 2) return;
   for (const file of batch) file.batched = true;
-  const texts = await readAsLinker(run.state, run.database.orgId, () =>
+  const texts = await asLinker(run.state, run.database.orgId, () =>
     readTextsTogether(
       {
         owner: run.state.owner,
@@ -2309,7 +2304,7 @@ async function matchRenames(
   };
   const addedByPath = new Map(added.map((file) => [file.repoPath, file]));
   if (run.state.syncedCommitSha) {
-    const renames = await readAsLinker(run.state, run.database.orgId, () =>
+    const renames = await asLinker(run.state, run.database.orgId, () =>
       readGitHubRenames({
         owner: run.state.owner,
         repo: run.state.repo,
@@ -2473,7 +2468,7 @@ export async function syncGitHubSource(
       !retryImages &&
       !!state.syncedCommitSha &&
       !state.pendingCommitSha;
-    const head = await readAsLinker(state, database.orgId, () =>
+    const head = await asLinker(state, database.orgId, () =>
       readGitHubBranchHead(
         {
           owner: state.owner,
@@ -2528,7 +2523,7 @@ export async function syncGitHubSource(
       });
     }
     const files = classifyFolder(
-      await readAsLinker(state, database.orgId, () =>
+      await asLinker(state, database.orgId, () =>
         readGitHubFolderTree({
           owner: state.owner,
           repo: state.repo,

@@ -21,6 +21,7 @@ import {
   buildDeepLink,
   buildEmbedStartPath,
   createEmbedSessionTicket,
+  FULL_APP_EMBED_SCOPE,
   getAppProductionUrl,
   getConfiguredAppBasePath,
   getRequestContext,
@@ -621,6 +622,26 @@ function appBaseUrl(app: DispatchMcpAccessibleApp): string {
   return app.url.replace(/\/+$/, "");
 }
 
+// The owner-bound bearer for a cross-app session goes to this endpoint, so it
+// must not travel over plain HTTP beyond the developer's own machine.
+function targetEndpointKeepsCredentialsPrivate(endpoint: string): boolean {
+  try {
+    const url = new URL(endpoint);
+    if (url.protocol === "https:") return true;
+    const host = url.hostname.replace(/^\[|\]$/g, "");
+    return (
+      url.protocol === "http:" &&
+      (host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "::1" ||
+        host.endsWith(".localhost"))
+    );
+    // coercion-ok: an unparsable endpoint is not one to send a bearer to; the caller skips the session and warns.
+  } catch {
+    return false;
+  }
+}
+
 function appHomeBaseUrl(app: DispatchMcpAccessibleApp): string {
   const configured = app.homeUrl?.trim();
   if (configured) {
@@ -1113,11 +1134,11 @@ export async function getGrantedDispatchMcpAppTask(
 
 export async function openGrantedDispatchMcpApp(input: {
   app: string;
-  view?: string;
-  path?: string;
-  params?: Record<string, string | number | boolean>;
-  embed?: boolean;
-  chrome?: "full" | "minimal";
+  view?: string | undefined;
+  path?: string | undefined;
+  params?: Record<string, string | number | boolean> | undefined;
+  embed?: boolean | undefined;
+  chrome?: "full" | "minimal" | undefined;
 }): Promise<{
   app: string;
   view?: string;
@@ -1128,14 +1149,15 @@ export async function openGrantedDispatchMcpApp(input: {
   embedStartUrl?: string;
   embedTargetPath?: string;
   embedExpiresAt?: number;
+  embedUnavailable?: string;
 }> {
   const view = input.view?.trim() ?? "";
   const hasPathInput = input.path != null;
-  const path = safeAppPath(input.path);
+  // Naming only the app opens its home page.
+  const path = safeAppPath(input.path ?? (view ? undefined : "/"));
   if (hasPathInput && !path) {
     throw new Error("path must be a safe app-relative route");
   }
-  if (!view && !path) throw new Error("open_app requires view or path");
   const target = await resolveGrantedDispatchMcpApp(input.app);
   if (path) assertAppCanOpenPath(target, path);
   const relUrl = path
@@ -1149,6 +1171,9 @@ export async function openGrantedDispatchMcpApp(input: {
   let embedSession: Awaited<
     ReturnType<typeof createGrantedDispatchMcpEmbedSession>
   > | null = null;
+  // Says why no session came back, so the caller can tell a plain link it
+  // asked for from a panel that failed to open.
+  let embedUnavailable: string | undefined;
   if (input.embed) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const abort = new AbortController();
@@ -1178,6 +1203,9 @@ export async function openGrantedDispatchMcpApp(input: {
         `[dispatch] Could not pre-mint MCP embed session for ${target.id}:`,
         error,
       );
+      embedUnavailable = (
+        error instanceof Error ? error.message : String(error)
+      ).slice(0, 300);
     } finally {
       clearTimeout(timer);
     }
@@ -1196,6 +1224,7 @@ export async function openGrantedDispatchMcpApp(input: {
     ...(typeof embedSession?.expiresAt === "number"
       ? { embedExpiresAt: embedSession.expiresAt }
       : {}),
+    ...(embedUnavailable ? { embedUnavailable } : {}),
   };
 }
 
@@ -1363,6 +1392,11 @@ async function callTargetCreateEmbedSession(input: {
   firstPartyMcp?: boolean;
   signal?: AbortSignal;
 }): Promise<unknown> {
+  if (!targetEndpointKeepsCredentialsPrivate(input.mcpUrl)) {
+    throw new Error(
+      "Cross-app embed sessions need an HTTPS target endpoint; this one is plain HTTP.",
+    );
+  }
   const serverId = "target";
   const deadline = Date.now() + TARGET_EMBED_SESSION_BUDGET_MS;
   for (let attempt = 1; ; attempt += 1) {
@@ -1381,10 +1415,7 @@ async function callTargetCreateEmbedSession(input: {
           },
         },
       },
-      {
-        connectTimeoutMs: targetMcpConnectTimeout(deadline),
-        ...(input.signal ? { signal: input.signal } : {}),
-      },
+      { connectTimeoutMs: targetMcpConnectTimeout(deadline) },
     );
     let connected = false;
     const stopOnAbort = () => {
@@ -1646,7 +1677,8 @@ async function createDispatchSelfEmbedSession(input: {
     ownerEmail: input.ownerEmail,
     orgId: input.orgId,
     targetPath: input.path,
-    scope: input.chrome ?? null,
+    // A full panel is Dispatch's own UI shown to its owner; minimal stays read-only.
+    scope: input.chrome === "minimal" ? input.chrome : FULL_APP_EMBED_SCOPE,
   });
   const startPath = buildEmbedStartPath(ticket.ticket);
   return {

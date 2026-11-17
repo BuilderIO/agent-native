@@ -1,6 +1,6 @@
-import { decodeFig } from "../../server/lib/fig-file-decoder.js";
-import type { DecodedFig } from "../../server/lib/fig-file-decoder.js";
-import { BROWSER_FIG_LIMITS } from "../../server/lib/fig-file-limits.js";
+import { decodeFig } from "../../shared/fig-file-decoder.js";
+import type { DecodedFig } from "../../shared/fig-file-decoder.js";
+import { BROWSER_FIG_LIMITS } from "../../shared/fig-file-limits.js";
 import {
   assertEmbeddedImageBudget,
   inspectDecodedFig,

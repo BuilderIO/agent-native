@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -42,7 +43,6 @@ import {
   useDashboardNameDraft,
 } from "./DashboardNameDrafts";
 import SqlDashboardPage from "./index";
-import type { SqlPanel } from "./types";
 
 type CardRender = {
   dashboardId: string;

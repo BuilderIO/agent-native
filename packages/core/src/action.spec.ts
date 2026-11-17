@@ -531,6 +531,22 @@ describe("defineAction", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
+  it("carries the signed-in-browser requirement to the route", () => {
+    const run = async () => "ok";
+    expect(
+      defineAction({
+        description: "mint a token",
+        parameters: {},
+        requiresSignedInBrowser: true,
+        run,
+      }).requiresSignedInBrowser,
+    ).toBe(true);
+    expect(
+      defineAction({ description: "read", parameters: {}, run })
+        .requiresSignedInBrowser,
+    ).toBeUndefined();
+  });
+
   it("preserves valid MCP Apps resource metadata", () => {
     const action = defineAction({
       description: "review draft",

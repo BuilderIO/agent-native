@@ -4,15 +4,17 @@ import path from "path";
 export const IMMUTABLE_ASSET_CACHE_CONTROL =
   "public, max-age=31536000, immutable";
 
-// An MCP host's sandboxed panel loads app chunks by credential-free cross-origin
-// fetch, so hashed public assets must be readable from any origin.
+// An MCP App panel mounts the app inside the host's sandbox origin and imports
+// these chunks from there; module imports are CORS requests, so without this
+// header the panel renders nothing. The files are public and fetched without
+// credentials.
 export const IMMUTABLE_ASSET_CORS_ORIGIN = "*";
 
 export const IMMUTABLE_ASSET_CACHE_HEADERS = {
-  "access-control-allow-origin": IMMUTABLE_ASSET_CORS_ORIGIN,
   "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
   "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
   "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+  "access-control-allow-origin": IMMUTABLE_ASSET_CORS_ORIGIN,
 } as const;
 
 export const IMMUTABLE_ASSET_PATH_PATTERN =

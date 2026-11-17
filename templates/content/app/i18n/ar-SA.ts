@@ -1134,6 +1134,12 @@ const editor = {
     agentLevelUpdateFailed: "تعذّر تغيير ما يمكن للوكلاء فعله هنا.",
     agentLevelNote: "يمكن للوكلاء التعليق",
     agentLevelNoteHint: "يمكن للوكلاء التعليق في هذه الصفحة. غيّر ذلك من «شارك».",
+    agentLevelViewDescription:
+      "يمكنهم قراءة هذه الصفحة فقط، دون التعليق أو الاقتراح أو التعديل.",
+    agentLevelViewConfirm: "يمكن للوكلاء الآن قراءة هذه الصفحة فقط.",
+    agentLevelViewNote: "يمكن للوكلاء العرض فقط",
+    agentLevelViewNoteHint:
+      "يمكن للوكلاء عرض هذه الصفحة فقط. غيّر ذلك من «شارك».",
     sendPageToAgent: "إرسال هذه الصفحة إلى وكيل",
     connectAgentOverMcp: "ربط وكيل عبر MCP",
     importingFromNotion: "الاستيراد من الفكرة...",
@@ -1533,6 +1539,9 @@ const exactEnglish = {
       temporaryAgentLink: "رابط مؤقت للوكيل",
       privateLinkCanView: "يمكن للأشخاص المصرح لهم فقط عرض هذا الرابط",
       publicLinkCanView: "يمكن لأي شخص لديه الرابط عرضه",
+      publicSubPagesOne: "هذه الصفحة وصفحتها الفرعية",
+      publicSubPages: "هذه الصفحة و{{count}} من صفحاتها الفرعية",
+      publicSubPagesMore: "هذه الصفحة وأكثر من {{count}} من صفحاتها الفرعية",
       copiedAgentPrompt: "تم نسخ تعليمات الوكيل",
       couldNotCopyAgentPrompt: "تعذر نسخ تعليمات الوكيل",
       agentPrompt:
