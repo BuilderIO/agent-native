@@ -17,7 +17,7 @@ const errors = defineActionErrors(
 
 export default defineAction({
   description:
-    "Discard pending design edits without applying them to source: reset tweak selections to tweakSourceBaseline and clear the exact visual-edit handoff revision owned by publisherId. Read get-visual-edit-pending first when a handoff exists and pass its revision and publisherId.",
+    "Discard pending design edits without applying them to source: reset tweak selections to tweakSourceBaseline and clear the exact visual-edit handoff revision and publisherId. Read get-visual-edit-pending first. The handoff author or design owner can clear it; clearing another publisher's handoff requires owner access.",
   schema: z.object({
     designId: z
       .string()
@@ -53,8 +53,8 @@ export default defineAction({
   mcpTool: true,
   capabilityScopes: ["visual-edit"],
   http: { method: "POST" },
-  run: async ({ designId, revision, publisherId }) => {
-    await assertAccess("design", designId, "editor");
+  run: async ({ designId, revision, publisherId }, ctx) => {
+    const access = await assertAccess("design", designId, "editor");
     if ((revision === undefined) !== (publisherId === undefined)) {
       fail("revision and publisherId must be provided together.", {
         errorCode: "invalid_design_state",
@@ -109,6 +109,7 @@ export default defineAction({
         .select({
           revision: schema.designVisualEditPending.revision,
           publisherId: schema.designVisualEditPending.publisherId,
+          authorEmail: schema.designVisualEditPending.authorEmail,
           status: schema.designVisualEditPending.status,
           pendingEditCount: schema.designVisualEditPending.pendingEditCount,
         })
@@ -119,6 +120,23 @@ export default defineAction({
       const hasHandoff = Boolean(
         pending && (pending.status !== "empty" || pending.pendingEditCount > 0),
       );
+      if (hasHandoff && (revision === undefined || publisherId === undefined)) {
+        fail("Read the current handoff before clearing it.", {
+          errorCode: "invalid_design_state",
+          statusCode: 409,
+        });
+      }
+      if (
+        hasHandoff &&
+        pending &&
+        access.role !== "owner" &&
+        (!ctx?.userEmail || pending.authorEmail !== ctx.userEmail)
+      ) {
+        fail("Only the handoff author or design owner can clear these edits.", {
+          errorCode: "invalid_design_state",
+          statusCode: 403,
+        });
+      }
       if (
         hasHandoff &&
         revision !== undefined &&

@@ -82,6 +82,7 @@ export function useEditorModes({
   editorToolsAndVectors,
   editorLayoutAndStructure,
   editorEditCommands,
+  clearCodingHandoffError,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
@@ -94,6 +95,7 @@ export function useEditorModes({
   editorToolsAndVectors: EditorToolsAndVectors;
   editorLayoutAndStructure: EditorLayoutAndStructure;
   editorEditCommands: EditorEditCommands;
+  clearCodingHandoffError: () => void;
 }) {
   const {
     t,
@@ -162,6 +164,7 @@ export function useEditorModes({
     canEditDesign,
     canCommentDesign,
     design,
+    designAccessRole,
   } = editorGenerationAndAccess;
   const {
     files,
@@ -1268,18 +1271,25 @@ export function useEditorModes({
       pending?.publisherId === pendingVisualEditPublisherIdRef.current &&
       pending?.revision !== null &&
       pending?.revision !== undefined;
+    const canClearOtherPublisher = designAccessRole === "owner";
+    const clearableHandoff =
+      pending?.status !== "empty" &&
+      pending?.revision !== null &&
+      pending?.revision !== undefined &&
+      Boolean(pending?.publisherId) &&
+      (ownsHandoff || canClearOtherPublisher);
     const hasLocalEdits =
       pendingVisualStyleEdits.length > 0 ||
       pendingLiveNonStyleEdits.length > 0 ||
       pendingTweakChanges.length > 0;
-    if (!id || (!hasLocalEdits && !ownsHandoff)) return;
+    if (!id || (!hasLocalEdits && !clearableHandoff)) return;
 
     try {
       await settlePendingTweakSaves();
       const result = await clearEditsMutation.mutateAsync({
         designId: id,
         ...(pending &&
-        ownsHandoff &&
+        clearableHandoff &&
         pending.revision !== null &&
         pending.revision !== undefined &&
         pending.publisherId
@@ -1299,6 +1309,8 @@ export function useEditorModes({
         clearState: clearPendingLiveEditState,
       });
       resetTweakSelectionsToSourceBaseline();
+      clearCodingHandoffError();
+      toast.dismiss("design-visual-edit-pending-publication");
       window.setTimeout(() => handleModeChange("edit"), 50);
       toast.success(t("designEditor.pendingVisualStyles.clearedToast"));
     } catch {
@@ -1306,6 +1318,7 @@ export function useEditorModes({
     }
   }, [
     clearEditsMutation,
+    clearCodingHandoffError,
     clearPendingLiveEditState,
     handleModeChange,
     id,
@@ -1313,6 +1326,7 @@ export function useEditorModes({
     pendingLiveNonStyleEditsRef,
     pendingTweakChanges.length,
     pendingVisualEditPublisherIdRef,
+    designAccessRole,
     pendingVisualStyleEdits,
     pendingVisualStyleEditsRef,
     requestPendingLiveNonStyleRevert,
