@@ -256,9 +256,11 @@ function AgentCallApprovalCard({
     if (delivered) settle(runsBefore);
     else setPhase("continue");
   };
+  // Reopening the page while Continue is being sent keeps Continue disabled,
+  // so the task can't be resumed twice.
   const review = () => {
     window.open(approval.url, "_blank", "noopener,noreferrer");
-    setPhase("continue");
+    setPhase((current) => (current === "sending" ? current : "continue"));
   };
   const reviewLabel = t("agentChat.tool.agentApprovalReview", { agent });
   // Dismissing only closes the card: the approval stays pending in the peer

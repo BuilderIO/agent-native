@@ -198,6 +198,28 @@ describe("AgentKitAgentCallApproval", () => {
     expect(container.textContent).toBe("");
   });
 
+  it("keeps Continue disabled when the page is reopened while it sends", async () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    let deliver: (value: { tabId: string; delivered: boolean }) => void = () =>
+      undefined;
+    sendMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        deliver = resolve;
+      }),
+    );
+    await renderCard(await threadClient([], [waiting("call-1")]));
+    await press("review");
+    await press("continue");
+    expect(action("continue")?.disabled).toBe(true);
+
+    await press("review");
+    expect(action("continue")?.disabled).toBe(true);
+
+    await act(async () => deliver({ tabId: "tab-1", delivered: true }));
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toBe("");
+  });
+
   it("closes on Dismiss without continuing the task", async () => {
     await renderCard(await threadClient());
 
