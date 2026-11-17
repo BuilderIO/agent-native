@@ -102,6 +102,61 @@ describe("saveMonitor keeps what callers cannot see", () => {
     });
   });
 
+  it("does not carry the stored headers or body to a new URL", async () => {
+    await saveMonitor(
+      {
+        id: "monitor-1",
+        name: "Prod",
+        url: "https://other.example.com/health",
+      },
+      ctx,
+    );
+
+    expect(fake.updates[0]).toMatchObject({
+      url: "https://other.example.com/health",
+      requestHeaders: "{}",
+      requestBody: null,
+      slackWebhookUrl: storedRow.slackWebhookUrl,
+      webhookUrl: storedRow.webhookUrl,
+    });
+  });
+
+  it("treats a reformatted URL as a new URL", async () => {
+    await saveMonitor(
+      {
+        id: "monitor-1",
+        name: "Prod",
+        url: `${storedRow.url}/`,
+      },
+      ctx,
+    );
+
+    expect(fake.updates[0]).toMatchObject({
+      requestHeaders: "{}",
+      requestBody: null,
+    });
+  });
+
+  it("uses the headers and body the caller sends with a new URL", async () => {
+    await saveMonitor(
+      {
+        id: "monitor-1",
+        name: "Prod",
+        url: "https://other.example.com/health",
+        requestHeaders: { Authorization: "Bearer new-bearer-fixture" },
+        requestBody: "new-body-fixture",
+      },
+      ctx,
+    );
+
+    expect(fake.updates[0]).toMatchObject({
+      requestHeaders: JSON.stringify({
+        Authorization: "Bearer new-bearer-fixture",
+      }),
+      requestBody: "new-body-fixture",
+    });
+  });
+
   it("clears them when the update says so", async () => {
     await saveMonitor(
       {

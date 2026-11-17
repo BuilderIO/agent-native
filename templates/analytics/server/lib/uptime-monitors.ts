@@ -1516,22 +1516,22 @@ export async function saveMonitor(
   }
   // Callers other than the app UI never see headers, bodies or webhook URLs,
   // so leaving one out of an update keeps the stored value; null or {} clears.
+  // Headers and body are sent to the monitored URL, so they are kept only while
+  // that URL is unchanged: a monitor pointed elsewhere must not carry them along.
   const stored = existing?.monitor;
 
   const name = normalizeName(input.name);
   // A URL saved before credentials were refused stays editable as long as the
   // URL itself is unchanged.
-  const url =
-    stored && input.url.trim() === stored.url
-      ? stored.url
-      : normalizeUrl(input.url);
+  const urlUnchanged = stored !== undefined && input.url.trim() === stored.url;
+  const url = urlUnchanged ? stored.url : normalizeUrl(input.url);
   const method = normalizeMethod(input.method);
   const requestHeaders =
-    stored && input.requestHeaders === undefined
+    urlUnchanged && input.requestHeaders === undefined
       ? stored.requestHeaders
       : normalizeHeaders(input.requestHeaders);
   const requestBody =
-    stored && input.requestBody === undefined
+    urlUnchanged && input.requestBody === undefined
       ? stored.requestBody
       : input.requestBody?.trim()
         ? input.requestBody

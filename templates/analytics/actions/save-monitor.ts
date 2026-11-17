@@ -63,7 +63,7 @@ const statusMatcherSchema = z
 
 export default defineAction({
   description:
-    "Create or update an uptime monitor that pings a URL on a schedule and alerts when it is down, returns the wrong status, is too slow, or its body is missing/contains specific text. Returns the saved monitor and a focused Analytics link. Stored request headers, request body and webhook URLs are never returned (the monitor carries hasAuthHeader and hasRequestBody instead). When updating, omit requestHeaders, requestBody, slackWebhookUrl or webhookUrl to keep the stored value; pass {} or null to clear it.",
+    "Create or update an uptime monitor that pings a URL on a schedule and alerts when it is down, returns the wrong status, is too slow, or its body is missing/contains specific text. Returns the saved monitor and a focused Analytics link. Stored request headers, request body and webhook URLs are never returned (the monitor carries hasAuthHeader and hasRequestBody instead). When updating, omit requestHeaders, requestBody, slackWebhookUrl or webhookUrl to keep the stored value; pass {} or null to clear it. Changing url clears the stored requestHeaders and requestBody unless you pass new ones.",
   schema: z.object({
     id: z.string().optional().describe("Existing monitor id to update."),
     name: z
