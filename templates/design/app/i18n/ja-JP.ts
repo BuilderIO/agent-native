@@ -2374,6 +2374,7 @@ export default {
       repeatRowPickOnCanvas:
         "キャンバス上の行をダブルクリックしてテキストを編集してください",
       eyedropperUnsupported: "このブラウザではスポイトツールを使用できません",
+      claimBoardError: "このボードをアカウントに移動できませんでした",
       saveCopyError: "このデザインのコピーを保存できませんでした",
       auditRunFailed: "デザイン監査を実行できませんでした",
       componentCreated: "Component created",

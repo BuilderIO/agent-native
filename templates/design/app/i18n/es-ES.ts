@@ -2385,6 +2385,7 @@ export default {
         "Haz doble clic en una fila del lienzo para editar su texto",
       eyedropperUnsupported:
         "El cuentagotas no es compatible con este navegador",
+      claimBoardError: "No se pudo mover este tablero a tu cuenta",
       saveCopyError: "No se pudo guardar una copia de este diseño",
       auditRunFailed: "No se pudo ejecutar la auditoria de diseno",
       componentCreated: "Component created",

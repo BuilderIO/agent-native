@@ -2277,6 +2277,7 @@ export default {
       repeatListNotEditable: "无法更新此重复列表",
       repeatRowPickOnCanvas: "在画布上双击某一行以编辑其文本",
       eyedropperUnsupported: "此浏览器不支持取色器",
+      claimBoardError: "无法将此画板移到你的账户",
       saveCopyError: "无法保存此设计的副本",
       auditRunFailed: "无法运行设计审核",
       componentCreated: "Component created",

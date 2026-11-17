@@ -2338,6 +2338,7 @@ export default {
       repeatListNotEditable: "لم يتمكن من تحديث هذه القائمة المتكررة",
       repeatRowPickOnCanvas: "انقر نقرًا مزدوجًا على صف في اللوحة لتعديل نصه",
       eyedropperUnsupported: "أداة القطارة غير مدعومة في هذا المتصفح",
+      claimBoardError: "تعذر نقل هذه اللوحة إلى حسابك",
       saveCopyError: "تعذر حفظ نسخة من هذا التصميم",
       auditRunFailed: "تعذر تشغيل تدقيق التصميم",
       componentCreated: "Component created",

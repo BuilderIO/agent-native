@@ -9,6 +9,7 @@ import {
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { assertVisualEditCapabilityDesign } from "../server/lib/visual-edit-capability.js";
 import {
   isSafeCssTokenValue,
   tweakSelectionsHash,
@@ -80,10 +81,12 @@ export default defineAction({
         "Second accepted base: the persisted selections hash once the caller's own earlier apply-tweaks call, still in flight, lands.",
       ),
   }),
+  capabilityScopes: ["visual-edit"],
   run: async (
     { designId, selections, expectedSelectionsHash, inFlightSelectionsHash },
     context,
   ) => {
+    assertVisualEditCapabilityDesign(designId);
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
 

@@ -98,6 +98,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: () => ({ requestOrigin: "https://design.example.test" }),
   getRequestUserEmail: () => "commenter@example.com",
+  getRequestAuthCapability: () => undefined,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -123,7 +124,12 @@ vi.mock("./visual-edit-browser-request.js", () => ({
   isSameOriginVisualEditBrowserRequest: mocks.isSameOrigin,
 }));
 
-import { publicDesignAccessRole } from "../server/lib/design-data-access.js";
+vi.mock("@agent-native/core/settings", () => ({
+  getSetting: async () => null,
+  putSetting: async () => undefined,
+}));
+
+import { capabilityDesignAccessRole } from "../server/lib/design-data-access.js";
 import acknowledgePendingAction from "./acknowledge-visual-edit-pending.js";
 import getPendingAction from "./get-visual-edit-pending.js";
 import publishPendingAction from "./publish-visual-edit-pending.js";
@@ -641,7 +647,7 @@ describe("visual-edit pending handoff", () => {
   it("upserts a skill-capability handoff without exposing bridge credentials", async () => {
     mocks.isSameOrigin.mockReturnValue(true);
     const authCapability = `capability:visual-edit:design:${encodeURIComponent(design.id)}`;
-    const role = publicDesignAccessRole(design, { authCapability });
+    const role = await capabilityDesignAccessRole(design, { authCapability });
     expect(role).toBe("editor");
     const prompt = "Change the title in Clips at src/Library.tsx:42.";
 
