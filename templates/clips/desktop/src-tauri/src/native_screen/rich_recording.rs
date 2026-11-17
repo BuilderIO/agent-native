@@ -79,6 +79,8 @@ pub(super) struct RecordingClock {
     session_start_bits: Arc<AtomicU64>,
     pause_offset_bits: Arc<AtomicU64>,
     paused: Arc<AtomicBool>,
+    /// The host time Stop was pressed at; nothing after it is kept.
+    stop_host_nanos: Arc<AtomicU64>,
     timebase: (u32, u32),
 }
 
@@ -92,8 +94,19 @@ impl RecordingClock {
             session_start_bits,
             pause_offset_bits,
             paused: Arc::new(AtomicBool::new(false)),
+            stop_host_nanos: Arc::new(AtomicU64::new(u64::MAX)),
             timebase,
         }
+    }
+
+    /// Stop was pressed at `host_nanos`: an event or frame captured after it
+    /// has no recording time, however late its callback runs.
+    pub(super) fn stop_at(&self, host_nanos: u64) {
+        self.stop_host_nanos.fetch_min(host_nanos, Ordering::SeqCst);
+    }
+
+    fn after_stop(&self, host_nanos: u64) -> bool {
+        host_nanos > self.stop_host_nanos.load(Ordering::SeqCst)
     }
 
     #[cfg(test)]
@@ -118,10 +131,15 @@ impl RecordingClock {
         )
     }
 
-    /// Recording milliseconds of an event's `CGEventGetTimestamp`.
+    /// Recording milliseconds of an event's `CGEventGetTimestamp`; `None` for
+    /// one after Stop too.
     pub(super) fn at_event_stamp(&self, stamp: u64) -> Option<f64> {
         let (numer, denom) = self.timebase;
-        self.at_host_nanos(event_host_nanos(stamp, host_ticks(), numer, denom))
+        let nanos = event_host_nanos(stamp, host_ticks(), numer, denom);
+        if self.after_stop(nanos) {
+            return None;
+        }
+        self.at_host_nanos(nanos)
     }
 
     pub(super) fn now_ms(&self) -> Option<f64> {
@@ -133,6 +151,9 @@ impl RecordingClock {
     /// writer retimes its own frames. Negative for a frame captured before
     /// the first one.
     pub(super) fn frame_time(&self, pts_secs: f64) -> FrameTime {
+        if self.after_stop((pts_secs.max(0.0) * 1e9) as u64) {
+            return FrameTime::AfterStop;
+        }
         if self.paused.load(Ordering::SeqCst) {
             return FrameTime::Paused;
         }
@@ -155,6 +176,7 @@ pub(super) enum FrameTime {
     /// The recording has no first frame yet.
     BeforeStart,
     Paused,
+    AfterStop,
     At(f64),
 }
 
@@ -257,21 +279,31 @@ pub(super) struct TrackFinish {
     pub(super) meta: serde_json::Value,
 }
 
-/// Something writing one track file of a rich recording.
-pub(super) trait TrackSource: Send {
+/// Something writing one track file of a rich recording. Shared between the
+/// session and the uploaders, which stop it when its upload ends for good.
+pub(super) trait TrackSource: Send + Sync {
     /// Stops capturing. The source then closes its file on its own and tells
-    /// its uploader with `TrackUploadCtrl::close_source`. Never blocks.
-    fn stop(&mut self);
+    /// its uploader with `TrackUploadCtrl::close_source`. Never blocks, and
+    /// does nothing more the second time.
+    fn stop(&self);
     /// The capture pipeline paused or resumed. Never blocks.
-    fn pause(&mut self) {}
-    fn resume(&mut self) {}
+    fn pause(&self) {}
+    fn resume(&self) {}
     /// Read after the uploader has sent the whole file.
     fn finish(&self, duration_ms: u64) -> TrackFinish;
 }
 
 impl TrackSource for InputCapture {
-    fn stop(&mut self) {
+    fn stop(&self) {
         InputCapture::stop(self);
+    }
+
+    fn pause(&self) {
+        self.mark_break();
+    }
+
+    fn resume(&self) {
+        self.mark_break();
     }
 
     fn finish(&self, duration_ms: u64) -> TrackFinish {
@@ -290,15 +322,15 @@ impl TrackSource for InputCapture {
 }
 
 impl TrackSource for ScreenCapture {
-    fn stop(&mut self) {
+    fn stop(&self) {
         ScreenCapture::stop(self);
     }
 
-    fn pause(&mut self) {
+    fn pause(&self) {
         ScreenCapture::pause(self);
     }
 
-    fn resume(&mut self) {
+    fn resume(&self) {
         ScreenCapture::resume(self);
     }
 
@@ -309,7 +341,7 @@ impl TrackSource for ScreenCapture {
 
 struct RunningTrack {
     id: &'static str,
-    source: Box<dyn TrackSource>,
+    source: Arc<dyn TrackSource>,
     upload: TrackUpload,
 }
 
@@ -402,42 +434,35 @@ pub(super) fn attach_rich_recording(
     }));
     let (session_start_bits, pause_offset_bits) = clock_bits;
     let clock = RecordingClock::new(session_start_bits, pause_offset_bits, host_timebase());
-    let new_ctrl = || {
-        Arc::new(TrackUploadCtrl::new(
-            Arc::clone(&tracks_stopped),
-            Arc::clone(&gate),
-        ))
-    };
 
     // Input first: tracks send their last chunks in this order, small first.
-    let mut tracks = Vec::new();
-    tracks.extend(start_input_track(
+    let started = start_sources(
+        recording_id,
         &folder,
-        &clock,
-        &capture,
-        &target,
-        new_ctrl(),
-    ));
-    tracks.extend(start_screen_track(
-        &folder,
-        &clock,
-        &capture,
-        &target,
-        new_ctrl(),
-    ));
-    if tracks.is_empty() {
-        let _ = std::fs::remove_dir(&folder);
+        vec![
+            input_track_start(&clock, &capture),
+            screen_track_start(&clock, &capture, recording_id),
+        ],
+        || {
+            Arc::new(TrackUploadCtrl::new(
+                Arc::clone(&tracks_stopped),
+                Arc::clone(&gate),
+            ))
+        },
+    );
+    if started.is_empty() {
         return skip("no track could start");
     }
     eprintln!(
         "[rich-tracks] {recording_id}: keeping {} in {}",
-        tracks
+        started
             .iter()
             .map(|track| track.id)
             .collect::<Vec<_>>()
             .join(", "),
         folder.display()
     );
+    let tracks = spawn_uploaders(&target, &folder, started);
     session.rich_recording = Some(RichRecording {
         folder,
         target,
@@ -454,80 +479,203 @@ pub(super) fn attach_rich_recording(
     });
 }
 
-fn start_input_track(
-    folder: &Path,
-    clock: &RecordingClock,
-    capture: &CaptureInfo,
-    target: &Arc<TrackUploadTarget>,
-    ctrl: Arc<TrackUploadCtrl>,
-) -> Option<RunningTrack> {
-    let id = &target.recording_id;
-    let display = capture.display?;
-    if !input_capture_allowed() {
-        eprintln!("[rich-tracks] {id}: no input track: Clips has neither Input Monitoring nor Accessibility access");
-        return None;
-    }
-    let space = display.pixel_space(capture.area_pt.map(|area| (area.x, area.y)));
-    let source = match start_input_capture(folder, clock.clone(), space, Arc::clone(&ctrl)) {
-        Ok(source) => source,
-        Err(error) => {
-            eprintln!("[rich-tracks] {id}: no input track: {error}");
-            return None;
-        }
-    };
-    let upload = spawn_track_uploader(
-        Arc::clone(target),
-        INPUT_TRACK_ID,
-        INPUT_TRACK_CONTENT_TYPE,
-        folder.join(INPUT_TRACK_FILE),
-        ctrl,
-    );
-    Some(RunningTrack {
-        id: INPUT_TRACK_ID,
-        source: Box::new(source),
-        upload,
-    })
+type StartSource =
+    Box<dyn FnOnce(&Path, Arc<TrackUploadCtrl>) -> Result<Arc<dyn TrackSource>, String>>;
+
+/// How to start one track's source writing its file.
+struct TrackStart {
+    id: &'static str,
+    file: &'static str,
+    content_type: &'static str,
+    start: StartSource,
 }
 
-fn start_screen_track(
-    folder: &Path,
+struct StartedSource {
+    id: &'static str,
+    file: PathBuf,
+    content_type: &'static str,
+    source: Arc<dyn TrackSource>,
+    ctrl: Arc<TrackUploadCtrl>,
+}
+
+fn input_track_start(clock: &RecordingClock, capture: &CaptureInfo) -> TrackStart {
+    let clock = clock.clone();
+    let capture = *capture;
+    TrackStart {
+        id: INPUT_TRACK_ID,
+        file: INPUT_TRACK_FILE,
+        content_type: INPUT_TRACK_CONTENT_TYPE,
+        start: Box::new(move |path, ctrl| {
+            let display = capture
+                .display
+                .ok_or_else(|| "the captured display is not known".to_string())?;
+            if !input_capture_allowed() {
+                return Err(
+                    "Clips has neither Input Monitoring nor Accessibility access".to_string(),
+                );
+            }
+            let space = display.pixel_space(capture.area_pt.map(|area| (area.x, area.y)));
+            let source: Arc<dyn TrackSource> =
+                Arc::new(start_input_capture(path, clock, space, ctrl)?);
+            Ok(source)
+        }),
+    }
+}
+
+fn screen_track_start(
     clock: &RecordingClock,
     capture: &CaptureInfo,
-    target: &Arc<TrackUploadTarget>,
-    ctrl: Arc<TrackUploadCtrl>,
-) -> Option<RunningTrack> {
-    let display = capture.display?;
-    let area = screen_area(&display, capture.area_pt);
-    let path = folder.join(SCREEN_TRACK_FILE);
-    let source = match super::start_screen_capture(
-        &path,
-        display.id,
-        area,
-        clock.clone(),
-        Arc::clone(&ctrl),
-        &target.recording_id,
-    ) {
-        Ok(source) => source,
-        Err(error) => {
-            eprintln!(
-                "[rich-tracks] {}: no screen track: {error}",
-                target.recording_id
-            );
-            return None;
-        }
-    };
-    let upload = spawn_track_uploader(
-        Arc::clone(target),
-        SCREEN_TRACK_ID,
-        SCREEN_TRACK_CONTENT_TYPE,
-        path,
-        ctrl,
-    );
-    Some(RunningTrack {
+    recording_id: &str,
+) -> TrackStart {
+    let clock = clock.clone();
+    let capture = *capture;
+    let recording_id = recording_id.to_string();
+    TrackStart {
         id: SCREEN_TRACK_ID,
-        source: Box::new(source),
-        upload,
-    })
+        file: SCREEN_TRACK_FILE,
+        content_type: SCREEN_TRACK_CONTENT_TYPE,
+        start: Box::new(move |path, ctrl| {
+            let display = capture
+                .display
+                .ok_or_else(|| "the captured display is not known".to_string())?;
+            let area = screen_area(&display, capture.area_pt);
+            let source: Arc<dyn TrackSource> = Arc::new(super::start_screen_capture(
+                path,
+                display.id,
+                area,
+                clock,
+                ctrl,
+                &recording_id,
+            )?);
+            Ok(source)
+        }),
+    }
+}
+
+/// Starts each track's source in `folder`, in order. A source that fails to
+/// start leaves no file behind, and when none starts the folder goes too.
+fn start_sources(
+    recording_id: &str,
+    folder: &Path,
+    starts: Vec<TrackStart>,
+    new_ctrl: impl Fn() -> Arc<TrackUploadCtrl>,
+) -> Vec<StartedSource> {
+    let mut started = Vec::new();
+    for start in starts {
+        let file = folder.join(start.file);
+        let ctrl = new_ctrl();
+        match (start.start)(&file, Arc::clone(&ctrl)) {
+            Ok(source) => started.push(StartedSource {
+                id: start.id,
+                file,
+                content_type: start.content_type,
+                source,
+                ctrl,
+            }),
+            Err(reason) => {
+                eprintln!(
+                    "[rich-tracks] {recording_id}: no {} track: {reason}",
+                    start.id
+                );
+                remove_path(recording_id, &file);
+            }
+        }
+    }
+    if started.is_empty() {
+        remove_path(recording_id, folder);
+    }
+    started
+}
+
+/// Starts each source's uploader. Every uploader can stop capture when its
+/// upload ends for good, without the session.
+fn spawn_uploaders(
+    target: &Arc<TrackUploadTarget>,
+    folder: &Path,
+    started: Vec<StartedSource>,
+) -> Vec<RunningTrack> {
+    let teardown = Arc::new(TrackTeardown {
+        recording_id: target.recording_id.clone(),
+        folder: folder.to_path_buf(),
+        tracks: started
+            .iter()
+            .map(|track| TeardownTrack {
+                file: track.file.clone(),
+                source: Arc::clone(&track.source),
+                ctrl: Arc::clone(&track.ctrl),
+            })
+            .collect(),
+    });
+    started
+        .into_iter()
+        .enumerate()
+        .map(|(index, track)| {
+            let teardown = Arc::clone(&teardown);
+            let upload = spawn_track_uploader(
+                Arc::clone(target),
+                track.id,
+                track.content_type,
+                track.file,
+                track.ctrl,
+                move |outcome| teardown.upload_ended(index, outcome),
+            );
+            RunningTrack {
+                id: track.id,
+                source: track.source,
+                upload,
+            }
+        })
+        .collect()
+}
+
+struct TeardownTrack {
+    file: PathBuf,
+    source: Arc<dyn TrackSource>,
+    ctrl: Arc<TrackUploadCtrl>,
+}
+
+/// What an upload that ends for good needs to stop capture and clear the disk
+/// while the recording goes on: nothing it sends will be read again.
+struct TrackTeardown {
+    recording_id: String,
+    folder: PathBuf,
+    tracks: Vec<TeardownTrack>,
+}
+
+impl TrackTeardown {
+    /// Track `index`'s upload ended with `outcome`. Once the server stops the
+    /// recording's tracks, every source stops and the folder goes; a track
+    /// whose upload failed stops its own source and its file goes. Never
+    /// blocks: files go once their sources have closed them.
+    fn upload_ended(&self, index: usize, outcome: &TrackUploadOutcome) {
+        match outcome {
+            TrackUploadOutcome::Stopped(_) => {
+                for track in &self.tracks {
+                    track.source.stop();
+                }
+                let ctrls = self
+                    .tracks
+                    .iter()
+                    .map(|track| Arc::clone(&track.ctrl))
+                    .collect();
+                remove_once_closed(&self.recording_id, self.folder.clone(), ctrls);
+            }
+            TrackUploadOutcome::Failed(_) => {
+                let Some(track) = self.tracks.get(index) else {
+                    return;
+                };
+                track.source.stop();
+                remove_once_closed(
+                    &self.recording_id,
+                    track.file.clone(),
+                    vec![Arc::clone(&track.ctrl)],
+                );
+            }
+            TrackUploadOutcome::Sent { .. }
+            | TrackUploadOutcome::Empty
+            | TrackUploadOutcome::Cancelled => {}
+        }
+    }
 }
 
 impl RichRecording {
@@ -538,7 +686,7 @@ impl RichRecording {
         }
         self.paused_at_ms = Some(self.clock.now_ms().unwrap_or(0.0));
         self.clock.paused.store(true, Ordering::SeqCst);
-        for track in &mut self.tracks {
+        for track in &self.tracks {
             track.source.pause();
         }
     }
@@ -553,19 +701,25 @@ impl RichRecording {
             wall_ms: paused_for.as_millis() as u64,
         });
         self.clock.paused.store(false, Ordering::SeqCst);
-        for track in &mut self.tracks {
+        for track in &self.tracks {
             track.source.resume();
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn is_paused(&self) -> bool {
+        self.paused_at_ms.is_some() && self.clock.paused.load(Ordering::SeqCst)
     }
 
     /// The recording stopped: stop capturing input and the screen right away,
     /// and hold every track's upload until the recording's own is finalized.
     pub(super) fn stop_capture(&mut self) {
-        if self.stopped_at.is_none() {
-            self.stopped_at = Some((Utc::now(), self.clock.host_now_nanos()));
-        }
+        let (_, stopped_host_nanos) = *self
+            .stopped_at
+            .get_or_insert_with(|| (Utc::now(), self.clock.host_now_nanos()));
+        self.clock.stop_at(stopped_host_nanos);
         self.gate.stop_recording();
-        for track in &mut self.tracks {
+        for track in &self.tracks {
             track.source.stop();
         }
     }
@@ -581,7 +735,18 @@ impl RichRecording {
             .iter()
             .map(|track| Arc::clone(&track.upload.ctrl))
             .collect();
-        remove_tracks_folder(&self.target.recording_id, self.folder.clone(), ctrls);
+        remove_once_closed(&self.target.recording_id, self.folder.clone(), ctrls);
+    }
+
+    /// The app is quitting, and nothing gets to run long enough for the
+    /// sources to close their files: stop everything and delete the folder
+    /// now. A file still open goes with it once it closes.
+    pub(super) fn quit(mut self) {
+        self.stop_capture();
+        for track in std::mem::take(&mut self.tracks) {
+            track.upload.ctrl.cancel();
+        }
+        remove_path(&self.target.recording_id, &self.folder);
     }
 
     /// The recording carries on without tracks.
@@ -642,15 +807,15 @@ impl Drop for RichRecording {
     }
 }
 
-/// Deletes a tracks folder once every source has closed its file, so nothing
-/// writes into it afterwards, or after `FOLDER_REMOVAL_WAIT` regardless. Right
-/// away when they already have.
-fn remove_tracks_folder(recording_id: &str, folder: PathBuf, sources: Vec<Arc<TrackUploadCtrl>>) {
+/// Deletes `path`, a tracks folder or one track's file, once every source
+/// writing in it has closed its file, so nothing writes there afterwards, or
+/// after `FOLDER_REMOVAL_WAIT` regardless. Right away when they already have.
+fn remove_once_closed(recording_id: &str, path: PathBuf, sources: Vec<Arc<TrackUploadCtrl>>) {
     if sources.iter().all(|ctrl| ctrl.source_closed()) {
-        return remove_folder(recording_id, &folder);
+        return remove_path(recording_id, &path);
     }
     let id = recording_id.to_string();
-    let in_thread = folder.clone();
+    let in_thread = path.clone();
     let spawned = std::thread::Builder::new()
         .name("clips-rich-tracks-cleanup".into())
         .spawn(move || {
@@ -658,23 +823,94 @@ fn remove_tracks_folder(recording_id: &str, folder: PathBuf, sources: Vec<Arc<Tr
             while Instant::now() < deadline && sources.iter().any(|ctrl| !ctrl.source_closed()) {
                 std::thread::sleep(Duration::from_millis(100));
             }
-            remove_folder(&id, &in_thread);
+            remove_path(&id, &in_thread);
         });
     if let Err(error) = spawned {
-        eprintln!("[rich-tracks] {recording_id}: removing the tracks folder now ({error})");
-        remove_folder(recording_id, &folder);
+        eprintln!(
+            "[rich-tracks] {recording_id}: removing {} now ({error})",
+            path.display()
+        );
+        remove_path(recording_id, &path);
     }
 }
 
-fn remove_folder(recording_id: &str, folder: &Path) {
-    match std::fs::remove_dir_all(folder) {
-        Ok(()) => eprintln!("[rich-tracks] {recording_id}: removed {}", folder.display()),
+fn remove_path(recording_id: &str, path: &Path) {
+    let removed = match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => std::fs::remove_dir_all(path),
+        Ok(_) => std::fs::remove_file(path),
+        Err(error) => Err(error),
+    };
+    match removed {
+        Ok(()) => eprintln!("[rich-tracks] {recording_id}: removed {}", path.display()),
         Err(error) if error.kind() == ErrorKind::NotFound => {}
         Err(error) => eprintln!(
             "[rich-tracks] {recording_id}: {} could not be removed: {error}",
-            folder.display()
+            path.display()
         ),
     }
+}
+
+/// Whether `name` is a tracks folder this app made for a recording of another
+/// run: `<pending recording stem>.tracks`, the stem as
+/// `pending_recording_file_stem` names it, `clips-pending-recording-<id>-<pid>`.
+fn is_leftover_tracks_folder_name(name: &str, current_pid: u32) -> bool {
+    let Some(stem) = name.strip_suffix(".tracks") else {
+        return false;
+    };
+    let Some(id_and_pid) = stem.strip_prefix("clips-pending-recording-") else {
+        return false;
+    };
+    let Some((id, pid)) = id_and_pid.rsplit_once('-') else {
+        return false;
+    };
+    let id_is_safe = !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    let pid_is_other = !pid.is_empty()
+        && pid.bytes().all(|byte| byte.is_ascii_digit())
+        && pid.parse::<u32>().is_ok_and(|pid| pid != current_pid);
+    id_is_safe && pid_is_other
+}
+
+/// Deletes the tracks folders an earlier run left in `recordings_dir`: a quit
+/// that skipped cleanup, or a crash. Nothing sends a track after its run ends.
+/// Returns how many it deleted.
+pub(super) fn remove_leftover_tracks_folders(recordings_dir: &Path, current_pid: u32) -> usize {
+    let entries = match std::fs::read_dir(recordings_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == ErrorKind::NotFound => return 0,
+        Err(error) => {
+            eprintln!(
+                "[rich-tracks] leftover tracks folders could not be listed in {}: {error}",
+                recordings_dir.display()
+            );
+            return 0;
+        }
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        // Never a symlink: only a folder this app made.
+        let is_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
+        if !is_dir || !is_leftover_tracks_folder_name(name, current_pid) {
+            continue;
+        }
+        match std::fs::remove_dir_all(entry.path()) {
+            Ok(()) => removed += 1,
+            Err(error) => eprintln!(
+                "[rich-tracks] leftover {} could not be removed: {error}",
+                entry.path().display()
+            ),
+        }
+    }
+    if removed > 0 {
+        eprintln!("[rich-tracks] removed {removed} leftover tracks folder(s)");
+    }
+    removed
 }
 
 /// The wall time of the first frame: the wall time at stop, less the host
@@ -816,7 +1052,7 @@ async fn finish_tracks<Post, Posted>(
         .map(|track| Arc::clone(&track.upload.ctrl))
         .collect();
     finalize_tracks(&mut finish, tracks, post).await;
-    remove_tracks_folder(&finish.target.recording_id, finish.folder.clone(), ctrls);
+    remove_once_closed(&finish.target.recording_id, finish.folder.clone(), ctrls);
 }
 
 async fn finalize_tracks<Post, Posted>(
@@ -1099,15 +1335,49 @@ mod tests {
         assert_eq!(clock.frame_time(110.0), FrameTime::At(4.0));
     }
 
-    /// A source that closes its file as soon as it is stopped.
-    struct ClosingSource {
+    /// A source that records what it is told and, unless `holds_file`,
+    /// closes its file as soon as it is stopped.
+    struct TestSource {
         ctrl: Arc<TrackUploadCtrl>,
         finish: TrackFinish,
+        holds_file: bool,
+        calls: Arc<Mutex<Vec<&'static str>>>,
     }
 
-    impl TrackSource for ClosingSource {
-        fn stop(&mut self) {
-            self.ctrl.close_source();
+    impl TestSource {
+        fn new(ctrl: &Arc<TrackUploadCtrl>) -> Self {
+            Self {
+                ctrl: Arc::clone(ctrl),
+                finish: TrackFinish {
+                    complete: true,
+                    start_ms: 140,
+                    end_ms: 9_000,
+                    meta: serde_json::json!({ "cursor": "hidden" }),
+                },
+                holds_file: false,
+                calls: Arc::default(),
+            }
+        }
+
+        fn calls(&self) -> Arc<Mutex<Vec<&'static str>>> {
+            Arc::clone(&self.calls)
+        }
+    }
+
+    impl TrackSource for TestSource {
+        fn stop(&self) {
+            self.calls.lock().unwrap().push("stop");
+            if !self.holds_file {
+                self.ctrl.close_source();
+            }
+        }
+
+        fn pause(&self) {
+            self.calls.lock().unwrap().push("pause");
+        }
+
+        fn resume(&self) {
+            self.calls.lock().unwrap().push("resume");
         }
 
         fn finish(&self, _duration_ms: u64) -> TrackFinish {
@@ -1150,25 +1420,30 @@ mod tests {
             }
         }
 
-        /// A track whose upload ends with `outcome` once it is asked.
-        fn track(&self, id: &'static str, outcome: TrackUploadOutcome) -> RunningTrack {
-            let ctrl = Arc::new(TrackUploadCtrl::new(
+        fn ctrl(&self) -> Arc<TrackUploadCtrl> {
+            Arc::new(TrackUploadCtrl::new(
                 Arc::clone(&self.tracks_stopped),
                 Arc::clone(&self.gate),
-            ));
+            ))
+        }
+
+        /// A track whose upload ends with `outcome` once it is asked.
+        fn track(&self, id: &'static str, outcome: TrackUploadOutcome) -> RunningTrack {
+            self.track_with(id, outcome, TestSource::new(&self.ctrl()))
+        }
+
+        fn track_with(
+            &self,
+            id: &'static str,
+            outcome: TrackUploadOutcome,
+            source: TestSource,
+        ) -> RunningTrack {
+            let ctrl = Arc::clone(&source.ctrl);
             let (tx, result_rx) = tokio::sync::oneshot::channel();
             tx.send(outcome).unwrap();
             RunningTrack {
                 id,
-                source: Box::new(ClosingSource {
-                    ctrl: Arc::clone(&ctrl),
-                    finish: TrackFinish {
-                        complete: true,
-                        start_ms: 140,
-                        end_ms: 9_000,
-                        meta: serde_json::json!({ "cursor": "hidden" }),
-                    },
-                }),
+                source: Arc::new(source),
                 upload: TrackUpload { ctrl, result_rx },
             }
         }
@@ -1321,5 +1596,255 @@ mod tests {
         );
         assert_eq!(unsent.finish(vec![track], Ok(())), None);
         assert!(!unsent.folder.exists());
+    }
+
+    #[test]
+    fn nothing_captured_after_stop_has_a_recording_time() {
+        let start = Arc::new(AtomicU64::new(100.0_f64.to_bits()));
+        let offset = Arc::new(AtomicU64::new(0.0_f64.to_bits()));
+        let clock = RecordingClock::new(start, offset, (1, 1));
+        let secs = |s: f64| (s * 1e9) as u64;
+        clock.stop_at(secs(105.0));
+        // An event from before Stop whose callback runs late is still kept.
+        assert_eq!(clock.at_event_stamp(secs(104.5)), Some(4500.0));
+        assert_eq!(clock.at_event_stamp(secs(105.0) + 1), None);
+        assert_eq!(clock.frame_time(104.0), FrameTime::At(4.0));
+        assert_eq!(clock.frame_time(105.25), FrameTime::AfterStop);
+        // The boundary only ever moves earlier.
+        clock.stop_at(secs(110.0));
+        assert_eq!(clock.at_event_stamp(secs(106.0)), None);
+
+        // `stop_capture` freezes it at the moment it records for the stop.
+        let fixture = Fixture::new("stop-boundary");
+        let mut recording = fixture.recording();
+        recording.clock = RecordingClock::new(
+            Arc::new(AtomicU64::new(0.0_f64.to_bits())),
+            Arc::new(AtomicU64::new(0.0_f64.to_bits())),
+            (1, 1),
+        );
+        recording.stop_capture();
+        let (_, stopped) = recording.stopped_at.unwrap();
+        assert!(recording
+            .clock
+            .at_event_stamp(stopped - 1_000_000)
+            .is_some());
+        assert_eq!(recording.clock.at_event_stamp(stopped + 1), None);
+        recording.discard();
+    }
+
+    #[test]
+    fn a_soft_pause_pauses_the_tracks_even_when_the_rest_of_it_fails() {
+        let mut session = super::super::detached_discard_tests::hardware_free_session(
+            PathBuf::from("paused.mp4"),
+            Vec::new(),
+        );
+        let fixture = Fixture::new("pause-fails");
+        let ctrl = fixture.ctrl();
+        let source = TestSource::new(&ctrl);
+        let calls = source.calls();
+        let mut recording = fixture.recording();
+        recording.tracks =
+            vec![fixture.track_with(SCREEN_TRACK_ID, TrackUploadOutcome::Cancelled, source)];
+        session.rich_recording = Some(recording);
+        let result = super::super::finish_soft_pause(&mut session, || {
+            Err("the camera bubble could not be hidden".into())
+        });
+        assert!(result.is_err());
+        assert!(session.pause_failure.is_some());
+        assert!(session.rich_recording.as_ref().unwrap().is_paused());
+        assert_eq!(*calls.lock().unwrap(), ["pause"]);
+
+        let mut session = super::super::detached_discard_tests::hardware_free_session(
+            PathBuf::from("paused.mp4"),
+            Vec::new(),
+        );
+        session.rich_recording = Some(Fixture::new("pause-ok").recording());
+        assert!(super::super::finish_soft_pause(&mut session, || Ok(())).is_ok());
+        assert!(session.paused_at.is_some());
+        assert!(session.rich_recording.as_ref().unwrap().is_paused());
+    }
+
+    /// Two running sources, input then screen, each with its file written.
+    fn two_track_teardown(
+        fixture: &Fixture,
+    ) -> (TrackTeardown, [Arc<Mutex<Vec<&'static str>>>; 2]) {
+        std::fs::write(fixture.folder.join(INPUT_TRACK_FILE), b"lines").unwrap();
+        let input = TestSource::new(&fixture.ctrl());
+        let screen = TestSource::new(&fixture.ctrl());
+        let calls = [input.calls(), screen.calls()];
+        let track = |file: &str, source: TestSource| TeardownTrack {
+            file: fixture.folder.join(file),
+            ctrl: Arc::clone(&source.ctrl),
+            source: Arc::new(source),
+        };
+        let teardown = TrackTeardown {
+            recording_id: fixture.target.recording_id.clone(),
+            folder: fixture.folder.clone(),
+            tracks: vec![
+                track(INPUT_TRACK_FILE, input),
+                track(SCREEN_TRACK_FILE, screen),
+            ],
+        };
+        (teardown, calls)
+    }
+
+    #[test]
+    fn an_upload_that_ends_for_good_stops_capture_and_clears_its_files() {
+        // The server stops the recording's tracks: both sources stop and the
+        // folder goes while the recording carries on.
+        let stopped = Fixture::new("teardown-stopped");
+        let (teardown, [input, screen]) = two_track_teardown(&stopped);
+        teardown.upload_ended(1, &TrackUploadOutcome::Stopped("413".into()));
+        assert_eq!(*input.lock().unwrap(), ["stop"]);
+        assert_eq!(*screen.lock().unwrap(), ["stop"]);
+        assert!(!stopped.folder.exists());
+
+        // One upload fails for good: its source stops and its file goes; the
+        // other track keeps capturing into the folder.
+        let failed = Fixture::new("teardown-failed");
+        let (teardown, [input, screen]) = two_track_teardown(&failed);
+        teardown.upload_ended(1, &TrackUploadOutcome::Failed("offline".into()));
+        assert!(input.lock().unwrap().is_empty());
+        assert_eq!(*screen.lock().unwrap(), ["stop"]);
+        assert!(!failed.folder.join(SCREEN_TRACK_FILE).exists());
+        assert!(failed.folder.join(INPUT_TRACK_FILE).exists());
+
+        // Outcomes that leave nothing to clear touch nothing.
+        for outcome in [
+            TrackUploadOutcome::Sent {
+                bytes: 9,
+                chunks: 1,
+            },
+            TrackUploadOutcome::Empty,
+            TrackUploadOutcome::Cancelled,
+        ] {
+            teardown.upload_ended(0, &outcome);
+        }
+        assert!(input.lock().unwrap().is_empty());
+        assert!(failed.folder.join(INPUT_TRACK_FILE).exists());
+        let _ = std::fs::remove_dir_all(&failed.folder);
+    }
+
+    #[test]
+    fn quitting_deletes_the_folder_without_waiting_for_files_to_close() {
+        let fixture = Fixture::new("quit");
+        let mut source = TestSource::new(&fixture.ctrl());
+        source.holds_file = true;
+        let calls = source.calls();
+        let ctrl = Arc::clone(&source.ctrl);
+        let mut recording = fixture.recording();
+        recording.tracks =
+            vec![fixture.track_with(SCREEN_TRACK_ID, TrackUploadOutcome::Cancelled, source)];
+        recording.quit();
+        assert!(!fixture.folder.exists());
+        assert_eq!(*calls.lock().unwrap(), ["stop"]);
+        assert!(!ctrl.source_closed());
+    }
+
+    #[test]
+    fn startup_deletes_only_tracks_folders_earlier_runs_of_the_app_made() {
+        let dir = std::env::temp_dir().join(format!(
+            "clips-rich-tracks-sweep-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let outside = dir.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("keep"), b"x").unwrap();
+        let this_run = 4242;
+
+        // What a recording of another run made, with its files inside.
+        let recording = dir.join(format!(
+            "{}.mp4",
+            pending_recording_file_stem("rec_1-a", 77)
+        ));
+        let leftover = tracks_folder_for(&recording);
+        std::fs::create_dir_all(&leftover).unwrap();
+        std::fs::write(leftover.join(SCREEN_TRACK_FILE), b"fragments").unwrap();
+        std::fs::write(&recording, b"video").unwrap();
+
+        let kept_dirs = [
+            // This run's own recording.
+            format!("{}.tracks", pending_recording_file_stem("rec", this_run)),
+            "clips-pending-recording--77.tracks".to_string(),
+            "clips-pending-recording-rec-7x.tracks".to_string(),
+            "clips-pending-recording-rec-77-seg2.tracks".to_string(),
+            "clips-pending-recording-rec.77.tracks".to_string(),
+            "other-recording-77.tracks".to_string(),
+            "clips-pending-recording-rec-77.track".to_string(),
+        ];
+        for name in &kept_dirs {
+            std::fs::create_dir_all(dir.join(name)).unwrap();
+        }
+        // A file with the name, and a symlink to a folder elsewhere.
+        std::fs::write(dir.join("clips-pending-recording-rec-78.tracks"), b"x").unwrap();
+        std::os::unix::fs::symlink(&outside, dir.join("clips-pending-recording-rec-79.tracks"))
+            .unwrap();
+
+        assert_eq!(remove_leftover_tracks_folders(&dir, this_run), 1);
+        assert!(!leftover.exists());
+        assert!(recording.exists());
+        for name in &kept_dirs {
+            assert!(dir.join(name).is_dir(), "{name}");
+        }
+        assert!(dir.join("clips-pending-recording-rec-78.tracks").is_file());
+        assert!(outside.join("keep").exists());
+        // A folder that isn't there yet is nothing to do.
+        assert_eq!(
+            remove_leftover_tracks_folders(&dir.join("missing"), this_run),
+            0
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_source_that_fails_to_start_leaves_no_file_and_no_tracks_leave_no_folder() {
+        let starter = |id: &'static str, file: &'static str, fails: bool| TrackStart {
+            id,
+            file,
+            content_type: "application/octet-stream",
+            start: Box::new(move |path, ctrl| {
+                // Each writes its file before it can fail, as the screen
+                // writer does.
+                std::fs::write(path, b"partial").map_err(|err| err.to_string())?;
+                if fails {
+                    return Err("its setup failed".to_string());
+                }
+                let source: Arc<dyn TrackSource> = Arc::new(TestSource::new(&ctrl));
+                Ok(source)
+            }),
+        };
+
+        let one_fails = Fixture::new("setup-one-fails");
+        let started = start_sources(
+            "rec-setup",
+            &one_fails.folder,
+            vec![
+                starter(INPUT_TRACK_ID, INPUT_TRACK_FILE, false),
+                starter(SCREEN_TRACK_ID, SCREEN_TRACK_FILE, true),
+            ],
+            || one_fails.ctrl(),
+        );
+        assert_eq!(
+            started.iter().map(|track| track.id).collect::<Vec<_>>(),
+            [INPUT_TRACK_ID]
+        );
+        assert!(one_fails.folder.join(INPUT_TRACK_FILE).exists());
+        assert!(!one_fails.folder.join(SCREEN_TRACK_FILE).exists());
+        let _ = std::fs::remove_dir_all(&one_fails.folder);
+
+        let none_start = Fixture::new("setup-none-start");
+        let started = start_sources(
+            "rec-setup",
+            &none_start.folder,
+            vec![
+                starter(INPUT_TRACK_ID, INPUT_TRACK_FILE, true),
+                starter(SCREEN_TRACK_ID, SCREEN_TRACK_FILE, true),
+            ],
+            || none_start.ctrl(),
+        );
+        assert!(started.is_empty());
+        assert!(!none_start.folder.exists());
     }
 }

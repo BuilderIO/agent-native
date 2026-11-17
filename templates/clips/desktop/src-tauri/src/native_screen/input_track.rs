@@ -14,7 +14,9 @@
 //! per-second `typing` count. Option alone doesn't make a shortcut: Option with
 //! a letter or digit types a character on macOS (é, ˚). Option with a named key
 //! is kept like any named key, with `alt` in its `mods`. While secure input is
-//! on, no keys are kept.
+//! on, no keys are kept. A kept key's release repeats what its press said, and
+//! a key held across a pause, or any stretch the tap may have missed, is
+//! forgotten: its release then could be a typed key's.
 
 use std::io::Write;
 
@@ -227,22 +229,41 @@ fn typing_line(t: f64, presses: u32) -> String {
 pub(super) enum KeyDecision {
     Drop,
     Typing,
-    /// Kept. `named` is the key's name when it is a named key; a shortcut's
-    /// label comes from the event's character instead.
+    /// Kept, with the `key` decided when the key went down.
     Keep {
         code: &'static str,
-        named: Option<&'static str>,
+        key: String,
     },
 }
 
-/// The privacy filter for keys. Runs in the event tap's callback, before any
-/// character is read from the event, so a typed character never leaves it.
+struct KeptKey {
+    keycode: u16,
+    code: &'static str,
+    key: String,
+}
+
+/// The privacy filter for keys. Runs in the event tap's callback; the only
+/// character it reads is a shortcut's, at its press, so a typed character
+/// never leaves it.
 #[derive(Default)]
 pub(super) struct KeyPrivacy {
-    kept_down: Vec<u16>,
+    kept_down: Vec<KeptKey>,
+    breaks_seen: u64,
 }
 
 impl KeyPrivacy {
+    /// `breaks` counts the stretches the tap may have missed events in. A key
+    /// released during one was never seen to go up, so a release after it
+    /// could be a typed key's: no key held from before a break is kept.
+    pub(super) fn sync_breaks(&mut self, breaks: u64) {
+        if breaks != self.breaks_seen {
+            self.breaks_seen = breaks;
+            self.kept_down.clear();
+        }
+    }
+
+    /// `chars` reads the event's character. It is called only for a shortcut
+    /// press, never for typing or a release.
     pub(super) fn classify(
         &mut self,
         keycode: u16,
@@ -250,37 +271,47 @@ impl KeyPrivacy {
         autorepeat: bool,
         mods: Modifiers,
         secure_input: bool,
+        chars: impl FnOnce() -> Option<String>,
     ) -> KeyDecision {
         if secure_input {
             self.kept_down.clear();
             return KeyDecision::Drop;
         }
+        let held = self
+            .kept_down
+            .iter()
+            .position(|kept| kept.keycode == keycode);
         if !down {
             // A key's release is kept only when its press was, whatever the
-            // modifiers are by then.
-            let Some(at) = self.kept_down.iter().position(|code| *code == keycode) else {
+            // modifiers are by then, and says what the press said.
+            let Some(at) = held else {
                 return KeyDecision::Drop;
             };
-            self.kept_down.swap_remove(at);
+            let kept = self.kept_down.swap_remove(at);
             return KeyDecision::Keep {
-                code: key_code_name(keycode).unwrap_or("Unidentified"),
-                named: named_key(keycode),
+                code: kept.code,
+                key: kept.key,
             };
         }
         if autorepeat {
             return KeyDecision::Drop;
         }
-        let named = named_key(keycode);
-        if named.is_none() && !mods.makes_shortcut() {
-            return KeyDecision::Typing;
+        // A new press of a key still held here means its release was missed.
+        if let Some(at) = held {
+            self.kept_down.swap_remove(at);
         }
-        if !self.kept_down.contains(&keycode) {
-            self.kept_down.push(keycode);
-        }
-        KeyDecision::Keep {
-            code: key_code_name(keycode).unwrap_or("Unidentified"),
-            named,
-        }
+        let code = key_code_name(keycode).unwrap_or("Unidentified");
+        let key = match named_key(keycode) {
+            Some(named) => named.to_string(),
+            None if mods.makes_shortcut() => shortcut_key_label(chars().as_deref(), code),
+            None => return KeyDecision::Typing,
+        };
+        self.kept_down.push(KeptKey {
+            keycode,
+            code,
+            key: key.clone(),
+        });
+        KeyDecision::Keep { code, key }
     }
 }
 
@@ -662,10 +693,9 @@ mod capture {
 
     use std::fs::OpenOptions;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
     use std::sync::{Arc, Mutex};
-    use std::thread::JoinHandle;
     use std::time::{Duration, Instant};
 
     use core_foundation::runloop::{kCFRunLoopCommonModes, kCFRunLoopDefaultMode, CFRunLoop};
@@ -679,6 +709,7 @@ mod capture {
 
     const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
     const TAP_POLL: Duration = Duration::from_millis(250);
+    const SECURE_INPUT_POLL: Duration = Duration::from_millis(100);
     /// Events waiting for the writer. A full queue drops events and marks the
     /// track incomplete rather than ever holding up the tap.
     const QUEUE_DEPTH: usize = 8192;
@@ -713,9 +744,6 @@ mod capture {
     /// What the input track ended up as, read once its writer has closed.
     #[derive(Clone, Debug, Default)]
     pub(in super::super) struct InputCaptureReport {
-        pub(in super::super) bytes: u64,
-        pub(in super::super) lines: u64,
-        pub(in super::super) last_ms: Option<f64>,
         /// Events were lost: the tap was switched off for a while, or the
         /// queue to the writer overflowed.
         pub(in super::super) gaps: bool,
@@ -724,20 +752,59 @@ mod capture {
         pub(in super::super) closed: bool,
     }
 
+    /// Shared by the tap thread, its callback and `InputCapture`.
+    #[derive(Default)]
+    struct TapShared {
+        stop: AtomicBool,
+        /// Bumped at each stretch the tap may have missed events in: a pause
+        /// or resume, the tap switched off, a full queue, secure input.
+        breaks: AtomicU64,
+        /// Events were lost, so the track is incomplete.
+        lost: AtomicBool,
+        reenable: AtomicBool,
+        runloop: Mutex<Option<CFRunLoop>>,
+    }
+
+    impl TapShared {
+        fn mark_break(&self) {
+            self.breaks.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn mark_lost(&self) {
+            self.lost.store(true, Ordering::SeqCst);
+            self.mark_break();
+        }
+
+        /// Stops the tap thread: its run loop is woken so it exits now rather
+        /// than at its next poll.
+        fn stop(&self) {
+            self.stop.store(true, Ordering::SeqCst);
+            if let Some(runloop) = self
+                .runloop
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .as_ref()
+            {
+                runloop.stop();
+            }
+        }
+    }
+
     pub(in super::super) struct InputCapture {
-        stop: Arc<AtomicBool>,
+        tap: Arc<TapShared>,
         report: Arc<Mutex<InputCaptureReport>>,
-        tap_thread: Option<JoinHandle<()>>,
     }
 
     impl InputCapture {
         /// Stops the tap. The writer then writes what is left, closes the file
         /// and tells the uploader to send the rest; nothing here waits on it.
-        pub(in super::super) fn stop(&mut self) {
-            self.stop.store(true, Ordering::SeqCst);
-            // The tap thread notices within one poll; never joined here, so a
-            // stuck run loop can't hold up the recording's stop.
-            drop(self.tap_thread.take());
+        pub(in super::super) fn stop(&self) {
+            self.tap.stop();
+        }
+
+        /// The recording paused or resumed: keys held across it are dropped.
+        pub(in super::super) fn mark_break(&self) {
+            self.tap.mark_break();
         }
 
         pub(in super::super) fn report(&self) -> InputCaptureReport {
@@ -750,7 +817,7 @@ mod capture {
 
     impl Drop for InputCapture {
         fn drop(&mut self) {
-            self.stop.store(true, Ordering::SeqCst);
+            self.tap.stop();
         }
     }
 
@@ -764,8 +831,7 @@ mod capture {
         space: PixelSpace,
         privacy: Mutex<KeyPrivacy>,
         sender: SyncSender<TapEvent>,
-        gaps: Arc<AtomicBool>,
-        reenable: Arc<AtomicBool>,
+        tap: Arc<TapShared>,
     }
 
     impl TapContext {
@@ -774,6 +840,7 @@ mod capture {
             // valid for the callback; both calls only read it.
             let raw = &**event as *const _ as *const std::ffi::c_void;
             let stamp = unsafe { CGEventGetTimestamp(raw) };
+            // `None` before the first frame, while paused and after Stop.
             let Some(at) = self.clock.at_event_stamp(stamp) else {
                 return;
             };
@@ -782,10 +849,9 @@ mod capture {
             };
             match self.sender.try_send(TapEvent { at, sample }) {
                 Ok(()) | Err(TrySendError::Disconnected(_)) => {}
-                Err(TrySendError::Full(_)) => self.gaps.store(true, Ordering::SeqCst),
+                Err(TrySendError::Full(_)) => self.tap.mark_lost(),
             }
         }
-
         fn sample(
             &self,
             kind: CGEventType,
@@ -863,27 +929,25 @@ mod capture {
             // SAFETY: takes no arguments; reads whether any process holds
             // secure input (a password field, say).
             let secure_input = unsafe { IsSecureEventInputEnabled() } != 0;
-            let decision = self
-                .privacy
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .classify(keycode, down, autorepeat, mods, secure_input);
+            let decision = {
+                let mut privacy = self
+                    .privacy
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                privacy.sync_breaks(self.tap.breaks.load(Ordering::SeqCst));
+                privacy.classify(keycode, down, autorepeat, mods, secure_input, || {
+                    event_chars(raw)
+                })
+            };
             match decision {
                 KeyDecision::Drop => None,
                 KeyDecision::Typing => Some(InputSample::TypingPress),
-                KeyDecision::Keep { code, named } => {
-                    let key = match named {
-                        Some(named) => named.to_string(),
-                        // Read only now: the key is a shortcut, never typing.
-                        None => shortcut_key_label(event_chars(raw).as_deref(), code),
-                    };
-                    Some(InputSample::Key {
-                        down,
-                        code,
-                        key,
-                        mods,
-                    })
-                }
+                KeyDecision::Keep { code, key } => Some(InputSample::Key {
+                    down,
+                    code,
+                    key,
+                    mods,
+                }),
             }
         }
     }
@@ -906,29 +970,33 @@ mod capture {
     }
 
     /// Starts the input track: a listen-only tap on its own thread and a writer
-    /// that appends to `<folder>/input.jsonl.gz` about once a second. Call only
-    /// after `input_capture_allowed`.
+    /// that appends to `path` about once a second. Call only after
+    /// `input_capture_allowed`.
     pub(in super::super) fn start_input_capture(
-        folder: &Path,
+        path: &Path,
         clock: RecordingClock,
         space: PixelSpace,
         upload: Arc<TrackUploadCtrl>,
     ) -> Result<InputCapture, String> {
-        let path = folder.join(INPUT_TRACK_FILE);
-        let stop = Arc::new(AtomicBool::new(false));
-        let gaps = Arc::new(AtomicBool::new(false));
+        let tap = Arc::new(TapShared::default());
         let report = Arc::new(Mutex::new(InputCaptureReport::default()));
         let (sender, receiver) = sync_channel(QUEUE_DEPTH);
 
         let writer_report = Arc::clone(&report);
-        let writer_gaps = Arc::clone(&gaps);
+        let writer_tap = Arc::clone(&tap);
         let writer_clock = clock.clone();
+        let writer_path = path.to_path_buf();
         std::thread::Builder::new()
             .name("clips-input-track-writer".into())
             .spawn(move || {
-                run_writer(receiver, path, || writer_clock.now_ms(), &writer_report);
+                run_writer(
+                    receiver,
+                    writer_path,
+                    || writer_clock.now_ms(),
+                    &writer_report,
+                );
                 if let Ok(mut report) = writer_report.lock() {
-                    report.gaps |= writer_gaps.load(Ordering::SeqCst);
+                    report.gaps |= writer_tap.lost.load(Ordering::SeqCst);
                     report.closed = true;
                     if report.write_failed {
                         upload.cancel();
@@ -943,27 +1011,18 @@ mod capture {
             space,
             privacy: Mutex::new(KeyPrivacy::default()),
             sender,
-            gaps: Arc::clone(&gaps),
-            reenable: Arc::new(AtomicBool::new(false)),
+            tap: Arc::clone(&tap),
         };
-        let tap_stop = Arc::clone(&stop);
-        let tap_thread = std::thread::Builder::new()
+        // Never joined: a stuck run loop must not hold up the recording's stop.
+        std::thread::Builder::new()
             .name("clips-input-track-tap".into())
-            .spawn(move || run_tap(context, tap_stop))
-            .map_err(|error| {
-                stop.store(true, Ordering::SeqCst);
-                format!("input track tap could not start: {error}")
-            })?;
-        Ok(InputCapture {
-            stop,
-            report,
-            tap_thread: Some(tap_thread),
-        })
+            .spawn(move || run_tap(context))
+            .map_err(|error| format!("input track tap could not start: {error}"))?;
+        Ok(InputCapture { tap, report })
     }
 
-    fn run_tap(context: TapContext, stop: Arc<AtomicBool>) {
-        let reenable = Arc::clone(&context.reenable);
-        let gaps = Arc::clone(&context.gaps);
+    fn run_tap(context: TapContext) {
+        let tap_shared = Arc::clone(&context.tap);
         let tap = CGEventTap::new(
             CGEventTapLocation::Session,
             CGEventTapPlacement::TailAppendEventTap,
@@ -986,8 +1045,8 @@ mod capture {
             move |_proxy, kind, event| {
                 match kind {
                     CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput => {
-                        context.gaps.store(true, Ordering::SeqCst);
-                        context.reenable.store(true, Ordering::SeqCst);
+                        context.tap.mark_lost();
+                        context.tap.reenable.store(true, Ordering::SeqCst);
                     }
                     _ => context.handle(kind, event),
                 }
@@ -1015,18 +1074,37 @@ mod capture {
         let runloop = CFRunLoop::get_current();
         // SAFETY: the mode constant is a static CFString.
         runloop.add_source(&source, unsafe { kCFRunLoopCommonModes });
+        *tap_shared
+            .runloop
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(runloop);
         tap.enable();
-        while !stop.load(Ordering::SeqCst) {
-            if reenable.swap(false, Ordering::SeqCst) {
+        let mut secure_checked: Option<Instant> = None;
+        while !tap_shared.stop.load(Ordering::SeqCst) {
+            if tap_shared.reenable.swap(false, Ordering::SeqCst) {
                 eprintln!(
                     "[rich-tracks] input: the event tap was switched off; switching it back on"
                 );
-                gaps.store(true, Ordering::SeqCst);
                 tap.enable();
+            }
+            // Under secure input the tap sees no keys at all, so a key let go
+            // meanwhile is never seen to go up.
+            if secure_checked.is_none_or(|at| at.elapsed() >= SECURE_INPUT_POLL) {
+                secure_checked = Some(Instant::now());
+                // SAFETY: takes no arguments; reads whether any process holds
+                // secure input.
+                if unsafe { IsSecureEventInputEnabled() } != 0 {
+                    tap_shared.mark_break();
+                }
             }
             // SAFETY: the mode constant is a static CFString.
             let _ = CFRunLoop::run_in_mode(unsafe { kCFRunLoopDefaultMode }, TAP_POLL, true);
         }
+        tap_shared
+            .runloop
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
         // Dropping the tap disables it, and dropping its callback closes the
         // writer's queue, which ends the writer.
     }
@@ -1040,30 +1118,22 @@ mod capture {
         let mut log = InputLog::default();
         let mut file: Option<std::fs::File> = None;
         let mut next_flush = Instant::now() + FLUSH_INTERVAL;
-        let mut lines: u64 = 0;
-        let mut last_ms: Option<f64> = None;
+        let mut events: u64 = 0;
         let write = |text: String, file: &mut Option<std::fs::File>| -> bool {
             if text.is_empty() {
                 return true;
             }
-            let written = (|| -> std::io::Result<u64> {
+            let written = (|| -> std::io::Result<()> {
                 let member = gzip_member(text.as_bytes())?;
                 if file.is_none() {
                     *file = Some(OpenOptions::new().create(true).append(true).open(&path)?);
                 }
                 let handle = file.as_mut().expect("opened above");
                 handle.write_all(&member)?;
-                handle.flush()?;
-                Ok(member.len() as u64)
+                handle.flush()
             })();
             match written {
-                Ok(bytes) => {
-                    if let Ok(mut report) = report.lock() {
-                        report.bytes += bytes;
-                        report.lines += text.lines().count() as u64;
-                    }
-                    true
-                }
+                Ok(()) => true,
                 Err(error) => {
                     eprintln!(
                         "[rich-tracks] input: writing {} failed, so the input track stops: {error}",
@@ -1080,8 +1150,7 @@ mod capture {
             let wait = next_flush.saturating_duration_since(Instant::now());
             match receiver.recv_timeout(wait) {
                 Ok(TapEvent { at, sample }) => {
-                    last_ms = Some(at);
-                    lines += 1;
+                    events += 1;
                     log.push(at, sample);
                 }
                 Err(RecvTimeoutError::Timeout) => {}
@@ -1095,13 +1164,54 @@ mod capture {
             }
         }
         if write(log.take_all(), &mut file) {
-            if let Ok(mut report) = report.lock() {
-                report.last_ms = last_ms;
-            }
             eprintln!(
-                "[rich-tracks] input: closed {} after {lines} event(s)",
+                "[rich-tracks] input: closed {} after {events} event(s)",
                 path.display()
             );
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn every_gap_in_capture_forgets_held_keys_and_lost_events_mark_the_track() {
+            let tap = Arc::new(TapShared::default());
+            let capture = InputCapture {
+                tap: Arc::clone(&tap),
+                report: Arc::default(),
+            };
+            let mut privacy = KeyPrivacy::default();
+            let cmd = Modifiers {
+                meta: true,
+                ..Modifiers::default()
+            };
+            let gaps: [(&str, &dyn Fn(), bool); 5] = [
+                ("a pause", &|| capture.mark_break(), false),
+                ("a resume", &|| capture.mark_break(), false),
+                ("secure input", &|| tap.mark_break(), false),
+                ("the tap switched off", &|| tap.mark_lost(), true),
+                ("a full queue", &|| tap.mark_lost(), true),
+            ];
+            for (gap, mark, lost) in gaps {
+                privacy.sync_breaks(tap.breaks.load(Ordering::SeqCst));
+                assert!(
+                    matches!(
+                        privacy.classify(0x28, true, false, cmd, false, || Some("k".into())),
+                        KeyDecision::Keep { .. }
+                    ),
+                    "{gap}"
+                );
+                mark();
+                privacy.sync_breaks(tap.breaks.load(Ordering::SeqCst));
+                assert_eq!(
+                    privacy.classify(0x28, false, false, cmd, false, || None),
+                    KeyDecision::Drop,
+                    "{gap}"
+                );
+                assert_eq!(tap.lost.load(Ordering::SeqCst), lost, "{gap}");
+            }
         }
     }
 }
@@ -1115,6 +1225,52 @@ mod tests {
         text.lines()
             .map(|line| serde_json::from_str(line).expect("each line is JSON"))
             .collect()
+    }
+
+    /// The character each test key types on a US layout.
+    fn typed(keycode: u16) -> Option<String> {
+        match keycode {
+            0x00 => Some("a".into()),
+            0x0E => Some("e".into()),
+            0x12 => Some("1".into()),
+            0x28 => Some("k".into()),
+            _ => None,
+        }
+    }
+
+    /// Classifies one key event, checking that its character is read only
+    /// when a shortcut goes down.
+    fn classify(
+        privacy: &mut KeyPrivacy,
+        keycode: u16,
+        down: bool,
+        autorepeat: bool,
+        mods: Modifiers,
+        secure_input: bool,
+    ) -> KeyDecision {
+        let read = std::cell::Cell::new(false);
+        let decision = privacy.classify(keycode, down, autorepeat, mods, secure_input, || {
+            read.set(true);
+            typed(keycode)
+        });
+        let shortcut_press = down
+            && mods.makes_shortcut()
+            && named_key(keycode).is_none()
+            && matches!(decision, KeyDecision::Keep { .. });
+        assert_eq!(
+            read.get(),
+            shortcut_press,
+            "key {keycode:#x} down={down}: character read={}",
+            read.get()
+        );
+        decision
+    }
+
+    fn keep(code: &'static str, key: &str) -> KeyDecision {
+        KeyDecision::Keep {
+            code,
+            key: key.into(),
+        }
     }
 
     #[test]
@@ -1204,36 +1360,37 @@ mod tests {
         let ctrl = Modifiers { ctrl: true, ..none };
         // Letters, digits, space and shifted letters are typing.
         assert_eq!(
-            privacy.classify(0x28, true, false, none, false),
+            classify(&mut privacy, 0x28, true, false, none, false),
             KeyDecision::Typing
         );
         assert_eq!(
-            privacy.classify(0x12, true, false, shift, false),
+            classify(&mut privacy, 0x12, true, false, shift, false),
             KeyDecision::Typing
         );
         assert_eq!(
-            privacy.classify(0x31, true, false, none, false),
+            classify(&mut privacy, 0x31, true, false, none, false),
             KeyDecision::Typing
         );
         // Their releases are dropped.
         assert_eq!(
-            privacy.classify(0x28, false, false, none, false),
+            classify(&mut privacy, 0x28, false, false, none, false),
             KeyDecision::Drop
         );
         // Option with a letter or digit types a character (é, ˚), so it is
         // typing, and its release is dropped.
         for keycode in [0x0E, 0x28, 0x12] {
             assert_eq!(
-                privacy.classify(keycode, true, false, option, false),
+                classify(&mut privacy, keycode, true, false, option, false),
                 KeyDecision::Typing
             );
             assert_eq!(
-                privacy.classify(keycode, false, false, option, false),
+                classify(&mut privacy, keycode, false, false, option, false),
                 KeyDecision::Drop
             );
         }
         assert_eq!(
-            privacy.classify(
+            classify(
+                &mut privacy,
                 0x0E,
                 true,
                 false,
@@ -1248,59 +1405,41 @@ mod tests {
         // Cmd and Ctrl make a shortcut, with Option held too or not.
         for mods in [cmd, ctrl, Modifiers { alt: true, ..cmd }] {
             assert_eq!(
-                privacy.classify(0x28, true, false, mods, false),
-                KeyDecision::Keep {
-                    code: "KeyK",
-                    named: None
-                }
+                classify(&mut privacy, 0x28, true, false, mods, false),
+                keep("KeyK", "k")
             );
             assert!(matches!(
-                privacy.classify(0x28, false, false, none, false),
+                classify(&mut privacy, 0x28, false, false, none, false),
                 KeyDecision::Keep { code: "KeyK", .. }
             ));
         }
         // Named keys are kept with or without modifiers, Option included.
         assert_eq!(
-            privacy.classify(0x7B, true, false, option, false),
-            KeyDecision::Keep {
-                code: "ArrowLeft",
-                named: Some("ArrowLeft")
-            }
+            classify(&mut privacy, 0x7B, true, false, option, false),
+            keep("ArrowLeft", "ArrowLeft")
         );
         assert!(matches!(
-            privacy.classify(0x7B, false, false, option, false),
+            classify(&mut privacy, 0x7B, false, false, option, false),
             KeyDecision::Keep {
                 code: "ArrowLeft",
                 ..
             }
         ));
         assert_eq!(
-            privacy.classify(0x33, true, false, option, false),
-            KeyDecision::Keep {
-                code: "Backspace",
-                named: Some("Backspace")
-            }
+            classify(&mut privacy, 0x33, true, false, option, false),
+            keep("Backspace", "Backspace")
         );
         assert_eq!(
-            privacy.classify(0x24, true, false, none, false),
-            KeyDecision::Keep {
-                code: "Enter",
-                named: Some("Enter")
-            }
+            classify(&mut privacy, 0x24, true, false, none, false),
+            keep("Enter", "Enter")
         );
         assert_eq!(
-            privacy.classify(0x30, true, false, shift, false),
-            KeyDecision::Keep {
-                code: "Tab",
-                named: Some("Tab")
-            }
+            classify(&mut privacy, 0x30, true, false, shift, false),
+            keep("Tab", "Tab")
         );
         assert_eq!(
-            privacy.classify(0x4C, true, false, none, false),
-            KeyDecision::Keep {
-                code: "NumpadEnter",
-                named: Some("Enter")
-            }
+            classify(&mut privacy, 0x4C, true, false, none, false),
+            keep("NumpadEnter", "Enter")
         );
         for (keycode, name) in [
             (0x35, "Escape"),
@@ -1314,21 +1453,18 @@ mod tests {
             (0x5A, "F20"),
         ] {
             assert_eq!(
-                privacy.classify(keycode, true, false, none, false),
-                KeyDecision::Keep {
-                    code: name,
-                    named: Some(name)
-                },
+                classify(&mut privacy, keycode, true, false, none, false),
+                keep(name, name),
                 "{name}"
             );
         }
         // Held keys repeat; repeats are not presses.
         assert_eq!(
-            privacy.classify(0x7B, true, true, none, false),
+            classify(&mut privacy, 0x7B, true, true, none, false),
             KeyDecision::Drop
         );
         assert_eq!(
-            privacy.classify(0x28, true, true, none, false),
+            classify(&mut privacy, 0x28, true, true, none, false),
             KeyDecision::Drop
         );
     }
@@ -1341,31 +1477,128 @@ mod tests {
             ..Modifiers::default()
         };
         assert!(matches!(
-            privacy.classify(0x28, true, false, cmd, false),
+            classify(&mut privacy, 0x28, true, false, cmd, false),
             KeyDecision::Keep { .. }
         ));
         // Not even a shortcut, a named key, a typing count or a release.
         assert_eq!(
-            privacy.classify(0x28, true, false, cmd, true),
+            classify(&mut privacy, 0x28, true, false, cmd, true),
             KeyDecision::Drop
         );
         assert_eq!(
-            privacy.classify(0x24, true, false, Modifiers::default(), true),
+            classify(&mut privacy, 0x24, true, false, Modifiers::default(), true),
             KeyDecision::Drop
         );
         assert_eq!(
-            privacy.classify(0x00, true, false, Modifiers::default(), true),
+            classify(&mut privacy, 0x00, true, false, Modifiers::default(), true),
             KeyDecision::Drop
         );
         assert_eq!(
-            privacy.classify(0x28, false, false, cmd, true),
+            classify(&mut privacy, 0x28, false, false, cmd, true),
             KeyDecision::Drop
         );
         // A release after secure input ends belongs to no kept press.
         assert_eq!(
-            privacy.classify(0x28, false, false, cmd, false),
+            classify(&mut privacy, 0x28, false, false, cmd, false),
             KeyDecision::Drop
         );
+    }
+
+    #[test]
+    fn a_key_held_across_a_pause_is_forgotten_so_typing_it_later_stays_a_count() {
+        let mut privacy = KeyPrivacy::default();
+        let none = Modifiers::default();
+        let cmd = Modifiers { meta: true, ..none };
+        assert_eq!(
+            classify(&mut privacy, 0x00, true, false, cmd, false),
+            keep("KeyA", "a")
+        );
+        // The recording pauses, A comes up unseen while paused, and the
+        // recording resumes.
+        privacy.sync_breaks(1);
+        privacy.sync_breaks(2);
+        // Typing A afterwards is a count, press and release.
+        assert_eq!(
+            classify(&mut privacy, 0x00, true, false, none, false),
+            KeyDecision::Typing
+        );
+        assert_eq!(
+            classify(&mut privacy, 0x00, false, false, none, false),
+            KeyDecision::Drop
+        );
+        // A break the filter has already seen forgets nothing new.
+        assert_eq!(
+            classify(&mut privacy, 0x28, true, false, cmd, false),
+            keep("KeyK", "k")
+        );
+        privacy.sync_breaks(2);
+        assert_eq!(
+            classify(&mut privacy, 0x28, false, false, none, false),
+            keep("KeyK", "k")
+        );
+    }
+
+    #[test]
+    fn a_new_press_of_a_key_still_held_drops_the_release_that_was_missed() {
+        let mut privacy = KeyPrivacy::default();
+        let none = Modifiers::default();
+        let cmd = Modifiers { meta: true, ..none };
+        assert_eq!(
+            classify(&mut privacy, 0x00, true, false, cmd, false),
+            keep("KeyA", "a")
+        );
+        // A went up unseen with no break noticed; the next press of A is
+        // typing, so its release is not kept either.
+        assert_eq!(
+            classify(&mut privacy, 0x00, true, false, none, false),
+            KeyDecision::Typing
+        );
+        assert_eq!(
+            classify(&mut privacy, 0x00, false, false, none, false),
+            KeyDecision::Drop
+        );
+        // Pressed again as a shortcut, it is kept once, not twice.
+        for _ in 0..2 {
+            assert_eq!(
+                classify(&mut privacy, 0x28, true, false, cmd, false),
+                keep("KeyK", "k")
+            );
+        }
+        assert_eq!(
+            classify(&mut privacy, 0x28, false, false, none, false),
+            keep("KeyK", "k")
+        );
+        assert_eq!(
+            classify(&mut privacy, 0x28, false, false, none, false),
+            KeyDecision::Drop
+        );
+    }
+
+    #[test]
+    fn a_kept_release_repeats_its_press_and_never_reads_its_own_character() {
+        let mut privacy = KeyPrivacy::default();
+        let cmd = Modifiers {
+            meta: true,
+            ..Modifiers::default()
+        };
+        assert_eq!(
+            privacy.classify(0x28, true, false, cmd, false, || Some("k".into())),
+            keep("KeyK", "k")
+        );
+        // Whatever the event would type by the time the key comes up.
+        assert_eq!(
+            privacy.classify(0x28, false, false, Modifiers::default(), false, || {
+                panic!("a release never reads its character")
+            }),
+            keep("KeyK", "k")
+        );
+        // Typing and named keys never read it either.
+        privacy.classify(0x00, true, false, Modifiers::default(), false, || {
+            panic!("typing never reads its character")
+        });
+        privacy.classify(0x7B, true, false, cmd, false, || {
+            panic!("a named key never reads its character")
+        });
     }
 
     #[test]

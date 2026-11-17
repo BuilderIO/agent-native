@@ -3696,6 +3696,44 @@ pub(crate) fn kill_active_screencapture_child(state: &NativeFullscreenRecordingS
     }
 }
 
+/// Quitting: static state is never dropped and the quit may skip destructors,
+/// so a rich recording's tap, second stream and uploaders are stopped here and
+/// its folder deleted. Nothing would send its tracks after this run.
+#[cfg(target_os = "macos")]
+pub(crate) fn stop_rich_recording_on_exit(state: &NativeFullscreenRecordingState) {
+    let rich = state
+        .inner
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_mut()
+        .and_then(|session| session.rich_recording.take());
+    if let Some(rich) = rich {
+        rich.quit();
+    }
+}
+
+/// Deletes the tracks folders earlier runs left beside their recordings, on a
+/// thread of its own.
+#[cfg(target_os = "macos")]
+pub(crate) fn remove_leftover_rich_tracks(app: &AppHandle) {
+    let dir = match pending_uploads_dir(app) {
+        Ok(dir) => dir,
+        Err(error) => {
+            eprintln!("[rich-tracks] leftover tracks folders not checked: {error}");
+            return;
+        }
+    };
+    let pid = std::process::id();
+    let spawned = std::thread::Builder::new()
+        .name("clips-rich-tracks-sweep".into())
+        .spawn(move || {
+            rich_recording::remove_leftover_tracks_folders(&dir, pid);
+        });
+    if let Err(error) = spawned {
+        eprintln!("[rich-tracks] leftover tracks folders not checked: {error}");
+    }
+}
+
 fn terminate_screencapture_child_before_detach(session: &mut NativeFullscreenSession) {
     if !matches!(
         session.backend.as_ref(),
@@ -3823,26 +3861,10 @@ pub async fn native_fullscreen_recording_pause(
                 false
             };
         if soft_paused {
-            #[cfg(target_os = "macos")]
-            if let Err(error) = ensure_camera_bubble_capture_preference_restored(
-                &app,
-                &state,
-                Some(session.restart.alignment_generation),
-            ) {
-                return Err(mark_pause_failure(
-                    session,
-                    format!("Unable to restore camera privacy after pausing: {error}"),
-                ));
-            }
-            session.paused_at = Some(Instant::now());
-            if let Some(rich) = session.rich_recording.as_mut() {
-                rich.pause();
-            }
-            eprintln!(
-                "[clips-tray] soft-paused {} (writer/file/live upload kept alive)",
-                session.restart.safe_id
-            );
-            return Ok(());
+            let generation = session.restart.alignment_generation;
+            return finish_soft_pause(session, || {
+                ensure_camera_bubble_capture_preference_restored(&app, &state, Some(generation))
+            });
         }
     }
 
@@ -4288,6 +4310,31 @@ fn finalize_active_backend(
     stop_native_recording(&mut backend, wait_for_finalize)
 }
 
+/// The capture pipeline has just soft-paused. Its tracks pause with it before
+/// anything else here can fail, or they would keep capturing a recording that
+/// is paused.
+#[cfg(target_os = "macos")]
+fn finish_soft_pause(
+    session: &mut NativeFullscreenSession,
+    restore_camera_privacy: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if let Some(rich) = session.rich_recording.as_mut() {
+        rich.pause();
+    }
+    if let Err(error) = restore_camera_privacy() {
+        return Err(mark_pause_failure(
+            session,
+            format!("Unable to restore camera privacy after pausing: {error}"),
+        ));
+    }
+    session.paused_at = Some(Instant::now());
+    eprintln!(
+        "[clips-tray] soft-paused {} (writer/file/live upload kept alive)",
+        session.restart.safe_id
+    );
+    Ok(())
+}
+
 fn mark_pause_failure(session: &mut NativeFullscreenSession, message: impl Into<String>) -> String {
     let message = message.into();
     session.paused_at = Some(Instant::now());
@@ -4379,7 +4426,10 @@ fn discard_session(session: &mut NativeFullscreenSession) {
 mod detached_discard_tests {
     use super::*;
 
-    fn hardware_free_session(path: PathBuf, segments: Vec<PathBuf>) -> NativeFullscreenSession {
+    pub(super) fn hardware_free_session(
+        path: PathBuf,
+        segments: Vec<PathBuf>,
+    ) -> NativeFullscreenSession {
         NativeFullscreenSession {
             backend: None,
             path,

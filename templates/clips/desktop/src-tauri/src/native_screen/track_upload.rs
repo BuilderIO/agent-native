@@ -364,12 +364,15 @@ fn retry_delay(base_ms: u64, max_ms: u64, attempt: u32) -> Duration {
     Duration::from_millis((base_ms << shift).min(max_ms))
 }
 
+/// Starts a track's uploader. `on_end` hears its outcome first, from the
+/// uploader's task, and must not block.
 pub(super) fn spawn_track_uploader(
     target: Arc<TrackUploadTarget>,
     track: &'static str,
     content_type: &'static str,
     path: PathBuf,
     ctrl: Arc<TrackUploadCtrl>,
+    on_end: impl FnOnce(&TrackUploadOutcome) + Send + 'static,
 ) -> TrackUpload {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let task_ctrl = Arc::clone(&ctrl);
@@ -382,6 +385,7 @@ pub(super) fn spawn_track_uploader(
             "[rich-tracks] {}: {track} upload ended: {outcome:?}",
             target.recording_id
         );
+        on_end(&outcome);
         let _ = tx.send(outcome);
     });
     TrackUpload {

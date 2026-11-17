@@ -5,7 +5,10 @@
 //!
 //! Pausing stops the stream and resuming starts a new one, so the first frame
 //! after a pause is a complete picture of the screen. Callbacks from a stream
-//! that was stopped are told apart by a generation number and ignored.
+//! that was stopped are told apart by a generation number and ignored; as in
+//! the flattened writer, a callback checks it under an admission lock that
+//! moving the generation on waits for, so no callback that passed the check
+//! is still running once the clock it reads changes.
 
 use super::{
     av_class_named, av_dict, av_dict_set, av_ns_string_from, av_number_bool, av_number_i64,
@@ -21,7 +24,7 @@ use crate::native_screen::screen_track::{
 use crate::native_screen::track_upload::TrackUploadCtrl;
 
 use objc2::msg_send;
-use objc2::rc::Retained;
+use objc2::rc::{Allocated, Retained};
 use objc2::runtime::AnyObject;
 use screencapturekit::cg::CGRect;
 use screencapturekit::cm::{CMSampleBuffer, SCFrameStatus};
@@ -39,7 +42,7 @@ use screencapturekit::stream::sc_stream::SCStream;
 use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
 use std::time::{Duration, Instant};
 
 /// Frames the encoder turned away in a row before the track gives up on it:
@@ -94,6 +97,9 @@ struct Shared {
     upload: Arc<TrackUploadCtrl>,
     /// The stream whose frames are taken; bumped to ignore an old one.
     generation: AtomicU64,
+    /// Held to read by every callback while it runs; held to write while the
+    /// generation moves on for a pause or a new stream.
+    admission: RwLock<()>,
     closing: AtomicBool,
     state: Mutex<WriterState>,
     stream: Mutex<Option<(SCStream, DispatchQueue)>>,
@@ -125,6 +131,7 @@ pub(in crate::native_screen) fn start_screen_capture(
         clock,
         upload,
         generation: AtomicU64::new(0),
+        admission: RwLock::new(()),
         closing: AtomicBool::new(false),
         state: Mutex::new(WriterState {
             writer: Some(writer),
@@ -159,7 +166,7 @@ impl ScreenCapture {
         if self.shared.closing.load(Ordering::SeqCst) {
             return;
         }
-        self.shared.generation.fetch_add(1, Ordering::SeqCst);
+        self.shared.next_generation();
         let stream = lock(&self.shared.stream).take();
         if let Some(stream) = stream {
             stop_stream_in_background(&self.shared.recording_id, stream);
@@ -200,12 +207,23 @@ fn stop_stream_in_background(recording_id: &str, stream: (SCStream, DispatchQueu
 }
 
 impl Shared {
+    /// Moves the generation on once no callback is running, so none that
+    /// passed the check outlives it. Never from a callback; `close` runs in
+    /// them, and stays safe without this through `accepting`.
+    fn next_generation(&self) -> u64 {
+        let _admission = self
+            .admission
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.generation.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
     /// Starts a new stream on its own thread, replacing any earlier one.
     fn start_stream(this: &Arc<Self>) {
         if this.closing.load(Ordering::SeqCst) {
             return;
         }
-        let generation = this.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let generation = this.next_generation();
         let shared = Arc::clone(this);
         let spawned = std::thread::Builder::new()
             .name("clips-screen-track-stream-start".into())
@@ -299,7 +317,7 @@ impl Shared {
             return;
         }
         let at = match this.clock.frame_time(pts_secs) {
-            FrameTime::Paused => return,
+            FrameTime::Paused | FrameTime::AfterStop => return,
             FrameTime::BeforeStart => {
                 state.held = Some(HeldFrame { sample, at: None });
                 return;
@@ -515,6 +533,9 @@ impl SCStreamOutputTrait for FrameHandler {
         let Some(shared) = self.shared.upgrade() else {
             return;
         };
+        let Ok(_admission) = shared.admission.read() else {
+            return;
+        };
         if shared.generation.load(Ordering::SeqCst) != self.generation {
             return;
         }
@@ -558,6 +579,9 @@ struct StreamDelegate {
 impl StreamDelegate {
     fn stopped(&self, reason: String) {
         let Some(shared) = self.shared.upgrade() else {
+            return;
+        };
+        let Ok(_admission) = shared.admission.read() else {
             return;
         };
         if shared.generation.load(Ordering::SeqCst) != self.generation {
@@ -697,34 +721,38 @@ unsafe fn create_writer(path: &Path, area: &ScreenArea) -> Result<Writer, String
 
     let writer_cls =
         av_class_named("AVAssetWriter").ok_or_else(|| "AVAssetWriter missing".to_string())?;
+    let input_cls = av_class_named("AVAssetWriterInput")
+        .ok_or_else(|| "AVAssetWriterInput missing".to_string())?;
     let ident = av_ns_string_from("public.mpeg-4")
         .ok_or_else(|| "NSString for UTType failed".to_string())?;
     let ut_cls = av_class_named("UTType").ok_or_else(|| "UTType missing".to_string())?;
-    let ut: *mut AnyObject = msg_send![ut_cls, typeWithIdentifier: &*ident];
-    if ut.is_null() {
-        return Err("UTType public.mpeg-4 unavailable".into());
-    }
-    let allocated: *mut AnyObject = msg_send![writer_cls, alloc];
-    let writer_raw: *mut AnyObject = msg_send![allocated, initWithContentType: ut];
-    if writer_raw.is_null() {
-        if !allocated.is_null() {
-            let _ = Retained::from_raw(allocated);
+    // `alloc` hands over an `Allocated` the `init` consumes, so an `init` that
+    // returns nil, having released its receiver, never has it released again.
+    let created = objc2::exception::catch(AssertUnwindSafe(|| unsafe {
+        let ut: Option<Retained<AnyObject>> = msg_send![ut_cls, typeWithIdentifier: &*ident];
+        let ut = ut.ok_or_else(|| "UTType public.mpeg-4 unavailable".to_string())?;
+        let allocated: Allocated<AnyObject> = msg_send![writer_cls, alloc];
+        let writer: Option<Retained<AnyObject>> = msg_send![allocated, initWithContentType: &*ut];
+        let writer =
+            writer.ok_or_else(|| "AVAssetWriter initWithContentType failed".to_string())?;
+        let settings = video_settings(area.width_px, area.height_px)?;
+        let input: Option<Retained<AnyObject>> = msg_send![
+            input_cls,
+            assetWriterInputWithMediaType: AVMediaTypeVideo,
+            outputSettings: &*settings
+        ];
+        let input = input.ok_or_else(|| "AVAssetWriterInput allocation failed".to_string())?;
+        Ok::<_, String>((writer, input))
+    }));
+    let (writer, input) = match created {
+        Ok(created) => created?,
+        Err(exception) => {
+            return Err(format!(
+                "writer creation raised: {}",
+                describe_objc_exception(exception)
+            ))
         }
-        return Err("AVAssetWriter initWithContentType failed".into());
-    }
-    let writer =
-        Retained::from_raw(writer_raw).ok_or_else(|| "AVAssetWriter retain failed".to_string())?;
-
-    let input_cls = av_class_named("AVAssetWriterInput")
-        .ok_or_else(|| "AVAssetWriterInput missing".to_string())?;
-    let settings = video_settings(area.width_px, area.height_px)?;
-    let input_raw: *mut AnyObject = msg_send![
-        input_cls,
-        assetWriterInputWithMediaType: AVMediaTypeVideo,
-        outputSettings: &*settings
-    ];
-    let input = Retained::retain(input_raw)
-        .ok_or_else(|| "AVAssetWriterInput allocation failed".to_string())?;
+    };
 
     let sink = SegmentSink::create_with(path, false)?;
     let delegate = SegmentWriterDelegate::new(Arc::clone(&sink));
