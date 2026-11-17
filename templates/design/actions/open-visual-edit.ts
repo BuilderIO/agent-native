@@ -737,13 +737,9 @@ export default defineAction({
         args.target !== "system-browser"
           ? await createCallerHandoff(urlPath, ownerEmail, designId)
           : undefined;
-      // Only the callers that start the local bridge need its token. The
-      // in-app agent would write it into the thread.
-      const bridgeCredentialsVisible =
-        !isBrowserVisibleVisualEditRequest(ctx) &&
-        (ctx?.caller === "cli" || ctx?.caller === "mcp");
+      const browserVisible = isBrowserVisibleVisualEditRequest(ctx);
       const bridgeCommand =
-        bridgeCredentialsVisible && connection.bridgeToken
+        !browserVisible && connection.bridgeToken
           ? startBridgeCommand({
               bridgeToken: connection.bridgeToken,
               bridgeUrl: connection.bridgeUrl,
@@ -779,12 +775,8 @@ export default defineAction({
         overview: true,
         urlPath,
         openUrl: deepLink,
-        bridgeToken: bridgeCredentialsVisible
-          ? connection.bridgeToken
-          : undefined,
-        previewToken: bridgeCredentialsVisible
-          ? connection.previewToken
-          : undefined,
+        bridgeToken: browserVisible ? undefined : connection.bridgeToken,
+        previewToken: browserVisible ? undefined : connection.previewToken,
       };
       if (embedStartUrl) {
         Object.defineProperty(result, "embedStartUrl", {
@@ -793,9 +785,7 @@ export default defineAction({
         });
       }
       const output = result as typeof result & { embedStartUrl?: string };
-      return bridgeCredentialsVisible
-        ? output
-        : stripVisualEditBridgeCredentials(output);
+      return browserVisible ? stripVisualEditBridgeCredentials(output) : output;
     };
 
     if (requestUserEmail) return runForPrincipal();
