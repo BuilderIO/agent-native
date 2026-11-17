@@ -6129,6 +6129,7 @@ export function VisualEditor({
       ) : null}
       {editable ? (
         <BlockActionsMenu
+          documentId={documentId}
           editor={editor}
           onComment={onComment}
           suggesting={suggesting}
