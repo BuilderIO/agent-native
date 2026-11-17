@@ -68,8 +68,11 @@ export interface TweakDefinition {
   defaultValue: string | number | boolean;
   cssVar?: string;
   unit?: string;
-  /** Absent means the tweak applies to every screen. */
-  scope?: TweakScope;
+  /**
+   * Absent means the tweak applies to every screen. A list shows one shared
+   * knob on each place it drives, such as a remix and its explainer frames.
+   */
+  scope?: TweakScope | TweakScope[];
 }
 
 export interface TweakScope {

@@ -6,6 +6,7 @@ import { roleSatisfies } from "../../sharing/schema.js";
 import {
   canCommentOnReviewableResource,
   resolveReviewableResourceAccess,
+  reviewWriteRefusal,
 } from "../registry.js";
 import { deleteReviewComment, getReviewCommentById } from "../store.js";
 import { canDeleteReviewThread } from "../thread-delete.js";
@@ -55,7 +56,13 @@ export default defineAction({
       normalizeEmail(comment.authorEmail) ===
         normalizeEmail(actionCtx?.userEmail);
     if (!access || !canCommentOnReviewableResource(args.resourceType, access)) {
-      throw new ForbiddenError("Not allowed to delete this review comment");
+      throw new ForbiddenError(
+        reviewWriteRefusal(
+          args.resourceType,
+          access,
+          "Not allowed to delete this review comment",
+        ),
+      );
     }
     const isEditor = roleSatisfies(access.role, "editor");
     if (!isAuthor && !isEditor) {

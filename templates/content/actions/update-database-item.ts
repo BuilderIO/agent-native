@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import type { ContentDatabaseRowMutationResult } from "../shared/api.js";
 import { withContentWebhookDelivery } from "./_content-webhooks.js";
 import {
@@ -74,6 +75,10 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  // The table, not the row's page: an event names one resource, and the table
+  // is where a row's values are usually watched.
+  changeResource: (input) =>
+    documentChangeResource(input.target.databaseDocumentId),
   run: (args, context) => {
     if (context?.caller === "mcp") agentSchema.parse(args);
     assertDatabaseWidgetWriteTarget(

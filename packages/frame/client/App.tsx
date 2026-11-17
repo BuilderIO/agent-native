@@ -1,7 +1,9 @@
 import {
+  AGENT_CHAT_SUBMIT_RESULT_EVENT,
   clampAgentSidebarWidth,
   getAgentSidebarWideWidth,
   startAgentChatViewTransition,
+  type AgentChatSubmitResult,
 } from "@agent-native/core/client/agent-chat";
 import {
   TEMPLATES,
@@ -383,6 +385,43 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const pendingChatSubmits = new Map<
+      string,
+      {
+        source: WindowProxy;
+        origin: string;
+        timer: ReturnType<typeof setTimeout>;
+      }
+    >();
+    const allowedOrigins = (() => {
+      const host = window.location.hostname || "localhost";
+      const gatewayUrl = getTemplateGatewayUrl();
+      const gatewayOrigin =
+        gatewayUrl && URL.canParse(gatewayUrl)
+          ? new URL(gatewayUrl).origin
+          : null;
+      return new Set([
+        ...TEMPLATES.flatMap((a) => [
+          `http://localhost:${a.devPort || 8080}`,
+          `http://${host}:${a.devPort || 8080}`,
+        ]),
+        ...(gatewayOrigin ? [gatewayOrigin] : []),
+        ...(customAppOrigin ? [customAppOrigin] : []),
+      ]);
+    })();
+    function handleSubmitResult(event: Event) {
+      const { detail } = event as CustomEvent<AgentChatSubmitResult>;
+      const pending = pendingChatSubmits.get(detail.submitMessageId);
+      if (!pending) return;
+      pendingChatSubmits.delete(detail.submitMessageId);
+      clearTimeout(pending.timer);
+      if (iframeRef.current?.contentWindow === pending.source) {
+        pending.source.postMessage(
+          { type: "agentNative.submitChatResult", data: detail },
+          pending.origin,
+        );
+      }
+    }
     function handleMessage(event: MessageEvent) {
       if (!event.data?.type) return;
       if (event.data.type === "agentNative.toggleSidebar") {
@@ -427,33 +466,49 @@ export function App() {
         event.data.type === "agentNative.submitChat" ||
         event.data.type === "agentNative.setChatContext"
       ) {
-        const host = window.location.hostname || "localhost";
-        const gatewayOrigin = (() => {
-          const gatewayUrl = getTemplateGatewayUrl();
-          if (!gatewayUrl) return null;
-          try {
-            return new URL(gatewayUrl).origin;
-          } catch {
-            return null;
+        if (
+          event.origin !== window.location.origin &&
+          allowedOrigins.has(event.origin)
+        ) {
+          const data = event.data.data;
+          const source = iframeRef.current?.contentWindow;
+          if (
+            event.data.type === "agentNative.submitChat" &&
+            source &&
+            event.source === source &&
+            data?.submit === true &&
+            typeof data?.submitMessageId === "string"
+          ) {
+            if (pendingChatSubmits.has(data.submitMessageId)) return;
+            const timer = setTimeout(
+              () => pendingChatSubmits.delete(data.submitMessageId),
+              30_000,
+            );
+            pendingChatSubmits.set(data.submitMessageId, {
+              source,
+              origin: event.origin,
+              timer,
+            });
           }
-        })();
-        const allowedOrigins = new Set([
-          ...TEMPLATES.flatMap((a) => [
-            `http://localhost:${a.devPort || 8080}`,
-            `http://${host}:${a.devPort || 8080}`,
-          ]),
-          ...(gatewayOrigin ? [gatewayOrigin] : []),
-          ...(customAppOrigin ? [customAppOrigin] : []),
-        ]);
-        if (allowedOrigins.has(event.origin)) {
           window.postMessage(event.data, window.location.origin);
         }
         return;
       }
     }
     window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, []);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, handleSubmitResult);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      window.removeEventListener(
+        AGENT_CHAT_SUBMIT_RESULT_EVENT,
+        handleSubmitResult,
+      );
+      for (const pending of pendingChatSubmits.values()) {
+        clearTimeout(pending.timer);
+      }
+      pendingChatSubmits.clear();
+    };
+  }, [customAppOrigin]);
 
   const [isDragging, setIsDragging] = useState(false);
   const lastX = useRef(0);

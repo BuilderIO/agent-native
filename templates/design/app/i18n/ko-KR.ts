@@ -1743,6 +1743,19 @@ export default {
         "곧 제공: 저장소에서 화면과 컴포넌트를 직접 가져옵니다.",
       localDescription: "/visual-edit로 실행 중인 모든 로컬 app을 연결합니다.",
       warningsToast: "경고와 함께 가져오기가 완료되었습니다",
+      pasteUnreadable: "복사한 레이어를 읽을 수 없습니다.",
+      pasteInexact: "정확히 붙여넣지 못한 세부 항목: {{count}}",
+      pasteLayerTypes:
+        "단순 프레임으로 붙여넣은 {{tool}} 레이어 유형: {{count}}",
+      pasteImagePlaceholders:
+        "자리 표시자로 붙여넣은 이미지: {{count}}. {{tool}}은(는) 이미지 데이터를 복사하지 않습니다.",
+      pasteImagesLinked:
+        "{{tool}}에 계속 연결된 이미지: {{count}}. 파일 저장소로 복사할 수 없었습니다.",
+      pasteImagesUnsaved:
+        "저장이 확인되지 않아 더 이상 표시되지 않을 수 있는 이미지: {{count}}",
+      pasteNeedsEditAccess: "이 디자인에 붙여넣으려면 편집 권한이 필요합니다.",
+      pastePartialImport:
+        "붙여넣기에 실패했으며 일부 화면이 생성되었을 수 있습니다. 화면을 확인해 주세요.",
       figmaSuccess: "Figma 붙여넣기를 가져왔습니다",
       htmlSuccess: "HTML을 가져왔습니다",
       uploadSuccess: "파일을 가져왔습니다",
@@ -1753,6 +1766,8 @@ export default {
         notHtml: "가져올 유효한 HTML을 붙여넣거나 선택하세요.",
         importFailed: "가져오기 실패",
         figmaPasteFailed: "Figma 붙여넣기 가져오기 실패",
+        paperPasteFailed: "Paper 붙여넣기 가져오기에 실패했습니다",
+        wonderPasteFailed: "Wonder 붙여넣기 가져오기에 실패했습니다",
         uploadFailed: "파일 업로드 실패",
         invalidFigFile: ".fig로 끝나는 파일을 선택하세요.",
         unsupportedFileType: ".fig, .html 또는 .htm 파일을 선택하세요.",
@@ -2082,6 +2097,9 @@ export default {
     addTweaks: "조정 추가",
     addTweakControls: "조정 컨트롤 추가",
     closeTweaks: "조정 닫기",
+    showFloatingTweaks: "떠 있는 조정 표시",
+    collapseTweaks: "조정 접기",
+    expandTweaks: "조정 펼치기",
     tweaksHelp:
       "조정은 기본 디자인 위에 적용되는 중단점 및 상태별 시각적 재정의입니다. 컨트롤을 재설정하면 상속된 값으로 돌아갑니다.",
     tweaksDocs: "자세히 알아보기.",
@@ -2333,6 +2351,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "조정 값이 다른 곳에서 변경되었습니다. 디자인을 새로고침한 후 다시 시도하세요.",
+      tweakBaselineUnreadable:
+        "저장된 조정 기준을 읽을 수 없습니다. 디자인 데이터를 복구할 때까지 조정 변경이 일시 중지됩니다.",
+      resetTweakBaseline: "기준선 재설정",
       tweakSaveNotDurable:
         "조정 값이 아직 저장되지 않았습니다. 이 탭을 열어 둔 채 다시 시도하세요.",
       undoSkippedConcurrentEdit:
@@ -3513,6 +3534,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "에이전트를 사용하려면 AI 모델을 연결하세요",
       startFailed: "에이전트를 시작할 수 없습니다",
+      hostChatUnconfirmed:
+        "메시지가 호스트 채팅에 도착했는지 확인할 수 없습니다. 다시 시도하기 전에 호스트 채팅을 확인하세요.",
       cancelFailed: "에이전트를 중지할 수 없습니다",
       busy: "이 스레드에서 이미 에이전트가 작업 중입니다",
       error: {

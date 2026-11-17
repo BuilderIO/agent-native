@@ -59,7 +59,7 @@ interface Deferred {
 
 const roots: ReturnType<typeof createRoot>[] = [];
 
-function mountTweaks() {
+function mountTweaks(designData: { data: string } = DESIGN) {
   const saves: Deferred[] = [];
   const applyTweaksAsync = vi.fn(
     (params: Record<string, unknown>) =>
@@ -73,7 +73,7 @@ function mountTweaks() {
     applyTweaksAsync: applyTweaksAsync as never,
     canEditDesign: true,
     canEditDesignRef: { current: true },
-    design: DESIGN,
+    design: designData,
     designSaveActorScope: "user-1",
     designSaveOperationSourceRef: { current: "tab-a" },
     id: "design-1",
@@ -91,7 +91,15 @@ function mountTweaks() {
   const root = createRoot(host);
   roots.push(root);
   act(() => root.render(createElement(Probe)));
-  return { result, saves, applyTweaksAsync };
+  return {
+    result,
+    saves,
+    applyTweaksAsync,
+    rerender: (nextData: { data: string }) => {
+      args.design = nextData;
+      act(() => root.render(createElement(Probe)));
+    },
+  };
 }
 
 function succeed(save: Deferred) {
@@ -129,6 +137,49 @@ describe("useTweaks save scheduling", () => {
     for (const root of roots.splice(0)) act(() => root.unmount());
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("keeps saved selections pending across reload until source handoff advances the baseline", () => {
+    const { result, rerender } = mountTweaks({
+      data: JSON.stringify({
+        ...JSON.parse(DESIGN.data),
+        tweakSelections: { speed: 3 },
+        tweakSourceBaseline: { speed: 0 },
+      }),
+    });
+    expect(result.current.pendingTweakChanges).toMatchObject([
+      { id: "speed", oldValue: 0, newValue: 3 },
+    ]);
+
+    rerender({
+      data: JSON.stringify({
+        ...JSON.parse(DESIGN.data),
+        tweakSelections: { speed: 3 },
+        tweakSourceBaseline: { speed: 3 },
+      }),
+    });
+    expect(result.current.pendingTweakChanges).toEqual([]);
+  });
+
+  it("keeps pending changes unknown and warns when the baseline data is malformed", async () => {
+    const { result, saves } = mountTweaks({ data: "{" });
+    await flushMicrotasks();
+
+    expect(result.current.pendingTweakChanges).toEqual([]);
+    expect(toast.warning).toHaveBeenCalledWith(
+      "designEditor.toasts.tweakBaselineUnreadable",
+      expect.objectContaining({
+        action: expect.objectContaining({
+          label: "designEditor.toasts.resetTweakBaseline",
+        }),
+      }),
+    );
+    expect(result.current.tweakMutationsEnabled).toBe(false);
+    expect(result.current.handleTweakChange("speed", 4)).toEqual({
+      accepted: false,
+      reason: "baseline_unreadable",
+    });
+    expect(saves).toHaveLength(0);
   });
 
   it("coalesces changes made during an in-flight save into one latest-values save", async () => {

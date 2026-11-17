@@ -201,7 +201,7 @@ jobs:
                 lint_files+=("$file")
                 ;;
             esac
-          done < <(git diff --name-only -z "$CI_BASE_SHA...$CI_HEAD_SHA")
+          done < <(git diff --name-only --no-renames -z "$CI_BASE_SHA...$CI_HEAD_SHA")
 
           if ((${#format_files[@]} > 0)); then
             pnpm exec oxfmt --check --no-error-on-unmatched-pattern "${format_files[@]}"
@@ -2417,6 +2417,9 @@ jobs:
       - name: Test bare pnpm spawn guard
         run: pnpm test:no-bare-pnpm-spawn
 
+      - name: Test recursive copy links guard
+        run: pnpm test:recursive-copy-links
+
       - name: Test single S3 signer guard
         run: pnpm test:single-s3-signer
 
@@ -2425,6 +2428,9 @@ jobs:
 
       - name: Test legacy MCP hint baseline guard
         run: pnpm test:no-new-legacy-mcp-hints
+
+      - name: Test MCP parity baseline guard
+        run: pnpm test:no-new-mcp-parity-gaps
 
       - name: Test blocker-safe module names guard
         run: pnpm test:blocker-safe-module-names

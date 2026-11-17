@@ -25,6 +25,7 @@ import {
   recordCreatedDocumentsHistory,
   recordDocumentHistoryTransition,
 } from "../server/lib/document-history.js";
+import { firstRow } from "../server/lib/first-row.js";
 import {
   GitHubSourceDeadlineError,
   GitHubSourceError,
@@ -37,6 +38,7 @@ import {
   type GitHubRepositoryTarget,
   type GitHubTreeEntry,
 } from "../server/lib/github-source-client.js";
+import { tabsFrozenBy } from "../shared/column-rules.js";
 import {
   classifyGitHubSourceFile,
   fitsGitHubFieldType,
@@ -89,6 +91,7 @@ import {
   type DocumentPropertyOptions,
 } from "../shared/properties.js";
 import { bulkChunkSizeForColumnCount, chunks } from "./_batch-utils.js";
+import { columnRuleDefinitions } from "./_column-rules.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { mutateContentDatabaseSourceMetadata } from "./_database-source-utils.js";
@@ -154,29 +157,24 @@ function parseJsonObject(value: string | null | undefined) {
     : {};
 }
 
-/** Runs as the person who linked the folder, in the collection's workspace. */
-async function asLinker<T>(
-  state: Pick<GitHubSourceState, "linkedBy">,
-  orgId: string | null,
-  run: () => Promise<T>,
-): Promise<T> {
-  return await runWithRequestContext(
-    { userEmail: state.linkedBy, ...(orgId ? { orgId } : {}) },
-    run,
-  );
-}
-
 /**
- * Reads GitHub as the person who linked the folder. Their connection is saved
- * under the workspace they linked it from, so a collection with no workspace
- * of its own, in a Personal space, reads through that one.
+ * Runs as the person who linked the folder, in the collection's workspace.
+ * A collection in a Personal space has none, so it runs in the workspace the
+ * folder was linked from: the linker's GitHub connection is saved there, and
+ * that workspace's file storage keeps the collection's images, encrypted and
+ * loadable only through the pages that show them. An image uploaded to a
+ * Personal page is stored the same way, through the uploader's workspace.
  */
-async function readAsLinker<T>(
+async function asLinker<T>(
   state: Pick<GitHubSourceState, "linkedBy" | "linkedOrgId">,
   orgId: string | null,
   run: () => Promise<T>,
 ): Promise<T> {
-  return await asLinker(state, orgId ?? state.linkedOrgId, run);
+  const workspace = orgId ?? state.linkedOrgId;
+  return await runWithRequestContext(
+    { userEmail: state.linkedBy, ...(workspace ? { orgId: workspace } : {}) },
+    run,
+  );
 }
 
 async function mapLimit<T, R>(
@@ -662,6 +660,22 @@ async function ensureOptions(
   const names = (Array.isArray(value) ? value : [value]).filter(
     (name): name is string => typeof name === "string" && !!name.trim(),
   );
+  const cached = new Set(
+    (column.options.options ?? []).map((option) =>
+      option.name.trim().toLowerCase(),
+    ),
+  );
+  if (names.every((name) => cached.has(name.trim().toLowerCase()))) return;
+  // A person may have changed the options since this sync loaded its columns,
+  // and a rule may name one they added, so new choices join the options as
+  // they are now, under the collection's lock.
+  const current = firstRow(
+    await tx
+      .select({ optionsJson: schema.documentPropertyDefinitions.optionsJson })
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, column.propertyId)),
+  );
+  if (current) column.options = parsePropertyOptions(current.optionsJson);
   const options = [...(column.options.options ?? [])];
   const known = new Set(
     options.map((option) => option.name.trim().toLowerCase()),
@@ -715,6 +729,27 @@ function textFromStoredValue(
     return date.end ? `${date.start} – ${date.end}` : (date.start ?? null);
   }
   return typeof raw === "string" ? raw : JSON.stringify(raw);
+}
+
+/**
+ * A column a collection rule keys on can't become text: the rule would stop
+ * matching and quietly reopen the tabs it freezes. The sync stops and says why.
+ */
+async function assertNoFreezeRuleKeyedOn(
+  tx: Db,
+  databaseId: string,
+  column: GitHubColumn,
+) {
+  const definitions = await columnRuleDefinitions(tx, databaseId);
+  const frozenTab = firstRow(tabsFrozenBy(definitions, column.propertyId));
+  if (!frozenTab) return;
+  const name =
+    definitions.find((definition) => definition.id === column.propertyId)
+      ?.name ?? column.key;
+  throw new GitHubSourceError(
+    "sync_failed",
+    `A file gives ${name} a value its column can't hold, and a rule freezes the ${frozenTab.name} tab while ${name} has certain values, so ${name} can't become text. Fix the value in the file, or remove the rule from the ${frozenTab.name} tab's menu, then refresh.`,
+  );
 }
 
 /**
@@ -1277,7 +1312,7 @@ async function uploadAsset(
   if (run.failedAssetShas.has(entry.sha)) return "failed";
   if (storageDown(run)) return "no-storage";
   await beforeUpload();
-  const data = await readAsLinker(run.state, run.database.orgId, () =>
+  const data = await asLinker(run.state, run.database.orgId, () =>
     readGitHubBlob({
       owner: run.state.owner,
       repo: run.state.repo,
@@ -1428,6 +1463,7 @@ async function fitColumns(
       });
       run.columns.set(key, column);
     } else if (!fitsGitHubFieldType(column.type, value)) {
+      await assertNoFreezeRuleKeyedOn(tx, run.database.id, column);
       await widenColumnToText(tx, column, run.now);
     }
     if (options) options.set(column, [...(options.get(column) ?? []), value]);
@@ -1589,7 +1625,7 @@ type FileOutcome =
 
 async function readFileText(run: SyncRun, file: PlannedFile) {
   if (file.text !== undefined) return file.text;
-  const bytes = await readAsLinker(run.state, run.database.orgId, () =>
+  const bytes = await asLinker(run.state, run.database.orgId, () =>
     readGitHubBlob({
       owner: run.state.owner,
       repo: run.state.repo,
@@ -1622,7 +1658,7 @@ async function readTextsAhead(run: SyncRun, work: PlannedFile[], from: number) {
   );
   if (batch.length < 2) return;
   for (const file of batch) file.batched = true;
-  const texts = await readAsLinker(run.state, run.database.orgId, () =>
+  const texts = await asLinker(run.state, run.database.orgId, () =>
     readTextsTogether(
       {
         owner: run.state.owner,
@@ -2276,7 +2312,7 @@ async function matchRenames(
   };
   const addedByPath = new Map(added.map((file) => [file.repoPath, file]));
   if (run.state.syncedCommitSha) {
-    const renames = await readAsLinker(run.state, run.database.orgId, () =>
+    const renames = await asLinker(run.state, run.database.orgId, () =>
       readGitHubRenames({
         owner: run.state.owner,
         repo: run.state.repo,
@@ -2440,7 +2476,7 @@ export async function syncGitHubSource(
       !retryImages &&
       !!state.syncedCommitSha &&
       !state.pendingCommitSha;
-    const head = await readAsLinker(state, database.orgId, () =>
+    const head = await asLinker(state, database.orgId, () =>
       readGitHubBranchHead(
         {
           owner: state.owner,
@@ -2495,7 +2531,7 @@ export async function syncGitHubSource(
       });
     }
     const files = classifyFolder(
-      await readAsLinker(state, database.orgId, () =>
+      await asLinker(state, database.orgId, () =>
         readGitHubFolderTree({
           owner: state.owner,
           repo: state.repo,

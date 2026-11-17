@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconX } from "@tabler/icons-react";
-import { type ReactNode, type RefObject } from "react";
+import { type ReactNode, type Ref, type RefObject } from "react";
 
 import type { ContentPanelLayout } from "@/components/layout/content-layout";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,7 @@ export function DocumentPagePanel({
   spacerRef,
   headingRef,
   agentSlotRef,
+  headToolsRef,
   panelId = DOCUMENT_PAGE_PANEL_ID,
   onClose,
   children,
@@ -36,6 +37,8 @@ export function DocumentPagePanel({
   spacerRef: RefObject<HTMLDivElement | null>;
   headingRef: RefObject<HTMLHeadingElement | null>;
   agentSlotRef?: RefObject<HTMLDivElement | null> | undefined;
+  /** Where a tab puts its own tools, between the title and Close. */
+  headToolsRef?: Ref<HTMLDivElement> | undefined;
   panelId?: string | undefined;
   onClose: () => void;
   children: ReactNode;
@@ -81,7 +84,11 @@ export function DocumentPagePanel({
           "col-span-2 col-start-1 row-start-2 z-40 flex min-h-0 min-w-0 flex-col justify-self-end overflow-hidden bg-background transition-[translate,visibility] ease-[var(--ease-drawer)] motion-reduce:transition-none print:hidden",
           mode === "sheet"
             ? "mt-1.5 w-full rounded-t-[14px] shadow-[0_-1px_0_hsl(var(--border)),0_-10px_30px_rgba(0,0,0,0.1)] [transition-duration:260ms,0s]"
-            : "max-w-full border-s border-border [transition-duration:220ms,0s]",
+            : "max-w-full [transition-duration:220ms,0s]",
+          // Docked, the panel is a column of the page, so its line turns along
+          // the top and closes the corner under the header. Over the page, it
+          // floats on its shadow alone.
+          mode === "dock" && "border-s border-t border-border",
           mode === "over" && "shadow-[-10px_0_28px_rgba(0,0,0,0.09)]",
           open
             ? "translate-x-0 translate-y-0"
@@ -105,9 +112,15 @@ export function DocumentPagePanel({
           >
             {title}
           </h2>
+          {/* Always there, so Close stays put whichever tab is open. */}
+          <div
+            ref={headToolsRef}
+            className="flex min-w-0 flex-1 items-center justify-end gap-1"
+            data-document-panel-head-tools
+          />
           <button
             type="button"
-            className="ms-auto flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             aria-label={t("editor.toolbar.closeUtilityPanel")}
             onClick={onClose}
           >

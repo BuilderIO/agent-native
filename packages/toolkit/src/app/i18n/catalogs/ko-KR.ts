@@ -1498,6 +1498,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "공개",
   "share.publicDescription": "링크가 있는 모든 사용자가 볼 수 있음",
   "share.remove": "제거",
+  "share.removeInvitee": "{{email}} 제거",
   "share.role": "역할",
   "share.searching": "검색 중...",
   "share.share": "공유",
@@ -2254,11 +2255,14 @@ const messages: ToolkitAgentChatTranslation = {
     "프레젠테이션을 위해 이 브라우저에서 샘플 데이터를 사용합니다.",
   "settingsShell.appGroup.labsFootnote":
     "이 새롭고 불안정한 기능에는 버그가 있을 수 있습니다.",
+  "settingsShell.appGroup.labsHostDecided":
+    "이 설정은 이미 정해져 있어 여기서 변경할 수 없습니다.",
   "settingsShell.appGroup.labsLoadError": "실험실 기능을 불러오지 못했습니다.",
   "settingsShell.appGroup.labsReadError":
     "저장된 선택 항목을 읽을 수 없습니다. 다시 설정하려면 켜기 또는 끄기를 선택하세요.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}}을(를) 변경하지 못했습니다. 다시 시도하세요.",
+  "settingsShell.appGroup.labsUseDefault": "기본값 사용",
   "settingsShell.appGroup.mcpAbout":
     "{{app}}을(를) Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 {{app}}에서 작업할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   "settingsShell.appGroup.mcpAppCards": "채팅 앱의 앱 카드",
@@ -2995,6 +2999,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "슬라이드와 디자인용 이미지를 생성합니다.",
   "settingsInfra.whyEmbeddings":
     "의미 기반 검색을 개선합니다. 키워드 검색은 이것 없이도 작동합니다.",
+  "settingsInfra.semanticSearch": "의미 기반 검색",
+  "settingsInfra.semanticSearchOn":
+    "단어뿐 아니라 의미로도 페이지를 찾습니다. 페이지 텍스트와 검색어는 임베딩 제공업체로 전송됩니다.",
+  "settingsInfra.semanticSearchOff":
+    "꺼짐. 검색은 단어만 찾으며, 페이지 텍스트는 임베딩 제공업체로 전송되지 않습니다.",
+  "settingsInfra.semanticSearchUnknown":
+    "의미 기반 검색이 켜져 있는지 확인할 수 없습니다.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "의미 기반 검색이 켜졌습니다. 기존 페이지는 백그라운드에서 색인됩니다.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "의미 기반 검색이 꺼졌습니다. 저장된 페이지 벡터가 삭제되었습니다.",
+  "settingsInfra.semanticSearchSaveFailed":
+    "의미 기반 검색을 변경할 수 없습니다.",
   "settingsInfra.designSystem": "디자인 시스템 인텔리전스",
   "settingsInfra.whyDesignSystem":
     "생성된 슬라이드와 디자인을 브랜드에 맞게 유지합니다.",
@@ -3717,6 +3734,65 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "음성 채팅 설정을 저장할 수 없습니다.",
   "voice.dictation.cancelTranscription": "받아쓰기 취소",
+  "common.noData": "데이터 없음",
+  "common.rowsPerPage": "페이지당 행:",
+  "dashboardMode.columnResizePersonal":
+    "드래그하면 나에게만 크기가 바뀝니다. 더블클릭하면 초기화됩니다.",
+  "dashboardMode.columnResizeShared": "드래그하면 모두에게 크기가 바뀝니다",
+  "sessions.watchReplay": "리플레이 보기",
+  "sqlDashboard.calloutSeverityCritical": "심각",
+  "sqlDashboard.calloutSeverityInfo": "정보",
+  "sqlDashboard.calloutSeverityWarning": "경고",
+  "sqlDashboard.chartPointLimitFirst":
+    "{{total}}개 중 처음 {{shown}}개 포인트 표시 중",
+  "sqlDashboard.chartPointLimitLast":
+    "{{total}}개 중 마지막 {{shown}}개 포인트 표시 중",
+  "sqlDashboard.chartPointLimitNewest":
+    "{{total}}개 중 최신 {{shown}}개 포인트 표시 중",
+  "sqlDashboard.collapseDescription": "설명 접기",
+  "sqlDashboard.columnFormat": "형식",
+  "sqlDashboard.columnFormatCurrency": "통화",
+  "sqlDashboard.columnFormatDate": "날짜",
+  "sqlDashboard.columnFormatDuration": "소요 시간(초)",
+  "sqlDashboard.columnFormatNumber": "숫자",
+  "sqlDashboard.columnFormatPercent": "백분율",
+  "sqlDashboard.columnFormatText": "일반 텍스트",
+  "sqlDashboard.columnHide": "열 숨기기",
+  "sqlDashboard.columnName": "열 이름",
+  "sqlDashboard.columnRename": "열 이름 바꾸기",
+  "sqlDashboard.columnResize": "열 크기 조절",
+  "sqlDashboard.columnShow": '"{{name}}" 표시',
+  "sqlDashboard.columnShowHidden": "숨긴 열 표시",
+  "sqlDashboard.drilldownChartPoints": "차트 데이터 포인트",
+  "sqlDashboard.drilldownNextPage": "차트 데이터 포인트 다음 페이지",
+  "sqlDashboard.drilldownPageRange":
+    "총 {{total}}개 중 {{start}}–{{end}}개 표시",
+  "sqlDashboard.drilldownPreviousPage": "차트 데이터 포인트 이전 페이지",
+  "sqlDashboard.expandDescription": "설명 펼치기",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "완료",
+  "sqlDashboard.funnelLeft": "앱을 떠남",
+  "sqlDashboard.funnelLeftHere": "여기서 앱을 떠남",
+  "sqlDashboard.funnelMovedOn": "둘 다 하지 않고 넘어감",
+  "sqlDashboard.funnelOptional": "선택 사항",
+  "sqlDashboard.funnelShown": "{{count}}명에게 표시",
+  "sqlDashboard.funnelShownLabel": "표시됨",
+  "sqlDashboard.funnelSkipped": "건너뜀",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}}(개선)",
+  "sqlDashboard.metricComparisonDown":
+    "{{period}} {{previous}} 대비 {{change}} 감소",
+  "sqlDashboard.metricComparisonFlat": "{{period}} {{previous}} 대비 변화 없음",
+  "sqlDashboard.metricComparisonNoChange": "변화 없음",
+  "sqlDashboard.metricComparisonPoints": "{{value}}%p",
+  "sqlDashboard.metricComparisonPreviousPeriod": "이전 기간",
+  "sqlDashboard.metricComparisonUp":
+    "{{period}} {{previous}} 대비 {{change}} 증가",
+  "sqlDashboard.metricComparisonVs": "{{period}} 대비",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}}(악화)",
+  "sqlDashboard.multiColumnSortHelp":
+    "클릭하여 정렬합니다. Shift 키를 누른 채 클릭하면 다른 정렬을 추가합니다.",
+  "sqlDashboard.noXValue": "값 없음",
 };
 
 export default messages;

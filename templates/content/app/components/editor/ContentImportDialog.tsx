@@ -504,7 +504,20 @@ export function ContentImportDialog({
           return file ? [file] : [];
         }),
         imageUploads.current,
-        (source) => uploadImportSource(source, parentId),
+        // A refused file is named, so it can be found among the rest.
+        (source) =>
+          uploadImportSource(source, parentId).catch(
+            (uploadError: unknown) => {
+              if (uploadError instanceof ImageStorageUnavailableError) {
+                throw uploadError;
+              }
+              const reason =
+                uploadError instanceof Error
+                  ? uploadError.message
+                  : String(uploadError);
+              throw new Error(`${source.name}: ${reason}`);
+            },
+          ),
       );
       const result = await importContent.mutateAsync({
         files: payload.map((file) =>

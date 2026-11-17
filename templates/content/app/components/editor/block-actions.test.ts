@@ -8,6 +8,8 @@ import {
   blockActionLocks,
   blockCommentRange,
   blockTitleKey,
+  canTurnInto,
+  currentTurnIntoTarget,
   turnBlockInto,
   type TurnIntoTarget,
 } from "./block-actions";
@@ -162,5 +164,163 @@ describe("block actions", () => {
     expect(
       blockActionLocks(editing.state, 7, editing.state.doc.child(1)),
     ).toEqual({ duplicate: null, remove: null });
+  });
+
+  it("quotes only a Toggle's title for a comment on the block", () => {
+    const page = mount([
+      {
+        type: "notionToggle",
+        content: [
+          { type: "notionToggleSummary", content: [text("Plan")] },
+          paragraph("Body"),
+        ],
+      },
+      {
+        type: "notionToggle",
+        content: [{ type: "notionToggleSummary" }, paragraph("Body")],
+      },
+    ]);
+    const { doc } = page.state;
+
+    const range = blockCommentRange(doc.child(0), 0);
+    expect(range).toEqual({ from: 2, to: 6 });
+    expect(doc.textBetween(2, 6)).toBe("Plan");
+    expect(blockCommentRange(doc.child(1), doc.child(0).nodeSize)).toBeNull();
+  });
+
+  describe("Turn into, with Toggles", () => {
+    const toggle = (headingLevel: number | null = null) => ({
+      type: "notionToggle",
+      attrs: { open: false, headingLevel },
+      content: [
+        { type: "notionToggleSummary", content: [text("Plan")] },
+        paragraph("Body"),
+      ],
+    });
+    const names = (target: Editor) => {
+      const lines: string[] = [];
+      target.state.doc.descendants((node) => {
+        if (node.isTextblock && node.textContent) {
+          lines.push(`${node.type.name}: ${node.textContent}`);
+        }
+        return !node.isTextblock;
+      });
+      return lines;
+    };
+    function turn(page: Editor, target: TurnIntoTarget) {
+      const tr = page.state.tr;
+      expect(turnBlockInto(tr, 0, target)).toBe(true);
+      page.view.dispatch(tr);
+      return page.state.doc.child(0);
+    }
+
+    it("makes a Toggle from a paragraph or heading, keeping its text", () => {
+      const fromParagraph = turn(mount([paragraph("Plan")]), "toggle");
+      expect(fromParagraph.type.name).toBe("notionToggle");
+      expect(fromParagraph.attrs.open).toBe(true);
+      expect(fromParagraph.attrs.headingLevel).toBeNull();
+      expect(fromParagraph.child(0).type.name).toBe("notionToggleSummary");
+      expect(fromParagraph.child(0).textContent).toBe("Plan");
+      editor?.destroy();
+
+      const fromHeading = turn(
+        mount([
+          { type: "heading", attrs: { level: 1 }, content: [text("Plan")] },
+        ]),
+        "toggleHeading2",
+      );
+      expect(fromHeading.attrs.headingLevel).toBe(2);
+      expect(fromHeading.child(0).textContent).toBe("Plan");
+    });
+
+    it("changes a Toggle's heading level and keeps it closed", () => {
+      const page = mount([toggle()]);
+      const heading = turn(page, "toggleHeading3");
+      expect(heading.attrs.headingLevel).toBe(3);
+      expect(heading.attrs.open).toBe(false);
+      expect(currentTurnIntoTarget(heading)).toBe("toggleHeading3");
+
+      const plain = turn(page, "toggle");
+      expect(plain.attrs.headingLevel).toBeNull();
+      expect(currentTurnIntoTarget(plain)).toBe("toggle");
+      expect(names(page)).toEqual([
+        "notionToggleSummary: Plan",
+        "paragraph: Body",
+      ]);
+    });
+
+    it.each<[TurnIntoTarget, string[]]>([
+      ["text", ["paragraph: Plan", "paragraph: Body"]],
+      ["heading2", ["heading: Plan", "paragraph: Body"]],
+      ["codeBlock", ["codeBlock: Plan", "paragraph: Body"]],
+      ["bulletedList", ["paragraph: Plan", "paragraph: Body"]],
+      ["numberedList", ["paragraph: Plan", "paragraph: Body"]],
+      ["todoList", ["paragraph: Plan", "paragraph: Body"]],
+      ["quote", ["paragraph: Plan", "paragraph: Body"]],
+    ])("turns a Toggle into %s and keeps its body", (target, expected) => {
+      const page = mount([toggle()]);
+      turn(page, target);
+      expect(names(page)).toEqual(expected);
+      expect(page.state.doc.child(0).type.name).not.toBe("notionToggle");
+    });
+
+    it("won't make code of a line with something only text could lose", () => {
+      const atom = {
+        type: "notionInlineAtom",
+        attrs: { tagName: "math", attrsJson: "{}", label: "x^2" },
+      };
+      const page = mount([
+        {
+          type: "notionToggle",
+          attrs: { open: false },
+          content: [
+            { type: "notionToggleSummary", content: [text("Plan "), atom] },
+            paragraph("Body"),
+          ],
+        },
+        { type: "paragraph", content: [text("Line "), atom] },
+      ]);
+
+      expect(turnBlockInto(page.state.tr, 0, "codeBlock")).toBe(false);
+      const below = page.state.doc.child(0).nodeSize;
+      expect(turnBlockInto(page.state.tr, below, "codeBlock")).toBe(false);
+    });
+
+    it("keeps a title's line breaks in code", () => {
+      const page = mount([
+        {
+          type: "notionToggle",
+          attrs: { open: false },
+          content: [
+            {
+              type: "notionToggleSummary",
+              content: [text("One"), { type: "hardBreak" }, text("Two")],
+            },
+          ],
+        },
+      ]);
+
+      expect(turn(page, "codeBlock").textContent).toBe("One\nTwo");
+    });
+
+    it("keeps the body inside a list item or quote", () => {
+      const list = turn(mount([toggle()]), "bulletedList");
+      expect(list.child(0).childCount).toBe(2);
+      editor?.destroy();
+
+      const quote = turn(mount([toggle()]), "quote");
+      expect(quote.childCount).toBe(2);
+    });
+
+    it("leaves an old Toggle without a title out of the menu", () => {
+      const page = mount([
+        {
+          type: "notionToggle",
+          attrs: { summary: "Old" },
+          content: [paragraph("Body")],
+        },
+      ]);
+      expect(canTurnInto(page.state.doc.child(0))).toBe(false);
+    });
   });
 });
