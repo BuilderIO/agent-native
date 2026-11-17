@@ -3,7 +3,6 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { eq, lt } from "drizzle-orm";
 import { bigint, pgTable, text } from "drizzle-orm/pg-core";
 
-import { ActionContractError } from "../action.js";
 import { createGetDb } from "../db/create-get-db.js";
 import { defineStore } from "../db/store-registry.js";
 import type { MCPCallerIdentity } from "./build-server.js";
@@ -42,12 +41,15 @@ export const mcpTurnGrantsStore = defineStore({
   ],
 });
 
-export class TurnGrantUnavailableError extends ActionContractError {
+// Shaped like an action contract error without extending it: this module loads
+// wherever core's server does, including under specs that mock `action.js`.
+export class TurnGrantUnavailableError extends Error {
+  readonly actionContractError = true;
+  readonly errorCode = "turn_grant_unavailable";
+  readonly statusCode = 503;
+
   constructor() {
-    super("Turn grant storage is unavailable.", {
-      errorCode: "turn_grant_unavailable",
-      statusCode: 503,
-    });
+    super("Turn grant storage is unavailable.");
     this.name = "TurnGrantUnavailableError";
   }
 }
