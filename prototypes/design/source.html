@@ -9855,11 +9855,11 @@ render();
 #tokens .row.au .icon-btn { flex: none; margin-right: -4px; }
 
 /* Minimal UI: the file and its page float as an island top left; the inspector keeps its docked column. */
-/* With nothing selected, the inspector's column gives way to its head alone: Comments, people and Share as an island
-   top right that hugs them, the twin of the file island top left. Selecting something brings the docked column back. */
+/* With nothing selected, the inspector's column gives way to its head alone, floating top right across the column with
+   its left edge on the column's edge, so Comments and the people barely move when selecting brings the column back. */
 .app.minimal.nosel .isl-r { display: none; }
 .app.minimal.nosel .gbar .gb-r { align-self: start; background: none; box-shadow: none; }
-.app.minimal.nosel .gbar #insp-head { margin: 8px 8px 0 0; width: auto; min-width: 0; height: 48px; padding-inline: 8px; border-radius: 12px; background: var(--color-background); box-shadow: var(--isl-shadow); }
+.app.minimal.nosel .gbar #insp-head { margin: 8px 8px 0 0; width: calc(var(--insp-w) - 8px); min-width: 0; height: 48px; border-radius: 12px; background: var(--color-background); box-shadow: var(--isl-shadow); }
 .app.minimal .gbar .file-head { align-self: start; margin: 8px 0 0 8px; height: 48px; padding: 8px; border-radius: 12px; background: var(--color-background); box-shadow: var(--isl-shadow); }
 .app.minimal .gbar .file-head .file-id { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; }
 .app.minimal .gbar .file-name { height: 16px; line-height: 16px; }
