@@ -338,24 +338,47 @@ describe("AgentKitAgentCallApproval", () => {
       waiting("call-1"),
       { ...waiting("call-2"), status: "working" as const },
     ];
+    const runGoing = (agents: AgentParticipant[]) =>
+      threadClient([], agents, {
+        messages: [],
+        runs: [
+          {
+            id: "run-2",
+            threadId: "thread-1",
+            status: "running",
+            lastSequence: 1,
+          },
+        ],
+        activeRunIds: ["run-2"],
+      });
 
     it("hides in a tab that never continued", async () => {
+      await renderCard(await runGoing(resuming));
+
+      expect(container.textContent).toBe("");
+    });
+
+    it("hides before the resumed call has named its task", async () => {
+      // A call's start and progress events carry no task ID.
       await renderCard(
-        await threadClient([], resuming, {
-          messages: [],
-          runs: [
-            {
-              id: "run-2",
-              threadId: "thread-1",
-              status: "running",
-              lastSequence: 1,
-            },
-          ],
-          activeRunIds: ["run-2"],
-        }),
+        await runGoing([
+          waiting("call-1"),
+          { id: "call-2", name: "Slides", status: "working" },
+        ]),
       );
 
       expect(container.textContent).toBe("");
+    });
+
+    it("still shows while a call to another app runs", async () => {
+      await renderCard(
+        await runGoing([
+          waiting("call-1"),
+          { id: "call-2", name: "Mail", status: "working" },
+        ]),
+      );
+
+      expect(container.textContent).toContain("Slides needs your approval");
     });
 
     it("shows again once no run is going", async () => {
