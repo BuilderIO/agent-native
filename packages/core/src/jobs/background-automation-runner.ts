@@ -1254,7 +1254,8 @@ async function confirmAutomationWork(
       fallbackToPreToolText: false,
     });
   if (
-    (evidence.status === "success" || !evidence.noOpDeclared) &&
+    (evidence.status === "success" ||
+      (!evidence.noOpDeclared && !evidence.failedTool?.outcomeUnknown)) &&
     deliveryPlatform &&
     deliveryDestination &&
     deliveryResponseText.trim()

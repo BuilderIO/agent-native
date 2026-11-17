@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Report uncertain automation writes with the existing unknown-write code instead of a provider failure code, preserving non-transient pause behavior.
+Immediately pause scheduled automations after uncertain writes, including on recovery, until the owner reviews and resumes them.

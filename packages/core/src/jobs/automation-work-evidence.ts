@@ -51,7 +51,7 @@ export function inspectAutomationWork(
     options.noOpReason ?? automationNoOpReasonFromEvents(events);
   if (noOpReason && !hasConfirmedAction && !workFailure)
     return { status: "skipped", reason: noOpReason };
-  return hasConfirmedAction
+  return hasConfirmedAction && !workFailure?.outcomeUnknown
     ? { status: "success" }
     : { status: "unconfirmed", noOpDeclared: Boolean(noOpReason), failedTool };
 }

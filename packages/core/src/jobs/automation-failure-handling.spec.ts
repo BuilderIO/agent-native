@@ -636,6 +636,12 @@ describe("scheduled automations that cannot run", () => {
       async ({ send }: Parameters<typeof successfulAutomationRun>[0]) => {
         send({
           type: "tool_done",
+          tool: "record-report",
+          completedSideEffect: true,
+          result: "Recorded",
+        });
+        send({
+          type: "tool_done",
           tool: "send-notification",
           isError: true,
           outcomeUnknown: true,
@@ -653,25 +659,16 @@ describe("scheduled automations that cannot run", () => {
       `nextRun: "${new Date(START - MINUTE).toISOString()}"`,
     ]);
 
-    let now = START;
-    for (let attempt = 1; attempt <= 5; attempt += 1) {
-      await tickAt(now);
-      const job = readJob("alice@agent-native.test", "unknown-write");
-      expect(job.lastErrorCode).toBe("write_tool_outcome_unknown");
-      expect(job.lastError).toContain("An action may already have applied.");
-      expect(job.lastError).not.toContain("PRIVATE_PROVIDER_RESPONSE");
-      if (attempt < 5) {
-        if (typeof job.nextRun !== "string")
-          throw new Error("Missing next run");
-        now = Date.parse(job.nextRun);
-      }
-    }
+    await tickAt(START);
     const paused = readJob("alice@agent-native.test", "unknown-write");
     expect(paused).toMatchObject({
       enabled: false,
+      lastErrorCode: "write_tool_outcome_unknown",
       pausedReason: "write_tool_outcome_unknown",
-      consecutiveFailures: 5,
+      consecutiveFailures: 1,
     });
+    expect(paused.lastError).toContain("An action may already have applied.");
+    expect(paused.lastError).not.toContain("PRIVATE_PROVIDER_RESPONSE");
     expect(paused.lastError).not.toContain("resumes once this clears");
 
     if (typeof paused.pausedAt !== "string")
@@ -681,7 +678,62 @@ describe("scheduled automations that cannot run", () => {
       enabled: false,
       pausedReason: "write_tool_outcome_unknown",
     });
-    expect(await historyOf("unknown-write")).toHaveLength(5);
+    expect(await historyOf("unknown-write")).toHaveLength(1);
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+
+    const row = resourceStore.rows.get(
+      "alice@agent-native.test:jobs/unknown-write.md",
+    );
+    if (!row) throw new Error("Missing automation");
+    row.content = row.content.replace("enabled: false", "enabled: true");
+    runAgentLoopMock.mockImplementation(successfulAutomationRun);
+    await tickAt(Date.parse(paused.pausedAt) + 7 * 60 * MINUTE + MINUTE);
+    const resumed = readJob("alice@agent-native.test", "unknown-write");
+    expect(resumed.enabled).toBe(true);
+    expect(resumed.pausedReason).toBeUndefined();
+    if (typeof resumed.nextRun !== "string")
+      throw new Error("Missing next run");
+    await tickAt(Date.parse(resumed.nextRun));
+    expect(readJob("alice@agent-native.test", "unknown-write")).toMatchObject({
+      enabled: true,
+      lastStatus: "success",
+    });
+    expect(await historyOf("unknown-write")).toHaveLength(2);
+  });
+
+  it("records an uncertain manual run without changing its schedule or failure streak", async () => {
+    runAgentLoopMock.mockImplementation(async ({ send }) => {
+      send({
+        type: "tool_done",
+        tool: "send-notification",
+        isError: true,
+        outcomeUnknown: true,
+        result: "PRIVATE_PROVIDER_RESPONSE",
+      });
+      return okUsage;
+    });
+    const nextRun = new Date(START + 15 * MINUTE).toISOString();
+    putJob("alice@agent-native.test", "manual-unknown-write", [
+      'schedule: "*/15 * * * *"',
+      "enabled: true",
+      "createdBy: alice@agent-native.test",
+      'appId: "calendar"',
+      `nextRun: "${nextRun}"`,
+    ]);
+
+    expect(
+      await runJobNow("alice@agent-native.test", "manual-unknown-write", deps),
+    ).toMatchObject({ status: "error" });
+    const job = readJob("alice@agent-native.test", "manual-unknown-write");
+    expect(job).toMatchObject({
+      enabled: true,
+      nextRun,
+      lastErrorCode: "write_tool_outcome_unknown",
+    });
+    expect(job.consecutiveFailures).toBeUndefined();
+    expect(job.pausedReason).toBeUndefined();
+    expect(job.lastError).not.toContain("PRIVATE_PROVIDER_RESPONSE");
+    expect(await historyOf("manual-unknown-write")).toHaveLength(1);
   });
 
   it("pauses on spent credits, probes on its own, and resumes after the credits reset", async () => {

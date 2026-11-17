@@ -361,7 +361,10 @@ export async function inspectAutomationRecovery(
         `${evidence.status === "unconfirmed" && evidence.failedTool?.outcomeUnknown ? `${automationOutcomeMessagesForLocale("en-US").outcomeUnknown} ` : ""}${automationRecoveryMessagesForLocale().deliveryUnknown}`,
         events,
       ),
-      errorCode: "background_automation_delivery_unknown",
+      errorCode:
+        evidence.status === "unconfirmed" && evidence.failedTool?.outcomeUnknown
+          ? automationWorkFailureCode(evidence.failedTool)
+          : "background_automation_delivery_unknown",
       deliveryNote: deliveryNoteForEvents(events),
     };
   }

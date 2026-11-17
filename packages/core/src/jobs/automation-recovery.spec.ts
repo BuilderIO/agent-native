@@ -276,9 +276,7 @@ describe("automation worker recovery", () => {
       expect(recovery.error).toContain("Delivery outcome is unknown");
       if (deliveryDestination && !noOp) {
         expect(recovery.error).toContain("response delivery is unknown");
-        expect(recovery.errorCode).toBe(
-          "background_automation_delivery_unknown",
-        );
+        expect(recovery.errorCode).toBe("write_tool_outcome_unknown");
       } else {
         expect(recovery.errorCode).toBe("write_tool_outcome_unknown");
       }

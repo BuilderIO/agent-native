@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { defineAction, fail, isActionContractError } from "../action.js";
 /**
  * Fetch tool — outbound HTTP for automations and agent use.
@@ -770,6 +772,18 @@ export function createFetchToolEntry(
     description: entry.tool.description,
     readOnly: entry.readOnly,
     planMode: entry.planMode,
+    outputSchema: z.union([
+      z.string(),
+      z.object({
+        status: z.number(),
+        statusText: z.string(),
+        contentType: z.string(),
+        url: z.string(),
+        _agentImages: z.array(
+          z.object({ data: z.string(), mediaType: z.string() }),
+        ),
+      }),
+    ]),
     run: entry.run,
   });
   return { "web-request": { ...observed, ...entry, run: observed.run } };

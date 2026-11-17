@@ -309,9 +309,12 @@ export function applyAutomationFailure(
       ? 0
       : (meta.consecutiveFailures ?? 0);
   const count = prior + 1;
-  const threshold = failure.precondition
-    ? PRECONDITION_PAUSE_AFTER
-    : RUNTIME_PAUSE_AFTER;
+  const threshold =
+    failure.code === "write_tool_outcome_unknown"
+      ? 1
+      : failure.precondition
+        ? PRECONDITION_PAUSE_AFTER
+        : RUNTIME_PAUSE_AFTER;
   const pause = count >= threshold;
   return {
     consecutiveFailures: count,
