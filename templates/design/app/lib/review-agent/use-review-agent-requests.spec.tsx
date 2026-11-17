@@ -1036,6 +1036,11 @@ describe("useReviewAgentRequests", () => {
       });
       expect(controller.mentionOptions).toEqual([
         {
+          id: "agent:default",
+          label: "agent",
+          email: null,
+        },
+        {
           id: "agent:anthropic:claude-sonnet-5-5",
           label: "Claude Sonnet 5.5",
           email: null,

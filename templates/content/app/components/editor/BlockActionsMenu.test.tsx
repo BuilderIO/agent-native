@@ -292,6 +292,10 @@ describe("BlockActionsMenu", () => {
       "editor.slash.bulletedList=false",
       "editor.slash.numberedList=false",
       "editor.slash.todoList=false",
+      "editor.slash.toggle=false",
+      "editor.slash.toggleHeading1=false",
+      "editor.slash.toggleHeading2=false",
+      "editor.slash.toggleHeading3=false",
       "editor.slash.quote=false",
       "editor.slash.codeBlock=false",
     ]);
@@ -395,6 +399,9 @@ describe("BlockActionsMenu", () => {
       "editor.heading1=false",
       "editor.heading2=false",
       "editor.heading3=false",
+      "editor.slash.toggleHeading1=false",
+      "editor.slash.toggleHeading2=false",
+      "editor.slash.toggleHeading3=false",
     ]);
 
     search("zzz");

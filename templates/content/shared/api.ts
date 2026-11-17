@@ -1478,6 +1478,8 @@ export interface UpdateDatabaseItemsRequest extends DatabaseItemsBatchRequest {
 
 export interface UpdateDatabaseItemsResponse {
   databaseId: string;
+  /** The page backing the collection. */
+  databaseDocumentId: string;
   propertyId: string;
   updated: number;
   failed: number;
