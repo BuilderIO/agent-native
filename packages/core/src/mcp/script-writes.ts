@@ -581,7 +581,7 @@ const RECOVERY_GRACE_MS = 2 * 60_000;
 const RECOVERY_BATCH = 50;
 /** How long the sweep waits on one write's `reconcile` or `fence`, or less
  *  when its deadline comes sooner. One that takes longer leaves the write
- *  `unknown`, and the next sweep waits on that same call. */
+ *  `unknown`, and later sweeps start nothing for it until that call ends. */
 const RECOVERY_CALL_TIMEOUT_MS = 20_000;
 
 export interface RecoverScriptWritesOptions {
@@ -671,8 +671,16 @@ async function recoveredEffect(
     : undefined;
   const contract = scriptWriteContract(entry);
   if (!contract) return undefined;
-  const call = recoveryCall(contract, row, now >= row.recoverAfter);
-  if (!call) {
+  const closing = now >= row.recoverAfter;
+  const check = closing ? "fence" : "reconcile";
+  const answer = startRecoveryCall(contract, row, closing);
+  if (answer === "running") {
+    console.warn(
+      `[mcp] Recovery's last ${check} of a script write for run ${row.runId} is still running; it stays unknown.`,
+    );
+    return undefined;
+  }
+  if (answer === "full") {
     console.warn(
       `[mcp] Recovery is already running ${RECOVERY_CALLS_MAX} checks; a script write for run ${row.runId} stays unknown until a later sweep.`,
     );
@@ -680,62 +688,49 @@ async function recoveredEffect(
   }
   let found: { status?: unknown } | typeof TIMED_OUT | undefined;
   try {
-    found = await withinRecoveryTimeout(call.answer, deadlineAt);
+    found = await withinRecoveryTimeout(answer, deadlineAt);
   } catch (error) {
     console.warn(
-      `[mcp] Recovery could not ${call.kind} a script write for run ${row.runId}: ${describeThrownForLog(error)}`,
+      `[mcp] Recovery could not ${check} a script write for run ${row.runId}: ${describeThrownForLog(error)}`,
     );
     return undefined;
   }
   if (found === TIMED_OUT) {
     console.warn(
-      `[mcp] Recovery's ${call.kind} of a script write for run ${row.runId} took too long; it stays unknown.`,
+      `[mcp] Recovery's ${check} of a script write for run ${row.runId} took too long; it stays unknown.`,
     );
     return undefined;
   }
   // Checked at run time: only these two answers settle a write.
   if (found?.status === "committed") return "committed";
-  if (call.kind === "fence" && found?.status === "fenced") {
-    return "not-applied";
-  }
+  if (closing && found?.status === "fenced") return "not-applied";
   return undefined;
 }
 
 /** The most `reconcile` and `fence` calls recovery runs at once in a process. */
 const RECOVERY_CALLS_MAX = 8;
 
-interface RecoveryCall {
-  kind: "reconcile" | "fence";
-  // Typed as loosely as an app's answer can be, since it's checked on use.
-  answer: Promise<{ status?: unknown } | undefined>;
-}
-
 /**
- * Recovery calls still running, by contract and then by write. Nothing can
- * stop a call that outlasts its sweep, so a later sweep waits on that same
- * call rather than starting another beside it, and calls that never end can
- * hold at most `RECOVERY_CALLS_MAX` connections.
+ * The writes whose `reconcile` or `fence` is still running, by contract.
+ * Nothing can stop a call that outlasts its sweep, so later sweeps start no
+ * other call for that write until it ends, and calls that never end hold at
+ * most `RECOVERY_CALLS_MAX` connections.
  */
-const runningRecoveryCalls = new WeakMap<
-  McpScriptWriteContract,
-  Map<string, RecoveryCall>
->();
+const runningRecoveryCalls = new WeakMap<McpScriptWriteContract, Set<string>>();
 let runningRecoveryCallCount = 0;
 
-/** The write's running call, or a new one, or nothing when too many run. */
-function recoveryCall(
+/** Starts the write's `reconcile` or `fence`, unless a call still runs for
+ *  it or `RECOVERY_CALLS_MAX` calls run. */
+function startRecoveryCall(
   contract: McpScriptWriteContract,
   row: UnsettledScriptWrite,
   closing: boolean,
-): RecoveryCall | undefined {
-  const running =
-    runningRecoveryCalls.get(contract) ?? new Map<string, RecoveryCall>();
+): Promise<{ status?: unknown } | undefined> | "running" | "full" {
+  const running = runningRecoveryCalls.get(contract) ?? new Set<string>();
   runningRecoveryCalls.set(contract, running);
   const key = `${row.appId}\0${row.runId}\0${row.seq}`;
-  const existing = running.get(key);
-  if (existing) return existing;
-  if (runningRecoveryCallCount >= RECOVERY_CALLS_MAX) return undefined;
-  const kind = closing ? "fence" : "reconcile";
+  if (running.has(key)) return "running";
+  if (runningRecoveryCallCount >= RECOVERY_CALLS_MAX) return "full";
   // As the person who made the call, so the receipt is read with their
   // access and no one else's.
   const answer = Promise.resolve(
@@ -744,19 +739,19 @@ function recoveryCall(
         ...(row.ownerEmail ? { userEmail: row.ownerEmail } : {}),
         ...(row.orgId ? { orgId: row.orgId } : {}),
       },
+      // Typed as loosely as an app's answer can be, since it's checked above.
       async (): Promise<{ status?: unknown } | undefined> =>
         closing ? contract.fence(row.locator) : contract.reconcile(row.locator),
     ),
   );
-  const call: RecoveryCall = { kind, answer };
-  running.set(key, call);
+  running.add(key);
   runningRecoveryCallCount += 1;
   const done = () => {
     runningRecoveryCallCount -= 1;
     running.delete(key);
   };
   void answer.then(done, done);
-  return call;
+  return answer;
 }
 
 const TIMED_OUT = Symbol("timed out");
