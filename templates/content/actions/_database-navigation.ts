@@ -232,7 +232,13 @@ const NUMBER_FILTER_OPERATORS: Partial<
 // A number as JavaScript's Number() reads a string, short of the hex, binary
 // and octal forms, which no number property stores.
 const NUMBER_TEXT_PATTERN =
-  "^[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]{1,4})?$";
+  "^[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?$";
+
+// Number() rounds to the nearest double. A value at least this far from zero
+// rounds to Infinity, which the evaluator reads as no number, and one no
+// further than half the smallest double rounds to 0.
+const NUMBER_OVERFLOW = ((2n ** 54n - 1n) * 2n ** 970n).toString();
+const NUMBER_UNDERFLOW = `0.${(5n ** 1075n).toString().padStart(1075, "0")}`;
 
 // The date and time contentDatabaseFilterInstant reads, with an optional offset.
 const DATE_TIME_PATTERN =
@@ -317,14 +323,26 @@ function storedValueIsAnyOf(type: string, names: SQL, values: string[]) {
 /** The evaluator's propertyNumberValue; null where it gives NaN. */
 function storedNumber() {
   const text = trimmedSql(storedString);
-  return sql`case
-    when jsonb_typeof(stored.value) = 'number' then ${trimmedSql(sql`stored.raw`)}::numeric
+  // Number text Postgres's numeric can't hold has a huge exponent or tens of
+  // thousands of digits. It reads as 0 when its digits are all zero or its
+  // exponent is negative, and as too large to be a number otherwise.
+  const exact = sql`case
+    when jsonb_typeof(stored.value) = 'number' then (stored.value #>> '{}')::numeric
     when jsonb_typeof(stored.value) = 'string' and ${storedString} <> '' then
       case
         when ${text} = '' then 0
-        when ${text} ~ ${NUMBER_TEXT_PATTERN} then ${text}::numeric
+        when ${text} !~ ${NUMBER_TEXT_PATTERN} then null
+        when pg_input_is_valid(${text}, 'numeric') then ${text}::numeric
+        when ${text} ~ '^[+-]?[0.]*([eE]|$)' or ${text} ~ '[eE]-' then 0
       end
   end`;
+  // Postgres rounds numeric to double precision as Number() does, but fails
+  // where Number() gives Infinity or 0.
+  return sql`(select case
+      when abs(parsed.exact) >= ${NUMBER_OVERFLOW}::numeric then null
+      when abs(parsed.exact) <= ${NUMBER_UNDERFLOW}::numeric then 0
+      else parsed.exact::double precision
+    end from (select ${exact} as exact) as parsed)`;
 }
 
 /** The evaluator's propertyDateText: a date's start, trimmed. */
@@ -458,7 +476,7 @@ function storedValuePredicate(
   if (numberOperator) {
     const target = Number(filter.value.trim());
     if (!Number.isFinite(target)) return sql`false`;
-    return sql`coalesce(${storedNumber()} ${sql.raw(numberOperator)} ${String(target)}::numeric, false)`;
+    return sql`coalesce(${storedNumber()} ${sql.raw(numberOperator)} ${String(target)}::double precision, false)`;
   }
   // "Is" and "is not" compare dates only on date properties.
   if (
@@ -511,7 +529,8 @@ function storedValueFilterSql(args: {
     select ${predicate}
     from (select 1) as stored_row
     left join (
-      select ${values.valueJson} as raw, nullif(${values.valueJson}, '')::jsonb as value
+      select ${values.valueJson} as raw,
+        case when pg_input_is_valid(${values.valueJson}, 'jsonb') then ${values.valueJson}::jsonb end as value
       from ${values}
       where ${values.documentId} = ${args.documentId} and ${values.propertyId} = ${args.definition.id}
       limit 1

@@ -35,7 +35,10 @@ import {
   contentDatabaseFilterOperatorsForType,
   contentDatabaseFilterToday,
 } from "../shared/database-query.js";
-import type { DocumentPropertyType } from "../shared/properties.js";
+import {
+  parsePropertyValue,
+  type DocumentPropertyType,
+} from "../shared/properties.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -2322,12 +2325,25 @@ describe("Files navigation filters on stored property values", () => {
     },
     owner: { id: "stored-owner", name: "Owner", type: "person", options: {} },
     due: { id: "stored-due", name: "Due", type: "date", options: {} },
+    measure: {
+      id: "stored-measure",
+      name: "Measure",
+      type: "number",
+      options: {},
+    },
+    remark: { id: "stored-remark", name: "Remark", type: "text", options: {} },
   } satisfies Record<
     string,
     Pick<DocumentProperty["definition"], "id" | "name" | "type" | "options">
   >;
   type Key = keyof typeof definitions;
   const keys = Object.keys(definitions) as Key[];
+  // A value saved as this exact text, which JSON.stringify wouldn't write.
+  class SavedText {
+    constructor(readonly text: string) {}
+  }
+  const savedJson = (value: unknown) =>
+    value instanceof SavedText ? value.text : JSON.stringify(value);
   // Each page's stored values. A property left out has no stored value, and
   // null is stored as JSON null. Some are shapes the app no longer writes.
   const files: Array<{ id: string; values: Partial<Record<Key, unknown>> }> = [
@@ -2343,6 +2359,9 @@ describe("Files navigation filters on stored property values", () => {
         tags: ["tag-red", "tag-blue"],
         owner: ["alice@example.com"],
         due: { start: "2026-10-22", includeTime: false },
+        // Too large for numeric, and for a double.
+        measure: "1e200000",
+        remark: new SavedText('{"note": "unfinished'),
       },
     },
     {
@@ -2357,6 +2376,8 @@ describe("Files navigation filters on stored property values", () => {
         tags: ["tag-green"],
         owner: ["bo@example.com", "alice@example.com"],
         due: { start: "2026-10-22T09:30", includeTime: true },
+        measure: new SavedText("1e400"),
+        remark: "kept",
       },
     },
     {
@@ -2368,6 +2389,7 @@ describe("Files navigation filters on stored property values", () => {
         state: null,
         tags: [],
         due: { start: "2026-10-23T03:30", includeTime: true },
+        measure: "1e-20000",
       },
     },
     {
@@ -2379,6 +2401,9 @@ describe("Files navigation filters on stored property values", () => {
         tags: ["tag-unknown"],
         owner: [],
         due: "2026-10-21",
+        // 1 as a double.
+        measure: "1.00000000000000001",
+        remark: new SavedText(""),
       },
     },
     { id: "empty", values: {} },
@@ -2391,6 +2416,8 @@ describe("Files navigation filters on stored property values", () => {
         state: "state-todo",
         tags: ["tag-blue"],
         due: { start: "2026-10-22T20:00:00+02:00", includeTime: true },
+        measure: new SavedText("[1, 2"),
+        remark: new SavedText("not json"),
       },
     },
     {
@@ -2400,6 +2427,7 @@ describe("Files navigation filters on stored property values", () => {
         points: " 7 ",
         tags: ["tag-red"],
         due: { start: "2026-10-20", end: "2026-10-25", includeTime: false },
+        measure: "1e00005",
       },
     },
     {
@@ -2407,21 +2435,33 @@ describe("Files navigation filters on stored property values", () => {
       values: {
         points: 1e21,
         due: { start: "2026-02-30T10:00", includeTime: true },
+        measure: "-1e309",
       },
     },
     // New York skips 02:00 to 03:00 on 8 March 2026, and runs 01:00 to 02:00
     // twice on 1 November.
+    // The measures nearest zero and the largest a double holds: the first
+    // rounds to the smallest double, the second to 0, the third to the largest.
     {
       id: "gap",
-      values: { due: { start: "2026-03-08T02:30", includeTime: true } },
+      values: {
+        due: { start: "2026-03-08T02:30", includeTime: true },
+        measure: new SavedText("2.5e-324"),
+      },
     },
     {
       id: "after-gap",
-      values: { due: { start: "2026-03-08T03:15", includeTime: true } },
+      values: {
+        due: { start: "2026-03-08T03:15", includeTime: true },
+        measure: "2e-324",
+      },
     },
     {
       id: "overlap",
-      values: { due: { start: "2026-11-01T01:30", includeTime: true } },
+      values: {
+        due: { start: "2026-11-01T01:30", includeTime: true },
+        measure: "1.7976931348623158e308",
+      },
     },
   ];
   const fileIds = files.map((file) => file.id);
@@ -2476,7 +2516,7 @@ describe("Files navigation filters on stored property values", () => {
             ownerEmail: OWNER,
             documentId: `stored-${file.id}`,
             propertyId: definitions[key].id,
-            valueJson: JSON.stringify(file.values[key]),
+            valueJson: savedJson(file.values[key]),
           });
       }
     }
@@ -2531,7 +2571,8 @@ describe("Files navigation filters on stored property values", () => {
       const value = file.values[key];
       return {
         ...property,
-        value: value === undefined ? null : JSON.parse(JSON.stringify(value)),
+        value:
+          value === undefined ? null : parsePropertyValue(savedJson(value)),
       };
     }),
   }));
@@ -2737,9 +2778,9 @@ describe("Files navigation filters on stored property values", () => {
       "2026-02-30",
     ];
     const valuesByType: Partial<Record<DocumentPropertyType, string[]>> = {
-      text: ["launch", "Launch Recap", "draft", "ship the"],
+      text: ["launch", "Launch Recap", "draft", "ship the", "kept"],
       url: ["example.com/launch", "https://example.com/launch", "HTTPS"],
-      number: ["5", "12", "-3.5", "0", "1e21", "abc"],
+      number: ["5", "12", "-3.5", "0", "1", "100000", "1e21", "1e308", "abc"],
       select: [
         "Draft",
         "stage-live",
@@ -2796,6 +2837,48 @@ describe("Files navigation filters on stored property values", () => {
     // Most filters keep some rows and drop others, so agreeing means something.
     expect(narrowing).toBeGreaterThan(sweep.length / 2);
   }, 120_000);
+
+  it("reads a saved value Postgres can't hold as JSON as no value", async () => {
+    // JavaScript reads this as text holding a NUL character, which Postgres
+    // text can't hold, so the two readers can't agree on it.
+    const propertyId = "stored-nul";
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId: DATABASE_ID,
+      name: "Nul",
+      type: "text",
+    });
+    await getDb().insert(schema.documentPropertyValues).values({
+      id: "stored-value-launch-nul",
+      ownerEmail: OWNER,
+      documentId: "stored-launch",
+      propertyId,
+      valueJson: '"a\\u0000b"',
+    });
+    const filter = (
+      operator: ContentDatabaseFilter["operator"],
+      value = "",
+    ): ContentDatabaseFilter => ({
+      key: propertyId,
+      label: "Nul",
+      operator,
+      value,
+    });
+    try {
+      expect(await navigatedIds([filter("is_empty")], "UTC")).toEqual(
+        [...fileIds].sort(),
+      );
+      expect(await navigatedIds([filter("contains", "a")], "UTC")).toEqual([]);
+    } finally {
+      await getDb()
+        .delete(schema.documentPropertyValues)
+        .where(eq(schema.documentPropertyValues.propertyId, propertyId));
+      await getDb()
+        .delete(schema.documentPropertyDefinitions)
+        .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+    }
+  });
 
   it("combines stored-value filters with other filters and groups", async () => {
     const cases: Array<
