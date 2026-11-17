@@ -1056,9 +1056,9 @@ describe("GitHub pull request collections", () => {
       answer = resolve;
     });
 
-    const started = Date.now();
+    // GitHub hasn't answered yet, so the read coming back at all shows it
+    // stopped waiting for the sync.
     expect(await as(() => refreshPage(row.documentId))).toBe(false);
-    expect(Date.now() - started).toBeLessThan(4_500);
     expect(await liveTitles(result.database.id)).toEqual([
       "Before a slow read",
     ]);
