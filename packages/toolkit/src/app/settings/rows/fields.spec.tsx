@@ -231,6 +231,40 @@ describe("settings rows: fields real settings pages needed", () => {
     expect(tagged("settings.team.triage", "settings.row.error")).toBeNull();
   });
 
+  it("shows why a number, select or option write was rejected", async () => {
+    const reject = async () => {
+      throw new Error("Out of range for this plan");
+    };
+    const sections: SettingsSectionDefinition[] = [
+      {
+        id: "limits",
+        rows: [
+          {
+            id: "settings.limits.count",
+            kind: "number",
+            label: "Count",
+            binding: { value: 1, set: reject },
+          },
+        ],
+      },
+    ];
+    act(() => root.render(<SettingsSections sections={sections} />));
+    const input = document.querySelector(
+      '[data-row-kind="number"] input',
+    ) as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "9");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(
+      tagged("settings.limits.count", "settings.row.error")?.textContent,
+    ).toBe("Out of range for this plan");
+  });
+
   it("keeps an add form open with its values and shows the message when a submit does not save", async () => {
     const submits: unknown[] = [];
     let result: SettingsSubmitResult = { error: "That name is taken" };

@@ -67,7 +67,9 @@ import { signShortLivedToken } from "../server/short-lived-token.js";
 import { ensureApprovalTable } from "./approval-store.js";
 import { runWithMcpChatTurnCall } from "./chat-turn-scope.js";
 import {
+  admitMcpChatTurn,
   mintMcpChatTurn,
+  readMcpChatTurn,
   registerMcpChatTurnApps,
   resetMcpChatTurnAppsForTests,
 } from "./chat-turn-store.js";
@@ -469,4 +471,39 @@ it("drops grants that expired more than a day ago when it mints a new one", asyn
   expect(rows.map((row) => (row as { grant_hash: string }).grant_hash)).toEqual(
     ["recent-grant"],
   );
+});
+
+it("keeps an admitted chat turn readable after its 120 s proof expired", async () => {
+  const identity = {
+    userEmail: OWNER,
+    orgDomain: undefined,
+    orgId: null,
+    identityAssurance: "user" as const,
+  };
+  registerMcpChatTurnApps([APP]);
+  const minted = await runWithMcpChatTurnCall(identity, "ask_app", false, () =>
+    mintMcpChatTurn(APP),
+  );
+  if (minted.status !== "minted") throw new Error("expected a minted proof");
+  const binding = {
+    owner: OWNER,
+    assurance: "user",
+    appId: APP,
+    taskId: "long-turn",
+  };
+  await admitMcpChatTurn(minted.claim, binding);
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    vi.setSystemTime(Date.now() + 5 * 60_000);
+    expect(await readMcpChatTurn(binding)).toMatchObject({
+      status: "admitted",
+    });
+    vi.setSystemTime(Date.now() + 10 * 60_000);
+    expect(await readMcpChatTurn(binding)).toMatchObject({
+      status: "refused",
+      reason: "durable-invalid-or-expired",
+    });
+  } finally {
+    vi.useRealTimers();
+  }
 });

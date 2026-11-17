@@ -39,7 +39,11 @@ import {
   useSettingsAction,
   useSettingsCollectionAdd,
   useSettingsTextDraft,
+  SettingsWriteErrorsProvider,
+  useBindingWrite,
   useSettingsWrite,
+  useSettingsWriteError,
+  useSettingsWriteErrorStore,
 } from "./hooks.js";
 import { deriveSettingsSummary, isSettingsRowVisible } from "./model.js";
 import {
@@ -93,7 +97,12 @@ function RouterNavigateProvider({ children }: { children: ReactNode }) {
 
 export function HouseSettingsSections(props: SettingsSectionsProps) {
   const inRouter = useInRouterContext();
-  const page = <HouseSettingsPage {...props} />;
+  const writeErrors = useSettingsWriteErrorStore();
+  const page = (
+    <SettingsWriteErrorsProvider value={writeErrors}>
+      <HouseSettingsPage {...props} />
+    </SettingsWriteErrorsProvider>
+  );
   return inRouter ? (
     <RouterNavigateProvider>{page}</RouterNavigateProvider>
   ) : (
@@ -284,6 +293,7 @@ function RowFrame({
   control?: ReactNode;
   children?: ReactNode;
 }) {
+  const writeError = useSettingsWriteError(row.id);
   return (
     <div
       {...settingsTags(row.id, "settings.row")}
@@ -323,13 +333,13 @@ function RowFrame({
           {row.status.message}
         </p>
       ) : null}
-      {row.error ? (
+      {row.error || writeError ? (
         <p
           role="alert"
           {...settingsTags(row.id, "settings.row.error")}
           className="mt-2 text-sm text-destructive"
         >
-          {row.error}
+          {row.error ?? writeError}
         </p>
       ) : null}
     </div>
@@ -627,6 +637,7 @@ function HouseRow({
   siblings: readonly SettingsRowDefinition[];
 }) {
   const generatedId = useId();
+  const writeBinding = useBindingWrite(row.id);
   const controlId = row.controlId ?? generatedId;
   const disabled = isSettingsRowDisabled(row);
 
@@ -665,7 +676,7 @@ function HouseRow({
                 disabled={disabled}
                 onChange={(event) => {
                   const raw = event.currentTarget.value;
-                  void row.binding.set?.(raw === "" ? null : Number(raw));
+                  writeBinding(row.binding, raw === "" ? null : Number(raw));
                 }}
               />
             </ControlTag>
@@ -693,7 +704,7 @@ function HouseRow({
               ...optional("disabled", option.disabled),
               icon: option.icon,
             }))}
-            onChange={(value) => void row.binding.set?.(value)}
+            onChange={(value) => writeBinding(row.binding, value)}
           />
         </ControlTag>
       );
@@ -765,7 +776,7 @@ function HouseRow({
                     `${row.id}.${option.value}`,
                     "settings.row.option",
                   )}
-                  onClick={() => void row.binding.set?.(option.value)}
+                  onClick={() => writeBinding(row.binding, option.value)}
                   className={cn(
                     "rounded-md text-start text-sm",
                     cards
@@ -1112,11 +1123,16 @@ type OptionsRow = Extract<
   { kind: "checkbox-group" | "multi-select" }
 >;
 
-function toggleOption(row: OptionsRow, value: string, checked: boolean) {
+function toggleOption(
+  row: OptionsRow,
+  write: ReturnType<typeof useBindingWrite>,
+  value: string,
+  checked: boolean,
+) {
   const next = checked
     ? [...new Set([...row.binding.value, value])]
     : row.binding.value.filter((current) => current !== value);
-  void row.binding.set?.(next);
+  write(row.binding, next);
 }
 
 function OptionGrid({
@@ -1128,6 +1144,7 @@ function OptionGrid({
   disabled: boolean;
   options?: OptionsRow["options"];
 }) {
+  const write = useBindingWrite(row.id);
   const selected = new Set(row.binding.value);
   return (
     <div
@@ -1148,7 +1165,9 @@ function OptionGrid({
             {...optional("description", option.description)}
             checked={selected.has(option.value)}
             {...optional("disabled", disabled || option.disabled)}
-            onChange={(checked) => toggleOption(row, option.value, checked)}
+            onChange={(checked) =>
+              toggleOption(row, write, option.value, checked)
+            }
           />
         </span>
       ))}
@@ -1369,15 +1388,18 @@ const STATUS_TONE = {
 } as const;
 
 function CellText({
+  rid,
   label,
   binding,
 }: {
+  rid: string;
   label: string;
   binding: SettingsBinding<string>;
 }) {
+  const write = useBindingWrite(rid);
   const [draft, setDraft] = useState<string | null>(null);
   const flush = () => {
-    if (draft !== null && draft !== binding.value) void binding.set?.(draft);
+    if (draft !== null && draft !== binding.value) write(binding, draft);
     setDraft(null);
   };
   return (
@@ -1407,6 +1429,7 @@ function CollectionCell({
   cell: SettingsCollectionCell;
   muted: boolean;
 }) {
+  const write = useBindingWrite(rid);
   if (typeof cell === "string") {
     return (
       <span
@@ -1464,7 +1487,7 @@ function CollectionCell({
           aria-label={cell.label}
           checked={cell.binding.value}
           disabled={locked}
-          onChange={(checked) => void cell.binding.set?.(checked)}
+          onChange={(checked) => write(cell.binding, checked)}
         />
       </span>
     );
@@ -1472,7 +1495,7 @@ function CollectionCell({
   if (cell.kind === "text") {
     return (
       <span {...tags} className="contents">
-        <CellText label={cell.label} binding={cell.binding} />
+        <CellText rid={rid} label={cell.label} binding={cell.binding} />
       </span>
     );
   }
@@ -1491,7 +1514,7 @@ function CollectionCell({
           ...optional("disabled", option.disabled),
         }))}
         onChange={(value) => {
-          if (value !== null) void cell.binding.set?.(value);
+          if (value !== null) write(cell.binding, value);
         }}
       />
     </span>
@@ -1518,7 +1541,11 @@ function CollectionItemRow({
           )}
           className="contents"
         >
-          <CellText label={item.rename.label} binding={item.rename.binding} />
+          <CellText
+            rid={rid}
+            label={item.rename.label}
+            binding={item.rename.binding}
+          />
         </span>
       ) : (
         <span

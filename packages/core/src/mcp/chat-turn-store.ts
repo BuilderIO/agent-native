@@ -16,6 +16,10 @@ import { mcpChatTurnOwner } from "./chat-turn-scope.js";
 
 export const MCP_CHAT_TURN_FIELD = "__agentNativeMcpChatTurn";
 const TTL_MS = 120_000;
+// A turn's grant outlives the 120 s proof: the proof only has to survive the
+// hop to admission, the grant has to cover the whole async turn (same window
+// as an MCP turn grant).
+const DURABLE_GRANT_MS = 9 * 60_000;
 
 const chatTurnApps = new Set<string>();
 
@@ -216,7 +220,7 @@ export async function admitMcpChatTurn(
       appId,
       runId: taskId,
       turnId: taskId,
-      expiresAt: c.expiresAt,
+      expiresAt: Date.now() + DURABLE_GRANT_MS,
     };
     const signature = signMcpChatTurnProof(durablePayload(grant));
     await mcpChatTurnsStore.ready();
@@ -227,7 +231,7 @@ export async function admitMcpChatTurn(
         taskId,
         owner: c.owner,
         appId,
-        expiresAt: c.expiresAt,
+        expiresAt: grant.expiresAt,
         signature,
       })
       .onConflictDoNothing()

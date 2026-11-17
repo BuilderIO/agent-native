@@ -1,5 +1,9 @@
 import {
+  createContext,
+  useCallback,
+  useContext,
   useEffect,
+  useMemo,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
@@ -316,4 +320,59 @@ export function useSettingsTextDraft(row: TextRow) {
       if (row.mode === "view") setEditing(false);
     },
   };
+}
+
+type WriteErrorStore = {
+  errors: Readonly<Record<string, string>>;
+  report(id: string, message: string | null): void;
+};
+
+const WriteErrors = createContext<WriteErrorStore | null>(null);
+export const SettingsWriteErrorsProvider = WriteErrors.Provider;
+
+/** Holds the last rejected write per row id for one settings surface. */
+export function useSettingsWriteErrorStore(): WriteErrorStore {
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const report = useCallback((id: string, message: string | null) => {
+    setErrors((current) => {
+      if (message === null) {
+        if (!(id in current)) return current;
+        const { [id]: _cleared, ...rest } = current;
+        return rest;
+      }
+      return { ...current, [id]: message };
+    });
+  }, []);
+  return useMemo(() => ({ errors, report }), [errors, report]);
+}
+
+/** The rejection message of the last failed write on this row, if any. */
+export function useSettingsWriteError(id: string): string | null {
+  return useContext(WriteErrors)?.errors[id] ?? null;
+}
+
+/**
+ * Writes a binding for a control that has no confirmation of its own, and
+ * reports a rejection on the row instead of dropping it.
+ */
+export function useBindingWrite(
+  id: string,
+): <Value>(binding: SettingsBinding<Value>, value: Value) => void {
+  const store = useContext(WriteErrors);
+  return useCallback(
+    (binding, value) => {
+      store?.report(id, null);
+      void (async () => {
+        try {
+          await binding.set?.(value);
+        } catch (cause) {
+          store?.report(
+            id,
+            cause instanceof Error ? cause.message : String(cause),
+          );
+        }
+      })();
+    },
+    [id, store],
+  );
 }
