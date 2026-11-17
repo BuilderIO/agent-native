@@ -542,7 +542,9 @@ OpenAI's `text-embedding-3-small`.
   statement, so an app lists `semanticVectorStoreMigration` after
   `semanticSearchMigration`: at release it installs `vector` and makes the
   table for the built-in families' 1,024 dimensions, and a database without
-  `vector` defers it to a later release. A request only checks that table and
+  `vector` defers it to a later release. A server that migrates as it boots
+  also defers it when its database role may not install `vector` or make the
+  table, where a release fails instead. A request only checks that table and
   its indexes exist before writing. Elsewhere, such as local development, when
   the database offers `vector` but hasn't installed it, the store creates the
   extension, and the first write makes its table. A database without

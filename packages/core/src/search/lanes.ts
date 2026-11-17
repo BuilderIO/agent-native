@@ -3,7 +3,12 @@
  * Postgres full-text tables keyed by namespace, and reciprocal rank fusion.
  */
 import type { DbExec } from "../db/index.js";
-import { deferMigration, type MigrationEntry } from "../db/migrations.js";
+import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
+import {
+  deferMigration,
+  isPermissionError,
+  type MigrationEntry,
+} from "../db/migrations.js";
 
 export const DEFAULT_SEARCH_NAMESPACE = "creative_context";
 export const PGVECTOR_REQUIRED_MESSAGE =
@@ -66,7 +71,7 @@ export function searchNamespaceIdentifiers(
   }
   const suffix =
     dimensions === undefined ? "" : `_${checkedDimensions(dimensions)}`;
-  return {
+  const names = {
     namespace,
     ftsTable: `${namespace}_search_documents`,
     ftsIndex: `${namespace}_search_documents_gin`,
@@ -75,6 +80,14 @@ export function searchNamespaceIdentifiers(
     vectorIndex: `${namespace}_vectors${suffix}_hnsw`,
     vectorAudienceIndex: `${namespace}_vectors${suffix}_audience_gin`,
   };
+  // Postgres cuts names past 63 characters, which could give vector tables
+  // of different sizes one name, so a namespace too long for them is refused.
+  if (dimensions !== undefined && names.vectorAudienceIndex.length > 63) {
+    throw new Error(
+      `Search namespace "${namespace}" is too long for ${dimensions}-dimension vectors: Postgres cuts names past 63 characters, so tables of different sizes could share one.`,
+    );
+  }
+  return names;
 }
 
 function checkedDimensions(value: number): number {
@@ -188,7 +201,8 @@ async function pgVectorIndexComplete(
  * request functions can't change schema: it installs the extension and makes
  * a table, with both indexes, for each of `dimensions` in `namespace`. A
  * database without pgvector defers it, so it runs at a later release once the
- * extension is there.
+ * extension is there. So does a server migrating as it boots whose database
+ * role may not install the extension or make the table; a release fails.
  */
 export function pgVectorIndexMigration(entry: {
   version: number;
@@ -211,9 +225,24 @@ export function pgVectorIndexMigration(entry: {
         return deferMigration();
       }
       for (const dimensions of entry.dimensions) {
-        await ensurePgVectorIndex(exec, dimensions, {
-          namespace: entry.namespace,
-        });
+        try {
+          await ensurePgVectorIndex(exec, dimensions, {
+            namespace: entry.namespace,
+          });
+        } catch (error) {
+          // A booting server exits when a migration throws, so a statement
+          // its database role may not run leaves this pending instead, and
+          // search matches words alone. A release still fails.
+          const cause = error instanceof Error ? error.cause : error;
+          if (isMigrationAuthorizedRuntime() || !isPermissionError(cause)) {
+            throw error;
+          }
+          console.warn(
+            `[search] The database role may not make "${entry.name}"'s vector tables, so it waits for a later boot.`,
+            cause,
+          );
+          return deferMigration();
+        }
       }
     },
   };

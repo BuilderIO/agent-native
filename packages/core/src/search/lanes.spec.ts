@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DbExecInput } from "../db/client.js";
+import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { MIGRATION_DEFERRED } from "../db/migrations.js";
 import {
   assertPgVectorAvailable,
@@ -114,6 +115,20 @@ describe("searchNamespaceIdentifiers", () => {
         "Embedding dimensions must be an integer from 1 to 16000.",
       );
     }
+  });
+
+  it("refuses a namespace whose vector names Postgres would cut short", () => {
+    // "_vectors_1024_audience_gin" leaves 37 of Postgres's 63 characters.
+    const longest = "a".repeat(37);
+    expect(
+      searchNamespaceIdentifiers(longest, 1024).vectorAudienceIndex,
+    ).toHaveLength(63);
+    expect(() => searchNamespaceIdentifiers(`${longest}b`, 1024)).toThrow(
+      "Postgres cuts names past 63 characters",
+    );
+    expect(searchNamespaceIdentifiers(`${longest}b`).namespace).toBe(
+      `${longest}b`,
+    );
   });
 });
 
@@ -230,15 +245,40 @@ describe("pgVectorIndexMigration", () => {
     ]);
   });
 
-  it("fails the release when making a table fails, so it isn't recorded", async () => {
-    const cause = new Error("permission denied to create extension");
-    const { db } = recordingDb((statement) =>
+  /** A database with pgvector whose `CREATE EXTENSION` fails with `cause`. */
+  const failingExtension = (cause: Error) =>
+    recordingDb((statement) =>
       statement.sql.includes("pg_available_extensions")
         ? { rows: [{ present: 1 }] }
         : statement.sql.startsWith("CREATE EXTENSION")
           ? Promise.reject(cause)
           : {},
     );
+  const refused = Object.assign(
+    new Error('permission denied to create extension "vector"'),
+    { code: "42501" },
+  );
+
+  it("fails the release when making a table fails, so it isn't recorded", async () => {
+    const { db } = failingExtension(refused);
+    await expect(
+      withMigrationRuntime(async () => migration.run?.(db)),
+    ).rejects.toThrow(PGVECTOR_REQUIRED_MESSAGE);
+  });
+
+  it("defers at boot when the database role may not make the table", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { db } = failingExtension(refused);
+    await expect(migration.run?.(db)).resolves.toBe(MIGRATION_DEFERRED);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('"brain-vectors"'),
+      refused,
+    );
+    warn.mockRestore();
+  });
+
+  it("fails at boot on anything but a refused statement", async () => {
+    const { db } = failingExtension(new Error("connection reset"));
     await expect(migration.run?.(db)).rejects.toThrow(
       PGVECTOR_REQUIRED_MESSAGE,
     );
