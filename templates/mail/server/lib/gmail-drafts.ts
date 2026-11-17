@@ -257,10 +257,11 @@ function isSentFilename(reported: unknown, sent: string): boolean {
 
 /**
  * Reads a save's Gmail files with `read`, and finds a file whose ref no longer
- * reads in the current message of the Gmail draft the save names. A save that
- * Gmail accepted but whose new refs Mail never learned leaves the draft's
- * files pointing at the message Gmail dropped; the next save reports where
- * they are in `moved`. Only a file read fails on costs a Gmail request.
+ * reads in the current message of the Gmail draft the save names, once Gmail
+ * confirms the ref's message is gone. A save that Gmail accepted but whose new
+ * refs Mail never learned leaves the draft's files pointing at the message
+ * Gmail dropped; the next save reports where they are in `moved`. Only a file
+ * read fails on costs a Gmail request.
  */
 export function savedDraftAttachmentReader(
   accessToken: string,
@@ -294,6 +295,14 @@ export function savedDraftAttachmentReader(
     const parts: unknown = found?.result?.message?.payload?.parts;
     if (typeof messageId !== "string" || messageId === gmailMessageId) {
       return null;
+    }
+    // A read can fail while its message stands, and a same-named file in the
+    // draft is then a guess, not the file the ref meant.
+    try {
+      await gmailGetMessage(accessToken, gmailMessageId, "minimal");
+      return null;
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
     }
     const sentName = mimeAttachmentFilename(attachment);
     const sameFile = (other: ComposeAttachment) =>

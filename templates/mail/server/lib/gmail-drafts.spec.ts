@@ -837,6 +837,12 @@ describe("attachments of a Gmail draft updated in place", () => {
     ]);
     const partsOf = (messageId: string) =>
       messageId === draft.messageId ? draft.parts : messages.get(messageId);
+    mocks.gmailGetMessage.mockImplementation(
+      async (_token: string, messageId: string) => {
+        if (!partsOf(messageId)) throw notFound();
+        return { id: messageId };
+      },
+    );
     mocks.gmailGetAttachment.mockImplementation(
       async (_token: string, messageId: string, attachmentId: string) => {
         const part = partsOf(messageId)?.find(
@@ -973,6 +979,8 @@ describe("attachments of a Gmail draft updated in place", () => {
     expect(draft.parts).toEqual([
       { filename: "brief.pdf", data: "draft file", attachmentId: "part-3-0" },
     ]);
+    // Every file read, so nothing needed recovering.
+    expect(mocks.gmailGetMessage).not.toHaveBeenCalled();
   });
 
   it("leaves a forwarded file's refs alone, since its message stays", async () => {
@@ -1084,6 +1092,46 @@ describe("attachments of a Gmail draft updated in place", () => {
     expect(draft.parts).toEqual([
       { filename: "brief.pdf", data: "draft file", attachmentId: "part-3-0" },
     ]);
+  });
+
+  it("won't swap in a draft file for one whose read failed while its message stands", async () => {
+    const draft = fakeGmail();
+    draft.parts = [
+      {
+        filename: "forwarded.txt",
+        data: "forwarded file",
+        attachmentId: "part-1-0",
+      },
+    ];
+    // A transient failure, which a reader may report as no data at all.
+    const read = mocks.gmailGetAttachment.getMockImplementation();
+    mocks.gmailGetAttachment.mockImplementation(
+      async (token: string, messageId: string, attachmentId: string) =>
+        messageId === "source-message"
+          ? {}
+          : read?.(token, messageId, attachmentId),
+    );
+
+    await expect(save("r-draft-7", [forwardedFile])).rejects.toThrow(
+      "Gmail attachment could not be read",
+    );
+    expect(mocks.gmailGetMessage).toHaveBeenCalledWith(
+      "token",
+      "source-message",
+      "minimal",
+    );
+    expect(draft.messageId).toBe("message-of-draft");
+  });
+
+  it("won't recover a file when Gmail can't say whether its message is gone", async () => {
+    const draft = fakeGmail();
+    mocks.gmailGetMessage.mockRejectedValue(googleError(503, "Backend Error"));
+    const stale = { ...draftFile, gmailMessageId: "message-gone" };
+
+    await expect(save("r-draft-7", [stale])).rejects.toThrow(
+      "Google API error (503)",
+    );
+    expect(draft.messageId).toBe("message-of-draft");
   });
 
   it("won't guess which of two same-named files a stale ref meant", async () => {
