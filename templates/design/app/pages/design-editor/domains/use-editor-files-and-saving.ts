@@ -5,6 +5,7 @@ import {
   tryCallActionKeepalive,
   readClientAppState,
 } from "@agent-native/core/client/hooks";
+import { clearEmbedAuthToken } from "@agent-native/core/client/host";
 import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
@@ -25,6 +26,7 @@ import {
 } from "@shared/node-rewrite";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
+import type { VisualEditHandoffRecord } from "@shared/visual-edit-handoff";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -60,6 +62,10 @@ import {
 } from "@/lib/design-save-outbox-writers";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { createLatestReadGate } from "@/lib/latest-read-gate";
+import {
+  clearVisualEditBoardClaimSecret,
+  readVisualEditBoardClaimSecret,
+} from "@/lib/visual-edit-board-claim";
 
 import type {
   LiveScreenSnapshot,
@@ -880,6 +886,8 @@ export function useEditorFilesAndSaving({
     setTweakSelections,
     tweakSelections,
     tweaks,
+    pendingTweakChanges,
+    tweakMutationsEnabled,
   } = useTweaks({
     acknowledgeOutboxEntry,
     applyTweaksAsync,
@@ -920,17 +928,54 @@ export function useEditorFilesAndSaving({
     if (postAuthSaveRef.current === key) return;
     postAuthSaveRef.current = key;
 
-    duplicateDesignMutation
-      .mutateAsync({ id, title: design.title } as any)
-      .then((result: any) => {
-        if (!result?.id) throw new Error("Missing copied design id");
-        const nextSearch = postAuthIntent === "share" ? "?intent=share" : "";
-        void navigate(`/design/${result.id}${nextSearch}`, { replace: true });
+    const nextSearch = postAuthIntent === "share" ? "?intent=share" : "";
+    const copyIntoAccount = () =>
+      duplicateDesignMutation
+        .mutateAsync({ id, title: design.title })
+        .then((result: unknown) => {
+          const copiedId = (result as { id?: unknown } | null)?.id;
+          if (typeof copiedId !== "string" || !copiedId) {
+            throw new Error("Missing copied design id");
+          }
+          clearEmbedAuthToken();
+          void navigate(`/design/${copiedId}${nextSearch}`, { replace: true });
+        })
+        .catch((error) => {
+          postAuthSaveRef.current = null;
+          reportWriteFailure(error, {
+            label: t("designEditor.toasts.saveCopyError"),
+          });
+        });
+
+    // A board this tab built signed out moves into the account instead of
+    // being copied. Any other board, or a refused claim, falls back to a copy.
+    const storedClaim = readVisualEditBoardClaimSecret(id);
+    if (storedClaim.status !== "found") {
+      void copyIntoAccount();
+      return;
+    }
+    callAction("claim-visual-edit-board", {
+      designId: id,
+      claimSecret: storedClaim.secret,
+    })
+      .then(() => {
+        clearVisualEditBoardClaimSecret(id);
+        // The board's capability is no longer this tab's identity; a full
+        // load reads the design again with the new owner's access.
+        clearEmbedAuthToken();
+        window.location.replace(
+          `${appBasePath()}/design/${encodeURIComponent(id)}${nextSearch}`,
+        );
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
+        if ((error as { status?: unknown } | null)?.status === 403) {
+          clearVisualEditBoardClaimSecret(id);
+          void copyIntoAccount();
+          return;
+        }
         postAuthSaveRef.current = null;
         reportWriteFailure(error, {
-          label: t("designEditor.toasts.saveCopyError"),
+          label: t("designEditor.toasts.claimBoardError"),
         });
       });
   }, [
@@ -1704,6 +1749,7 @@ export function useEditorFilesAndSaving({
     pendingEditCount: number;
     status: "ready" | "suggested" | "empty";
     prompt: string;
+    records: VisualEditHandoffRecord[];
     suggestion: {
       trusted: false;
       authorEmail: string | null;
@@ -1991,6 +2037,8 @@ export function useEditorFilesAndSaving({
     handleTweakChange,
     tweakSelections,
     tweaks,
+    pendingTweakChanges,
+    tweakMutationsEnabled,
     designSystemsLoading,
     designSystemOptions,
     editorPreferences,

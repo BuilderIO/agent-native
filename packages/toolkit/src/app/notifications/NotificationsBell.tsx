@@ -331,7 +331,7 @@ export function NotificationsBell({
                         {n.body}
                       </span>
                     ) : null}
-                    <span className="text-[10px] text-muted-foreground/70">
+                    <span className="text-[10px] text-muted-foreground">
                       {formatLocaleDateTime(n.createdAt, readerLocale)}
                     </span>
                   </button>

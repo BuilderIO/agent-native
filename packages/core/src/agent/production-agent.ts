@@ -62,6 +62,7 @@ import {
   runPreparedActionCall,
   boundActionCallIntent,
   preparedCallArguments,
+  preparedCallApprovalLabel,
   preparedCallNeedsApproval,
   recordInvalidActionCall,
   resolveToolMaxResultChars,
@@ -203,6 +204,7 @@ import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
+  personalRunProviderKeyOrgId,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
 } from "../server/personal-provider-key-policy.js";
@@ -801,6 +803,7 @@ async function getOwnerApiKeyDetailed(
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   const orgId = getRequestOrgId();
+  const policyOrgId = orgId ?? personalRunProviderKeyOrgId(secretKey);
   // Restricted members keep their stored keys, but none of the personal rows
   // below (user, solo workspace, legacy settings) may answer. Unknown is a
   // failed lookup, never "not restricted". Keys outside the policy (Jev) are
@@ -810,7 +813,9 @@ async function getOwnerApiKeyDetailed(
     personalRestricted =
       isPersonalProviderPolicyKey(secretKey) &&
       (await isPersonalProviderKeyUseRestricted(
-        orgId ? { email: ownerEmail, orgId } : { email: ownerEmail },
+        policyOrgId
+          ? { email: ownerEmail, orgId: policyOrgId }
+          : { email: ownerEmail },
       ));
   } catch {
     lookupFailed = true;
@@ -1372,10 +1377,15 @@ export interface ActionEntry {
   access?: import("../authorization/check-action.js").ActionAccessConfig;
   fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   schema?: unknown;
+  /** The input schema agents are shown, when `defineAction` was given one
+   *  narrower than `schema`. */
+  agentInputSchema?: unknown;
   http?: import("../action.js").ActionHttpConfig | false;
   requiresAuth?: boolean;
   maxBodyBytes?: number;
   uiOnly?: boolean;
+  requiresSignedInBrowser?: boolean;
+  opensAnotherAppEmbed?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
   /** True when this entry's raw tool schema was authored by an external MCP
@@ -1388,6 +1398,8 @@ export interface ActionEntry {
    *  Schema dialect when the schema omits `$schema`. */
   fromMcpServer?: boolean;
   mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
+  /** See `mcpScript` in `defineAction`. Read only by the MCP script tools. */
+  mcpScript?: "read";
   mcpOutputContract?: import("../action-output-contract.js").ActionMcpOutputContract;
   /** Hints the framework supplies for an action that declares none, such as a
    *  file a dev server discovers. MCP advertises them only when
@@ -1402,6 +1414,8 @@ export interface ActionEntry {
   emptyListsEraseNothing?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
+  userTurn?: import("../action.js").ActionUserTurn;
+  requiresUserTurn?: boolean;
   /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
   confirmsAutomationWork?: boolean;
   grounding?: boolean;
@@ -1437,6 +1451,10 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  approvalLabel?(
+    args: unknown,
+    ctx?: import("../action.js").ActionRunContext,
+  ): string;
   allowPersistentApproval?: boolean;
   /**
    * Identifies what this entry does under its name. Approvals, including
@@ -10329,28 +10347,33 @@ export async function runAgentLoop(opts: {
         const approvalUserEmail = requiresWriteApproval
           ? undefined
           : getRequestUserEmail();
+        const approvalContext = {
+          ...(approvalUserEmail === undefined
+            ? {}
+            : { userEmail: approvalUserEmail }),
+          orgId: getRequestOrgId() ?? null,
+          ...(opts.appId === undefined ? {} : { appId: opts.appId }),
+          caller: opts.actionCaller ?? "tool",
+          ...(opts.automation === undefined
+            ? {}
+            : { automation: opts.automation }),
+          ...(opts.networkProtocol === undefined
+            ? {}
+            : { networkProtocol: opts.networkProtocol }),
+          ...(opts.networkId === undefined
+            ? {}
+            : { networkId: opts.networkId }),
+          ...(opts.networkPeer === undefined
+            ? {}
+            : { networkPeer: opts.networkPeer }),
+        };
         let mustApprove =
           requiresWriteApproval ||
-          (await preparedCallNeedsApproval(actionEntry, intent, {
-            ...(approvalUserEmail === undefined
-              ? {}
-              : { userEmail: approvalUserEmail }),
-            orgId: getRequestOrgId() ?? null,
-            ...(opts.appId === undefined ? {} : { appId: opts.appId }),
-            caller: opts.actionCaller ?? "tool",
-            ...(opts.automation === undefined
-              ? {}
-              : { automation: opts.automation }),
-            ...(opts.networkProtocol === undefined
-              ? {}
-              : { networkProtocol: opts.networkProtocol }),
-            ...(opts.networkId === undefined
-              ? {}
-              : { networkId: opts.networkId }),
-            ...(opts.networkPeer === undefined
-              ? {}
-              : { networkPeer: opts.networkPeer }),
-          }));
+          (await preparedCallNeedsApproval(
+            actionEntry,
+            intent,
+            approvalContext,
+          ));
         if (
           mustApprove &&
           opts.requireWriteApproval !== true &&
@@ -10383,6 +10406,11 @@ export async function runAgentLoop(opts: {
           }
           const askId =
             (await opts.onApprovalRequired?.(approvalBinding())) || undefined;
+          // A private call's arguments stay out of the chat, so its card
+          // keeps the generic question.
+          const approvalLabel = isPrivateCall()
+            ? undefined
+            : preparedCallApprovalLabel(actionEntry, intent, approvalContext);
           await send({
             type: "tool_start",
             id: toolCall.id,
@@ -10395,6 +10423,7 @@ export async function runAgentLoop(opts: {
             input: liveToolInput as Record<string, string>,
             approvalKey,
             argumentsHash,
+            ...(approvalLabel ? { label: approvalLabel } : {}),
             ...(actionEntry.allowPersistentApproval === false
               ? { allowPersistentApproval: false }
               : {}),
@@ -14637,6 +14666,9 @@ export function createProductionAgentHandler(
       const requestContext = getRequestContext();
       mutableBody[AGENT_CHAT_REQUEST_CONTEXT_FIELD] = {
         requestOrigin: requestContext?.requestOrigin ?? null,
+        ...(requestContext?.timezone
+          ? { timezone: requestContext.timezone }
+          : {}),
         isLoopbackRequest:
           !dispatchToBackground && requestContext?.isLoopbackRequest === true,
         isDirectLoopbackRequest:

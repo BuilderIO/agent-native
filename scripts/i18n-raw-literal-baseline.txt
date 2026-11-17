@@ -17,7 +17,7 @@ packages/docs/app/components/blocks/signature.tsx|Describe the parameter.
 packages/docs/app/components/blocks/signature.tsx|Function signature
 packages/docs/app/components/blocks/steps.tsx|A numbered step-by-step procedure with circled step numbers.
 packages/docs/app/components/blocks/steps.tsx|Step title
-templates/analytics/app/components/dashboard/SqlChart.tsx|Ignored missing result columns:
+packages/toolkit/src/app/dashboard-charts/panel-chart.tsx|Ignored missing result columns:
 templates/analytics/app/components/monitoring/PublicStatusView.tsx|Last updated
 templates/analytics/app/components/monitoring/PublicStatusView.tsx|No incidents reported.
 templates/analytics/app/components/monitoring/PublicStatusView.tsx|No monitors have been added to this status page yet.

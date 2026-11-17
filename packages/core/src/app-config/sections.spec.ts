@@ -230,6 +230,70 @@ describe("app config sections", () => {
     );
   });
 
+  it("hands a field's own env parser every set value, blank included", () => {
+    type Mode = boolean | "foreground-only";
+    const parseMode = (value: unknown): Mode => {
+      if (value === false) return false;
+      const normalized = typeof value === "string" ? value.trim() : "";
+      if (normalized === "foreground-only") return "foreground-only";
+      return normalized === "false" ? false : true;
+    };
+    const section = defineAppConfigSection(
+      "gatedProvider",
+      z.object({
+        mode: z
+          .unknown()
+          .transform(parseMode)
+          .catch(true)
+          .default(false)
+          .meta({
+            env: "EXAMPLE_GATED_PROVIDER_MODE",
+            envParse: (raw: string) => raw,
+          }),
+      }),
+    );
+
+    delete process.env.EXAMPLE_GATED_PROVIDER_MODE;
+    resetAppConfigForTests();
+    expect(section.read().mode).toBe(false);
+
+    for (const [raw, expected] of [
+      ["foreground-only", "foreground-only"],
+      [" false ", false],
+      ["typo", true],
+      // A blank override is still an override: the parser decides, and this
+      // one fails closed, where a built-in parser would skip the value.
+      ["", true],
+      ["  ", true],
+    ] as const) {
+      process.env.EXAMPLE_GATED_PROVIDER_MODE = raw;
+      resetAppConfigForTests();
+      expect(section.read().mode, JSON.stringify(raw)).toBe(expected);
+    }
+    delete process.env.EXAMPLE_GATED_PROVIDER_MODE;
+  });
+
+  it("keeps skipping blank values for fields without their own parser", () => {
+    defineAppConfigSection("provider", providerSection());
+    process.env.EXAMPLE_PROVIDER_PAUSED = "  ";
+    resetAppConfigForTests();
+    expect(sectionOf("provider")).toEqual({ paused: false });
+  });
+
+  it("refuses an env parser that is not a function", () => {
+    expect(() =>
+      defineAppConfigSection(
+        "brokenParser",
+        z.object({
+          mode: z.string().optional().meta({
+            env: "EXAMPLE_BROKEN_PARSER",
+            envParse: "raw",
+          }),
+        }),
+      ),
+    ).toThrow(/envParse/);
+  });
+
   it("types the section reader from its schema", () => {
     const section = defineAppConfigSection("locations", locationsSection());
 

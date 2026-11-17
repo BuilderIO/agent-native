@@ -1,5 +1,5 @@
 /**
- * Embedded canvas gesture bridge — injected into every Edit canvas iframe. Interact's document carries only the theme and links bridges.
+ * Embedded canvas gesture bridge — injected into every Edit canvas iframe. Interact's document carries only the theme, links and tweaks bridges.
  * Its Interact-mode guards remain as defense in depth.
  *
  * A screen preview is a real iframe, so wheel and pointer-drag events never

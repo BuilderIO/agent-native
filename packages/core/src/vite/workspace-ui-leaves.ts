@@ -22,6 +22,7 @@ export const WORKSPACE_UI_LEAVES = [
   "dropdown-menu",
   "empty",
   "filter-trigger",
+  "focus-return",
   "form",
   "hover-card",
   "input",

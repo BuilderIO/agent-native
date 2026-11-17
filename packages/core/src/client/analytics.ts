@@ -43,6 +43,7 @@ import {
 } from "../shared/llm-connection.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import { isTestIdentityEmail } from "../shared/qa-test-email.js";
+import { EXTERNAL_EMBED_WINDOW_KEY } from "../shared/route-chunk-recovery-bootstrap.js";
 import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
@@ -947,6 +948,15 @@ function restoreNewestLastTouchCookie(): boolean {
  * leaves a worse touch there than this browser holds, send the better one
  * again. Until the server holds it, signup still reads `an_ft`.
  */
+function isExternalEmbed(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    Boolean(
+      (window as unknown as Record<string, unknown>)[EXTERNAL_EMBED_WINDOW_KEY],
+    )
+  );
+}
+
 function syncFirstTouchToServer(firstTouch: FirstTouchAttribution): void {
   if (
     !_attributionCookieWritten &&
@@ -955,8 +965,10 @@ function syncFirstTouchToServer(firstTouch: FirstTouchAttribution): void {
     return;
   }
   // An embed that must not call our API (the Builder shell canvas) keeps only
-  // the browser's copies.
-  if (agentNativeApiDisabledReason()) return;
+  // the browser's copies. So does an app running in an MCP host's panel: its
+  // requests go to our origin without cookies, so the server refuses them and
+  // could not set this cookie anyway.
+  if (agentNativeApiDisabledReason() || isExternalEmbed()) return;
   if (_firstTouchSyncsLeft <= 0 || typeof fetch !== "function") return;
   _firstTouchSyncsLeft -= 1;
   _attributionCookieWritten = false;

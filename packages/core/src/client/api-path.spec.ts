@@ -36,6 +36,20 @@ describe("agentNativePath", () => {
     );
   });
 
+  it("keeps an MCP host panel's session read under its app mount in shared workspaces", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE", "shared");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/mail");
+    vi.stubGlobal("window", {
+      location: { pathname: "/mail/home" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/mail" },
+      __AGENT_NATIVE_EXTERNAL_EMBED: { target: "/mail/home", token: "t" },
+    });
+    expect(agentNativePath("/_agent-native/auth/session")).toBe(
+      "/mail/_agent-native/auth/session",
+    );
+  });
+
   it("keeps explicit remote API-base session routing", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE", "shared");

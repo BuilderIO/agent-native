@@ -403,6 +403,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "連接 AI 模型後才能使用代理",
       startFailed: "無法啟動代理",
+      hostChatUnconfirmed:
+        "無法確認訊息是否已送達主控聊天。請先檢查主控聊天，再重試。",
       cancelFailed: "無法停止代理",
       busy: "已有代理正在處理此討論串",
       error: {
@@ -1929,6 +1931,16 @@ export default {
       githubDescription: "即將推出：直接從儲存庫匯入螢幕和元件。",
       localDescription: "使用 /visual-edit 連接任何執行中的本機 app。",
       warningsToast: "匯入完成但有警告",
+      pasteUnreadable: "無法讀取複製的圖層。",
+      pasteInexact: "未能精確貼上的細節：{{count}}",
+      pasteLayerTypes: "以一般框架貼上的 {{tool}} 圖層類型：{{count}}",
+      pasteImagePlaceholders:
+        "以預留位置貼上的圖片：{{count}}。{{tool}} 不會複製圖片資料。",
+      pasteImagesLinked:
+        "仍連結至 {{tool}} 的圖片：{{count}}。無法將它們複製到你的檔案儲存空間。",
+      pasteImagesUnsaved: "因無法確認已儲存而可能無法繼續載入的圖片：{{count}}",
+      pasteNeedsEditAccess: "貼到此設計需要編輯權限。",
+      pastePartialImport: "貼上失敗，可能已建立部分畫面。請檢查你的畫面。",
       figmaSuccess: "已匯入 Figma 貼上內容",
       htmlSuccess: "已匯入 HTML",
       uploadSuccess: "已匯入檔案",
@@ -1938,6 +1950,8 @@ export default {
         notHtml: "請貼上或選擇有效的 HTML 以匯入。",
         importFailed: "匯入失敗",
         figmaPasteFailed: "Figma 貼上匯入失敗",
+        paperPasteFailed: "Paper 貼上匯入失敗",
+        wonderPasteFailed: "Wonder 貼上匯入失敗",
         uploadFailed: "檔案上傳失敗",
         invalidFigFile: "請選擇副檔名為 .fig 的檔案。",
         unsupportedFileType: "請選擇 .fig、.html 或 .htm 檔案。",
@@ -2092,6 +2106,9 @@ export default {
     addTweaks: "新增調整",
     addTweakControls: "新增調整控制項",
     closeTweaks: "關閉調整",
+    showFloatingTweaks: "顯示浮動調整",
+    collapseTweaks: "收合調整",
+    expandTweaks: "展開調整",
     tweaksHelp:
       "調整項是疊加在基礎設計上的中斷點與狀態專屬視覺覆寫。重設控制項可回到繼承值。",
     tweaksDocs: "深入瞭解。",
@@ -2223,6 +2240,9 @@ export default {
       componentCreated: "元件已建立",
       componentCreateFailed: "無法建立元件",
       tweakConflict: "調整已在其他地方變更。請重新整理設計後再試一次。",
+      tweakBaselineUnreadable:
+        "無法讀取已儲存的調整基準。修復設計資料前，調整變更已暫停。",
+      resetTweakBaseline: "重設基準",
       tweakSaveNotDurable: "調整尚未儲存。請保持此分頁開啟並再試一次。",
       codingHandoffError: "無法建立編碼交接",
       unknownCollaborator: "協作者",
@@ -2307,6 +2327,7 @@ export default {
       layoutUnsupportedPosition: "黏性圖層和 SVG 內的形狀無法以這種方式移動",
       layoutMovesNestedLayers: "移動此圖層會讓其內部定位的圖層跟著偏移",
       layoutMoveFailed: "無法移動所選圖層",
+      claimBoardError: "無法將這個畫板移到你的帳戶",
       saveCopyError: "無法儲存這個設計的副本",
       auditRunFailed: "無法執行設計稽核",
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",

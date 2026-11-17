@@ -293,6 +293,77 @@ describe("recording range broker", () => {
     }
   });
 
+  it("budgets concurrent client requests, not upstream reads their clients abandoned", async () => {
+    type UpstreamRead = { signal: AbortSignal; release(): void };
+    const reads: UpstreamRead[] = [];
+    let onRead: ((read: UpstreamRead) => void) | undefined;
+    const media = await openAgentFrameRange(
+      async (range, _timeout, signal: AbortSignal) =>
+        range === "bytes=0-0"
+          ? response(Buffer.from("a"), "bytes 0-0/4")
+          : new Promise<Response>((resolve) => {
+              const read = {
+                signal,
+                release: () =>
+                  resolve(response(Buffer.from("bcd"), "bytes 1-3/4")),
+              };
+              reads.push(read);
+              onRead?.(read);
+            }),
+      "mov",
+    );
+    // An admitted request reaches upstream; a refused one is answered at once.
+    const open = (signal?: AbortSignal) => {
+      const read = new Promise<UpstreamRead>((resolve) => {
+        onRead = resolve;
+      });
+      const res = fetch(media.path, {
+        headers: { range: "bytes=1-3" },
+        signal: signal ?? null,
+      });
+      const admission = Promise.race([
+        read.then(() => "admitted"),
+        res.then((refused) => refused.status),
+      ]);
+      return { read, res, admission };
+    };
+    try {
+      for (let i = 0; i < 3; i++) {
+        const next = open();
+        await expect(next.admission).resolves.toBe("admitted");
+        (await next.read).release();
+        expect(await (await next.res).text()).toBe("bcd");
+      }
+
+      const leaving = new AbortController();
+      const abandoned = open(leaving.signal);
+      await expect(abandoned.admission).resolves.toBe("admitted");
+      const { signal } = await abandoned.read;
+      leaving.abort();
+      await abandoned.res.catch(() => null);
+      if (!signal.aborted)
+        await new Promise((resolve) =>
+          signal.addEventListener("abort", resolve, { once: true }),
+        );
+
+      const first = open();
+      await expect(first.admission).resolves.toBe("admitted");
+      const second = open();
+      await expect(second.admission).resolves.toBe("admitted");
+      const third = open();
+      await expect(third.admission).resolves.toBe(503);
+      await (await third.res).arrayBuffer();
+
+      for (const read of reads) read.release();
+      expect(await (await first.res).text()).toBe("bcd");
+      expect(await (await second.res).text()).toBe("bcd");
+      await expect(media.remote.assertHealthy()).rejects.toThrow(/budget/i);
+    } finally {
+      for (const read of reads) read.release();
+      await media.cleanup();
+    }
+  });
+
   it("keeps a completed frame when a pending range rejects after FFmpeg disconnects", async () => {
     const dir = await mkdtemp(join(tmpdir(), "clips-range-disconnect-"));
     const previous = process.env.FFMPEG_PATH;

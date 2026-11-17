@@ -21,6 +21,7 @@ import {
   buildDeepLink,
   buildEmbedStartPath,
   createEmbedSessionTicket,
+  FULL_APP_EMBED_SCOPE,
   getAppProductionUrl,
   getConfiguredAppBasePath,
   getRequestContext,
@@ -60,6 +61,9 @@ const TARGET_EMBED_SESSION_ATTEMPTS = 3;
 const TARGET_EMBED_SESSION_RETRY_BASE_MS = 250;
 const TARGET_EMBED_SESSION_CONNECT_TIMEOUT_MS = 90_000;
 const TARGET_EMBED_SESSION_BUDGET_MS = 95_000;
+// open_app answers with its link by then; a panel is worth a short wait, not
+// the full mint budget.
+const OPEN_APP_EMBED_WAIT_MS = 15_000;
 const DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_POLL_INTERVAL_MS = 1_500;
@@ -618,6 +622,26 @@ function appBaseUrl(app: DispatchMcpAccessibleApp): string {
   return app.url.replace(/\/+$/, "");
 }
 
+// The owner-bound bearer for a cross-app session goes to this endpoint, so it
+// must not travel over plain HTTP beyond the developer's own machine.
+function targetEndpointKeepsCredentialsPrivate(endpoint: string): boolean {
+  try {
+    const url = new URL(endpoint);
+    if (url.protocol === "https:") return true;
+    const host = url.hostname.replace(/^\[|\]$/g, "");
+    return (
+      url.protocol === "http:" &&
+      (host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "::1" ||
+        host.endsWith(".localhost"))
+    );
+    // coercion-ok: an unparsable endpoint is not one to send a bearer to; the caller skips the session and warns.
+  } catch {
+    return false;
+  }
+}
+
 function appHomeBaseUrl(app: DispatchMcpAccessibleApp): string {
   const configured = app.homeUrl?.trim();
   if (configured) {
@@ -1110,11 +1134,11 @@ export async function getGrantedDispatchMcpAppTask(
 
 export async function openGrantedDispatchMcpApp(input: {
   app: string;
-  view?: string;
-  path?: string;
-  params?: Record<string, string | number | boolean>;
-  embed?: boolean;
-  chrome?: "full" | "minimal";
+  view?: string | undefined;
+  path?: string | undefined;
+  params?: Record<string, string | number | boolean> | undefined;
+  embed?: boolean | undefined;
+  chrome?: "full" | "minimal" | undefined;
 }): Promise<{
   app: string;
   view?: string;
@@ -1125,14 +1149,15 @@ export async function openGrantedDispatchMcpApp(input: {
   embedStartUrl?: string;
   embedTargetPath?: string;
   embedExpiresAt?: number;
+  embedUnavailable?: string;
 }> {
   const view = input.view?.trim() ?? "";
   const hasPathInput = input.path != null;
-  const path = safeAppPath(input.path);
+  // Naming only the app opens its home page.
+  const path = safeAppPath(input.path ?? (view ? undefined : "/"));
   if (hasPathInput && !path) {
     throw new Error("path must be a safe app-relative route");
   }
-  if (!view && !path) throw new Error("open_app requires view or path");
   const target = await resolveGrantedDispatchMcpApp(input.app);
   if (path) assertAppCanOpenPath(target, path);
   const relUrl = path
@@ -1146,19 +1171,43 @@ export async function openGrantedDispatchMcpApp(input: {
   let embedSession: Awaited<
     ReturnType<typeof createGrantedDispatchMcpEmbedSession>
   > | null = null;
+  // Says why no session came back, so the caller can tell a plain link it
+  // asked for from a panel that failed to open.
+  let embedUnavailable: string | undefined;
   if (input.embed) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const abort = new AbortController();
     try {
-      embedSession = await createEmbedSessionForResolvedGrantedApp({
-        app: target.id,
-        resolvedApp: target,
-        url,
-        ...(input.chrome ? { chrome: input.chrome } : {}),
-      });
+      embedSession = await Promise.race([
+        createEmbedSessionForResolvedGrantedApp({
+          app: target.id,
+          resolvedApp: target,
+          url,
+          ...(input.chrome ? { chrome: input.chrome } : {}),
+          signal: abort.signal,
+        }),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            const error = new Error(
+              `${target.id} did not return an embed session within ${OPEN_APP_EMBED_WAIT_MS / 1000}s.`,
+            );
+            // Stop the target request too, so slow targets don't pile up
+            // connections and unused tickets behind the link we answer with.
+            abort.abort(error);
+            reject(error);
+          }, OPEN_APP_EMBED_WAIT_MS);
+        }),
+      ]);
     } catch (error) {
       console.warn(
         `[dispatch] Could not pre-mint MCP embed session for ${target.id}:`,
         error,
       );
+      embedUnavailable = (
+        error instanceof Error ? error.message : String(error)
+      ).slice(0, 300);
+    } finally {
+      clearTimeout(timer);
     }
   }
   return {
@@ -1175,6 +1224,7 @@ export async function openGrantedDispatchMcpApp(input: {
     ...(typeof embedSession?.expiresAt === "number"
       ? { embedExpiresAt: embedSession.expiresAt }
       : {}),
+    ...(embedUnavailable ? { embedUnavailable } : {}),
   };
 }
 
@@ -1340,10 +1390,17 @@ async function callTargetCreateEmbedSession(input: {
   chrome?: "full" | "minimal";
   runtime?: "workspace-app-chat";
   firstPartyMcp?: boolean;
+  signal?: AbortSignal;
 }): Promise<unknown> {
+  if (!targetEndpointKeepsCredentialsPrivate(input.mcpUrl)) {
+    throw new Error(
+      "Cross-app embed sessions need an HTTPS target endpoint; this one is plain HTTP.",
+    );
+  }
   const serverId = "target";
   const deadline = Date.now() + TARGET_EMBED_SESSION_BUDGET_MS;
   for (let attempt = 1; ; attempt += 1) {
+    input.signal?.throwIfAborted();
     const manager = new McpClientManager(
       {
         servers: {
@@ -1361,8 +1418,13 @@ async function callTargetCreateEmbedSession(input: {
       { connectTimeoutMs: targetMcpConnectTimeout(deadline) },
     );
     let connected = false;
+    const stopOnAbort = () => {
+      void manager.stop().catch(() => {});
+    };
+    input.signal?.addEventListener("abort", stopOnAbort, { once: true });
     try {
       await manager.start();
+      input.signal?.throwIfAborted();
       const connectErrorStatus = manager.getConnectErrorStatus(serverId);
       if (connectErrorStatus === 401 || connectErrorStatus === 403) {
         const error = Object.assign(new Error(`HTTP ${connectErrorStatus}`), {
@@ -1388,6 +1450,7 @@ async function callTargetCreateEmbedSession(input: {
         throw new TargetMcpAuthenticationRejectedError(error);
       }
       if (
+        input.signal?.aborted ||
         attempt >= TARGET_EMBED_SESSION_ATTEMPTS ||
         !isRetryableTargetMcpError(error) ||
         deadline - Date.now() < TARGET_EMBED_SESSION_RETRY_BASE_MS
@@ -1396,6 +1459,7 @@ async function callTargetCreateEmbedSession(input: {
       }
       await sleep(targetMcpRetryDelay(attempt));
     } finally {
+      input.signal?.removeEventListener("abort", stopOnAbort);
       await manager.stop().catch((stopError) => {
         console.warn("[dispatch] Failed to stop target MCP client:", stopError);
       });
@@ -1613,7 +1677,8 @@ async function createDispatchSelfEmbedSession(input: {
     ownerEmail: input.ownerEmail,
     orgId: input.orgId,
     targetPath: input.path,
-    scope: input.chrome ?? null,
+    // A full panel is Dispatch's own UI shown to its owner; minimal stays read-only.
+    scope: input.chrome === "minimal" ? input.chrome : FULL_APP_EMBED_SCOPE,
   });
   const startPath = buildEmbedStartPath(ticket.ticket);
   return {
@@ -1656,6 +1721,7 @@ async function createGrantedDispatchMcpEmbedSessionResult(input: {
   path?: string;
   chrome?: "full" | "minimal";
   runtime?: "workspace-app-chat";
+  signal?: AbortSignal;
 }): Promise<InternalEmbedSession> {
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
@@ -1667,6 +1733,7 @@ async function createGrantedDispatchMcpEmbedSessionResult(input: {
     target,
     chrome: input.chrome,
     runtime: input.runtime,
+    ...(input.signal ? { signal: input.signal } : {}),
   });
 }
 
@@ -1698,6 +1765,7 @@ async function createEmbedSessionForResolvedGrantedApp(input: {
   resolvedApp: DispatchMcpAccessibleApp;
   url: string;
   chrome?: "full" | "minimal";
+  signal?: AbortSignal;
 }): Promise<ReturnType<typeof publicEmbedSession>> {
   return publicEmbedSession(
     await createGrantedDispatchMcpEmbedSessionResult(input),
@@ -1739,6 +1807,7 @@ async function createEmbedSessionForResolvedApp(input: {
   chrome?: "full" | "minimal";
   runtime?: "workspace-app-chat";
   workspaceSso?: boolean;
+  signal?: AbortSignal;
 }): Promise<InternalEmbedSession> {
   const { ownerEmail, orgId, target, chrome } = input;
 
@@ -1798,6 +1867,7 @@ async function createEmbedSessionForResolvedApp(input: {
       ...targetDetails,
       authStrategy: credential.strategy,
     });
+    input.signal?.throwIfAborted();
     try {
       const result = await callTargetCreateEmbedSession({
         mcpUrl: targetMcpUrl,
@@ -1805,6 +1875,7 @@ async function createEmbedSessionForResolvedApp(input: {
         url: target.url,
         ...(chrome !== undefined ? { chrome } : {}),
         ...(input.runtime ? { runtime: input.runtime } : {}),
+        ...(input.signal ? { signal: input.signal } : {}),
       });
       parsed = parseMcpToolTextResult(result) as {
         startUrl?: string;
