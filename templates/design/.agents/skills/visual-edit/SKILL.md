@@ -532,7 +532,10 @@ before applying the source change.
 
 Keep localhost screens as URL files plus `screenMetadata[fileId]`. Do not
 replace them with copied `srcdoc` HTML unless the user explicitly asks for a
-frozen snapshot. To change a state, rerun `open-visual-edit` with the new
+frozen snapshot. Write `screenMetadata` only by per-field path
+(`screenMetadata.<id>.width`), never as a whole object: replacing it drops the
+screen's connection and the frame shows "Local preview credentials are
+unavailable"; rerun `open-visual-edit` with the designId to recover. To change a state, rerun `open-visual-edit` with the new
 path/query, use the Screen settings section, call `update-screen-source`, or
 duplicate the screen and update the copy's URL metadata.
 

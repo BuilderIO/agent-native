@@ -336,8 +336,12 @@ possible.
 
 Title screens with \`rename-screen\` ("Original · stripe.com", "Remix",
 "Folded plane"), then size and place them in one \`update-design\` call:
-\`screenMetadata.<id>\` \`{ width, height, heightMode: "fixed" }\` and
-\`canvasFrames.<id>\` \`{ x, y, width, height }\`. Lay out in canvas pixels, every
+per-field paths \`screenMetadata.<id>.width\`, \`.height\` and \`.heightMode\`
+(\`"fixed"\`) and \`canvasFrames.<id>\` \`{ x, y, width, height }\`. Never set
+\`screenMetadata.<id>\` as one object: for a localhost screen that replaces its
+connection fields and the frame shows "Local preview credentials are
+unavailable". If that happens, rerun \`open-visual-edit\` with the designId to
+restore the connection. Lay out in canvas pixels, every
 gap edge to edge (numbers for 1440×900 screens and 600×460 explainers):
 
 - Top row: a 420 px band from y 0 to 420 holds the headers, notes and
