@@ -46,7 +46,8 @@ vi.mock("../db/index.js", async (importOriginal) => {
 });
 
 import { schema } from "../db/index.js";
-import { saveMonitor } from "./uptime-monitors";
+import { monitorForCaller, UNREADABLE_URL } from "./monitor-redaction";
+import { getMonitor, saveMonitor } from "./uptime-monitors";
 
 const ctx = { email: "owner@example.test", orgId: null };
 
@@ -226,6 +227,94 @@ describe("saveMonitor and URL credentials", () => {
     expect(fake.updates[0]).toMatchObject({
       url: withCredentials,
       enabled: false,
+    });
+  });
+});
+
+describe("saveMonitor and the URL a non-UI caller was shown", () => {
+  const keyedUrl = "https://api.example.com/health?api_key=secret123";
+
+  async function readAsAgent() {
+    const found = await getMonitor("monitor-1", ctx);
+    return monitorForCaller(found!.monitor, "mcp");
+  }
+
+  it("keeps the real URL, headers and body when the masked URL is sent back with a new name", async () => {
+    fake.rows = new Map([[schema.monitors, [{ ...storedRow, url: keyedUrl }]]]);
+    const shown = await readAsAgent();
+    expect(shown.url).toBe("https://api.example.com/health?api_key=***");
+
+    await saveMonitor(
+      { id: "monitor-1", name: "Renamed", url: shown.url },
+      ctx,
+    );
+
+    expect(fake.updates[0]).toMatchObject({
+      name: "Renamed",
+      url: keyedUrl,
+      requestHeaders: storedRow.requestHeaders,
+      requestBody: "body-fixture",
+    });
+  });
+
+  it("keeps the real URL when the stored URL could not be masked", async () => {
+    fake.rows = new Map([
+      [schema.monitors, [{ ...storedRow, url: "not a url" }]],
+    ]);
+    const shown = await readAsAgent();
+    expect(shown.url).toBe(UNREADABLE_URL);
+
+    await saveMonitor(
+      { id: "monitor-1", name: "Renamed", url: shown.url },
+      ctx,
+    );
+
+    expect(fake.updates[0]).toMatchObject({
+      name: "Renamed",
+      url: "not a url",
+      requestHeaders: storedRow.requestHeaders,
+      requestBody: "body-fixture",
+    });
+  });
+
+  it("still clears the headers and body for a different URL that looks masked", async () => {
+    fake.rows = new Map([[schema.monitors, [{ ...storedRow, url: keyedUrl }]]]);
+
+    await saveMonitor(
+      {
+        id: "monitor-1",
+        name: "Prod",
+        url: "https://other.example/health?api_key=***",
+      },
+      ctx,
+    );
+
+    expect(fake.updates[0]).toMatchObject({
+      url: "https://other.example/health?api_key=***",
+      requestHeaders: "{}",
+      requestBody: null,
+    });
+  });
+
+  it("still treats a URL with nothing to mask as unchanged only when it is identical", async () => {
+    await saveMonitor(
+      { id: "monitor-1", name: "Renamed", url: storedRow.url },
+      ctx,
+    );
+    expect(fake.updates[0]).toMatchObject({
+      url: storedRow.url,
+      requestHeaders: storedRow.requestHeaders,
+      requestBody: "body-fixture",
+    });
+
+    await saveMonitor(
+      { id: "monitor-1", name: "Renamed", url: `${storedRow.url}?v=2` },
+      ctx,
+    );
+    expect(fake.updates[1]).toMatchObject({
+      url: `${storedRow.url}?v=2`,
+      requestHeaders: "{}",
+      requestBody: null,
     });
   });
 });

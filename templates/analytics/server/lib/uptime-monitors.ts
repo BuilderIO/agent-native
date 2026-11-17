@@ -1529,8 +1529,13 @@ export async function saveMonitor(
 
   const name = normalizeName(input.name);
   // A URL saved before credentials were refused stays editable as long as the
-  // URL itself is unchanged.
-  const urlUnchanged = stored !== undefined && input.url.trim() === stored.url;
+  // URL itself is unchanged. Callers other than the app UI were shown the
+  // masked URL and send it back, which is not a change either.
+  const submittedUrl = input.url.trim();
+  const urlUnchanged =
+    stored !== undefined &&
+    (submittedUrl === stored.url ||
+      submittedUrl === (maskMonitorUrl(stored.url) ?? UNREADABLE_URL));
   const url = urlUnchanged ? stored.url : normalizeUrl(input.url);
   const method = normalizeMethod(input.method);
   const requestHeaders =
