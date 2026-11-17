@@ -1025,6 +1025,54 @@ describe("mountActionRoutes", () => {
     },
   );
 
+  it.each([
+    ["declared read-only", { readOnly: true }, true],
+    [
+      "read-only with a read plan-mode effect",
+      { readOnly: true, planMode: { effect: "read" } },
+      true,
+    ],
+    ["undeclared", {}, false],
+    ["declared writing", { readOnly: false }, false],
+    [
+      "read-only only for some arguments",
+      { readOnly: true, planMode: { effect: () => "read" } },
+      false,
+    ],
+  ] as const)(
+    "vouches in a GET 405 only for a POST action %s for every call",
+    async (_label, declaration, vouched) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+
+      mountActionRoutes(nitroApp, {
+        "list-items": {
+          http: { method: "POST" },
+          ...declaration,
+          run,
+        } as any,
+      });
+      const event = {
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { url: "http://app.test/_agent-native/actions/list-items" },
+      };
+
+      await expect(mounted[0]!.handler(event)).resolves.toEqual({
+        error: "Method not allowed. Use POST.",
+        ...(vouched ? { readOnly: true } : {}),
+      });
+      expect(event).toMatchObject({ _status: 405 });
+      expect(run).not.toHaveBeenCalled();
+    },
+  );
+
   it("mounts package actions registered through another core module instance", async () => {
     const packageCore = await import("./action-discovery.js");
     const packageRun = vi.fn(async () => ({ source: "package" }));
@@ -1396,6 +1444,49 @@ describe("mountActionRoutes", () => {
       errorCode: "invalid_action_request_body",
     });
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("preserves an empty GET scope and a typed credit conflict over HTTP", async () => {
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
+    const { fail } = await import("../action.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async ({ orgId }: { orgId?: string }) => {
+      if (orgId === "") {
+        fail("The active organization changed. Please retry.", {
+          errorCode: "builder_credit_org_mismatch",
+          statusCode: 409,
+        });
+      }
+      return { orgId: orgId ?? "omitted" };
+    });
+    mountActionRoutes(
+      nitroApp,
+      {
+        "get-builder-credit-status": { run, http: { method: "GET" } },
+      } as any,
+      { getOwnerFromEvent: async () => "owner@example.com" },
+    );
+    const event = {
+      _method: "GET",
+      _status: undefined as number | undefined,
+      req: {
+        url: "http://localhost/_agent-native/actions/get-builder-credit-status?orgId=",
+      },
+    };
+
+    const result = await mounted[0]!.handler(event);
+    expect(run).toHaveBeenCalledWith({ orgId: "" }, expect.anything());
+    expect(event._status).toBe(409);
+    expect(result).toEqual({
+      error: "The active organization changed. Please retry.",
+      errorCode: "builder_credit_org_mismatch",
+    });
   });
 
   it("echoes a fail() message instead of a generic 500", async () => {

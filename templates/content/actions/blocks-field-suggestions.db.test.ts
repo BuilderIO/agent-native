@@ -11,6 +11,7 @@ import {
   blocksFieldSuggestionRevision,
   CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
 } from "../shared/blocks-field-suggestions.js";
+import { COLUMN_RULE_FROZEN } from "../shared/column-rules.js";
 import { markdownSuggestionOperation } from "../shared/suggestion-diff.js";
 
 vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
@@ -38,6 +39,7 @@ let getContentDatabase: typeof import("./get-content-database.js").default;
 let addDatabaseItem: typeof import("./add-database-item.js").default;
 let setDocumentProperty: typeof import("./set-document-property.js").default;
 let listDocumentProperties: typeof import("./list-document-properties.js").default;
+let setFreezeRule: typeof import("./set-blocks-field-freeze-rule.js").default;
 let createProposal: typeof import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal").default;
 let decideSuggestion: typeof import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion").default;
 let decideProposal: typeof import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal").default;
@@ -57,6 +59,7 @@ beforeAll(async () => {
   setDocumentProperty = (await import("./set-document-property.js")).default;
   listDocumentProperties = (await import("./list-document-properties.js"))
     .default;
+  setFreezeRule = (await import("./set-blocks-field-freeze-rule.js")).default;
   createProposal = (
     await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal")
   ).default;
@@ -659,5 +662,99 @@ describe("suggestions on a Blocks field tab", () => {
     expect(
       await fieldState(seeded.row, seeded.databaseId, seeded.notesId),
     ).toEqual(accepted);
+  });
+
+  it("takes a suggestion on a tab a column rule has frozen, but accepts it only once the row's status reopens the tab", async () => {
+    const seeded = await seedRow("frozen", "Body.", "Notes to approve.");
+    const statusId = await as(async () => {
+      const configured = await configureDocumentProperty.run({
+        documentId: seeded.databaseDocumentId,
+        databaseId: seeded.databaseId,
+        name: "Status",
+        type: "status",
+        options: {
+          options: [
+            { id: "draft", name: "Draft", color: "gray" },
+            { id: "approved", name: "Approved", color: "green" },
+          ],
+        },
+      } as never);
+      return present(
+        configured.properties.find(
+          (property) => property.definition.name === "Status",
+        ),
+        "the Status field",
+      ).definition.id;
+    });
+    await as(() =>
+      setFreezeRule.run(
+        {
+          databaseId: seeded.databaseId,
+          propertyId: seeded.notesId,
+          rule: { propertyId: statusId, optionIds: ["approved"] },
+        },
+        ctx,
+      ),
+    );
+    const setStatus = (value: string) =>
+      as(() =>
+        setDocumentProperty.run(
+          {
+            documentId: seeded.row,
+            databaseId: seeded.databaseId,
+            propertyId: statusId,
+            value,
+          },
+          ctx,
+        ),
+      );
+    const before = await fieldState(
+      seeded.row,
+      seeded.databaseId,
+      seeded.notesId,
+    );
+    // A suggestion leaves the tab's text alone, so a frozen tab still takes one.
+    await setStatus("approved");
+    const suggestion = present(
+      (
+        await suggest(
+          seeded.row,
+          blocksFieldSuggestionRevision(seeded.notesId, before.revision),
+          [tabEdit(seeded.notesId, before.content, "Notes, approved.")],
+          "frozen-create",
+        )
+      ).suggestions[0],
+      "the suggestion",
+    );
+    const acceptAs = (idempotencyKey: string) =>
+      as(() =>
+        decideSuggestion.run(
+          {
+            id: suggestion.id,
+            decision: "accepted",
+            idempotencyKey,
+            observedBase: suggestion.baseRevision,
+            observedRevision: suggestion.revision,
+          },
+          ctx,
+        ),
+      );
+
+    await expect(acceptAs("frozen-accept")).rejects.toMatchObject({
+      errorCode: COLUMN_RULE_FROZEN,
+      statusCode: 403,
+    });
+    expect(
+      await fieldState(seeded.row, seeded.databaseId, seeded.notesId),
+    ).toEqual(before);
+    const still = await as(() => getSuggestion.run({ id: suggestion.id }, ctx));
+    expect(still.status).toBe("pending");
+
+    await setStatus("draft");
+    const decided = await acceptAs("reopened-accept");
+    expect(decided.suggestion.status).toBe("accepted");
+    expect(
+      (await fieldState(seeded.row, seeded.databaseId, seeded.notesId)).content,
+    ).toBe("Notes, approved.");
   });
 });

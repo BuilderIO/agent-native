@@ -434,6 +434,162 @@ describe("ConnectionsSettingsContent", () => {
     act(() => root.unmount());
   });
 
+  it("exposes Disconnect in compact AI settings when the stored Builder grant is expired", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("connection-status/builder"))
+          return Response.json({
+            configured: false,
+            builderEnabled: true,
+            effective: null,
+            builderReauthorizationRequired: true,
+            connectError: { message: "Builder access expired", at: Date.now() },
+            grants: { org: { connectedAt: 1, needsReconnect: true } },
+            canConnect: { org: true, personal: false },
+            connectUrl: "/_agent-native/builder/connect?_an_connect=test",
+          });
+        if (url.includes("agent-engine/status"))
+          return Response.json({
+            engines: [],
+            current: { engine: "anthropic" },
+          });
+        if (url.includes("env-status")) return Response.json([]);
+        return Response.json({});
+      }),
+    );
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <MemoryRouter>
+            <AgentSettingsContent sections={["llm"]} />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector(
+          'button[aria-label="Manage Builder.io connection"]',
+        ),
+      ).not.toBeNull(),
+    );
+    act(() =>
+      (
+        container.querySelector(
+          'button[aria-label="Manage Builder.io connection"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    expect(document.body.textContent).toContain("Disconnect");
+    callActionMock.mockImplementation(async (name: string) => {
+      if (name === "manage-builder-connection")
+        throw new Error("Disconnect refused");
+      return { engines: [], current: { engine: "anthropic" } };
+    });
+    act(() =>
+      Array.from(document.body.querySelectorAll("button"))
+        .find((button) => button.textContent?.trim() === "Disconnect")
+        ?.click(),
+    );
+    await act(async () =>
+      Array.from(document.body.querySelectorAll("button"))
+        .find((button) => button.textContent?.trim() === "Confirm disconnect")
+        ?.click(),
+    );
+    expect(container.textContent).toContain("Disconnect refused");
+    act(() => root.unmount());
+  });
+
+  it.each(["personal", "org"] as const)(
+    "labels both stored grants and disconnects only the chosen %s scope",
+    async (scope) => {
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url.includes("connection-status/builder"))
+            return Response.json({
+              configured: false,
+              builderEnabled: true,
+              effective: null,
+              grants: {
+                personal: { connectedAt: 1, needsReconnect: true },
+                org: { connectedAt: 1, needsReconnect: true },
+              },
+              canConnect: { org: true, personal: true },
+            });
+          if (url.includes("agent-engine/status"))
+            return Response.json({
+              engines: [],
+              current: { engine: "anthropic" },
+            });
+          if (url.includes("env-status")) return Response.json([]);
+          return Response.json({});
+        }),
+      );
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={new QueryClient()}>
+            <MemoryRouter>
+              <AgentSettingsContent sections={["llm"]} />
+            </MemoryRouter>
+          </QueryClientProvider>,
+        ),
+      );
+      const groupLabel = scope === "org" ? "Organization" : "Personal";
+      await vi.waitFor(() => {
+        for (const label of ["Personal", "Organization"]) {
+          const group = container.querySelector(
+            `[role="group"][aria-label="${label}"]`,
+          );
+          expect(group?.textContent).toContain(label);
+          expect(
+            group?.querySelector(
+              'button[aria-label="Manage Builder.io connection"]',
+            ),
+          ).not.toBeNull();
+        }
+      });
+      act(() =>
+        (
+          container.querySelector(
+            `[role="group"][aria-label="${groupLabel}"] button`,
+          ) as HTMLButtonElement
+        ).click(),
+      );
+      act(() =>
+        Array.from(document.body.querySelectorAll("button"))
+          .find((button) => button.textContent?.trim() === "Disconnect")
+          ?.click(),
+      );
+      callActionMock.mockImplementation(async (name: string) => {
+        if (name === "manage-builder-connection")
+          throw new Error("Disconnect refused");
+        return { engines: [], current: { engine: "anthropic" } };
+      });
+      await act(async () =>
+        Array.from(document.body.querySelectorAll("button"))
+          .find((button) => button.textContent?.trim() === "Confirm disconnect")
+          ?.click(),
+      );
+      expect(callActionMock).toHaveBeenCalledWith("manage-builder-connection", {
+        disconnect: scope,
+      });
+      expect(container.textContent).toContain("Disconnect refused");
+      act(() => root.unmount());
+    },
+  );
+
   it("keeps workspace app discovery in workspace settings", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     Object.defineProperty(window, "__AGENT_NATIVE_CONFIG__", {

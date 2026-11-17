@@ -491,6 +491,29 @@ describe("CommandMenu", () => {
     expect(document.body.textContent).not.toContain("Create a project");
   });
 
+  it("shows an app's own Settings hint in place of the platform chord", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          settingsShortcutHint={
+            <>
+              <kbd>G</kbd>
+              <kbd>S</kbd>
+            </>
+          }
+        />,
+      );
+    });
+
+    const settingsItem = [
+      ...document.querySelectorAll<HTMLElement>("[cmdk-item]"),
+    ].find((item) => item.textContent?.startsWith("Settings"));
+    expect(settingsItem?.textContent).toBe("SettingsGS");
+  });
+
   it("closes the menu and opens Settings from the Settings row", () => {
     const onOpenChange = vi.fn();
     const requests: Array<{ page?: string }> = [];
@@ -1488,6 +1511,7 @@ describe("CommandMenu", () => {
               page: {
                 id: "tools",
                 title: "Tools",
+                placeholder: "Find a tool…",
                 groups: [
                   {
                     id: "tool-actions",
@@ -1510,6 +1534,8 @@ describe("CommandMenu", () => {
       ],
     });
 
+    const rootPlaceholder =
+      document.querySelector<HTMLInputElement>("[cmdk-input]")?.placeholder;
     search("tools alias");
     const parentRow = document.querySelector<HTMLElement>(
       '[cmdk-item][data-value="app-command:main:open-tools"]',
@@ -1521,6 +1547,7 @@ describe("CommandMenu", () => {
 
     const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
     expect(input).toBeTruthy();
+    expect(input?.placeholder).toBe("Find a tool…");
     const backRow = document.querySelector<HTMLElement>(
       '[data-testid="command-menu-page-back"]',
     );
@@ -1530,6 +1557,7 @@ describe("CommandMenu", () => {
     act(() => backRow!.click());
 
     expect(input?.value).toBe("tools alias");
+    expect(input?.placeholder).toBe(rootPlaceholder);
     expect(document.activeElement).toBe(input);
     expect(document.body.textContent).toContain("Open tools");
     expect(document.body.textContent).not.toContain("Refresh data");
@@ -1552,6 +1580,7 @@ describe("CommandMenu", () => {
     });
 
     expect(input?.value).toBe("tools alias");
+    expect(input?.placeholder).toBe(rootPlaceholder);
     expect(document.body.textContent).toContain("Open tools");
     expect(document.body.textContent).not.toContain("Refresh data");
   });

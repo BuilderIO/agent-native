@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
+  DEFAULT_AGENT_MENTION_ID,
   reviewAgentMentionOption,
   reviewAgentSelections,
   resolveReviewAgentMention,
@@ -318,7 +319,17 @@ export function useReviewAgentRequests({
   );
   const ready = active && selectionReady && options.length > 0;
   const mentionOptions = useMemo<readonly ReviewMentionOption[]>(
-    () => (ready ? options.map(reviewAgentMentionOption) : []),
+    () =>
+      ready
+        ? [
+            {
+              id: DEFAULT_AGENT_MENTION_ID,
+              label: "agent",
+              email: null,
+            },
+            ...options.map(reviewAgentMentionOption),
+          ]
+        : [],
     [options, ready],
   );
   const optionsRef = useRef(options);

@@ -62,6 +62,7 @@ import {
   runPreparedActionCall,
   boundActionCallIntent,
   preparedCallArguments,
+  preparedCallApprovalLabel,
   preparedCallNeedsApproval,
   recordInvalidActionCall,
   resolveToolMaxResultChars,
@@ -397,6 +398,10 @@ import {
   getContextWindowForModel,
   resolveFallbackModel,
 } from "./model-config.js";
+import {
+  createModelInputScopeGuardRegistry,
+  MODEL_INPUT_SCOPE_ABORT_REASON,
+} from "./model-input-scope-guards.js";
 import {
   maybeCompactThread,
   buildObservationalContext,
@@ -1433,6 +1438,10 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  approvalLabel?(
+    args: unknown,
+    ctx?: import("../action.js").ActionRunContext,
+  ): string;
   allowPersistentApproval?: boolean;
   /**
    * Identifies what this entry does under its name. Approvals, including
@@ -7149,20 +7158,55 @@ function repairToolCallInput(
   entry: ActionEntry | undefined,
   input: unknown,
 ): ToolInputRepair {
-  if (!entry || getStrictToolInputValidator(entry)) {
-    return { input, changed: false };
+  if (!entry) return { input, changed: false };
+  const schema = entry.tool.parameters;
+  if (getStrictToolInputValidator(entry)) {
+    return dropModelChosenRequestId(schema, input);
   }
-  const json = coerceStringifiedJsonToolValues(entry.tool.parameters, input);
+  const json = coerceStringifiedJsonToolValues(schema, input);
   const placeholders = normalizeOptionalToolPlaceholders(
-    entry.tool.parameters,
+    schema,
     json.input,
     entry,
   );
   if (placeholders.error) return placeholders;
+  const requestId = dropModelChosenRequestId(schema, placeholders.input);
   return {
-    input: placeholders.input,
-    changed: json.changed || placeholders.changed,
+    input: requestId.input,
+    changed: json.changed || placeholders.changed || requestId.changed,
   };
+}
+
+/**
+ * A model cannot know a stable idempotency key. It invents one, or reuses one
+ * it saw in an earlier turn, and the write receipt guard then refuses the next
+ * write ("Request ID was already used for different data") or replays an
+ * unrelated saved result. Every action that takes an OPTIONAL `requestId` is
+ * the class. Drop the model's value so the write runs fresh; a schema that
+ * REQUIRES one keeps what the model sent, because that action cannot run
+ * without it.
+ */
+function dropModelChosenRequestId(
+  schema: RawJsonSchema | undefined,
+  input: unknown,
+): ToolInputRepair {
+  if (!schema?.properties || !input || typeof input !== "object") {
+    return { input, changed: false };
+  }
+  if (Array.isArray(input)) return { input, changed: false };
+  const requestIdSchema: unknown = schema.properties.requestId;
+  if (!requestIdSchema || typeof requestIdSchema !== "object") {
+    return { input, changed: false };
+  }
+  if (Array.isArray(schema.required) && schema.required.includes("requestId")) {
+    return { input, changed: false };
+  }
+  const args = input as Record<string, unknown>;
+  if (!Object.prototype.hasOwnProperty.call(args, "requestId")) {
+    return { input, changed: false };
+  }
+  const { requestId: _modelChosen, ...rest } = args;
+  return { input: rest, changed: true };
 }
 
 /**
@@ -7416,6 +7460,13 @@ function projectModelInputForObserver(messages: readonly unknown[]): unknown[] {
     }
 
     const part = value as Record<string, unknown>;
+    if (part.omitFromPersistedHistory === true) {
+      return {
+        type: "text",
+        text: "[Private content omitted]",
+        omitFromPersistedHistory: true,
+      };
+    }
     const isMedia =
       isImageListEntry || part.type === "image" || part.type === "file";
     if (isMedia) {
@@ -7450,10 +7501,28 @@ function projectModelInputForObserver(messages: readonly unknown[]): unknown[] {
 function notifyModelInputObserver(
   observer: ModelInputObserver | undefined,
   messages: readonly unknown[],
+  privateTurn = false,
 ): void {
   if (!observer) return;
   try {
-    const result = observer(projectModelInputForObserver(messages));
+    // Observers may persist their input independently of the run's trace writer.
+    // Once a turn is private, even unmarked derived context stays model-only.
+    const result = observer(
+      privateTurn
+        ? [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "[Private content omitted]",
+                  omitFromPersistedHistory: true,
+                },
+              ],
+            },
+          ]
+        : projectModelInputForObserver(messages),
+    );
     if (result !== undefined) {
       void Promise.resolve(result).catch(() => {
         // coercion-ok: observer failures cannot change agent execution.
@@ -7470,6 +7539,7 @@ export function createRunSafeBoundaryGuards(input: {
   signal: AbortSignal;
   flushEvents: () => Promise<void>;
   interruptRequestedAtBoundary: () => Promise<QueuedRunInterruptBoundaryResult>;
+  validateModelInput?: () => boolean | Promise<boolean>;
 }): {
   beforeModelDispatch: BeforeModelDispatch;
   beforeWrite: () => Promise<void>;
@@ -7481,6 +7551,17 @@ export function createRunSafeBoundaryGuards(input: {
       if (input.signal.aborted || interruptResult !== "none") {
         return { started: false as const };
       }
+      if (input.validateModelInput) {
+        try {
+          const current = input.validateModelInput();
+          if (current !== true && (await current) !== true) {
+            return { started: false as const };
+          }
+        } catch {
+          return { started: false as const };
+        }
+      }
+      if (isSignalAborted(input.signal)) return { started: false as const };
       return { started: true as const, value: dispatch() };
     },
     beforeWrite: async () => {
@@ -7538,6 +7619,7 @@ export async function runAgentLoop(opts: {
   signal: AbortSignal;
   beforeWrite?: () => Promise<void>;
   beforeModelDispatch?: BeforeModelDispatch;
+  registerModelInputGuard?: ActionRunContext["registerModelInputGuard"];
   unknownWriteToolNames?: Set<string>;
   /** The request's unknown outcomes, which each of its loops feeds and holds by. */
   unknownOutcomes?: UnknownOutcomes;
@@ -8648,10 +8730,15 @@ export async function runAgentLoop(opts: {
             }
           },
           providerOptions,
+          ...(send.isPrivateTurn() ? { privateContent: true } : {}),
         };
 
         opts.onModelSettings?.(model, effectiveReasoningEffort);
-        notifyModelInputObserver(opts.onModelInput, engineMessages);
+        notifyModelInputObserver(
+          opts.onModelInput,
+          engineMessages,
+          send.isPrivateTurn(),
+        );
         if (signal.aborted) {
           reportOutcome({
             state: "canceled",
@@ -10247,28 +10334,33 @@ export async function runAgentLoop(opts: {
         const approvalUserEmail = requiresWriteApproval
           ? undefined
           : getRequestUserEmail();
+        const approvalContext = {
+          ...(approvalUserEmail === undefined
+            ? {}
+            : { userEmail: approvalUserEmail }),
+          orgId: getRequestOrgId() ?? null,
+          ...(opts.appId === undefined ? {} : { appId: opts.appId }),
+          caller: opts.actionCaller ?? "tool",
+          ...(opts.automation === undefined
+            ? {}
+            : { automation: opts.automation }),
+          ...(opts.networkProtocol === undefined
+            ? {}
+            : { networkProtocol: opts.networkProtocol }),
+          ...(opts.networkId === undefined
+            ? {}
+            : { networkId: opts.networkId }),
+          ...(opts.networkPeer === undefined
+            ? {}
+            : { networkPeer: opts.networkPeer }),
+        };
         let mustApprove =
           requiresWriteApproval ||
-          (await preparedCallNeedsApproval(actionEntry, intent, {
-            ...(approvalUserEmail === undefined
-              ? {}
-              : { userEmail: approvalUserEmail }),
-            orgId: getRequestOrgId() ?? null,
-            ...(opts.appId === undefined ? {} : { appId: opts.appId }),
-            caller: opts.actionCaller ?? "tool",
-            ...(opts.automation === undefined
-              ? {}
-              : { automation: opts.automation }),
-            ...(opts.networkProtocol === undefined
-              ? {}
-              : { networkProtocol: opts.networkProtocol }),
-            ...(opts.networkId === undefined
-              ? {}
-              : { networkId: opts.networkId }),
-            ...(opts.networkPeer === undefined
-              ? {}
-              : { networkPeer: opts.networkPeer }),
-          }));
+          (await preparedCallNeedsApproval(
+            actionEntry,
+            intent,
+            approvalContext,
+          ));
         if (
           mustApprove &&
           opts.requireWriteApproval !== true &&
@@ -10301,6 +10393,11 @@ export async function runAgentLoop(opts: {
           }
           const askId =
             (await opts.onApprovalRequired?.(approvalBinding())) || undefined;
+          // A private call's arguments stay out of the chat, so its card
+          // keeps the generic question.
+          const approvalLabel = isPrivateCall()
+            ? undefined
+            : preparedCallApprovalLabel(actionEntry, intent, approvalContext);
           await send({
             type: "tool_start",
             id: toolCall.id,
@@ -10313,6 +10410,7 @@ export async function runAgentLoop(opts: {
             input: liveToolInput as Record<string, string>,
             approvalKey,
             argumentsHash,
+            ...(approvalLabel ? { label: approvalLabel } : {}),
             ...(actionEntry.allowPersistentApproval === false
               ? { allowPersistentApproval: false }
               : {}),
@@ -11232,6 +11330,12 @@ export async function runAgentLoop(opts: {
               actionName: toolCall.name,
               toolCallId: toolCall.id,
               maxResultChars: toolMaxResultChars,
+              ...(actionEntry.persistInChatHistory === false &&
+              engine.supportsPrivateContent === true &&
+              opts.beforeModelDispatch &&
+              opts.registerModelInputGuard
+                ? { registerModelInputGuard: opts.registerModelInputGuard }
+                : {}),
               get omitFromPersistedHistory(): true | undefined {
                 return isPrivateCall() ? true : undefined;
               },
@@ -17800,11 +17904,15 @@ export function createProductionAgentHandler(
             }
             return "none";
           };
+        const modelInputScopes = createModelInputScopeGuardRegistry(() => {
+          abortRun(runId, MODEL_INPUT_SCOPE_ABORT_REASON);
+        });
         const { beforeModelDispatch: guardedBeforeModelDispatch, beforeWrite } =
           createRunSafeBoundaryGuards({
             signal,
             flushEvents: control.flushEvents,
             interruptRequestedAtBoundary: interruptQueuedRunAtBoundary,
+            validateModelInput: modelInputScopes.validate,
           });
         const exposureAssignment =
           questionIntakeAssignment && !internalContinuation && !continueOf
@@ -17866,19 +17974,24 @@ export function createProductionAgentHandler(
         if (customAgentRefs.length > 0) {
           const ownerEmail = getRequestUserEmail();
           if (!ownerEmail) throw new Error("no authenticated user");
-          const { findAccessibleCustomAgent } =
-            await import("../resources/agents.js");
+          const {
+            findAccessibleCustomAgent,
+            resolveAccessibleCustomAgentReference,
+          } = await import("../resources/agents.js");
           const customResults = await Promise.allSettled(
             customAgentRefs.map(async (ref, index) => {
+              const agentCallId = randomUUID();
               send({
                 type: "agent_call",
                 agent: ref.name,
                 status: "start",
+                agentCallId,
               });
               try {
-                const profile = await findAccessibleCustomAgent(
+                const profile = await resolveAccessibleCustomAgentReference(
                   ownerEmail,
-                  ref.refId || ref.path || ref.name,
+                  ref,
+                  findAccessibleCustomAgent,
                 );
                 if (!profile) {
                   throw new Error("Profile not found");
@@ -17965,6 +18078,7 @@ export function createProductionAgentHandler(
                         type: "agent_call_text",
                         agent: ref.name,
                         text: event.text,
+                        agentCallId,
                       });
                     } else if (
                       event.type === "tool_start" ||
@@ -18022,6 +18136,7 @@ export function createProductionAgentHandler(
                   type: "agent_call",
                   agent: ref.name,
                   status: "done",
+                  agentCallId,
                 });
                 return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent">\n${responseText}\n</agent-response>`;
               } catch (err: any) {
@@ -18029,6 +18144,7 @@ export function createProductionAgentHandler(
                   type: "agent_call",
                   agent: ref.name,
                   status: "error",
+                  agentCallId,
                 });
                 const message =
                   userFacingLlmCredentialError(err, {
@@ -18173,6 +18289,7 @@ export function createProductionAgentHandler(
           systemSections: contextXraySystemSections,
           actions: requestActions,
           beforeModelDispatch,
+          registerModelInputGuard: modelInputScopes.register,
           beforeWrite,
           unknownOutcomes,
           internalContinuation,

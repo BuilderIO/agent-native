@@ -1050,6 +1050,42 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "ライブプレビューを共有",
+      instructions:
+        "アプリの公開 HTTPS プレビュー URL（ngrok や cloudflared のトンネルなど）を貼り付けます。自分の端末は localhost のまま、他の人は公開プレビューを表示したり、公開スナップショットに変更を提案できます。",
+      tunnelUrl: "公開プレビュー URL",
+      enableCollaboration:
+        "デザインにアクセスできる全員のライブ共同作業を有効にする",
+      save: "保存",
+      unavailable:
+        "ライブプレビューを利用できません — スナップショットを表示しています",
+      live: "ライブプレビュー",
+      openLive: "{{hostname}} でライブプレビューを開く",
+      suggest: "スナップショットに提案",
+      localOnly: "ライブプレビューは所有者の端末のみ",
+    },
+    referenceCopy: {
+      staticNotice:
+        "JavaScript は無効です。動的コンテンツが表示されない場合があります。",
+      captureAction: "静的スナップショットを取得",
+      capturePrompt:
+        "この公開参照 URL のスクリーンショットと DOM スナップショットを取得し、静的な参照画面としてこのデザインキャンバスに追加してください。ライブページではなくスナップショットと明記してください。",
+      unavailable:
+        "このページはフレーム表示を拒否しているか、読み込みに失敗しました。",
+      load: "参照コピーを読み込む",
+      label: "参照コピー · 公開ページ、読み取り専用",
+      noBridge:
+        "公開参照コピーを読み込むにはローカルブリッジを接続してください。",
+      snapshot: "公開スナップショットを使う",
+      capture:
+        "エージェントにスクリーンショットと DOM スナップショットの取得を依頼してください。",
+      failed:
+        "参照コピーに失敗しました。スクリーンショットと DOM を取得してください。",
+      loading: "参照コピーを読み込み中…",
+      original: "元のページを試す",
+    },
+
     sourceLoadFailed: "この画面を読み込めませんでした。",
     selectionPublishFailed:
       "エージェントが最新の選択範囲を認識していない可能性があります。もう一度選択してください。",
@@ -1099,6 +1135,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "レイヤーを選択",
+      layerKinds: {
+        webgl: "キャンバス · WebGL",
+        canvas: "キャンバス",
+        video: "動画",
+        image: "画像",
+        svg: "SVG 画像",
+        embed: "埋め込み",
+        background: "背景",
+        effect: "エフェクト",
+      },
       goToMain: "メインコンポーネントに移動",
       restore: "コンポーネントを復元",
       swap: "インスタンスを入れ替え",
@@ -1717,6 +1763,19 @@ export default {
       localDescription:
         "/visual-edit で任意の実行中ローカル app に接続します。",
       warningsToast: "警告付きでインポートが完了しました",
+      pasteUnreadable: "コピーしたレイヤーを読み取れませんでした。",
+      pasteInexact: "正確に貼り付けられなかった詳細: {{count}}",
+      pasteLayerTypes:
+        "シンプルなフレームとして貼り付けた{{tool}}のレイヤータイプ: {{count}}",
+      pasteImagePlaceholders:
+        "プレースホルダーとして貼り付けた画像: {{count}}。{{tool}}は画像データをコピーしません。",
+      pasteImagesLinked:
+        "{{tool}}にリンクされたままの画像: {{count}}。ファイルストレージにコピーできませんでした。",
+      pasteImagesUnsaved:
+        "保存を確認できず、表示されなくなる可能性のある画像: {{count}}",
+      pasteNeedsEditAccess: "このデザインに貼り付けるには編集権限が必要です。",
+      pastePartialImport:
+        "貼り付けに失敗しました。一部の画面が作成された可能性があります。画面を確認してください。",
       figmaSuccess: "Figma 貼り付けをインポートしました",
       htmlSuccess: "HTML をインポートしました",
       uploadSuccess: "ファイルをインポートしました",
@@ -1727,6 +1786,8 @@ export default {
         notHtml: "インポートする有効な HTML を貼り付けるか選択してください。",
         importFailed: "インポートに失敗しました",
         figmaPasteFailed: "Figma 貼り付けのインポートに失敗しました",
+        paperPasteFailed: "Paper 貼り付けのインポートに失敗しました",
+        wonderPasteFailed: "Wonder 貼り付けのインポートに失敗しました",
         uploadFailed: "ファイルのアップロードに失敗しました",
         invalidFigFile: ".fig で終わるファイルを選択してください。",
         unsupportedFileType: ".fig、.html、.htm ファイルを選択してください。",
@@ -2058,6 +2119,9 @@ export default {
     addTweaks: "微調整を追加する",
     addTweakControls: "微調整コントロールを追加する",
     closeTweaks: "微調整を閉じる",
+    showFloatingTweaks: "フローティング微調整を表示",
+    collapseTweaks: "微調整を折りたたむ",
+    expandTweaks: "微調整を展開",
     tweaksHelp:
       "調整はベースデザインに重ねる、ブレークポイントおよび状態固有の視覚的オーバーライドです。コントロールをリセットすると継承値に戻ります。",
     tweaksDocs: "詳細を見る。",
@@ -2123,6 +2187,7 @@ export default {
       applyAria: "保留中のビジュアルスタイル編集を適用",
       applyButton: "スタイルを適用",
       applySharedEdits: "編集内容を適用",
+      reviewSuggestion: "提案を確認",
       previewLabel: "保留中のビジュアルプレビュー",
       applyDesignUpdates: "デザインの更新を適用",
       applying: "適用中…",
@@ -2229,6 +2294,9 @@ export default {
       annotationSendError:
         "注釈を送信できませんでした。描画はそのまま残っています。もう一度お試しください。",
       codingHandoffError: "コーディング引き継ぎを作成できませんでした",
+      unknownCollaborator: "共同編集者",
+      supersededVisualEditSuggestion:
+        "{{authorEmail}} の以前の提案が置き換えられました。元のテキスト: {{text}}",
       visualEditPendingConflict:
         "別の共同編集者の変更が適用待ちです。新しい変更を送る前に適用するか消去してください。",
       codingHandoffCopied: "コーディング引き継ぎをコピーしました",
@@ -2312,6 +2380,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "調整内容が別の場所で変更されました。デザインを更新してからもう一度お試しください。",
+      tweakBaselineUnreadable:
+        "保存された調整の基準値を読み取れませんでした。デザインデータが修復されるまで調整の変更を一時停止します。",
+      resetTweakBaseline: "ベースラインをリセット",
       tweakSaveNotDurable:
         "調整内容はまだ保存されていません。このタブを開いたまま、もう一度お試しください。",
       undoSkippedConcurrentEdit:
@@ -3460,6 +3531,10 @@ export default {
     markedUnread: "未読にしました",
     markUnreadFailed: "未読にできませんでした",
     attachImage: "画像を添付",
+    removeImage: "画像を削除",
+    imageUploadFailed: "画像をアップロードできませんでした",
+    editChanged:
+      "編集を始めた後にこのコメントが変更されました。置き換えるにはもう一度保存してください。",
     searching: "検索中…",
     reactionFailed: "リアクションを更新できませんでした",
     moveFailed: "コメントを移動できませんでした",

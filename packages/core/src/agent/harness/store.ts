@@ -2140,6 +2140,7 @@ export async function getAgentHarnessSessionByRunId(
 
 export async function listAgentHarnessSessions(
   options: {
+    sourceAppId?: string | null;
     status?: AgentHarnessSessionStatus;
     threadId?: string;
     ownerEmail?: string | null;
@@ -2147,9 +2148,38 @@ export async function listAgentHarnessSessions(
     limit?: number;
   } = {},
 ): Promise<StoredAgentHarnessSession[]> {
+  const sourceAppId = options.sourceAppId?.trim();
+  if ("sourceAppId" in options && !sourceAppId) return [];
   await ensureAgentHarnessSessionTables();
   const limit = Math.max(1, Math.min(200, options.limit ?? 50));
   const client = getDbExec();
+  if ("sourceAppId" in options) {
+    const clauses = ["t.id = s.thread_id", "t.source_app_id = ?"];
+    const args: Array<string | number | null> = [sourceAppId ?? null];
+    if (options.ownerEmail !== undefined) {
+      clauses.push("s.owner_email IS NOT DISTINCT FROM ?");
+      args.push(options.ownerEmail);
+    }
+    if (options.orgId !== undefined) {
+      clauses.push("s.org_id IS NOT DISTINCT FROM ?");
+      args.push(options.orgId);
+    }
+    if (options.threadId) {
+      clauses.push("s.thread_id = ?");
+      args.push(options.threadId);
+    }
+    if (options.status) {
+      clauses.push("s.status = ?");
+      args.push(options.status);
+    }
+    args.push(limit);
+    // raw-sql-ok: joins fixed clause strings; every value is a bound ? arg
+    const { rows } = await client.execute({
+      sql: `SELECT s.* FROM agent_harness_sessions s, chat_threads t WHERE ${clauses.join(" AND ")} ORDER BY s.updated_at DESC LIMIT ?`,
+      args,
+    });
+    return rows.map(rowToHarnessSession).filter(isStoredSession);
+  }
   if (options.ownerEmail) {
     const { rows } = await client.execute({
       sql: `SELECT * FROM agent_harness_sessions

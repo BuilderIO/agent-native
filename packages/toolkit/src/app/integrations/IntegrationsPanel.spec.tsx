@@ -145,6 +145,56 @@ describe("IntegrationsPanel MCP connection errors", () => {
     vi.unstubAllEnvs();
   });
 
+  it("offers scoped disconnect for an expired stored connection", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("connection-status/builder")) {
+        return Response.json({
+          configured: false,
+          builderEnabled: true,
+          effective: null,
+          grants: { org: { connectedAt: 1, needsReconnect: true } },
+          canConnect: { org: true, personal: false },
+          builderReauthorizationRequired: true,
+          connectError: { message: "Connection expired", at: Date.now() },
+        });
+      }
+      return Response.json({ disconnected: "org" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await act(async () => root.render(<IntegrationsPanel />));
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector(
+          'button[aria-label="Manage Builder.io connection"]',
+        ),
+      ).not.toBeNull(),
+    );
+    act(() =>
+      (
+        container.querySelector(
+          'button[aria-label="Manage Builder.io connection"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    act(() =>
+      Array.from(document.body.querySelectorAll("button"))
+        .find((button) => button.textContent?.trim() === "Disconnect")
+        ?.click(),
+    );
+    await act(async () =>
+      Array.from(document.body.querySelectorAll("button"))
+        .find((button) => button.textContent?.trim() === "Confirm disconnect")
+        ?.click(),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/actions/manage-builder-connection"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ disconnect: "org" }),
+      }),
+    );
+  });
+
   it("shows the connection cause and reconnects the saved server", async () => {
     await act(async () => {
       root.render(<IntegrationsPanel />);

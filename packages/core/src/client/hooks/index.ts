@@ -55,6 +55,8 @@ export {
   useActionQueryCanFetch,
   useActionMutation,
   type ActionRegistry,
+  type PrivateActionMutationOptions,
+  type PrivateActionMutationResult,
   type ClientActionCallOptions,
   type ClientActionMethod,
   type RetriedActionCallOptions,
@@ -65,6 +67,7 @@ export {
   actionErrorCode,
   isTerminalActionError,
 } from "../action-failure-circuit.js";
+export { invalidateForegroundActionQueries } from "../action-query-foreground.js";
 export { createAgentNativeQueryClient } from "../create-query-client.js";
 export {
   APP_CHAT_SIDEBAR_STATE_EVENT,
@@ -91,6 +94,7 @@ export {
 export {
   useAvatarUrl,
   uploadAvatar,
+  removeAvatar,
   invalidateAvatarCache,
 } from "../use-avatar.js";
 export {
@@ -99,3 +103,15 @@ export {
   type UsePollLoopHandle,
 } from "../use-poll-loop.js";
 export { useAfterPaint, scheduleAfterPaint } from "../use-after-paint.js";
+export {
+  LocalModelStore,
+  type CollectionSnapshot,
+  type LocalModelStorage,
+  type LocalModelStoreOptions,
+  type ModelCheckpoint,
+  type ModelRecord,
+} from "../local-model-store.js";
+export {
+  createLocalModelStorage,
+  type LocalModelStorageBinding,
+} from "../local-model-storage.js";

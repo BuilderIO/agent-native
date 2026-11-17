@@ -3204,6 +3204,7 @@ const AgentKitAssistantChatBody = forwardRef<
       references: Reference[],
       composerOptions: AgentKitSuggestionSubmitOptions,
       options: AgentKitInternalSendOptions = {},
+      onSubmissionAccepted?: () => void,
     ) => {
       const selectedEngine =
         composerOptions.engine ??
@@ -3515,8 +3516,8 @@ const AgentKitAssistantChatBody = forwardRef<
           ...(queuedMessageReservationId
             ? {}
             : { onLocalSubmit: composerOptions.onLocalSubmit }),
+          onSubmissionAccepted,
         });
-        reportAgentChatSubmitResult(options.submitMessageId, true);
         if (
           !options.recoveryAction &&
           !selectionChangedDuringSubmission &&
@@ -3783,6 +3784,14 @@ const AgentKitAssistantChatBody = forwardRef<
         !isThreadRunning()
           ? beginSubmittedMessage(text, files)
           : undefined;
+      // A property, not a `let`: the callback flips it from inside the awaited
+      // submit, which control-flow narrowing cannot see.
+      const submission = { accepted: false };
+      const onSubmissionAccepted = () => {
+        if (submission.accepted) return;
+        submission.accepted = true;
+        reportAgentChatSubmitResult(options.submitMessageId, true);
+      };
       try {
         if (isSubmissionExpired(options.submissionExpiresAt)) {
           reportAgentChatSubmitResult(
@@ -3797,12 +3806,21 @@ const AgentKitAssistantChatBody = forwardRef<
           files,
           references,
           pending
-            ? { ...submittedComposerOptions, submissionId: pending.id }
+            ? {
+                ...submittedComposerOptions,
+                submissionId: pending.id,
+              }
             : submittedComposerOptions,
           options,
+          onSubmissionAccepted,
         );
+        onSubmissionAccepted();
         return { status: "submitted" };
       } catch (error) {
+        if (submission.accepted && options.submitMessageId) {
+          dispatchSetupRequiredEvent(error, props.tabId, threadId);
+          return { status: "submitted" };
+        }
         if (isSubmissionExpiredError(error)) {
           reportAgentChatSubmitResult(
             options.submitMessageId,
@@ -4897,7 +4915,11 @@ const AgentKitAssistantChatBody = forwardRef<
           {...(props.className === undefined
             ? {}
             : { className: props.className })}
-          composerProps={{ attachmentsEnabled: fileStorageConfigured }}
+          composerProps={{
+            attachmentsEnabled:
+              fileStorageConfigured &&
+              props.composerAttachmentsEnabled !== false,
+          }}
           hasRenderedMessages={hasRenderedMessages}
           {...(props.transcriptLayout === undefined
             ? {}
@@ -5002,6 +5024,8 @@ function AgentKitAssistantEmptyState({ threadId }: { threadId: string }) {
             <AgentKitSuggestedPrompts
               suggestions={promptSuggestions}
               size={surface.props.emptyStateSuggestionSize}
+              layout={surface.props.emptyStateSuggestionsLayout}
+              renderSuggestion={surface.props.renderEmptyStateSuggestion}
               disabled={
                 !surface.canChat ||
                 Boolean(surface.props.composerDisabled) ||
@@ -5462,6 +5486,67 @@ class AgentKitComposerContextError extends Error {
   }
 }
 
+function hiddenComposerContextKeySet(
+  keys: readonly string[] | undefined,
+): Set<string> {
+  const normalized = new Set<string>();
+  for (const key of keys ?? []) {
+    const trimmed = key.trim();
+    if (trimmed) normalized.add(trimmed);
+  }
+  return normalized;
+}
+
+/**
+ * Split composer context into the items a surface renders as chips and the
+ * hidden items it still submits. Hidden items keep the same namespace and
+ * thread scoping the visible composer already enforces, so another surface's
+ * item can never be captured just because an app listed its key.
+ */
+export function partitionComposerContextItemsForComposer(
+  items: readonly AgentChatContextItem[],
+  hiddenKeys: readonly string[] | undefined,
+  contextNamespace?: string | null,
+  threadId?: string | null,
+): {
+  visible: AgentChatContextItem[];
+  hidden: AgentChatContextItem[];
+} {
+  const keySet = hiddenComposerContextKeySet(hiddenKeys);
+  if (!keySet.size) return { visible: [...items], hidden: [] };
+  const hidden = filterAgentChatContextItems(
+    items,
+    contextNamespace,
+    threadId,
+  ).filter((item) => keySet.has(item.key));
+  const hiddenItemKeys = new Set(hidden.map((item) => item.key));
+  return {
+    visible: items.filter((item) => !hiddenItemKeys.has(item.key)),
+    hidden,
+  };
+}
+
+/**
+ * Reattach hidden registered items to the composer's submission snapshot.
+ * The composer only knows about the chips it rendered, so without this the
+ * hidden item would be visible now but absent from the prompt it belongs to.
+ * Keep the composer's order and identity; append each hidden key at most once.
+ */
+export function mergeHiddenComposerContextItems(
+  submissionItems: readonly AgentChatContextItem[],
+  hiddenItems: readonly AgentChatContextItem[],
+): AgentChatContextItem[] {
+  if (!hiddenItems.length) return [...submissionItems];
+  const merged = [...submissionItems];
+  const presentKeys = new Set(merged.map((item) => item.key));
+  for (const item of hiddenItems) {
+    if (presentKeys.has(item.key)) continue;
+    presentKeys.add(item.key);
+    merged.push(item);
+  }
+  return merged;
+}
+
 function AgentKitComposerSurface({
   threadId,
   props,
@@ -5576,6 +5661,12 @@ function AgentKitComposerSurface({
     visibleProviderContextItems.map((item) => item.key),
   );
   const visibleContextItems = [...contextItems, ...visibleProviderContextItems];
+  const composerContextItems = partitionComposerContextItemsForComposer(
+    visibleContextItems,
+    props.hiddenComposerContextItemKeys,
+    props.contextNamespace,
+    threadId,
+  );
   const submissionScope = JSON.stringify([
     threadId,
     props.tabId,
@@ -5685,7 +5776,10 @@ function AgentKitComposerSurface({
       validateSubmissionScope: assertSubmissionScope,
     };
     const captured = snapshotComposerContextItems(
-      options.contextItems ?? visibleContextItems,
+      mergeHiddenComposerContextItems(
+        options.contextItems ?? visibleContextItems,
+        composerContextItems.hidden,
+      ),
     );
     let prepared: AssistantChatComposerContext["contextItems"] | undefined;
     await onSubmit(message, files, references, options, async () => {
@@ -5960,8 +6054,12 @@ function AgentKitComposerSurface({
           onTextChange={onTextChange}
           announcePendingSubmission={!isThinkingVisibleInTranscript}
           onSubmissionPendingChange={onComposerSubmissionPendingChange}
-          contextItems={visibleContextItems}
-          contextMenuItems={composerContext?.menuItems}
+          contextItems={composerContextItems.visible}
+          contextMenuItems={
+            props.showContextPicker === false
+              ? undefined
+              : composerContext?.menuItems
+          }
           onRemoveContextItem={(key) => {
             if (providerContextKeys.has(key))
               composerContext?.onRemoveContextItem(key);
@@ -5989,8 +6087,11 @@ function AgentKitComposerSurface({
           agentOnly={props.hostedHarness}
           onAgentChange={props.onAgentChange}
           showModelSelector={props.showModelSelector}
+          enterSubmitMode={props.enterSubmitMode}
           planModeDisabled={props.planModeDisabled}
           layoutVariant={props.composerLayoutVariant}
+          richTextEnabled={props.richTextEnabled}
+          textBlockSeparator={props.textBlockSeparator}
           plusMenuMode={props.plusMenuMode}
           placeholder={composerPlaceholder({
             props,
@@ -6018,9 +6119,11 @@ function AgentKitComposerSurface({
                   </a>
                 </span>
               ) : null}
-              <AgentSelectToggle
-                reservedContextItems={composerContext?.contextItems}
-              />
+              {props.showContextPicker !== false ? (
+                <AgentSelectToggle
+                  reservedContextItems={composerContext?.contextItems}
+                />
+              ) : null}
               {props.composerToolbarSlot}
             </>
           }
@@ -6032,8 +6135,11 @@ function AgentKitComposerSurface({
             props.showModelSelector !== false &&
             props.availableModels === undefined
           }
-          attachmentsEnabled={fileStorageConfigured}
-          {...(!fileStorageConfigured
+          attachmentsEnabled={
+            fileStorageConfigured && props.composerAttachmentsEnabled !== false
+          }
+          {...(!fileStorageConfigured &&
+          props.composerAttachmentsEnabled !== false
             ? { onAttachmentRequest: requestFileStorage }
             : {})}
           contextButtonTooltipDisabled={fileStoragePromptOpen}
@@ -6097,6 +6203,10 @@ function AgentKitComposerSurface({
           }
           onSelect={submitSuggestion}
           className="agentkit-home-suggestions"
+          variant={props.afterComposerSuggestionsVariant ?? "pill"}
+          {...(props.afterComposerSuggestionsVariant === "filled"
+            ? { layout: "stacked" as const }
+            : {})}
         />
       ) : null}
       {showAfterComposerSlot ? (
@@ -6116,13 +6226,19 @@ function AgentKitSuggestedPrompts({
   className,
   size = "compact",
   layout,
+  variant,
+  renderSuggestion,
 }: {
   suggestions: AgentSuggestionInput[];
   disabled: boolean;
   onSelect: (suggestion: AgentSuggestionInput) => void;
   className: string;
   size?: "compact" | "comfortable";
-  layout?: "wrap" | "single-line";
+  layout?: "wrap" | "single-line" | "stacked";
+  variant?: "pill" | "filled";
+  renderSuggestion?: (
+    suggestion: Exclude<AgentSuggestionInput, string>,
+  ) => React.ReactNode;
 }) {
   const t = useT();
   return (
@@ -6145,6 +6261,8 @@ function AgentKitSuggestedPrompts({
       className={className}
       size={size}
       layout={layout}
+      variant={variant}
+      renderSuggestion={renderSuggestion}
     />
   );
 }

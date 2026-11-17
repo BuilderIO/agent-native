@@ -223,6 +223,21 @@ apply after you turn on `AGENT_NATIVE_ENABLE_KEEP_WARM`:
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Turns keep-warm off even when `AGENT_NATIVE_ENABLE_KEEP_WARM` is set. Kept for compatibility with older setups.                                                                                               |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Changes how often the warm-up runs, as a 5-field cron expression such as `*/5 * * * *`. The default is `* * * * *`, every minute. A value that is not valid cron **fails the build**.                         |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Skips warming the background function and keeps warming the server function. Warming the server is one request. Warming the background function starts a new container that checks the database schema again. |
+| `AGENT_NATIVE_KEEP_WARM_CONCURRENCY`        | Multi-app workspaces only: how many server instances each app keeps warm, from 1 to 50. The default is `1`. A value outside that range **fails the build**.                                                   |
+
+### Multi-app workspaces {#netlify-workspace-keep-warm}
+
+A workspace deploy reads the same variables. When keep-warm is on, it emits one
+scheduled function, `agent-native-workspace-keep-warm`, that calls every app's
+`/<app>/_agent-native/health` endpoint on the schedule.
+
+A Netlify function instance serves one request at a time, and opening an app
+sends a burst of parallel framework requests. Each request that finds no idle
+instance starts a cold one, so a single warm instance does little for a page
+load. Set `AGENT_NATIVE_KEEP_WARM_CONCURRENCY` to send that many overlapping
+health requests per app, which keeps that many instances warm. Each run sends
+`apps x concurrency` requests, so pair a higher concurrency with a slower
+schedule such as `*/3 * * * *`.
 
 If your database is on a free or otherwise limited plan, leave
 `AGENT_NATIVE_ENABLE_KEEP_WARM` unset. If you turn it on, choose a slower

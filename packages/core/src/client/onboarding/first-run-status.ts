@@ -1,6 +1,7 @@
 import { FIRST_RUN_ONBOARDING_COOKIE } from "../../shared/first-run-onboarding.js";
 import { getOrCreateAnalyticsSessionId } from "../analytics-session.js";
 import { agentNativePath } from "../api-path.js";
+import { notifySessionInvalidated } from "../use-session.js";
 
 export const FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT =
   "agent-native:first-run-status-resolved";
@@ -105,4 +106,42 @@ export function fetchFirstRunOnboardingStatus(): Promise<boolean> {
     firstRunStatusRequest = null;
   });
   return firstRunStatusRequest;
+}
+
+/** Complete an app-owned first-run surface only after its native saves succeed. */
+export interface FirstRunCompletionScope {
+  expectedUserEmail: string;
+  expectedOrgId: string;
+}
+
+export async function completeFirstRunOnboarding(
+  scope?: FirstRunCompletionScope,
+): Promise<void> {
+  const response = await fetch(
+    agentNativePath("/_agent-native/onboarding/first-run/complete"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(scope ?? {}),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`first-run completion failed: ${response.status}`);
+  }
+  const result: unknown = await response.json();
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !("ok" in result) ||
+    result.ok !== true
+  ) {
+    throw new Error("First-run completion was not acknowledged.");
+  }
+  // Setup can provision the workspace after the initial session read. Publish
+  // its current scope before releasing navigation that depends on that scope.
+  await notifySessionInvalidated();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("agent-native:first-run-completed"));
+  }
 }

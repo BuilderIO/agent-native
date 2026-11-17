@@ -89,6 +89,7 @@ import {
 import {
   enforceSignupAdmission,
   isBootstrapAdmin,
+  isDeploymentEmailDomainAllowed,
 } from "../org/signup-admission.js";
 import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
 import { normalizeCorsOrigin } from "../shared/cors-origin.js";
@@ -1913,7 +1914,9 @@ async function syncGoogleProfile(
   const updates: {
     name?: string;
     image?: string;
+    emailVerified?: boolean;
   } = {};
+  if (existing.user.emailVerified !== true) updates.emailVerified = true;
   if (
     name &&
     isEmailDerivedName(existing.user.name, email) &&
@@ -1943,6 +1946,8 @@ export async function ensureGoogleAuthIdentityWithAdapter(
 ): Promise<boolean> {
   const email = identity.email.trim().toLowerCase();
   const accountId = identity.accountId.trim();
+  if (!isDeploymentEmailDomainAllowed(email))
+    throw new Error("Account domain is not allowed for this deployment");
   if (!email || !accountId) {
     throw new Error("Google identity is missing an email or account id");
   }
@@ -2594,6 +2599,7 @@ async function createBetterAuthInstance(
               session.userId,
               context?.context.adapter,
             );
+            if (!isDeploymentEmailDomainAllowed(email)) return false;
             const requiredProvider =
               await getRequiredAuthProviderForEmail(email);
             if (!requiredProvider) return;

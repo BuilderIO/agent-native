@@ -80,7 +80,15 @@ export async function runActionBatch(
   const results = await mapWithConcurrency(
     input.requests,
     ITEM_CONCURRENCY,
-    (item) => dispatchItem(item, base, headers, clientAddress, bound),
+    (item) =>
+      dispatchItem(
+        item,
+        base,
+        headers,
+        clientAddress,
+        bound,
+        ctx?.omitFromPersistedHistory === true,
+      ),
   );
   return { results };
 }
@@ -123,6 +131,7 @@ async function dispatchItem(
   headers: Headers,
   clientAddress: string | undefined,
   bound: ActionBatchBinding,
+  privateTurn: boolean,
 ): Promise<ActionBatchItemResult> {
   const entry = bound.actions[item.action];
   if (!entry || entry.http === false) {
@@ -146,12 +155,21 @@ async function dispatchItem(
     response = await bound.fetch(request);
     text = await response.text();
   } catch (error) {
-    const captureId = captureError(error, {
-      tags: { action: "get-actions-batch", batch_item: item.action },
-    });
+    const privateFailure = privateTurn || entry.persistInChatHistory === false;
+    const captureId = captureError(
+      privateFailure ? new Error("Private content omitted") : error,
+      {
+        ...(privateFailure ? { errorMessagePolicy: "omit" as const } : {}),
+        tags: { action: "get-actions-batch", batch_item: item.action },
+      },
+    );
     console.error(`[agent-native] action batch item '${item.action}' failed:`, {
       ...(captureId ? { captureId } : {}),
-      error: error instanceof Error ? error.message : String(error),
+      error: privateFailure
+        ? "Private content omitted"
+        : error instanceof Error
+          ? error.message
+          : String(error),
     });
     return { status: 500, error: { error: "Internal server error" } };
   }

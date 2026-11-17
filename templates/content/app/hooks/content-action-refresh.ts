@@ -78,7 +78,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "upsert-database-item-by-key",
 ]);
 
-const DATABASE_RESULT_MUTATIONS = new Set([
+export const DATABASE_RESULT_MUTATIONS = new Set([
   "add-database-item",
   "add-github-pull-requests",
   "configure-document-property",

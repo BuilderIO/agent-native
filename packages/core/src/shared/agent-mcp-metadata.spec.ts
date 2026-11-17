@@ -3,6 +3,19 @@ import { describe, expect, it } from "vitest";
 import { agentNativeMcpInstructions } from "./agent-mcp-metadata.js";
 
 describe("agentNativeMcpInstructions", () => {
+  it("mentions task search when advertised even without key tools", () => {
+    expect(agentNativeMcpInstructions(undefined, [], true)).toContain("task");
+    expect(agentNativeMcpInstructions(undefined, [], false)).not.toContain(
+      "tool-search",
+    );
+  });
+
+  it("explains optional task recommendations when tool search is named", () => {
+    expect(agentNativeMcpInstructions(undefined, ["read-doc"])).toContain(
+      "task",
+    );
+  });
+
   it("omits the key-tools line when no key tools are given", () => {
     const text = agentNativeMcpInstructions();
     expect(text).not.toContain("Key tools for this app:");
