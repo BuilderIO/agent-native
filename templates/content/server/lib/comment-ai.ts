@@ -517,25 +517,73 @@ export async function assertCommentAiSourceUnchanged(request: RequestRow) {
   return source;
 }
 
-async function commentAiThreadScopeId(request: RequestRow): Promise<string> {
-  let origin = request;
-  const seen = new Set<string>();
-  while (origin.continuationOfRequestId) {
-    if (seen.has(origin.id)) throw new Error("Comment AI continuation cycle");
-    seen.add(origin.id);
-    const parent = await loadCommentAiRequest(origin.continuationOfRequestId);
-    if (
-      parent.requesterEmail !== request.requesterEmail ||
-      parent.documentId !== request.documentId ||
-      parent.threadId !== request.threadId ||
-      parent.rootCommentId !== request.rootCommentId
-    ) {
-      throw new Error("Comment AI continuation is bound to another comment");
-    }
-    if (parent.agentThreadId !== request.agentThreadId) break;
-    origin = parent;
+async function loadCommentAiAncestor(
+  id: string,
+  binding: Pick<
+    RequestRow,
+    "requesterEmail" | "documentId" | "threadId" | "rootCommentId"
+  >,
+) {
+  const [parent] = await getDb()
+    .select()
+    .from(schema.commentAiRequests)
+    .where(
+      and(
+        eq(schema.commentAiRequests.id, id),
+        eq(schema.commentAiRequests.requesterEmail, binding.requesterEmail),
+        eq(schema.commentAiRequests.documentId, binding.documentId),
+        eq(schema.commentAiRequests.threadId, binding.threadId),
+        eq(schema.commentAiRequests.rootCommentId, binding.rootCommentId),
+      ),
+    )
+    .limit(1);
+  if (!parent) {
+    fail("The prior Comment AI request cannot continue this comment", {
+      statusCode: 409,
+      errorCode: "comment_ai_operation_conflict",
+    });
   }
-  return origin.id;
+  return parent;
+}
+
+function commentAiScopeResolver(rows: RequestRow[] = []) {
+  const bindings = new Map(rows.map((row) => [row.id, row]));
+  const scopes = new Map<string, string>();
+  return async (request: RequestRow): Promise<string> => {
+    let origin = request;
+    const path: string[] = [];
+    const seen = new Set<string>();
+    while (true) {
+      if (seen.has(origin.id)) throw new Error("Comment AI continuation cycle");
+      seen.add(origin.id);
+      path.push(origin.id);
+      const known = scopes.get(origin.id);
+      if (known) {
+        for (const id of path) scopes.set(id, known);
+        return known;
+      }
+      if (!origin.continuationOfRequestId) break;
+      const parent =
+        bindings.get(origin.continuationOfRequestId) ??
+        (await loadCommentAiAncestor(origin.continuationOfRequestId, request));
+      if (
+        parent.requesterEmail !== request.requesterEmail ||
+        parent.documentId !== request.documentId ||
+        parent.threadId !== request.threadId ||
+        parent.rootCommentId !== request.rootCommentId
+      )
+        throw new Error("Comment AI continuation is bound to another comment");
+      bindings.set(parent.id, parent);
+      if (parent.agentThreadId !== request.agentThreadId) break;
+      origin = parent;
+    }
+    for (const id of path) scopes.set(id, origin.id);
+    return origin.id;
+  };
+}
+
+async function commentAiThreadScopeId(request: RequestRow): Promise<string> {
+  return commentAiScopeResolver([request])(request);
 }
 
 async function requireCommentAiThread(request: RequestRow) {
@@ -748,8 +796,17 @@ export async function startCommentAiRequest(
       submission.submittedMode === "auto"
         ? null
         : commentAiIntentSchema.parse(submission.submittedMode);
+    const source = await readCommentAiSource({
+      ...args,
+      intent: resolvedIntent ?? "reply",
+    });
     const continuation = submission.continuationOfRequestId
-      ? await loadCommentAiRequest(submission.continuationOfRequestId)
+      ? await loadCommentAiAncestor(submission.continuationOfRequestId, {
+          requesterEmail: email,
+          documentId: args.documentId,
+          threadId: args.threadId,
+          rootCommentId: args.rootCommentId,
+        })
       : null;
     if (
       continuation &&
@@ -778,10 +835,6 @@ export async function startCommentAiRequest(
     if (continuation && resolvedIntent === "reply") {
       await requireCommentAiThread(continuation);
     }
-    const source = await readCommentAiSource({
-      ...args,
-      intent: resolvedIntent ?? "reply",
-    });
     assertAiMayAnswerOnPage(source.document);
     if (source.root.resolved)
       throw new Error("Reopen the comment before asking AI");
@@ -1253,7 +1306,7 @@ export async function submitCommentAiClassification(intent: CommentAiIntent) {
 
   await readCommentAiSource({ ...request, intent: resolvedIntent });
   const continuation = request.continuationOfRequestId
-    ? await loadCommentAiRequest(request.continuationOfRequestId)
+    ? await loadCommentAiAncestor(request.continuationOfRequestId, request)
     : null;
   if (resolvedIntent === "reply" && continuation) {
     await requireCommentAiThread(continuation);
@@ -1901,14 +1954,10 @@ export async function listCommentAiRequests(documentId: string) {
     )
     .orderBy(desc(schema.commentAiRequests.createdAt))
     .limit(100);
-  return {
-    requests: await Promise.all(
-      rows.map(async (row) => {
-        const agentThreadScopeId = await commentAiThreadScopeId(row);
-        return {
-          ...serializeCommentAiRequest(row, agentThreadScopeId),
-        };
-      }),
-    ),
-  };
+  const resolveScope = commentAiScopeResolver(rows);
+  const requests: CommentAiRequest[] = [];
+  for (const row of rows) {
+    requests.push(serializeCommentAiRequest(row, await resolveScope(row)));
+  }
+  return { requests };
 }

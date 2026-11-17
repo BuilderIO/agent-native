@@ -47,9 +47,94 @@ describe("parseCommentAiConversation", () => {
     ]);
   });
 
+  it("pairs persisted submission turn IDs and excludes older receipted turns from the current conversation", () => {
+    const threadData = JSON.stringify({
+      messages: [
+        {
+          role: "user",
+          content: "Earlier question",
+          metadata: {
+            custom: {
+              submittedTurnId: "turn-a",
+              agentNativeQueuedMessageId: "operation-a",
+            },
+          },
+        },
+        {
+          role: "assistant",
+          content: "Earlier receipt",
+          metadata: { custom: { turnId: "turn-a" } },
+        },
+        {
+          role: "user",
+          content: "Current question",
+          metadata: {
+            custom: {
+              submittedTurnId: "turn-b",
+              agentNativeQueuedMessageId: "operation-b",
+            },
+          },
+        },
+        {
+          role: "assistant",
+          content: "Current receipt",
+          metadata: { custom: { turnId: "turn-b" } },
+        },
+        {
+          role: "user",
+          content: "Follow-up",
+          metadata: {
+            custom: {
+              submittedTurnId: "turn-c",
+              agentNativeQueuedMessageId: "operation-c",
+            },
+          },
+        },
+        {
+          role: "assistant",
+          content: "Follow-up answer",
+          metadata: { custom: { turnId: "turn-c" } },
+        },
+      ],
+    });
+    expect(parseCommentAiConversation(threadData, "")).toEqual([
+      {
+        turnId: "turn-a",
+        userText: "Earlier question",
+        assistantText: "Earlier receipt",
+        status: "complete",
+      },
+      {
+        turnId: "turn-b",
+        userText: "Current question",
+        assistantText: "Current receipt",
+        status: "complete",
+      },
+      {
+        turnId: "turn-c",
+        userText: "Follow-up",
+        assistantText: "Follow-up answer",
+        status: "complete",
+      },
+    ]);
+    expect(parseCommentAiConversation(threadData, "turn-b")).toEqual([
+      {
+        turnId: "turn-c",
+        userText: "Follow-up",
+        assistantText: "Follow-up answer",
+        status: "complete",
+      },
+    ]);
+  });
+
   it("preserves an incomplete continuation as recoverable state", () => {
     const threadData = JSON.stringify({
       messages: [
+        {
+          role: "user",
+          content: "Initial",
+          metadata: { custom: { submittedTurnId: "initial" } },
+        },
         {
           role: "assistant",
           content: [{ type: "text", text: "Partial answer" }],
@@ -70,7 +155,13 @@ describe("parseCommentAiConversation", () => {
   });
 
   it("fails loudly when persisted thread data is unreadable", () => {
-    for (const data of ["not-json", "null", "{}", '{"messages":{}}']) {
+    for (const data of [
+      "not-json",
+      "null",
+      "{}",
+      '{"messages":{}}',
+      '{"messages":[{"role":"user","content":"missing identity"}]}',
+    ]) {
       expect(() => parseCommentAiConversation(data, "initial")).toThrow(
         "could not be read",
       );

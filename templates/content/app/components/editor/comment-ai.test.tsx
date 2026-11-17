@@ -805,12 +805,43 @@ describe("comment AI controls", () => {
           "comments.aiConversationUnavailable",
         );
         expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
-        expect(api.callAction).toHaveBeenCalledWith(
+        expect(api.callAction).not.toHaveBeenCalledWith(
           "reconcile-comment-ai-session",
-          expect.objectContaining({
-            operationId: "request-1",
-            status: "unavailable",
+          expect.anything(),
+        );
+        api.requests = [
+          request({
+            status: "queued",
+            intent: "reply",
+            error: null,
+            continuationOfRequestId: "original-request",
           }),
+        ];
+        act(() => root.render(createElement(Probe)));
+        expect(controller.requests[0]).toMatchObject({
+          status: "needs-review",
+          transportUnknown: true,
+        });
+        api.loadCommentAiConversation.mockResolvedValue([
+          {
+            turnId: "original-turn",
+            userText: "Why?",
+            assistantText: "Because.",
+            status: "complete",
+          },
+        ]);
+        await act(async () => {
+          await controller.retry(controller.requests[0]);
+        });
+        expect(api.startBackgroundAgentSession).toHaveBeenCalledWith(
+          expect.objectContaining({
+            ...session,
+            instructions: expect.stringContaining("Assistant: Because."),
+          }),
+        );
+        expect(api.callAction).not.toHaveBeenCalledWith(
+          "reconcile-comment-ai-session",
+          expect.anything(),
         );
       }
     },

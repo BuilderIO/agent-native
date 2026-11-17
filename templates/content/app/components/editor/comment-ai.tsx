@@ -634,6 +634,9 @@ export function useCommentAiRequests(
   const [dispatchRecoveryRecord, setDispatchRecoveryRecord] = useLocalStorage<
     Record<string, CommentAiDispatchRecovery>
   >(`content-comment-ai-dispatch-recovery:${documentId}`, {});
+  const [transcriptErrors, setTranscriptErrors] = useLocalStorage<
+    Record<string, string>
+  >(`content-comment-ai-transcript-errors:${documentId}`, {});
   const [continuationRecord, setContinuationRecord] = useLocalStorage<
     Record<string, CommentAiContinuationState>
   >(`content-comment-ai-continuations:${documentId}`, {});
@@ -642,7 +645,10 @@ export function useCommentAiRequests(
       serverRequests.map((request) => {
         const recovery = dispatchRecoveryRecord[request.operationId];
         const continuation = continuationRecord[request.operationId];
-        const error = recovery?.error ?? continuation?.error;
+        const error =
+          recovery?.error ??
+          continuation?.error ??
+          transcriptErrors[request.operationId];
         if (
           !error ||
           (!ACTIVE_STATUSES.has(request.status) &&
@@ -657,7 +663,12 @@ export function useCommentAiRequests(
           transportUnknown: true,
         };
       }),
-    [continuationRecord, dispatchRecoveryRecord, serverRequests],
+    [
+      continuationRecord,
+      dispatchRecoveryRecord,
+      serverRequests,
+      transcriptErrors,
+    ],
   );
   const requestsRef = useRef(requests);
   requestsRef.current = requests;
@@ -926,6 +937,7 @@ export function useCommentAiRequests(
           return "busy";
         }
         if (started.dispatch) {
+          const operationId = started.operationId;
           const pendingSession =
             started.pendingSession ??
             ({
@@ -946,17 +958,21 @@ export function useCommentAiRequests(
                 agentThreadId: pendingSession.backgroundSession.threadId,
                 initialTurnId: "",
               });
+              setTranscriptErrors((current) => {
+                if (!current[operationId]) return current;
+                const next = { ...current };
+                delete next[operationId];
+                return next;
+              });
               const priorConversation = boundedContinuationContext(turns);
               if (priorConversation) {
                 context = `${context ?? ""}\n\nProtected conversation context:\n\n${priorConversation}`;
               }
             } catch (error) {
-              await callAction("reconcile-comment-ai-session", {
-                operationId: started.operationId,
-                threadId: pendingSession.backgroundSession.threadId,
-                turnId: pendingSession.backgroundSession.turnId,
-                status: "unavailable",
-              });
+              setTranscriptErrors((current) => ({
+                ...current,
+                [operationId]: t("comments.aiConversationUnavailable"),
+              }));
               await query.refetch();
               throw new CommentAiConversationUnavailableError(
                 t("comments.aiConversationUnavailable"),
@@ -991,6 +1007,7 @@ export function useCommentAiRequests(
       query,
       t,
       updateContinuation,
+      setTranscriptErrors,
     ],
   );
 
@@ -1019,7 +1036,11 @@ export function useCommentAiRequests(
           ? { continuationOfRequestId: request.continuationOfRequestId }
           : {}),
         requestId: request.requestId,
-      }).catch(() => resumedPendingRequestsRef.current.delete(resumeKey));
+      }).catch((error) => {
+        if (!(error instanceof CommentAiConversationUnavailableError)) {
+          resumedPendingRequestsRef.current.delete(resumeKey);
+        }
+      });
     }
   }, [serverRequests, start, t]);
 
@@ -1208,7 +1229,8 @@ export function useCommentAiRequests(
       const continuation = continuationRecordRef.current[request.operationId];
       if (
         (continuation?.status === "unavailable" && continuation.options) ||
-        dispatchRecoveryRecord[request.operationId]
+        dispatchRecoveryRecord[request.operationId] ||
+        transcriptErrors[request.operationId]
       ) {
         await start({
           threadId: request.threadId,
@@ -1231,7 +1253,7 @@ export function useCommentAiRequests(
       }
       await resumeConversation(request);
     },
-    [dispatchRecoveryRecord, resumeConversation, start, t],
+    [dispatchRecoveryRecord, resumeConversation, start, t, transcriptErrors],
   );
 
   const stop = useCallback<CommentAiController["stop"]>(

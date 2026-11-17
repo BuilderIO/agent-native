@@ -14,6 +14,7 @@ type StoredMessage = {
   metadata?: {
     custom?: {
       turnId?: unknown;
+      submittedTurnId?: unknown;
       agentNativeQueuedMessageId?: unknown;
     };
   };
@@ -71,9 +72,13 @@ export function parseCommentAiConversation(
     const turnId =
       role === "assistant"
         ? custom?.turnId
-        : custom?.agentNativeQueuedMessageId;
-    if (typeof turnId !== "string" || !turnId || turnId === initialTurnId)
+        : (custom?.submittedTurnId ?? custom?.agentNativeQueuedMessageId);
+    if (role !== "user" && role !== "assistant") continue;
+    if (typeof turnId !== "string" || !turnId) {
+      if (messageText(message))
+        throw new Error("The AI conversation could not be read");
       continue;
+    }
     const current = turns.get(turnId) ?? {
       turnId,
       userText: null,
@@ -89,7 +94,14 @@ export function parseCommentAiConversation(
     }
     turns.set(turnId, current);
   }
-  return [...turns.values()];
+  const conversation = [...turns.values()];
+  if (!initialTurnId) return conversation;
+  const initialIndex = conversation.findIndex(
+    (turn) => turn.turnId === initialTurnId,
+  );
+  if (initialIndex < 0)
+    throw new Error("The AI conversation could not be read");
+  return conversation.slice(initialIndex + 1);
 }
 
 export async function loadCommentAiConversation(options: {

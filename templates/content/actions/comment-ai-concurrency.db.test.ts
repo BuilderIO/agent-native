@@ -6,7 +6,15 @@ import { getDbExec } from "@agent-native/core/db";
 import { createThread, runWithRequestContext } from "@agent-native/core/server";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { knownLossTest } from "../acceptance/known-loss";
 
@@ -485,6 +493,137 @@ describe("comment AI durable action binding", () => {
         }),
       ),
     ).rejects.toMatchObject({ errorCode: "comment_ai_operation_conflict" });
+  });
+
+  it("lists the latest requests of a long continuation chain with bounded ancestry reads", async () => {
+    await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+    const [origin] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    if (!origin) throw new Error("Missing origin request");
+    const rows = [];
+    let parentId = origin.id;
+    for (let index = 1; index <= 120; index++) {
+      const id = crypto.randomUUID();
+      rows.push({
+        ...origin,
+        id,
+        continuationOfRequestId: parentId,
+        status: "replied",
+        createdAt: new Date(
+          Date.parse(origin.createdAt) + index * 1000,
+        ).toISOString(),
+      });
+      parentId = id;
+    }
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "replied" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    await getDb().insert(schema.commentAiRequests).values(rows);
+    const select = vi.spyOn(getDb(), "select");
+    try {
+      const result = await asUser(() =>
+        commentAi.listCommentAiRequests(DOCUMENT_ID),
+      );
+      expect(result.requests).toHaveLength(100);
+      expect(
+        result.requests.every((request) => request.agentThreadScopeId === OP_A),
+      ).toBe(true);
+      expect(select.mock.calls.length).toBeLessThanOrEqual(25);
+    } finally {
+      select.mockRestore();
+    }
+  });
+
+  it("lets a downgraded commenter continue a prior editor operation without restoring edit authority", async () => {
+    await getDb().insert(schema.documentShares).values({
+      id: "downgraded-share",
+      resourceId: DOCUMENT_ID,
+      principalType: "user",
+      principalId: OTHER_USER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    const asCollaborator = <T>(run: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: OTHER_USER }, run);
+    const original = await asCollaborator(() =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(OP_A, ROOT_A, "apply-resolve"),
+        agentThreadId: `agent-thread-${crypto.randomUUID()}`,
+      }),
+    );
+    await createThread(OTHER_USER, {
+      id: requiredId(original.agentThreadId),
+      scope: original.backgroundSession.scope,
+      source: { appId: "content" },
+      initialData: {
+        threadData: '{"messages":[]}',
+        preview: "",
+        messageCount: 0,
+      },
+    });
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "resolved" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    await getDb()
+      .update(schema.documentShares)
+      .set({ role: "commenter" })
+      .where(eq(schema.documentShares.id, "downgraded-share"));
+    const continued = await asCollaborator(() =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(OP_B, ROOT_A),
+        agentThreadId: requiredId(original.agentThreadId),
+        continuationOfRequestId: OP_A,
+      }),
+    );
+    expect(continued.backgroundSession.scope).toEqual(
+      original.backgroundSession.scope,
+    );
+    await expect(
+      asCollaborator(() => commentAi.getCommentAiConversation(OP_B)),
+    ).resolves.toEqual({ threadData: '{"messages":[]}' });
+    await expect(
+      asCollaborator(() => commentAi.loadCommentAiRequest(OP_A)),
+    ).rejects.toThrow();
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "replied" })
+      .where(eq(schema.commentAiRequests.id, OP_B));
+    const auto = await asCollaborator(() =>
+      commentAi.startCommentAiRequest({
+        requestId: OP_C,
+        documentId: DOCUMENT_ID,
+        threadId: ROOT_A,
+        rootCommentId: ROOT_A,
+        submittedMode: "auto",
+        instructions: "Explain further",
+        continuationOfRequestId: OP_B,
+      }),
+    );
+    const classified = await runWithRequestContext(
+      {
+        userEmail: OTHER_USER,
+        run: {
+          threadId: auto.pendingSession.backgroundSession.threadId,
+          actionScope: {
+            kind: "content-comment-ai-classifier",
+            requestId: OP_C,
+          },
+        },
+      },
+      () => commentAi.submitCommentAiClassification("reply"),
+    );
+    expect(classified.pendingSession.backgroundSession).toMatchObject({
+      threadId: original.agentThreadId,
+      scope: original.backgroundSession.scope,
+      actionScope: { kind: "content-comment-ai", requestId: OP_C },
+    });
   });
 
   it("denies a requester's transcript and continuation after Page access is revoked", async () => {
