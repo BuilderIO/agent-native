@@ -446,12 +446,12 @@ export function EditorSearchChoice({
             aria-label={t("root.searchPeoplePlaceholder")}
           />
           <CommandList aria-busy={search.isLoading}>
+            {/* A failed lookup isn't an empty one, so it never says "no people". */}
             {search.error ? (
               <div role="alert" className="p-3 text-sm text-muted-foreground">
                 {t("root.searchPeopleUnavailable")}
               </div>
-            ) : null}
-            {search.isLoading && people.length === 0 && !showMe ? (
+            ) : search.isLoading && people.length === 0 && !showMe ? (
               <div className="flex justify-center py-6">
                 <Spinner />
               </div>
