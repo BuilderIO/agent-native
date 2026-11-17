@@ -703,7 +703,7 @@ describe("MCP server routes", () => {
   });
 
   describe("org server URLs", () => {
-    const orgSecret = "Zk3pQ9xLm2VbN7tRw4YcH8";
+    const orgSecret = "ExampleFakeSegment1234";
     const orgUrl = `https://mcp.example.test/s/${orgSecret}/mcp?api_key=example-fake-key`;
     const maskedOrgUrl = "https://mcp.example.test/s/[hidden]/mcp?[hidden]";
 

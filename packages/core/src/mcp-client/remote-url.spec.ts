@@ -49,7 +49,7 @@ describe("maskRemoteUrl", () => {
   });
 
   it.each([
-    ["a random mixed-case token", "Zk3pQ9xLm2VbN7tRw4YcH8"],
+    ["a random mixed-case token", "ExampleFakeSegment1234"],
     ["a UUID", "3f2b8c1e-9d4a-4b6f-8a7c-1e2d3c4b5a69"],
     ["a prefixed key", "sk_live_51Hexamplefake00000000"],
     ["a hex digest", "9f86d081884c7d659a2feaa0c55ad015"],
