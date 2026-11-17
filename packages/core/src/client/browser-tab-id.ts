@@ -56,6 +56,7 @@ function takeIdFromUrl(): string | null {
   try {
     url = new URL(href);
   } catch {
+    // coercion-ok: malformed location URLs cannot supply a linked tab ID.
     return null;
   }
   const id = url.searchParams.get(BROWSER_TAB_QUERY_PARAM);
