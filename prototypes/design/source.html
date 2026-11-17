@@ -9682,8 +9682,8 @@ requestAnimationFrame(() => { wsSide(); hyFitZoom(); islandsChanged(); render();
 }
 /* ───────── minimal UI ───────── */
 // Hiding the file panel in Design is minimal UI: the file and its page float as an island top left, and the canvas
-// runs to the window's left edge. The inspector stays a docked column with its head, exactly as it is otherwise, so
-// nothing on the right moves or appears and disappears with the selection.
+// runs to the window's left edge. With a selection the inspector is its usual docked column; with none, only its head
+// floats (CSS on .minimal.nosel). The canvas keeps the inspector's space either way, so nothing re-centres.
 {
   const on = () => app.classList.contains("no-panel") && S.mode === "design";
   const sync = () => {
@@ -9855,6 +9855,11 @@ render();
 #tokens .row.au .icon-btn { flex: none; margin-right: -4px; }
 
 /* Minimal UI: the file and its page float as an island top left; the inspector keeps its docked column. */
+/* With nothing selected, the inspector's column gives way to its head alone: Comments, people and Share as an island
+   top right that hugs them, the twin of the file island top left. Selecting something brings the docked column back. */
+.app.minimal.nosel .isl-r { display: none; }
+.app.minimal.nosel .gbar .gb-r { align-self: start; background: none; box-shadow: none; }
+.app.minimal.nosel .gbar #insp-head { margin: 8px 8px 0 0; width: auto; min-width: 0; height: 48px; padding-inline: 8px; border-radius: 12px; background: var(--color-background); box-shadow: var(--isl-shadow); }
 .app.minimal .gbar .file-head { align-self: start; margin: 8px 0 0 8px; height: 48px; padding: 8px; border-radius: 12px; background: var(--color-background); box-shadow: var(--isl-shadow); }
 .app.minimal .gbar .file-head .file-id { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; }
 .app.minimal .gbar .file-name { height: 16px; line-height: 16px; }

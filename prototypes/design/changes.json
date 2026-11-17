@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-16",
+    "text": "In minimal UI with nothing selected, the inspector's column gives way to its head alone: Comments, people and Share float top right as an island that hugs them, the twin of the file island. Selecting something brings back the docked column; the canvas and toolbar stay put."
+  },
+  {
+    "date": "2026-11-16",
     "text": "Minimal UI keeps the inspector docked: hiding the file panel floats only the file and its page top left, and the inspector, Comments, people and Share stay exactly where they were, whatever is selected."
   },
   {
