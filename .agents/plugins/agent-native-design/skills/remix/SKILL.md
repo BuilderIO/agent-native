@@ -263,8 +263,10 @@ Open Design as `/visual-edit` does (same launch targets and links) and lay out
 one board, left to right, at the same viewport size.
 
 A board writes files to a Design project, so it needs the authenticated
-connector or a signed-in Design tab. Check sign-in before the first launch:
-signed out, creating a project fails with `no authenticated user`. The
+connector or a signed-in Design tab. Check sign-in before the first launch by
+reading `/_agent-native/session` from the Design tab: signed-out loopback
+`open-visual-edit` still works, but its workspace-owned project cannot take
+the account-backed file writes a board needs. The
 `/visual-edit` page lists only the visual-edit tools (`open-visual-edit` and
 a few others); file tools such as `create-file`, `update-file` and
 `list-files` register on a signed-in `/design/<id>` page. When the tab is
