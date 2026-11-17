@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 const currentTurnEvents = vi.hoisted(() =>
@@ -34,6 +34,7 @@ import {
   NoWriteError,
   noteExternalWrite,
 } from "../action.js";
+import { createFetchToolEntry } from "../extensions/fetch-tool.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { attachmentFailureToError } from "../private-blob/attachment-errors.js";
 import type {
@@ -145,6 +146,81 @@ function patchAction(written: string[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   currentTurnEvents.mockResolvedValue([]);
+});
+
+describe("web-request write outcomes", () => {
+  const deniedUrl = "https://93.184.216.34/denied";
+  const allowedUrl = "https://1.1.1.1/allowed";
+  const request = (url: string) => ({
+    name: "web-request",
+    input: {
+      url,
+      method: "POST",
+      headers: '{"Authorization":"${keys.TEST_KEY}"}',
+      body: "{}",
+    },
+  });
+  const actions = () =>
+    createFetchToolEntry({
+      resolveKeys: async (text) => ({
+        resolved: text.replace("${keys.TEST_KEY}", "fake-value"),
+        usedKeys: text.includes("${keys.TEST_KEY}") ? ["TEST_KEY"] : [],
+      }),
+      validateUrl: async (url) => url.startsWith("https://1.1.1.1/"),
+    });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("allows a different POST after the initial key allowlist rejects before dispatch", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response("ok", { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const events = await runCalls(actions(), [
+      request(deniedUrl),
+      request(allowedUrl),
+    ]);
+
+    const [rejected, sent] = toolDones(events);
+    expect(rejected?.outcomeUnknown).toBeUndefined();
+    expect(rejected).toMatchObject({
+      isError: true,
+      errorCode: "web_request_url_blocked",
+      completedSideEffect: false,
+    });
+    expect(sent).toMatchObject({ completedSideEffect: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(allowedUrl);
+    expectNoUnknownStop(events);
+  });
+
+  it("guards a different POST after a dispatched request has a blocked redirect", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(null, { status: 302, headers: { location: deniedUrl } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const events = await runCalls(actions(), [
+      request(allowedUrl),
+      request("https://1.1.1.1/other"),
+    ]);
+
+    const [rejected, guarded] = toolDones(events);
+    expect(rejected).toMatchObject({
+      isError: true,
+      errorCode: "web_request_url_blocked",
+      outcomeUnknown: true,
+    });
+    expect(guarded?.result).toContain(
+      "an earlier web-request call in this turn may have already applied",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(guarded).toMatchObject({
+      isError: true,
+      completedSideEffect: false,
+    });
+  });
 });
 
 describe("a write rejected before it wrote", () => {
