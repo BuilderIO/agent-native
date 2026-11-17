@@ -246,10 +246,15 @@ async function recordChoiceAudit(
     orgId: string;
     service: ServiceId;
     provider: ServiceProviderId | null;
-    status: "success" | "denied";
+    status: "success" | "error" | "denied";
+    /** With an error status: what failed after the choice was saved. */
+    failure?: string;
   },
 ): Promise<void> {
   const label = SERVICE_LABELS[input.service];
+  const saved = input.provider
+    ? `Set the ${label} provider to ${input.provider}`
+    : `Reset the ${label} provider to the default`;
   await recordOrgAdminAuditEvent({
     action: ctx?.actionName ?? "manage-service-providers",
     targetType: "service-providers",
@@ -257,9 +262,9 @@ async function recordChoiceAudit(
     summary:
       input.status === "denied"
         ? `Refused a change to the ${label} provider`
-        : input.provider
-          ? `Set the ${label} provider to ${input.provider}`
-          : `Reset the ${label} provider to the default`,
+        : input.status === "error"
+          ? `${saved}, but ${input.failure ?? "the call failed after saving it"}`
+          : saved,
     userEmail: input.email,
     orgId: input.orgId,
     status: input.status,
@@ -274,9 +279,10 @@ async function recordSemanticSearchAudit(
     email: string;
     orgId: string;
     enabled: boolean;
-    status: "success" | "denied";
+    status: "success" | "error" | "denied";
   },
 ): Promise<void> {
+  const turned = `Turned semantic search ${input.enabled ? "on" : "off"}`;
   await recordOrgAdminAuditEvent({
     action: ctx?.actionName ?? "manage-service-providers",
     targetType: "service-providers",
@@ -284,7 +290,9 @@ async function recordSemanticSearchAudit(
     summary:
       input.status === "denied"
         ? `Refused to turn semantic search ${input.enabled ? "on" : "off"}`
-        : `Turned semantic search ${input.enabled ? "on" : "off"}`,
+        : input.status === "error"
+          ? `${turned}, but ${input.enabled ? "queuing pages to embed again" : "deleting stored embeddings"} failed`
+          : turned,
     userEmail: input.email,
     orgId: input.orgId,
     status: input.status,
@@ -377,9 +385,11 @@ export default defineAction({
       const changed = before.enabled !== after.enabled;
       // Run on every call, not only on a change, so calling again finishes
       // a call that failed part way.
+      let finished = false;
       try {
         if (enabled) await requeueSemanticSearchForOrg(orgId);
         else await forgetSemanticSearchForOrg(orgId);
+        finished = true;
       } catch (cause) {
         console.error(
           `[manage-service-providers] Semantic search was turned ${enabled ? "on" : "off"}, but finishing that failed:`,
@@ -399,7 +409,7 @@ export default defineAction({
             email,
             orgId,
             enabled,
-            status: "success",
+            status: finished ? "success" : "error",
           });
         }
       }
@@ -452,6 +462,8 @@ export default defineAction({
         updatedBy: email,
       },
     );
+    let finished = false;
+    let failure: string | undefined;
     try {
       const [states, semanticSearch] = await Promise.all([
         inContext(readProviderStates),
@@ -469,6 +481,7 @@ export default defineAction({
         try {
           await requeueSemanticSearchForOrg(orgId);
         } catch (cause) {
+          failure = "queuing pages to embed again failed";
           console.error(
             "[manage-service-providers] The embeddings provider was saved, but queuing pages to embed again failed:",
             cause instanceof Error ? cause.message : String(cause),
@@ -479,11 +492,13 @@ export default defineAction({
           );
         }
       }
-      return {
+      const status = {
         ...buildStatus(settings, states, canManage, semanticSearch),
         changed,
         ...(reindexRequired ? { reindexRequired: true } : {}),
       };
+      finished = true;
+      return status;
     } finally {
       // Recorded after queuing, so failing to record it can't stop that, and
       // whether or not queuing worked, since the choice is saved.
@@ -493,7 +508,8 @@ export default defineAction({
           orgId,
           service,
           provider,
-          status: "success",
+          status: finished ? "success" : "error",
+          ...(failure ? { failure } : {}),
         });
       }
     }

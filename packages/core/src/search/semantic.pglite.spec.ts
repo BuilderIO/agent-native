@@ -420,7 +420,12 @@ describe("the meaning lane", () => {
       resolveEmbeddingFamily: async () => ({ ...family, version: "2" }),
     });
     try {
+      embedCalls.length = 0;
       expect(await found()).not.toContain("versioned");
+      // The question is embedded again with the new version, not reused.
+      expect(embedCalls).toEqual([
+        { texts: ["laptop hardware"], purpose: "query" },
+      ]);
       // An edit that leaves its text alone embeds it with the new version.
       await run(
         `UPDATE pages SET owner_email = 'editor@a.com' WHERE id = 'versioned'`,
@@ -607,6 +612,36 @@ describe("an organization that turns semantic search off", () => {
       "money back",
     );
     expect(result.status === "used" && result.hits[0]?.id).toBe("refunds");
+  });
+
+  it("never matches a searcher's other organization once that one turns it off", async () => {
+    const reader = { userEmail: "reader@a.com", orgId: "org-a" };
+    const audienceIds = search.semanticSearcherAudienceIds({
+      userEmail: reader.userEmail,
+      orgIds: ["org-a", "org-b"],
+    });
+    const found = async () => {
+      const result = await searchAs(reader, "money back", audienceIds);
+      return result.status === "used" ? result.hits.map((hit) => hit.id) : [];
+    };
+    expect(await found()).toContain("other-org");
+    // Turned off, with its vectors not yet deleted.
+    await search.writeSemanticSearchSetting("org-b", {
+      enabled: false,
+      updatedBy: "admin@b.com",
+    });
+    try {
+      expect(store.keys()).toContain("wiki/page/other-org/0");
+      const ids = await found();
+      expect(ids).toContain("refunds");
+      expect(ids).not.toContain("other-org");
+    } finally {
+      await search.writeSemanticSearchSetting("org-b", {
+        enabled: true,
+        updatedBy: "admin@b.com",
+      });
+    }
+    expect(await found()).toContain("other-org");
   });
 
   it("covers the pages its members keep outside any organization", async () => {
@@ -1263,6 +1298,46 @@ describe("when something fails part way", () => {
     expect(await pendingIds()).toEqual([]);
   });
 
+  it("completes the pages it embedded before running out of time", async () => {
+    // The quick page is older, so it leads the claim and embeds first.
+    await insertPage("quick-page", "Quick laptop", "Hardware quick.");
+    await insertPage("late-page", "Late laptop", "Hardware late.", {
+      orgId: "org-late",
+    });
+    await settle();
+    const slowFamily: EmbeddingFamily = {
+      ...family,
+      // A call still running at the deadline, cut off by its timeout.
+      embed: (_inputs, _purpose, options) =>
+        new Promise<number[][]>((_resolve, reject) => {
+          const signal = options?.signal;
+          if (!signal) return;
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        }),
+    };
+    search.configureSemanticSearch({
+      vectorStore: store,
+      resolveEmbeddingFamily: async (identity) =>
+        identity?.orgId === "org-late" ? slowFamily : family,
+    });
+    try {
+      await search.drainSemanticIndex(registration, Date.now() + 500);
+    } finally {
+      restoreStore();
+    }
+    expect(keysFor("quick-page")).toEqual(["wiki/page/quick-page/0"]);
+    const pending = await pendingIds();
+    expect(pending).not.toContain("quick-page");
+    expect(pending).toContain("late-page");
+
+    await run(`DELETE FROM pages WHERE id IN ('quick-page', 'late-page')`);
+    await settle();
+    await drain();
+    expect(await pendingIds()).toEqual([]);
+  });
+
   it("deletes vectors stored part way when the lane is turned off meanwhile", async () => {
     const long = Array.from(
       { length: 6 },
@@ -1765,5 +1840,44 @@ describe("without a vector store or provider", () => {
       resolveEmbeddingFamily: async (identity) =>
         identity?.orgId === "org-no-provider" ? null : family,
     });
+  });
+
+  it("reports an error, and remembers no answer, when checking for pgvector fails", async () => {
+    // No store configured, so the lane checks the database for pgvector.
+    search.configureSemanticSearch({
+      resolveEmbeddingFamily: async () => family,
+    });
+    const db = exec();
+    const execute = db.execute.bind(db);
+    let checks = 0;
+    const spy = vi.spyOn(db, "execute").mockImplementation(async (query) => {
+      if (
+        typeof query === "string" &&
+        query.includes("pg_available_extensions")
+      ) {
+        checks++;
+        throw new Error("connection reset");
+      }
+      return execute(query);
+    });
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        expect(
+          await searchAs(
+            { userEmail: "reader@a.com", orgId: "org-a" },
+            "money",
+          ),
+        ).toEqual({ status: "unavailable", reason: "error" });
+      }
+      // Checked on each search, not remembered as a database without it.
+      expect(checks).toBe(2);
+    } finally {
+      spy.mockRestore();
+      search.configureSemanticSearch({
+        vectorStore: store,
+        resolveEmbeddingFamily: async (identity) =>
+          identity?.orgId === "org-no-provider" ? null : family,
+      });
+    }
   });
 });

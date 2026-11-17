@@ -110,6 +110,15 @@ function service(result: Awaited<ReturnType<typeof action.run>>, id: string) {
   return found!;
 }
 
+/** The first recorded audit event, with its summary. */
+function firstAudit() {
+  const input = mocks.recordActionAudit.mock.calls[0]?.[0] as
+    | { status: string; config: { summary: () => string } }
+    | undefined;
+  expect(input).toBeDefined();
+  return { status: input!.status, summary: input!.config.summary() };
+}
+
 beforeEach(() => {
   mocks.settings.clear();
   mocks.roles.clear();
@@ -314,6 +323,12 @@ describe("manage-service-providers", () => {
     });
     const read = await action.run({}, ctx(ADMIN));
     expect(service(read, "embeddings").effectiveProvider).toBe("gemini");
+    // The change is recorded, as failed part way.
+    expect(firstAudit()).toEqual({
+      status: "error",
+      summary:
+        "Set the Embeddings provider to gemini, but queuing pages to embed again failed",
+    });
 
     // The choice is saved, so this call changes nothing, but it queues again.
     const again = await action.run(
@@ -396,15 +411,17 @@ describe("manage-service-providers", () => {
     expect(mocks.forgetSemanticSearchForOrg).toHaveBeenCalledWith("org-1");
   });
 
-  it("records the change even when deleting stored embeddings fails", async () => {
+  it("records the change as failed when deleting stored embeddings fails", async () => {
     mocks.forgetSemanticSearchForOrg.mockRejectedValueOnce(
       new Error("database unavailable"),
     );
     await expect(
       action.run({ semanticSearch: false }, ctx(ADMIN)),
     ).rejects.toMatchObject({ statusCode: 500 });
-    expect(mocks.recordActionAudit.mock.calls[0]?.[0]).toMatchObject({
-      status: "success",
+    expect(firstAudit()).toEqual({
+      status: "error",
+      summary:
+        "Turned semantic search off, but deleting stored embeddings failed",
     });
   });
 

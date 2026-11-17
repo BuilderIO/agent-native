@@ -178,7 +178,10 @@ async function ensureTables(injectedClient?: DbExec): Promise<void> {
  * without it can supply another store through `configureSemanticSearch`.
  */
 export interface SearchVectorStore {
-  /** Whether this database can hold vectors. Without it, the lane is unavailable. */
+  /**
+   * Whether this database can hold vectors. Without it, the lane is
+   * unavailable. Throws when it can't tell, so the answer isn't remembered.
+   */
   available(exec: DbExec): Promise<boolean>;
   upsert(
     exec: DbExec,
@@ -327,21 +330,23 @@ const ensuredVectorTables = new Set<number>();
 
 const pgVectorStore: SearchVectorStore = {
   async available(exec) {
+    // A failed check throws rather than answering no, so a passing database
+    // error isn't remembered as a database without pgvector.
+    const { rows } = await exec.execute(
+      "SELECT installed_version FROM pg_available_extensions WHERE name = 'vector'",
+    );
+    const [row] = rows;
+    if (!row) return false;
+    if (row.installed_version != null) return true;
+    // Available but not installed: install it now, as the first vector
+    // table would, so a database that refuses is found here rather than
+    // by every batch failing.
     try {
-      const { rows } = await exec.execute(
-        "SELECT installed_version FROM pg_available_extensions WHERE name = 'vector'",
-      );
-      const [row] = rows;
-      if (!row) return false;
-      if (row.installed_version != null) return true;
-      // Available but not installed: install it now, as the first vector
-      // table would, so a database that refuses is found here rather than
-      // by every batch failing.
       await exec.execute("CREATE EXTENSION IF NOT EXISTS vector");
       return true;
     } catch (error) {
       console.warn(
-        "[search] Checking for pgvector failed, so semantic search is unavailable for now:",
+        "[search] Installing pgvector failed, so semantic search is unavailable for now:",
         error instanceof Error ? error.message : String(error),
       );
       return false;
@@ -699,6 +704,7 @@ async function drain(
     deadline,
     limits: new Map(),
     deferred: new Set(),
+    finished: new Set(),
   };
   while (Date.now() < deadline) {
     const claimed = await claimResourceChanges(
@@ -734,6 +740,8 @@ interface DrainContext {
   limits: RateLimits;
   /** Changes already put back for a rate limit, so none is put back twice. */
   deferred: Set<ClaimedResourceChange>;
+  /** Changes already completed, so none is embedded again when a batch fails. */
+  finished: Set<ClaimedResourceChange>;
 }
 
 /**
@@ -801,8 +809,11 @@ async function embedGroup(
       for (const change of changes) {
         // Changes left claimed are claimed again when their lease expires.
         if (Date.now() >= deadline) return;
-        // Changes put back for a rate limit wait it out already.
-        if (context.deferred.has(change)) continue;
+        // Changes put back for a rate limit wait it out already, and finished
+        // ones are done.
+        if (context.deferred.has(change) || context.finished.has(change)) {
+          continue;
+        }
         await embedGroup(exec, store, registration, feed, [change], context);
       }
       return;
@@ -891,46 +902,52 @@ async function embedChanges(
   const stored = await storedEmbeddings(exec, registration, ids);
   const done: ClaimedResourceChange[] = [];
   const groups = new Map<string, AudienceGroup>();
-  for (const change of changes) {
-    const document = byId.get(change.resourceId);
-    const audienceId =
-      document && document.semantic !== false
-        ? semanticAudienceId(document.audience)
-        : null;
-    if (!document || !audienceId) {
-      await forgetResource(
-        exec,
-        store,
-        registration,
-        change,
-        stored.get(change.resourceId),
-      );
-      done.push(change);
-      continue;
+  try {
+    for (const change of changes) {
+      const document = byId.get(change.resourceId);
+      const audienceId =
+        document && document.semantic !== false
+          ? semanticAudienceId(document.audience)
+          : null;
+      if (!document || !audienceId) {
+        await forgetResource(
+          exec,
+          store,
+          registration,
+          change,
+          stored.get(change.resourceId),
+        );
+        done.push(change);
+        continue;
+      }
+      const orgId = document.audience?.orgId?.trim() || undefined;
+      const userEmail = document.audience?.ownerEmail?.trim() || undefined;
+      const groupKey = `${audienceId}\u0000${userEmail ?? ""}`;
+      const group: AudienceGroup = groups.get(groupKey) ?? {
+        identity: {
+          ...(userEmail ? { userEmail } : {}),
+          ...(orgId ? { orgId } : {}),
+        },
+        audienceId,
+        items: [],
+      };
+      group.items.push({ change, document });
+      groups.set(groupKey, group);
     }
-    const orgId = document.audience?.orgId?.trim() || undefined;
-    const userEmail = document.audience?.ownerEmail?.trim() || undefined;
-    const groupKey = `${audienceId}\u0000${userEmail ?? ""}`;
-    const group: AudienceGroup = groups.get(groupKey) ?? {
-      identity: {
-        ...(userEmail ? { userEmail } : {}),
-        ...(orgId ? { orgId } : {}),
-      },
-      audienceId,
-      items: [],
-    };
-    group.items.push({ change, document });
-    groups.set(groupKey, group);
+    for (const group of groups.values()) {
+      // Changes in the groups left over stay claimed for the next drain.
+      if (Date.now() >= deadline) break;
+      await embedAudienceGroup(exec, store, registration, feed, group, stored, {
+        ...context,
+        done,
+      });
+    }
+  } finally {
+    // Completed even when a later change throws, such as at the deadline, so
+    // finished work isn't claimed again.
+    await completeResourceChanges(exec, feed, done);
+    for (const change of done) context.finished.add(change);
   }
-  for (const group of groups.values()) {
-    // Changes in the groups left over stay claimed for the next drain.
-    if (Date.now() >= deadline) break;
-    await embedAudienceGroup(exec, store, registration, feed, group, stored, {
-      ...context,
-      done,
-    });
-  }
-  await completeResourceChanges(exec, feed, done);
 }
 
 async function embedAudienceGroup(
@@ -1729,7 +1746,7 @@ async function queryVector(
     app: string;
   },
 ): Promise<number[]> {
-  const key = `${family.id}\u0000${query}`;
+  const key = `${family.id}\u0000${family.version}\u0000${query}`;
   const cached = queryVectors.get(key);
   if (cached && Date.now() - cached.at < QUERY_CACHE_MS) {
     // Re-inserted, so the map's order runs from least to most recently used.
@@ -1780,15 +1797,34 @@ export async function searchSemanticIndex(
 ): Promise<SemanticSearchResult> {
   const label = `${registration.app}/${registration.type}`;
   const orgId = getRequestOrgId();
+  const audienceIds: string[] = [];
   try {
+    const switches = new Map<string, Promise<boolean>>();
+    const isOn = (id: string) => {
+      const known = switches.get(id);
+      if (known) return known;
+      const on = readSemanticSearchSetting(id).then(
+        (setting) => setting.enabled,
+      );
+      switches.set(id, on);
+      return on;
+    };
     // With no organization in the request, the searcher's credentials, and so
     // the provider that embeds the query, are their own organization's.
     const settingOrgId = orgId ?? (await ownerOrgId(getRequestUserEmail()));
-    if (
-      settingOrgId &&
-      !(await readSemanticSearchSetting(settingOrgId)).enabled
-    ) {
-      return { status: "off" };
+    if (settingOrgId && !(await isOn(settingOrgId))) return { status: "off" };
+    // Each audience answers to its own organization's switch, as embedding
+    // does, so another organization that turned it off is never matched,
+    // even while its vectors are still being deleted.
+    for (const audienceId of input.audienceIds) {
+      const governing = audienceId.startsWith("org:")
+        ? audienceId.slice("org:".length)
+        : audienceId.startsWith("user:")
+          ? await governingOrgId({
+              userEmail: audienceId.slice("user:".length),
+            })
+          : undefined;
+      if (!governing || (await isOn(governing))) audienceIds.push(audienceId);
     }
   } catch (error) {
     console.warn(
@@ -1805,7 +1841,7 @@ export async function searchSemanticIndex(
     }
     const family = await resolveFamily(undefined);
     if (!family) return { status: "unavailable", reason: "no-provider" };
-    if (!input.audienceIds.length || !input.query.trim()) {
+    if (!audienceIds.length || !input.query.trim()) {
       return { status: "used", hits: [] };
     }
     const vector = await queryVector(family, input.query, {
@@ -1817,7 +1853,7 @@ export async function searchSemanticIndex(
       embeddingSetId: embeddingSetId(registration, family),
       dimensions: family.dimensions,
       vector,
-      audienceIds: input.audienceIds,
+      audienceIds,
       limit: QUERY_CHUNK_LIMIT,
     });
     const prefix = `${registration.app}/${registration.type}/`;
