@@ -421,8 +421,16 @@ export function runMigrations(
           // Callbacks are idempotent by contract (store-registry retries them
           // the same way), so a concurrent CREATE TABLE losing a pg_type race
           // retries instead of escaping and exiting the server.
-          const runResult = migration.run
-            ? await retryOnDdlRace(() => migration.run!(exec))
+          const run = migration.run;
+          const runResult = run
+            ? await retryOnDdlRace(() => run(exec)).catch((err: unknown) => {
+                // The error alone may not say which migration it came from.
+                console.error(
+                  `[db] Migration ${label} FAILED:`,
+                  (err as Error).message,
+                );
+                throw err;
+              })
             : undefined;
           if (runResult === MIGRATION_DEFERRED) {
             console.info(

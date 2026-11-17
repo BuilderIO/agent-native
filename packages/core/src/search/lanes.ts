@@ -215,6 +215,12 @@ export function pgVectorIndexMigration(entry: {
   namespace: string;
   dimensions: readonly number[];
 }): MigrationEntry {
+  // With no sizes it would make nothing, yet be recorded as done.
+  if (entry.dimensions.length === 0) {
+    throw new Error(
+      `"${entry.name}" needs at least one vector size to make a table for.`,
+    );
+  }
   return {
     version: entry.version,
     name: entry.name,

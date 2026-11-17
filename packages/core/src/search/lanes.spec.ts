@@ -244,6 +244,17 @@ describe("pgVectorIndexMigration", () => {
     expect(tables[1]).toContain("brain_vectors_8 (");
   });
 
+  it("refuses an empty list of sizes, which would be recorded having made nothing", () => {
+    expect(() =>
+      pgVectorIndexMigration({
+        version: 7,
+        name: "brain-vectors",
+        namespace: "brain",
+        dimensions: [],
+      }),
+    ).toThrow("needs at least one vector size");
+  });
+
   it("defers, sending nothing else, when the database has no pgvector", async () => {
     const { db, sql } = recordingDb();
     await expect(migration.run?.(db)).resolves.toBe(MIGRATION_DEFERRED);
