@@ -1218,6 +1218,13 @@ export async function handleUploadResource(event: any) {
   }
   if (shared) {
     await assertCanEditShared(event);
+    // Without an organization the shared namespace is deployment-wide.
+    if (!(await getOrgContext(event)).orgId) {
+      throw createError({
+        statusCode: 403,
+        message: "Shared uploads require an organization",
+      });
+    }
   }
   const owner = await resolveOwner(event, shared);
 

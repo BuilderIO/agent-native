@@ -304,8 +304,14 @@ describe("Docs SSR cache key wrapper", () => {
     expect(netlifyHeaders).toContain(
       "Netlify-CDN-Cache-Control: public, durable, s-maxage=300, stale-while-revalidate=300, stale-if-error=3600",
     );
-    expect(netlifyHeaders).toContain(
-      "/assets/*\n  Access-Control-Allow-Origin: *\n  Cache-Control: public, max-age=31536000, immutable",
+    const assetsBlock = netlifyHeaders
+      .split("/assets/*\n")[1]!
+      .split("\n\n")[0]!;
+    expect(assetsBlock).toContain(
+      "Cache-Control: public, max-age=31536000, immutable",
+    );
+    expect(assetsBlock.match(/Access-Control-Allow-Origin: \*/g)).toHaveLength(
+      1,
     );
   });
 
@@ -317,8 +323,14 @@ describe("Docs SSR cache key wrapper", () => {
     expect(netlifyHeaders).toContain("/*\n  Cache-Control: no-store");
     expect(netlifyHeaders).toContain("  CDN-Cache-Control: no-store");
     expect(netlifyHeaders).toContain("  Netlify-CDN-Cache-Control: no-store");
-    expect(netlifyHeaders).toContain(
-      "/assets/*\n  Access-Control-Allow-Origin: *\n  Cache-Control: public, max-age=31536000, immutable",
+    const assetsBlock = netlifyHeaders
+      .split("/assets/*\n")[1]!
+      .split("\n\n")[0]!;
+    expect(assetsBlock).toContain(
+      "Cache-Control: public, max-age=31536000, immutable",
+    );
+    expect(assetsBlock.match(/Access-Control-Allow-Origin: \*/g)).toHaveLength(
+      1,
     );
   });
 

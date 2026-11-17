@@ -2888,6 +2888,30 @@ Legacy webhook.`,
       expect(mockResourcePut).not.toHaveBeenCalled();
     });
 
+    it("rejects shared uploads from a caller with no organization", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: null,
+        orgName: null,
+        role: null,
+      });
+
+      await expect(
+        handleUploadResource({
+          _multipart: [
+            {
+              name: "file",
+              filename: "shared.md",
+              type: "text/markdown",
+              data: Buffer.from("# Shared"),
+            },
+            { name: "shared", data: new TextEncoder().encode("true") },
+          ],
+        }),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
     it("rejects shared uploads from non-admin organization members", async () => {
       mockGetOrgContext.mockResolvedValue({
         email: "test@test.com",
