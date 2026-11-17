@@ -120,6 +120,13 @@ export default defineAction({
           message: "Person follow-up is not available with cohort splits.",
         });
       }
+      if (args.splitDesignFirstTouch && args.app !== "design") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["splitDesignFirstTouch"],
+          message: "First-touch cohort splits are only available for Design.",
+        });
+      }
     }),
   http: { method: "GET" },
   readOnly: true,

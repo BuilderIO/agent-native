@@ -257,6 +257,14 @@ describe("an outside agent's estimate", () => {
         followUpMode: "person",
       }),
     ).toThrow(/not available with cohort splits/);
+    expect(() =>
+      action.schema.parse({
+        dateFrom: "2026-10-01",
+        dateTo: "2026-10-02",
+        app: "slides",
+        splitDesignFirstTouch: true,
+      }),
+    ).toThrow(/only available for Design/);
   });
 
   it("keeps the in-app 275 GB default for Analytics' own callers", async () => {
