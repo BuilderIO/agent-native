@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema as dbSchema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   isComputedPropertyType,
   type DocumentPropertyType,
@@ -22,6 +23,13 @@ const actionSchema = z.intersection(
     value: z.unknown().describe("Value to assign to every selected row"),
   }),
 );
+
+// A failed call reaches changeResource with no result, whatever its type says.
+function updatedCollectionChangeResource(
+  result: { databaseDocumentId: string } | undefined,
+) {
+  return documentChangeResource(result?.databaseDocumentId);
+}
 
 export default defineAction({
   description:
@@ -88,10 +96,14 @@ export default defineAction({
     const failed = results.filter((result) => !result.success).length;
     return {
       databaseId: database.id,
+      databaseDocumentId: database.documentId,
       propertyId: args.propertyId,
       updated: results.length - failed,
       failed,
       results,
     };
   },
+  // The call may name the collection by databaseId alone, so its page comes
+  // from the result.
+  changeResource: (_input, result) => updatedCollectionChangeResource(result),
 });
