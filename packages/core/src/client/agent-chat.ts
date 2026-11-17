@@ -31,7 +31,9 @@ import {
   readEmbedMcpChatBridgeFlagFromUrl,
 } from "./embed-auth.js";
 import {
+  getFrameOrigin,
   getFramePostMessageTargetOrigin,
+  isInFrame,
   isTrustedFrameMessage,
 } from "./frame.js";
 import {
@@ -282,6 +284,29 @@ function queueAgentChatContextPersistence<T>(
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event) => {
     if (!isTrustedFrameMessage(event) && !isTrustedBuilderMessage(event)) {
+      return;
+    }
+    if (event.data?.type === "agentNative.submitChatResult") {
+      if (
+        window.parent === window ||
+        event.source !== window.parent ||
+        event.origin === "null" ||
+        event.origin !== getFrameOrigin()
+      ) {
+        return;
+      }
+      const data = event.data.data;
+      if (
+        data &&
+        typeof data.submitMessageId === "string" &&
+        typeof data.delivered === "boolean"
+      ) {
+        reportAgentChatSubmitResult(
+          data.submitMessageId,
+          data.delivered,
+          typeof data.reason === "string" ? data.reason : undefined,
+        );
+      }
       return;
     }
     if (
@@ -1498,7 +1523,7 @@ export function sendToAgentChatAndConfirm(
     return Promise.resolve({ tabId, delivered: false, reason: "no-window" });
   }
   if (
-    opts.chatTarget !== "local" ||
+    (opts.chatTarget !== "local" && !isInFrame()) ||
     routesToCodeFrame(opts) ||
     opts.submit === false
   ) {

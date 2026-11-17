@@ -11,6 +11,8 @@ const sendMcpAppHostMessageMock = vi.hoisted(() =>
 const sendToBuilderChatMock = vi.hoisted(() => vi.fn(() => true));
 const isBuilderHostEmbedMock = vi.hoisted(() => vi.fn(() => false));
 const isEmbedChromeRequestedMock = vi.hoisted(() => vi.fn(() => false));
+const isMcpAppWidgetEmbedMock = vi.hoisted(() => vi.fn(() => false));
+const isInFrameMock = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   sendToAgentChat: sendToAgentChatMock,
@@ -20,6 +22,10 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 
 vi.mock("@agent-native/core/client/host", () => ({
   sendToBuilderChat: sendToBuilderChatMock,
+  isInFrame: isInFrameMock,
+}));
+vi.mock("@agent-native/core/client/mcp-app-host", () => ({
+  isMcpAppWidgetEmbed: isMcpAppWidgetEmbedMock,
 }));
 
 vi.mock("./builder-host-origin", () => ({
@@ -34,6 +40,8 @@ vi.mock("./embed-chrome", () => ({
 import {
   DESIGN_CHAT_STORAGE_KEY,
   sendDesignSourceHandoffAndConfirm,
+  sendDesignHostFollowUp,
+  isDesignHostChatEmbed,
   sendToDesignAgentChat,
   sendToDesignAgentChatAndConfirm,
 } from "./agent-chat";
@@ -47,10 +55,55 @@ describe("Design agent chat routing", () => {
     sendToBuilderChatMock.mockReturnValue(true);
     isBuilderHostEmbedMock.mockReturnValue(false);
     isEmbedChromeRequestedMock.mockReturnValue(false);
+    isMcpAppWidgetEmbedMock.mockReturnValue(false);
+    isInFrameMock.mockReturnValue(false);
   });
 
   it("namespaces Design chat state", () => {
     expect(DESIGN_CHAT_STORAGE_KEY).toBe("design");
+  });
+
+  it("recognizes an MCP host even when no local model is available", async () => {
+    isMcpAppWidgetEmbedMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValueOnce(Promise.resolve(true));
+    expect(isDesignHostChatEmbed()).toBe(true);
+    await expect(
+      sendDesignHostFollowUp({ message: "Review", submit: true }),
+    ).resolves.toEqual({ delivered: true });
+    expect(sendToAgentChatAndConfirmMock).not.toHaveBeenCalled();
+  });
+
+  it("does not retry an uncertain host comment locally", async () => {
+    isMcpAppWidgetEmbedMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValueOnce(Promise.resolve(false));
+    await expect(
+      sendDesignHostFollowUp({ message: "Review", submit: true }),
+    ).resolves.toEqual({ delivered: false, reason: "host-rejected" });
+    expect(sendToAgentChatAndConfirmMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the acknowledged native frame relay for WorkspaceAppFrame", async () => {
+    isInFrameMock.mockReturnValue(true);
+    sendToAgentChatAndConfirmMock.mockResolvedValueOnce({
+      tabId: "tab-design",
+      delivered: true,
+    });
+    await expect(
+      sendDesignHostFollowUp({
+        message: "Make the heading bigger",
+        context: "Bounded thread context",
+        submit: true,
+      }),
+    ).resolves.toEqual({ delivered: true });
+    expect(sendToAgentChatAndConfirmMock).toHaveBeenCalledWith(
+      {
+        message: "Make the heading bigger",
+        context: "Bounded thread context",
+        submit: true,
+        chatTarget: "auto",
+      },
+      undefined,
+    );
   });
 
   it("forces Design handoffs to the local app chat", () => {

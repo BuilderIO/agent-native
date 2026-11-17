@@ -44,6 +44,7 @@ const clientState = vi.hoisted(() => {
     theme: "dark" as "dark" | "light",
     workspaceSsoEnabled: false,
     workspaceSsoMutateAsync,
+    sendToAgentChatAndConfirm: vi.fn(),
   };
 });
 
@@ -94,6 +95,10 @@ vi.mock("@agent-native/toolkit/app/chat/AgentSidebar", () => ({
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => clientState.workspaceSsoEnabled,
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  sendToAgentChatAndConfirm: clientState.sendToAgentChatAndConfirm,
 }));
 
 vi.mock("@agent-native/core/client/host", () => ({
@@ -203,6 +208,11 @@ describe("WorkspaceAppKeepAlive", () => {
     clientState.workspaceSsoMutateAsync.mockClear();
     clientState.theme = "dark";
     clientState.workspaceSsoEnabled = false;
+    clientState.sendToAgentChatAndConfirm.mockReset();
+    clientState.sendToAgentChatAndConfirm.mockResolvedValue({
+      tabId: "active",
+      delivered: true,
+    });
   });
 
   afterEach(() => {
@@ -702,6 +712,100 @@ describe("WorkspaceAppKeepAlive", () => {
     });
 
     expect(onChildRouteChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("relays only authenticated cross-origin frame chat submits", async () => {
+    clientState.legacyMutateAsync.mockResolvedValue({
+      startUrl: "https://design.example.test/_agent-native/embed",
+    });
+    clientState.suppressFrameLoad = true;
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "design",
+            name: "Design",
+            path: "/",
+            url: "https://design.example.test",
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const iframe = container.querySelector<HTMLIFrameElement>("iframe");
+    if (!iframe?.contentWindow) throw new Error("Workspace app frame missing");
+    const frameWindow = iframe.contentWindow;
+    const postMessage = vi
+      .spyOn(frameWindow, "postMessage")
+      .mockImplementation(() => {});
+    const submitData = {
+      type: "agentNative.submitChat",
+      data: {
+        submitMessageId: "handoff-1",
+        submit: true,
+        message: "Review this design",
+        context: "Canvas selection",
+      },
+    };
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: submitData,
+          origin: "https://design.example.test",
+          source: frameWindow,
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.sendToAgentChatAndConfirm).toHaveBeenCalledWith(
+      {
+        message: "Review this design",
+        context: "Canvas selection",
+        chatTarget: "local",
+        openSidebar: true,
+        submit: true,
+      },
+      { submitMessageId: "handoff-1" },
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: "agentNative.submitChatResult",
+        data: { submitMessageId: "handoff-1", delivered: true },
+      },
+      "https://design.example.test",
+    );
+
+    clientState.sendToAgentChatAndConfirm.mockClear();
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            ...submitData,
+            data: { ...submitData.data, submit: false },
+          },
+          origin: "https://design.example.test",
+          source: frameWindow,
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            ...submitData,
+            data: { ...submitData.data, submitMessageId: "wrong-origin" },
+          },
+          origin: "https://evil.example.test",
+          source: frameWindow,
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(clientState.sendToAgentChatAndConfirm).not.toHaveBeenCalled();
   });
 
   it("seeds a standalone iframe from its initial Dispatch route", async () => {

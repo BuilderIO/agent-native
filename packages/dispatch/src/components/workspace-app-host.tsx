@@ -1,3 +1,4 @@
+import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
@@ -49,6 +50,7 @@ import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 
 const EMBED_SESSION_TIMEOUT_MS = 100_000;
+const MAX_FRAME_CHAT_FIELD_LENGTH = 20_000;
 
 interface EmbedSessionResult {
   startUrl: string;
@@ -562,6 +564,81 @@ export function WorkspaceAppFrame({
     window.addEventListener("message", handleWorkspaceAppRoute);
     return () => window.removeEventListener("message", handleWorkspaceAppRoute);
   }, [app.id, app.path, appUrl, embedUrl, onChildRouteChange]);
+
+  useEffect(() => {
+    if (!embedUrl) return;
+
+    const frame = embedFrameRef.current;
+    if (!frame) return;
+
+    let expectedOrigin: string;
+    try {
+      expectedOrigin = new URL(embedUrl, window.location.href).origin;
+    } catch {
+      return;
+    }
+    // Same-origin children are already handled by their local chat receiver.
+    if (expectedOrigin === window.location.origin) return;
+
+    const handleFrameChatSubmit = (event: MessageEvent) => {
+      if (
+        event.source !== frame.contentWindow ||
+        event.origin !== expectedOrigin
+      ) {
+        return;
+      }
+
+      const envelope = event.data as {
+        type?: unknown;
+        data?: unknown;
+      } | null;
+      if (envelope?.type !== "agentNative.submitChat") return;
+      const data = envelope.data as Record<string, unknown> | null;
+      if (data?.submit !== true) return;
+      const { submitMessageId, message, context } = data;
+      if (
+        typeof submitMessageId !== "string" ||
+        submitMessageId.length === 0 ||
+        submitMessageId.length > 200 ||
+        typeof message !== "string" ||
+        message.length === 0 ||
+        message.length > MAX_FRAME_CHAT_FIELD_LENGTH ||
+        (context !== undefined &&
+          (typeof context !== "string" ||
+            context.length > MAX_FRAME_CHAT_FIELD_LENGTH))
+      ) {
+        return;
+      }
+
+      void sendToAgentChatAndConfirm(
+        {
+          message,
+          ...(typeof context === "string" ? { context } : {}),
+          chatTarget: "local",
+          openSidebar: true,
+          submit: true,
+        },
+        { submitMessageId },
+      ).then((result) => {
+        const source = event.source as Window | null;
+        if (!source || typeof source.postMessage !== "function") return;
+        source.postMessage(
+          {
+            type: "agentNative.submitChatResult",
+            data: {
+              submitMessageId,
+              delivered: result.delivered,
+              ...(result.reason ? { reason: result.reason } : {}),
+            },
+          },
+          event.origin,
+        );
+      });
+    };
+
+    window.addEventListener("message", handleFrameChatSubmit);
+    return () => window.removeEventListener("message", handleFrameChatSubmit);
+  }, [embedUrl]);
 
   useEffect(() => {
     postThemeToFrame();

@@ -5,6 +5,8 @@ import {
   type AgentChatMessage,
   type SendToAgentChatAndConfirmResult,
 } from "@agent-native/core/client/agent-chat";
+import { isInFrame } from "@agent-native/core/client/host";
+import { isMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 
 import { sendToHostChat } from "@/lib/builder-host-chat";
 
@@ -15,6 +17,14 @@ import {
 import { isEmbedChromeRequested } from "./embed-chrome";
 
 export const DESIGN_CHAT_STORAGE_KEY = "design";
+
+export function isDesignHostChatEmbed(): boolean {
+  return (
+    (isEmbedChromeRequested() && isBuilderHostEmbed()) ||
+    isMcpAppWidgetEmbed() ||
+    isInFrame()
+  );
+}
 
 export function sendToDesignAgentChat(opts: AgentChatMessage): string {
   return sendToAgentChat({
@@ -42,6 +52,66 @@ export interface DesignSourceHandoffResult {
   awaitingHostTurn?: boolean;
   reason?: string;
   tabId?: string;
+}
+
+export type DesignHostFollowUpResult =
+  | { delivered: true }
+  | { delivered: "unconfirmed" }
+  | {
+      delivered: false;
+      reason: "host-unavailable" | "host-rejected" | "host-timeout";
+    };
+
+/** Submit to a known embedding host without retrying uncertain delivery locally. */
+export async function sendDesignHostFollowUp(
+  opts: AgentChatMessage,
+  options?: { timeoutMs?: number },
+): Promise<DesignHostFollowUpResult> {
+  if (isEmbedChromeRequested() && isBuilderHostEmbed()) {
+    const delivered = sendToHostChat({
+      message: opts.message,
+      context: opts.context,
+      submit: true,
+      targetOrigin: getVerifiedBuilderHostOrigin() ?? undefined,
+    });
+    return delivered
+      ? { delivered: "unconfirmed" }
+      : { delivered: false, reason: "host-rejected" };
+  }
+  if (isInFrame() && !isMcpAppWidgetEmbed()) {
+    const result = await sendToAgentChatAndConfirm(
+      { ...opts, chatTarget: "auto" },
+      options,
+    );
+    return result.delivered
+      ? { delivered: true }
+      : { delivered: false, reason: "host-rejected" };
+  }
+  const delivery = sendMcpAppHostMessage({
+    message: opts.message,
+    context: opts.context,
+  });
+  if (delivery === false) {
+    return { delivered: false, reason: "host-unavailable" };
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const result = await Promise.race([
+    delivery
+      .then((sent) =>
+        sent
+          ? ({ delivered: true } as const)
+          : ({ delivered: false, reason: "host-rejected" } as const),
+      )
+      .catch(() => ({ delivered: false, reason: "host-rejected" }) as const),
+    new Promise<DesignHostFollowUpResult>((resolve) => {
+      timer = setTimeout(
+        () => resolve({ delivered: false, reason: "host-timeout" }),
+        Math.max(100, options?.timeoutMs ?? DEFAULT_HOST_HANDOFF_TIMEOUT_MS),
+      );
+    }),
+  ]);
+  if (timer !== undefined) clearTimeout(timer);
+  return result;
 }
 
 const DEFAULT_HOST_HANDOFF_TIMEOUT_MS = 15_000;
