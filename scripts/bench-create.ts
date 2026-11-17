@@ -51,10 +51,10 @@ Options:
   --out <file>          results JSON (default: .tmp/bench/create-<time>.json)
   --keep                keep each run's folder instead of deleting it
 
-A local, .tgz, or tarball-URL target skips the package's own registry metadata
-(11.9 MB for @agent-native/core), and a local or .tgz one its tarball too, so
-its install phase undercounts by about that much. Bytes are what crossed the
-wire, TLS included.`;
+A local, .tgz, or tarball-URL target skips the package's own registry metadata,
+and a local or .tgz one its tarball too, so its install phase undercounts by
+that much. For @agent-native/core 0.228.1 that was 3.6 MB of metadata and a
+10.7 MB tarball. Bytes are what crossed the wire, TLS included.`;
 
 export interface HostTraffic {
   received: number;
