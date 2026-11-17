@@ -57,7 +57,9 @@ export function rememberFocusReturn(content: Element): FocusReturn {
   const active = document.activeElement;
   const opener =
     active && content.contains(active)
-      ? recentFocus.findLast((element) => !content.contains(element))
+      ? recentFocus.findLast(
+          (element) => element.isConnected && !content.contains(element),
+        )
       : active;
   return { target: openerOf(opener ?? null) };
 }
