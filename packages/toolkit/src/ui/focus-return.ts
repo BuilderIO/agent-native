@@ -70,12 +70,15 @@ function openerOf(active: Element | null): HTMLElement | null {
 
 export function rememberFocusReturn(content: Element): FocusReturn {
   const active = document.activeElement;
-  const opener =
-    active && content.contains(active)
-      ? recentFocus.findLast(
-          (element) => element.isConnected && !content.contains(element),
-        )
-      : active;
+  // Focus already inside the dialog, or still on the page body because the
+  // click did not focus its button, leaves the recorded interaction as the opener.
+  const noOpenerFocused =
+    !active || active === document.body || content.contains(active);
+  const opener = noOpenerFocused
+    ? recentFocus.findLast(
+        (element) => element.isConnected && !content.contains(element),
+      )
+    : active;
   return { target: openerOf(opener ?? null) };
 }
 
