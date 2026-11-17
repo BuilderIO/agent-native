@@ -47,7 +47,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       }
       freezeStyle = document.createElement("style");
       freezeStyle.setAttribute("data-agent-native-editing-safety-style", "");
-      freezeStyle.textContent = "html,body{animation:none!important;transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *){animation:none!important;transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::before,body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::after{animation:none!important;transition:none!important}";
+      freezeStyle.textContent = "html,body{transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *){transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::before,body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::after{transition:none!important}";
       (document.head || document.documentElement).appendChild(freezeStyle);
     }
     syncEditingSafetyStyle();

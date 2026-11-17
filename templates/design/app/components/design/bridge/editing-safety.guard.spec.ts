@@ -18,6 +18,50 @@ function editingSafetyBridgeScript(
 }
 
 describe("editing safety bridge", () => {
+  it.each([true, false])(
+    "plays authored entrance animations to completion with editing safety %s",
+    async (enabled) => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(`<iframe id="preview"></iframe>`);
+        const iframe = page.frames()[1];
+        if (!iframe) throw new Error("Preview iframe did not load");
+        await iframe.setContent(`<!doctype html><html><head><style>
+          .fade-up, #hero::before, #hero::after {
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fade-up 1s ease forwards;
+          }
+          #hero::before, #hero::after { content: "Entrance"; }
+          @keyframes fade-up { to { opacity: 1; transform: none; } }
+        </style></head><body><h1 class="fade-up" id="hero">Hero</h1></body></html>`);
+        await iframe.addScriptTag({
+          content: editingSafetyBridgeScript(enabled),
+        });
+
+        await expect
+          .poll(
+            () =>
+              iframe.locator("#hero").evaluate((element) =>
+                [null, "::before", "::after"].map((pseudo) => {
+                  const style = getComputedStyle(element, pseudo);
+                  return { opacity: style.opacity, transform: style.transform };
+                }),
+              ),
+            { timeout: 5_000 },
+          )
+          .toEqual([
+            { opacity: "1", transform: "matrix(1, 0, 0, 1, 0, 0)" },
+            { opacity: "1", transform: "matrix(1, 0, 0, 1, 0, 0)" },
+            { opacity: "1", transform: "matrix(1, 0, 0, 1, 0, 0)" },
+          ]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
   it(
     "captures Space-drag in the iframe without forwarding host hotkeys unless enabled",
     { timeout: 30_000 },
@@ -332,7 +376,7 @@ describe("editing safety bridge", () => {
   );
 
   it(
-    "freezes authored motion, blocks link/form navigation, and reports full reloads",
+    "preserves authored animations, blocks link/form navigation, and reports full reloads",
     { timeout: 30_000 },
     async () => {
       const browser = await chromium.launch({ headless: true });
@@ -341,7 +385,7 @@ describe("editing safety bridge", () => {
         const page = await browser.newPage();
         page.on("pageerror", (error) => pageErrors.push(error.message));
         await page.setContent(`<!doctype html><html><head><style>
-          @keyframes drift { to { transform: translateX(20px) } }
+          @keyframes drift { to { opacity: 0.8 } }
           html, body { animation: drift 3s linear infinite; transition: opacity 1s }
           #animated { animation: drift 3s linear infinite; transition: opacity 1s }
         </style></head><body>
@@ -363,15 +407,15 @@ describe("editing safety bridge", () => {
         await page.addScriptTag({ content: editingSafetyBridgeScript() });
 
         for (const selector of ["html", "body", "#animated"]) {
-          const frozen = await page.locator(selector).evaluate((element) => {
+          const authored = await page.locator(selector).evaluate((element) => {
             const style = getComputedStyle(element);
             return {
               animationName: style.animationName,
               transitionDuration: style.transitionDuration,
             };
           });
-          expect(frozen.animationName).toBe("none");
-          expect(frozen.transitionDuration).toBe("0s");
+          expect(authored.animationName).toBe("drift");
+          expect(authored.transitionDuration).toBe("0s");
         }
 
         const originalUrl = page.url();
@@ -398,7 +442,7 @@ describe("editing safety bridge", () => {
   );
 
   it(
-    "live-toggles authored animation and transitions between Interact and Design",
+    "keeps authored animations while toggling transition suppression between Interact and Design",
     { timeout: 30_000 },
     async () => {
       const browser = await chromium.launch({ headless: true });
@@ -453,7 +497,7 @@ describe("editing safety bridge", () => {
             }),
           )
           .toEqual({
-            animationName: "none",
+            animationName: "drift",
             transitionDuration: "0s",
             safetyStylePresent: true,
           });
