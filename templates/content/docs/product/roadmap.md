@@ -888,7 +888,7 @@ Find Content in ChatGPT's app directory, connect your account, and search, open,
 
 **What works today:** Content has a ChatGPT listing package with a curated, annotated tool set: search and read pages, create and revise documents, inspect databases, and add or update records, with no delete action. Production serves the directory connector behind sign-in and answers OpenAI's domain check. Inline widgets show the real document with Content's own layout, top bar, and formatting toolbar, and can edit it (#6529, #6542, #6856, #6985, #7149, #7257, #7317).
 
-**What remains:** OpenAI still has to approve the Content listing and make it public. Sign-in and the search, open, and edit tools need end-to-end proof on production rather than beta, and the widgets need proof that they render and save reliably in ChatGPT on the web and on mobile. The general mount and host-grant contract stays with Feature 31.
+**What remains:** OpenAI still has to approve the Content listing and make it public. Today the widget opens only on a page or database ChatGPT has just created: opening an existing page it found returns the page's text, so opening a found page inline still has to be built. Sign-in and the search, open, and edit tools need end-to-end proof on production rather than beta, and the widgets need proof that they render and save reliably in ChatGPT on the web and on mobile. The general mount and host-grant contract stays with Feature 31.
 
 **What this Feature includes:**
 
