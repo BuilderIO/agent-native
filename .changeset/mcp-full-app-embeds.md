@@ -22,3 +22,5 @@ In a workspace that shares one sign-in across apps, a page open in an MCP host's
 Hashed build assets are served with `Access-Control-Allow-Origin: *`, so an app opened in an MCP host's side panel can load its code from the host's sandbox instead of rendering blank.
 
 A full-app panel's reads that carry its session in the URL, as the app's own requests do, now count as the panel's own, so it can get the UI capability its approval-gated actions need. Only a session cookie still needs same-origin proof.
+
+`open_app` given only an app id opens that app's home page instead of refusing the call for a missing view or path.

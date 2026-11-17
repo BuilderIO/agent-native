@@ -15,39 +15,34 @@ import {
 } from "../server/lib/mcp-gateway.js";
 
 const deepLinkParam = z.union([z.string(), z.number(), z.boolean()]);
-const openAppSchema = z
-  .object({
-    app: z
-      .string()
-      .describe(
-        'Granted app id, e.g. mail or calendar. Use "dispatch" for Dispatch-owned pages such as /extensions.',
-      ),
-    view: z.string().optional().describe("Target view in the app, e.g. inbox."),
-    path: z
-      .string()
-      .optional()
-      .describe(
-        'Optional route within the target app, e.g. /adhoc/q2 or /chart?panel=... . Dispatch extension routes such as /extensions/<id>/<slug> belong to app "dispatch".',
-      ),
-    params: z
-      .record(z.string(), deepLinkParam)
-      .optional()
-      .describe("Optional record-focus or filter params."),
-    embed: z
-      .boolean()
-      .optional()
-      .describe(
-        "Render the app or focused route/component inline in MCP Apps when supported.",
-      ),
-    chrome: z
-      .enum(["full", "minimal"])
-      .optional()
-      .describe("Embed chrome preference for compatible app routes."),
-  })
-  .refine((input) => input.view?.trim() || input.path?.trim(), {
-    message: "open_app requires either view or path",
-    path: ["view"],
-  });
+const openAppSchema = z.object({
+  app: z
+    .string()
+    .describe(
+      'Granted app id, e.g. mail or calendar. Use "dispatch" for Dispatch-owned pages such as /extensions.',
+    ),
+  view: z.string().optional().describe("Target view in the app, e.g. inbox."),
+  path: z
+    .string()
+    .optional()
+    .describe(
+      'Optional route within the target app, e.g. /adhoc/q2 or /chart?panel=... . Omit both view and path to open the app\'s home. Dispatch extension routes such as /extensions/<id>/<slug> belong to app "dispatch".',
+    ),
+  params: z
+    .record(z.string(), deepLinkParam)
+    .optional()
+    .describe("Optional record-focus or filter params."),
+  embed: z
+    .boolean()
+    .optional()
+    .describe(
+      "Render the app or focused route/component inline in MCP Apps when supported.",
+    ),
+  chrome: z
+    .enum(["full", "minimal"])
+    .optional()
+    .describe("Embed chrome preference for compatible app routes."),
+});
 
 type OpenAppArgs = z.infer<typeof openAppSchema>;
 

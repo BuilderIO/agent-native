@@ -1153,11 +1153,11 @@ export async function openGrantedDispatchMcpApp(input: {
 }> {
   const view = input.view?.trim() ?? "";
   const hasPathInput = input.path != null;
-  const path = safeAppPath(input.path);
+  // Naming only the app opens its home page.
+  const path = safeAppPath(input.path ?? (view ? undefined : "/"));
   if (hasPathInput && !path) {
     throw new Error("path must be a safe app-relative route");
   }
-  if (!view && !path) throw new Error("open_app requires view or path");
   const target = await resolveGrantedDispatchMcpApp(input.app);
   if (path) assertAppCanOpenPath(target, path);
   const relUrl = path

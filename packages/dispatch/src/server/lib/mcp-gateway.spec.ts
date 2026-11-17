@@ -361,6 +361,40 @@ describe("Dispatch MCP gateway app discovery", () => {
     );
   });
 
+  it("opens an app's home when only the app is named", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => openGrantedDispatchMcpApp({ app: "customer-ticket-triage" }),
+    );
+
+    expect(result.url).toBe(
+      "https://beta.agent-workspace.builder.io/customer-ticket-triage/",
+    );
+  });
+
   it("keeps Dispatch-page apps out of the granted list when the registry omits them", async () => {
     mocks.discoverAgents.mockResolvedValue([
       {
