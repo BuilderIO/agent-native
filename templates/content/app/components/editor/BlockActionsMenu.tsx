@@ -71,6 +71,10 @@ const TURN_INTO: Record<TurnIntoTarget, { labelKey: string }> = {
     labelKey: "editor.slash.numberedList",
   },
   todoList: { labelKey: "editor.slash.todoList" },
+  toggle: { labelKey: "editor.slash.toggle" },
+  toggleHeading1: { labelKey: "editor.slash.toggleHeading1" },
+  toggleHeading2: { labelKey: "editor.slash.toggleHeading2" },
+  toggleHeading3: { labelKey: "editor.slash.toggleHeading3" },
   quote: { labelKey: "editor.slash.quote" },
   codeBlock: { labelKey: "editor.slash.codeBlock" },
 };

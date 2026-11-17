@@ -9,6 +9,7 @@ import { defineStore } from "../db/store-registry.js";
 import type { Visibility } from "../sharing/schema.js";
 import {
   ReviewAnchorError,
+  ReviewCommentEmptyError,
   ReviewCommentLinkConflictError,
   ReviewCommentRevisionConflictError,
   ReviewCursorError,
@@ -67,6 +68,11 @@ export interface InsertReviewCommentResult {
 
 export interface UpdateReviewCommentInput {
   body?: string;
+  /**
+   * The comment's images, already checked, in place of the ones in its
+   * metadata. The rest of its metadata stays.
+   */
+  attachments?: Record<string, unknown>[];
   anchor?: unknown;
   /** With `anchor`: a new kind for it. Left out, the comment's kind stays. */
   anchorKind?: string | null;
@@ -80,6 +86,12 @@ export interface ReviewCommentWriteOptions {
    * is written and a `ReviewCommentRevisionConflictError` is thrown.
    */
   expectedRevision?: number | undefined;
+  /**
+   * Refuse, with a `ReviewCommentEmptyError`, a change that leaves the comment
+   * with no text and no image. Checked against the locked row, so a change
+   * made since the caller read the comment counts.
+   */
+  requireContent?: boolean | undefined;
   /** Who made the change, for the resource's write hook. */
   actorEmail?: string | null | undefined;
 }
@@ -1636,6 +1648,16 @@ async function writeReviewCommentChange(
   ) {
     throw new ReviewCommentRevisionConflictError(id, revision);
   }
+  if (options.requireContent) {
+    const body = input.body ?? current.body;
+    const attachments = input.attachments ?? current.metadata?.attachments;
+    if (
+      !body.trim() &&
+      !(Array.isArray(attachments) && attachments.length > 0)
+    ) {
+      throw new ReviewCommentEmptyError(id);
+    }
+  }
   const assignments: SqlFragment[] = [];
   if (input.body !== undefined) {
     assignments.push(sql`body = ${sql.value(input.body)}`);
@@ -1643,6 +1665,19 @@ async function writeReviewCommentChange(
   if (input.mentions !== undefined) {
     assignments.push(
       sql`mentions_json = ${sql.value(stringifyOptionalJson(input.mentions))}`,
+    );
+  }
+  if (input.attachments !== undefined) {
+    // From the locked row, so a change made since the caller read the comment
+    // keeps the rest of its metadata.
+    const { attachments: _previous, ...rest } = current.metadata ?? {};
+    const metadata = input.attachments.length
+      ? { ...rest, attachments: input.attachments }
+      : rest;
+    assignments.push(
+      sql`metadata_json = ${sql.value(
+        stringifyOptionalJson(Object.keys(metadata).length ? metadata : null),
+      )}`,
     );
   }
   if (input.anchor !== undefined) {
@@ -1681,7 +1716,9 @@ async function writeReviewCommentChange(
   const updated = await getReviewCommentByIdWithClient(client, id);
   if (!updated) throw new Error("Review comment not found after update");
   const changesContent =
-    input.body !== undefined || input.mentions !== undefined;
+    input.body !== undefined ||
+    input.mentions !== undefined ||
+    input.attachments !== undefined;
   // An edit that also moves the anchor tells the hook both, so a hook keeping
   // anchor or surface state still hears of the move.
   const events = changesContent

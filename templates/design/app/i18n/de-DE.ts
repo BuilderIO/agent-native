@@ -1771,6 +1771,20 @@ export default {
         "Demnächst: Bildschirme und Komponenten direkt aus einem Repository importieren.",
       localDescription: "Verbinde jede laufende lokale App mit /visual-edit.",
       warningsToast: "Import mit Warnungen abgeschlossen",
+      pasteUnreadable: "Die kopierten Ebenen konnten nicht gelesen werden.",
+      pasteInexact: "Details, die nicht exakt eingefügt wurden: {{count}}",
+      pasteLayerTypes:
+        "{{tool}}-Ebenentypen als einfache Frames eingefügt: {{count}}",
+      pasteImagePlaceholders:
+        "Als Platzhalter eingefügte Bilder: {{count}}. {{tool}} kopiert keine Bilddaten.",
+      pasteImagesLinked:
+        "Weiterhin mit {{tool}} verknüpfte Bilder: {{count}}. Sie konnten nicht in deinen Dateispeicher kopiert werden.",
+      pasteImagesUnsaved:
+        "Bilder, die möglicherweise nicht mehr geladen werden, weil ihr Speichern nicht bestätigt wurde: {{count}}",
+      pasteNeedsEditAccess:
+        "Zum Einfügen in dieses Design brauchst du Bearbeitungszugriff.",
+      pastePartialImport:
+        "Das Einfügen ist fehlgeschlagen, und einige Screens wurden möglicherweise erstellt. Prüfe deine Screens.",
       figmaSuccess: "Figma-Einfügung importiert",
       htmlSuccess: "HTML importiert",
       uploadSuccess: "Datei importiert",
@@ -1781,6 +1795,8 @@ export default {
         notHtml: "Füge gültiges HTML ein oder wähle es zum Importieren aus.",
         importFailed: "Import fehlgeschlagen",
         figmaPasteFailed: "Figma-Einfügeimport fehlgeschlagen",
+        paperPasteFailed: "Paper-Einfügeimport fehlgeschlagen",
+        wonderPasteFailed: "Wonder-Einfügeimport fehlgeschlagen",
         uploadFailed: "Dateiupload fehlgeschlagen",
         invalidFigFile: "Wähle eine Datei mit der Endung .fig.",
         unsupportedFileType: "Wähle eine .fig-, .html- oder .htm-Datei.",
@@ -2115,6 +2131,9 @@ export default {
     addTweaks: "Fügen Sie Optimierungen hinzu",
     addTweakControls: "Fügen Sie Optimierungssteuerelemente hinzu",
     closeTweaks: "Enge Optimierungen",
+    showFloatingTweaks: "Schwebende Optimierungen anzeigen",
+    collapseTweaks: "Optimierungen einklappen",
+    expandTweaks: "Optimierungen ausklappen",
     tweaksHelp:
       "Anpassungen sind breakpoint- und zustandsspezifische visuelle Überschreibungen über dem Basisdesign. Setzen Sie ein Steuerelement zurück, um den geerbten Wert wiederherzustellen.",
     tweaksDocs: "Mehr erfahren.",
@@ -2385,6 +2404,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Die Anpassungen wurden an anderer Stelle geändert. Aktualisiere das Design, bevor du es erneut versuchst.",
+      tweakBaselineUnreadable:
+        "Die gespeicherte Tweaks-Basis konnte nicht gelesen werden. Änderungen an Tweaks sind pausiert, bis die Designdaten repariert sind.",
+      resetTweakBaseline: "Ausgangswert zurücksetzen",
       tweakSaveNotDurable:
         "Die Anpassungen sind noch nicht gespeichert. Lass diesen Tab geöffnet und versuche es erneut.",
       undoSkippedConcurrentEdit:
@@ -3553,6 +3575,10 @@ export default {
     markedUnread: "Als ungelesen markiert",
     markUnreadFailed: "Konnte nicht als ungelesen markiert werden",
     attachImage: "Bild anhängen",
+    removeImage: "Bild entfernen",
+    imageUploadFailed: "Das Bild konnte nicht hochgeladen werden",
+    editChanged:
+      "Dieser Kommentar wurde geändert, nachdem Sie mit dem Bearbeiten begonnen haben. Speichern Sie erneut, um ihn zu ersetzen.",
     searching: "Suche…",
     reactionFailed: "Reaktion konnte nicht aktualisiert werden",
     moveFailed: "Kommentar konnte nicht verschoben werden",

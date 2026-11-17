@@ -45,6 +45,8 @@ import {
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
   getDashboard,
+  isDashboardIdTaken,
+  requireDashboardAccess,
   upsertDashboardOutcome,
   upsertDashboardWithRetryOutcome,
   DashboardConflictError,
@@ -53,6 +55,12 @@ import {
 import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { FirstPartyAnalyticsUnsupportedSqlError } from "../server/lib/first-party-analytics-backend.js";
 import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
+import {
+  expectedUpdatedAtDescription,
+  guardWrite,
+  idempotencyKeyArg,
+  type WriteReplay,
+} from "../server/lib/guarded-writes";
 import { builtinDashboardIdFor } from "../shared/builtin-dashboard-ids.js";
 import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
@@ -1035,6 +1043,23 @@ function opCanChangePanelSql(op: JsonOp): boolean {
 
 export { isAgentCaller };
 
+function failDashboardConflict(
+  dashboardId: string,
+  details: Record<string, unknown> | undefined,
+): never {
+  fail(
+    `Dashboard "${dashboardId}" was changed by someone else since you loaded it (another tab, user, or agent saved in between). Reload the dashboard and reapply your edit — your change was NOT saved, so nothing was lost.` +
+      (typeof details?.currentRevision === "string"
+        ? ` Resend with expectedUpdatedAt set to details.currentRevision (${details.currentRevision}).`
+        : ""),
+    {
+      errorCode: "dashboard_conflict",
+      statusCode: 409,
+      ...(details ? { details } : {}),
+    },
+  );
+}
+
 export default defineAction({
   description:
     "Save or replace a SQL dashboard full config (scope-aware) atomically in ONE call. " +
@@ -1068,11 +1093,12 @@ export default defineAction({
     ),
     expectedUpdatedAt: z
       .string()
+      .min(1)
       .optional()
       .describe(
-        "Only used with `config`. The dashboard `updatedAt` observed before this edit was built (from get-sql-dashboard or a prior update-dashboard result). " +
-          "When provided, the save is fenced against concurrent writers: if someone else (another tab, user, or agent call) saved in between, this call is rejected with a conflict error instead of silently overwriting their change — re-fetch and reapply. Omit only for a brand-new dashboard or a one-shot write that isn't derived from a prior read; an agent save without it is still rejected if the dashboard changed while the save was being verified.",
+        `${expectedUpdatedAtDescription("dashboard")} Applies to every mode; with \`ops\` or \`panelOrder\` it turns off the re-read-and-reapply merge. Omit only for a brand-new dashboard or a one-shot in-app write that isn't derived from a prior read; an agent save without it is still rejected if the dashboard changed while the save was being verified.`,
       ),
+    idempotencyKey: idempotencyKeyArg,
     allowEmptyResult: z
       .boolean()
       .optional()
@@ -1087,6 +1113,11 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
+  // Panel SQL arrives nested in `config` and `ops`, which core's raw-input
+  // gate doesn't match. It gets the checks mutate-dashboard's `code` gets
+  // (scope validation, then verification that returns counts and column
+  // names, never rows), so the two actions follow one policy.
+  mcpTool: true,
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
@@ -1120,11 +1151,63 @@ export default defineAction({
     const ctx = { email: scope.email, orgId: scope.orgId };
     const agentCaller = isAgentCaller(actionContext?.caller);
     const verificationMemo = new Map<string, PanelVerification>();
+    // Only in-app callers create here; external clients use compose-dashboard.
+    const external = actionContext?.caller === "mcp";
+    const guard = guardWrite({
+      action: "update-dashboard",
+      target: { kind: "dashboard", id: dashboardId },
+      caller: actionContext?.caller,
+      scope: ctx,
+      idempotencyKey: args.idempotencyKey,
+      expectedUpdatedAt: args.expectedUpdatedAt,
+      request: {
+        ops: args.ops ?? null,
+        panelOrder: args.panelOrder ?? null,
+        config: args.config ?? null,
+        allowEmptyResult: args.allowEmptyResult === true,
+      },
+    });
+    guard.requireKey();
+    guard.requireFence();
+    // Rechecked before a replay after a failed write, so it reads fresh: a
+    // dashboard the caller can no longer see is not a create.
+    const replayed = await guard.preflight(async () => {
+      if (external || (await isDashboardIdTaken(dashboardId))) {
+        await requireDashboardAccess(dashboardId, ctx, "editor");
+      }
+    });
+    if (replayed) return { id: dashboardId, dashboardId, ...replayed };
+    const replayedResult = (replay: WriteReplay) => ({
+      id: dashboardId,
+      dashboardId,
+      ...replay,
+    });
 
     if (args.config) {
       // A dashboard that does not exist yet has no base, so every panel is new.
       const before = await getDashboard(dashboardId, ctx);
       if (before) await requireEditableDashboard(dashboardId, ctx, before);
+      // The caller's fence names the version the config was built on; a
+      // stale one fails before the slow checks below. `before` is read after
+      // the preflight, so the version it passed may be a duplicate of this
+      // request that committed since: answer with that request's receipt.
+      if (
+        before &&
+        guard.expectedUpdatedAt !== undefined &&
+        before.updatedAt !== guard.expectedUpdatedAt
+      ) {
+        const conflict = new DashboardConflictError(
+          dashboardId,
+          before.updatedAt,
+          guard.expectedUpdatedAt,
+        );
+        try {
+          return replayedResult(await guard.recover(conflict));
+        } catch (error) {
+          if (error !== conflict) throw error;
+          failDashboardConflict(dashboardId, conflict.details);
+        }
+      }
       // A built-in's first saved copy isn't a new dashboard: it keeps its traffic.
       if (!before && !builtinDashboardIdFor(dashboardId)) {
         args.config = withNewDashboardTrafficFilter(args.config);
@@ -1163,41 +1246,41 @@ export default defineAction({
       // verified against. Other callers keep last-write-wins unless they send one.
       const fence =
         args.expectedUpdatedAt ?? (agentCaller ? before?.updatedAt : undefined);
+      const config = args.config;
       let outcome: DashboardUpsertOutcome;
       try {
-        outcome =
-          fence !== undefined
-            ? await upsertDashboardOutcome(
+        const settled = await guard.settle(() =>
+          guard.onCommit
+            ? upsertDashboardOutcome(
                 dashboardId,
                 "sql",
-                args.config,
+                config,
                 ctx,
                 fence,
+                guard.onCommit,
               )
-            : await upsertDashboardOutcome(
-                dashboardId,
-                "sql",
-                args.config,
-                ctx,
-              );
+            : fence !== undefined
+              ? upsertDashboardOutcome(dashboardId, "sql", config, ctx, fence)
+              : upsertDashboardOutcome(dashboardId, "sql", config, ctx),
+        );
+        if ("replayed" in settled) return replayedResult(settled.replayed);
+        outcome = settled.written;
       } catch (err) {
         if (err instanceof DashboardConflictError) {
-          fail(
-            `Dashboard "${dashboardId}" was changed by someone else since you loaded it (another tab, user, or agent saved in between). Reload the dashboard and reapply your edit — your change was NOT saved, so nothing was lost.`,
-            { errorCode: "dashboard_conflict", statusCode: 409 },
-          );
+          failDashboardConflict(dashboardId, err.details);
         }
         throw err;
       }
       const saved = outcome.dashboard;
       if (!outcome.didWrite) {
-        return unchangedDashboardResult(
+        const unchanged = unchangedDashboardResult(
           dashboardId,
           args.config,
           args.returnConfig === true,
           saved.updatedAt,
           agentCaller,
         );
+        return { ...unchanged, ...guard.resultFields(saved) };
       }
       void queueDashboardCollabSync(
         dashboardId,
@@ -1219,6 +1302,7 @@ export default defineAction({
           verdict,
           agentCaller ? `Saved dashboard "${dashboardId}"` : undefined,
         ),
+        ...guard.resultFields(saved),
         // The page's save toast undoes this save by restoring this revision,
         // and names the change history records on it.
         ...(outcome.revisionId ? { revisionId: outcome.revisionId } : {}),
@@ -1261,17 +1345,21 @@ export default defineAction({
           }
           return { kind: existing.kind, body: root };
         },
-      );
+        undefined,
+        guard.store,
+      ).catch(guard.recover);
+      if ("replayed" in outcome) return replayedResult(outcome);
       const saved = outcome.dashboard;
       const root = saved.config as Record<string, unknown>;
       if (!outcome.didWrite) {
-        return unchangedDashboardResult(
+        const unchanged = unchangedDashboardResult(
           dashboardId,
           root,
           args.returnConfig === true,
           saved.updatedAt,
           agentCaller,
         );
+        return { ...unchanged, ...guard.resultFields(saved) };
       }
       void queueDashboardCollabSync(
         dashboardId,
@@ -1280,7 +1368,7 @@ export default defineAction({
         agentCaller ? "agent" : undefined,
       );
       trackDashboardSaved(dashboardId, root, actionContext);
-      return dashboardResult(
+      const result = dashboardResult(
         dashboardId,
         root,
         1,
@@ -1291,6 +1379,7 @@ export default defineAction({
         orderVerdict,
         agentCaller ? `Saved panel order for "${dashboardId}"` : undefined,
       );
+      return { ...result, ...guard.resultFields(saved) };
     }
 
     let appliedDetails: string[] = [];
@@ -1337,17 +1426,21 @@ export default defineAction({
         appliedDetails = details;
         return { kind: existing.kind, body: root };
       },
-    );
+      undefined,
+      guard.store,
+    ).catch(guard.recover);
+    if ("replayed" in outcome) return replayedResult(outcome);
     const saved = outcome.dashboard;
     const root = saved.config as Record<string, unknown>;
     if (!outcome.didWrite) {
-      return unchangedDashboardResult(
+      const unchanged = unchangedDashboardResult(
         dashboardId,
         root,
         args.returnConfig === true,
         saved.updatedAt,
         agentCaller,
       );
+      return { ...unchanged, ...guard.resultFields(saved) };
     }
     void queueDashboardCollabSync(
       dashboardId,
@@ -1358,7 +1451,7 @@ export default defineAction({
 
     const panelCount = countPanels(root);
     trackDashboardSaved(dashboardId, root, actionContext);
-    return dashboardResult(
+    const result = dashboardResult(
       dashboardId,
       root,
       appliedDetails.length,
@@ -1371,6 +1464,7 @@ export default defineAction({
         ? `Saved ${appliedDetails.length} op(s) to "${dashboardId}"`
         : undefined,
     );
+    return { ...result, ...guard.resultFields(saved) };
   },
   link: ({ result }) => {
     const dashboardId =

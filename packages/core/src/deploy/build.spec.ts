@@ -185,17 +185,19 @@ describe("nitroServerCodeSplittingGroupsForPreset", () => {
       "awsAmplify",
     ]) {
       const groups = nitroServerCodeSplittingGroupsForPreset(preset);
-      expect(groups).toHaveLength(1);
+      const coreGroup = groups.find(
+        (group) => group.name("") === "agent-native-core",
+      );
       expect(
-        groups[0]?.test.test("/node_modules/@agent-native/core/server.js"),
+        coreGroup?.test.test("/node_modules/@agent-native/core/server.js"),
       ).toBe(true);
       expect(
-        groups[0]?.test.test(
+        coreGroup?.test.test(
           "/node_modules/@agent-native/creative-context/server.js",
         ),
       ).toBe(true);
       expect(
-        groups[0]?.test.test("/node_modules/@agent-native/toolkit/server.js"),
+        coreGroup?.test.test("/node_modules/@agent-native/toolkit/server.js"),
       ).toBe(false);
     }
     expect(nitroServerCodeSplittingGroupsForPreset("cloudflare-pages")).toEqual(
@@ -203,10 +205,40 @@ describe("nitroServerCodeSplittingGroupsForPreset", () => {
     );
   });
 
-  it("passes the group through Nitro's Rolldown configuration", () => {
+  it("keeps drizzle-orm in one chunk, above every other group", () => {
+    const groups = nitroServerCodeSplittingGroupsForPreset("netlify");
+    const drizzle = groups.find(
+      (group) => group.name("") === "_libs/drizzle-orm",
+    );
+    expect(
+      drizzle?.test.test(
+        "/repo/node_modules/.pnpm/drizzle-orm@0.45.2/node_modules/drizzle-orm/pg-core/query-builders/delete.js",
+      ),
+    ).toBe(true);
+    expect(
+      drizzle?.test.test("C:\\repo\\node_modules\\drizzle-orm\\index.js"),
+    ).toBe(true);
+    expect(
+      drizzle?.test.test("/repo/node_modules/drizzle-orm-extras/index.js"),
+    ).toBe(false);
+    expect(drizzle && "entriesAware" in drizzle).toBe(false);
+    const otherPriorities = groups
+      .filter((group) => group !== drizzle)
+      .map((group) => ("priority" in group ? Number(group.priority) : 0));
+    expect(Math.max(0, ...otherPriorities)).toBeLessThan(
+      Number(drizzle && "priority" in drizzle ? drizzle.priority : 0),
+    );
+  });
+
+  it("passes the groups through Nitro's Rolldown configuration", () => {
     const config = nitroServerCodeSplittingConfigForPreset("vercel");
 
-    expect(config.output?.codeSplitting?.groups).toHaveLength(1);
+    expect(
+      config.output?.codeSplitting?.groups.map((group) => group.name("")),
+    ).toEqual(["_libs/drizzle-orm", "agent-native-core"]);
+    expect(
+      config.output?.codeSplitting?.groups.map((group) => group.debugName),
+    ).toEqual(["drizzle-orm", "agent-native-core"]);
   });
 });
 
@@ -7913,6 +7945,113 @@ describe("durable-background Netlify function emit (single-template, default-on)
     );
   });
 
+  function writeIngestionPackage(
+    directory: string,
+    source = "export {};\n",
+  ): void {
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(
+      path.join(directory, "package.json"),
+      JSON.stringify({ main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(directory, "index.js"), source);
+  }
+
+  it("accepts ingestion imports and their transitive imports shipped in the server function", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    writeIngestionPackage(
+      path.join(serverDir, "node_modules", "officeparser"),
+      'import zip from "jszip";\nexport { zip };\n',
+    );
+    writeIngestionPackage(path.join(serverDir, "node_modules", "jszip"));
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("officeparser");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("surfaces an unreadable parser manifest instead of reporting it as unshipped", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    const parserDir = path.join(serverDir, "node_modules", "officeparser");
+    writeIngestionPackage(parserDir);
+    fs.writeFileSync(path.join(parserDir, "package.json"), "{ invalid json");
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("officeparser");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      expect.objectContaining({ code: "ERR_INVALID_PACKAGE_CONFIG" }),
+    );
+  });
+
+  it("rejects a missing transitive parser import despite its parent being shipped", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    writeIngestionPackage(
+      path.join(serverDir, "node_modules", "officeparser"),
+      'import zip from "jszip";\nexport { zip };\n',
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("officeparser");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /jszip .*not shipped inside the server bundle/,
+    );
+  });
+
+  it("rejects a missing parser subpath even when the package entry is shipped", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    writeIngestionPackage(path.join(serverDir, "node_modules", "pdfjs-dist"));
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("pdfjs-dist/legacy/build/pdf.mjs");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /pdfjs-dist\/legacy\/build\/pdf.mjs is not shipped/,
+    );
+  });
+
+  it.each(["ancestor node_modules", "symlink"])(
+    "rejects parser resolution escaping the function through %s",
+    (escape) => {
+      const cwd = setupNetlifyOutput();
+      prepareSingleTemplateNetlifyOutput(cwd);
+      const serverDir = path.dirname(serverEntryPath(cwd));
+      const outsidePackage = path.join(cwd, "node_modules", "officeparser");
+      writeIngestionPackage(outsidePackage);
+      if (escape === "symlink") {
+        const shippedModules = path.join(serverDir, "node_modules");
+        fs.mkdirSync(shippedModules, { recursive: true });
+        fs.symlinkSync(
+          outsidePackage,
+          path.join(shippedModules, "officeparser"),
+          "dir",
+        );
+      }
+      fs.writeFileSync(
+        path.join(serverDir, "parser.mjs"),
+        'export const parser = import("officeparser");\n',
+      );
+
+      expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+        /officeparser .*not shipped inside the server bundle/,
+      );
+    },
+  );
+
   it("fails deploy output with bare ingestion runtime imports", () => {
     const cwd = setupNetlifyOutput();
     prepareSingleTemplateNetlifyOutput(cwd);
@@ -8118,6 +8257,22 @@ describe("durable-background Netlify function emit (single-template, default-on)
         true,
       );
     }
+  });
+
+  it("keeps relative links inside a linked Vercel function as written", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-vercel-inner-"));
+    dirs.push(cwd);
+    const output = path.join(cwd, ".vercel", "output");
+    const base = path.join(output, "functions", "__server.func");
+    const dep = path.join(".nitro", "dep@1.0.0");
+    fs.mkdirSync(path.join(base, "node_modules", dep), { recursive: true });
+    fs.writeFileSync(path.join(base, "index.mjs"), "export {};");
+    fs.symlinkSync(dep, path.join(base, "node_modules", "dep"), "dir");
+    const linked = path.join(output, "functions", "linked.func");
+    fs.symlinkSync(base, linked, "dir");
+    prepareVercelFunctionOutputs(output, cwd);
+    expect(fs.lstatSync(linked).isSymbolicLink()).toBe(false);
+    expect(fs.readlinkSync(path.join(linked, "node_modules", "dep"))).toBe(dep);
   });
 
   it("bundles one complete Yjs runtime for every serverless consumer", async () => {

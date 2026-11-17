@@ -136,7 +136,7 @@ import {
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
 
-import { AgentLevelNote, useAgentLevel } from "./AgentLevel";
+import { type AgentLevel, AgentLevelNote, useAgentLevel } from "./AgentLevel";
 import {
   DatabaseExportDialog,
   type DatabaseExportContext,
@@ -858,7 +858,7 @@ interface DocumentToolbarProps {
   canShare?: boolean;
   readOnly?: boolean;
   hideFromSearch?: boolean;
-  agentTextLocked?: boolean;
+  agentLevel?: AgentLevel;
   canManageAgentTextLock?: boolean;
   source?: DocumentSourceInfo;
   canDelete?: boolean;
@@ -963,7 +963,7 @@ export function DocumentToolbar({
   canShare = true,
   readOnly = false,
   hideFromSearch = false,
-  agentTextLocked = false,
+  agentLevel: savedAgentLevel = "edit",
   canManageAgentTextLock = false,
   source,
   canDelete = false,
@@ -1068,7 +1068,7 @@ export function DocumentToolbar({
   const [shareRequested, setShareRequested] = useState(false);
   const [shareInitialTab, setShareInitialTab] = useState("share");
   const shareActionRef = useRef<ShareButtonActionHandle>(null);
-  const agentLevel = useAgentLevel(documentId, agentTextLocked);
+  const agentLevel = useAgentLevel(documentId, savedAgentLevel);
   const [autoSync, setAutoSync] = useLocalStorage(
     `notion-auto-sync:${documentId}`,
     false,
@@ -1766,7 +1766,7 @@ export function DocumentToolbar({
                 <DropdownMenu modal={false}>
                   <DropdownMenuTrigger asChild>
                     <ShareTrigger
-                      className="h-9 rounded-lg px-3"
+                      className="h-8 rounded-md px-3"
                       emphasis="ghost"
                       pending={shareLocalFile.isPending}
                       disabled={shareLocalFile.isPending}
@@ -1983,8 +1983,8 @@ export function DocumentToolbar({
                     <button
                       ref={pageActionsRef}
                       className={cn(
-                        "flex items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
-                        phoneBar ? "size-11" : "size-9",
+                        "flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground",
+                        phoneBar ? "size-11 rounded-lg" : "size-8 rounded-md",
                         // Folded, the menu holds Stop suggesting, so it shows
                         // its state.
                         suggestingInMenu &&

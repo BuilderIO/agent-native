@@ -1,7 +1,8 @@
 import type { ReactElement } from "react";
 import type { EntryContext, RouterContextProvider } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
 import { createDocumentRequestHandler } from "./entry-server.js";
 
 const mocks = vi.hoisted(() => {
@@ -168,6 +169,72 @@ describe("createDocumentRequestHandler", () => {
     expect(sessionIndex).toBeLessThan(head.indexOf('rel="modulepreload"'));
     expect(sessionIndex).toBeLessThan(head.indexOf('rel="stylesheet"'));
     expect(head).toContain('fetch("/_agent-native/auth/session"');
+  });
+
+  describe("document build identity", () => {
+    beforeEach(() => {
+      vi.stubEnv("AGENT_NATIVE_BUILD_ID", "");
+      vi.stubEnv("AGENT_NATIVE_BUILD_SHA", "");
+      resetAppConfigForTests();
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    });
+
+    async function renderWithBuild(env: { id?: string; sha?: string }) {
+      if (env.id !== undefined) vi.stubEnv("AGENT_NATIVE_BUILD_ID", env.id);
+      if (env.sha !== undefined) vi.stubEnv("AGENT_NATIVE_BUILD_SHA", env.sha);
+      resetAppConfigForTests();
+      mocks.renderToReadableStream.mockImplementationOnce(async () =>
+        streamOf(...DOCUMENT_CHUNKS),
+      );
+      return renderDocument();
+    }
+
+    it("stamps the release into the document's own meta, before the app's head content", async () => {
+      const id = "a".repeat(40);
+      const html = await renderWithBuild({ id });
+      const metaIndex = html.indexOf(
+        `<meta name="agent-native-build-sha" content="${id}"/>`,
+      );
+
+      expect(metaIndex).toBeGreaterThan(-1);
+      expect(metaIndex).toBeLessThan(html.indexOf('rel="modulepreload"'));
+      expect(metaIndex).toBeLessThan(html.indexOf('rel="stylesheet"'));
+      expect(html).toContain("data-agent-native-build-id");
+    });
+
+    it("writes no build marker when the release is unknown", async () => {
+      const html = await renderWithBuild({});
+      const head = html.slice(0, html.indexOf("</head>"));
+
+      expect(head).not.toContain("agent-native-build-sha");
+      expect(head).not.toContain("data-agent-native-build-id");
+      expect(head).not.toContain("undefined");
+    });
+
+    it("names the workspace commit in the meta while the inline stamp keeps the content build id", async () => {
+      const release = "d".repeat(40);
+      const artifact = "content-fedcba9876543210fedcba9876543210";
+      const html = await renderWithBuild({ id: artifact, sha: release });
+
+      expect(html).toContain(
+        `<meta name="agent-native-build-sha" content="${release}"/>`,
+      );
+      expect(html).toContain(
+        `globalThis.__AGENT_NATIVE_BUILD_ID__=${JSON.stringify(artifact)}`,
+      );
+    });
+
+    it("cannot break out of the meta attribute", async () => {
+      const html = await renderWithBuild({ id: 'a"b<c&d' });
+
+      expect(html).toContain(
+        '<meta name="agent-native-build-sha" content="a&quot;b&lt;c&amp;d"/>',
+      );
+    });
   });
 
   it("starts no session read for a render that records none", async () => {
