@@ -1410,6 +1410,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "公開",
   "share.publicDescription": "擁有連結的任何人都可以檢視",
   "share.remove": "移除",
+  "share.removeInvitee": "移除 {{email}}",
   "share.role": "角色",
   "share.searching": "搜尋中...",
   "share.share": "分享",

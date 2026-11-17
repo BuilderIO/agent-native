@@ -1454,6 +1454,7 @@
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/route-chunk-recovery",
         "@agent-native/core/client/sign-out",
+        "@agent-native/core/client/theme",
         "@agent-native/core/client/use-agent-engine-configured",
         "@agent-native/core/client/use-chat-models",
         "@agent-native/core/client/use-session",

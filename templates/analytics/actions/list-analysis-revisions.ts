@@ -15,12 +15,14 @@ function resolveScope() {
 }
 
 export default defineAction({
-  description: "List saved history revisions for an ad-hoc analysis.",
+  description:
+    "List saved history revisions for an ad-hoc analysis, newest first. Each revision is the analysis before one save; pass its id to restore-analysis-revision to undo that save.",
   schema: z.object({
     analysisId: z.string().describe("Analysis id to inspect"),
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   run: async (args) => {
     const revisions = await listAnalysisRevisionMetadata(
       args.analysisId,

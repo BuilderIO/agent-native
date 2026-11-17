@@ -2855,13 +2855,31 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   });
   const toolFor = (id: string): AgentToolCall | undefined =>
     toolMap.get(id) ?? thread.tools[id];
+  // A result whose widget shows on its message already appears there, as it
+  // does after a reload; drawing it here too would show a live run's card
+  // twice. A widget with no message or nothing to draw it leaves the card here.
+  const showsAsMessageWidget = (tool: AgentToolCall) =>
+    [`${tool.id}:chat-ui`, `${tool.id}:mcp-app`].some((id) => {
+      const widget = id in thread.widgets ? thread.widgets[id] : undefined;
+      const messageId =
+        id in thread.widgetMessageIds ? thread.widgetMessageIds[id] : undefined;
+      if (!widget || !messageId || !messagesById.has(messageId)) return false;
+      return widgetHasVisibleAssistantOutput(
+        widget,
+        slots.widget,
+        registry.widgets,
+        registry.messageParts,
+      );
+    });
   const durableToolResults = items.flatMap((activity) => {
     const tool = toolMap.get(activity.id);
     const Renderer = tool ? registry.tools?.[tool.name] : undefined;
     if (!tool || tool.status === "running") return [];
     if (Renderer) return [{ tool, Renderer }];
     if (tool.metadata?.chatUI || tool.metadata?.mcpApp) {
-      return slots.tool ? [{ tool, Renderer: slots.tool }] : [];
+      return slots.tool && !showsAsMessageWidget(tool)
+        ? [{ tool, Renderer: slots.tool }]
+        : [];
     }
     return [];
   });
@@ -7155,8 +7173,11 @@ export interface AgentKitComposerProps extends Omit<
     | "includeDefaultSlashSkills"
     | "onSlashCommand"
     | "plusMenuMode"
+    | "richTextEnabled"
+    | "textBlockSeparator"
     | "voiceEnabled"
     | "voiceChatEnabled"
+    | "enterSubmitMode"
     | "onVoiceChatStart"
     | "autoFocus"
     | "disabled"
@@ -7261,6 +7282,7 @@ export function AgentKitComposer({
   announcePendingSubmission = true,
   queueWhileRunning = true,
   showModelSelector = true,
+  enterSubmitMode,
   slashCommands,
   slashSkills,
   includeDefaultSlashCommands,
@@ -7270,6 +7292,8 @@ export function AgentKitComposer({
   mentionItemsError,
   mentionPopoverDensity,
   plusMenuMode,
+  richTextEnabled,
+  textBlockSeparator,
   voiceEnabled = false,
   // Let a host keep dictation while the primary resting control is Send;
   // defaults to today's behaviour for every other app.
@@ -8212,8 +8236,11 @@ export function AgentKitComposer({
             slashCommands,
             slashSkills,
             onSlashCommand,
+            richTextEnabled,
+            textBlockSeparator,
             voiceEnabled,
             voiceChatEnabled,
+            enterSubmitMode,
             onVoiceChatStart,
             replyPlaceholder: placeholder ?? labels.composerReplyPlaceholder,
             onEscape: editingMessage ? cancelEditing : undefined,
