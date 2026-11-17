@@ -20,17 +20,32 @@ let tracking = false;
 // content mounts, so the opener is the last element focused outside that
 // dialog: inside a parent dialog it is the parent's control, not the page's.
 // The listener has to exist before that opener is focused, hence module load.
+function remember(target: Element) {
+  if (recentFocus.at(-1) === target) return;
+  recentFocus.push(target);
+  if (recentFocus.length > RECENT_FOCUS) recentFocus.shift();
+}
+
+// Some browsers do not focus a button on click, so the pressed control is
+// remembered too: the click runs before the handler that opens the dialog.
 function trackFocus() {
   if (tracking || typeof document === "undefined") return;
   tracking = true;
   document.addEventListener(
     "focusin",
     (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      if (recentFocus.at(-1) === target) return;
-      recentFocus.push(target);
-      if (recentFocus.length > RECENT_FOCUS) recentFocus.shift();
+      if (event.target instanceof Element) remember(event.target);
+    },
+    true,
+  );
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (!(event.target instanceof Element)) return;
+      const pressed = event.target.closest(
+        'button,a[href],[role="button"],[role="menuitem"],[tabindex]',
+      );
+      if (pressed) remember(pressed);
     },
     true,
   );

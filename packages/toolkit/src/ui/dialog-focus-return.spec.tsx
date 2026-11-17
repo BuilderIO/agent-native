@@ -214,6 +214,30 @@ describe("a dialog opened without a trigger returns focus to its opener", () => 
     );
   });
 
+  it("returns to the clicked opener when the click did not focus it", async () => {
+    render(
+      <>
+        <button type="button">Earlier</button>
+        <StateDialog autoFocusField />
+      </>,
+    );
+    screen.getByRole("button", { name: "Earlier" }).focus();
+    // no opener.focus(): the click alone opens the dialog, as in browsers
+    // that do not focus a button on click
+    fireEvent.click(screen.getByRole("button", { name: "Invite" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(dialog.contains(document.activeElement)).toBe(true),
+    );
+    fireEvent.keyDown(document.activeElement ?? dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Invite" }),
+      ),
+    );
+  });
+
   it("returns an alert dialog to its opener on Cancel", async () => {
     function Confirm() {
       const [open, setOpen] = React.useState(false);
