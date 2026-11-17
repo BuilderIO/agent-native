@@ -186,12 +186,21 @@ describe("parseCommentAiConversation", () => {
     ]);
   });
 
+  it("accepts Core's default empty thread data", () => {
+    expect(parseCommentAiConversation("{}", "")).toEqual([]);
+    expect(parseCommentAiConversation("{}", "initial")).toEqual([]);
+  });
+
   it("fails loudly when persisted thread data is unreadable", () => {
     for (const data of [
       "not-json",
       "null",
-      "{}",
+      "[]",
+      '{"unexpected":true}',
       '{"messages":{}}',
+      '{"messages":[null]}',
+      '{"messages":[{"message":{}}]}',
+      '{"messages":[{"role":"user","content":{},"metadata":{"custom":{"submittedTurnId":"initial"}}}]}',
       '{"messages":[{"role":"user","content":"missing identity"}]}',
     ]) {
       expect(() => parseCommentAiConversation(data, "initial")).toThrow(

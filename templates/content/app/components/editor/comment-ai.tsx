@@ -924,6 +924,31 @@ export function useCommentAiRequests(
       startingRef.current.add(threadId);
       setStartingThreadIds(new Set(startingRef.current));
       let started: StartCommentAiResult | null = null;
+      const loadRecoveryTranscript = async (agentThreadId: string) => {
+        try {
+          const turns = await loadCommentAiConversation({
+            operationId: requestId,
+            agentThreadId,
+            initialTurnId: "",
+          });
+          setTranscriptErrors((current) => {
+            if (!current[requestId]) return current;
+            const next = { ...current };
+            delete next[requestId];
+            return next;
+          });
+          return turns;
+        } catch (error) {
+          setTranscriptErrors((current) => ({
+            ...current,
+            [requestId]: t("comments.aiConversationUnavailable"),
+          }));
+          throw new CommentAiConversationUnavailableError(
+            t("comments.aiConversationUnavailable"),
+            error,
+          );
+        }
+      };
       try {
         if (continuationRecovery?.options && continuationRecovery.error) {
           const retained = dispatchRecoveryOptions(
@@ -937,13 +962,17 @@ export function useCommentAiRequests(
             const request = serverRequestsRef.current.find(
               (row) => row.operationId === requestId,
             );
-            if (!request?.agentThreadId)
-              throw new Error("This AI conversation is not available yet");
-            const turns = await loadCommentAiConversation({
-              operationId: requestId,
-              agentThreadId: request.agentThreadId,
-              initialTurnId: "",
-            });
+            if (!request?.agentThreadId) {
+              setTranscriptErrors((current) => ({
+                ...current,
+                [requestId]: t("comments.aiConversationUnavailable"),
+              }));
+              throw new CommentAiConversationUnavailableError(
+                t("comments.aiConversationUnavailable"),
+                new Error("This AI conversation is not available yet"),
+              );
+            }
+            const turns = await loadRecoveryTranscript(request.agentThreadId);
             const currentTurn = turns.findIndex(
               (turn) => turn.turnId === continuationRecovery.turnId,
             );
@@ -1004,13 +1033,16 @@ export function useCommentAiRequests(
               (row) => row.operationId === requestId,
             );
             if (!request?.agentThreadId || !request.agentTurnId) {
-              throw new Error("This AI conversation is not available yet");
+              setTranscriptErrors((current) => ({
+                ...current,
+                [requestId]: t("comments.aiConversationUnavailable"),
+              }));
+              throw new CommentAiConversationUnavailableError(
+                t("comments.aiConversationUnavailable"),
+                new Error("This AI conversation is not available yet"),
+              );
             }
-            const turns = await loadCommentAiConversation({
-              operationId: requestId,
-              agentThreadId: request.agentThreadId,
-              initialTurnId: "",
-            });
+            const turns = await loadRecoveryTranscript(request.agentThreadId);
             const currentTurn = turns.findIndex(
               (turn) => turn.turnId === request.agentTurnId,
             );

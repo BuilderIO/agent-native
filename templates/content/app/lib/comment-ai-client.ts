@@ -21,10 +21,12 @@ type StoredMessage = {
 };
 
 function storedMessage(entry: unknown): StoredMessage | null {
-  if (!entry || typeof entry !== "object") return null;
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
   const record = entry as { message?: unknown };
-  const value = record.message ?? entry;
-  return value && typeof value === "object" ? (value as StoredMessage) : null;
+  const value = "message" in record ? record.message : entry;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as StoredMessage)
+    : null;
 }
 
 function messageText(message: StoredMessage): string | null {
@@ -57,8 +59,17 @@ export function parseCommentAiConversation(
     throw new Error("The AI conversation could not be read");
   }
   if (
+    parsed &&
+    typeof parsed === "object" &&
+    !Array.isArray(parsed) &&
+    Object.keys(parsed).length === 0
+  ) {
+    return [];
+  }
+  if (
     !parsed ||
     typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
     !Array.isArray(parsed.messages)
   ) {
     throw new Error("The AI conversation could not be read");
@@ -67,8 +78,18 @@ export function parseCommentAiConversation(
   const turns = new Map<string, CommentAiConversationTurn>();
   for (const entry of parsed.messages) {
     const message = storedMessage(entry);
-    if (!message) continue;
+    if (!message || typeof message.role !== "string") {
+      throw new Error("The AI conversation could not be read");
+    }
     const role = message.role;
+    if (
+      (role === "user" || role === "assistant") &&
+      message.content != null &&
+      typeof message.content !== "string" &&
+      !Array.isArray(message.content)
+    ) {
+      throw new Error("The AI conversation could not be read");
+    }
     const custom = message.metadata?.custom;
     const turnId =
       role === "assistant"

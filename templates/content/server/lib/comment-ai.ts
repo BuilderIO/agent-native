@@ -548,8 +548,13 @@ async function loadCommentAiAncestor(
 
 function commentAiScopeResolver(rows: RequestRow[] = []) {
   const bindings = new Map(rows.map((row) => [row.id, row]));
-  const scopes = new Map<string, string>();
-  let ancestryReads = 0;
+  const scopes = new Map<string, { id: string; depth: number }>();
+  const limit = 128;
+  const limitError = () =>
+    fail("This comment conversation has too much history to inspect", {
+      statusCode: 409,
+      errorCode: "comment_ai_ancestry_limit",
+    });
   return async (request: RequestRow): Promise<string> => {
     let origin = request;
     const path: string[] = [];
@@ -560,19 +565,19 @@ function commentAiScopeResolver(rows: RequestRow[] = []) {
       path.push(origin.id);
       const known = scopes.get(origin.id);
       if (known) {
-        for (const id of path) scopes.set(id, known);
-        return known;
+        if (path.length - 1 + known.depth > limit) limitError();
+        for (let index = 0; index < path.length; index++) {
+          scopes.set(path[index]!, {
+            id: known.id,
+            depth: path.length - 1 - index + known.depth,
+          });
+        }
+        return known.id;
       }
+      if (path.length - 1 > limit) limitError();
       if (!origin.continuationOfRequestId) break;
       let parent = bindings.get(origin.continuationOfRequestId);
       if (!parent) {
-        if (ancestryReads >= 128) {
-          fail("This comment conversation has too much history to inspect", {
-            statusCode: 409,
-            errorCode: "comment_ai_ancestry_limit",
-          });
-        }
-        ancestryReads++;
         parent = await loadCommentAiAncestor(
           origin.continuationOfRequestId,
           request,
@@ -589,7 +594,12 @@ function commentAiScopeResolver(rows: RequestRow[] = []) {
       if (parent.agentThreadId !== request.agentThreadId) break;
       origin = parent;
     }
-    for (const id of path) scopes.set(id, origin.id);
+    for (let index = 0; index < path.length; index++) {
+      scopes.set(path[index]!, {
+        id: origin.id,
+        depth: path.length - 1 - index,
+      });
+    }
     return origin.id;
   };
 }
@@ -870,6 +880,20 @@ export async function startCommentAiRequest(
       fail("The continuation thread does not match the prior request", {
         statusCode: 409,
         errorCode: "comment_ai_thread_conflict",
+      });
+    }
+    if (
+      continuation &&
+      (resolvedIntent === "reply" ||
+        submission.submittedMode === "auto" ||
+        args.agentThreadId?.trim() === continuation.agentThreadId)
+    ) {
+      // Auto may later reuse this thread if classification chooses reply. Check
+      // every prospective reuse now, before it can acquire the active guard.
+      await commentAiThreadScopeId({
+        ...continuation,
+        id: args.requestId,
+        continuationOfRequestId: continuation.id,
       });
     }
     if (continuation && resolvedIntent === "reply") {

@@ -991,6 +991,90 @@ describe("comment AI controls", () => {
     ).not.toContain("Trusted prior");
   });
 
+  it("offers retry when sanitized remount recovery cannot read its protected transcript", async () => {
+    const base = request({
+      status: "queued",
+      intent: "reply",
+      error: null,
+      continuationOfRequestId: "original-request",
+      agentThreadId: "agent-thread-1",
+      agentTurnId: "turn-1",
+    });
+    api.requests = [base];
+    window.localStorage.setItem(
+      "content-comment-ai-dispatch-recovery:document-1",
+      JSON.stringify({
+        "request-1": {
+          options: {
+            message: "Explain",
+            instructions: "Scoped",
+            operationId: "request-1",
+            threadId: "agent-thread-1",
+            scope: { type: "content-comment-ai", id: "original-request" },
+            actionScope: { kind: "content-comment-ai", requestId: "request-1" },
+          },
+          phase: "execution",
+          needsTranscript: true,
+        },
+      }),
+    );
+    api.loadCommentAiConversation.mockRejectedValue(new Error("access denied"));
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      const current = controller.requests[0];
+      return createElement(CommentAiRequestStatus, {
+        request: current,
+        onRetry: () => controller.retry(current),
+        onStop: async () => {},
+      });
+    }
+    await act(async () => {
+      root.render(createElement(Probe));
+    });
+    expect(controller!.requests[0]).toMatchObject({
+      status: "needs-review",
+      transportUnknown: true,
+    });
+    expect(
+      document.querySelector('[role="alert"]')?.getAttribute("title"),
+    ).toBe("comments.aiConversationUnavailable");
+    expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
+    expect(api.callAction).not.toHaveBeenCalledWith(
+      "reconcile-comment-ai-session",
+      expect.anything(),
+    );
+    api.loadCommentAiConversation.mockResolvedValue([
+      {
+        turnId: "prior",
+        userText: "Question",
+        assistantText: "Fresh answer",
+        status: "complete",
+      },
+    ]);
+    api.startBackgroundAgentSession.mockReturnValue({
+      accepted: Promise.resolve(),
+      status: vi.fn(),
+    });
+    await act(async () => {
+      const retry = [
+        ...document.querySelectorAll<HTMLButtonElement>("button"),
+      ].find((button) => button.textContent === "comments.retry");
+      expect(retry).toBeDefined();
+      retry!.click();
+    });
+    expect(api.startBackgroundAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instructions: expect.stringContaining("Assistant: Fresh answer"),
+      }),
+    );
+    expect(
+      window.localStorage.getItem(
+        "content-comment-ai-dispatch-recovery:document-1",
+      ),
+    ).not.toContain("Fresh answer");
+  });
+
   it("does not dispatch an active request returned by a racing start", async () => {
     let controller: CommentAiController;
     function Probe() {

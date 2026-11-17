@@ -562,6 +562,137 @@ describe("comment AI durable action binding", () => {
     }
   });
 
+  it.each(["reply", "auto", "suggest"] as const)(
+    "rejects a limit-crossing %s continuation before it can block the comment",
+    async (mode) => {
+      const original = await asUser(() =>
+        commentAi.startCommentAiRequest({
+          ...startArgs(OP_A, ROOT_A),
+          agentThreadId: `agent-thread-${crypto.randomUUID()}`,
+        }),
+      );
+      await createThread(OWNER, {
+        id: requiredId(original.agentThreadId),
+        scope: original.backgroundSession.scope,
+        source: { appId: "content" },
+      });
+      const [origin] = await getDb()
+        .select()
+        .from(schema.commentAiRequests)
+        .where(eq(schema.commentAiRequests.id, OP_A));
+      if (!origin) throw new Error("Missing origin request");
+      await getDb()
+        .update(schema.commentAiRequests)
+        .set({ status: "replied" })
+        .where(eq(schema.commentAiRequests.id, OP_A));
+      let parentId = OP_A;
+      const rows = [];
+      for (let index = 1; index <= 127; index++) {
+        const id = crypto.randomUUID();
+        rows.push({
+          ...origin,
+          id,
+          status: "replied",
+          continuationOfRequestId: parentId,
+        });
+        parentId = id;
+      }
+      await getDb().insert(schema.commentAiRequests).values(rows);
+      const boundaryId = crypto.randomUUID();
+      await expect(
+        asUser(() =>
+          commentAi.startCommentAiRequest({
+            ...startArgs(boundaryId, ROOT_A),
+            agentThreadId: requiredId(original.agentThreadId),
+            continuationOfRequestId: parentId,
+          }),
+        ),
+      ).resolves.toMatchObject({
+        outcome: "confirmed-start",
+        agentThreadScopeId: OP_A,
+      });
+      await getDb()
+        .update(schema.commentAiRequests)
+        .set({ status: "replied" })
+        .where(eq(schema.commentAiRequests.id, boundaryId));
+      parentId = boundaryId;
+      await expect(
+        asUser(() =>
+          commentAi.startCommentAiRequest({
+            ...startArgs(
+              OP_B,
+              ROOT_A,
+              mode === "suggest" ? "suggest" : "reply",
+            ),
+            agentThreadId: requiredId(original.agentThreadId),
+            ...(mode === "auto"
+              ? {
+                  intent: undefined,
+                  submittedMode: "auto" as const,
+                  instructions: "Explain",
+                }
+              : {}),
+            continuationOfRequestId: parentId,
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "comment_ai_ancestry_limit" });
+      expect(
+        await getDb()
+          .select()
+          .from(schema.commentAiRequests)
+          .where(eq(schema.commentAiRequests.id, OP_B)),
+      ).toEqual([]);
+      await expect(
+        asUser(() => commentAi.startCommentAiRequest(startArgs(OP_C, ROOT_A))),
+      ).resolves.toMatchObject({ outcome: "confirmed-start" });
+    },
+  );
+
+  it("lists independent continuation chains without sharing their ancestry budgets", async () => {
+    const origins = [];
+    for (const [id, root] of [
+      [OP_A, ROOT_A],
+      [OP_B, ROOT_B],
+    ]) {
+      await asUser(() => commentAi.startCommentAiRequest(startArgs(id, root)));
+      const [origin] = await getDb()
+        .select()
+        .from(schema.commentAiRequests)
+        .where(eq(schema.commentAiRequests.id, id));
+      if (!origin) throw new Error("Missing origin request");
+      await getDb()
+        .update(schema.commentAiRequests)
+        .set({ status: "replied" })
+        .where(eq(schema.commentAiRequests.id, id));
+      origins.push(origin);
+    }
+    for (const origin of origins) {
+      let parentId = origin.id;
+      const rows = [];
+      for (let index = 1; index <= 120; index++) {
+        const id = crypto.randomUUID();
+        rows.push({
+          ...origin,
+          id,
+          status: "replied",
+          continuationOfRequestId: parentId,
+          createdAt: new Date(
+            Date.parse(origin.createdAt) + index * 1000,
+          ).toISOString(),
+        });
+        parentId = id;
+      }
+      await getDb().insert(schema.commentAiRequests).values(rows);
+    }
+    const result = await asUser(() =>
+      commentAi.listCommentAiRequests(DOCUMENT_ID),
+    );
+    expect(result.requests).toHaveLength(100);
+    expect(
+      new Set(result.requests.map((row) => row.agentThreadScopeId)),
+    ).toEqual(new Set([OP_A, OP_B]));
+  });
+
   it("fails explicitly when a continuation history exceeds the ancestry read budget", async () => {
     await asUser(() =>
       commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
