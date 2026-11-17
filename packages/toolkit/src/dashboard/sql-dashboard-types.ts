@@ -1,5 +1,5 @@
-import type { PanelDrilldown } from "@shared/panel-drilldown";
-import type { PanelBreakdown } from "@shared/row-breakdown";
+import type { PanelDrilldown } from "./panel-drilldown.js";
+import type { PanelBreakdown } from "./row-breakdown.js";
 
 export type DataSourceType =
   | "bigquery"

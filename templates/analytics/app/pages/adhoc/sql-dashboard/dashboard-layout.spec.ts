@@ -1,3 +1,4 @@
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -12,7 +13,6 @@ import {
   removePanelFromLayout,
   type DashboardDropSlot,
 } from "./dashboard-layout";
-import type { SqlPanel } from "./types";
 
 function panel(id: string, width = 1): SqlPanel {
   return {

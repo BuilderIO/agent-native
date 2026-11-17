@@ -1516,6 +1516,18 @@ export function generateWorkerEntry(
     const uiActionContext = actionIsUiOnly || actionDeclaresApproval
       ? await getGeneratedUiActionContext(event, actionIsEmbedded)
       : undefined;
+    if (
+      ${varName}.requiresSignedInBrowser === true &&
+      hasGeneratedFullAppEmbedSession(event)
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: "Sign in to the app in your browser to do this.",
+          errorCode: "signed_in_browser_required",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
     if (actionIsUiOnly && !uiActionContext) {
       return new Response(
         JSON.stringify({
@@ -1621,7 +1633,7 @@ ${["post", "put", "delete"]
   getFrameworkRoutePrefix as getAgentNativeFrameworkRoutePrefix,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
-${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
+${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasFullAppEmbedSession as hasGeneratedFullAppEmbedSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  FULL_APP_EMBED_SCOPE as GENERATED_FULL_APP_EMBED_SCOPE,\n  resolveEmbedSessionFromRequest as resolveGeneratedEmbedSession,\n  presentsFullAppEmbedToken as presentsGeneratedFullAppEmbedToken,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
@@ -2424,6 +2436,7 @@ function applyImmutableAssetCacheHeaders(response, request) {
   headers.set("Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
   headers.set("CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
   headers.set("Netlify-CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
+  headers.set("Access-Control-Allow-Origin", "*");
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -2626,7 +2639,26 @@ ${pluginCalls.join("\n")}
 ${
   hasActions
     ? `  async function getGeneratedUiActionContext(event, embedded) {
-    if (event.req.headers.has("authorization") || embedded) {
+    if (embedded) {
+      // A full-app panel's own requests carry its owner's UI authority, as in
+      // the Nitro action route; any other embed does not.
+      if (event.req.headers.get("x-agent-native-frontend") !== "1") return null;
+      const embedSession = await resolveGeneratedEmbedSession(event);
+      if (embedSession?.scope !== GENERATED_FULL_APP_EMBED_SCOPE) return null;
+      const userEmail = embedSession.email.trim().toLowerCase();
+      if (
+        !userEmail ||
+        (!presentsGeneratedFullAppEmbedToken(event, embedSession) &&
+          (!hasGeneratedSameOriginBrowserEvidence(event) ||
+            !hasGeneratedUiActionCapability(event, userEmail)))
+      ) {
+        return null;
+      }
+      const orgId =
+        embedSession.orgId ?? (await resolveGeneratedOrgId(event, userEmail)) ?? undefined;
+      return { userEmail, orgId };
+    }
+    if (event.req.headers.has("authorization")) {
       return null;
     }
     const session = await getGeneratedBrowserCookieSession(event);

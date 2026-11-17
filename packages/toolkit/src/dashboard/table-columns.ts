@@ -1,7 +1,4 @@
-import type {
-  ColumnFormat,
-  TableColumnConfig,
-} from "../app/pages/adhoc/sql-dashboard/types";
+import type { ColumnFormat, TableColumnConfig } from "./sql-dashboard-types.js";
 
 const NUMBER_COLUMN_FORMATS: ReadonlySet<ColumnFormat> = new Set([
   "number",

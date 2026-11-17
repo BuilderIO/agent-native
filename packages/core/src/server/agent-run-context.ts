@@ -131,7 +131,10 @@ function readHeaderValue(event: any, name: string): unknown {
 
 export function readAgentRunTimezone(event: H3Event): string | undefined {
   const raw = readHeaderValue(event, "x-user-timezone");
-  const value = Array.isArray(raw) ? raw[0] : raw;
+  return normalizeAgentRunTimezone(Array.isArray(raw) ? raw[0] : raw);
+}
+
+function normalizeAgentRunTimezone(value: unknown): string | undefined {
   return typeof value === "string" &&
     value.trim().length > 0 &&
     value.trim().length < 64
@@ -454,6 +457,16 @@ export async function resolveAgentRunRequestContext(options: {
       "string"
       ? (durableRequestContext as Record<string, string>).requestOrigin
       : undefined;
+  // A durable worker's request is server-to-server, so the browser's zone only
+  // arrives through the payload captured when the turn was admitted.
+  const durableTimezone =
+    durableRequestContext &&
+    typeof durableRequestContext === "object" &&
+    !Array.isArray(durableRequestContext)
+      ? normalizeAgentRunTimezone(
+          (durableRequestContext as Record<string, unknown>).timezone,
+        )
+      : undefined;
   const run = {
     ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
     ...(waitUntil ? { waitUntil } : {}),
@@ -477,7 +490,7 @@ export async function resolveAgentRunRequestContext(options: {
     ...(identitySessionToken ? { identitySessionToken } : {}),
     userName: options.ownerContext.name,
     orgId,
-    timezone,
+    timezone: timezone ?? durableTimezone,
     ...(browserSessionId ? { browserSessionId } : {}),
     ...(clientPlatform ? { clientPlatform } : {}),
     ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),

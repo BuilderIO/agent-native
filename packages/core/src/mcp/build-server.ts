@@ -1278,13 +1278,14 @@ function hostSpecificDomainString(value: unknown): string | undefined {
 }
 
 function withMcpChatBridgeParam(urlOrPath: string): string {
+  // `//host/path` names another origin; resolving it against a base would
+  // reduce it to an in-app `/path`, so it passes through for validation.
+  const appRelative = /^\/(?![/\\])/.test(urlOrPath);
   try {
     const base = "http://agent-native.invalid";
-    const url = urlOrPath.startsWith("/")
-      ? new URL(urlOrPath, base)
-      : new URL(urlOrPath);
+    const url = appRelative ? new URL(urlOrPath, base) : new URL(urlOrPath);
     url.searchParams.set(MCP_APP_CHAT_BRIDGE_QUERY_PARAM, "1");
-    return urlOrPath.startsWith("/")
+    return appRelative
       ? `${url.pathname}${url.search}${url.hash}`
       : url.toString();
   } catch {
@@ -1618,6 +1619,123 @@ export async function withServerMintedMcpAppEmbedStart(
   return {
     ...resultWithoutExistingEmbedTicket,
     embedStartUrl,
+    embedTargetPath: targetPath,
+    embedExpiresAt: ticket.expiresAt,
+  };
+}
+
+function sameOriginEmbedStart(
+  value: string,
+  origin: string,
+  anyOrigin = false,
+): { ticket: string; pathname: string } | null {
+  try {
+    const url = new URL(value, origin);
+    if ((!anyOrigin && url.origin !== origin) || !isEmbedStartUrl(url.href))
+      return null;
+    const ticket = url.searchParams.get("ticket");
+    return ticket ? { ticket, pathname: url.pathname } : null;
+    // coercion-ok: an unparsable URL is not one this server issued; the caller warns and drops it.
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Gives a result the full-session ticket a full-app embed starts from, opening
+ * the page the result names, in the open link's order, or the tool's link. A
+ * ticket the action minted on this server for the caller, such as a cross-app open, is kept. Callers mint only for a verified
+ * user, anchored to the credential's issue time so revoking it ends the session.
+ */
+export async function withServerMintedFullAppEmbedStart(
+  result: unknown,
+  entry: ActionEntry,
+  args: Record<string, unknown>,
+  revocationAnchorCreatedAtMs: number,
+): Promise<unknown> {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return result;
+  }
+  const record = result as Record<string, unknown>;
+  if (record.embed === false) return withoutMcpAppEmbedTicket(record);
+  const ctx = getRequestContext();
+  const ownerEmail = ctx?.userEmail?.trim();
+  const requestOrigin = getEmbedSessionOrigin();
+  if (!ownerEmail || !requestOrigin) return withoutMcpAppEmbedTicket(record);
+  // A ticket for this app must be an unredeemed one issued to this caller.
+  const {
+    normalizeEmbedTargetPath,
+    createEmbedSessionTicket,
+    embedSessionTicketBelongsTo,
+    FULL_APP_EMBED_SCOPE,
+  } = await import("../server/embed-session.js");
+  const { buildEmbedStartPath } = await import("../server/embed-route.js");
+  if (typeof record.embedStartUrl === "string") {
+    const start = sameOriginEmbedStart(
+      record.embedStartUrl,
+      requestOrigin,
+      entry.opensAnotherAppEmbed === true,
+    );
+    const ownStartPath = new URL(buildEmbedStartPath("x"), requestOrigin)
+      .pathname;
+    // Another app's ticket cannot be checked here, so only an action that
+    // declares it opens another app may pass one on.
+    const foreign =
+      start !== null &&
+      (new URL(record.embedStartUrl, requestOrigin).origin !== requestOrigin ||
+        start.pathname !== ownStartPath);
+    if (
+      start &&
+      (foreign
+        ? entry.opensAnotherAppEmbed === true
+        : await embedSessionTicketBelongsTo(start.ticket, ownerEmail))
+    ) {
+      return result;
+    }
+    console.warn(
+      "[mcp] Dropping an embed start URL that this server did not issue to this caller.",
+    );
+  }
+  const embedTarget = (value: unknown) =>
+    typeof value === "string" &&
+    value !== HIDDEN_EMBED_URL &&
+    !isEmbedStartUrl(value)
+      ? normalizeEmbedTargetPath(withMcpChatBridgeParam(value), requestOrigin)
+      : null;
+  const linkedTarget = () => {
+    try {
+      return embedTarget(
+        entry.link?.({ args, result: { ...record, embed: false } })?.url,
+      );
+    } catch (error) {
+      console.warn(
+        `[mcp] The tool's link threw; opening no full app for it: ${describeThrownForLog(error)}`,
+      );
+      return null;
+    }
+  };
+  const targetPath =
+    [record.deepLinkUrl, record.url, record.path]
+      .map(embedTarget)
+      .find((value): value is string => !!value) ?? linkedTarget();
+  if (!targetPath) {
+    return typeof record.embedStartUrl === "string"
+      ? withoutMcpAppEmbedTicket(record)
+      : result;
+  }
+  const ticket = await createEmbedSessionTicket({
+    ownerEmail,
+    ...(ctx?.orgId ? { orgId: ctx.orgId } : {}),
+    targetPath,
+    scope: FULL_APP_EMBED_SCOPE,
+    revocationAnchorCreatedAtMs,
+  });
+  return {
+    ...(withoutMcpAppEmbedTicket(record) as Record<string, unknown>),
+    embedStartUrl: new URL(
+      buildEmbedStartPath(ticket.ticket),
+      requestOrigin,
+    ).toString(),
     embedTargetPath: targetPath,
     embedExpiresAt: ticket.expiresAt,
   };
@@ -2520,21 +2638,42 @@ export async function resolveMcpAppResourceSafely(
 ): Promise<ResolvedMcpAppResource | null> {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
+  // A directory listing only mounts scoped widgets. Elsewhere a tool whose
+  // resource needs an embed session and has no widget target mounts the full
+  // app from the session ticket its own result carries.
   const widgetTargets = config.directoryProfile?.widgetTargets;
   if (
-    (config.catalogMode === "directory" ||
-      resource.requiresEmbedSession === true) &&
+    config.catalogMode === "directory" &&
     (!widgetTargets || !Object.hasOwn(widgetTargets, actionName))
   ) {
     return null;
   }
   const resolvedUri = getMcpAppResourceUri(config, actionName, entry);
   if (!resolvedUri) return null;
-  const requestOrigin = requestMeta?.resolveEmbedRequestOrigin
-    ? validateEmbedRequestOrigin(requestMeta.resolveEmbedRequestOrigin())
-    : requestMeta?.origin === undefined
-      ? undefined
-      : validateEmbedRequestOrigin(requestMeta.origin);
+  const opensFullApp =
+    resource.requiresEmbedSession === true &&
+    (!widgetTargets || !Object.hasOwn(widgetTargets, actionName));
+  let requestOrigin: string | undefined;
+  try {
+    requestOrigin = requestMeta?.resolveEmbedRequestOrigin
+      ? validateEmbedRequestOrigin(requestMeta.resolveEmbedRequestOrigin())
+      : requestMeta?.origin === undefined
+        ? undefined
+        : validateEmbedRequestOrigin(requestMeta.origin);
+  } catch (error) {
+    // A full-app tool falls back to its link; one rejected origin must not
+    // fail the whole catalog it is listed in.
+    if (!opensFullApp) throw error;
+    console.warn(
+      `[mcp] ${actionName} opens as a link: the server rejects this request's embed origin: ${describeThrownForLog(error)}`,
+    );
+    return null;
+  }
+  if (opensFullApp && !requestOrigin) {
+    // A full-app session is minted for the request's origin; without one the
+    // tool answers with a link.
+    return null;
+  }
   try {
     const description = resource.description ?? entry.tool.description;
     const resolvedCsp = await resolveMcpAppCsp(resource, {

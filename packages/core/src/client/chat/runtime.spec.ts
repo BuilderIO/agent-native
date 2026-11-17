@@ -1626,6 +1626,30 @@ describe("createAgentNativeChatRuntime", () => {
     }
   });
 
+  it("sends the browser's time zone with a chat turn", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/agent-engine/status")
+        ? jsonResponse({ configured: true, chatEligible: true })
+        : sseResponse([{ type: "done" }]),
+    );
+    const apiUrl = "/_agent-native/agent-chat";
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl,
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    await drain(
+      (await session.startTurn({ prompt: "When is my next meeting?" })).events,
+    );
+
+    const chatRequest = fetchMock.mock.calls.find(
+      ([input]) => String(input) === apiUrl,
+    )?.[1];
+    expect(new Headers(chatRequest?.headers).get("x-user-timezone")).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
+  });
+
   it("checks AI readiness before posting a new turn", async () => {
     resetAgentEngineReadinessForTests();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {

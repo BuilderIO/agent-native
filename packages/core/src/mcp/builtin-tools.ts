@@ -1048,8 +1048,11 @@ function openAppTool(config: MCPConfig, inlineMcpApps: boolean): ActionEntry {
           await import("../server/embed-request-origin.js");
         const embedOrigin = getEmbedSessionOrigin();
         if (ownerEmail && embedOrigin) {
-          const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
-            await import("../server/embed-session.js");
+          const {
+            normalizeEmbedTargetPath,
+            createEmbedSessionTicket,
+            FULL_APP_EMBED_SCOPE,
+          } = await import("../server/embed-session.js");
           const { buildEmbedStartPath } =
             await import("../server/embed-route.js");
           const targetPath = normalizeEmbedTargetPath(
@@ -1061,7 +1064,7 @@ function openAppTool(config: MCPConfig, inlineMcpApps: boolean): ActionEntry {
               ownerEmail,
               orgId: ctx?.orgId,
               targetPath,
-              scope: chrome ?? null,
+              scope: embedScopeForChrome(chrome, FULL_APP_EMBED_SCOPE),
             });
             const startPath = buildEmbedStartPath(ticket.ticket);
             embedStartUrl = new URL(startPath, embedOrigin).toString();
@@ -1275,7 +1278,10 @@ function createEmbedSessionTool(
         ownerEmail,
         orgId: ctx?.orgId,
         targetPath,
-        scope: typeof args.chrome === "string" ? args.chrome : null,
+        scope: embedScopeForChrome(
+          typeof args.chrome === "string" ? args.chrome : undefined,
+          embedSession.FULL_APP_EMBED_SCOPE,
+        ),
       });
       const startPath = buildEmbedStartPath(ticket.ticket);
       const startUrl = new URL(startPath, embedOrigin).toString();
@@ -1292,6 +1298,15 @@ function createEmbedSessionTool(
         : null;
     },
   };
+}
+
+// A panel shows the app's own UI to its owner, so it carries that owner's UI
+// authority unless the caller asked for the stripped-down minimal view.
+function embedScopeForChrome(
+  chrome: string | undefined,
+  fullAppScope: string,
+): string | null {
+  return chrome === "minimal" ? chrome : fullAppScope;
 }
 
 async function routeAskOverA2A(

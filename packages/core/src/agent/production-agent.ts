@@ -1384,6 +1384,8 @@ export interface ActionEntry {
   requiresAuth?: boolean;
   maxBodyBytes?: number;
   uiOnly?: boolean;
+  requiresSignedInBrowser?: boolean;
+  opensAnotherAppEmbed?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
   /** True when this entry's raw tool schema was authored by an external MCP
@@ -14664,6 +14666,9 @@ export function createProductionAgentHandler(
       const requestContext = getRequestContext();
       mutableBody[AGENT_CHAT_REQUEST_CONTEXT_FIELD] = {
         requestOrigin: requestContext?.requestOrigin ?? null,
+        ...(requestContext?.timezone
+          ? { timezone: requestContext.timezone }
+          : {}),
         isLoopbackRequest:
           !dispatchToBackground && requestContext?.isLoopbackRequest === true,
         isDirectLoopbackRequest:
