@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { saveRevisionOf } from "@agent-native/core/save-conflict";
 import type { ComposeAttachment, ComposeState } from "@shared/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -150,18 +151,22 @@ const unconfirmedMessage =
  * on. Each save answers with the next of `answers`, or "moved": "moved"
  * finds the file, wherever the draft's refs left it, and reports its move;
  * "unconfirmed" is a save Gmail kept without Mail learning where the file
- * went. Mail's store holds each write, except the first `refuseStore`
- * (all, if true): then the composer saves the text on screen through Mail's
- * draft route instead of a sync of the stored draft.
+ * went. A sync stores where the save left the draft, then waits for
+ * `afterAdopt` before answering. Mail's store holds each write made from the
+ * revision it holds, answers any other with a save conflict, and refuses the
+ * first `refuseStore` (all, if true): then the composer saves the text on
+ * screen through Mail's draft route instead of a sync of the stored draft.
  */
 async function mounted({
   savedDraftId = "r-draft-7",
   answers = [],
   refuseStore = false,
+  afterAdopt,
 }: {
   savedDraftId?: string;
   answers?: ("moved" | "unconfirmed")[];
   refuseStore?: boolean | number;
+  afterAdopt?: () => Promise<void>;
 } = {}) {
   let refusals = refuseStore === true ? Infinity : refuseStore || 0;
   let version = 1;
@@ -175,6 +180,7 @@ async function mounted({
   let stored: ComposeState = { ...reopened([draftFile]), savedDraftId };
   const saves: { draftId: string | undefined; refs: string[] }[] = [];
   const writes: ComposeState[] = [];
+  let conflicts = 0;
   let hold: Promise<void> | undefined;
   const metadata = {
     draftId: "r-draft-7",
@@ -207,6 +213,7 @@ async function mounted({
       ...metadata,
       ...(moved ? { movedAttachments: moved } : {}),
     });
+    await afterAdopt?.();
     return moved
       ? {
           status: "synced",
@@ -227,10 +234,27 @@ async function mounted({
           refusals -= 1;
           return asJson({ error: "refused" }, 500);
         }
-        const next: ComposeState = JSON.parse(String(init.body)).next;
+        const { expectedRevision, next } = JSON.parse(String(init.body)) as {
+          expectedRevision: string | null;
+          next: ComposeState;
+        };
+        if (expectedRevision !== saveRevisionOf(stored)) {
+          conflicts += 1;
+          return asJson(
+            {
+              error: "The draft changed since it was read",
+              errorCode: "save_conflict",
+              details: {
+                current: stored,
+                currentRevision: saveRevisionOf(stored),
+              },
+            },
+            409,
+          );
+        }
         writes.push(next);
         stored = next;
-        return asJson({ value: next, revision: `rev-${Date.now()}` });
+        return asJson({ value: next, revision: saveRevisionOf(next) });
       }
       if (url.endsWith("/application-state/compose")) {
         return asJson([stored]);
@@ -289,6 +313,7 @@ async function mounted({
     failures,
     holdSaves,
     stored: () => stored,
+    conflicts: () => conflicts,
   };
 }
 
@@ -384,6 +409,39 @@ describe("useComposeState with a reopened Gmail draft's file", () => {
       { draftId: "message-of-draft", refs: ["message-of-draft/part-1"] },
       { draftId: "r-draft-7", refs: ["message-of-draft/part-1"] },
     ]);
+  });
+
+  it("keeps a sync's moved file and Gmail draft ID when the person's next write conflicts with it", async () => {
+    let adopted = () => {};
+    const syncAdopted = new Promise<void>((resolve) => (adopted = resolve));
+    let reply = () => {};
+    const replyHeld = new Promise<void>((resolve) => (reply = resolve));
+    const { result, local, stored, conflicts } = await mounted({
+      savedDraftId: "message-of-draft",
+      afterAdopt: async () => {
+        adopted();
+        await replyHeld;
+      },
+    });
+
+    act(() => result.current.update("reopened", { body: "First edit" }));
+    await autosave();
+    await syncAdopted;
+    // Typed while the sync runs, so this write starts from the refs it replaced.
+    act(() => result.current.update("reopened", { body: "Second edit" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await waitFor(() => expect(stored().body).toBe("Second edit"));
+
+    expect(conflicts()).toBe(1);
+    expect(stored()).toMatchObject({
+      savedDraftId: "r-draft-7",
+      attachments: [fileAt(2)],
+    });
+    reply();
+    await waitFor(() => expect(local()?.attachments).toEqual([fileAt(2)]));
+    expect(local()?.savedDraftId).toBe("r-draft-7");
   });
 });
 

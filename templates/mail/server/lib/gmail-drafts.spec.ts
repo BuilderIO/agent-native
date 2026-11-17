@@ -72,7 +72,7 @@ describe("findGmailDraftAccount", () => {
     mocks.googleFetch.mockImplementation(async (url: string, token: string) => {
       if (token === "token:owner@example.com") {
         if (url.includes("/drafts?")) return { drafts: [] };
-        throw new Error("Google API error (404): Not Found");
+        throw googleError(404, "Not Found");
       }
       return { id: "legacy-draft" };
     });
@@ -658,7 +658,7 @@ describe("saveGmailDraft", () => {
 // Mail's Drafts list holds Gmail messages, so a draft reopened from it names
 // its message ID ("message-of-draft") rather than its draft ID ("r-draft-7").
 describe("a Gmail draft reopened by its message ID", () => {
-  const notFound = () => new Error("Google API error (404): Not Found");
+  const notFound = () => googleError(404, "Not Found");
 
   function gmailWithDraft(draftsPages: unknown[]) {
     const pages = [...draftsPages];
@@ -774,13 +774,31 @@ describe("a Gmail draft reopened by its message ID", () => {
     ).resolves.toBe("owner@example.com");
     expect(calls()).toContain("GET /drafts/r-draft-7");
   });
+
+  it("fails, without looking for another draft, when Gmail's error isn't a 404", async () => {
+    mocks.googleFetch.mockRejectedValue(
+      googleError(500, "upstream returned 404"),
+    );
+
+    await expect(
+      saveGmailDraft({
+        ownerEmail: "owner@example.com",
+        accountEmail: "owner@example.com",
+        draftId: "message-of-draft",
+        to: "recipient@example.com",
+        subject: "Edited",
+        body: "Edited body",
+      }),
+    ).rejects.toMatchObject({ status: 500 });
+    expect(calls()).toEqual(["PUT /drafts/message-of-draft"]);
+  });
 });
 
 // Gmail replaces a draft's message on every update, and the old message's
 // attachment IDs stop working with it. A draft reopened from Drafts carries
 // attachments read from the message it had then.
 describe("attachments of a Gmail draft updated in place", () => {
-  const notFound = () => new Error("Google API error (404): Not Found");
+  const notFound = () => googleError(404, "Not Found");
   type Part = { filename: string; data: string; attachmentId: string };
 
   /** The attachments of a raw MIME message Mail built, in order. */

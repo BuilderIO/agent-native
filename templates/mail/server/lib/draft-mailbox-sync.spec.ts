@@ -775,11 +775,11 @@ describe("syncDraftToMailbox with a Gmail draft reopened from Drafts", () => {
     expect(savedDraftIds()).toEqual(["message-1", "r-draft-7"]);
   });
 
-  it("says which Gmail draft Mail's copy doesn't name when every adoption loses", async () => {
-    mocks.appState.set(KEY, draft({ ...reopened, attachments: [file] }));
-    gmailDraft();
+  /** Each of the store's first `losses` writes loses to another edit. */
+  function editsBeatWrites(losses: number) {
     let edits = 0;
     mocks.compareAndSetOverride.mockImplementation(() => {
+      if (edits >= losses) return undefined;
       edits += 1;
       mocks.appState.set(KEY, {
         ...mocks.appState.get(KEY)!,
@@ -787,6 +787,42 @@ describe("syncDraftToMailbox with a Gmail draft reopened from Drafts", () => {
       });
       return false;
     });
+    return () => edits;
+  }
+
+  it("records the Gmail draft and its file, without writing Gmail again, when only the write attempts' adoptions lose", async () => {
+    mocks.appState.set(KEY, draft({ ...reopened, attachments: [file] }));
+    gmailDraft();
+    editsBeatWrites(3);
+
+    const sync = await syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" });
+
+    expect(sync).toMatchObject({
+      status: "pending",
+      errorCode: "draft_mailbox_busy",
+      savedDraft: {
+        draftId: "r-draft-7",
+        movedAttachments: expect.arrayContaining([
+          {
+            from: { gmailMessageId: "message-1", gmailAttachmentId: "part-1" },
+            to: { gmailMessageId: "message-4", gmailAttachmentId: "part-4" },
+          },
+        ]),
+      },
+    });
+    expect(sync).not.toHaveProperty("unrecordedGmailDraftId");
+    expect(mocks.appState.get(KEY)).toMatchObject({
+      body: "edit 3",
+      savedDraftId: "r-draft-7",
+      attachments: [fileAt(4)],
+    });
+    expect(savedDraftIds()).toEqual(["message-1", "r-draft-7", "r-draft-7"]);
+  });
+
+  it("says which Gmail draft Mail's copy doesn't name when every adoption loses", async () => {
+    mocks.appState.set(KEY, draft({ ...reopened, attachments: [file] }));
+    gmailDraft();
+    const edits = editsBeatWrites(Infinity);
 
     await expect(
       syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
@@ -795,6 +831,12 @@ describe("syncDraftToMailbox with a Gmail draft reopened from Drafts", () => {
       errorCode: "draft_mailbox_busy",
       unrecordedGmailDraftId: "r-draft-7",
       message: expect.stringContaining("doesn't name Gmail draft r-draft-7"),
+    });
+    // Three write attempts, then three tries at recording the update alone.
+    expect(edits()).toBe(6);
+    expect(mocks.appState.get(KEY)).toMatchObject({
+      savedDraftId: "message-1",
+      attachments: [file],
     });
     expect(savedDraftIds()).toEqual(["message-1", "r-draft-7", "r-draft-7"]);
   });

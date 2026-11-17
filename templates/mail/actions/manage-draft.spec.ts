@@ -2209,6 +2209,9 @@ describe("manage-draft updates of a reopened Gmail draft with its own file", () 
       { cc: "one@example.com" },
       { cc: "two@example.com" },
       { cc: "three@example.com" },
+      { cc: "four@example.com" },
+      { cc: "five@example.com" },
+      { cc: "six@example.com" },
     ]);
 
     const updated = await action.run({
@@ -2226,7 +2229,7 @@ describe("manage-draft updates of a reopened Gmail draft with its own file", () 
       "Mail's copy doesn't name Gmail draft r-draft-7 yet",
     );
     expect(appState.get("compose-reopened")).toMatchObject({
-      cc: "three@example.com",
+      cc: "six@example.com",
       savedDraftId: "message-of-draft",
       attachments: [draftFile],
     });

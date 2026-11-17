@@ -123,6 +123,10 @@ export async function assertGmailDraftAccount(
   await resolveAccount(accountEmail, ownerEmail);
 }
 
+/** The HTTP status google-api.ts gives the errors it throws. */
+const googleStatus = (error: unknown) =>
+  (error as { status?: unknown } | null)?.status;
+
 /**
  * Reads the message a reply draft answers, for its reply headers and thread.
  * When `optional`, a message Mail may not read (403) or that's gone (404)
@@ -136,14 +140,13 @@ async function readRepliedMessage(
   try {
     return await gmailGetMessage(accessToken, messageId, "metadata");
   } catch (error) {
-    const status = (error as { status?: unknown } | null)?.status;
+    const status = googleStatus(error);
     if (optional && (status === 403 || status === 404)) return null;
     throw error;
   }
 }
 
-const isNotFound = (error: unknown) =>
-  error instanceof Error && /\b404\b/.test(error.message);
+const isNotFound = (error: unknown) => googleStatus(error) === 404;
 
 async function findGmailDraftIdForMessage(
   accessToken: string,

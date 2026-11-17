@@ -219,7 +219,9 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
           drafts: [{ id: "r-draft-7", message: { id: "message-of-draft" } }],
         };
       }
-      throw new Error("Google API error (404): Not Found");
+      throw Object.assign(new Error("Google API error (404): Not Found"), {
+        status: 404,
+      });
     });
 
     const result = await (saveDraft as (event: unknown) => Promise<unknown>)(
@@ -273,7 +275,12 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
             };
           }
           if (!pathname.endsWith("/drafts/r-draft-7")) {
-            throw new Error("Google API error (404): Not Found");
+            throw Object.assign(
+              new Error("Google API error (404): Not Found"),
+              {
+                status: 404,
+              },
+            );
           }
           if (options?.method === "PUT") {
             messageId = "message-2";

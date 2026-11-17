@@ -275,6 +275,33 @@ function followUpdate(
   };
 }
 
+// Recording an update Gmail already took only writes Mail's copy, so after the
+// write attempts run out it gets this many more tries on its own.
+const MAX_RECORD_ATTEMPTS = 3;
+
+/**
+ * Points the stored draft at the Gmail draft an update wrote and its files
+ * where the update left them, keeping every other edit, without writing Gmail
+ * again. Says "lost" when each try lost to another save.
+ */
+async function recordUpdate(
+  key: string,
+  update: {
+    replacedId: string;
+    draftId: string;
+    moves: MovedGmailAttachment[];
+  },
+): Promise<"recorded" | "lost" | "gone"> {
+  for (let attempt = 0; attempt < MAX_RECORD_ATTEMPTS; attempt += 1) {
+    const stored = await readAppState(key);
+    if (!stored) return "gone";
+    const next = followUpdate(stored as unknown as ComposeState, update);
+    if (next === stored) return "recorded";
+    if (await adoptCopy(key, stored, next, false)) return "recorded";
+  }
+  return "lost";
+}
+
 function refOf(
   copy: SavedDraftRef,
   moves: readonly MovedGmailAttachment[] = [],
@@ -376,7 +403,12 @@ export async function syncDraftToMailbox(args: {
   // draft as that update left it rather than make a second Gmail draft.
   let moves: MovedGmailAttachment[] = [];
   let unrecorded:
-    | { replacedId: string; draftId: string; moves: MovedGmailAttachment[] }
+    | {
+        replacedId: string;
+        draftId: string;
+        moves: MovedGmailAttachment[];
+        copy: SavedDraftRef;
+      }
     | undefined;
   const pendingCopy = () => ({
     ...(adopted ? { savedDraft: refOf(adopted, moves) } : {}),
@@ -415,7 +447,12 @@ export async function syncDraftToMailbox(args: {
         const replacedId = unrecorded?.replacedId ?? storedDraft.savedDraftId;
         if (!copy.created && replacedId) {
           // Until it's adopted, in case the adoption throws.
-          unrecorded = { replacedId, draftId: copy.draftId, moves };
+          unrecorded = {
+            replacedId,
+            draftId: copy.draftId,
+            moves,
+            copy: refOf(copy),
+          };
         }
         if (!(await adoptCopy(key, stored, next, copy.created))) {
           if (copy.created) {
@@ -449,6 +486,14 @@ export async function syncDraftToMailbox(args: {
           savedDraft: refOf(copy, moves),
           ...leftover(),
         };
+      }
+    }
+    if (unrecorded) {
+      const recorded = await recordUpdate(key, unrecorded);
+      if (recorded === "gone") return { status: "gone" };
+      if (recorded === "recorded") {
+        adopted = unrecorded.copy;
+        unrecorded = undefined;
       }
     }
     return {
