@@ -116,12 +116,12 @@ it should not reimplement every provider endpoint locally.
 
 For a sales-intelligence workspace, split the job into small apps:
 
-| App | Owns | Calls |
-| --- | --- | --- |
-| `hubspot-pipeline` | CRM deals, contacts, companies, associations | `provider-api-request` with provider `hubspot` |
-| `gong-evidence` | Calls, transcripts, snippets, speaker evidence | `provider-api-request` with provider `gong` |
-| `knowledge-base` | Internal docs, pricing rules, playbooks | local search/read actions |
-| `deal-brief` | Orchestration and final brief | message-based `invokeAgent()` or `call-agent` to the three apps |
+| App                | Owns                                           | Calls                                                           |
+| ------------------ | ---------------------------------------------- | --------------------------------------------------------------- |
+| `hubspot-pipeline` | CRM deals, contacts, companies, associations   | `provider-api-request` with provider `hubspot`                  |
+| `gong-evidence`    | Calls, transcripts, snippets, speaker evidence | `provider-api-request` with provider `gong`                     |
+| `knowledge-base`   | Internal docs, pricing rules, playbooks        | local search/read actions                                       |
+| `deal-brief`       | Orchestration and final brief                  | message-based `invokeAgent()` or `call-agent` to the three apps |
 
 Flow: `deal-brief` asks `hubspot-pipeline` for the target account and open
 deals, asks `gong-evidence` for recent transcript evidence about those deals,

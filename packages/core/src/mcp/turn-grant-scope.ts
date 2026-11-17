@@ -38,9 +38,19 @@ type TurnScope = {
 const turnScope = new AsyncLocalStorage<TurnScope | undefined>();
 
 /** An agent run, an A2A call or a nested action never carries the person's turn. */
+/**
+ * True inside an agent run (it has a run or thread). An MCP tool call also
+ * carries a run context, for its browser-tab target, and is still the user's
+ * own call.
+ */
+export function isAgentRunContext(): boolean {
+  const run = getRequestRunContext();
+  return run?.runId !== undefined || run?.threadId !== undefined;
+}
+
 export function isAgentTurnGrantContext(): boolean {
   return (
-    getRequestRunContext() !== undefined ||
+    isAgentRunContext() ||
     getRequestContext()?.a2aIdentityAssurance !== undefined ||
     actionExecutionStorage?.getStore()?.frame !== undefined
   );

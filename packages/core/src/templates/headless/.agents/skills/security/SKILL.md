@@ -28,12 +28,12 @@ when access cannot be established.
 
 Choose a table's access model when designing its data:
 
-| Data | Access model |
-| --- | --- |
-| Private user rows | Store `owner_email` and filter every read and write by the current caller. |
-| Organization-wide catalog | Store `org_id` and scope action queries to the active org; gate restricted mutations by org or app role. |
-| Team-shared or individually shareable resources | Use `ownableColumns()`, register the resource type, and check access with the sharing helpers. |
-| Child rows | Check access to the parent before reading or changing children; add any child-specific rules in the action. |
+| Data                                            | Access model                                                                                                |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Private user rows                               | Store `owner_email` and filter every read and write by the current caller.                                  |
+| Organization-wide catalog                       | Store `org_id` and scope action queries to the active org; gate restricted mutations by org or app role.    |
+| Team-shared or individually shareable resources | Use `ownableColumns()`, register the resource type, and check access with the sharing helpers.              |
+| Child rows                                      | Check access to the parent before reading or changing children; add any child-specific rules in the action. |
 
 Do not make a team-wide catalog private by adding a per-user owner filter. For
 an organization-owned catalog, `org_id` without `owner_email` is valid: scoped

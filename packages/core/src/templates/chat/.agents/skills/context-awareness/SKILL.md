@@ -281,7 +281,7 @@ import { TAB_ID } from "@/lib/tab-id";
 
 useDbSync({
   queryClient,
-  ignoreSource: TAB_ID,  // ignore events from this tab's own writes
+  ignoreSource: TAB_ID, // ignore events from this tab's own writes
 });
 ```
 
@@ -295,11 +295,18 @@ records it as the event origin. `useDbSync` ignores events whose origin matches
 The mail template demonstrates these patterns working together:
 
 **Navigation state shape:**
+
 ```json
-{ "view": "inbox", "threadId": "thread-123", "focusedEmailId": "msg-456", "label": "important" }
+{
+  "view": "inbox",
+  "threadId": "thread-123",
+  "focusedEmailId": "msg-456",
+  "label": "important"
+}
 ```
 
 **view-screen output:**
+
 - Reads navigation state
 - Reads `__url__` if URL query filters matter
 - Fetches email list matching current view/filter state
@@ -307,6 +314,7 @@ The mail template demonstrates these patterns working together:
 - Returns everything as a single JSON snapshot
 
 **navigate command:**
+
 - `{ "view": "starred" }` — switch to starred view
 - `{ "view": "inbox", "threadId": "thread-123" }` — open a specific thread
 - For pure query-filter changes, use `set-search-params`

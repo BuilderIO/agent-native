@@ -1,12 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
-import {
-  getRequestRunContext,
-  getRequestContext,
-} from "../server/request-context.js";
+import { getRequestContext } from "../server/request-context.js";
 import type { MCPCallerIdentity } from "./build-server.js";
-import { isAgentTurnGrantContext } from "./turn-grant-scope.js";
+import {
+  isAgentRunContext,
+  isAgentTurnGrantContext,
+} from "./turn-grant-scope.js";
 
 const calls = new AsyncLocalStorage<
   { owner: string; active: boolean } | undefined
@@ -15,7 +15,7 @@ const calls = new AsyncLocalStorage<
 export function mcpChatTurnOwner(): string | undefined {
   const call = calls.getStore();
   return call?.active &&
-    getRequestRunContext() === undefined &&
+    !isAgentRunContext() &&
     getRequestContext()?.a2aIdentityAssurance === undefined
     ? call.owner
     : undefined;

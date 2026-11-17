@@ -7,6 +7,7 @@ import {
 } from "./call-gates.js";
 import {
   createProviderApiRuntime,
+  fetchProviderApiDocs,
   registerProviderCallGate,
   type ProviderApiRuntimeOptions,
 } from "./index.js";
@@ -134,6 +135,25 @@ describe("provider call gates", () => {
 
     await expect(request()).rejects.toBe(paused);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("attributes a docs fetch to the asking provider and app", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(okResponse());
+    const { gate, prepared } = fakeGate();
+    registerProviderCallGate(gate);
+
+    await fetchProviderApiDocs(
+      { provider: "hubspot", url: "https://api.hubapi.com/docs" },
+      runtimeOptions,
+    );
+
+    expect(prepared).toEqual([
+      expect.objectContaining({
+        providerId: "hubspot",
+        appId: "example-app",
+        url: "https://api.hubapi.com/docs",
+      }),
+    ]);
   });
 
   it("runs only the owning gate's precheck", async () => {

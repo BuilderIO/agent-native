@@ -46,11 +46,11 @@ and pass normalized action items to an app's idempotent `import` action.
 
 ## Job Tool (built in)
 
-| Tool          | Action     | Purpose                                                    |
-| ------------- | ---------- | ---------------------------------------------------------- |
-| `manage-jobs` | `create`   | Create a recurring job (name, cron schedule, instructions); fails if the name exists |
-| `manage-jobs` | `list`     | List all jobs and their status                             |
-| `manage-jobs` | `update`   | Update schedule, instructions, or toggle enabled           |
+| Tool          | Action   | Purpose                                                                              |
+| ------------- | -------- | ------------------------------------------------------------------------------------ |
+| `manage-jobs` | `create` | Create a recurring job (name, cron schedule, instructions); fails if the name exists |
+| `manage-jobs` | `list`   | List all jobs and their status                                                       |
+| `manage-jobs` | `update` | Update schedule, instructions, or toggle enabled                                     |
 
 ## Job files an app owns
 
@@ -77,12 +77,12 @@ work.
 
 ## Key Files
 
-| File                                  | Purpose                                                  |
-| ------------------------------------- | -------------------------------------------------------- |
-| `packages/core/src/jobs/cron.ts`      | Cron parsing (`nextOccurrence`, `isValidCron`, `describeCron`) |
-| `packages/core/src/jobs/scheduler.ts` | Job execution engine (`processRecurringJobs`)            |
-| `packages/core/src/jobs/tools.ts`     | Agent tool (`manage-jobs` with create/list/update actions) |
-| `packages/core/src/client/agent-page/` | `AgentJobsTab`, the `/agent#jobs` surface                |
+| File                                   | Purpose                                                        |
+| -------------------------------------- | -------------------------------------------------------------- |
+| `packages/core/src/jobs/cron.ts`       | Cron parsing (`nextOccurrence`, `isValidCron`, `describeCron`) |
+| `packages/core/src/jobs/scheduler.ts`  | Job execution engine (`processRecurringJobs`)                  |
+| `packages/core/src/jobs/tools.ts`      | Agent tool (`manage-jobs` with create/list/update actions)     |
+| `packages/core/src/client/agent-page/` | `AgentJobsTab`, the `/agent#jobs` surface                      |
 
 ## Related Skills
 

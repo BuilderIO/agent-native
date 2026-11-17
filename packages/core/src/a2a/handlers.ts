@@ -871,7 +871,14 @@ async function withMcpChatTaskScope<T>(
   );
   // Only an absent proof means "an ordinary turn"; a refused lookup must not
   // pass for one, or an intended interactive turn quietly loses its grant.
-  if (admission.status === "refused") {
+  if (
+    admission.status === "refused" &&
+    admission.reason === "storage-or-signing-unavailable"
+  ) {
+    // Most tasks carry no proof; a store outage must not fail them. The turn
+    // runs without a grant, so it is never more privileged for the outage.
+    console.warn("[a2a] chat-turn lookup unavailable; running without a grant");
+  } else if (admission.status === "refused") {
     throw new ChatTurnRefusedError(admission.reason);
   }
   return runWithProviderInteractiveScope(false, work, {

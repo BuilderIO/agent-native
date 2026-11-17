@@ -551,3 +551,25 @@ it("sends an ordinary turn for a non-user caller but fails on a real mint refusa
     ),
   ).resolves.toBeUndefined();
 });
+
+it("still mints a chat-turn proof under a tab-target run context, but not inside an agent run", async () => {
+  registerMcpChatTurnApps([APP]);
+  const identity = {
+    userEmail: OWNER,
+    orgDomain: undefined,
+    orgId: null,
+    identityAssurance: "user" as const,
+  };
+  const mintUnder = (run: Record<string, unknown>) =>
+    runWithRequestContext({ userEmail: OWNER, run }, () =>
+      runWithMcpChatTurnCall(identity, "ask_app", false, () =>
+        mintMcpChatTurnMetadata(APP),
+      ),
+    );
+  expect(
+    await mintUnder({
+      browserTabTarget: { resolve: async () => ({ kind: "unavailable" }) },
+    }),
+  ).toHaveProperty("__agentNativeMcpChatTurn");
+  expect(await mintUnder({ runId: "run-1" })).toBeUndefined();
+});

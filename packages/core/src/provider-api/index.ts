@@ -2182,6 +2182,8 @@ export async function fetchProviderApiDocs(
   const { response, finalUrl } = await fetchPublicDocsPage(
     url.href,
     clampMaxBytes(options.maxBytes),
+    options.provider,
+    runtime,
   );
 
   const responseBody =
@@ -2237,15 +2239,34 @@ function failProviderDocsRedirect(
 async function fetchPublicDocsPage(
   startUrl: string,
   maxBytes: number,
+  providerId: string,
+  runtime: ProviderApiRuntimeOptions,
 ): Promise<{ response: ProviderApiHttpResponse; finalUrl: string }> {
   const visited = new Set<string>();
   let currentUrl = startUrl;
   for (let redirects = 0; ; redirects++) {
     visited.add(urlWithoutHash(currentUrl));
+    // Each hop is claimed by its own URL, attributed to the provider and app
+    // that asked, so gates and budgets see docs fetches as that provider's.
     const response = await fetchWithTimeout(currentUrl, {
       method: "GET",
       maxBytes,
       discardRedirectBody: true,
+      census: providerCallCensusKey(providerId, runtime, "GET"),
+      gate:
+        prepareProviderCallGate({
+          providerId,
+          url: currentUrl,
+          method: "GET",
+          path: currentUrl,
+          body: undefined,
+          appId: runtimeOptionsAppId(runtime),
+          accountId: undefined,
+          connectionId: null,
+          runtime,
+          deadline: Date.now() + PROVIDER_CALL_ADMISSION_WAIT_MS,
+          signal: undefined,
+        }) ?? null,
     });
     if (response.status < 300 || response.status >= 400) {
       return { response, finalUrl: currentUrl };

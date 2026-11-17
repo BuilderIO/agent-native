@@ -82,12 +82,12 @@ backfill separately when it needs a real value.
 
 ### Core SQL Stores (created by the framework, available in all templates)
 
-| Store               | Purpose                                              | Access                                     |
-| ------------------- | ---------------------------------------------------- | ------------------------------------------ |
-| `application_state` | Ephemeral UI state (compose windows, navigation)     | `readAppState()` / `writeAppState()`       |
-| `settings`          | Persistent KV config (preferences, app settings)     | `getSetting()` / `putSetting()`            |
-| `oauth_tokens`      | OAuth credentials                                    | `@agent-native/core/oauth-tokens`          |
-| `sessions`          | Auth sessions                                        | `@agent-native/core/server`               |
+| Store               | Purpose                                          | Access                               |
+| ------------------- | ------------------------------------------------ | ------------------------------------ |
+| `application_state` | Ephemeral UI state (compose windows, navigation) | `readAppState()` / `writeAppState()` |
+| `settings`          | Persistent KV config (preferences, app settings) | `getSetting()` / `putSetting()`      |
+| `oauth_tokens`      | OAuth credentials                                | `@agent-native/core/oauth-tokens`    |
+| `sessions`          | Auth sessions                                    | `@agent-native/core/server`          |
 
 ### Domain Data (per-template)
 
@@ -104,7 +104,9 @@ export const tasks = pgTable("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   completed: boolean("completed").notNull().default(false),
-  createdAt: text("created_at").notNull().default(sql`now()`),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
 });
 
 const rows = await db.select().from(tasks).where(eq(tasks.id, taskId));
@@ -127,11 +129,33 @@ import { registerIdentityColumns } from "@agent-native/core/org";
 
 registerIdentityColumns([
   // Access grant: follows an email change, ends with the membership.
-  { table: "space_members", column: "email", emailChange: "rekey", offboard: "delete", orgScope: { column: "space_id", references: { table: "spaces", column: "id", orgColumn: "org_id" } }, reason: "Space membership grants access." },
+  {
+    table: "space_members",
+    column: "email",
+    emailChange: "rekey",
+    offboard: "delete",
+    orgScope: {
+      column: "space_id",
+      references: { table: "spaces", column: "id", orgColumn: "org_id" },
+    },
+    reason: "Space membership grants access.",
+  },
   // Someone else's address: never rewritten.
-  { table: "meeting_participants", column: "email", emailChange: "retain", offboard: "retain", reason: "Attendee address from the calendar provider." },
+  {
+    table: "meeting_participants",
+    column: "email",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Attendee address from the calendar provider.",
+  },
   // A credential in an owner_email table: never handed to the successor.
-  { table: "api_keys", column: "owner_email", emailChange: "rekey", offboard: "revoke", reason: "Bearer keys act as their owner." },
+  {
+    table: "api_keys",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "revoke",
+    reason: "Bearer keys act as their owner.",
+  },
 ]);
 ```
 
@@ -142,13 +166,13 @@ data. Declare `owner_email` tables that hold credentials or grants, or
 offboarding hands them to the successor. A table without `org_id` needs
 `orgScope` or an organization-scoped removal leaves its rows alone.
 
-| Template     | Tables                                        |
-| ------------ | --------------------------------------------- |
-| **Mail**     | emails, labels                                 |
-| **Calendar** | booking links and bookings; events stay in Google Calendar |
-| **Forms**    | forms, responses                              |
-| **Content**  | documents in SQL; connected local-folder sources sync separately |
-| **Slides**   | decks (JSON stored in SQL)                    |
+| Template     | Tables                                                            |
+| ------------ | ----------------------------------------------------------------- |
+| **Mail**     | emails, labels                                                    |
+| **Calendar** | booking links and bookings; events stay in Google Calendar        |
+| **Forms**    | forms, responses                                                  |
+| **Content**  | documents in SQL; connected local-folder sources sync separately  |
+| **Slides**   | decks (JSON stored in SQL)                                        |
 | **Clips**    | recording metadata in SQL; video and image files use blob storage |
 
 #### Lifecycle status columns are state machines
@@ -179,16 +203,16 @@ The agent uses app-specific actions to read/write the database. Core DB scripts 
 
 **For one-off maintenance, how to choose between `db-exec UPDATE` and `db-patch`:**
 
-| Scenario                                                       | Use          |
-| -------------------------------------------------------------- | ------------ |
-| `SET status = 'published'` on one row                          | `db-exec`    |
-| `SET calories = calories + 50`                                 | `db-exec`    |
-| Updating several columns at once                               | `db-exec`    |
-| Inserting/updating several rows as one logical operation        | `db-exec --statements` |
-| Fixing a typo in a 50KB markdown document's `content` column   | `db-patch`   |
-| Changing a single key in a dashboard's JSON blob               | `db-patch`   |
-| Tweaking one paragraph of slide HTML stored in `decks.data`    | `db-patch`   |
-| Any edit where you'd otherwise re-send thousands of characters | `db-patch`   |
+| Scenario                                                       | Use                    |
+| -------------------------------------------------------------- | ---------------------- |
+| `SET status = 'published'` on one row                          | `db-exec`              |
+| `SET calories = calories + 50`                                 | `db-exec`              |
+| Updating several columns at once                               | `db-exec`              |
+| Inserting/updating several rows as one logical operation       | `db-exec --statements` |
+| Fixing a typo in a 50KB markdown document's `content` column   | `db-patch`             |
+| Changing a single key in a dashboard's JSON blob               | `db-patch`             |
+| Tweaking one paragraph of slide HTML stored in `decks.data`    | `db-patch`             |
+| Any edit where you'd otherwise re-send thousands of characters | `db-patch`             |
 
 All of these honor the per-user / per-org data scoping — you can't read or write rows outside the current user's data, regardless of which tool you choose.
 
@@ -197,7 +221,10 @@ All of these honor the per-user / per-org data scoping — you can't read or wri
 The frontend calls actions using React Query hooks from the client API. The framework owns the HTTP transport behind these hooks, so components should not call action routes with raw `fetch`.
 
 ```ts
-import { useActionQuery, useActionMutation } from "@agent-native/core/client/hooks";
+import {
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
 
 // Read data
 const { data } = useActionQuery("list-meals", { date: "2025-01-01" });
@@ -214,8 +241,6 @@ Local PGlite works out of the box for development. To deploy to production or an
 
 1. Set `DATABASE_URL` to a persistent hosted PostgreSQL database.
 2. Keep schema and queries PostgreSQL-compatible.
-
-
 
 ### Real-time Sync
 

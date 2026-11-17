@@ -69,8 +69,12 @@ export const decks = pgTable("decks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   data: text("data").notNull(),
-  createdAt: text("created_at").notNull().default(sql`now()`),
-  updatedAt: text("updated_at").notNull().default(sql`now()`),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`now()`),
   ...ownableColumns(), // adds owner_email, org_id, visibility
 });
 
@@ -119,9 +123,9 @@ registerShareableResource({
 ```
 
 - **`allowPublic: false`** — `set-resource-visibility('public')` throws `ForbiddenError`, `accessFilter` / `resolveAccess` treat any stored `'public'` row as private (defense in depth against bad data), and the share popover hides the "Public" option. `list-resource-shares` returns `policy.allowPublic: false` so the UI follows the server.
-- **`requireOrgMemberForUserShares: true`** — `share-resource` looks up `principalId` in `org_members` and `org_invitations` (pending) for the resource's `orgId` and rejects user shares to anyone else. The same flag also pins `principalType: "org"` shares to the resource's own org — sharing to a *different* org would let that org's members run code in the viewer's auth context (same threat model as a public extension). (The flag name is kept for backward compatibility; treat it as "lock both user and org shares to the resource's org".)
+- **`requireOrgMemberForUserShares: true`** — `share-resource` looks up `principalId` in `org_members` and `org_invitations` (pending) for the resource's `orgId` and rejects user shares to anyone else. The same flag also pins `principalType: "org"` shares to the resource's own org — sharing to a _different_ org would let that org's members run code in the viewer's auth context (same threat model as a public extension). (The flag name is kept for backward compatibility; treat it as "lock both user and org shares to the resource's org".)
 
-Use both for resources that execute code or expose privileged data with the *viewer's* credentials. A public or cross-org-shared resource with that access could let an unrelated user act with the viewer's credentials.
+Use both for resources that execute code or expose privileged data with the _viewer's_ credentials. A public or cross-org-shared resource with that access could let an unrelated user act with the viewer's credentials.
 
 Defaults match historical behaviour: `allowPublic: true`, `requireOrgMemberForUserShares: false`. Resources that don't set the flags work as before.
 
@@ -263,12 +267,12 @@ Rules:
 
 The framework auto-mounts these actions in every template — no per-template boilerplate:
 
-| Action                     | Args                                                                           | Purpose                                   |
-| -------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------- |
-| `share-resource`           | `resourceType, resourceId, principalType, principalId, role, notify?, resourceUrl?, message?` | Grant a user, group, or org access. `notify` defaults to true for individual user shares; `resourceUrl` can provide the direct app link and `message` an optional short note for the notification email. |
-| `unshare-resource`         | `resourceType, resourceId, principalType, principalId`                         | Revoke access.                            |
-| `list-resource-shares`     | `resourceType, resourceId`                                                     | Current visibility + all share grants.    |
-| `set-resource-visibility`  | `resourceType, resourceId` (or `resourceIds`, up to 100), `visibility`, `role?` | Change to `private` / `org` / `public`. With `org`, `role` (`viewer` / `commenter` / `editor`) sets what members can do; with `public`, `role` (`viewer` / `commenter`) sets what signed-in people with the link can do. With `resourceIds`, every resource is checked first and none change if one can't; one approval covers the call. |
+| Action                    | Args                                                                                          | Purpose                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`          | `resourceType, resourceId, principalType, principalId, role, notify?, resourceUrl?, message?` | Grant a user, group, or org access. `notify` defaults to true for individual user shares; `resourceUrl` can provide the direct app link and `message` an optional short note for the notification email.                                                                                                                                 |
+| `unshare-resource`        | `resourceType, resourceId, principalType, principalId`                                        | Revoke access.                                                                                                                                                                                                                                                                                                                           |
+| `list-resource-shares`    | `resourceType, resourceId`                                                                    | Current visibility + all share grants.                                                                                                                                                                                                                                                                                                   |
+| `set-resource-visibility` | `resourceType, resourceId` (or `resourceIds`, up to 100), `visibility`, `role?`               | Change to `private` / `org` / `public`. With `org`, `role` (`viewer` / `commenter` / `editor`) sets what members can do; with `public`, `role` (`viewer` / `commenter`) sets what signed-in people with the link can do. With `resourceIds`, every resource is checked first and none change if one can't; one approval covers the call. |
 
 Both the agent and the UI use these same actions. The agent calls them as tools;
 UI code should use `ShareButton` / `ShareDialog` or the action client hooks

@@ -124,14 +124,14 @@ other raw-query source counters currently observed by the page. Generic tool
 completion events do not identify their data domain, so keep raw-query source
 lists narrow. Remote sync events advance their specific source counters.
 
-| Source | Changed by |
-| --- | --- |
-| `action` | A successful mutating action or local chat-run side-effect completion |
-| `app-state` | Writes to `application_state`, including URL commands |
-| `settings` | Writes to `settings` |
-| `dashboards`, `analyses`, `extensions` | Domain-specific mutations that emit those sources |
-| `collab` | Yjs collaborative document updates |
-| `screen-refresh` | The explicit `refresh-screen` agent tool |
+| Source                                 | Changed by                                                            |
+| -------------------------------------- | --------------------------------------------------------------------- |
+| `action`                               | A successful mutating action or local chat-run side-effect completion |
+| `app-state`                            | Writes to `application_state`, including URL commands                 |
+| `settings`                             | Writes to `settings`                                                  |
+| `dashboards`, `analyses`, `extensions` | Domain-specific mutations that emit those sources                     |
+| `collab`                               | Yjs collaborative document updates                                    |
+| `screen-refresh`                       | The explicit `refresh-screen` agent tool                              |
 
 Use `useChangeVersions()` when one query depends on more than one source.
 
