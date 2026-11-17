@@ -20,7 +20,7 @@ export const BIGQUERY_AGENT_SQL_POLICY_VERSION = "2026-11-17.1";
  * is deny-all. Reviewed in code, not configured at runtime.
  */
 export const BIGQUERY_AGENT_DATASET_ALLOWLIST: Readonly<
-  Record<string, readonly string[]>
+  Partial<Record<string, readonly string[]>>
 > = Object.freeze({
   "builder-3b0a2": Object.freeze([
     "amplitude",
@@ -101,18 +101,28 @@ export interface CheckedBigQueryAgentSql {
   tables: BigQueryAgentTableRef[];
 }
 
+function tokenAt(
+  tokens: readonly AgentSqlToken[],
+  index: number,
+): AgentSqlToken | undefined {
+  return tokens[index];
+}
+
+function isName(token: AgentSqlToken | undefined): token is AgentSqlToken {
+  return token?.kind === "word" || token?.kind === "quoted-identifier";
+}
+
 /** `@project.` names the connection's project; any other parameter or system variable is refused. */
 function resolveProjectPlaceholder(
   sql: string,
-  tokens: AgentSqlToken[],
+  tokens: readonly AgentSqlToken[],
   projectId: string,
 ): string {
   let resolved = "";
   let cursor = 0;
-  for (let index = 0; index < tokens.length; index++) {
-    const token = tokens[index];
-    if (token.kind !== "parameter") continue;
-    const next = tokens[index + 1];
+  tokens.forEach((token, index) => {
+    if (token.kind !== "parameter") return;
+    const next = tokenAt(tokens, index + 1);
     if (
       token.text.toLowerCase() !== "@project" ||
       next?.kind !== "punctuation" ||
@@ -120,16 +130,17 @@ function resolveProjectPlaceholder(
     ) {
       feature("Query parameters and system variables are not allowed.");
     }
+    // raw-sql-ok: replaces only the lexed `@project` token with the connection's quoted project ID; the SQL is the agent's own SELECT, checked after this.
     resolved += `${sql.slice(cursor, token.start)}\`${projectId}\``;
     cursor = token.end;
-  }
+  });
+  // raw-sql-ok: the rest of the agent's SQL, unchanged.
   return resolved + sql.slice(cursor);
 }
 
-function denyFeatures(tokens: AgentSqlToken[]): void {
-  for (let index = 0; index < tokens.length; index++) {
-    const token = tokens[index];
-    if (token.kind !== "word" && token.kind !== "quoted-identifier") continue;
+function denyFeatures(tokens: readonly AgentSqlToken[]): void {
+  tokens.forEach((token, index) => {
+    if (!isName(token)) return;
     const parts = token.value.toLowerCase().split(".");
     for (const part of parts) {
       if (DENIED_WORDS.has(part)) {
@@ -140,37 +151,31 @@ function denyFeatures(tokens: AgentSqlToken[]): void {
         );
       }
     }
-    const next = tokens[index + 1];
-    if (next?.kind !== "punctuation" || next.text !== "(") continue;
-    const name = parts[parts.length - 1];
+    const next = tokenAt(tokens, index + 1);
+    if (next?.kind !== "punctuation" || next.text !== "(") return;
+    const name = parts.pop() ?? "";
     if (DENIED_FUNCTIONS.has(name)) {
       feature(`${name.toUpperCase()} is not allowed.`);
     }
-    const qualifiers: string[] = parts.slice(0, -1);
-    for (
-      let back = index - 1;
-      back > 0 &&
-      tokens[back].kind === "punctuation" &&
-      tokens[back].text === "." &&
-      (tokens[back - 1].kind === "word" ||
-        tokens[back - 1].kind === "quoted-identifier");
-      back -= 2
-    ) {
-      qualifiers.unshift(...tokens[back - 1].value.toLowerCase().split("."));
+    const qualifiers = parts;
+    for (let back = index - 1; ; back -= 2) {
+      const dot = tokenAt(tokens, back);
+      const qualifier = tokenAt(tokens, back - 1);
+      if (dot?.kind !== "punctuation" || dot.text !== "." || !isName(qualifier))
+        break;
+      qualifiers.unshift(...qualifier.value.toLowerCase().split("."));
     }
-    if (qualifiers.length === 0) continue;
-    if (qualifiers[0] === "ml" || qualifiers[0] === "ai") {
-      feature(`${qualifiers[0].toUpperCase()}.* functions are not allowed.`);
+    const [namespace = ""] = qualifiers;
+    if (!namespace) return;
+    if (namespace === "ml" || namespace === "ai") {
+      feature(`${namespace.toUpperCase()}.* functions are not allowed.`);
     }
-    if (
-      qualifiers.length > 1 ||
-      !BUILTIN_FUNCTION_NAMESPACES.has(qualifiers[0])
-    ) {
+    if (qualifiers.length > 1 || !BUILTIN_FUNCTION_NAMESPACES.has(namespace)) {
       feature(
         "Persistent, remote, and other user-defined functions are not allowed.",
       );
     }
-  }
+  });
 }
 
 /**
@@ -195,6 +200,7 @@ export function checkBigQueryAgentSql(
   let resolved: string;
   let query: ReturnType<typeof readAgentSqlQuery>;
   try {
+    // raw-sql-ok: the agent's SQL with only `@project` resolved; the grammar, feature, table and dry-run checks below run on exactly this text.
     resolved = resolveProjectPlaceholder(
       sql,
       lexAgentSql(sql, { dialect: "bigquery" }),
@@ -223,7 +229,10 @@ export function checkBigQueryAgentSql(
         `Table \`${parts.join(".")}\` is outside the datasets approved for outside agents (${Object.entries(
           BIGQUERY_AGENT_DATASET_ALLOWLIST,
         )
-          .map(([project, datasets]) => `${project}: ${datasets.join(", ")}`)
+          .map(
+            ([project, datasets]) =>
+              `${project}: ${(datasets ?? []).join(", ")}`,
+          )
           .join("; ")}).`,
       );
     }

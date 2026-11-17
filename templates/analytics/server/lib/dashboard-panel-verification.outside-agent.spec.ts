@@ -35,18 +35,25 @@ const { bigQueryJobGate } = await import("./bigquery-agent-context");
 const { verifyDashboardPanels } =
   await import("./dashboard-panel-verification");
 
-function panel(id: string) {
+function panel(id: string, sql: string) {
+  // raw-sql-ok: fixed fixture SQL written in this file, no runtime values.
   return {
     id,
     title: id,
     source: "bigquery",
     chartType: "table",
     width: 2,
-    sql: `SELECT '${id}' AS label, 1 AS n`,
+    sql,
   };
 }
 
-const config = { name: "T", panels: [panel("refused"), panel("allowed")] };
+const config = {
+  name: "T",
+  panels: [
+    panel("refused", "SELECT 'refused' AS label, 1 AS n"),
+    panel("allowed", "SELECT 'allowed' AS label, 1 AS n"),
+  ],
+};
 
 beforeEach(() => {
   mocks.admit.mockReset();

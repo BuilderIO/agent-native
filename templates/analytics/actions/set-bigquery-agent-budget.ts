@@ -27,7 +27,27 @@ import {
   resolveOrgRole,
 } from "../server/lib/db-admin-connections.js";
 
-function limitsView(overrides: BigQueryAgentBudgetOverrides, email?: string) {
+const limitSource = z.enum(["default", "admin"]);
+const outputSchema = z.object({
+  limits: z.object({
+    perJobCapUsd: z.number(),
+    org: z.object({ dailyLimitUsd: z.number(), source: limitSource }),
+    person: z
+      .object({
+        email: z.string(),
+        noAskDailyAllowanceUsd: z.number(),
+        dailyCeilingUsd: z.number(),
+        source: limitSource,
+      })
+      .optional(),
+    peopleWithAdminLimits: z.number(),
+  }),
+});
+
+function limitsView(
+  overrides: BigQueryAgentBudgetOverrides,
+  email?: string,
+): z.infer<typeof outputSchema>["limits"] {
   const person = email
     ? overrides.personDailyAllowanceBytes?.[email]
     : undefined;
@@ -108,6 +128,7 @@ export default defineAction({
         });
       }
     }),
+  outputSchema,
   http: { method: "POST" },
   needsApproval: true,
   mcpTool: false,

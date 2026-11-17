@@ -169,6 +169,11 @@ function costFor(
   };
 }
 
+/** Read through a call: an `await` can abort a signal TypeScript narrowed to unaborted. */
+function hasAborted(signal: AbortSignal): boolean {
+  return signal.aborted;
+}
+
 function abortError(): Error {
   return new DOMException(
     "BigQuery agent query deadline exceeded",
@@ -276,12 +281,13 @@ export async function runBigQueryAgentQuery(
     });
 
   let checked: CheckedBigQueryAgentSql;
+  let connectionProjectId: string;
   let token: string;
   let credentialScope: string;
   try {
-    const projectId = await getBigQueryProjectId(deadline);
-    record.projectId = projectId;
-    checked = checkBigQueryAgentSql(input.sql, projectId);
+    connectionProjectId = await getBigQueryProjectId(deadline);
+    record.projectId = connectionProjectId;
+    checked = checkBigQueryAgentSql(input.sql, connectionProjectId);
     if (checked.tables.length > MAX_TABLES) {
       return refused(
         "query_feature_not_allowed",
@@ -402,7 +408,7 @@ export async function runBigQueryAgentQuery(
   }
 
   const jobId = `agent_native_mcp_${randomUUID().replace(/-/g, "")}`;
-  const projectId = record.projectId ?? "";
+  const projectId = connectionProjectId;
   const admitted = await admit(identity, {
     source: input.source,
     projectId,
@@ -429,7 +435,7 @@ export async function runBigQueryAgentQuery(
   }
   // Admission can spend part of the deadline reconciling; a job is never sent
   // after it, so a timeout here means nothing ran.
-  if (deadline.aborted) {
+  if (hasAborted(deadline)) {
     await settleQuietly(projectId, jobId, { kind: "rejected" });
     return refused(
       "query_timeout",
@@ -441,6 +447,7 @@ export async function runBigQueryAgentQuery(
 
   let outcome: BoundedBigQueryJobOutcome;
   try {
+    // raw-sql-ok: the agent's own SELECT, run only after the SQL policy, table kinds and dry-run cross-check accepted this exact text.
     outcome = await runBoundedBigQueryJob({
       projectId,
       jobId,
