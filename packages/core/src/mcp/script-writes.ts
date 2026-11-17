@@ -411,6 +411,21 @@ export function effectOfOutcome(
 }
 
 /**
+ * The request context of the person who made the call, which a contract's
+ * `reconcile` and `fence` run in, so the receipt is read with their access
+ * and no one else's.
+ */
+function callerContext(owner: {
+  ownerEmail: string | null;
+  orgId: string | null;
+}): { userEmail?: string; orgId?: string } {
+  return {
+    ...(owner.ownerEmail ? { userEmail: owner.ownerEmail } : {}),
+    ...(owner.orgId ? { orgId: owner.orgId } : {}),
+  };
+}
+
+/**
  * Asks the write's receipt right after the run. A receipt proves the commit;
  * none proves nothing yet, since a commit the database had not acknowledged
  * may still land, so the row stays `unknown` for recovery.
@@ -422,7 +437,9 @@ async function reconcileNow(
   const contract = scriptWriteContract(ticket.call.entry);
   if (!contract) return "unknown";
   try {
-    const found = await contract.reconcile(ticket.locator);
+    const found = await runWithRequestContext(callerContext(owner), () =>
+      contract.reconcile(ticket.locator),
+    );
     return found.status === "committed" ? "committed" : "unknown";
   } catch (error) {
     console.warn(
@@ -518,13 +535,16 @@ function auditedArguments(args: unknown): unknown {
 
 /**
  * Whether an action's calls may be recorded with their arguments: not when
- * it keeps them out of chat history or out of its audit rows. Its ledger rows
- * then keep none either, so run status shows none, to org admins included.
+ * it keeps them out of chat history, turns its audit rows off, or keeps them
+ * out of its audit rows. Its ledger rows then keep none either, so run
+ * status shows none, to org admins included.
  */
 export function actionRecordsInputs(entry: ActionEntry): boolean {
+  const audit = normalizeAuditConfig(entry.audit);
   return (
     entry.persistInChatHistory !== false &&
-    normalizeAuditConfig(entry.audit)?.recordInputs !== false
+    audit?.enabled !== false &&
+    audit?.recordInputs !== false
   );
 }
 
@@ -788,14 +808,9 @@ function startRecoveryCall(
   const key = `${row.appId}\0${row.runId}\0${row.seq}`;
   if (running.has(key)) return "running";
   if (runningRecoveryCallCount >= RECOVERY_CALLS_MAX) return "full";
-  // As the person who made the call, so the receipt is read with their
-  // access and no one else's.
   const answer = Promise.resolve(
     runWithRequestContext(
-      {
-        ...(row.ownerEmail ? { userEmail: row.ownerEmail } : {}),
-        ...(row.orgId ? { orgId: row.orgId } : {}),
-      },
+      callerContext(row),
       // Typed as loosely as an app's answer can be, since it's checked above.
       async (): Promise<{ status?: unknown } | undefined> =>
         closing ? contract.fence(row.locator) : contract.reconcile(row.locator),

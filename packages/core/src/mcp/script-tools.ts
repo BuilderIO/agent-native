@@ -1564,11 +1564,18 @@ export async function runMcpScript(
           : scriptCatalogEntry(input.catalog, action);
       // The catalog holds only what the policy allows; asking again at
       // the call keeps it in force if an entry has changed since.
-      // A refused call's arguments are recorded only as its action allows.
-      const deniedArguments = () =>
-        entry === undefined || actionRecordsInputs(entry)
+      // A refused call's arguments are recorded only as its action allows,
+      // one scripts can call or not.
+      const deniedArguments = (denied = action) => {
+        const settings =
+          entry ??
+          (denied !== undefined && Object.hasOwn(input.known, denied)
+            ? input.known[denied]
+            : undefined);
+        return settings === undefined || actionRecordsInputs(settings)
           ? deniedCallArguments(args)
           : undefined;
+      };
       const policy =
         action === undefined || entry === undefined
           ? undefined
@@ -1591,7 +1598,9 @@ export async function runMcpScript(
                 : denial.functionName,
             action: denial.action,
             reason: denial.reason,
-            args: denial.args,
+            // Run status shows a call to no action without its arguments,
+            // since no action's settings allow them there.
+            args: denial.action === undefined ? undefined : denial.args,
           });
         } catch (error) {
           console.error(
@@ -1612,7 +1621,10 @@ export async function runMcpScript(
           reason: denial.reason,
           message,
           // Arguments past the limits, or not JSON, are left out.
-          args: argumentProblem === undefined ? deniedArguments() : undefined,
+          args:
+            argumentProblem === undefined
+              ? deniedArguments(denial.action)
+              : undefined,
         });
         return refuse(
           fn,
@@ -1769,7 +1781,11 @@ export async function runMcpScript(
                 (outcome.stage === "authorization"
                   ? "forbidden"
                   : "action_failed"),
-              outcome.message,
+              // A write that may have committed says so, so a script does
+              // not run it again as one that changed nothing.
+              ticket && outcome.effect === "unknown"
+                ? `${outcome.message} The write may still have been applied: check ${MCP_SCRIPT_STATUS_TOOL} for this run before calling it again.`
+                : outcome.message,
               startedAt,
             );
           case "unknown-tool":

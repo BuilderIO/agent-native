@@ -7,6 +7,7 @@ import type { McpActionCallOutcome } from "./execute-action-call.js";
 import {
   MCP_SCRIPT_LIMITS,
   MCP_SCRIPT_SEARCH_TOOL,
+  MCP_SCRIPT_STATUS_TOOL,
   type McpScriptDenial,
   type McpScriptRunPayload,
   buildMcpScriptCatalog,
@@ -970,6 +971,31 @@ describe("runMcpScript", () => {
     expect(payload.calls.map((call) => call.function)).toEqual([
       "password=hunter2-secret",
       "notAvailable",
+    ]);
+  });
+
+  it("records a refused call's arguments as its action allows, when scripts can't call it too", async () => {
+    const { run, denials } = runner(
+      { "get-document": entry() },
+      {
+        known: {
+          "get-document": entry(),
+          "save-secret": entry({
+            readOnly: false,
+            mcpScript: undefined,
+            persistInChatHistory: false,
+          }),
+          "save-note": entry({ readOnly: false, mcpScript: undefined }),
+        },
+      },
+    );
+    await run(`
+      try { await api.saveSecret({ secret: "s" }); } catch {}
+      try { await api.saveNote({ note: "n" }); } catch {}
+    `);
+    expect(denials.map((denial) => [denial.action, denial.args])).toEqual([
+      ["save-secret", undefined],
+      ["save-note", { note: "n" }],
     ]);
   });
 
@@ -2177,6 +2203,44 @@ describe("script writes", () => {
     ]);
   });
 
+  it("tells a script a failed write may still have been applied", async () => {
+    const { writes } = fakeGate();
+    const outcomes: McpActionCallOutcome[] = [
+      {
+        status: "failed",
+        stage: "action",
+        message: "The action timed out.",
+        errorCode: "timeout",
+        effect: "unknown",
+      },
+      {
+        status: "failed",
+        stage: "action",
+        message: "Not found.",
+        errorCode: "not_found",
+        effect: "none",
+      },
+    ];
+    const { run } = writeRunner(
+      { "save-doc": writeEntry() },
+      writes,
+      async () => outcomes.shift()!,
+    );
+    const payload = await run(`
+      const seen = [];
+      for (let i = 0; i < 2; i++) {
+        try { await api.saveDoc({ id: "doc_" + i }); } catch (error) {
+          seen.push(error.code + ": " + error.message);
+        }
+      }
+      return seen;
+    `);
+    expect(payload.result).toEqual([
+      `timeout: The action timed out. The write may still have been applied: check ${MCP_SCRIPT_STATUS_TOOL} for this run before calling it again.`,
+      "not_found: Not found.",
+    ]);
+  });
+
   it("refuses a write the gate refuses, without running it", async () => {
     const { writes, settled, ledgerDenials } = fakeGate(async () => ({
       status: "refused",
@@ -2268,7 +2332,7 @@ describe("script writes", () => {
   });
 
   it("records a denied call in the run's ledger at its place in the run", async () => {
-    const { writes, ledgerDenials, ledgerNames } = fakeGate();
+    const { writes, ledgerDenials, ledgerNames, ledgerArgs } = fakeGate();
     const { run } = writeRunner(
       { "save-doc": writeEntry(), "get-doc": entry() },
       writes,
@@ -2276,12 +2340,14 @@ describe("script writes", () => {
     );
     await run(`
       await api.getDoc({});
-      try { await __host.call("deleteAll", {}); } catch {}
+      try { await __host.call("deleteAll", { id: "doc_1" }); } catch {}
       return null;
     `);
     expect(ledgerDenials).toEqual([{ seq: 1, reason: "unknown-function" }]);
-    // A call to no action keeps a fixed name, as in the audit log.
+    // A call to no action keeps a fixed name, as in the audit log, and no
+    // arguments, since no action's settings allow them.
     expect(ledgerNames).toEqual(["(unknown)"]);
+    expect(ledgerArgs).toEqual([undefined]);
   });
 
   it("settles a write still in flight when the script times out", async () => {

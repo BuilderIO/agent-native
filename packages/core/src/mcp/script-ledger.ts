@@ -495,9 +495,11 @@ export async function listScriptRunCalls(
 }
 
 /**
- * Clears every row's arguments a week on, and deletes settled rows and
- * delivered outbox items past retention. An unsettled write is kept until
- * recovery settles it, which needs only its receipt locator.
+ * Clears every row's arguments a week on, deletes outbox items a week after
+ * delivery, and deletes settled rows past retention. An unsettled write is
+ * kept until recovery settles it, which needs only its receipt locator. An
+ * audit row not yet delivered is kept with its input, as its action's audit
+ * settings recorded it, until it is delivered.
  */
 export async function pruneScriptLedger(now = Date.now()): Promise<void> {
   await ensureScriptLedgerTables();
@@ -507,10 +509,12 @@ export async function pruneScriptLedger(now = Date.now()): Promise<void> {
       WHERE call_arguments IS NOT NULL AND created_at < ?`,
     args: [now - ARGUMENT_RETENTION_MS],
   });
+  // A delivered item is a copy of what the audit log and change feed now
+  // hold; delivered again after this, an audit row is still written once.
   await client.execute({
     sql: `DELETE FROM mcp_script_outbox
       WHERE delivered_at IS NOT NULL AND delivered_at < ?`,
-    args: [now - SCRIPT_LEDGER_RETENTION_MS],
+    args: [now - ARGUMENT_RETENTION_MS],
   });
   await client.execute({
     sql: `DELETE FROM mcp_script_calls

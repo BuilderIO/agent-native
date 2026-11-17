@@ -737,11 +737,22 @@ describe("createScriptWriteGate", () => {
         },
       ),
     );
-    await writes.begin(call(2, { key: "c", rows: 1 }));
+    await writes.begin(
+      call(
+        2,
+        { key: "c", rows: 1 },
+        {
+          ...writeEntry(),
+          audit: { enabled: false },
+        },
+      ),
+    );
+    await writes.begin(call(3, { key: "d", rows: 1 }));
     expect((await rows()).map((row) => row.call_arguments)).toEqual([
       null,
       null,
-      expect.stringContaining('"c"'),
+      null,
+      expect.stringContaining('"d"'),
     ]);
   });
 
@@ -1084,6 +1095,29 @@ describe("recoverScriptWrites", () => {
     ]);
   });
 
+  it("asks an unclear write's receipt in its run as the person who made the call", async () => {
+    const seen: (string | undefined)[] = [];
+    const writes = gate();
+    const begun = await writes.begin(
+      call(
+        0,
+        { key: "a", rows: 1 },
+        writeEntry({
+          reconcile: async () => {
+            seen.push(getRequestUserEmail());
+            return { status: "absent" };
+          },
+        }),
+      ),
+    );
+    if (begun.status !== "go") throw new Error("expected go");
+    // Settled from wherever the script's call returns, whoever that is.
+    await runWithRequestContext({ userEmail: "eve@example.com" }, () =>
+      writes.settle(begun.ticket, unclear, { status: "failed" }),
+    );
+    expect(seen).toEqual(["ada@example.com"]);
+  });
+
   it("reaches a write it can settle behind a batch it never can", async () => {
     const writes = gate();
     for (let seq = 0; seq < 50; seq += 1) {
@@ -1182,6 +1216,29 @@ describe("pruneScriptLedger", () => {
     ]);
     await pruneScriptLedger(T0 + SCRIPT_LEDGER_RETENTION_MS + 1);
     expect((await rows()).map((row) => row.seq)).toEqual([1]);
+  });
+
+  it("deletes outbox items a week after delivery, and keeps an audit row not yet delivered", async () => {
+    const writes = gate();
+    const sent = await writes.begin(call(0, { key: "a", rows: 1 }));
+    const stuck = await writes.begin(call(1, { key: "b", rows: 1 }));
+    if (sent.status !== "go" || stuck.status !== "go") {
+      throw new Error("expected go");
+    }
+    await writes.settle(sent.ticket, committed, { status: "completed" });
+    audits.insert.mockRejectedValue(new Error("audit table locked"));
+    await writes.settle(stuck.ticket, committed, { status: "completed" });
+    const items = async () =>
+      (await outbox()).map((item) => `${item.seq} ${item.kind}`);
+    await pruneScriptLedger(T0 + 6 * 24 * 60 * 60_000);
+    expect(await items()).toEqual([
+      "0 audit",
+      "0 change",
+      "1 audit",
+      "1 change",
+    ]);
+    await pruneScriptLedger(T0 + 8 * 24 * 60 * 60_000);
+    expect(await items()).toEqual(["1 audit"]);
   });
 });
 
