@@ -3,6 +3,7 @@ import {
   agentNativePath,
   appApiPath,
 } from "@agent-native/core/client/api-path";
+import type { RecorderStage } from "@shared/recorder-stage";
 
 interface UploadChunkRequestOptions {
   url: string;
@@ -78,7 +79,14 @@ export function fetchUploadStatus(
  */
 export function postUploadAbort(
   abortUrl: string,
-  body: { reason: string; failureCode: string; httpStatus?: number },
+  body: {
+    reason: string;
+    failureCode: string;
+    httpStatus?: number;
+    recorderStage?: RecorderStage;
+    attemptId?: string;
+    uploadGenerationId?: string;
+  },
 ): Promise<Response> {
   return fetch(abortUrl, {
     method: "POST",

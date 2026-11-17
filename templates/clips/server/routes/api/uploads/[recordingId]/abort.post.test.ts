@@ -589,6 +589,39 @@ describe("/api/uploads/:recordingId/abort route", () => {
     expect(JSON.stringify(mockUpdateSets)).not.toContain("<!DOCTYPE html>");
   });
 
+  it("reports the stage a take was abandoned in", async () => {
+    mockReadBody.mockResolvedValue({
+      reason: "The recorder page closed before the recording finished saving.",
+      failureCode: "recording_interrupted",
+      recorderStage: "pickingSources",
+    });
+
+    await handler({} as Parameters<typeof handler>[0]);
+
+    expect(mockTrack).toHaveBeenCalledTimes(1);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_failed",
+      expect.objectContaining({
+        failure_code: "recording_interrupted",
+        recorder_stage: "pickingSources",
+      }),
+      { userId: "owner@example.com" },
+    );
+  });
+
+  it("leaves out a stage it cannot read", async () => {
+    mockReadBody.mockResolvedValue({
+      failureCode: "recording_interrupted",
+      recorderStage: "tab-closed",
+    });
+
+    await handler({} as Parameters<typeof handler>[0]);
+
+    const props = mockTrack.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(props.failure_code).toBe("recording_interrupted");
+    expect(props).not.toHaveProperty("recorder_stage");
+  });
+
   it("keeps HTML responses classified when the abort payload has no useful code", async () => {
     mockReadBody.mockResolvedValue({
       reason: "Upload failed: <!DOCTYPE html><html>",

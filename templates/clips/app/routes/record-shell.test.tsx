@@ -25,6 +25,7 @@ import {
   RecorderRouteStatus,
   RecordingErrorCard,
   RecordingLeaveChoices,
+  releasedCaptureCleanup,
   shouldPreserveFirstRunStorageSetupIntent,
   shouldRequestStorageSetup,
   shouldRedirectToStorageSetupHome,
@@ -1274,5 +1275,23 @@ describe("record route lifecycle shell", () => {
     expect(source).not.toContain('from "@agent-native/core/application-state"');
     expect(source).toContain("async function writeAppState");
     expect(source).toContain("/_agent-native/application-state/");
+  });
+});
+
+describe("releasing the recorder on close or leave", () => {
+  it("aborts and discards the row of a take closed during its countdown", () => {
+    expect(releasedCaptureCleanup("pickingSources", false)).toBe(
+      "abort-and-discard",
+    );
+  });
+
+  it("aborts, but keeps, a recording that has unsaved data", () => {
+    expect(releasedCaptureCleanup("recording", true)).toBe("abort");
+    expect(releasedCaptureCleanup("uploading", true)).toBe("abort");
+  });
+
+  it("leaves a saved recording alone", () => {
+    expect(releasedCaptureCleanup("complete", false)).toBe("none");
+    expect(releasedCaptureCleanup("idle", false)).toBe("none");
   });
 });
