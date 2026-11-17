@@ -3,7 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { eq, lt } from "drizzle-orm";
 import { bigint, pgTable, text } from "drizzle-orm/pg-core";
 
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import { sql } from "../db/sql.js";
 import { defineStore } from "../db/store-registry.js";
@@ -99,13 +99,23 @@ export async function mintMcpTurnGrant(
   let minted: boolean;
   try {
     await mcpTurnGrantsStore.ready();
-    // The cap counts in the statement that inserts, so concurrent mints from
-    // one owner cannot all pass it.
-    const { rows } = await getDbExec().execute(sql`
-      INSERT INTO mcp_turn_grants (grant_hash, owner_email, app_id, created_at, expires_at)
-      SELECT ${sql.value(grantHash(grantId))}, ${sql.value(owner)}, ${sql.value(appId)}, ${sql.value(createdAt)}, ${sql.value(createdAt + MCP_TURN_GRANT_TTL_MS)}
-      WHERE (SELECT count(*) FROM mcp_turn_grants WHERE owner_email = ${sql.value(owner)} AND created_at > ${sql.value(createdAt - GRANT_MINT_WINDOW_MS)}) < ${sql.value(GRANT_MINT_CAP)}
-      RETURNING grant_hash`);
+    // The owner's advisory lock serializes mints, and the count runs in a
+    // statement that starts after the lock is held, so concurrent mints from
+    // one owner cannot all pass the cap.
+    const insertWithinCap = async (exec: DbExec) => {
+      await exec.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${sql.value(owner)}))`,
+      );
+      return exec.execute(sql`
+        INSERT INTO mcp_turn_grants (grant_hash, owner_email, app_id, created_at, expires_at)
+        SELECT ${sql.value(grantHash(grantId))}, ${sql.value(owner)}, ${sql.value(appId)}, ${sql.value(createdAt)}, ${sql.value(createdAt + MCP_TURN_GRANT_TTL_MS)}
+        WHERE (SELECT count(*) FROM mcp_turn_grants WHERE owner_email = ${sql.value(owner)} AND created_at > ${sql.value(createdAt - GRANT_MINT_WINDOW_MS)}) < ${sql.value(GRANT_MINT_CAP)}
+        RETURNING grant_hash`);
+    };
+    const exec = getDbExec();
+    const { rows } = exec.transaction
+      ? await exec.transaction(insertWithinCap)
+      : await insertWithinCap(exec);
     minted = rows.length === 1;
   } catch {
     throw new TurnGrantUnavailableError();

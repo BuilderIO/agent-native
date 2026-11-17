@@ -676,7 +676,10 @@ function HouseRow({
                 disabled={disabled}
                 onChange={(event) => {
                   const raw = event.currentTarget.value;
-                  writeBinding(row.binding, raw === "" ? null : Number(raw));
+                  void writeBinding(
+                    row.binding,
+                    raw === "" ? null : Number(raw),
+                  );
                 }}
               />
             </ControlTag>
@@ -704,7 +707,7 @@ function HouseRow({
               ...optional("disabled", option.disabled),
               icon: option.icon,
             }))}
-            onChange={(value) => writeBinding(row.binding, value)}
+            onChange={(value) => void writeBinding(row.binding, value)}
           />
         </ControlTag>
       );
@@ -776,7 +779,7 @@ function HouseRow({
                     `${row.id}.${option.value}`,
                     "settings.row.option",
                   )}
-                  onClick={() => writeBinding(row.binding, option.value)}
+                  onClick={() => void writeBinding(row.binding, option.value)}
                   className={cn(
                     "rounded-md text-start text-sm",
                     cards
@@ -1132,7 +1135,7 @@ function toggleOption(
   const next = checked
     ? [...new Set([...row.binding.value, value])]
     : row.binding.value.filter((current) => current !== value);
-  write(row.binding, next);
+  void write(row.binding, next);
 }
 
 function OptionGrid({
@@ -1398,9 +1401,16 @@ function CellText({
 }) {
   const write = useBindingWrite(rid);
   const [draft, setDraft] = useState<string | null>(null);
+  // A failed write keeps the draft, so the user can retry without retyping.
   const flush = () => {
-    if (draft !== null && draft !== binding.value) write(binding, draft);
-    setDraft(null);
+    if (draft === null) return;
+    if (draft === binding.value) {
+      setDraft(null);
+      return;
+    }
+    void write(binding, draft).then((saved) => {
+      if (saved) setDraft((current) => (current === draft ? null : current));
+    });
   };
   return (
     <TextField
@@ -1487,7 +1497,7 @@ function CollectionCell({
           aria-label={cell.label}
           checked={cell.binding.value}
           disabled={locked}
-          onChange={(checked) => write(cell.binding, checked)}
+          onChange={(checked) => void write(cell.binding, checked)}
         />
       </span>
     );
@@ -1514,7 +1524,7 @@ function CollectionCell({
           ...optional("disabled", option.disabled),
         }))}
         onChange={(value) => {
-          if (value !== null) write(cell.binding, value);
+          if (value !== null) void write(cell.binding, value);
         }}
       />
     </span>

@@ -1514,10 +1514,10 @@ export function defineAction(options: any) {
   if (
     options.userTurn === "approval" &&
     options.requiresUserTurn !== true &&
-    options.needsApproval === undefined
+    (options.needsApproval === undefined || options.needsApproval === false)
   ) {
     throw new Error(
-      'defineAction: userTurn: "approval" needs needsApproval or requiresUserTurn; otherwise a call without an admitted grant would run the write unattended.',
+      'defineAction: userTurn: "approval" needs needsApproval (not false) or requiresUserTurn; otherwise a call without an admitted grant would run the write unattended.',
     );
   }
 

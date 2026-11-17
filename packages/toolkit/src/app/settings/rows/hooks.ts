@@ -373,25 +373,26 @@ export function useSettingsWriteError(id: string): string | null {
 
 /**
  * Writes a binding for a control that has no confirmation of its own, and
- * reports a rejection on the row instead of dropping it.
+ * reports a rejection on the row instead of dropping it. Resolves `true` when
+ * the write landed.
  */
 export function useBindingWrite(
   id: string,
-): <Value>(binding: SettingsBinding<Value>, value: Value) => void {
+): <Value>(binding: SettingsBinding<Value>, value: Value) => Promise<boolean> {
   const store = useContext(WriteErrors);
   return useCallback(
-    (binding, value) => {
+    async (binding, value) => {
       store?.report(id, null);
-      void (async () => {
-        try {
-          await binding.set?.(value);
-        } catch (cause) {
-          store?.report(
-            id,
-            cause instanceof Error ? cause.message : String(cause),
-          );
-        }
-      })();
+      try {
+        await binding.set?.(value);
+        return true;
+      } catch (cause) {
+        store?.report(
+          id,
+          cause instanceof Error ? cause.message : String(cause),
+        );
+        return false;
+      }
     },
     [id, store],
   );

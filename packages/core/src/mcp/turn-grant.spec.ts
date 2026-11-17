@@ -310,7 +310,15 @@ it("rejects an approval user turn that nothing would ask the person to approve",
       userTurn: "approval",
       run: () => null,
     }),
-  ).toThrow(/needsApproval or requiresUserTurn/);
+  ).toThrow(/needsApproval \(not false\) or requiresUserTurn/);
+  expect(() =>
+    defineAction({
+      description: "Opted-out write",
+      userTurn: "approval",
+      needsApproval: false,
+      run: () => null,
+    }),
+  ).toThrow(/needsApproval \(not false\) or requiresUserTurn/);
 });
 
 it("a proven page mints an opaque grant and stores only its hash", async () => {
