@@ -1,5 +1,4 @@
 import { defineAction, embedApp } from "@agent-native/core";
-import type { ActionRunContext } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -20,7 +19,7 @@ import {
   verifyPanelWrite,
   type PanelVerification,
   type PanelWriteVerdict,
-  outsideAgentVerificationBudget,
+  withOutsideAgentVerificationBudget,
 } from "../server/lib/dashboard-panel-verification";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
@@ -134,6 +133,8 @@ function withFirstPartyDashboardFilters(
   return { ...config, filters };
 }
 
+const budgetedRun = withOutsideAgentVerificationBudget("compose-dashboard");
+
 export default defineAction({
   description:
     "Build a large first-party analytics dashboard in ONE fast call: name the metrics you want and the SERVER generates the validated SQL + chart config for every panel. " +
@@ -200,14 +201,12 @@ export default defineAction({
   // adds nothing. Overwrite and refreshExisting replace panels with no revision
   // fence, so a replay could erase an edit made between calls.
   retrySafe: (input) => !input.overwrite && !input.refreshExisting,
-  run: async (args, actionContext?: ActionRunContext) => {
+  run: budgetedRun(async (args, actionContext, verificationBudget) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
     const ctx = { email, orgId: getRequestOrgId() || null };
     const agentCaller = isAgentCaller(actionContext?.caller);
     const verificationMemo = new Map<string, PanelVerification>();
-    const verificationBudget =
-      outsideAgentVerificationBudget("compose-dashboard");
     let verdict: PanelWriteVerdict | null = null;
 
     const rawMetrics: unknown[] = Array.isArray(args.metrics)
@@ -597,7 +596,7 @@ export default defineAction({
       }),
       message: annotateSummary(parts.join("; ") + ".", verdict),
     };
-  },
+  }),
   link: ({ result }) => {
     const dashboardId =
       result && typeof result === "object"

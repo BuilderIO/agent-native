@@ -427,6 +427,143 @@ describe("dashboard writes over MCP report their verification jobs' cost", () =>
   });
 });
 
+describe("a paid verification is reported however the MCP write then ends", () => {
+  const SPEND =
+    "BigQuery jobs this call ran against your outside-agent budget: 1, reserved ";
+  const update = (extra: Record<string, unknown>) =>
+    actions.update.run(
+      {
+        dashboardId: "d1",
+        expectedUpdatedAt: SEED_AT,
+        idempotencyKey: newKey(),
+        ...extra,
+      },
+      MCP,
+    );
+
+  /** Another writer saves the dashboard while this call's job is settling. */
+  function anotherWriterSavesDuringVerification() {
+    budget.settle.mockImplementationOnce(async () => {
+      const { eq } = await import("drizzle-orm");
+      await harness.db
+        .update(schema.dashboards)
+        .set({ updatedAt: "2026-11-17T00:01:00.000Z" })
+        .where(eq(schema.dashboards.id, "d1"));
+      return true;
+    });
+  }
+
+  it.each([
+    [
+      "update-dashboard with ops",
+      () =>
+        update({
+          ops: [{ op: "insert", path: "/panels/1", value: panel("b") }],
+        }),
+    ],
+    [
+      "update-dashboard with a config",
+      () => update({ config: config("Traffic", ["a", "b"]) }),
+    ],
+    [
+      "mutate-dashboard",
+      () =>
+        actions.mutate.run(
+          {
+            dashboardId: "d1",
+            operations: [{ op: "insertPanel", panel: panel("b") }],
+            expectedUpdatedAt: SEED_AT,
+            idempotencyKey: newKey(),
+          },
+          MCP,
+        ),
+    ],
+    [
+      "compose-dashboard",
+      () =>
+        actions.compose.run(
+          {
+            dashboardId: "d1",
+            metrics: ["total-signups"],
+            expectedUpdatedAt: SEED_AT,
+            idempotencyKey: newKey(),
+          },
+          MCP,
+        ),
+    ],
+  ])(
+    "%s keeps its conflict and names the spend when another save lands during verification",
+    async (_label, write) => {
+      await seedDashboard("d1", ["a"]);
+      anotherWriterSavesDuringVerification();
+      const error = await write().catch((caught: unknown) => caught);
+      expect(budget.admit).toHaveBeenCalledTimes(1);
+      expect(error).toMatchObject({
+        statusCode: 409,
+        errorCode: "dashboard_conflict",
+      });
+      const message = (error as Error).message;
+      expect(message).toMatch(/^Dashboard "d1" .*changed/);
+      expect(message).toContain(SPEND);
+      expect(message).toMatch(/Left today: .*00:00 UTC/);
+    },
+  );
+
+  it("returns the spend with the receipt when a duplicate under the same key saved first", async () => {
+    await seedDashboard("d1", ["a"]);
+    const ops = [{ op: "insert", path: "/panels/1", value: panel("b") }];
+    const idempotencyKey = newKey();
+    budget.settle.mockImplementationOnce(async () => {
+      const { guardWrite } = await import("../server/lib/guarded-writes");
+      const { upsertDashboardWithRetryOutcome } =
+        await import("../server/lib/dashboards-store");
+      const scope = { email: ALICE, orgId: null };
+      const duplicate = guardWrite({
+        action: "update-dashboard",
+        target: { kind: "dashboard", id: "d1" },
+        caller: "mcp",
+        scope,
+        idempotencyKey,
+        expectedUpdatedAt: SEED_AT,
+        request: {
+          ops,
+          panelOrder: null,
+          config: null,
+          allowEmptyResult: false,
+        },
+      });
+      await upsertDashboardWithRetryOutcome(
+        "d1",
+        scope,
+        () => ({ kind: "sql", body: config("Traffic", ["a", "b"]) }),
+        undefined,
+        duplicate.store,
+      );
+      return true;
+    });
+    const result = await actions.update.run(
+      { dashboardId: "d1", ops, expectedUpdatedAt: SEED_AT, idempotencyKey },
+      MCP,
+    );
+    expect(result).toMatchObject({
+      replayed: true,
+      writeReceipt: { idempotency: { result: "replayed" } },
+    });
+    expectOneJob(result, "update-dashboard");
+  });
+
+  it("leaves a failure before any job unchanged", async () => {
+    await seedDashboard("d1", ["a"]);
+    const error = await update({
+      config: config("Traffic", ["a", "b"]),
+      expectedUpdatedAt: "2026-11-01T00:00:00.000Z",
+    }).catch((caught: unknown) => caught);
+    expect(budget.admit).not.toHaveBeenCalled();
+    expect(error).toMatchObject({ statusCode: 409 });
+    expect((error as Error).message).not.toContain("BigQuery");
+  });
+});
+
 describe("in-app dashboard writes are unchanged", () => {
   it("update-dashboard and inspect-dashboard-panel admit nothing and report no budget", async () => {
     await seedDashboard("d1", ["a"]);

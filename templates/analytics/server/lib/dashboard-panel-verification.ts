@@ -39,7 +39,7 @@ import { dryRunQuerySchema, type DryRunQueryResult } from "./bigquery";
 import { outsideAgentIdentity } from "./bigquery-agent-budget";
 import {
   createOutsideAgentBigQueryCall,
-  describeOutsideAgentBigQueryReport,
+  reportOutsideAgentBigQueryCall,
   runOutsideAgentBigQueryCall,
   type OutsideAgentBigQueryCall,
   type OutsideAgentBigQueryCallOptions,
@@ -899,16 +899,31 @@ function outsideAgentVerificationGate(
 }
 
 /**
- * The budget one dashboard-writing tool call verifies under: for an outside
- * agent (MCP), every verification in the call, retries included, admits its
- * jobs through one gate, so the verdict reports the whole call. Null for
- * every other caller, whose results stay unchanged.
+ * Wraps a dashboard-writing tool's `run`, giving each call the budget its
+ * verifications share. For an outside agent (MCP), every verification in the
+ * call, retries included, admits its jobs through one gate, and once one was
+ * admitted every way the call ends reports them: a save conflict, a store
+ * error or a replay as much as a verdict. The budget is null for every other
+ * caller, whose results stay unchanged.
  */
-export function outsideAgentVerificationBudget(
-  source: string,
-): OutsideAgentBigQueryCall | null {
-  const options = outsideAgentVerificationGate(source);
-  return options ? createOutsideAgentBigQueryCall(options) : null;
+export function withOutsideAgentVerificationBudget(source: string) {
+  return <A, C, R extends object>(
+    run: (
+      args: A,
+      context: C,
+      budget: OutsideAgentBigQueryCall | null,
+    ) => Promise<R>,
+  ) =>
+    (
+      args: A,
+      context: C,
+    ): Promise<R & { bigQueryBudget?: OutsideAgentBigQueryReport }> => {
+      const options = outsideAgentVerificationGate(source);
+      const budget = options ? createOutsideAgentBigQueryCall(options) : null;
+      return reportOutsideAgentBigQueryCall(budget, () =>
+        run(args, context, budget),
+      );
+    };
 }
 
 /**
@@ -1377,7 +1392,7 @@ export interface PanelWriteGateOptions {
   dashboardId?: string;
   /** See VerifyOptions: render verification still runs on these panels. */
   serverAuthoredPanelIds?: ReadonlySet<string>;
-  /** The call's `outsideAgentVerificationBudget`, shared by every verification in the call. */
+  /** The budget `withOutsideAgentVerificationBudget` gave the call, shared by every verification in it. */
   budget?: OutsideAgentBigQueryCall | null;
 }
 
@@ -1450,23 +1465,15 @@ export async function verifyPanelWrite(
   );
   if (blockers.length > 0 && options.mode !== "report") {
     stopEstimate.abort();
-    // The caller sees only this message, so it names what the check spent.
-    fail(
-      [
-        formatVerificationFailure(blockers),
-        ...(bigQueryBudget && bigQueryBudget.jobs.length > 0
-          ? [describeOutsideAgentBigQueryReport(bigQueryBudget)]
-          : []),
-      ].join(" "),
-      {
-        errorCode: "dashboard_panel_verification_failed",
-        statusCode: 422,
-        details: {
-          verification,
-          ...(bigQueryBudget ? { bigQueryBudget } : {}),
-        },
+    // `withOutsideAgentVerificationBudget` appends what the check spent.
+    fail(formatVerificationFailure(blockers), {
+      errorCode: "dashboard_panel_verification_failed",
+      statusCode: 422,
+      details: {
+        verification,
+        ...(bigQueryBudget ? { bigQueryBudget } : {}),
       },
-    );
+    });
   }
 
   const attention = verification.panels.filter(

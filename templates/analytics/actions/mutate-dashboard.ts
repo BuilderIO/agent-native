@@ -28,7 +28,7 @@ import {
   verifyPanelWrite,
   type PanelVerification,
   type PanelWriteVerdict,
-  outsideAgentVerificationBudget,
+  withOutsideAgentVerificationBudget,
 } from "../server/lib/dashboard-panel-verification";
 import {
   getDashboard,
@@ -484,6 +484,8 @@ function helpResult() {
   };
 }
 
+const budgetedRun = withOutsideAgentVerificationBudget("mutate-dashboard");
+
 export default defineAction({
   searchHints: ["add a chart", "add a panel", "edit a chart", "remove a chart"],
   description:
@@ -549,7 +551,7 @@ export default defineAction({
   // A replayed insert or duplicate fails on the existing id, a replayed remove
   // fails on the missing id, and every move, patch, and filter default is an end state.
   retrySafe: true,
-  run: async (args, actionContext) => {
+  run: budgetedRun(async (args, actionContext, verificationBudget) => {
     const code = nonEmptyCode(args.code);
     const requestedOperations = nonEmptyOperations(args.operations);
     const wantsHelpOnly =
@@ -573,8 +575,6 @@ export default defineAction({
     const ctx = { email: scope.email, orgId: scope.orgId };
     const agentCaller = isAgentCaller(actionContext?.caller);
     const verificationMemo = new Map<string, PanelVerification>();
-    const verificationBudget =
-      outsideAgentVerificationBudget("mutate-dashboard");
     const guard = guardWrite({
       action: "mutate-dashboard",
       target: { kind: "dashboard", id: dashboardId },
@@ -838,7 +838,7 @@ export default defineAction({
           ? ""
           : "Full config omitted; call get-sql-dashboard with panelIds for a panel's SQL and config (includeConfig=true only to review the whole dashboard)."),
     };
-  },
+  }),
   link: ({ result }) => {
     const dashboardId =
       result && typeof result === "object"

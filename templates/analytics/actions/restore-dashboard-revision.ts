@@ -13,7 +13,7 @@ import {
   verdictFields,
   verifyPanelWrite,
   type PanelWriteVerdict,
-  outsideAgentVerificationBudget,
+  withOutsideAgentVerificationBudget,
 } from "../server/lib/dashboard-panel-verification";
 import {
   getDashboard,
@@ -34,6 +34,10 @@ function resolveScope() {
   return { orgId, email };
 }
 
+const budgetedRun = withOutsideAgentVerificationBudget(
+  "restore-dashboard-revision",
+);
+
 export default defineAction({
   description:
     "Restore a dashboard to a saved history revision from list-dashboard-revisions, snapshotting the current dashboard first so the restore can itself be undone.",
@@ -45,7 +49,7 @@ export default defineAction({
   }),
   http: { method: "POST" },
   mcpTool: true,
-  run: async (args, actionContext) => {
+  run: budgetedRun(async (args, actionContext, verificationBudget) => {
     const ctx = resolveScope();
     const guard = guardWrite({
       action: "restore-dashboard-revision",
@@ -109,9 +113,6 @@ export default defineAction({
     // what no longer renders, or that it could not check, instead of refusing.
     let verdict: PanelWriteVerdict | null = null;
     if (isAgentCaller(actionContext?.caller) && dashboard.kind === "sql") {
-      const verificationBudget = outsideAgentVerificationBudget(
-        "restore-dashboard-revision",
-      );
       try {
         verdict = await verifyPanelWrite({
           base: before?.kind === "sql" ? before.config : null,
@@ -156,5 +157,5 @@ export default defineAction({
         verdict,
       ),
     };
-  },
+  }),
 });

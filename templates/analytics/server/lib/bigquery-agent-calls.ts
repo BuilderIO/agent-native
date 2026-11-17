@@ -192,6 +192,46 @@ export function createOutsideAgentBigQueryCall(
 }
 
 /**
+ * Ends a tool call whose jobs `call` admits, on whichever path it ends. Once
+ * it has admitted a job, a result carries the call's `bigQueryBudget`, and a
+ * failure keeps its class, status and code but names the spend in its
+ * message, which is all an MCP client sees. With no call, or no job admitted,
+ * it ends exactly as `work` did.
+ */
+export async function reportOutsideAgentBigQueryCall<T extends object>(
+  call: OutsideAgentBigQueryCall | null,
+  work: () => Promise<T>,
+): Promise<T & { bigQueryBudget?: OutsideAgentBigQueryReport }> {
+  if (!call) return work();
+  let value: T;
+  try {
+    value = await work();
+  } catch (error) {
+    if (call.gate.summary().jobsAdmitted > 0) {
+      appendToMessage(
+        error,
+        describeOutsideAgentBigQueryReport(await call.report()),
+      );
+    }
+    throw error;
+  }
+  if (call.gate.summary().jobsAdmitted === 0) return value;
+  return { ...value, bigQueryBudget: await call.report() };
+}
+
+/** In place, so whatever reads the failure's class or fields still sees them. */
+function appendToMessage(error: unknown, sentence: string): void {
+  if (!(error instanceof Error)) return;
+  const own = Object.getOwnPropertyDescriptor(error, "message");
+  if (own ? !own.configurable : !Object.isExtensible(error)) return;
+  Object.defineProperty(error, "message", {
+    value: `${error.message} ${sentence}`,
+    writable: true,
+    configurable: true,
+  });
+}
+
+/**
  * Runs an outside agent's tool call with every BigQuery job it starts
  * admitted against the daily budgets. A refused job surfaces as the refusal,
  * whatever the code under it made of the error.
