@@ -1187,10 +1187,12 @@ const requestTranscriptAction = defineAction({
       : undefined;
 
     const currentRetryCount = existingNativeTranscript?.retryCount ?? 0;
-    const regeneratingReadyTranscript = Boolean(
-      args.regenerate &&
+    const hasReadyTranscriptText = Boolean(
       existingNativeTranscript?.status === "ready" &&
       existingNativeTranscript.fullText?.trim(),
+    );
+    const regeneratingReadyTranscript = Boolean(
+      args.regenerate && hasReadyTranscriptText,
     );
     const regeneratingFrom: StartedFromTranscript | undefined =
       regeneratingReadyTranscript
@@ -1402,10 +1404,11 @@ const requestTranscriptAction = defineAction({
             provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
             failureReason: "Builder transcription returned no speech.",
           });
-          // The provider answered; there was nothing to say. A regenerate must
-          // not replace a transcript that has text with an empty one, so it
-          // falls through to keep the existing transcript.
-          if (!regeneratingReadyTranscript) {
+          // The provider answered; there was nothing to say. A transcript that
+          // already has text, whether regenerated or retried as language
+          // mismatched, is never replaced with an empty one: it falls through
+          // to keep the existing transcript.
+          if (!hasReadyTranscriptText) {
             const kept = await writeTranscriptOrKeepImport(db, {
               recordingId: args.recordingId,
               ownerEmail,

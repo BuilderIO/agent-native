@@ -1228,6 +1228,57 @@ describe("requestTranscript regeneration", () => {
     expect(mockUpdateSet).not.toHaveBeenCalled();
   });
 
+  it("keeps a language-mismatched ready transcript when its retry finds no speech", async () => {
+    mockTranscribeWithBuilder.mockResolvedValue({
+      text: "",
+      language: "en",
+      segments: [],
+    });
+    const mismatched = {
+      status: "ready",
+      fullText: "这是一个用于测试的转录文本内容",
+      segmentsJson: "[]",
+      language: "en",
+    };
+    mockSelectRows.queue = [
+      [{ ...mismatched, updatedAt: "2026-07-09T00:00:00.000Z", retryCount: 0 }],
+      [{ recordingId: "rec_mismatch" }],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [mismatched],
+      [mismatched],
+      [{ title: "Human title", titleSource: "manual", durationMs: 1200 }],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_mismatch",
+      force: true,
+    });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_mismatch",
+      status: "ready",
+      provider: "existing",
+      preserved: true,
+    });
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ fullText: "" }),
+    );
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
   it("keeps a still-running transcription marked live instead of going stale", async () => {
     vi.useFakeTimers();
     try {
