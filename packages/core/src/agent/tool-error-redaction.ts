@@ -99,7 +99,7 @@ function redactWalk(
 }
 
 // The prefix names the tool, and a tool called `create_token` is not a field.
-const TOOL_ERROR_PREFIX = /^Error running [^\s:]+:\s*/;
+const TOOL_ERROR_PREFIX = /^Error running [^\s:]+:(?=\s|$)\s*/;
 
 export function sanitizeToolErrorText(value: string): string {
   const prefix = TOOL_ERROR_PREFIX.exec(value)?.[0] ?? "";
