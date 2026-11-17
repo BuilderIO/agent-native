@@ -676,6 +676,33 @@ describe("run manager soft timeout", () => {
     await run.finalized;
   });
 
+  it("keeps renewing the lease when earlier renewals never settle", async () => {
+    vi.mocked(renewTurnExecutionLease).mockClear();
+    vi.mocked(renewTurnExecutionLease)
+      .mockReturnValueOnce(new Promise<void>(() => {}))
+      .mockReturnValueOnce(new Promise<void>(() => {}));
+    const run = startRun(
+      "run-hung-renewals",
+      "thread-hung-renewals",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+
+    await vi.advanceTimersByTimeAsync(14_000);
+
+    expect(
+      vi.mocked(renewTurnExecutionLease).mock.calls.length,
+    ).toBeGreaterThanOrEqual(3);
+
+    abortRun(run.runId, "user");
+    await run.finalized;
+  });
+
   it("does not start a run when an execution lease returns no fence", async () => {
     vi.mocked(claimTurnExecutionLease).mockResolvedValueOnce(
       undefined as never,

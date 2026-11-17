@@ -177,6 +177,8 @@ const CLEANUP_DELAY_MS = 5 * 60 * 1000;
 
 const HEARTBEAT_ATTEMPT_DEADLINE_MS = 5_000;
 
+const HEARTBEAT_ATTEMPT_ABANDON_MS = 2 * HEARTBEAT_ATTEMPT_DEADLINE_MS;
+
 const MAX_PENDING_HEARTBEATS = 2;
 
 export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 40_000;
@@ -1825,6 +1827,18 @@ export function startRun(
       const releaseStuckHeartbeat = setTimeout(() => {
         if (heartbeatAttempt === attempt) heartbeatInFlight = false;
       }, HEARTBEAT_ATTEMPT_DEADLINE_MS);
+      // A renewal that never settles must not hold its slot forever, or two
+      // of them silence the heartbeat for the rest of the run.
+      let heartbeatSlotHeld = true;
+      const releaseHeartbeatSlot = () => {
+        if (!heartbeatSlotHeld) return;
+        heartbeatSlotHeld = false;
+        pendingHeartbeats -= 1;
+      };
+      const abandonStuckHeartbeat = setTimeout(
+        releaseHeartbeatSlot,
+        HEARTBEAT_ATTEMPT_ABANDON_MS,
+      );
       (options?.executionLease
         ? executionFencePromise.then(async (fence) => {
             if (!fence) return false;
@@ -1863,7 +1877,8 @@ export function startRun(
         })
         .finally(() => {
           clearTimeout(releaseStuckHeartbeat);
-          pendingHeartbeats -= 1;
+          clearTimeout(abandonStuckHeartbeat);
+          releaseHeartbeatSlot();
           if (heartbeatAttempt === attempt) heartbeatInFlight = false;
         });
     }

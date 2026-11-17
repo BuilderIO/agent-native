@@ -37,7 +37,10 @@ import {
   stripInlineBytes,
   stripInlineBytesFromJson,
 } from "../shared/inline-bytes.js";
-import { isRequestedStopAbortReason } from "./abort-reasons.js";
+import {
+  EXECUTION_LEASE_LOST_ABORT_REASON,
+  isRequestedStopAbortReason,
+} from "./abort-reasons.js";
 import {
   approvalKeyForHistory,
   approvalKeyForPrivateHistory,
@@ -4040,7 +4043,10 @@ export function terminalEventForAbortReason(
   }
   return {
     type: "error",
-    error: "The agent run was stopped before it finished.",
+    error:
+      normalized === EXECUTION_LEASE_LOST_ABORT_REASON
+        ? "The agent run was stopped before it finished because another worker took over this turn. Anything it produced so far is kept above."
+        : "The agent run was stopped before it finished.",
     errorCode: `aborted_${normalized}`,
     recoverable: RECOVERABLE_ABORT_REASONS.has(normalized),
   };

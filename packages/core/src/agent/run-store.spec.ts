@@ -622,6 +622,16 @@ describe("run store", () => {
     );
   });
 
+  it("tells the user a lost lease left the output so far intact", () => {
+    expect(terminalEventForAbortReason("execution_lease_lost")).toEqual({
+      type: "error",
+      error:
+        "The agent run was stopped before it finished because another worker took over this turn. Anything it produced so far is kept above.",
+      errorCode: "aborted_execution_lease_lost",
+      recoverable: false,
+    });
+  });
+
   it("maps abort reasons to truthful terminal events", () => {
     expect(terminalEventForAbortReason("run_timeout")).toEqual({
       type: "auto_continue",
