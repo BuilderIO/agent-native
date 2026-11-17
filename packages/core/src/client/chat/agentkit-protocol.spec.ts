@@ -7824,7 +7824,7 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
-  it("bounds process-local event retention and rejects stale cursors", async () => {
+  it("bounds process-local event retention and marks trimmed output for stale cursors", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       for (let index = 0; index < 6; index += 1) {
         yield {
@@ -7847,10 +7847,22 @@ describe("createAgentKitProtocolAdapter", () => {
       expect(run?.status).toBe("completed");
     });
 
-    await expect(
-      drain(transport.subscribeToRun({ threadId: "thread-1", runId })),
-    ).rejects.toThrow("earliest available sequence");
     const run = await transport.getRun?.({ threadId: "thread-1", runId });
+    const fromStart = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const marker = fromStart[0]!;
+    expect(marker).toMatchObject({
+      type: "x-agent-native.persisted-event-omission-range",
+      runId,
+      sequence: 1,
+    });
+    const retained = fromStart.slice(1);
+    expect(retained).toHaveLength(4);
+    expect((marker as { payload: { lastSequence: number } }).payload).toEqual({
+      lastSequence: retained[0]!.sequence - 1,
+    });
+    expect(retained.at(-1)?.sequence).toBe(run?.lastSequence);
     const replay = await drain(
       transport.subscribeToRun({
         threadId: "thread-1",
@@ -7867,6 +7879,40 @@ describe("createAgentKitProtocolAdapter", () => {
       startedAt: expect.any(String),
       completedAt: expect.any(String),
     });
+  });
+
+  it("splits a long trimmed prefix into protocol-sized omission markers", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      for (let index = 0; index < 600; index += 1) {
+        yield { type: "status", id: `status-${index}`, message: `S${index}` };
+      }
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events), {
+      maxRetainedEvents: 4,
+    });
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Run")],
+    });
+    await vi.waitFor(async () => {
+      const run = await transport.getRun?.({ threadId: "thread-1", runId });
+      expect(run?.status).toBe("completed");
+    });
+    const replay = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const markers = replay.filter(
+      (event) => event.type === "x-agent-native.persisted-event-omission-range",
+    ) as unknown as { sequence: number; payload: { lastSequence: number } }[];
+    expect(markers.length).toBeGreaterThan(1);
+    let expected = 1;
+    for (const marker of markers) {
+      expect(marker.sequence).toBe(expected);
+      expect(marker.payload.lastSequence - marker.sequence).toBeLessThan(256);
+      expected = marker.payload.lastSequence + 1;
+    }
+    expect(replay[markers.length]!.sequence).toBe(expected);
   });
 
   it("retains completed runs by least-recent access within a configured bound", async () => {
