@@ -553,8 +553,9 @@ async function persistAiRequestStatus(
   const message =
     snapshot?.status === "errored" && reason === "missing_api_key"
       ? normalizeChatError(reason, reason).message
-      : snapshot?.status === "errored" && reason?.startsWith("error:")
-        ? normalizeChatError(reason, reason.slice("error:".length)).message
+      : snapshot?.status === "errored" &&
+          reason === "error:email_verification_required"
+        ? normalizeChatError(reason, "email_verification_required").message
         : reason;
   try {
     await callAction(

@@ -298,6 +298,8 @@ describe("Clips filler-word background sessions", () => {
       "missing_api_key",
       "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.",
     ],
+    ["error:rate_limit_exceeded", "error:rate_limit_exceeded"],
+    ["error:provider_rate_limited", "error:provider_rate_limited"],
     ["error:unknown", "error:unknown"],
     ["run_timeout", "run_timeout"],
   ])(
