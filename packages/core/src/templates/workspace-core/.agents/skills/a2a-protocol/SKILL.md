@@ -456,8 +456,8 @@ finishes. Dismissing leaves the approval pending in the peer app. A later call
 that finds the same approval still waiting shows the card again; a call that
 pauses on a different approval gets that approval's own card, and the earlier
 one closes. A failed resume leaves the card up, or brings it back after
-Continue, since the approval may still wait. While a resume runs, the card
-hides in every tab.
+Continue, since the approval may still wait; so does a Continue turn that ends
+without resuming the task. While a resume runs, the card hides in every tab.
 
 ## JSON-RPC Methods
 

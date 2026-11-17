@@ -266,6 +266,63 @@ describe("AgentKitAgentCallApproval", () => {
     expect(container.textContent).toBe("");
   });
 
+  describe("once a run started after Continue ends", () => {
+    const run = (
+      id: string,
+      status: "running" | "completed",
+    ): NonNullable<AgentThreadSnapshot["runs"]>[number] => ({
+      id,
+      threadId: "thread-1",
+      status,
+      lastSequence: 1,
+    });
+    const withRuns = (...runs: ReturnType<typeof run>[]) =>
+      threadClient([], [waiting("call-1")], {
+        messages: [],
+        runs,
+        activeRunIds: runs
+          .filter((each) => each.status === "running")
+          .map((each) => each.id),
+      });
+
+    it("comes back when that run never resumed the task", async () => {
+      vi.spyOn(window, "open").mockReturnValue(null);
+      await renderCard(await withRuns(run("run-1", "completed")));
+      await press("review");
+      await press("continue");
+      expect(container.textContent).toBe("");
+
+      // The Continue turn ended without calling the peer again.
+      await reload(
+        await withRuns(run("run-1", "completed"), run("run-2", "completed")),
+      );
+      expect(container.textContent).toContain("Slides needs your approval");
+      expect(action("review")).not.toBeNull();
+    });
+
+    it("stays closed while that run is still going", async () => {
+      vi.spyOn(window, "open").mockReturnValue(null);
+      await renderCard(await withRuns(run("run-1", "completed")));
+      await press("review");
+      await press("continue");
+
+      await reload(
+        await withRuns(run("run-1", "completed"), run("run-2", "running")),
+      );
+      expect(container.textContent).toBe("");
+    });
+
+    it("stays closed after Dismiss", async () => {
+      await renderCard(await withRuns(run("run-1", "completed")));
+      await press("dismiss");
+
+      await reload(
+        await withRuns(run("run-1", "completed"), run("run-2", "completed")),
+      );
+      expect(container.textContent).toBe("");
+    });
+  });
+
   it("stays closed when the task pauses on a different approval", async () => {
     vi.spyOn(window, "open").mockReturnValue(null);
     await renderCard(await threadClient([], [waiting("call-1")]));

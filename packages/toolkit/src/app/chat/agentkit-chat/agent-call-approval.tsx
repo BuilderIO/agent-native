@@ -1,5 +1,6 @@
 import type {
   AgentParticipant,
+  AgentRunStatus,
   AgentWidget,
 } from "@agent-native/agentkit/protocol";
 import {
@@ -54,31 +55,53 @@ function readApproval(value: unknown): AgentCallApprovalWidgetData | undefined {
 
 const SETTLED_PREFIX = "agent-native:agent-call-approval:";
 
+interface Settled {
+  /** The calls the task had made when the card closed. */
+  calls: readonly string[];
+  /** After Continue, the chat's runs from before it was pressed. */
+  runs?: readonly string[];
+}
+
+function strings(value: unknown): string[] | undefined {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : undefined;
+}
+
 // A reload renders the same widget again, so a card the person already
 // continued or dismissed stays closed for the rest of the session. It records
 // the calls its task had made by then, so a newer call that finds the same
 // approval still waiting, or a newer call that failed, shows the card again.
-function readSettled(id: string): readonly string[] | undefined {
+// After Continue it also records the chat's runs, so a newer run that ended
+// without resuming the task shows the card again.
+function readSettled(id: string): Settled | undefined {
   try {
     const saved: unknown = JSON.parse(
       window.sessionStorage.getItem(SETTLED_PREFIX + id) ?? "null",
     );
-    return Array.isArray(saved)
-      ? saved.filter((call): call is string => typeof call === "string")
-      : undefined;
+    if (!saved || typeof saved !== "object") return undefined;
+    const calls = strings((saved as Record<string, unknown>).calls);
+    const runs = strings((saved as Record<string, unknown>).runs);
+    return calls ? { calls, ...(runs ? { runs } : {}) } : undefined;
   } catch {
     // coercion-ok: an unreadable marker shows the card again.
     return undefined;
   }
 }
 
-function rememberSettled(id: string, calls: readonly string[]): void {
+function rememberSettled(id: string, settled: Settled): void {
   try {
-    window.sessionStorage.setItem(SETTLED_PREFIX + id, JSON.stringify(calls));
+    window.sessionStorage.setItem(SETTLED_PREFIX + id, JSON.stringify(settled));
   } catch {
     // coercion-ok: without session storage the card just shows again on reload.
   }
 }
+
+const ENDED_RUN_STATUSES: readonly AgentRunStatus[] = [
+  "completed",
+  "failed",
+  "cancelled",
+];
 
 type AgentThread = ReturnType<typeof useAgentThread>;
 
@@ -151,6 +174,7 @@ export function AgentKitAgentCallApproval({
       key={approval.id}
       approval={approval}
       calls={calls}
+      runs={thread.runs}
     />
   );
 }
@@ -158,50 +182,62 @@ export function AgentKitAgentCallApproval({
 function AgentCallApprovalCard({
   approval,
   calls,
+  runs,
 }: {
   approval: AgentCallApprovalWidgetData;
   calls: readonly AgentParticipant[];
+  runs: AgentThread["runs"];
 }) {
   const t = useT();
   const { agent } = approval;
   const [phase, setPhase] = useState<"review" | "continue" | "sending">(
     "review",
   );
-  const [settledCalls, setSettledCalls] = useState<
-    readonly string[] | undefined
-  >(() =>
+  const [settled, setSettled] = useState<Settled | undefined>(() =>
     typeof window !== "undefined" ? readSettled(approval.id) : undefined,
   );
   // Continue can come before the approval: the peer then answers with the same
   // approval still waiting, on a newer call, and the card comes back for it. A
   // call that pauses on another approval writes that approval's card instead.
   // A call that failed after the card closed brings it back as well: the
-  // approval may still be waiting.
+  // approval may still be waiting. So does a run started after Continue that
+  // ended without the task completing, such as a turn that never resumed it.
   if (
-    settledCalls &&
-    settledCalls.includes(approval.callId) &&
+    settled &&
+    settled.calls.includes(approval.callId) &&
     !calls.some(
-      (call) => call.status === "failed" && !settledCalls.includes(call.id),
+      (call) => call.status === "failed" && !settled.calls.includes(call.id),
+    ) &&
+    !Object.values(runs).some(
+      (run) =>
+        settled.runs !== undefined &&
+        !settled.runs.includes(run.id) &&
+        ENDED_RUN_STATUSES.includes(run.status),
     )
   ) {
     return null;
   }
 
-  const settle = () => {
-    const known = Array.from(
-      new Set([
-        ...(settledCalls ?? []),
-        approval.callId,
-        ...calls.map((call) => call.id),
-      ]),
-    );
-    rememberSettled(approval.id, known);
-    setSettledCalls(known);
+  const settle = (runsBefore?: readonly string[]) => {
+    const next: Settled = {
+      calls: Array.from(
+        new Set([
+          ...(settled?.calls ?? []),
+          approval.callId,
+          ...calls.map((call) => call.id),
+        ]),
+      ),
+      ...(runsBefore ? { runs: runsBefore } : {}),
+    };
+    rememberSettled(approval.id, next);
+    setSettled(next);
     setPhase("review");
   };
   // The card closes only once the chat took the continuation. If it didn't,
-  // the card stays so Continue can be pressed again.
+  // the card stays so Continue can be pressed again. The run that takes it
+  // starts after the press, so the runs going by then don't count.
   const continueTask = async () => {
+    const runsBefore = Object.keys(runs);
     setPhase("sending");
     let delivered = false;
     try {
@@ -217,7 +253,7 @@ function AgentCallApprovalCard({
     } catch {
       // coercion-ok: a send that threw was not delivered; Continue stays.
     }
-    if (delivered) settle();
+    if (delivered) settle(runsBefore);
     else setPhase("continue");
   };
   const review = () => {
@@ -230,7 +266,7 @@ function AgentCallApprovalCard({
   const dismiss: ApprovalCardAction = {
     id: "dismiss",
     label: t("agentChat.common.dismiss"),
-    onPress: settle,
+    onPress: () => settle(),
   };
   const actions: ApprovalCardAction[] =
     phase === "review"
