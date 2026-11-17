@@ -172,6 +172,7 @@ async function mounted({
   refuseStore?: boolean | number;
   afterAdopt?: (edit: (fields: Partial<ComposeState>) => void) => Promise<void>;
 } = {}) {
+  localStorage.clear();
   let refusals = refuseStore === true ? Infinity : refuseStore || 0;
   let version = 1;
   const current = (): Ref =>
@@ -315,17 +316,26 @@ async function mounted({
     window.removeEventListener(DRAFT_SAVE_FAILED_EVENT, onFailure),
   );
 
-  const qc = new QueryClient();
-  const { result } = renderHook(() => useComposeState(), {
-    wrapper: ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
-    ),
-  });
-  await waitFor(() => expect(result.current.drafts).toHaveLength(1));
-  const local = () =>
-    qc
-      .getQueryData<ComposeState[]>(["compose-drafts"])
-      ?.find((one) => one.id === "reopened");
+  const open = async () => {
+    const qc = new QueryClient();
+    const page = renderHook(() => useComposeState(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+      ),
+    });
+    await waitFor(() => expect(page.result.current.drafts).toHaveLength(1));
+    const local = () =>
+      qc
+        .getQueryData<ComposeState[]>(["compose-drafts"])
+        ?.find((one) => one.id === "reopened");
+    return { ...page, local };
+  };
+  const { result, local, unmount } = await open();
+  /** Mail opened again in the same browser, over the same server. */
+  const reload = async () => {
+    unmount();
+    return open();
+  };
   const holdSaves = () => {
     let release = () => {};
     hold = new Promise<void>((resolve) => (release = resolve));
@@ -338,6 +348,7 @@ async function mounted({
     writes,
     failures,
     holdSaves,
+    reload,
     stored: () => stored,
     conflicts: () => conflicts,
     secondDrafts: () => secondDrafts,
@@ -571,6 +582,25 @@ describe("sending a draft whose last save couldn't confirm where its file moved"
     expect(sendable?.attachments).toEqual([healed]);
     expect(local()?.attachments).toEqual([healed]);
     expect(mocks.callAction).toHaveBeenCalledTimes(2);
+  });
+
+  it("still saves once more when Mail was reloaded since", async () => {
+    const { reload, saves } = await afterUnconfirmedSave(["moved"]);
+    const { result, local } = await reload();
+    const staged = local();
+    expect(staged?.attachments).toEqual([draftFile]);
+    act(() => result.current.stageForSend("reopened"));
+
+    let sendable: ComposeState | undefined;
+    await act(async () => {
+      sendable = staged && (await result.current.settleForSend(staged));
+    });
+
+    expect(saves).toEqual([
+      { draftId: "message-of-draft", refs: ["message-of-draft/part-1"] },
+      { draftId: "r-draft-7", refs: ["message-of-draft/part-1"] },
+    ]);
+    expect(sendable?.attachments).toEqual([healed]);
   });
 
   it("doesn't send when that save fails too", async () => {

@@ -710,6 +710,48 @@ export function draftFilesUnconfirmed(
   return failedWith(result, DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE);
 }
 
+const UNCONFIRMED_DRAFT_FILES_KEY = "agent-native.mail.unconfirmed-draft-files";
+
+/** The drafts this browser holds as having Gmail files no save confirmed. */
+function storedUnconfirmedDraftFiles(): Set<string> {
+  try {
+    const ids: unknown = JSON.parse(
+      localStorage.getItem(UNCONFIRMED_DRAFT_FILES_KEY) ?? "[]",
+    );
+    return new Set(
+      Array.isArray(ids)
+        ? ids.filter((id): id is string => typeof id === "string")
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Keeps whether draft `id` has Gmail files no save confirmed in the browser,
+ * so a send after a reload still saves first.
+ */
+function storeUnconfirmedDraftFiles(id: string, unconfirmed: boolean) {
+  const ids = storedUnconfirmedDraftFiles();
+  if (ids.has(id) === unconfirmed) return;
+  if (unconfirmed) ids.add(id);
+  else ids.delete(id);
+  try {
+    if (ids.size > 0) {
+      localStorage.setItem(
+        UNCONFIRMED_DRAFT_FILES_KEY,
+        JSON.stringify([...ids]),
+      );
+    } else {
+      localStorage.removeItem(UNCONFIRMED_DRAFT_FILES_KEY);
+    }
+    // coercion-ok: storage only copies the page's own note, which still holds.
+  } catch {
+    // Without storage, only this page remembers.
+  }
+}
+
 function failedWith(
   result: DraftSaveResult | DraftSaveQueueResult,
   errorCode: string,
@@ -767,14 +809,16 @@ export function useComposeState() {
   const draftSaveFailuresRef = useRef<Set<string>>(new Set());
   // Drafts whose latest mailbox save Gmail kept without Mail learning where
   // its files moved: the refs held here name a message Gmail dropped, and only
-  // another save finds them again.
+  // another save finds them again. The browser keeps a copy across reloads.
   const unconfirmedDraftFilesRef = useRef<Set<string>>(new Set());
 
   const noteDraftFiles = useCallback((id: string, result: DraftSaveResult) => {
     if (result.status === "saved") {
       unconfirmedDraftFilesRef.current.delete(id);
+      storeUnconfirmedDraftFiles(id, false);
     } else if (draftFilesUnconfirmed(result)) {
       unconfirmedDraftFilesRef.current.add(id);
+      storeUnconfirmedDraftFiles(id, true);
     }
   }, []);
 
@@ -1422,8 +1466,12 @@ export function useComposeState() {
       // Files removed since that save leave nothing for another to find.
       if (!staged.attachments?.some(isGmailFileRef)) {
         unconfirmedDraftFilesRef.current.delete(staged.id);
+        storeUnconfirmedDraftFiles(staged.id, false);
       }
-      if (unconfirmedDraftFilesRef.current.has(staged.id)) {
+      if (
+        unconfirmedDraftFilesRef.current.has(staged.id) ||
+        storedUnconfirmedDraftFiles().has(staged.id)
+      ) {
         const getLatest = () =>
           (qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []).find(
             (draft) => draft.id === staged.id,
