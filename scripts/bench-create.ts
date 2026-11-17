@@ -9,7 +9,11 @@ import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import { pnpmCommand, type PnpmCommand } from "./lib/pnpm-command.ts";
+import {
+  pnpmCommand,
+  stopProcessTree,
+  type PnpmCommand,
+} from "./lib/pnpm-command.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const WORKSPACE_NAME = "bench-ws";
@@ -273,6 +277,7 @@ async function runPhase(
   const before = proxy.snapshot();
   const log = fs.openSync(logFile, "w");
   const started = performance.now();
+  let timedOut = false;
   const exit = await new Promise<{
     code: number | null;
     signal: string | null;
@@ -283,7 +288,10 @@ async function runPhase(
       shell,
       stdio: ["ignore", log, log],
     });
-    const timer = setTimeout(() => child.kill("SIGKILL"), PHASE_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      stopProcessTree(child, "SIGKILL");
+    }, PHASE_TIMEOUT_MS);
     child.on("error", reject);
     child.on("exit", (code, signal) => {
       clearTimeout(timer);
@@ -295,7 +303,7 @@ async function runPhase(
   if (exit.code !== 0) {
     const tail = fs.readFileSync(logFile, "utf8").split("\n").slice(-30);
     throw new Error(
-      `${[command, ...args].join(" ")} exited with ${exit.signal ?? exit.code}. Last lines of ${logFile}:\n${tail.join("\n")}`,
+      `${[command, ...args].join(" ")} ${timedOut ? `timed out after ${PHASE_TIMEOUT_MS / 60_000} minutes` : `exited with ${exit.signal ?? exit.code}`}. Last lines of ${logFile}:\n${tail.join("\n")}`,
     );
   }
   return { ms, hosts: diffTraffic(before, proxy.snapshot()) };
