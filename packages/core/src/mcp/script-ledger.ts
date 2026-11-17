@@ -245,7 +245,12 @@ export async function settleScriptWriteRow(
 ): Promise<boolean> {
   await ensureScriptLedgerTables();
   const client = getDbExec();
-  for (const [item, entry] of (settled.outbox ?? []).entries()) {
+  // The change marker takes slot 0 and audit rows the slots after it, so a
+  // run and recovery, which can build different audit rows for one write,
+  // never put a marker and an audit row in the same slot.
+  let audits = 0;
+  for (const entry of settled.outbox ?? []) {
+    const item = entry.kind === "change" ? 0 : ++audits;
     await client.execute({
       sql: `INSERT INTO mcp_script_outbox (run_id, seq, item, app_id, kind, payload, next_attempt_at, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)

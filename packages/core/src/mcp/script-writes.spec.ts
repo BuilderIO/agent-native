@@ -46,7 +46,10 @@ import {
 // tables this store's own migrations build.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 // Statements matching this fail, as a database that has gone away would.
-let failing: RegExp | undefined;
+let failing:
+  | RegExp
+  | ((sql: string, args: readonly unknown[]) => boolean)
+  | undefined;
 // The next statement matching `sql` waits for `until`, as a slow database's
 // would.
 let pausing: { sql: RegExp; until: Promise<void> } | undefined;
@@ -85,7 +88,12 @@ vi.mock("../server/org-admin.js", async (importOriginal) => ({
 const executor = {
   execute: async (input: string | { sql: string; args?: unknown[] }) => {
     const sql = typeof input === "string" ? input : input.sql;
-    if (failing?.test(sql)) throw new Error("connection reset");
+    const args = typeof input === "string" ? [] : (input.args ?? []);
+    if (
+      failing instanceof RegExp ? failing.test(sql) : failing?.(sql, args)
+    ) {
+      throw new Error("connection reset");
+    }
     const pause = pausing;
     if (pause?.sql.test(sql)) {
       pausing = undefined;
@@ -663,20 +671,17 @@ describe("createScriptWriteGate", () => {
     await expect(
       writes.settle(begun.ticket, committed, { status: "completed" }),
     ).resolves.toBeUndefined();
-    const [audit] = await outbox();
-    expect(audit).toEqual(
-      expect.objectContaining({
-        kind: "audit",
-        attempts: 1,
-        delivered_at: null,
-      }),
+    const auditItem = async () =>
+      (await outbox()).find((item) => item.kind === "audit");
+    expect(await auditItem()).toEqual(
+      expect.objectContaining({ attempts: 1, delivered_at: null }),
     );
     // Not before its backoff.
     await deliverScriptOutbox("app-a", { now: T0 + 1_000 });
     expect(audits.insert).toHaveBeenCalledTimes(1);
     await deliverScriptOutbox("app-a", { now: T0 + 60 * 60_000 });
     expect(audits.insert).toHaveBeenCalledTimes(2);
-    expect((await outbox())[0]?.delivered_at).not.toBeNull();
+    expect((await auditItem())?.delivered_at).not.toBeNull();
   });
 
   it("delivers another app's outbox only from that app", async () => {
@@ -841,6 +846,37 @@ describe("recoverScriptWrites", () => {
       expect.objectContaining({ id: scriptAuditEventId(owner(), 0, 0) }),
     );
     expect(audits.change).toHaveBeenCalledTimes(1);
+  });
+
+  it("still sends the change marker of a write whose worker died after writing more audit rows than recovery builds", async () => {
+    const writes = gate();
+    const begun = await writes.begin(call(0, { key: "a", rows: 1 }));
+    if (begun.status !== "go") throw new Error("expected go");
+    for (const id of ["x", "y"]) {
+      begun.ticket.runContext.deferAudit?.({
+        config: undefined,
+        args: { id },
+        ctx: { actionName: "save-thing", userEmail: "ada@example.com" },
+        attribution: auditAttribution({ caller: "mcp", runId: "run-1" }),
+        status: "success",
+      });
+    }
+    // Both audit rows are written, and the worker dies writing the marker.
+    failing = (sql, args) =>
+      /INSERT INTO mcp_script_outbox/.test(sql) && args.includes("change");
+    await writes.settle(begun.ticket, committed, { status: "completed" });
+    failing = undefined;
+    receipts.add("a");
+    await recoverScriptWrites({
+      appId: "app-a",
+      actions,
+      now: T0 + 3 * 60_000,
+    });
+    expect(audits.change).toHaveBeenCalledTimes(1);
+    expect(audits.insert.mock.calls.map(([event]) => event)).toEqual([
+      expect.objectContaining({ id: scriptAuditEventId(owner(), 0, 0) }),
+      expect.objectContaining({ id: scriptAuditEventId(owner(), 0, 1) }),
+    ]);
   });
 
   it("records no input, not an empty one, for a write it settles after its arguments are cleared", async () => {
@@ -1252,10 +1288,10 @@ describe("pruneScriptLedger", () => {
       (await outbox()).map((item) => `${item.seq} ${item.kind}`);
     await pruneScriptLedger(T0 + 6 * 24 * 60 * 60_000);
     expect(await items()).toEqual([
-      "0 audit",
       "0 change",
-      "1 audit",
+      "0 audit",
       "1 change",
+      "1 audit",
     ]);
     await pruneScriptLedger(T0 + 8 * 24 * 60 * 60_000);
     expect(await items()).toEqual(["1 audit"]);
