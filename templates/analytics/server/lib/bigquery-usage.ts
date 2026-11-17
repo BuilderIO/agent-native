@@ -229,6 +229,76 @@ export async function observeBigQueryJobUsage(
   }
 }
 
+/** What BigQuery's metadata says one job billed, or that it has no such job. */
+export type BigQueryJobBilling =
+  | {
+      kind: "found";
+      state: "PENDING" | "RUNNING" | "DONE" | null;
+      /** Absent from the metadata is null, never zero. */
+      billedBytes: number | null;
+      cacheHit: boolean | null;
+      location: string | undefined;
+    }
+  /** 404. Without the job's location this is not proof: a job in another region also reads as missing. */
+  | { kind: "not_found" }
+  | { kind: "unreadable" };
+
+/** Free jobs.get metadata, the settlement source for outside-agent budgets. Never runs a query. */
+export async function readBigQueryJobBilling(
+  job: { projectId: string; jobId: string; location?: string | null },
+  token: string,
+  signal: AbortSignal,
+): Promise<BigQueryJobBilling> {
+  const params = new URLSearchParams({
+    fields:
+      "jobReference,status(state),statistics(query(totalBytesBilled,cacheHit))",
+  });
+  if (job.location) params.set("location", job.location);
+  try {
+    const response = await fetch(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(job.projectId)}/jobs/${encodeURIComponent(job.jobId)}?${params}`,
+      { signal, headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (response.status === 404) return { kind: "not_found" };
+    if (!response.ok) return { kind: "unreadable" };
+    const data = (await response.json()) as {
+      jobReference?: { projectId?: string; jobId?: string; location?: string };
+      status?: { state?: string };
+      statistics?: {
+        query?: { totalBytesBilled?: unknown; cacheHit?: unknown };
+      };
+    };
+    if (
+      data.jobReference?.projectId !== job.projectId ||
+      data.jobReference.jobId !== job.jobId
+    ) {
+      return { kind: "unreadable" };
+    }
+    const state = data.status?.state;
+    const billed = usageBytes(data.statistics?.query?.totalBytesBilled);
+    const billedBytes = billed === null ? null : Number(billed);
+    return {
+      kind: "found",
+      state:
+        state === "DONE" || state === "RUNNING" || state === "PENDING"
+          ? state
+          : null,
+      billedBytes:
+        billedBytes !== null && Number.isSafeInteger(billedBytes)
+          ? billedBytes
+          : null,
+      cacheHit:
+        typeof data.statistics?.query?.cacheHit === "boolean"
+          ? data.statistics.query.cacheHit
+          : null,
+      location: data.jobReference.location ?? job.location ?? undefined,
+    };
+  } catch {
+    // coercion-ok: an unreadable answer is its own kind; callers keep the reservation.
+    return { kind: "unreadable" };
+  }
+}
+
 /** Bounded follow-ups may still leave unknown usage; this is not an invoice or a recurring reconciliation worker. */
 export async function finalizeBigQueryJobUsage(
   usage: BigQueryJobUsage,

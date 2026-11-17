@@ -1206,6 +1206,7 @@ describe("runQuery cancellation", () => {
         { name: "signups", type: "INT64" },
       ],
       totalBytesProcessed: 1_048_576,
+      exactBytesProcessed: 1_048_576,
     });
     await expect(dryRunQuery("SELECT 1")).resolves.toBeNull();
   });

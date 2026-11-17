@@ -7,10 +7,18 @@ import { retainRequestDbPoolScope } from "@agent-native/core/db/request-pool-con
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import type { SourceGenerationResult } from "../../shared/source-generation.js";
 import type { BigQueryUsageAccounting } from "../../shared/sql-query-contract";
+import type { BigQueryAgentReconciler } from "./bigquery-agent-budget";
+import {
+  bigQueryJobGate,
+  conservativeBillableEstimate,
+  type OutsideAgentBigQueryAdmission,
+  type OutsideAgentBigQueryGate,
+} from "./bigquery-agent-context";
 import {
   newBigQueryJobUsage,
   persistBigQueryJobUsage,
   finalizeBigQueryJobUsage,
+  readBigQueryJobBilling,
   type BigQueryJobUsage,
 } from "./bigquery-usage";
 import { resolveCredential } from "./credentials";
@@ -539,6 +547,7 @@ const MAX_L1_ENTRIES = 200;
 const STALE_REFRESH_MS = 5 * 60 * 1000;
 const CACHE_CANCEL_TIMEOUT_MS = 5_000;
 const JOB_SUBMISSION_TIMEOUT_MS = 10_000;
+const AGENT_SETTLEMENT_TIMEOUT_MS = 1_500;
 
 const l1Cache = new Map<string, L1Entry>();
 
@@ -1090,6 +1099,7 @@ async function cancelQueryJob(
   jobId: string,
   token: string,
   location?: string,
+  timeoutMs: number = CACHE_CANCEL_TIMEOUT_MS,
 ): Promise<boolean> {
   const locationQuery = location
     ? `?location=${encodeURIComponent(location)}`
@@ -1098,7 +1108,7 @@ async function cancelQueryJob(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs/${jobId}/cancel${locationQuery}`,
     {
       method: "POST",
-      signal: AbortSignal.timeout(CACHE_CANCEL_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -1216,8 +1226,12 @@ async function findQueryJobLocation(
   jobId: string,
   token: string,
   createdAfter: number,
+  callerSignal?: AbortSignal,
 ): Promise<string | undefined> {
-  const signal = AbortSignal.timeout(CACHE_CANCEL_TIMEOUT_MS);
+  const timeout = AbortSignal.timeout(CACHE_CANCEL_TIMEOUT_MS);
+  const signal = callerSignal
+    ? AbortSignal.any([callerSignal, timeout])
+    : timeout;
   let pageToken: string | undefined;
   do {
     const params = new URLSearchParams({
@@ -1253,6 +1267,58 @@ async function findQueryJobLocation(
     pageToken = data.nextPageToken;
   } while (pageToken);
   return undefined;
+}
+
+/**
+ * Confirms an outside agent's unresolved reservation with BigQuery's free
+ * metadata. A 404 without the job's location is not proof, so the job is
+ * looked up by listing; only a finished listing by the same credentials that
+ * lacks it reports it absent.
+ */
+export function createBigQueryAgentReconciler(
+  token: string,
+  credentialScope: string,
+): BigQueryAgentReconciler {
+  return {
+    credentialScope,
+    async observe(job, signal, { mayConfirmAbsence }) {
+      const read = await readBigQueryJobBilling(job, token, signal);
+      if (read.kind !== "not_found" || job.location) return read;
+      const createdAt = Date.parse(job.createdAt);
+      if (!Number.isFinite(createdAt)) return read;
+      const location = await findQueryJobLocation(
+        job.projectId,
+        job.jobId,
+        token,
+        createdAt - 60_000,
+        signal,
+      );
+      if (location) {
+        return readBigQueryJobBilling({ ...job, location }, token, signal);
+      }
+      return mayConfirmAbsence ? { kind: "absent" } : read;
+    },
+  };
+}
+
+/** The conservative billable bytes of `sql` by its dry run, or null when the dry run gives none. */
+async function dryRunBillableBytes(
+  sql: string,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  try {
+    const result = await dryRunQuerySchema(sql, signal ? { signal } : {});
+    if (result.error !== null) return null;
+    const estimate = conservativeBillableEstimate(result);
+    return estimate.status === "ok" ? estimate.bytes : null;
+  } catch (error) {
+    throwIfAborted(signal);
+    // coercion-ok: no estimate reserves the whole per-job cap, never nothing.
+    console.warn("[bigquery] Outside-agent dry-run estimate unavailable", {
+      errorType: error instanceof Error ? error.name : "non_error",
+    });
+    return null;
+  }
 }
 
 const NUMERIC_BQ_TYPES = new Set([
@@ -1294,6 +1360,8 @@ function rowsToObjects(
 export interface DryRunQueryOptions {
   signal?: AbortSignal;
   wrapPreparationErrors?: boolean;
+  /** Dry-run `sql` exactly as given, with no table placeholders resolved. */
+  exactSql?: boolean;
 }
 
 export class BigQueryDryRunPreparationError extends Error {
@@ -1319,16 +1387,74 @@ export interface DryRunQueryResult {
   schema?: { name: string; type: string }[];
   /** Absent when BigQuery's dry-run response carried no byte estimate. */
   totalBytesProcessed?: number;
+  /**
+   * The same estimate, read strictly for spend limits: a non-negative safe
+   * integer, `"malformed"` when BigQuery sent something else, absent when it
+   * sent nothing.
+   */
+  exactBytesProcessed?: number | "malformed";
+  /** The dry run's statement type, such as `SELECT`. */
+  statementType?: string;
+  /** Tables the dry run says the statement reads; `"malformed"` when unreadable. */
+  referencedTables?: BigQueryReferencedTable[] | "malformed";
+}
+
+export interface BigQueryReferencedTable {
+  projectId: string;
+  datasetId: string;
+  tableId: string;
+}
+
+function exactByteCount(value: unknown): number | "malformed" | undefined {
+  if (value === undefined || value === null) return undefined;
+  const text = typeof value === "number" ? String(value) : value;
+  if (typeof text !== "string" || !/^\d+$/.test(text)) return "malformed";
+  const bytes = Number(text);
+  return Number.isSafeInteger(bytes) ? bytes : "malformed";
+}
+
+function referencedTablesFrom(
+  value: unknown,
+): BigQueryReferencedTable[] | "malformed" | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) return "malformed";
+  const tables: BigQueryReferencedTable[] = [];
+  for (const entry of value as Array<Record<string, unknown> | null>) {
+    if (
+      typeof entry?.projectId !== "string" ||
+      typeof entry.datasetId !== "string" ||
+      typeof entry.tableId !== "string"
+    ) {
+      return "malformed";
+    }
+    tables.push({
+      projectId: entry.projectId,
+      datasetId: entry.datasetId,
+      tableId: entry.tableId,
+    });
+  }
+  return tables;
 }
 
 async function readDryRunStatistics(
   res: Response,
-): Promise<Pick<DryRunQueryResult, "schema" | "totalBytesProcessed">> {
+): Promise<
+  Pick<
+    DryRunQueryResult,
+    | "schema"
+    | "totalBytesProcessed"
+    | "exactBytesProcessed"
+    | "statementType"
+    | "referencedTables"
+  >
+> {
   let job: {
     statistics?: {
       totalBytesProcessed?: string | number;
       query?: {
         totalBytesProcessed?: string | number;
+        statementType?: unknown;
+        referencedTables?: unknown;
         schema?: { fields?: { name?: unknown; type?: unknown }[] };
       };
     };
@@ -1341,9 +1467,11 @@ async function readDryRunStatistics(
   }
   const stats = job?.statistics;
   const fields = stats?.query?.schema?.fields;
-  const bytes = Number(
-    stats?.totalBytesProcessed ?? stats?.query?.totalBytesProcessed,
-  );
+  const rawBytes =
+    stats?.totalBytesProcessed ?? stats?.query?.totalBytesProcessed;
+  const bytes = Number(rawBytes);
+  const exactBytes = exactByteCount(rawBytes);
+  const referencedTables = referencedTablesFrom(stats?.query?.referencedTables);
   return {
     ...(Array.isArray(fields)
       ? {
@@ -1355,6 +1483,11 @@ async function readDryRunStatistics(
         }
       : {}),
     ...(Number.isFinite(bytes) ? { totalBytesProcessed: bytes } : {}),
+    ...(exactBytes !== undefined ? { exactBytesProcessed: exactBytes } : {}),
+    ...(typeof stats?.query?.statementType === "string"
+      ? { statementType: stats.query.statementType }
+      : {}),
+    ...(referencedTables !== undefined ? { referencedTables } : {}),
   };
 }
 
@@ -1383,17 +1516,22 @@ export async function dryRunQuerySchema(
     throw new Error("BigQuery validation was cancelled before it started");
   }
   let projectId: string;
-  let appEventsTable: BigQueryTableRef;
   let resolvedSql: string;
   let token: string;
   try {
-    ({ projectId, appEventsTable } = await getProjectInfo(options.signal));
-    resolvedSql = await resolveTablePlaceholder(
-      sql,
-      projectId,
-      appEventsTable,
-      options.signal,
-    );
+    if (options.exactSql) {
+      ({ projectId } = await getProjectContext(options.signal));
+      resolvedSql = sql;
+    } else {
+      const info = await getProjectInfo(options.signal);
+      projectId = info.projectId;
+      resolvedSql = await resolveTablePlaceholder(
+        sql,
+        projectId,
+        info.appEventsTable,
+        options.signal,
+      );
+    }
     token = await getBigQueryAccessToken({ signal: options.signal });
   } catch (error) {
     if (
@@ -1630,12 +1768,17 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     !preserveCurrentDate &&
     !snapshot.hasUnresolvedCall;
   let resumableId: string | null = null;
+  let agentGate: OutsideAgentBigQueryGate | undefined;
+  let agentAdmission: OutsideAgentBigQueryAdmission | undefined;
   try {
     token = await getBigQueryAccessToken({ signal });
     assertDateUnchanged();
     const credentialContext = requireRequestCredentialContext(
       "BIGQUERY_PROJECT_ID",
     );
+    // An outside agent's job is admitted against its daily budget first, and
+    // runs under its reservation instead of the caller's cap.
+    agentGate = bigQueryJobGate();
     let resumableIndex = 0;
     const nextResumableId = () =>
       resumable && resumableIndex < RESUMABLE_JOB_IDS
@@ -1650,7 +1793,26 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     // A resumable submission whose job already exists collects that job; when
     // it can't be collected, the query runs again under the next ID.
     for (;;) {
-      jobId = resumableId ?? `agent_native_${randomUUID().replace(/-/g, "")}`;
+      const nextJobId =
+        resumableId ?? `agent_native_${randomUUID().replace(/-/g, "")}`;
+      if (agentGate) {
+        // A refused admission started nothing, so nothing may be cancelled.
+        jobId = null;
+        usage = null;
+        const estimateSql = cacheableSql;
+        agentAdmission = await agentGate.admit({
+          projectId,
+          jobId: nextJobId,
+          credentialScope: credentialContext.credentialScope ?? "default",
+          capBytes: agentGate.jobCapFor(maxBytesBilled),
+          estimate: () => dryRunBillableBytes(estimateSql, signal),
+          reconciler: createBigQueryAgentReconciler(
+            token,
+            credentialContext.credentialScope ?? "default",
+          ),
+        });
+      }
+      jobId = nextJobId;
       jobCreatedAfter = resumableId
         ? Date.now() - RESUMABLE_JOB_MAX_AGE_MS
         : Date.now();
@@ -1684,7 +1846,9 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
               query: {
                 query: cacheableSql,
                 useLegacySql: false,
-                maximumBytesBilled: String(maxBytesBilled),
+                maximumBytesBilled: String(
+                  agentAdmission?.reservedBytes ?? maxBytesBilled,
+                ),
                 ...(forceRefresh ? { useQueryCache: false } : {}),
               },
               // A job left running stops once it is too old to collect, so
@@ -1708,11 +1872,13 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
             if (isMaximumBytesBilledError(res.status, text)) {
               usage.submissionState = "rejected";
               jobId = null;
+              if (agentAdmission) await agentGate?.rejected(agentAdmission);
               throw new BigQueryMaximumBytesBilledError(res.status);
             }
             if (isDefiniteJobSubmissionRejection(res.status, text)) {
               usage.submissionState = "rejected";
               jobId = null;
+              if (agentAdmission) await agentGate?.rejected(agentAdmission);
             }
             throw new BigQueryBackendError(
               "submit",
@@ -1753,6 +1919,9 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
         jobLocation = insertedJob?.jobReference?.location;
         break;
       }
+      // BigQuery refused this insert as a duplicate, so it started nothing;
+      // the job it names is another call's, with its own accounting.
+      if (agentAdmission) await agentGate?.rejected(agentAdmission);
       const knownLocation = duplicateJobLocation(duplicateResponse, jobId);
       let existing: Awaited<ReturnType<typeof resumableJobState>>;
       try {
@@ -1783,6 +1952,8 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     jobSubmissionResponseReceived = true;
     usage.submissionState = "accepted";
     usage.location = jobLocation;
+    if (agentAdmission)
+      await agentGate?.submitted(agentAdmission, "accepted", jobLocation);
 
     const locationQuery = jobLocation
       ? `?location=${encodeURIComponent(jobLocation)}`
@@ -1927,6 +2098,9 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     // The cached copy stays unflagged: every read of it sets `cached: true`.
     completedResult = { ...result, cached: false };
   } catch (error) {
+    // Whether BigQuery created the job is unknown: its reservation stays.
+    if (agentAdmission && jobId && !jobSubmissionResponseReceived)
+      await agentGate?.submitted(agentAdmission, "unknown");
     if (jobId) cancelJob = true;
     // Stopped for time, a resumable job keeps running for the next call.
     if (jobId !== null && jobId === resumableId && options.resumeAfter?.aborted)
@@ -1969,6 +2143,22 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     }
     throw error;
   } finally {
+    if (agentGate && agentAdmission && token) {
+      const admission = agentAdmission;
+      const bearer = token;
+      // Settled from BigQuery's own billed bytes; anything unconfirmed stays reserved.
+      await agentGate.settle(admission, () =>
+        readBigQueryJobBilling(
+          {
+            projectId: admission.projectId,
+            jobId: admission.jobId,
+            location: jobLocation ?? null,
+          },
+          bearer,
+          AbortSignal.timeout(AGENT_SETTLEMENT_TIMEOUT_MS),
+        ),
+      );
+    }
     if (usage && token) {
       usage.location = jobLocation;
       if (usage.submissionState === "attempted")
@@ -1984,5 +2174,275 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
   return {
     ...completedResult,
     ...(usageAccounting ? { usageAccounting } : {}),
+  };
+}
+
+export type BoundedBigQueryJobOutcome =
+  | {
+      status: "completed";
+      rows: Record<string, unknown>[];
+      schema: { name: string; type: string }[];
+      /** `rows` is cut: more rows than `maxRows`, or more serialized bytes than `maxResultBytes`. */
+      truncation: "rows" | "bytes" | null;
+      location: string | undefined;
+      providerCacheHit: boolean | null;
+    }
+  /** BigQuery definitively refused to create the job: nothing ran or billed. */
+  | {
+      status: "rejected";
+      code:
+        | "query_bytes_cap_exceeded"
+        | "query_quota_exceeded"
+        | "query_failed";
+      message: string;
+    }
+  /** The job exists and ended in an error. */
+  | {
+      status: "failed";
+      code:
+        | "query_bytes_cap_exceeded"
+        | "query_quota_exceeded"
+        | "query_failed";
+      message: string;
+      location: string | undefined;
+    }
+  /** Whether the job exists, runs, or billed is unknown. */
+  | {
+      status: "uncertain";
+      reason: "timeout" | "submission_unknown" | "poll_unreadable";
+      location: string | undefined;
+      cancelRequested: boolean;
+    };
+
+const BOUNDED_JOB_LOOKUP_TIMEOUT_MS = 2_000;
+const BOUNDED_JOB_CANCEL_TIMEOUT_MS = 2_000;
+const BOUNDED_JOB_SERVER_TIMEOUT_MS = 10 * 60_000;
+
+function failureCode(
+  reason: BigQueryBackendReason,
+  message: string,
+): "query_bytes_cap_exceeded" | "query_quota_exceeded" | "query_failed" {
+  if (hasMaximumBytesBilledMessage([message]))
+    return "query_bytes_cap_exceeded";
+  return reason === "quota_exceeded" || reason === "rate_limited"
+    ? "query_quota_exceeded"
+    : "query_failed";
+}
+
+/**
+ * Runs one query job under its pre-chosen ID and `maximumBytesBilled`, with
+ * one deadline (`signal`) through submission, polling and every result page.
+ * Never resubmits under a new ID: an ambiguous submission is looked up by its
+ * ID, and an insert that may have landed is only ever retried with the same
+ * ID. Reads at most `maxRows + 1` rows, so a cut result says so. No app cache.
+ */
+export async function runBoundedBigQueryJob(input: {
+  projectId: string;
+  jobId: string;
+  sql: string;
+  maximumBytesBilled: number;
+  token: string;
+  signal: AbortSignal;
+  maxRows: number;
+  maxResultBytes: number;
+}): Promise<BoundedBigQueryJobOutcome> {
+  const { projectId, jobId, token, signal } = input;
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+  let location: string | undefined;
+  let cancelRequested = false;
+  const uncertain = async (
+    reason: "timeout" | "submission_unknown" | "poll_unreadable",
+  ): Promise<BoundedBigQueryJobOutcome> => {
+    if (reason === "timeout") {
+      cancelRequested = true;
+      try {
+        await cancelQueryJob(
+          projectId,
+          jobId,
+          token,
+          location,
+          BOUNDED_JOB_CANCEL_TIMEOUT_MS,
+        );
+      } catch {
+        // coercion-ok: a cancel that did not land leaves the outcome uncertain, which is what is reported.
+        console.warn("[bigquery] Bounded job cancellation was not confirmed.");
+      }
+    }
+    return { status: "uncertain", reason, location, cancelRequested };
+  };
+  const lookUp = async (): Promise<"found" | "missing" | "unknown"> => {
+    const read = await readBigQueryJobBilling(
+      { projectId, jobId, location: location ?? null },
+      token,
+      AbortSignal.timeout(BOUNDED_JOB_LOOKUP_TIMEOUT_MS),
+    );
+    if (read.kind === "found") {
+      location = read.location ?? location;
+      return "found";
+    }
+    return read.kind === "not_found" ? "missing" : "unknown";
+  };
+  const submit = () =>
+    fetch(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(projectId)}/jobs`,
+      {
+        method: "POST",
+        signal,
+        headers,
+        body: JSON.stringify({
+          jobReference: { projectId, jobId },
+          configuration: {
+            query: {
+              query: input.sql,
+              useLegacySql: false,
+              maximumBytesBilled: String(input.maximumBytesBilled),
+            },
+            jobTimeoutMs: String(BOUNDED_JOB_SERVER_TIMEOUT_MS),
+          },
+        }),
+      },
+    );
+
+  // Submission: an answer whose job may exist is looked up under the same ID.
+  for (let attempt = 0; ; attempt++) {
+    let res: Response;
+    try {
+      res = await submit();
+    } catch (error) {
+      if (signal.aborted) return uncertain("timeout");
+      if (!(error instanceof Error)) throw error;
+      const found = await lookUp();
+      if (found === "found") break;
+      if (found === "missing" && attempt === 0) continue;
+      return uncertain("submission_unknown");
+    }
+    if (res.ok) {
+      const inserted = (await res.json()) as {
+        jobReference?: { jobId?: string; location?: string };
+      };
+      if (
+        inserted.jobReference?.jobId !== undefined &&
+        inserted.jobReference.jobId !== jobId
+      ) {
+        return uncertain("submission_unknown");
+      }
+      location = inserted.jobReference?.location;
+      break;
+    }
+    const text = await res.text();
+    // The first insert landed after all: this ID's job exists.
+    if (isDuplicateJobRejection(res.status, text)) {
+      location = duplicateJobLocation(text, jobId) ?? location;
+      break;
+    }
+    const message =
+      bigQueryProviderDetailFromResponse(text) ??
+      `BigQuery refused the job (${res.status}).`;
+    if (
+      isMaximumBytesBilledError(res.status, text) ||
+      isDefiniteJobSubmissionRejection(res.status, text)
+    ) {
+      return {
+        status: "rejected",
+        code: isMaximumBytesBilledError(res.status, text)
+          ? "query_bytes_cap_exceeded"
+          : failureCode(bigQueryReasonFromResponse(text), message),
+        message,
+      };
+    }
+    if (signal.aborted) return uncertain("timeout");
+    // Any other answer may describe a job that was created, so it is looked up.
+    if ((await lookUp()) === "found") break;
+    return uncertain("submission_unknown");
+  }
+
+  // Poll, then page, inside the same deadline.
+  const pageUrl = (pageToken?: string) => {
+    const params = new URLSearchParams({
+      maxResults: String(input.maxRows + 1),
+      timeoutMs: "5000",
+    });
+    if (location) params.set("location", location);
+    if (pageToken) params.set("pageToken", pageToken);
+    return `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(projectId)}/queries/${encodeURIComponent(jobId)}?${params}`;
+  };
+  let data: BigQueryGetQueryResultsResponse = { jobComplete: false };
+  const rawRows: { f: { v: unknown }[] }[] = [];
+  try {
+    while (!data.jobComplete) {
+      if (signal.aborted) return uncertain("timeout");
+      const res = await fetch(pageUrl(), { signal, headers });
+      if (!res.ok) {
+        const text = await res.text();
+        const message =
+          bigQueryProviderDetailFromResponse(text) ??
+          `BigQuery job error (${res.status}).`;
+        if (isMaximumBytesBilledError(res.status, text)) {
+          return {
+            status: "failed",
+            code: "query_bytes_cap_exceeded",
+            message,
+            location,
+          };
+        }
+        return uncertain("poll_unreadable");
+      }
+      data = (await res.json()) as BigQueryGetQueryResultsResponse;
+      const failed =
+        data.errorResult ??
+        (data.jobComplete &&
+        data.errors?.length &&
+        data.schema === undefined &&
+        data.totalRows === undefined
+          ? data.errors[0]
+          : undefined);
+      if (data.jobComplete && failed) {
+        const message = failed.message ?? "BigQuery job failed.";
+        return {
+          status: "failed",
+          code: failureCode(safeBigQueryReason(failed.reason), message),
+          message: message.slice(0, 4_000),
+          location,
+        };
+      }
+    }
+    rawRows.push(...(data.rows ?? []));
+    let pageToken = data.nextPageToken;
+    while (pageToken && rawRows.length <= input.maxRows) {
+      if (signal.aborted) return uncertain("timeout");
+      const res = await fetch(pageUrl(pageToken), { signal, headers });
+      if (!res.ok) return uncertain("poll_unreadable");
+      const page = (await res.json()) as BigQueryGetQueryResultsResponse;
+      rawRows.push(...(page.rows ?? []));
+      pageToken = page.nextPageToken;
+    }
+  } catch (error) {
+    if (signal.aborted) return uncertain("timeout");
+    throw error;
+  }
+
+  const fields = data.schema?.fields ?? [];
+  let truncation: "rows" | "bytes" | null = null;
+  let rows = rowsToObjects(rawRows.slice(0, input.maxRows), fields);
+  if (rawRows.length > input.maxRows) truncation = "rows";
+  let bytes = 2;
+  for (let index = 0; index < rows.length; index++) {
+    bytes += Buffer.byteLength(JSON.stringify(rows[index])) + 1;
+    if (bytes > input.maxResultBytes) {
+      rows = rows.slice(0, index);
+      truncation = "bytes";
+      break;
+    }
+  }
+  return {
+    status: "completed",
+    rows,
+    schema: fields.map((field) => ({ name: field.name, type: field.type })),
+    truncation,
+    location,
+    providerCacheHit: typeof data.cacheHit === "boolean" ? data.cacheHit : null,
   };
 }
