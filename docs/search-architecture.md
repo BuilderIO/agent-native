@@ -507,8 +507,9 @@ OpenAI's `text-embedding-3-small`.
   organization. Other owners' pages carry on, since members of one
   organization can use different credentials; owners sharing credentials
   each meet the limit with one refused call.
-  Changes left when time runs out stay claimed until their lease expires, so
-  an outage can't hold claims past their lease. An app adds the consumer with
+  Pages embedded before time runs out are completed; changes left stay
+  claimed until their lease expires, so an outage can't hold claims past
+  their lease. An app adds the consumer with
   `semanticSearchMigration()`, which asks for a backfill: the next drain
   queues every page, so boot doesn't wait on a write for each one. Adding
   another later embeds every page again.
@@ -538,7 +539,9 @@ OpenAI's `text-embedding-3-small`.
   in a
   `SearchVectorStore`, by default pgvector's per-dimension tables under the
   `search` namespace. When the database offers `vector` but hasn't installed
-  it, the store creates the extension.
+  it, the store creates the extension. A database without `vector`, or one
+  that refuses to install it, is checked again every 10 minutes; a check that
+  fails isn't remembered, so the next drain or search checks again.
 - **Provider.** Pages embed with the organization's embedding family, Builder's
   gateway by default. A page with no organization, such as one in a personal
   space, embeds as its owner, whose credentials resolve to their active
@@ -569,10 +572,13 @@ OpenAI's `text-embedding-3-small`.
   calling again finishes the job; the settings page offers Retry. Turning it
   off checks the setting again when it's done, and if another admin turned it
   back on meanwhile, queues the pages again. Each change is audited, after
-  that work, so a failed audit can't stop it.
+  that work, so a failed audit can't stop it, with status `error` when the
+  work failed.
 - **Querying.** `searchSemanticIndex()` embeds the query (cached for 10
-  minutes, with a 4-second timeout) and asks the store for the 100 nearest
-  chunks in the searcher's audiences. It drops chunks below the model's
+  minutes per model version, with a 4-second timeout) and asks the store for
+  the 100 nearest chunks in the searcher's audiences. Each audience answers to
+  its own organization's switch, so another of the searcher's organizations
+  that turned it off never matches, even while its vectors are being deleted. It drops chunks below the model's
   `minSimilarity`, so a question no page answers finds nothing rather than the
   nearest unrelated pages. It never throws. It returns `used` with resource
   ids in order, `off`, or `unavailable` with a reason: `no-provider`,
