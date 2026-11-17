@@ -1204,8 +1204,12 @@ export async function handleUploadResource(event: any) {
   }
 
   const fileName = filePart.filename || "upload";
-  const path = pathPart?.data?.toString() || `/${fileName}`;
-  const shared = sharedPart?.data?.toString() === "true";
+  const path = pathPart?.data
+    ? Buffer.from(pathPart.data).toString("utf8") || `/${fileName}`
+    : `/${fileName}`;
+  const shared = sharedPart?.data
+    ? Buffer.from(sharedPart.data).toString("utf8") === "true"
+    : false;
   const mimeType = filePart.type || "application/octet-stream";
 
   if (filePart.type && !isAllowedUploadMimeType(filePart.type)) {
@@ -1214,6 +1218,13 @@ export async function handleUploadResource(event: any) {
   }
   if (shared) {
     await assertCanEditShared(event);
+    // Without an organization the shared namespace is deployment-wide.
+    if (!(await getOrgContext(event)).orgId) {
+      throw createError({
+        statusCode: 403,
+        message: "Shared uploads require an organization",
+      });
+    }
   }
   const owner = await resolveOwner(event, shared);
 

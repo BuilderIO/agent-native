@@ -135,10 +135,11 @@ vi.mock("@/components/ui/table", async () => {
   };
 });
 
-import type { ChartDatum } from "@/components/dashboard/SqlChart";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
+import type { ChartDatum } from "@/components/dashboard/SqlChartQuery";
 
 import { PanelDrilldownDialog } from "./PanelDrilldownDialog";
-import type { SqlPanel } from "./types";
 
 const PANEL: SqlPanel = {
   id: "signups-over-time",

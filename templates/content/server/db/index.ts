@@ -26,6 +26,12 @@ registerShareableResource({
     columns: ["trashedAt"],
     isAvailable: (document) => !document.trashedAt,
   },
+  // A page's sub-pages go public with it and leave public with it. Imported
+  // lazily, since that module reads the database through this one.
+  publicFollowers: async (document, options) => {
+    const { publicSubPageIds } = await import("../lib/public-sub-pages.js");
+    return publicSubPageIds(document, options);
+  },
   // A space's members can read its pages, so a trashed one reads as trashed
   // to them. Imported lazily: the access helpers import this module.
   fallbackAccessContext: {
@@ -41,6 +47,13 @@ registerShareableResource({
           }
         : null;
     },
+  },
+  // A table copied from an Analytics dashboard never reaches more people
+  // than the dashboard. Imported lazily: it parses the page body.
+  assertSharingChange: async (args) => {
+    const { assertAnalyticsTablesFitSharingChange } =
+      await import("../lib/analytics-chart-sharing.js");
+    await assertAnalyticsTablesFitSharingChange(args);
   },
   agentReadable: {
     resourceKind: DOCUMENT_AGENT_RESOURCE_KIND,

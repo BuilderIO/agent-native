@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js";
+import { assertVisualEditBoardDataSize } from "../server/lib/visual-edit-capability.js";
 import {
   parseHandoffRecords,
   sameHandoffRecordValue,
@@ -134,14 +135,14 @@ export default defineAction({
             : {};
         for (const tweak of acknowledgedTweaks)
           nextBaseline[tweak.id] = tweak.value;
+        const nextData = JSON.stringify({
+          ...data,
+          tweakSourceBaseline: nextBaseline,
+        });
+        assertVisualEditBoardDataSize(nextData);
         const saved = await tx
           .update(schema.designs)
-          .set({
-            data: JSON.stringify({
-              ...data,
-              tweakSourceBaseline: nextBaseline,
-            }),
-          })
+          .set({ data: nextData })
           .where(
             and(
               eq(schema.designs.id, designId),

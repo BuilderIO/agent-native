@@ -23,7 +23,6 @@ read `node_modules/@agent-native/core/docs/AGENTS.md` and search its `content/`
 with `rg`. See `packages/shared/AGENTS.md` for workspace conventions and
 `workspace-conventions` for advanced doc lookup.
 
-
 ## Core rules
 
 - Normal app data must flow through actions. Keep app code in `apps/<app>` and

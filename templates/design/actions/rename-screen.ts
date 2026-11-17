@@ -16,6 +16,11 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
+  assertVisualEditBoardFileSize,
+  assertVisualEditCapabilityDesign,
+  visualEditCapabilityFileScope,
+} from "../server/lib/visual-edit-capability.js";
+import {
   designSourceMutationLockKey,
   lockDesignFilesTable,
 } from "../server/source-workspace.js";
@@ -169,6 +174,7 @@ export default defineAction({
         });
       }
     }),
+  capabilityScopes: ["visual-edit"],
   run: async ({ id, name, requestSource, contentOverrides }) => {
     const db = getDb();
 
@@ -185,7 +191,9 @@ export default defineAction({
       .where(
         and(
           eq(schema.designFiles.id, id),
-          accessFilter(schema.designs, schema.designShares),
+          visualEditCapabilityFileScope(
+            accessFilter(schema.designs, schema.designShares),
+          ),
         ),
       )
       .limit(1);
@@ -196,7 +204,11 @@ export default defineAction({
       });
     }
 
+    assertVisualEditCapabilityDesign(scopedFile.designId);
     await assertAccess("design", scopedFile.designId, "editor");
+    for (const override of contentOverrides) {
+      assertVisualEditBoardFileSize(override.content);
+    }
 
     const overrideIds = new Set<string>();
     for (const override of contentOverrides) {
@@ -351,6 +363,7 @@ export default defineAction({
               const updates: Record<string, unknown> = { updatedAt };
               if (filenameChanged) updates.filename = nextFilename;
               if (contentChanged) {
+                assertVisualEditBoardFileSize(nextContent);
                 updates.content = nextContent;
                 updates.contentOperationSource = null;
                 updates.contentOperationRevision = null;

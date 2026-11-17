@@ -12,16 +12,22 @@ metadata:
 
 Use **repo mode** for a source-and-change prompt inside a repository. Use
 **Design mode** when the user asks for Design, a canvas or selection, or wants
-to pick visually. Both modes finish on a **remix board** in Design (below)
-unless the user says no Design, headless, or just the code, or Design is
-unavailable; then use the image finish in **Finish Without Design**.
+to pick visually. Both modes finish on a **remix board** in Design (below).
+Skip the board only when the user or the project's instructions ask for no
+Design, headless, or just the code, or when no Design connector or tab can be
+reached; then use the image finish in **Finish Without Design** and say in the
+report why the board was skipped. "Keep it local" and "don't push, publish or
+deploy" are about the code, not the board: a board is a private project in Design,
+in the user's account once they sign in, so those runs still finish on one.
 
-Design is available when the authenticated Design MCP connector is connected
-or a browser that runs page JavaScript holds a signed-in Design tab. A missing
-connector is not enough to skip the board: open Design through the launch order
-in **Put Design Beside The Chat** (MCP App, then the host's inline browser such
-as Claude Code's side-panel browser, then the desktop app, then the system
-browser) and use the page's WebMCP tools as `/visual-edit` describes.
+Design is hosted at `https://design.agent-native.com`, the host the Design MCP
+connector uses (`/mcp`). If another Design URL you were given (a local
+server, a preview or Labs deployment) fails or returns 404, use the hosted one;
+an unreachable alternate does not make Design unavailable. Design is available
+through the authenticated Design MCP connector or any browser tab that runs
+page JavaScript, signed in or not. A missing connector is
+not enough to skip the board: open Design as **Put Design Beside The Chat**
+describes and use the page's WebMCP tools as `/visual-edit` describes.
 
 ## Repo Mode: Run End To End
 
@@ -33,13 +39,13 @@ stack. Follow the repo's instructions and reuse its components and conventions.
 
 Work in this order so the user sees the remix within minutes, not at the end.
 When the run finishes without Design (the user said no Design, headless or
-just the code, or Design is unavailable), skip the Design sign-in, the board
+just the code, or Design is unavailable), skip the board
 and the frame subagents in these steps:
 
 1. Start or reuse the destination dev server in the background while you work
-   on the source. Capture its current appearance. Open the Design tab and check
-   sign-in now (see **Finish On A Remix Board**), so any sign-in request reaches
-   the user while you work instead of when the board is due.
+   on the source. Capture its current appearance. Open the Design tab and read its
+   session now (see **Finish On A Remix Board**). Signed out is fine: the board
+   builds without sign-in, which is needed only to share or claim it.
 2. Drive the source in your own browser (Playwright, Chrome, or an inline
    browser), capture the running effect and inspect its shipped code using the
    two-step extraction below. No Design connector or canvas is needed.
@@ -84,14 +90,24 @@ names the section and destination, use them; otherwise let the user select.
 
 ### Put Design Beside The Chat
 
-Use `open-visual-edit` with `target: "inline-browser"` (default) and
-`minimalUi: true`. This is the default for a remix board: layers stay hidden,
-the inspector appears after selecting an item, and the user can turn minimal
-UI off with the existing shortcut. Prefer the MCP App returned by
-`open-visual-edit` in Claude Desktop/Code/claude.ai and Codex when available;
-otherwise use the host's inline browser. Fall back to the desktop app, then the
-system browser, only when inline rendering is unavailable. System browser uses
-the local opener; desktop reuses
+Show Design where the user can watch the board build. Use the first surface
+the host offers; each one completes the board, so none is a requirement:
+
+1. **MCP App**: a host that renders MCP Apps (such as the Claude desktop app,
+   claude.ai, ChatGPT or Codex) shows the panel returned by
+   `open-visual-edit` beside the chat.
+2. **The host's inline browser**, such as a side-panel browser, driven
+   through the page's WebMCP tools.
+3. **The desktop app**, through `agentnative://open`.
+4. **A browser tab**: a host with no inline surface, such as Claude Code in a
+   terminal, opens Design in the system browser or the browser it drives and
+   builds the board there through the connector or that tab's WebMCP tools.
+
+Move to the next surface when one is missing or fails, and keep building the
+board. Call `open-visual-edit` with `target: "inline-browser"` (default)
+and `minimalUi: true`: layers stay hidden, the inspector appears after
+selecting an item, and the user can turn minimal UI off with the existing
+shortcut. System browser uses the local opener; desktop reuses
 `agentnative://open` through the existing open route. Read the visual-edit
 skill's launch contract: hosted calls return `launch.status: "host-required"`
 with browser and desktop URLs for the local host. Verify the installed protocol
@@ -292,21 +308,23 @@ Lab) can edit GSAP-style tracks and keyframes. It is optional; knobs come first.
 Open Design as `/visual-edit` does (same launch targets and links) and lay out
 one board, left to right, at the same viewport size.
 
-A board writes files to a Design project, so it needs the authenticated
-connector or a signed-in Design tab. Before the first launch, read
+A board needs no sign-in. Before the first launch, read
 `/_agent-native/auth/session` from the Design tab: a session with an
 `email` means signed in; a failed or non-OK read is unknown, so retry it
-rather than treating it as signed out. Signed-out loopback
-`open-visual-edit` still works, but its workspace-owned project cannot take
-the account-backed file writes a board needs, and a signed-out tab lists only
-the visual-edit tools (`open-visual-edit` and a few others); file tools such
-as `create-file`, `update-file` and `list-files` register for a
-signed-in session. When the tab is signed out, ask the user to sign in to
-Design there and wait, then launch with `newDesign: true` so the board is a
-new project the user owns and can edit. If a write is refused for permission,
-start a new board the same way rather than reusing someone else's project;
-fall back to **Finish Without Design** only when no signed-in session is
-possible.
+rather than treating it as signed out. Signed in (or through the connector),
+launch with `newDesign: true` so the board is a new project the user owns.
+Signed out, call the page's `open-visual-edit` with `withoutBridge: true`;
+it starts a new board and opens it in the tab. Once the tab shows the board,
+the page registers that board's tools (`create-file`, `update-file`,
+`update-design`, `rename-screen`, `apply-tweaks`, `list-files`,
+`get-design`, `get-design-snapshot`, `migrate-board-objects-to-file`);
+discover them again after the navigation. They write only to that board. A
+signed-out board shows no localhost screens, so the Original is the captured
+static screen and the Remix is an inline screen. Do not ask the user to sign
+in to build it. Sign-in is needed only to share the board, save it to an
+account, or generate: the board's **Share** control sends the user through
+sign-in, and the board then moves into their account. If a write is refused
+for permission, start a new board rather than reusing someone else's project.
 
 1. **Original**: the source screen from "Put Both Sites On The Canvas" (live
    where it frames, else the served capture, else a static snapshot).
@@ -458,7 +476,7 @@ or hardware metaphors and no flowchart of labelled boxes.
 
 ## Finish Without Design
 
-When the user opts out of Design or Design is unavailable, finish in the repo
+When the run skips the board (see the top of this skill), finish in the repo
 with images:
 
 1. Source versus result: matched screenshots at the same viewport, plus clips
@@ -475,4 +493,5 @@ source-versus-result captures (clips for motion), knobs and defaults,
 swappable assets, and unverified behavior or remaining differences. With a
 board, give its link, and in Design mode hand off source edits the
 visual-edit way; the board is the report, so do not also publish a separate
-report page. Without Design, include the three image sets above.
+report page. Without Design, include the three image sets above and the
+reason the board was skipped.

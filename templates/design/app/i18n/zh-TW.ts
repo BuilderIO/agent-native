@@ -2327,6 +2327,7 @@ export default {
       layoutUnsupportedPosition: "黏性圖層和 SVG 內的形狀無法以這種方式移動",
       layoutMovesNestedLayers: "移動此圖層會讓其內部定位的圖層跟著偏移",
       layoutMoveFailed: "無法移動所選圖層",
+      claimBoardError: "無法將這個畫板移到你的帳戶",
       saveCopyError: "無法儲存這個設計的副本",
       auditRunFailed: "無法執行設計稽核",
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",

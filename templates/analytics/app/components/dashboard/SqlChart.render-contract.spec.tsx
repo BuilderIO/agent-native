@@ -1,11 +1,10 @@
 // @vitest-environment happy-dom
 
-import { planPanelRender } from "@shared/panel-render-contract";
+import { planPanelRender } from "@agent-native/toolkit/dashboard/panel-render-contract";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useDemoModeStatus: () => ({
@@ -37,7 +36,7 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
     pathname.startsWith("/_agent-native/tools/"),
 }));
 
-import { SqlChart } from "./SqlChart";
+import { SqlChart } from "./SqlChartQuery";
 
 const BANNER = "Ignored missing result columns:";
 

@@ -84,6 +84,24 @@ describe("filesystemActionEntry", () => {
     expect(entry.capabilityScopes).toEqual(["messages:send"]);
   });
 
+  it("keeps the approval card's question in the dev scan and a built registry", () => {
+    const action = defineAction({
+      description: "Send a message",
+      schema: z.object({ to: z.string() }),
+      needsApproval: true,
+      approvalLabel: (args) => `Send this to ${args.to}?`,
+      run: async () => ({ ok: true }),
+    });
+
+    expect(filesystemActionEntry(action).approvalLabel).toBe(
+      action.approvalLabel,
+    );
+    expect(
+      loadActionsFromStaticRegistry({ send: { default: action } }).send!
+        .approvalLabel,
+    ).toBe(action.approvalLabel);
+  });
+
   it("keeps the browser-persistence opt-out in the dev scan and a built registry", () => {
     const action = defineAction({
       description: "Reveal an API key",
@@ -260,6 +278,22 @@ describe("actionDefinition", () => {
     expect(filesystemActionEntry(mod).needsApproval).toBe(true);
     expect(
       loadActionsFromStaticRegistry({ send: mod }).send!.needsApproval,
+    ).toBe(true);
+  });
+
+  it("keeps the signed-in-browser requirement through the registry", () => {
+    const action = { tool, run, requiresSignedInBrowser: true };
+    expect(filesystemActionEntry(action).requiresSignedInBrowser).toBe(true);
+    expect(
+      loadActionsFromStaticRegistry({ rotate: { default: action } }).rotate!
+        .requiresSignedInBrowser,
+    ).toBe(true);
+    expect(
+      filesystemActionEntry({ tool, run }).requiresSignedInBrowser,
+    ).toBeUndefined();
+    expect(
+      filesystemActionEntry({ tool, run, opensAnotherAppEmbed: true })
+        .opensAnotherAppEmbed,
     ).toBe(true);
   });
 
