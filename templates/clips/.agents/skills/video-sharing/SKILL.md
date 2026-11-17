@@ -91,7 +91,9 @@ than a week private unless I've shared them with someone", find them with one
   `visibility` (a list, such as `["public", "org"]`) and `hasShares`
   (`false` for clips whose share list names no person, group or org; it
   reads that list, not visibility, and only ever matches the user's own
-  clips).
+  clips). Pass only the filters the request names: `hasShares: false` is
+  not a neutral default, and "archive my clips older than three days" with
+  it set leaves every shared clip behind.
 - `set-resource-visibility` takes `resourceIds` with `resourceType:
   "recording"`. Making any clip public asks for one approval for the call.
 - `archive-recording`, `trash-recording`, `restore-recording` and
