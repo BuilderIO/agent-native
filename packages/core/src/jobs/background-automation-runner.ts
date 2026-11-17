@@ -1714,8 +1714,9 @@ async function executeBackgroundAutomation(
           return;
         }
         // A personal run has no org, but when its org's key paid, the usage
-        // belongs to that org too, so its owners and admins see it.
-        const paidByOrgId = getEngineCredentialOrgId(engine);
+        // belongs to that org too, so its owners and admins see it. An org's
+        // own run stays with that org, even on a key from the designated vault.
+        const paidByOrgId = orgId ?? getEngineCredentialOrgId(engine);
         try {
           const { recordUsage } = await import("../usage/store.js");
           await recordUsage({
