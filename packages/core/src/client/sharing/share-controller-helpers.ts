@@ -268,14 +268,9 @@ export function useShareOrgMemberSearch(
         .catch(() => {
           if (controller.signal.aborted || requestId !== requestIdRef.current)
             return;
+          // A later page that fails keeps the people found and its place, so
+          // loading more tries that page again. A first page started empty.
           setError(true);
-          // A later page that fails keeps its place, so loading more tries
-          // that page again; a failed first page has no place to keep.
-          if (!append) {
-            setHasMore(false);
-            setNextOffset(null);
-            setMembers([]);
-          }
         })
         .finally(() => {
           if (controller.signal.aborted || requestId !== requestIdRef.current)
