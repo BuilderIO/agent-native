@@ -242,4 +242,23 @@ describe("an outside agent's estimate", () => {
     });
     expect(mocks.estimate).not.toHaveBeenCalled();
   });
+
+  it("answers with the refusal admission would give when not even one page fits", async () => {
+    mocks.allowance.mockResolvedValueOnce({
+      requested: 125_000_000_000,
+      applied: 25_000_000_000,
+      refusal: new OutsideAgentBigQueryRefusalError({
+        code: "approval_required",
+        scope: "person",
+      }),
+    });
+
+    await expect(
+      action.run(args, { caller: "mcp" } as ActionRunContext),
+    ).rejects.toMatchObject({
+      errorCode: "approval_required",
+      statusCode: 429,
+    });
+    expect(mocks.estimate).not.toHaveBeenCalled();
+  });
 });

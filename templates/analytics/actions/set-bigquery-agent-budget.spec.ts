@@ -120,6 +120,19 @@ describe("set-bigquery-agent-budget", () => {
     },
   );
 
+  it.each(["mcp", "a2a"] as const)(
+    "refuses Analytics' own agent while an outside agent drives it over %s",
+    async (networkProtocol) => {
+      await expect(
+        setBudget.run(
+          { scope: "org", dailyLimitUsd: 500 },
+          { caller: "tool", networkProtocol },
+        ),
+      ).rejects.toMatchObject({ errorCode: "forbidden" });
+      expect(mocks.settings.size).toBe(0);
+    },
+  );
+
   it("refuses someone outside the org and a limit past the sanity ceiling", async () => {
     mocks.memberRole = null;
     await expect(

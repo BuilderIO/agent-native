@@ -653,15 +653,27 @@ function refusalFor(
   if (reservedBytes > limits.jobCapBytes) {
     return { code: "over_job_cap", scope: "job" };
   }
+  return budgetRefusalFor(budget, reservedBytes);
+}
+
+/**
+ * Why today's budget could not take on `reservedBytes` more, from a snapshot
+ * (which carries the limits it was read under); null when it can. Leaves out
+ * the per-job cap, so it also answers for a call that runs several jobs.
+ */
+export function budgetRefusalFor(
+  budget: BigQueryAgentBudgetSnapshot,
+  reservedBytes: number,
+): { code: BigQueryAgentRefusalCode; scope: "person" | "org" } | null {
   const orgUsed = budget.org.settledBytes + budget.org.reservedBytes;
-  if (orgUsed + reservedBytes > limits.orgLimitBytes) {
+  if (orgUsed + reservedBytes > budget.org.limitBytes) {
     return { code: "budget_exhausted", scope: "org" };
   }
   const personUsed = budget.person.settledBytes + budget.person.reservedBytes;
   if (personUsed + reservedBytes <= budget.person.limitBytes) return null;
   if (
     !budget.person.approvedToday &&
-    personUsed + reservedBytes <= limits.personCeilingBytes
+    personUsed + reservedBytes <= budget.person.ceilingBytes
   ) {
     return { code: "approval_required", scope: "person" };
   }

@@ -134,6 +134,9 @@ export default defineAction({
             args.followUpMode === "person" ? 2 : 1,
           )
         : null;
+      // Not even one page fits today: say so instead of estimating a call
+      // whose first job admission would refuse.
+      if (allowance?.refusal) throw allowance.refusal;
       const estimate = await estimateOnboardingJourneyEventQueryCost(
         scope,
         filters,

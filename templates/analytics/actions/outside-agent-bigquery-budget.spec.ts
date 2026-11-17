@@ -357,6 +357,23 @@ describe("outside-agent (MCP) jobs go through admission", () => {
     });
   });
 
+  it("sets nothing aside for follow-ups a cohort journey does not run", async () => {
+    budget.read.mockResolvedValue(snapshot(70_000_000_000));
+    await getOnboardingJourney.run(
+      {
+        ...journeyArgs,
+        format: "tree",
+        experimentId: "first_run_builder_credits",
+        maxTotalBytesBilled: 1_275_000_000_000,
+      },
+      { caller: "mcp" },
+    );
+    // $0.40 left and no follow-up: two 25 GB pages.
+    expect(journey.args[0]).toMatchObject({
+      maxTotalBytesBilled: 50_000_000_000,
+    });
+  });
+
   it("get-onboarding-journey reports a budget refusal with its reset time and starts no job", async () => {
     budget.admit.mockImplementation(async (_identity, request) => ({
       status: "refused",

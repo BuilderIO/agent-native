@@ -133,10 +133,16 @@ export default defineAction({
   needsApproval: true,
   mcpTool: false,
   run: async (args, context?: ActionRunContext) => {
-    // An outside agent must never raise the budget that bounds it.
-    if (isOutsideAgentCaller(context?.caller)) {
+    // An outside agent must never raise the budget that bounds it, whether it
+    // calls this directly or has Analytics' own agent call it over MCP or A2A
+    // (`ask_app`), where the tool runs with that network protocol.
+    if (
+      isOutsideAgentCaller(context?.caller) ||
+      context?.networkProtocol === "mcp" ||
+      context?.networkProtocol === "a2a"
+    ) {
       fail(
-        "Outside agents cannot change BigQuery budgets. An organization admin can change them from Analytics' own agent.",
+        "Outside agents cannot change BigQuery budgets. An organization admin can change them by asking Analytics' own agent in the app.",
         { errorCode: "forbidden", statusCode: 403 },
       );
     }
