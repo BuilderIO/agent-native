@@ -362,15 +362,15 @@ export function savedDraftAttachmentReader(
 }
 
 /**
- * Where each attachment Mail copied out of the draft's replaced message now
- * lives. Mail built the new message, so its parts after the body are the
+ * Where each Gmail attachment `moves` picks out now lives in the draft's
+ * message. Mail built that message, so its parts after the body are the
  * attachments in the order they were sent.
  */
 async function readMovedDraftAttachments(
   accessToken: string,
   draftId: string,
   attachments: ResolvedComposeAttachment[],
-  replacedMessageId: string,
+  moves: (attachment: ResolvedComposeAttachment) => boolean,
 ): Promise<MovedGmailAttachment[]> {
   const draft = await googleFetch(
     gmailDraftUrl(draftId, draftPartsQuery),
@@ -386,10 +386,12 @@ async function readMovedDraftAttachments(
     throw new Error("its attachments don't match the ones Mail sent");
   }
   return attachments.flatMap((attachment, index) => {
+    const { gmailMessageId, gmailAttachmentId } = attachment;
     if (
       attachment.source !== "gmail" ||
-      attachment.gmailMessageId !== replacedMessageId ||
-      !attachment.gmailAttachmentId
+      !gmailMessageId ||
+      !gmailAttachmentId ||
+      !moves(attachment)
     ) {
       return [];
     }
@@ -405,10 +407,7 @@ async function readMovedDraftAttachments(
     }
     return [
       {
-        from: {
-          gmailMessageId: replacedMessageId,
-          gmailAttachmentId: attachment.gmailAttachmentId,
-        },
+        from: { gmailMessageId, gmailAttachmentId },
         to: {
           gmailMessageId: messageId,
           gmailAttachmentId: part.body.attachmentId,
@@ -439,6 +438,56 @@ function followMoves(
   ];
 }
 
+type SavedGmailDraft = {
+  draftId: string;
+  movedAttachments: MovedGmailAttachment[];
+  attachmentsError?: Error;
+};
+
+/**
+ * The save Gmail took as `draftId`, with where it moved the files `moves`
+ * picks out, after the moves `found` made while reading them. Gmail kept the
+ * save either way, so a failure to read where the files went comes back as
+ * `attachmentsError` rather than thrown.
+ */
+async function savedWithMoves(
+  accessToken: string,
+  draftId: string,
+  attachments: ResolvedComposeAttachment[],
+  found: readonly MovedGmailAttachment[],
+  moves: (attachment: ResolvedComposeAttachment) => boolean,
+): Promise<SavedGmailDraft> {
+  if (
+    !attachments.some(
+      (attachment) => attachment.source === "gmail" && moves(attachment),
+    )
+  ) {
+    return { draftId, movedAttachments: [...found] };
+  }
+  try {
+    return {
+      draftId,
+      movedAttachments: followMoves(
+        found,
+        await readMovedDraftAttachments(
+          accessToken,
+          draftId,
+          attachments,
+          moves,
+        ),
+      ),
+    };
+  } catch (error) {
+    return {
+      draftId,
+      movedAttachments: [],
+      attachmentsError: new Error(
+        `Gmail saved the draft, but Mail couldn't confirm where its attachments moved (${error instanceof Error ? error.message : String(error)}). Saving the draft again finds them.`,
+      ),
+    };
+  }
+}
+
 /**
  * Replaces the message of the Gmail draft `savedDraftId` names, or returns null
  * when Gmail has no such draft. Gmail drops the old message and its parts, so
@@ -457,11 +506,7 @@ export async function updateSavedGmailDraft(
   message: { raw: string; threadId?: string },
   attachments: ResolvedComposeAttachment[],
   found: readonly MovedGmailAttachment[] = [],
-): Promise<{
-  draftId: string;
-  movedAttachments: MovedGmailAttachment[];
-  attachmentsError?: Error;
-} | null> {
+): Promise<SavedGmailDraft | null> {
   const readsGmail = attachments.some(
     (attachment) => attachment.source === "gmail",
   );
@@ -490,38 +535,54 @@ export async function updateSavedGmailDraft(
   );
   if (!updated) return null;
   const { draftId, replacedMessageId } = updated.result;
-  const movesAttachments =
-    typeof replacedMessageId === "string" &&
-    attachments.some(
-      (attachment) =>
-        attachment.source === "gmail" &&
-        attachment.gmailMessageId === replacedMessageId,
-    );
-  if (!movesAttachments) {
+  if (typeof replacedMessageId !== "string") {
     return { draftId, movedAttachments: [...found] };
   }
-  try {
-    return {
-      draftId,
-      movedAttachments: followMoves(
-        found,
-        await readMovedDraftAttachments(
-          accessToken,
-          draftId,
-          attachments,
-          replacedMessageId,
-        ),
-      ),
-    };
-  } catch (error) {
-    return {
-      draftId,
-      movedAttachments: [],
-      attachmentsError: new Error(
-        `Gmail saved the draft, but Mail couldn't confirm where its attachments moved (${error instanceof Error ? error.message : String(error)}). Saving the draft again finds them.`,
-      ),
-    };
-  }
+  return savedWithMoves(
+    accessToken,
+    draftId,
+    attachments,
+    found,
+    (attachment) => attachment.gmailMessageId === replacedMessageId,
+  );
+}
+
+/**
+ * Makes a Gmail draft of `message` in `accountEmail`. In place of a saved
+ * draft Gmail no longer has, `replacing` holds the save's files: a ref into
+ * that draft's message died with it, and Mail can't tell which refs did, so
+ * each file read through this account is pointed at its copy in the new
+ * draft, and reported as moved the way an update reports them.
+ */
+export async function createGmailDraft(
+  accessToken: string,
+  accountEmail: string,
+  message: { raw: string; threadId?: string },
+  replacing?: {
+    attachments: ResolvedComposeAttachment[];
+    found: readonly MovedGmailAttachment[];
+  },
+): Promise<SavedGmailDraft> {
+  const created = await googleFetch(
+    "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+    accessToken,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    },
+  );
+  const draftId = created.id as string;
+  if (!replacing) return { draftId, movedAttachments: [] };
+  return savedWithMoves(
+    accessToken,
+    draftId,
+    replacing.attachments,
+    replacing.found,
+    (attachment) =>
+      !attachment.accountEmail ||
+      sameEmail(attachment.accountEmail, accountEmail),
+  );
 }
 
 export async function findGmailDraftAccount(args: {
@@ -717,16 +778,23 @@ export async function saveGmailDraft(args: {
     }
     // A deleted Gmail draft is safe to replace with a new one.
   }
-  const created = await googleFetch(
-    "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+  const created = await createGmailDraft(
     accessToken,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
-    },
+    accountEmail,
+    message,
+    args.draftId ? { attachments, found: reader.moved } : undefined,
   );
-  return { draftId: created.id, accountEmail, created: true };
+  return {
+    draftId: created.draftId,
+    accountEmail,
+    created: true,
+    ...(created.movedAttachments.length
+      ? { movedAttachments: created.movedAttachments }
+      : {}),
+    ...(created.attachmentsError
+      ? { attachmentsError: created.attachmentsError }
+      : {}),
+  };
 }
 
 export async function deleteGmailDraft(args: {

@@ -60,6 +60,7 @@ import {
   type TrackingContext,
 } from "../lib/email-tracking.js";
 import {
+  createGmailDraft,
   savedDraftAttachmentReader,
   updateSavedGmailDraft,
   withSavedGmailDraft,
@@ -1640,51 +1641,42 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
         attachments,
       });
 
-      if (savedDraftId) {
-        const updated = await updateSavedGmailDraft(
+      const updated = savedDraftId
+        ? await updateSavedGmailDraft(
+            accessToken,
+            savedDraftId,
+            { raw },
+            attachments,
+            reader.moved,
+          )
+        : null;
+      // A deleted Gmail draft is safe to replace with a new one.
+      const saved =
+        updated ??
+        (await createGmailDraft(
           accessToken,
-          savedDraftId,
+          acct,
           { raw },
-          attachments,
-          reader.moved,
-        );
-        if (updated?.attachmentsError) {
-          setResponseStatus(event, 502);
-          return {
-            error: updated.attachmentsError.message,
-            errorCode: DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE,
-            draftId: updated.draftId,
-            backend: "gmail" as const,
-            accountEmail: acct,
-          };
-        }
-        if (updated) {
-          return {
-            draftId: updated.draftId,
-            backend: "gmail" as const,
-            accountEmail: acct,
-            updated: true,
-            ...(updated.movedAttachments.length
-              ? { movedAttachments: updated.movedAttachments }
-              : {}),
-          };
-        }
-        // A deleted Gmail draft is safe to replace with a new one.
+          savedDraftId ? { attachments, found: reader.moved } : undefined,
+        ));
+      if (saved.attachmentsError) {
+        setResponseStatus(event, 502);
+        return {
+          error: saved.attachmentsError.message,
+          errorCode: DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE,
+          draftId: saved.draftId,
+          backend: "gmail" as const,
+          accountEmail: acct,
+        };
       }
-      const created = await googleFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/drafts`,
-        accessToken,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: { raw } }),
-        },
-      );
       return {
-        draftId: created.id,
+        draftId: saved.draftId,
         backend: "gmail" as const,
         accountEmail: acct,
-        created: true,
+        ...(updated ? { updated: true } : { created: true }),
+        ...(saved.movedAttachments.length
+          ? { movedAttachments: saved.movedAttachments }
+          : {}),
       };
     } catch (error: any) {
       console.error("[saveDraft] Gmail error:", error.message);

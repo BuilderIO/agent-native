@@ -840,4 +840,65 @@ describe("syncDraftToMailbox with a Gmail draft reopened from Drafts", () => {
     });
     expect(savedDraftIds()).toEqual(["message-1", "r-draft-7", "r-draft-7"]);
   });
+
+  describe("whose Gmail draft was deleted while Mail saved it", () => {
+    const onDeletedDraft = draft({
+      ...onGmail,
+      savedDraftId: "r-draft-7",
+      attachments: [fileAt(2)],
+    });
+    const moveToNewDraft = {
+      from: { gmailMessageId: "message-2", gmailAttachmentId: "part-2" },
+      to: { gmailMessageId: "message-9", gmailAttachmentId: "part-9" },
+    };
+
+    it("records the draft that replaced it and where its file went", async () => {
+      mocks.appState.set(KEY, onDeletedDraft);
+      mocks.saveGmailDraft.mockResolvedValue({
+        draftId: "r-new-draft",
+        accountEmail: OWNER,
+        created: true,
+        movedAttachments: [moveToNewDraft],
+      });
+
+      await expect(
+        syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+      ).resolves.toMatchObject({
+        status: "synced",
+        draft: { savedDraftId: "r-new-draft", attachments: [fileAt(9)] },
+        savedDraft: {
+          draftId: "r-new-draft",
+          movedAttachments: [moveToNewDraft],
+        },
+      });
+      expect(mocks.appState.get(KEY)).toMatchObject({
+        savedDraftId: "r-new-draft",
+        attachments: [fileAt(9)],
+      });
+    });
+
+    it("records the draft that replaced it, and says its file is unconfirmed, when Mail can't read where the file went", async () => {
+      mocks.appState.set(KEY, onDeletedDraft);
+      mocks.saveGmailDraft.mockResolvedValue({
+        draftId: "r-new-draft",
+        accountEmail: OWNER,
+        created: true,
+        attachmentsError: new Error(
+          "Gmail saved the draft, but Mail couldn't confirm where its attachments moved (Backend Error). Saving the draft again finds them.",
+        ),
+      });
+
+      await expect(
+        syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+      ).resolves.toMatchObject({
+        status: "pending",
+        errorCode: "draft_attachments_unconfirmed",
+        savedDraft: { draftId: "r-new-draft" },
+      });
+      expect(mocks.appState.get(KEY)).toMatchObject({
+        savedDraftId: "r-new-draft",
+        attachments: [fileAt(2)],
+      });
+    });
+  });
 });

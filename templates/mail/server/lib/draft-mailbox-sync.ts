@@ -232,11 +232,24 @@ async function writeMailboxCopy(
   return { draftId, backend: "local", created: true };
 }
 
+/**
+ * `draft` pointing at a copy this sync made, with its files where that copy
+ * holds them: a copy made in place of a deleted Gmail draft holds files whose
+ * refs named that draft's message.
+ */
 function withCopy(draft: ComposeState, copy: SavedDraftRef): ComposeState {
   const next: ComposeState = {
     ...draft,
     savedDraftId: copy.draftId,
     savedDraftBackend: copy.backend,
+    ...(copy.movedAttachments && draft.attachments
+      ? {
+          attachments: moveGmailAttachments(
+            draft.attachments,
+            copy.movedAttachments,
+          ),
+        }
+      : {}),
   };
   if (copy.accountEmail) {
     next.savedDraftAccountEmail = copy.accountEmail;

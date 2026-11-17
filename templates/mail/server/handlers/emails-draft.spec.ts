@@ -342,6 +342,70 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
       });
     });
 
+    it("says where the file went in the draft that replaced a deleted one", async () => {
+      mocks.googleFetch.mockImplementation(
+        async (url: string, _token: string, options?: RequestInit) => {
+          const { pathname } = new URL(url);
+          if (pathname.endsWith("/drafts") && options?.method === "POST") {
+            return { id: "r-new-draft", message: { id: "message-9" } };
+          }
+          if (pathname.endsWith("/drafts")) return { drafts: [] };
+          if (!pathname.endsWith("/drafts/r-new-draft")) {
+            throw Object.assign(
+              new Error("Google API error (404): Not Found"),
+              { status: 404 },
+            );
+          }
+          return {
+            message: {
+              id: "message-9",
+              payload: {
+                parts: [
+                  { filename: "" },
+                  {
+                    filename: "brief.pdf",
+                    body: { attachmentId: "part-9", size: 10 },
+                  },
+                ],
+              },
+            },
+          };
+        },
+      );
+      mocks.readBody.mockResolvedValue({
+        to: "recipient@example.com",
+        subject: "Edited draft",
+        body: "Edited body",
+        draftId: "r-draft-7",
+        savedDraftBackend: "gmail",
+        accountEmail: managedAccountEmail,
+        attachments: [draftFile],
+      });
+      mocks.resolveComposeAttachments.mockResolvedValue([
+        { ...draftFile, data: Buffer.from("draft file") },
+      ]);
+
+      const result = await (saveDraft as (event: unknown) => Promise<unknown>)(
+        {},
+      );
+
+      expect(result).toEqual({
+        draftId: "r-new-draft",
+        backend: "gmail",
+        accountEmail: managedAccountEmail,
+        created: true,
+        movedAttachments: [
+          {
+            from: {
+              gmailMessageId: "message-of-draft",
+              gmailAttachmentId: "part-1",
+            },
+            to: { gmailMessageId: "message-9", gmailAttachmentId: "part-9" },
+          },
+        ],
+      });
+    });
+
     it("names the Gmail draft it saved when it can't say where the file moved", async () => {
       const gmail = mocks.googleFetch.getMockImplementation();
       mocks.googleFetch.mockImplementation(
