@@ -3,6 +3,7 @@ import type { FigmaPasteLayer } from "@shared/figma-paste-plan";
 import {
   inexact,
   PASTE_LIMITS,
+  pushWarning,
   type PasteFont,
   type PasteFrame,
   type PasteImage,
@@ -128,7 +129,7 @@ function declaration(
   warnings: PasteWarnings,
 ): string | null {
   if (!STYLE_PROPERTIES.has(name)) {
-    warnings.push(inexact(`Skipped the unsupported "${name}" style.`));
+    pushWarning(warnings, inexact(`Skipped the unsupported "${name}" style.`));
     return null;
   }
   const text =
@@ -136,7 +137,7 @@ function declaration(
       ? `${value}px`
       : String(value);
   if (!isSafeValue(text)) {
-    warnings.push(inexact(`Skipped an unsafe ${name} value.`));
+    pushWarning(warnings, inexact(`Skipped an unsafe ${name} value.`));
     return null;
   }
   return `${cssProperty(name)}:${text}`;
@@ -183,9 +184,20 @@ function styleAttribute(
   walk: Walk,
   skip: ReadonlySet<string> = new Set(),
 ): string {
+  const entries = Object.entries(style).filter(([name]) => !skip.has(name));
+  if (entries.length > PASTE_LIMITS.styleProperties) {
+    // A record this large is read only as far as the limit, so it cannot
+    // generate a warning per key.
+    pushWarning(
+      walk.warnings,
+      inexact(
+        `Read only the first ${PASTE_LIMITS.styleProperties} style properties of a layer.`,
+      ),
+    );
+  }
   const parts = [
-    ...Object.entries(style)
-      .filter(([name]) => !skip.has(name))
+    ...entries
+      .slice(0, PASTE_LIMITS.styleProperties)
       .map(([name, value]) => declaration(name, value, walk.warnings)),
     ...extra,
   ].filter(Boolean);
@@ -194,7 +206,19 @@ function styleAttribute(
 
 function fontDeclaration(font: PasteFont | undefined, walk: Walk) {
   if (!font) return [];
-  walk.fonts.add(font.family);
+  const known = walk.fonts.has(font.family);
+  if (
+    font.family.length <= PASTE_LIMITS.fontFamilyChars &&
+    (known || walk.fonts.size < PASTE_LIMITS.fontFamilies)
+  ) {
+    walk.fonts.add(font.family);
+  } else if (!known) {
+    // Still styled with it, but no stylesheet is fetched for it.
+    pushWarning(
+      walk.warnings,
+      inexact("Did not load every font the copy uses."),
+    );
+  }
   return [`font-family:${fontFamilyCss(font)}`];
 }
 
@@ -202,7 +226,8 @@ function attributes(attrs: Record<string, string>, walk: Walk): string {
   return Object.entries(attrs)
     .map(([name, value]) => {
       if (!SVG_ATTRIBUTES.has(name) || /[<>"]/.test(name)) {
-        walk.warnings.push(
+        pushWarning(
+          walk.warnings,
           inexact(`Skipped the unsupported "${name}" attribute.`),
         );
         return "";
@@ -213,7 +238,8 @@ function attributes(attrs: Record<string, string>, walk: Walk): string {
         value !== "" &&
         !(VALUE_GRAMMAR.test(value) && !RESOURCE_FUNCTION.test(value))
       ) {
-        walk.warnings.push(
+        pushWarning(
+          walk.warnings,
           inexact(`Skipped an unsafe ${name} attribute value.`),
         );
         return "";
@@ -223,27 +249,31 @@ function attributes(attrs: Record<string, string>, walk: Walk): string {
     .join("");
 }
 
+/** The declarations for a layer's image fills, and the URLs they link to. */
 function imageDeclarations(
   images: PasteImage[],
   walk: Walk,
-): Array<string | null> {
+): { declarations: Array<string | null>; urls: string[] } {
   if (images.length > MAX_IMAGE_FILLS) {
-    walk.warnings.push(
+    pushWarning(
+      walk.warnings,
       inexact(`Kept the first ${MAX_IMAGE_FILLS} image fills of a layer.`),
     );
   }
   const linked = images.slice(0, MAX_IMAGE_FILLS).filter((image) => {
     if (HTTPS_URL.test(image.url)) return true;
-    walk.warnings.push(inexact("Skipped an image Design cannot link to."));
+    pushWarning(
+      walk.warnings,
+      inexact("Skipped an image Design cannot link to."),
+    );
     return false;
   });
-  if (linked.length === 0) return [];
-  for (const image of linked) walk.imageUrls.add(image.url);
+  if (linked.length === 0) return { declarations: [], urls: [] };
   const layered = (
     pick: (image: PasteImage) => string | undefined,
     fallback: string,
   ) => linked.map((image) => pick(image) ?? fallback).join(",");
-  return [
+  const declarations = [
     `background-image:${linked.map((image) => `url("${image.url}")`).join(",")}`,
     declaration(
       "backgroundSize",
@@ -261,12 +291,14 @@ function imageDeclarations(
       walk.warnings,
     ),
   ];
+  return { declarations, urls: linked.map((image) => image.url) };
 }
 
 function allowedTag(tag: string | undefined, fallback: string, walk: Walk) {
   if (tag === undefined) return fallback;
   if (BOX_TAGS.has(tag)) return tag;
-  walk.warnings.push(
+  pushWarning(
+    walk.warnings,
     inexact(`Rendered the unsupported "${tag}" element as a ${fallback}.`),
   );
   return fallback;
@@ -306,7 +338,8 @@ function charge(walk: Walk, ...parts: string[]): boolean {
 
 function truncate(walk: Walk): void {
   if (walk.truncated) return;
-  walk.warnings.push(
+  pushWarning(
+    walk.warnings,
     inexact(`Stopped at the ${walk.byteLimit} byte limit for one frame.`),
   );
   walk.truncated = true;
@@ -325,7 +358,8 @@ function overBudget(walk: Walk, rawLength: number): boolean {
 function nodeHtml(node: PasteNode, depth: number, walk: Walk): string {
   if (walk.truncated) return "";
   if (depth > PASTE_LIMITS.depth || walk.nodes >= PASTE_LIMITS.nodes) {
-    walk.warnings.push(
+    pushWarning(
+      walk.warnings,
       inexact(
         depth > PASTE_LIMITS.depth
           ? `Stopped at ${PASTE_LIMITS.depth} nested layers.`
@@ -340,7 +374,8 @@ function nodeHtml(node: PasteNode, depth: number, walk: Walk): string {
     case "shape": {
       const tag = SHAPE_TAGS.has(node.tag) ? node.tag : "path";
       if (tag !== node.tag) {
-        walk.warnings.push(
+        pushWarning(
+          walk.warnings,
           inexact(`Drew an unsupported "${node.tag}" shape as a path.`),
         );
       }
@@ -366,13 +401,18 @@ function nodeHtml(node: PasteNode, depth: number, walk: Walk): string {
     }
     case "box": {
       const tag = allowedTag(node.tag, "div", walk);
+      const images = node.images
+        ? imageDeclarations(node.images, walk)
+        : { declarations: [], urls: [] };
       const extra = [
         ...fontDeclaration(node.font, walk),
-        ...(node.images ? imageDeclarations(node.images, walk) : []),
+        ...images.declarations,
       ];
       const open = `<${tag} data-agent-native-layer-name="${escapeHtml(node.label)}"${styleAttribute(node.style, extra, walk)}>`;
       const close = `</${tag}>`;
       if (!charge(walk, open, close)) return "";
+      // Only a layer that is kept may send its images to be hosted.
+      for (const url of images.urls) walk.imageUrls.add(url);
       const inner = node.children
         .map((child) => nodeHtml(child, depth + 1, walk))
         .join("");
@@ -409,12 +449,16 @@ export function emitFrames(
       truncated: false,
     };
     const body = nodeHtml(frame.root, 0, walk);
-    remaining -= walk.bytes;
+    const links = fontLinks(walk.fonts);
+    // The font links are bounded (a few families, short names) and sit inside
+    // the margin left under the frame limit; they still count against the
+    // paste-wide budget.
+    remaining -= walk.bytes + utf8Length(links);
     return {
       title: frame.title,
       width: size(frame.width),
       height: size(frame.height),
-      content: `<!DOCTYPE html><html><head>${fontLinks(walk.fonts)}</head><body>${body}</body></html>`,
+      content: `<!DOCTYPE html><html><head>${links}</head><body>${body}</body></html>`,
       wrapsLooseNode: false,
       origin: frame.origin,
       sourceOffset: null,

@@ -9,6 +9,7 @@ import {
   inexact,
   lookup,
   PASTE_LIMITS,
+  pushWarning,
   uniqueWarnings,
   type PasteFrame,
   type PasteNode,
@@ -309,7 +310,8 @@ function toNode(
   depth = 0,
 ): PasteNode | null {
   if (depth > PASTE_LIMITS.depth) {
-    walk.warnings.push(
+    pushWarning(
+      walk.warnings,
       inexact(`Stopped at ${PASTE_LIMITS.depth} nested layers.`),
     );
     return null;
@@ -324,7 +326,7 @@ function toNode(
     walk.placeholders += 1;
   }
   if (!KNOWN_COMPONENTS.has(node.component)) {
-    walk.warnings.push({ kind: "layer-type", type: node.component });
+    pushWarning(walk.warnings, { kind: "layer-type", type: node.component });
   }
   if (node.component === "SVGVisualElement") {
     return { kind: "shape", tag: node.tag ?? "path", attrs: svgAttrs(node) };
@@ -370,7 +372,10 @@ export function readPaper(html: string): DesignToolRead {
     ];
   });
   if (walk.placeholders > 0) {
-    warnings.push({ kind: "image-placeholders", count: walk.placeholders });
+    pushWarning(warnings, {
+      kind: "image-placeholders",
+      count: walk.placeholders,
+    });
   }
   const { layers } = emitFrames(frames, warnings);
   return {

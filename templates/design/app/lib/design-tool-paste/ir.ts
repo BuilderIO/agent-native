@@ -23,6 +23,11 @@ export const PASTE_LIMITS = {
   totalBytes: 16 * 1024 * 1024,
   /** Remote images hosted for one paste; the rest keep their link. */
   hostedImages: 40,
+  /** Distinct font families a frame may ask for, and the longest name. */
+  fontFamilies: 8,
+  fontFamilyChars: 80,
+  /** Style properties read from one layer. */
+  styleProperties: 200,
 } as const;
 
 /**
@@ -37,6 +42,20 @@ export type PasteWarning =
   | { kind: "images-unsaved"; count: number };
 
 export type PasteWarnings = PasteWarning[];
+
+/** Warnings kept for one paste; a crafted copy cannot grow the list without bound. */
+const MAX_WARNINGS = 200;
+
+export function pushWarning(
+  warnings: PasteWarnings,
+  warning: PasteWarning,
+): void {
+  if (warnings.length < MAX_WARNINGS) {
+    warnings.push(warning);
+  } else if (warnings.length === MAX_WARNINGS) {
+    warnings.push(inexact("More problems were found than are listed."));
+  }
+}
 
 export function inexact(detail: string): PasteWarning {
   return { kind: "inexact", detail };

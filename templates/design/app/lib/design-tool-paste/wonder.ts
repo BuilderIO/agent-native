@@ -8,6 +8,7 @@ import {
   hexColor,
   inexact,
   PASTE_LIMITS,
+  pushWarning,
   uniqueWarnings,
   type PasteFont,
   type PasteFrame,
@@ -264,7 +265,8 @@ function color(
     channels.g === undefined ||
     channels.b === undefined
   ) {
-    warnings.push(
+    pushWarning(
+      warnings,
       inexact("Skipped a color in a format Design does not read yet."),
     );
     return null;
@@ -311,7 +313,8 @@ function layoutStyle(
       if (tracks.every((track) => track !== null)) {
         style[name] = tracks.join(" ");
       } else {
-        warnings.push(
+        pushWarning(
+          warnings,
           inexact("Skipped a grid column definition Design cannot read."),
         );
       }
@@ -320,12 +323,12 @@ function layoutStyle(
       if (typeof x === "number" && typeof y === "number") {
         style.gap = `${y}px ${x}px`;
       } else {
-        warnings.push(inexact('Skipped the "gap" layout value.'));
+        pushWarning(warnings, inexact('Skipped the "gap" layout value.'));
       }
     } else if (typeof value === "number" || typeof value === "string") {
       style[name] = value;
     } else {
-      warnings.push(inexact(`Skipped the "${name}" layout value.`));
+      pushWarning(warnings, inexact(`Skipped the "${name}" layout value.`));
     }
   }
   return style;
@@ -338,7 +341,7 @@ function styleFor(
 ): { style: PasteStyle; font?: PasteFont; images: PasteImage[] } {
   for (const key of Object.keys(source)) {
     if (!STYLE_GROUPS.has(key)) {
-      warnings.push(inexact(`Skipped the unsupported "${key}" style.`));
+      pushWarning(warnings, inexact(`Skipped the unsupported "${key}" style.`));
     }
   }
   const style: PasteStyle = layoutStyle(source.layout ?? {}, isRoot, warnings);
@@ -350,7 +353,8 @@ function styleFor(
     if (value === undefined) continue;
     const css = box(value);
     if (css) set(group, css);
-    else warnings.push(inexact(`Skipped a ${group} Design cannot read.`));
+    else
+      pushWarning(warnings, inexact(`Skipped a ${group} Design cannot read.`));
   }
   const fills = source.fills ?? [];
   const solid = fills.find((fill) => fill.type === "solid");
@@ -392,7 +396,10 @@ function styleFor(
   if (typeof source.borderRadius === "number") {
     set("borderRadius", source.borderRadius);
   } else if (source.borderRadius !== undefined) {
-    warnings.push(inexact("Skipped a corner radius Design cannot read."));
+    pushWarning(
+      warnings,
+      inexact("Skipped a corner radius Design cannot read."),
+    );
   }
   const border = source.border;
   if (border) {
@@ -415,7 +422,7 @@ function styleFor(
   if (shadows.length > 0) set("boxShadow", shadows.join(","));
   for (const key of Object.keys(source.effects ?? {})) {
     if (key !== "boxShadow")
-      warnings.push(inexact(`Skipped the "${key}" effect.`));
+      pushWarning(warnings, inexact(`Skipped the "${key}" effect.`));
   }
   if (source.blending?.opacity !== undefined) {
     set("opacity", source.blending.opacity);
@@ -430,7 +437,7 @@ function toNode(
 ): PasteNode {
   const { source } = node;
   if (source.type !== "frame" && source.type !== "text") {
-    warnings.push({ kind: "layer-type", type: source.type });
+    pushWarning(warnings, { kind: "layer-type", type: source.type });
   }
   const { style, font, images } = styleFor(source.style, isRoot, warnings);
   if (source.type === "text") {

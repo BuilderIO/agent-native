@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { emitFrames } from "./emit";
 import type { PasteFrame, PasteNode, PasteWarnings } from "./ir";
-import { PASTE_LIMITS } from "./ir";
+import { inexact, PASTE_LIMITS, pushWarning } from "./ir";
 
 const frame = (root: PasteNode): PasteFrame => ({
   title: "Frame",
@@ -160,6 +160,83 @@ describe("output accounting", () => {
     expect(warnings).toContainEqual({
       kind: "inexact",
       detail: "Kept the first 8 image fills of a layer.",
+    });
+  });
+});
+
+describe("fonts, kept images and warnings are bounded", () => {
+  const withFont = (family: string): PasteNode => ({
+    kind: "text",
+    label: "t",
+    style: {},
+    font: { family },
+    text: "x",
+  });
+
+  it("links only a few font families and says the rest were not loaded", () => {
+    const families = Array.from({ length: 30 }, (_, i) => `Family ${i}`);
+    const { layers, warnings } = emit(box({}, families.map(withFont)));
+    expect((layers[0]?.content.match(/<link /g) ?? []).length).toBe(
+      PASTE_LIMITS.fontFamilies,
+    );
+    expect(warnings).toContainEqual({
+      kind: "inexact",
+      detail: "Did not load every font the copy uses.",
+    });
+  });
+
+  it("never links a family with an oversized name", () => {
+    const { layers } = emit(
+      box({}, [withFont("F".repeat(PASTE_LIMITS.fontFamilyChars + 1))]),
+    );
+    expect(layers[0]?.content).not.toContain("<link ");
+  });
+
+  it("does not report images of a layer that was dropped for size", () => {
+    const filler: PasteNode = {
+      kind: "text",
+      label: "filler",
+      style: {},
+      text: "f".repeat(PASTE_LIMITS.frameBytes - 5_000),
+    };
+    const gallery: PasteNode = {
+      kind: "box",
+      label: "Gallery",
+      style: {},
+      images: [{ url: "https://cdn.example.test/late.png" }],
+      children: [],
+    };
+    const lots = Array.from({ length: 200 }, (_, i) => ({
+      ...gallery,
+      label: `Gallery ${i}`,
+      images: [{ url: `https://cdn.example.test/${i}.png` }],
+    }));
+    const { layers, imageUrls } = emit(box({}, [filler, ...lots]));
+    const linked = (layers[0]?.content.match(/cdn\.example\.test/g) ?? [])
+      .length;
+    // Whatever was dropped is neither in the markup nor sent to be hosted.
+    expect(imageUrls).toHaveLength(linked);
+    expect(imageUrls.length).toBeLessThan(lots.length);
+  });
+
+  it("caps the style properties read and the warnings kept for one layer", () => {
+    const style: Record<string, string> = {};
+    for (let i = 0; i < 5000; i += 1) style[`bogus${i}`] = "1";
+    const { warnings } = emit(box(style));
+    expect(warnings.length).toBeLessThanOrEqual(202);
+    expect(warnings).toContainEqual({
+      kind: "inexact",
+      detail: `Read only the first ${PASTE_LIMITS.styleProperties} style properties of a layer.`,
+    });
+  });
+
+  it("marks where the warning list was cut off", () => {
+    const warnings: PasteWarnings = [];
+    for (let i = 0; i < 500; i += 1) pushWarning(warnings, inexact(`w${i}`));
+    expect(warnings).toHaveLength(201);
+    expect(warnings[warnings.length - 1]).toEqual({
+      kind: "inexact",
+      detail: "More problems were found than are listed.",
     });
   });
 });
