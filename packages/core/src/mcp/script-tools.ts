@@ -1580,12 +1580,15 @@ export async function runMcpScript(
       // A refused call's arguments are recorded only as its action allows,
       // one scripts can call or not.
       const deniedArguments = (denied = action) => {
+        const name = entry === undefined ? denied : action;
         const settings =
           entry ??
           (denied !== undefined && Object.hasOwn(input.known, denied)
             ? input.known[denied]
             : undefined);
-        return settings === undefined || actionRecordsInputs(settings)
+        return name === undefined ||
+          settings === undefined ||
+          actionRecordsInputs(name, settings)
           ? deniedCallArguments(args)
           : undefined;
       };

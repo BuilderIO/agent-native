@@ -23,7 +23,11 @@ import {
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { auditAttribution } from "../audit/attribution.js";
-import { normalizeAuditConfig, resolveAuditAttach } from "../audit/config.js";
+import {
+  normalizeAuditConfig,
+  resolveAuditAttach,
+  shouldRecordAudit,
+} from "../audit/config.js";
 import {
   buildActionAuditEvent,
   type RecordActionAuditInput,
@@ -262,7 +266,9 @@ export function createScriptWriteGate(
               seq: call.seq,
               functionName: call.functionName,
               action: call.action,
-              args: actionRecordsInputs(call.entry) ? args : undefined,
+              args: actionRecordsInputs(call.action, call.entry)
+                ? args
+                : undefined,
               locator,
               rowBound,
               reservedRows,
@@ -523,10 +529,13 @@ function auditItems(
 }
 
 /** A write's arguments as its audit rows record them: without embed
- *  credentials, as the ledger keeps them, or none if they can't be read. */
+ *  credentials, as the ledger keeps them, or none if they can't be read or
+ *  are no longer kept. */
 function auditedArguments(args: unknown): unknown {
+  // Arguments no longer kept are recorded as none, not as `{}`.
+  if (args === undefined) return undefined;
   try {
-    return redactEmbedCredentials(args ?? {});
+    return redactEmbedCredentials(args);
   } catch {
     // coercion-ok: an audit row records no arguments it can't read.
     return undefined;
@@ -535,16 +544,18 @@ function auditedArguments(args: unknown): unknown {
 
 /**
  * Whether an action's calls may be recorded with their arguments: not when
- * it keeps them out of chat history, turns its audit rows off, or keeps them
- * out of its audit rows. Its ledger rows then keep none either, so run
- * status shows none, to org admins included.
+ * it keeps them out of chat history, keeps them out of its audit rows, or
+ * has no audit rows, by its settings or by the audit log's default
+ * exclusions. Its ledger rows then keep none either, so run status shows
+ * none, to org admins included.
  */
-export function actionRecordsInputs(entry: ActionEntry): boolean {
+export function actionRecordsInputs(name: string, entry: ActionEntry): boolean {
   const audit = normalizeAuditConfig(entry.audit);
   return (
     entry.persistInChatHistory !== false &&
     audit?.enabled !== false &&
-    audit?.recordInputs !== false
+    audit?.recordInputs !== false &&
+    shouldRecordAudit(audit, name)
   );
 }
 

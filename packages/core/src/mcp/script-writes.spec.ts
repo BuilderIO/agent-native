@@ -747,12 +747,18 @@ describe("createScriptWriteGate", () => {
         },
       ),
     );
-    await writes.begin(call(3, { key: "d", rows: 1 }));
+    // One the audit log leaves out by default, by its name.
+    await writes.begin({
+      ...call(3, { key: "d", rows: 1 }),
+      action: "change-appearance",
+    });
+    await writes.begin(call(4, { key: "e", rows: 1 }));
     expect((await rows()).map((row) => row.call_arguments)).toEqual([
       null,
       null,
       null,
-      expect.stringContaining('"d"'),
+      null,
+      expect.stringContaining('"e"'),
     ]);
   });
 
@@ -835,6 +841,20 @@ describe("recoverScriptWrites", () => {
       expect.objectContaining({ id: scriptAuditEventId(owner(), 0, 0) }),
     );
     expect(audits.change).toHaveBeenCalledTimes(1);
+  });
+
+  it("records no input, not an empty one, for a write it settles after its arguments are cleared", async () => {
+    await leavePending(0, "a");
+    receipts.add("a");
+    const later = T0 + 8 * 24 * 60 * 60_000;
+    await pruneScriptLedger(later);
+    await recoverScriptWrites({ appId: "app-a", actions, now: later });
+    expect(audits.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: scriptAuditEventId(owner(), 0, 0),
+        input: null,
+      }),
+    );
   });
 
   it("records no audit row for a recovered write whose action turns them off", async () => {
