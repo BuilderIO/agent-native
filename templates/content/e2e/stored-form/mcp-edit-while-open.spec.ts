@@ -35,6 +35,11 @@ test.describe.configure({ retries: 0, timeout: 180_000 });
 const SYNC_INTERVAL_MS = 12_000;
 const SHOW_WITHIN_MS = SYNC_INTERVAL_MS + 5_000;
 const CONVERGE_WITHIN_MS = 45_000;
+// How long a live-document post takes on beta, and how long the typing goes
+// on once the tab shows the agent's edit: past the save of the merged text and
+// two of the editor's 5 s caps on waiting for a pause.
+const COLLAB_POST_DELAY_MS = 400;
+const TYPE_ON_AFTER_EDIT_MS = 12_000;
 
 const [ALPHA, BRAVO, CHARLIE, DELTA] = PAGE_PARAGRAPHS;
 
@@ -380,6 +385,67 @@ test.describe(
         },
       );
     }
+
+    test(
+      "a tab keeps typing well after the agent's edit shows",
+      knownLossOnArm({
+        on: {
+          lane: "L3",
+          outcome: "SF-02",
+          reason:
+            "On a switched page the agent's edit-document writes the stored body, not the live copy, so the typing tab's held collab update is answered not_derived (not_live_copy) and the tab falls back to an update-document save that shows \"This page changed elsewhere\".",
+        },
+      }),
+      async ({ page, context }) => {
+        const tabs = await TabSet.create(context);
+        const markers = new Markers();
+        const id = await createPage(page, "SF-02 typing on", EDITOR_BODY);
+        await enterGateArm(page, id);
+        const typing = await tabs.open("A", id);
+        await tabs.quiet();
+        // On beta a live-document post takes longer than the gap between
+        // keystrokes, so the tab's queue of them never empties while the
+        // typing goes on.
+        await typing.route(
+          (url) =>
+            /^\/_agent-native\/collab\/[^/]+\/update$/.test(url.pathname),
+          async (route) => {
+            await new Promise((resolve) =>
+              setTimeout(resolve, COLLAB_POST_DELAY_MS),
+            );
+            await route.fallback();
+          },
+        );
+
+        const shown = (async () => {
+          await expect
+            .poll(async () => {
+              const text = await typing.locator(ACTIVE_EDITOR).innerText();
+              return markers.all.some((marker) => text.includes(marker));
+            })
+            .toBe(true);
+          const edit = await agentEdit(agent, page, id, markers);
+          await expectShownInTime([typing], edit);
+          return edit;
+        })();
+        // The tab saves the merged text while the typing goes on, and saves
+        // again each time the editor's cap on waiting for a pause runs out.
+        const typedOn = shown.then(
+          () =>
+            new Promise((resolve) =>
+              setTimeout(resolve, TYPE_ON_AFTER_EDIT_MS),
+            ),
+        );
+        const [edit] = await Promise.all([
+          shown,
+          keepTyping(typing, ALPHA, markers, typedOn),
+        ]);
+
+        await expectEachOnce([typing], page, id, markers);
+        await expectReplay(agent, tabs, page, id, edit);
+        expectNoRecoveryNoise(tabs);
+      },
+    );
 
     test(
       "two tabs are typing",
