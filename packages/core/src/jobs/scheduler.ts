@@ -1659,7 +1659,10 @@ async function recordExecutionOutcome(
           lastStatus: "paused",
           lastError:
             failed.recordedError ??
-            withDeliveryNote(failed.failure.message, failed.failure.deliveryNote),
+            withDeliveryNote(
+              failed.failure.message,
+              failed.failure.deliveryNote,
+            ),
           lastErrorCode: failed.failure.code,
         }
       : { lastStatus: "paused", lastError: current.meta.lastError };
