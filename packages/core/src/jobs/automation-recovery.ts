@@ -342,7 +342,7 @@ export async function inspectAutomationRecovery(
         status: "error",
         history,
         error: withDeliveryNote(
-          `${message}${detail ? ` ${detail}` : ""}`,
+          `${message}${detail ? ` ${detail}` : ""}${evidence.failedTool?.outcomeUnknown ? ` ${messages.outcomeUnknown}` : ""}`,
           deliveryNote,
         ),
         errorCode:

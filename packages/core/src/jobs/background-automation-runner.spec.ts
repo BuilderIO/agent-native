@@ -1199,6 +1199,195 @@ describe("runBackgroundAutomation — confirmed work", () => {
     ).rejects.toMatchObject({ errorCode: "automation_no_confirmed_work" });
   });
 
+  it.each(["dispatched redirect", "pre-dispatch rejection"])(
+    "reports the outcome of a %s without exposing request data",
+    async (scenario) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const { runAgentLoop: actualLoop } = await vi.importActual<
+        typeof import("../agent/production-agent.js")
+      >("../agent/production-agent.js");
+      const { createFetchToolEntry } =
+        await import("../extensions/fetch-tool.js");
+      const dispatched = scenario === "dispatched redirect";
+      const diagnostic = dispatched
+        ? "Redirect URL is not in the allowlist for the referenced keys."
+        : 'URL "https://93.184.216.34/denied" is not in the allowlist for the referenced keys. Check your key settings.';
+      const warning =
+        "An action may already have applied. Check its current state before retrying.";
+      const calls = [
+        dispatched ? "https://1.1.1.1/allowed" : "https://93.184.216.34/denied",
+        ...(dispatched ? ["https://1.1.1.1/other"] : []),
+      ];
+      let turn = 0;
+      const engine: AgentEngine = {
+        ...testEngine,
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          const url = calls[turn++];
+          if (url) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call",
+                  id: `post-${turn}`,
+                  name: "web-request",
+                  input: {
+                    url,
+                    method: "POST",
+                    headers: '{"Authorization":"${keys.TEST_KEY}"}',
+                    body: '{"private":"customer-fixture-value"}',
+                  },
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+          } else {
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "text", text: "Done." }],
+            };
+            yield { type: "stop", reason: "end_turn" };
+          }
+        },
+      };
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://93.184.216.34/denied" },
+        }),
+      );
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        actualLoop,
+      );
+      const name = `web-request-${dispatched ? "unknown" : "rejected"}`;
+      try {
+        const run = runBackgroundAutomation(
+          runOptions(precondition(name), { manual: true }),
+          {
+            ...standardDeps,
+            engine,
+            getActions: () =>
+              createFetchToolEntry({
+                resolveKeys: async (text) => ({
+                  resolved: text.replace(
+                    "${keys.TEST_KEY}",
+                    "fake-secret-value",
+                  ),
+                  usedKeys: text.includes("${keys.TEST_KEY}")
+                    ? ["TEST_KEY"]
+                    : [],
+                  secretValues: ["fake-secret-value"],
+                }),
+                validateUrl: async (url) => url.startsWith("https://1.1.1.1/"),
+              }),
+          },
+        );
+        await expect(run).rejects.toMatchObject({
+          errorCode: "web_request_url_blocked",
+          message: expect.stringContaining(diagnostic),
+        });
+        if (dispatched) {
+          await expect(run).rejects.toThrow(warning);
+        } else {
+          await expect(run).rejects.not.toThrow(warning);
+        }
+        const row = (await pglite
+          .prepare(
+            "SELECT status, error FROM automation_runs WHERE automation = ?",
+          )
+          .get(name)) as { status: string; error: string };
+        expect(row.status).toBe("error");
+        expect(row.error).toContain(diagnostic);
+        if (dispatched) expect(row.error).toContain(warning);
+        else expect(row.error).not.toContain(warning);
+        expect(row.error).not.toContain("fake-secret-value");
+        expect(row.error).not.toContain("customer-fixture-value");
+        expect(fetchSpy).toHaveBeenCalledTimes(dispatched ? 1 : 0);
+        const liveHistory = (await pglite
+          .prepare("SELECT run_id FROM automation_runs WHERE automation = ?")
+          .get(name)) as { run_id: string };
+        const runStore = await import("../agent/run-store.js");
+        const events = (
+          await runStore.getRunEventsSince(liveHistory.run_id, 0)
+        ).map(({ eventData }) => JSON.parse(eventData));
+        if (dispatched) {
+          expect(events).toContainEqual(
+            expect.objectContaining({
+              type: "tool_done",
+              errorCode: "web_request_url_blocked",
+              outcomeUnknown: true,
+              result: expect.stringContaining(diagnostic),
+            }),
+          );
+          expect(events).toContainEqual(
+            expect.objectContaining({
+              type: "tool_done",
+              result: expect.stringContaining(
+                "an earlier web-request call in this turn may have already applied",
+              ),
+            }),
+          );
+        }
+        const history = await import("./run-history.js");
+        const { inspectAutomationRecovery } =
+          await import("./automation-recovery.js");
+        const recoveryRunId = `recovery-${name}`;
+        const threadId = `thread-${recoveryRunId}`;
+        const automation = precondition(name);
+        const historyId = await history.startAutomationRun({
+          owner: automation.resource.owner,
+          automation: name,
+          path: automation.resource.path,
+          runId: recoveryRunId,
+          threadId,
+        });
+        await runStore.insertRun(recoveryRunId, threadId, recoveryRunId);
+        const toolEvents = events.filter((event) => event.type === "tool_done");
+        for (const [seq, event] of toolEvents.entries()) {
+          await runStore.insertRunEvent(
+            recoveryRunId,
+            seq,
+            JSON.stringify(event),
+          );
+        }
+        expect(
+          await runStore.updateRunStatusIfRunning(recoveryRunId, "completed"),
+        ).toBe(true);
+        const recovery = await inspectAutomationRecovery(
+          automation.resource,
+          {
+            ...automation.meta,
+            lastRun: new Date().toISOString(),
+            lastHistoryId: historyId,
+          },
+          new Date(),
+        );
+        expect(recovery).toMatchObject({
+          state: "settle",
+          status: "error",
+          errorCode: "web_request_url_blocked",
+          error: expect.stringContaining(diagnostic),
+        });
+        if (recovery?.state !== "settle")
+          throw new Error("Expected settlement");
+        if (dispatched) expect(recovery.error).toContain(warning);
+        else expect(recovery.error).not.toContain(warning);
+        expect(recovery.error).not.toContain("fake-secret-value");
+        expect(recovery.error).not.toContain("customer-fixture-value");
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    },
+  );
+
   it.each([
     { trackProgress: false, status: 429 },
     { trackProgress: false, status: 503 },
