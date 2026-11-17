@@ -3408,6 +3408,25 @@ async function reapSingleStaleRun(
     if (lease?.isLive && generationMatches) {
       return { reaped: false, outcome: null };
     }
+    // The foreground stale window equals the lease, so without this the
+    // reaper revokes the instant a lease lapses and the worker, which may
+    // reclaim a lapsed lease, loses it on its next renewal instead.
+    if (
+      lease &&
+      generationMatches &&
+      (await ownsLapsedTurnLease(
+        tx,
+        {
+          threadId: runScope.thread_id as string,
+          turnId: runScope.turn_id as string,
+          runId,
+          generation: lease.generation,
+        },
+        { lapsedWithinMs: TURN_EXECUTION_LEASE_MS },
+      ))
+    ) {
+      return { reaped: false, outcome: null };
+    }
     const repaired = await reconcileTerminalRunInRecoveryTransaction(tx, runId);
     if (repaired) {
       if (generationMatches && lease) {

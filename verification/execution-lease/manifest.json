@@ -78,7 +78,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "49ac6f19559096a310db77550dd53f6506258951",
+    "syncCommit": "4e974812a0c1ba4ab1b9c92aa601cd8e58a40491",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -163,7 +163,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "reapSingleStaleRun",
-        "sha256": "723c3b8e0e0b71bfa6890cf4121fe8ea4eb4a938935f92991a4d6f4c7fbecf03"
+        "sha256": "1b0c30eacd1fcc661b1af1feb802d39892cf2746ce3f3c8989f1576e30626d0a"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
