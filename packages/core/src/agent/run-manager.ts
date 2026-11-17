@@ -91,7 +91,6 @@ import {
   UNKNOWN_RUN_STATUS_ERROR_EVENT,
 } from "./run-store.js";
 import { trackRunTerminal } from "./run-terminal-tracking.js";
-import { sanitizeToolErrorText } from "./tool-error-redaction.js";
 import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
 import type {
   AgentChatEvent,
@@ -364,7 +363,7 @@ function getRunErrorMessage(err: unknown): string {
     typeof err.message === "string" &&
     err.message.trim().length > 0
   ) {
-    return sanitizeToolErrorText(err.message);
+    return err.message;
   }
   return "Unknown error";
 }
@@ -391,7 +390,7 @@ export function engineRequestShapeTags(
 }
 
 function getEngineRunErrorDetails(err: EngineError): string | undefined {
-  if (err.statusCode === 429) return sanitizeToolErrorText(err.message);
+  if (err.statusCode === 429) return err.message;
   return undefined;
 }
 

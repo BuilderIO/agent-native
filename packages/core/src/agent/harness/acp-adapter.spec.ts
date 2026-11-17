@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import {
   ACP_PACKAGE,
   acpAutoPermissionDecision,
-  acpChildExitMessage,
   acpContentBlockToText,
   acpFileChangeEventsFromToolContent,
   acpUpdateToHarnessEvents,
@@ -337,24 +336,5 @@ describe("BUILTIN_ACP_PRESETS", () => {
       expect(preset.command).toBeTruthy();
       expect(preset.args.length).toBeGreaterThan(0);
     }
-  });
-});
-
-describe("acpChildExitMessage", () => {
-  it("names the command and keeps the stderr tail, with a key in it redacted", () => {
-    const key = ["sk-ant-api03-", "CANARYHARNESSKEY0123456789"].join("");
-    const message = acpChildExitMessage(
-      "codex-acp",
-      `starting\nerror: invalid x-api-key ${key}\nAuthorization: Bearer CANARYBEARER0123456789\n`,
-    );
-    expect(message).toContain("codex-acp exited before the turn completed.");
-    expect(message).toContain("starting");
-    expect(message).not.toContain("CANARY");
-  });
-
-  it("is the bare message with nothing on stderr", () => {
-    expect(acpChildExitMessage("codex-acp", "  \n")).toBe(
-      "[acp-harness] codex-acp exited before the turn completed.",
-    );
   });
 });

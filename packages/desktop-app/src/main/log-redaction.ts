@@ -2,7 +2,6 @@ import {
   isSecretName,
   redactSecretsInText,
 } from "@agent-native/core/shared/secret-redaction";
-import type { Breadcrumb } from "@sentry/electron/main";
 
 const REDACTED = "[REDACTED]";
 const TRUNCATED = "[TRUNCATED]";
@@ -78,17 +77,4 @@ export function redactLogValue(
     redacted.__truncated__ = true;
   }
   return redacted;
-}
-
-/** Sentry adds the app's console output to each report as breadcrumbs. */
-export function redactBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb {
-  return {
-    ...breadcrumb,
-    ...(breadcrumb.message === undefined
-      ? {}
-      : { message: redactLogString(breadcrumb.message) }),
-    ...(breadcrumb.data
-      ? { data: redactLogValue(breadcrumb.data) as Record<string, unknown> }
-      : {}),
-  };
 }

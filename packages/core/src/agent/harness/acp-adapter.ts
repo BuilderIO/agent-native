@@ -26,7 +26,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
 
-import { sanitizeToolErrorText } from "../tool-error-redaction.js";
 import type {
   AgentHarnessAdapter,
   AgentHarnessApproval,
@@ -438,18 +437,10 @@ class AcpHarnessSession implements AgentHarnessSession {
   }
 
   private childExitMessage(): string {
-    return acpChildExitMessage(this.command, this.stderrTail);
+    const tail = this.stderrTail.trim();
+    const base = `[acp-harness] ${this.command} exited before the turn completed.`;
+    return tail ? `${base}\n${tail.slice(-1_000)}` : base;
   }
-}
-
-/** The last of a harness's stderr, which can echo the key it was started with. */
-export function acpChildExitMessage(
-  command: string,
-  stderrTail: string,
-): string {
-  const tail = sanitizeToolErrorText(stderrTail.trim());
-  const base = `[acp-harness] ${command} exited before the turn completed.`;
-  return tail ? `${base}\n${tail.slice(-1_000)}` : base;
 }
 
 export function buildAcpPromptBlocks(input: {
