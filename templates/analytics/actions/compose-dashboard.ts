@@ -20,6 +20,7 @@ import {
   verifyPanelWrite,
   type PanelVerification,
   type PanelWriteVerdict,
+  outsideAgentVerificationBudget,
 } from "../server/lib/dashboard-panel-verification";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
@@ -205,6 +206,8 @@ export default defineAction({
     const ctx = { email, orgId: getRequestOrgId() || null };
     const agentCaller = isAgentCaller(actionContext?.caller);
     const verificationMemo = new Map<string, PanelVerification>();
+    const verificationBudget =
+      outsideAgentVerificationBudget("compose-dashboard");
     let verdict: PanelWriteVerdict | null = null;
 
     const rawMetrics: unknown[] = Array.isArray(args.metrics)
@@ -412,6 +415,7 @@ export default defineAction({
               memo: verificationMemo,
               dashboardId: args.dashboardId,
               serverAuthoredPanelIds: new Set([...refreshed, ...appendedIds]),
+              budget: verificationBudget,
             });
           }
           return { kind: "sql" as const, body: merged };
@@ -447,6 +451,7 @@ export default defineAction({
           memo: verificationMemo,
           dashboardId: args.dashboardId,
           serverAuthoredPanelIds: new Set(composedPanels.map(({ id }) => id)),
+          budget: verificationBudget,
         });
       }
       // Validation and verification take seconds, so another call may have

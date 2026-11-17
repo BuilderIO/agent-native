@@ -13,6 +13,8 @@ import {
   OutsideAgentBigQueryRefusalError,
   withOutsideAgentBigQueryGate,
   type OutsideAgentBigQueryCallSummary,
+  type OutsideAgentBigQueryGate,
+  type OutsideAgentBigQueryJobCost,
 } from "./bigquery-agent-context.js";
 
 const budgetScopeSchema = z.object({
@@ -32,6 +34,17 @@ export const outsideAgentBigQueryReportSchema = z.object({
     stillReservedUsd: z.number(),
     cacheHits: z.number(),
   }),
+  jobs: z.array(
+    z.object({
+      jobId: z.string(),
+      estimatedUsd: z.number().nullable(),
+      reservedUsd: z.number(),
+      billedUsd: z.number().nullable(),
+      cacheHit: z.boolean().nullable(),
+      state: z.enum(["reserved", "settled", "released"]),
+    }),
+  ),
+  jobsOmitted: z.number().optional(),
   today: z
     .object({
       utcDay: z.string(),
@@ -65,11 +78,28 @@ export interface OutsideAgentBigQueryReport {
     stillReservedUsd: number;
     cacheHits: number;
   };
+  /** Each job this call admitted: its estimate, reservation, and BigQuery's billed cost once settled. */
+  jobs: OutsideAgentBigQueryJobReport[];
+  /** Jobs past the listed ones; `thisCall` counts them all. */
+  jobsOmitted?: number;
   /** Today's budgets after this call; null when they could not be read. */
   today: BigQueryAgentBudgetView | null;
   /** The job the budget refused, when a call reports a refusal instead of failing. */
   refusal?: { code: string; message: string };
 }
+
+export interface OutsideAgentBigQueryJobReport {
+  jobId: string;
+  /** The dry run's conservative estimate; null for fixed internal SQL reserved at its cap. */
+  estimatedUsd: number | null;
+  reservedUsd: number;
+  /** Null until BigQuery's billed bytes settled the job. */
+  billedUsd: number | null;
+  cacheHit: boolean | null;
+  state: OutsideAgentBigQueryJobCost["state"];
+}
+
+const MAX_REPORTED_JOBS = 20;
 
 export function outsideAgentBigQueryReport(
   summary: OutsideAgentBigQueryCallSummary,
@@ -83,6 +113,18 @@ export function outsideAgentBigQueryReport(
       stillReservedUsd: usd(Math.max(0, summary.unsettledBytes)),
       cacheHits: summary.cacheHits,
     },
+    jobs: summary.jobs.slice(0, MAX_REPORTED_JOBS).map((job) => ({
+      jobId: job.jobId,
+      estimatedUsd:
+        job.estimatedBytes === null ? null : usd(job.estimatedBytes),
+      reservedUsd: usd(job.reservedBytes),
+      billedUsd: job.billedBytes === null ? null : usd(job.billedBytes),
+      cacheHit: job.cacheHit,
+      state: job.state,
+    })),
+    ...(summary.jobs.length > MAX_REPORTED_JOBS
+      ? { jobsOmitted: summary.jobs.length - MAX_REPORTED_JOBS }
+      : {}),
     today,
     // A job refused partway, such as a follow-up the call reported as partial.
     ...(summary.refusal
@@ -107,24 +149,61 @@ async function todayView(
   }
 }
 
+function dollars(value: number): string {
+  return value > 0 && value < 0.01 ? "<$0.01" : `$${value.toFixed(2)}`;
+}
+
+/** The report as one sentence, for a failure whose message is all the caller sees. */
+export function describeOutsideAgentBigQueryReport(
+  report: OutsideAgentBigQueryReport,
+): string {
+  const call = report.thisCall;
+  const today = report.today
+    ? ` Left today: ${dollars(report.today.person.remainingUsd)} of your ${dollars(report.today.person.limitUsd)} and ${dollars(report.today.org.remainingUsd)} of your organization's ${dollars(report.today.org.limitUsd)}; it resets at ${report.today.resetsAt} (00:00 UTC).`
+    : "";
+  return `BigQuery jobs this call ran against your outside-agent budget: ${call.jobsAdmitted}, reserved ${dollars(call.reservedUsd)}, billed ${dollars(call.billedUsd)}, still reserved ${dollars(call.stillReservedUsd)}.${today}`;
+}
+
+export interface OutsideAgentBigQueryCallOptions {
+  identity: OutsideAgentIdentity;
+  source: string;
+  reservation: "full-cap" | "dry-run";
+  leaseMs: number;
+}
+
+/** One call's gate, for work spread over several steps, and its report so far. */
+export interface OutsideAgentBigQueryCall {
+  readonly gate: OutsideAgentBigQueryGate;
+  report(): Promise<OutsideAgentBigQueryReport>;
+}
+
+export function createOutsideAgentBigQueryCall(
+  options: OutsideAgentBigQueryCallOptions,
+): OutsideAgentBigQueryCall {
+  const gate = createOutsideAgentBigQueryGate(options);
+  return {
+    gate,
+    report: async () =>
+      outsideAgentBigQueryReport(
+        gate.summary(),
+        await todayView(options.identity),
+      ),
+  };
+}
+
 /**
  * Runs an outside agent's tool call with every BigQuery job it starts
  * admitted against the daily budgets. A refused job surfaces as the refusal,
  * whatever the code under it made of the error.
  */
 export async function runOutsideAgentBigQueryCall<T>(
-  options: {
-    identity: OutsideAgentIdentity;
-    source: string;
-    reservation: "full-cap" | "dry-run";
-    leaseMs: number;
-  },
+  options: OutsideAgentBigQueryCallOptions,
   work: () => Promise<T>,
 ): Promise<{ value: T; report: OutsideAgentBigQueryReport }> {
-  const gate = createOutsideAgentBigQueryGate(options);
+  const call = createOutsideAgentBigQueryCall(options);
   let value: T;
   try {
-    value = await withOutsideAgentBigQueryGate(gate, work);
+    value = await withOutsideAgentBigQueryGate(call.gate, work);
   } catch (error) {
     // Only a refusal that caused this failure is reported as one; a refusal
     // the work already handled must not mask a later, unrelated error.
@@ -137,13 +216,7 @@ export async function runOutsideAgentBigQueryCall<T>(
     }
     throw error;
   }
-  return {
-    value,
-    report: outsideAgentBigQueryReport(
-      gate.summary(),
-      await todayView(options.identity),
-    ),
-  };
+  return { value, report: await call.report() };
 }
 
 /** A refusal as a report, for a tool whose contract answers with partial data instead of failing. */
@@ -158,6 +231,7 @@ export function outsideAgentRefusalReport(
       stillReservedUsd: 0,
       cacheHits: 0,
     },
+    jobs: [],
     today: error.budget ? describeBigQueryAgentBudget(error.budget) : null,
     refusal: { code: error.code, message: error.message },
   };
@@ -170,7 +244,8 @@ export function failForOutsideAgentRefusal(
   return fail(error.message, {
     errorCode: error.code,
     statusCode:
-      error.code === "budget_unavailable"
+      error.code === "budget_unavailable" ||
+      error.code === "estimate_unavailable"
         ? 503
         : error.code === "budget_required"
           ? 403

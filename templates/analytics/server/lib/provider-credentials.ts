@@ -58,6 +58,8 @@ export interface AnalyticsProviderCredential {
   source: AnalyticsProviderCredentialSource;
   connectionId?: string;
   connectionLabel?: string;
+  /** The provider account an OAuth token acts as, when the grant names one. */
+  accountId?: string;
   scope?: SecretRef["scope"];
   scopeId?: string;
 }
@@ -404,6 +406,7 @@ async function resolveWorkspaceOAuthProviderCredential(
     connectionId: oauth.connectionId ?? resolvedConnection.connection.id,
     connectionLabel:
       oauth.connectionLabel ?? resolvedConnection.connection.label,
+    ...(oauth.accountId ? { accountId: oauth.accountId } : {}),
     ...(connectionOrgId
       ? {
           scope: "org" as const,

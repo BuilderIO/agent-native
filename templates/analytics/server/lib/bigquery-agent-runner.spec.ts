@@ -79,10 +79,18 @@ vi.mock("./credentials", () => ({
 vi.mock("./gcloud", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./gcloud")>()),
   getBigQueryAccessToken: async () => "test-token",
+  getBigQueryAccess: async () => ({
+    token: "test-token",
+    principal:
+      "sa:runner@builder-3b0a2.iam.gserviceaccount.com#0a1b2c3d4e5f6a7b",
+  }),
 }));
 
-const { BIGQUERY_AGENT_BUDGET_MIGRATION_SQL, OUTSIDE_AGENT_JOB_CAP_BYTES } =
-  await import("./bigquery-agent-budget");
+const {
+  BIGQUERY_AGENT_BUDGET_MIGRATION_SQL,
+  BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
+  OUTSIDE_AGENT_JOB_CAP_BYTES,
+} = await import("./bigquery-agent-budget");
 const { reservationForEstimate } = await import("./bigquery-agent-context");
 const { runBigQueryAgentQuery, BIGQUERY_AGENT_MAX_ROWS } =
   await import("./bigquery-agent-runner");
@@ -149,7 +157,10 @@ function completedPoll(rows: { f: { v: unknown }[] }[], extra = {}) {
 
 beforeEach(async () => {
   database.client = await PGlite.create("memory://");
-  for (const statement of BIGQUERY_AGENT_BUDGET_MIGRATION_SQL) {
+  for (const statement of [
+    ...BIGQUERY_AGENT_BUDGET_MIGRATION_SQL,
+    ...BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
+  ]) {
     await database.client.exec(statement);
   }
   calls.submissions = [];
@@ -204,7 +215,7 @@ beforeEach(async () => {
         return scenario.poll(url, init?.signal);
       }
       if (url.pathname.endsWith("/jobs")) {
-        return json({ jobs: [] });
+        return json({ kind: "bigquery#jobList", jobs: [] });
       }
       if (url.pathname.includes("/jobs/")) {
         return scenario.jobsGet(

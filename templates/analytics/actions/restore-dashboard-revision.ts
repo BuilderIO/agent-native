@@ -13,6 +13,7 @@ import {
   verdictFields,
   verifyPanelWrite,
   type PanelWriteVerdict,
+  outsideAgentVerificationBudget,
 } from "../server/lib/dashboard-panel-verification";
 import {
   getDashboard,
@@ -108,6 +109,9 @@ export default defineAction({
     // what no longer renders, or that it could not check, instead of refusing.
     let verdict: PanelWriteVerdict | null = null;
     if (isAgentCaller(actionContext?.caller) && dashboard.kind === "sql") {
+      const verificationBudget = outsideAgentVerificationBudget(
+        "restore-dashboard-revision",
+      );
       try {
         verdict = await verifyPanelWrite({
           base: before?.kind === "sql" ? before.config : null,
@@ -115,6 +119,7 @@ export default defineAction({
           signal: actionContext?.signal,
           mode: "report",
           dashboardId: args.dashboardId,
+          budget: verificationBudget,
         });
       } catch (error) {
         verdict = {
@@ -123,6 +128,9 @@ export default defineAction({
           proof: [],
           unverified: [],
           nextStep: `REQUIRED: the restore was saved but panel verification failed (${error instanceof Error ? error.message : String(error)}). Call inspect-dashboard-panel on the panels the user cares about before telling them the dashboard renders.`,
+          ...(verificationBudget
+            ? { bigQueryBudget: await verificationBudget.report() }
+            : {}),
         };
       }
     }

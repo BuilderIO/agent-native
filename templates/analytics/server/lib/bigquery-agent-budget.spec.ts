@@ -74,23 +74,30 @@ const {
   approveBigQueryAgentDailyAllowance,
   BIGQUERY_AGENT_BUDGET_MIGRATION_SQL,
   BIGQUERY_AGENT_BUDGET_SETTING_KEY,
+  BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
   BIGQUERY_MAX_JOB_RUNTIME_MS,
   BigQueryAgentBudgetUnavailableError,
   OUTSIDE_AGENT_JOB_CAP_BYTES,
   OUTSIDE_AGENT_ORG_LIMIT_BYTES,
   OUTSIDE_AGENT_PERSON_BASE_BYTES,
   OUTSIDE_AGENT_PERSON_CEILING_BYTES,
+  markBigQueryAgentJobSubmission,
   pruneBigQueryAgentBudget,
   readBigQueryAgentBudget,
   reconcileStaleBigQueryAgentJobs,
   settleBigQueryAgentJob,
 } = await import("./bigquery-agent-budget");
+const { admissionLapsed, createOutsideAgentBigQueryGate } =
+  await import("./bigquery-agent-context");
 const { billedBytesForUsd } = await import("./bigquery-pricing");
 type Reconciler = import("./bigquery-agent-budget").BigQueryAgentReconciler;
 
 const alice = { ownerEmail: "alice@example.com", orgId: "org-1" };
 const bob = { ownerEmail: "bob@example.com", orgId: "org-1" };
 const JOB = OUTSIDE_AGENT_JOB_CAP_BYTES;
+// The Google principal the jobs below were sent as.
+const PRINCIPAL =
+  "sa:runner-a@builder-3b0a2.iam.gserviceaccount.com#0a1b2c3d4e5f6a7b";
 let jobCounter = 0;
 
 function admit(
@@ -107,6 +114,7 @@ function admit(
       projectId: "builder-3b0a2",
       jobId: `job_${jobCounter}`,
       credentialScope: "default",
+      credentialFingerprint: PRINCIPAL,
       estimatedBytes: null,
       reservedBytes,
       leaseMs: 60_000,
@@ -135,7 +143,10 @@ const NOON = new Date("2026-11-17T12:00:00.000Z");
 
 beforeEach(async () => {
   database.client = await PGlite.create("memory://");
-  for (const statement of BIGQUERY_AGENT_BUDGET_MIGRATION_SQL) {
+  for (const statement of [
+    ...BIGQUERY_AGENT_BUDGET_MIGRATION_SQL,
+    ...BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
+  ]) {
     await database.client.exec(statement);
   }
   orgSettings.clear();
@@ -258,6 +269,7 @@ describe("admission", () => {
         projectId: "builder-3b0a2",
         jobId: "resumable_1",
         credentialScope: "default",
+        credentialFingerprint: PRINCIPAL,
         estimatedBytes: null,
         reservedBytes: JOB,
         leaseMs: 60_000,
@@ -376,6 +388,7 @@ describe("reconciler", () => {
   ): Reconciler & { calls: number } {
     const result = {
       credentialScope,
+      credentialFingerprint: PRINCIPAL,
       calls: 0,
       async observe() {
         result.calls++;
@@ -499,6 +512,7 @@ describe("settlement of finished jobs", () => {
   function finished(errorReason: string | null) {
     return {
       credentialScope: "default",
+      credentialFingerprint: PRINCIPAL,
       observe: async () => ({
         kind: "found" as const,
         state: "DONE" as const,
@@ -518,6 +532,7 @@ describe("settlement of finished jobs", () => {
       alice,
       {
         credentialScope: "default",
+        credentialFingerprint: PRINCIPAL,
         observe: async (job) =>
           finished(
             job.jobId === "job_1" ? "invalidQuery" : "stopped",
@@ -554,7 +569,11 @@ describe("settlement of finished jobs", () => {
     });
     await reconcileStaleBigQueryAgentJobs(
       alice,
-      { credentialScope: "default", observe: async () => ({ kind: "absent" }) },
+      {
+        credentialScope: "default",
+        credentialFingerprint: PRINCIPAL,
+        observe: async () => ({ kind: "absent" }),
+      },
       new Date(NOON.getTime() + 90_000),
     );
     expect(await row("resumable_2")).toMatchObject({ state: "pending" });
@@ -567,6 +586,228 @@ describe("settlement of finished jobs", () => {
         { leaseExpiredAt: new Date(NOON.getTime() + 90_000) },
       ),
     ).toBe(false);
+  });
+});
+
+describe("the lease a job is sent under", () => {
+  async function leaseOf(jobId: string): Promise<number> {
+    const { rows } = await database.client!.query(
+      "SELECT lease_expires_at FROM analytics_bigquery_agent_jobs WHERE job_id = $1",
+      [jobId],
+    );
+    return Date.parse(
+      (rows[0] as { lease_expires_at: string }).lease_expires_at,
+    );
+  }
+
+  function absentFor(credentialFingerprint: string | null): Reconciler {
+    return {
+      credentialScope: "default",
+      credentialFingerprint,
+      observe: async () => ({ kind: "absent" }),
+    };
+  }
+
+  it("starts under the admission lock, so a slow admission never leaves its caller a deadline past it", async () => {
+    // Bob's stale job makes Alice's admission reconcile first, for 20 s.
+    await admit(bob, JOB, new Date(NOON.getTime() - 10 * 60_000), {
+      jobId: "stale",
+    });
+    let clock = NOON.getTime();
+    const slow: Reconciler = {
+      credentialScope: "default",
+      credentialFingerprint: PRINCIPAL,
+      async observe() {
+        clock += 20_000;
+        return {
+          kind: "found",
+          state: "RUNNING",
+          billedBytes: null,
+          cacheHit: null,
+          errorReason: null,
+          location: "US",
+        };
+      },
+    };
+    const gate = createOutsideAgentBigQueryGate({
+      identity: alice,
+      source: "test",
+      reservation: "full-cap",
+      leaseMs: 60_000,
+      now: () => new Date(clock),
+    });
+    const admission = await gate.admit({
+      projectId: "builder-3b0a2",
+      jobId: "late",
+      credentialScope: "default",
+      credentialFingerprint: PRINCIPAL,
+      capBytes: JOB,
+      reconciler: slow,
+    });
+
+    const lease = await leaseOf("late");
+    expect(lease).toBe(NOON.getTime() + 20_000 + 60_000);
+    expect(admission.submitBy).toBeLessThanOrEqual(lease - 15_000);
+
+    // A concurrent reconcile up to the caller's deadline finds the lease live.
+    await reconcileStaleBigQueryAgentJobs(
+      bob,
+      absentFor(PRINCIPAL),
+      new Date(admission.submitBy),
+    );
+    expect(await row("late")).toMatchObject({ state: "pending" });
+    expect(admissionLapsed(admission, admission.submitBy)).toBe(false);
+
+    // Once a reconcile has released it, the late caller may not send it.
+    const released = lease + 1_000;
+    await reconcileStaleBigQueryAgentJobs(
+      bob,
+      absentFor(PRINCIPAL),
+      new Date(released),
+    );
+    expect(await row("late")).toMatchObject({ state: "released" });
+    expect(admissionLapsed(admission, released)).toBe(true);
+  });
+
+  it("returns the extended lease when a job ID is admitted again, never one it did not commit", async () => {
+    const first = await admit(alice, JOB, NOON, { jobId: "resumable_3" });
+    const again = await admitBigQueryAgentJob(
+      alice,
+      {
+        source: "test",
+        projectId: "builder-3b0a2",
+        jobId: "resumable_3",
+        credentialScope: "default",
+        credentialFingerprint: PRINCIPAL,
+        estimatedBytes: null,
+        reservedBytes: JOB,
+        leaseMs: 60_000,
+      },
+      {
+        now: new Date(NOON.getTime() + 10_000),
+        clock: () => new Date(NOON.getTime() + 45_000),
+      },
+    );
+    expect(first).toMatchObject({
+      leaseExpiresAt: new Date(NOON.getTime() + 60_000).toISOString(),
+    });
+    expect(again).toMatchObject({
+      created: false,
+      leaseExpiresAt: new Date(NOON.getTime() + 105_000).toISOString(),
+    });
+    expect(await leaseOf("resumable_3")).toBe(NOON.getTime() + 105_000);
+  });
+});
+
+describe("proof of absence after the credentials change", () => {
+  const OTHER_ACCOUNT =
+    "sa:runner-b@builder-3b0a2.iam.gserviceaccount.com#9f8e7d6c5b4a3928";
+  const ROTATED_KEY =
+    "sa:runner-a@builder-3b0a2.iam.gserviceaccount.com#ffffffffffffffff";
+
+  function listingAs(credentialFingerprint: string | null) {
+    const asked: boolean[] = [];
+    const reconciler: Reconciler = {
+      credentialScope: "default",
+      credentialFingerprint,
+      async observe(_job, _signal, { mayConfirmAbsence }) {
+        asked.push(mayConfirmAbsence);
+        // A listing by these credentials never shows the other account's job.
+        return { kind: "absent" };
+      },
+    };
+    return { reconciler, asked };
+  }
+
+  it("keeps an unknown-outcome job reserved once the credentials name another principal, then charges it in full after six hours", async () => {
+    const admitted = await admit(alice, JOB, NOON, { jobId: "unknown_a" });
+    if (admitted.status !== "admitted") throw new Error("not admitted");
+    await markBigQueryAgentJobSubmission(
+      admitted.requestId,
+      "unknown",
+      undefined,
+    );
+
+    const replaced = listingAs(OTHER_ACCOUNT);
+    await reconcileStaleBigQueryAgentJobs(
+      alice,
+      replaced.reconciler,
+      new Date(NOON.getTime() + 120_000),
+    );
+    const rotated = listingAs(ROTATED_KEY);
+    await reconcileStaleBigQueryAgentJobs(
+      alice,
+      rotated.reconciler,
+      new Date(NOON.getTime() + 240_000),
+    );
+    expect(replaced.asked).toEqual([false]);
+    expect(rotated.asked).toEqual([false]);
+    expect(await row("unknown_a")).toMatchObject({ state: "pending" });
+    expect(
+      (await readBigQueryAgentBudget(alice, { now: NOON })).person
+        .reservedBytes,
+    ).toBe(JOB);
+
+    await reconcileStaleBigQueryAgentJobs(
+      alice,
+      replaced.reconciler,
+      new Date(NOON.getTime() + BIGQUERY_MAX_JOB_RUNTIME_MS + 1),
+    );
+    expect(await row("unknown_a")).toMatchObject({
+      state: "settled",
+      billed: String(JOB),
+      resolution: "max_runtime_elapsed",
+    });
+  });
+
+  it("releases it on a complete listing by the principal that sent it", async () => {
+    await admit(alice, JOB, NOON, { jobId: "unknown_b" });
+    const same = listingAs(PRINCIPAL);
+    await reconcileStaleBigQueryAgentJobs(
+      alice,
+      same.reconciler,
+      new Date(NOON.getTime() + 120_000),
+    );
+    expect(same.asked).toEqual([true]);
+    expect(await row("unknown_b")).toMatchObject({
+      state: "released",
+      resolution: "not_found",
+    });
+  });
+
+  it("never proves absent a job whose principal was unknown when it was admitted", async () => {
+    await admit(alice, JOB, NOON, {
+      jobId: "unknown_c",
+      credentialFingerprint: null,
+    });
+    const unknown = listingAs(null);
+    await reconcileStaleBigQueryAgentJobs(
+      alice,
+      unknown.reconciler,
+      new Date(NOON.getTime() + 120_000),
+    );
+    expect(unknown.asked).toEqual([false]);
+    expect(await row("unknown_c")).toMatchObject({ state: "pending" });
+  });
+
+  it("forgets the principal of a job ID a second call admits as another one", async () => {
+    await admit(alice, JOB, NOON, { jobId: "resumable_4" });
+    await admit(alice, JOB, NOON, {
+      jobId: "resumable_4",
+      credentialFingerprint: OTHER_ACCOUNT,
+    });
+    for (const fingerprint of [PRINCIPAL, OTHER_ACCOUNT]) {
+      const listing = listingAs(fingerprint);
+      await reconcileStaleBigQueryAgentJobs(
+        alice,
+        listing.reconciler,
+        new Date(
+          NOON.getTime() + 120_000 + (fingerprint === PRINCIPAL ? 0 : 60_000),
+        ),
+      );
+      expect(listing.asked).toEqual([false]);
+    }
+    expect(await row("resumable_4")).toMatchObject({ state: "pending" });
   });
 });
 

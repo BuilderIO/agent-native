@@ -41,6 +41,7 @@ import {
   verifyPanelWrite,
   type PanelVerification,
   type PanelWriteVerdict,
+  outsideAgentVerificationBudget,
 } from "../server/lib/dashboard-panel-verification";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
@@ -1151,6 +1152,8 @@ export default defineAction({
     const ctx = { email: scope.email, orgId: scope.orgId };
     const agentCaller = isAgentCaller(actionContext?.caller);
     const verificationMemo = new Map<string, PanelVerification>();
+    const verificationBudget =
+      outsideAgentVerificationBudget("update-dashboard");
     // Only in-app callers create here; external clients use compose-dashboard.
     const external = actionContext?.caller === "mcp";
     const guard = guardWrite({
@@ -1239,6 +1242,7 @@ export default defineAction({
             allowEmptyResult: args.allowEmptyResult,
             memo: verificationMemo,
             dashboardId,
+            budget: verificationBudget,
           })
         : null;
       // Verification can run for seconds after `before` was read, so an agent
@@ -1341,6 +1345,7 @@ export default defineAction({
               next: root,
               signal: actionContext?.signal,
               dashboardId,
+              budget: verificationBudget,
             });
           }
           return { kind: existing.kind, body: root };
@@ -1421,6 +1426,7 @@ export default defineAction({
             allowEmptyResult: args.allowEmptyResult,
             memo: verificationMemo,
             dashboardId,
+            budget: verificationBudget,
           });
         }
         appliedDetails = details;

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { getRequestContext } from "@agent-native/core/server";
 
 import { resolveCredential } from "./credentials";
@@ -23,7 +25,10 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE = 120;
 
-const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+const tokenCache = new Map<
+  string,
+  { token: string; expiresAt: number; principal: string }
+>();
 type RequestValueCache<T> = WeakMap<object, Map<string, Promise<T>>>;
 
 const bigQueryProjectIdByRequest: RequestValueCache<string | undefined> =
@@ -251,20 +256,49 @@ async function getServiceAccountCredentials(signal?: AbortSignal) {
   return parsed as {
     type: string;
     private_key: string;
+    private_key_id?: unknown;
     client_email: string;
     token_uri?: string;
   };
 }
 
+function shortHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
+}
+
+/**
+ * The BigQuery credential a token was minted from, and the Google principal
+ * it acts as. `principal` is never secret: a service account's email with a
+ * hash of its key ID, or a hash of the OAuth account. Null when the
+ * credential does not say which account it is.
+ */
+export interface BigQueryAccess {
+  token: string;
+  principal: string | null;
+}
+
 export async function getAccessToken(signal?: AbortSignal): Promise<string> {
+  return (await getServiceAccountAccess(signal)).token;
+}
+
+async function getServiceAccountAccess(
+  signal?: AbortSignal,
+): Promise<{ token: string; principal: string }> {
   throwIfSignalAborted(signal);
   const tokenKey = credentialCacheScope("GOOGLE_APPLICATION_CREDENTIALS_JSON");
   const cachedToken = tokenCache.get(tokenKey);
+  // A cached token keeps the principal it was minted for, even after the
+  // stored key is replaced, so the two never disagree.
   if (cachedToken && Date.now() < cachedToken.expiresAt - 30_000) {
-    return cachedToken.token;
+    return { token: cachedToken.token, principal: cachedToken.principal };
   }
 
   const creds = await getServiceAccountCredentials(signal);
+  const principal = `sa:${creds.client_email}#${
+    typeof creds.private_key_id === "string" && creds.private_key_id
+      ? shortHash(creds.private_key_id)
+      : "no-key-id"
+  }`;
   throwIfSignalAborted(signal);
   const now = Math.floor(Date.now() / 1000);
 
@@ -310,19 +344,38 @@ export async function getAccessToken(signal?: AbortSignal): Promise<string> {
   tokenCache.set(tokenKey, {
     token: data.access_token,
     expiresAt: Date.now() + data.expires_in * 1000,
+    principal,
   });
 
-  return data.access_token;
+  return { token: data.access_token, principal };
+}
+
+function oauthAccess(credential: AnalyticsProviderCredential): BigQueryAccess {
+  return {
+    token: credential.value,
+    principal: credential.accountId
+      ? `oauth:${shortHash(`${credential.provider}\n${credential.accountId}`)}`
+      : null,
+  };
+}
+
+interface BigQueryAccessOptions {
+  signal?: AbortSignal;
+  projectId?: string;
+  oauthCredential?: AnalyticsProviderCredential | null;
+  preferServiceAccount?: boolean;
 }
 
 export async function getBigQueryAccessToken(
-  options: {
-    signal?: AbortSignal;
-    projectId?: string;
-    oauthCredential?: AnalyticsProviderCredential | null;
-    preferServiceAccount?: boolean;
-  } = {},
+  options: BigQueryAccessOptions = {},
 ): Promise<string> {
+  return (await getBigQueryAccess(options)).token;
+}
+
+/** The BigQuery token and, from the same credential read, whose it is. */
+export async function getBigQueryAccess(
+  options: BigQueryAccessOptions = {},
+): Promise<BigQueryAccess> {
   const { signal } = options;
   const ctx = requireRequestCredentialContext("BIGQUERY_PROJECT_ID");
   const requestContext = getRequestContext();
@@ -360,7 +413,7 @@ export async function getBigQueryAccessToken(
         : resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
       signal,
     );
-    if (serviceAccountJson) return getAccessToken(signal);
+    if (serviceAccountJson) return getServiceAccountAccess(signal);
   }
 
   if (oauthCredential === undefined) {
@@ -376,9 +429,9 @@ export async function getBigQueryAccessToken(
       signal,
     );
   }
-  if (oauthCredential) return oauthCredential.value;
+  if (oauthCredential) return oauthAccess(oauthCredential);
 
-  return getAccessToken(signal);
+  return getServiceAccountAccess(signal);
 }
 
 function getRequestMemoizedPromise<T>(

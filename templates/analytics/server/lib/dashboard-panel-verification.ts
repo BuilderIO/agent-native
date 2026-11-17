@@ -38,8 +38,15 @@ import {
 import { dryRunQuerySchema, type DryRunQueryResult } from "./bigquery";
 import { outsideAgentIdentity } from "./bigquery-agent-budget";
 import {
+  createOutsideAgentBigQueryCall,
+  describeOutsideAgentBigQueryReport,
+  runOutsideAgentBigQueryCall,
+  type OutsideAgentBigQueryCall,
+  type OutsideAgentBigQueryCallOptions,
+  type OutsideAgentBigQueryReport,
+} from "./bigquery-agent-calls";
+import {
   childOutsideAgentBigQueryGate,
-  createOutsideAgentBigQueryGate,
   currentOutsideAgentBigQueryGate,
   isOutsideAgentCaller,
   withOutsideAgentBigQueryGate,
@@ -79,7 +86,8 @@ export type PanelUnverifiedNote =
   | "skipped:program"
   | "too_expensive"
   | "not_executed:over_budget"
-  | "outside_agent_budget";
+  | "outside_agent_budget"
+  | "outside_agent_estimate_unavailable";
 
 export interface PanelVerification {
   panelId: string;
@@ -128,6 +136,8 @@ export interface DashboardVerification {
   panels: PanelVerification[];
   budgetMs: number;
   ms: number;
+  /** Outside agents (MCP) only: what this verification's BigQuery jobs cost against today's budget. */
+  bigQueryBudget?: OutsideAgentBigQueryReport;
 }
 
 export interface VerifyOptions {
@@ -180,6 +190,8 @@ const NOTE_REASONS: Record<PanelUnverifiedNote, string> = {
     "more panels were affected than the per-save verification cap runs",
   outside_agent_budget:
     "the outside agent's daily BigQuery budget did not allow its query, so it was not run",
+  outside_agent_estimate_unavailable:
+    "BigQuery's dry run gave no usable cost estimate, so the outside agent's query was not run",
 };
 
 const AGENT_CALLERS: ReadonlySet<string> = new Set([
@@ -776,7 +788,10 @@ async function verifyOne(
   if (budgetRefusal) {
     return finish({
       status: "unverified",
-      note: "outside_agent_budget",
+      note:
+        budgetRefusal.code === "estimate_unavailable"
+          ? "outside_agent_estimate_unavailable"
+          : "outside_agent_budget",
       error: budgetRefusal.message,
     });
   }
@@ -860,6 +875,43 @@ function blocksSave(
 }
 
 /**
+ * Verifying an outside agent's edit runs BigQuery jobs it caused, so they
+ * count against its daily budget, each reserved from its own dry run. Null
+ * when the call already has a gate or is not an outside agent's.
+ */
+function outsideAgentVerificationGate(
+  source: string,
+): OutsideAgentBigQueryCallOptions | null {
+  if (
+    currentOutsideAgentBigQueryGate() ||
+    !isOutsideAgentCaller(currentActionOriginCaller())
+  ) {
+    return null;
+  }
+  const ctx = getCredentialContext();
+  if (!ctx?.userEmail) return null;
+  return {
+    identity: outsideAgentIdentity(ctx.userEmail, ctx.orgId),
+    source,
+    reservation: "dry-run",
+    leaseMs: PANEL_VERIFICATION_BUDGET_MS + 60_000,
+  };
+}
+
+/**
+ * The budget one dashboard-writing tool call verifies under: for an outside
+ * agent (MCP), every verification in the call, retries included, admits its
+ * jobs through one gate, so the verdict reports the whole call. Null for
+ * every other caller, whose results stay unchanged.
+ */
+export function outsideAgentVerificationBudget(
+  source: string,
+): OutsideAgentBigQueryCall | null {
+  const options = outsideAgentVerificationGate(source);
+  return options ? createOutsideAgentBigQueryCall(options) : null;
+}
+
+/**
  * Runs each panel the way the dashboard page does (same variables, same SQL
  * interpolation, same source resolver and result cache) and applies the
  * renderer's own predicates to the rows. A timeout, missing credential or
@@ -870,24 +922,12 @@ export async function verifyDashboardPanels(
   panelIds: readonly string[],
   opts: VerifyOptions = {},
 ): Promise<DashboardVerification> {
-  // Verifying an outside agent's edit runs BigQuery jobs it caused, so they
-  // count against its daily budget, each reserved from its own dry run.
-  if (
-    !currentOutsideAgentBigQueryGate() &&
-    isOutsideAgentCaller(currentActionOriginCaller())
-  ) {
-    const ctx = getCredentialContext();
-    if (ctx?.userEmail) {
-      const gate = createOutsideAgentBigQueryGate({
-        identity: outsideAgentIdentity(ctx.userEmail, ctx.orgId),
-        source: "panel-verification",
-        reservation: "dry-run",
-        leaseMs: PANEL_VERIFICATION_BUDGET_MS + 60_000,
-      });
-      return withOutsideAgentBigQueryGate(gate, () =>
-        verifyDashboardPanels(rawConfig, panelIds, opts),
-      );
-    }
+  const budget = outsideAgentVerificationGate("panel-verification");
+  if (budget) {
+    const { value, report } = await runOutsideAgentBigQueryCall(budget, () =>
+      verifyDashboardPanels(rawConfig, panelIds, opts),
+    );
+    return { ...value, bigQueryBudget: report };
   }
   const config = normalizeDashboardConfig(rawConfig);
   const startedAt = Date.now();
@@ -1128,6 +1168,8 @@ export interface PanelWriteVerdict {
   nextStep?: string;
   /** What the changed panels cost to refresh; absent when none could be priced. */
   cost?: PanelWriteCost;
+  /** Outside agents (MCP) only: what the call's verification jobs cost against today's budget. */
+  bigQueryBudget?: OutsideAgentBigQueryReport;
 }
 
 export interface PanelWriteCost {
@@ -1335,6 +1377,8 @@ export interface PanelWriteGateOptions {
   dashboardId?: string;
   /** See VerifyOptions: render verification still runs on these panels. */
   serverAuthoredPanelIds?: ReadonlySet<string>;
+  /** The call's `outsideAgentVerificationBudget`, shared by every verification in the call. */
+  budget?: OutsideAgentBigQueryCall | null;
 }
 
 /**
@@ -1351,6 +1395,7 @@ export async function verifyPanelWrite(
   const next = pageDashboardConfig(options.next, options.dashboardId);
   const { direct, affected } = touchedPanelIds(base, next);
   const visual = touchedVisualPanels(base, next);
+  const budget = options.budget ?? null;
   if (direct.length + affected.length + visual.length === 0) {
     return {
       verified: true,
@@ -1358,6 +1403,7 @@ export async function verifyPanelWrite(
       verification: null,
       proof: [],
       unverified: [],
+      ...(budget ? { bigQueryBudget: await budget.report() } : {}),
     };
   }
   const visualIds = visual
@@ -1380,20 +1426,21 @@ export async function verifyPanelWrite(
       : stopEstimate.signal,
     costLate.signal,
   );
-  const verification = await verifyDashboardPanels(
-    next,
-    [...direct, ...affected, ...visualIds],
-    {
+  const verify = () =>
+    verifyDashboardPanels(next, [...direct, ...affected, ...visualIds], {
       signal: options.signal,
       ...(options.dashboardId ? { dashboardId: options.dashboardId } : {}),
       base,
       memo: options.memo,
       serverAuthoredPanelIds: options.serverAuthoredPanelIds,
-    },
+    });
+  const verification = await (
+    budget ? withOutsideAgentBigQueryGate(budget.gate, verify) : verify()
   ).catch((error: unknown) => {
     stopEstimate.abort();
     throw error;
   });
+  const bigQueryBudget = budget ? await budget.report() : undefined;
   const allowEmpty = options.allowEmptyResult === true;
   const directIds = new Set([...direct, ...visualIds]);
   const blockers = verification.panels.filter(
@@ -1401,11 +1448,23 @@ export async function verifyPanelWrite(
   );
   if (blockers.length > 0 && options.mode !== "report") {
     stopEstimate.abort();
-    fail(formatVerificationFailure(blockers), {
-      errorCode: "dashboard_panel_verification_failed",
-      statusCode: 422,
-      details: { verification },
-    });
+    // The caller sees only this message, so it names what the check spent.
+    fail(
+      [
+        formatVerificationFailure(blockers),
+        ...(bigQueryBudget && bigQueryBudget.jobs.length > 0
+          ? [describeOutsideAgentBigQueryReport(bigQueryBudget)]
+          : []),
+      ].join(" "),
+      {
+        errorCode: "dashboard_panel_verification_failed",
+        statusCode: 422,
+        details: {
+          verification,
+          ...(bigQueryBudget ? { bigQueryBudget } : {}),
+        },
+      },
+    );
   }
 
   const attention = verification.panels.filter(
@@ -1430,6 +1489,7 @@ export async function verifyPanelWrite(
     verified,
     ...(visual.length > 0 ? { visualOnly: visual } : {}),
     ...(cost ? { cost } : {}),
+    ...(bigQueryBudget ? { bigQueryBudget } : {}),
     verification,
     proof: verification.panels
       .filter((panel) => panel.rowCount !== null)
@@ -1487,6 +1547,9 @@ export function verdictFields(
       : {}),
     ...(verdict.nextStep ? { nextStep: verdict.nextStep } : {}),
     ...(verdict.cost ? { cost: verdict.cost } : {}),
+    ...(verdict.bigQueryBudget
+      ? { bigQueryBudget: verdict.bigQueryBudget }
+      : {}),
   };
 }
 

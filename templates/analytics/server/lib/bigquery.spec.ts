@@ -650,7 +650,8 @@ describe("runQuery cancellation", () => {
                 }),
             { status },
           );
-        if (url.includes("/jobs?")) return jsonResponse({ jobs: [] });
+        if (url.includes("/jobs?"))
+          return jsonResponse({ kind: "bigquery#jobList", jobs: [] });
         if (url.includes("/cancel")) return jsonResponse({});
         throw new Error("Unexpected request: " + url);
       });
@@ -699,6 +700,7 @@ describe("runQuery cancellation", () => {
         }
         if (url.includes("/jobs?")) {
           return jsonResponse({
+            kind: "bigquery#jobList",
             jobs: [{ jobReference: { jobId, location: "US" } }],
           });
         }
@@ -741,7 +743,8 @@ describe("runQuery cancellation", () => {
             },
           } as Response;
         }
-        if (url.includes("/jobs?")) return jsonResponse({ jobs: [] });
+        if (url.includes("/jobs?"))
+          return jsonResponse({ kind: "bigquery#jobList", jobs: [] });
         return jsonResponse({});
       });
     vi.stubGlobal("fetch", fetchMock);
@@ -1032,6 +1035,7 @@ describe("runQuery cancellation", () => {
         }
         if (url.includes("/jobs?")) {
           return jsonResponse({
+            kind: "bigquery#jobList",
             jobs: [{ jobReference: { jobId, location: "us-central1" } }],
           });
         }

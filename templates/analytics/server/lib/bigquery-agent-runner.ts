@@ -23,10 +23,12 @@ import {
   type OutsideAgentIdentity,
 } from "./bigquery-agent-budget.js";
 import {
+  admissionLapsed,
   conservativeBillableEstimate,
   OutsideAgentBigQueryRefusalError,
   refusalMessage,
   reservationForEstimate,
+  submitByForLease,
 } from "./bigquery-agent-context.js";
 import {
   BIGQUERY_AGENT_SQL_POLICY_VERSION,
@@ -47,7 +49,7 @@ import {
   type BoundedBigQueryJobOutcome,
 } from "./bigquery.js";
 import { credentialCacheScope } from "./credentials-context.js";
-import { getBigQueryAccessToken } from "./gcloud.js";
+import { getBigQueryAccess } from "./gcloud.js";
 
 /**
  * The bounded runner for arbitrary SQL from an outside agent. One deadline
@@ -284,6 +286,7 @@ export async function runBigQueryAgentQuery(
   let connectionProjectId: string;
   let token: string;
   let credentialScope: string;
+  let credentialFingerprint: string | null;
   try {
     connectionProjectId = await getBigQueryProjectId(deadline);
     record.projectId = connectionProjectId;
@@ -349,7 +352,9 @@ export async function runBigQueryAgentQuery(
           );
     // Whose credentials run the job: only they can later prove it absent.
     credentialScope = credentialCacheScope("BIGQUERY_PROJECT_ID");
-    token = await getBigQueryAccessToken({ signal: deadline });
+    ({ token, principal: credentialFingerprint } = await getBigQueryAccess({
+      signal: deadline,
+    }));
     if (deadline.aborted) throw abortError();
   } catch (error) {
     if (error instanceof BigQueryAgentSqlRefusal) {
@@ -376,7 +381,10 @@ export async function runBigQueryAgentQuery(
     );
   }
 
-  const reconciler = createBigQueryAgentReconciler(token, credentialScope);
+  const reconciler = createBigQueryAgentReconciler(token, {
+    credentialScope,
+    credentialFingerprint,
+  });
   if (input.estimateOnly) {
     let budget: BigQueryAgentBudgetSnapshot;
     try {
@@ -414,6 +422,7 @@ export async function runBigQueryAgentQuery(
     projectId,
     jobId,
     credentialScope,
+    credentialFingerprint,
     estimatedBytes: record.estimatedBytes,
     reservedBytes: record.reservedBytes,
     leaseMs: deadlineMs + LEASE_MARGIN_MS,
@@ -434,8 +443,9 @@ export async function runBigQueryAgentQuery(
     );
   }
   // Admission can spend part of the deadline reconciling; a job is never sent
-  // after it, so a timeout here means nothing ran.
-  if (hasAborted(deadline)) {
+  // after it, or after its committed lease, so a timeout here means nothing ran.
+  const submitBy = submitByForLease(admitted.leaseExpiresAt);
+  if (hasAborted(deadline) || admissionLapsed({ submitBy })) {
     await settleQuietly(projectId, jobId, { kind: "rejected" });
     return refused(
       "query_timeout",
@@ -457,6 +467,7 @@ export async function runBigQueryAgentQuery(
       signal: deadline,
       maxRows: input.maxRows ?? BIGQUERY_AGENT_MAX_ROWS,
       maxResultBytes: input.maxResultBytes ?? BIGQUERY_AGENT_MAX_RESULT_BYTES,
+      submitBy,
     });
   } catch {
     // coercion-ok: an unexpected failure mid-job is an unknown outcome, reported as one.
@@ -540,6 +551,7 @@ async function admit(
     projectId: string;
     jobId: string;
     credentialScope: string;
+    credentialFingerprint: string | null;
     estimatedBytes: number | null;
     reservedBytes: number;
     leaseMs: number;
@@ -554,6 +566,7 @@ async function admit(
         projectId: request.projectId,
         jobId: request.jobId,
         credentialScope: request.credentialScope,
+        credentialFingerprint: request.credentialFingerprint,
         estimatedBytes: request.estimatedBytes,
         reservedBytes: request.reservedBytes,
         leaseMs: request.leaseMs,

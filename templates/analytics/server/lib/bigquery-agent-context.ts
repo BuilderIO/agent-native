@@ -21,7 +21,9 @@ import {
 import { MIN_BILLED_BYTES_PER_QUERY } from "./bigquery-pricing.js";
 import type { BigQueryJobBilling } from "./bigquery-usage.js";
 
-// Time left on a lease when a job may no longer be sent under it.
+// Time left on a lease when a job may no longer be sent under it. It outlasts
+// a submission request's own timeout, so a send that started in time lands
+// before any reconciler may judge the job absent.
 const LEASE_SUBMIT_MARGIN_MS = 15_000;
 
 /**
@@ -40,7 +42,14 @@ export type OutsideAgentBigQueryRefusalCode =
   | BigQueryAgentRefusalCode
   | "budget_required"
   | "budget_unavailable"
-  | "admission_expired";
+  | "admission_expired"
+  | "estimate_unavailable";
+
+export type BigQueryEstimateUnavailableReason =
+  | "missing_statistics"
+  | "malformed_statistics"
+  | "dry_run_failed"
+  | "no_dry_run";
 
 /** A job an outside agent asked for was not started. */
 export class OutsideAgentBigQueryRefusalError extends Error {
@@ -48,12 +57,15 @@ export class OutsideAgentBigQueryRefusalError extends Error {
   readonly scope: "job" | "person" | "org" | null;
   readonly reservedBytes: number | null;
   readonly budget: BigQueryAgentBudgetSnapshot | null;
+  /** Why the dry run gave no usable estimate, for `estimate_unavailable`. */
+  readonly estimateReason: BigQueryEstimateUnavailableReason | null;
 
   constructor(input: {
     code: OutsideAgentBigQueryRefusalCode;
     scope?: "job" | "person" | "org" | null;
     reservedBytes?: number | null;
     budget?: BigQueryAgentBudgetSnapshot | null;
+    estimateReason?: BigQueryEstimateUnavailableReason | null;
   }) {
     super(refusalMessage(input));
     this.name = "OutsideAgentBigQueryRefusalError";
@@ -61,8 +73,16 @@ export class OutsideAgentBigQueryRefusalError extends Error {
     this.scope = input.scope ?? null;
     this.reservedBytes = input.reservedBytes ?? null;
     this.budget = input.budget ?? null;
+    this.estimateReason = input.estimateReason ?? null;
   }
 }
+
+const ESTIMATE_REASONS: Record<BigQueryEstimateUnavailableReason, string> = {
+  missing_statistics: "it reported no bytes",
+  malformed_statistics: "its byte count was unreadable",
+  dry_run_failed: "the dry run failed",
+  no_dry_run: "no dry run was made",
+};
 
 function untilReset(budget: BigQueryAgentBudgetSnapshot | null | undefined) {
   return budget ? ` It resets at ${budget.resetsAt} (00:00 UTC).` : "";
@@ -74,6 +94,7 @@ export function refusalMessage(input: {
   scope?: "job" | "person" | "org" | null;
   reservedBytes?: number | null;
   budget?: BigQueryAgentBudgetSnapshot | null;
+  estimateReason?: BigQueryEstimateUnavailableReason | null;
 }): string {
   const { budget } = input;
   const job =
@@ -94,7 +115,9 @@ export function refusalMessage(input: {
     case "budget_unavailable":
       return "The outside-agent BigQuery budget could not be read, so no job was started and nothing was charged. Try again in a few minutes.";
     case "admission_expired":
-      return "The BigQuery job was not sent before its budget reservation lapsed, so it was not started and nothing was charged. Ask again.";
+      return "The BigQuery job was not sent before its budget reservation lapsed, so it was not started. Its reservation is returned once BigQuery confirms the job does not exist; nothing is billed for it. Ask again.";
+    case "estimate_unavailable":
+      return `BigQuery's dry run gave no usable cost estimate for this job (${ESTIMATE_REASONS[input.estimateReason ?? "dry_run_failed"]}), so it was not started and nothing was charged. Try again in a few minutes.`;
   }
 }
 
@@ -106,8 +129,39 @@ export interface OutsideAgentBigQueryAdmission {
   estimatedBytes: number | null;
   /** This call created the reservation; false when it reuses an earlier admission of the job. */
   created: boolean;
-  /** Epoch ms after which the job must not be sent: a reconciler may release it by then. */
+  /**
+   * Epoch ms after which the job must not be sent, from the lease the ledger
+   * committed: past it a reconciler may release the reservation.
+   */
   submitBy: number;
+}
+
+/** The last moment a job may be sent under a lease the ledger committed; NaN when unreadable. */
+export function submitByForLease(leaseExpiresAt: string): number {
+  return Date.parse(leaseExpiresAt) - LEASE_SUBMIT_MARGIN_MS;
+}
+
+/** Whether `admission` may no longer be sent. Checked right before each send. */
+export function admissionLapsed(
+  admission: Pick<OutsideAgentBigQueryAdmission, "submitBy">,
+  now: number = Date.now(),
+): boolean {
+  return !(now <= admission.submitBy);
+}
+
+/** One job a call admitted, as its response reports it. */
+export interface OutsideAgentBigQueryJobCost {
+  jobId: string;
+  estimatedBytes: number | null;
+  reservedBytes: number;
+  /** BigQuery's own billed bytes; null until a settlement confirmed them. */
+  billedBytes: number | null;
+  cacheHit: boolean | null;
+  /**
+   * `settled`: billed is final. `released`: BigQuery refused the job, so
+   * nothing billed. `reserved`: unconfirmed, still counted at its reservation.
+   */
+  state: "reserved" | "settled" | "released";
 }
 
 /** What one tool call's jobs reserved and billed, for its response. */
@@ -119,6 +173,8 @@ export interface OutsideAgentBigQueryCallSummary {
   /** Reservations no settlement confirmed before the response: they stay reserved. */
   unsettledBytes: number;
   cacheHits: number;
+  /** Each job this call admitted, in admission order. */
+  jobs: OutsideAgentBigQueryJobCost[];
   refusal: OutsideAgentBigQueryRefusalError | null;
   budget: BigQueryAgentBudgetSnapshot | null;
 }
@@ -132,9 +188,11 @@ export interface OutsideAgentBigQueryGate {
     projectId: string;
     jobId: string;
     credentialScope: string;
+    /** The Google principal the job is sent as; null when unknown. */
+    credentialFingerprint: string | null;
     capBytes: number;
-    /** Conservative billable bytes from a dry run, or null when it gave none. */
-    estimate?: () => Promise<number | null>;
+    /** The job's own dry run. A `dry-run` gate refuses a job without a usable one. */
+    estimate?: () => Promise<BigQueryBillableEstimate>;
     reconciler?: BigQueryAgentReconciler;
   }): Promise<OutsideAgentBigQueryAdmission>;
   submitted(
@@ -157,7 +215,7 @@ export type BigQueryBillableEstimate =
   | { status: "zero_with_tables" }
   | {
       status: "unavailable";
-      reason: "missing_statistics" | "malformed_statistics";
+      reason: BigQueryEstimateUnavailableReason;
     };
 
 /**
@@ -207,8 +265,9 @@ export function createOutsideAgentBigQueryGate(options: {
   source: string;
   /**
    * `full-cap` reserves the whole per-job cap for fixed internal SQL;
-   * `dry-run` reserves from the job's own dry run, and the whole cap when the
-   * dry run gives no usable estimate.
+   * `dry-run` reserves from the job's own dry run and refuses a job whose
+   * dry run failed or reported no readable bytes. A dry run that reads
+   * tables but reports zero bytes reserves the whole cap.
    */
   reservation: "full-cap" | "dry-run";
   leaseMs: number;
@@ -222,13 +281,21 @@ export function createOutsideAgentBigQueryGate(options: {
     billedBytes: 0,
     unsettledBytes: 0,
     cacheHits: 0,
+    jobs: [],
     refusal: null,
     budget: null,
   };
   const open = new Map<string, OutsideAgentBigQueryAdmission>();
-  const close = (admission: OutsideAgentBigQueryAdmission) => {
+  const jobCosts = new Map<string, OutsideAgentBigQueryJobCost>();
+  const close = (
+    admission: OutsideAgentBigQueryAdmission,
+    outcome: Pick<OutsideAgentBigQueryJobCost, "state"> &
+      Partial<Pick<OutsideAgentBigQueryJobCost, "billedBytes" | "cacheHit">>,
+  ) => {
     if (open.delete(admission.requestId) && admission.created) {
       state.unsettledBytes -= admission.reservedBytes;
+      const cost = jobCosts.get(admission.requestId);
+      if (cost) Object.assign(cost, outcome);
     }
   };
   const refuse = (error: OutsideAgentBigQueryRefusalError): never => {
@@ -244,8 +311,20 @@ export function createOutsideAgentBigQueryGate(options: {
       Math.min(requestedBytes, OUTSIDE_AGENT_JOB_CAP_BYTES),
     async admit(input) {
       let estimatedBytes: number | null = null;
-      if (options.reservation === "dry-run" && input.estimate) {
-        estimatedBytes = await input.estimate();
+      if (options.reservation === "dry-run") {
+        const estimate: BigQueryBillableEstimate = input.estimate
+          ? await input.estimate()
+          : { status: "unavailable", reason: "no_dry_run" };
+        if (estimate.status === "unavailable") {
+          refuse(
+            new OutsideAgentBigQueryRefusalError({
+              code: "estimate_unavailable",
+              estimateReason: estimate.reason,
+              budget: state.budget,
+            }),
+          );
+        }
+        estimatedBytes = estimate.status === "ok" ? estimate.bytes : null;
       }
       if (
         estimatedBytes !== null &&
@@ -273,6 +352,7 @@ export function createOutsideAgentBigQueryGate(options: {
             projectId: input.projectId,
             jobId: input.jobId,
             credentialScope: input.credentialScope,
+            credentialFingerprint: input.credentialFingerprint,
             estimatedBytes:
               estimatedBytes === null
                 ? null
@@ -282,6 +362,7 @@ export function createOutsideAgentBigQueryGate(options: {
           },
           {
             now: now(),
+            clock: now,
             ...(input.reconciler ? { reconcile: input.reconciler } : {}),
           },
         );
@@ -306,8 +387,14 @@ export function createOutsideAgentBigQueryGate(options: {
           }),
         );
       }
+      const submitBy = submitByForLease(result.leaseExpiresAt);
+      if (!Number.isFinite(submitBy)) {
+        return refuse(
+          new OutsideAgentBigQueryRefusalError({ code: "budget_unavailable" }),
+        );
+      }
       const admission: OutsideAgentBigQueryAdmission = {
-        submitBy: now().getTime() + options.leaseMs - LEASE_SUBMIT_MARGIN_MS,
+        submitBy,
         requestId: result.requestId,
         projectId: input.projectId,
         jobId: input.jobId,
@@ -320,6 +407,17 @@ export function createOutsideAgentBigQueryGate(options: {
         state.jobsAdmitted += 1;
         state.reservedBytes += admission.reservedBytes;
         state.unsettledBytes += admission.reservedBytes;
+        jobCosts.set(admission.requestId, {
+          jobId: admission.jobId,
+          estimatedBytes:
+            estimatedBytes === null
+              ? null
+              : Math.min(estimatedBytes, admission.reservedBytes),
+          reservedBytes: admission.reservedBytes,
+          billedBytes: null,
+          cacheHit: null,
+          state: "reserved",
+        });
       }
       return admission;
     },
@@ -347,7 +445,7 @@ export function createOutsideAgentBigQueryGate(options: {
           { kind: "rejected" },
           now(),
         );
-        close(admission);
+        close(admission, { state: "released" });
       } catch {
         // coercion-ok: an unreleased reservation stays counted until a reconciler confirms the job is absent.
         console.warn("[bigquery-agent-budget] Release failed; stays reserved", {
@@ -381,9 +479,16 @@ export function createOutsideAgentBigQueryGate(options: {
       }
       if (admission.created) state.billedBytes += settlement.billedBytes;
       if (settlement.cacheHit === true) state.cacheHits += 1;
-      close(admission);
+      close(admission, {
+        state: "settled",
+        billedBytes: settlement.billedBytes,
+        cacheHit: settlement.cacheHit,
+      });
     },
-    summary: () => ({ ...state }),
+    summary: () => ({
+      ...state,
+      jobs: [...jobCosts.values()].map((cost) => ({ ...cost })),
+    }),
   };
 }
 

@@ -105,6 +105,12 @@ export const BIGQUERY_AGENT_BUDGET_MIGRATION_SQL = [
     ON analytics_bigquery_agent_executions (started_at)`,
 ];
 
+// The Google principal that sent each admitted job. NULL is "unknown", never
+// "any": only the same principal's listing can prove its job absent.
+export const BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL = [
+  `ALTER TABLE analytics_bigquery_agent_jobs ADD COLUMN IF NOT EXISTS credential_fingerprint TEXT`,
+];
+
 /** Who pays: the signed-in person and the org server auth resolved, never tool input. */
 export interface OutsideAgentIdentity {
   ownerEmail: string;
@@ -406,6 +412,8 @@ export interface BigQueryAgentAdmissionRequest {
   projectId: string;
   jobId: string;
   credentialScope: string;
+  /** The Google principal the job is sent as (`BigQueryAccess.principal`); null when unknown. */
+  credentialFingerprint: string | null;
   /** Conservative billable estimate, or null when the SQL was not dry-run. */
   estimatedBytes: number | null;
   reservedBytes: number;
@@ -425,6 +433,11 @@ export type BigQueryAgentAdmission =
       reservedBytes: number;
       /** False when this job ID was already admitted, so nothing new was reserved. */
       created: boolean;
+      /**
+       * The lease as committed: until then no reconciler may release the
+       * reservation, so the job must be sent well before it.
+       */
+      leaseExpiresAt: string;
       budget: BigQueryAgentBudgetSnapshot;
     }
   | {
@@ -444,9 +457,15 @@ export type BigQueryAgentAdmission =
 export async function admitBigQueryAgentJob(
   identity: OutsideAgentIdentity,
   request: BigQueryAgentAdmissionRequest,
-  options: { now?: Date; reconcile?: BigQueryAgentReconciler } = {},
+  options: {
+    now?: Date;
+    /** Reads the time the lease starts from, once the budget rows are locked. */
+    clock?: () => Date;
+    reconcile?: BigQueryAgentReconciler;
+  } = {},
 ): Promise<BigQueryAgentAdmission> {
   const now = options.now ?? new Date();
+  const clock = options.clock ?? (() => options.now ?? new Date());
   if (
     !Number.isSafeInteger(request.reservedBytes) ||
     request.reservedBytes < 1 ||
@@ -481,6 +500,11 @@ export async function admitBigQueryAgentJob(
           WHERE scope_key IN ($1, $2) ORDER BY scope_key FOR UPDATE`,
         args: [keys[0], keys[1]],
       });
+      // Reconciling and reading settings can take seconds, so the lease is
+      // read here, under the locks, and is what the caller's deadline comes from.
+      const leaseExpiresAt = new Date(
+        clock().getTime() + request.leaseMs,
+      ).toISOString();
       const existing = await tx.execute({
         sql: `SELECT request_id, state, resolution, owner_email, reserved_bytes::text AS reserved
           FROM analytics_bigquery_agent_jobs WHERE project_id = $1 AND job_id = $2 FOR UPDATE`,
@@ -510,23 +534,41 @@ export async function admitBigQueryAgentJob(
           throw new BigQueryAgentBudgetUnavailableError("job_id_owned");
         }
         // This call may send the job again, so no reconciler may prove it
-        // absent before that send lands.
+        // absent before that send lands. Sent as another principal, the job
+        // can no longer be proven absent by either one's listing.
+        let lease = leaseExpiresAt;
         if (prior.state === "pending") {
-          await tx.execute({
+          const extended = await tx.execute({
             sql: `UPDATE analytics_bigquery_agent_jobs
-              SET lease_expires_at = GREATEST(lease_expires_at, $2)
-              WHERE request_id = $1 AND state = 'pending'`,
+              SET lease_expires_at = GREATEST(lease_expires_at, $2),
+                credential_fingerprint = CASE
+                  WHEN credential_fingerprint = $3 AND credential_scope = $4 THEN credential_fingerprint
+                  ELSE NULL END
+              WHERE request_id = $1 AND state = 'pending'
+              RETURNING lease_expires_at`,
             args: [
               prior.request_id,
-              new Date(now.getTime() + request.leaseMs).toISOString(),
+              leaseExpiresAt,
+              request.credentialFingerprint,
+              request.credentialScope,
             ],
           });
+          const persisted = (
+            extended.rows[0] as { lease_expires_at?: unknown } | undefined
+          )?.lease_expires_at;
+          if (typeof persisted !== "string") {
+            throw new BigQueryAgentBudgetUnavailableError("lease_unreadable");
+          }
+          lease = persisted;
         }
+        // A settled prior was confirmed by BigQuery, so its ID can never start
+        // a second job and no reservation is left for a lease to protect.
         return {
           status: "admitted" as const,
           requestId: prior.request_id,
           reservedBytes: readBytes(prior.reserved, "reserved"),
           created: false,
+          leaseExpiresAt: lease,
           budget: await snapshotWith(tx, identity, limits, now),
         };
       }
@@ -550,9 +592,9 @@ export async function admitBigQueryAgentJob(
       await tx.execute({
         sql: `INSERT INTO analytics_bigquery_agent_jobs (
             request_id, project_id, job_id, owner_email, org_id, org_key, credential_scope,
-            source, utc_day, estimated_bytes, reserved_bytes, state, submission_state,
-            created_at, lease_expires_at
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending','admitted',$12,$13)`,
+            credential_fingerprint, source, utc_day, estimated_bytes, reserved_bytes, state,
+            submission_state, created_at, lease_expires_at
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending','admitted',$13,$14)`,
         args: [
           requestId,
           request.projectId,
@@ -561,12 +603,13 @@ export async function admitBigQueryAgentJob(
           identity.orgId,
           orgKey(identity),
           request.credentialScope,
+          request.credentialFingerprint,
           request.source,
           budget.utcDay,
           request.estimatedBytes,
           request.reservedBytes,
           now.toISOString(),
-          new Date(now.getTime() + request.leaseMs).toISOString(),
+          leaseExpiresAt,
         ],
       });
       return {
@@ -574,6 +617,7 @@ export async function admitBigQueryAgentJob(
         requestId,
         reservedBytes: request.reservedBytes,
         created: true,
+        leaseExpiresAt,
         budget: {
           ...budget,
           person: reserve(budget.person, request.reservedBytes),
@@ -769,6 +813,8 @@ export interface BigQueryAgentPendingJob {
   jobId: string;
   location: string | null;
   credentialScope: string;
+  /** Who sent the job; null when that is unknown. */
+  credentialFingerprint: string | null;
   createdAt: string;
   submissionState: string;
 }
@@ -785,6 +831,8 @@ export type BigQueryAgentJobObservation =
 export interface BigQueryAgentReconciler {
   /** Whose jobs a listing by these credentials shows. */
   credentialScope: string;
+  /** The Google principal those credentials act as; null when unknown. */
+  credentialFingerprint: string | null;
   observe(
     job: BigQueryAgentPendingJob,
     signal: AbortSignal,
@@ -804,7 +852,8 @@ export async function reconcileStaleBigQueryAgentJobs(
 ): Promise<number> {
   const stale = await guardBudget(() =>
     getDbExec().execute({
-      sql: `SELECT request_id, project_id, job_id, location, credential_scope, created_at, submission_state
+      sql: `SELECT request_id, project_id, job_id, location, credential_scope, credential_fingerprint,
+          created_at, submission_state
         FROM analytics_bigquery_agent_jobs
         WHERE state = 'pending' AND lease_expires_at < $3
           AND (owner_email = $1 OR org_key = $2)
@@ -829,6 +878,10 @@ export async function reconcileStaleBigQueryAgentJobs(
       jobId: String(row.job_id),
       location: typeof row.location === "string" ? row.location : null,
       credentialScope: String(row.credential_scope),
+      credentialFingerprint:
+        typeof row.credential_fingerprint === "string"
+          ? row.credential_fingerprint
+          : null,
       createdAt: String(row.created_at),
       submissionState: String(row.submission_state),
     };
@@ -858,6 +911,22 @@ export async function reconcileStaleBigQueryAgentJobs(
   return resolved;
 }
 
+/**
+ * A listing shows only its own principal's jobs, so absence is proof only
+ * when the job was sent as the principal listing now. Same scope is not
+ * enough: the scope's stored key may since name another service account.
+ */
+function samePrincipal(
+  job: BigQueryAgentPendingJob,
+  reconciler: BigQueryAgentReconciler,
+): boolean {
+  return (
+    job.credentialScope === reconciler.credentialScope &&
+    job.credentialFingerprint !== null &&
+    job.credentialFingerprint === reconciler.credentialFingerprint
+  );
+}
+
 async function reconcileOne(
   job: BigQueryAgentPendingJob,
   reconciler: BigQueryAgentReconciler,
@@ -869,9 +938,7 @@ async function reconcileOne(
   let observation: BigQueryAgentJobObservation;
   try {
     observation = await reconciler.observe(job, signal, {
-      // Another principal's listing never shows this job, so only the same
-      // credentials can prove it absent.
-      mayConfirmAbsence: job.credentialScope === reconciler.credentialScope,
+      mayConfirmAbsence: samePrincipal(job, reconciler),
     });
   } catch {
     // coercion-ok: an unread job stays reserved; only its six-hour bound settles it.
@@ -890,10 +957,7 @@ async function reconcileOne(
       ? { kind: "charged_reservation", reason: "max_runtime_elapsed" }
       : null;
   }
-  if (
-    observation.kind === "absent" &&
-    job.credentialScope === reconciler.credentialScope
-  ) {
+  if (observation.kind === "absent" && samePrincipal(job, reconciler)) {
     return { kind: "not_found" };
   }
   return pastMaxRuntime

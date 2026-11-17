@@ -9,9 +9,11 @@ import type { SourceGenerationResult } from "../../shared/source-generation.js";
 import type { BigQueryUsageAccounting } from "../../shared/sql-query-contract";
 import type { BigQueryAgentReconciler } from "./bigquery-agent-budget";
 import {
+  admissionLapsed,
   bigQueryJobGate,
   conservativeBillableEstimate,
   OutsideAgentBigQueryRefusalError,
+  type BigQueryBillableEstimate,
   type OutsideAgentBigQueryAdmission,
   type OutsideAgentBigQueryGate,
 } from "./bigquery-agent-context";
@@ -28,7 +30,11 @@ import {
   requireRequestCredentialContext,
   type CredentialContext,
 } from "./credentials-context";
-import { getBigQueryAccessToken, raceWithAbort } from "./gcloud";
+import {
+  getBigQueryAccess,
+  getBigQueryAccessToken,
+  raceWithAbort,
+} from "./gcloud";
 import { assertReadOnlySql } from "./read-only-sql";
 
 async function getProjectContext(signal?: AbortSignal): Promise<{
@@ -1174,9 +1180,14 @@ async function resumableJobState(
 ): Promise<{ collectable: boolean; location: string | undefined }> {
   const createdAfter = Date.now() - RESUMABLE_JOB_MAX_AGE_MS;
   try {
-    const location =
-      knownLocation ??
-      (await findQueryJobLocation(projectId, jobId, token, createdAfter));
+    let location = knownLocation;
+    if (!location) {
+      const listed = await findQueryJob(projectId, jobId, token, createdAfter);
+      if (listed.kind === "unreadable") {
+        throw new Error("BigQuery job location lookup failed");
+      }
+      location = listed.kind === "found" ? listed.location : undefined;
+    }
     // Every job of the last hour is listed, so this one is older.
     if (!location) return { collectable: false, location: undefined };
     const params = new URLSearchParams({
@@ -1227,13 +1238,68 @@ async function resumableJobState(
   }
 }
 
-async function findQueryJobLocation(
+/**
+ * What a listing of this credential's jobs since `createdAfter` says about
+ * one job. `absent` needs every page read and well formed: a page that is
+ * not a job list, names a job unreadably, or skipped unreachable locations
+ * makes the whole listing `unreadable`, never empty.
+ */
+type BigQueryJobListing =
+  | { kind: "found"; location: string | undefined }
+  | { kind: "absent" }
+  | { kind: "unreadable" };
+
+type JobListPage = { jobIds: Map<string, string | undefined>; next?: string };
+
+function readJobListPage(data: unknown): JobListPage | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const page = data as Record<string, unknown>;
+  if (page.kind !== "bigquery#jobList") return null;
+  if (
+    page.unreachable !== undefined &&
+    (!Array.isArray(page.unreachable) || page.unreachable.length > 0)
+  ) {
+    return null;
+  }
+  if (
+    page.nextPageToken !== undefined &&
+    (typeof page.nextPageToken !== "string" || !page.nextPageToken)
+  ) {
+    return null;
+  }
+  if (page.jobs !== undefined && !Array.isArray(page.jobs)) return null;
+  const jobIds = new Map<string, string | undefined>();
+  for (const entry of (page.jobs ?? []) as unknown[]) {
+    const reference =
+      entry && typeof entry === "object"
+        ? (entry as { jobReference?: unknown }).jobReference
+        : undefined;
+    const id =
+      reference && typeof reference === "object"
+        ? (reference as { jobId?: unknown }).jobId
+        : undefined;
+    if (typeof id !== "string" || !id) return null;
+    const location = (reference as { location?: unknown }).location;
+    jobIds.set(
+      id,
+      typeof location === "string" && location ? location : undefined,
+    );
+  }
+  return {
+    jobIds,
+    ...(typeof page.nextPageToken === "string"
+      ? { next: page.nextPageToken }
+      : {}),
+  };
+}
+
+async function findQueryJob(
   projectId: string,
   jobId: string,
   token: string,
   createdAfter: number,
   callerSignal?: AbortSignal,
-): Promise<string | undefined> {
+): Promise<BigQueryJobListing> {
   const timeout = AbortSignal.timeout(CACHE_CANCEL_TIMEOUT_MS);
   const signal = callerSignal
     ? AbortSignal.any([callerSignal, timeout])
@@ -1246,33 +1312,32 @@ async function findQueryJobLocation(
       projection: "MINIMAL",
     });
     if (pageToken) params.set("pageToken", pageToken);
-    const response = await fetch(
-      `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs?${params}`,
-      {
-        signal,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+    let page: JobListPage | null;
+    try {
+      const response = await fetch(
+        `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs?${params}`,
+        {
+          signal,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
         },
-      },
-    );
-    if (!response.ok) {
-      throw new Error(
-        `BigQuery job location lookup failed (${response.status})`,
       );
+      if (!response.ok) return { kind: "unreadable" };
+      page = readJobListPage(await response.json());
+    } catch (error) {
+      throwIfAborted(callerSignal);
+      if (!(error instanceof Error)) throw error;
+      return { kind: "unreadable" };
     }
-
-    const data = (await response.json()) as {
-      jobs?: { jobReference?: { jobId?: string; location?: string } }[];
-      nextPageToken?: string;
-    };
-    const job = data.jobs?.find(
-      (candidate) => candidate.jobReference?.jobId === jobId,
-    );
-    if (job?.jobReference?.location) return job.jobReference.location;
-    pageToken = data.nextPageToken;
+    if (!page) return { kind: "unreadable" };
+    if (page.jobIds.has(jobId)) {
+      return { kind: "found", location: page.jobIds.get(jobId) };
+    }
+    pageToken = page.next;
   } while (pageToken);
-  return undefined;
+  return { kind: "absent" };
 }
 
 /**
@@ -1283,47 +1348,57 @@ async function findQueryJobLocation(
  */
 export function createBigQueryAgentReconciler(
   token: string,
-  credentialScope: string,
+  principal: { credentialScope: string; credentialFingerprint: string | null },
 ): BigQueryAgentReconciler {
   return {
-    credentialScope,
+    credentialScope: principal.credentialScope,
+    credentialFingerprint: principal.credentialFingerprint,
     async observe(job, signal, { mayConfirmAbsence }) {
       const read = await readBigQueryJobBilling(job, token, signal);
       if (read.kind !== "not_found" || job.location) return read;
       const createdAt = Date.parse(job.createdAt);
       if (!Number.isFinite(createdAt)) return read;
-      const location = await findQueryJobLocation(
+      const listed = await findQueryJob(
         job.projectId,
         job.jobId,
         token,
         createdAt - 60_000,
         signal,
       );
-      if (location) {
-        return readBigQueryJobBilling({ ...job, location }, token, signal);
+      if (listed.kind === "found") {
+        // A job the listing shows exists, located or not; only its billing
+        // read can settle it, so without a location it stays reserved.
+        return listed.location
+          ? readBigQueryJobBilling(
+              { ...job, location: listed.location },
+              token,
+              signal,
+            )
+          : { kind: "unreadable" };
       }
+      if (listed.kind === "unreadable") return { kind: "unreadable" };
       return mayConfirmAbsence ? { kind: "absent" } : read;
     },
   };
 }
 
-/** The conservative billable bytes of `sql` by its dry run, or null when the dry run gives none. */
-async function dryRunBillableBytes(
+/** The conservative billable estimate of `sql` by its own dry run. */
+async function dryRunBillableEstimate(
   sql: string,
   signal?: AbortSignal,
-): Promise<number | null> {
+): Promise<BigQueryBillableEstimate> {
   try {
     const result = await dryRunQuerySchema(sql, signal ? { signal } : {});
-    if (result.error !== null) return null;
-    const estimate = conservativeBillableEstimate(result);
-    return estimate.status === "ok" ? estimate.bytes : null;
+    if (result.error !== null) {
+      return { status: "unavailable", reason: "dry_run_failed" };
+    }
+    return conservativeBillableEstimate(result);
   } catch (error) {
     throwIfAborted(signal);
-    // coercion-ok: no estimate reserves the whole per-job cap, never nothing.
     console.warn("[bigquery] Outside-agent dry-run estimate unavailable", {
       errorType: error instanceof Error ? error.name : "non_error",
     });
-    return null;
+    return { status: "unavailable", reason: "dry_run_failed" };
   }
 }
 
@@ -1777,14 +1852,21 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
   let agentGate: OutsideAgentBigQueryGate | undefined;
   let agentAdmission: OutsideAgentBigQueryAdmission | undefined;
   try {
-    token = await getBigQueryAccessToken({ signal });
+    // An outside agent's job is admitted against its daily budget first, and
+    // runs under its reservation instead of the caller's cap.
+    agentGate = bigQueryJobGate();
+    // Its admission records whose credentials send it, read with the token
+    // itself, so only that principal's listing can later prove it absent.
+    let principal: string | null = null;
+    if (agentGate) {
+      ({ token, principal } = await getBigQueryAccess({ signal }));
+    } else {
+      token = await getBigQueryAccessToken({ signal });
+    }
     assertDateUnchanged();
     const credentialContext = requireRequestCredentialContext(
       "BIGQUERY_PROJECT_ID",
     );
-    // An outside agent's job is admitted against its daily budget first, and
-    // runs under its reservation instead of the caller's cap.
-    agentGate = bigQueryJobGate();
     let resumableIndex = 0;
     const nextResumableId = () =>
       resumable && resumableIndex < RESUMABLE_JOB_IDS
@@ -1807,16 +1889,17 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
         jobId = null;
         usage = null;
         const estimateSql = cacheableSql;
-        // Whose credentials the job runs under: only they can later prove
-        // the job absent by listing their own jobs.
-        const principal = cacheScopeForContext(credentialContext);
+        const sender = {
+          credentialScope: cacheScopeForContext(credentialContext),
+          credentialFingerprint: principal,
+        };
         agentAdmission = await agentGate.admit({
           projectId,
           jobId: nextJobId,
-          credentialScope: principal,
+          ...sender,
           capBytes: agentGate.jobCapFor(maxBytesBilled),
-          estimate: () => dryRunBillableBytes(estimateSql, signal),
-          reconciler: createBigQueryAgentReconciler(token, principal),
+          estimate: () => dryRunBillableEstimate(estimateSql, signal),
+          reconciler: createBigQueryAgentReconciler(token, sender),
         });
       }
       jobId = nextJobId;
@@ -1826,11 +1909,12 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       usage = newBigQueryJobUsage(projectId, jobId, credentialContext);
       usageStarted = await persistBigQueryJobUsage(usage);
       // Past its lease a reconciler may release the reservation, so a job
-      // that has not been sent by then is never sent.
-      if (agentAdmission && Date.now() > agentAdmission.submitBy) {
+      // that has not been sent by then is never sent. Its reservation is not
+      // released here: an identical call may have reused the admission and
+      // sent this job ID, so only a reconciler's check may release it.
+      if (agentAdmission && admissionLapsed(agentAdmission)) {
         jobId = null;
         usage.submissionState = "rejected";
-        await agentGate?.rejected(agentAdmission);
         throw new OutsideAgentBigQueryRefusalError({
           code: "admission_expired",
         });
@@ -2140,14 +2224,14 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     if (attachedJob) cancelJob = false;
     if (cancelJob && jobId && token) {
       if (!jobSubmissionResponseReceived) {
-        try {
-          jobLocation = await findQueryJobLocation(
-            projectId,
-            jobId,
-            token,
-            jobCreatedAfter,
-          );
-        } catch {
+        const listed = await findQueryJob(
+          projectId,
+          jobId,
+          token,
+          jobCreatedAfter,
+        );
+        if (listed.kind === "found") jobLocation = listed.location;
+        else if (listed.kind === "unreadable") {
           console.warn(
             "[bigquery] Could not resolve job location before cancellation.",
           );
@@ -2276,6 +2360,8 @@ export async function runBoundedBigQueryJob(input: {
   signal: AbortSignal;
   maxRows: number;
   maxResultBytes: number;
+  /** Epoch ms after which the job's admission no longer covers a send. */
+  submitBy: number;
 }): Promise<BoundedBigQueryJobOutcome> {
   const { projectId, jobId, token, signal } = input;
   const headers = {
@@ -2339,6 +2425,10 @@ export async function runBoundedBigQueryJob(input: {
 
   // Submission: an answer whose job may exist is looked up under the same ID.
   for (let attempt = 0; ; attempt++) {
+    // The first send may still land, so a lapsed admission sends no other.
+    if (attempt > 0 && admissionLapsed(input)) {
+      return uncertain("submission_unknown");
+    }
     let res: Response;
     try {
       res = await submit();

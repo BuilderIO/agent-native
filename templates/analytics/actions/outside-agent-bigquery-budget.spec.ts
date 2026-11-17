@@ -13,6 +13,12 @@ const budget = vi.hoisted(() => ({
 const journey = vi.hoisted(() => ({
   args: [] as Array<Record<string, unknown>>,
 }));
+// What the job's own dry run answers, for dry-run reservations.
+const dryRun = vi.hoisted(() => ({
+  response: null as null | (() => Response),
+}));
+const PRINCIPAL =
+  "sa:runner@builder-3b0a2.iam.gserviceaccount.com#0a1b2c3d4e5f6a7b";
 
 vi.mock("../server/lib/bigquery-agent-budget", async (importOriginal) => ({
   ...(await importOriginal<
@@ -62,6 +68,11 @@ vi.mock("../server/lib/credentials", () => ({
 vi.mock("../server/lib/gcloud", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../server/lib/gcloud")>()),
   getBigQueryAccessToken: async () => "test-token",
+  getBigQueryAccess: async () => ({
+    token: "test-token",
+    principal:
+      "sa:runner@builder-3b0a2.iam.gserviceaccount.com#0a1b2c3d4e5f6a7b",
+  }),
 }));
 vi.mock("@agent-native/core/tracking", () => ({ track: () => undefined }));
 // The deep reads are replaced by stand-ins that run one job each through the
@@ -166,12 +177,14 @@ beforeEach(() => {
   submissions.length = 0;
   duplicate.jobId = null;
   journey.args.length = 0;
+  dryRun.response = null;
   budget.admit.mockReset();
   budget.admit.mockImplementation(async (_identity, request) => ({
     status: "admitted",
     requestId: `request-${request.jobId}`,
     reservedBytes: request.reservedBytes,
     created: true,
+    leaseExpiresAt: new Date(Date.now() + request.leaseMs).toISOString(),
     budget: snapshot(),
   }));
   budget.read.mockReset();
@@ -185,6 +198,10 @@ beforeEach(() => {
       const url = new URL(String(input));
       if (init?.method === "POST" && url.pathname.endsWith("/jobs")) {
         const body = JSON.parse(String(init.body));
+        if (body.configuration?.dryRun) {
+          if (!dryRun.response) throw new Error("Unexpected dry run");
+          return dryRun.response();
+        }
         submissions.push(body);
         if (duplicate.jobId === "next")
           duplicate.jobId = body.jobReference.jobId;
@@ -375,6 +392,118 @@ describe("outside-agent (MCP) jobs go through admission", () => {
     expect(submissions).toHaveLength(0);
     expect(budget.admit).not.toHaveBeenCalled();
   });
+});
+
+describe("submission stays inside the admission", () => {
+  const read = defineAction({
+    description: "A read an outside agent's tool starts.",
+    schema: z.object({}),
+    run: async () => runQuery("SELECT 1 AS lease_test"),
+  });
+
+  async function runBudgeted(reservation: "full-cap" | "dry-run") {
+    const { runOutsideAgentBigQueryCall } =
+      await import("../server/lib/bigquery-agent-calls");
+    return runOutsideAgentBigQueryCall(
+      {
+        identity: { ownerEmail: "alice@example.com", orgId: "org-1" },
+        source: "test",
+        reservation,
+        leaseMs: 60_000,
+      },
+      () => read.run({}, { caller: "mcp" }),
+    );
+  }
+
+  it("records the Google principal that sends each job with its admission", async () => {
+    await runBudgeted("full-cap");
+    expect(budget.admit.mock.calls[0]![1]).toMatchObject({
+      credentialScope: expect.any(String),
+      credentialFingerprint: PRINCIPAL,
+    });
+  });
+
+  it("sends nothing when admission returns too close to the lease it committed", async () => {
+    // Admission took long enough that only 10 s of its 60 s lease is left,
+    // less than a send may take: a reconciler could release it mid-flight.
+    budget.admit.mockImplementation(async (_identity, request) => ({
+      status: "admitted",
+      requestId: `request-${request.jobId}`,
+      reservedBytes: request.reservedBytes,
+      created: true,
+      leaseExpiresAt: new Date(Date.now() + 10_000).toISOString(),
+      budget: snapshot(),
+    }));
+    await expect(runBudgeted("full-cap")).rejects.toMatchObject({
+      code: "admission_expired",
+    });
+    expect(submissions).toHaveLength(0);
+    // Another call may have reused the admission and sent the job, so the
+    // reservation stays for a reconciler to confirm instead of being released.
+    expect(budget.settle).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { kind: "rejected" },
+      expect.anything(),
+    );
+  });
+
+  it("reserves a dry-run job from its own estimate and caps the job at that reservation", async () => {
+    dryRun.response = () =>
+      json({
+        statistics: {
+          totalBytesProcessed: "20971520",
+          query: { totalBytesProcessed: "20971520", referencedTables: [] },
+        },
+      });
+    const { report } = await runBudgeted("dry-run");
+    expect(budget.admit.mock.calls[0]![1]).toMatchObject({
+      estimatedBytes: 20 * 1024 ** 2,
+      reservedBytes: 22 * 1024 ** 2,
+    });
+    expect(submissions[0].configuration.query.maximumBytesBilled).toBe(
+      String(22 * 1024 ** 2),
+    );
+    expect(report.jobs).toEqual([
+      expect.objectContaining({
+        jobId: submissions[0].jobReference.jobId,
+        billedUsd: expect.any(Number),
+        state: "settled",
+      }),
+    ]);
+  });
+
+  it.each([
+    [
+      "an error",
+      () =>
+        json(
+          { error: { code: 400, message: "Syntax error", errors: [] } },
+          400,
+        ),
+    ],
+    ["no byte statistics", () => json({ statistics: { query: {} } })],
+    [
+      "malformed byte statistics",
+      () =>
+        json({
+          statistics: {
+            totalBytesProcessed: "about 20 MB",
+            query: { totalBytesProcessed: "about 20 MB" },
+          },
+        }),
+    ],
+  ])(
+    "refuses a dry-run job whose dry run returns %s, and submits nothing",
+    async (_label, response) => {
+      dryRun.response = response;
+      await expect(runBudgeted("dry-run")).rejects.toMatchObject({
+        code: "estimate_unavailable",
+      });
+      expect(budget.admit).not.toHaveBeenCalled();
+      expect(submissions).toHaveLength(0);
+    },
+  );
 });
 
 describe("resumable jobs", () => {

@@ -28,6 +28,7 @@ import {
   verifyPanelWrite,
   type PanelVerification,
   type PanelWriteVerdict,
+  outsideAgentVerificationBudget,
 } from "../server/lib/dashboard-panel-verification";
 import {
   getDashboard,
@@ -572,6 +573,8 @@ export default defineAction({
     const ctx = { email: scope.email, orgId: scope.orgId };
     const agentCaller = isAgentCaller(actionContext?.caller);
     const verificationMemo = new Map<string, PanelVerification>();
+    const verificationBudget =
+      outsideAgentVerificationBudget("mutate-dashboard");
     const guard = guardWrite({
       action: "mutate-dashboard",
       target: { kind: "dashboard", id: dashboardId },
@@ -606,6 +609,7 @@ export default defineAction({
         allowEmptyResult: args.allowEmptyResult,
         memo: verificationMemo,
         dashboardId,
+        budget: verificationBudget,
       });
     }
 
