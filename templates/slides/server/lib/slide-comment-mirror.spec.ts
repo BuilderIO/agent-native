@@ -100,10 +100,20 @@ async function slideCopies(deckId: string) {
 }
 
 async function expectStoresAgree(deckId: string) {
+  const { getDb, schema } = dbModule;
+  const [sharing] = await getDb()
+    .select({
+      ownerEmail: schema.decks.ownerEmail,
+      orgId: schema.decks.orgId,
+      visibility: schema.decks.visibility,
+    })
+    .from(schema.decks)
+    .where(eq(schema.decks.id, deckId))
+    .limit(1);
   const copies = await slideCopies(deckId);
   expect(
     await compareMirroredReviewComments(
-      { resourceType: "deck", resourceId: deckId },
+      { resourceType: "deck", resourceId: deckId, ...sharing },
       copies,
     ),
   ).toEqual({ checked: copies.length, differences: [] });

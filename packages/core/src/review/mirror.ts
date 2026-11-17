@@ -160,10 +160,24 @@ function jsonOrNull(value: unknown): string | null {
   return value === null || value === undefined ? null : JSON.stringify(value);
 }
 
+// Who can see the kit's copy of a comment: the resource's sharing as the app
+// passed it.
+function copySharing(resource: ReviewMirrorResource, copy: ReviewCommentCopy) {
+  return {
+    ownerEmail: resource.ownerEmail ?? copy.authorEmail,
+    orgId: resource.orgId ?? null,
+    visibility:
+      resource.visibility === "org" || resource.visibility === "public"
+        ? resource.visibility
+        : "private",
+  };
+}
+
 function copyValues(
   resource: ReviewMirrorResource,
   copy: ReviewCommentCopy,
 ): unknown[] {
+  const sharing = copySharing(resource, copy);
   return [
     copy.id,
     resource.resourceType,
@@ -188,11 +202,9 @@ function copyValues(
     // never sends it again.
     copy.createdAt,
     jsonOrNull(copy.mentions?.length ? copy.mentions : null),
-    resource.ownerEmail ?? copy.authorEmail,
-    resource.orgId ?? null,
-    resource.visibility === "org" || resource.visibility === "public"
-      ? resource.visibility
-      : "private",
+    sharing.ownerEmail,
+    sharing.orgId,
+    sharing.visibility,
     copy.resolved ? (copy.resolvedBy ?? null) : null,
     copy.resolved ? (copy.resolvedAt ?? copy.updatedAt) : null,
     null,
@@ -450,9 +462,9 @@ function parsedJson(value: unknown): unknown {
  * Compares the app's comments on one resource with the kit's: which are
  * missing, which the kit has extra, and for the rest, any difference in
  * thread, parent, surface, anchor, text, author, mentions, resolution,
- * creation time, metadata or reactions. Who resolved a comment and when are
- * compared only where the app passes them. Sharing and update times aren't
- * compared.
+ * creation time, metadata, reactions or sharing, so a resource whose sharing
+ * changed since the copy shows up. Who resolved a comment and when are
+ * compared only where the app passes them. Update times aren't compared.
  */
 export async function compareMirroredReviewComments(
   resource: ReviewMirrorResource,
@@ -468,7 +480,8 @@ export async function compareMirroredReviewComments(
       await client.execute(sql`SELECT id, thread_id, parent_comment_id, target_id,
           surface_id, status, anchor_json, anchor_kind, anchor_version, body,
           author_email, author_name, created_by, mentions_json, resolved_by,
-          resolved_at, created_at, metadata_json, deleted_at
+          resolved_at, created_at, metadata_json, owner_email, org_id,
+          visibility, deleted_at
        FROM agent_review_comments
       WHERE resource_type = ${sql.value(resource.resourceType)}
         AND resource_id = ${sql.value(resource.resourceId)}
@@ -529,6 +542,7 @@ export async function compareMirroredReviewComments(
           ? copy.metadata
           : null,
       reactions: (copy.reactions ?? []).map(reactionKey).sort(),
+      ...copySharing(resource, copy),
     };
     const actual: Record<string, unknown> = {
       threadId: row.thread_id,
@@ -550,6 +564,9 @@ export async function compareMirroredReviewComments(
       createdAt: row.created_at,
       metadata: parsedJson(row.metadata_json),
       reactions: (kitReactions.get(copy.id) ?? []).sort(),
+      ownerEmail: row.owner_email ?? null,
+      orgId: row.org_id ?? null,
+      visibility: row.visibility,
     };
     if (copy.resolvedBy !== undefined) {
       expected.resolvedBy = copy.resolved ? copy.resolvedBy : null;

@@ -11,6 +11,7 @@ const {
 const { __resetReviewInitForTests, ensureReviewTables, getReviewCommentById } =
   await import("./store.js");
 type ReviewCommentCopy = import("./mirror.js").ReviewCommentCopy;
+type DbExec = import("../db/client.js").DbExec;
 
 const DECK = {
   resourceType: "mirror-deck",
@@ -268,6 +269,25 @@ describe("mirrorReviewComments", () => {
 
     expect(await stored(comment.id)).toBeNull();
   });
+
+  it("opens its own transaction under a handle scoped outside one", async () => {
+    const comment = copy();
+    const base = getDbExec();
+    let transactions = 0;
+    // raw-sql-ok: passes the mirror's own statements through unchanged.
+    const plain: DbExec = {
+      execute: (statement) => base.execute(statement),
+      transaction: (run) => {
+        transactions += 1;
+        return base.transaction!(run);
+      },
+    };
+
+    await withDbExec(plain, () => mirrorReviewComments(DECK, [comment]));
+
+    expect(transactions).toBe(1);
+    expect(await stored(comment.id)).not.toBeNull();
+  });
 });
 
 describe("listMirroredResourceIds", () => {
@@ -369,6 +389,24 @@ describe("compareMirroredReviewComments", () => {
       ]),
     );
     expect(result.differences).toHaveLength(4);
+  });
+
+  it("notices a resource whose sharing changed since the copy", async () => {
+    const deck = { ...DECK, resourceId: "deck-sharing" };
+    const comment = copy();
+    await mirrorReviewComments(deck, [comment]);
+    const reshared = { ...deck, visibility: "private" as const };
+
+    expect(
+      (await compareMirroredReviewComments(reshared, [comment])).differences,
+    ).toEqual([
+      { id: comment.id, problem: "different", fields: ["visibility"] },
+    ]);
+
+    await mirrorReviewComments(reshared, [comment]);
+    expect(
+      (await compareMirroredReviewComments(reshared, [comment])).differences,
+    ).toEqual([]);
   });
 
   it("checks who resolved a comment and when only where the app says", async () => {

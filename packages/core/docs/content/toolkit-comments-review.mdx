@@ -170,7 +170,9 @@ person's own state, such as muting a thread or marking it read, still works.
 A startup step copies the comments written before, and can run again safely.
 `compareMirroredReviewComments(resource, copies)` then lists what's `missing`
 from the kit, what it has `extra`, and what's `different`, by field, so the
-app switches only once the stores agree. `listMirroredResourceIds(type, page)`
+app switches only once the stores agree. Sharing counts: the kit keeps the
+resource's owner, org and visibility on each copy, so a resource whose sharing
+changed since its comments were copied differs until they're copied again. `listMirroredResourceIds(type, page)`
 finds resources with comments only the kit still has, which a copy driven by
 the app's own table would miss. Slides is the first app to move.
 
