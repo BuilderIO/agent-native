@@ -1169,6 +1169,54 @@ describe("Notion export import", () => {
     expect(uploads.upload).not.toHaveBeenCalled();
   });
 
+  it("keeps signed links as links once the import's time for them is spent", async () => {
+    const later = CHART.replace("chart.png", "later.png");
+    const realNow = Date.now;
+    const clock = vi.spyOn(Date, "now");
+    signedFiles.fetch.mockImplementationOnce(async () => {
+      // The first file takes past the whole budget.
+      clock.mockImplementation(() => realNow() + 10 * 60_000);
+      return new Response(
+        new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]),
+        { headers: { "content-type": "image/png" } },
+      );
+    });
+    try {
+      const applied = await asOwner(() =>
+        importContent.run({
+          files: [
+            {
+              name: `Two ${ID.plan}.md`,
+              text: `# Two\n\n![Chart](${CHART})\n\n![Later](${later})`,
+            },
+          ],
+          parentId: PARENT_ID,
+          dryRun: false,
+        }),
+      );
+      const page = applied.pages[0];
+      const [stored] = await getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, present(page?.id)));
+
+      expect(signedFiles.fetch).toHaveBeenCalledTimes(1);
+      expect(signedFiles.fetch.mock.calls[0]?.[0]).toBe(CHART);
+      expect(stored.content).toMatch(PRIVATE_IMAGE_LINK);
+      expect(stored.content).toContain(later.split("?")[0]);
+      expect(page?.notes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "expiring-link-not-rehosted",
+            samples: ["later.png"],
+          }),
+        ]),
+      );
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("says when the same files were imported before, until those pages go to Trash", async () => {
     const files = () => notionFiles("Imported twice.");
     const applied = await asOwner(() =>

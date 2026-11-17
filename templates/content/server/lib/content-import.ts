@@ -78,6 +78,19 @@ interface IntakeMarkdown {
   text: string;
 }
 
+/**
+ * What one import may spend storing the files behind signed links, however
+ * many its pages hold. Once it's spent, the rest stay on their pages as links,
+ * reported as files that may lapse.
+ */
+const EXPIRING_FILES_BUDGET = { ms: 60_000, bytes: 100 * 1024 * 1024 };
+
+/** What's left of an import's budget for signed links. */
+interface ExpiringFilesBudget {
+  deadline: number;
+  bytes: number;
+}
+
 /** An image a page shows, or a file such as a PDF a page links to. */
 interface IntakeAsset {
   path: string;
@@ -231,6 +244,10 @@ export async function runContentImport(
   // A signed link that couldn't be stored maps to null and stays a link.
   const serverUploads = new Map<string, ServerUpload | null>();
   const usedUploads = new Set<string>();
+  const expiringFiles: ExpiringFilesBudget = {
+    deadline: Date.now() + EXPIRING_FILES_BUDGET.ms,
+    bytes: EXPIRING_FILES_BUDGET.bytes,
+  };
   const pages: ImportContentPageResult[] = [];
   // Read once, on the first image the server stores.
   let mediaOrgId: string | null | undefined;
@@ -259,7 +276,7 @@ export async function runContentImport(
                 ...owner,
                 sourceName: sourceFile(markdown, page.path).name,
               })
-            : await uploadExpiringFile(request, owner),
+            : await uploadExpiringFile(request, owner, expiringFiles),
         );
       }
       const filled = finalizePlannedPage(page, {
@@ -668,15 +685,17 @@ async function uploadDataUrl(
 /**
  * Stores the file a signed Notion link names, so the page keeps it once the
  * link lapses: an image privately, as embedded images are, and a PDF in file
- * storage. A file that can't be fetched or stored, is too large, or isn't an
- * image or PDF stays linked as written, and the page's report says so.
+ * storage. A file that can't be fetched or stored, is too large, isn't an
+ * image or PDF, or comes after the import's budget for these is spent stays
+ * linked as written, and the page's report says so.
  */
 async function uploadExpiringFile(
   request: Extract<ImportAssetRequest, { kind: "remote" }>,
   owner: UploadOwner,
+  budget: ExpiringFilesBudget,
 ): Promise<ServerUpload | null> {
   const filename = expiringFileLabel(request.url);
-  const fetched = await fetchExpiringFile(request.url, filename);
+  const fetched = await fetchExpiringFile(request.url, filename, budget);
   if (!fetched) return null;
   const { data, mimeType } = fetched;
   try {
@@ -705,17 +724,21 @@ async function uploadExpiringFile(
 }
 
 /**
- * The image or PDF a signed link names, within the size limit, or null. The
- * link itself is never logged: its signature lets anyone fetch the file.
+ * The image or PDF a signed link names, within the size limit and what's left
+ * of the import's budget, or null. The link itself is never logged: its
+ * signature lets anyone fetch the file.
  */
 async function fetchExpiringFile(
   url: string,
   filename: string,
+  budget: ExpiringFilesBudget,
 ): Promise<{ data: Uint8Array; mimeType: string } | null> {
+  const remaining = budget.deadline - Date.now();
+  if (remaining <= 0 || budget.bytes <= 0) return null;
   try {
     const response = await ssrfSafeFetch(
       url,
-      { signal: AbortSignal.timeout(30_000) },
+      { signal: AbortSignal.timeout(Math.min(30_000, remaining)) },
       { httpsOnly: true, maxRedirects: 3 },
     );
     const declared =
@@ -732,12 +755,16 @@ async function fetchExpiringFile(
           : null));
     const data =
       response.ok && mimeType
-        ? await readAtMost(response, MAX_IMPORT_ATTACHMENT_BYTES)
+        ? await readAtMost(
+            response,
+            Math.min(MAX_IMPORT_ATTACHMENT_BYTES, budget.bytes),
+          )
         : null;
     if (!data || !mimeType) {
       await response.body?.cancel().catch(() => {});
       return null;
     }
+    budget.bytes -= data.byteLength;
     return { data, mimeType };
   } catch (error) {
     console.error(

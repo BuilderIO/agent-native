@@ -29,6 +29,7 @@ import type { ImportNoteKind, ImportPageStatus } from "@shared/import/types";
 import {
   IMPORT_ZIP_LIMITS,
   ImportZipError,
+  newImportZipUsage,
   readImportZip,
 } from "@shared/import/zip";
 import {
@@ -86,7 +87,6 @@ const NOTE_MESSAGE_KEYS: Record<ImportNoteKind, string> = {
   "expiring-link-rehosted": "contentImport.noteExpiringLinkRehosted",
   "frontmatter-not-shown": "contentImport.noteFrontmatterNotShown",
   "frontmatter-unreadable": "contentImport.noteFrontmatterUnreadable",
-  "properties-not-shown": "contentImport.notePropertiesNotShown",
   "asset-missing": "contentImport.noteAssetMissing",
   "link-target-not-imported": "contentImport.noteLinkTargetNotImported",
   "expiring-link-not-rehosted": "contentImport.noteExpiringLinkNotRehosted",
@@ -174,10 +174,15 @@ function importSource(name: string, file: File): ImportSource {
   };
 }
 
-/** Opens each picked zip into its files; other files pass through. */
+/**
+ * Opens each picked zip into its files; other files pass through. Zips picked
+ * together, such as the parts of a split export, share one set of limits.
+ */
 async function expandPickedFiles(files: File[], t: Translate) {
   const sources: ImportSource[] = [];
   const skipped: ImportSkippedFile[] = [];
+  const usage = newImportZipUsage();
+  let together = false;
   for (const file of files) {
     if (!/\.zip$/i.test(file.name)) {
       sources.push(importSource(file.name, file));
@@ -185,10 +190,11 @@ async function expandPickedFiles(files: File[], t: Translate) {
     }
     let read: Awaited<ReturnType<typeof readImportZip>>;
     try {
-      read = await readImportZip(file);
+      read = await readImportZip(file, IMPORT_ZIP_LIMITS, usage);
     } catch (zipError) {
-      throw new Error(zipErrorMessage(zipError, file.name, t));
+      throw new Error(zipErrorMessage(zipError, file.name, t, together));
     }
+    together = true;
     for (const entry of read.entries) {
       const name = entry.path.slice(entry.path.lastIndexOf("/") + 1);
       sources.push(importSource(entry.path, new File([entry.data], name)));
@@ -204,7 +210,16 @@ async function expandPickedFiles(files: File[], t: Translate) {
   return { sources, skipped };
 }
 
-function zipErrorMessage(error: unknown, name: string, t: Translate) {
+/**
+ * Names the zip that went over a limit, or the zips together when ones read
+ * before it used part of that limit.
+ */
+function zipErrorMessage(
+  error: unknown,
+  name: string,
+  t: Translate,
+  together: boolean,
+) {
   const megabytes = (bytes: number) => Math.round(bytes / 1024 / 1024);
   if (!(error instanceof ImportZipError)) {
     return t("contentImport.zipUnreadable", { name });
@@ -216,15 +231,21 @@ function zipErrorMessage(error: unknown, name: string, t: Translate) {
         max: megabytes(IMPORT_ZIP_LIMITS.compressedBytes),
       });
     case "too-many-entries":
-      return t("contentImport.zipTooManyFiles", {
-        name,
-        max: IMPORT_ZIP_LIMITS.entries,
-      });
+      return together
+        ? t("contentImport.tooManyFiles", { max: IMPORT_ZIP_LIMITS.entries })
+        : t("contentImport.zipTooManyFiles", {
+            name,
+            max: IMPORT_ZIP_LIMITS.entries,
+          });
     case "expands-too-large":
-      return t("contentImport.zipExpandsTooLarge", {
-        name,
-        max: megabytes(IMPORT_ZIP_LIMITS.uncompressedBytes),
-      });
+      return together
+        ? t("contentImport.zipsExpandTooLarge", {
+            max: megabytes(IMPORT_ZIP_LIMITS.uncompressedBytes),
+          })
+        : t("contentImport.zipExpandsTooLarge", {
+            name,
+            max: megabytes(IMPORT_ZIP_LIMITS.uncompressedBytes),
+          });
     case "unreadable":
       return t("contentImport.zipUnreadable", { name });
   }
@@ -506,18 +527,16 @@ export function ContentImportDialog({
         imageUploads.current,
         // A refused file is named, so it can be found among the rest.
         (source) =>
-          uploadImportSource(source, parentId).catch(
-            (uploadError: unknown) => {
-              if (uploadError instanceof ImageStorageUnavailableError) {
-                throw uploadError;
-              }
-              const reason =
-                uploadError instanceof Error
-                  ? uploadError.message
-                  : String(uploadError);
-              throw new Error(`${source.name}: ${reason}`);
-            },
-          ),
+          uploadImportSource(source, parentId).catch((uploadError: unknown) => {
+            if (uploadError instanceof ImageStorageUnavailableError) {
+              throw uploadError;
+            }
+            const reason =
+              uploadError instanceof Error
+                ? uploadError.message
+                : String(uploadError);
+            throw new Error(`${source.name}: ${reason}`);
+          }),
       );
       const result = await importContent.mutateAsync({
         files: payload.map((file) =>

@@ -23,7 +23,6 @@ export const IMPORT_NOTE_SEVERITY = {
   "expiring-link-rehosted": "converted",
   "frontmatter-not-shown": "kept",
   "frontmatter-unreadable": "kept",
-  "properties-not-shown": "kept",
   "asset-missing": "lost",
   "link-target-not-imported": "lost",
   "expiring-link-not-rehosted": "lost",

@@ -177,8 +177,6 @@ function joinPath(folder: string, name: string): string {
   return folder ? `${folder}/${name}` : name;
 }
 
-/** `Key: value` as Notion writes a property under a page's title. */
-const PROPERTY_LINE_RE = /^([^\s#>|*+`[!<\-\d][^:\n]{0,99}):(?: (.*))?$/;
 const NOTION_ICON_IMG_RE =
   /^(\s*)<img\b[^>]*\bsrc="https:\/\/www\.notion\.so\/icons\/[^"]*"[^>]*>\s*/i;
 /** A bookmark, which Notion exports as a link with no text: `[](url)`. */
@@ -187,9 +185,6 @@ const BOOKMARK_RE = /(^|[^!\]\\])\[\]\((https?:\/\/[^()\s]+)\)/g;
 /**
  * Rewrites a Notion page's Markdown into what the importer reads:
  *
- * - The `Key: value` lines Notion writes under a database row's title are
- *   its properties. Content shows properties only in databases, so they come
- *   off the page and are named in the report; the original file keeps them.
  * - `<aside>` and `</aside>` lines get a blank line inside each, so the
  *   callout's first line is Markdown rather than part of an HTML block.
  * - A callout's custom icon, an image from Notion's icon set, gives way to
@@ -206,23 +201,6 @@ export function prepareNotionMarkdown(text: string): {
     .replace(/^\uFEFF/, "")
     .replace(/\r\n?/g, "\n")
     .split("\n");
-
-  if (/^# \S/.test(lines[0] ?? "") && lines[1] === "") {
-    let end = 2;
-    while (end < lines.length && PROPERTY_LINE_RE.test(lines[end] ?? "")) end++;
-    const count = end - 2;
-    // One `Word: text` line under a title is as likely a sentence as a
-    // property, so it stays on the page.
-    if (count >= 2 && (end === lines.length || lines[end] === "")) {
-      for (const line of lines.slice(2, end)) {
-        notes.push({
-          kind: "properties-not-shown",
-          sample: PROPERTY_LINE_RE.exec(line)?.[1]?.trim() ?? line,
-        });
-      }
-      lines.splice(2, end === lines.length ? count : count + 1);
-    }
-  }
 
   const out: string[] = [];
   let fence: string | null = null;

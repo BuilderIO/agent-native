@@ -283,26 +283,11 @@ describe("Notion export import", () => {
 });
 
 describe("Notion Markdown before parsing", () => {
-  it("takes a database row's properties off the page and names them", () => {
-    const row = NOTION_EXPORT_2026.find((file) =>
-      file.path.startsWith("Import fixture 2026/Tasks/Write the importer"),
-    )!;
-    const prepared = prepareNotionMarkdown("text" in row ? row.text : "");
-
-    expect(prepared.text.startsWith("# Write the importer\n")).toBe(true);
-    expect(prepared.text).not.toContain("Status:");
-    expect(prepared.notes).toEqual([
-      { kind: "properties-not-shown", sample: "Done" },
-      { kind: "properties-not-shown", sample: "Due" },
-      { kind: "properties-not-shown", sample: "Estimate" },
-      { kind: "properties-not-shown", sample: "Link" },
-      { kind: "properties-not-shown", sample: "Status" },
-      { kind: "properties-not-shown", sample: "Tags" },
-    ]);
-  });
-
-  it("leaves one Key: value line under a title on the page", () => {
-    const text = "# Plan\n\nNote: this is a sentence.\n\nBody.";
+  it("leaves Key: value lines under a page's title on the page", () => {
+    // A database's row pages are set aside before this, so lines like these
+    // are the page's own text.
+    const text =
+      "# Standup\n\nDate: November 3, 2026\nAttendees: Sam, Kim\n\nNotes.";
     expect(prepareNotionMarkdown(text)).toEqual({ text, notes: [] });
   });
 

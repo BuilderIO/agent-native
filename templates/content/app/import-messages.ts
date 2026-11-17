@@ -65,7 +65,6 @@ const en = {
   noteStructureChangedOnSave: "Structure changed when saved",
   noteCalloutIconReplaced: "Custom callout icons replaced",
   noteExpiringLinkRehosted: "Files behind expiring links uploaded",
-  notePropertiesNotShown: "Page properties saved with the import, not shown",
   noteExpiringLinkNotRehosted: "Expiring file links couldn't be uploaded",
   skipUnusedFile: "No page links to this file",
   skipNestedArchive: "Zip files inside a zip aren't opened",
@@ -83,6 +82,7 @@ const en = {
   zipTooLarge: "{{name}} is larger than {{max}} MB",
   zipTooManyFiles: "{{name}} holds more than {{max}} files",
   zipExpandsTooLarge: "{{name}} unzips to more than {{max}} MB",
+  zipsExpandTooLarge: "The zip files unzip to more than {{max}} MB together",
   zipUnreadable: "{{name}} can't be opened as a zip file",
   markdownTooLarge:
     "These files hold more than {{max}} MB of Markdown. Import them in smaller groups.",
@@ -167,8 +167,6 @@ const translations: Record<
     noteCalloutIconReplaced:
       "Se reemplazaron los iconos personalizados de los avisos destacados",
     noteExpiringLinkRehosted: "Se subieron los archivos de enlaces que caducan",
-    notePropertiesNotShown:
-      "Propiedades de la página guardadas con la importación, sin mostrar",
     noteExpiringLinkNotRehosted:
       "No se pudieron subir archivos de enlaces que caducan",
     skipUnusedFile: "Ninguna página enlaza este archivo",
@@ -187,6 +185,8 @@ const translations: Record<
     zipTooLarge: "{{name}} ocupa más de {{max}} MB",
     zipTooManyFiles: "{{name}} contiene más de {{max}} archivos",
     zipExpandsTooLarge: "{{name}} ocupa más de {{max}} MB al descomprimirlo",
+    zipsExpandTooLarge:
+      "Los archivos zip ocupan más de {{max}} MB al descomprimirlos juntos",
     zipUnreadable: "{{name}} no se puede abrir como archivo zip",
     markdownTooLarge:
       "Estos archivos contienen más de {{max}} MB de Markdown. Impórtalos en grupos más pequeños.",
@@ -264,8 +264,6 @@ const translations: Record<
     noteCalloutIconReplaced: "Icônes personnalisées des encadrés remplacées",
     noteExpiringLinkRehosted:
       "Fichiers derrière des liens temporaires téléversés",
-    notePropertiesNotShown:
-      "Propriétés de la page enregistrées avec l’import, non affichées",
     noteExpiringLinkNotRehosted:
       "Des liens de fichiers temporaires n’ont pas pu être téléversés",
     skipUnusedFile: "Aucune page ne renvoie à ce fichier",
@@ -285,6 +283,8 @@ const translations: Record<
     zipTooLarge: "{{name}} dépasse {{max}} Mo",
     zipTooManyFiles: "{{name}} contient plus de {{max}} fichiers",
     zipExpandsTooLarge: "{{name}} dépasse {{max}} Mo une fois décompressé",
+    zipsExpandTooLarge:
+      "Les fichiers zip dépassent {{max}} Mo une fois décompressés ensemble",
     zipUnreadable: "{{name}} ne peut pas être ouvert comme fichier zip",
     markdownTooLarge:
       "Ces fichiers contiennent plus de {{max}} Mo de Markdown. Importez-les par petits groupes.",
@@ -359,8 +359,6 @@ const translations: Record<
     noteStructureChangedOnSave: "Struktur hat sich beim Speichern geändert",
     noteCalloutIconReplaced: "Eigene Callout-Symbole ersetzt",
     noteExpiringLinkRehosted: "Dateien hinter ablaufenden Links hochgeladen",
-    notePropertiesNotShown:
-      "Seiteneigenschaften mit dem Import gespeichert, nicht angezeigt",
     noteExpiringLinkNotRehosted:
       "Ablaufende Dateilinks konnten nicht hochgeladen werden",
     skipUnusedFile: "Keine Seite verlinkt diese Datei",
@@ -379,6 +377,8 @@ const translations: Record<
     zipTooLarge: "{{name}} ist größer als {{max}} MB",
     zipTooManyFiles: "{{name}} enthält mehr als {{max}} Dateien",
     zipExpandsTooLarge: "{{name}} ist entpackt größer als {{max}} MB",
+    zipsExpandTooLarge:
+      "Die Zip-Dateien sind zusammen entpackt größer als {{max}} MB",
     zipUnreadable: "{{name}} kann nicht als Zip-Datei geöffnet werden",
     markdownTooLarge:
       "Diese Dateien enthalten mehr als {{max}} MB Markdown. Importiere sie in kleineren Gruppen.",
@@ -454,8 +454,6 @@ const translations: Record<
     noteStructureChangedOnSave: "A estrutura mudou ao salvar",
     noteCalloutIconReplaced: "Ícones personalizados dos destaques substituídos",
     noteExpiringLinkRehosted: "Arquivos de links que expiram foram enviados",
-    notePropertiesNotShown:
-      "Propriedades da página salvas com a importação, não exibidas",
     noteExpiringLinkNotRehosted:
       "Não foi possível enviar arquivos de links que expiram",
     skipUnusedFile: "Nenhuma página tem link para este arquivo",
@@ -474,6 +472,8 @@ const translations: Record<
     zipTooLarge: "{{name}} tem mais de {{max}} MB",
     zipTooManyFiles: "{{name}} contém mais de {{max}} arquivos",
     zipExpandsTooLarge: "{{name}} passa de {{max}} MB ao ser descompactado",
+    zipsExpandTooLarge:
+      "Os arquivos zip passam de {{max}} MB juntos ao serem descompactados",
     zipUnreadable: "{{name}} não pode ser aberto como arquivo zip",
     markdownTooLarge:
       "Estes arquivos têm mais de {{max}} MB de Markdown. Importe-os em grupos menores.",
@@ -542,7 +542,6 @@ const translations: Record<
     noteStructureChangedOnSave: "保存时结构发生了变化",
     noteCalloutIconReplaced: "已替换标注的自定义图标",
     noteExpiringLinkRehosted: "已上传会过期链接中的文件",
-    notePropertiesNotShown: "页面属性已随导入保存，但不显示",
     noteExpiringLinkNotRehosted: "无法上传会过期的文件链接",
     skipUnusedFile: "没有页面链接到此文件",
     skipNestedArchive: "不会打开 zip 中的 zip 文件",
@@ -559,6 +558,7 @@ const translations: Record<
     zipTooLarge: "{{name}} 超过 {{max}} MB",
     zipTooManyFiles: "{{name}} 包含超过 {{max}} 个文件",
     zipExpandsTooLarge: "{{name}} 解压后超过 {{max}} MB",
+    zipsExpandTooLarge: "这些 zip 文件解压后合计超过 {{max}} MB",
     zipUnreadable: "无法将 {{name}} 作为 zip 文件打开",
     markdownTooLarge:
       "这些文件包含超过 {{max}} MB 的 Markdown。请分成较小的批次导入。",
@@ -627,7 +627,6 @@ const translations: Record<
     noteStructureChangedOnSave: "儲存時結構有所變更",
     noteCalloutIconReplaced: "已取代標註的自訂圖示",
     noteExpiringLinkRehosted: "已上傳會過期連結中的檔案",
-    notePropertiesNotShown: "頁面屬性已隨匯入儲存，但不顯示",
     noteExpiringLinkNotRehosted: "無法上傳會過期的檔案連結",
     skipUnusedFile: "沒有頁面連結到此檔案",
     skipNestedArchive: "不會開啟 zip 中的 zip 檔案",
@@ -644,6 +643,7 @@ const translations: Record<
     zipTooLarge: "{{name}} 超過 {{max}} MB",
     zipTooManyFiles: "{{name}} 包含超過 {{max}} 個檔案",
     zipExpandsTooLarge: "{{name}} 解壓縮後超過 {{max}} MB",
+    zipsExpandTooLarge: "這些 zip 檔案解壓縮後合計超過 {{max}} MB",
     zipUnreadable: "無法將 {{name}} 作為 zip 檔案開啟",
     markdownTooLarge:
       "這些檔案包含超過 {{max}} MB 的 Markdown。請分成較小的批次匯入。",
@@ -719,8 +719,6 @@ const translations: Record<
     noteStructureChangedOnSave: "保存時に構造が変わりました",
     noteCalloutIconReplaced: "コールアウトのカスタムアイコンを置き換えました",
     noteExpiringLinkRehosted: "期限付きリンクのファイルをアップロードしました",
-    notePropertiesNotShown:
-      "ページのプロパティはインポートと一緒に保存され、表示されません",
     noteExpiringLinkNotRehosted:
       "期限付きのファイルリンクをアップロードできませんでした",
     skipUnusedFile: "このファイルにリンクしているページはありません",
@@ -739,6 +737,7 @@ const translations: Record<
     zipTooLarge: "{{name}} は {{max}} MB を超えています",
     zipTooManyFiles: "{{name}} には {{max}} 個を超えるファイルが含まれています",
     zipExpandsTooLarge: "{{name}} は展開すると {{max}} MB を超えます",
+    zipsExpandTooLarge: "zip ファイルを展開すると合計で {{max}} MB を超えます",
     zipUnreadable: "{{name}} を zip ファイルとして開けません",
     markdownTooLarge:
       "これらのファイルには {{max}} MB を超える Markdown が含まれています。小さなグループに分けてインポートしてください。",
@@ -812,8 +811,6 @@ const translations: Record<
     noteStructureChangedOnSave: "저장할 때 구조가 바뀌었습니다",
     noteCalloutIconReplaced: "콜아웃의 사용자 지정 아이콘이 바뀌었습니다",
     noteExpiringLinkRehosted: "만료되는 링크의 파일을 업로드했습니다",
-    notePropertiesNotShown:
-      "페이지 속성은 가져오기와 함께 저장되며 표시되지 않습니다",
     noteExpiringLinkNotRehosted: "만료되는 파일 링크를 업로드하지 못했습니다",
     skipUnusedFile: "이 파일에 연결된 페이지가 없습니다",
     skipNestedArchive: "zip 안의 zip 파일은 열지 않습니다",
@@ -831,6 +828,7 @@ const translations: Record<
     zipTooLarge: "{{name}}이(가) {{max}}MB보다 큽니다",
     zipTooManyFiles: "{{name}}에 파일이 {{max}}개보다 많습니다",
     zipExpandsTooLarge: "{{name}}의 압축을 풀면 {{max}}MB를 넘습니다",
+    zipsExpandTooLarge: "zip 파일들의 압축을 풀면 합계가 {{max}}MB를 넘습니다",
     zipUnreadable: "{{name}}을(를) zip 파일로 열 수 없습니다",
     markdownTooLarge:
       "이 파일들의 Markdown이 {{max}}MB를 넘습니다. 더 작은 묶음으로 나누어 가져오세요.",
@@ -900,7 +898,6 @@ const translations: Record<
     noteStructureChangedOnSave: "सहेजते समय संरचना बदल गई",
     noteCalloutIconReplaced: "कॉलआउट के कस्टम आइकन बदले गए",
     noteExpiringLinkRehosted: "समाप्त होने वाले लिंक की फ़ाइलें अपलोड की गईं",
-    notePropertiesNotShown: "पेज की प्रॉपर्टी इंपोर्ट के साथ सहेजी गईं, दिखाई नहीं गईं",
     noteExpiringLinkNotRehosted: "समाप्त होने वाले फ़ाइल लिंक अपलोड नहीं हो सके",
     skipUnusedFile: "कोई पेज इस फ़ाइल से लिंक नहीं करता",
     skipNestedArchive: "zip के अंदर की zip फ़ाइलें नहीं खोली जातीं",
@@ -918,6 +915,8 @@ const translations: Record<
     zipTooLarge: "{{name}} {{max}} MB से बड़ी है",
     zipTooManyFiles: "{{name}} में {{max}} से ज़्यादा फ़ाइलें हैं",
     zipExpandsTooLarge: "{{name}} अनज़िप होने पर {{max}} MB से बड़ी हो जाती है",
+    zipsExpandTooLarge:
+      "ज़िप फ़ाइलें अनज़िप होने पर कुल मिलाकर {{max}} MB से बड़ी हो जाती हैं",
     zipUnreadable: "{{name}} को zip फ़ाइल के रूप में नहीं खोला जा सकता",
     markdownTooLarge:
       "इन फ़ाइलों में {{max}} MB से ज़्यादा Markdown है। इन्हें छोटे समूहों में इंपोर्ट करें।",
@@ -987,7 +986,6 @@ const translations: Record<
     noteCalloutIconReplaced: "استُبدلت الأيقونات المخصصة لمربعات التمييز",
     noteExpiringLinkRehosted:
       "رُفعت الملفات التي تشير إليها روابط تنتهي صلاحيتها",
-    notePropertiesNotShown: "حُفظت خصائص الصفحة مع الاستيراد دون عرضها",
     noteExpiringLinkNotRehosted: "تعذّر رفع ملفات من روابط تنتهي صلاحيتها",
     skipUnusedFile: "لا ترتبط أي صفحة بهذا الملف",
     skipNestedArchive: "لا تُفتح ملفات zip الموجودة داخل ملف zip",
@@ -1005,6 +1003,8 @@ const translations: Record<
     zipTooLarge: "حجم {{name}} أكبر من {{max}} ميغابايت",
     zipTooManyFiles: "يحتوي {{name}} على أكثر من {{max}} ملف",
     zipExpandsTooLarge: "يتجاوز حجم {{name}} بعد فك ضغطه {{max}} ميغابايت",
+    zipsExpandTooLarge:
+      "يتجاوز حجم ملفات zip معًا بعد فك ضغطها {{max}} ميغابايت",
     zipUnreadable: "تعذّر فتح {{name}} كملف zip",
     markdownTooLarge:
       "تحتوي هذه الملفات على أكثر من {{max}} ميغابايت من Markdown. استوردها على دفعات أصغر.",

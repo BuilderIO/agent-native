@@ -1,7 +1,12 @@
 import JSZip from "jszip";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { IMPORT_ZIP_LIMITS, ImportZipError, readImportZip } from "./zip";
+import {
+  IMPORT_ZIP_LIMITS,
+  ImportZipError,
+  newImportZipUsage,
+  readImportZip,
+} from "./zip";
 
 async function zipOf(files: Record<string, string | Uint8Array>) {
   const zip = new JSZip();
@@ -102,6 +107,76 @@ describe("Import zip reader", () => {
       (await zipError(three, { ...IMPORT_ZIP_LIMITS, compressedBytes: 10 }))
         .code,
     ).toBe("too-large");
+  });
+
+  it("counts the archives inside one, and their size together", async () => {
+    const outer = await zipOf({
+      "Export-Part-1.zip": await zipOf({ "One.md": "# One" }),
+      "Export-Part-2.zip": await zipOf({ "Two.md": "# Two" }),
+    });
+    // Two parts and their two files.
+    expect(
+      (await zipError(outer, { ...IMPORT_ZIP_LIMITS, entries: 3 })).code,
+    ).toBe("too-many-entries");
+
+    // Each stored part is under the zip's own size; the two together aren't.
+    const stored = (name: string) => {
+      const part = new JSZip();
+      part.file(name, "x".repeat(6 * 1024));
+      return part.generateAsync({ type: "uint8array", compression: "STORE" });
+    };
+    const parts = await zipOf({
+      "Export-Part-1.zip": await stored("One.md"),
+      "Export-Part-2.zip": await stored("Two.md"),
+    });
+    expect(parts.byteLength).toBeLessThan(10 * 1024);
+    expect(
+      (
+        await zipError(parts, {
+          ...IMPORT_ZIP_LIMITS,
+          compressedBytes: 10 * 1024,
+        })
+      ).code,
+    ).toBe("too-large");
+  });
+
+  it("shares its limits across the zips picked for one import", async () => {
+    const limits = { ...IMPORT_ZIP_LIMITS, entries: 3 };
+    const usage = newImportZipUsage();
+    await readImportZip(
+      await zipOf({ "a.md": "a", "b.md": "b" }),
+      limits,
+      usage,
+    );
+    const error = await readImportZip(
+      await zipOf({ "c.md": "c", "d.md": "d" }),
+      limits,
+      usage,
+    ).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(ImportZipError);
+    expect((error as ImportZipError).code).toBe("too-many-entries");
+  });
+
+  it("refuses a listing far past the file limit before parsing it", async () => {
+    // Litter isn't a file, so only the listing can stop this one.
+    const litter = await zipOf(
+      Object.fromEntries(
+        Array.from({ length: 30 }, (_, index) => [
+          `__MACOSX/._${index}.md`,
+          "",
+        ]),
+      ),
+    );
+    const load = vi.spyOn(JSZip, "loadAsync");
+    try {
+      expect(
+        (await zipError(litter, { ...IMPORT_ZIP_LIMITS, entries: 2 })).code,
+      ).toBe("too-many-entries");
+      expect(load).not.toHaveBeenCalled();
+    } finally {
+      load.mockRestore();
+    }
   });
 
   it("names a file that isn't a zip as unreadable", async () => {
