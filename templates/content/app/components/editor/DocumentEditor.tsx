@@ -3326,7 +3326,8 @@ function PageEditorSessionBody({
   const isLocalFileDocument = document.source?.mode === "local-files";
   // Pages that follow a GitHub file are written by sync; edit the file instead.
   const isGitHubSourceDocument = document.source?.mode === "github";
-  // Files and GitHub write the body back out, so their images stay public.
+  // Local files write the body back out, so their images stay public. GitHub
+  // pages can't be edited here; sync stores their images privately.
   const privateImageUploads = !isLocalFileDocument && !isGitHubSourceDocument;
   useConvertPageToLiveCopyOnOpen(
     documentId,
@@ -8887,6 +8888,9 @@ function PageEditorSessionBody({
   const pagePanelSpacerRef = useRef<HTMLDivElement>(null);
   const pagePanelHeadingRef = useRef<HTMLHeadingElement>(null);
   const agentSlotRef = useRef<HTMLDivElement>(null);
+  // The panel head's tool slot; Discussion portals its controls there.
+  const [pagePanelHeadTools, setPagePanelHeadTools] =
+    useState<HTMLDivElement | null>(null);
   const pagePanelOpenRef = useRef(false);
   const pagePanelLastTabRef = useRef<DocumentPagePanelTab | null>(null);
   const pagePanelReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -11045,6 +11049,9 @@ function PageEditorSessionBody({
       onHighlightsVisibleChange={
         presentation === "history" ? setShowCommentIndicators : undefined
       }
+      headToolsContainer={
+        presentation === "history" ? pagePanelHeadTools : undefined
+      }
       threads={
         infoProperty
           ? infoPropertyId === infoProperty
@@ -11521,7 +11528,10 @@ function PageEditorSessionBody({
             canShare={!mcpDirectoryWidgetReadOnly || canEdit}
             readOnly={mcpDirectoryWidgetReadOnly}
             hideFromSearch={document.hideFromSearch}
-            agentTextLocked={Boolean(document.agentTextLocked)}
+            agentLevel={
+              document.agentLevel ??
+              (document.agentTextLocked ? "comment" : "edit")
+            }
             canManageAgentTextLock={Boolean(document.canManage)}
             source={document.source}
             canDelete={canDelete}
@@ -12474,6 +12484,7 @@ function PageEditorSessionBody({
           spacerRef={pagePanelSpacerRef}
           headingRef={pagePanelHeadingRef}
           agentSlotRef={host === "page" ? agentSlotRef : undefined}
+          headToolsRef={setPagePanelHeadTools}
           onClose={() => handlePagePanelChange(null)}
         >
           {pagePanelBody}

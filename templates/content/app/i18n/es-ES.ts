@@ -1080,6 +1080,10 @@ const editor = {
     fourColumns: "4 columnas",
     codeBlock: "Bloque de código",
     codeBlockDescription: "Fragmento de código",
+    toggleHeading1: "Encabezado desplegable 1",
+    toggleHeading2: "Encabezado desplegable 2",
+    toggleHeading3: "Encabezado desplegable 3",
+    toggleHeadingDescription: "Encabezado que se abre y se cierra",
     collapsibleBlockDescription: "bloque plegable",
     database: "Colección",
     databaseDescription: "Colección integrada en esta página",
@@ -1172,6 +1176,12 @@ const editor = {
     agentLevelNote: "Los agentes pueden comentar",
     agentLevelNoteHint:
       "Los agentes pueden comentar en esta página. Cámbialo en Compartir.",
+    agentLevelViewDescription:
+      "Pueden leer esta página, pero no comentar, sugerir ni editar.",
+    agentLevelViewConfirm: "Ahora los agentes solo pueden leer esta página.",
+    agentLevelViewNote: "Los agentes solo pueden ver",
+    agentLevelViewNoteHint:
+      "Los agentes solo pueden ver esta página. Cámbialo en Compartir.",
     sendPageToAgent: "Enviar esta página a un agente",
     connectAgentOverMcp: "Conectar un agente por MCP",
     importingFromNotion: "Importando desde Notion...",
@@ -2140,6 +2150,18 @@ const overrides = {
       "Se eliminarán «{{name}}» y su texto de todas las filas de esta colección. No se puede deshacer.",
     deleteBlockFieldBodyWarning:
       "«{{name}}» es el cuerpo de la página, así que también se eliminará el texto principal de cada fila.",
+    blockFieldFrozen: "Congelado mientras {{column}} sea {{value}}",
+    blockFieldFrozenDescription:
+      "Una regla de esta colección impide que nadie, persona o agente, cambie esta pestaña. Cambia {{column}} a un valor distinto de {{value}} para editarla.",
+    blockFieldFrozenByManagers:
+      "Congelado mientras {{column}} sea {{value}}. Solo quienes tienen acceso completo a la colección pueden cambiarlo.",
+    blockFieldFrozenSaveRefused:
+      "Esta pestaña está congelada, así que tu cambio no se guardó",
+    freezeBlockField: "Congelar mientras…",
+    freezeBlockFieldWhile: "Mientras {{column}} sea",
+    freezeBlockFieldNoColumns:
+      "Añade una columna de estado o de selección para congelar según ella",
+    unfreezeBlockField: "No congelar",
   },
   comments: {
     add: "Añadir comentario...",

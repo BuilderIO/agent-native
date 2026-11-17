@@ -1728,6 +1728,16 @@ export default {
       githubDescription: "قريبا: استيراد الشاشات والمكونات مباشرة من مستودع.",
       localDescription: "وصّل أي تطبيق محلي قيد التشغيل باستخدام /visual-edit.",
       warningsToast: "اكتمل الاستيراد مع تحذيرات",
+      pasteUnreadable: "تعذّرت قراءة الطبقات المنسوخة.",
+      pasteInexact: "تفاصيل لم تُلصق بدقة: {{count}}",
+      pasteLayerTypes: "أنواع طبقات {{tool}} الملصقة كإطارات بسيطة: {{count}}",
+      pasteImagePlaceholders:
+        "الصور الملصقة كعناصر نائبة: {{count}}. لا ينسخ {{tool}} بيانات الصور.",
+      pasteImagesLinked:
+        "الصور التي ما زالت مرتبطة بـ {{tool}}: {{count}}. تعذّر نسخها إلى مساحة تخزين ملفاتك.",
+      pasteImagesUnsaved: "صور قد يتوقف تحميلها لأنه لم يتأكد حفظها: {{count}}",
+      pasteNeedsEditAccess: "تحتاج إلى صلاحية التعديل للصق في هذا التصميم.",
+      pastePartialImport: "فشل اللصق وربما أُنشئت بعض الشاشات. تحقق من شاشاتك.",
       figmaSuccess: "تم استيراد لصق Figma",
       htmlSuccess: "تم استيراد HTML",
       uploadSuccess: "تم استيراد الملف",
@@ -1737,6 +1747,8 @@ export default {
         notHtml: "الصق أو اختر HTML صالحا للاستيراد.",
         importFailed: "فشل الاستيراد",
         figmaPasteFailed: "فشل استيراد لصق Figma",
+        paperPasteFailed: "فشل استيراد لصق Paper",
+        wonderPasteFailed: "فشل استيراد لصق Wonder",
         uploadFailed: "فشل رفع الملف",
         invalidFigFile: "اختر ملفا ينتهي بـ .fig.",
         unsupportedFileType: "اختر ملف ‎.fig‎ أو ‎.html‎ أو ‎.htm‎.",
@@ -2063,6 +2075,9 @@ export default {
     addTweaks: "أضف تعديلات",
     addTweakControls: "إضافة الضوابط القرص",
     closeTweaks: "إغلاق القرص",
+    showFloatingTweaks: "إظهار التعديلات العائمة",
+    collapseTweaks: "طي التعديلات",
+    expandTweaks: "توسيع التعديلات",
     tweaksHelp:
       "التعديلات هي تجاوزات مرئية خاصة بنقطة التوقف والحالة فوق التصميم الأساسي. أعد ضبط عنصر التحكم للعودة إلى القيمة الموروثة.",
     tweaksDocs: "معرفة المزيد.",
@@ -2329,6 +2344,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "تم تغيير التعديلات في مكان آخر. حدّث التصميم قبل المحاولة مرة أخرى.",
+      tweakBaselineUnreadable:
+        "تعذّرت قراءة خط الأساس المحفوظ للتعديلات. تم إيقاف تغييرات التعديلات مؤقتًا حتى إصلاح بيانات التصميم.",
+      resetTweakBaseline: "إعادة تعيين خط الأساس",
       tweakSaveNotDurable:
         "لم تُحفظ التعديلات بعد. أبقِ علامة التبويب هذه مفتوحة وحاول مرة أخرى.",
       undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
@@ -3454,6 +3472,9 @@ export default {
     markedUnread: "تم وضع علامة كغير مقروء",
     markUnreadFailed: "تعذر وضع علامة كغير مقروء",
     attachImage: "إرفاق صورة",
+    removeImage: "إزالة الصورة",
+    imageUploadFailed: "تعذّر رفع الصورة",
+    editChanged: "تغيّر هذا التعليق بعد أن بدأت تعديله. احفظ مرة أخرى لاستبداله.",
     searching: "جارٍ البحث…",
     reactionFailed: "تعذر تحديث التفاعل",
     moveFailed: "تعذر نقل التعليق",

@@ -22,6 +22,7 @@ export type {
 } from "./types.js";
 export {
   ReviewAnchorError,
+  ReviewCommentEmptyError,
   ReviewCommentLinkConflictError,
   ReviewCommentRevisionConflictError,
   ReviewCursorError,

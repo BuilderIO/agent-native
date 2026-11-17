@@ -166,9 +166,18 @@ async function createDatabaseFixture(
     };
     // Marked as the editor's, a body write without the editor's session answers
     // 200 and is held back, so this one isn't marked and is read back.
+    const unwritten = await readAction(page, "get-document", {
+      id: rowFixture.documentId,
+    });
     const bodyWrite = await page.request.post(
       "/_agent-native/actions/update-document",
-      { data: { id: rowFixture.documentId, content: rowFixture.body } },
+      {
+        data: {
+          id: rowFixture.documentId,
+          content: rowFixture.body,
+          baseRevision: unwritten.revision,
+        },
+      },
     );
     expect(bodyWrite.ok(), await bodyWrite.text()).toBeTruthy();
     const written = await readAction(page, "get-document", {

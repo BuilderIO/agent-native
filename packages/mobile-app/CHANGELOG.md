@@ -33,6 +33,62 @@
 - An invalid Clips library response shows an error instead of an empty
   library.
 
+## 0.1.208
+
+### Patch Changes
+
+- Updated dependencies [e04e57c]
+- Updated dependencies [cdf52f4]
+- Updated dependencies [a4a4f9e]
+- Updated dependencies [9af0433]
+- Updated dependencies [fd79105]
+- Updated dependencies [aa0f567]
+- Updated dependencies [4ec7533]
+- Updated dependencies [4a2b64d]
+- Updated dependencies [dfe5aa0]
+- Updated dependencies [31c3b35]
+- Updated dependencies [b2d106b]
+- Updated dependencies [5d8c5a6]
+- Updated dependencies [232c492]
+- Updated dependencies [6e21c72]
+- Updated dependencies [2a5ad45]
+- Updated dependencies [3420968]
+- Updated dependencies [3420968]
+- Updated dependencies [3420968]
+- Updated dependencies [d9515da]
+- Updated dependencies [62bbf91]
+- Updated dependencies [f152dfe]
+- Updated dependencies [f152dfe]
+- Updated dependencies
+- Updated dependencies [fd05133]
+- Updated dependencies [59a97ba]
+- Updated dependencies [65eafd8]
+- Updated dependencies [dd24195]
+- Updated dependencies [9af0433]
+- Updated dependencies [9cbe92b]
+- Updated dependencies [7e17b65]
+- Updated dependencies [9af0433]
+- Updated dependencies [d6b72f4]
+- Updated dependencies [cd02f94]
+- Updated dependencies [58b52d0]
+- Updated dependencies [3420968]
+- Updated dependencies [79bc394]
+- Updated dependencies [5e5c149]
+- Updated dependencies [3069c20]
+- Updated dependencies [e79c1ae]
+- Updated dependencies [a6ccc79]
+- Updated dependencies [c7d628a]
+- Updated dependencies [9af0433]
+- Updated dependencies [9af0433]
+- Updated dependencies [5e5c149]
+- Updated dependencies [88c2e4b]
+- Updated dependencies [cd02f94]
+- Updated dependencies [77bf28a]
+- Updated dependencies [453ecb4]
+- Updated dependencies [7b2d487]
+  - @agent-native/core@0.229.0
+  - @agent-native/agentkit@0.229.0
+
 ## 0.1.207
 
 ### Patch Changes
@@ -2823,12 +2879,5 @@
 
 - Updated dependencies [36c79f9]
   - @agent-native/core@0.172.9
-
-## 0.1.109
-
-### Patch Changes
-
-- Updated dependencies [e248449]
-  - @agent-native/core@0.172.8
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

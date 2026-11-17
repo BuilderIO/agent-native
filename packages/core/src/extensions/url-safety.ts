@@ -410,6 +410,8 @@ export async function ssrfSafeFetch(
     requireDispatcher?: boolean;
     httpsOnly?: boolean;
     assertUrlAllowed?: (url: string) => void | Promise<void>;
+    /** Synchronous policy recheck after DNS/dispatcher waits, at each dispatch. */
+    beforeDispatch?: (url: string) => void;
     allowedPrivateOrigins?: readonly string[];
     allowedLocalhostOrigin?: string;
   } = {},
@@ -474,6 +476,7 @@ export async function ssrfSafeFetch(
     );
     if (dispatcher) fetchOpts.dispatcher = dispatcher;
 
+    options.beforeDispatch?.(currentUrl);
     const response = await fetch(currentUrl, fetchOpts);
     if (response.status >= 300 && response.status < 400) {
       if (options.followRedirects === false) return response;

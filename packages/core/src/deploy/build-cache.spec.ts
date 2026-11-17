@@ -420,6 +420,16 @@ describe("workspace deploy build cache", () => {
 
     expect(builds).toEqual([]);
   });
+
+  it("does not let the recorded split-build id change the app's key", async () => {
+    await deploy();
+    builds = [];
+    write(path.join(root, "apps/alpha/.agent-native-app-build-id"), "abc123");
+
+    await deploy();
+
+    expect(builds).toEqual([]);
+  });
 });
 
 describe("content build ids across workspace commits", () => {
@@ -684,6 +694,34 @@ describe("build cache input and output integrity", () => {
     expect(keyFor({ AGENT_NATIVE_BUILD_ID: "agent-build-1" })).not.toBe(
       keyFor({ AGENT_NATIVE_BUILD_ID: "agent-build-2" }),
     );
+  });
+
+  it("keeps the split-build app selectors out of an app's key", () => {
+    const env = { VITE_PUBLIC_FLAG: "on" };
+    const baseline = hashBuildEnv(env, []);
+
+    expect(
+      hashBuildEnv({ ...env, AGENT_NATIVE_DEPLOY_ONLY_APPS: "alpha" }, []),
+    ).toBe(baseline);
+    expect(
+      hashBuildEnv(
+        { ...env, AGENT_NATIVE_DEPLOY_ONLY_APPS: "alpha,beta,gamma" },
+        [],
+      ),
+    ).toBe(baseline);
+    expect(
+      hashBuildEnv({ ...env, AGENT_NATIVE_DEPLOY_PREBUILT_APPS: "beta" }, []),
+    ).toBe(baseline);
+    expect(
+      hashBuildEnv(
+        {
+          ...env,
+          AGENT_NATIVE_DEPLOY_ONLY_APPS: "alpha",
+          VITE_PUBLIC_FLAG: "off",
+        },
+        [],
+      ),
+    ).not.toBe(baseline);
   });
 
   it("excludes volatile variables and configured exact or prefix matches from the environment key", () => {

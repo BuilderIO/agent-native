@@ -215,6 +215,42 @@ describe("useShareButtonController agents", () => {
     expect(current().selectedAgent).toBeNull();
   });
 
+  it("shares a given email as a person, not the picked agent in the field", async () => {
+    await render();
+    act(() => current().selectAgent(reviewer));
+    await settle(() => current().handleAdd("staged@example.test"));
+
+    expect(lastShareCall().args).toMatchObject({
+      principalType: "user",
+      principalId: "staged@example.test",
+      notify: true,
+    });
+    const staged = current().shares.find(
+      (share) => share.principalId === "staged@example.test",
+    );
+    expect(staged?.agent).toBeUndefined();
+  });
+
+  it("hands every refused staged address to onFailed instead of one input", async () => {
+    await render();
+    const failed: string[] = [];
+    await settle(() => {
+      current().handleAdd("one@example.test", {
+        onFailed: (e) => failed.push(e),
+      });
+      current().handleAdd("two@example.test", {
+        onFailed: (e) => failed.push(e),
+      });
+    });
+    const calls = [...mocks.shareCalls];
+    await settle(() => {
+      for (const call of calls) call.reject(new Error("refused"));
+    });
+
+    expect(failed.sort()).toEqual(["one@example.test", "two@example.test"]);
+    expect(current().inviteEmail).toBe("");
+  });
+
   it("puts the picked agent back when the invite fails", async () => {
     await render();
     act(() => current().selectAgent(writer));

@@ -52,6 +52,9 @@ export interface NfmParseLoss {
 }
 
 let activeLossSink: NfmParseLoss[] | null = null;
+// Set while reading Notion's own Markdown, where a <br> between backticks is a
+// line break. See notionMarkdownToNfm.
+let readingNotionMarkdown = false;
 
 function reportLoss(kind: NfmParseLossKind, sample: string): void {
   activeLossSink?.push({ kind, sample });
@@ -459,28 +462,49 @@ function serializeInlineTextNode(
   if (node.type !== "text") return null;
   const raw = node.text ?? "";
   const code = markOf(node, "code");
+  // Text between backticks is literal, so a typed <br> stays text. A line
+  // break in code is written as Shift+Enter there writes it: a <br> between
+  // two runs, each with all of the text's marks.
+  if (code && raw.includes("\n")) {
+    let source = "";
+    const textOffsets: number[] = [];
+    raw.split("\n").forEach((line, lineIndex) => {
+      if (lineIndex > 0) source += "<br>";
+      const part = line
+        ? serializeInlineTextNode(
+            { ...node, text: line },
+            true,
+            escapeUnderscore,
+            false,
+            startsLine && lineIndex === 0,
+          )
+        : null;
+      for (const offset of part?.textOffsets ?? [0])
+        textOffsets.push(source.length + offset);
+      source += part?.source ?? "";
+    });
+    return { source, textOffsets: collectOffsets ? textOffsets : null };
+  }
   let out: string;
   let textOffsets: number[] | null = collectOffsets ? [0] : null;
   if (code) {
-    const codeText = raw.replace(/\n/g, "<br>");
     // The reader strips padding only around code that is not all whitespace.
     const isAllSpaces = raw.trim() === "";
-    const delim = "`".repeat(longestRun(codeText, /`+/g) + 1);
+    const delim = "`".repeat(longestRun(raw, /`+/g) + 1);
     const needsPadding =
       !isAllSpaces &&
-      (codeText.startsWith("`") ||
-        codeText.endsWith("`") ||
-        codeText.startsWith(" ") ||
-        codeText.endsWith(" "));
-    const body = needsPadding ? ` ${codeText} ` : codeText;
+      (raw.startsWith("`") ||
+        raw.endsWith("`") ||
+        raw.startsWith(" ") ||
+        raw.endsWith(" "));
+    const body = needsPadding ? ` ${raw} ` : raw;
     out = delim + body + delim;
     if (textOffsets) {
-      let contentOffset = delim.length + (needsPadding ? 1 : 0);
-      textOffsets = [contentOffset];
-      for (let index = 0; index < raw.length; index += 1) {
-        contentOffset += raw[index] === "\n" ? "<br>".length : 1;
-        textOffsets.push(contentOffset);
-      }
+      const contentOffset = delim.length + (needsPadding ? 1 : 0);
+      textOffsets = Array.from(
+        { length: raw.length + 1 },
+        (_, index) => contentOffset + index,
+      );
     }
   } else {
     if (escapeUnderscore) contextualSpellings?.escapedUnderscores.add(node);
@@ -1058,7 +1082,8 @@ function parseInline(input: string, depth = 0): PMNode[] {
       const openRun = runEnd - at;
       const close = end - openRun;
       flush();
-      let codeText = input.slice(at + openRun, close).replace(/<br\/?>/g, "\n");
+      let codeText = input.slice(at + openRun, close);
+      if (readingNotionMarkdown) codeText = codeText.replace(/<br\/?>/g, "\n");
       if (
         codeText.startsWith(" ") &&
         codeText.endsWith(" ") &&
@@ -3930,10 +3955,30 @@ export function canonicalizeNfm(nfm: string | null | undefined): string {
  * a change to sync.
  */
 export function canonicalizeNotionNfm(nfm: string | null | undefined): string {
-  return docToNfm(nfmToDoc(nfm ?? ""), {
-    keepTrailingEmptyBlock: true,
-    omitMediaIds: true,
-  });
+  return notionNfmFromDoc(nfmToDoc(nfm ?? ""));
+}
+
+/**
+ * `canonicalizeNotionNfm` for Markdown that Notion's API returned. Notion's
+ * default format there, v1 enhanced markdown, reads a <br> between backticks
+ * as a line break, where Content's Markdown keeps it as text, so a pulled
+ * page's line breaks in inline code stay line breaks. Notion's v2 format
+ * keeps text in code literal too; once Content reads v2, this goes.
+ */
+export function notionMarkdownToNfm(markdown: string): string {
+  const previous = readingNotionMarkdown;
+  readingNotionMarkdown = true;
+  let doc: PMDoc;
+  try {
+    doc = nfmToDoc(markdown);
+  } finally {
+    readingNotionMarkdown = previous;
+  }
+  return notionNfmFromDoc(doc);
+}
+
+function notionNfmFromDoc(doc: PMDoc): string {
+  return docToNfm(doc, { keepTrailingEmptyBlock: true, omitMediaIds: true });
 }
 
 /**
