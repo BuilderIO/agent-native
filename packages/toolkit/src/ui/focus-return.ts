@@ -13,10 +13,14 @@ export interface FocusReturn {
 }
 
 const RECENT_FOCUS = 8;
-const recentFocus: Element[] = [];
-let lastRecordedAt = 0;
-// A dialog mounted with focus on the body trusts the record only this long.
-const BODY_FOCUS_WINDOW_MS = 1500;
+interface Recorded {
+  element: Element;
+  at: number;
+}
+const recentFocus: Recorded[] = [];
+// An interaction opens a dialog within moments; an older record is only an
+// opener when its control sits in a dialog that is still open (a nested dialog).
+const OPENER_WINDOW_MS = 1500;
 let tracking = false;
 
 // A dialog whose field has `autoFocus` has already taken focus by the time its
@@ -24,9 +28,13 @@ let tracking = false;
 // dialog: inside a parent dialog it is the parent's control, not the page's.
 // The listener has to exist before that opener is focused, hence module load.
 function remember(target: Element) {
-  lastRecordedAt = Date.now();
-  if (recentFocus.at(-1) === target) return;
-  recentFocus.push(target);
+  const at = Date.now();
+  const last = recentFocus.at(-1);
+  if (last?.element === target) {
+    last.at = at;
+    return;
+  }
+  recentFocus.push({ element: target, at });
   if (recentFocus.length > RECENT_FOCUS) recentFocus.shift();
 }
 
@@ -76,18 +84,18 @@ export function rememberFocusReturn(content: Element): FocusReturn {
   const active = document.activeElement;
   // Focus already inside the dialog, or still on the page body because the
   // click did not focus its button, leaves the recorded interaction as the opener.
-  const onBody = !active || active === document.body;
-  const noOpenerFocused = onBody || content.contains(active);
-  // A dialog opened by code long after the last interaction has no opener to return to.
-  const stale = onBody && Date.now() - lastRecordedAt > BODY_FOCUS_WINDOW_MS;
-  const opener = stale
-    ? null
-    : noOpenerFocused
-      ? recentFocus.findLast(
-          (element) => element.isConnected && !content.contains(element),
-        )
-      : active;
-  return { target: openerOf(opener ?? null) };
+  const noOpenerFocused =
+    !active || active === document.body || content.contains(active);
+  if (!noOpenerFocused) return { target: openerOf(active) };
+  const now = Date.now();
+  const found = recentFocus.findLast(
+    ({ element, at }) =>
+      element.isConnected &&
+      !content.contains(element) &&
+      (now - at <= OPENER_WINDOW_MS ||
+        element.closest('[role="dialog"],[role="alertdialog"]') !== null),
+  );
+  return { target: openerOf(found?.element ?? null) };
 }
 
 /** Focuses the opener when it is still on the page; false when it is not. */

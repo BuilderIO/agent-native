@@ -301,6 +301,40 @@ describe("a dialog opened without a trigger returns focus to its opener", () => 
     vi.useRealTimers();
   });
 
+  it("does not return to an old control when code opens an autofocus dialog", async () => {
+    let openIt: () => void = () => undefined;
+    function Programmatic() {
+      const [open, setOpen] = React.useState(false);
+      openIt = () => setOpen(true);
+      return (
+        <>
+          <button type="button">Old control</button>
+          {open ? (
+            <Dialog open onOpenChange={setOpen}>
+              <DialogContent>
+                <DialogTitle>Opened by code</DialogTitle>
+                <input aria-label="Field" autoFocus />
+              </DialogContent>
+            </Dialog>
+          ) : null}
+        </>
+      );
+    }
+    vi.useFakeTimers({ toFake: ["Date"] });
+    render(<Programmatic />);
+    screen.getByRole("button", { name: "Old control" }).focus();
+    vi.setSystemTime(Date.now() + 10_000);
+    act(() => openIt());
+    const field = await screen.findByLabelText("Field");
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    fireEvent.keyDown(field, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).not.toBe(
+      screen.getByRole("button", { name: "Old control" }),
+    );
+    vi.useRealTimers();
+  });
+
   it("returns an alert dialog to its opener on Cancel", async () => {
     function Confirm() {
       const [open, setOpen] = React.useState(false);

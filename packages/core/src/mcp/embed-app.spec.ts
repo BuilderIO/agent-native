@@ -671,7 +671,11 @@ describe("embedApp", () => {
     const stylesheet = {
       nodeName: "LINK",
       rel: "stylesheet",
-      attrs: new Set(["crossorigin"]),
+      href: "https://host.example/mail/assets/route-abc123.css",
+      attrs: new Map([["crossorigin", ""]]),
+      getAttribute(name: string) {
+        return this.attrs.get(name) ?? null;
+      },
       hasAttribute(name: string) {
         return this.attrs.has(name);
       },
@@ -679,6 +683,15 @@ describe("embedApp", () => {
         this.attrs.delete(name);
       },
     };
+    const credentialed = {
+      ...stylesheet,
+      attrs: new Map([
+        ["crossorigin", "use-credentials"],
+        ["integrity", "sha384-x"],
+      ]),
+    };
+    fakeDocument.head.appendChild(credentialed as never);
+    expect(credentialed.attrs.has("crossorigin")).toBe(true);
     fakeDocument.head.appendChild(stylesheet as never);
     expect(appended).toContain(stylesheet);
     expect(stylesheet.hasAttribute("crossorigin")).toBe(false);
