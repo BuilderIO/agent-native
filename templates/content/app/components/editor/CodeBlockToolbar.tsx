@@ -347,12 +347,15 @@ export function CodeBlockToolbar({ editor, canEdit }: CodeBlockToolbarProps) {
             <TooltipContent>{t("editor.wrapCodeLines")}</TooltipContent>
           </Tooltip>
         ) : null}
-        <Tooltip>
+        {/* A click closes a tooltip, so the confirmation holds it open. */}
+        <Tooltip {...(copied ? { open: true } : {})}>
           <TooltipTrigger asChild>
             <button
               type="button"
               className="content-code-lang-btn content-code-lang-btn--icon"
-              aria-label={t("editor.copyCode")}
+              aria-label={
+                copied ? t("editor.codeCopied") : t("editor.copyCode")
+              }
               onClick={() => void copy()}
             >
               {copied ? (

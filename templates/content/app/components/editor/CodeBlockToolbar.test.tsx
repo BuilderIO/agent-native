@@ -22,7 +22,9 @@ vi.mock("@agent-native/toolkit/clipboard", () => clipboard);
 vi.mock("sonner", () => ({ toast: { error: toastError } }));
 
 vi.mock("@/components/ui/tooltip", () => ({
-  Tooltip: ({ children }: { children: ReactNode }) => children,
+  Tooltip: ({ children, open }: { children: ReactNode; open?: boolean }) => (
+    <span data-tooltip-open={open ? "" : undefined}>{children}</span>
+  ),
   TooltipContent: () => null,
   TooltipTrigger: ({ children }: { children: ReactNode }) => children,
 }));
@@ -208,6 +210,10 @@ describe("CodeBlockToolbar", () => {
       "const a = 1;\nconst b = 2;",
     );
     expect(toastError).not.toHaveBeenCalled();
+    // The click closes a plain tooltip, so "Copied" has to hold it open.
+    expect(
+      button("editor.codeCopied")?.closest("[data-tooltip-open]"),
+    ).toBeTruthy();
   });
 
   it("says so when the browser won't let it copy", async () => {
@@ -220,6 +226,9 @@ describe("CodeBlockToolbar", () => {
     expect(toastError).toHaveBeenCalledWith(
       "editor.toolbar.clipboardAccessUnavailable",
     );
+    expect(
+      button("editor.copyCode")?.closest("[data-tooltip-open]"),
+    ).toBeNull();
   });
 
   it("follows its block through several edits in one event", () => {
