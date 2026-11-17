@@ -285,6 +285,75 @@ describe("automation worker recovery", () => {
     },
   );
 
+  it.each([false, true])(
+    "reports a known failed action without an unknown-outcome warning (delivery: %s)",
+    async (delivery) => {
+      mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
+      mocks.events.mockResolvedValue([
+        {
+          type: "tool_done",
+          tool: "send-report",
+          isError: true,
+          errorCode: "http_400",
+          result: "The recipient was rejected.",
+        },
+        ...(delivery
+          ? [
+              {
+                type: "tool_done",
+                tool: "automation-no-op",
+                result: JSON.stringify({
+                  status: "skipped",
+                  reason: "No work.",
+                }),
+              },
+            ]
+          : []),
+      ]);
+      const recovery = await inspectAutomationRecovery(
+        resource,
+        {
+          ...meta,
+          deliveryDestination: delivery ? "test-destination" : undefined,
+        },
+        now,
+      );
+      expect(recovery).toMatchObject({
+        state: "settle",
+        status: "error",
+        errorCode: "http_400",
+        error: expect.stringContaining("The recipient was rejected."),
+      });
+      if (recovery?.state !== "settle") throw new Error("Expected settlement");
+      expect(recovery.error).toContain(
+        delivery
+          ? "The automation produced no message for its configured delivery destination."
+          : "The automation ended without a confirmed action.",
+      );
+      expect(recovery.error).not.toContain(
+        "An action may already have applied.",
+      );
+    },
+  );
+
+  it("does not claim an unknown action when a completed report has no action evidence", async () => {
+    mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
+    mocks.events.mockResolvedValue([]);
+    const recovery = await inspectAutomationRecovery(
+      resource,
+      { ...meta, deliveryDestination: "test-destination" },
+      now,
+    );
+    expect(recovery).toMatchObject({
+      state: "settle",
+      status: "error",
+      errorCode: "background_automation_delivery_unknown",
+      error: expect.stringContaining("response delivery is unknown"),
+    });
+    if (recovery?.state !== "settle") throw new Error("Expected settlement");
+    expect(recovery.error).not.toContain("An action may already have applied.");
+  });
+
   it("leaves a worker with a live heartbeat alone", async () => {
     mocks.reap.mockResolvedValue(false);
     mocks.get.mockResolvedValue({ id: "job-1", status: "running" });
