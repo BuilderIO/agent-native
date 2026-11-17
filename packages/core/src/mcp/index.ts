@@ -20,6 +20,18 @@ export { runScreenMemoryMCPStdio } from "./screen-memory-stdio.js";
 export type { RunScreenMemoryMCPStdioOptions } from "./screen-memory-stdio.js";
 
 export { getBuiltinCrossAppTools } from "./builtin-tools.js";
+export { mcpChatTurnOwner } from "./chat-turn-scope.js";
+export {
+  MCP_CHAT_TURN_FIELD,
+  mintMcpChatTurn,
+  registerMcpChatTurnApps,
+  type McpChatTurnBinding,
+} from "./chat-turn-store.js";
+export {
+  isMcpTurnGrantAction,
+  MCP_TURN_GRANT_HEADER,
+  MCP_USER_TURN_META_KEY,
+} from "./turn-grant-scope.js";
 export {
   embedApp,
   MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,

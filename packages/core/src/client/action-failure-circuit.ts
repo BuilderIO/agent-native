@@ -1,4 +1,8 @@
 import { LLM_PROVIDER_MISSING_ERROR_CODE } from "../shared/action-error-codes.js";
+import {
+  addSurfaceVisibilityListener,
+  isSurfaceHidden,
+} from "../shared/surface-visibility.js";
 
 /**
  * Per-(action, args) failure circuit for action queries. A query the server
@@ -66,7 +70,41 @@ export function isTerminalActionError(error: unknown): boolean {
 
 function hasNonRetryableActionErrorCode(error: unknown): boolean {
   const code = actionErrorCode(error);
-  return code !== undefined && NON_RETRYABLE_ACTION_ERROR_CODES.has(code);
+  return (
+    code !== undefined &&
+    (NON_RETRYABLE_ACTION_ERROR_CODES.has(code) ||
+      providerPausedErrorCodes.has(code))
+  );
+}
+
+/**
+ * Error codes meaning the deployment has switched a provider's traffic off.
+ * An identical retry re-fails until the pause lifts, so the first refusal
+ * holds automatic refetches for the maximum cooldown; a visible surface still
+ * reads through it, and coming back to a hidden surface closes it.
+ */
+const providerPausedErrorCodes = new Set<string>();
+
+/**
+ * Declare the typed codes a provider pause answers with (for example a call
+ * gate's `"<provider>_paused"`). Register from client code that loads before
+ * the first query, such as the app root. Returns a function that removes them.
+ */
+export function registerProviderPausedErrorCodes(
+  codes: Iterable<string>,
+): () => void {
+  const added = [...codes].filter(
+    (code) => code.length > 0 && !providerPausedErrorCodes.has(code),
+  );
+  for (const code of added) providerPausedErrorCodes.add(code);
+  return () => {
+    for (const code of added) providerPausedErrorCodes.delete(code);
+  };
+}
+
+export function isProviderPausedActionError(error: unknown): boolean {
+  const code = actionErrorCode(error);
+  return code !== undefined && providerPausedErrorCodes.has(code);
 }
 
 /** Statuses that end a poll on their own: access is gone, or the resource is. */
@@ -130,6 +168,8 @@ function cooldownMs(error: unknown, failures: number): number {
   if (actionErrorCode(error) === LLM_PROVIDER_MISSING_ERROR_CODE) {
     return CIRCUIT_MAX_COOLDOWN_MS;
   }
+  // A paused provider is off for the whole deployment, not for this request.
+  if (isProviderPausedActionError(error)) return CIRCUIT_MAX_COOLDOWN_MS;
   if (failures < CIRCUIT_FAILURE_THRESHOLD) return 0;
   const grown = Math.min(
     CIRCUIT_BASE_COOLDOWN_MS * 2 ** (failures - CIRCUIT_FAILURE_THRESHOLD),
@@ -188,6 +228,24 @@ export function resetActionFailureCircuit(key: string): void {
   circuits.delete(key);
 }
 
+/**
+ * A paused provider's circuit belongs to the surface that hit the refusal. A
+ * hidden tab or background webview pays the cooldown unseen; coming back to
+ * the surface is the person asking again, so those circuits close on the way
+ * in. Every other circuit keeps its cooldown.
+ */
+export function resetPausedProviderCircuits(): void {
+  for (const [key, circuit] of circuits) {
+    if (isProviderPausedActionError(circuit.last)) circuits.delete(key);
+  }
+}
+
+if (typeof document !== "undefined") {
+  addSurfaceVisibilityListener(() => {
+    if (!isSurfaceHidden()) resetPausedProviderCircuits();
+  });
+}
+
 export function resetActionFailureCircuits(): void {
   circuits.clear();
 }
@@ -217,5 +275,15 @@ function userGestureIsActive(): boolean {
 export function assertActionCircuitClosed(key: string, now = Date.now()): void {
   const circuit = circuits.get(key);
   if (!circuit || circuit.openUntil <= now || userGestureIsActive()) return;
+  // A person looking at the surface retries by looking; a hidden tab's timers
+  // and sync invalidations still send nothing while the provider is paused.
+  // With no document there is no surface, so "unknown" never bypasses.
+  if (
+    isProviderPausedActionError(circuit.last) &&
+    typeof document !== "undefined" &&
+    !isSurfaceHidden()
+  ) {
+    return;
+  }
   throw new ActionCircuitOpenError(circuit.last);
 }

@@ -109,6 +109,10 @@ export function preserveActionFlags(
   }
   if (typeof entry.uiOnly === "boolean") out.uiOnly = entry.uiOnly;
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
+  if (entry.userTurn === "read" || entry.userTurn === "approval") {
+    out.userTurn = entry.userTurn;
+  }
+  if (entry.requiresUserTurn === true) out.requiresUserTurn = true;
   if (typeof entry.grounding === "boolean") out.grounding = entry.grounding;
   if (typeof entry.allowInPlanMode === "boolean") {
     out.allowInPlanMode = entry.allowInPlanMode;

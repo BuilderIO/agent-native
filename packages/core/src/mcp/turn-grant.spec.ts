@@ -1,0 +1,450 @@
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+
+import { createApp, getRequestHeader, mockEvent } from "h3";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { z } from "zod";
+
+const browser = vi.hoisted(() => ({
+  email: "viewer@example.test" as string | null,
+}));
+vi.mock("../server/auth.js", async (original) => ({
+  ...(await original<typeof import("../server/auth.js")>()),
+  getBrowserCookieSession: async (
+    event: Parameters<typeof getRequestHeader>[0],
+  ) =>
+    browser.email &&
+    getRequestHeader(event, "cookie")?.includes("test-session=signed-in") &&
+    !getRequestHeader(event, "authorization")
+      ? { email: browser.email, orgId: null }
+      : null,
+}));
+vi.mock("../server/better-auth-instance.js", async (original) => ({
+  ...(await original<typeof import("../server/better-auth-instance.js")>()),
+  getAuthSecret: () => "synthetic-turn-grant-auth-secret",
+  findBetterAuthUserIdForEmail: async () => undefined,
+}));
+vi.mock("../deploy/route-discovery.js", async (original) => ({
+  ...(await original<typeof import("../deploy/route-discovery.js")>()),
+  getMissingDefaultPlugins: async () => [],
+}));
+vi.mock("../settings/store.js", async (original) => ({
+  ...(await original<typeof import("../settings/store.js")>()),
+  getSetting: async () => null,
+}));
+vi.mock("../extensions/url-safety.js", () => ({
+  createSsrfSafeDispatcher: async () => undefined,
+  isBlockedExtensionUrlWithDns: async () => false,
+}));
+vi.mock("../org/context.js", async (original) => ({
+  ...(await original<typeof import("../org/context.js")>()),
+  resolveOrgIdForEmail: async () => undefined,
+  resolveOrgScopeForEmail: async () => ({ status: "personal" }),
+}));
+
+import { currentInvocationEvidence } from "../action-frame.js";
+import { defineAction, type ActionCaller } from "../action.js";
+import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
+import { closeDbExec, getDbExec } from "../db/client.js";
+import { coreActionLoaderEntries } from "../server/action-discovery.js";
+import { mountActionRoutes } from "../server/action-routes.js";
+import {
+  markExplicitPersonalOrgScope,
+  runWithRequestContext,
+} from "../server/request-context.js";
+import { signShortLivedToken } from "../server/short-lived-token.js";
+import { ensureApprovalTable } from "./approval-store.js";
+import { runWithMcpChatTurnCall } from "./chat-turn-scope.js";
+import {
+  mintMcpChatTurn,
+  registerMcpChatTurnApps,
+  resetMcpChatTurnAppsForTests,
+} from "./chat-turn-store.js";
+import {
+  approveDeviceCode,
+  consumeDeviceCode,
+  createDeviceCode,
+  MCP_CONNECT_OAUTH_CLIENT_ID,
+  recordMintedToken,
+} from "./connect-store.js";
+import { signMcpOAuthAccessToken } from "./oauth-token.js";
+import { handleMcpRequest } from "./server.js";
+import { isMcpTurnGrantAction } from "./turn-grant-scope.js";
+
+const ORIGIN = "https://app.example.test";
+const OWNER = "viewer@example.test";
+const APP = "planner";
+let token: string;
+let otherToken: string;
+let ordinaryToken: string;
+
+// A fake consumer app: what the run sees is the grant the call carried.
+function probe(name: string) {
+  return () => ({
+    granted: isMcpTurnGrantAction(name),
+    interactive: currentInvocationEvidence()?.providerInteractive === true,
+  });
+}
+const actions: Record<string, ActionEntry> = {
+  "list-items": defineAction({
+    description: "Read items",
+    mcpTool: true,
+    readOnly: true,
+    userTurn: "read",
+    run: probe("list-items"),
+  }),
+  "update-item": defineAction({
+    description: "Update an item",
+    mcpTool: true,
+    userTurn: "approval",
+    schema: z.object({ title: z.string().default("Test") }),
+    run: probe("update-item"),
+  }),
+  "send-item": defineAction({
+    description: "Send an item",
+    mcpTool: true,
+    userTurn: "approval",
+    requiresUserTurn: true,
+    needsApproval: true,
+    schema: z.object({ title: z.string().default("Test") }),
+    run: probe("send-item"),
+  }),
+  "other-read": defineAction({
+    description: "Read another resource",
+    mcpTool: true,
+    readOnly: true,
+    run: probe("other-read"),
+  }),
+};
+
+async function deviceToken(email: string) {
+  const jti = randomUUID();
+  const code = await createDeviceCode();
+  await approveDeviceCode(code.userCode, email, null);
+  await consumeDeviceCode(code.deviceCode, jti);
+  await recordMintedToken({ jti, ownerEmail: email, orgId: null });
+  return signMcpOAuthAccessToken({
+    ownerEmail: email,
+    orgId: null,
+    clientId: MCP_CONNECT_OAUTH_CLIENT_ID,
+    scope: "mcp:read mcp:write",
+    resource: `${ORIGIN}/mcp`,
+    issuer: ORIGIN,
+    jti,
+  });
+}
+
+beforeAll(async () => {
+  vi.stubEnv("APP_URL", ORIGIN);
+  vi.stubEnv("A2A_SECRET", "synthetic-turn-grant-deployment-secret");
+  token = await deviceToken(OWNER);
+  otherToken = await deviceToken("other@example.test");
+  ordinaryToken = await signMcpOAuthAccessToken({
+    ownerEmail: OWNER,
+    orgId: null,
+    clientId: "ordinary-oauth-client",
+    scope: "mcp:read mcp:write",
+    resource: `${ORIGIN}/mcp`,
+    issuer: ORIGIN,
+  });
+  await ensureApprovalTable();
+}, 120_000);
+afterAll(async () => {
+  await closeDbExec();
+  vi.unstubAllEnvs();
+});
+beforeEach(async () => {
+  await getDbExec().execute("DELETE FROM mcp_action_approvals");
+  browser.email = OWNER;
+  resetAppConfigForTests();
+  defineAppConfig({ app: { url: ORIGIN } });
+  resetMcpChatTurnAppsForTests();
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+async function mint(
+  headers: Record<string, string> = {},
+  caller?: ActionCaller,
+) {
+  const loader = coreActionLoaderEntries().find(
+    ([name]) => name === "mint-turn-grant",
+  );
+  if (!loader) throw new Error("mint-turn-grant is not a core action");
+  const app = createApp();
+  mountActionRoutes(
+    { h3: app },
+    { "mint-turn-grant": (await loader[1]()).default },
+    {
+      appId: APP,
+      ...(caller ? { caller } : {}),
+      getOwnerFromEvent: async () => OWNER,
+      resolveOrgId: async (event) => {
+        markExplicitPersonalOrgScope(event);
+        return undefined;
+      },
+    },
+  );
+  const capability = signShortLivedToken({
+    resourceId: "ui-action",
+    viewerEmail: OWNER,
+  });
+  return app.fetch(
+    new Request(`${ORIGIN}/_agent-native/actions/mint-turn-grant?frontend=1`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "sec-fetch-site": "same-origin",
+        "x-agent-native-frontend": "1",
+        cookie: `test-session=signed-in; agent-native-ui-capability=${capability}`,
+        ...headers,
+      },
+      body: "{}",
+    }),
+  );
+}
+
+async function seed(
+  overrides: { owner?: string; app?: string; revoked?: number } = {},
+) {
+  const id = randomBytes(32).toString("base64url");
+  const createdAt = Date.now();
+  await getDbExec().execute({
+    sql: "INSERT INTO mcp_turn_grants (grant_hash, owner_email, app_id, created_at, expires_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?)",
+    args: [
+      createHash("sha256").update(id).digest("hex"),
+      overrides.owner ?? OWNER,
+      overrides.app ?? APP,
+      createdAt,
+      createdAt + 9 * 60_000,
+      overrides.revoked ?? null,
+    ],
+  });
+  return id;
+}
+
+async function rpc(
+  grant?: string,
+  options: {
+    bearer?: string;
+    app?: string;
+    name?: string;
+    method?: string;
+    actions?: Record<string, ActionEntry>;
+  } = {},
+) {
+  const event = mockEvent(`${ORIGIN}/`, {
+    method: "POST",
+    headers: {
+      host: "app.example.test",
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${options.bearer ?? token}`,
+      ...(grant === undefined ? {} : { "x-agent-native-turn-grant": grant }),
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: options.method ?? "tools/call",
+      params: {
+        name: options.name ?? "list-items",
+        arguments: {},
+      },
+    }),
+  });
+  const response = await handleMcpRequest(event, {
+    name: "Planner",
+    appId: options.app ?? APP,
+    actions: options.actions ?? actions,
+  });
+  if (!(response instanceof Response))
+    throw new Error("MCP did not return a response");
+  const text = await response.text();
+  const data = text.startsWith("{")
+    ? text
+    : text
+        .split("\n")
+        .find((line) => line.startsWith("data: "))
+        ?.slice(6);
+  if (!data) throw new Error(`Unreadable MCP response: ${text}`);
+  return JSON.parse(data).result;
+}
+
+function seen(result: any): { granted: boolean; interactive: boolean } {
+  expect(result).not.toMatchObject({ isError: true });
+  return result.structuredContent ?? JSON.parse(result.content[0].text);
+}
+
+it("rejects requiresUserTurn without an approval user turn", () => {
+  expect(() =>
+    defineAction({
+      description: "Misdeclared",
+      requiresUserTurn: true,
+      userTurn: "read",
+      run: () => null,
+    }),
+  ).toThrow(/requiresUserTurn/);
+});
+
+it("a proven page mints an opaque grant and stores only its hash", async () => {
+  const response = await mint();
+  expect(response.status).toBe(200);
+  const { grantId } = await response.json();
+  expect(grantId).toMatch(/^[A-Za-z0-9_-]{22,256}$/);
+  const { rows } = await getDbExec().execute({
+    sql: "SELECT * FROM mcp_turn_grants WHERE grant_hash = ?",
+    args: [createHash("sha256").update(grantId).digest("hex")],
+  });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ owner_email: OWNER, app_id: APP });
+  expect(JSON.stringify(rows)).not.toContain(grantId);
+  expect(seen(await rpc(grantId))).toEqual({
+    granted: true,
+    interactive: true,
+  });
+});
+
+it.each(["bearer", "cookie", "tool", "mcp", "cross-origin"])(
+  "mint refuses %s",
+  async (kind) => {
+    if (kind === "cookie") browser.email = null;
+    const response = await mint(
+      kind === "bearer"
+        ? { authorization: `Bearer ${token}` }
+        : kind === "cross-origin"
+          ? { "sec-fetch-site": "cross-site" }
+          : {},
+      kind === "tool" || kind === "mcp" ? kind : undefined,
+    );
+    expect(response.status).toBe(403);
+  },
+);
+
+it("advertises only declared userTurn kinds in the tool listing", async () => {
+  const result = await rpc(undefined, { method: "tools/list" });
+  const kinds = Object.fromEntries(
+    result.tools.map((tool: any) => [
+      tool.name,
+      tool._meta?.["agent-native/userTurn"],
+    ]),
+  );
+  expect(kinds["list-items"]).toBe("read");
+  expect(kinds["update-item"]).toBe("approval");
+  expect(kinds["other-read"]).toBeUndefined();
+});
+
+it.each([
+  "missing",
+  "unknown",
+  "expired",
+  "revoked",
+  "owner",
+  "wrong-app-grant",
+  "non-device",
+  "a2a-context",
+  "agent-run",
+  "undeclared action",
+])("does not grant the call when %s", async (kind) => {
+  const grant =
+    kind === "missing"
+      ? undefined
+      : kind === "unknown"
+        ? randomBytes(32).toString("base64url")
+        : await seed({
+            ...(kind === "revoked" ? { revoked: Date.now() } : {}),
+            ...(kind === "wrong-app-grant" ? { app: "another-app" } : {}),
+          });
+  if (kind === "expired") {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 9 * 60_000);
+  }
+  const call = () =>
+    rpc(grant, {
+      ...(kind === "owner"
+        ? { bearer: otherToken }
+        : kind === "non-device"
+          ? { bearer: ordinaryToken }
+          : {}),
+      ...(kind === "undeclared action" ? { name: "other-read" } : {}),
+    });
+  const result =
+    kind === "a2a-context"
+      ? await runWithRequestContext({ a2aIdentityAssurance: "user" }, call)
+      : kind === "agent-run"
+        ? await runWithRequestContext({ run: { runId: "agent-run" } }, call)
+        : await call();
+  expect(seen(result)).toEqual({ granted: false, interactive: false });
+});
+
+it("a required user turn refuses a call without a grant", async () => {
+  const result = await rpc(undefined, { name: "send-item" });
+  expect(result).toMatchObject({ isError: true });
+  expect(JSON.stringify(result)).toContain("requires a valid user-turn grant");
+});
+
+it("a granted approval write opens the app's own review page", async () => {
+  for (const name of ["update-item", "send-item"]) {
+    const result = await rpc(await seed(), { name });
+    const text = JSON.stringify(result);
+    expect(text).toMatch(
+      /https:\/\/app\.example\.test\/mcp\/approvals\/[a-f0-9-]{36}/,
+    );
+    expect(text).not.toContain("/_agent-native/mcp/approvals/");
+  }
+});
+
+it("an app without userTurn actions keeps today's approval flow", async () => {
+  const plain: Record<string, ActionEntry> = {
+    "update-item": defineAction({
+      description: "Update an item",
+      mcpTool: true,
+      needsApproval: true,
+      run: () => "updated",
+    }),
+  };
+  const result = await rpc(await seed(), {
+    name: "update-item",
+    actions: plain,
+  });
+  expect(JSON.stringify(result)).not.toMatch(
+    /app\.example\.test\/mcp\/approvals\//,
+  );
+});
+
+it("ask_app mints a chat-turn proof only for a registered app", async () => {
+  const identity = {
+    userEmail: OWNER,
+    orgDomain: undefined,
+    orgId: null,
+    identityAssurance: "user" as const,
+  };
+  const mintFor = (app: string) =>
+    runWithMcpChatTurnCall(identity, "ask_app", false, () =>
+      mintMcpChatTurn(app),
+    );
+  expect(await mintFor(APP)).toEqual({ status: "not-registered" });
+  registerMcpChatTurnApps([APP]);
+  const minted = await mintFor(APP);
+  expect(minted).toMatchObject({
+    status: "minted",
+    claim: { owner: OWNER, appId: APP },
+  });
+  expect(await mintFor("another-app")).toEqual({ status: "not-registered" });
+  expect(
+    await runWithMcpChatTurnCall(identity, "list-items", false, () =>
+      mintMcpChatTurn(APP),
+    ),
+  ).toMatchObject({ status: "refused", reason: "not-user-call" });
+});
