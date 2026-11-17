@@ -18,7 +18,11 @@ import {
   redactEmbedCredentials,
   toJsonData,
 } from "./execute-action-call.js";
-import type { ScriptWriteGate, ScriptWriteTicket } from "./script-writes.js";
+import {
+  actionRecordsInputs,
+  type ScriptWriteGate,
+  type ScriptWriteTicket,
+} from "./script-writes.js";
 
 /**
  * MCP script tools. A connection that opts into the script catalog sees
@@ -1560,6 +1564,11 @@ export async function runMcpScript(
           : scriptCatalogEntry(input.catalog, action);
       // The catalog holds only what the policy allows; asking again at
       // the call keeps it in force if an entry has changed since.
+      // A refused call's arguments are recorded only as its action allows.
+      const deniedArguments = () =>
+        entry === undefined || actionRecordsInputs(entry)
+          ? deniedCallArguments(args)
+          : undefined;
       const policy =
         action === undefined || entry === undefined
           ? undefined
@@ -1603,10 +1612,7 @@ export async function runMcpScript(
           reason: denial.reason,
           message,
           // Arguments past the limits, or not JSON, are left out.
-          args:
-            argumentProblem === undefined
-              ? deniedCallArguments(args)
-              : undefined,
+          args: argumentProblem === undefined ? deniedArguments() : undefined,
         });
         return refuse(
           fn,
@@ -1657,7 +1663,7 @@ export async function runMcpScript(
               functionName: fn,
               action,
               reason: begun.code,
-              args: deniedCallArguments(args),
+              args: deniedArguments(),
             });
           } catch (error) {
             console.error(
@@ -1775,7 +1781,7 @@ export async function runMcpScript(
               action,
               reason: "out-of-scope",
               message,
-              args: deniedCallArguments(args),
+              args: deniedArguments(),
             });
             return refuse(
               fn,

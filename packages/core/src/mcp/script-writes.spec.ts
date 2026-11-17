@@ -47,6 +47,9 @@ import {
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 // Statements matching this fail, as a database that has gone away would.
 let failing: RegExp | undefined;
+// The next statement matching `sql` waits for `until`, as a slow database's
+// would.
+let pausing: { sql: RegExp; until: Promise<void> } | undefined;
 
 vi.mock("../db/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/client.js")>()),
@@ -83,6 +86,11 @@ const executor = {
   execute: async (input: string | { sql: string; args?: unknown[] }) => {
     const sql = typeof input === "string" ? input : input.sql;
     if (failing?.test(sql)) throw new Error("connection reset");
+    const pause = pausing;
+    if (pause?.sql.test(sql)) {
+      pausing = undefined;
+      await pause.until;
+    }
     const result =
       typeof input === "string"
         ? await pglite.query(input)
@@ -105,6 +113,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   failing = undefined;
+  pausing = undefined;
   receipts.clear();
   refused.clear();
   audits.insert.mockReset().mockResolvedValue(undefined);
@@ -681,6 +690,61 @@ describe("createScriptWriteGate", () => {
     expect(audits.insert).not.toHaveBeenCalled();
   });
 
+  it("keeps a shared reservation for a retry still writing its row when the first copy gives its rows back", async () => {
+    const writes = gate({ rowBudget: 10 });
+    const first = await writes.begin(call(0, { key: "a", rows: 10 }));
+    if (first.status !== "go") throw new Error("expected go");
+    let resume!: () => void;
+    pausing = {
+      sql: /INSERT INTO mcp_script_calls/,
+      until: new Promise<void>((resolve) => {
+        resume = resolve;
+      }),
+    };
+    const retrying = writes.begin(call(1, { key: "a", rows: 10 }));
+    await vi.waitFor(() => expect(pausing).toBeUndefined());
+    const settling = writes.settle(first.ticket, ranNothing, {
+      status: "failed",
+    });
+    resume();
+    await settling;
+    expect((await retrying).status).toBe("go");
+    // The retry still holds the rows the two copies share.
+    await expect(
+      writes.begin(call(2, { key: "b", rows: 1 })),
+    ).resolves.toMatchObject({ status: "refused", code: "write_budget" });
+  });
+
+  it("keeps no arguments for a write whose action records none", async () => {
+    const writes = gate();
+    await writes.begin(
+      call(
+        0,
+        { key: "a", rows: 1 },
+        {
+          ...writeEntry(),
+          persistInChatHistory: false,
+        },
+      ),
+    );
+    await writes.begin(
+      call(
+        1,
+        { key: "b", rows: 1 },
+        {
+          ...writeEntry(),
+          audit: { recordInputs: false },
+        },
+      ),
+    );
+    await writes.begin(call(2, { key: "c", rows: 1 }));
+    expect((await rows()).map((row) => row.call_arguments)).toEqual([
+      null,
+      null,
+      expect.stringContaining('"c"'),
+    ]);
+  });
+
   it("settles a write the script stopped before running as not applied", async () => {
     const writes = gate({ rowBudget: 10 });
     const begun = await writes.begin(call(0, { key: "a", rows: 10 }));
@@ -1100,16 +1164,21 @@ describe("recoverScriptWrites", () => {
 });
 
 describe("pruneScriptLedger", () => {
-  it("drops settled rows past retention but keeps unsettled ones", async () => {
+  it("clears every row's arguments after a week, and drops settled rows past retention but keeps unsettled ones", async () => {
     const writes = gate();
     const done = await writes.begin(call(0, { key: "a", rows: 1 }));
     await writes.begin(call(1, { key: "b", rows: 1 }));
     if (done.status !== "go") throw new Error("expected go");
     await writes.settle(done.ticket, ranNothing, { status: "failed" });
+    await pruneScriptLedger(T0 + 6 * 24 * 60 * 60_000);
+    expect((await rows()).map((row) => row.call_arguments)).toEqual([
+      expect.any(String),
+      expect.any(String),
+    ]);
     await pruneScriptLedger(T0 + 8 * 24 * 60 * 60_000);
     expect((await rows()).map((row) => row.call_arguments)).toEqual([
       null,
-      expect.any(String),
+      null,
     ]);
     await pruneScriptLedger(T0 + SCRIPT_LEDGER_RETENTION_MS + 1);
     expect((await rows()).map((row) => row.seq)).toEqual([1]);

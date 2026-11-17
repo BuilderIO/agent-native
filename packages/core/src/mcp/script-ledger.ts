@@ -123,6 +123,8 @@ export interface ScriptRunOwner {
  * a refused call's, then redacted and capped as audit inputs are.
  */
 export function storedScriptArguments(args: unknown): string | null {
+  // Arguments left out of the record are kept as none, not as `{}`.
+  if (args === undefined) return null;
   let readable: unknown;
   try {
     readable = redactEmbedCredentials(args ?? {});
@@ -493,16 +495,16 @@ export async function listScriptRunCalls(
 }
 
 /**
- * Clears arguments a week on, and deletes settled rows and delivered outbox
- * items past retention. An unsettled write is kept until recovery settles it.
+ * Clears every row's arguments a week on, and deletes settled rows and
+ * delivered outbox items past retention. An unsettled write is kept until
+ * recovery settles it, which needs only its receipt locator.
  */
 export async function pruneScriptLedger(now = Date.now()): Promise<void> {
   await ensureScriptLedgerTables();
   const client = getDbExec();
   await client.execute({
     sql: `UPDATE mcp_script_calls SET call_arguments = NULL
-      WHERE call_arguments IS NOT NULL AND created_at < ?
-        AND (kind = 'denied' OR effect_status IN ('committed', 'not-applied'))`,
+      WHERE call_arguments IS NOT NULL AND created_at < ?`,
     args: [now - ARGUMENT_RETENTION_MS],
   });
   await client.execute({

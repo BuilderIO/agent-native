@@ -1863,6 +1863,7 @@ describe("script writes", () => {
     const abandoned: number[] = [];
     const ledgerDenials: Array<{ seq: number; reason: string }> = [];
     const ledgerNames: string[] = [];
+    const ledgerArgs: unknown[] = [];
     let settledOnce: () => void = () => {};
     const settledSignal = new Promise<void>((resolve) => {
       settledOnce = resolve;
@@ -1885,6 +1886,7 @@ describe("script writes", () => {
       recordDenial: async (denial) => {
         ledgerDenials.push({ seq: denial.seq, reason: denial.reason });
         ledgerNames.push(denial.functionName);
+        ledgerArgs.push(denial.args);
       },
     };
     return {
@@ -1894,6 +1896,7 @@ describe("script writes", () => {
       abandoned,
       ledgerDenials,
       ledgerNames,
+      ledgerArgs,
     };
   }
 
@@ -2191,6 +2194,27 @@ describe("script writes", () => {
     expect(settled).toEqual([]);
     // It had no ledger row, so the refusal gets one, for the run's status.
     expect(ledgerDenials).toEqual([{ seq: 0, reason: "write_budget" }]);
+  });
+
+  it("records a refused write's arguments only where its action records them", async () => {
+    const { writes, ledgerArgs } = fakeGate(async () => ({
+      status: "refused",
+      code: "write_budget",
+      message: "Over budget.",
+    }));
+    const { run } = writeRunner(
+      {
+        "save-doc": writeEntry({ persistInChatHistory: false }),
+        "save-note": writeEntry(),
+      },
+      writes,
+    );
+    await run(`
+      for (const save of [api.saveDoc, api.saveNote]) {
+        try { await save({ id: "doc_1" }); } catch {}
+      }
+    `);
+    expect(ledgerArgs).toEqual([undefined, { id: "doc_1" }]);
   });
 
   it("refuses a write where the server has no gate for the run", async () => {

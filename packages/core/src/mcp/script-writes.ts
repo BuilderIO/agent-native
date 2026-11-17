@@ -262,7 +262,7 @@ export function createScriptWriteGate(
               seq: call.seq,
               functionName: call.functionName,
               action: call.action,
-              args,
+              args: actionRecordsInputs(call.entry) ? args : undefined,
               locator,
               rowBound,
               reservedRows,
@@ -306,8 +306,10 @@ export function createScriptWriteGate(
         effect = await reconcileNow(owner, ticket);
       }
       // Only a write proven not to have run gives its rows back; one that may
-      // still commit keeps them for the rest of the run.
-      if (effect === "not-applied") release(key);
+      // still commit keeps them for the rest of the run. Rows go back in turn
+      // with reservations, so a retry whose row is still being written keeps
+      // the reservation it shares.
+      if (effect === "not-applied") await serially(async () => release(key));
       else keep(key);
       // A write that may yet commit gets no audit row now: recovery records
       // one if it finds the commit.
@@ -350,7 +352,8 @@ export function createScriptWriteGate(
     },
 
     async abandon(ticket) {
-      release(identityKey(ticket.call.action, ticket.locator));
+      const key = identityKey(ticket.call.action, ticket.locator);
+      await serially(async () => release(key));
       try {
         const moved = await settleScriptWriteRow(
           owner,
@@ -511,6 +514,18 @@ function auditedArguments(args: unknown): unknown {
     // coercion-ok: an audit row records no arguments it can't read.
     return undefined;
   }
+}
+
+/**
+ * Whether an action's calls may be recorded with their arguments: not when
+ * it keeps them out of chat history or out of its audit rows. Its ledger rows
+ * then keep none either, so run status shows none, to org admins included.
+ */
+export function actionRecordsInputs(entry: ActionEntry): boolean {
+  return (
+    entry.persistInChatHistory !== false &&
+    normalizeAuditConfig(entry.audit)?.recordInputs !== false
+  );
 }
 
 /**
