@@ -153,7 +153,9 @@ function redactSentryEventPayload(
 
 type SentryRequest = NonNullable<import("@sentry/node").Event["request"]>;
 
-const SENSITIVE_HEADER_RE = /secret|token|signature/i;
+// A bare `key` is deliberately absent: it would drop `idempotency-key`.
+const SENSITIVE_HEADER_RE =
+  /secret|token|signature|api[-_]?key|password|passwd|credential/i;
 
 // Dropped, not redacted: a header named for a secret has no value worth keeping.
 function scrubSentryRequest(request: SentryRequest) {

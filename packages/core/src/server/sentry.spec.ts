@@ -1140,6 +1140,34 @@ describe("server/sentry", () => {
       expect((result as typeof event).request).not.toHaveProperty("cookies");
     });
 
+    it("drops API-key, password and credential headers and keeps harmless ones", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        request: {
+          headers: {
+            "x-api-key": "CANARYAPIKEY",
+            "api-key": "CANARYAPIKEY2",
+            "X-Api-Key": "CANARYAPIKEY3",
+            "x-db-password": "CANARYPASSWORD",
+            "x-credential-id": "CANARYCREDENTIAL",
+            "content-type": "application/json",
+            "user-agent": "Mozilla/5.0",
+            "idempotency-key": "req-1",
+          },
+        },
+      } as never) as { request: { headers: Record<string, string> } };
+
+      expect(result.request.headers).toEqual({
+        "content-type": "application/json",
+        "user-agent": "Mozilla/5.0",
+        "idempotency-key": "req-1",
+      });
+    });
+
     it("strips ip_address but keeps explicit identity fields", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
