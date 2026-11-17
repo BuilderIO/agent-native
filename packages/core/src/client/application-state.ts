@@ -129,10 +129,10 @@ function runClientAppStateMutation<T>(
   return mutation;
 }
 
-// Compare-and-sets and writes with an abort signal or `ownRequest` keep their
-// own requests. A write queued behind one never goes ahead of it when the page
-// hides (see flushOnPageHide): the server doesn't order compare-and-sets, and a
-// signalled write may yet be aborted. Counts these per key until they settle.
+// Compare-and-sets and writes with an abort signal keep their own requests. A
+// write queued behind one never goes ahead of it when the page hides (see
+// flushOnPageHide): the server doesn't order compare-and-sets, and a signalled
+// write may yet be aborted. Counts these per key until they settle.
 const unsettledBarriers = new Map<string, number>();
 
 function runBarrierMutation<T>(
@@ -149,6 +149,34 @@ function runBarrierMutation<T>(
   };
   mutation.then(settle, settle);
   return mutation;
+}
+
+// Writes sent as their own request (`ownRequest`) that wait for an earlier
+// write to their key. They're numbered like queued writes, so when the page
+// hides a keepalive one can go at once, as a queued one does.
+interface WaitingOwnRequest {
+  key: string;
+  keepalive: boolean;
+  start: () => Promise<unknown>;
+}
+const waitingOwnRequests = new Set<WaitingOwnRequest>();
+
+function runOwnRequestMutation<T>(
+  key: string,
+  keepalive: boolean,
+  operation: () => Promise<T>,
+): Promise<T> {
+  let started: Promise<T> | undefined;
+  const waiting: WaitingOwnRequest = {
+    key,
+    keepalive,
+    start: () => {
+      waitingOwnRequests.delete(waiting);
+      return (started ??= operation());
+    },
+  };
+  waitingOwnRequests.add(waiting);
+  return runClientAppStateMutation(key, () => waiting.start() as Promise<T>);
 }
 
 interface Replacement {
@@ -350,7 +378,14 @@ function flushOnPageHide(): void {
   // write. It's numbered after the earlier one, so the server skips the
   // earlier one if it lands last. The server keeps no record of a delete,
   // though, so an earlier write landing after one brings the row back.
-  // Nothing goes ahead of a compare-and-set or a signalled write.
+  // A keepalive write sent as its own request goes now too. Nothing goes
+  // ahead of a compare-and-set or a signalled write.
+  for (const waiting of [...waitingOwnRequests]) {
+    if (!waiting.keepalive) continue;
+    if (unsettledBarriers.has(requestKey(waiting.key))) continue;
+    // Its caller hears how it went once the earlier write settles.
+    waiting.start().catch(() => {});
+  }
   for (const entry of [...queuedReplacements.values()]) {
     if (unsettledBarriers.has(requestKey(entry.key))) continue;
     if (entry.replacement.keepalive) {
@@ -796,36 +831,39 @@ export async function writeClientAppState<T = unknown>(
   const ownRequest = !!options.signal || options.ownRequest === true;
   // Numbered now, in the order it was made, like a queued write.
   const seq = ownRequest ? nextWriteSeq() : 0;
-  const write = ownRequest
-    ? runBarrierMutation(key, async () => {
-        const body = jsonBody(value);
-        const keepalive = keepaliveRequest(options.keepalive, body);
-        let response: Response;
-        try {
-          response = await fetch(appStateUrl(key), {
-            method: "PUT",
-            headers: {
-              ...buildHeaders(options.requestSource),
-              ...writeOrderHeaders(seq),
-            },
-            body,
-            ...keepalive.init,
-            signal: options.signal ?? null,
-          });
-        } finally {
-          keepalive.release();
-        }
-        return parseAppStateResponse<T>(
-          response,
-          `Write application state "${key}"`,
-        );
-      })
-    : (replaceClientAppState(key, {
+  const send = async () => {
+    const body = jsonBody(value);
+    const keepalive = keepaliveRequest(options.keepalive, body);
+    let response: Response;
+    try {
+      response = await fetch(appStateUrl(key), {
         method: "PUT",
-        body: jsonBody(value),
-        requestSource: options.requestSource,
-        keepalive: options.keepalive,
-      }) as Promise<T>);
+        headers: {
+          ...buildHeaders(options.requestSource),
+          ...writeOrderHeaders(seq),
+        },
+        body,
+        ...keepalive.init,
+        signal: options.signal ?? null,
+      });
+    } finally {
+      keepalive.release();
+    }
+    return parseAppStateResponse<T>(
+      response,
+      `Write application state "${key}"`,
+    );
+  };
+  const write = options.signal
+    ? runBarrierMutation(key, send)
+    : ownRequest
+      ? runOwnRequestMutation(key, options.keepalive === true, send)
+      : (replaceClientAppState(key, {
+          method: "PUT",
+          body: jsonBody(value),
+          requestSource: options.requestSource,
+          keepalive: options.keepalive,
+        }) as Promise<T>);
   recordStateWrite(key, value, write, options.signal);
   return write;
 }
