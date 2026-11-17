@@ -1247,7 +1247,7 @@ const requestTranscriptAction = defineAction({
       !args.regenerate &&
       existingNativeTranscript?.status === "ready" &&
       !existingNativeTranscript.fullText?.trim() &&
-      (existingNativeTranscript.segmentsJson ?? "[]").trim() === "[]"
+      existingNativeTranscript.segmentsJson.trim() === "[]"
     ) {
       return {
         recordingId: args.recordingId,
@@ -1449,7 +1449,7 @@ const requestTranscriptAction = defineAction({
                 recording_attempt_id: args.recordingId,
                 output_id: args.recordingId,
                 output_type: "clip",
-                duration_s: Math.round((rec.durationMs ?? 0) / 1000),
+                duration_s: Math.round(rec.durationMs / 1000),
                 has_transcript: false,
                 transcription_source: "builder",
               },
