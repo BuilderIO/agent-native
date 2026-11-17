@@ -2096,6 +2096,84 @@ describe("script writes", () => {
     ]);
   });
 
+  it("tells a script a write ran when its result is too large to return", async () => {
+    const { writes, settled } = fakeGate();
+    const big = "z".repeat(MCP_SCRIPT_LIMITS.callResultBytes + 1);
+    const fits = "z".repeat(MCP_SCRIPT_LIMITS.callResultBytes - 100);
+    const outcomes: McpActionCallOutcome[] = [
+      {
+        status: "completed",
+        value: big,
+        reportedError: false,
+        effect: "committed",
+      },
+      // A write that changed nothing is refused like a read.
+      { status: "completed", value: big, reportedError: false, effect: "none" },
+      {
+        status: "completed",
+        value: fits,
+        reportedError: false,
+        effect: "committed",
+      },
+      {
+        status: "completed",
+        value: fits,
+        reportedError: false,
+        effect: "committed",
+      },
+      // This one would take the script past its read budget.
+      {
+        status: "completed",
+        value: fits,
+        reportedError: false,
+        effect: "committed",
+      },
+    ];
+    const { run } = writeRunner(
+      { "save-doc": writeEntry() },
+      writes,
+      async () => outcomes.shift()!,
+    );
+    const payload = await run(`
+      const seen = [];
+      for (let i = 0; i < 5; i++) {
+        try { await api.saveDoc({ id: "doc_" + i }); seen.push("ok"); } catch (error) {
+          seen.push(error.code + ": " + error.message);
+        }
+      }
+      return seen;
+    `);
+    expect(payload.result).toEqual([
+      expect.stringMatching(
+        new RegExp(
+          `^result_withheld: .*more than the ${MCP_SCRIPT_LIMITS.callResultBytes} .*do not call it again`,
+        ),
+      ),
+      expect.stringMatching(/^result_too_large: /),
+      "ok",
+      "ok",
+      expect.stringMatching(
+        new RegExp(
+          `^result_withheld: .*past ${MCP_SCRIPT_LIMITS.readBytes} bytes.*do not call it again`,
+        ),
+      ),
+    ]);
+    expect(payload.calls.map((call) => [call.status, call.code])).toEqual([
+      ["completed", "result_withheld"],
+      ["refused", "result_too_large"],
+      ["completed", undefined],
+      ["completed", undefined],
+      ["completed", "result_withheld"],
+    ]);
+    expect(settled.map((write) => write.response)).toEqual([
+      { status: "completed", code: "result_withheld" },
+      { status: "refused", code: "result_too_large" },
+      { status: "completed" },
+      { status: "completed" },
+      { status: "completed", code: "result_withheld" },
+    ]);
+  });
+
   it("refuses a write the gate refuses, without running it", async () => {
     const { writes, settled, ledgerDenials } = fakeGate(async () => ({
       status: "refused",

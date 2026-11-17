@@ -571,6 +571,81 @@ describe("createScriptWriteGate", () => {
     expect(JSON.stringify(await outbox())).not.toContain("secret-ticket");
   });
 
+  it("records a fallback audit row only as the action's own audit settings allow", async () => {
+    const writes = gate();
+    const off = await writes.begin(
+      call(
+        0,
+        { key: "a", rows: 1 },
+        {
+          ...writeEntry(),
+          audit: { enabled: false },
+        },
+      ),
+    );
+    const hidden = await writes.begin(
+      call(
+        1,
+        { key: "b", rows: 1 },
+        {
+          ...writeEntry(),
+          persistInChatHistory: false,
+          audit: { target: () => ({ type: "thing", id: "b" }) },
+        },
+      ),
+    );
+    if (off.status !== "go" || hidden.status !== "go") {
+      throw new Error("expected go");
+    }
+    await writes.settle(off.ticket, committed, { status: "completed" });
+    await writes.settle(hidden.ticket, committed, { status: "completed" });
+    // Both change markers go out, and one audit row, the private action's,
+    // which names neither its arguments nor its target.
+    expect(audits.change).toHaveBeenCalledTimes(2);
+    expect(audits.insert).toHaveBeenCalledTimes(1);
+    expect(audits.insert.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        id: scriptAuditEventId(owner(), 1, 0),
+        input: null,
+        targetId: null,
+      }),
+    );
+  });
+
+  it("delivers the audit row of a write that did not apply, and no change marker", async () => {
+    const writes = gate();
+    const failed = await writes.begin(call(0, { key: "a", rows: 1 }));
+    const unsure = await writes.begin(call(1, { key: "b", rows: 1 }));
+    if (failed.status !== "go" || unsure.status !== "go") {
+      throw new Error("expected go");
+    }
+    for (const ticket of [failed.ticket, unsure.ticket]) {
+      ticket.runContext.deferAudit?.({
+        config: undefined,
+        args: ticket.args,
+        ctx: {
+          actionName: "save-thing",
+          userEmail: "ada@example.com",
+          orgId: "org-1",
+        },
+        attribution: auditAttribution({ caller: "mcp", runId: "run-1" }),
+        status: "error",
+        error: new Error("Not found."),
+      });
+    }
+    await writes.settle(failed.ticket, ranNothing, { status: "failed" });
+    await writes.settle(unsure.ticket, unclear, { status: "failed" });
+    // The write that may still commit gets its row from recovery, if any.
+    expect(audits.insert).toHaveBeenCalledTimes(1);
+    expect(audits.insert.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        id: scriptAuditEventId(owner(), 0, 0),
+        status: "error",
+      }),
+    );
+    expect(audits.change).not.toHaveBeenCalled();
+  });
+
   it("retries an outbox delivery that failed, without failing the call", async () => {
     const writes = gate();
     const begun = await writes.begin(call(0, { key: "a", rows: 1 }));
@@ -684,6 +759,22 @@ describe("recoverScriptWrites", () => {
     expect(audits.insert).toHaveBeenCalledWith(
       expect.objectContaining({ id: scriptAuditEventId(owner(), 0, 0) }),
     );
+    expect(audits.change).toHaveBeenCalledTimes(1);
+  });
+
+  it("records no audit row for a recovered write whose action turns them off", async () => {
+    await leavePending(0, "a");
+    receipts.add("a");
+    await expect(
+      recoverScriptWrites({
+        appId: "app-a",
+        actions: {
+          "save-thing": { ...writeEntry(), audit: { enabled: false } },
+        },
+        now: T0 + 3 * 60_000,
+      }),
+    ).resolves.toEqual({ settled: 1, unsettled: 0 });
+    expect(audits.insert).not.toHaveBeenCalled();
     expect(audits.change).toHaveBeenCalledTimes(1);
   });
 

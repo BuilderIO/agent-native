@@ -1702,7 +1702,30 @@ export async function runMcpScript(
             }
             const json = jsonText(outcome.value);
             const bytes = utf8Bytes(json);
-            if (bytes > MCP_SCRIPT_LIMITS.callResultBytes) {
+            const tooLarge = bytes > MCP_SCRIPT_LIMITS.callResultBytes;
+            if (
+              ticket &&
+              outcome.effect !== "none" &&
+              (tooLarge || readBytes + bytes > MCP_SCRIPT_LIMITS.readBytes)
+            ) {
+              // A write ran, and only its result is held back. Told it was
+              // refused, a script could run the write again.
+              const message = `api.${fn} ran, but its result is withheld: ${
+                tooLarge
+                  ? `it was ${bytes} bytes, more than the ${MCP_SCRIPT_LIMITS.callResultBytes} a script can receive from one call`
+                  : `it would take the script past ${MCP_SCRIPT_LIMITS.readBytes} bytes of results`
+              }. The write is not undone; do not call it again to get the result.`;
+              record({
+                function: fn,
+                action,
+                status: "completed",
+                ms: Date.now() - startedAt,
+                code: "result_withheld",
+                message: oneLine(message, 300),
+              });
+              return { ok: false, code: "result_withheld", message };
+            }
+            if (tooLarge) {
               return refuse(
                 fn,
                 action,

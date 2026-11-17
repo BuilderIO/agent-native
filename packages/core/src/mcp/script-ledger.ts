@@ -223,10 +223,10 @@ export type ScriptOutboxItem =
   | { kind: "change"; payload: unknown };
 
 /**
- * Settles a write's row. `committed` writes its outbox items first, each
- * once, so a row that says committed always has them; a crash between the
- * two leaves the row unsettled, and recovery enqueues them again, which
- * keeps the first copy. Only an unsettled row moves, except that `committed`
+ * Settles a write's row. Its outbox items are written first, each once, so a
+ * settled row always has them; a crash between the two leaves the row
+ * unsettled, and recovery enqueues them again, which keeps the first copy.
+ * Only an unsettled row moves, except that `committed`
  * may replace `unknown` or `not-applied` when a receipt turns up. A fenced
  * key never gets a receipt, so that replaces only a `not-applied` the run
  * itself recorded.
@@ -243,24 +243,22 @@ export async function settleScriptWriteRow(
 ): Promise<boolean> {
   await ensureScriptLedgerTables();
   const client = getDbExec();
-  if (settled.effect === "committed") {
-    for (const [item, entry] of (settled.outbox ?? []).entries()) {
-      await client.execute({
-        sql: `INSERT INTO mcp_script_outbox (run_id, seq, item, app_id, kind, payload, next_attempt_at, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT (run_id, seq, item) DO NOTHING`,
-        args: [
-          owner.runId,
-          seq,
-          item,
-          owner.appId,
-          entry.kind,
-          JSON.stringify(entry.payload),
-          now,
-          now,
-        ],
-      });
-    }
+  for (const [item, entry] of (settled.outbox ?? []).entries()) {
+    await client.execute({
+      sql: `INSERT INTO mcp_script_outbox (run_id, seq, item, app_id, kind, payload, next_attempt_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (run_id, seq, item) DO NOTHING`,
+      args: [
+        owner.runId,
+        seq,
+        item,
+        owner.appId,
+        entry.kind,
+        JSON.stringify(entry.payload),
+        now,
+        now,
+      ],
+    });
   }
   const from =
     settled.effect === "committed"

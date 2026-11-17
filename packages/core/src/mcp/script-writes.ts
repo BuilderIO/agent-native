@@ -10,7 +10,8 @@ import { actionChangeResource } from "../action-call-classification.js";
  * sweep settles a write as not applied only after its `fence` closed the
  * write's key, so it can never commit after. Audit rows
  * and change markers go through the ledger's outbox, never the best-effort
- * audit log, and only for writes known to have committed.
+ * audit log: change markers only for writes known to have committed, and
+ * audit rows for those and for writes known not to have applied.
  */
 import {
   actionCallIntent,
@@ -22,12 +23,13 @@ import {
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { auditAttribution } from "../audit/attribution.js";
+import { normalizeAuditConfig, resolveAuditAttach } from "../audit/config.js";
 import {
   buildActionAuditEvent,
   type RecordActionAuditInput,
 } from "../audit/record.js";
 import { insertAuditEventOnce } from "../audit/store.js";
-import type { AuditEvent } from "../audit/types.js";
+import type { ActionAuditConfig, AuditEvent } from "../audit/types.js";
 import {
   recordMcpScriptBudgetRefusal,
   recordMcpScriptWriteEffect,
@@ -307,6 +309,8 @@ export function createScriptWriteGate(
       // still commit keeps them for the rest of the run.
       if (effect === "not-applied") release(key);
       else keep(key);
+      // A write that may yet commit gets no audit row now: recovery records
+      // one if it finds the commit.
       const outbox =
         effect === "committed"
           ? committedOutbox(owner, call, {
@@ -315,7 +319,13 @@ export function createScriptWriteGate(
               result:
                 outcome.status === "completed" ? outcome.value : undefined,
             })
-          : [];
+          : effect === "not-applied"
+            ? auditItems(
+                owner,
+                call.seq,
+                actionAuditEvents(audits.get(ticket) ?? []),
+              )
+            : [];
       try {
         const moved = await settleScriptWriteRow(
           owner,
@@ -437,39 +447,12 @@ function committedOutbox(
     result: unknown;
   },
 ): ScriptOutboxItem[] {
-  const items: ScriptOutboxItem[] = [];
-  const events: AuditEvent[] = [];
-  for (const audit of facts.audits) {
-    try {
-      const event = buildActionAuditEvent({
-        ...audit,
-        args: auditedArguments(audit.args),
-      });
-      if (event) events.push(event);
-    } catch (error) {
-      console.error(
-        `[mcp] Could not build a script write's audit row: ${describeThrownForLog(error)}`,
-      );
-    }
-  }
+  const events = actionAuditEvents(facts.audits);
   if (events.length === 0) {
-    const fallback = minimalAuditEvent(
-      owner,
-      call.action,
-      auditedArguments(facts.args),
-    );
+    const fallback = minimalAuditEvent(owner, call, facts.args);
     if (fallback) events.push(fallback);
   }
-  for (const event of events) {
-    items.push({
-      kind: "audit",
-      payload: {
-        ...event,
-        id: scriptAuditEventId(owner, call.seq, items.length),
-        runId: event.runId ?? owner.runId,
-      },
-    });
-  }
+  const items = auditItems(owner, call.seq, events);
   if (call.entry.changeEvents !== false) {
     const change: NotifyActionChangeOptions = {
       actionName: call.action,
@@ -482,10 +465,43 @@ function committedOutbox(
   return items;
 }
 
-/**
- * The audit row for a write recovery found committed, whose run is gone and
- * with it everything but the ledger: who, what, and the stored arguments.
- */
+/** The audit rows a write's action recorded during its run. */
+function actionAuditEvents(
+  audits: readonly RecordActionAuditInput[],
+): AuditEvent[] {
+  const events: AuditEvent[] = [];
+  for (const audit of audits) {
+    try {
+      const event = buildActionAuditEvent({
+        ...audit,
+        args: auditedArguments(audit.args),
+      });
+      if (event) events.push(event);
+    } catch (error) {
+      console.error(
+        `[mcp] Could not build a script write's audit row: ${describeThrownForLog(error)}`,
+      );
+    }
+  }
+  return events;
+}
+
+/** Audit rows as outbox items, each with an id a retried delivery keeps. */
+function auditItems(
+  owner: ScriptRunOwner,
+  seq: number,
+  events: readonly AuditEvent[],
+): ScriptOutboxItem[] {
+  return events.map((event, item) => ({
+    kind: "audit",
+    payload: {
+      ...event,
+      id: scriptAuditEventId(owner, seq, item),
+      runId: event.runId ?? owner.runId,
+    },
+  }));
+}
+
 /** A write's arguments as its audit rows record them: without embed
  *  credentials, as the ledger keeps them, or none if they can't be read. */
 function auditedArguments(args: unknown): unknown {
@@ -497,17 +513,43 @@ function auditedArguments(args: unknown): unknown {
   }
 }
 
+/**
+ * The audit settings a committed write's own audit row would have used, as
+ * `defineAction` applies them, or `undefined` for an action that records no
+ * audit rows. A private action's row records no arguments, target or summary.
+ */
+function actionAuditPolicy(
+  entry: ActionEntry,
+): { config: ActionAuditConfig | undefined } | undefined {
+  const config = normalizeAuditConfig(entry.audit);
+  let effective = config;
+  if (entry.persistInChatHistory === false) {
+    const { target: _target, summary: _summary, ...shared } = config ?? {};
+    effective = { ...shared, recordInputs: false };
+  }
+  if (!resolveAuditAttach(effective, entry.readOnly)) return undefined;
+  return { config: effective };
+}
+
+/**
+ * The audit row for a committed write with none of its action's own: one
+ * recovery found committed, whose run is gone and with it everything but the
+ * ledger, or one whose row could not be built. It records who, what, and the
+ * stored arguments, under the action's own audit settings.
+ */
 function minimalAuditEvent(
   owner: ScriptRunOwner,
-  action: string,
+  call: Pick<ScriptWriteCall, "action" | "entry">,
   args: unknown,
 ): AuditEvent | undefined {
+  const policy = actionAuditPolicy(call.entry);
+  if (!policy) return undefined;
   try {
     return buildActionAuditEvent({
-      config: undefined,
-      args,
+      config: policy.config,
+      args: auditedArguments(args),
       ctx: {
-        actionName: action,
+        actionName: call.action,
         ...(owner.ownerEmail ? { userEmail: owner.ownerEmail } : {}),
         orgId: owner.orgId,
       },
