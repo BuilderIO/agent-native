@@ -269,9 +269,13 @@ export function useShareOrgMemberSearch(
           if (controller.signal.aborted || requestId !== requestIdRef.current)
             return;
           setError(true);
-          setHasMore(false);
-          setNextOffset(null);
-          if (!append) setMembers([]);
+          // A later page that fails keeps its place, so loading more tries
+          // that page again; a failed first page has no place to keep.
+          if (!append) {
+            setHasMore(false);
+            setNextOffset(null);
+            setMembers([]);
+          }
         })
         .finally(() => {
           if (controller.signal.aborted || requestId !== requestIdRef.current)

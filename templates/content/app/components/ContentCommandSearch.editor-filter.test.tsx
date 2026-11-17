@@ -165,6 +165,17 @@ describe("EditorSearchChoice", () => {
     expect(pickerDialog()).toBeTruthy();
   });
 
+  it("keeps Load more after a later page fails, so it can try again", async () => {
+    memberSearch.members = [{ email: "bo@example.com", name: "Bo Lee" }];
+    memberSearch.hasMore = true;
+    memberSearch.error = new Error("Could not load people");
+    await openPicker();
+
+    expect(pickerDialog().querySelector('[role="alert"]')).not.toBeNull();
+    const options = optionTexts();
+    expect(options[options.length - 1]).toBe("root.searchMorePeople");
+  });
+
   it("reports a failed lookup without calling it empty, and still takes a typed email", async () => {
     memberSearch.error = new Error("Could not load people");
     const { onChange } = await openPicker();

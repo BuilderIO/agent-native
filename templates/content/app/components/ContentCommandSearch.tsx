@@ -503,7 +503,8 @@ export function EditorSearchChoice({
                   {check(selected === person.email.toLowerCase())}
                 </CommandItem>
               ))}
-              {search.hasMore && !search.error ? (
+              {/* After a later page fails, this row tries that page again. */}
+              {search.hasMore ? (
                 <CommandItem
                   value="__more-people__"
                   disabled={search.isLoadingMore}
