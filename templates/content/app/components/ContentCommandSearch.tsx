@@ -371,7 +371,9 @@ export function EditorSearchChoice({
   const typed = query.trim();
   const showMe = Boolean(me && (!typed || me.includes(typed.toLowerCase())));
   const people = useMemo(() => {
-    const seen = new Set<string>(me ? [me] : []);
+    // The Me row stands in for the signed-in person only while it shows; a
+    // search by their name still finds them among the members.
+    const seen = new Set<string>(showMe && me ? [me] : []);
     const list: SearchEditor[] = [];
     for (const member of search.members) {
       const email = member.email.toLowerCase();
@@ -383,7 +385,7 @@ export function EditorSearchChoice({
       list.push({ email: typed, name: null });
     }
     return list;
-  }, [search.members, me, typed]);
+  }, [search.members, me, showMe, typed]);
   const selected = value?.email.toLowerCase() ?? null;
   const triggerLabel = !value
     ? t("root.searchAnyEditor")
@@ -719,15 +721,18 @@ export function SearchPage({
   ]);
 
   // Instant lane: reranked on every keystroke straight from the precomputed
-  // index, no debounce and no network wait (SO-01).
+  // index, no debounce and no network wait (SO-01). The index doesn't say who
+  // last edited each page, so an editor filter leaves the answer to the server.
   const instantMatches = useMemo(
     () =>
-      rankTitlesByQuery(titleIndex, liveQuery, {
-        limit: INSTANT_RESULT_LIMIT,
-      })
-        .slice(0, INSTANT_RESULT_LIMIT)
-        .map((result) => result.candidate),
-    [titleIndex, liveQuery],
+      updatedBy
+        ? []
+        : rankTitlesByQuery(titleIndex, liveQuery, {
+            limit: INSTANT_RESULT_LIMIT,
+          })
+            .slice(0, INSTANT_RESULT_LIMIT)
+            .map((result) => result.candidate),
+    [titleIndex, liveQuery, updatedBy],
   );
 
   const baseArgs = {
@@ -1056,9 +1061,6 @@ export function ContentCommandSearchResults({
     [documents, titleEntries, pageScopeId],
   );
   const candidateDocuments = useMemo(() => {
-    // The title lists don't say who last edited each page, so only the
-    // server can answer an editor filter.
-    if (updatedBy) return [];
     if (documents) {
       return documents
         .filter(
@@ -1090,7 +1092,6 @@ export function ContentCommandSearchResults({
     scopeId,
     resolvedDocumentType,
     modifiedAfter,
-    updatedBy,
   ]);
   const titleIndex = useMemo(
     () => buildTitleSearchIndex(candidateDocuments),

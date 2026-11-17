@@ -628,7 +628,7 @@ describe("bounded document discovery", () => {
         {
           id: "search-edited-by-teammate",
           ownerEmail: OWNER,
-          title: "Quarterly zephyr plan",
+          title: "Quarterly zephyr marigold plan",
           content: "zephyr marker",
           updatedBy: "Teammate@Example.com",
         },
@@ -673,10 +673,17 @@ describe("bounded document discovery", () => {
     expect(
       (await search("zephyr", "nobody@example.com")).pagination.totalItems,
     ).toBe(0);
-    // A misspelled word is corrected only from what the filter lets through.
-    const corrected = await search("zephir", "teammate@example.com");
+    // A misspelled word is corrected only from what the filter lets through:
+    // only the teammate's title holds "marigold".
+    expect(ids(await search("marigld"))).toEqual(["search-edited-by-teammate"]);
+    const corrected = await search("marigld", "teammate@example.com");
     expect(ids(corrected)).toEqual(["search-edited-by-teammate"]);
-    expect(corrected.spellingCorrections).toBeDefined();
+    expect(corrected.spellingCorrections).toEqual([
+      { term: "marigld", replacements: ["marigold"] },
+    ]);
+    const uncorrected = await search("marigld", OWNER);
+    expect(uncorrected.pagination.totalItems).toBe(0);
+    expect(uncorrected.spellingCorrections).toBeUndefined();
   });
 
   it("filters title and modified date before pagination and returns authorized parent context", async () => {
