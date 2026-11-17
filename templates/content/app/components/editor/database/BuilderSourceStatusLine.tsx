@@ -74,7 +74,7 @@ function builderProgress(
   if (!status && !hydrating && !hydrationFailed) return null;
   const detail =
     fetchedCount === null
-      ? (hydrating || hydrationFailed) && bodyHydration
+      ? hydrating || hydrationFailed
         ? dbText(
             hydrationFailed
               ? "builderBodiesSyncFinishedWithFailures"
@@ -86,7 +86,7 @@ function builderProgress(
             },
           )
         : null
-      : (hydrating || hydrationFailed) && bodyHydration
+      : hydrating || hydrationFailed
         ? dbText(
             hydrationFailed
               ? "builderRowsFetchedBodiesSyncFinishedWithFailures"
@@ -113,7 +113,7 @@ function builderProgress(
     failed: false as const,
     label: detail ? `${label} ${detail}` : label,
     percent: hydrating
-      ? Math.round((hydratedCount / bodyHydration!.total) * 100)
+      ? Math.round((hydratedCount / bodyHydration.total) * 100)
       : builderSourceContinuationProgressPercent(source),
   };
 }

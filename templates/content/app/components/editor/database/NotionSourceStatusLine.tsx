@@ -44,15 +44,20 @@ export function NotionSourceStatusLine({
 }) {
   const now = useNow();
   const refresh = useRefreshContentDatabaseSource(documentId);
-  const [failure, setFailure] = useState<{ reason: string | null } | null>(
-    null,
-  );
+  const [failure, setFailure] = useState<{
+    reason: string | null;
+    asOf: string | null;
+  } | null>(null);
+  // Stands only until the source updates, from this tab or any other.
+  const localFailure =
+    failure && failure.asOf === source.lastRefreshedAt ? failure : null;
   const failed =
-    failure !== null || source.syncState === "error" || !!source.lastError;
-  const reason = failure ? failure.reason : source.lastError;
+    localFailure !== null || source.syncState === "error" || !!source.lastError;
+  const reason = localFailure ? localFailure.reason : source.lastError;
   const syncNow = () =>
     refresh.mutate(
-      { documentId, sourceId: source.id },
+      // A one-page read replaces every cached row, so it would drop the rest.
+      { documentId, sourceId: source.id, fullRefresh: true },
       {
         onSuccess: () => {
           setFailure(null);
@@ -63,6 +68,7 @@ export function NotionSourceStatusLine({
             reason:
               actionErrorMessage(error) ??
               (error instanceof Error ? error.message : null),
+            asOf: source.lastRefreshedAt,
           });
         },
       },

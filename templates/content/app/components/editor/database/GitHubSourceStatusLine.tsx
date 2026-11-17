@@ -452,7 +452,7 @@ function GitHubStatusLineContent({
   );
 
   const notes: string[] = [];
-  if (paused && problem) notes.push(githubProblemText(problem.code, status));
+  if (paused) notes.push(githubProblemText(problem.code, status));
   if (picturesWaiting) {
     notes.push(
       dbText(

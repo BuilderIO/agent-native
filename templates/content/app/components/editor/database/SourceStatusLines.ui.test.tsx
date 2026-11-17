@@ -65,7 +65,7 @@ function line(provider: string) {
 
 function button(name: string) {
   const match = Array.from(document.querySelectorAll("button")).find(
-    (candidate) => candidate.textContent?.trim() === name,
+    (candidate) => candidate.textContent.trim() === name,
   );
   if (!match) throw new Error(`No "${name}" button`);
   return match;
@@ -182,15 +182,18 @@ describe("Builder source status line", () => {
 });
 
 describe("Notion source status line", () => {
-  function renderNotion(notionSource: ContentDatabaseSource) {
-    renderUi(
+  function notionLine(notionSource: ContentDatabaseSource) {
+    return (
       <NotionSourceStatusLine
         source={notionSource}
         documentId="doc-1"
         canEdit
         pageCount={3}
-      />,
+      />
     );
+  }
+  function renderNotion(notionSource: ContentDatabaseSource) {
+    return renderUi(notionLine(notionSource));
   }
 
   it("says which database adds details and when they updated", () => {
@@ -201,7 +204,7 @@ describe("Notion source status line", () => {
     expect(line("notion").textContent).toContain("Updated 5 minutes ago");
   });
 
-  it("syncs now and says so", async () => {
+  it("syncs every page of the database now and says so", async () => {
     renderNotion(source("notion-database"));
     await click(button("Details"));
     await click(button("Sync now"));
@@ -209,7 +212,11 @@ describe("Notion source status line", () => {
       unknown,
       MutateOptions,
     ];
-    expect(variables).toEqual({ documentId: "doc-1", sourceId: "source-1" });
+    expect(variables).toEqual({
+      documentId: "doc-1",
+      sourceId: "source-1",
+      fullRefresh: true,
+    });
     await act(async () => options.onSuccess?.());
     expect(toasts.toast.success).toHaveBeenCalledWith("Updated from Notion.");
   });
@@ -233,6 +240,31 @@ describe("Notion source status line", () => {
     const [, retry] = refresh.mutate.mock.calls[1] as [unknown, MutateOptions];
     await act(async () => retry.onSuccess?.());
     expect(line("notion").querySelector('[role="alert"]')).toBe(null);
+  });
+
+  it("drops a failed sync once the source updates elsewhere", async () => {
+    const stale = source("notion-database");
+    const { rerender } = renderNotion(stale);
+    await click(button("Details"));
+    await click(button("Sync now"));
+    const [, options] = refresh.mutate.mock.calls[0] as [
+      unknown,
+      MutateOptions,
+    ];
+    await act(async () => options.onError?.(new Error("Notion said no.")));
+    expect(line("notion").querySelector('[role="alert"]')).not.toBe(null);
+
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60_000).toISOString();
+    rerender(notionLine({ ...stale, lastRefreshedAt: twoMinutesAgo }));
+    expect(line("notion").querySelector('[role="alert"]')).toBe(null);
+    expect(line("notion").textContent).toContain("Updated 2 minutes ago");
+  });
+
+  it("holds Unlink… while a sync runs", async () => {
+    refresh.isPending = true;
+    renderNotion(source("notion-database"));
+    await click(button("Details"));
+    expect(button("Unlink…").disabled).toBe(true);
   });
 
   it("shows an error the source has stored, ended as a sentence", () => {

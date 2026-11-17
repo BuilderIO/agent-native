@@ -192,6 +192,8 @@ export function SourceStatusLine({
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [unlinkOpen, setUnlinkOpen] = useState(false);
+  // A sync still running could write the source's rows after the unlink.
+  const unlinkDisabled = sync?.pending === true;
   const openUnlink = () => {
     setDetailsOpen(false);
     setUnlinkOpen(true);
@@ -261,6 +263,7 @@ export function SourceStatusLine({
                           type="button"
                           size="xs"
                           variant="outline-destructive"
+                          disabled={unlinkDisabled}
                           onClick={openUnlink}
                         >
                           {dbText("sourceUnlink")}
@@ -290,6 +293,7 @@ export function SourceStatusLine({
               type="button"
               size="xs"
               variant="outline-destructive"
+              disabled={unlinkDisabled}
               onClick={openUnlink}
             >
               {dbText("sourceUnlink")}

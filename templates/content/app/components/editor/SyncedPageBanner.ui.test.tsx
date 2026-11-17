@@ -31,18 +31,20 @@ vi.mock("@/hooks/use-content-database", () => ({
 
 import { SyncedPageBanner } from "./SyncedPageBanner";
 
+const membership = {
+  databaseId: "database-1",
+  databaseDocumentId: "collection-1",
+  databaseTitle: "Blog",
+  systemRole: null,
+  position: 0,
+  sourceId: "builder-1",
+};
+
 function rowPage(overrides: Partial<Document> = {}): Document {
   return {
     id: "page-1",
     title: "Launch post",
-    databaseMembership: {
-      databaseId: "database-1",
-      databaseDocumentId: "collection-1",
-      databaseTitle: "Blog",
-      systemRole: null,
-      position: 0,
-      sourceId: "builder-1",
-    },
+    databaseMembership: membership,
     ...overrides,
   } as unknown as Document;
 }
@@ -124,10 +126,7 @@ describe("Synced page banner", () => {
     renderUi(
       <SyncedPageBanner
         document={rowPage({
-          databaseMembership: {
-            ...rowPage().databaseMembership!,
-            sourceId: null,
-          },
+          databaseMembership: { ...membership, sourceId: null },
         })}
       />,
     );

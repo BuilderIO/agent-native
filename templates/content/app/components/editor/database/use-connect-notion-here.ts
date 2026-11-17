@@ -59,9 +59,17 @@ export function useConnectNotionHere(isConnected: () => Promise<boolean>) {
     }
     stop();
     setConnecting(true);
-    poll.current = window.setInterval(async () => {
+    poll.current = window.setInterval(() => {
+      if (popup.closed) {
+        // Closed or cancelled. One last look, in case sign-in finished as it closed.
+        stop();
+        void isConnected();
+        return;
+      }
       if (document.hidden) return;
-      if (await isConnected()) stop();
+      void isConnected().then((connected) => {
+        if (connected) stop();
+      });
     }, POLL_MS);
     timeout.current = window.setTimeout(stop, POLL_TIMEOUT_MS);
   }
