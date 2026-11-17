@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -480,11 +480,25 @@ async function benchRun(
 function packLocalCore(packDir: string): string {
   console.error("[bench] building and packing this checkout's core…");
   const pnpm = pnpmCommand(["pack", "--pack-destination", packDir]);
-  execFileSync(pnpm.command, pnpm.args, {
+  const packed = spawnSync(pnpm.command, pnpm.args, {
     cwd: path.join(repoRoot, "packages/core"),
     shell: pnpm.shell,
-    stdio: ["ignore", "ignore", "inherit"],
+    stdio: ["ignore", "pipe", "inherit"],
+    encoding: "utf8",
+    maxBuffer: 256 * 1024 * 1024,
   });
+  if (packed.error) {
+    throw new Error(`pnpm pack failed: ${packed.error.message}`, {
+      cause: packed.error,
+    });
+  }
+  if (packed.status !== 0) {
+    // The build prints its type errors on stdout, not stderr.
+    const tail = packed.stdout.split("\n").slice(-30).join("\n");
+    throw new Error(
+      `pnpm pack in packages/core exited with ${packed.signal ?? packed.status}. Last lines of its output:\n${tail}`,
+    );
+  }
   const tarballs = fs.readdirSync(packDir).filter((f) => f.endsWith(".tgz"));
   const tarball = tarballs[0];
   if (tarballs.length !== 1 || !tarball) {
