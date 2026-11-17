@@ -5220,9 +5220,15 @@ function PageEditorSessionBody({
         activeContentSavesRef.current += 1;
         let result;
         try {
+          // This save took its text already, so later typing doesn't hold it
+          // back. On a slow connection steady typing never empties the queue,
+          // and a merged agent edit would come back as a changed-elsewhere
+          // notice instead of saving.
           const collaborationFlushed =
             canEditWithoutCollaboration ||
-            (await flushBeforeSave(flushCollabUpdates));
+            (await flushBeforeSave(() =>
+              flushCollabUpdates({ editsSoFar: true }),
+            ));
           if (
             options.requireActiveEditorSession &&
             !editorSessionActiveRef.current
