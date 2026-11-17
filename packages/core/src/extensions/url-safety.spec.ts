@@ -6,6 +6,7 @@ import {
   createSsrfSafeDispatcher,
   isBlockedExtensionUrl,
   isBlockedExtensionUrlWithDns,
+  isMissingCoreUndiciModuleError,
   ssrfSafeFetch,
 } from "./url-safety.js";
 
@@ -566,5 +567,62 @@ describe("ssrfSafeFetch per-hop policies", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe(httpsOrigin);
     expect(redirectResponse.bodyUsed).toBe(true);
+  });
+});
+
+describe("isMissingCoreUndiciModuleError", () => {
+  // Error shapes below are copied verbatim from Node 22 ERR_MODULE_NOT_FOUND
+  // messages: a missing dedicated package, a missing entry point inside a
+  // present copy, a missing nested import, and a missing bare dependency.
+  const moduleNotFound = (message: string) =>
+    Object.assign(new Error(message), { code: "ERR_MODULE_NOT_FOUND" });
+
+  it("allows fallback only when the dedicated Core package itself is absent", () => {
+    expect(
+      isMissingCoreUndiciModuleError(
+        moduleNotFound(
+          "Cannot find package '@agent-native/core-undici' imported from /srv/index.mjs",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not fall back for a present Core package with a missing entry point", () => {
+    expect(
+      isMissingCoreUndiciModuleError(
+        moduleNotFound(
+          "Cannot find package '/srv/node_modules/@agent-native/core-undici/missing.js' imported from /srv/index.mjs",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not fall back for a missing transitive ESM import inside Core's copy", () => {
+    expect(
+      isMissingCoreUndiciModuleError(
+        moduleNotFound(
+          "Cannot find module '/srv/node_modules/@agent-native/core-undici/lib/dep.js' imported from /srv/node_modules/@agent-native/core-undici/index.js",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not fall back for a missing bare dependency of Core's copy", () => {
+    expect(
+      isMissingCoreUndiciModuleError(
+        moduleNotFound(
+          "Cannot find package 'some-other-package' imported from /srv/node_modules/@agent-native/core-undici/index.js",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not fall back for unrelated errors or non-error values", () => {
+    expect(
+      isMissingCoreUndiciModuleError(
+        new Error("Cannot find package '@agent-native/core-undici'"),
+      ),
+    ).toBe(false);
+    expect(isMissingCoreUndiciModuleError(null)).toBe(false);
   });
 });

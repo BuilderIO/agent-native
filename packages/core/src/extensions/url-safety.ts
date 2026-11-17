@@ -212,8 +212,27 @@ function allowedPrivateOriginForDestination(
     : undefined;
 }
 
+// Core's dedicated undici specifier; also used by the Node deployment hook
+// that copies Core's compatible undici to this path in the emitted output.
+const CORE_UNDICI_SPECIFIER = "@agent-native/core-undici";
+
 let sharedSsrfDispatcher: Promise<unknown> | undefined;
 const privateSsrfDispatchers = new Map<string, Promise<unknown>>();
+
+/**
+ * True only when the dedicated Core undici package itself is absent. Node uses
+ * ERR_MODULE_NOT_FOUND both for a missing package and for a missing entry point
+ * or nested import inside a package that was found, so the code alone is not a
+ * sufficient signal: a broken Core copy must never silently fall back to the
+ * app's possibly incompatible undici.
+ */
+export function isMissingCoreUndiciModuleError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  if (!("code" in error) || error.code !== "ERR_MODULE_NOT_FOUND") return false;
+  if (!("message" in error) || typeof error.message !== "string") return false;
+  const missing = error.message.match(/^Cannot find package ['"]([^'"]+)['"]/);
+  return missing?.[1] === CORE_UNDICI_SPECIFIER;
+}
 
 async function createSsrfSafeDispatcherUncached(
   allowedPrivateOrigins: readonly string[] = [],
@@ -226,19 +245,12 @@ async function createSsrfSafeDispatcherUncached(
     // Core ships its own compatible undici at a dedicated specifier in Node
     // server output. Fall back to the app-provided undici for runtimes that do
     // not emit that copy (dev, serverless, older deployments).
-    const coreUndiciSpecifier = "@agent-native/core-undici";
+    const coreUndiciSpecifier = CORE_UNDICI_SPECIFIER;
     const fallbackUndiciSpecifier = "undici";
     try {
       undici = await import(/* @vite-ignore */ coreUndiciSpecifier);
     } catch (error) {
-      // Fall back only when Core's dedicated copy is genuinely absent. A broken
-      // or incompatible copy must surface instead of silently switching the
-      // SSRF dispatcher to the app's possibly different undici version.
-      const code =
-        typeof error === "object" && error !== null && "code" in error
-          ? (error as { code?: unknown }).code
-          : undefined;
-      if (code !== "ERR_MODULE_NOT_FOUND") throw error;
+      if (!isMissingCoreUndiciModuleError(error)) throw error;
       undici = await import(/* @vite-ignore */ fallbackUndiciSpecifier);
     }
     dnsModule = await import("node:dns");
