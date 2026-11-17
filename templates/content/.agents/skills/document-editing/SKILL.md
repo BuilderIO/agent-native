@@ -29,11 +29,12 @@ document operations. `.env` is loaded automatically — never manually set
 
 ### list-documents
 
-List document metadata in a tree structure. This intentionally does not return full document bodies; call `get-document` for the one document you need to read.
+List document metadata in a tree structure. This intentionally does not return full document bodies; call `get-document` for the one document you need to read. For the most recently edited documents, pass `--sort newest` and read the first page; request the next page only when you need more.
 
 ```bash
 pnpm action list-documents
 pnpm action list-documents --format json
+pnpm action list-documents --sort newest --limit 5
 ```
 
 ### search-documents
@@ -49,6 +50,15 @@ pnpm action search-documents --query "project plan" --format json
 
 Get a single document by ID with full content and description. MCP callers read
 the complete values from `structuredContent`; the text preview may be shortened.
+
+Agent tool calls (in the app, in automation runs, over MCP, A2A or WebMCP) get
+each property's `id`, `databaseId`, `name`, `type`, `description`, `options`
+(option `id`, `name` and `description`), `value` and `editable`, but not the
+editor's display settings, timestamps or option colors. The page body's own
+Blocks field says `valueIsContent: true` instead of repeating `content`. Other
+Blocks fields keep their `value`, and their `blocksField` is just
+`{ fieldId, revision }`; read their blocks with `list-content-database-blocks`.
+Pass `detail: "full"` for the editor's whole read; the CLI always gets it.
 
 ```bash
 pnpm action get-document --id abc123
@@ -156,8 +166,12 @@ pnpm action edit-document --id abc123 --find "delete me" --replace ""
 pnpm action edit-document --id abc123 --edits '[{"find":"old","replace":"new"},{"find":"also old","replace":"also new"}]'
 ```
 
-External MCP, WebMCP, tool, and A2A callers first read the document, then pass
-its `baseRevision` and one stable `idempotencyKey`. When the returned body is
+External MCP, WebMCP, tool, and A2A callers pass a `baseRevision` and one stable
+`idempotencyKey`. The base comes from `get-document` for a page you haven't read,
+from `create-document` for a page you just made, or from the previous edit's
+`receipt.revisions.after`. A receipt with outcome `applied` and
+`readback.verified` already confirms the saved body, so don't read the page again
+to check it; read it again after any other outcome or an error. When the returned body is
 literally empty, pass non-whitespace `initializeContent` instead of `find` or `edits`.
 Initialization rejects whitespace-only and all other nonempty bodies, preserves
 the Markdown bytes exactly, and safely replays an identical retry.

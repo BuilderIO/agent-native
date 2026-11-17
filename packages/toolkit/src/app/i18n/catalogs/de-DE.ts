@@ -2420,12 +2420,15 @@ const messages: ToolkitAgentChatTranslation = {
     "Beispieldaten in diesem Browser für Präsentationen verwenden.",
   "settingsShell.appGroup.labsFootnote":
     "Diese neuen, instabilen Funktionen können Fehler enthalten.",
+  "settingsShell.appGroup.labsHostDecided":
+    "Diese Einstellung wird für dich festgelegt und kann hier nicht geändert werden.",
   "settingsShell.appGroup.labsLoadError":
     "Deine Labs konnten nicht geladen werden.",
   "settingsShell.appGroup.labsReadError":
     "Die gespeicherte Auswahl konnte nicht gelesen werden. Wähle Ein oder Aus, um sie erneut festzulegen.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} konnte nicht geändert werden. Versuche es erneut.",
+  "settingsShell.appGroup.labsUseDefault": "Standard verwenden",
   "settingsShell.appGroup.mcpAbout":
     "Verbinde {{app}} mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in {{app}} für dich arbeiten. Sie sieht nur, was du sehen kannst.",
   "settingsShell.appGroup.mcpAppCards": "App-Karten in Chat-Apps",
@@ -3206,6 +3209,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "Erzeugt Bilder für Folien und Designs.",
   "settingsInfra.whyEmbeddings":
     "Verbessert die semantische Suche. Die Stichwortsuche funktioniert auch ohne.",
+  "settingsInfra.semanticSearch": "Semantische Suche",
+  "settingsInfra.semanticSearchOn":
+    "Findet Seiten nach Bedeutung und nach Wörtern. Seitentext und Suchanfragen gehen an den Embeddings-Anbieter.",
+  "settingsInfra.semanticSearchOff":
+    "Aus. Die Suche findet nur Wörter, und kein Seitentext geht an den Embeddings-Anbieter.",
+  "settingsInfra.semanticSearchUnknown":
+    "Konnte nicht lesen, ob die semantische Suche an ist.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "Die semantische Suche ist an. Vorhandene Seiten werden im Hintergrund indexiert.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "Die semantische Suche ist aus. Gespeicherte Seitenvektoren wurden gelöscht.",
+  "settingsInfra.semanticSearchSaveFailed":
+    "Die semantische Suche konnte nicht geändert werden.",
   "settingsInfra.designSystem": "Design-System-Intelligenz",
   "settingsInfra.whyDesignSystem":
     "Hält generierte Folien und Designs markenkonform.",

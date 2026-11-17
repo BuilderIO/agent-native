@@ -3574,6 +3574,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "エージェントを使うには AI モデルを接続してください",
       startFailed: "エージェントを開始できませんでした",
+      hostChatUnconfirmed:
+        "メッセージがホストチャットに届いたか確認できませんでした。再試行する前にホストチャットを確認してください。",
       cancelFailed: "エージェントを停止できませんでした",
       busy: "このスレッドではすでにエージェントが作業中です",
       error: {

@@ -146,10 +146,10 @@ Code, and a human equally). `pnpm guards --list` prints the current set;
 so the
 pre-existing backlog stays a separate cleanup. Each guard has a documented
 opt-out pragma; every opt-out is a decision a reviewer should see.
-`no-new-legacy-mcp-hints`, `no-new-escape-hatches`, and `compiler-strictness`
-have none: the MCP `destructiveHint` baseline, each file's count of `any`,
-`!`, and suppression comments, and the list of tsconfig strictness opt-outs
-only shrink.
+`no-new-legacy-mcp-hints`, `no-new-mcp-parity-gaps`, `no-new-escape-hatches`,
+and `compiler-strictness` have none: the MCP `destructiveHint` and parity
+baselines, each file's count of `any`, `!`, and suppression comments, and
+tsconfig's strictness opt-outs only shrink.
 
 A guard reports three outcomes, not two: exit 0 passed, exit 1 failed, exit 2
 could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via

@@ -22,7 +22,11 @@ import {
 } from "@shared/clip-embed-block";
 import { nfmToDoc, type PMNode } from "@shared/nfm";
 import { registryBlockSpecByType } from "@shared/nfm-registry";
-import { buildPublicDocumentDescription } from "@shared/og-description";
+import {
+  buildPublicDocumentDescription,
+  CONTENT_SITE_NAME,
+  type PublicDocumentKind,
+} from "@shared/og-description";
 import type { PublicReaderContext } from "@shared/public-reader";
 import { IconLock } from "@tabler/icons-react";
 import { and, eq, isNull } from "drizzle-orm";
@@ -64,6 +68,9 @@ type PublicDocumentLoaderData =
         id: string;
         title: string;
         content: string;
+        // guard:allow-required-description - loader data, not a prop; an unset description is ""
+        description: string;
+        kind: PublicDocumentKind;
         updatedAt: string;
         visibility: string;
       };
@@ -111,6 +118,11 @@ function publicDocumentLoaderData(
   });
 }
 
+// Public pages stay out of search engines, as in Notion: anyone with the link
+// can read one, but nobody finds it by searching. Crawlers still fetch the
+// page (robots.txt allows it) so they can read this.
+export const PUBLIC_DOCUMENT_ROBOTS = "noindex";
+
 // Every answer keeps the short window, including a thrown not-found, which
 // arrives here as errorHeaders; an answer that asked for less keeps its own.
 export function headers({ loaderHeaders, errorHeaders }: HeadersArgs) {
@@ -118,6 +130,7 @@ export function headers({ loaderHeaders, errorHeaders }: HeadersArgs) {
   if (!answer.has(SSR_MAX_AGE_HEADER)) {
     answer.set(SSR_MAX_AGE_HEADER, String(PUBLIC_DOCUMENT_CACHE_SECONDS));
   }
+  answer.set("X-Robots-Tag", PUBLIC_DOCUMENT_ROBOTS);
   return answer;
 }
 
@@ -125,6 +138,21 @@ export function headers({ loaderHeaders, errorHeaders }: HeadersArgs) {
 // so this route catches its own not-found to keep the short cache window.
 export function ErrorBoundary() {
   return <ContentErrorBoundaryBody />;
+}
+
+/** Whether the page a reader can see is a database, so its preview can say so. */
+async function publicDocumentKind(id: string): Promise<PublicDocumentKind> {
+  const databases = await getDb()
+    .select({ id: schema.contentDatabases.id })
+    .from(schema.contentDatabases)
+    .where(
+      and(
+        eq(schema.contentDatabases.documentId, id),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    )
+    .limit(1);
+  return databases.length > 0 ? "database" : "page";
 }
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
@@ -145,6 +173,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
       id: schema.documents.id,
       title: schema.documents.title,
       content: schema.documents.content,
+      description: schema.documents.description,
       updatedAt: schema.documents.updatedAt,
       visibility: schema.documents.visibility,
       parentId: schema.documents.parentId,
@@ -164,16 +193,20 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     : false;
   if (doc.visibility === "public" || tokenAccess) {
     const { parentId, icon, ownerEmail, ...page } = doc;
+    const [reader, kind] = await Promise.all([
+      loadPublicReaderContext({
+        id: doc.id,
+        parentId,
+        icon,
+        content: doc.content,
+        ownerEmail,
+      }),
+      publicDocumentKind(doc.id),
+    ]);
     return publicDocumentLoaderData(
       {
-        document: page,
-        reader: await loadPublicReaderContext({
-          id: doc.id,
-          parentId,
-          icon,
-          content: doc.content,
-          ownerEmail,
-        }),
+        document: { ...page, kind },
+        reader,
         agentAccessToken: tokenAccess ? agentAccessToken : null,
         basePath,
         origin,
@@ -202,7 +235,9 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
   const description = loaderData?.document
     ? buildPublicDocumentDescription({
         title,
+        description: loaderData.document.description,
         content: loaderData.document.content,
+        kind: loaderData.document.kind,
       })
     : appMeta.metaDescription;
   const documentId = loaderData?.document?.id ?? loaderData?.unavailable?.id;
@@ -224,12 +259,15 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
     : null;
   const socialMeta =
     loaderData?.document?.visibility === "public"
-      ? buildResourceSocialMeta({
-          title,
-          description,
-          origin: loaderData.origin,
-          basePath: loaderData.basePath,
-        })
+      ? [
+          ...buildResourceSocialMeta({
+            title,
+            description,
+            origin: loaderData.origin,
+            basePath: loaderData.basePath,
+          }),
+          { property: "og:site_name", content: CONTENT_SITE_NAME },
+        ]
       : [
           { name: "description", content: description },
           { property: "og:title", content: title },
@@ -239,6 +277,7 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
         ];
   return [
     { title },
+    { name: "robots", content: PUBLIC_DOCUMENT_ROBOTS },
     ...socialMeta,
     ...(discovery
       ? [

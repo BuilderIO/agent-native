@@ -138,10 +138,6 @@ export interface DocumentUpdateSupersededResponse {
 
 type BrowserDocumentUpdateResponse = DocumentUpdateResponse & {
   browserSaveAttempt?: BrowserSaveAttemptConfirmation;
-  bodyIntentOutcome?: {
-    status: "applied" | "displaced-preserved";
-    displacedCheckpointId?: string;
-  };
 };
 
 export interface DocumentUpdatePreservationResponse {
@@ -1151,10 +1147,11 @@ const updateDocumentAction = defineAction({
       const descriptionChanged =
         args.description !== undefined &&
         args.description.trim() !== existing.description;
-      if (titleChanged || contentChanged || descriptionChanged) {
-        assertSourceAllowsPageEdit(existing);
+      const textChanged = titleChanged || contentChanged || descriptionChanged;
+      if (textChanged) assertSourceAllowsPageEdit(existing);
+      // The page's level keeps its icon out of agents' reach with its text.
+      if (textChanged || iconChanged)
         assertAgentsMayEditPageText(existing, ctx);
-      }
       const anyChange =
         titleChanged ||
         contentChanged ||
@@ -1268,7 +1265,7 @@ const updateDocumentAction = defineAction({
           // still gets its receipt. The page lock above makes this see Trash.
           if (!favoriteOnly) assertEditableDocument(existing);
           // Again under the page lock, which a person's switch has to wait for.
-          if (titleChanged || contentChanged || descriptionChanged) {
+          if (textChanged || iconChanged) {
             assertAgentsMayEditPageText(existing, ctx);
           }
           if (settlesPreviewDraft) {

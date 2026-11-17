@@ -4,6 +4,7 @@ import {
   setResponseStatus,
   setResponseHeader,
   getMethod,
+  getQuery,
   getRequestHeader,
 } from "h3";
 
@@ -71,6 +72,19 @@ export {
 };
 export type { MCPConfig, MCPCallerIdentity, MCPRequestMeta };
 
+// The URL parameter is for clients that can only be given a URL.
+function requestsScriptCatalogByQuery(event: H3Event): boolean {
+  try {
+    const catalog = getQuery(event).catalog;
+    return (
+      typeof catalog === "string" && catalog.trim().toLowerCase() === "script"
+    );
+  } catch {
+    // coercion-ok: an event without a readable URL asks for no catalog by query.
+    return false;
+  }
+}
+
 function deriveRequestMeta(event: H3Event): MCPRequestMeta {
   const forwardedProto = getRequestHeader(event, "x-forwarded-proto");
   const host =
@@ -112,6 +126,10 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     inlineAppsHeader === "1" ||
     inlineAppsHeader === "true" ||
     inlineAppsHeader === "yes";
+  const scriptCatalog =
+    getRequestHeader(event, "x-agent-native-mcp-catalog")
+      ?.trim()
+      .toLowerCase() === "script" || requestsScriptCatalogByQuery(event);
   const basePath = getConfiguredAppBasePath();
   const turnGrant = getRequestHeader(event, MCP_TURN_GRANT_HEADER);
   return {
@@ -126,6 +144,7 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     ...(mcpRetryToken ? { mcpRetryToken } : {}),
     ...(fullCatalog ? { fullCatalog } : {}),
     ...(inlineAppsRequested ? { inlineMcpApps: true } : {}),
+    ...(scriptCatalog ? { scriptCatalog: true } : {}),
   };
 }
 

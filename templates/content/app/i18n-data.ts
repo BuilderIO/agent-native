@@ -1108,6 +1108,9 @@ const editorToolbarMessages = {
   temporaryAgentLink: "Temporary agent link",
   privateLinkCanView: "Only people with access can view",
   publicLinkCanView: "Anyone with the link can view",
+  publicSubPagesOne: "This page and its sub-page",
+  publicSubPages: "This page and its {{count}} sub-pages",
+  publicSubPagesMore: "This page and more than {{count}} sub-pages",
   copiedAgentPrompt: "Agent prompt copied",
   couldNotCopyAgentPrompt: "Could not copy agent prompt",
   agentPrompt:
@@ -1167,6 +1170,11 @@ const editorToolbarMessages = {
   agentLevelUpdateFailed: "Couldn't change what agents can do here.",
   agentLevelNote: "Agents can comment",
   agentLevelNoteHint: "Agents can comment on this page. Change it in Share.",
+  agentLevelViewDescription:
+    "Can read this page. Can't comment, suggest or edit.",
+  agentLevelViewConfirm: "Agents can now only read this page.",
+  agentLevelViewNote: "Agents can only view",
+  agentLevelViewNoteHint: "Agents can only view this page. Change it in Share.",
   sendPageToAgent: "Send this page to an agent",
   connectAgentOverMcp: "Connect an agent over MCP",
   importingFromNotion: "Importing from Notion...",

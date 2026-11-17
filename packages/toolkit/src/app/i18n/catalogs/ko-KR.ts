@@ -2255,11 +2255,14 @@ const messages: ToolkitAgentChatTranslation = {
     "프레젠테이션을 위해 이 브라우저에서 샘플 데이터를 사용합니다.",
   "settingsShell.appGroup.labsFootnote":
     "이 새롭고 불안정한 기능에는 버그가 있을 수 있습니다.",
+  "settingsShell.appGroup.labsHostDecided":
+    "이 설정은 이미 정해져 있어 여기서 변경할 수 없습니다.",
   "settingsShell.appGroup.labsLoadError": "실험실 기능을 불러오지 못했습니다.",
   "settingsShell.appGroup.labsReadError":
     "저장된 선택 항목을 읽을 수 없습니다. 다시 설정하려면 켜기 또는 끄기를 선택하세요.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}}을(를) 변경하지 못했습니다. 다시 시도하세요.",
+  "settingsShell.appGroup.labsUseDefault": "기본값 사용",
   "settingsShell.appGroup.mcpAbout":
     "{{app}}을(를) Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 {{app}}에서 작업할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   "settingsShell.appGroup.mcpAppCards": "채팅 앱의 앱 카드",
@@ -2996,6 +2999,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "슬라이드와 디자인용 이미지를 생성합니다.",
   "settingsInfra.whyEmbeddings":
     "의미 기반 검색을 개선합니다. 키워드 검색은 이것 없이도 작동합니다.",
+  "settingsInfra.semanticSearch": "의미 기반 검색",
+  "settingsInfra.semanticSearchOn":
+    "단어뿐 아니라 의미로도 페이지를 찾습니다. 페이지 텍스트와 검색어는 임베딩 제공업체로 전송됩니다.",
+  "settingsInfra.semanticSearchOff":
+    "꺼짐. 검색은 단어만 찾으며, 페이지 텍스트는 임베딩 제공업체로 전송되지 않습니다.",
+  "settingsInfra.semanticSearchUnknown":
+    "의미 기반 검색이 켜져 있는지 확인할 수 없습니다.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "의미 기반 검색이 켜졌습니다. 기존 페이지는 백그라운드에서 색인됩니다.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "의미 기반 검색이 꺼졌습니다. 저장된 페이지 벡터가 삭제되었습니다.",
+  "settingsInfra.semanticSearchSaveFailed":
+    "의미 기반 검색을 변경할 수 없습니다.",
   "settingsInfra.designSystem": "디자인 시스템 인텔리전스",
   "settingsInfra.whyDesignSystem":
     "생성된 슬라이드와 디자인을 브랜드에 맞게 유지합니다.",
