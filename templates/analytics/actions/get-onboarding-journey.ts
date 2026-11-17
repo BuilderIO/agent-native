@@ -336,12 +336,11 @@ export default defineAction({
       const { requested, applied } = await outsideAgentOnboardingEventBytes(
         identity,
         args.maxTotalBytesBilled,
-        // Cohort trees run no follow-up query.
-        args.experimentId || args.splitDesignFirstTouch
-          ? 0
-          : args.followUpMode === "person"
-            ? 2
-            : 1,
+        {
+          followUpMode: args.followUpMode,
+          experimentId: args.experimentId,
+          splitDesignFirstTouch: args.splitDesignFirstTouch,
+        },
       );
       const { value, report } = await runOutsideAgentBigQueryCall(
         {

@@ -19,6 +19,12 @@ import { outsideAgentOnboardingEventBytes } from "./onboarding-journey-agent-bud
 
 const GB = 1_000_000_000;
 const identity = { ownerEmail: "alice@example.com", orgId: "org-1" };
+const session = { followUpMode: "session" } as const;
+const person = { followUpMode: "person" } as const;
+const cohort = {
+  followUpMode: "session",
+  experimentId: "first_run_builder_credits",
+} as const;
 
 function snapshot({
   personRemaining = OUTSIDE_AGENT_PERSON_BASE_BYTES,
@@ -59,7 +65,7 @@ describe("an outside agent's onboarding journey allowance", () => {
   it("keeps the 125 GB default when today's budget pays for it and its follow-up", async () => {
     mocks.read.mockResolvedValueOnce(snapshot());
     await expect(
-      outsideAgentOnboardingEventBytes(identity, undefined, 1),
+      outsideAgentOnboardingEventBytes(identity, undefined, session),
     ).resolves.toEqual({
       requested: 125 * GB,
       applied: 125 * GB,
@@ -72,12 +78,19 @@ describe("an outside agent's onboarding journey allowance", () => {
     mocks.read.mockResolvedValue(snapshot({ personRemaining: 70 * GB }));
     // $0.40 left: one 25 GB follow-up and one 25 GB page.
     await expect(
-      outsideAgentOnboardingEventBytes(identity, 1_275 * GB, 1),
+      outsideAgentOnboardingEventBytes(identity, 1_275 * GB, session),
     ).resolves.toMatchObject({ applied: 25 * GB, refusal: null });
-    // With no follow-up, as for a cohort tree, two pages fit.
+    // A cohort tree runs no follow-up, so two pages fit; person mode runs two
+    // follow-ups, so none does.
     await expect(
-      outsideAgentOnboardingEventBytes(identity, 1_275 * GB, 0),
+      outsideAgentOnboardingEventBytes(identity, 1_275 * GB, cohort),
     ).resolves.toMatchObject({ applied: 50 * GB, refusal: null });
+    await expect(
+      outsideAgentOnboardingEventBytes(identity, 1_275 * GB, person),
+    ).resolves.toMatchObject({
+      applied: 25 * GB,
+      refusal: { code: "approval_required", reservedBytes: 75 * GB },
+    });
   });
 
   it("refuses as admission would when not even one page fits, while the journey still gets one page to be refused", async () => {
@@ -85,7 +98,7 @@ describe("an outside agent's onboarding journey allowance", () => {
     const allowance = await outsideAgentOnboardingEventBytes(
       identity,
       undefined,
-      1,
+      session,
     );
     expect(allowance.applied).toBe(25 * GB);
     expect(allowance.refusal).toBeInstanceOf(OutsideAgentBigQueryRefusalError);
@@ -99,7 +112,7 @@ describe("an outside agent's onboarding journey allowance", () => {
   it("names the organization's limit when that is what stops it", async () => {
     mocks.read.mockResolvedValueOnce(snapshot({ orgRemaining: 20 * GB }));
     await expect(
-      outsideAgentOnboardingEventBytes(identity, undefined, 0),
+      outsideAgentOnboardingEventBytes(identity, undefined, cohort),
     ).resolves.toMatchObject({
       refusal: { code: "budget_exhausted", scope: "org" },
     });
@@ -110,7 +123,7 @@ describe("an outside agent's onboarding journey allowance", () => {
       snapshot({ personRemaining: 10 * GB, approvedToday: true }),
     );
     await expect(
-      outsideAgentOnboardingEventBytes(identity, undefined, 0),
+      outsideAgentOnboardingEventBytes(identity, undefined, cohort),
     ).resolves.toMatchObject({
       refusal: { code: "budget_exhausted", scope: "person" },
     });
@@ -121,7 +134,7 @@ describe("an outside agent's onboarding journey allowance", () => {
       new BigQueryAgentBudgetUnavailableError("db down"),
     );
     await expect(
-      outsideAgentOnboardingEventBytes(identity, undefined, 1),
+      outsideAgentOnboardingEventBytes(identity, undefined, session),
     ).rejects.toMatchObject({ code: "budget_unavailable" });
   });
 });

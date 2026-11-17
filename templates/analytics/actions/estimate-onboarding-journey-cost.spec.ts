@@ -36,6 +36,10 @@ vi.mock("../server/lib/onboarding-journey.js", () => ({
   ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED: 275_000_000_000,
   ONBOARDING_EVENTS_MAX_BYTES_BILLED: 25_000_000_000,
   ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED: 1_275_000_000_000,
+  ONBOARDING_JOURNEY_EXPERIMENT_IDS: [
+    "first_run_builder_credits",
+    "first_run_builder_credits_v2",
+  ],
 }));
 
 vi.mock("../server/lib/onboarding-journey-cost.js", () => ({
@@ -212,7 +216,7 @@ describe("an outside agent's estimate", () => {
       expect(mocks.allowance).toHaveBeenCalledWith(
         { ownerEmail: "caller@example.test", orgId: "org-1" },
         undefined,
-        1,
+        { followUpMode: "session", splitDesignFirstTouch: false },
       );
       expect(mocks.estimate.mock.calls[0]![6]).toBe(50_000_000_000);
       expect(result).toEqual({
@@ -221,6 +225,39 @@ describe("an outside agent's estimate", () => {
       });
     },
   );
+
+  it("passes a cohort split to the allowance, which sets no follow-up aside for it", async () => {
+    mocks.allowance.mockResolvedValueOnce({
+      requested: 125_000_000_000,
+      applied: 50_000_000_000,
+      refusal: null,
+    });
+    await action.run(
+      action.schema.parse({
+        dateFrom: "2026-10-01",
+        dateTo: "2026-10-02",
+        experimentId: "first_run_builder_credits",
+      }),
+      { caller: "mcp" } as ActionRunContext,
+    );
+    expect(mocks.allowance).toHaveBeenCalledWith(
+      { ownerEmail: "caller@example.test", orgId: "org-1" },
+      undefined,
+      {
+        followUpMode: "session",
+        experimentId: "first_run_builder_credits",
+        splitDesignFirstTouch: false,
+      },
+    );
+    expect(() =>
+      action.schema.parse({
+        dateFrom: "2026-10-01",
+        dateTo: "2026-10-02",
+        splitDesignFirstTouch: true,
+        followUpMode: "person",
+      }),
+    ).toThrow(/not available with cohort splits/);
+  });
 
   it("keeps the in-app 275 GB default for Analytics' own callers", async () => {
     await action.run(args, { caller: "tool" } as ActionRunContext);

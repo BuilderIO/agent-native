@@ -15,8 +15,9 @@ import {
  * The event-read allowance an outside agent's onboarding journey runs with:
  * what it asked for (125 GB unless it said otherwise), capped at the event
  * pages its remaining budget pays for after the follow-up queries the call
- * will also run. The cost estimate uses the same allowance, so an agent plans
- * with the pages the journey will actually read.
+ * will also run (none for a cohort split, one in session mode, two in person
+ * mode). The cost estimate uses the same allowance with the same arguments,
+ * so an agent plans with the pages the journey will actually read.
  *
  * When not even one page fits, `refusal` says why, as admission would. The
  * journey still runs with one page, so its refusal comes from admission with
@@ -25,7 +26,11 @@ import {
 export async function outsideAgentOnboardingEventBytes(
   identity: OutsideAgentIdentity,
   requestedBytes: number | undefined,
-  followUpQueries: number,
+  call: {
+    followUpMode: "session" | "person";
+    experimentId?: string | undefined;
+    splitDesignFirstTouch?: boolean | undefined;
+  },
 ): Promise<{
   requested: number;
   applied: number;
@@ -45,6 +50,13 @@ export async function outsideAgentOnboardingEventBytes(
     }
     throw error;
   }
+  // Cohort trees return before any follow-up query.
+  const followUpQueries =
+    call.experimentId || call.splitDesignFirstTouch
+      ? 0
+      : call.followUpMode === "person"
+        ? 2
+        : 1;
   const followUpBytes = followUpQueries * ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED;
   const available = Math.min(
     budget.person.remainingBytes,

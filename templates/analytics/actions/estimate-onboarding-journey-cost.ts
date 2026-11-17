@@ -28,6 +28,7 @@ import {
   ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED,
+  ONBOARDING_JOURNEY_EXPERIMENT_IDS,
 } from "../server/lib/onboarding-journey.js";
 
 const MAX_WINDOW_DAYS = 90;
@@ -40,60 +41,86 @@ const isoDate = z
 export default defineAction({
   description:
     "Dry-run the caller-scoped BigQuery event-page queries for an onboarding journey. Returns requested and budget-allowed page counts, estimated bytes per page, and total possible bytes when every allowed page is estimated. Each page reserves the 25 GB per-query cap against maxTotalBytesBilled. Estimates stop after 45 seconds and explicitly report unestimated pages.",
-  schema: z.object({
-    dateFrom: isoDate.describe(
-      "Inclusive UTC start date, YYYY-MM-DD. Use the same dateFrom as get-onboarding-journey.",
-    ),
-    dateTo: isoDate.describe(
-      `Inclusive UTC end date, YYYY-MM-DD, at most ${MAX_WINDOW_DAYS} days after dateFrom. Use the same dateTo as get-onboarding-journey.`,
-    ),
-    app: z
-      .enum(["all", ...FIRST_PARTY_TEMPLATE_NAMES])
-      .optional()
-      .default("all")
-      .describe(
-        'Template filter: "all" or one first-party template such as clips, design, or slides. Defaults to "all".',
+  schema: z
+    .object({
+      dateFrom: isoDate.describe(
+        "Inclusive UTC start date, YYYY-MM-DD. Use the same dateFrom as get-onboarding-journey.",
       ),
-    emailFilter: z
-      .enum(["all", "exclude_builder", "only_builder"])
-      .optional()
-      .default("exclude_builder")
-      .describe(
-        'Builder employee filter, matching get-onboarding-journey: "exclude_builder" (default), "only_builder", or "all".',
+      dateTo: isoDate.describe(
+        `Inclusive UTC end date, YYYY-MM-DD, at most ${MAX_WINDOW_DAYS} days after dateFrom. Use the same dateTo as get-onboarding-journey.`,
       ),
-    excludeNonProductionHosts: z
-      .boolean()
-      .optional()
-      .describe(
-        "Exclude beta and localhost hosts, matching the journey query.",
-      ),
-    followUpMode: z
-      .enum(["session", "person"])
-      .optional()
-      .default("session")
-      .describe(
-        'Use the same mode as get-onboarding-journey. "person" freezes the event receive-time watermark used by that request. This estimates event pages only; data-dependent follow-up queries are excluded. Defaults to "session".',
-      ),
-    maxEventRows: z.coerce
-      .number()
-      .int()
-      .min(1000)
-      .max(MAX_ONBOARDING_EVENT_ROW_BUDGET)
-      .optional()
-      .default(DEFAULT_ONBOARDING_EVENT_ROW_BUDGET)
-      .describe(
-        `Event row budget, matching get-onboarding-journey. Defaults to ${DEFAULT_ONBOARDING_EVENT_ROW_BUDGET}; at most ${MAX_ONBOARDING_EVENT_ROW_BUDGET}. Estimates include the one-row overflow check; the journey reads each page only when the previous page is full.`,
-      ),
-    maxTotalBytesBilled: z.coerce
-      .number()
-      .int()
-      .min(ONBOARDING_EVENTS_MAX_BYTES_BILLED)
-      .max(ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED)
-      .optional()
-      .describe(
-        "Aggregate cap for event-page queries, in bytes billed. Each allowed BigQuery page reserves its full 25 GB per-query cap. Defaults to 275 GB (11 pages), or 125 GB (5 pages) for an outside agent, whose cap is also lowered to what its daily BigQuery budget can still pay for, exactly as get-onboarding-journey applies it; the result's maxTotalBytesBilled is the cap applied, and maxTotalBytesBilledRequested what was asked when the budget lowered it. Set a higher value deliberately to allow more pages, up to 1.275 TB (51 pages). Match get-onboarding-journey.",
-      ),
-  }),
+      app: z
+        .enum(["all", ...FIRST_PARTY_TEMPLATE_NAMES])
+        .optional()
+        .default("all")
+        .describe(
+          'Template filter: "all" or one first-party template such as clips, design, or slides. Defaults to "all".',
+        ),
+      emailFilter: z
+        .enum(["all", "exclude_builder", "only_builder"])
+        .optional()
+        .default("exclude_builder")
+        .describe(
+          'Builder employee filter, matching get-onboarding-journey: "exclude_builder" (default), "only_builder", or "all".',
+        ),
+      excludeNonProductionHosts: z
+        .boolean()
+        .optional()
+        .describe(
+          "Exclude beta and localhost hosts, matching the journey query.",
+        ),
+      followUpMode: z
+        .enum(["session", "person"])
+        .optional()
+        .default("session")
+        .describe(
+          'Use the same mode as get-onboarding-journey. "person" freezes the event receive-time watermark used by that request. This estimates event pages only; data-dependent follow-up queries are excluded. Defaults to "session".',
+        ),
+      maxEventRows: z.coerce
+        .number()
+        .int()
+        .min(1000)
+        .max(MAX_ONBOARDING_EVENT_ROW_BUDGET)
+        .optional()
+        .default(DEFAULT_ONBOARDING_EVENT_ROW_BUDGET)
+        .describe(
+          `Event row budget, matching get-onboarding-journey. Defaults to ${DEFAULT_ONBOARDING_EVENT_ROW_BUDGET}; at most ${MAX_ONBOARDING_EVENT_ROW_BUDGET}. Estimates include the one-row overflow check; the journey reads each page only when the previous page is full.`,
+        ),
+      maxTotalBytesBilled: z.coerce
+        .number()
+        .int()
+        .min(ONBOARDING_EVENTS_MAX_BYTES_BILLED)
+        .max(ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED)
+        .optional()
+        .describe(
+          "Aggregate cap for event-page queries, in bytes billed. Each allowed BigQuery page reserves its full 25 GB per-query cap. Defaults to 275 GB (11 pages), or 125 GB (5 pages) for an outside agent, whose cap is also lowered to what its daily BigQuery budget can still pay for, exactly as get-onboarding-journey applies it; the result's maxTotalBytesBilled is the cap applied, and maxTotalBytesBilledRequested what was asked when the budget lowered it. Set a higher value deliberately to allow more pages, up to 1.275 TB (51 pages). Match get-onboarding-journey.",
+        ),
+      experimentId: z
+        .enum(ONBOARDING_JOURNEY_EXPERIMENT_IDS)
+        .optional()
+        .describe(
+          "Use the same experimentId as get-onboarding-journey. It doesn't change the event pages estimated, but a cohort split runs no follow-up query, so an outside agent's allowance sets none aside.",
+        ),
+      splitDesignFirstTouch: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "Use the same splitDesignFirstTouch as get-onboarding-journey. Like experimentId, it changes only the follow-up allowance.",
+        ),
+    })
+    .superRefine((args, ctx) => {
+      if (
+        (args.experimentId || args.splitDesignFirstTouch) &&
+        args.followUpMode === "person"
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["followUpMode"],
+          message: "Person follow-up is not available with cohort splits.",
+        });
+      }
+    }),
   http: { method: "GET" },
   readOnly: true,
   mcpTool: true,
@@ -131,7 +158,11 @@ export default defineAction({
         ? await outsideAgentOnboardingEventBytes(
             outsideAgentIdentity(scope.userEmail, scope.orgId),
             args.maxTotalBytesBilled,
-            args.followUpMode === "person" ? 2 : 1,
+            {
+              followUpMode: args.followUpMode,
+              experimentId: args.experimentId,
+              splitDesignFirstTouch: args.splitDesignFirstTouch,
+            },
           )
         : null;
       // Not even one page fits today: say so instead of estimating a call
