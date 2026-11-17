@@ -351,6 +351,8 @@ export async function autoDiscoverActions(
 export { CORE_ACTION_GROUPS };
 
 export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
+  // An app page mints the grant its `userTurn` actions accept over MCP.
+  "mint-turn-grant",
   "upload-image",
   "list-mcp-tools",
   "call-mcp-tool",
@@ -379,6 +381,7 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
  */
 export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
   return [
+    ["mint-turn-grant", () => import("../mcp/actions/mint-turn-grant.js")],
     ["decide", () => import("../decisions/actions/decide.js")],
     [
       "decisions-status",

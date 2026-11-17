@@ -661,6 +661,20 @@
       "checksum": "5219a7b9642c4847"
     }
   ],
+  "mcp_chat_turns": [
+    {
+      "name": "baseline",
+      "checksum": "a02324dc63f8bc43"
+    },
+    {
+      "name": "admissions",
+      "checksum": "a5bc553b1278195c"
+    },
+    {
+      "name": "admissions-expiry-index",
+      "checksum": "b2db0a68585f45ec"
+    }
+  ],
   "mcp_connect": [
     {
       "name": "baseline",
@@ -679,6 +693,16 @@
     {
       "name": "client-activity-lookup-index",
       "checksum": "4b5d5edf48a0f71b"
+    }
+  ],
+  "mcp_turn_grants": [
+    {
+      "name": "baseline",
+      "checksum": "03228922a3cb9608"
+    },
+    {
+      "name": "expiry-index",
+      "checksum": "49e51b43de935222"
     }
   ],
   "notifications": [

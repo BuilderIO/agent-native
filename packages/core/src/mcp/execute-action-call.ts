@@ -57,6 +57,10 @@ import {
   type StringReading,
 } from "./embed-redaction.js";
 import { MCP_OAUTH_SCOPES, hasMcpOAuthScope } from "./oauth-token.js";
+import {
+  isMcpTurnGrantAction,
+  requiresTurnGrantPageApproval,
+} from "./turn-grant-scope.js";
 
 /**
  * The authorization, approval, execution and result-sanitizing steps of an
@@ -708,6 +712,12 @@ export async function runMcpActionCallUnredacted(
 
     const { approval } = authorization;
     const execution: ActionExecutionOutcome = { refused: false };
+    const approvalEvidence =
+      approval?.by === "client"
+        ? { mcpClientAccepted: true as const }
+        : approval?.by === "review-page"
+          ? { auditOverride: { approval: "mcp-review" as const } }
+          : undefined;
     try {
       const result = await runPreparedActionCall(
         entry,
@@ -715,11 +725,9 @@ export async function runMcpActionCallUnredacted(
         runContext,
         vouchedOutcome(
           execution,
-          approval?.by === "client"
-            ? { mcpClientAccepted: true }
-            : approval?.by === "review-page"
-              ? { auditOverride: { approval: "mcp-review" } }
-              : undefined,
+          isMcpTurnGrantAction(name)
+            ? { ...approvalEvidence, providerInteractive: true }
+            : approvalEvidence,
         ),
       );
       if (approval) await settleApprovedRun(approval.nonce, "completed");
@@ -913,7 +921,14 @@ async function authorizeApproval(
 > {
   const { name } = call;
   const { identity, approvalCallerKey } = context;
-  const verifiedState = call.approval?.state();
+  // Client-side approval cannot stand in for a required user-turn grant.
+  if (entry.requiresUserTurn === true && !isMcpTurnGrantAction(name)) {
+    return approvalDenied(
+      `${name} requires a valid user-turn grant and approval on its review page.`,
+    );
+  }
+  const pageApprovalOnly = requiresTurnGrantPageApproval(name);
+  const verifiedState = pageApprovalOnly ? undefined : call.approval?.state();
   // A grant binds the exact call: as sent, which must be JSON, and the
   // identity of the arguments it runs with.
   const argumentsHash = await sha256Base64Url(
@@ -1018,16 +1033,19 @@ async function authorizeApproval(
     return { status: "approval-pending", reason: "declined", review };
   }
 
-  if (entry.needsApproval === undefined) {
+  if (!pageApprovalOnly && entry.needsApproval === undefined) {
     return { status: "authorized" };
   }
-  const mustApprove = await preparedCallNeedsApproval(entry, prepared, {
-    userEmail: getRequestUserEmail(),
-    orgId: getRequestOrgId() ?? null,
-    appId: context.appId,
-    caller: "mcp",
-    actionName: name,
-  });
+  const requestEmail = getRequestUserEmail();
+  const mustApprove =
+    pageApprovalOnly ||
+    (await preparedCallNeedsApproval(entry, prepared, {
+      ...(requestEmail ? { userEmail: requestEmail } : {}),
+      orgId: getRequestOrgId() ?? null,
+      ...(context.appId ? { appId: context.appId } : {}),
+      caller: "mcp",
+      actionName: name,
+    }));
   if (!mustApprove) return { status: "authorized" };
 
   if (!hasVerifiedUserIdentity) {

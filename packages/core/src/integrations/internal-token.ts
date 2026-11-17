@@ -70,6 +70,28 @@ export function verifyInternalToken(taskId: string, token: string): boolean {
   return safeEqual(sig, expected);
 }
 
+// The prefix keeps a chat-turn proof from ever verifying as another token.
+function mcpChatTurnProofHex(payload: readonly unknown[]): string {
+  return hmacHex(
+    getSecret(),
+    `agent-native:mcp-chat-turn:${JSON.stringify(payload)}`,
+  );
+}
+
+/** Signs an MCP chat-turn claim; throws when A2A_SECRET is not set. */
+export function signMcpChatTurnProof(payload: readonly unknown[]): string {
+  return mcpChatTurnProofHex(payload);
+}
+
+/** Throws when A2A_SECRET is not set, so a missing secret is not a forgery. */
+export function verifyMcpChatTurnProof(
+  payload: readonly unknown[],
+  signature: unknown,
+): boolean {
+  if (typeof signature !== "string") return false;
+  return safeEqual(signature, mcpChatTurnProofHex(payload));
+}
+
 export function extractBearerToken(
   authHeader: string | undefined,
 ): string | null {
