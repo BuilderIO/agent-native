@@ -1,4 +1,4 @@
-import { fail } from "@agent-native/core/action";
+import { currentActionOriginCaller, fail } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 
 import {
@@ -36,6 +36,14 @@ import {
   type TrafficEnvironment,
 } from "../../shared/traffic-environment";
 import { dryRunQuerySchema, type DryRunQueryResult } from "./bigquery";
+import { outsideAgentIdentity } from "./bigquery-agent-budget";
+import {
+  childOutsideAgentBigQueryGate,
+  createOutsideAgentBigQueryGate,
+  currentOutsideAgentBigQueryGate,
+  isOutsideAgentCaller,
+  withOutsideAgentBigQueryGate,
+} from "./bigquery-agent-context";
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import type { DashboardPanelSource } from "./dashboard-panel-query";
 import {
@@ -70,7 +78,8 @@ export type PanelUnverifiedNote =
   | "missing_credential"
   | "skipped:program"
   | "too_expensive"
-  | "not_executed:over_budget";
+  | "not_executed:over_budget"
+  | "outside_agent_budget";
 
 export interface PanelVerification {
   panelId: string;
@@ -169,6 +178,8 @@ const NOTE_REASONS: Record<PanelUnverifiedNote, string> = {
     "the dry run is larger than the automatic-verification byte limit, so it was not run",
   "not_executed:over_budget":
     "more panels were affected than the per-save verification cap runs",
+  outside_agent_budget:
+    "the outside agent's daily BigQuery budget did not allow its query, so it was not run",
 };
 
 const AGENT_CALLERS: ReadonlySet<string> = new Set([
@@ -736,21 +747,39 @@ async function verifyOne(
       error: error instanceof Error ? error.message : String(error),
     });
   }
-  const data = await runResolvedPanel({
-    source: source as DashboardPanelSource,
-    query,
-    ctx: state.ctx,
-    timeoutMs: remainingMs(),
-    signal: budgetSignal(),
-    forceRefresh: opts.forceRefresh,
-    usageAttribution: {
-      workload: "panel-verification",
-      panelId,
-      ...(opts.dashboardId ? { dashboardId: opts.dashboardId } : {}),
-    },
-    ...(trafficEnvironment ? { trafficEnvironment } : {}),
-  });
+  // Each panel admits through the call's budget gate but learns only its own
+  // refusal, so a refused panel reads as unverified rather than broken.
+  const callGate = currentOutsideAgentBigQueryGate();
+  const panelGate = callGate ? childOutsideAgentBigQueryGate(callGate) : null;
+  const runPanelQuery = () =>
+    runResolvedPanel({
+      source: source as DashboardPanelSource,
+      query,
+      ctx: state.ctx,
+      timeoutMs: remainingMs(),
+      signal: budgetSignal(),
+      ...(opts.forceRefresh !== undefined
+        ? { forceRefresh: opts.forceRefresh }
+        : {}),
+      usageAttribution: {
+        workload: "panel-verification",
+        panelId,
+        ...(opts.dashboardId ? { dashboardId: opts.dashboardId } : {}),
+      },
+      ...(trafficEnvironment ? { trafficEnvironment } : {}),
+    });
+  const data = panelGate
+    ? await withOutsideAgentBigQueryGate(panelGate, runPanelQuery)
+    : await runPanelQuery();
   if (opts.signal?.aborted) throw cancelled();
+  const budgetRefusal = panelGate?.summary().refusal;
+  if (budgetRefusal) {
+    return finish({
+      status: "unverified",
+      note: "outside_agent_budget",
+      error: budgetRefusal.message,
+    });
+  }
   if (data.status === "missing-credential") {
     return finish({
       status: "unverified",
@@ -841,6 +870,25 @@ export async function verifyDashboardPanels(
   panelIds: readonly string[],
   opts: VerifyOptions = {},
 ): Promise<DashboardVerification> {
+  // Verifying an outside agent's edit runs BigQuery jobs it caused, so they
+  // count against its daily budget, each reserved from its own dry run.
+  if (
+    !currentOutsideAgentBigQueryGate() &&
+    isOutsideAgentCaller(currentActionOriginCaller())
+  ) {
+    const ctx = getCredentialContext();
+    if (ctx?.userEmail) {
+      const gate = createOutsideAgentBigQueryGate({
+        identity: outsideAgentIdentity(ctx.userEmail, ctx.orgId),
+        source: "panel-verification",
+        reservation: "dry-run",
+        leaseMs: PANEL_VERIFICATION_BUDGET_MS + 60_000,
+      });
+      return withOutsideAgentBigQueryGate(gate, () =>
+        verifyDashboardPanels(rawConfig, panelIds, opts),
+      );
+    }
+  }
   const config = normalizeDashboardConfig(rawConfig);
   const startedAt = Date.now();
   const budgetMs = opts.budgetMs ?? PANEL_VERIFICATION_BUDGET_MS;
