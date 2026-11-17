@@ -317,6 +317,16 @@ type ExternalEmbedConfig = {
   __agentNativePathState?: unknown;
 };
 
+function hasExternalEmbedConfig(): boolean {
+  if (typeof window === "undefined") return false;
+  const externalEmbed = (
+    window as Window & {
+      __AGENT_NATIVE_EXTERNAL_EMBED?: unknown;
+    }
+  ).__AGENT_NATIVE_EXTERNAL_EMBED;
+  return Boolean(externalEmbed && typeof externalEmbed === "object");
+}
+
 function externalEmbedTargetBasePath(): string | undefined {
   if (typeof window === "undefined") return undefined;
   const externalEmbed = (
@@ -567,10 +577,13 @@ export function agentNativePath(path: string): string {
   // separate app function just to re-read that session adds a cold-start
   // waterfall before the app can render. Data/actions retain their app paths.
   // Explicit remote API bases keep their existing credential/mount routing.
+  // An MCP host panel's token covers only this app's mount, so its session
+  // read stays there; the origin authority would answer it unsigned.
   const env = clientEnv();
   if (
     pathname === "/_agent-native/auth/session" &&
     isWorkspaceRuntime() &&
+    !hasExternalEmbedConfig() &&
     (env?.VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE ??
       env?.AGENT_NATIVE_WORKSPACE_AUTH_MODE) === "shared" &&
     !apiBaseUrl()

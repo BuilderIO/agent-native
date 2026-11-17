@@ -1,9 +1,13 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
+import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
 import { useDbSync } from "@agent-native/core/client/hooks";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
-import { getThemeInitScript } from "@agent-native/core/client/ui";
+import {
+  getThemeInitScript,
+  themeStorageKeyForApp,
+} from "@agent-native/core/client/ui";
 import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useQueryClient } from "@tanstack/react-query";
@@ -270,7 +274,9 @@ function useApplyThemeClass() {
     if (root.classList.contains("dark") || root.classList.contains("light"))
       return;
     try {
-      const stored = localStorage.getItem("theme");
+      const stored = localStorage.getItem(
+        themeStorageKeyForApp(injectedAgentNativeAppId()),
+      );
       if (stored === "dark") {
         root.classList.add("dark");
       } else if (stored === "light") {

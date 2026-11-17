@@ -67,6 +67,7 @@ export {
   actionErrorCode,
   isTerminalActionError,
 } from "../action-failure-circuit.js";
+export { invalidateForegroundActionQueries } from "../action-query-foreground.js";
 export { createAgentNativeQueryClient } from "../create-query-client.js";
 export {
   APP_CHAT_SIDEBAR_STATE_EVENT,

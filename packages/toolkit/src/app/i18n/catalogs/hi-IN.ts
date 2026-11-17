@@ -1477,6 +1477,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "सार्वजनिक",
   "share.publicDescription": "लिंक वाला कोई भी व्यक्ति देख सकता है",
   "share.remove": "हटाएँ",
+  "share.removeInvitee": "{{email}} हटाएँ",
   "share.role": "भूमिका",
   "share.searching": "खोजा जा रहा है...",
   "share.share": "शेयर करें",
@@ -1500,6 +1501,10 @@ const messages: ToolkitAgentChatTranslation = {
     "{{organization}} के सभी लोग, नए सदस्यों सहित, इसे खोल सकेंगे और इसमें मौजूद सब कुछ देख सकेंगे, जिसमें संदेश, फ़ाइलें और अन्य सामग्री शामिल हैं। आप इसे बाद में बदल सकते हैं।",
   "share.confirmOrganizationAction": "संगठन के साथ साझा करें",
   "share.confirmOrganizationSharing": "साझा किया जा रहा है...",
+  "share.confirmPublicTitle": "लिंक वाले किसी भी व्यक्ति के साथ साझा करें?",
+  "share.confirmPublicDescription":
+    "लिंक वाला कोई भी व्यक्ति, आपके संगठन से बाहर के लोग भी, इसे खोल सकेगा और इसमें सब कुछ देख सकेगा। आप इसे बाद में बदल सकते हैं।",
+  "share.confirmPublicAction": "सार्वजनिक रूप से साझा करें",
   "status.resuming": "फिर से शुरू हो रहा है",
   "status.stillWorking": "अभी काम जारी है",
   "status.thinking": "सोच रहा है",
@@ -2253,11 +2258,14 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.demoModeDescription":
     "प्रस्तुतियों के लिए इस ब्राउज़र में नमूना डेटा का उपयोग करें।",
   "settingsShell.appGroup.labsFootnote": "इन नई, अस्थिर सुविधाओं में बग हो सकते हैं।",
+  "settingsShell.appGroup.labsHostDecided":
+    "यह आपके लिए तय किया गया है, इसलिए इसे यहाँ नहीं बदला जा सकता।",
   "settingsShell.appGroup.labsLoadError": "आपकी लैब्स लोड नहीं हो सकीं।",
   "settingsShell.appGroup.labsReadError":
     "इस सहेजे गए विकल्प को पढ़ा नहीं जा सका। इसे फिर से सेट करने के लिए चालू या बंद चुनें।",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} बदला नहीं जा सका। फिर से कोशिश करें।",
+  "settingsShell.appGroup.labsUseDefault": "डिफ़ॉल्ट इस्तेमाल करें",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए {{app}} में काम कर सकता है। वह केवल वही देखता है जो आप देख सकते हैं।",
   "settingsShell.appGroup.mcpAppCards": "चैट ऐप्स में ऐप कार्ड",
@@ -2991,6 +2999,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "स्लाइड और डिज़ाइन के लिए इमेज बनाता है।",
   "settingsInfra.whyEmbeddings":
     "सिमेंटिक खोज को बेहतर बनाता है। कीवर्ड खोज इसके बिना भी काम करती है।",
+  "settingsInfra.semanticSearch": "सिमेंटिक खोज",
+  "settingsInfra.semanticSearchOn":
+    "शब्दों के साथ-साथ अर्थ से भी पेज ढूँढता है। पेज का टेक्स्ट और खोजें एम्बेडिंग प्रदाता को भेजी जाती हैं।",
+  "settingsInfra.semanticSearchOff":
+    "बंद। खोज केवल शब्दों से मेल खाती है, और कोई पेज टेक्स्ट एम्बेडिंग प्रदाता को नहीं भेजा जाता।",
+  "settingsInfra.semanticSearchUnknown":
+    "यह पढ़ा नहीं जा सका कि सिमेंटिक खोज चालू है या नहीं।",
+  "settingsInfra.semanticSearchTurnedOn":
+    "सिमेंटिक खोज चालू है। मौजूदा पेज बैकग्राउंड में इंडेक्स किए जाते हैं।",
+  "settingsInfra.semanticSearchTurnedOff":
+    "सिमेंटिक खोज बंद है। सहेजे गए पेज वेक्टर हटा दिए गए।",
+  "settingsInfra.semanticSearchSaveFailed": "सिमेंटिक खोज नहीं बदली जा सकी।",
   "settingsInfra.designSystem": "डिज़ाइन सिस्टम इंटेलिजेंस",
   "settingsInfra.whyDesignSystem":
     "बनाई गई स्लाइड और डिज़ाइन को ब्रांड के अनुरूप रखता है।",
@@ -3706,6 +3726,66 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "आपकी वॉइस चैट सेटिंग सेव नहीं हो सकीं।",
   "voice.dictation.cancelTranscription": "ट्रांसक्रिप्शन रद्द करें",
+  "common.noData": "कोई डेटा नहीं",
+  "common.rowsPerPage": "प्रति पेज पंक्तियां:",
+  "dashboardMode.columnResizePersonal":
+    "सिर्फ़ अपने लिए आकार बदलने को खींचें। रीसेट करने के लिए डबल-क्लिक करें।",
+  "dashboardMode.columnResizeShared": "सभी के लिए आकार बदलने को खींचें",
+  "sessions.watchReplay": "रीप्ले देखें",
+  "sqlDashboard.calloutSeverityCritical": "गंभीर",
+  "sqlDashboard.calloutSeverityInfo": "जानकारी",
+  "sqlDashboard.calloutSeverityWarning": "चेतावनी",
+  "sqlDashboard.chartPointLimitFirst":
+    "{{total}} में से पहले {{shown}} बिंदु दिखाए जा रहे हैं",
+  "sqlDashboard.chartPointLimitLast":
+    "{{total}} में से अंतिम {{shown}} बिंदु दिखाए जा रहे हैं",
+  "sqlDashboard.chartPointLimitNewest":
+    "{{total}} में से नवीनतम {{shown}} बिंदु दिखाए जा रहे हैं",
+  "sqlDashboard.collapseDescription": "विवरण संक्षिप्त करें",
+  "sqlDashboard.columnFormat": "प्रारूप",
+  "sqlDashboard.columnFormatCurrency": "मुद्रा",
+  "sqlDashboard.columnFormatDate": "तारीख",
+  "sqlDashboard.columnFormatDuration": "अवधि (सेकंड)",
+  "sqlDashboard.columnFormatNumber": "संख्या",
+  "sqlDashboard.columnFormatPercent": "प्रतिशत",
+  "sqlDashboard.columnFormatText": "सादा पाठ",
+  "sqlDashboard.columnHide": "कॉलम छिपाएँ",
+  "sqlDashboard.columnName": "कॉलम का नाम",
+  "sqlDashboard.columnRename": "कॉलम का नाम बदलें",
+  "sqlDashboard.columnResize": "कॉलम का आकार बदलें",
+  "sqlDashboard.columnShow": '"{{name}}" दिखाएँ',
+  "sqlDashboard.columnShowHidden": "छिपे हुए कॉलम दिखाएँ",
+  "sqlDashboard.drilldownChartPoints": "चार्ट के बिंदु",
+  "sqlDashboard.drilldownNextPage": "चार्ट बिंदुओं का अगला पृष्ठ",
+  "sqlDashboard.drilldownPageRange":
+    "कुल {{total}} में से {{start}}–{{end}} दिखाए जा रहे हैं",
+  "sqlDashboard.drilldownPreviousPage": "चार्ट बिंदुओं का पिछला पृष्ठ",
+  "sqlDashboard.expandDescription": "विवरण का विस्तार करें",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "पूरा किया",
+  "sqlDashboard.funnelLeft": "ऐप छोड़ दिया",
+  "sqlDashboard.funnelLeftHere": "यहाँ ऐप छोड़ दिया",
+  "sqlDashboard.funnelMovedOn": "दोनों के बिना आगे बढ़े",
+  "sqlDashboard.funnelOptional": "वैकल्पिक",
+  "sqlDashboard.funnelShown": "{{count}} को दिखाया गया",
+  "sqlDashboard.funnelShownLabel": "दिखाया गया",
+  "sqlDashboard.funnelSkipped": "छोड़ा",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}} (बेहतर)",
+  "sqlDashboard.metricComparisonDown":
+    "{{period}} के {{previous}} से {{change}} नीचे",
+  "sqlDashboard.metricComparisonFlat":
+    "{{period}} के {{previous}} से कोई बदलाव नहीं",
+  "sqlDashboard.metricComparisonNoChange": "कोई बदलाव नहीं",
+  "sqlDashboard.metricComparisonPoints": "{{value}} अंक",
+  "sqlDashboard.metricComparisonPreviousPeriod": "पिछली अवधि",
+  "sqlDashboard.metricComparisonUp":
+    "{{period}} के {{previous}} से {{change}} ऊपर",
+  "sqlDashboard.metricComparisonVs": "{{period}} की तुलना में",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}} (खराब)",
+  "sqlDashboard.multiColumnSortHelp":
+    "क्रमित करने के लिए क्लिक करें। एक और क्रम जोड़ने के लिए Shift-क्लिक करें।",
+  "sqlDashboard.noXValue": "कोई मान नहीं",
 };
 
 export default messages;

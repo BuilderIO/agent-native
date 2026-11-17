@@ -24,6 +24,7 @@ import {
   _getReactRouterAliases,
   _installReactRouterVirtualInvalidationMirror,
   _mirrorReactRouterVirtualInvalidation,
+  _nitroDevEnvironmentClosePlugin,
   _nitroModuleGraphSignature,
   _resolveNitroSsrServiceEntry,
   _nitroStartupGate,
@@ -92,6 +93,44 @@ function repositoryRoot(): string {
   }
   return directory;
 }
+
+describe("Nitro dev server lifecycle", () => {
+  // Without a Nitro environment, a restart or close the lifecycle plugin lets
+  // through goes straight to Vite's own.
+  function lifecycleServer() {
+    const vite = {
+      close: vi.fn(async () => {}),
+      listen: vi.fn(async () => {}),
+      restart: vi.fn(async () => {}),
+    };
+    const server = {
+      ...vite,
+      config: { inlineConfig: {}, logger: { warn: vi.fn(), error: vi.fn() } },
+      environments: {},
+    };
+    _nitroDevEnvironmentClosePlugin().configureServer?.(server as never);
+    return { server, vite };
+  }
+
+  it("restarts through Vite while the server is open", async () => {
+    const { server, vite } = lifecycleServer();
+
+    await server.restart();
+
+    expect(vite.restart).toHaveBeenCalledOnce();
+  });
+
+  it("does not restart a server an explicit close is shutting down", async () => {
+    const { server, vite } = lifecycleServer();
+
+    const closing = server.close();
+    await server.restart();
+    await closing;
+
+    expect(vite.restart).not.toHaveBeenCalled();
+    expect(vite.close).toHaveBeenCalledOnce();
+  });
+});
 
 describe("Nitro dev startup recovery", () => {
   it("requires a continuous 5xx streak before restarting after a long idle", () => {

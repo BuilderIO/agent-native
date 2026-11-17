@@ -107,7 +107,7 @@ export function DocumentPanelTabs({
       aria-label={t("comments.panelTabs")}
       className={cn(
         "flex shrink-0 items-center",
-        plain ? "" : "gap-0.5 rounded-lg bg-muted p-0.5",
+        plain ? "" : "gap-0.5 rounded-md bg-muted p-0.5",
       )}
       data-document-panel-tabs
     >
@@ -163,7 +163,10 @@ export function DocumentPanelTabs({
                   "flex items-center justify-center gap-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   plain
                     ? "h-11 min-w-11 rounded-lg px-1.5"
-                    : "h-[30px] min-w-[38px] rounded-md px-2",
+                    : "h-7 min-w-[38px] rounded-sm px-2",
+                  // The track is the same 32 px as the bar's other buttons,
+                  // and its tabs fill on hover as they do.
+                  !active && !plain && "hover:bg-background/60",
                   active &&
                     (plain
                       ? "bg-muted text-foreground"

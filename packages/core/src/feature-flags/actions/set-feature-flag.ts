@@ -47,6 +47,7 @@ const schema = z.discriminatedUnion("operation", [
 ]);
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Change one registered feature flag: enable it for the current user, turn it off, or replace its rules. Returns which rule was written.",
   schema,

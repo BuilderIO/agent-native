@@ -9,6 +9,7 @@ import { invalidateMemberOrgCaches } from "../request-org-cache.js";
 const modeSchema = z.enum(["all", "restricted", "disabled"]);
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Set whether a workspace application is available to all organization members, restricted to existing shares, or disabled for the organization.",
   schema: z.object({

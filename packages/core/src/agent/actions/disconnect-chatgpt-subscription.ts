@@ -7,6 +7,7 @@ import {
 } from "../../server/chatgpt-subscription-oauth.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Sign out of one of the current user's saved ChatGPT registrations, or remove an unusable credential from the older experimental ChatGPT flow. Remote revocation is attempted for current registrations; it cannot be confirmed for the older credential.",
   schema: z.object({

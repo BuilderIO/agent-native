@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { analyticsChartMessagesByLocale } from "./analytics-chart-messages";
 import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
 import {
   discussionMessages,
@@ -1108,6 +1109,9 @@ const editorToolbarMessages = {
   temporaryAgentLink: "Temporary agent link",
   privateLinkCanView: "Only people with access can view",
   publicLinkCanView: "Anyone with the link can view",
+  publicSubPagesOne: "This page and its sub-page",
+  publicSubPages: "This page and its {{count}} sub-pages",
+  publicSubPagesMore: "This page and more than {{count}} sub-pages",
   copiedAgentPrompt: "Agent prompt copied",
   couldNotCopyAgentPrompt: "Could not copy agent prompt",
   agentPrompt:
@@ -1167,6 +1171,11 @@ const editorToolbarMessages = {
   agentLevelUpdateFailed: "Couldn't change what agents can do here.",
   agentLevelNote: "Agents can comment",
   agentLevelNoteHint: "Agents can comment on this page. Change it in Share.",
+  agentLevelViewDescription:
+    "Can read this page. Can't comment, suggest or edit.",
+  agentLevelViewConfirm: "Agents can now only read this page.",
+  agentLevelViewNote: "Agents can only view",
+  agentLevelViewNoteHint: "Agents can only view this page. Change it in Share.",
   sendPageToAgent: "Send this page to an agent",
   connectAgentOverMcp: "Connect an agent over MCP",
   importingFromNotion: "Importing from Notion...",
@@ -1298,6 +1307,10 @@ const editorSlashMessages = {
   todoListDescription: "Checklist items",
   toggle: "Toggle",
   toggleDescription: "Notion-style toggle line",
+  toggleHeading1: "Toggle heading 1",
+  toggleHeading2: "Toggle heading 2",
+  toggleHeading3: "Toggle heading 3",
+  toggleHeadingDescription: "Heading that opens and closes",
   turnInto: "Turn into",
   video: "Video",
   videoDescription: "Upload or embed video",
@@ -1716,6 +1729,17 @@ const enUS = {
       "This deletes “{{name}}” and its text from every row in this collection. You can't undo this.",
     deleteBlockFieldBodyWarning:
       "“{{name}}” is the page body, so every row's main text is deleted too.",
+    blockFieldFrozen: "Frozen while {{column}} is {{value}}",
+    blockFieldFrozenDescription:
+      "A rule on this collection stops anyone, person or agent, from changing this tab. Move {{column}} off {{value}} to edit it.",
+    blockFieldFrozenByManagers:
+      "Frozen while {{column}} is {{value}}. Only people with full access to the collection can change this.",
+    blockFieldFrozenSaveRefused:
+      "This tab is frozen, so your edit wasn't saved",
+    freezeBlockField: "Freeze while…",
+    freezeBlockFieldWhile: "While {{column}} is",
+    freezeBlockFieldNoColumns: "Add a status or select column to freeze by",
+    unfreezeBlockField: "Don't freeze",
     title: "Title",
     creatingDatabase: "Creating inline collection...",
     databaseCreated: "Collection created",
@@ -2254,6 +2278,7 @@ const enUS = {
   trash: trashMessagesByLocale["en-US"],
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
+  analyticsChart: analyticsChartMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -2318,6 +2343,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     trash: enUS.trash,
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
+    analyticsChart: enUS.analyticsChart,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2839,6 +2865,7 @@ function mergeMessagesForLocale(
     trash: trashMessagesByLocale[locale],
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
+    analyticsChart: analyticsChartMessagesByLocale[locale],
   };
 }
 
