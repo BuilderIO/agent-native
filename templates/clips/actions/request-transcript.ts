@@ -99,7 +99,7 @@ function recordingTrackingSource(
 
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 const SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS =
-  "The audio is often a screen recording where the person types or taps without talking. Keyboard keystrokes, clicks and taps are not speech. Examples that must return segments: [] : steady typing, tapping a glass, mouse clicks, fan noise. A single short word like 'Hello' or 'Okay' heard only amid typing or noise is a false detection: return segments: []. Auto-detect the spoken language from the audio. Transcribe only words spoken in the audio, in the same language they were spoken. Do not translate. Do not infer language from screen text, filenames, account settings, browser locale, or these instructions.";
+  "The audio is often a screen recording where the person types or taps without talking. Keyboard keystrokes, clicks and taps are not speech. Examples that must return segments: [] : steady typing, tapping a glass, mouse clicks, fan noise. A single short word like 'Hello' or 'Okay' heard only amid typing or noise is a false detection: return segments: []. Do not describe screen activity, UI changes, silence, music, or non-speech sounds, and do not write labels such as [keyboard typing]. Return an empty transcript when there are no spoken words. Auto-detect the spoken language from the audio. Transcribe only words spoken in the audio, in the same language they were spoken. Do not translate. Do not infer language from screen text, filenames, account settings, browser locale, or these instructions.";
 const RECENT_PENDING_TRANSCRIPT_MS = 2 * 60 * 1000;
 const BUILDER_TRANSCRIPTION_MIN_TIMEOUT_MS = 45_000;
 const BUILDER_TRANSCRIPTION_MAX_TIMEOUT_MS = 65_000;
@@ -1397,12 +1397,51 @@ const requestTranscriptAction = defineAction({
         }
 
         if (!fullText) {
-          builderError = "Builder transcription returned no speech.";
           await writeTranscriptCleanupState(args.recordingId, {
             status: "builder-transcription-empty",
             provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
-            failureReason: builderError,
+            failureReason: "Builder transcription returned no speech.",
           });
+          // The provider answered; there was nothing to say. A regenerate must
+          // not replace a transcript that has text with an empty one, so it
+          // falls through to keep the existing transcript.
+          if (!regeneratingReadyTranscript) {
+            const kept = await writeTranscriptOrKeepImport(db, {
+              recordingId: args.recordingId,
+              ownerEmail,
+              status: "ready",
+              failureReason: null,
+              language: normalizedTranscript.language ?? "en",
+              segmentsJson: "[]",
+              fullText: "",
+              now,
+              mediaUpdatedAt,
+            });
+            if (kept) return kept;
+            await writeAppState("refresh-signal", { ts: Date.now() });
+            await clearBuilderCreditsExhausted();
+            track(
+              "recording_completed",
+              {
+                app_name: "clips",
+                template_name: "clips",
+                recording_attempt_id: args.recordingId,
+                output_id: args.recordingId,
+                output_type: "clip",
+                duration_s: Math.round((rec.durationMs ?? 0) / 1000),
+                has_transcript: false,
+                transcription_source: "builder",
+              },
+              recordingTrackingSource(ownerEmail, context),
+            );
+            return {
+              recordingId: args.recordingId,
+              status: "ready" as const,
+              segments: 0,
+              provider: "builder",
+            };
+          }
+          builderError = "Builder transcription returned no speech.";
         }
 
         if (fullText) {
