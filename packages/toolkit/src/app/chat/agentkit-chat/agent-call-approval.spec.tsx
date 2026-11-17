@@ -4,6 +4,7 @@ import { AgentKitClient } from "@agent-native/agentkit";
 import type {
   AgentParticipant,
   AgentTask,
+  AgentThreadSnapshot,
   AgentTransport,
   AgentWidget,
 } from "@agent-native/agentkit/protocol";
@@ -66,6 +67,7 @@ afterEach(async () => {
 async function threadClient(
   tasks: AgentTask[] = [],
   agents: AgentParticipant[] = [],
+  saved: Pick<AgentThreadSnapshot, "messages" | "widgets"> = { messages: [] },
 ) {
   const transport: AgentTransport = {
     async startRun() {
@@ -78,7 +80,7 @@ async function threadClient(
         id: "thread-1",
         createdAt: "2026-11-14T00:00:00.000Z",
         updatedAt: "2026-11-14T00:00:00.000Z",
-        messages: [],
+        ...saved,
         tasks,
         agents,
       };
@@ -273,17 +275,60 @@ describe("AgentKitAgentCallApproval", () => {
     expect(container.textContent).toContain("Slides needs your approval");
   });
 
-  it.each(["completed", "failed"] as const)(
-    "stays hidden once a later call on the task has %s",
-    async (status) => {
-      await renderCard(
-        await threadClient(
-          [],
-          [waiting("call-1"), { ...waiting("call-2"), status }],
-        ),
-      );
+  it("stays hidden once a later call on the task has completed", async () => {
+    await renderCard(
+      await threadClient(
+        [],
+        [waiting("call-1"), { ...waiting("call-2"), status: "completed" }],
+      ),
+    );
+
+    expect(container.textContent).toBe("");
+  });
+
+  it("still shows when a later call failed to resume the task", async () => {
+    // A failed resume says nothing about the approval, which may still wait.
+    await renderCard(
+      await threadClient(
+        [],
+        [waiting("call-1"), { ...waiting("call-2"), status: "failed" }],
+      ),
+    );
+
+    expect(container.textContent).toContain("Slides needs your approval");
+  });
+
+  describe("once the task waits on a later approval", () => {
+    const reply = (id: string) => ({
+      id,
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Slides is waiting." }],
+    });
+    const later: AgentWidget = {
+      id: "Slides:approval:approval-2",
+      kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
+      data: { ...approval, id: "approval-2", callId: "call-2" },
+    };
+    // A new tab: the saved thread, and no marker from the tab that continued.
+    const savedThread = () =>
+      threadClient([], [waiting("call-1"), waiting("call-2")], {
+        messages: [reply("reply-1"), reply("reply-2")],
+        widgets: [
+          { messageId: "reply-1", widget },
+          { messageId: "reply-2", widget: later },
+        ],
+      });
+
+    it("hides the earlier approval's card in any tab", async () => {
+      await renderCard(await savedThread());
 
       expect(container.textContent).toBe("");
-    },
-  );
+    });
+
+    it("shows the later approval's card", async () => {
+      await renderCard(await savedThread(), later);
+
+      expect(container.textContent).toContain("Slides needs your approval");
+    });
+  });
 });

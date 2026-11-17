@@ -1,5 +1,6 @@
 import type { AgentWidget } from "@agent-native/agentkit/protocol";
 import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
   sendToAgentChatAndConfirm,
   type AgentCallApprovalWidgetData,
 } from "@agent-native/core/client/agent-chat";
@@ -76,6 +77,31 @@ function rememberSettled(id: string, calls: readonly string[]): void {
   }
 }
 
+type AgentThread = ReturnType<typeof useAgentThread>;
+
+// Each call that finds an approval waiting moves that approval's card to its
+// own reply, so the task waits on the approval whose card sits in the latest
+// reply. An earlier approval's card on the same task is settled, and the saved
+// thread shows that in every tab.
+function laterApprovalOnTask(
+  thread: AgentThread,
+  widgetId: string,
+  taskId: string,
+): boolean {
+  const order = new Map(
+    thread.messages.map((message, index) => [message.id, index]),
+  );
+  const at = (id: string) => order.get(thread.widgetMessageIds[id] ?? "") ?? -1;
+  const own = at(widgetId);
+  return Object.values(thread.widgets).some(
+    (other) =>
+      other.id !== widgetId &&
+      other.kind === AGENT_CALL_APPROVAL_WIDGET_KIND &&
+      readApproval(other.data)?.taskId === taskId &&
+      at(other.id) > own,
+  );
+}
+
 /**
  * The peer runs the action only after the person approves it on the peer's
  * own page. Continuing then resumes the same delegated task, which returns the
@@ -88,16 +114,16 @@ export function AgentKitAgentCallApproval({
   const thread = useAgentThread(threadId);
   const approval = readApproval(widget.data);
   if (!approval) return null;
-  const calls = Object.values(thread.agents).filter(
-    (agent) => agent.activeTaskId === approval.taskId,
-  );
-  // A later call on the same task that finished means the approved action
-  // already ran, or the task ended. The task's own status can't tell: the chat
-  // settles a paused task as soon as its own turn ends.
+  // A call on the same task that completed means the approved action already
+  // ran, or the task ended. The task's own status can't tell: the chat settles
+  // a paused task as soon as its own turn ends. A failed call doesn't count:
+  // the resume itself can fail while the approval is still waiting.
   if (
-    calls.some(
-      (call) => call.status === "completed" || call.status === "failed",
-    )
+    Object.values(thread.agents).some(
+      (agent) =>
+        agent.activeTaskId === approval.taskId && agent.status === "completed",
+    ) ||
+    laterApprovalOnTask(thread, widget.id, approval.taskId)
   ) {
     return null;
   }

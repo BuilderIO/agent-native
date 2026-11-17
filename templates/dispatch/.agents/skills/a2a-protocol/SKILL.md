@@ -454,7 +454,9 @@ survives a reload; it closes once the person dismisses it, once the chat takes
 the Continue message (if the send fails, Continue stays), or once that task
 finishes. Dismissing leaves the approval pending in the peer app. A later call
 that finds the same approval still waiting shows the card again; a call that
-pauses on a different approval gets that approval's own card.
+pauses on a different approval gets that approval's own card, and the earlier
+one closes. A failed resume leaves the card up, since the approval may still
+wait.
 
 ## JSON-RPC Methods
 
