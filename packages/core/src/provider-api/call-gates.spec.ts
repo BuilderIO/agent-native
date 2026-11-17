@@ -156,6 +156,47 @@ describe("provider call gates", () => {
     ]);
   });
 
+  it("hands a custom provider's request to its gate with the provider identity", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(okResponse());
+    const { gate, prepared } = fakeGate();
+    registerProviderCallGate({
+      ...gate,
+      matches: ({ providerId }) => providerId === "test-api",
+    });
+
+    await createProviderApiRuntime({
+      ...runtimeOptions,
+      providerIds: ["hubspot"],
+      getCustomProviders: async () => [
+        {
+          id: "test-api",
+          scope: "org" as const,
+          scopeId: "org-1",
+          label: "Custom",
+          baseUrl: "https://api.example.test",
+          auth: { type: "bearer" as const, credentialKey: "CUSTOM_TOKEN" },
+          docsUrls: [],
+          allowedHostSuffixes: [],
+          defaultHeaders: {},
+          notes: "",
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+    }).executeRequest({
+      provider: "test-api",
+      path: "/records",
+      auth: "none",
+    });
+
+    expect(prepared).toEqual([
+      expect.objectContaining({
+        providerId: "test-api",
+        appId: "example-app",
+      }),
+    ]);
+  });
+
   it("runs only the owning gate's precheck", async () => {
     const owner = vi.fn(async () => {});
     const later = vi.fn(async () => {

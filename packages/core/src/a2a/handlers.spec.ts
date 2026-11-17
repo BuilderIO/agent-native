@@ -1259,6 +1259,37 @@ describe("handleJsonRpc", () => {
     expect(handler).toHaveBeenCalled();
   });
 
+  it("fails a task that presented a proof when the chat-turn lookup is unavailable", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice@example.org",
+      __a2aIdentityAssurance: "user",
+    };
+    chatTurn.read.mockResolvedValueOnce({
+      status: "refused",
+      reason: "storage-or-signing-unavailable",
+    });
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 10,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+            metadata: { __agentNativeMcpChatTurn: { v: "claim" } },
+          },
+        },
+      },
+      event,
+      { ...customHandler, handler },
+    );
+    expect(result.error?.message).toContain("storage-or-signing-unavailable");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("reuses an authenticated owner's task for duplicate message/send keys", async () => {
     const handler = vi.fn(customHandler.handler!);
     const config = { ...customHandler, handler };

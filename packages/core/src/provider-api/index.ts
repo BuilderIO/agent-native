@@ -3495,6 +3495,24 @@ async function executeCustomProviderApiRequest(
     ...auth.headers,
   });
   const body = prepareBody(args.body, headers);
+  const gate = prepareProviderCallGate({
+    providerId: customConfig.id,
+    url: url.href,
+    method,
+    path: args.path,
+    body: args.body,
+    appId: runtimeOptionsAppId(runtime),
+    accountId:
+      args.accountId ??
+      auth.credentialSources.find((source) => source.accountId)?.accountId ??
+      undefined,
+    connectionId: args.connectionId ?? null,
+    runtime,
+    deadline:
+      Date.now() +
+      Math.min(PROVIDER_CALL_ADMISSION_WAIT_MS, clampTimeout(args.timeoutMs)),
+    signal: args.signal,
+  });
 
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
@@ -3552,6 +3570,7 @@ async function executeCustomProviderApiRequest(
         timeoutMs: clampTimeout(args.timeoutMs),
         signal: args.signal,
         secretValues: auth.secretValues,
+        gate: gate ?? null,
         census: providerCallCensusKey(
           customConfig.id,
           runtime,
@@ -3627,6 +3646,7 @@ async function executeCustomProviderApiRequest(
     timeoutMs: clampTimeout(args.timeoutMs),
     signal: args.signal,
     secretValues: auth.secretValues,
+    gate: gate ?? null,
     census: providerCallCensusKey(
       customConfig.id,
       runtime,

@@ -865,6 +865,7 @@ async function withMcpChatTaskScope<T>(
   event: { context?: Record<string, unknown> } | undefined,
   work: () => Promise<T>,
   signal?: AbortSignal,
+  proofPresented = false,
 ): Promise<T> {
   const admission = await readMcpChatTurn(
     chatTurnBinding(config, taskId, event),
@@ -873,10 +874,12 @@ async function withMcpChatTaskScope<T>(
   // pass for one, or an intended interactive turn quietly loses its grant.
   if (
     admission.status === "refused" &&
-    admission.reason === "storage-or-signing-unavailable"
+    admission.reason === "storage-or-signing-unavailable" &&
+    !proofPresented
   ) {
     // Most tasks carry no proof; a store outage must not fail them. The turn
-    // runs without a grant, so it is never more privileged for the outage.
+    // runs without a grant, so it is never more privileged for the outage. A
+    // task that did present a proof fails instead of losing its grant.
     console.warn("[a2a] chat-turn lookup unavailable; running without a grant");
   } else if (admission.status === "refused") {
     throw new ChatTurnRefusedError(admission.reason);
@@ -1239,90 +1242,97 @@ async function handleSend(
     if (admitted.status === "refused") {
       return failRefusedChatTurn(task.id, admitted.reason);
     }
-    return withMcpChatTaskScope(config, task.id, event, async () => {
-      await updateTask(task.id, { state: "working" });
+    return withMcpChatTaskScope(
+      config,
+      task.id,
+      event,
+      async () => {
+        await updateTask(task.id, { state: "working" });
 
-      const ctx = makeHandlerContext(
-        task.id,
-        contextId,
-        trustedA2AMetadata(metadata, event),
-        event,
-        sourceContext,
-      );
+        const ctx = makeHandlerContext(
+          task.id,
+          contextId,
+          trustedA2AMetadata(metadata, event),
+          event,
+          sourceContext,
+        );
 
-      try {
         try {
-          const result = getHandler(config)(message, ctx.context);
+          try {
+            const result = getHandler(config)(message, ctx.context);
 
-          if (isMessageStream(result)) {
-            let lastMessage: Message | undefined;
-            for await (const msg of result) {
-              lastMessage = msg;
+            if (isMessageStream(result)) {
+              let lastMessage: Message | undefined;
+              for await (const msg of result) {
+                lastMessage = msg;
+              }
+              if (
+                lastMessage?.metadata?.agentNativeTaskState === "input-required"
+              ) {
+                const updated = await updateTask(task.id, {
+                  state: "input-required",
+                  message: lastMessage,
+                });
+                return { ...jsonRpcResult(0, updated), _id: 0 };
+              }
+              await ctx.persistFileArtifacts();
+              const updated = await updateTask(
+                task.id,
+                completedTaskUpdate(lastMessage, ctx.artifacts),
+              );
+              return { ...jsonRpcResult(0, updated), _id: 0 };
             }
-            if (
-              lastMessage?.metadata?.agentNativeTaskState === "input-required"
-            ) {
+
+            const handlerResult = await (result as Promise<A2AHandlerResult>);
+            const allArtifacts = [
+              ...ctx.artifacts,
+              ...(handlerResult.artifacts ?? []),
+            ];
+            if (handlerResult.taskState === "input-required") {
               const updated = await updateTask(task.id, {
                 state: "input-required",
-                message: lastMessage,
+                message: handlerResult.message,
               });
               return { ...jsonRpcResult(0, updated), _id: 0 };
             }
             await ctx.persistFileArtifacts();
-            const updated = await updateTask(
-              task.id,
-              completedTaskUpdate(lastMessage, ctx.artifacts),
-            );
-            return { ...jsonRpcResult(0, updated), _id: 0 };
-          }
-
-          const handlerResult = await (result as Promise<A2AHandlerResult>);
-          const allArtifacts = [
-            ...ctx.artifacts,
-            ...(handlerResult.artifacts ?? []),
-          ];
-          if (handlerResult.taskState === "input-required") {
             const updated = await updateTask(task.id, {
-              state: "input-required",
+              state: "completed",
               message: handlerResult.message,
+              artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
             });
             return { ...jsonRpcResult(0, updated), _id: 0 };
+          } catch (err: unknown) {
+            const failureMessage = taskFailureMessage(err, "Handler failed");
+            await updateTask(task.id, {
+              state: "failed",
+              message: failureMessage,
+            });
+            return {
+              ...jsonRpcError(
+                0,
+                -32000,
+                failureMessage.parts[0]?.type === "text"
+                  ? failureMessage.parts[0].text
+                  : "Handler failed",
+              ),
+              _id: 0,
+            };
           }
-          await ctx.persistFileArtifacts();
-          const updated = await updateTask(task.id, {
-            state: "completed",
-            message: handlerResult.message,
-            artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
-          });
-          return { ...jsonRpcResult(0, updated), _id: 0 };
         } catch (err: unknown) {
-          const failureMessage = taskFailureMessage(err, "Handler failed");
-          await updateTask(task.id, {
-            state: "failed",
-            message: failureMessage,
-          });
-          return {
-            ...jsonRpcError(
-              0,
-              -32000,
-              failureMessage.parts[0]?.type === "text"
-                ? failureMessage.parts[0].text
-                : "Handler failed",
-            ),
-            _id: 0,
-          };
+          // A cancel that landed first is the answer; the handler's outcome is dropped.
+          if (err instanceof A2ATaskCanceledError) {
+            return {
+              ...jsonRpcResult(0, sanitizeTaskForResponse(err.task)),
+              _id: 0,
+            };
+          }
+          throw err;
         }
-      } catch (err: unknown) {
-        // A cancel that landed first is the answer; the handler's outcome is dropped.
-        if (err instanceof A2ATaskCanceledError) {
-          return {
-            ...jsonRpcResult(0, sanitizeTaskForResponse(err.task)),
-            _id: 0,
-          };
-        }
-        throw err;
-      }
-    }).catch((err: unknown) =>
+      },
+      undefined,
+      chatTurnClaim !== undefined,
+    ).catch((err: unknown) =>
       err instanceof ChatTurnRefusedError
         ? failRefusedChatTurn(task.id, err.reason)
         : Promise.reject(err),

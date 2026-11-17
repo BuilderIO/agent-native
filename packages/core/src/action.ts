@@ -72,6 +72,7 @@ import { describeThrownForLog } from "./mcp/embed-redaction.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
 import { observeOutboundWrites } from "./outbound-write-observation.js";
 import {
+  isDurableProviderInteractiveScope,
   isProviderInteractiveScope,
   runWithProviderInteractiveScope,
 } from "./provider-api/interactive-scope.js";
@@ -1595,7 +1596,9 @@ export function defineAction(options: any) {
     }
     if (ctx?.caller === "frontend") return options.run(args, ctx);
     return runWithProviderInteractiveScope(
-      (ctx?.caller === "tool" && isProviderInteractiveScope()) ||
+      (ctx?.caller === "tool" &&
+        (isProviderInteractiveScope() ||
+          isDurableProviderInteractiveScope())) ||
         (ctx?.caller === "mcp" &&
           currentInvocationEvidence()?.providerInteractive === true),
       () => options.run(args, ctx),
