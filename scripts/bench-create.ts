@@ -334,17 +334,20 @@ function installedPackage(cliDir: string): {
   const manifest = JSON.parse(
     fs.readFileSync(path.join(cliDir, "package.json"), "utf8"),
   ) as { dependencies?: Record<string, string> };
-  const names = Object.keys(manifest.dependencies ?? {});
-  const name = names[0];
-  if (names.length !== 1 || !name) {
+  // For an npm alias the dependency key is the alias, so the name has to
+  // come from the installed package.
+  const keys = Object.keys(manifest.dependencies ?? {});
+  const key = keys[0];
+  if (keys.length !== 1 || !key) {
     throw new Error(
-      `Expected one installed package in ${cliDir}, found: ${names.join(", ") || "none"}.`,
+      `Expected one installed package in ${cliDir}, found: ${keys.join(", ") || "none"}.`,
     );
   }
-  const root = path.join(cliDir, "node_modules", name);
+  const root = path.join(cliDir, "node_modules", key);
   const pkg = JSON.parse(
     fs.readFileSync(path.join(root, "package.json"), "utf8"),
-  ) as { version: string; bin?: string | Record<string, string> };
+  ) as { name: string; version: string; bin?: string | Record<string, string> };
+  const { name } = pkg;
   const bins =
     typeof pkg.bin === "string"
       ? [pkg.bin]
