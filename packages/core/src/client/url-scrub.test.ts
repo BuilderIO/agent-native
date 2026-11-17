@@ -456,16 +456,35 @@ describe("scrubLocationState", () => {
   it("redacts every value, keeping the key names, when no key is declared", () => {
     const state = scrubLocationState({
       pathname: "/inbox",
-      search: `?q=private&code=${canary}`,
+      search: `?q=private&code=${canary}&utm_source=news&ref=friend`,
       hash: `#access_token=${canary}`,
     });
 
     expect(state.searchParams).toEqual({
       q: "<redacted>",
       code: "<redacted>",
+      utm_source: "<redacted>",
+      ref: "<redacted>",
     });
     expect(state.hash).toBe("#access_token=%3Credacted%3E");
     expect(JSON.stringify(state)).not.toContain(canary);
+  });
+
+  it("keeps an attribution parameter only when the app declares it", () => {
+    const location = {
+      pathname: "/sessions",
+      search: "?utm_source=a&gclid=b&range=7d",
+      hash: "",
+    };
+
+    expect(scrubLocationState(location, ["range"]).searchParams).toEqual({
+      utm_source: "<redacted>",
+      gclid: "<redacted>",
+      range: "7d",
+    });
+    expect(
+      scrubLocationState(location, ["range", "utm_*"]).searchParams,
+    ).toEqual({ utm_source: "a", gclid: "<redacted>", range: "7d" });
   });
 
   it("redacts a declared key whose value is a URL carrying an undeclared one", () => {

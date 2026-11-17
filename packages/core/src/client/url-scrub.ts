@@ -39,6 +39,8 @@ function normalizeQueryParamName(key: string): string {
 }
 
 interface ParamPolicy {
+  /** Whether the attribution parameters keep their values. */
+  keepAttribution: boolean;
   /** Attribution parameters to redact anyway. */
   redact: readonly string[];
   /** Further parameters whose values stay readable: exact names and `prefix*`. */
@@ -54,11 +56,10 @@ function isKeptQueryParam(key: string, keep: readonly string[]): boolean {
 }
 
 function shouldRedactQueryParam(key: string, policy: ParamPolicy): boolean {
-  if (
-    !ATTRIBUTION_QUERY_PARAMS.has(key) &&
-    !UTM_QUERY_PARAM.test(key) &&
-    !isKeptQueryParam(key, policy.keep)
-  ) {
+  const keptAttribution =
+    policy.keepAttribution &&
+    (ATTRIBUTION_QUERY_PARAMS.has(key) || UTM_QUERY_PARAM.test(key));
+  if (!keptAttribution && !isKeptQueryParam(key, policy.keep)) {
     return true;
   }
   const normalized = normalizeQueryParamName(key);
@@ -135,6 +136,11 @@ export interface ScrubUrlOptions {
   /** Attribution parameters to redact anyway, for apps with their own. */
   additionalSensitiveParams?: readonly string[];
   /**
+   * Whether the attribution parameters keep their values. Defaults to true; a
+   * reader that wants only the parameters it names passes false.
+   */
+  keepAttribution?: boolean;
+  /**
    * Parameters besides the attribution ones whose values stay readable, as exact
    * names and `prefix*` patterns. For a page URL the agent reads filters from.
    */
@@ -198,12 +204,14 @@ export function scrubUrl(
   if (!url || typeof url !== "string") return url;
   const {
     additionalSensitiveParams = [],
+    keepAttribution = true,
     keepParams = [],
     routePath = false,
   } = isParameterList(options)
     ? { additionalSensitiveParams: options }
     : options;
   const policy: ParamPolicy = {
+    keepAttribution,
     redact: additionalSensitiveParams,
     keep: keepParams,
   };
@@ -358,7 +366,8 @@ export function scrubLocationHash(hash: string): string {
  * The `__url__` application state the agent reads: the path, and the query and
  * hash scrubbed. Only the query keys in `keepQueryKeys` (exact names and
  * `prefix*` patterns) keep their values, so an app declares the filters its
- * agent reads and nothing else rides along; the other keys stay, redacted.
+ * agent reads and nothing else rides along, attribution parameters included;
+ * the other keys stay, redacted.
  */
 export function scrubLocationState(
   location: { pathname: string; search: string; hash: string },
@@ -371,6 +380,7 @@ export function scrubLocationState(
 } {
   const scrubbed = new URL(
     scrubUrl(`/${location.search}${location.hash}`, {
+      keepAttribution: false,
       keepParams: keepQueryKeys,
     }) ?? "/",
     "http://placeholder.local",

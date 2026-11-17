@@ -184,7 +184,7 @@ describe("URLSync Sessions context", () => {
     )!;
     expect(JSON.parse(options.body).searchParams).toEqual({
       range: "<redacted>",
-      utm_source: "news",
+      utm_source: "<redacted>",
     });
     queryClient.clear();
   });
