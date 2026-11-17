@@ -9938,4 +9938,7 @@ render();
 /* The inspector's resize handle sits on its inner edge, as the left panel's does on its own. */
 .isl-r .insp-resize { right: auto; left: -3px; }
 .panel-resize:focus-visible::after { background: var(--color-ring); }
+
+/* Share's width would follow its label (64.5px in Inter) and put the head's buttons on half pixels; it's a fixed 64. */
+#share-btn { width: 64px; padding-inline: 0; justify-content: center; }
 </style>
