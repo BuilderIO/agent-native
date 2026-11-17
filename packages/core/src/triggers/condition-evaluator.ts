@@ -25,6 +25,7 @@
 import { createHash } from "node:crypto";
 
 import { withoutWriteObservation } from "../action-frame.js";
+import { getEngineCredentialOrgId } from "../agent/engine/credential-owner.js";
 import {
   getStoredModelForEngine,
   normalizeModelForEngine,
@@ -167,6 +168,9 @@ export async function evaluateCondition(
       if (cached !== undefined) return cached;
     }
 
+    // A personal run has no org, but when its org's key paid for the check,
+    // the usage belongs to that org too, as the run's own usage does.
+    const usageOrgId = identity.orgId ?? getEngineCredentialOrgId(engine);
     // A classification is an answer, not a write of the call that emitted the event.
     const result = await withoutWriteObservation(() =>
       callClassifier(
@@ -177,7 +181,7 @@ export async function evaluateCondition(
         controller.signal,
         {
           ownerEmail: identity.userEmail,
-          ...(identity.orgId === undefined ? {} : { orgId: identity.orgId }),
+          ...(usageOrgId === undefined ? {} : { orgId: usageOrgId }),
           ...(identity.appId === undefined ? {} : { app: identity.appId }),
           label: options.usageLabel ?? "automation-condition",
         },

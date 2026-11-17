@@ -23,6 +23,7 @@ const store = vi.hoisted(() => ({
   settings: new Map<string, Record<string, unknown>>(),
   orgIdsSeenByReads: [] as Array<string | undefined>,
   orgMembersFailure: undefined as Error | undefined,
+  activeOrgFailure: undefined as Error | undefined,
   // Builder.io sign-ins by owner (`user:<email>` or `org:<orgId>`). An empty
   // token is a grant that is stored but needs reconnecting.
   builderGrants: new Map<string, string>(),
@@ -53,7 +54,12 @@ vi.mock(import("../db/client.js"), async (importOriginal) => ({
 
 vi.mock("../settings/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/store.js")>()),
-  getSetting: async (key: string) => store.settings.get(key) ?? null,
+  getSetting: async (key: string) => {
+    if (store.activeOrgFailure && key.endsWith(":active-org-id")) {
+      throw store.activeOrgFailure;
+    }
+    return store.settings.get(key) ?? null;
+  },
   getSettings: async (keys: readonly string[]) =>
     new Map(keys.map((key) => [key, store.settings.get(key) ?? null])),
 }));
@@ -253,6 +259,7 @@ beforeEach(async () => {
   store.settings.clear();
   store.orgIdsSeenByReads.length = 0;
   store.orgMembersFailure = undefined;
+  store.activeOrgFailure = undefined;
   store.builderGrants.clear();
   await pglite.exec(`DELETE FROM org_members`);
   vi.unstubAllEnvs();
@@ -376,6 +383,18 @@ describe("a personal automation whose provider key is saved at organization scop
       { code: "42501" },
     );
     secret("user", MEMBER, "ANTHROPIC_API_KEY", "sk-ant-member");
+
+    const { resolved } = await credentialCheckFor(MEMBER);
+
+    expect(resolved).toMatchObject({ ok: false, code: "owner_unverifiable" });
+  });
+
+  it("retries later when the creator's active organization cannot be read", async () => {
+    await addMember(ORG, MEMBER, "member");
+    store.activeOrgFailure = Object.assign(
+      new Error("permission denied for table settings"),
+      { code: "42501" },
+    );
 
     const { resolved } = await credentialCheckFor(MEMBER);
 

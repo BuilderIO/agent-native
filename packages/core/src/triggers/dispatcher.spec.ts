@@ -3091,6 +3091,47 @@ Respond to the event.`,
     expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
+  it("retries a queued event when its creator's organization cannot be read for another reason", async () => {
+    const eventName = "test.event.org-read-denied";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/inbox-alert.md",
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: ${eventName}\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      },
+    ]);
+    dbExecuteMock.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (/org_members/.test(sql)) {
+        throw Object.assign(
+          new Error("permission denied for table org_members"),
+          { code: "42501" },
+        );
+      }
+      return { rows: [{ "1": 1 }], rowsAffected: 1 };
+    });
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const handler = busEventHandler(eventName);
+
+    await handler(
+      { messageId: "message-1" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "org-read-denied-event",
+        emittedAt: "2026-09-27T10:00:00.000Z",
+      },
+    );
+
+    await waitForEvent("org-read-denied-event", "pending");
+    expect(triggerQueueMocks.retry).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.complete).not.toHaveBeenCalled();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
   it("propagates failed webhook agent runs to the bounded task retry path", async () => {
     const owner = "alice+triggers@agent-native.test";
     const path = "jobs/webhook-alert.md";

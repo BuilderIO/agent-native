@@ -1326,6 +1326,14 @@ async function dispatchQueuedAutomationEvent(
         resolved.reason,
         resolved.code,
       );
+      // A membership that could not be read may read on a later try, so the
+      // event stays queued; a creator this deployment cannot track never will.
+      if (resolved.cause !== undefined) {
+        throw new BackgroundAutomationRunError(
+          resolved.reason,
+          resolved.code ?? "owner_unverifiable",
+        );
+      }
       return "completed";
     }
     if (!automationMatchesEventOwner(resolved.identity, queued.eventOwner)) {

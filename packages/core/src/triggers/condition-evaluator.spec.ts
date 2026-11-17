@@ -23,6 +23,8 @@ vi.mock("../usage/store.js", () => ({ recordUsage: recordUsageMock }));
 
 const { __clearConditionCache, evaluateCondition } =
   await import("./condition-evaluator.js");
+const { tagEngineCredentialOrg } =
+  await import("../agent/engine/credential-owner.js");
 
 const IDENTITY = { userEmail: "owner@example.com" };
 
@@ -339,6 +341,34 @@ describe("evaluateCondition", () => {
       engineName: "fake-engine",
       model: "automation-model",
     });
+  });
+
+  it("charges a personal check paid with its organization's key to that organization", async () => {
+    async function* meteredStream() {
+      yield { type: "usage", inputTokens: 10, outputTokens: 1 } as {
+        type: string;
+        text?: string;
+      };
+      yield { type: "text-delta", text: "no" };
+    }
+    const engine = fakeEngine(meteredStream);
+    tagEngineCredentialOrg(engine as any, "org-paid");
+
+    await expect(
+      evaluateCondition(
+        "is this urgent?",
+        { messageId: "org-paid" },
+        IDENTITY,
+        { engine, resolvedModel: "automation-model" },
+      ),
+    ).resolves.toBe(false);
+
+    expect(recordUsageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "owner@example.com",
+        orgId: "org-paid",
+      }),
+    );
   });
 
   it("saves the usage of a check whose answer is unusable", async () => {
