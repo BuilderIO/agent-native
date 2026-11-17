@@ -237,6 +237,8 @@ export type BigQueryJobBilling =
       /** Absent from the metadata is null, never zero. */
       billedBytes: number | null;
       cacheHit: boolean | null;
+      /** `SELECT`, `SCRIPT` and so on; null when the metadata leaves it out. */
+      statementType: string | null;
       /** The job's `errorResult.reason` once it failed: `stopped` means cancelled, `unreadable` that it can't be told. */
       errorReason: string | null;
       location: string | undefined;
@@ -253,7 +255,7 @@ export async function readBigQueryJobBilling(
 ): Promise<BigQueryJobBilling> {
   const params = new URLSearchParams({
     fields:
-      "jobReference,status(state,errorResult),statistics(query(totalBytesBilled,cacheHit))",
+      "jobReference,status(state,errorResult),statistics(query(totalBytesBilled,cacheHit,statementType))",
   });
   if (job.location) params.set("location", job.location);
   try {
@@ -267,7 +269,11 @@ export async function readBigQueryJobBilling(
       jobReference?: { projectId?: string; jobId?: string; location?: string };
       status?: { state?: string; errorResult?: { reason?: unknown } };
       statistics?: {
-        query?: { totalBytesBilled?: unknown; cacheHit?: unknown };
+        query?: {
+          totalBytesBilled?: unknown;
+          cacheHit?: unknown;
+          statementType?: unknown;
+        };
       };
     };
     if (
@@ -292,6 +298,10 @@ export async function readBigQueryJobBilling(
       cacheHit:
         typeof data.statistics?.query?.cacheHit === "boolean"
           ? data.statistics.query.cacheHit
+          : null,
+      statementType:
+        typeof data.statistics?.query?.statementType === "string"
+          ? data.statistics.query.statementType
           : null,
       errorReason: data.status?.errorResult
         ? typeof data.status.errorResult.reason === "string"

@@ -405,6 +405,7 @@ describe("reconciler", () => {
       state: "DONE",
       billedBytes: 1,
       cacheHit: false,
+      statementType: "SELECT",
       errorReason: null,
       location: "US",
     });
@@ -422,6 +423,7 @@ describe("reconciler", () => {
         state: "DONE",
         billedBytes: 3 * 1024 ** 3,
         cacheHit: false,
+        statementType: "SELECT",
         errorReason: null,
         location: "US",
       }),
@@ -458,6 +460,7 @@ describe("reconciler", () => {
         state: "RUNNING",
         billedBytes: null,
         cacheHit: null,
+        statementType: "SELECT",
         errorReason: null,
         location: "US",
       }),
@@ -490,6 +493,41 @@ describe("reconciler", () => {
     });
   });
 
+  it("moves on to newer stale jobs when older ones cannot be resolved yet", async () => {
+    for (let i = 0; i < 6; i++) {
+      await admit(alice, 1024 ** 3, new Date(NOON.getTime() + i * 1_000));
+    }
+    const seen: string[] = [];
+    // Jobs 1 to 5 are still running; job 6 finished from cache.
+    const mostlyRunning: Reconciler = {
+      credentialScope: "default",
+      credentialFingerprint: PRINCIPAL,
+      async observe(job) {
+        seen.push(job.jobId);
+        const done = job.jobId === "job_6";
+        return {
+          kind: "found",
+          state: done ? "DONE" : "RUNNING",
+          billedBytes: done ? 0 : null,
+          cacheHit: done ? true : null,
+          statementType: "SELECT",
+          errorReason: null,
+          location: "US",
+        };
+      },
+    };
+    const first = new Date(NOON.getTime() + 120_000);
+    await reconcileStaleBigQueryAgentJobs(alice, mostlyRunning, first);
+    expect(seen).toEqual(["job_1", "job_2", "job_3", "job_4", "job_5"]);
+    await reconcileStaleBigQueryAgentJobs(
+      alice,
+      mostlyRunning,
+      new Date(first.getTime() + 60_000),
+    );
+    expect(seen.slice(5)[0]).toBe("job_6");
+    expect(await row("job_6")).toMatchObject({ state: "settled", billed: "0" });
+  });
+
   it("reconciles another member's stale reservation in the same org", async () => {
     await admit(bob, JOB, NOON);
     await reconcileStaleBigQueryAgentJobs(
@@ -499,6 +537,7 @@ describe("reconciler", () => {
         state: "DONE",
         billedBytes: 0,
         cacheHit: true,
+        statementType: "SELECT",
         errorReason: null,
         location: "US",
       }),
@@ -509,7 +548,10 @@ describe("reconciler", () => {
 });
 
 describe("settlement of finished jobs", () => {
-  function finished(errorReason: string | null) {
+  function finished(
+    errorReason: string | null,
+    statementType: string | null = "SELECT",
+  ) {
     return {
       credentialScope: "default",
       credentialFingerprint: PRINCIPAL,
@@ -518,34 +560,41 @@ describe("settlement of finished jobs", () => {
         state: "DONE" as const,
         billedBytes: null,
         cacheHit: false,
+        statementType,
         errorReason,
         location: "US",
       }),
     };
   }
 
-  it("settles a job that ended in an error at zero, and charges a cancelled one its reservation", async () => {
-    await admit(alice, JOB, NOON);
-    await admit(alice, JOB, NOON);
+  it("settles a statement that ended in an error at zero, and charges a cancelled job, a failed script or an unknown statement its reservation", async () => {
+    const reserved = 10 * 1024 ** 3;
+    for (let i = 0; i < 4; i++) await admit(alice, reserved, NOON);
     const later = new Date(NOON.getTime() + 120_000);
+    const outcomes: Record<string, [string, string | null]> = {
+      job_1: ["invalidQuery", "SELECT"],
+      job_2: ["stopped", "SELECT"],
+      // A script that failed still bills the statements it finished.
+      job_3: ["invalidQuery", "SCRIPT"],
+      job_4: ["invalidQuery", null],
+    };
     await reconcileStaleBigQueryAgentJobs(
       alice,
       {
         credentialScope: "default",
         credentialFingerprint: PRINCIPAL,
-        observe: async (job) =>
-          finished(
-            job.jobId === "job_1" ? "invalidQuery" : "stopped",
-          ).observe(),
+        observe: async (job) => finished(...outcomes[job.jobId]!).observe(),
       },
       later,
     );
     expect(await row("job_1")).toMatchObject({ state: "settled", billed: "0" });
-    expect(await row("job_2")).toMatchObject({
-      state: "settled",
-      billed: String(JOB),
-      resolution: "billed_bytes_missing",
-    });
+    for (const jobId of ["job_2", "job_3", "job_4"]) {
+      expect(await row(jobId)).toMatchObject({
+        state: "settled",
+        billed: String(reserved),
+        resolution: "billed_bytes_missing",
+      });
+    }
   });
 
   it("never resubmits a job ID that was charged without BigQuery confirming the job", async () => {
@@ -624,6 +673,7 @@ describe("the lease a job is sent under", () => {
           state: "RUNNING",
           billedBytes: null,
           cacheHit: null,
+          statementType: "SELECT",
           errorReason: null,
           location: "US",
         };

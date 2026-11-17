@@ -726,8 +726,9 @@ export type BigQueryAgentSettlement =
 
 /**
  * What a finished job settles at, from BigQuery's own metadata, or null when
- * the metadata can't say. A cache hit bills nothing, and so does a query that
- * ended in an error; a cancelled one may have billed, so it needs its bytes.
+ * the metadata can't say. A cache hit bills nothing, and so does a single
+ * statement that ended in an error. A script bills each statement it finished
+ * and a cancelled job may have billed, so those need their bytes.
  */
 export function settlementForFinishedJob(
   observation: Extract<BigQueryJobBilling, { kind: "found" }>,
@@ -743,11 +744,14 @@ export function settlementForFinishedJob(
   if (observation.cacheHit === true) {
     return { kind: "billed", billedBytes: 0, cacheHit: true };
   }
-  // BigQuery bills no query that ended in an error. A cancelled one may have.
+  // BigQuery bills no statement that ended in an error, but a failed script
+  // still bills the statements before it, and a cancelled job may have billed.
   if (
     observation.errorReason !== null &&
     observation.errorReason !== "stopped" &&
-    observation.errorReason !== "unreadable"
+    observation.errorReason !== "unreadable" &&
+    observation.statementType !== null &&
+    observation.statementType !== "SCRIPT"
   ) {
     return { kind: "billed", billedBytes: 0, cacheHit: observation.cacheHit };
   }
@@ -843,7 +847,9 @@ export interface BigQueryAgentReconciler {
 /**
  * Confirms stale reservations of this person and org with BigQuery. A lease
  * that expired is not proof a job stopped, so only BigQuery's answer settles
- * or releases a row; anything it cannot confirm stays reserved.
+ * or releases a row; anything it cannot confirm stays reserved. Rows it has
+ * checked least recently come first, so jobs it cannot resolve yet never hold
+ * back the ones behind them.
  */
 export async function reconcileStaleBigQueryAgentJobs(
   identity: OutsideAgentIdentity,
@@ -858,7 +864,7 @@ export async function reconcileStaleBigQueryAgentJobs(
         WHERE state = 'pending' AND lease_expires_at < $3
           AND (owner_email = $1 OR org_key = $2)
           AND (reconciled_at IS NULL OR reconciled_at < $4)
-        ORDER BY created_at LIMIT $5`,
+        ORDER BY reconciled_at NULLS FIRST, created_at LIMIT $5`,
       args: [
         identity.ownerEmail,
         orgKey(identity),

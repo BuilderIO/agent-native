@@ -125,6 +125,7 @@ vi.mock("../server/lib/dashboard-panel-source-resolver", () => ({
         state: "DONE",
         billedBytes: 1024 ** 3,
         cacheHit: false,
+        statementType: "SELECT",
         errorReason: null,
         location: "US",
       }));

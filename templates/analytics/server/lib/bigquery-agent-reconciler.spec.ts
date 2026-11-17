@@ -71,7 +71,11 @@ function stubBigQuery(
             },
             status: { state: "DONE" },
             statistics: {
-              query: { totalBytesBilled: "10485760", cacheHit: false },
+              query: {
+                totalBytesBilled: "10485760",
+                cacheHit: false,
+                statementType: "SELECT",
+              },
             },
           });
         }
@@ -118,6 +122,7 @@ describe("confirming an outside agent's job with BigQuery", () => {
       kind: "found",
       state: "DONE",
       billedBytes: 10_485_760,
+      statementType: "SELECT",
       location: "asia-northeast1",
     });
   });
