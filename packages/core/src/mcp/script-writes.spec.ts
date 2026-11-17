@@ -918,6 +918,28 @@ describe("recoverScriptWrites", () => {
     );
   });
 
+  it("keeps what the script saw of a slow write recovery marked unknown before the run settled it", async () => {
+    const writes = gate();
+    const begun = await writes.begin(call(0, { key: "a", rows: 1 }));
+    if (begun.status !== "go") throw new Error("expected go");
+    await recoverScriptWrites({
+      appId: "app-a",
+      actions,
+      now: T0 + 5 * 60_000,
+    });
+    await writes.settle(begun.ticket, unclear, {
+      status: "failed",
+      code: "timeout",
+    });
+    expect((await rows())[0]).toEqual(
+      expect.objectContaining({
+        effect_status: "unknown",
+        response_status: "failed",
+        response_code: "timeout",
+      }),
+    );
+  });
+
   it("keeps a write with no receipt unknown, then closes its key before settling it not-applied", async () => {
     await leavePending(0, "a");
     await expect(

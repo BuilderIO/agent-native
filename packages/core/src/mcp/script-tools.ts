@@ -1378,6 +1378,7 @@ export async function runMcpScript(
   let callCount = 0;
   let readBytes = 0;
   let denialCount = 0;
+  let ledgerRefusals = 0;
   // The sandbox can't cancel a call it started, so a run that stops with
   // calls in flight (an action, or the audit write for a refusal) keeps its
   // slot until they settle. Otherwise runs that time out could pile up work
@@ -1481,6 +1482,14 @@ export async function runMcpScript(
         );
       }
     };
+
+    // The run's ledger lists every refused call, but keeps the arguments of
+    // only as many as the audit log records, so a script refused in a loop
+    // can't store a copy for each call.
+    const ledgerRefusalArguments = (args: unknown) =>
+      ++ledgerRefusals > MCP_SCRIPT_LIMITS.recordedDenials + 1
+        ? undefined
+        : args;
 
     // One call from the script's `api`, answered as the guest's `__call`
     // reads it.
@@ -1616,7 +1625,10 @@ export async function runMcpScript(
             reason: denial.reason,
             // Run status shows a call to no action without its arguments,
             // since no action's settings allow them there.
-            args: denial.action === undefined ? undefined : denial.args,
+            args:
+              denial.action === undefined
+                ? undefined
+                : ledgerRefusalArguments(denial.args),
           });
         } catch (error) {
           console.error(
@@ -1691,7 +1703,7 @@ export async function runMcpScript(
               functionName: fn,
               action,
               reason: begun.code,
-              args: deniedArguments(),
+              args: ledgerRefusalArguments(deniedArguments()),
             });
           } catch (error) {
             console.error(

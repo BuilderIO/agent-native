@@ -2307,6 +2307,28 @@ describe("script writes", () => {
     expect(ledgerArgs).toEqual([undefined, { id: "doc_1" }]);
   });
 
+  it("keeps arguments in the ledger for only as many refused calls as the audit log records", async () => {
+    const { writes, ledgerDenials, ledgerArgs } = fakeGate(async () => ({
+      status: "refused",
+      code: "write_budget",
+      message: "Over budget.",
+    }));
+    const { run } = writeRunner({ "save-doc": writeEntry() }, writes);
+    const audited = MCP_SCRIPT_LIMITS.recordedDenials + 1;
+    await run(`
+      for (let i = 0; i < ${audited + 2}; i++) {
+        try { await api.saveDoc({ id: "doc_" + i }); } catch {}
+      }
+    `);
+    // The run's status still lists every refusal.
+    expect(ledgerDenials).toHaveLength(audited + 2);
+    expect(ledgerArgs).toEqual([
+      ...Array.from({ length: audited }, (_, i) => ({ id: `doc_${i}` })),
+      undefined,
+      undefined,
+    ]);
+  });
+
   it("refuses a write where the server has no gate for the run", async () => {
     const { run, contexts } = writeRunner(
       { "save-doc": writeEntry() },

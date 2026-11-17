@@ -231,7 +231,9 @@ export type ScriptOutboxItem =
  * Only an unsettled row moves, except that `committed`
  * may replace `unknown` or `not-applied` when a receipt turns up. A fenced
  * key never gets a receipt, so that replaces only a `not-applied` the run
- * itself recorded.
+ * itself recorded. A run's own `unknown` may land on a row recovery already
+ * marked `unknown` while the write was still running, so run status keeps
+ * what the script saw.
  */
 export async function settleScriptWriteRow(
   owner: ScriptRunOwner,
@@ -270,9 +272,7 @@ export async function settleScriptWriteRow(
   const from =
     settled.effect === "committed"
       ? "('pending', 'unknown', 'not-applied')"
-      : settled.effect === "unknown"
-        ? "('pending')"
-        : "('pending', 'unknown')";
+      : "('pending', 'unknown')";
   const response = settled.response;
   // raw-sql-ok: the state list and response columns are literals chosen above; every value is bound.
   const result = await client.execute({
