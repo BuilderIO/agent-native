@@ -1763,6 +1763,19 @@ export default {
       localDescription:
         "/visual-edit で任意の実行中ローカル app に接続します。",
       warningsToast: "警告付きでインポートが完了しました",
+      pasteUnreadable: "コピーしたレイヤーを読み取れませんでした。",
+      pasteInexact: "正確に貼り付けられなかった詳細: {{count}}",
+      pasteLayerTypes:
+        "シンプルなフレームとして貼り付けた{{tool}}のレイヤータイプ: {{count}}",
+      pasteImagePlaceholders:
+        "プレースホルダーとして貼り付けた画像: {{count}}。{{tool}}は画像データをコピーしません。",
+      pasteImagesLinked:
+        "{{tool}}にリンクされたままの画像: {{count}}。ファイルストレージにコピーできませんでした。",
+      pasteImagesUnsaved:
+        "保存を確認できず、表示されなくなる可能性のある画像: {{count}}",
+      pasteNeedsEditAccess: "このデザインに貼り付けるには編集権限が必要です。",
+      pastePartialImport:
+        "貼り付けに失敗しました。一部の画面が作成された可能性があります。画面を確認してください。",
       figmaSuccess: "Figma 貼り付けをインポートしました",
       htmlSuccess: "HTML をインポートしました",
       uploadSuccess: "ファイルをインポートしました",
@@ -1773,6 +1786,8 @@ export default {
         notHtml: "インポートする有効な HTML を貼り付けるか選択してください。",
         importFailed: "インポートに失敗しました",
         figmaPasteFailed: "Figma 貼り付けのインポートに失敗しました",
+        paperPasteFailed: "Paper 貼り付けのインポートに失敗しました",
+        wonderPasteFailed: "Wonder 貼り付けのインポートに失敗しました",
         uploadFailed: "ファイルのアップロードに失敗しました",
         invalidFigFile: ".fig で終わるファイルを選択してください。",
         unsupportedFileType: ".fig、.html、.htm ファイルを選択してください。",
@@ -3559,6 +3574,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "エージェントを使うには AI モデルを接続してください",
       startFailed: "エージェントを開始できませんでした",
+      hostChatUnconfirmed:
+        "メッセージがホストチャットに届いたか確認できませんでした。再試行する前にホストチャットを確認してください。",
       cancelFailed: "エージェントを停止できませんでした",
       busy: "このスレッドではすでにエージェントが作業中です",
       error: {

@@ -1486,6 +1486,57 @@ describe("ReviewCommentComposer", () => {
     expect(state.mentions).toEqual([alice]);
   });
 
+  it("separates text typed after an agent mention chip", async () => {
+    let state = { value: "", mentions: [] as ReviewMention[] };
+    await render(
+      <Harness
+        mentionOptions={[{ label: "agent", id: "agent:default", email: null }]}
+        onState={(next) => (state = next)}
+      />,
+    );
+    keydown("@");
+    await act(async () => {});
+    await act(async () => mentionOption("agent").click());
+    typeText("hi");
+    expect(state.value).toBe("@agent hi");
+  });
+
+  it("keeps punctuation typed after an agent mention chip adjacent", async () => {
+    let state = { value: "", mentions: [] as ReviewMention[] };
+    await render(
+      <Harness
+        mentionOptions={[{ label: "agent", id: "agent:default", email: null }]}
+        onState={(next) => (state = next)}
+      />,
+    );
+    keydown("@");
+    await act(async () => {});
+    await act(async () => mentionOption("agent").click());
+    typeText(",");
+    expect(state.value).toBe("@agent,");
+  });
+
+  it("keeps existing punctuation after an inserted agent mention", async () => {
+    let state = { value: "", mentions: [] as ReviewMention[] };
+    await render(
+      <Harness
+        mentionOptions={[{ label: "agent", id: "agent:default", email: null }]}
+        onState={(next) => (state = next)}
+      />,
+    );
+    keydown("@");
+    await act(async () => {});
+    act(() => {
+      const { state: editorState, view } = editorDom().editor;
+      view.dispatch(editorState.tr.insertText(","));
+      editorDom().editor.commands.setTextSelection(2);
+    });
+    await act(async () => {});
+    expect(mentionOptionLabels()).toContain("agent");
+    await act(async () => mentionOption("agent").click());
+    expect(state.value).toBe("@agent,");
+  });
+
   it("replaces the full typed mention token and submits only its metadata", async () => {
     let state = { value: "", mentions: [alice] as ReviewMention[] };
     await render(

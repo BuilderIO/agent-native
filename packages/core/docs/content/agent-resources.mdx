@@ -445,6 +445,8 @@ REST endpoints mounted automatically:
 | `DELETE` | `/_agent-native/resources/:id`                | Delete a resource                    |
 | `POST`   | `/_agent-native/resources/upload`             | Upload a file as resource            |
 
+A resource read with `GET /_agent-native/resources/:id` comes with a `revision`. Send it back as `expectedRevision` with new `content` on `PUT`, and if someone saved other content after your read, nothing is written: the response is a 409 with `errorCode: "save_conflict"`, the content there now in `details.current.content`, and its revision in `details.currentRevision`. A `PUT` without `expectedRevision` still writes over whatever is there. A checked save can't also rename the resource: send the new `path` in its own `PUT` first. `<ResourceEditor saveContent>` does this for you: when someone else saved other content during an edit, it asks which version to keep and offers the other one back afterwards.
+
 ### Action API {#script-api}
 
 The agent uses these built-in actions. You can also call them from your own actions:

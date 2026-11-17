@@ -1091,6 +1091,10 @@ const editor = {
     fourColumns: "4 colonnes",
     codeBlock: "Bloc de code",
     codeBlockDescription: "Extrait de code",
+    toggleHeading1: "Titre dépliable 1",
+    toggleHeading2: "Titre dépliable 2",
+    toggleHeading3: "Titre dépliable 3",
+    toggleHeadingDescription: "Titre qui s’ouvre et se referme",
     collapsibleBlockDescription: "Bloc pliable",
     database: "Collection",
     databaseDescription: "Collection intégrée dans cette page",
@@ -1182,6 +1186,13 @@ const editor = {
     agentLevelNote: "Les agents peuvent commenter",
     agentLevelNoteHint:
       "Les agents peuvent commenter sur cette page. Modifiez cela dans Partager.",
+    agentLevelViewDescription:
+      "Peuvent lire cette page, mais pas commenter, suggérer ni modifier.",
+    agentLevelViewConfirm:
+      "Les agents peuvent désormais uniquement lire cette page.",
+    agentLevelViewNote: "Les agents peuvent uniquement consulter",
+    agentLevelViewNoteHint:
+      "Les agents peuvent uniquement consulter cette page. Modifiez cela dans Partager.",
     sendPageToAgent: "Envoyer cette page à un agent",
     connectAgentOverMcp: "Connecter un agent via MCP",
     importingFromNotion: "Importation depuis Notion...",

@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { chunks } from "./_batch-utils.js";
 import {
   assertNoColumnRuleOn,
@@ -945,5 +946,10 @@ export default defineAction({
   mcpApp: { structuredContent: true },
   schema: safeOperationalSchema,
   audit: migrationAudit,
+  // Only apply writes rows; validate and verify read them.
+  changeResource: (input) =>
+    input.phase === "apply"
+      ? documentChangeResource(input.plan.databaseDocumentId)
+      : null,
   run: (args, ctx) => runMigration(args as MigrationInput, ctx),
 });

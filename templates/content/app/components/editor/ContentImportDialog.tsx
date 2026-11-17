@@ -344,7 +344,20 @@ export function ContentImportDialog({
         imageUploads.current,
         // Stored privately, filed under the page the import starts from;
         // each imported page that links one makes it its own on creation.
-        (file) => uploadImageFile(file, { documentId: parentId }),
+        // A refused image is named, so it can be found among the rest.
+        (file) =>
+          uploadImageFile(file, { documentId: parentId }).catch(
+            (uploadError: unknown) => {
+              if (uploadError instanceof ImageStorageUnavailableError) {
+                throw uploadError;
+              }
+              const reason =
+                uploadError instanceof Error
+                  ? uploadError.message
+                  : String(uploadError);
+              throw new Error(`${file.name}: ${reason}`);
+            },
+          ),
       );
       const result = await importContent.mutateAsync({
         files: payload.map((file) =>

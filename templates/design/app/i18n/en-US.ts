@@ -1678,6 +1678,18 @@ export default {
         "Coming soon: import screens and components directly from a repository.",
       localDescription: "Connect any running local app with /visual-edit.",
       warningsToast: "Import completed with warnings",
+      pasteUnreadable: "The copied layers could not be read.",
+      pasteInexact: "Details not pasted exactly: {{count}}",
+      pasteLayerTypes: "{{tool}} layer types pasted as plain frames: {{count}}",
+      pasteImagePlaceholders:
+        "Images pasted as placeholders: {{count}}. {{tool}} does not copy image data.",
+      pasteImagesLinked:
+        "Images still linked to {{tool}}: {{count}}. They could not be copied into your file storage.",
+      pasteImagesUnsaved:
+        "Images that may stop loading because they could not be confirmed as saved: {{count}}",
+      pasteNeedsEditAccess: "You need edit access to paste into this design.",
+      pastePartialImport:
+        "The paste failed and some screens may have been created. Check your screens.",
       figmaSuccess: "Figma paste imported",
       htmlSuccess: "HTML imported",
       uploadSuccess: "File imported",
@@ -1688,6 +1700,8 @@ export default {
         notHtml: "Paste or choose valid HTML to import.",
         importFailed: "Import failed",
         figmaPasteFailed: "Figma paste import failed",
+        paperPasteFailed: "Paper paste import failed",
+        wonderPasteFailed: "Wonder paste import failed",
         uploadFailed: "File upload failed",
         invalidFigFile: "Choose a file ending in .fig.",
         unsupportedFileType: "Choose a .fig, .html, or .htm file.",
@@ -3464,6 +3478,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "Connect an AI model to use agents",
       startFailed: "Could not start the agent",
+      hostChatUnconfirmed:
+        "Could not confirm that the message reached the host chat. Check the host chat before trying again.",
       cancelFailed: "Could not stop the agent",
       busy: "An agent is already working on this thread",
       error: {

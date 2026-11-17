@@ -175,13 +175,24 @@ describe("DashboardPanelChart", () => {
     );
   });
 
-  it("draws nothing for a section or an extension", async () => {
+  it("draws nothing for an extension, or a section with no description", async () => {
     for (const chartType of ["section", "extension"] as const) {
       await render(
         <DashboardPanelChart panel={panel(chartType)} rows={DAYS} />,
       );
       expect(container.innerHTML).toBe("");
     }
+  });
+
+  it("shows a section's description and draws no rows", async () => {
+    await render(
+      <DashboardPanelChart
+        panel={panel("section", { description: "Growth this quarter" })}
+        rows={DAYS}
+      />,
+    );
+    expect(container.textContent).toBe("Growth this quarter");
+    expect(container.querySelector("svg")).toBeNull();
   });
 
   it("shows the panel's description above it", async () => {

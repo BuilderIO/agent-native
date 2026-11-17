@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
+import { keepEscapeFromPagePanel } from "../document-page-panel-state";
 import {
   DatabaseTableColumnOrder,
   DatabaseTableLayout,
@@ -351,7 +352,12 @@ export function ContentTableSearch({
     onChange: (event: ReactChangeEvent<HTMLInputElement>) =>
       onValueChange(event.target.value),
     onKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => {
-      if (event.key === "Escape") close();
+      if (event.key !== "Escape") return;
+      // Mark the key used: once the search closes the field is gone, so a
+      // page panel listening for Escape can't tell it came from here, and
+      // would close too, even inside a row preview that left the key to it.
+      keepEscapeFromPagePanel(event.nativeEvent);
+      close();
     },
   };
   if (open && variant === "field") {

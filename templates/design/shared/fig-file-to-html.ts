@@ -1,14 +1,3 @@
-import { parseBase64DataUrl } from "@agent-native/core/shared";
-
-import {
-  base64ToBytes,
-  readAscii,
-  readF32LE,
-  readU16BE,
-  readU32BE,
-  readU32LE,
-  utf8ByteLength,
-} from "../../shared/fig-bytes.js";
 import {
   cssBlendMode,
   figmaDrawnText,
@@ -20,7 +9,18 @@ import {
   textDecorationCss,
   textTransformCss,
   textUnderlinePositionCss,
-} from "./figma-node-to-html.js";
+} from "@agent-native/core/ingestion";
+import { parseBase64DataUrl } from "@agent-native/core/shared";
+
+import {
+  base64ToBytes,
+  readAscii,
+  readF32LE,
+  readU16BE,
+  readU32BE,
+  readU32LE,
+  utf8ByteLength,
+} from "./fig-bytes.js";
 
 export interface Guid {
   sessionID: number;
