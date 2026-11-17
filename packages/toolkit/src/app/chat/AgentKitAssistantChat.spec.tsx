@@ -24,6 +24,7 @@ import type {
   AgentTransport,
 } from "@agent-native/agentkit/protocol";
 import { compareAndSetClientAppState } from "@agent-native/core/client/application-state";
+import { stripAgentChatContextFromMessage } from "@agent-native/core/shared";
 import { AgentSelectToggle } from "@agent-native/toolkit/app/agent-select";
 import React, { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -1034,6 +1035,74 @@ async function flush() {
 }
 
 describe("host composer input controls", () => {
+  it("sends the allowed integration connection flows with a composer turn", async () => {
+    onTestFinished(() => vi.unstubAllGlobals());
+    vi.stubGlobal("__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__", {
+      defaults: {
+        include: ["notion", "context7", "builder-cms", "stripe"],
+        exclude: ["stripe"],
+      },
+      custom: false,
+    });
+    await mount(baseProps());
+    await act(async () =>
+      chatMocks.composerProps.onSubmit(
+        "What integrations can I connect?",
+        [],
+        [],
+        {
+          intent: "immediate",
+        },
+      ),
+    );
+    const sent = chatMocks.control.sendMessage.mock.calls[0]?.[0]
+      .text as string;
+    expect(sent).toMatch(/composer.*integrations/i);
+    expect(sent).toMatch(/notion[^\n]*personal/i);
+    expect(sent).toMatch(/context7[^\n]*personal[^\n]*workspace/i);
+    expect(sent).toMatch(/builder[^\n]*workspace[^\n]*admin/i);
+    expect(sent).not.toMatch(/stripe|https?:\/\/|authorization|bearer/i);
+    expect(sent).toMatch(/connection status.*unknown/i);
+  });
+
+  it.each(["hidden", "terminal", "attach-only"] as const)(
+    "does not advertise the integration flow in %s mode",
+    async (plusMenuMode) => {
+      await mount(baseProps({ plusMenuMode }));
+      await act(async () =>
+        chatMocks.composerProps.onSubmit("Hello", [], [], {
+          intent: "immediate",
+        }),
+      );
+      expect(chatMocks.control.sendMessage.mock.calls[0]?.[0].text).toBe(
+        "Hello",
+      );
+    },
+  );
+
+  it("does not advertise a disabled integration catalog", async () => {
+    onTestFinished(() => vi.unstubAllGlobals());
+    vi.stubGlobal("__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__", false);
+    await mount(baseProps());
+    await act(async () =>
+      chatMocks.composerProps.onSubmit("Hello", [], [], {
+        intent: "immediate",
+      }),
+    );
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0].text).toBe("Hello");
+  });
+
+  it("does not attach composer instructions to an imperative send", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () => {
+      await ref.current!.sendMessage("Sent by the host");
+    });
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0].text).toBe(
+      "Sent by the host",
+    );
+  });
+
   it("disables attachment entry without disabling voice or the composer", async () => {
     await mount(baseProps({ composerAttachmentsEnabled: false }));
     expect(chatMocks.composerProps.attachmentsEnabled).toBe(false);
@@ -2674,12 +2743,18 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(queueMessage).toHaveBeenCalledOnce();
       expect(queueMessage.mock.calls[0]?.[0]).toMatchObject({
         threadId: chatMocks.threadId,
-        text: "Next turn",
       });
+      expect(
+        stripAgentChatContextFromMessage(queueMessage.mock.calls[0]![0].text),
+      ).toBe("Next turn");
       expect(startRun).toHaveBeenCalledOnce();
-      expect(client.getThread(chatMocks.threadId).queuedMessages).toEqual([
-        expect.objectContaining({ text: "Next turn" }),
-      ]);
+      expect(
+        client
+          .getThread(chatMocks.threadId)
+          .queuedMessages.map(({ text }) =>
+            stripAgentChatContextFromMessage(text),
+          ),
+      ).toEqual(["Next turn"]);
     } finally {
       activeRunFinished.resolve();
       await flush();
@@ -2782,7 +2857,6 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(queueMessage).toHaveBeenCalledOnce();
       expect(queueMessage.mock.calls[0]?.[0]).toMatchObject({
         id: staged[0]?.id,
-        text: "Next turn",
         attachments: [
           {
             type: "file",
@@ -2791,6 +2865,9 @@ describe("AgentKitAssistantChat host behavior", () => {
           },
         ],
       });
+      expect(
+        stripAgentChatContextFromMessage(queueMessage.mock.calls[0]![0].text),
+      ).toBe("Next turn");
     } finally {
       readiness.resolve();
       upload.resolve([]);
@@ -3056,16 +3133,17 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(queuedRows()).toEqual([
         expect.stringContaining("Also greet Lee."),
       ]);
+      expect(queuedRows()[0]).not.toContain("Connection status is unknown");
       expect(startRun).toHaveBeenCalledOnce();
 
       await act(async () => started.resolve({ runId: "run-active" }));
       await flush();
       await flush();
 
-      expect(queueMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ text: "Also greet Lee." }),
-        expect.anything(),
-      );
+      expect(queueMessage).toHaveBeenCalledOnce();
+      expect(
+        stripAgentChatContextFromMessage(queueMessage.mock.calls[0]![0].text),
+      ).toBe("Also greet Lee.");
       expect(startRun).toHaveBeenCalledOnce();
       expect(queuedRows()).toEqual([
         expect.stringContaining("Also greet Lee."),
@@ -3161,13 +3239,17 @@ describe("AgentKitAssistantChat host behavior", () => {
       await flush();
 
       expect(startRun).toHaveBeenCalledOnce();
-      expect(startRun.mock.calls[0]![0].messages.at(-1)?.parts).toEqual([
-        { type: "text", text: "Greet everyone" },
-      ]);
-      expect(queueMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ text: "Also greet Lee." }),
-        expect.anything(),
+      const parts = startRun.mock.calls[0]![0].messages.at(-1)?.parts;
+      expect(parts).toHaveLength(1);
+      expect(parts?.[0]?.type).toBe("text");
+      if (parts?.[0]?.type !== "text") throw new Error("Expected text part");
+      expect(stripAgentChatContextFromMessage(parts[0].text)).toBe(
+        "Greet everyone",
       );
+      expect(queueMessage).toHaveBeenCalledOnce();
+      expect(
+        stripAgentChatContextFromMessage(queueMessage.mock.calls[0]![0].text),
+      ).toBe("Also greet Lee.");
     } finally {
       firstReadiness.resolve();
       activeRunFinished.resolve();
@@ -4893,8 +4975,12 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.uploadFiles.mock.calls[0]?.[0]).toMatchObject([
       { name: image.name, mediaType: "image/png", size: image.size },
     ]);
+    expect(
+      stripAgentChatContextFromMessage(
+        chatMocks.control.sendMessage.mock.calls[0]![0].text,
+      ),
+    ).toBe("Describe this slide");
     expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
-      text: "Describe this slide",
       attachments: [
         {
           name: image.name,
@@ -4928,8 +5014,12 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
 
     expect(chatMocks.control.uploadFiles).toHaveBeenCalledOnce();
+    expect(
+      stripAgentChatContextFromMessage(
+        chatMocks.control.sendMessage.mock.calls[1]![0].text,
+      ),
+    ).toBe("Summarize this pasted text:\n\nFull pasted document text");
     expect(chatMocks.control.sendMessage.mock.calls[1]?.[0]).toMatchObject({
-      text: "Summarize this pasted text:\n\nFull pasted document text",
       attachments: [],
     });
   });
@@ -6091,9 +6181,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
 
     expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
-    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
-      text: "Send without selection",
-    });
+    expect(
+      stripAgentChatContextFromMessage(
+        chatMocks.control.sendMessage.mock.calls[0]![0].text,
+      ),
+    ).toBe("Send without selection");
     expect(
       chatMocks.control.sendMessage.mock.calls[0]?.[0]?.options?.metadata,
     ).not.toHaveProperty("agentNativeSkipPendingSelectionContext");
@@ -6152,8 +6244,12 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
 
     expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(
+      stripAgentChatContextFromMessage(
+        chatMocks.control.sendMessage.mock.calls[0]![0].text,
+      ),
+    ).toBe("Describe this slide");
     expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
-      text: "Describe this slide",
       options: {
         metadata: { agentNativeSkipPendingSelectionContext: true },
       },

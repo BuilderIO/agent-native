@@ -85,6 +85,12 @@ import { signOut } from "@agent-native/core/client/hooks";
 import { callAction } from "@agent-native/core/client/hooks";
 import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import {
+  allowsMcpIntegrationPersonalScope,
+  getDefaultMcpIntegrations,
+  isMcpIntegrationCatalogAvailable,
+  supportsMcpIntegrationOrganizationScope,
+} from "@agent-native/core/client/resources/mcp-integration-catalog";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { useSession } from "@agent-native/core/client/use-session";
@@ -1416,6 +1422,50 @@ function isRetryableDeferredProviderSubmissionError(error: unknown): boolean {
     );
   }
   return error instanceof TypeError || record?.name === "AbortError";
+}
+
+function composerIntegrationContext(
+  mode: AgentKitAssistantChatProps["plusMenuMode"],
+): string | undefined {
+  if (
+    (mode !== undefined && mode !== "full" && mode !== "upload-only") ||
+    !isMcpIntegrationCatalogAvailable()
+  )
+    return undefined;
+
+  const integrations = getDefaultMcpIntegrations();
+  const lines: string[] = [];
+  let truncated = false;
+  for (const integration of integrations) {
+    if (!/^[\p{L}\p{N} .&+()_-]{1,80}$/u.test(integration.name)) {
+      truncated = true;
+      continue;
+    }
+    const scopes = [
+      allowsMcpIntegrationPersonalScope(integration) ? "personal" : null,
+      supportsMcpIntegrationOrganizationScope(integration)
+        ? "workspace (requires a workspace and an admin)"
+        : null,
+    ].filter(Boolean);
+    if (scopes.length === 0) {
+      truncated = true;
+      continue;
+    }
+    const line = `- ${integration.name}: ${scopes.join(", ")}`;
+    if (lines.length >= 100 || lines.join("\n").length + line.length > 6000) {
+      truncated = true;
+      break;
+    }
+    lines.push(line);
+  }
+  return [
+    "The composer + menu has an Integrations section with a Connect an integration flow.",
+    "The following are supported preset connection flows, not connected tools. Connection status is unknown; setup or provider restrictions may apply.",
+    ...lines,
+    ...(truncated
+      ? ["This preset list is incomplete; consult the composer catalog."]
+      : []),
+  ].join("\n");
 }
 
 type AgentKitComposerSubmit = (
@@ -5738,8 +5788,19 @@ function AgentKitComposerSurface({
     references: Reference[],
     options: AgentKitSuggestionSubmitOptions,
   ) => {
+    const integrationContext = composerIntegrationContext(props.plusMenuMode);
     options = {
       ...options,
+      ...(integrationContext
+        ? {
+            composerModeContext: [
+              options.composerModeContext,
+              integrationContext,
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
+          }
+        : {}),
       ...(selectedSuggestionRef.current
         ? { suggestion: selectedSuggestionRef.current }
         : {}),
