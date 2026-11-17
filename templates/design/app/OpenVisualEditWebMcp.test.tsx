@@ -306,7 +306,7 @@ describe("OpenVisualEditWebMcp", () => {
         designId: "board-1",
         connectionId: null,
         createdDesign: true,
-        publicReadOnly: true,
+        publicReadOnly: false,
         devServerUrl: "http://localhost:5173",
         screenCount: 0,
         overview: true,
@@ -325,16 +325,20 @@ describe("OpenVisualEditWebMcp", () => {
     );
 
     expect(JSON.stringify(result)).not.toContain("example-claim-secret");
+    // Per-tab storage: another tab or account on this origin cannot read it.
+    expect(
+      window.sessionStorage.getItem("design-visual-edit-board-claim:board-1"),
+    ).toBe("example-claim-secret-0123456789abcdef0123");
     expect(
       window.localStorage.getItem("design-visual-edit-board-claim:board-1"),
-    ).toBe("example-claim-secret-0123456789abcdef0123");
+    ).toBeNull();
     expect(mocks.callAction).toHaveBeenLastCalledWith(
       "open-visual-edit",
       expect.objectContaining({ withoutBridge: true }),
       expect.anything(),
     );
     expect(mocks.persistTransport).not.toHaveBeenCalled();
-    window.localStorage.removeItem("design-visual-edit-board-claim:board-1");
+    window.sessionStorage.removeItem("design-visual-edit-board-claim:board-1");
   });
 
   it("persists only the scoped bridge transport, never its bridge token", async () => {

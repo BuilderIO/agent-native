@@ -197,7 +197,6 @@ export default defineAction({
     await assertAccess("design", designId, "editor");
     assertVisualEditCapabilityDesign(designId);
     assertVisualEditBoardFileSize(content);
-    await assertVisualEditBoardFileCount(designId);
 
     assertHubSpotEmailFileType({
       fileType,
@@ -506,6 +505,9 @@ export default defineAction({
 
         const createdAt =
           restoreCreatedAt === undefined ? now : restoreCreatedAt;
+        // Counted under the design's source-mutation lock, so concurrent
+        // creates cannot all see room for one more file.
+        await assertVisualEditBoardFileCount(designId, tx);
         await tx.insert(schema.designFiles).values({
           id,
           designId,

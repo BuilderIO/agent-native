@@ -6,14 +6,25 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import claimAction from "../../actions/claim-visual-edit-board.js";
 import createFile from "../../actions/create-file.js";
+import getDesign from "../../actions/get-design.js";
+import renameScreen from "../../actions/rename-screen.js";
+import updateDesign from "../../actions/update-design.js";
 import updateFile from "../../actions/update-file.js";
 import { LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN } from "../../shared/local-visual-edit-principal.js";
+import {
+  sourceContentHash,
+  sourceContentPatch,
+} from "../../shared/source-workspace.js";
 import { bootDesignDatabase } from "./failed-write-test-harness.js";
 import {
   claimVisualEditBoard,
   issueVisualEditBoardClaim,
 } from "./visual-edit-board-claim.js";
-import { VISUAL_EDIT_BOARD_MAX_FILE_BYTES } from "./visual-edit-capability.js";
+import {
+  VISUAL_EDIT_BOARD_MAX_DATA_BYTES,
+  VISUAL_EDIT_BOARD_MAX_FILE_BYTES,
+  VISUAL_EDIT_BOARD_MAX_FILES,
+} from "./visual-edit-capability.js";
 
 // Signed-out boards against a real database: every signed-out tab for one
 // workspace path shares this principal, so it owns every board below.
@@ -28,10 +39,11 @@ async function seedBoard(
   id: string,
   ownerEmail = PRINCIPAL,
   data: Record<string, unknown> = { visualEditBoard: true },
+  visibility: "private" | "public" = "private",
 ) {
   await exec.execute({
     sql: "INSERT INTO designs (id, title, data, owner_email, visibility) VALUES (?, ?, ?, ?, ?)",
-    args: [id, "Board", JSON.stringify(data), ownerEmail, "public"],
+    args: [id, "Board", JSON.stringify(data), ownerEmail, visibility],
   });
   await exec.execute({
     sql: "INSERT INTO design_files (id, design_id, filename, file_type, content) VALUES (?, ?, ?, ?, ?)",
@@ -151,8 +163,9 @@ describe("signed-out board writes", () => {
     });
   });
 
-  it("writes its own public board with no account identity", async () => {
+  it("writes and reads its own private board with no account identity", async () => {
     await seedBoard("anonymous-board");
+    expect((await designRow("anonymous-board")).visibility).toBe("private");
     await asCapabilityOnly("anonymous-board", () =>
       updateFile.run(
         {
@@ -162,11 +175,28 @@ describe("signed-out board writes", () => {
         frontend,
       ),
     );
-    const { rows } = await exec.execute({
-      sql: "SELECT content FROM design_files WHERE id = ?",
-      args: ["anonymous-board:board"],
-    });
-    expect(rows[0]?.content).toContain("anon");
+    const read = (await asCapabilityOnly("anonymous-board", () =>
+      getDesign.run({ id: "anonymous-board" }, frontend),
+    )) as { files?: Array<{ content?: string }> };
+    expect(read.files?.[0]?.content).toContain("anon");
+  });
+
+  it("hides a private board from a stranger and from another board's capability", async () => {
+    await seedBoard("hidden-board");
+    await expect(
+      runWithRequestContext({}, () =>
+        getDesign.run({ id: "hidden-board" }, frontend),
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    await expect(
+      asUser(BOB, () => getDesign.run({ id: "hidden-board" }, frontend)),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    await seedBoard("other-board");
+    await expect(
+      asCapabilityOnly("other-board", () =>
+        getDesign.run({ id: "hidden-board" }, frontend),
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it("caps a signed-out board file's size", async () => {
@@ -183,6 +213,156 @@ describe("signed-out board writes", () => {
         ),
       ),
     ).rejects.toMatchObject({ errorCode: "visual_edit_board_file_too_large" });
+  });
+});
+
+describe("signed-out board limits", () => {
+  it("never lets concurrent creates push a board past its file cap", async () => {
+    await seedBoard("full-board");
+    for (let index = 2; index < VISUAL_EDIT_BOARD_MAX_FILES; index += 1) {
+      await exec.execute({
+        sql: "INSERT INTO design_files (id, design_id, filename, file_type, content) VALUES (?, ?, ?, ?, ?)",
+        args: [
+          `full-board:${index}`,
+          "full-board",
+          `screen-${index}.html`,
+          "html",
+          "<p>screen</p>",
+        ],
+      });
+    }
+    const results = await Promise.allSettled(
+      Array.from({ length: 4 }, (_, index) =>
+        asCapabilityOnly("full-board", () =>
+          createFile.run(
+            {
+              designId: "full-board",
+              filename: `race-${index}.html`,
+              content: "<p>race</p>",
+            },
+            frontend,
+          ),
+        ),
+      ),
+    );
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    for (const result of results.filter((r) => r.status === "rejected")) {
+      expect((result as PromiseRejectedResult).reason).toMatchObject({
+        errorCode: "visual_edit_board_file_limit",
+      });
+    }
+    const { rows } = await exec.execute({
+      sql: "SELECT COUNT(*) AS files FROM design_files WHERE design_id = ?",
+      args: ["full-board"],
+    });
+    expect(Number(rows[0]?.files)).toBe(VISUAL_EDIT_BOARD_MAX_FILES);
+  });
+
+  it("checks a content patch by the file it produces", async () => {
+    await seedBoard("patched-board");
+    const base = `<html><body>${"x".repeat(VISUAL_EDIT_BOARD_MAX_FILE_BYTES - 64)}</body></html>`;
+    await exec.execute({
+      sql: "UPDATE design_files SET content = ? WHERE id = ?",
+      args: [base, "patched-board:board"],
+    });
+    const next = base.replace("<body>", `<body>${"y".repeat(128)}`);
+    const contentPatch = sourceContentPatch(base, next);
+    expect(contentPatch.text.length).toBeLessThan(256);
+    await expect(
+      asCapabilityOnly("patched-board", () =>
+        updateFile.run(
+          {
+            id: "patched-board:board",
+            contentPatch,
+            expectedVersionHash: sourceContentHash(base),
+          },
+          frontend,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_board_file_too_large" });
+    const { rows } = await exec.execute({
+      sql: "SELECT content FROM design_files WHERE id = ?",
+      args: ["patched-board:board"],
+    });
+    expect(rows[0]?.content).toBe(base);
+  });
+
+  it("caps each rename content override at the board file size", async () => {
+    await seedBoard("renamed-board");
+    const current = "<html><body></body></html>";
+    await expect(
+      asCapabilityOnly("renamed-board", () =>
+        renameScreen.run(
+          {
+            id: "renamed-board:board",
+            name: "Notes",
+            contentOverrides: [
+              {
+                fileId: "renamed-board:board",
+                content: "x".repeat(VISUAL_EDIT_BOARD_MAX_FILE_BYTES + 1),
+                expectedVersionHash: sourceContentHash(current),
+              },
+            ],
+          },
+          frontend,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_board_file_too_large" });
+    const { rows } = await exec.execute({
+      sql: "SELECT filename, content FROM design_files WHERE id = ?",
+      args: ["renamed-board:board"],
+    });
+    expect(rows[0]).toMatchObject({
+      filename: "__board__.html",
+      content: current,
+    });
+  });
+
+  it("caps the design data a board capability stores, however it is written", async () => {
+    await seedBoard("data-board");
+    const half = "x".repeat(VISUAL_EDIT_BOARD_MAX_DATA_BYTES / 2 + 16);
+    await asCapabilityOnly("data-board", () =>
+      updateDesign.run(
+        {
+          id: "data-board",
+          dataOperations: [{ op: "set", path: ["a"], value: half }],
+        },
+        frontend,
+      ),
+    );
+    // Each operation is under the cap; the data it would leave is not.
+    await expect(
+      asCapabilityOnly("data-board", () =>
+        updateDesign.run(
+          {
+            id: "data-board",
+            dataOperations: [{ op: "set", path: ["b"], value: half }],
+          },
+          frontend,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_board_data_too_large" });
+    await expect(
+      asCapabilityOnly("data-board", () =>
+        updateDesign.run(
+          { id: "data-board", data: JSON.stringify({ b: half }) },
+          frontend,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_board_data_too_large" });
+    const stored = JSON.parse((await designRow("data-board")).data) as Record<
+      string,
+      unknown
+    >;
+    expect(stored.a).toBe(half);
+    expect(stored.b).toBeUndefined();
+    // An account write is not a board capability write and keeps its limits.
+    await asUser(PRINCIPAL, () =>
+      updateDesign.run(
+        { id: "data-board", data: JSON.stringify({ b: half }) },
+        frontend,
+      ),
+    );
   });
 });
 
@@ -264,6 +444,23 @@ describe("claim-visual-edit-board", () => {
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     const owner = (await designRow("raced-board")).owner_email;
     expect([ALICE, BOB]).toContain(owner);
+  });
+
+  it("lets two racing claims by the same account both succeed on one board", async () => {
+    await seedBoard("same-user-race");
+    const secret = await issue("same-user-race");
+    const results = await Promise.all([
+      claim(ALICE, "same-user-race", secret),
+      claim(ALICE, "same-user-race", secret),
+    ]);
+    expect(results.map((r) => (r as { claimed: boolean }).claimed)).toEqual([
+      true,
+      true,
+    ]);
+    expect(
+      results.filter((r) => !(r as { alreadyOwned: boolean }).alreadyOwned),
+    ).toHaveLength(1);
+    expect((await designRow("same-user-race")).owner_email).toBe(ALICE);
   });
 
   it("refuses a claim from the signed-out principal itself", async () => {

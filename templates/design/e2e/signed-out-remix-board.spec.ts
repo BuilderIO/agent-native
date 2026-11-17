@@ -175,14 +175,36 @@ test.describe("signed-out remix board", () => {
         /\/visual-edit\/([^/?]+)/.exec(new URL(page.url()).pathname)![1]!,
       );
 
-      // Only the opening page keeps the secret that moves the board later.
+      // Only the opening tab keeps the secret that moves the board later.
+      const claimKey = `design-visual-edit-board-claim:${designId}`;
       expect(
         await page.evaluate(
-          (id) =>
-            window.localStorage.getItem(`design-visual-edit-board-claim:${id}`),
-          designId,
+          (key) => ({
+            session: window.sessionStorage.getItem(key),
+            local: window.localStorage.getItem(key),
+          }),
+          claimKey,
         ),
-      ).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+      ).toEqual({
+        session: expect.stringMatching(/^[A-Za-z0-9_-]{40,}$/),
+        local: null,
+      });
+      const otherTab = await context.newPage();
+      try {
+        await otherTab.goto(appUrl("/visual-edit"), {
+          waitUntil: "domcontentloaded",
+        });
+        expect(
+          await otherTab.evaluate(
+            (key) =>
+              window.sessionStorage.getItem(key) ??
+              window.localStorage.getItem(key),
+            claimKey,
+          ),
+        ).toBeNull();
+      } finally {
+        await otherTab.close();
+      }
 
       await waitForTools(page, [
         "create-file",
@@ -236,6 +258,30 @@ test.describe("signed-out remix board", () => {
         ).toHaveCount(1, { timeout: 30_000 });
       }
       await shot(page, "signed-out-board");
+
+      // The board is private: its capability reads it, nobody else does.
+      const getDesignUrl = appUrl(
+        `/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+      );
+      expect(
+        await page.evaluate(async (url) => {
+          const response = await fetch(url, { credentials: "same-origin" });
+          return {
+            status: response.status,
+            visibility: ((await response.json()) as { visibility?: string })
+              .visibility,
+          };
+        }, getDesignUrl),
+      ).toEqual({ status: 200, visibility: "private" });
+      const stranger = await browser.newContext({
+        storageState: { cookies: [], origins: [] },
+      });
+      try {
+        const response = await stranger.request.get(getDesignUrl);
+        expect(response.status()).toBe(404);
+      } finally {
+        await stranger.close();
+      }
 
       // The capability never reaches sharing, design creation or another board.
       for (const [name, body] of [
@@ -306,7 +352,7 @@ test.describe("signed-out remix board", () => {
           return {
             accessRole: body.accessRole,
             visibility: body.visibility,
-            secret: window.localStorage.getItem(
+            secret: window.sessionStorage.getItem(
               `design-visual-edit-board-claim:${id}`,
             ),
           };

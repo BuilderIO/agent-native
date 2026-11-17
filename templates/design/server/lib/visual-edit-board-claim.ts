@@ -21,6 +21,8 @@ import { firstRow } from "./visual-edit-capability.js";
 // Settings never reach viewers, unlike design data, so the claim hash lives
 // here and never in anything get-design or a snapshot can return.
 const CLAIM_SETTING_PREFIX = "design-visual-edit-board-claim:";
+const CLAIM_RACE_REREADS = 10;
+const CLAIM_RACE_REREAD_DELAY_MS = 50;
 
 function claimSettingKey(designId: string): string {
   return `${CLAIM_SETTING_PREFIX}${designId}`;
@@ -151,8 +153,22 @@ export async function claimVisualEditBoard(args: {
     return notClaimable();
   }
   // Consuming the secret first makes it single-use: of two racing claims,
-  // only the one whose delete lands goes on to change the owner.
-  if (!(await deleteSettingIfValue(key, stored))) return notClaimable();
+  // only the one whose delete lands goes on to change the owner. A loser may
+  // be the same account's other tab, whose winner is still moving the owner,
+  // so it waits briefly for that before refusing.
+  if (!(await deleteSettingIfValue(key, stored))) {
+    for (let attempt = 0; attempt < CLAIM_RACE_REREADS; attempt += 1) {
+      const current = await readDesign();
+      if (current && sameUser(current.ownerEmail)) {
+        return { designId, claimed: true, alreadyOwned: true };
+      }
+      if (!current || !isLocalVisualEditPrincipal(current.ownerEmail)) break;
+      await new Promise((resolve) =>
+        setTimeout(resolve, CLAIM_RACE_REREAD_DELAY_MS),
+      );
+    }
+    return notClaimable();
+  }
 
   const previousOwner = design.ownerEmail;
   try {

@@ -9,7 +9,10 @@ import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
-import { assertVisualEditCapabilityDesign } from "../server/lib/visual-edit-capability.js";
+import {
+  assertVisualEditBoardDataSize,
+  assertVisualEditCapabilityDesign,
+} from "../server/lib/visual-edit-capability.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
@@ -857,6 +860,7 @@ export default defineAction({
               })
             : data!;
         }
+        assertVisualEditBoardDataSize(nextData);
 
         const existingAssignments = new Map(
           connectionAssignments(existing.data).map((assignment) => [

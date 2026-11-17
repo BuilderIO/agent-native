@@ -16,6 +16,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
+  assertVisualEditBoardFileSize,
   assertVisualEditCapabilityDesign,
   visualEditCapabilityFileScope,
 } from "../server/lib/visual-edit-capability.js";
@@ -205,6 +206,9 @@ export default defineAction({
 
     assertVisualEditCapabilityDesign(scopedFile.designId);
     await assertAccess("design", scopedFile.designId, "editor");
+    for (const override of contentOverrides) {
+      assertVisualEditBoardFileSize(override.content);
+    }
 
     const overrideIds = new Set<string>();
     for (const override of contentOverrides) {

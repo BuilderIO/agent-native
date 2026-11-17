@@ -28,35 +28,34 @@ function isVisualEditBoardData(data: unknown): boolean {
   );
 }
 
-export function publicDesignAccessRole(
-  resource?: { id?: unknown; data?: unknown } | null,
-  ctx: {
-    userEmail?: string;
-    orgId?: string;
-    authCapability?: string;
-  } = {},
-): "viewer" | "editor" {
+/**
+ * The role a visual-edit capability grants on the one design it names: editor
+ * on a localhost design or a board `open-visual-edit` created, whatever the
+ * design's visibility. Any other capability falls through to the normal rules.
+ */
+export function capabilityDesignAccessRole(
+  resource: { id?: unknown; data?: unknown } | null | undefined,
+  ctx: { authCapability: string },
+): "editor" | undefined {
   const designId =
     typeof resource?.id === "string" ? resource.id.trim() : undefined;
   if (
     !designId ||
+    !ctx.authCapability.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX) ||
     (designSourceTypeFromData(resource?.data) !== "localhost" &&
       !isVisualEditBoardData(resource?.data))
   ) {
-    return "viewer";
+    return undefined;
   }
-  if (!ctx.authCapability?.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX)) {
-    return "viewer";
-  }
-
   try {
     return decodeURIComponent(
       ctx.authCapability.slice(VISUAL_EDIT_CAPABILITY_PREFIX.length),
     ) === designId
       ? "editor"
-      : "viewer";
+      : undefined;
   } catch {
-    return "viewer";
+    // coercion-ok: a malformed capability names no design and grants nothing.
+    return undefined;
   }
 }
 

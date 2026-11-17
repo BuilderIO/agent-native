@@ -497,9 +497,8 @@ export default defineAction({
     publicReadOnly: z
       .boolean()
       .optional()
-      .default(true)
       .describe(
-        "For newly created loopback localhost designs, make the design public viewer-access so existing browser sessions do not see a false 404. Writes still require editor access.",
+        "For newly created loopback localhost designs, make the design public viewer-access so existing browser sessions do not see a false 404. Writes still require editor access. Defaults to true, except with withoutBridge, where the board stays private unless this is true.",
       ),
   }),
   mcpApp: {
@@ -642,8 +641,11 @@ export default defineAction({
         });
         designId = design.id;
         createdDesign = true;
+        // A bridge-free board has no localhost screens for a browser session to
+        // preview; its capability reaches it while private.
         publicReadOnly = Boolean(
-          args.publicReadOnly && isLoopbackUrl(devServerUrl),
+          (args.publicReadOnly ?? !args.withoutBridge) &&
+          isLoopbackUrl(devServerUrl),
         );
         await markVisualEditBoard(designId, publicReadOnly);
         claimSecret = await issueVisualEditBoardClaim(designId);
@@ -868,7 +870,7 @@ export default defineAction({
         { errorCode: "signed_out_visual_edit_requires_loopback" },
       );
     }
-    if (args.publicReadOnly === false) {
+    if (args.publicReadOnly === false && !args.withoutBridge) {
       fail(
         "Signed-out local visual-edit requires publicReadOnly so the resource can be opened through its narrow editor capability. Sign in to create a private Design resource.",
         { errorCode: "signed_out_visual_edit_requires_public_resource" },

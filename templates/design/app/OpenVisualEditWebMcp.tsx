@@ -302,7 +302,7 @@ export function createOpenVisualEditWebMcpActions(options?: {
           publicReadOnly: {
             type: "boolean",
             description:
-              "For newly created loopback localhost designs, make the design public viewer-access too. Defaults to true.",
+              "For newly created loopback localhost designs, make the design public viewer-access too. Defaults to true, except with withoutBridge, where the board stays private unless this is true.",
           },
         },
         required: ["devServerUrl"],

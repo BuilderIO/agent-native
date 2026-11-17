@@ -339,7 +339,7 @@ export default defineAction({
     });
 
     assertVisualEditCapabilityDesign(file.designId);
-    assertVisualEditBoardFileSize(requestedContent ?? contentPatch?.text);
+    assertVisualEditBoardFileSize(requestedContent);
     const access = await assertAccess("design", file.designId, "editor");
     // Only a non-HTML file can fail the check, so HTML saves skip parsing the
     // design data.
@@ -565,6 +565,8 @@ export default defineAction({
             throw new LegacyEmailFrameTypeNotStoredError(id);
           }
           if (content !== undefined) {
+            // A patch is checked by the file it produces, not by its text.
+            assertVisualEditBoardFileSize(content);
             assertDesignHtmlEditIntegrity({
               previousContent: liveContent,
               nextContent: content,

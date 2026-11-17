@@ -8,6 +8,8 @@ import { getDb, schema } from "../db/index.js";
 /** A signed-out board file holds inline HTML, never uploaded media. */
 export const VISUAL_EDIT_BOARD_MAX_FILE_BYTES = 1024 * 1024;
 export const VISUAL_EDIT_BOARD_MAX_FILES = 40;
+/** Board data holds canvas layout and screen metadata, not screen content. */
+export const VISUAL_EDIT_BOARD_MAX_DATA_BYTES = 1024 * 1024;
 
 export function firstRow<T>(rows: readonly T[]): T | undefined {
   return rows.length > 0 ? rows[0] : undefined;
@@ -81,9 +83,28 @@ export function assertVisualEditBoardFileSize(content: string | undefined) {
   }
 }
 
-export async function assertVisualEditBoardFileCount(designId: string) {
+/** Check the design data a capability write would store, not its input. */
+export function assertVisualEditBoardDataSize(nextData: string) {
   if (requestVisualEditCapabilityDesignId() === null) return;
-  const rows = await getDb()
+  if (Buffer.byteLength(nextData, "utf8") > VISUAL_EDIT_BOARD_MAX_DATA_BYTES) {
+    fail(
+      "A signed-out board's design data is limited to 1 MB. Sign in to save larger boards.",
+      { errorCode: "visual_edit_board_data_too_large", statusCode: 413 },
+    );
+  }
+}
+
+/**
+ * Run inside the transaction that inserts the file, after it holds the
+ * design's source-mutation lock: a count read outside it lets concurrent
+ * creates all pass.
+ */
+export async function assertVisualEditBoardFileCount(
+  designId: string,
+  tx: Pick<ReturnType<typeof getDb>, "select">,
+) {
+  if (requestVisualEditCapabilityDesignId() === null) return;
+  const rows = await tx
     .select({ files: count() })
     .from(schema.designFiles)
     .where(eq(schema.designFiles.designId, designId));

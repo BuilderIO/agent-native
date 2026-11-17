@@ -1401,6 +1401,38 @@ describe("open-visual-edit", () => {
       );
     });
 
+    it.each([undefined, false])(
+      "keeps a bridge-free board private when publicReadOnly is %s",
+      async (publicReadOnly) => {
+        const result = await action.run(
+          {
+            devServerUrl: "http://localhost:5173",
+            withoutBridge: true,
+            ...(publicReadOnly === undefined ? {} : { publicReadOnly }),
+            navigate: false,
+          },
+          pageContext("frontend"),
+        );
+        expect(mocks.markVisualEditBoard).toHaveBeenCalledWith(
+          "design_created",
+          false,
+        );
+        expect(result.publicReadOnly).toBe(false);
+      },
+    );
+
+    it("still opens a bridged signed-out design publicly by default", async () => {
+      const result = await action.run(
+        { devServerUrl: "http://localhost:5173", navigate: false },
+        pageContext("frontend"),
+      );
+      expect(mocks.markVisualEditBoard).toHaveBeenCalledWith(
+        "design_created",
+        true,
+      );
+      expect(result.publicReadOnly).toBe(true);
+    });
+
     it("hides the claim secret from a WebMCP caller's serialized result", async () => {
       const result = await action.run(
         {

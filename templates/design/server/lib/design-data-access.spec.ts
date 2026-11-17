@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  capabilityDesignAccessRole,
   designDataForAccessRole,
-  publicDesignAccessRole,
 } from "./design-data-access.js";
 
 describe("design data access policy", () => {
@@ -103,19 +103,20 @@ describe("design data access policy", () => {
     };
     const capability = "capability:visual-edit:design:design_1";
 
-    it("keeps an ordinary public localhost design viewer-only", () => {
-      expect(publicDesignAccessRole(resource)).toBe("viewer");
-    });
-
     it("grants editor only to the matching design capability", () => {
       expect(
-        publicDesignAccessRole(resource, { authCapability: capability }),
+        capabilityDesignAccessRole(resource, { authCapability: capability }),
       ).toBe("editor");
       expect(
-        publicDesignAccessRole(resource, {
+        capabilityDesignAccessRole(resource, {
           authCapability: "capability:visual-edit:design:another-design",
         }),
-      ).toBe("viewer");
+      ).toBeUndefined();
+      expect(
+        capabilityDesignAccessRole(resource, {
+          authCapability: "capability:other:design:design_1",
+        }),
+      ).toBeUndefined();
     });
 
     it("matches the capability after decoding the scoped design ID", () => {
@@ -125,10 +126,15 @@ describe("design data access policy", () => {
       };
 
       expect(
-        publicDesignAccessRole(encodedResource, {
+        capabilityDesignAccessRole(encodedResource, {
           authCapability: "capability:visual-edit:design:design%2F1",
         }),
       ).toBe("editor");
+      expect(
+        capabilityDesignAccessRole(encodedResource, {
+          authCapability: "capability:visual-edit:design:%E0%A4%A",
+        }),
+      ).toBeUndefined();
     });
 
     it("grants editor to the matching capability on a visual-edit board without localhost screens", () => {
@@ -137,28 +143,27 @@ describe("design data access policy", () => {
         data: JSON.stringify({ sourceType: "inline", visualEditBoard: true }),
       };
       expect(
-        publicDesignAccessRole(board, { authCapability: capability }),
+        capabilityDesignAccessRole(board, { authCapability: capability }),
       ).toBe("editor");
       expect(
-        publicDesignAccessRole(board, {
+        capabilityDesignAccessRole(board, {
           authCapability: "capability:visual-edit:design:another-design",
         }),
-      ).toBe("viewer");
-      expect(publicDesignAccessRole(board)).toBe("viewer");
+      ).toBeUndefined();
     });
 
     it.each(["inline", "fusion"])(
       "does not upgrade a matching %s design",
       (sourceType) => {
         expect(
-          publicDesignAccessRole(
+          capabilityDesignAccessRole(
             {
               ...resource,
               data: JSON.stringify({ sourceType }),
             },
             { authCapability: capability },
           ),
-        ).toBe("viewer");
+        ).toBeUndefined();
       },
     );
   });
