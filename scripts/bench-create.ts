@@ -459,10 +459,7 @@ async function benchRun(
   };
 }
 
-function packLocalCore(outDir: string): string {
-  const packDir = path.join(outDir, "pack");
-  fs.rmSync(packDir, { recursive: true, force: true });
-  fs.mkdirSync(packDir, { recursive: true });
+function packLocalCore(packDir: string): string {
   console.error("[bench] building and packing this checkout's core…");
   const pnpm = pnpmCommand(["pack", "--pack-destination", packDir]);
   execFileSync(pnpm.command, pnpm.args, {
@@ -606,32 +603,34 @@ async function main(): Promise<void> {
   );
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
 
-  const targets: Target[] = (
-    values.target ?? ["@agent-native/core@latest", "local"]
-  ).map((spec) => {
-    if (spec === "local") {
-      return {
-        label: `local ${gitLabel()}`,
-        spec: packLocalCore(path.dirname(outFile)),
-        local: true,
-      };
-    }
-    if (spec.endsWith(".tgz")) {
-      return {
-        label: path.basename(spec),
-        spec: path.resolve(spec),
-        local: true,
-      };
-    }
-    return { label: spec, spec, local: false };
-  });
-
   const proxy = await startCountingProxy();
-  const results = targets.map((target) => ({
-    target,
-    runs: [] as RunResult[],
-  }));
+  const packDirs: string[] = [];
+  let results: { target: Target; runs: RunResult[] }[];
   try {
+    const targets: Target[] = (
+      values.target ?? ["@agent-native/core@latest", "local"]
+    ).map((spec) => {
+      if (spec === "local") {
+        const packDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), "agent-native-bench-pack-"),
+        );
+        packDirs.push(packDir);
+        return {
+          label: `local ${gitLabel()}`,
+          spec: packLocalCore(packDir),
+          local: true,
+        };
+      }
+      if (spec.endsWith(".tgz")) {
+        return {
+          label: path.basename(spec),
+          spec: path.resolve(spec),
+          local: true,
+        };
+      }
+      return { label: spec, spec, local: false };
+    });
+    results = targets.map((target) => ({ target, runs: [] }));
     // Alternate targets within each round so a slow minute hits all of them.
     for (let round = 1; round <= runs; round++) {
       for (const result of results) {
@@ -652,6 +651,8 @@ async function main(): Promise<void> {
     }
   } finally {
     await proxy.close();
+    for (const dir of packDirs)
+      fs.rmSync(dir, { recursive: true, force: true });
   }
 
   const phases: PhaseName[] = ["install", "create", "add-app", "pnpm-install"];
