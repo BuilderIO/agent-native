@@ -40,14 +40,17 @@ Work in this order so the user sees the remix within minutes, not at the end:
 2. Drive the source in your own browser (Playwright, Chrome, or an inline
    browser), capture the running effect and inspect its shipped code using the
    two-step extraction below. No Design connector or canvas is needed.
-3. Make the behavior spec include the knob list: each knob's name, CSS custom
-   property, range and default. As soon as the spec exists, open the remix
+3. Make the behavior spec include the knob list (each knob's name, CSS custom
+   property, range and default) and the planned layers (each layer's
+   `data-agent-native-node-id` and layer name); implement the Remix with
+   exactly those ids and names. As soon as the spec exists, open the remix
    board (see **Finish On A Remix Board**) with the Original and the Remix
    screen, so the user watches the effect land as you build it. In the same
    step, start one subagent per How It Works frame, in parallel, each given the
-   spec with its knob list and the frame rules. Frames draw from the spec's
-   maths and read the knobs' CSS variables, so they need neither the finished
-   code nor the Remix screen; they build while you implement.
+   spec with its knob list, planned layers and the frame rules. Frames draw
+   from the spec's maths, read the knobs' CSS variables and depict the planned
+   layers, so they need neither the finished code nor the Remix screen; they
+   build while you implement.
 4. Implement from the behavior spec in the destination. Apply the requested
    change: "make it blue" maps the palette to blue while keeping everything
    else identical, subject to the original-code and asset rules below.
@@ -55,8 +58,9 @@ Work in this order so the user sees the remix within minutes, not at the end:
    same names and defaults. Run the fidelity check below, place the finished
    frames, and finish the board, or finish without Design as described below.
 6. Verification beyond that check (breakpoints, reduced motion, tests, guards,
-   longer motion comparisons) runs in a background subagent after the board is
-   up. It reports pass or fail for each check; fix real failures and update the
+   longer motion comparisons) runs in a background subagent once the board is
+   up, or once the source and result captures exist when finishing without
+   Design. It reports pass or fail for each check; fix real failures and update the
    Remix. The remix is not done until that pass reports: give its results in
    the final report and name anything left unverified.
 
