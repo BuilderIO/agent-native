@@ -19,8 +19,9 @@ const ALLOWED_MIME_TYPES = new Set([
   "image/webp",
 ]);
 
-const ASSET_CACHE_CONTROL =
-  "public, max-age=31536000, immutable, stale-while-revalidate=604800";
+// An asset loads only for people who can open its plan, so no shared cache
+// may keep a copy to hand the next person who asks for the same URL.
+const ASSET_CACHE_CONTROL = "private, no-store";
 
 async function resolveAssetSession(
   event: H3Event,
@@ -91,7 +92,7 @@ export function createPlanAssetHandler() {
     const headers: Record<string, string> = {
       "Content-Type": mimeType,
       "Cache-Control": ASSET_CACHE_CONTROL,
-      "CDN-Cache-Control": ASSET_CACHE_CONTROL,
+      "CDN-Cache-Control": "no-store",
       "Content-Length": String(bytes.byteLength),
       "Cross-Origin-Resource-Policy": "cross-origin",
       "Content-Disposition": `inline; filename="${encodeURIComponent(asset.filename)}"`,
