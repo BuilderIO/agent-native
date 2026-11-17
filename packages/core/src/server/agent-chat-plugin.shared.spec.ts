@@ -1,3 +1,4 @@
+import { H3Event } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
 import { tagEngineLlmConnectionSource } from "../agent/engine/credential-owner.js";
@@ -20,6 +21,7 @@ import {
   shouldDisableRecurringJobsRuntime,
   trackAgentChatRunLifecycle,
   trackAgentChatRunStarted,
+  withTransientDatabaseFallback,
 } from "./agent-chat-plugin.js";
 import { runWithRequestContext } from "./request-context.js";
 
@@ -1013,5 +1015,80 @@ describe("shared thread route", () => {
     expect(event.res.status).toBe(404);
     expect(event.res.headers.get("content-type")).toContain("text/html");
     expect(result).toContain("Shared thread not found");
+  });
+});
+
+describe("withTransientDatabaseFallback", () => {
+  const eventFor = (method: string) =>
+    new H3Event(new Request("http://app.test/x", { method }));
+  const connectionReset = () =>
+    Object.assign(new Error("read ECONNRESET"), { code: "08006" });
+
+  it("retries a transient database error on a read and returns its result", async () => {
+    let calls = 0;
+    const sleep = vi.fn(async () => {});
+    const handler = withTransientDatabaseFallback(
+      "/test",
+      () => {
+        calls += 1;
+        if (calls === 1) throw connectionReset();
+        return { ok: true };
+      },
+      { sleep },
+    );
+    await expect(handler(eventFor("GET"))).resolves.toEqual({ ok: true });
+    expect(calls).toBe(2);
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the typed 503 after bounded retries on a persistent outage", async () => {
+    let calls = 0;
+    const handler = withTransientDatabaseFallback(
+      "/test",
+      () => {
+        calls += 1;
+        throw connectionReset();
+      },
+      { sleep: async () => {} },
+    );
+    await expect(handler(eventFor("GET"))).resolves.toMatchObject({
+      code: "database_unavailable",
+      retryable: true,
+    });
+    expect(calls).toBe(3);
+  });
+
+  it("does not re-run a write", async () => {
+    let calls = 0;
+    const handler = withTransientDatabaseFallback(
+      "/test",
+      () => {
+        calls += 1;
+        throw connectionReset();
+      },
+      { sleep: async () => {} },
+    );
+    await expect(handler(eventFor("POST"))).resolves.toMatchObject({
+      code: "database_unavailable",
+      retryable: false,
+    });
+    expect(calls).toBe(1);
+  });
+
+  it("rethrows non-connection errors without retrying", async () => {
+    let calls = 0;
+    const failure = Object.assign(new Error("duplicate key"), {
+      code: "23505",
+    });
+    const handler = withTransientDatabaseFallback(
+      "/test",
+      () => {
+        calls += 1;
+        throw failure;
+      },
+      { sleep: async () => {} },
+    );
+    await expect(handler(eventFor("GET"))).rejects.toBe(failure);
+    expect(calls).toBe(1);
   });
 });

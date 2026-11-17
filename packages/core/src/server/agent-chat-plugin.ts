@@ -463,18 +463,39 @@ function runLifecycleTrackingSource(
   return { userId, ...(authUserId ? { authUserId } : {}) };
 }
 
-function withTransientDatabaseFallback(
+const TRANSIENT_DATABASE_RETRY_DELAYS_MS = [150, 500] as const;
+
+// Only idempotent reads are re-run: a write that failed mid-flight may have
+// already landed, so it keeps the typed 503 and the caller decides.
+export function withTransientDatabaseFallback(
   route: string,
   handler: (event: H3Event) => unknown,
+  options?: { sleep?: (ms: number) => Promise<void> },
 ) {
+  const sleep =
+    options?.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   return defineEventHandler(async (event) => {
+    const method = getMethod(event);
+    const retrySafe = method === "GET" || method === "HEAD";
     try {
-      return await handler(event);
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          return await handler(event);
+        } catch (error) {
+          const retryDelay = TRANSIENT_DATABASE_RETRY_DELAYS_MS[attempt];
+          if (
+            !retrySafe ||
+            retryDelay === undefined ||
+            !isTransientDatabaseError(error)
+          ) {
+            throw error;
+          }
+          await sleep(retryDelay);
+        }
+      }
     } catch (error) {
       if (!isTransientDatabaseError(error)) throw error;
-
-      const method = getMethod(event);
-      const retrySafe = method === "GET" || method === "HEAD";
 
       const databaseError = error as {
         code?: unknown;
