@@ -40,6 +40,7 @@ function stringifyValue(value: unknown): string {
 
 import crypto from "node:crypto";
 
+import type { ActionCaller, ActionRunContext } from "../../action.js";
 import { getDbExec } from "../../db/client.js";
 import {
   ensureColumnExists,
@@ -55,6 +56,10 @@ export type SandboxExecutionStatus =
   | "succeeded"
   | "failed"
   | "timed_out";
+
+export type SandboxExecutionNetworkProtocol = NonNullable<
+  ActionRunContext["networkProtocol"]
+>;
 
 export interface SandboxExecutionRow {
   id: string;
@@ -79,6 +84,9 @@ export interface SandboxExecutionRow {
   error: string | null;
   bridgeToolsUsed: string[];
   allowedActionNames: string[] | undefined;
+  /** Who queued the run; null for runs queued before this was kept. */
+  caller: ActionCaller | null;
+  networkProtocol: SandboxExecutionNetworkProtocol | null;
   createdAt: number;
   startedAt: number | null;
   finishedAt: number | null;
@@ -95,6 +103,8 @@ export interface CreateSandboxExecutionInput {
   maxAttempts?: number;
   runtime?: string;
   allowedActionNames?: readonly string[];
+  caller?: ActionCaller | null;
+  networkProtocol?: SandboxExecutionNetworkProtocol | null;
 }
 
 export interface FinalizeSandboxExecutionInput {
@@ -170,6 +180,21 @@ export const sandboxExecutionsStore = defineStore({
         await ensureIndexExists("sandbox_executions_due_idx", dueIdxSql);
       },
     },
+    {
+      // A background run keeps who queued it, so its tool calls meet the
+      // limits and approvals a foreground run's would.
+      name: "sandbox-executions-origin-caller",
+      run: async (exec) => {
+        for (const column of ["caller", "network_protocol"] as const) {
+          await ensureColumnExists(
+            TABLE,
+            column,
+            `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS ${column} TEXT`,
+            { injectedClient: exec },
+          );
+        }
+      },
+    },
   ],
 });
 
@@ -193,6 +218,25 @@ function capOutput(
   if (raw.length <= cap) return { text: raw, truncated: false };
   return { text: raw.slice(0, cap), truncated: true };
 }
+
+// Every caller and protocol, so a stored value that is neither reads as none.
+const ACTION_CALLERS: Record<ActionCaller, true> = {
+  tool: true,
+  http: true,
+  frontend: true,
+  "mcp-widget": true,
+  "mcp-widget-write": true,
+  cli: true,
+  mcp: true,
+  webmcp: true,
+  a2a: true,
+  automation: true,
+};
+const NETWORK_PROTOCOLS: Record<SandboxExecutionNetworkProtocol, true> = {
+  a2a: true,
+  mcp: true,
+  "provider-api": true,
+};
 
 function toBool(value: unknown): boolean {
   return value === true || value === 1 || value === "1" || value === "true";
@@ -275,6 +319,16 @@ function rowFromDb(raw: Record<string, unknown>): SandboxExecutionRow {
         : stringifyValue(raw.error),
     bridgeToolsUsed,
     allowedActionNames,
+    caller:
+      typeof raw.caller === "string" &&
+      Object.hasOwn(ACTION_CALLERS, raw.caller)
+        ? (raw.caller as ActionCaller)
+        : null,
+    networkProtocol:
+      typeof raw.network_protocol === "string" &&
+      Object.hasOwn(NETWORK_PROTOCOLS, raw.network_protocol)
+        ? (raw.network_protocol as SandboxExecutionNetworkProtocol)
+        : null,
     createdAt: toNumberOrNull(raw.created_at) ?? 0,
     startedAt: toNumberOrNull(raw.started_at),
     finishedAt: toNumberOrNull(raw.finished_at),
@@ -293,10 +347,11 @@ export async function createSandboxExecution(
     1,
     Math.min(input.maxAttempts ?? SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS, 5),
   );
+  // raw-sql-ok: TABLE is a module constant; every value is a bound ? arg.
   await client.execute({
     sql: `INSERT INTO ${TABLE}
-      (id, owner, org_id, thread_id, runtime, code, status, timeout_ms, max_output_chars, attempt_count, max_attempts, allowed_action_names, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0, ?, ?, ?, ?)`,
+      (id, owner, org_id, thread_id, runtime, code, status, timeout_ms, max_output_chars, attempt_count, max_attempts, allowed_action_names, caller, network_protocol, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       input.owner,
@@ -310,6 +365,8 @@ export async function createSandboxExecution(
       input.allowedActionNames === undefined
         ? null
         : JSON.stringify([...new Set(input.allowedActionNames)]),
+      input.caller ?? null,
+      input.networkProtocol ?? null,
       now,
       now,
     ],

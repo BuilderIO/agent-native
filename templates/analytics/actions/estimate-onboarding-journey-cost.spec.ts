@@ -148,6 +148,34 @@ describe("estimate-onboarding-journey-cost action", () => {
     );
   });
 
+  it("freezes the observation window at a continued read's watermark", async () => {
+    const watermark = "2026-10-10T12:00:00.000Z";
+    await action.run(
+      action.schema.parse({
+        dateFrom: "2026-10-01",
+        dateTo: "2026-10-02",
+        observationWatermark: watermark,
+      }),
+    );
+
+    expect(mocks.freezeObservation).toHaveBeenCalledWith(
+      expect.objectContaining({ dateFrom: "2026-10-01", dateTo: "2026-10-02" }),
+      watermark,
+    );
+    for (const [observationWatermark, message] of [
+      ["2026-02-31T12:00:00.000Z", /real UTC date/],
+      ["2999-01-01T00:00:00.000Z", /in the future/],
+    ] as const) {
+      expect(() =>
+        action.schema.parse({
+          dateFrom: "2026-10-01",
+          dateTo: "2026-10-02",
+          observationWatermark,
+        }),
+      ).toThrow(message);
+    }
+  });
+
   it("classifies observation-window preparation errors before the dry-run", async () => {
     const privateDetail = "private watermark validation detail";
     mocks.freezeObservation.mockImplementationOnce(() => {

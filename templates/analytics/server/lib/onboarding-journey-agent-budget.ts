@@ -19,9 +19,9 @@ import {
  * mode). The cost estimate uses the same allowance with the same arguments,
  * so an agent plans with the pages the journey will actually read.
  *
- * When not even one page fits, `refusal` says why, as admission would. The
- * journey still runs with one page, so its refusal comes from admission with
- * the budget it saw; the estimate answers with `refusal` instead.
+ * When not even one page fits with its follow-ups, `refusal` says why, as
+ * admission would, and the journey and the estimate both answer with it
+ * before any job runs.
  */
 export async function outsideAgentOnboardingEventBytes(
   identity: OutsideAgentIdentity,

@@ -333,15 +333,18 @@ export default defineAction({
         );
       }
       const identity = outsideAgentIdentity(scope.userEmail, scope.orgId);
-      const { requested, applied } = await outsideAgentOnboardingEventBytes(
-        identity,
-        args.maxTotalBytesBilled,
-        {
-          followUpMode: args.followUpMode,
-          experimentId: args.experimentId,
-          splitDesignFirstTouch: args.splitDesignFirstTouch,
-        },
-      );
+      const { requested, applied, refusal } =
+        await outsideAgentOnboardingEventBytes(
+          identity,
+          args.maxTotalBytesBilled,
+          {
+            followUpMode: args.followUpMode,
+            experimentId: args.experimentId,
+            splitDesignFirstTouch: args.splitDesignFirstTouch,
+          },
+        );
+      // Refuse before the first page is billed, not at the follow-up after it.
+      if (refusal) throw refusal;
       const { value, report } = await runOutsideAgentBigQueryCall(
         {
           identity,

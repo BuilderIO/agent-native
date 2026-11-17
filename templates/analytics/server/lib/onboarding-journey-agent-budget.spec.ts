@@ -93,14 +93,13 @@ describe("an outside agent's onboarding journey allowance", () => {
     });
   });
 
-  it("refuses as admission would when not even one page fits, while the journey still gets one page to be refused", async () => {
+  it("refuses as admission would when not even one page fits with its follow-up", async () => {
     mocks.read.mockResolvedValueOnce(snapshot({ personRemaining: 40 * GB }));
     const allowance = await outsideAgentOnboardingEventBytes(
       identity,
       undefined,
       session,
     );
-    expect(allowance.applied).toBe(25 * GB);
     expect(allowance.refusal).toBeInstanceOf(OutsideAgentBigQueryRefusalError);
     expect(allowance.refusal).toMatchObject({
       code: "approval_required",

@@ -392,6 +392,17 @@ describe("outside-agent (MCP) jobs go through admission", () => {
     });
   });
 
+  it("refuses a journey whose page fits but whose follow-up does not, before any job", async () => {
+    // $0.25 left: a 25 GB page fits, but not with its 25 GB follow-up.
+    budget.read.mockResolvedValue(snapshot(40_000_000_000));
+    await expect(
+      getOnboardingJourney.run(journeyArgs, { caller: "mcp" }),
+    ).rejects.toMatchObject({ errorCode: "approval_required" });
+    expect(budget.admit).not.toHaveBeenCalled();
+    expect(journey.args).toHaveLength(0);
+    expect(submissions).toHaveLength(0);
+  });
+
   it("get-onboarding-journey reports a budget refusal with its reset time and starts no job", async () => {
     budget.admit.mockImplementation(async (_identity, request) => ({
       status: "refused",

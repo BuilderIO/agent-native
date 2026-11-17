@@ -108,6 +108,13 @@ export default defineAction({
         .describe(
           "Use the same splitDesignFirstTouch as get-onboarding-journey. Like experimentId, it changes only the follow-up allowance.",
         ),
+      observationWatermark: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/)
+        .optional()
+        .describe(
+          "Use the same observationWatermark as get-onboarding-journey when estimating a continued read, so the estimate prices the same observation window.",
+        ),
     })
     .superRefine((args, ctx) => {
       if (
@@ -126,6 +133,26 @@ export default defineAction({
           path: ["splitDesignFirstTouch"],
           message: "First-touch cohort splits are only available for Design.",
         });
+      }
+      if (args.observationWatermark !== undefined) {
+        const watermarkMs = Date.parse(args.observationWatermark);
+        // Date.parse rolls an impossible day such as Feb 31 into the next month.
+        if (
+          !Number.isFinite(watermarkMs) ||
+          new Date(watermarkMs).toISOString() !== args.observationWatermark
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["observationWatermark"],
+            message: "observationWatermark must be a real UTC date and minute.",
+          });
+        } else if (watermarkMs > Date.now()) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["observationWatermark"],
+            message: "observationWatermark must not be in the future.",
+          });
+        }
       }
     }),
   http: { method: "GET" },
@@ -179,7 +206,10 @@ export default defineAction({
         scope,
         filters,
         args.maxEventRows,
-        freezeOnboardingJourneyObservationWindow(filters),
+        freezeOnboardingJourneyObservationWindow(
+          filters,
+          args.observationWatermark,
+        ),
         args.followUpMode === "person",
         context?.signal,
         allowance?.applied ??
