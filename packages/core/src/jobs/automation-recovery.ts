@@ -21,6 +21,7 @@ import { withDeliveryNote } from "./automation-outcome.js";
 import { automationRunTerminalError } from "./automation-terminal-error.js";
 import {
   automationWorkFailureCode,
+  findUnknownAutomationWrite,
   inspectAutomationWork,
 } from "./automation-work-evidence.js";
 import {
@@ -292,12 +293,27 @@ export async function inspectAutomationRecovery(
     return unavailable(error.errorCode);
   }
   const events = runEvents.map(({ event }) => event);
+  const failure = automationRunTerminalError(
+    runEvents
+      .filter((event) => event.runId === run.id)
+      .map(({ event }) => event),
+  );
+  const unknownWrite = findUnknownAutomationWrite(events);
+  if (unknownWrite && (run.status !== "completed" || failure)) {
+    const deliveryNote = deliveryNoteForEvents(events);
+    return {
+      state: "settle",
+      status: "error",
+      history,
+      error: withDeliveryNote(
+        automationOutcomeMessagesForLocale("en-US").outcomeUnknown,
+        deliveryNote,
+      ),
+      errorCode: automationWorkFailureCode(unknownWrite),
+      deliveryNote,
+    };
+  }
   if (run.status === "completed") {
-    const failure = automationRunTerminalError(
-      runEvents
-        .filter((event) => event.runId === run.id)
-        .map(({ event }) => event),
-    );
     if (failure) {
       const deliveryNote = deliveryNoteForEvents(events);
       return {

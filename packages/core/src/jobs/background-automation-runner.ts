@@ -136,6 +136,7 @@ import {
 } from "./automation-terminal-error.js";
 import {
   automationWorkFailureCode,
+  findUnknownAutomationWrite,
   inspectAutomationWork,
 } from "./automation-work-evidence.js";
 import { effectiveTimezone } from "./cron.js";
@@ -1948,6 +1949,21 @@ async function executeBackgroundAutomation(
               hardTimedOut,
               hardTimeoutMs,
             });
+            const unknownWrite = findUnknownAutomationWrite([
+              ...priorEvents,
+              ...(run.events ?? []).map(({ event }) => event),
+            ]);
+            if (
+              unknownWrite &&
+              (persistFailure ||
+                run.status !== "completed" ||
+                backgroundRunTerminalError(run))
+            ) {
+              persistFailure = {
+                message: messages.outcomeUnknown,
+                errorCode: automationWorkFailureCode(unknownWrite),
+              };
+            }
             try {
               responseText = collectFinalResponseTextFromAgentEvents(
                 (run.events ?? []).map((entry) => entry.event),
@@ -2098,12 +2114,20 @@ async function executeBackgroundAutomation(
           () => {
             if (completionRunRef.completionCallbackStarted) return;
             const failure = backgroundRunTerminalError(activeRun);
+            const unknownWrite = findUnknownAutomationWrite([
+              ...priorEvents,
+              ...(activeRun.events ?? []).map(({ event }) => event),
+            ]);
             reject(
               new BackgroundAutomationRunError(
-                failure?.message ??
-                  `Background automation ended with status: ${activeRun.status} and recorded no error detail`,
-                failure?.errorCode ??
-                  `background_automation_${activeRun.status}`,
+                unknownWrite
+                  ? messages.outcomeUnknown
+                  : (failure?.message ??
+                      `Background automation ended with status: ${activeRun.status} and recorded no error detail`),
+                unknownWrite
+                  ? automationWorkFailureCode(unknownWrite)
+                  : (failure?.errorCode ??
+                      `background_automation_${activeRun.status}`),
               ),
             );
           },
@@ -2123,6 +2147,16 @@ async function executeBackgroundAutomation(
           void activeRun.finalized
             .catch(() => {})
             .then(async () => {
+              const unknownWrite = findUnknownAutomationWrite([
+                ...priorEvents,
+                ...(activeRun.events ?? []).map(({ event }) => event),
+              ]);
+              const finalError = unknownWrite
+                ? new BackgroundAutomationRunError(
+                    messages.outcomeUnknown,
+                    automationWorkFailureCode(unknownWrite),
+                  )
+                : timeoutError;
               if (
                 hardTimeoutProjectionRequired ||
                 !completionRunRef.completionCallbackStarted
@@ -2130,8 +2164,8 @@ async function executeBackgroundAutomation(
                 try {
                   if (!hardTimeoutThreadProjectionSaved) {
                     await foldReapedRunIntoThread(runId, {
-                      error: timeoutError.message,
-                      errorCode: timeoutError.errorCode,
+                      error: finalError.message,
+                      errorCode: finalError.errorCode,
                     });
                   }
                   await recordAutomationFailureOutcome(
@@ -2139,7 +2173,7 @@ async function executeBackgroundAutomation(
                     automation,
                     options,
                     completionRunRef,
-                    timeoutError,
+                    finalError,
                   );
                 } catch (error) {
                   reject(
@@ -2148,7 +2182,7 @@ async function executeBackgroundAutomation(
                   return;
                 }
               }
-              reject(timeoutError);
+              reject(finalError);
             });
         }, hardTimeoutMs);
       }).finally(async () => {

@@ -1220,7 +1220,12 @@ async function executeJob(
     runningMeta.lastRunAdvanceSchedule = options.advanceSchedule !== false;
   }
   runningMeta.lastStatus = "running";
-  runningMeta.lastError = undefined;
+  if (
+    !isPausedByFramework(meta) ||
+    meta.pausedReason !== "write_tool_outcome_unknown"
+  ) {
+    runningMeta.lastError = undefined;
+  }
   let markerWritten: boolean;
   if (!historyId && !remoteHostId) {
     await ensureResourcesTable();
@@ -1601,7 +1606,7 @@ type ExecutionOutcome = Pick<
 interface ExecutionFailure {
   failure: AutomationFailure;
   recordedError?: string;
-  /** A manual run records its cause but never pauses the automation. */
+  /** Ordinary manual failures do not count toward the pause threshold. */
   countTowardPause: boolean;
   eventId?: string;
   pauseImmediately?: boolean;
@@ -1670,12 +1675,18 @@ async function recordExecutionOutcome(
       );
     }
   } else if (outcome.lastStatus === "success") {
-    // A successful run proves the cause is gone: an automation the framework
-    // paused (this can only be a manual run) resumes with a clean slate.
-    resumed = isPausedByFramework(current.meta);
-    extra = resumed
-      ? { ...CLEAR_FAILURE_STATE, enabled: true }
-      : CLEAR_FAILURE_STATE;
+    // A later run cannot establish whether an earlier uncertain write landed.
+    const safetyPause =
+      isPausedByFramework(current.meta) &&
+      current.meta.pausedReason === "write_tool_outcome_unknown";
+    if (safetyPause) {
+      extra = { lastError: current.meta.lastError };
+    } else {
+      resumed = isPausedByFramework(current.meta);
+      extra = resumed
+        ? { ...CLEAR_FAILURE_STATE, enabled: true }
+        : CLEAR_FAILURE_STATE;
+    }
   }
   if (
     (advanceSchedule !== false || resumed) &&

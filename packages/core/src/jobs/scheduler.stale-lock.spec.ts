@@ -230,58 +230,63 @@ function startedRunJournal() {
 }
 
 describe("stale automation run-lock recovery across trigger types", () => {
-  it("pauses a recovered unknown write without automatically running it again", async () => {
-    const fixture = interruptedScheduledJob();
-    fixture.resource.content = fixture.resource.content.replace(
-      "enabled: true",
-      "enabled: true\ndeliveryDestination: test-destination",
-    );
-    vi.mocked(runStore.getRunById).mockResolvedValue({
-      id: "killed-worker",
-      status: "completed",
-    } as any);
-    vi.mocked(runStore.getCurrentTurnEventsForThread).mockResolvedValue([
-      {
-        type: "tool_done",
-        tool: "record-report",
-        completedSideEffect: true,
-        result: "Recorded",
-      },
-      {
-        type: "tool_done",
-        tool: "send-test-email",
-        isError: true,
-        outcomeUnknown: true,
-        errorCode: "http_503",
-        result: "PRIVATE_PROVIDER_RESPONSE",
-      },
-    ]);
-    resourcePutMock.mockImplementation(async (_owner, _path, content) => {
-      fixture.resource.content = content;
-    });
-    const finish = vi
-      .spyOn(runHistory, "finishAutomationRun")
-      .mockResolvedValue();
-    try {
-      await processRecurringJobs(recoveryDeps);
-      const paused = parseJobResource(fixture.resource.content).meta;
-      expect(paused).toMatchObject({
-        enabled: false,
-        lastStatus: "paused",
-        pausedReason: "write_tool_outcome_unknown",
-        consecutiveFailures: 1,
+  it.each(["completed", "errored"])(
+    "pauses a recovered unknown write before a terminal error (%s)",
+    async (status) => {
+      const fixture = interruptedScheduledJob();
+      fixture.resource.content = fixture.resource.content.replace(
+        "enabled: true",
+        "enabled: true\ndeliveryDestination: test-destination",
+      );
+      vi.mocked(runStore.getRunById).mockResolvedValue({
+        id: "killed-worker",
+        status,
+        errorCode: "http_502",
+      } as any);
+      vi.mocked(runStore.getCurrentTurnEventsForThread).mockResolvedValue([
+        {
+          type: "tool_done",
+          tool: "record-report",
+          completedSideEffect: true,
+          result: "Recorded",
+        },
+        {
+          type: "tool_done",
+          tool: "send-test-email",
+          isError: true,
+          outcomeUnknown: true,
+          errorCode: "http_503",
+          result: "PRIVATE_PROVIDER_RESPONSE",
+        },
+        { type: "error", error: "Gateway failed", errorCode: "http_502" },
+      ]);
+      resourcePutMock.mockImplementation(async (_owner, _path, content) => {
+        fixture.resource.content = content;
       });
-      expect(paused.lastError).not.toContain("PRIVATE_PROVIDER_RESPONSE");
-      expect(finish).toHaveBeenCalledOnce();
-      await processRecurringJobs(recoveryDeps);
-      expect(runAgentLoopMock).not.toHaveBeenCalled();
-      expect(startRunMock).not.toHaveBeenCalled();
-      expect(finish).toHaveBeenCalledOnce();
-    } finally {
-      finish.mockRestore();
-      fixture.restore();
-    }
-  });
+      const finish = vi
+        .spyOn(runHistory, "finishAutomationRun")
+        .mockResolvedValue();
+      try {
+        await processRecurringJobs(recoveryDeps);
+        const paused = parseJobResource(fixture.resource.content).meta;
+        expect(paused).toMatchObject({
+          enabled: false,
+          lastStatus: "paused",
+          pausedReason: "write_tool_outcome_unknown",
+          consecutiveFailures: 1,
+        });
+        expect(paused.lastError).not.toContain("PRIVATE_PROVIDER_RESPONSE");
+        expect(finish).toHaveBeenCalledOnce();
+        await processRecurringJobs(recoveryDeps);
+        expect(runAgentLoopMock).not.toHaveBeenCalled();
+        expect(startRunMock).not.toHaveBeenCalled();
+        expect(finish).toHaveBeenCalledOnce();
+      } finally {
+        finish.mockRestore();
+        fixture.restore();
+      }
+    },
+  );
 
   it("settles a disabled scheduled firing without starting its successor", async () => {
     const fixture = interruptedScheduledJob();

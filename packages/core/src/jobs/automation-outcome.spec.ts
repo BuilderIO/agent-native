@@ -281,6 +281,26 @@ describe("applyAutomationFailure", () => {
     );
   });
 
+  it.each([undefined, "event-1"])(
+    "pauses an uncertain manual write even when the event was already counted (%s)",
+    (eventId) => {
+      const transition = applyAutomationFailure(
+        { enabled: true, lastFailedEventId: "event-1" },
+        {
+          code: "write_tool_outcome_unknown",
+          message: "An action may already have applied.",
+          precondition: false,
+        },
+        NOW,
+        { countTowardPause: false, eventId },
+      );
+      expect(transition).toMatchObject({
+        pause: true,
+        patch: { enabled: false, pausedReason: "write_tool_outcome_unknown" },
+      });
+    },
+  );
+
   it("records a manual run's cause without moving the streak", () => {
     const transition = applyAutomationFailure(
       {

@@ -2803,129 +2803,156 @@ describe("runBackgroundAutomation — thread transcript", () => {
     expect(captured[0].context.aiTraceId).toMatch(/^job-cut-off-digest-/);
   });
 
-  it("persists a partial turn when the hard timeout fires", async () => {
-    const { runAgentLoopDirectWithSoftTimeout } =
-      await import("../agent/run-loop-with-resume.js");
-    let resolveTextPersisted!: () => void;
-    const textPersisted = new Promise<void>((resolve) => {
-      resolveTextPersisted = resolve;
-    });
-    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
-      async (opts) => {
-        await opts.send?.({ type: "text", text: "Still working." });
-        resolveTextPersisted();
-        await new Promise<void>((_resolve, reject) => {
-          const signal = opts.signal;
-          if (signal?.aborted) {
-            reject(new Error("aborted"));
-            return;
+  it.each([false, true])(
+    "persists a partial turn when the hard timeout fires (unknown write: %s)",
+    async (unknownWrite) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      let resolveTextPersisted!: () => void;
+      const textPersisted = new Promise<void>((resolve) => {
+        resolveTextPersisted = resolve;
+      });
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          await opts.send?.({ type: "text", text: "Still working." });
+          if (unknownWrite) {
+            await opts.send?.({
+              type: "tool_done",
+              tool: "send-report",
+              isError: true,
+              outcomeUnknown: true,
+              result: "PRIVATE_PROVIDER_RESPONSE",
+            });
           }
-          signal?.addEventListener("abort", () => reject(new Error("aborted")));
-        });
-        return {
-          inputTokens: 0,
-          outputTokens: 0,
-          cacheReadTokens: 0,
-          cacheWriteTokens: 0,
-          model: "test-model",
-        };
-      },
-    );
-    updateThreadDataMock.mockClear();
-
-    const realSetTimeout = globalThis.setTimeout;
-    const pendingHardTimeouts: Array<() => void> = [];
-    const setTimeoutSpy = vi
-      .spyOn(globalThis, "setTimeout")
-      .mockImplementation(((
-        handler: TimerHandler,
-        delay?: number,
-        ...args: unknown[]
-      ) => {
-        if (delay === 120_000) {
-          pendingHardTimeouts.push(() => {
-            if (typeof handler === "function") handler(...args);
+          resolveTextPersisted();
+          await new Promise<void>((_resolve, reject) => {
+            const signal = opts.signal;
+            if (signal?.aborted) {
+              reject(new Error("aborted"));
+              return;
+            }
+            signal?.addEventListener("abort", () =>
+              reject(new Error("aborted")),
+            );
           });
-          return 0 as unknown as ReturnType<typeof setTimeout>;
-        }
-        return realSetTimeout(
-          handler as Parameters<typeof setTimeout>[0],
-          delay,
-          ...args,
-        );
-      }) as typeof setTimeout);
+          return {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "test-model",
+          };
+        },
+      );
+      updateThreadDataMock.mockClear();
 
-    try {
-      const runPromise = runBackgroundAutomation(
-        {
-          automation: {
-            name: "hard-timeout-digest",
-            meta: {
-              schedule: "* * * * *",
-              enabled: true,
-              model: "test-model",
+      const realSetTimeout = globalThis.setTimeout;
+      const pendingHardTimeouts: Array<() => void> = [];
+      const setTimeoutSpy = vi
+        .spyOn(globalThis, "setTimeout")
+        .mockImplementation(((
+          handler: TimerHandler,
+          delay?: number,
+          ...args: unknown[]
+        ) => {
+          if (delay === 120_000) {
+            pendingHardTimeouts.push(() => {
+              if (typeof handler === "function") handler(...args);
+            });
+            return 0 as unknown as ReturnType<typeof setTimeout>;
+          }
+          return realSetTimeout(
+            handler as Parameters<typeof setTimeout>[0],
+            delay,
+            ...args,
+          );
+        }) as typeof setTimeout);
+
+      try {
+        const runPromise = runBackgroundAutomation(
+          {
+            automation: {
+              name: "hard-timeout-digest",
+              meta: {
+                schedule: "* * * * *",
+                enabled: true,
+                model: "test-model",
+              },
+              body: "Summarize the inbox.",
+              resource: {
+                owner: "alice@agent-native.test",
+                path: "jobs/hard-timeout-digest.md",
+              } as any,
             },
-            body: "Summarize the inbox.",
-            resource: {
-              owner: "alice@agent-native.test",
-              path: "jobs/hard-timeout-digest.md",
-            } as any,
+            ownerEmail: "alice@agent-native.test",
+            prompt: "Summarize the inbox.",
+            threadTitle: "Job: hard-timeout-digest — Aug 18, 2026",
+            runIdPrefix: "job-hard-timeout-digest",
+            usageLabel: "recurring-job:hard-timeout-digest",
+            hardTimeoutMs: 120_000,
           },
-          ownerEmail: "alice@agent-native.test",
-          prompt: "Summarize the inbox.",
-          threadTitle: "Job: hard-timeout-digest — Aug 18, 2026",
-          runIdPrefix: "job-hard-timeout-digest",
-          usageLabel: "recurring-job:hard-timeout-digest",
-          hardTimeoutMs: 120_000,
-        },
-        {
-          getActions: () => ({}),
-          getSystemPrompt: async () => "system",
-          engine: testEngine,
-        },
-      );
+          {
+            getActions: () => ({}),
+            getSystemPrompt: async () => "system",
+            engine: testEngine,
+          },
+        );
 
-      await vi.waitFor(() => {
-        expect(pendingHardTimeouts.length).toBe(1);
-      });
-      await textPersisted;
-      pendingHardTimeouts[0]!();
+        await vi.waitFor(() => {
+          expect(pendingHardTimeouts.length).toBe(1);
+        });
+        await textPersisted;
+        pendingHardTimeouts[0]!();
 
-      await expect(runPromise).rejects.toThrow(/timed out after 2 minutes/);
-      const hardTimedOutRunId = (await pglite
-        .prepare(
-          `SELECT id FROM agent_runs WHERE id LIKE 'job-hard-timeout-digest%' ORDER BY started_at DESC LIMIT 1`,
-        )
-        .get()) as { id: string } | undefined;
-      expect(hardTimedOutRunId?.id).toBeTruthy();
-      await expect(abortReasonOf(hardTimedOutRunId!.id)).resolves.toBe(
-        "background_automation_hard_timeout",
-      );
-      expect(updateThreadDataMock).toHaveBeenCalled();
-      const [, , title] = updateThreadDataMock.mock.calls[0];
-      expect(title).toBe("Job: hard-timeout-digest — Aug 18, 2026");
-      expect(assistantMessage().status).toEqual({
-        type: "incomplete",
-        reason: "error",
-      });
-      expect(assistantMessage().metadata?.custom?.continued).toBeUndefined();
-      expect(assistantMessage().metadata?.custom?.runError).toMatchObject({
-        errorCode: "background_automation_hard_timeout",
-      });
-      expect(assistantContent()).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            type: "text",
-            text: expect.stringMatching(
-              /Still working\.[\s\S]*timed out after 2 minutes/,
-            ),
-          }),
-        ]),
-      );
-    } finally {
-      setTimeoutSpy.mockRestore();
-    }
-  });
+        await expect(runPromise).rejects.toMatchObject({
+          errorCode: unknownWrite
+            ? "write_tool_outcome_unknown"
+            : "background_automation_hard_timeout",
+          message: expect.stringContaining(
+            unknownWrite
+              ? "An action may already have applied."
+              : "timed out after 2 minutes",
+          ),
+        });
+        const hardTimedOutRunId = (await pglite
+          .prepare(
+            `SELECT id FROM agent_runs WHERE id LIKE 'job-hard-timeout-digest%' ORDER BY started_at DESC LIMIT 1`,
+          )
+          .get()) as { id: string } | undefined;
+        expect(hardTimedOutRunId?.id).toBeTruthy();
+        await expect(abortReasonOf(hardTimedOutRunId!.id)).resolves.toBe(
+          "background_automation_hard_timeout",
+        );
+        expect(updateThreadDataMock).toHaveBeenCalled();
+        const [, , title] = updateThreadDataMock.mock.calls[0];
+        expect(title).toBe("Job: hard-timeout-digest — Aug 18, 2026");
+        expect(assistantMessage().status).toEqual({
+          type: "incomplete",
+          reason: "error",
+        });
+        expect(assistantMessage().metadata?.custom?.continued).toBeUndefined();
+        expect(assistantMessage().metadata?.custom?.runError).toMatchObject({
+          errorCode: unknownWrite
+            ? "write_tool_outcome_unknown"
+            : "background_automation_hard_timeout",
+        });
+        expect(assistantContent()).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "text",
+              text: expect.stringMatching(
+                unknownWrite
+                  ? /Still working\.[\s\S]*An action may already have applied/
+                  : /Still working\.[\s\S]*timed out after 2 minutes/,
+              ),
+            }),
+          ]),
+        );
+      } finally {
+        setTimeoutSpy.mockRestore();
+      }
+    },
+  );
 });
 
 // Every test above supplies `deps.engine`, which is what let the credential

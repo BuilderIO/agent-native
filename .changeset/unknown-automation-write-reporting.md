@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Immediately pause scheduled automations after uncertain writes, including on recovery, until the owner reviews and resumes them.
+Pause automations after uncertain writes, including manual runs and terminal failures or recovery, and keep the safety pause until the owner explicitly resumes them.
