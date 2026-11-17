@@ -1035,63 +1035,6 @@ async function flush() {
 }
 
 describe("host composer input controls", () => {
-  it("sends the allowed integration connection flows with a composer turn", async () => {
-    onTestFinished(() => vi.unstubAllGlobals());
-    vi.stubGlobal("__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__", {
-      defaults: {
-        include: ["notion", "context7", "builder-cms", "stripe"],
-        exclude: ["stripe"],
-      },
-      custom: false,
-    });
-    await mount(baseProps());
-    await act(async () =>
-      chatMocks.composerProps.onSubmit(
-        "What integrations can I connect?",
-        [],
-        [],
-        {
-          intent: "immediate",
-        },
-      ),
-    );
-    const sent = chatMocks.control.sendMessage.mock.calls[0]?.[0]
-      .text as string;
-    expect(sent).toMatch(/composer.*integrations/i);
-    expect(sent).toMatch(/notion[^\n]*personal/i);
-    expect(sent).toMatch(/context7[^\n]*personal[^\n]*workspace/i);
-    expect(sent).toMatch(/builder[^\n]*workspace[^\n]*admin/i);
-    expect(sent).not.toMatch(/stripe|https?:\/\/|authorization|bearer/i);
-    expect(sent).toMatch(/connection status.*unknown/i);
-  });
-
-  it.each(["hidden", "terminal", "attach-only"] as const)(
-    "does not advertise the integration flow in %s mode",
-    async (plusMenuMode) => {
-      await mount(baseProps({ plusMenuMode }));
-      await act(async () =>
-        chatMocks.composerProps.onSubmit("Hello", [], [], {
-          intent: "immediate",
-        }),
-      );
-      expect(chatMocks.control.sendMessage.mock.calls[0]?.[0].text).toBe(
-        "Hello",
-      );
-    },
-  );
-
-  it("does not advertise a disabled integration catalog", async () => {
-    onTestFinished(() => vi.unstubAllGlobals());
-    vi.stubGlobal("__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__", false);
-    await mount(baseProps());
-    await act(async () =>
-      chatMocks.composerProps.onSubmit("Hello", [], [], {
-        intent: "immediate",
-      }),
-    );
-    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0].text).toBe("Hello");
-  });
-
   it("does not attach composer instructions to an imperative send", async () => {
     const ref = createRef<AssistantChatHandle>();
     await mount(baseProps(), ref);

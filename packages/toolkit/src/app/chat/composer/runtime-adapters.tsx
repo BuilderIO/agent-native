@@ -31,6 +31,11 @@ import {
   useCreateMcpServer,
 } from "@agent-native/core/client/resources";
 import {
+  allowsMcpIntegrationPersonalScope,
+  getDefaultMcpIntegrations,
+  supportsMcpIntegrationOrganizationScope,
+} from "@agent-native/core/client/resources/mcp-integration-catalog";
+import {
   FRAMEWORK_INTERNAL_ROUTE_PREFIX,
   matchesPathPrefix,
   toPublicFrameworkPath,
@@ -104,6 +109,19 @@ export const coreComposerAdapters: CoreComposerRuntimeAdapters = {
     useWorkspaceMenu: useWorkspaceComposerMenu,
     useOrg,
     isMcpIntegrationAvailable: isMcpIntegrationCatalogAvailable,
+    getIntegrationPromptPresets: () =>
+      getDefaultMcpIntegrations().map((integration) => ({
+        name: integration.name,
+        aliases: [
+          integration.id,
+          ...(integration.aliases ?? []),
+          ...(integration.brandAliases ?? []),
+          ...(integration.promptAliases ?? []),
+        ],
+        keywords: integration.keywords,
+        personal: allowsMcpIntegrationPersonalScope(integration),
+        workspace: supportsMcpIntegrationOrganizationScope(integration),
+      })),
     useCreateMcpServer,
     McpIntegrationDialog: McpIntegrationDialogDeferred,
   },

@@ -19,6 +19,7 @@ import type {
   ComposerContextMenuItem,
 } from "../../../agentkit.js";
 import { ComposerRuntimeAdaptersProvider } from "../../../composer/runtime-adapters.js";
+import { coreComposerAdapters } from "../../chat/composer/runtime-adapters.js";
 import { FileStorageSetupPopover } from "../../chat/FileStorageSetupPopover.js";
 import {
   AgentKitChat,
@@ -121,6 +122,234 @@ function withActiveRun(runtime: ReturnType<typeof transport>) {
 }
 
 describe("AgentKit composer context submission", () => {
+  it.each(["override", "default"] as const)(
+    "provides relevant integration guidance on the %s path",
+    async (path) => {
+      vi.stubGlobal("__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__", {
+        defaults: { include: ["notion", "context7", "builder-cms"] },
+        custom: false,
+      });
+      const runtime = transport();
+      client = new AgentKitClient({ transport: runtime });
+      const onSubmit = vi.fn();
+      await act(async () =>
+        root.render(
+          <ComposerRuntimeAdaptersProvider adapters={coreComposerAdapters}>
+            <AgentKitProvider controller={client} threadId="thread-1">
+              <AgentKitComposer
+                onSubmit={path === "override" ? onSubmit : undefined}
+                autoFocus={false}
+              />
+            </AgentKitProvider>
+          </ComposerRuntimeAdaptersProvider>,
+        ),
+      );
+      await act(async () =>
+        capture.props!.onSubmit("Connect NOTION", [], [], {
+          composerModeContext: "Existing mode guidance.",
+        }),
+      );
+      const context =
+        path === "override"
+          ? onSubmit.mock.calls[0][3].composerModeContext
+          : splitAgentKitMessageContext(
+              runtime.startRun.mock.calls[0][0].messages
+                .at(-1)!
+                .parts.find((part) => part.type === "text")!.text,
+            ).context;
+      expect(context).toMatch(/Existing mode guidance/);
+      expect(context).toMatch(/notion[^\n]*personal/i);
+      expect(context).toMatch(/connection status.*unknown/i);
+      expect(context).not.toMatch(/context7|builder|https?:\/\//i);
+    },
+  );
+  it.each([
+    { label: "fallback runtime", adapters: false },
+    { label: "hidden menu", mode: "hidden" as const },
+    { label: "terminal menu", mode: "terminal" as const },
+    { label: "attach-only menu", mode: "attach-only" as const, uploads: true },
+    {
+      label: "overridden connect item",
+      menu: [
+        {
+          id: "workspace-connect-integrations",
+          label: "Custom",
+          onSelect() {},
+        },
+      ],
+    },
+    {
+      label: "disabled parent of connect item",
+      menu: [
+        {
+          id: "parent",
+          label: "Custom",
+          disabled: true,
+          children: [
+            {
+              id: "workspace-connect-integrations",
+              label: "Custom",
+              onSelect() {},
+            },
+          ],
+        },
+      ],
+    },
+    { label: "unrelated text", text: "Hello there" },
+    { label: "partial name", text: "Discuss notional ideas" },
+    { label: "name inside a URL", text: "Review https://example.test/notion" },
+    { label: "disabled catalog", config: false },
+  ])("does not advertise integrations for $label", async (scenario) => {
+    vi.stubGlobal(
+      "__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__",
+      scenario.config ?? {
+        defaults: { include: ["notion"] },
+        custom: false,
+      },
+    );
+    const runtime = transport();
+    client = new AgentKitClient({
+      transport: {
+        ...runtime,
+        capabilities: {
+          ...runtime.capabilities,
+          uploads: scenario.uploads === true,
+        },
+      },
+    });
+    const onSubmit = vi.fn();
+    await act(async () =>
+      root.render(
+        <ComposerRuntimeAdaptersProvider
+          adapters={scenario.adapters === false ? {} : coreComposerAdapters}
+        >
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <AgentKitComposer
+              onSubmit={onSubmit}
+              plusMenuMode={scenario.mode}
+              contextMenuItems={scenario.menu}
+              autoFocus={false}
+            />
+          </AgentKitProvider>
+        </ComposerRuntimeAdaptersProvider>,
+      ),
+    );
+    await act(async () =>
+      capture.props!.onSubmit(scenario.text ?? "Connect Notion", [], [], {}),
+    );
+    expect(onSubmit.mock.calls[0][3].composerModeContext).toBeUndefined();
+  });
+
+  it.each([
+    ["Use SIGMA COMPUTING", /sigma/i],
+    ["Connect an integration for dashboards", /sigma/i],
+  ])(
+    "matches configured provider names or conservative keywords in %s",
+    async (text, expected) => {
+      vi.stubGlobal("__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__", {
+        defaults: { include: ["sigma", "stripe"], exclude: ["stripe"] },
+        custom: false,
+      });
+      client = new AgentKitClient({ transport: transport() });
+      const onSubmit = vi.fn();
+      await act(async () =>
+        root.render(
+          <ComposerRuntimeAdaptersProvider adapters={coreComposerAdapters}>
+            <AgentKitProvider controller={client} threadId="thread-1">
+              <AgentKitComposer onSubmit={onSubmit} autoFocus={false} />
+            </AgentKitProvider>
+          </ComposerRuntimeAdaptersProvider>,
+        ),
+      );
+      await act(async () => capture.props!.onSubmit(text, [], [], {}));
+      const context = onSubmit.mock.calls[0][3].composerModeContext as string;
+      expect(context).toMatch(expected);
+      expect(context).not.toMatch(/stripe|https?:\/\//i);
+    },
+  );
+
+  it("labels queued integration guidance as a submit-time snapshot", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__", {
+      defaults: { include: ["notion"] },
+      custom: false,
+    });
+    const runtime = withActiveRun(transport());
+    client = new AgentKitClient({ transport: runtime });
+    await client.loadThread("thread-1");
+    await act(async () =>
+      root.render(
+        <ComposerRuntimeAdaptersProvider adapters={coreComposerAdapters}>
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <AgentKitComposer autoFocus={false} />
+          </AgentKitProvider>
+        </ComposerRuntimeAdaptersProvider>,
+      ),
+    );
+    await act(async () =>
+      capture.props!.onSubmit("Connect Notion", [], [], { intent: "queued" }),
+    );
+    const context = splitAgentKitMessageContext(
+      runtime.queueMessage.mock.calls[0][0].text,
+    ).context;
+    expect(context).toMatch(/at submission time/i);
+    expect(context).toMatch(/may change before a queued message runs/i);
+    expect(context).toMatch(/connection status.*unknown/i);
+  });
+
+  it("describes only configured preset scopes and bounds a generic list", async () => {
+    client = new AgentKitClient({ transport: transport() });
+    const onSubmit = vi.fn();
+    await act(async () =>
+      root.render(
+        <ComposerRuntimeAdaptersProvider adapters={coreComposerAdapters}>
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <AgentKitComposer onSubmit={onSubmit} autoFocus={false} />
+          </AgentKitProvider>
+        </ComposerRuntimeAdaptersProvider>,
+      ),
+    );
+    await act(async () =>
+      capture.props!.onSubmit("What integrations can I connect?", [], [], {}),
+    );
+    const context = onSubmit.mock.calls[0][3].composerModeContext as string;
+    expect(context).toMatch(/context7[^\n]*personal[^\n]*workspace/i);
+    expect(context.match(/^- /gm)?.length).toBeLessThanOrEqual(8);
+    expect(context).toMatch(/list is incomplete/i);
+    expect(context).not.toMatch(/https?:\/\/|authorization|bearer/i);
+  });
+
+  it.each(["hidden", "attach-only"] as const)(
+    "honors %s when the core connection menu is exposed",
+    async (mode) => {
+      vi.stubGlobal("__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__", {
+        defaults: { include: ["builder-cms"] },
+        custom: false,
+      });
+      client = new AgentKitClient({ transport: transport() });
+      const onSubmit = vi.fn();
+      await act(async () =>
+        root.render(
+          <ComposerRuntimeAdaptersProvider adapters={coreComposerAdapters}>
+            <AgentKitProvider controller={client} threadId="thread-1">
+              <AgentKitComposer
+                onSubmit={onSubmit}
+                plusMenuMode={mode}
+                contextMenuItems={[]}
+                autoFocus={false}
+              />
+            </AgentKitProvider>
+          </ComposerRuntimeAdaptersProvider>,
+        ),
+      );
+      await act(async () =>
+        capture.props!.onSubmit("Connect builder-cms", [], [], {}),
+      );
+      const context = onSubmit.mock.calls[0][3].composerModeContext as string;
+      expect(context).toMatch(/builder[^\n]*workspace[^\n]*admin/i);
+      expect(context).not.toMatch(/builder[^\n]*personal/i);
+    },
+  );
+
   it.each(["missing", "unavailable"] as const)(
     "blocks raw-file custom submissions with visible %s storage state",
     async (state) => {
@@ -747,7 +976,11 @@ describe("AgentKit composer context submission", () => {
     expect(onLocalSubmit).not.toHaveBeenCalled();
   });
 
-  it("preserves mode instructions when resubmitting an edited message on a fork", async () => {
+  it("preserves mode and integration guidance when resubmitting an edited message on a fork", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__", {
+      defaults: { include: ["notion"] },
+      custom: false,
+    });
     const runtime = {
       ...transport(),
       capabilities: { messageQueue: true, threadForking: true },
@@ -776,13 +1009,15 @@ describe("AgentKit composer context submission", () => {
     const beforeSend = vi.fn();
     await act(async () =>
       root.render(
-        <AgentKitProvider
-          controller={client}
-          threadId="thread-1"
-          onThreadForked={vi.fn()}
-        >
-          <AgentKitChat composerProps={{ beforeSend, autoFocus: false }} />
-        </AgentKitProvider>,
+        <ComposerRuntimeAdaptersProvider adapters={coreComposerAdapters}>
+          <AgentKitProvider
+            controller={client}
+            threadId="thread-1"
+            onThreadForked={vi.fn()}
+          >
+            <AgentKitChat composerProps={{ beforeSend, autoFocus: false }} />
+          </AgentKitProvider>
+        </ComposerRuntimeAdaptersProvider>,
       ),
     );
     const edit = container.querySelector<HTMLButtonElement>(
@@ -791,7 +1026,7 @@ describe("AgentKit composer context submission", () => {
     expect(edit).not.toBeNull();
     await act(async () => edit!.click());
     await act(async () =>
-      capture.props!.onSubmit("Create a skill: Revised", [], [], {
+      capture.props!.onSubmit("Connect Notion", [], [], {
         composerModeContext: "Use skill tools for this request.",
         contextItems: [
           { key: "brief", title: "Brief", context: "Source context" },
@@ -803,9 +1038,11 @@ describe("AgentKit composer context submission", () => {
     const text = runtime.startRun.mock.calls[0][0].messages
       .at(-1)!
       .parts.find((part) => part.type === "text")!.text;
-    expect(text).toBe(
-      'Create a skill: Revised\n\n<context data-agentkit-context-encoding="entities-v1">\nUse skill tools for this request.\n\nSource context\n</context>',
-    );
+    const parsed = splitAgentKitMessageContext(text);
+    expect(parsed.message).toBe("Connect Notion");
+    expect(parsed.context).toContain("Use skill tools for this request.");
+    expect(parsed.context).toContain("Source context");
+    expect(parsed.context).toMatch(/notion[^\n]*personal/i);
     expect(beforeSend.mock.calls[0][0].text).toBe(text);
   });
 

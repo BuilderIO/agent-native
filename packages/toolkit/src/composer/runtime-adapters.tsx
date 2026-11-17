@@ -264,6 +264,13 @@ export interface ComposerRuntimeAdapters {
       data?: { orgId?: string | null; role?: string | null } | null;
     };
     isMcpIntegrationAvailable?: () => boolean;
+    getIntegrationPromptPresets?: () => readonly {
+      name: string;
+      aliases: readonly string[];
+      keywords: readonly string[];
+      personal: boolean;
+      workspace: boolean;
+    }[];
     useCreateMcpServer?: () => {
       mutateAsync: (input: any) => Promise<unknown>;
     };
