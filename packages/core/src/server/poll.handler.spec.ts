@@ -1582,7 +1582,7 @@ describe("poll handler", () => {
       );
     });
     const syncQuery = syncCall?.[0] as { sql: string; args?: unknown[] };
-    expect(syncQuery.sql).toContain("owner = ?");
+    expect(syncQuery.sql).toContain("lower(btrim(owner)) = ?");
     expect(syncQuery.sql).toContain("org_id = ?");
     expect(syncQuery.sql).toContain("resource_type IS NOT NULL");
     expect(syncQuery.args).toEqual([
