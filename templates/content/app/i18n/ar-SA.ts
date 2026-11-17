@@ -1686,6 +1686,7 @@ const overrides = {
     searchMe: "أنا",
     searchPeoplePlaceholder: "ابحث عن أشخاص أو اكتب بريدًا إلكترونيًا",
     searchNoPeople: "لم يتم العثور على أشخاص",
+    searchMorePeople: "تحميل المزيد",
     searchPeopleUnavailable:
       "تعذر تحميل الأشخاص. لا يزال بإمكانك كتابة بريد إلكتروني.",
     searchPrevious: "النتائج السابقة",

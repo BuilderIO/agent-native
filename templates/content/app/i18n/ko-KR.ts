@@ -1690,6 +1690,7 @@ const overrides = {
     searchMe: "나",
     searchPeoplePlaceholder: "사용자 검색 또는 이메일 입력",
     searchNoPeople: "사용자를 찾을 수 없습니다",
+    searchMorePeople: "더 불러오기",
     searchPeopleUnavailable:
       "사용자를 불러오지 못했습니다. 이메일은 직접 입력할 수 있습니다.",
     searchPrevious: "이전 결과",

@@ -1427,6 +1427,7 @@ const enUS = {
     searchMe: "Me",
     searchPeoplePlaceholder: "Search people or type an email",
     searchNoPeople: "No people found",
+    searchMorePeople: "Load more",
     searchPeopleUnavailable:
       "Couldn't load people. You can still type an email.",
     searchPrevious: "Previous results",

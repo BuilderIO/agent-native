@@ -1746,6 +1746,7 @@ const overrides = {
     searchMe: "Moi",
     searchPeoplePlaceholder: "Rechercher des personnes ou saisir un e-mail",
     searchNoPeople: "Aucune personne trouvée",
+    searchMorePeople: "Charger plus",
     searchPeopleUnavailable:
       "Impossible de charger les personnes. Vous pouvez quand même saisir un e-mail.",
     searchPrevious: "Résultats précédents",

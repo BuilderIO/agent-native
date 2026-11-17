@@ -1739,6 +1739,7 @@ const overrides = {
     searchMe: "我",
     searchPeoplePlaceholder: "搜索成员或输入邮箱",
     searchNoPeople: "未找到成员",
+    searchMorePeople: "加载更多",
     searchPeopleUnavailable: "无法加载成员。你仍可以输入邮箱。",
     searchPrevious: "上一页结果",
     searchNext: "下一页结果",

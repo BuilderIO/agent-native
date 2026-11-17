@@ -268,6 +268,7 @@ const overrides = {
     searchMe: "我",
     searchPeoplePlaceholder: "搜尋成員或輸入電子郵件",
     searchNoPeople: "找不到成員",
+    searchMorePeople: "載入更多",
     searchPeopleUnavailable: "無法載入成員。你仍可以輸入電子郵件。",
     searchPrevious: "上一頁結果",
     searchNext: "下一頁結果",

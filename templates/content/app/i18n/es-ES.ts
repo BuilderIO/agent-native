@@ -1984,6 +1984,7 @@ const overrides = {
     searchMe: "Yo",
     searchPeoplePlaceholder: "Busca personas o escribe un correo",
     searchNoPeople: "No se encontraron personas",
+    searchMorePeople: "Cargar más",
     searchPeopleUnavailable:
       "No se pudieron cargar las personas. Aún puedes escribir un correo.",
     searchPrevious: "Resultados anteriores",

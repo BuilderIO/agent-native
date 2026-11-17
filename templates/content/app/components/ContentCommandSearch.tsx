@@ -343,9 +343,9 @@ const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+$/;
 /**
  * Picks who last edited the pages a search returns: anyone, the signed-in
  * person, or someone found by name or email. People are searched on the
- * server, as in the organization's other person pickers, so no one past a
- * first page of members is out of reach; a typed email also counts, for
- * guests who aren't members.
+ * server a page at a time, as in the organization's other person pickers, so
+ * no one past the first page of members is out of reach; a typed email also
+ * counts, for guests who aren't members.
  */
 export function EditorSearchChoice({
   value,
@@ -503,6 +503,17 @@ export function EditorSearchChoice({
                   {check(selected === person.email.toLowerCase())}
                 </CommandItem>
               ))}
+              {search.hasMore && !search.error ? (
+                <CommandItem
+                  value="__more-people__"
+                  disabled={search.isLoadingMore}
+                  onSelect={() => search.loadMore()}
+                  className="justify-center text-muted-foreground"
+                >
+                  {search.isLoadingMore ? <Spinner /> : null}
+                  {t("root.searchMorePeople")}
+                </CommandItem>
+              ) : null}
             </CommandGroup>
           </CommandList>
         </Command>

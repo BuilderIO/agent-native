@@ -1664,6 +1664,7 @@ const overrides = {
     searchMe: "मैं",
     searchPeoplePlaceholder: "लोगों को खोजें या ईमेल लिखें",
     searchNoPeople: "कोई व्यक्ति नहीं मिला",
+    searchMorePeople: "और लोड करें",
     searchPeopleUnavailable:
       "लोगों को लोड नहीं किया जा सका। आप फिर भी ईमेल लिख सकते हैं।",
     searchPrevious: "पिछले परिणाम",

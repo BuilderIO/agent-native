@@ -1701,6 +1701,7 @@ const overrides = {
     searchMe: "自分",
     searchPeoplePlaceholder: "ユーザーを検索、またはメールアドレスを入力",
     searchNoPeople: "ユーザーが見つかりません",
+    searchMorePeople: "さらに読み込む",
     searchPeopleUnavailable:
       "ユーザーを読み込めませんでした。メールアドレスは入力できます。",
     searchPrevious: "前の検索結果",

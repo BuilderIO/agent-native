@@ -11,6 +11,9 @@ import { EditorSearchChoice, type SearchEditor } from "./ContentCommandSearch";
 const memberSearch = vi.hoisted(() => ({
   members: [] as ShareOrgMember[],
   error: null as Error | null,
+  hasMore: false,
+  queries: [] as string[],
+  loadMore: () => {},
 }));
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
@@ -19,14 +22,17 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
 }));
 vi.mock("@agent-native/core/client/sharing", async (importOriginal) => ({
   ...(await importOriginal()),
-  useShareOrgMemberSearch: () => ({
-    members: memberSearch.members,
-    isLoading: false,
-    isLoadingMore: false,
-    hasMore: false,
-    error: memberSearch.error,
-    loadMore: () => {},
-  }),
+  useShareOrgMemberSearch: (query: string) => {
+    memberSearch.queries.push(query);
+    return {
+      members: memberSearch.members,
+      isLoading: false,
+      isLoadingMore: false,
+      hasMore: memberSearch.hasMore,
+      error: memberSearch.error,
+      loadMore: memberSearch.loadMore,
+    };
+  },
 }));
 
 const ME = "asmith@example.com";
@@ -48,6 +54,9 @@ describe("EditorSearchChoice", () => {
     container = undefined;
     memberSearch.members = [];
     memberSearch.error = null;
+    memberSearch.hasMore = false;
+    memberSearch.queries = [];
+    memberSearch.loadMore = () => {};
   });
 
   async function openPicker() {
@@ -131,10 +140,29 @@ describe("EditorSearchChoice", () => {
     ]);
 
     await typePeopleSearch("Alice");
+    expect(memberSearch.queries[memberSearch.queries.length - 1]).toBe("Alice");
     expect(optionTexts()).toEqual([
       "Alice SmithASmith@example.com",
       "Bo Leebo@example.com",
     ]);
+  });
+
+  it("offers the next page of people when the first page isn't all of them", async () => {
+    memberSearch.members = [{ email: "bo@example.com", name: "Bo Lee" }];
+    memberSearch.hasMore = true;
+    const loadMore = vi.fn();
+    memberSearch.loadMore = loadMore;
+    const { onChange } = await openPicker();
+
+    const options = optionTexts();
+    expect(options[options.length - 1]).toBe("root.searchMorePeople");
+    const more = Array.from(
+      pickerDialog().querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) => option.textContent === "root.searchMorePeople");
+    await act(async () => more?.click());
+    expect(loadMore).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(pickerDialog()).toBeTruthy();
   });
 
   it("reports a failed lookup without calling it empty, and still takes a typed email", async () => {
