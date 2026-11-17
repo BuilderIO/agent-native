@@ -1239,6 +1239,24 @@ const requestTranscriptAction = defineAction({
       }
     }
 
+    // A no-speech result is settled for callers that did not ask to redo it, so
+    // they don't pay for another provider run. A forced request is the user's
+    // Retry on the "No speech detected" panel and still runs.
+    if (
+      !args.force &&
+      !args.regenerate &&
+      existingNativeTranscript?.status === "ready" &&
+      !existingNativeTranscript.fullText?.trim() &&
+      (existingNativeTranscript.segmentsJson ?? "[]").trim() === "[]"
+    ) {
+      return {
+        recordingId: args.recordingId,
+        status: "ready" as const,
+        skipped: true,
+        reason: "no-speech",
+      };
+    }
+
     // Past here the transcript comes from the recording's audio. A ready
     // transcript, such as an imported one on a YouTube clip, was kept above,
     // so the follow-up job import-transcript queues still fills its summary.

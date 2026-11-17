@@ -1279,6 +1279,68 @@ describe("requestTranscript regeneration", () => {
     );
   });
 
+  it("does not transcribe a settled no-speech recording again on an unforced request", async () => {
+    mockSelectRows.queue = [
+      [
+        {
+          status: "ready",
+          fullText: "",
+          segmentsJson: "[]",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+    ];
+
+    const result = await requestTranscript.run({ recordingId: "rec_silent" });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_silent",
+      status: "ready",
+      skipped: true,
+      reason: "no-speech",
+    });
+    expect(mockTranscribeWithBuilder).not.toHaveBeenCalled();
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("transcribes a no-speech recording again when the user retries", async () => {
+    mockSelectRows.queue = [
+      [
+        {
+          status: "ready",
+          fullText: "",
+          segmentsJson: "[]",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+      [{ recordingId: "rec_silent" }],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [{ status: "pending", fullText: "", segmentsJson: "[]" }],
+      [{ recordingId: "rec_silent" }],
+      [{ title: "Human title", titleSource: "manual", description: "Saved" }],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_silent",
+      force: true,
+    });
+
+    expect(result).toMatchObject({ status: "ready", provider: "builder" });
+    expect(mockTranscribeWithBuilder).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a still-running transcription marked live instead of going stale", async () => {
     vi.useFakeTimers();
     try {
