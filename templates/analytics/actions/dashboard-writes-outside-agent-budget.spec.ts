@@ -424,6 +424,9 @@ describe("dashboard writes over MCP report their verification jobs' cost", () =>
       ),
     });
     expect((error as Error).message).toMatch(/Left today: .*00:00 UTC/);
+    expect((error as Error).message.match(/BigQuery jobs this call/g)).toEqual([
+      "BigQuery jobs this call",
+    ]);
     expect(budget.admit).toHaveBeenCalledTimes(1);
   });
 });

@@ -207,16 +207,50 @@ export async function reportOutsideAgentBigQueryCall<T extends object>(
   try {
     value = await work();
   } catch (error) {
-    if (call.gate.summary().jobsAdmitted > 0) {
-      appendToMessage(
-        error,
-        describeOutsideAgentBigQueryReport(await call.report()),
-      );
-    }
+    await attachCallReport(call, error);
     throw error;
   }
   if (call.gate.summary().jobsAdmitted === 0) return value;
   return { ...value, bigQueryBudget: await call.report() };
+}
+
+const callReports = new WeakMap<object, OutsideAgentBigQueryReport>();
+
+/** The report of the call a failure ended, once that call had admitted a job. */
+export function outsideAgentCallReportOf(
+  error: unknown,
+): OutsideAgentBigQueryReport | undefined {
+  return typeof error === "object" && error !== null
+    ? callReports.get(error)
+    : undefined;
+}
+
+/**
+ * Names `call`'s spend on the failure it ends with, once it admitted a job.
+ * The first call to see the failure names it, so a failure passing through a
+ * nested call never carries two spend sentences.
+ */
+async function attachCallReport(
+  call: OutsideAgentBigQueryCall,
+  error: unknown,
+): Promise<void> {
+  if (
+    call.gate.summary().jobsAdmitted === 0 ||
+    typeof error !== "object" ||
+    error === null ||
+    callReports.has(error)
+  ) {
+    return;
+  }
+  let report: OutsideAgentBigQueryReport;
+  try {
+    report = await call.report();
+  } catch {
+    // coercion-ok: the failure itself is what the caller must see; the spend stays recorded in the ledger.
+    return;
+  }
+  callReports.set(error, report);
+  appendToMessage(error, describeOutsideAgentBigQueryReport(report));
 }
 
 /** In place, so whatever reads the failure's class or fields still sees them. */
@@ -234,7 +268,9 @@ function appendToMessage(error: unknown, sentence: string): void {
 /**
  * Runs an outside agent's tool call with every BigQuery job it starts
  * admitted against the daily budgets. A refused job surfaces as the refusal,
- * whatever the code under it made of the error.
+ * whatever the code under it made of the error. Once the call admitted a job,
+ * its failure names the spend in its message, and `outsideAgentCallReportOf`
+ * reads the report from it.
  */
 export async function runOutsideAgentBigQueryCall<T>(
   options: OutsideAgentBigQueryCallOptions,
@@ -247,32 +283,44 @@ export async function runOutsideAgentBigQueryCall<T>(
   } catch (error) {
     // Only a refusal that caused this failure is reported as one; a refusal
     // the work already handled must not mask a later, unrelated error.
+    let failure = error;
     for (let cause: unknown = error; cause; ) {
-      if (cause instanceof OutsideAgentBigQueryRefusalError) throw cause;
+      if (cause instanceof OutsideAgentBigQueryRefusalError) {
+        failure = cause;
+        break;
+      }
       cause =
         cause instanceof Error
           ? (cause as Error & { cause?: unknown }).cause
           : undefined;
     }
-    throw error;
+    await attachCallReport(call, failure);
+    throw failure;
   }
   return { value, report: await call.report() };
 }
 
-/** A refusal as a report, for a tool whose contract answers with partial data instead of failing. */
+/**
+ * A refusal as a report, for a tool whose contract answers with partial data
+ * instead of failing. It keeps what the call's earlier jobs spent.
+ */
 export function outsideAgentRefusalReport(
   error: OutsideAgentBigQueryRefusalError,
 ): OutsideAgentBigQueryReport {
+  const spent = outsideAgentCallReportOf(error);
   return {
-    thisCall: {
+    thisCall: spent?.thisCall ?? {
       jobsAdmitted: 0,
       reservedUsd: 0,
       billedUsd: 0,
       stillReservedUsd: 0,
       cacheHits: 0,
     },
-    jobs: [],
-    today: error.budget ? describeBigQueryAgentBudget(error.budget) : null,
+    jobs: spent?.jobs ?? [],
+    ...(spent?.jobsOmitted ? { jobsOmitted: spent.jobsOmitted } : {}),
+    today:
+      spent?.today ??
+      (error.budget ? describeBigQueryAgentBudget(error.budget) : null),
     refusal: { code: error.code, message: error.message },
   };
 }

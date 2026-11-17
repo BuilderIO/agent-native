@@ -13,7 +13,9 @@ import {
   type OutsideAgentIdentity,
 } from "../server/lib/bigquery-agent-budget.js";
 import {
+  describeOutsideAgentBigQueryReport,
   failForOutsideAgentRefusal,
+  outsideAgentCallReportOf,
   runOutsideAgentBigQueryCall,
 } from "../server/lib/bigquery-agent-calls.js";
 import {
@@ -407,6 +409,12 @@ export default defineAction({
       ) {
         throw error;
       }
+      // A failure below that replaces the error's message still names what
+      // the call's jobs spent.
+      const spent = outsideAgentCallReportOf(error);
+      const spend = spent
+        ? ` ${describeOutsideAgentBigQueryReport(spent)}`
+        : "";
       if (error instanceof OnboardingJourneyReadError) {
         const stagePrefix =
           error.stage === "journey_events"
@@ -438,7 +446,7 @@ export default defineAction({
           backendOperation: error.backendOperation,
         });
         fail(
-          `The scoped onboarding journey read failed during ${error.stage}; no journey counts were returned.${failureContext}${backendDetail}`,
+          `The scoped onboarding journey read failed during ${error.stage}; no journey counts were returned.${failureContext}${backendDetail}${spend}`,
           {
             errorCode: failureCode,
             statusCode: error.failureKind === "query_timeout" ? 504 : 502,
@@ -457,7 +465,7 @@ export default defineAction({
         );
       }
       fail(
-        "Onboarding journey events could not be read, so no tree was built. Retry with a narrower window or app.",
+        `Onboarding journey events could not be read, so no tree was built. Retry with a narrower window or app.${spend}`,
         { errorCode: "journey_events_unreadable", statusCode: 502 },
       );
     }

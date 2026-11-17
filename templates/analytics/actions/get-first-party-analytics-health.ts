@@ -8,6 +8,7 @@ import { z } from "zod";
 import { outsideAgentIdentity } from "../server/lib/bigquery-agent-budget.js";
 import {
   outsideAgentBigQueryReportSchema,
+  outsideAgentCallReportOf,
   outsideAgentRefusalReport,
   runOutsideAgentBigQueryCall,
 } from "../server/lib/bigquery-agent-calls.js";
@@ -141,11 +142,13 @@ export default defineAction({
         };
       }
       console.warn("[first-party-analytics] Health check unavailable:", error);
-      return unavailableFirstPartyAnalyticsHealth(
+      const unavailable = unavailableFirstPartyAnalyticsHealth(
         error instanceof BigQueryMaximumBytesBilledError
           ? "maximum_bytes_billed"
           : "health_read_failed",
       );
+      const report = outsideAgentCallReportOf(error);
+      return report ? { ...unavailable, bigQueryBudget: report } : unavailable;
     }
   },
 });

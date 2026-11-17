@@ -21,6 +21,10 @@ const dryRun = vi.hoisted(() => ({
 const send = vi.hoisted(() => ({
   response: null as null | (() => Response),
 }));
+// What a stand-in read does after its first job: another job, or a failure.
+const after = vi.hoisted(() => ({
+  firstJob: null as null | (() => Promise<unknown>),
+}));
 const PRINCIPAL =
   "sa:runner@builder-3b0a2.iam.gserviceaccount.com#0a1b2c3d4e5f6a7b";
 
@@ -95,6 +99,7 @@ vi.mock("../server/lib/onboarding-journey", async (importOriginal) => {
       await runQuery("SELECT 1 AS journey_page", {
         maxBytesBilled: actual.ONBOARDING_EVENTS_MAX_BYTES_BILLED,
       });
+      await after.firstJob?.();
       return {
         window: { from: "2026-11-01", to: "2026-11-02" },
         app: "all",
@@ -123,6 +128,7 @@ vi.mock(
         await runQuery("SELECT 1 AS event_count", {
           maxBytesBilled: 100_000_000,
         });
+        await after.firstJob?.();
         return actual.unavailableFirstPartyAnalyticsHealth(
           "health_read_failed",
         );
@@ -145,6 +151,16 @@ const { default: getOnboardingJourney } =
 const { default: getHealth } =
   await import("./get-first-party-analytics-health");
 const { default: bigquery } = await import("./bigquery");
+const { OnboardingJourneyReadError } =
+  await import("../server/lib/onboarding-journey");
+const {
+  createOutsideAgentBigQueryCall,
+  outsideAgentCallReportOf,
+  reportOutsideAgentBigQueryCall,
+  runOutsideAgentBigQueryCall,
+} = await import("../server/lib/bigquery-agent-calls");
+const { withOutsideAgentBigQueryGate } =
+  await import("../server/lib/bigquery-agent-context");
 
 const submissions: any[] = [];
 const duplicate = { jobId: null as string | null };
@@ -196,6 +212,7 @@ beforeEach(() => {
   journey.args.length = 0;
   dryRun.response = null;
   send.response = null;
+  after.firstJob = null;
   budget.admit.mockReset();
   budget.admit.mockImplementation(async (_identity, request) => ({
     status: "admitted",
@@ -624,6 +641,152 @@ describe("resumable jobs", () => {
     expect(submissions[1].jobReference.jobId).not.toBe(
       submissions[0].jobReference.jobId,
     );
+  });
+});
+
+describe("a call that fails after its first job still reports that job", () => {
+  const SPEND =
+    "BigQuery jobs this call ran against your outside-agent budget: 1, reserved ";
+
+  /** The first job runs and settles; the budget refuses the second. */
+  function refuseTheSecondJob(maxBytesBilled: number) {
+    const admitted = budget.admit.getMockImplementation()!;
+    budget.admit
+      .mockImplementationOnce(admitted)
+      .mockImplementationOnce(async (_identity, request) => ({
+        status: "refused",
+        code: "approval_required",
+        scope: "person",
+        reservedBytes: request.reservedBytes,
+        budget: snapshot(0),
+      }));
+    after.firstJob = () =>
+      runQuery("SELECT 2 AS second_job", { maxBytesBilled });
+  }
+
+  it("get-onboarding-journey names the first job's spend when the budget refuses a later page", async () => {
+    refuseTheSecondJob(25_000_000_000);
+    const second = after.firstJob!;
+    // The real read wraps a page's failure, refusal included.
+    after.firstJob = () =>
+      second().catch((error: unknown) => {
+        throw new OnboardingJourneyReadError(error, 2);
+      });
+    const error = await getOnboardingJourney
+      .run(journeyArgs, { caller: "mcp" })
+      .catch((caught: unknown) => caught);
+    expect(budget.admit).toHaveBeenCalledTimes(2);
+    expect(submissions).toHaveLength(1);
+    expect(error).toMatchObject({ errorCode: "approval_required" });
+    const message = (error as Error).message;
+    expect(message).toContain(SPEND);
+    expect(message.split(SPEND)).toHaveLength(2);
+    expect(message).toMatch(/Left today: .*00:00 UTC/);
+  });
+
+  it("get-onboarding-journey names the first job's spend when a later read fails", async () => {
+    after.firstJob = async () => {
+      throw new OnboardingJourneyReadError(new Error("socket hang up"), 2);
+    };
+    const error = await getOnboardingJourney
+      .run(journeyArgs, { caller: "mcp" })
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      errorCode: expect.stringMatching(/^journey_events_read/),
+    });
+    const message = (error as Error).message;
+    expect(message).toMatch(
+      /^The scoped onboarding journey read failed during journey_events;/,
+    );
+    expect(message).toContain(SPEND);
+    expect(message.split(SPEND)).toHaveLength(2);
+  });
+
+  it("get-first-party-analytics-health lists the job that ran before a refusal", async () => {
+    refuseTheSecondJob(100_000_000);
+    const result = (await getHealth.run({}, { caller: "mcp" })) as Record<
+      string,
+      any
+    >;
+    const firstJobId = budget.admit.mock.calls[0]![1].jobId;
+    expect(result.metrics.coverage).toEqual({
+      kind: "unavailable",
+      reason: "outside_agent_budget",
+    });
+    expect(result.bigQueryBudget).toMatchObject({
+      thisCall: { jobsAdmitted: 1, stillReservedUsd: 0 },
+      jobs: [{ jobId: firstJobId, state: "settled", cacheHit: false }],
+      today: { person: { noAskAllowanceUsd: 1 } },
+      refusal: { code: "approval_required" },
+    });
+    expect(result.bigQueryBudget.thisCall.reservedUsd).toBeGreaterThan(0);
+  });
+
+  it("get-first-party-analytics-health reports the job that ran before its read failed", async () => {
+    after.firstJob = async () => {
+      throw new Error("rollup read failed");
+    };
+    const result = (await getHealth.run({}, { caller: "mcp" })) as Record<
+      string,
+      any
+    >;
+    expect(result.metrics.coverage).toEqual({
+      kind: "unavailable",
+      reason: "health_read_failed",
+    });
+    expect(result.bigQueryBudget).toMatchObject({
+      thisCall: { jobsAdmitted: 1 },
+      jobs: [{ jobId: budget.admit.mock.calls[0]![1].jobId, state: "settled" }],
+    });
+    expect(result.bigQueryBudget.refusal).toBeUndefined();
+  });
+
+  describe("any tool call", () => {
+    const options = {
+      identity: { ownerEmail: "alice@example.com", orgId: "org-1" },
+      source: "test",
+      reservation: "full-cap" as const,
+      leaseMs: 60_000,
+    };
+    const read = defineAction({
+      description: "A read an outside agent's tool starts.",
+      schema: z.object({}),
+      run: async () => runQuery("SELECT 1 AS first_job"),
+    });
+    class StoreError extends Error {}
+
+    it("keeps a later failure as it was and names the spend on it", async () => {
+      const failure = new StoreError("store unavailable");
+      const error = await runOutsideAgentBigQueryCall(options, async () => {
+        await read.run({}, { caller: "mcp" });
+        throw failure;
+      }).catch((caught: unknown) => caught);
+      expect(error).toBe(failure);
+      expect(failure.message).toMatch(
+        new RegExp(`^store unavailable ${SPEND}`),
+      );
+      expect(outsideAgentCallReportOf(failure)).toMatchObject({
+        thisCall: { jobsAdmitted: 1 },
+        jobs: [{ state: "settled" }],
+      });
+    });
+
+    it("names the spend once when the failure passes through a call nested in another", async () => {
+      const outer = createOutsideAgentBigQueryCall(options);
+      const failure = new StoreError("store unavailable");
+      const error = await reportOutsideAgentBigQueryCall(outer, async () => {
+        await withOutsideAgentBigQueryGate(outer.gate, () =>
+          read.run({}, { caller: "mcp" }),
+        );
+        return runOutsideAgentBigQueryCall(options, async () => {
+          await read.run({}, { caller: "mcp" });
+          throw failure;
+        });
+      }).catch((caught: unknown) => caught);
+      expect(error).toBe(failure);
+      expect(budget.admit).toHaveBeenCalledTimes(2);
+      expect(failure.message.split(SPEND)).toHaveLength(2);
+    });
   });
 });
 
