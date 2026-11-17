@@ -21,9 +21,11 @@ import {
 import { MIN_BILLED_BYTES_PER_QUERY } from "./bigquery-pricing.js";
 import type { BigQueryJobBilling } from "./bigquery-usage.js";
 
-// Time left on a lease when a job may no longer be sent under it. It outlasts
-// a submission request's own timeout, so a send that started in time lands
-// before any reconciler may judge the job absent.
+// Time left on a lease when a job may no longer be sent under it. Send
+// deadlines assume the servers that admit, send and reconcile have clocks
+// that agree within this margin. A submission's timeout only stops this
+// server waiting: a POST BigQuery accepts after the client gave up is bounded
+// only by that job's own byte cap (`maximumBytesBilled`).
 const LEASE_SUBMIT_MARGIN_MS = 15_000;
 
 /**
