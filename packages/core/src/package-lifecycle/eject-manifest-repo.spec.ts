@@ -118,7 +118,7 @@ describe("repository eject manifests", () => {
     expect(auth?.sourceEntries).toContain("src/app/auth/server.ts");
   });
 
-  it("rewrites dashboard chart imports to the copies when the Dashboard kit is ejected", () => {
+  it("gives the Dashboard kit the dashboard chart entrypoint and sources", () => {
     const owner = toolkit.units.find((unit) =>
       unit.entrypoints.includes("./app/dashboard-charts/*"),
     );
