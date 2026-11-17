@@ -268,6 +268,7 @@ export interface ComposerRuntimeAdapters {
       name: string;
       aliases: readonly string[];
       keywords: readonly string[];
+      matchesHostname?: (hostname: string) => boolean;
       personal: boolean;
       workspace: boolean;
     }[];

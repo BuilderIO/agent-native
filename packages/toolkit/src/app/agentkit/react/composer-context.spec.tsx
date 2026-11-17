@@ -164,6 +164,91 @@ describe("AgentKit composer context submission", () => {
     },
   );
   it.each([
+    { path: "override", text: "View https://www.notion.so/example-page" },
+    { path: "default", text: "View https://www.notion.so/example-page" },
+    {
+      path: "override",
+      text: "View https://example.test/page and https://team.notion.site/example-page",
+    },
+  ] as const)(
+    "provides integration guidance for a document URL on the $path path",
+    async ({ path, text }) => {
+      vi.stubGlobal("__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__", {
+        defaults: { include: ["notion", "stripe"], exclude: ["stripe"] },
+        custom: false,
+      });
+      const runtime = transport();
+      client = new AgentKitClient({ transport: runtime });
+      const onSubmit = vi.fn();
+      await act(async () =>
+        root.render(
+          <ComposerRuntimeAdaptersProvider adapters={coreComposerAdapters}>
+            <AgentKitProvider controller={client} threadId="thread-1">
+              <AgentKitComposer
+                onSubmit={path === "override" ? onSubmit : undefined}
+                autoFocus={false}
+              />
+            </AgentKitProvider>
+          </ComposerRuntimeAdaptersProvider>,
+        ),
+      );
+      await act(async () => capture.props!.onSubmit(text, [], [], {}));
+      const context =
+        path === "override"
+          ? onSubmit.mock.calls[0][3].composerModeContext
+          : splitAgentKitMessageContext(
+              runtime.startRun.mock.calls[0][0].messages
+                .at(-1)!
+                .parts.find((part) => part.type === "text")!.text,
+            ).context;
+      expect(context).toMatch(/notion[^\n]*personal/i);
+      expect(context).not.toMatch(/stripe|https?:\/\/|example-page/i);
+    },
+  );
+
+  it.each([
+    { label: "unrelated hostname", text: "View https://example.test/notion" },
+    {
+      label: "lookalike hostname",
+      text: "View https://notion.so.example.test/page",
+    },
+    {
+      label: "URL credentials",
+      text: "View https://notion.so@example.test/page",
+    },
+    {
+      label: "URL query text",
+      text: "View https://example.test/?provider=notion",
+    },
+    {
+      label: "URL path with generic terms",
+      text: "View https://example.test/connect/integrations",
+    },
+    {
+      label: "excluded preset",
+      text: "View https://dashboard.stripe.com/page",
+    },
+  ])("does not infer a preset from an $label", async ({ text }) => {
+    vi.stubGlobal("__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__", {
+      defaults: { include: ["notion", "stripe"], exclude: ["stripe"] },
+      custom: false,
+    });
+    client = new AgentKitClient({ transport: transport() });
+    const onSubmit = vi.fn();
+    await act(async () =>
+      root.render(
+        <ComposerRuntimeAdaptersProvider adapters={coreComposerAdapters}>
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <AgentKitComposer onSubmit={onSubmit} autoFocus={false} />
+          </AgentKitProvider>
+        </ComposerRuntimeAdaptersProvider>,
+      ),
+    );
+    await act(async () => capture.props!.onSubmit(text, [], [], {}));
+    expect(onSubmit.mock.calls[0][3].composerModeContext).toBeUndefined();
+  });
+
+  it.each([
     { label: "fallback runtime", adapters: false },
     { label: "hidden menu", mode: "hidden" as const },
     { label: "terminal menu", mode: "terminal" as const },

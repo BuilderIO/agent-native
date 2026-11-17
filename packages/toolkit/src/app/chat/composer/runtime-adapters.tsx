@@ -33,6 +33,7 @@ import {
 import {
   allowsMcpIntegrationPersonalScope,
   getDefaultMcpIntegrations,
+  mcpIntegrationHostnameMatches,
   supportsMcpIntegrationOrganizationScope,
 } from "@agent-native/core/client/resources/mcp-integration-catalog";
 import {
@@ -119,6 +120,8 @@ export const coreComposerAdapters: CoreComposerRuntimeAdapters = {
           ...(integration.promptAliases ?? []),
         ],
         keywords: integration.keywords,
+        matchesHostname: (hostname) =>
+          mcpIntegrationHostnameMatches(integration, hostname),
         personal: allowsMcpIntegrationPersonalScope(integration),
         workspace: supportsMcpIntegrationOrganizationScope(integration),
       })),

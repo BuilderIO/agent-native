@@ -7284,6 +7284,15 @@ function composerIntegrationContext(
     );
   if (menuItems && overridesConnect(menuItems)) return undefined;
 
+  const hostnames: string[] = [];
+  const prose = text.replace(/https?:\/\/[^\s<>()[\]{}]+/gi, (candidate) => {
+    try {
+      hostnames.push(new URL(candidate.replace(/[.,!?;:'"]+$/, "")).hostname);
+    } catch {
+      // Ignore prose that only looks like a URL.
+    }
+    return " ";
+  });
   const mentions = (term: string) => {
     const value = term.trim();
     if (value.length < 3 || !/^[\p{L}\p{N} .&+()_-]{1,80}$/u.test(value))
@@ -7292,12 +7301,12 @@ function composerIntegrationContext(
     return new RegExp(
       `(?<![\\p{L}\\p{N}_/@\\\\.])${escaped}(?!(?:[\\p{L}\\p{N}_/@\\\\]|\\.[\\p{L}\\p{N}]))`,
       "iu",
-    ).test(text);
+    ).test(prose);
   };
   const generic =
-    /\b(integrations?|connectors?|mcp)\b/i.test(text) ||
+    /\b(integrations?|connectors?|mcp)\b/i.test(prose) ||
     /\b(?:connect|set up|setup)\b.{0,40}\b(?:apps|services|tools)\b/i.test(
-      text,
+      prose,
     );
   const presets = resources
     .getIntegrationPromptPresets()
@@ -7309,6 +7318,7 @@ function composerIntegrationContext(
   const matches = presets.filter(
     (preset) =>
       [preset.name, ...preset.aliases].some(mentions) ||
+      hostnames.some((hostname) => preset.matchesHostname?.(hostname)) ||
       (generic &&
         preset.keywords.some(
           (keyword) =>
