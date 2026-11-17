@@ -390,9 +390,11 @@ describe("Wonder arrays and nesting are bounded before conversion", () => {
     ).toMatchObject({ status: "invalid", tool: "wonder" });
   });
 
-  it("skips a deeply nested grid track instead of overflowing the stack", async () => {
+  it("skips a grid track nested past the limit instead of recursing into it", async () => {
     let track: unknown = { fr: 1 };
-    for (let i = 0; i < 50_000; i += 1) track = { min: 0, max: track };
+    // Far past the nesting limit, yet shallow enough that JSON.stringify
+    // itself is safe on every Node version CI runs.
+    for (let i = 0; i < 200; i += 1) track = { min: 0, max: track };
     const result = await read(
       node({
         label: "Grid",
