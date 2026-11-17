@@ -223,8 +223,16 @@ async function createSsrfSafeDispatcherUncached(
   let undici: any;
   let dnsModule: any;
   try {
-    const undiciSpecifier = "undici";
-    undici = await import(/* @vite-ignore */ undiciSpecifier);
+    // Core ships its own compatible undici at a dedicated specifier in Node
+    // server output. Fall back to the app-provided undici for runtimes that do
+    // not emit that copy (dev, serverless, older deployments).
+    const coreUndiciSpecifier = "@agent-native/core-undici";
+    const fallbackUndiciSpecifier = "undici";
+    try {
+      undici = await import(/* @vite-ignore */ coreUndiciSpecifier);
+    } catch {
+      undici = await import(/* @vite-ignore */ fallbackUndiciSpecifier);
+    }
     dnsModule = await import("node:dns");
   } catch (error) {
     throw new Error(

@@ -3208,6 +3208,11 @@ const SERVERLESS_EXTERNAL_SSR_PACKAGES = [
   "react-router",
   "@tanstack/react-query",
 ] as const;
+
+// url-safety.ts (Core) loads undici through this dedicated opaque specifier so
+// Core's compatible copy cannot be shadowed by a different undici the app traced
+// into the shared output. Kept in sync with url-safety.ts.
+const CORE_UNDICI_SPECIFIER = "@agent-native/core-undici";
 const SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS: Record<string, readonly string[]> =
   {
     "react-dom": [
@@ -3597,7 +3602,14 @@ export function copyInstalledExternalSsrPackages(
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
     // Keep undici opaque to client bundlers, but copy it into the server runtime.
-    if (/(\"|'|\x60)undici\1/.test(source)) packagesToCopy.add("undici");
+    // Core's dedicated specifier is kept alongside the plain one for older
+    // bundles, so detect either form.
+    if (
+      /(\"|'|\x60)undici\1/.test(source) ||
+      source.includes(CORE_UNDICI_SPECIFIER)
+    ) {
+      packagesToCopy.add("undici");
+    }
     if (undiciOnly) return;
     for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
       if (hasExternalSsrRuntimeReference(source, packageName)) {
@@ -3619,7 +3631,9 @@ export function copyInstalledExternalSsrPackages(
       : null;
   const keepTracedUndici = tracedUndici?.name === "undici";
 
-  if (undiciOnly && !coreUndiciDir && !keepTracedUndici) {
+  // Core's dedicated specifier must resolve to Core's own compatible undici,
+  // so its source directory is required regardless of any app-traced copy.
+  if (undiciOnly && packagesToCopy.has("undici") && !coreUndiciDir) {
     throw new Error(
       "[deploy] Could not resolve undici from @agent-native/core's dependencies for the Node server output.",
     );
@@ -3630,10 +3644,11 @@ export function copyInstalledExternalSsrPackages(
   let copiedCount = 0;
   const versions: Record<string, string> = {};
   for (const packageName of packagesToCopy) {
-    // Preserve an undici Nitro already traced into the emitted output.
+    // Preserve an undici Nitro already traced into the emitted output at the
+    // plain path; Core still gets its own copy at the dedicated path below.
     if (undiciOnly && packageName === "undici" && keepTracedUndici) {
       console.log(
-        `[deploy] Kept the undici ${tracedUndici.version ?? "(version unknown)"} already traced in the Node server output; skipped Core's copy to avoid overwriting the app's dependency.`,
+        `[deploy] Kept the undici ${tracedUndici.version ?? "(version unknown)"} already traced at node_modules/undici for the app; Core uses its own copy at ${CORE_UNDICI_SPECIFIER}.`,
       );
       continue;
     }
@@ -3667,6 +3682,22 @@ export function copyInstalledExternalSsrPackages(
   for (const packageName of copiedPackages) {
     if (undiciOnly) continue;
     pruneExternalSsrPackageArtifacts(serverDir, packageName);
+  }
+
+  // Always give Core its own compatible undici at the dedicated specifier path.
+  // This is additive: the plain node_modules/undici copy above is preserved (or
+  // skipped when the app traced its own), so both imports keep working.
+  if (undiciOnly && packagesToCopy.has("undici") && coreUndiciDir) {
+    copiedCount += copyRuntimePackageTree(
+      CORE_UNDICI_SPECIFIER,
+      coreUndiciDir,
+      serverDir,
+      nodeModulesRoots,
+      copiedPackages,
+    );
+    console.log(
+      `[deploy] Copied Core's undici to ${CORE_UNDICI_SPECIFIER} so SSRF protection keeps Core's compatible version.`,
+    );
   }
 
   if (copiedCount === 0) return 0;

@@ -8325,15 +8325,15 @@ describe("Node preset external SSR runtime output", { timeout: 60_000 }, () => {
             events.push("nitroBuild");
             await build(instance);
             // This minimal app has no url-safety.ts, so reproduce verbatim the
-            // opaque "undici" specifier that module leaves in a real bundle.
+            // opaque dedicated specifier that module leaves in a real bundle.
             fs.writeFileSync(
               path.join(
                 instance.options.output.serverDir,
                 "undici-runtime.mjs",
               ),
-              'const undiciSpecifier = "undici";\n' +
+              'const coreUndiciSpecifier = "@agent-native/core-undici";\n' +
                 "export const { undiciMarker } = await import(" +
-                "/* @vite-ignore */ undiciSpecifier);\n",
+                "/* @vite-ignore */ coreUndiciSpecifier);\n",
             );
           },
         },
@@ -8356,7 +8356,12 @@ describe("Node preset external SSR runtime output", { timeout: 60_000 }, () => {
       ]);
 
       const serverDir = nitro.options.output.serverDir;
-      const copied = path.join(serverDir, "node_modules", "undici");
+      const copied = path.join(
+        serverDir,
+        "node_modules",
+        "@agent-native",
+        "core-undici",
+      );
       const manifest = JSON.parse(
         fs.readFileSync(path.join(copied, "package.json"), "utf-8"),
       );
@@ -8379,13 +8384,13 @@ describe("Node preset external SSR runtime output", { timeout: 60_000 }, () => {
       const requireFromOutput = createRequire(
         path.join(serverDir, "index.mjs"),
       );
-      expect(requireFromOutput.resolve("undici")).toContain(
-        path.join("node_modules", "undici"),
-      );
+      expect(
+        requireFromOutput.resolve("@agent-native/core-undici"),
+      ).toContain(path.join("node_modules", "@agent-native", "core-undici"));
       const entrypoint = path.join(serverDir, "load-undici.mjs");
       fs.writeFileSync(
         entrypoint,
-        'export const { undiciMarker } = await import("undici");\n',
+        'export const { undiciMarker } = await import("@agent-native/core-undici");\n',
       );
       const runtime = await import(pathToFileURL(entrypoint).href);
       expect(runtime.undiciMarker).toBe("from-core-dependency");
@@ -8428,7 +8433,7 @@ describe("Node preset external SSR runtime output", { timeout: 60_000 }, () => {
     );
   });
 
-  it("preserves an undici already traced into the Node output for the app", async () => {
+  it("keeps Core's compatible undici alongside the app's traced undici in the Node output", async () => {
     const workspace = fs.mkdtempSync(
       path.join(os.tmpdir(), "agent-native-node-undici-traced-"),
     );
@@ -8438,7 +8443,12 @@ describe("Node preset external SSR runtime output", { timeout: 60_000 }, () => {
     fs.mkdirSync(coreUndici, { recursive: true });
     fs.writeFileSync(
       path.join(coreUndici, "package.json"),
-      `${JSON.stringify({ name: "undici", version: "7.28.0" })}\n`,
+      `${JSON.stringify({
+        name: "undici",
+        version: "7.28.0",
+        type: "module",
+        main: "index.js",
+      })}\n`,
     );
     fs.writeFileSync(
       path.join(coreUndici, "index.js"),
@@ -8505,9 +8515,9 @@ describe("Node preset external SSR runtime output", { timeout: 60_000 }, () => {
                 instance.options.output.serverDir,
                 "undici-runtime.mjs",
               ),
-              'const undiciSpecifier = "undici";\n' +
+              'const coreUndiciSpecifier = "@agent-native/core-undici";\n' +
                 "export const { undiciMarker } = await import(" +
-                "/* @vite-ignore */ undiciSpecifier);\n",
+                "/* @vite-ignore */ coreUndiciSpecifier);\n",
             );
           },
         },
@@ -8521,18 +8531,53 @@ describe("Node preset external SSR runtime output", { timeout: 60_000 }, () => {
       });
 
       const serverDir = nitro.options.output.serverDir;
-      const emitted = path.join(serverDir, "node_modules", "undici");
-      // Core's copy must not overwrite the version already traced for the app.
+      // The app's own "undici" import keeps the version Nitro traced.
+      const appUndici = path.join(serverDir, "node_modules", "undici");
       expect(
-        JSON.parse(fs.readFileSync(path.join(emitted, "package.json"), "utf-8"))
-          .version,
+        JSON.parse(
+          fs.readFileSync(path.join(appUndici, "package.json"), "utf-8"),
+        ).version,
       ).toBe("6.21.0-app");
       expect(
-        fs.readFileSync(path.join(emitted, "index.js"), "utf-8"),
+        fs.readFileSync(path.join(appUndici, "index.js"), "utf-8"),
       ).toContain("from-app-traced-output");
       expect(
-        fs.readFileSync(path.join(emitted, "index.js"), "utf-8"),
+        fs.readFileSync(path.join(appUndici, "index.js"), "utf-8"),
       ).not.toContain("from-core-dependency");
+
+      // Core's compatible copy sits at the dedicated specifier path and does
+      // not overwrite the app's traced undici.
+      const coreUndici = path.join(
+        serverDir,
+        "node_modules",
+        "@agent-native",
+        "core-undici",
+      );
+      expect(
+        JSON.parse(
+          fs.readFileSync(path.join(coreUndici, "package.json"), "utf-8"),
+        ).version,
+      ).toBe("7.28.0");
+      expect(
+        fs.readFileSync(path.join(coreUndici, "index.js"), "utf-8"),
+      ).toContain("from-core-dependency");
+
+      // Both imports resolve independently from the emitted output.
+      const coreEntry = path.join(serverDir, "load-core-undici.mjs");
+      fs.writeFileSync(
+        coreEntry,
+        'export const { undiciMarker } = await import("@agent-native/core-undici");\n',
+      );
+      const coreRuntime = await import(pathToFileURL(coreEntry).href);
+      expect(coreRuntime.undiciMarker).toBe("from-core-dependency");
+
+      const appEntry = path.join(serverDir, "load-app-undici.mjs");
+      fs.writeFileSync(
+        appEntry,
+        'export const { undiciMarker } = await import("undici");\n',
+      );
+      const appRuntime = await import(pathToFileURL(appEntry).href);
+      expect(appRuntime.undiciMarker).toBe("from-app-traced-output");
     } finally {
       await nitro.close();
     }
