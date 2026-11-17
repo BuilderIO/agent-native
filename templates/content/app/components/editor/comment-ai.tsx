@@ -126,8 +126,11 @@ export interface CommentAiContinuationState {
 }
 
 class CommentAiConversationUnavailableError extends Error {
+  readonly cause: unknown;
+
   constructor(message: string, cause: unknown) {
-    super(message, { cause });
+    super(message);
+    this.cause = cause;
   }
 }
 
