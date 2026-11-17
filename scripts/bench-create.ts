@@ -530,11 +530,16 @@ function summarizePhase(
     .filter((result): result is PhaseResult => result !== undefined);
   if (results.length === 0) return undefined;
   const totals = results.map((result) => totalTraffic(result.hosts));
-  const first = results[0]?.hosts ?? {};
-  const firstTotal = totalTraffic(first).received;
-  const hosts = Object.entries(first)
-    .filter(([, host]) => host.received >= firstTotal * 0.1)
-    .sort(([, a], [, b]) => b.received - a.received)
+  const receivedByHost: Record<string, number> = {};
+  for (const result of results) {
+    for (const [name, host] of Object.entries(result.hosts)) {
+      receivedByHost[name] = (receivedByHost[name] ?? 0) + host.received;
+    }
+  }
+  const received = Object.values(receivedByHost).reduce((a, b) => a + b, 0);
+  const hosts = Object.entries(receivedByHost)
+    .filter(([, bytes]) => bytes >= received * 0.1)
+    .sort(([, a], [, b]) => b - a)
     .map(([name]) => name)
     .join(", ");
   return {
