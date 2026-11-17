@@ -829,6 +829,10 @@ const messages = {
     contacts: {
       noContactSelected: "Nenhum contato selecionado",
     },
+    readingPane: {
+      empty: "Nenhum e-mail selecionado",
+      resizeList: "Redimensionar lista de e-mails",
+    },
   },
   agent: {
     emptyState: "Pergunte qualquer coisa sobre seus emails",
@@ -935,6 +939,10 @@ const messages = {
     gmailFilters: "Filtros do Gmail",
     aliases: "Aliases",
     tracking: "Rastreamento",
+    reading: "Leitura",
+    readingPane: "Painel de leitura",
+    readingPaneSaveFailed:
+      "Não foi possível salvar a configuração do painel de leitura.",
     deleteAlias: "Excluir alias",
     editAlias: "Editar alias",
   },

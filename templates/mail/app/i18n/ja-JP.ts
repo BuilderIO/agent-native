@@ -811,6 +811,10 @@ const messages = {
     contacts: {
       noContactSelected: "連絡先が選択されていません",
     },
+    readingPane: {
+      empty: "メールが選択されていません",
+      resizeList: "メールリストのサイズを変更",
+    },
   },
   agent: {
     emptyState: "メールについて何でも聞いてください",
@@ -913,6 +917,9 @@ const messages = {
     gmailFilters: "Gmail フィルター",
     aliases: "エイリアス",
     tracking: "トラッキング",
+    reading: "閲覧",
+    readingPane: "閲覧ウィンドウ",
+    readingPaneSaveFailed: "閲覧ウィンドウの設定を保存できませんでした。",
     deleteAlias: "エイリアスを削除",
     editAlias: "エイリアスを編集",
   },

@@ -209,10 +209,10 @@ interface EmailListProps {
   isLoading?: boolean;
   isFetching?: boolean;
   emailsError?: Error | null;
-  accountErrors?: AccountError[];
+  accountErrors?: AccountError[] | undefined;
   /** Set when the rows are not live from Gmail (cooldown); shown as a notice. */
-  read?: GmailReadState;
-  labels?: Label[];
+  read?: GmailReadState | undefined;
+  labels?: Label[] | undefined;
   refetchEmails?: () => unknown;
   hasNextPage?: boolean;
   /** Paging stopped at the server's offset cap; older mail is out of reach here. */
@@ -240,6 +240,10 @@ interface EmailListProps {
   onJevRetry?: () => void;
   sortMode?: MailSortMode;
   onSortModeChange?: (mode: MailSortMode) => void;
+  /** Beside the reading pane: richer rows, and moving the focus opens the email. */
+  readingPane?: boolean;
+  /** Off while the reading pane's open email owns the keyboard. */
+  keyboardEnabled?: boolean;
 }
 
 const INBOX_ZERO_PHOTOS = [
@@ -361,14 +365,50 @@ export function InboxZero() {
 
 function MailLoadingState({
   containerRef,
+  rich = false,
 }: {
   containerRef: React.RefObject<HTMLDivElement | null>;
+  rich?: boolean;
 }) {
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
       <div className="flex-1 overflow-y-auto">
-        <MailLoadingRows count={12} />
+        {rich ? (
+          <MailLoadingRichRows count={8} />
+        ) : (
+          <MailLoadingRows count={12} />
+        )}
       </div>
+    </div>
+  );
+}
+
+function MailLoadingRichRows({ count }: { count: number }) {
+  return (
+    <div aria-hidden="true">
+      {Array.from({ length: count }, (_, index) => (
+        <div
+          key={index}
+          className="email-list-row flex items-start border-b border-border/30 py-2.5 ps-3 pe-3.5"
+        >
+          <div className="me-2 flex h-[18px] w-5 shrink-0 items-center justify-center">
+            <div className="h-[7px] w-[7px] animate-pulse rounded-full bg-muted" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex h-[18px] items-center gap-3">
+              <div className="h-3 w-32 animate-pulse rounded bg-muted" />
+              <div className="ms-auto h-3 w-10 animate-pulse rounded bg-muted" />
+            </div>
+            <div className="mt-0.5 flex h-[19.5px] items-center">
+              <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+            </div>
+            <div className="mt-0.5 flex h-[34px] flex-col justify-center gap-1.5">
+              <div className="h-2.5 w-full animate-pulse rounded bg-muted" />
+              <div className="h-2.5 w-2/3 animate-pulse rounded bg-muted" />
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -402,6 +442,9 @@ function MailLoadingRows({ count }: { count: number }) {
 }
 
 const RATE_LIMIT_RETRY_MS = 60_000;
+
+// Sender, subject and a two-line preview; the virtualizer measures real rows.
+const RICH_ROW_HEIGHT_ESTIMATE = 96;
 
 function getRateLimitRetryMs(error: {
   message?: string;
@@ -549,6 +592,8 @@ export function EmailList({
   onJevRetry,
   sortMode = "newest",
   onSortModeChange,
+  readingPane = false,
+  keyboardEnabled = true,
 }: EmailListProps) {
   const t = useT();
   const { isPending: isPriorityPending, mutateAsync: requestPriority } =
@@ -1243,6 +1288,21 @@ export function EmailList({
     ]);
   }, []);
 
+  const previewThread = useCallback(
+    (thread: ThreadSummary) => {
+      const email = thread.latestMessage;
+      if (email.isDraft) return;
+      const targetThreadId = email.threadId || email.id;
+      void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
+      onNavigateThread?.(targetThreadId, email.accountEmail);
+      void navigate(
+        mailThreadHref(view, targetThreadId, searchParams, email.accountEmail),
+        { replace: Boolean(threadId) },
+      );
+    },
+    [navigate, onNavigateThread, searchParams, threadId, view],
+  );
+
   const moveFocus = useCallback(
     (delta: number) => {
       setSelectedIds(new Set());
@@ -1257,12 +1317,15 @@ export function EmailList({
         0,
         Math.min(threads.length - 1, (current === -1 ? 0 : current) + delta),
       );
-      setFocusedId(threads[next].latestMessage.id);
+      const nextThread = threads[next] as ThreadSummary | undefined;
+      if (!nextThread) return;
+      setFocusedId(nextThread.latestMessage.id);
       focusedIndexRef.current = next;
+      if (readingPane) previewThread(nextThread);
       // Scrolling the focused row into view is handled by the effect that
       // watches `focusedIndex` and calls `rowVirtualizer.scrollToIndex`.
     },
-    [threads, setFocusedId, setSelectedIds],
+    [threads, setFocusedId, setSelectedIds, readingPane, previewThread],
   );
 
   const extendSelection = useCallback(
@@ -1330,6 +1393,7 @@ export function EmailList({
         searchParams,
         thread.latestMessage.accountEmail,
       ),
+      { replace: Boolean(threadId) },
     );
     if (thread.hasUnread) {
       setTimeout(
@@ -1965,29 +2029,32 @@ export function EmailList({
     });
   }, [threads, setSelectedIds]);
 
-  useKeyboardShortcuts([
-    { key: "a", meta: true, handler: selectAllThreads },
-    { key: "j", handler: () => moveFocus(1) },
-    { key: "ArrowDown", handler: () => moveFocus(1) },
-    { key: "k", handler: () => moveFocus(-1) },
-    { key: "ArrowUp", handler: () => moveFocus(-1) },
-    { key: "j", shift: true, handler: () => extendSelection(1) },
-    { key: "k", shift: true, handler: () => extendSelection(-1) },
-    { key: "ArrowDown", shift: true, handler: () => extendSelection(1) },
-    { key: "ArrowUp", shift: true, handler: () => extendSelection(-1) },
-    { key: "Enter", handler: openFocused },
-    { key: "o", handler: openFocused },
-    { key: "e", handler: archiveFocused },
-    { key: "d", handler: trashFocused },
-    { key: "#", shift: "either", handler: trashFocused },
-    { key: "u", handler: toggleFocusedRead },
-    { key: "x", handler: toggleFocusedSelection },
-    { key: "s", handler: starFocused },
-    { key: "r", handler: replyFocused },
-    { key: "f", handler: forwardFocused },
-    { key: "a", handler: replyAllFocused },
-    { key: "Escape", handler: clearSelection },
-  ]);
+  useKeyboardShortcuts(
+    [
+      { key: "a", meta: true, handler: selectAllThreads },
+      { key: "j", handler: () => moveFocus(1) },
+      { key: "ArrowDown", handler: () => moveFocus(1) },
+      { key: "k", handler: () => moveFocus(-1) },
+      { key: "ArrowUp", handler: () => moveFocus(-1) },
+      { key: "j", shift: true, handler: () => extendSelection(1) },
+      { key: "k", shift: true, handler: () => extendSelection(-1) },
+      { key: "ArrowDown", shift: true, handler: () => extendSelection(1) },
+      { key: "ArrowUp", shift: true, handler: () => extendSelection(-1) },
+      { key: "Enter", handler: openFocused },
+      { key: "o", handler: openFocused },
+      { key: "e", handler: archiveFocused },
+      { key: "d", handler: trashFocused },
+      { key: "#", shift: "either", handler: trashFocused },
+      { key: "u", handler: toggleFocusedRead },
+      { key: "x", handler: toggleFocusedSelection },
+      { key: "s", handler: starFocused },
+      { key: "r", handler: replyFocused },
+      { key: "f", handler: forwardFocused },
+      { key: "a", handler: replyAllFocused },
+      { key: "Escape", handler: clearSelection },
+    ],
+    keyboardEnabled,
+  );
 
   useEffect(() => {
     if (threads.length === 0) return;
@@ -2037,10 +2104,14 @@ export function EmailList({
     return () => mql.removeEventListener("change", onChange);
   }, []);
 
+  const estimatedRowHeight = readingPane
+    ? RICH_ROW_HEIGHT_ESTIMATE
+    : rowHeightEstimate;
+
   const rowVirtualizer = useVirtualizer({
     count: threads.length,
     getScrollElement: () => scrollParentRef.current,
-    estimateSize: () => rowHeightEstimate,
+    estimateSize: () => estimatedRowHeight,
     overscan: 10,
     getItemKey: (index) => threads[index]?.latestMessage.id ?? index,
   });
@@ -2054,16 +2125,19 @@ export function EmailList({
     (direction: 1 | -1) => {
       const parent = scrollParentRef.current;
       if (!parent) return;
-      const rowsPerPage = Math.floor(parent.clientHeight / rowHeightEstimate);
+      const rowsPerPage = Math.floor(parent.clientHeight / estimatedRowHeight);
       moveFocus(direction * Math.max(1, rowsPerPage - 1));
     },
-    [moveFocus, rowHeightEstimate],
+    [moveFocus, estimatedRowHeight],
   );
 
-  useKeyboardShortcuts([
-    { key: " ", handler: () => pageFocus(1) },
-    { key: " ", shift: true, handler: () => pageFocus(-1) },
-  ]);
+  useKeyboardShortcuts(
+    [
+      { key: " ", handler: () => pageFocus(1) },
+      { key: " ", shift: true, handler: () => pageFocus(-1) },
+    ],
+    keyboardEnabled,
+  );
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -2129,6 +2203,7 @@ export function EmailList({
       onNavigateThread?.(targetThreadId, email.accountEmail);
       void navigate(
         mailThreadHref(view, targetThreadId, searchParams, email.accountEmail),
+        { replace: Boolean(threadId) },
       );
       if (thread.hasUnread) {
         setTimeout(
@@ -2711,7 +2786,7 @@ export function EmailList({
   }
 
   if (isLoading) {
-    return <MailLoadingState containerRef={containerRef} />;
+    return <MailLoadingState containerRef={containerRef} rich={readingPane} />;
   }
 
   if (
@@ -2719,7 +2794,7 @@ export function EmailList({
     !activePriorityOrder &&
     priorityWindowEmails.length > cachedPriorityScores.size
   ) {
-    return <MailLoadingState containerRef={containerRef} />;
+    return <MailLoadingState containerRef={containerRef} rich={readingPane} />;
   }
 
   // Client-sliced inbox tabs can have no matches on the first page even when
@@ -2889,7 +2964,10 @@ export function EmailList({
                   }
                   labelNames={labelNames}
                   thread={thread}
-                  isSelected={thread.latestMessage.id === threadId}
+                  isSelected={
+                    (thread.latestMessage.threadId ||
+                      thread.latestMessage.id) === threadId
+                  }
                   isFocused={thread.latestMessage.id === focusedId}
                   isMultiSelected={selectedIds.has(
                     thread.latestMessage.threadId || thread.latestMessage.id,
@@ -2920,6 +2998,7 @@ export function EmailList({
                   onSwipeArchive={handleSwipeArchive}
                   onSwipeSnooze={handleSwipeSnooze}
                   highlight={searchQuery}
+                  layout={readingPane ? "rich" : "row"}
                 />
               </div>
             );

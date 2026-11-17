@@ -797,6 +797,10 @@ const messages = {
     contacts: {
       noContactSelected: "لم يتم تحديد جهة اتصال",
     },
+    readingPane: {
+      empty: "لم يتم تحديد أي رسالة",
+      resizeList: "تغيير حجم قائمة الرسائل",
+    },
   },
   agent: {
     emptyState: "اسألني أي شيء عن رسائلك",
@@ -897,6 +901,9 @@ const messages = {
     gmailFilters: "فلاتر Gmail",
     aliases: "الأسماء المستعارة",
     tracking: "التتبع",
+    reading: "القراءة",
+    readingPane: "جزء القراءة",
+    readingPaneSaveFailed: "تعذر حفظ إعداد جزء القراءة.",
     deleteAlias: "حذف الاسم المستعار",
     editAlias: "تحرير الاسم المستعار",
   },

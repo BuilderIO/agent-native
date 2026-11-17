@@ -146,7 +146,8 @@ export type UserSettings = {
   autocompleteEnabled?: boolean;
   theme: "light" | "dark" | "system";
   density: "compact" | "comfortable" | "spacious";
-  previewPane: "right" | "bottom" | "off";
+  /** "right" shows the reading pane on wide screens; "off" keeps list, then email. */
+  previewPane: "right" | "off";
   sendAndArchive: boolean;
   combineInbox: boolean;
   showAllTab?: boolean;

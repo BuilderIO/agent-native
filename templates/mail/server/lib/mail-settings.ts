@@ -164,6 +164,8 @@ export function normalizeMailSettings(
         typeof data.showAllTab === "boolean"
           ? data.showAllTab
           : DEFAULT_SETTINGS.showAllTab,
+      // Older settings may hold "bottom", a layout that was never built.
+      previewPane: data.previewPane === "off" ? "off" : "right",
       ...(savedFilters ? { savedFilters } : {}),
     } as UserSettings;
   }

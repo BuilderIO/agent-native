@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   virtualWindowSize: Number.POSITIVE_INFINITY,
   freezeVirtualStart: false,
   view: "all",
+  threadId: undefined as string | undefined,
   headerActions: null as unknown,
   priorityToast: vi.fn(),
   priorityRequest: vi.fn(),
@@ -90,7 +91,7 @@ vi.mock("@tanstack/react-virtual", () => ({
 vi.mock("react-router", () => ({
   Link: ({ children }: { children: React.ReactNode }) => children,
   useNavigate: () => mocks.navigate,
-  useParams: () => ({ view: mocks.view }),
+  useParams: () => ({ view: mocks.view, threadId: mocks.threadId }),
   useSearchParams: () => [
     new URLSearchParams(
       mocks.searchQuery ? { q: mocks.searchQuery } : undefined,
@@ -284,6 +285,8 @@ function Harness({
   priorityProviderIdentity,
   onJevRetry,
   sortMode,
+  readingPane,
+  keyboardEnabled,
 }: {
   emails?: React.ComponentProps<typeof EmailList>["emails"];
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
@@ -302,6 +305,8 @@ function Harness({
   priorityProviderIdentity?: string;
   onJevRetry?: React.ComponentProps<typeof EmailList>["onJevRetry"];
   sortMode?: "newest" | "priority";
+  readingPane?: boolean;
+  keyboardEnabled?: boolean;
 }) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
@@ -331,6 +336,8 @@ function Harness({
         priorityProviderIdentity={priorityProviderIdentity}
         onJevRetry={onJevRetry}
         sortMode={sortMode}
+        readingPane={readingPane}
+        keyboardEnabled={keyboardEnabled}
       />
     </>
   );
@@ -406,6 +413,7 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
     mocks.freezeVirtualStart = false;
     mocks.view = "all";
+    mocks.threadId = undefined;
     mocks.headerActions = null;
     mocks.automations = [];
     mocks.priorityToast.mockReset();
@@ -1519,7 +1527,37 @@ describe("EmailList keyboard navigation interactions", () => {
 
     expect(mocks.navigate).toHaveBeenCalledWith(
       "/all/thread-middle?accountEmail=synthetic%40example.test",
+      { replace: false },
     );
+  });
+
+  it("opens each row the focus lands on beside the reading pane", () => {
+    render(<Harness readingPane />);
+    press("j");
+
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-middle?accountEmail=synthetic%40example.test",
+      { replace: false },
+    );
+  });
+
+  it("replaces history while the reading pane already shows an email", () => {
+    mocks.threadId = "thread-middle";
+    render(<Harness readingPane />);
+    press("j");
+
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-middle?accountEmail=synthetic%40example.test",
+      { replace: true },
+    );
+  });
+
+  it("leaves j and k to the open email when it owns the keyboard", () => {
+    render(<Harness readingPane keyboardEnabled={false} />);
+    press("j");
+
+    expect(screen.getByLabelText("Focused id").textContent).toBe("first");
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -93,6 +93,7 @@ import {
 } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
+import { emailHasFixedWidthLayout } from "@/lib/designed-email";
 import {
   decodeHtmlEntities,
   processHtmlImages,
@@ -173,9 +174,10 @@ export function EmailThread({
   onNavigateThread,
   isMaximized = false,
   onToggleMaximize,
+  variant = "full",
 }: {
   activeThreadId?: string;
-  activeThreadAccountEmail?: string | null;
+  activeThreadAccountEmail?: string | null | undefined;
   onArchived?: (id: string) => void;
   emailIds?: string[];
   threads?: ThreadSummary[];
@@ -188,6 +190,8 @@ export function EmailThread({
   ) => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
+  /** "pane" sits beside the email list, which stands in for the back button. */
+  variant?: "full" | "pane";
 }) {
   const t = useT();
   const { view = "inbox", threadId: routeThreadId } = useParams<{
@@ -587,6 +591,7 @@ export function EmailThread({
           searchParams,
           nextThread?.latestMessage.accountEmail,
         ),
+        { replace: variant === "pane" },
       );
     },
     [
@@ -597,6 +602,7 @@ export function EmailThread({
       setSelectedIds,
       onNavigateThread,
       threads,
+      variant,
     ],
   );
 
@@ -1375,19 +1381,21 @@ export function EmailThread({
       {/* Thread header */}
       <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3 max-h-[40%]">
         <div className="flex items-start gap-2 sm:gap-3">
-          <ActionTooltip
-            label={t("mail.thread.back")}
-            keys={MAIL_ACTION_KEYS.back}
-          >
-            <button
-              type="button"
-              onClick={goBack}
-              aria-label={t("mail.thread.back")}
-              className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          {variant === "full" && (
+            <ActionTooltip
+              label={t("mail.thread.back")}
+              keys={MAIL_ACTION_KEYS.back}
             >
-              <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
-            </button>
-          </ActionTooltip>
+              <button
+                type="button"
+                onClick={goBack}
+                aria-label={t("mail.thread.back")}
+                className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              >
+                <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
+              </button>
+            </ActionTooltip>
+          )}
 
           <div className="flex-1 min-w-0">
             <div className="flex items-start gap-2 flex-wrap">
@@ -1632,7 +1640,7 @@ export function EmailThread({
       {/* Thread messages */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4"
+        className="mail-thread-scroll flex-1 overflow-y-auto px-(--mail-thread-gutter) pb-4"
       >
         <div className="max-w-3xl mx-auto pt-1.5 space-y-1.5">
           {!hasFullBody && messages.length > 0 && (
@@ -1990,6 +1998,13 @@ export const ExpandedMessageCard = forwardRef<
 ) {
   const t = useT();
   const [showDetails, setShowDetails] = useState(false);
+  const isDesigned = useMemo(
+    () =>
+      !!email.bodyHtml &&
+      (emailHasFixedWidthLayout(email.bodyHtml) ||
+        emailHasDesignedBackground(email.bodyHtml)),
+    [email.bodyHtml],
+  );
   const senderName = email.from.name || email.from.email;
   const recipients = [
     ...email.to.map((r) => r.name || r.email),
@@ -2022,6 +2037,7 @@ export const ExpandedMessageCard = forwardRef<
       onClick={onFocus}
       className={cn(
         "rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden cursor-pointer",
+        isDesigned && "mail-message-designed",
         isFocused
           ? "ring-1 ring-primary/40"
           : "ring-1 ring-transparent hover:ring-border/30",
@@ -2029,7 +2045,7 @@ export const ExpandedMessageCard = forwardRef<
     >
       {/* Header */}
       {showDetails ? (
-        <div className="px-3 sm:px-4 py-3">
+        <div className="mail-message-header px-3 sm:px-4 py-3">
           <div className="flex flex-col gap-1 text-[13px]">
             <div className="flex gap-3">
               <span className="w-10 shrink-0 text-muted-foreground/60">
@@ -2091,7 +2107,7 @@ export const ExpandedMessageCard = forwardRef<
         </div>
       ) : (
         <div
-          className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 cursor-pointer"
+          className="mail-message-header flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 cursor-pointer"
           onClick={onCollapse}
         >
           <div className="flex-1 min-w-0 flex items-center gap-2">
@@ -2183,7 +2199,13 @@ export const ExpandedMessageCard = forwardRef<
       )}
 
       {/* Body */}
-      <div data-an-block className="px-3 sm:px-4 pb-5 pt-1 overflow-x-hidden">
+      <div
+        data-an-block
+        className={cn(
+          "pb-5 pt-1 overflow-x-hidden",
+          isDesigned ? "px-0" : "px-3 sm:px-4",
+        )}
+      >
         {email.bodyHtml ? (
           <HtmlEmailBody
             html={email.bodyHtml}

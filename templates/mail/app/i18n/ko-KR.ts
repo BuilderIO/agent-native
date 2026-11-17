@@ -802,6 +802,10 @@ const messages = {
     contacts: {
       noContactSelected: "선택한 연락처가 없습니다",
     },
+    readingPane: {
+      empty: "선택한 이메일이 없습니다",
+      resizeList: "이메일 목록 크기 조정",
+    },
   },
   agent: {
     emptyState: "이메일에 대해 무엇이든 물어보세요",
@@ -904,6 +908,9 @@ const messages = {
     gmailFilters: "Gmail 필터",
     aliases: "별칭",
     tracking: "추적",
+    reading: "읽기",
+    readingPane: "읽기 창",
+    readingPaneSaveFailed: "읽기 창 설정을 저장하지 못했습니다.",
     deleteAlias: "별칭 삭제",
     editAlias: "별칭 편집",
   },

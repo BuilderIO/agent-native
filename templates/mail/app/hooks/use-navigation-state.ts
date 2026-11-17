@@ -23,6 +23,8 @@ export interface NavigationState {
   queueScope?: string;
   settingsSection?: string;
   composeDraftId?: string;
+  /** True while the list and the open email sit side by side. */
+  readingPane?: boolean;
   _ts?: number;
 }
 
