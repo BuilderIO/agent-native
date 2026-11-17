@@ -1,6 +1,12 @@
-import { AsyncLocalStorage } from "node:async_hooks";
+import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 
-import { getRequestRunContext } from "../server/request-context.js";
+// Kept out of an import: `defineAction` reaches this module from the browser
+// bundle, which must not load `server/`. The request context registers itself.
+let isBackgroundWorkerRun: () => boolean = () => false;
+
+export function registerBackgroundWorkerProbe(probe: () => boolean): void {
+  isBackgroundWorkerRun = probe;
+}
 
 /**
  * A verified binding between a chat turn and the person who started it. A
@@ -28,7 +34,15 @@ type InteractiveScope = {
   signal?: AbortSignal;
 };
 
-const interactiveScope = new AsyncLocalStorage<InteractiveScope>();
+// Absent in the browser, where there is no ambient scope to carry: work simply runs.
+const ScopeStorage = getAsyncLocalStorageCtor();
+const interactiveScope = ScopeStorage
+  ? new ScopeStorage<InteractiveScope>()
+  : undefined;
+
+function runInScope<T>(scope: InteractiveScope, work: () => T): T {
+  return interactiveScope ? interactiveScope.run(scope, work) : work();
+}
 
 function grantExpired(grant: ProviderTurnGrant | undefined): boolean {
   return grant !== undefined && Date.now() >= grant.expiresAt;
@@ -40,11 +54,11 @@ function hasInteractiveScope(
 ): boolean {
   if (
     !allowBackground &&
-    getRequestRunContext()?.isBackgroundWorker === true &&
+    isBackgroundWorkerRun() &&
     !isChatTurnInteractiveScope()
   )
     return false;
-  let scope = interactiveScope.getStore();
+  let scope = interactiveScope?.getStore();
   if (!scope || (actionOnly && !scope.action)) return false;
   while (scope) {
     if (
@@ -61,7 +75,7 @@ function hasInteractiveScope(
 
 /** True inside an action whose chain carries a live, unexpired chat-turn grant. */
 export function isChatTurnInteractiveScope(): boolean {
-  let scope = interactiveScope.getStore();
+  let scope = interactiveScope?.getStore();
   if (!scope?.action) return false;
   let proven = false;
   while (scope) {
@@ -89,10 +103,7 @@ export function isProviderInteractiveScope(actionOnly = false): boolean {
  * its action runs inside a durable turn grant (`runWithDurableTurnToolScope`).
  */
 export function isDurableProviderInteractiveScope(): boolean {
-  return hasInteractiveScope(
-    getRequestRunContext()?.isBackgroundWorker === true,
-    true,
-  );
+  return hasInteractiveScope(isBackgroundWorkerRun(), true);
 }
 
 /**
@@ -112,7 +123,7 @@ export async function runWithDurableTurnToolScope<T>(
     networkProtocol?: string;
   },
 ): Promise<T> {
-  const parent = interactiveScope.getStore();
+  const parent = interactiveScope?.getStore();
   let ancestor = parent;
   while (ancestor && !ancestor.turnGrant && !ancestor.chatTurnGrant)
     ancestor = ancestor.parent;
@@ -133,7 +144,7 @@ export async function runWithDurableTurnToolScope<T>(
     ...(parent ? { parent } : {}),
     signal,
   };
-  return interactiveScope.run(scope, async () => {
+  return runInScope(scope, async () => {
     try {
       return await work();
     } finally {
@@ -164,9 +175,9 @@ export async function runWithProviderInteractiveScope<T>(
     ...(options.chatTurnGrant ? { chatTurnGrant: options.chatTurnGrant } : {}),
     ...(options.turnGrant ? { turnGrant: options.turnGrant } : {}),
     action: options.action !== false,
-    parent: interactiveScope.getStore(),
+    parent: interactiveScope?.getStore(),
   };
-  return interactiveScope.run(scope, async () => {
+  return runInScope(scope, async () => {
     let streaming = false;
     try {
       const result = await work();
@@ -174,7 +185,7 @@ export async function runWithProviderInteractiveScope<T>(
         const reader = result.getReader();
         const stream = new ReadableStream({
           pull(controller) {
-            return interactiveScope.run(scope, async () => {
+            return runInScope(scope, async () => {
               try {
                 const next = await reader.read();
                 if (next.done) {

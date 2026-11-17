@@ -97,6 +97,7 @@ export function registerProviderPausedErrorCodes(
     (code) => code.length > 0 && !providerPausedErrorCodes.has(code),
   );
   for (const code of added) providerPausedErrorCodes.add(code);
+  if (added.length > 0) watchSurfaceForPauseReset();
   return () => {
     for (const code of added) providerPausedErrorCodes.delete(code);
   };
@@ -118,7 +119,9 @@ const POLL_ENDING_STATUSES: ReadonlySet<number> = new Set([401, 403, 410]);
 export function endsActionPolling(error: unknown): boolean {
   const status = actionErrorStatus(error);
   if (status !== undefined && POLL_ENDING_STATUSES.has(status)) return true;
-  return hasNonRetryableActionErrorCode(error);
+  // A provider pause lifts on its own, so a visible poll keeps polling through it.
+  const code = actionErrorCode(error);
+  return code !== undefined && NON_RETRYABLE_ACTION_ERROR_CODES.has(code);
 }
 
 /** Thrown instead of a network call while a query's circuit is open. */
@@ -240,7 +243,13 @@ export function resetPausedProviderCircuits(): void {
   }
 }
 
-if (typeof document !== "undefined") {
+let watchingSurface = false;
+
+// Installed on the first registration, not at import, so apps that never
+// register a pause carry no document listener.
+function watchSurfaceForPauseReset(): void {
+  if (watchingSurface || typeof document === "undefined") return;
+  watchingSurface = true;
   addSurfaceVisibilityListener(() => {
     if (!isSurfaceHidden()) resetPausedProviderCircuits();
   });

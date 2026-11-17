@@ -4,6 +4,7 @@ import {
   ActionCircuitOpenError,
   actionCircuitRemainingMs,
   assertActionCircuitClosed,
+  endsActionPolling,
   isActionCircuitOpenError,
   isProviderPausedActionError,
   isTerminalActionError,
@@ -268,5 +269,20 @@ describe("registered provider pause codes", () => {
 
     expect(actionCircuitRemainingMs("paused", 1_000)).toBe(0);
     expect(actionCircuitRemainingMs("other", 1_000)).toBeGreaterThan(0);
+  });
+});
+
+describe("provider pause and visible polling", () => {
+  it("keeps a visible poll running through a registered pause code", () => {
+    const unregister = registerProviderPausedErrorCodes([
+      "fake_provider_paused",
+    ]);
+    const error = Object.assign(new Error("paused"), {
+      status: 503,
+      errorCode: "fake_provider_paused",
+    });
+    expect(isProviderPausedActionError(error)).toBe(true);
+    expect(endsActionPolling(error)).toBe(false);
+    unregister();
   });
 });
