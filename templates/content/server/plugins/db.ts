@@ -1794,7 +1794,10 @@ export const runContentMigrations = runMigrations(
     }),
     // Makes the table those embeddings go in. A hosted request can't, so
     // without it search reports no vector store and matches words alone.
-    semanticVectorStoreMigration({ version: 140, name: "search-vectors-1024" }),
+    semanticVectorStoreMigration({
+      version: 140,
+      name: "search-vectors-1024",
+    }),
   ],
   { table: "content_migrations" },
 );

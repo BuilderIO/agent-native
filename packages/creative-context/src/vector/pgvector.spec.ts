@@ -23,13 +23,18 @@ describe("pgvector creative-context lane", () => {
   it("creates a dimension-locked HNSW index in the corpus database", async () => {
     const db = mockDb();
     await ensurePgVectorIndex(db, 1024, true);
+    // The first statement checks whether a release already made the table;
+    // this database answers no, so the schema statements follow.
+    expect(JSON.stringify(db.execute.mock.calls[0]?.[0])).toContain(
+      "to_regclass",
+    );
     expect(db.execute).toHaveBeenCalledWith(
       "CREATE EXTENSION IF NOT EXISTS vector",
     );
-    expect(String(db.execute.mock.calls[1]?.[0])).toContain(
+    expect(String(db.execute.mock.calls[2]?.[0])).toContain(
       "creative_context_vectors_1024",
     );
-    expect(String(db.execute.mock.calls[3]?.[0])).toContain("USING hnsw");
+    expect(String(db.execute.mock.calls[4]?.[0])).toContain("USING hnsw");
   });
 
   it("binds vector values and validates the selected dimensions", async () => {
@@ -44,7 +49,7 @@ describe("pgvector creative-context lane", () => {
       },
       true,
     );
-    const write = db.execute.mock.calls[5]?.[0] as {
+    const write = db.execute.mock.calls[6]?.[0] as {
       sql: string;
       args: unknown[];
     };
@@ -81,8 +86,8 @@ describe("pgvector creative-context lane", () => {
       },
       { postgres: true, indexInitialized: true },
     );
-    expect(db.execute).toHaveBeenCalledTimes(6);
-    expect(String(db.execute.mock.calls[5]?.[0].sql)).toContain("INSERT INTO");
+    expect(db.execute).toHaveBeenCalledTimes(7);
+    expect(String(db.execute.mock.calls[6]?.[0].sql)).toContain("INSERT INTO");
   });
 
   it("limits vector results to access-filtered vector keys", async () => {
