@@ -1611,7 +1611,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     if (!gmailAccess.ok) return gmailAccess.response;
     const { accountEmail: acct, accessToken } = gmailAccess;
     const reader = savedDraftAttachmentReader(
-      accessToken,
+      { accountEmail: acct, accessToken },
       savedDraftId,
       reqBody.attachments,
       (attachment) =>

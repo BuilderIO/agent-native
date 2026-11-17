@@ -261,10 +261,11 @@ function isSentFilename(reported: unknown, sent: string): boolean {
  * confirms the ref's message is gone. A save that Gmail accepted but whose new
  * refs Mail never learned leaves the draft's files pointing at the message
  * Gmail dropped; the next save reports where they are in `moved`. Only a file
- * read fails on costs a Gmail request.
+ * read fails on costs a Gmail request, and only a file of the draft's account,
+ * `accountEmail`, is looked for in it.
  */
 export function savedDraftAttachmentReader(
-  accessToken: string,
+  { accountEmail, accessToken }: { accountEmail: string; accessToken: string },
   savedDraftId: string | undefined,
   attachments: unknown,
   read: (attachment: ComposeAttachment) => Promise<Buffer | null>,
@@ -348,15 +349,22 @@ export function savedDraftAttachmentReader(
   return {
     moved,
     readGmailAttachment: async (attachment) => {
+      // Another account's message reads as gone from the draft's mailbox even
+      // while it stands in its own.
+      const draftId =
+        attachment.accountEmail &&
+        !sameEmail(attachment.accountEmail, accountEmail)
+          ? undefined
+          : savedDraftId;
       let data: Buffer | null;
       try {
         data = await read(attachment);
       } catch (error) {
-        if (!savedDraftId || !isNotFound(error)) throw error;
+        if (!draftId || !isNotFound(error)) throw error;
         data = null;
       }
-      if (data || !savedDraftId) return data;
-      return findInDraft(savedDraftId, attachment);
+      if (data || !draftId) return data;
+      return findInDraft(draftId, attachment);
     },
   };
 }
@@ -673,7 +681,7 @@ export async function saveGmailDraft(args: {
   if (!accessToken) return null;
 
   const reader = savedDraftAttachmentReader(
-    accessToken,
+    { accountEmail, accessToken },
     args.draftId,
     args.attachments,
     async (attachment) => {

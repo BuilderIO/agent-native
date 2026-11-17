@@ -1215,6 +1215,66 @@ describe("attachments of a Gmail draft updated in place", () => {
     expect(draft.messageId).toBe("message-of-draft");
   });
 
+  it("won't swap in a draft file for another account's file whose read failed", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "owner@example.com",
+        displayName: null,
+        tokens: { scope: "https://mail.google.com/" },
+      },
+      {
+        accountId: "source@example.com",
+        displayName: null,
+        tokens: { scope: "https://mail.google.com/" },
+      },
+    ]);
+    mocks.getClientForConnectedAccount.mockImplementation(
+      async (_owner: string, account: string) => ({
+        email: account,
+        accessToken: `token:${account}`,
+      }),
+    );
+    const draft = fakeGmail();
+    // A file of the draft's own, with the forwarded file's name and size.
+    draft.parts = [
+      {
+        filename: "forwarded.txt",
+        data: "unrelated file",
+        attachmentId: "part-1-0",
+      },
+    ];
+    // The forwarded file is in the source account's mailbox, whose read fails
+    // as a reader may report it: no data at all. The draft's account can't
+    // see that mailbox, so to it the file's message reads as gone.
+    const read = mocks.gmailGetAttachment.getMockImplementation();
+    mocks.gmailGetAttachment.mockImplementation(
+      async (token: string, messageId: string, attachmentId: string) =>
+        token === "token:source@example.com"
+          ? {}
+          : read?.(token, messageId, attachmentId),
+    );
+    const getMessage = mocks.gmailGetMessage.getMockImplementation();
+    mocks.gmailGetMessage.mockImplementation(
+      async (token: string, messageId: string, format: string) => {
+        if (
+          messageId === "source-message" &&
+          token !== "token:source@example.com"
+        ) {
+          throw notFound();
+        }
+        return getMessage?.(token, messageId, format);
+      },
+    );
+
+    await expect(
+      save("r-draft-7", [
+        { ...forwardedFile, accountEmail: "source@example.com" },
+      ]),
+    ).rejects.toThrow("Gmail attachment could not be read");
+    expect(draft.messageId).toBe("message-of-draft");
+    expect(draft.parts.map((part) => part.data)).toEqual(["unrelated file"]);
+  });
+
   it("won't recover a file when Gmail can't say whether its message is gone", async () => {
     const draft = fakeGmail();
     mocks.gmailGetMessage.mockRejectedValue(googleError(503, "Backend Error"));
