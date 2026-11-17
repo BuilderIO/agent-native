@@ -1,4 +1,14 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+const accessState = vi.hoisted(() => ({ role: "editor" }));
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
@@ -14,7 +24,7 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => {
   return {
     ...actual,
     assertAccess: vi.fn(async () => ({
-      role: "editor",
+      role: accessState.role,
       resource: {
         id: "design_revision_overflow",
         ownerEmail: "owner@example.com",
@@ -53,6 +63,10 @@ beforeAll(async () => {
 
   expect(getRuntimeDatabaseUrl()).toBe("pglite:memory://");
   await withMigrationRuntime(() => runDesignMigrations({}));
+});
+
+beforeEach(() => {
+  accessState.role = "editor";
 });
 
 afterAll(async () => {
@@ -308,6 +322,7 @@ describe("visual-edit handoff records", () => {
     const published = await publish(designId, 3, [
       tweakRecord("accent", "#1b7585"),
     ]);
+    accessState.role = "owner";
 
     await expect(
       clearEditsAction.run({
@@ -332,6 +347,42 @@ describe("visual-edit handoff records", () => {
     });
   });
 
+  it("lets the design owner clear another publisher's exact handoff but not an editor", async () => {
+    const designId = "design_clear_foreign_publisher";
+    await seedChangedTweaks(designId);
+    const foreignPublisher = "22222222-2222-4222-8222-222222222222";
+    const published = await publish(
+      designId,
+      1,
+      [tweakRecord("accent", "#1b7585")],
+      foreignPublisher,
+    );
+    const args = {
+      designId,
+      revision: published.revision ?? 0,
+      publisherId: foreignPublisher,
+    };
+
+    await expect(
+      clearEditsAction.run(args, {
+        caller: "frontend",
+        userEmail: "editor@example.com",
+      }),
+    ).rejects.toThrow(/handoff author or design owner/);
+    expect(await readDesignData(designId)).toMatchObject({
+      tweakSelections: { accent: "#1b7585", extra: true },
+    });
+
+    accessState.role = "owner";
+    await expect(clearEditsAction.run(args)).resolves.toMatchObject({
+      cleared: true,
+      handoffCleared: true,
+    });
+    expect(await readDesignData(designId)).toMatchObject({
+      tweakSelections: { accent: "#00dff6" },
+    });
+  });
+
   it("does not clear a newer revision or a handoff from another publisher", async () => {
     const designId = "design_clear_stale_revision";
     await seedChangedTweaks(designId);
@@ -341,6 +392,7 @@ describe("visual-edit handoff records", () => {
     const latest = await publish(designId, 2, [
       tweakRecord("accent", "#155e6a"),
     ]);
+    accessState.role = "owner";
 
     await expect(
       clearEditsAction.run({
