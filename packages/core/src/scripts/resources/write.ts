@@ -120,7 +120,7 @@ async function writeIfCurrent(input: {
     if (!seen) {
       countSaveOutcome(RESOURCE_CONTENT_RECORD, "conflict");
       fail(
-        `"${input.path}" (scope ${input.scope}) no longer exists: it was deleted or moved after you read it. Nothing was written. To create it again, write without expectedRevision.`,
+        `Nothing was written: "${input.path}" isn't in scope ${input.scope}. If your read's [revision …, scope …] line named another scope, write in that scope. Otherwise it was deleted or moved after your read, and a write without expectedRevision creates it again.`,
         {
           errorCode: SAVE_CONFLICT_ERROR_CODE,
           statusCode: 409,
@@ -128,8 +128,18 @@ async function writeIfCurrent(input: {
         },
       );
     }
+    if (current && current.owner !== input.owner) {
+      // A workspace read can show the organization's copy, and a workspace
+      // write changes only this app's own, so reading again wouldn't help.
+      fail(
+        `Nothing was written: the "${input.path}" a ${input.scope} read shows isn't the copy a ${input.scope} write changes, so it can't be replaced from here.`,
+      );
+    }
     const revision = resourceContentRevision(seen);
-    if (revision !== input.expectedRevision) {
+    // The write itself checks the whole row, so another save can refuse it
+    // while the content still matches. After two of those, this read decides.
+    const lastTry = attempt === 2;
+    if (lastTry || revision !== input.expectedRevision) {
       if (seen.content === input.content) {
         // A repeat of a write that already landed.
         countSaveOutcome(RESOURCE_CONTENT_RECORD, "already_applied");
@@ -137,7 +147,9 @@ async function writeIfCurrent(input: {
       }
       countSaveOutcome(RESOURCE_CONTENT_RECORD, "conflict");
       fail(
-        `"${input.path}" (scope ${input.scope}) changed after you read it, so nothing was written. Its revision is now ${revision}. Read it again, redo your edit on what's there now, and write with expectedRevision ${revision}.`,
+        revision === input.expectedRevision
+          ? `"${input.path}" (scope ${input.scope}) is changing as you write, so nothing was written. Its revision is now ${revision}: write again with it.`
+          : `"${input.path}" (scope ${input.scope}) changed after you read it, so nothing was written. Its revision is now ${revision}. Read it again, redo your edit on what's there now, and write with expectedRevision ${revision}.`,
         {
           errorCode: SAVE_CONFLICT_ERROR_CODE,
           statusCode: 409,
@@ -156,19 +168,6 @@ async function writeIfCurrent(input: {
     if (written) {
       countSaveOutcome(RESOURCE_CONTENT_RECORD, "written");
       return written.resource;
-    }
-    // Something changed between the read and the write. Read again, once, so
-    // the refusal names the revision that won.
-    if (attempt > 0) {
-      countSaveOutcome(RESOURCE_CONTENT_RECORD, "conflict");
-      fail(
-        `"${input.path}" (scope ${input.scope}) is changing as you write, so nothing was written. Read it again, redo your edit, and write with the revision you read.`,
-        {
-          errorCode: SAVE_CONFLICT_ERROR_CODE,
-          statusCode: 409,
-          details: { currentRevision: null },
-        },
-      );
     }
   }
 }
@@ -225,8 +224,10 @@ Options:
   const mimeType = parsed.mime ?? inferMimeType(resourcePath);
   const visibility = parseVisibility(parsed.visibility);
   const createdBy = parseCreatedBy(parsed["created-by"] ?? parsed.createdBy);
-  const threadId = parsed["thread-id"] ?? parsed.threadId;
-  const runId = parsed["run-id"] ?? parsed.runId;
+  // A flag left out reads as undefined, which parseArgs's type doesn't say.
+  const flags: Partial<Record<string, string>> = parsed;
+  const threadId = flags["thread-id"] ?? flags.threadId;
+  const runId = flags["run-id"] ?? flags.runId;
   const expiresAt = parseOptionalNumber(
     parsed["expires-at"] ?? parsed.expiresAt,
     "--expires-at",
@@ -247,18 +248,15 @@ Options:
     owner = personalOwner;
   }
 
-  const writeOptions = {
-    visibility,
-    createdBy,
-    threadId,
-    runId,
-    expiresAt,
+  const writeOptions: ResourceWriteOptions = {
+    ...(visibility === undefined ? {} : { visibility }),
+    ...(createdBy === undefined ? {} : { createdBy }),
+    ...(threadId === undefined ? {} : { threadId }),
+    ...(runId === undefined ? {} : { runId }),
+    ...(expiresAt === undefined ? {} : { expiresAt }),
   };
-  const hasWriteOptions = Object.values(writeOptions).some(
-    (value) => value !== undefined,
-  );
-  const expectedRevision =
-    parsed["expected-revision"] ?? parsed.expectedRevision;
+  const hasWriteOptions = Object.keys(writeOptions).length > 0;
+  const expectedRevision = flags["expected-revision"] ?? flags.expectedRevision;
   if (expectedRevision !== undefined && !expectedRevision.trim()) {
     fail("--expected-revision must be the revision from your read.");
   }

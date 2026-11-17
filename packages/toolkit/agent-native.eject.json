@@ -575,6 +575,7 @@
         "@agent-native/core/org/permissions",
         "@agent-native/core/org/types",
         "@agent-native/core/resources/metadata",
+        "@agent-native/core/save-conflict",
         "@agent-native/core/secrets/api-keys",
         "@agent-native/core/secrets/key-aliases",
         "@agent-native/core/secrets/usage",

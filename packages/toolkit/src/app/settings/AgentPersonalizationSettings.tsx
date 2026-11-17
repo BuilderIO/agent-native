@@ -126,23 +126,28 @@ export function AgentPersonalizationSettings() {
       setDraft: setMemoryDraft,
     },
   };
-  const fieldsRef = useRef(fields);
-  fieldsRef.current = fields;
 
   // Saves over the version the draft started from. When the agent or another
   // tab saved meanwhile, the change merges onto theirs, and only when both
   // changed the text the prompt asks which to keep.
   const save = async (field: Field, content: string) => {
-    const { path, resource, setDraft } = fieldsRef.current[field];
+    const { path, resource, setDraft } = fields[field];
     setSavedField(null);
     setFailedField(null);
     setSavingField(field);
     try {
-      let id = resource?.id ?? createdIds.current[field];
+      const base = bases.current[field] ?? savedRecord(undefined);
+      // A draft started when there was no file creates it, even when a file
+      // showed up since: the create finds that file and asks, where an update
+      // with no revision would write over it.
+      let id =
+        base.revision === null
+          ? undefined
+          : (resource?.id ?? createdIds.current[field]);
       const saved = await saveWithMerge<InstructionsContent>({
-        base: bases.current[field] ?? savedRecord(undefined),
+        base,
         mine: { content },
-        resolveOverlap: conflictsRef.current[field].resolveOverlap,
+        resolveOverlap: conflicts[field].resolveOverlap,
         save: async ({ value, revision }) => {
           if (id) {
             const result = await updateResource.mutateAsync({
@@ -185,10 +190,8 @@ export function AgentPersonalizationSettings() {
   const restore =
     (field: Field) =>
     (restoreOnto: (current: InstructionsContent) => InstructionsContent) => {
-      const { content } = restoreOnto({
-        content: fieldsRef.current[field].value,
-      });
-      fieldsRef.current[field].setDraft(content);
+      const { content } = restoreOnto({ content: fields[field].value });
+      fields[field].setDraft(content);
       void save(field, content);
     };
   const conflicts = {
@@ -201,8 +204,6 @@ export function AgentPersonalizationSettings() {
       onRestore: restore("memory"),
     }),
   };
-  const conflictsRef = useRef(conflicts);
-  conflictsRef.current = conflicts;
 
   const labels = {
     customInstructions: t("agentChat.personalization.customInstructions"),

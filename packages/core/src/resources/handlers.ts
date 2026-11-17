@@ -632,27 +632,28 @@ export async function handleCreateResource(event: any) {
     body.metadata !== undefined ? { metadata: body.metadata } : undefined;
 
   if (body.ifNotExists) {
-    const existing = await resourceGetByPath(owner, body.path);
-    if (existing) {
-      return withContentRevision(existing);
-    }
     // Two creates at once both find no file; only one may write it, and the
-    // other gets the file that one wrote.
-    const created = await resourcePutIfAbsent(
-      owner,
-      body.path,
-      body.content ?? "",
-      body.mimeType,
-      writeOptions,
-    );
-    if (created) {
-      setResponseStatus(event, 201);
-      return withContentRevision(created);
+    // other gets the file that one wrote. A file that keeps appearing and
+    // going is refused, never written over.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const existing = await resourceGetByPath(owner, body.path);
+      if (existing) {
+        return withContentRevision(existing);
+      }
+      const created = await resourcePutIfAbsent(
+        owner,
+        body.path,
+        body.content ?? "",
+        body.mimeType,
+        writeOptions,
+      );
+      if (created) {
+        setResponseStatus(event, 201);
+        return withContentRevision(created);
+      }
     }
-    const winner = await resourceGetByPath(owner, body.path);
-    if (winner) {
-      return withContentRevision(winner);
-    }
+    setResponseStatus(event, 409);
+    return { error: "The file kept changing while it was created" };
   }
 
   const resource = writeOptions

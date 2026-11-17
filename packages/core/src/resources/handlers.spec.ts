@@ -689,6 +689,19 @@ Legacy webhook.`,
       expect(mockResourcePut).not.toHaveBeenCalled();
     });
 
+    it("refuses an ifNotExists create when the file keeps appearing and going", async () => {
+      const result = await handleCreateResource({
+        _body: { path: "AGENTS.md", content: "mine", ifNotExists: true },
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toEqual({
+        error: "The file kept changing while it was created",
+      });
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledTimes(3);
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
     it("creates an uploaded skill at the next path when the requested one exists", async () => {
       mockResourceGetByPath.mockResolvedValue({
         id: "existing-skill",

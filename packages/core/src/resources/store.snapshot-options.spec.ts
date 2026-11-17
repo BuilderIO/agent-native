@@ -38,10 +38,13 @@ afterAll(async () => {
 const owner = "erin@example.test";
 const HOUR = 60 * 60 * 1000;
 
-async function storeWith(path: string, visibility: string, expiresAt: number | null) {
-  const { ensureResourceStoreReady, resourceGetByPath } = await import(
-    "./store.js"
-  );
+async function storeWith(
+  path: string,
+  visibility: string,
+  expiresAt: number | null,
+) {
+  const { ensureResourceStoreReady, resourceGetByPath } =
+    await import("./store.js");
   await ensureResourceStoreReady();
   await pglite.query(
     `INSERT INTO resources (id, path, owner, content, created_at, updated_at, visibility, thread_id, run_id, expires_at)
@@ -57,7 +60,11 @@ describe("resourcePutIfSnapshot options", () => {
   it("keeps where the file shows when the write doesn't say", async () => {
     const { resourcePutIfSnapshot } = await import("./store.js");
     const expiresAt = Date.now() + HOUR;
-    const previous = await storeWith("notes/scratch.md", "agent_scratch", expiresAt);
+    const previous = await storeWith(
+      "notes/scratch.md",
+      "agent_scratch",
+      expiresAt,
+    );
 
     const written = await resourcePutIfSnapshot({
       previous,
@@ -102,7 +109,6 @@ describe("resourcePutIfSnapshot options", () => {
   it("gives a file made scratch the scratch expiry", async () => {
     const { resourcePutIfSnapshot } = await import("./store.js");
     const previous = await storeWith("notes/working.md", "workspace", null);
-    const before = Date.now();
 
     const written = await resourcePutIfSnapshot({
       previous,
@@ -117,6 +123,8 @@ describe("resourcePutIfSnapshot options", () => {
       threadId: "thread-2",
       runId: "run-1",
     });
-    expect(written?.resource.expiresAt).toBeGreaterThanOrEqual(before + 23 * HOUR);
+    expect(written?.resource.expiresAt).toBe(
+      (written?.resource.updatedAt ?? 0) + 24 * HOUR,
+    );
   });
 });

@@ -109,7 +109,11 @@ it("a write with the read's revision keeps a save made since the read", async ()
     const entries = await createResourceScriptEntries();
     const read = async () => {
       const out = String(
-        await entries.resources.run({ action: "read", path, scope: "personal" }),
+        await entries.resources.run({
+          action: "read",
+          path,
+          scope: "personal",
+        }),
       );
       const line = out.match(/^\[revision (\S+), scope personal\]\n/);
       expect(line).not.toBeNull();
@@ -149,7 +153,11 @@ it("a write with the read's revision keeps a save made since the read", async ()
       expect(row?.visibility).toBe("workspace");
       expect((await read()).revision).not.toBe(second.revision);
     } finally {
-      await entries.resources.run({ action: "delete", path, scope: "personal" });
+      await entries.resources.run({
+        action: "delete",
+        path,
+        scope: "personal",
+      });
       expect(await resourceGetByPath(owner, path)).toBeNull();
     }
   });

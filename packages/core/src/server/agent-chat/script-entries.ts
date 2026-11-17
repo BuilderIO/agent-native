@@ -437,7 +437,7 @@ export async function createResourceScriptEntries(): Promise<
       resources: {
         tool: {
           description:
-            'Manage workspace resources: list/read files; inspect workspace -> org/app -> personal inheritance; write personal/shared resources (workspace only for local file mode controls); promote scratch; delete personal/shared resources (workspace controls only). A read starts with a [revision …, scope …] line; to replace a file you read, write it in that scope with that expectedRevision, so a save made since then is kept. Agent scratch stays hidden in Workspace; use visibility="workspace" only for files the user wants to keep/manage. Shared writes, promotions, and deletions require per-action approval. For creating or replacing file content, prefer write-resource; load write-resource with tool-search if it is not available.',
+            'Manage workspace resources: list/read files; inspect workspace -> org/app -> personal inheritance; write personal/shared resources (workspace only for local file mode controls); promote scratch; delete personal/shared resources (workspace controls only). Agent scratch stays hidden in Workspace; use visibility="workspace" only for files the user wants to keep/manage. Shared writes, promotions, and deletions require per-action approval. For creating or replacing file content, prefer write-resource; load write-resource with tool-search if it is not available.',
           parameters: {
             type: "object",
             properties: {

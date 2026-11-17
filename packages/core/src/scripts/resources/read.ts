@@ -1,3 +1,4 @@
+import { resourceContentRevision } from "../../resources/revision.js";
 import {
   SHARED_OWNER,
   resourceGetByPath,
@@ -6,7 +7,6 @@ import {
   WORKSPACE_OWNER,
   type Resource,
 } from "../../resources/store.js";
-import { resourceContentRevision } from "../../resources/revision.js";
 import { parseSkillFrontmatter } from "../../server/agent-chat/skill-frontmatter.js";
 import {
   getAmbientUserEmail,
@@ -252,14 +252,10 @@ Options:
       );
       return;
     }
-    await writeResource(
-      resource,
-      resourcePath,
-      owner,
-      orgId,
-      range,
-      { maxResultChars, revisionScope: revisionScope("workspace") },
-    );
+    await writeResource(resource, resourcePath, owner, orgId, range, {
+      maxResultChars,
+      revisionScope: revisionScope("workspace"),
+    });
     return;
   }
 
@@ -277,14 +273,10 @@ Options:
       );
       return;
     }
-    await writeResource(
-      resource,
-      resourcePath,
-      owner,
-      orgId,
-      range,
-      { maxResultChars, revisionScope: revisionScope("shared") },
-    );
+    await writeResource(resource, resourcePath, owner, orgId, range, {
+      maxResultChars,
+      revisionScope: revisionScope("shared"),
+    });
     return;
   }
 
@@ -316,14 +308,10 @@ Options:
       ? null
       : await resourceGetByPath(SHARED_OWNER, resourcePath, { orgId }));
   if (shared) {
-    await writeResource(
-      shared,
-      resourcePath,
-      owner,
-      orgId,
-      range,
-      { maxResultChars, revisionScope: revisionScope("shared") },
-    );
+    await writeResource(shared, resourcePath, owner, orgId, range, {
+      maxResultChars,
+      revisionScope: revisionScope("shared"),
+    });
     return;
   }
 
@@ -331,14 +319,10 @@ Options:
     orgId,
   });
   if (workspace) {
-    await writeResource(
-      workspace,
-      resourcePath,
-      owner,
-      orgId,
-      range,
-      { maxResultChars, revisionScope: revisionScope("workspace") },
-    );
+    await writeResource(workspace, resourcePath, owner, orgId, range, {
+      maxResultChars,
+      revisionScope: revisionScope("workspace"),
+    });
     return;
   }
 

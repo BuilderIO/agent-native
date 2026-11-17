@@ -3,7 +3,7 @@ import { registerStrictToolInput } from "../../agent/strict-tool-input.js";
 
 /** For a resource write's `expectedRevision`, in both write tools. */
 export const RESOURCE_EXPECTED_REVISION_DESCRIPTION =
-  "write: the revision from the [revision …] line of your read of this file, unchanged. If the file changed since, nothing is written and the write fails with save_conflict: read it again, redo your edit on what's there, and write with the new revision. Omit it only to create a file or to replace one you didn't read.";
+  "write: the revision from your read's [revision …, scope …] line, in that scope. A save since your read fails the write with save_conflict: read again, redo the edit, write with the new revision. Omit only for files you didn't read.";
 
 const writeFields = [
   "path",

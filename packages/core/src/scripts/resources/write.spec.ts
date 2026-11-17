@@ -156,13 +156,7 @@ describe("resource-write", () => {
         path: "notes/todo.md",
         content: "mine",
         mimeType: "text/markdown",
-        options: {
-          visibility: undefined,
-          createdBy: undefined,
-          threadId: undefined,
-          runId: undefined,
-          expiresAt: undefined,
-        },
+        options: {},
       });
       expect(mocks.resourcePut).not.toHaveBeenCalled();
       expect(mocks.countSaveOutcome).toHaveBeenCalledWith(
@@ -255,13 +249,37 @@ describe("resource-write", () => {
       expect(mocks.resourcePutIfSnapshot).toHaveBeenCalledOnce();
     });
 
-    it("gives up when the file keeps changing", async () => {
+    it("gives up with the revision there when the file keeps changing", async () => {
       mocks.resourceGetByPath.mockResolvedValue(stored("old"));
 
-      await expect(
-        write(["--expected-revision", revisionOf("old")]),
-      ).rejects.toMatchObject({ errorCode: "save_conflict" });
+      const error = await write([
+        "--expected-revision",
+        revisionOf("old"),
+      ]).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "save_conflict",
+        details: { currentRevision: revisionOf("old") },
+      });
+      expect((error as Error).message).toContain(revisionOf("old"));
       expect(mocks.resourcePutIfSnapshot).toHaveBeenCalledTimes(2);
+    });
+
+    it("refuses a workspace file a workspace write can't change", async () => {
+      mocks.canWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      // The organization's copy, which a workspace read shows first.
+      mocks.resourceGetByPath.mockResolvedValue(
+        stored("old", "__workspace__:__organization__:org-1"),
+      );
+
+      await expect(
+        write(
+          ["--scope", "workspace", "--expected-revision", revisionOf("old")],
+          "org-1",
+        ),
+      ).rejects.toThrow("isn't the copy a workspace write changes");
+      expect(mocks.resourcePutIfSnapshot).not.toHaveBeenCalled();
+      expect(mocks.resourcePut).not.toHaveBeenCalled();
     });
 
     it("makes the organization's own copy of a shared file from before organizations", async () => {

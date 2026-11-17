@@ -175,4 +175,33 @@ describe("AgentPersonalizationSettings", () => {
       expectedRevision: saveRevisionOf({ content: "theirs" }),
     });
   });
+
+  it("still asks when the file shows up between the first edit and Save", async () => {
+    const view = render(<AgentPersonalizationSettings />);
+    fireEvent.change(
+      screen.getByLabelText("agentChat.personalization.customInstructions"),
+      { target: { value: "mine" } },
+    );
+    // The agent writes the file, and the page's list catches up.
+    resources.list = [{ id: "agents-1", path: "AGENTS.md" }];
+    resources.files["agents-1"] = {
+      content: "theirs",
+      revision: saveRevisionOf({ content: "theirs" }),
+    };
+    view.rerender(<AgentPersonalizationSettings />);
+    resources.create.mockResolvedValue({
+      id: "agents-1",
+      ...resources.files["agents-1"],
+    });
+
+    await act(async () => {
+      screen.getAllByText("agentChat.common.save")[0].click();
+    });
+
+    expect(resources.update).not.toHaveBeenCalled();
+    expect(resources.create).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "AGENTS.md", ifNotExists: true }),
+    );
+    expect(await screen.findByText("saveConflict.title")).toBeTruthy();
+  });
 });

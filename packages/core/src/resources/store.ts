@@ -2793,6 +2793,7 @@ async function resourcePutIfSnapshotInternal(
   const size = Buffer.byteLength(input.content, "utf8");
   const mimeType = input.mimeType || "text/markdown";
   const match = resourceSnapshotMatch(previous);
+  // raw-sql-ok: resourceSnapshotMatch is fixed clause text; every value is a bound ? arg.
   const { rows } = await client.execute({
     sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ?, created_by = ?, visibility = ?, thread_id = ?, run_id = ?, expires_at = ?, metadata = ? WHERE ${match.sql} RETURNING *`,
     args: [
