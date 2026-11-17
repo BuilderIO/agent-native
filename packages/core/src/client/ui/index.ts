@@ -13,6 +13,7 @@ export {
   getThemeInitScript,
   parseEmbeddedThemeUpdate,
   themeInitScript,
+  themeStorageKeyForApp,
   type EmbeddedThemeUpdate,
   type NormalizedEmbeddedThemeUpdate,
   type ResolvedTheme,

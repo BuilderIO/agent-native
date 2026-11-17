@@ -2399,9 +2399,6 @@ function buildChecks(
     isTemplateRuntimePath(path, "dispatch"),
   );
   const templateChanged = hasPath(changedPaths, "templates/");
-  const planChanged = hasPath(changedPaths, "templates/plan/");
-  const clipsChanged = hasPath(changedPaths, "templates/clips/");
-  const assetsChanged = hasPath(changedPaths, "templates/assets/");
   const neonQueryBudgetChanged =
     measuresEveryQueryBudgetApp(changedPaths) ||
     changedPaths.some(isCreativeContextQueryBudgetRuntimePath) ||
@@ -2670,7 +2667,13 @@ export function readChangedPaths(
 ): string[] {
   const output = execFileSync(
     "git",
-    ["diff", "--name-only", "-z", `${baseSha}...${headSha}`],
+    [
+      "diff",
+      "--name-only",
+      "--find-renames=100%",
+      "-z",
+      `${baseSha}...${headSha}`,
+    ],
     {
       encoding: "utf8",
       cwd,
@@ -2686,7 +2689,14 @@ export function readDeletedPaths(
 ): string[] {
   const output = execFileSync(
     "git",
-    ["diff", "--name-only", "--diff-filter=D", "-z", `${baseSha}...${headSha}`],
+    [
+      "diff",
+      "--name-only",
+      "--find-renames=100%",
+      "--diff-filter=D",
+      "-z",
+      `${baseSha}...${headSha}`,
+    ],
     {
       encoding: "utf8",
       cwd,
@@ -2706,7 +2716,7 @@ export function readAddedPaths(
     [
       "diff",
       "--name-only",
-      "--find-renames",
+      "--find-renames=100%",
       "--diff-filter=ACR",
       "-z",
       `${baseSha}...${headSha}`,

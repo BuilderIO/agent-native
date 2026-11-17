@@ -14,6 +14,8 @@ import { uploadFile } from "../file-upload/index.js";
 import { nameTaken, nextFreeName } from "../free-name/server.js";
 import { parseJobResource } from "../jobs/frontmatter.js";
 import { getOrgContext } from "../org/context.js";
+import { saveRevisionOf } from "../save-conflict/index.js";
+import { saveConflict, saveIfCurrent } from "../save-conflict/server.js";
 import { getSession } from "../server/auth.js";
 import {
   readBody,
@@ -70,6 +72,7 @@ import {
   sharedResourceOwner,
   SHARED_OWNER,
   WORKSPACE_OWNER,
+  type Resource,
   type ResourceMeta,
 } from "./store.js";
 
@@ -120,6 +123,21 @@ function canReadOwner(
     owner === WORKSPACE_OWNER ||
     (!!ownerOrgId && ownerOrgId === orgId)
   );
+}
+
+/** A resource save checks its content, the part the editor and agents change. */
+const RESOURCE_CONTENT_RECORD = "resource_content";
+
+/**
+ * What a reader sends back as `expectedRevision`, so its save can't write over
+ * content someone else saved after the read.
+ */
+function resourceContentRevision(resource: Pick<Resource, "content">) {
+  return saveRevisionOf({ content: resource.content });
+}
+
+function withContentRevision<R extends Pick<Resource, "content">>(resource: R) {
+  return { ...resource, revision: resourceContentRevision(resource) };
 }
 
 function resourceDownloadDisposition(path: string): string {
@@ -503,7 +521,7 @@ export async function handleGetResource(event: any) {
     return { ...meta, content: "" };
   }
 
-  return resource;
+  return withContentRevision(resource);
 }
 
 export async function handleCreateResource(event: any) {
@@ -732,27 +750,41 @@ async function resourcePathTaken(
 }
 
 export async function handleUpdateResource(event: any) {
-  const id = getRouterParam(event, "id") || event.context.params?.id;
-  if (!id) {
+  const requestedId = getRouterParam(event, "id") || event.context.params?.id;
+  if (!requestedId) {
     setResponseStatus(event, 400);
     return { error: "Resource ID is required" };
   }
 
   const email = await resolveEmail(event);
   const orgId = await resolveOrgId(event);
-  const existing = await resourceGet(id, { userEmail: email, orgId });
-  if (!existing) {
+  const found = await resourceGet(requestedId, { userEmail: email, orgId });
+  if (!found) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
 
   if (
-    !canReadOwner(existing.owner, email, orgId) ||
-    !isLegacySharedResourceVisibleToOrganization(existing, orgId)
+    !canReadOwner(found.owner, email, orgId) ||
+    !isLegacySharedResourceVisibleToOrganization(found, orgId)
   ) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
+  // A legacy shared resource's first save in an organization copies it
+  // there, and from then on the copy is the resource. A save sent to the
+  // shared one, from a tab opened before the copy or a resend whose response
+  // was lost, goes to the copy and is checked against it.
+  const activeSharedOwner = sharedResourceOwner(orgId);
+  const organizationCopy =
+    found.owner === SHARED_OWNER && activeSharedOwner !== SHARED_OWNER
+      ? await resourceGetByPath(activeSharedOwner, found.path, { orgId })
+      : null;
+  const existing =
+    organizationCopy && canReadOwner(organizationCopy.owner, email, orgId)
+      ? organizationCopy
+      : found;
+  const id = existing === found ? requestedId : existing.id;
   const isLocalWorkspaceResource =
     isWorkspaceResourceOwner(existing.owner) && isLocalWorkspaceResourceId(id);
   if (isWorkspaceResourceOwner(existing.owner) && !isLocalWorkspaceResource) {
@@ -767,8 +799,59 @@ export async function handleUpdateResource(event: any) {
   }
 
   const body = await readBody(event);
+  const expectedRevision: unknown = body.expectedRevision;
+  if (expectedRevision !== undefined && typeof expectedRevision !== "string") {
+    setResponseStatus(event, 400);
+    return {
+      error:
+        "expectedRevision must be the revision from your last read of this resource",
+    };
+  }
+  // A content save that sends the revision it read is refused when someone
+  // saved other content after that read, before anything is written or moved.
+  // A save without one still writes over whatever is there. Only content is
+  // checked, so a rename alone never conflicts.
+  const checksRevision =
+    expectedRevision !== undefined && typeof body.content === "string";
+  // True when this save is already there, as when a request is resent after
+  // its response was lost. Metadata is stored as sent when it's a string or
+  // null, and as JSON otherwise. An empty MIME type is stored as Markdown, and
+  // empty metadata reads back as null.
+  const isSameSaveOver = (resource: Resource) =>
+    resource.content === body.content &&
+    (body.mimeType === undefined ||
+      (body.mimeType || "text/markdown") === resource.mimeType) &&
+    (body.metadata === undefined ||
+      ((body.metadata === null || typeof body.metadata === "string"
+        ? body.metadata
+        : JSON.stringify(body.metadata)) || null) === resource.metadata);
+  // The move and the content write are separate statements, so a conflict
+  // found after the move would leave the resource renamed but not saved.
+  if (
+    checksRevision &&
+    body.path !== undefined &&
+    body.path !== existing.path
+  ) {
+    setResponseStatus(event, 400);
+    return {
+      error:
+        "Rename the resource and save its content in separate updates: rename it first, then send the content with expectedRevision.",
+    };
+  }
+  if (checksRevision) {
+    const revision = resourceContentRevision(existing);
+    if (expectedRevision !== revision && !isSameSaveOver(existing)) {
+      return contractErrorResponse(
+        event,
+        saveConflict(
+          RESOURCE_CONTENT_RECORD,
+          { content: existing.content },
+          revision,
+        ),
+      );
+    }
+  }
   const nextPath = body.path ?? existing.path;
-  const activeSharedOwner = sharedResourceOwner(orgId);
   const isLegacyOrganizationWorkspaceResource =
     existing.owner === SHARED_OWNER &&
     isLegacyOrganizationWorkspaceFile(existing, orgId);
@@ -799,16 +882,72 @@ export async function handleUpdateResource(event: any) {
       if (nextPath !== existing.path) {
         return resourcePathTaken(event, activeSharedOwner, nextPath, false);
       }
+      // Another save made the copy since the look above, and the copy is the
+      // resource now. If it holds this save already, as when a resend's first
+      // try made it, the save is done.
+      const copy = await resourceGetByPath(activeSharedOwner, nextPath, {
+        orgId,
+      });
+      if (copy && isSameSaveOver(copy)) return withContentRevision(copy);
+      if (copy && checksRevision) {
+        return contractErrorResponse(
+          event,
+          saveConflict(
+            RESOURCE_CONTENT_RECORD,
+            { content: copy.content },
+            resourceContentRevision(copy),
+          ),
+        );
+      }
       setResponseStatus(event, 409);
       return { error: `A resource already exists at path "${nextPath}"` };
+    }
+    // The copy holds this save over the version read above. When someone
+    // saved the source after that read, take the copy back, so it doesn't
+    // hide their save, and refuse with what's there. If someone wrote the
+    // copy first, it stays, and it's what's there.
+    const takeCopyBack = async (source: Resource) => {
+      let current: Resource = source;
+      // The copy is deleted only if it's still as made, compared as a read
+      // sees it, and a read sees empty metadata as null.
+      const made =
+        resource.metadata === "" ? { ...resource, metadata: null } : resource;
+      if (!(await resourceDeleteIfCurrent(made))) {
+        current =
+          (await resourceGet(resource.id, { userEmail: email, orgId })) ??
+          source;
+      }
+      return contractErrorResponse(
+        event,
+        saveConflict(
+          RESOURCE_CONTENT_RECORD,
+          { content: current.content },
+          resourceContentRevision(current),
+        ),
+      );
+    };
+    // With the source gone, the copy is the only place this save is, so it
+    // stays.
+    const sourceNow = () => resourceGet(id, { userEmail: email, orgId });
+    if (checksRevision) {
+      const source = await sourceNow();
+      if (source && source.content !== existing.content) {
+        return takeCopyBack(source);
+      }
     }
     if (
       isLegacyOrganizationWorkspaceResource &&
       typeof existing.metadata === "string"
     ) {
-      await resourceDeleteIfCurrent(existing);
+      // The source goes only if it's still the version read, so a save to it
+      // after the check above is caught here.
+      const sourceDeleted = await resourceDeleteIfCurrent(existing);
+      if (!sourceDeleted && checksRevision) {
+        const source = await sourceNow();
+        if (source) return takeCopyBack(source);
+      }
     }
-    return resource;
+    return withContentRevision(resource);
   }
 
   if (
@@ -895,7 +1034,53 @@ export async function handleUpdateResource(event: any) {
       setResponseStatus(event, 409);
       return { error: "Resource changed before it could be renamed" };
     }
-    return moved.resource;
+    return withContentRevision(moved.resource);
+  }
+  if (checksRevision) {
+    // Read again and write only over that same version, so a save that lands
+    // between the check above and this write is caught too. `seen.read` is the
+    // version saveIfCurrent read last, which it checks next.
+    const seen: { read: Resource; written: Resource | null } = {
+      read: existing,
+      written: null,
+    };
+    try {
+      const { current } = await saveIfCurrent({
+        record: RESOURCE_CONTENT_RECORD,
+        expectedRevision: expectedRevision as string,
+        read: async () => {
+          const resource = await resourceGet(id, { userEmail: email, orgId });
+          if (!resource) {
+            fail("Resource not found", {
+              errorCode: "resource_not_found",
+              statusCode: 404,
+            });
+          }
+          seen.read = resource;
+          return {
+            value: { content: resource.content },
+            revision: resourceContentRevision(resource),
+            resource,
+          };
+        },
+        write: async ({ resource }) => {
+          const written = await resourcePutIfSnapshot({
+            previous: resource,
+            owner: resource.owner,
+            path: resource.path,
+            content: body.content,
+            mimeType: body.mimeType ?? resource.mimeType,
+            ...(writeOptions ? { options: writeOptions } : {}),
+          });
+          seen.written = written?.resource ?? null;
+          return written !== null;
+        },
+        isSameSave: () => isSameSaveOver(seen.read),
+      });
+      return withContentRevision(seen.written ?? current.resource);
+    } catch (error) {
+      return contractErrorResponse(event, error);
+    }
   }
   const resource = writeOptions
     ? await resourcePut(
@@ -912,7 +1097,7 @@ export async function handleUpdateResource(event: any) {
         body.mimeType ?? existing.mimeType,
       );
 
-  return resource;
+  return withContentRevision(resource);
 }
 
 export async function handleDeleteResource(event: any) {
@@ -1069,7 +1254,7 @@ export async function handleUploadResource(event: any) {
   return resource;
 }
 
-function packHandlerError(event: any, err: unknown) {
+function contractErrorResponse(event: H3Event, err: unknown) {
   if (isActionContractError(err)) {
     setResponseStatus(event, err.statusCode);
     return {
@@ -1099,7 +1284,7 @@ export async function handleExportResourcePack(event: any) {
       caller: "http",
     });
   } catch (err) {
-    return packHandlerError(event, err);
+    return contractErrorResponse(event, err);
   }
 }
 
@@ -1132,6 +1317,6 @@ export async function handleImportResourcePack(event: any) {
         errorCode: "invalid_action_request_body",
       };
     }
-    return packHandlerError(event, err);
+    return contractErrorResponse(event, err);
   }
 }

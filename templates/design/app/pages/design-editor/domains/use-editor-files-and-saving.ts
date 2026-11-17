@@ -25,6 +25,7 @@ import {
 } from "@shared/node-rewrite";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
+import type { VisualEditHandoffRecord } from "@shared/visual-edit-handoff";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -880,6 +881,8 @@ export function useEditorFilesAndSaving({
     setTweakSelections,
     tweakSelections,
     tweaks,
+    pendingTweakChanges,
+    tweakMutationsEnabled,
   } = useTweaks({
     acknowledgeOutboxEntry,
     applyTweaksAsync,
@@ -1704,6 +1707,7 @@ export function useEditorFilesAndSaving({
     pendingEditCount: number;
     status: "ready" | "suggested" | "empty";
     prompt: string;
+    records: VisualEditHandoffRecord[];
     suggestion: {
       trusted: false;
       authorEmail: string | null;
@@ -1991,6 +1995,8 @@ export function useEditorFilesAndSaving({
     handleTweakChange,
     tweakSelections,
     tweaks,
+    pendingTweakChanges,
+    tweakMutationsEnabled,
     designSystemsLoading,
     designSystemOptions,
     editorPreferences,

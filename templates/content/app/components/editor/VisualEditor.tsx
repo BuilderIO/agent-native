@@ -27,6 +27,7 @@ import {
 import type { ContentLinkTarget } from "@shared/api";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { isContentClipUploadMimeType } from "@shared/clips-peer-contract";
+import { bodyHoldsChanges } from "@shared/document-intent-merge";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
 import { CLIP_EMBED_FLAG } from "@shared/feature-flags";
 import { isMarkdownFilePath } from "@shared/import/paths";
@@ -66,6 +67,7 @@ import {
   DOMSerializer,
   Fragment,
   Slice,
+  type NodeType,
   type Node as ProseMirrorNode,
   type ResolvedPos,
   type Schema,
@@ -173,7 +175,6 @@ import {
 import {
   CompatibleCode,
   createNotionEditorExtensions,
-  focusMostRecentEmptyToggleSummary,
   TOGGLE_SUMMARY_PLACEHOLDER,
   TOGGLE_TITLE_NODE,
 } from "./extensions/NotionExtensions";
@@ -796,6 +797,7 @@ const NotionMarkdownShortcuts = Extension.create({
       // A Toggle's title is its own line, not a block to turn into another.
       if (
         !$from.parent.isTextblock ||
+        $from.parent.type.spec.code ||
         $from.parent.type.name === TOGGLE_TITLE_NODE
       ) {
         return null;
@@ -835,29 +837,58 @@ const NotionMarkdownShortcuts = Extension.create({
             if (!paragraph) return false;
 
             if (shortcut.marker === ">") {
-              const toggle = schema.nodes.notionToggle;
-              if (!toggle) return false;
+              const toggle = schema.nodes.notionToggle as NodeType | undefined;
+              const title = schema.nodes[TOGGLE_TITLE_NODE] as
+                | NodeType
+                | undefined;
+              if (!toggle || !title) return false;
 
-              view.dispatch(
-                view.state.tr
-                  .replaceWith(
-                    shortcut.blockFrom,
-                    shortcut.blockTo,
-                    toggle.create({ summary: "", open: true }),
-                  )
-                  .scrollIntoView(),
+              // In a list the item leaves the list and becomes the Toggle.
+              const item = view.state.selection.$from.node(-1);
+              if (["listItem", "taskItem"].includes(item.type.name)) {
+                editor.commands.liftListItem(item.type.name);
+              }
+
+              // The text after the marker becomes the title, as in Notion.
+              const { $from } = view.state.selection;
+              const tr = view.state.tr.replaceWith(
+                $from.before(),
+                $from.after(),
+                toggle.create(
+                  {
+                    open: true,
+                    headingLevel:
+                      $from.parent.type.name === "heading"
+                        ? ($from.parent.attrs.level as number)
+                        : null,
+                  },
+                  title.create(
+                    null,
+                    $from.parent.content.cut($from.parentOffset),
+                  ),
+                ),
               );
-              focusMostRecentEmptyToggleSummary(editor);
+              tr.setSelection(
+                Selection.near(tr.doc.resolve($from.before() + 2)),
+              );
+              view.dispatch(tr.scrollIntoView());
               return true;
             }
 
             const blockquote = schema.nodes.blockquote;
             if (!blockquote) return false;
 
+            const { $from } = view.state.selection;
             const tr = view.state.tr.replaceWith(
               shortcut.blockFrom,
               shortcut.blockTo,
-              blockquote.create(null, paragraph.create()),
+              blockquote.create(
+                null,
+                paragraph.create(
+                  null,
+                  $from.parent.content.cut($from.parentOffset),
+                ),
+              ),
             );
             tr.setSelection(
               Selection.near(tr.doc.resolve(shortcut.blockFrom + 2)),
@@ -2151,6 +2182,19 @@ export function shouldSeedCollaborativeContent({
     hasSemanticCollaborationContent(content) &&
     (fragmentLength === 0 || !hasSemanticCollaborationContent(currentMarkdown))
   );
+}
+
+/**
+ * Whether a saved body already holds everything the editor changed since
+ * `base`, as the server's merge of the editor's own save does. The editor
+ * holds canonical NFM, so the saved body is compared in that form.
+ */
+export function savedBodyHoldsLiveChanges(
+  base: string,
+  saved: string,
+  live: string,
+): boolean {
+  return bodyHoldsChanges(base, canonicalizeNfm(saved), live);
 }
 
 export function parseNfmForCollabReconcile(
@@ -5312,6 +5356,7 @@ export function VisualEditor({
     onBaseAwareMerge: documentId
       ? (outcome) => reportEditorMerge(documentId, "open_editor", outcome)
       : undefined,
+    serverHoldsLiveChanges: savedBodyHoldsLiveChanges,
     onRemoteSnapshotChange: onRemoteSnapshotChange
       ? reportRemoteSnapshot
       : undefined,

@@ -15,6 +15,7 @@ import {
   isAgentChatSubmitCancelled,
   listAgentChatContext,
   removeAgentChatContextItem,
+  reportAgentChatSubmitResult,
   requestAgentChatThreadOpen,
   requestAgentTaskOpen,
   setAgentChatContextItem,
@@ -647,7 +648,7 @@ function resetThreadMocks() {
   chatThreadHookMocks.useChatThreads.mockImplementation(() => threadMocks);
 }
 
-function dispatchSubmitChat(data: Record<string, unknown>) {
+function dispatchSubmitChat(data: Record<string, unknown>, source?: Window) {
   window.dispatchEvent(
     new MessageEvent("message", {
       data: {
@@ -655,6 +656,7 @@ function dispatchSubmitChat(data: Record<string, unknown>) {
         data,
       },
       origin: window.location.origin,
+      ...(source ? { source } : {}),
     }),
   );
 }
@@ -736,6 +738,34 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it("acknowledges a child frame only after chat accepts its submit", async () => {
+    const child = { parent: window, postMessage: vi.fn() } as unknown as Window;
+    await act(async () => {
+      dispatchSubmitChat(
+        {
+          message: "Review this comment",
+          context: "Bounded thread context",
+          submit: true,
+          submitMessageId: "frame-submit-1",
+        },
+        child,
+      );
+      await Promise.resolve();
+    });
+
+    expect(child.postMessage).not.toHaveBeenCalled();
+    await act(async () => {
+      reportAgentChatSubmitResult("frame-submit-1", true);
+    });
+    expect(child.postMessage).toHaveBeenCalledWith(
+      {
+        type: "agentNative.submitChatResult",
+        data: { submitMessageId: "frame-submit-1", delivered: true },
+      },
+      window.location.origin,
+    );
   });
 
   it.each(["custom", "message"])(

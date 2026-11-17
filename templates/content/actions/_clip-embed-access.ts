@@ -25,6 +25,10 @@ import {
 } from "../shared/clips-peer-contract.js";
 import { CLIP_EMBED_FLAG } from "../shared/feature-flags.js";
 import { resolveDocumentAccess } from "./_document-access.js";
+import {
+  assertAgentsMayCommentOnPage,
+  type CallProvenance,
+} from "./_document-agent-lock.js";
 
 export const clipEmbedArgsSchema = z.object({
   documentId: z.string().trim().min(1).max(256).describe("Page id"),
@@ -118,6 +122,7 @@ async function documentState(documentId: string) {
       visibility: schema.documents.visibility,
       trashedAt: schema.documents.trashedAt,
       orgId: schema.documents.orgId,
+      agentTextLocked: schema.documents.agentTextLocked,
     })
     .from(schema.documents)
     .where(eq(schema.documents.id, documentId))
@@ -158,12 +163,14 @@ export async function authorizeClipReader(
 /**
  * The reader Content may vouch for to Clips to comment on a Clip in this
  * page: a signed-in reader who can comment on the page itself. A signed-out
- * reader of a public page never can.
+ * reader of a public page never can, nor can an agent on a page set to Can
+ * view.
  */
 export async function authorizeClipCommenter(
   documentId: string,
+  ctx: CallProvenance | undefined,
 ): Promise<ClipUploader> {
-  const { reader, role } = await authorizeReader(documentId);
+  const { reader, role, state } = await authorizeReader(documentId);
   if (
     reader.kind !== "signed-in" ||
     !role ||
@@ -171,6 +178,7 @@ export async function authorizeClipCommenter(
   ) {
     failClip(CLIP_PLAYBACK_ERRORS.commentRequired);
   }
+  assertAgentsMayCommentOnPage(state, ctx);
   return reader;
 }
 
@@ -210,7 +218,7 @@ async function authorizeReader(documentId: string) {
         name: getRequestUserName() ?? null,
       }
     : { kind: "public", visitorKey: null };
-  return { reader, role };
+  return { reader, role, state };
 }
 
 /**

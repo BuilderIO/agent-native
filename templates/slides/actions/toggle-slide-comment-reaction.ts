@@ -1,10 +1,12 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { ensureReviewTables } from "@agent-native/core/review";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { mirrorSlideComments } from "../server/lib/slide-comment-mirror.js";
 import { commentActorKey } from "../shared/comment-author.js";
 import {
   parseSlideCommentReactionBuckets,
@@ -47,53 +49,58 @@ export default defineAction({
     const actor = commentActorKey(ctx?.caller, viewerEmail);
 
     const db = getDb();
+    await ensureReviewTables();
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
-      const rows = await db
-        .select({
-          emojiReactionsJson: schema.slideComments.emojiReactionsJson,
-        })
-        .from(schema.slideComments)
-        .where(
-          and(
-            eq(schema.slideComments.id, commentId),
-            eq(schema.slideComments.deckId, deckId),
-          ),
-        )
-        .limit(1);
-      const comment = rows.at(0);
-      if (!comment)
-        fail(`Comment not found: ${commentId}`, {
-          errorCode: "comment_not_found",
-          statusCode: 404,
-        });
+      const toggled = await db.transaction(async (tx) => {
+        const rows = await tx
+          .select({
+            emojiReactionsJson: schema.slideComments.emojiReactionsJson,
+          })
+          .from(schema.slideComments)
+          .where(
+            and(
+              eq(schema.slideComments.id, commentId),
+              eq(schema.slideComments.deckId, deckId),
+            ),
+          )
+          .limit(1);
+        const comment = rows.at(0);
+        if (!comment)
+          fail(`Comment not found: ${commentId}`, {
+            errorCode: "comment_not_found",
+            statusCode: 404,
+          });
 
-      const previousJson = comment.emojiReactionsJson || "{}";
-      const reactions = parseSlideCommentReactionBuckets(previousJson);
-      const bucket = reactions[normalizedEmoji] ?? [];
-      const had = bucket.some((email) => email.trim().toLowerCase() === actor);
-      const nextBucket = had
-        ? bucket.filter((email) => email.trim().toLowerCase() !== actor)
-        : [...bucket, actor];
-      const next = { ...reactions };
-      if (nextBucket.length === 0) delete next[normalizedEmoji];
-      else next[normalizedEmoji] = nextBucket;
+        const previousJson = comment.emojiReactionsJson || "{}";
+        const reactions = parseSlideCommentReactionBuckets(previousJson);
+        const bucket = reactions[normalizedEmoji] ?? [];
+        const had = bucket.some(
+          (email) => email.trim().toLowerCase() === actor,
+        );
+        const nextBucket = had
+          ? bucket.filter((email) => email.trim().toLowerCase() !== actor)
+          : [...bucket, actor];
+        const next = { ...reactions };
+        if (nextBucket.length === 0) delete next[normalizedEmoji];
+        else next[normalizedEmoji] = nextBucket;
 
-      const updated = await db
-        .update(schema.slideComments)
-        .set({
-          emojiReactionsJson: serializeSlideCommentReactionBuckets(next),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(
-          and(
-            eq(schema.slideComments.id, commentId),
-            eq(schema.slideComments.deckId, deckId),
-            eq(schema.slideComments.emojiReactionsJson, previousJson),
-          ),
-        )
-        .returning({ id: schema.slideComments.id });
+        const updated = await tx
+          .update(schema.slideComments)
+          .set({
+            emojiReactionsJson: serializeSlideCommentReactionBuckets(next),
+            updatedAt: new Date().toISOString(),
+          })
+          .where(
+            and(
+              eq(schema.slideComments.id, commentId),
+              eq(schema.slideComments.deckId, deckId),
+              eq(schema.slideComments.emojiReactionsJson, previousJson),
+            ),
+          )
+          .returning({ id: schema.slideComments.id });
+        if (updated.length === 0) return null;
 
-      if (updated.length > 0) {
+        await mirrorSlideComments(tx, deckId, [commentId]);
         return {
           id: commentId,
           emoji: normalizedEmoji,
@@ -103,7 +110,8 @@ export default defineAction({
             actor,
           ),
         };
-      }
+      });
+      if (toggled) return toggled;
     }
 
     fail(

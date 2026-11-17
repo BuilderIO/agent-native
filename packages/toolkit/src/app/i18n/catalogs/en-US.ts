@@ -1501,6 +1501,7 @@ const messages = {
   "share.public": "Public",
   "share.publicDescription": "Anyone with the link can view",
   "share.remove": "Remove",
+  "share.removeInvitee": "Remove {{email}}",
   "share.role": "Role",
   "share.searching": "Searching...",
   "share.share": "Share",

@@ -55,8 +55,10 @@ import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cac
 import { advanceMutationEpoch } from "./action-query-cache-mutation.js";
 import {
   claimActionQueryForeground,
+  finishActionQueryOpening,
   invalidateForegroundActionQueries,
   observeActionQuerySurface,
+  refetchActionQueryInForeground,
 } from "./action-query-foreground.js";
 import {
   ACTION_RESOURCES_META_KEY,
@@ -1761,6 +1763,14 @@ export function useActionQuery<
      */
     interactive?: boolean;
     /**
+     * With `interactive`, the returned `refetch()` is a foreground read when the
+     * surface is visible. Opt in only when every caller of `refetch()` is the
+     * person's own request (Try again, a readback after their write): a
+     * foreground-only provider pause refuses background refetches, so such a
+     * retry could otherwise never recover. Timers must not call it.
+     */
+    foregroundRefetch?: boolean;
+    /**
      * Disable the transport's capability-recovery resend. All observers of a
      * shared query must use the same setting. Query retries are separate.
      */
@@ -1793,6 +1803,7 @@ export function useActionQuery<
   const {
     refetchInterval,
     interactive = false,
+    foregroundRefetch = false,
     retry: callerRetry,
     enabled: callerEnabled,
     queryKeyScope,
@@ -1848,7 +1859,7 @@ export function useActionQuery<
         surfaceOptions.current.restOptions.refetchOnWindowFocus !== undefined,
     );
   }, [interactive, queryClient, queryHash]);
-  return useQuery<R>({
+  const result = useQuery<R>({
     queryKey,
     queryFn: async ({ signal, client }) => {
       const key = circuitKey();
@@ -1956,6 +1967,30 @@ export function useActionQuery<
       ? { refetchInterval: guardActionQueryRefetchInterval(refetchInterval) }
       : {}),
     refetchOnWindowFocus: false,
+  });
+  // QueryObserver must apply enabled changes before closing a cached opening. The result is not
+  // read here: React Query tracks the fields a render reads, and reading extra ones narrows what
+  // re-renders a caller that reads `data` outside render.
+  useEffect(() => {
+    if (interactive)
+      finishActionQueryOpening(queryClient.getQueryCache().get<R>(queryHash));
+  });
+  // Held in a ref so the wrapper keeps one identity across renders and never reads a result field.
+  const latestResult = useRef(result);
+  latestResult.current = result;
+  const foregroundRefetchFn = useCallback(
+    (refetchOptions?: Parameters<typeof result.refetch>[0]) =>
+      refetchActionQueryInForeground(
+        queryClient.getQueryCache().get<R>(queryHash),
+        () => latestResult.current.refetch(refetchOptions),
+      ),
+    [queryClient, queryHash],
+  );
+  if (!interactive || !foregroundRefetch) return result;
+  // Proxy, not spread: React Query tracks which result fields a component reads.
+  return new Proxy(result, {
+    get: (target, key) =>
+      key === "refetch" ? foregroundRefetchFn : Reflect.get(target, key),
   });
 }
 
