@@ -20,6 +20,11 @@ import {
   TURN_EXECUTION_LEASE_MS,
 } from "../agent/run-store.js";
 import { uploadFile } from "../file-upload/registry.js";
+import {
+  MCP_CHAT_TURN_FIELD,
+  admitMcpChatTurn,
+  readMcpChatTurn,
+} from "../mcp/chat-turn-store.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import {
@@ -27,6 +32,7 @@ import {
   recordServicePrincipalDenial,
   ServicePrincipalRefusedError,
 } from "../org/service-principal-guard.js";
+import { runWithProviderInteractiveScope } from "../provider-api/interactive-scope.js";
 import { findWorkspaceDispatchAgent } from "../server/agent-discovery.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getOrigin, isConfiguredAppOrigin } from "../server/google-oauth.js";
@@ -251,6 +257,7 @@ function trustedA2AMetadata(
   if (!metadata) return undefined;
   const trusted = { ...metadata };
   delete trusted.sourceContext;
+  delete trusted[MCP_CHAT_TURN_FIELD];
   const requestOrigin = requestOriginForContext(metadata, event);
   if (requestOrigin) trusted.requestOrigin = requestOrigin;
   else delete trusted.requestOrigin;
@@ -816,7 +823,110 @@ async function withA2ARequestContext<T>(
   ) as Promise<T>;
 }
 
+function chatTurnBinding(
+  config: A2AConfig,
+  taskId: string,
+  event: { context?: Record<string, unknown> } | undefined,
+) {
+  return {
+    appId: config.appId ?? "",
+    taskId,
+    owner:
+      typeof event?.context?.__a2aVerifiedEmail === "string"
+        ? event.context.__a2aVerifiedEmail
+        : undefined,
+    assurance:
+      typeof event?.context?.__a2aIdentityAssurance === "string"
+        ? event.context.__a2aIdentityAssurance
+        : undefined,
+  };
+}
+
+class ChatTurnRefusedError extends Error {
+  constructor(readonly reason: string) {
+    super(`MCP chat-turn proof refused: ${reason}`);
+  }
+}
+
+/** Fails a just-created task whose chat-turn proof was refused, so it is never left submitted. */
+async function failRefusedChatTurn(taskId: string, reason: string) {
+  const text = `MCP chat-turn proof refused: ${reason}`;
+  await updateTask(taskId, {
+    state: "failed",
+    message: taskFailureMessage(new Error(text), text),
+  });
+  return { ...jsonRpcError(0, -32000, text), _id: 0 };
+}
+
+/** Runs a task's handler inside the chat-turn grant its admitted proof earned, if any. */
+async function withMcpChatTaskScope<T>(
+  config: A2AConfig,
+  taskId: string,
+  event: { context?: Record<string, unknown> } | undefined,
+  work: () => Promise<T>,
+  signal?: AbortSignal,
+  proofPresented = false,
+): Promise<T> {
+  const admission = await readMcpChatTurn(
+    chatTurnBinding(config, taskId, event),
+  );
+  // Only an absent proof means "an ordinary turn"; a refused lookup must not
+  // pass for one, or an intended interactive turn quietly loses its grant.
+  if (
+    admission.status === "refused" &&
+    admission.reason === "storage-or-signing-unavailable" &&
+    !proofPresented
+  ) {
+    // Most tasks carry no proof; a store outage must not fail them. The turn
+    // runs without a grant, so it is never more privileged for the outage. A
+    // task that did present a proof fails instead of losing its grant.
+    console.warn("[a2a] chat-turn lookup unavailable; running without a grant");
+  } else if (admission.status === "refused") {
+    throw new ChatTurnRefusedError(admission.reason);
+  }
+  return runWithProviderInteractiveScope(false, work, {
+    action: false,
+    ...(signal ? { signal } : {}),
+    ...(admission.status === "admitted"
+      ? { chatTurnGrant: admission.grant }
+      : {}),
+  });
+}
+
 async function runHandlerAndPersist(
+  taskId: string,
+  message: Message,
+  config: A2AConfig,
+  contextId: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+  event?: { context?: Record<string, unknown> },
+  sourceContext?: A2ASourceContext,
+  ownerEmail?: string,
+  signal?: AbortSignal,
+  processingAttemptId?: string,
+): Promise<void> {
+  return withMcpChatTaskScope(
+    config,
+    taskId,
+    event,
+    () =>
+      runHandlerAndPersistInScope(
+        taskId,
+        message,
+        config,
+        contextId,
+        metadata,
+        event,
+        sourceContext,
+        ownerEmail,
+        signal,
+        processingAttemptId,
+      ),
+    signal,
+  );
+}
+
+async function runHandlerAndPersistInScope(
   taskId: string,
   message: Message,
   config: A2AConfig,
@@ -939,7 +1049,19 @@ async function handleSend(
   config: A2AConfig,
   event?: any,
 ): Promise<JsonRpcResponse & { _id: string | number }> {
-  const message = params.message as Message;
+  const incomingMessage = params.message as Message | undefined;
+  const chatTurnClaim =
+    incomingMessage?.metadata?.[MCP_CHAT_TURN_FIELD] ??
+    (params.metadata as Record<string, unknown> | undefined)?.[
+      MCP_CHAT_TURN_FIELD
+    ];
+  const message = incomingMessage && {
+    ...incomingMessage,
+    ...(incomingMessage.metadata
+      ? { metadata: { ...incomingMessage.metadata } }
+      : {}),
+  };
+  if (message?.metadata) delete message.metadata[MCP_CHAT_TURN_FIELD];
   if (!message || !message.role || !Array.isArray(message.parts)) {
     return {
       ...jsonRpcError(
@@ -1077,6 +1199,13 @@ async function handleSend(
         _id: 0,
       };
     }
+    const admitted = await admitMcpChatTurn(
+      chatTurnClaim,
+      chatTurnBinding(config, task.id, event),
+    );
+    if (admitted.status === "refused") {
+      return failRefusedChatTurn(task.id, admitted.reason);
+    }
     const working = await updateTask(task.id, { state: "working" });
 
     try {
@@ -1106,88 +1235,108 @@ async function handleSend(
         _id: 0,
       };
     }
-    await updateTask(task.id, { state: "working" });
-
-    const ctx = makeHandlerContext(
-      task.id,
-      contextId,
-      trustedA2AMetadata(metadata, event),
-      event,
-      sourceContext,
+    const admitted = await admitMcpChatTurn(
+      chatTurnClaim,
+      chatTurnBinding(config, task.id, event),
     );
+    if (admitted.status === "refused") {
+      return failRefusedChatTurn(task.id, admitted.reason);
+    }
+    return withMcpChatTaskScope(
+      config,
+      task.id,
+      event,
+      async () => {
+        await updateTask(task.id, { state: "working" });
 
-    try {
-      try {
-        const result = getHandler(config)(message, ctx.context);
+        const ctx = makeHandlerContext(
+          task.id,
+          contextId,
+          trustedA2AMetadata(metadata, event),
+          event,
+          sourceContext,
+        );
 
-        if (isMessageStream(result)) {
-          let lastMessage: Message | undefined;
-          for await (const msg of result) {
-            lastMessage = msg;
-          }
-          if (
-            lastMessage?.metadata?.agentNativeTaskState === "input-required"
-          ) {
+        try {
+          try {
+            const result = getHandler(config)(message, ctx.context);
+
+            if (isMessageStream(result)) {
+              let lastMessage: Message | undefined;
+              for await (const msg of result) {
+                lastMessage = msg;
+              }
+              if (
+                lastMessage?.metadata?.agentNativeTaskState === "input-required"
+              ) {
+                const updated = await updateTask(task.id, {
+                  state: "input-required",
+                  message: lastMessage,
+                });
+                return { ...jsonRpcResult(0, updated), _id: 0 };
+              }
+              await ctx.persistFileArtifacts();
+              const updated = await updateTask(
+                task.id,
+                completedTaskUpdate(lastMessage, ctx.artifacts),
+              );
+              return { ...jsonRpcResult(0, updated), _id: 0 };
+            }
+
+            const handlerResult = await (result as Promise<A2AHandlerResult>);
+            const allArtifacts = [
+              ...ctx.artifacts,
+              ...(handlerResult.artifacts ?? []),
+            ];
+            if (handlerResult.taskState === "input-required") {
+              const updated = await updateTask(task.id, {
+                state: "input-required",
+                message: handlerResult.message,
+              });
+              return { ...jsonRpcResult(0, updated), _id: 0 };
+            }
+            await ctx.persistFileArtifacts();
             const updated = await updateTask(task.id, {
-              state: "input-required",
-              message: lastMessage,
+              state: "completed",
+              message: handlerResult.message,
+              artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
             });
             return { ...jsonRpcResult(0, updated), _id: 0 };
+          } catch (err: unknown) {
+            const failureMessage = taskFailureMessage(err, "Handler failed");
+            await updateTask(task.id, {
+              state: "failed",
+              message: failureMessage,
+            });
+            return {
+              ...jsonRpcError(
+                0,
+                -32000,
+                failureMessage.parts[0]?.type === "text"
+                  ? failureMessage.parts[0].text
+                  : "Handler failed",
+              ),
+              _id: 0,
+            };
           }
-          await ctx.persistFileArtifacts();
-          const updated = await updateTask(
-            task.id,
-            completedTaskUpdate(lastMessage, ctx.artifacts),
-          );
-          return { ...jsonRpcResult(0, updated), _id: 0 };
+        } catch (err: unknown) {
+          // A cancel that landed first is the answer; the handler's outcome is dropped.
+          if (err instanceof A2ATaskCanceledError) {
+            return {
+              ...jsonRpcResult(0, sanitizeTaskForResponse(err.task)),
+              _id: 0,
+            };
+          }
+          throw err;
         }
-
-        const handlerResult = await (result as Promise<A2AHandlerResult>);
-        const allArtifacts = [
-          ...ctx.artifacts,
-          ...(handlerResult.artifacts ?? []),
-        ];
-        if (handlerResult.taskState === "input-required") {
-          const updated = await updateTask(task.id, {
-            state: "input-required",
-            message: handlerResult.message,
-          });
-          return { ...jsonRpcResult(0, updated), _id: 0 };
-        }
-        await ctx.persistFileArtifacts();
-        const updated = await updateTask(task.id, {
-          state: "completed",
-          message: handlerResult.message,
-          artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
-        });
-        return { ...jsonRpcResult(0, updated), _id: 0 };
-      } catch (err: unknown) {
-        const failureMessage = taskFailureMessage(err, "Handler failed");
-        await updateTask(task.id, {
-          state: "failed",
-          message: failureMessage,
-        });
-        return {
-          ...jsonRpcError(
-            0,
-            -32000,
-            failureMessage.parts[0]?.type === "text"
-              ? failureMessage.parts[0].text
-              : "Handler failed",
-          ),
-          _id: 0,
-        };
-      }
-    } catch (err: unknown) {
-      // A cancel that landed first is the answer; the handler's outcome is dropped.
-      if (err instanceof A2ATaskCanceledError) {
-        return {
-          ...jsonRpcResult(0, sanitizeTaskForResponse(err.task)),
-          _id: 0,
-        };
-      }
-      throw err;
-    }
+      },
+      undefined,
+      chatTurnClaim !== undefined,
+    ).catch((err: unknown) =>
+      err instanceof ChatTurnRefusedError
+        ? failRefusedChatTurn(task.id, err.reason)
+        : Promise.reject(err),
+    );
   });
 }
 
@@ -1197,7 +1346,16 @@ async function handleStream(
   res: { write: (chunk: string) => void; end: () => void },
   event?: any,
 ): Promise<void> {
-  const message = params.message as Message;
+  const incomingMessage = params.message as Message | undefined;
+  // Streaming turns take no chat-turn grant: drop a supplied proof so it never
+  // lands in task history or the handler's input.
+  const message = incomingMessage && {
+    ...incomingMessage,
+    ...(incomingMessage.metadata
+      ? { metadata: { ...incomingMessage.metadata } }
+      : {}),
+  };
+  if (message?.metadata) delete message.metadata[MCP_CHAT_TURN_FIELD];
   if (!message || !message.role || !Array.isArray(message.parts)) {
     res.write(
       `data: ${JSON.stringify(jsonRpcError(0, -32602, "Invalid params"))}\n\n`,

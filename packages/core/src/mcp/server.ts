@@ -55,6 +55,11 @@ import {
   MCP_ROUTE_PREFIXES,
   joinMcpRoute,
 } from "./route-paths.js";
+import {
+  hasUserTurnActions,
+  isAgentTurnGrantContext,
+  MCP_TURN_GRANT_HEADER,
+} from "./turn-grant-scope.js";
 
 export { createMCPServerForRequest } from "./build-server.js";
 export {
@@ -126,8 +131,11 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
       ?.trim()
       .toLowerCase() === "script" || requestsScriptCatalogByQuery(event);
   const basePath = getConfiguredAppBasePath();
+  const turnGrant = getRequestHeader(event, MCP_TURN_GRANT_HEADER);
   return {
     origin,
+    ...(turnGrant !== undefined ? { turnGrant } : {}),
+    ...(isAgentTurnGrantContext() ? { turnGrantExcluded: true } : {}),
     ...(basePath ? { basePath } : {}),
     target,
     transport: "http",
@@ -473,7 +481,13 @@ async function handleMcpRequestInternal(
   const serverRequestMeta: MCPRequestMeta = {
     ...requestMeta,
     resolveEmbedRequestOrigin: () => resolveEmbedRequestOrigin(event),
-    approvalRoute,
+    // A turn-grant call's review opens on the app's own page, which reads the
+    // browser session the grant was minted from.
+    approvalRoute:
+      requestMeta.turnGrant !== undefined &&
+      hasUserTurnActions(config.productionActions ?? config.actions)
+        ? mcpApprovalRoute("")
+        : approvalRoute,
     ...(requestConfig.createLocalAgentTaskClient
       ? {
           localAgentTaskClient: requestConfig.createLocalAgentTaskClient(event),
@@ -584,6 +598,18 @@ export function mountMCP(
     },
     routePrefix,
   );
+  const approvalActions = config.productionActions ?? config.actions;
+  if (routePrefix === "/_agent-native" && hasUserTurnActions(approvalActions)) {
+    mountMcpApprovalRoute(
+      nitroApp,
+      {
+        appId: mcpApprovalAppId(config),
+        actions: approvalActions,
+        appPage: config.appApprovalPage === true,
+      },
+      "",
+    );
+  }
   for (const routePath of routePaths) {
     getH3App(nitroApp).use(
       routePath,

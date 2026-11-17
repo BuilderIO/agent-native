@@ -1059,3 +1059,9 @@ export function defineNitroPlugin(def: NitroPluginDef): NitroPluginDef {
   return def;
 }
 export { appStateListKeysByKeySuffixPrefix } from "./application-state-maintenance.js";
+export {
+  PROVIDER_PAUSE_FORBIDDEN,
+  assertProviderPauseOperator,
+  isProviderPauseOperator,
+  type ProviderPauseCaller,
+} from "./provider-pause-operator.js";
