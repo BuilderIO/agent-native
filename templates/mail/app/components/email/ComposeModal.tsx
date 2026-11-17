@@ -498,6 +498,11 @@ export function ComposeModal({
         duration: Infinity,
       });
       void (onSettleForSend?.(draftSnapshot) ?? Promise.resolve(draftSnapshot))
+        .catch((error: unknown) => {
+          // Nothing went out, so the reply shown as sent comes back out.
+          undoOptimistic?.();
+          throw error;
+        })
         .then((sendable) =>
           sendEmail.mutateAsync({
             to: expandAliasTokens(draftSnapshot.to, aliases),
