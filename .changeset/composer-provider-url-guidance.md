@@ -3,4 +3,4 @@
 "@agent-native/toolkit": patch
 ---
 
-Match configured integration guidance to provider document hostnames without inspecting URL contents.
+Guide composer requests to available integrations, including matches from provider document hostnames without inspecting URL contents.
