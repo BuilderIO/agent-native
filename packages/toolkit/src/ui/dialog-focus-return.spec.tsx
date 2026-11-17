@@ -106,6 +106,58 @@ describe("a dialog opened without a trigger returns focus to its opener", () => 
     );
   });
 
+  it("returns a nested dialog's focus to the parent dialog's control", async () => {
+    function Nested() {
+      const [outer, setOuter] = React.useState(false);
+      const [inner, setInner] = React.useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOuter(true)}>
+            Open outer
+          </button>
+          {outer ? (
+            <Dialog open onOpenChange={setOuter}>
+              <DialogContent>
+                <DialogTitle>Outer</DialogTitle>
+                <button type="button" onClick={() => setInner(true)}>
+                  Open inner
+                </button>
+                {inner ? (
+                  <Dialog open onOpenChange={setInner}>
+                    <DialogContent>
+                      <DialogTitle>Inner</DialogTitle>
+                      <input aria-label="Inner field" autoFocus />
+                    </DialogContent>
+                  </Dialog>
+                ) : null}
+              </DialogContent>
+            </Dialog>
+          ) : null}
+        </>
+      );
+    }
+    render(<Nested />);
+    const opener = screen.getByRole("button", { name: "Open outer" });
+    opener.focus();
+    fireEvent.click(opener);
+    const innerOpener = await screen.findByRole("button", {
+      name: "Open inner",
+    });
+    innerOpener.focus();
+    fireEvent.click(innerOpener);
+    const field = await screen.findByLabelText("Inner field");
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    fireEvent.keyDown(field, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Inner field")).toBeNull(),
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Open inner" }),
+      ),
+    );
+  });
+
   it("returns an alert dialog to its opener on Cancel", async () => {
     function Confirm() {
       const [open, setOpen] = React.useState(false);

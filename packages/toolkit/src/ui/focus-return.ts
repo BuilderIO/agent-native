@@ -12,11 +12,13 @@ export interface FocusReturn {
   target: HTMLElement | null;
 }
 
-let lastOutsideLayers: Element | null = null;
+const RECENT_FOCUS = 8;
+const recentFocus: Element[] = [];
 let tracking = false;
 
 // A dialog whose field has `autoFocus` has already taken focus by the time its
-// content mounts, so the opener is the last element focused outside any dialog.
+// content mounts, so the opener is the last element focused outside that
+// dialog: inside a parent dialog it is the parent's control, not the page's.
 // The listener has to exist before that opener is focused, hence module load.
 function trackFocus() {
   if (tracking || typeof document === "undefined") return;
@@ -26,8 +28,9 @@ function trackFocus() {
     (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
-      if (target.closest('[role="dialog"],[role="alertdialog"]')) return;
-      lastOutsideLayers = target;
+      if (recentFocus.at(-1) === target) return;
+      recentFocus.push(target);
+      if (recentFocus.length > RECENT_FOCUS) recentFocus.shift();
     },
     true,
   );
@@ -53,8 +56,10 @@ function openerOf(active: Element | null): HTMLElement | null {
 export function rememberFocusReturn(content: Element): FocusReturn {
   const active = document.activeElement;
   const opener =
-    active && content.contains(active) ? lastOutsideLayers : active;
-  return { target: openerOf(opener) };
+    active && content.contains(active)
+      ? recentFocus.findLast((element) => !content.contains(element))
+      : active;
+  return { target: openerOf(opener ?? null) };
 }
 
 /** Focuses the opener when it is still on the page; false when it is not. */
