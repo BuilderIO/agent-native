@@ -397,6 +397,29 @@ it("toggles a reaction when active is left out, whatever the case of the email",
   expect(await toggle()).toMatchObject({ active: false });
 });
 
+it("adds a reaction once whatever the case of the email it was saved under", async () => {
+  const root = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "private",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+  const react = (actorEmail: string) =>
+    setReviewCommentReaction({
+      commentId: root.id,
+      actorEmail,
+      reaction: "👍",
+      active: true,
+    });
+  await react("Editor@Example.com");
+  await react(EDITOR_EMAIL);
+  const { rows } = await pglite.query(
+    "SELECT actor_email FROM agent_review_comment_reactions WHERE comment_id = $1",
+    [root.id],
+  );
+  expect(rows).toEqual([{ actor_email: "Editor@Example.com" }]);
+});
+
 it("lets a resource choose who may resolve its threads", async () => {
   registerReviewableResource({
     type: "deck",
@@ -1088,6 +1111,58 @@ describe("review actions", () => {
         { userEmail: EDITOR_EMAIL },
       ),
     ).rejects.toThrow("Review comment not found");
+  });
+
+  it("refuses a delete that would take someone else's comment when asked to, checking again as the thread locks", async () => {
+    const resource = { resourceType: "doc", resourceId: "private" };
+    const agent = { userEmail: EDITOR_EMAIL, caller: "tool" };
+    const insert = (
+      body: string,
+      authorEmail: string,
+      root?: { id: string; threadId: string },
+    ) =>
+      insertReviewComment({
+        ...resource,
+        ...(root ? { threadId: root.threadId, parentCommentId: root.id } : {}),
+        body,
+        authorEmail,
+        ownerEmail: OWNER_EMAIL,
+      });
+    const remove = (commentId: string, onlyOwnComments?: boolean) =>
+      deleteReviewCommentAction.run(
+        {
+          ...resource,
+          commentId,
+          ...(onlyOwnComments ? { onlyOwnComments } : {}),
+        },
+        agent,
+      );
+
+    const theirs = await insert("Someone else's", OWNER_EMAIL);
+    await expect(remove(theirs.id, true)).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "approval_required",
+    });
+
+    const own = await insert("The agent's", EDITOR_EMAIL);
+    // Someone replies after the action reads the comment, before it deletes.
+    afterCommentRead.run = async () => {
+      await insert("A late reply", OWNER_EMAIL, own);
+    };
+    await expect(remove(own.id, true)).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "approval_required",
+    });
+    expect(
+      (await getReviewCommentById(own.id, {}, { bypassScope: true }))?.status,
+    ).toBe("open");
+
+    // An editor not asked to keep to their own comments deletes the thread.
+    await expect(remove(own.id)).resolves.toMatchObject({ deleted: true });
+    expect(
+      (await getReviewCommentById(theirs.id, {}, { bypassScope: true }))
+        ?.status,
+    ).toBe("open");
   });
 
   it("marks multiple review threads read in one authorized action", async () => {

@@ -28,6 +28,19 @@ async function removedComments(
     : slideCommentThread(deckId, comment.threadId);
 }
 
+// Slides once saved some replies with no parent. The comments copy gives each
+// its thread's first comment as parent; until it has, the kit would take such
+// a reply for the thread and delete it all.
+function isUnlinkedReply(
+  comment: ReviewComment,
+  thread: ReviewComment[],
+): boolean {
+  if (comment.parentCommentId) return false;
+  const first =
+    thread.find((other) => other.id === comment.threadId) ?? thread.at(0);
+  return first !== undefined && first.id !== comment.id;
+}
+
 function isOtherPerson(
   authorEmail: string | null,
   viewerEmail: string | null | undefined,
@@ -79,13 +92,19 @@ export default defineAction({
 
     const reviewCtx = slideReviewContext(ctx);
     const removed = await removedComments(args.deckId, comment);
+    if (isUnlinkedReply(comment, removed)) {
+      fail(
+        "This reply isn't linked to its thread yet, so deleting it would delete the whole thread. Try again after Slides restarts.",
+        { errorCode: "reply_not_linked", statusCode: 409 },
+      );
+    }
     // Without an approval covering this call, the agent must not delete other
-    // people's comments. A reply that lands between this check and the
-    // delete still goes with its thread, as the kit's delete takes the
-    // thread as it finds it.
+    // people's comments. The kit checks again as it locks the thread, so a
+    // reply that lands after this check refuses the delete too.
+    const onlyOwnComments =
+      commentAuthorKind(ctx?.caller) === "agent" && !ctx?.approvedToolCallKey;
     if (
-      commentAuthorKind(ctx?.caller) === "agent" &&
-      !ctx?.approvedToolCallKey &&
+      onlyOwnComments &&
       removed.some((row) => isOtherPerson(row.authorEmail, reviewCtx.userEmail))
     ) {
       fail(
@@ -101,6 +120,7 @@ export default defineAction({
         resourceType: DECK_REVIEW_RESOURCE,
         resourceId: args.deckId,
         commentId: comment.id,
+        onlyOwnComments,
       },
       reviewCtx,
     );

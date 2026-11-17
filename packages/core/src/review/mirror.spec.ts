@@ -5,6 +5,7 @@ const { ReviewCommentResourceConflictError } = await import("./errors.js");
 const {
   compareMirroredReviewComments,
   deleteMirroredReviewComments,
+  linkMirroredReviewReplies,
   listMirroredResourceIds,
   mirrorReviewComments,
 } = await import("./mirror.js");
@@ -316,6 +317,51 @@ describe("mirrorReviewComments", () => {
 
     expect(transactions).toBe(1);
     expect(await stored(comment.id)).not.toBeNull();
+  });
+});
+
+describe("linkMirroredReviewReplies", () => {
+  it("gives a reply saved with no parent its parent in the same thread, once", async () => {
+    const root = copy({ id: "link-root" });
+    const reply = copy({ id: "link-reply", threadId: root.id });
+    const linked = copy({
+      id: "link-linked",
+      threadId: root.id,
+      parentCommentId: root.id,
+    });
+    const elsewhere = copy({ id: "link-elsewhere" });
+    await mirrorReviewComments(DECK, [root, reply, linked, elsewhere]);
+    const before = await stored(reply.id);
+
+    expect(
+      await linkMirroredReviewReplies(DECK, [
+        { id: reply.id, parentCommentId: root.id },
+        // One with a parent already, its own parent, a parent in another
+        // thread, and a comment on another resource are left alone.
+        { id: linked.id, parentCommentId: reply.id },
+        { id: root.id, parentCommentId: root.id },
+        { id: elsewhere.id, parentCommentId: root.id },
+        { id: "link-missing", parentCommentId: "nowhere" },
+      ]),
+    ).toEqual({ linked: 1 });
+    expect(
+      await linkMirroredReviewReplies({ ...DECK, resourceId: "deck-other" }, [
+        { id: root.id, parentCommentId: reply.id },
+      ]),
+    ).toEqual({ linked: 0 });
+
+    const after = await stored(reply.id);
+    expect(after?.parentCommentId).toBe(root.id);
+    expect(after?.revision).toBe((before?.revision ?? 0) + 1);
+    expect((await stored(linked.id))?.parentCommentId).toBe(root.id);
+    expect((await stored(root.id))?.parentCommentId).toBeNull();
+    expect((await stored(elsewhere.id))?.parentCommentId).toBeNull();
+    expect(
+      await linkMirroredReviewReplies(DECK, [
+        { id: reply.id, parentCommentId: root.id },
+      ]),
+    ).toEqual({ linked: 0 });
+    expect(await linkMirroredReviewReplies(DECK, [])).toEqual({ linked: 0 });
   });
 });
 

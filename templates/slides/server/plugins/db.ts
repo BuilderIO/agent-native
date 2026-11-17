@@ -376,7 +376,8 @@ ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS content_hash TEXT`,
       name: "slides-comments-add-missing-to-review-kit",
       sql: {},
       // Slides reads and writes its comments in the review kit from now on.
-      // This adds any comment the kit still lacks from `slide_comments`. A
+      // This adds any comment the kit still lacks from `slide_comments`, and
+      // links replies saved with no parent to their thread's first comment. A
       // deck that fails leaves the copy pending, so it runs again on the next
       // start. So does a failure of the whole copy, which shouldn't stop the
       // app starting.
@@ -392,7 +393,7 @@ ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS content_hash TEXT`,
           return deferMigration();
         }
         console.log(
-          `[db] Checked ${report.comments} comment(s) on ${report.decks} deck(s); added ${report.added} the review kit lacked`,
+          `[db] Checked ${report.comments} comment(s) on ${report.decks} deck(s); added ${report.added} the review kit lacked and linked ${report.linked} reply(ies) to their thread`,
         );
         if (report.failedDecks.length > 0) return deferMigration();
       },

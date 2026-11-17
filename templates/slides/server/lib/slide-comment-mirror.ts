@@ -1,5 +1,6 @@
 import {
   ensureReviewTables,
+  linkMirroredReviewReplies,
   mirrorReviewComments,
   type ReviewCommentCopy,
 } from "@agent-native/core/review";
@@ -19,7 +20,10 @@ import { DECK_REVIEW_RESOURCE, SLIDE_POINT_ANCHOR } from "./slide-comments.js";
  */
 
 type SlideCommentRow = typeof schema.slideComments.$inferSelect;
-export function slideCommentCopy(row: SlideCommentRow): ReviewCommentCopy {
+export function slideCommentCopy(
+  row: SlideCommentRow,
+  parentCommentId = row.parentId,
+): ReviewCommentCopy {
   const anchor: unknown = row.anchor ? JSON.parse(row.anchor) : null;
   const reactions = Object.entries(
     parseSlideCommentReactionBuckets(row.emojiReactionsJson),
@@ -29,7 +33,7 @@ export function slideCommentCopy(row: SlideCommentRow): ReviewCommentCopy {
   return {
     id: row.id,
     threadId: row.threadId,
-    parentCommentId: row.parentId,
+    parentCommentId,
     surfaceId: row.slideId,
     anchor,
     anchorKind: anchor === null ? null : SLIDE_POINT_ANCHOR,
@@ -46,6 +50,34 @@ export function slideCommentCopy(row: SlideCommentRow): ReviewCommentCopy {
   };
 }
 
+/**
+ * The parent each reply saved without one should have. Slides once saved some
+ * replies with no parent and took a thread's first comment to be the one with
+ * the thread's ID, or else its oldest; the kit takes every comment with no
+ * parent for a thread's first. `rows` are a deck's, oldest first.
+ */
+export function unlinkedReplyParents(
+  rows: readonly SlideCommentRow[],
+): Map<string, string> {
+  const threadKey = (row: SlideCommentRow) =>
+    JSON.stringify([row.slideId, row.threadId]);
+  const firsts = new Map<string, SlideCommentRow>();
+  for (const row of rows) {
+    const first = firsts.get(threadKey(row));
+    if (!first || (row.id === row.threadId && first.id !== row.threadId)) {
+      firsts.set(threadKey(row), row);
+    }
+  }
+  const parents = new Map<string, string>();
+  for (const row of rows) {
+    const first = firsts.get(threadKey(row));
+    if (!row.parentId && first && first.id !== row.id) {
+      parents.set(row.id, first.id);
+    }
+  }
+  return parents;
+}
+
 // A deck's sharing, which the kit keeps on each comment.
 const DECK_SHARING = {
   ownerEmail: schema.decks.ownerEmail,
@@ -58,6 +90,8 @@ export interface SlideCommentCopyReport {
   comments: number;
   /** Comments the kit lacked, now added. */
   added: number;
+  /** Replies the kit had with no parent, now linked to their thread. */
+  linked: number;
   /** Decks whose copy failed; the copy runs again on a later start. */
   failedDecks: string[];
 }
@@ -72,6 +106,7 @@ export async function addMissingSlideCommentsToReviewKit(): Promise<SlideComment
     decks: 0,
     comments: 0,
     added: 0,
+    linked: 0,
     failedDecks: [],
   };
   let after = "";
@@ -118,17 +153,30 @@ async function copyDeck(
           asc(schema.slideComments.createdAt),
           asc(schema.slideComments.id),
         );
+      const resource = {
+        resourceType: DECK_REVIEW_RESOURCE,
+        resourceId: deckId,
+        ...deck,
+      };
+      const parents = unlinkedReplyParents(rows);
       const { written } = await mirrorReviewComments(
-        { resourceType: DECK_REVIEW_RESOURCE, resourceId: deckId, ...deck },
-        rows.map(slideCommentCopy),
+        resource,
+        rows.map((row) => slideCommentCopy(row, parents.get(row.id))),
         { onlyMissing: true },
       );
-      return { comments: rows.length, added: written };
+      // Replies an earlier copy or release 1's writes gave the kit with no
+      // parent.
+      const { linked } = await linkMirroredReviewReplies(
+        resource,
+        [...parents].map(([id, parentCommentId]) => ({ id, parentCommentId })),
+      );
+      return { comments: rows.length, added: written, linked };
     });
     if (!copied) return;
     report.decks += 1;
     report.comments += copied.comments;
     report.added += copied.added;
+    report.linked += copied.linked;
   } catch (error) {
     report.failedDecks.push(deckId);
     console.error(

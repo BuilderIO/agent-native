@@ -16,6 +16,12 @@ const schema = z.object({
   resourceType: z.string().min(1),
   resourceId: z.string().min(1),
   commentId: z.string().min(1),
+  onlyOwnComments: z
+    .boolean()
+    .optional()
+    .describe(
+      "Refuse a delete that would take anyone else's comment, checked as the thread is locked, even for an editor. An agent deleting without its person's approval sets it.",
+    ),
 });
 
 export default defineAction({
@@ -68,6 +74,12 @@ export default defineAction({
     if (!isAuthor && !isEditor) {
       throw new ForbiddenError("Not allowed to delete this review comment");
     }
+    const refuseOthers = () =>
+      fail("This would delete another person's comment.", {
+        statusCode: 409,
+        errorCode: "approval_required",
+      });
+    if (!isAuthor && args.onlyOwnComments) refuseOthers();
     // raw-sql-ok: the helper's statements are constant text; the ids are bound.
     const updatedCount = await deleteReviewComment(
       comment.id,
@@ -76,12 +88,13 @@ export default defineAction({
         assertThreadDeletable: (replyAuthorEmails) => {
           if (
             !canDeleteReviewThread({
-              isEditor,
+              isEditor: isEditor && !args.onlyOwnComments,
               actorEmail: actionCtx?.userEmail,
               rootAuthorEmail: comment.authorEmail,
               replyAuthorEmails,
             })
           ) {
+            if (isEditor) refuseOthers();
             throw new ForbiddenError(
               "Not allowed to delete a thread that has replies from other people",
             );

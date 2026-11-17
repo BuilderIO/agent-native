@@ -197,8 +197,11 @@ At the switch the app's actions keep their names and results but call the
 kit's actions, `commentsWrittenByApp` comes off, and the copy runs once more
 with `mirrorReviewComments(resource, copies, { onlyMissing: true })`, which
 only adds the comments the kit lacks. A comment changed or deleted through the
-kit since stays as it is. Slides has switched; its old table goes in a later
-release.
+kit since stays as it is. The kit takes every comment with no parent for a
+thread's first, and deleting one deletes its thread, so an app that once saved
+replies with no parent gives each its parent in the copy, and links the ones
+the kit already has with `linkMirroredReviewReplies(resource, links)`. Slides
+has switched; its old table goes in a later release.
 
 A comment write holds its thread, and then whatever the app's
 `onCommentWrite` hook reads, until it commits. An app that deletes a resource
@@ -206,6 +209,12 @@ and its comments in one transaction calls `lockMirroredReviewThreads(resource)`
 first, before it locks the resource's own row, so the two take their locks in
 the same order. Slides' hook reads the deck `FOR KEY SHARE`, so a comment
 written while its deck is deleted is either deleted with it or refused.
+
+An app that asks before its agent deletes other people's comments passes
+`onlyOwnComments: true` to `delete-review-comment` for an agent call without
+that approval. The kit then refuses, with a 409 `approval_required`, a delete
+that would take anyone else's comment, checking again as it locks the thread,
+so a reply that lands after the app's own check refuses it too.
 
 ## UI Usage {#ui-usage}
 

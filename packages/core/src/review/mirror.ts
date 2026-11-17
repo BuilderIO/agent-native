@@ -478,6 +478,42 @@ export async function lockMirroredReviewThreads(
 }
 
 /**
+ * Gives replies the kit holds with no parent the parent the app names. An app
+ * that once saved some replies without a parent, telling them apart from the
+ * thread's first comment some other way, links them before it reads from the
+ * kit, which takes every comment with no parent for a thread's first and
+ * deletes the whole thread with it. A reply is linked only to a comment in
+ * its own thread, and one that has a parent already is left alone.
+ */
+export async function linkMirroredReviewReplies(
+  resource: ReviewMirrorResource,
+  links: ReadonlyArray<{ id: string; parentCommentId: string }>,
+): Promise<{ linked: number }> {
+  if (links.length === 0) return { linked: 0 };
+  await prepareTables();
+  return inWrite(async (client) => {
+    let linked = 0;
+    for (const link of links) {
+      const result = await client.execute(sql`UPDATE agent_review_comments
+            SET parent_comment_id = ${sql.value(link.parentCommentId)},
+                revision = revision + 1
+          WHERE id = ${sql.value(link.id)}
+            AND id <> ${sql.value(link.parentCommentId)}
+            AND resource_type = ${sql.value(resource.resourceType)}
+            AND resource_id = ${sql.value(resource.resourceId)}
+            AND parent_comment_id IS NULL
+            AND EXISTS (SELECT 1 FROM agent_review_comments parent
+                         WHERE parent.id = ${sql.value(link.parentCommentId)}
+                           AND parent.resource_type = agent_review_comments.resource_type
+                           AND parent.resource_id = agent_review_comments.resource_id
+                           AND parent.thread_id = agent_review_comments.thread_id)`);
+      linked += result.rowsAffected;
+    }
+    return { linked };
+  });
+}
+
+/**
  * The IDs of resources of this type that have comments in the kit it hasn't
  * deleted, a page at a time in ID order, starting after `after`. A startup
  * copy uses it to reach resources whose comments only the kit still has.

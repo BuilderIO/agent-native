@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
-import { getReviewCommentById } from "@agent-native/core/review";
+import {
+  getReviewCommentById,
+  mirrorReviewComments,
+} from "@agent-native/core/review";
 import createReviewComment from "@agent-native/core/review/actions/create-review-comment";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
@@ -652,5 +655,71 @@ describe("Slides comments on the review kit", () => {
       status: "open",
     });
     expect((await stored("legacy-agent"))?.status).toBe("deleted");
+  });
+
+  it("links a reply Slides saved with no parent, so deleting it leaves its thread", async () => {
+    await createDeck("deck-unlinked");
+    const { getDb, schema } = dbModule;
+    const deckId = "deck-unlinked";
+    const thread = {
+      deckId,
+      slideId: "slide-1",
+      threadId: "old-root",
+      authorEmail: OWNER.userEmail,
+    };
+    await getDb()
+      .insert(schema.slideComments)
+      .values([
+        {
+          ...thread,
+          id: "old-root",
+          content: "Old thread",
+          createdAt: "2026-10-01T09:00:00.000Z",
+          updatedAt: "2026-10-01T09:00:00.000Z",
+        },
+        {
+          ...thread,
+          id: "old-reply",
+          content: "A reply saved with no parent",
+          createdAt: "2026-10-01T09:01:00.000Z",
+          updatedAt: "2026-10-01T09:01:00.000Z",
+        },
+        {
+          ...thread,
+          id: "old-reply-2",
+          content: "One the kit never had",
+          createdAt: "2026-10-01T09:02:00.000Z",
+          updatedAt: "2026-10-01T09:02:00.000Z",
+        },
+      ]);
+    // Release 1 copied the first two to the kit as Slides had them.
+    const rows = await getDb()
+      .select()
+      .from(schema.slideComments)
+      .where(eq(schema.slideComments.deckId, deckId));
+    await mirrorReviewComments(
+      { resourceType: "deck", resourceId: deckId, ...OWNER },
+      rows
+        .filter((row) => row.id !== "old-reply-2")
+        .map((row) => copy.slideCommentCopy(row)),
+    );
+    await expect(
+      asOwner(() => deleteComment.run({ deckId, id: "old-reply" })),
+    ).rejects.toMatchObject({ statusCode: 409, errorCode: "reply_not_linked" });
+    expect((await stored("old-root"))?.status).toBe("open");
+
+    const report = await copy.addMissingSlideCommentsToReviewKit();
+    expect(report).toMatchObject({ added: 1, linked: 1, failedDecks: [] });
+    expect((await stored("old-reply"))?.parentCommentId).toBe("old-root");
+    expect((await stored("old-reply-2"))?.parentCommentId).toBe("old-root");
+    expect((await copy.addMissingSlideCommentsToReviewKit()).linked).toBe(0);
+
+    const result = await asOwner(() =>
+      deleteComment.run({ deckId, id: "old-reply" }),
+    );
+    expect(result.removedIds).toEqual(["old-reply"]);
+    expect((await stored("old-reply"))?.status).toBe("deleted");
+    expect((await stored("old-root"))?.status).toBe("open");
+    expect((await stored("old-reply-2"))?.status).toBe("open");
   });
 });
