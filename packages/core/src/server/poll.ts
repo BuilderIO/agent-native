@@ -894,7 +894,9 @@ export class AppSyncState {
     const resourceKey = accessResourceKey(resourceType, resourceId);
     const epoch = this.accessInvalidationEpoch.get(resourceKey) ?? 0;
     let settled = false;
-    const check = retainRequestDbPoolScope(
+    // Read from inside its own body, which can settle before the assignment.
+    let check: Promise<void> | undefined;
+    check = retainRequestDbPoolScope(
       (async () => {
         try {
           const access = await this.resolveAccessFn(resourceType, resourceId, {
@@ -912,7 +914,9 @@ export class AppSyncState {
           this.setAccessCache(key, "unreadable", Date.now());
         } finally {
           settled = true;
-          this.accessInFlight.delete(key);
+          if (this.accessInFlight.get(key) === check) {
+            this.accessInFlight.delete(key);
+          }
         }
       })(),
     );
@@ -1406,7 +1410,7 @@ export class AppSyncState {
         sql: `SELECT id, version, event_json, owner, org_id, resource_type, resource_id FROM sync_events
               WHERE (version > ? OR (? = TRUE AND version = ? AND id > ?))
               AND (
-                (owner IS NULL AND org_id IS NULL AND event_json::jsonb ->> 'visibility' = 'public')
+                event_json::jsonb ->> 'visibility' = 'public'
                 OR owner = ?
                 OR org_id = ?
                 OR resource_type IS NOT NULL
@@ -1417,7 +1421,7 @@ export class AppSyncState {
           cursor !== undefined,
           cursor?.version ?? since,
           cursor?.id ?? "",
-          userEmail,
+          userEmail.trim().toLowerCase(),
           orgId ?? null,
           DURABLE_READ_LIMIT + 1,
         ],
