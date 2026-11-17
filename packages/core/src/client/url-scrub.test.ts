@@ -315,6 +315,53 @@ describe("scrubUrl allowlist", () => {
     expect(cpuMs).toBeLessThan(500);
   });
 
+  it("scrubs a URL with thousands of distinct parameters in linear time", () => {
+    const distinct = Array.from(
+      { length: 20_000 },
+      (_, index) => `k${index}=v${index}`,
+    ).join("&");
+
+    let scrubbed: string | undefined;
+    const cpuMs = measureCpuMs(() => {
+      scrubbed = scrubUrl(
+        `https://app.example.test/x?${distinct}&utm_source=news#${distinct}`,
+      );
+    });
+
+    expect(scrubbed).toContain("k19999=%3Credacted%3E");
+    expect(scrubbed).toContain("utm_source=news#k0=%3Credacted%3E");
+    expect(cpuMs).toBeLessThan(500);
+  });
+
+  it("scrubs a nested query of thousands of distinct attribution parameters in linear time", () => {
+    const nested = encodeURIComponent(
+      `/y?${Array.from({ length: 40_000 }, (_, index) => `utm_k${index}=v`).join("&")}`,
+    );
+    const url = `/x?utm_source=${nested}&p-key=s`;
+
+    let scrubbed: string | undefined;
+    const cpuMs = measureCpuMs(() => {
+      scrubbed = scrubUrl(url);
+    });
+
+    expect(scrubbed).toBe(`/x?utm_source=${nested}&p-key=%3Credacted%3E`);
+    expect(cpuMs).toBeLessThan(500);
+  });
+
+  it("collapses a repeated redacted parameter to one entry and keeps repeated kept ones", () => {
+    expect(scrubUrl("/x?a=1&utm_source=n&a=2&utm_source=m")).toBe(
+      "/x?a=%3Credacted%3E&utm_source=n&utm_source=m",
+    );
+    expect(
+      scrubUrl(
+        "/x?utm_source=n&utm_source=%2Fy%3Ftoken%3D1&utm_source=m&ref=r",
+      ),
+    ).toBe("/x?utm_source=%3Credacted%3E&ref=r");
+    expect(scrubUrl("/x?a=1&b=2&a=3#a=1&b=2&a=3")).toBe(
+      "/x?a=%3Credacted%3E&b=%3Credacted%3E#a=%3Credacted%3E&b=%3Credacted%3E",
+    );
+  });
+
   it("drops the query and hash from a URL it cannot parse", () => {
     expect(scrubUrl(`https://bad host/path?token=${canary}#${canary}`)).toBe(
       "https://bad host/path",

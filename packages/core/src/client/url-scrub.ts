@@ -87,13 +87,12 @@ function hasSensitiveNestedQuery(
       delimiter === "?" && nextFragment !== -1
         ? value.slice(index + 1, nextFragment)
         : value.slice(index + 1);
-    const params = new URLSearchParams(query);
-    for (const key of new Set(params.keys())) {
+    for (const [key, values] of groupQueryParams(new URLSearchParams(query))) {
       if (shouldRedactQueryParam(key, policy)) return true;
       if (
-        params
-          .getAll(key)
-          .some((nested) => hasSensitiveNestedQuery(nested, policy, depth + 1))
+        values.some((nested) =>
+          hasSensitiveNestedQuery(nested, policy, depth + 1),
+        )
       ) {
         return true;
       }
@@ -115,25 +114,47 @@ function hasSensitiveNestedQuery(
   return false;
 }
 
+// URLSearchParams scans its whole list for `getAll`, `set` and `delete`, so a
+// loop over the keys that calls them is quadratic in the number of keys.
+function groupQueryParams(params: URLSearchParams): Map<string, string[]> {
+  const grouped = new Map<string, string[]>();
+  for (const [key, value] of params) {
+    const values = grouped.get(key);
+    if (values) values.push(value);
+    else grouped.set(key, [value]);
+  }
+  return grouped;
+}
+
+/**
+ * The parameters with every sensitive key redacted, or `undefined` when none
+ * is. A redacted key keeps its first position and drops its later duplicates.
+ */
 function redactSensitiveQueryParams(
   params: URLSearchParams,
   policy: ParamPolicy,
-): boolean {
-  let mutated = false;
-  for (const key of new Set(params.keys())) {
-    if (shouldRedactQueryParam(key, policy)) {
-      params.set(key, "<redacted>");
-      mutated = true;
-      continue;
-    }
+): URLSearchParams | undefined {
+  const redacted = new Set<string>();
+  for (const [key, values] of groupQueryParams(params)) {
     if (
-      params.getAll(key).some((value) => hasSensitiveNestedQuery(value, policy))
+      shouldRedactQueryParam(key, policy) ||
+      values.some((value) => hasSensitiveNestedQuery(value, policy))
     ) {
-      params.set(key, "<redacted>");
-      mutated = true;
+      redacted.add(key);
     }
   }
-  return mutated;
+  if (redacted.size === 0) return undefined;
+  const pairs: [string, string][] = [];
+  const written = new Set<string>();
+  for (const [key, value] of params) {
+    if (!redacted.has(key)) {
+      pairs.push([key, value]);
+    } else if (!written.has(key)) {
+      written.add(key);
+      pairs.push([key, "<redacted>"]);
+    }
+  }
+  return new URLSearchParams(pairs);
 }
 
 export interface ScrubUrlOptions {
@@ -246,7 +267,11 @@ export function scrubUrl(
         mutated = true;
       }
     }
-    mutated = redactSensitiveQueryParams(u.searchParams, policy) || mutated;
+    const redactedSearch = redactSensitiveQueryParams(u.searchParams, policy);
+    if (redactedSearch) {
+      u.search = redactedSearch.toString();
+      mutated = true;
+    }
     const hash = u.hash.slice(1);
     const encodedRouteQueryIndex = hash.search(ENCODED_ROUTE_QUERY_DELIMITER);
     const routePathBeforeEncodedQuery =
@@ -301,20 +326,27 @@ export function scrubUrl(
         const routePrefixParams = new URLSearchParams(
           hashRoutePrefix.slice(routePrefixParamsIndex + 1),
         );
-        if (redactSensitiveQueryParams(routePrefixParams, policy)) {
+        const redactedPrefix = redactSensitiveQueryParams(
+          routePrefixParams,
+          policy,
+        );
+        if (redactedPrefix) {
           mutated = true;
           hashRoutePrefixMutated = true;
-          scrubbedHashRoutePrefix = `${routePrefixPath}&${routePrefixParams.toString()}`;
+          scrubbedHashRoutePrefix = `${routePrefixPath}&${redactedPrefix.toString()}`;
         }
       }
       let scrubbedHashQuery = hashQuery;
       let hashQueryMutated = false;
       if (hashQuery.includes("=")) {
-        const hashParams = new URLSearchParams(hashQuery);
-        if (redactSensitiveQueryParams(hashParams, policy)) {
+        const redactedHash = redactSensitiveQueryParams(
+          new URLSearchParams(hashQuery),
+          policy,
+        );
+        if (redactedHash) {
           mutated = true;
           hashQueryMutated = true;
-          scrubbedHashQuery = hashParams.toString();
+          scrubbedHashQuery = redactedHash.toString();
         }
       }
       if (hashUsesRouteQuery && (hashRoutePrefixMutated || hashQueryMutated)) {
