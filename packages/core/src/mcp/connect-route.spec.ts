@@ -583,7 +583,7 @@ describe("handleMcpConnect", () => {
       expect(body).toContain('data-tab="codex"');
       expect(body).toContain("Your MCP URL");
       expect(body).toContain(
-        "claude mcp add --transport http agent-native-mail",
+        "claude mcp add --transport http --scope user agent-native-mail",
       );
       expect(body).toContain(
         "codex mcp add agent-native-mail --url https://mail.agent-native.com/mcp",
@@ -656,8 +656,8 @@ describe("handleMcpConnect", () => {
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       const res = await handleMcpConnect(ev({ acceptLanguage: "es-ES" }), "/");
       const body = await res.text();
-      expect(body).toContain("En Claude, ve a Customize → Connectors.");
-      expect(body).not.toContain("In Claude, go to Customize → Connectors.");
+      expect(body).toContain("Haz clic en Añadir a Claude.");
+      expect(body).not.toContain("Click Add to Claude.");
       expect(body).toContain("Tu URL de MCP");
       expect(body).toContain("Conexiones existentes");
       expect(body).not.toContain("Existing connections");
@@ -673,8 +673,8 @@ describe("handleMcpConnect", () => {
         "/",
       );
       const body = await res.text();
-      expect(body).toContain("En Claude, ve a Customize → Connectors.");
-      expect(body).not.toContain("In Claude, go to Customize → Connectors.");
+      expect(body).toContain("Haz clic en Añadir a Claude.");
+      expect(body).not.toContain("Click Add to Claude.");
       expect(body).toContain('<html lang="es-ES" dir="ltr">');
     });
 
@@ -1880,6 +1880,19 @@ describe("connect identity", () => {
     }
     expect(body).toContain(
       'href="https://cursor.com/install-mcp?name=beta-agent-native-mail',
+    );
+    const claudeHrefs = [...body.matchAll(/href="([^"]+)"/g)]
+      .map(([, href]) => href.replace(/&amp;/g, "&"))
+      .filter((href) => href.startsWith("https://claude.ai/"));
+    expect(claudeHrefs).toHaveLength(1);
+    const claude = new URL(claudeHrefs[0]);
+    expect([...claude.searchParams.keys()].sort()).toEqual([
+      "connectorName",
+      "connectorUrl",
+      "modal",
+    ]);
+    expect(claude.searchParams.get("connectorUrl")).toBe(
+      "https://beta.mail.agent-native.com/mcp",
     );
   });
 });

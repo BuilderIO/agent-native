@@ -214,6 +214,28 @@ describe("MCP client setup", () => {
     expect(container.textContent).toContain("mcp.json");
     expect(container.textContent).toContain("approve the MCP scopes");
   });
+  it("opens Claude's add-connector dialog prefilled and keeps manual setup", async () => {
+    await render({ guideId: "claude" });
+    const install = link("Add to Claude");
+    expect(install?.target).toBe("_blank");
+    const url = new URL(install?.href ?? "");
+    expect(url.origin + url.pathname).toBe(
+      "https://claude.ai/customize/connectors",
+    );
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      modal: "add-custom-connector",
+      connectorName: IDENTITY.appName,
+      connectorUrl: IDENTITY.mcpUrl,
+    });
+    expect(container.textContent).not.toContain("Add custom connector");
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((item) => item.textContent === "Manual setup")
+        ?.click(),
+    );
+    expect(container.textContent).toContain("Add custom connector");
+    expect(container.textContent).toContain(IDENTITY.mcpUrl);
+  });
   it("exposes real hrefs and preserves modified clicks", async () => {
     const select = vi.fn();
     await render({
@@ -316,10 +338,14 @@ describe("MCP client setup", () => {
     );
     await open("Claude");
     expect(container.textContent).toContain("herramientas de Agent-Native");
-    expect(container.textContent).toContain("URL del servidor");
-    expect(container.textContent).toContain(
-      "En Claude, ve a Customize → Connectors.",
+    expect(link("Añadir a Claude")).toBeDefined();
+    expect(container.textContent).toContain("Haz clic en Añadir a Claude.");
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((item) => item.textContent === "Configuración manual")
+        ?.click(),
     );
+    expect(container.textContent).toContain("URL del servidor");
     expect(container.textContent).not.toContain("MCP server URL");
   });
   it("keeps the VS Code installation transport and environment-specific server name", async () => {

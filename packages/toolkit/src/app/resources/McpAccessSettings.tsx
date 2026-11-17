@@ -468,6 +468,7 @@ function GuideSteps({
                     const link = buildMcpInstallLink(option.client, {
                       serverName: values.serverId,
                       mcpUrl: values.mcpUrl,
+                      displayName: values.appName,
                     });
                     return (
                       <Button
@@ -512,6 +513,7 @@ function HostConnectAction({
     const link = buildMcpInstallLink(install.client, {
       serverName: values.serverId,
       mcpUrl: values.mcpUrl,
+      displayName: values.appName,
     });
     return (
       <Button asChild size="sm">

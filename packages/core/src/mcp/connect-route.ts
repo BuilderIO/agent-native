@@ -456,6 +456,7 @@ function renderConnectGuide(
     const link = buildMcpInstallLink(option.client, {
       serverName: values.serverId,
       mcpUrl: values.mcpUrl,
+      displayName: values.appName,
     });
     const target = link.opensWebPage
       ? ` target="_blank" rel="noopener noreferrer"`
