@@ -1,7 +1,7 @@
 import type { ActionRunContext } from "@agent-native/core/action";
 import { closeDbExec, type DbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
-import { getSetting } from "@agent-native/core/settings";
+import { deleteSetting, getSetting } from "@agent-native/core/settings";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const versions = vi.hoisted(() => ({ skipSnapshots: false }));
@@ -49,6 +49,7 @@ import {
   VISUAL_EDIT_BOARD_MAX_DATA_BYTES,
   VISUAL_EDIT_BOARD_MAX_FILE_BYTES,
   VISUAL_EDIT_BOARD_MAX_FILES,
+  visualEditBoardConnectionId,
 } from "./visual-edit-capability.js";
 
 // Signed-out boards against a real database: every signed-out tab for one
@@ -83,6 +84,26 @@ async function seedBoard(
 }
 
 async function seedConnection(id: string, port: number) {
+  await seedConnectionFor(id, port, PRINCIPAL);
+}
+
+async function connectionOwner(id: string) {
+  const { rows } = await exec.execute({
+    sql: "SELECT owner_email FROM design_localhost_connections WHERE id = ?",
+    args: [id],
+  });
+  return rows[0]?.owner_email;
+}
+
+async function versionCount(designId: string) {
+  const { rows } = await exec.execute({
+    sql: "SELECT COUNT(*) AS versions FROM design_versions WHERE design_id = ?",
+    args: [designId],
+  });
+  return Number(rows[0]?.versions);
+}
+
+async function seedConnectionFor(id: string, port: number, owner: string) {
   await exec.execute({
     sql: "INSERT INTO design_localhost_connections (id, name, dev_server_url, bridge_url, bridge_token, preview_token, owner_email, org_id, route_manifest) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)",
     args: [
@@ -92,7 +113,7 @@ async function seedConnection(id: string, port: number) {
       `http://127.0.0.1:${port + 1000}`,
       `${id}-bridge-token`,
       `${id}-preview-token`,
-      PRINCIPAL,
+      owner,
       JSON.stringify({
         version: 1,
         sourceType: "localhost",
@@ -435,12 +456,18 @@ describe("signed-out board limits", () => {
     expect(stored.a).toBe(half);
     expect(stored.b).toBeUndefined();
     // An account write is not a board capability write and keeps its limits.
-    await asUser(PRINCIPAL, () =>
-      updateDesign.run(
-        { id: "data-board", data: JSON.stringify({ b: half }) },
-        frontend,
-      ),
-    );
+    // Its checkpoint of this half-MiB board would need blob storage.
+    versions.skipSnapshots = true;
+    try {
+      await asUser(PRINCIPAL, () =>
+        updateDesign.run(
+          { id: "data-board", data: JSON.stringify({ b: half }) },
+          frontend,
+        ),
+      );
+    } finally {
+      versions.skipSnapshots = false;
+    }
   });
 });
 
@@ -539,6 +566,33 @@ describe("claim-visual-edit-board", () => {
       results.filter((r) => !(r as { alreadyOwned: boolean }).alreadyOwned),
     ).toHaveLength(1);
     expect((await designRow("same-user-race")).owner_email).toBe(ALICE);
+  });
+
+  it("waits for a same-account claim whose secret another tab already spent", async () => {
+    await seedBoard("spent-secret");
+    const secret = await issue("spent-secret");
+    // The winning tab has deleted the secret but not yet moved the owner.
+    await deleteSetting("design-visual-edit-board-claim:spent-secret");
+    const pending = claim(ALICE, "spent-secret", secret);
+    setTimeout(() => {
+      void exec.execute({
+        sql: "UPDATE designs SET owner_email = ? WHERE id = ?",
+        args: [ALICE, "spent-secret"],
+      });
+    }, 80);
+    await expect(pending).resolves.toEqual({
+      designId: "spent-secret",
+      claimed: true,
+      alreadyOwned: true,
+    });
+  });
+
+  it("refuses a board with no stored secret once nobody claims it", async () => {
+    await seedBoard("no-secret");
+    await expect(
+      claim(ALICE, "no-secret", "x".repeat(43)),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_board_not_claimable" });
+    expect((await designRow("no-secret")).owner_email).toBe(PRINCIPAL);
   });
 
   it("refuses a claim from the signed-out principal itself", async () => {
@@ -655,6 +709,57 @@ describe("claimed boards", () => {
   });
 });
 
+describe("claimed bridged boards", () => {
+  it("moves the board's own connection to the new owner and leaves shared rows behind", async () => {
+    const own = visualEditBoardConnectionId(PRINCIPAL, "bridged-claim");
+    await seedConnection(own, 5201);
+    await seedConnection("conn-shared", 5202);
+    await seedConnection(
+      visualEditBoardConnectionId(PRINCIPAL, "bridged-other"),
+      5203,
+    );
+    await seedBoard("bridged-claim", PRINCIPAL, {
+      sourceType: "localhost",
+      visualEditBoard: true,
+      connectionId: own,
+    });
+    await linkVisualEditBoardConnections("bridged-claim", [own, "conn-shared"]);
+    const secret = await issue("bridged-claim");
+    await claim(ALICE, "bridged-claim", secret);
+
+    expect(await connectionOwner(own)).toBe(ALICE);
+    expect(await connectionOwner("conn-shared")).toBe(PRINCIPAL);
+    expect(
+      await connectionOwner(
+        visualEditBoardConnectionId(PRINCIPAL, "bridged-other"),
+      ),
+    ).toBe(PRINCIPAL);
+    expect(
+      await getSetting("design-visual-edit-board-connections:bridged-claim"),
+    ).toEqual({ connectionIds: [own] });
+    const listed = (await asUser(ALICE, () =>
+      listLocalhostConnections.run({ designId: "bridged-claim" }, frontend),
+    )) as { connections: Array<{ id: string }> };
+    expect(listed.connections.map((c) => c.id)).toEqual([own]);
+  });
+
+  it("moves no connection when the claim loses the owner race", async () => {
+    const own = visualEditBoardConnectionId(PRINCIPAL, "bridged-lost");
+    await seedConnection(own, 5204);
+    await seedBoard("bridged-lost");
+    await linkVisualEditBoardConnections("bridged-lost", [own]);
+    const secret = await issue("bridged-lost");
+    const results = await Promise.allSettled([
+      claim(ALICE, "bridged-lost", secret),
+      claim(BOB, "bridged-lost", secret),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(await connectionOwner(own)).toBe(
+      (await designRow("bridged-lost")).owner_email,
+    );
+  });
+});
+
 describe("board connections", () => {
   beforeAll(async () => {
     await seedConnection("conn-a", 5101);
@@ -736,6 +841,20 @@ describe("board connections", () => {
       "conn-a",
     );
     expect(await fileCount("linked-a")).toBe(1);
+  });
+
+  it("keeps every link when opens of one board record connections at once", async () => {
+    const ids = Array.from({ length: 8 }, (_, index) => `conn-race-${index}`);
+    await Promise.all(
+      ids.map((id) => linkVisualEditBoardConnections("link-race", [id])),
+    );
+    const stored = await getSetting(
+      "design-visual-edit-board-connections:link-race",
+      { bypassCache: true },
+    );
+    expect(
+      [...((stored?.connectionIds as string[] | undefined) ?? [])].sort(),
+    ).toEqual([...ids].sort());
   });
 
   it("uses the board's own connection", async () => {
@@ -853,5 +972,71 @@ describe("caps on every board writer", () => {
       args: ["snapshot-board:board"],
     });
     expect(rows[0]?.content).toBe("http://localhost:5104/");
+  });
+});
+
+describe("capability writes and version history", () => {
+  it("keeps no version per capability edit, however many there are", async () => {
+    versions.skipSnapshots = false;
+    await seedBoard("history-board");
+    for (let index = 0; index < 6; index += 1) {
+      await asCapabilityOnly("history-board", () =>
+        updateDesign.run(
+          {
+            id: "history-board",
+            dataOperations: [{ op: "set", path: ["edit"], value: index }],
+          },
+          { caller: "webmcp" },
+        ),
+      );
+      await asCapabilityOnly("history-board", () =>
+        updateFile.run(
+          {
+            id: "history-board:board",
+            content: `<html><body>edit ${index}</body></html>`,
+          },
+          { caller: "webmcp" },
+        ),
+      );
+    }
+    expect(await versionCount("history-board")).toBe(0);
+    expect(JSON.parse((await designRow("history-board")).data).edit).toBe(5);
+  });
+
+  it("still keeps versions for an account's own edits", async () => {
+    versions.skipSnapshots = false;
+    await seedBoard("account-history", ALICE);
+    await asUser(ALICE, () =>
+      updateDesign.run(
+        {
+          id: "account-history",
+          dataOperations: [{ op: "set", path: ["edit"], value: 1 }],
+        },
+        { caller: "webmcp" },
+      ),
+    );
+    expect(await versionCount("account-history")).toBeGreaterThan(0);
+  });
+});
+
+describe("annotated board files", () => {
+  it("caps the file create-file stores, not the content it was given", async () => {
+    await seedBoard("annotated-board");
+    const elements = "<p>a</p>".repeat(400);
+    const shell = `<html><body>${elements}<!----></body></html>`;
+    const room = VISUAL_EDIT_BOARD_MAX_FILE_BYTES - Buffer.byteLength(shell);
+    const content = shell.replace("<!---->", `<!--${"x".repeat(room - 7)}-->`);
+    expect(Buffer.byteLength(content)).toBeLessThanOrEqual(
+      VISUAL_EDIT_BOARD_MAX_FILE_BYTES,
+    );
+    await expect(
+      asCapabilityOnly("annotated-board", () =>
+        createFile.run(
+          { designId: "annotated-board", filename: "dense.html", content },
+          frontend,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_board_file_too_large" });
+    expect(await fileCount("annotated-board")).toBe(1);
   });
 });

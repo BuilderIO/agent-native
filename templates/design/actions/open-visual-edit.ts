@@ -31,14 +31,20 @@ import {
   issueVisualEditBoardClaim,
   markVisualEditBoard,
 } from "../server/lib/visual-edit-board-claim.js";
-import { linkVisualEditBoardConnections } from "../server/lib/visual-edit-capability.js";
+import {
+  linkVisualEditBoardConnections,
+  visualEditBoardConnectionId,
+} from "../server/lib/visual-edit-capability.js";
 import {
   nextCanvasFramePosition,
   nextFreeCanvasRowY,
   parseCanvasFrameGeometryById,
 } from "../shared/canvas-frames.js";
 import { getOverviewScreenFileIds } from "../shared/design-files.js";
-import { LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN } from "../shared/local-visual-edit-principal.js";
+import {
+  isLocalVisualEditPrincipal,
+  LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN,
+} from "../shared/local-visual-edit-principal.js";
 import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import {
   DESIGN_BRIDGE_OPERATIONS,
@@ -101,6 +107,7 @@ const capabilitySchema = z.object({
 const activeVisualEditStateSchema = z.object({
   designId: z.string().min(1),
   connectionId: z.string().min(1),
+  devServerUrl: z.string().optional(),
 });
 
 const VIEWPORT_PRESETS = {
@@ -548,6 +555,19 @@ export default defineAction({
         },
       );
     }
+    // A page cannot supply a bridge token, so a bridged signed-out board could
+    // only borrow a row some other caller registered under the shared
+    // workspace principal. Each signed-out board owns its own row instead, and
+    // only the local CLI can register one.
+    if (isPageBootstrap && !args.withoutBridge) {
+      fail(
+        "A signed-out Design page can only start a board without a bridge. Pass withoutBridge, run open-visual-edit from the local CLI, or sign in.",
+        {
+          errorCode: "localhost_bridge_registration_required",
+          statusCode: 409,
+        },
+      );
+    }
     if (isPageBootstrap && !isSameOriginVisualEditBrowserRequest(ctx)) {
       fail(
         "Signed-out visual-edit bootstrap is available only from the same-origin Design page.",
@@ -555,6 +575,31 @@ export default defineAction({
       );
     }
     const runForPrincipal = async () => {
+      const principalEmail = getRequestUserEmail();
+      const signedOutBoard = isLocalVisualEditPrincipal(principalEmail);
+      const routeConnectionIds = [
+        ...(args.routes ?? []),
+        ...(args.routeManifest?.routes ?? []),
+      ].flatMap((route) => (route.connectionId ? [route.connectionId] : []));
+      // A signed-out board reaches only its own connection row; naming another
+      // row would hand it a connection another board registered.
+      const assertOwnBoardConnection = (boardId: string | undefined) => {
+        if (!signedOutBoard || !principalEmail) return;
+        const own = boardId
+          ? visualEditBoardConnectionId(principalEmail, boardId)
+          : undefined;
+        for (const connectionId of [args.connectionId, ...routeConnectionIds]) {
+          if (connectionId && connectionId !== own) {
+            fail(
+              "A signed-out board uses only its own local connection. Omit connectionId, or sign in to reuse a saved connection.",
+              {
+                errorCode: "signed_out_visual_edit_foreign_connection",
+                statusCode: 403,
+              },
+            );
+          }
+        }
+      };
       const routeManifest = args.routeManifest
         ? {
             ...args.routeManifest,
@@ -601,8 +646,55 @@ export default defineAction({
       const savedDesignAccess = savedVisualEdit
         ? await resolveAccess("design", savedVisualEdit.designId)
         : null;
+      let designId = args.designId;
+      let createdDesign = false;
+      let publicReadOnly = false;
+      let claimSecret: string | undefined;
+      const createBoard = async () => {
+        const design = await createDesignAction.run({
+          title: args.title ?? `${new URL(devServerUrl).host} visual edit`,
+          description:
+            args.description ??
+            "URL-backed localhost screens prepared by visual-edit.",
+          projectType: "prototype",
+          creationMethod: "import_url",
+        });
+        createdDesign = true;
+        // A bridge-free board has no localhost screens for a browser session to
+        // preview; its capability reaches it while private.
+        publicReadOnly = Boolean(
+          (args.publicReadOnly ?? !args.withoutBridge) &&
+          isLoopbackUrl(devServerUrl),
+        );
+        await markVisualEditBoard(design.id, publicReadOnly);
+        claimSecret = await issueVisualEditBoardClaim(design.id);
+        return design.id;
+      };
+      if (signedOutBoard && principalEmail && !args.withoutBridge) {
+        // The board's connection id names the board, so the board comes first.
+        if (
+          !designId &&
+          savedVisualEdit &&
+          savedVisualEdit.devServerUrl === devServerUrl &&
+          savedVisualEdit.connectionId ===
+            visualEditBoardConnectionId(
+              principalEmail,
+              savedVisualEdit.designId,
+            ) &&
+          savedDesignAccess &&
+          roleSatisfies(savedDesignAccess.role, "editor")
+        ) {
+          designId = savedVisualEdit.designId;
+        }
+        if (designId) await assertAccess("design", designId, "editor");
+        assertOwnBoardConnection(designId);
+        designId ??= await createBoard();
+      }
       const connectArgs = {
-        id: args.connectionId,
+        id:
+          signedOutBoard && principalEmail && designId
+            ? visualEditBoardConnectionId(principalEmail, designId)
+            : args.connectionId,
         name: args.name,
         devServerUrl,
         bridgeUrl: args.bridgeUrl,
@@ -619,8 +711,8 @@ export default defineAction({
           ? await connectLocalhostAction.run(connectArgs, ctx)
           : await connectLocalhostAction.run(connectArgs);
 
-      let designId = args.designId;
       if (
+        !designId &&
         connection &&
         savedVisualEdit?.connectionId === connection.id &&
         savedDesignAccess &&
@@ -628,29 +720,7 @@ export default defineAction({
       ) {
         designId = savedVisualEdit.designId;
       }
-      let createdDesign = false;
-      let publicReadOnly = false;
-      let claimSecret: string | undefined;
-      if (!designId) {
-        const design = await createDesignAction.run({
-          title: args.title ?? `${new URL(devServerUrl).host} visual edit`,
-          description:
-            args.description ??
-            "URL-backed localhost screens prepared by visual-edit.",
-          projectType: "prototype",
-          creationMethod: "import_url",
-        });
-        designId = design.id;
-        createdDesign = true;
-        // A bridge-free board has no localhost screens for a browser session to
-        // preview; its capability reaches it while private.
-        publicReadOnly = Boolean(
-          (args.publicReadOnly ?? !args.withoutBridge) &&
-          isLoopbackUrl(devServerUrl),
-        );
-        await markVisualEditBoard(designId, publicReadOnly);
-        claimSecret = await issueVisualEditBoardClaim(designId);
-      }
+      if (!designId) designId = await createBoard();
 
       const viewports = connection
         ? resolveViewports(args.viewports)

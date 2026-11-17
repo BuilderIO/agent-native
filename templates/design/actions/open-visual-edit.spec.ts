@@ -110,6 +110,8 @@ vi.mock("../server/lib/visual-edit-board-claim.js", () => ({
 
 vi.mock("../server/lib/visual-edit-capability.js", () => ({
   linkVisualEditBoardConnections: mocks.linkVisualEditBoardConnections,
+  visualEditBoardConnectionId: (_ownerEmail: string, designId: string) =>
+    `localhost_board_${designId}`,
 }));
 
 vi.mock("./connect-localhost.js", () => ({
@@ -1160,40 +1162,148 @@ describe("open-visual-edit", () => {
     expect(mocks.createEmbedSessionTicket).not.toHaveBeenCalled();
   });
 
-  it("reuses a saved connection for signed-out page WebMCP without bridge credentials", async () => {
+  it("refuses a bridged board from a signed-out page before touching Design data", async () => {
     mocks.getRequestUserEmail.mockReturnValue(undefined);
     const capability = `capability:visual-edit-bootstrap:${"b".repeat(32)}`;
     mocks.getRequestAuthCapability.mockReturnValue(capability);
-    const result = await action.run(
-      {
-        devServerUrl: "http://localhost:5173",
-        bridgeUrl: "http://127.0.0.1:7331",
-        rootPath: "/tmp/app",
-        paths: ["/"],
-        navigate: false,
-      },
-      {
-        actionName: "open-visual-edit",
-        caller: "frontend",
-        userEmail: undefined,
-        orgId: null,
-        requestHeaders: new Headers({
-          origin: "https://design.example.com",
-          "sec-fetch-site": "same-origin",
-        }),
-      },
-    );
+    await expect(
+      action.run(
+        {
+          devServerUrl: "http://localhost:5173",
+          bridgeUrl: "http://127.0.0.1:7331",
+          rootPath: "/tmp/app",
+          paths: ["/"],
+          navigate: false,
+        },
+        {
+          actionName: "open-visual-edit",
+          caller: "frontend",
+          userEmail: undefined,
+          orgId: null,
+          requestHeaders: new Headers({
+            origin: "https://design.example.com",
+            "sec-fetch-site": "same-origin",
+          }),
+        },
+      ),
+    ).rejects.toThrow(/only start a board without a bridge/);
+    expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+    expect(mocks.createDesignRun).not.toHaveBeenCalled();
+    expect(mocks.linkVisualEditBoardConnections).not.toHaveBeenCalled();
+  });
 
-    expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userEmail: localVisualEditWorkspacePrincipal("/tmp/app"),
-      }),
-      expect.any(Function),
+  describe("signed-out CLI boards", () => {
+    const cli = {
+      actionName: "open-visual-edit",
+      caller: "cli" as const,
+      userEmail: undefined,
+      orgId: null,
+    };
+    const open = (args: Record<string, unknown> = {}) =>
+      action.run(
+        {
+          devServerUrl: "http://localhost:5173",
+          rootPath: "/tmp/app",
+          paths: ["/"],
+          navigate: false,
+          ...args,
+        } as Parameters<typeof action.run>[0],
+        cli,
+      );
+
+    beforeEach(() => {
+      mocks.getRequestUserEmail.mockReturnValue(undefined);
+      mocks.connectLocalhostRun.mockImplementation(
+        async (args: { id?: string }) => ({
+          id: args.id ?? "localhost_shared",
+          bridgeUrl: "http://127.0.0.1:7331",
+          rootPath: "/tmp/app",
+          bridgeToken: "stored-write-token",
+          previewToken: "stored-preview-token",
+          routes: [],
+        }),
+      );
+      mocks.addLocalhostScreensRun.mockImplementation(
+        async (args: { connectionId: string }) => ({
+          screenCount: 1,
+          screens: [{ id: "screen_1", connectionId: args.connectionId }],
+          placedFrames: [],
+        }),
+      );
+    });
+
+    it("gives two boards on the same app URL separate connections", async () => {
+      mocks.createDesignRun
+        .mockResolvedValueOnce({ id: "design_a" })
+        .mockResolvedValueOnce({ id: "design_b" });
+      const first = await open();
+      const second = await open({ newDesign: true });
+
+      expect(first.connectionId).toBe("localhost_board_design_a");
+      expect(second.connectionId).toBe("localhost_board_design_b");
+      expect(
+        mocks.connectLocalhostRun.mock.calls.map(([args]) => args.id),
+      ).toEqual(["localhost_board_design_a", "localhost_board_design_b"]);
+      expect(mocks.linkVisualEditBoardConnections.mock.calls).toEqual([
+        ["design_a", ["localhost_board_design_a", "localhost_board_design_a"]],
+        ["design_b", ["localhost_board_design_b", "localhost_board_design_b"]],
+      ]);
+      // The board exists before its connection row, which is named after it.
+      expect(mocks.createDesignRun.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.connectLocalhostRun.mock.invocationCallOrder[0]!,
+      );
+    });
+
+    it("refreshes a board through its own connection", async () => {
+      const result = await open({ designId: "design_a" });
+      expect(mocks.createDesignRun).not.toHaveBeenCalled();
+      expect(mocks.assertAccess).toHaveBeenCalledWith(
+        "design",
+        "design_a",
+        "editor",
+      );
+      expect(mocks.connectLocalhostRun).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "localhost_board_design_a" }),
+        cli,
+      );
+      expect(result.designId).toBe("design_a");
+    });
+
+    it("resumes the saved board only for the same app URL", async () => {
+      mocks.readAppState.mockResolvedValue({
+        designId: "design_a",
+        connectionId: "localhost_board_design_a",
+        devServerUrl: "http://localhost:5173",
+      });
+      expect((await open()).designId).toBe("design_a");
+      expect(mocks.createDesignRun).not.toHaveBeenCalled();
+
+      mocks.createDesignRun.mockResolvedValueOnce({ id: "design_b" });
+      const other = await open({ devServerUrl: "http://localhost:5174" });
+      expect(other.designId).toBe("design_b");
+      expect(other.connectionId).toBe("localhost_board_design_b");
+    });
+
+    it.each([
+      ["a connectionId", { connectionId: "localhost_shared" }],
+      [
+        "a route on another connection",
+        { routes: [{ path: "/", connectionId: "localhost_board_design_b" }] },
+      ],
+    ])(
+      "refuses %s that is not the board's own before creating anything",
+      async (_name, args) => {
+        await expect(open(args)).rejects.toThrow(
+          /uses only its own local connection/,
+        );
+        expect(mocks.createDesignRun).not.toHaveBeenCalled();
+        expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+        await expect(open({ ...args, designId: "design_a" })).rejects.toThrow(
+          /uses only its own local connection/,
+        );
+        expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+      },
     );
-    expect(result.designId).toBe("design_created");
-    expect(result.bridgeToken).toBeUndefined();
-    expect(result.previewToken).toBeUndefined();
-    expect(result.message).not.toContain("stored-write-token");
   });
 
   it.each([
@@ -1376,7 +1486,11 @@ describe("open-visual-edit", () => {
         connectionId: "localhost_custom",
       });
       const result = await action.run(
-        { devServerUrl: "http://localhost:5173", navigate: false },
+        {
+          devServerUrl: "http://localhost:5173",
+          withoutBridge: true,
+          navigate: false,
+        },
         pageContext("frontend"),
       );
       expect(mocks.readAppState).not.toHaveBeenCalled();
@@ -1431,10 +1545,16 @@ describe("open-visual-edit", () => {
       },
     );
 
-    it("still opens a bridged signed-out design publicly by default", async () => {
+    it("still opens a bridged signed-out CLI design publicly by default", async () => {
+      mocks.getRequestAuthCapability.mockReturnValue(undefined);
       const result = await action.run(
         { devServerUrl: "http://localhost:5173", navigate: false },
-        pageContext("frontend"),
+        {
+          actionName: "open-visual-edit",
+          caller: "cli",
+          userEmail: undefined,
+          orgId: null,
+        },
       );
       expect(mocks.markVisualEditBoard).toHaveBeenCalledWith(
         "design_created",

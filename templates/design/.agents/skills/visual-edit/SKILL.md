@@ -93,8 +93,8 @@ once with `list-browser-session-webmcp-tools` and run with
 `run-host-webmcp-tool` pair. Preserve the exact discovered name, origin, and
 args. Otherwise use the page-world API. Agent-Native pages expose this helper:
 
-Example assumes signed-in or an existing bridge; signed out with no bridge, pass
-`withoutBridge: true`.
+Example assumes signed-in. Signed out, pass `withoutBridge: true` or use the
+local CLI.
 
 ```js
 const an = window.__agentNativeWebMcp;
@@ -269,9 +269,10 @@ check meaningful URL, hover, focus, scroll, and modal states.
   sign-in return flow first; the page that built a signed-out board then moves
   it into the account with its claim secret.
 - Threat model: a board's capability, minted from its own tab, writes only that
-  board, within file count and size limits; viewers stay read-only. Viewer
-  payloads carry no bridge or preview tokens, claim secret, or owner. Claiming
-  needs the opening page's single-use secret, never the public design id.
+  board, within file limits, keeping no versions; viewers stay read-only and
+  see no tokens, claim secret, or owner. Claiming needs the opening page's
+  single-use secret and moves the board's own connection row; boards never
+  share one.
 
 ## Required Local Bridge
 

@@ -1,7 +1,9 @@
+import crypto from "node:crypto";
+
 import { fail } from "@agent-native/core/action";
 import { visualEditCapabilityDesignId } from "@agent-native/core/server";
 import { getRequestAuthCapability } from "@agent-native/core/server/request-context";
-import { getSetting, putSetting } from "@agent-native/core/settings";
+import { getSetting, mutateSetting } from "@agent-native/core/settings";
 import { count, eq, inArray, sql, type SQL } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
@@ -79,16 +81,36 @@ export function visualEditCapabilityDesignScope(
 const BOARD_CONNECTIONS_SETTING_PREFIX =
   "design-visual-edit-board-connections:";
 
-function boardConnectionsSettingKey(designId: string): string {
+export function boardConnectionsSettingKey(designId: string): string {
   return `${BOARD_CONNECTIONS_SETTING_PREFIX}${designId}`;
 }
 
-function linkedConnectionIds(value: Record<string, unknown> | null): string[] {
+export function linkedConnectionIds(
+  value: Record<string, unknown> | null,
+): string[] {
   const ids = value?.connectionIds;
   if (!Array.isArray(ids)) return [];
   return ids.filter(
     (id): id is string => typeof id === "string" && id.length > 0,
   );
+}
+
+/**
+ * The one connection row a signed-out board may own. Every signed-out board in
+ * a workspace shares a principal and that principal comes from a
+ * caller-supplied path, so a row keyed only by principal and app URL would be
+ * reachable from any other board, or visitor, naming the same app.
+ */
+export function visualEditBoardConnectionId(
+  ownerEmail: string,
+  designId: string,
+): string {
+  const hash = crypto
+    .createHash("sha256")
+    .update(`visual-edit-board\n${ownerEmail}\n${designId}`)
+    .digest("base64url")
+    .slice(0, 16);
+  return `localhost_board_${hash}`;
 }
 
 /** Record the local connections open-visual-edit placed on a design. */
@@ -100,13 +122,10 @@ export async function linkVisualEditBoardConnections(
     (id): id is string => typeof id === "string" && id.length > 0,
   );
   if (ids.length === 0) return;
-  const key = boardConnectionsSettingKey(designId);
-  const existing = linkedConnectionIds(
-    await getSetting(key, { bypassCache: true }),
-  );
-  const merged = [...new Set([...existing, ...ids])];
-  if (merged.length === existing.length) return;
-  await putSetting(key, { connectionIds: merged });
+  // A compare-and-set merge: two opens of the same design must both land.
+  await mutateSetting(boardConnectionsSettingKey(designId), (current) => ({
+    connectionIds: [...new Set([...linkedConnectionIds(current), ...ids])],
+  }));
 }
 
 /**

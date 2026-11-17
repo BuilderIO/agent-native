@@ -209,6 +209,7 @@ export default defineAction({
           : frameTypeFromStored(frameType),
     });
     const annotatedContent = annotateScreenHtmlForPersist(content, fileType);
+    assertVisualEditBoardFileSize(annotatedContent);
     const restoredContentHashes = screenRestoreContentHashes(
       annotatedContent,
       fileType,

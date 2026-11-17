@@ -45,7 +45,10 @@ import {
   withSourceFileWriteLock,
 } from "../source-workspace.js";
 import { buildDesignSnapshot, type SnapshotFile } from "./design-snapshot.js";
-import { visualEditCapabilityDesignScope } from "./visual-edit-capability.js";
+import {
+  requestVisualEditCapabilityDesignId,
+  visualEditCapabilityDesignScope,
+} from "./visual-edit-capability.js";
 
 const CHAT_VERSION_LOOKBACK = 100;
 const MAX_INLINE_DESIGN_VERSION_BYTES = 256 * 1024;
@@ -1679,6 +1682,10 @@ async function snapshotDesignBeforeAgentEditInLock(
   editorCheckpointMode: "auxiliary" | "required" = "auxiliary",
   allowCheckpointFailureSkip = false,
 ): Promise<DesignVersionCheckpointResult> {
+  // Anyone holding a signed-out board's capability can write it, and no
+  // throttle bounds how many versions (each up to a blob) repeated writes
+  // would leave behind; a board's history starts once it is claimed.
+  if (requestVisualEditCapabilityDesignId() !== null) return null;
   const chatContext = actionChatContext(context);
   const editorContext = editorActionContext(context);
   if (!chatContext && !editorContext) return null;

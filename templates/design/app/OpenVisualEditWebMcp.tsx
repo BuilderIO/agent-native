@@ -207,7 +207,7 @@ export function createOpenVisualEditWebMcpActions(options?: {
       name: "open-visual-edit",
       title: "Open visual edit", // i18n-ignore stable WebMCP tool title
       description: // i18n-ignore stable WebMCP tool description
-        "Open or refresh a running localhost app in Design overview mode. Reuses the saved project for the same localhost connection when available; set newDesign to true to start a separate project. Works in a signed-in or signed-out Design tab when the target is loopback; the local bridge remains the only source access path. Signed out, it always starts a new board, and once the tab opens that board its board tools (create-file, update-file, update-design, rename-screen, apply-tweaks, list-files, get-design) register for that one design. Set withoutBridge when no visual-edit bridge runs, to get an empty board for inline screens.",
+        "Open or refresh a running localhost app in Design overview mode. Reuses the saved project for the same localhost connection when available; set newDesign to true to start a separate project. Works in a signed-in or signed-out Design tab when the target is loopback; the local bridge remains the only source access path. Signed out, it always starts a new board and needs withoutBridge (bridged signed-out boards come only from the local CLI); once the tab opens that board its board tools (create-file, update-file, update-design, rename-screen, apply-tweaks, list-files, get-design) register for that one design. Set withoutBridge when no visual-edit bridge runs, to get an empty board for inline screens.",
       requiresApproval: {
         title: "Open visual edit?", // i18n-ignore stable WebMCP approval title
         description: // i18n-ignore stable WebMCP approval description

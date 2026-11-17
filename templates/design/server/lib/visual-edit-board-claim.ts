@@ -5,10 +5,11 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   deleteSettingIfValue,
   getSetting,
+  mutateSetting,
   putSetting,
 } from "@agent-native/core/settings";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { isLocalVisualEditPrincipal } from "../../shared/local-visual-edit-principal.js";
 import { getDb, schema } from "../db/index.js";
@@ -17,7 +18,12 @@ import {
   markVisualEditBoardClaimed,
   VISUAL_EDIT_BOARD_DATA_KEY,
 } from "./design-data-access.js";
-import { firstRow } from "./visual-edit-capability.js";
+import {
+  boardConnectionsSettingKey,
+  firstRow,
+  linkedConnectionIds,
+  visualEditBoardConnectionId,
+} from "./visual-edit-capability.js";
 
 // Settings never reach viewers, unlike design data, so the claim hash lives
 // here and never in anything get-design or a snapshot can return.
@@ -141,23 +147,11 @@ export async function claimVisualEditBoard(args: {
       statusCode: 403,
     });
 
-  const design = await readDesign();
-  if (!design) return notClaimable();
-  if (sameUser(design.ownerEmail)) {
-    return { designId, claimed: true, alreadyOwned: true };
-  }
-  if (!isLocalVisualEditPrincipal(design.ownerEmail)) return notClaimable();
-
-  const key = claimSettingKey(designId);
-  const stored = await getSetting(key);
-  if (!stored || !claimHashMatches(stored.hash, claimSecret)) {
-    return notClaimable();
-  }
-  // Consuming the secret first makes it single-use: of two racing claims,
-  // only the one whose delete lands goes on to change the owner. A loser may
-  // be the same account's other tab, whose winner is still moving the owner,
-  // so it waits briefly for that before refusing.
-  if (!(await deleteSettingIfValue(key, stored))) {
+  // A same-account tab that lost the race to another tab's claim finds the
+  // secret consumed or gone while the winner is still moving the owner; it
+  // waits briefly for that rather than refusing, which the editor would read
+  // as a reason to copy the board.
+  const awaitOwnClaim = async (): Promise<VisualEditBoardClaimResult> => {
     for (let attempt = 0; attempt < CLAIM_RACE_REREADS; attempt += 1) {
       const current = await readDesign();
       if (current && sameUser(current.ownerEmail)) {
@@ -169,9 +163,36 @@ export async function claimVisualEditBoard(args: {
       );
     }
     return notClaimable();
+  };
+
+  const design = await readDesign();
+  if (!design) return notClaimable();
+  if (sameUser(design.ownerEmail)) {
+    return { designId, claimed: true, alreadyOwned: true };
   }
+  if (!isLocalVisualEditPrincipal(design.ownerEmail)) return notClaimable();
+
+  const key = claimSettingKey(designId);
+  const stored = await getSetting(key, { bypassCache: true });
+  if (!stored) return awaitOwnClaim();
+  if (!claimHashMatches(stored.hash, claimSecret)) return notClaimable();
+  // Consuming the secret first makes it single-use: of two racing claims,
+  // only the one whose delete lands goes on to change the owner.
+  if (!(await deleteSettingIfValue(key, stored))) return awaitOwnClaim();
 
   const previousOwner = design.ownerEmail;
+  // Only the board's own connection row moves with it. A link to any other row
+  // (one shared with other boards before rows were per board) stays behind.
+  const linked = linkedConnectionIds(
+    await getSetting(boardConnectionsSettingKey(designId), {
+      bypassCache: true,
+    }),
+  );
+  const ownConnectionId = visualEditBoardConnectionId(previousOwner, designId);
+  const movedConnectionIds = linked.includes(ownConnectionId)
+    ? [ownConnectionId]
+    : [];
+  let claimed: boolean;
   try {
     await markVisualEditBoardClaimed(designId);
     const data = designDataForAccessRole(
@@ -181,30 +202,54 @@ export async function claimVisualEditBoard(args: {
     if (typeof data !== "string") {
       throw new Error("Board data could not be prepared for the new owner.");
     }
-    // guard:allow-unscoped — compare-and-set on the local principal owner
-    const updated = await db
-      .update(schema.designs)
-      .set({
-        ownerEmail: userEmail,
-        orgId,
-        visibility: "private",
-        liveCollaborationEnabled: false,
-        data,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(
-        and(
-          eq(schema.designs.id, designId),
-          eq(schema.designs.ownerEmail, previousOwner),
-        ),
-      )
-      .returning({ id: schema.designs.id });
-    if (updated.length === 1) {
-      return { designId, claimed: true, alreadyOwned: false };
-    }
+    const now = new Date().toISOString();
+    claimed = await db.transaction(async (tx) => {
+      // guard:allow-unscoped — compare-and-set on the local principal owner
+      const updated = await tx
+        .update(schema.designs)
+        .set({
+          ownerEmail: userEmail,
+          orgId,
+          visibility: "private",
+          liveCollaborationEnabled: false,
+          data,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.designs.id, designId),
+            eq(schema.designs.ownerEmail, previousOwner),
+          ),
+        )
+        .returning({ id: schema.designs.id });
+      if (updated.length !== 1) return false;
+      if (movedConnectionIds.length > 0) {
+        // guard:allow-unscoped — the board's own row, still on its old owner
+        await tx
+          .update(schema.designLocalhostConnections)
+          .set({ ownerEmail: userEmail, orgId, updatedAt: now })
+          .where(
+            and(
+              inArray(schema.designLocalhostConnections.id, movedConnectionIds),
+              eq(schema.designLocalhostConnections.ownerEmail, previousOwner),
+            ),
+          );
+      }
+      return true;
+    });
   } catch (error) {
     await putSetting(key, stored);
     throw error;
+  }
+  if (claimed) {
+    // The record now names only rows the new owner holds; the rest belong to
+    // the signed-out principal and its other boards.
+    if (linked.length > movedConnectionIds.length) {
+      await mutateSetting(boardConnectionsSettingKey(designId), () => ({
+        connectionIds: movedConnectionIds,
+      }));
+    }
+    return { designId, claimed: true, alreadyOwned: false };
   }
   const after = await readDesign();
   if (after && sameUser(after.ownerEmail)) {
