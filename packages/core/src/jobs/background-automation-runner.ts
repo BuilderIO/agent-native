@@ -5,7 +5,7 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
-import { getEngineCredentialOrgId } from "../agent/engine/credential-owner.js";
+import { automationUsageOrgId } from "../agent/engine/credential-owner.js";
 import {
   getStoredModelForEngine,
   isResolvedEngineUsableForRequest,
@@ -1713,10 +1713,11 @@ async function executeBackgroundAutomation(
         ) {
           return;
         }
-        // A personal run has no org, but when its org's key paid, the usage
-        // belongs to that org too, so its owners and admins see it. An org's
-        // own run stays with that org, even on a key from the designated vault.
-        const paidByOrgId = orgId ?? getEngineCredentialOrgId(engine);
+        const paidByOrgId = automationUsageOrgId(
+          engine,
+          orgId,
+          options.requestContext?.providerKeyOrg?.orgId,
+        );
         try {
           const { recordUsage } = await import("../usage/store.js");
           await recordUsage({

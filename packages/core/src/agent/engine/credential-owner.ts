@@ -59,3 +59,21 @@ export function getEngineCredentialOrgId(engine: unknown): string | undefined {
     ? credentialOrgs.get(engine)
     : undefined;
 }
+
+/**
+ * The org an automation run's usage is saved under: the run's own, or for a
+ * personal run, its creator's org when that org's key paid, so the org's
+ * owners and admins see it. A key from any other org, such as the
+ * deployment's designated vault, puts nothing in that org's usage.
+ */
+export function automationUsageOrgId(
+  engine: unknown,
+  runOrgId: string | undefined,
+  providerKeyOrgId: string | undefined,
+): string | undefined {
+  if (runOrgId !== undefined) return runOrgId;
+  const paidByOrgId = getEngineCredentialOrgId(engine);
+  return paidByOrgId !== undefined && paidByOrgId === providerKeyOrgId
+    ? paidByOrgId
+    : undefined;
+}

@@ -25,13 +25,14 @@
 import { createHash } from "node:crypto";
 
 import { withoutWriteObservation } from "../action-frame.js";
-import { getEngineCredentialOrgId } from "../agent/engine/credential-owner.js";
+import { automationUsageOrgId } from "../agent/engine/credential-owner.js";
 import {
   getStoredModelForEngine,
   normalizeModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
 import type { AgentEngine } from "../agent/engine/types.js";
+import { getRequestContext } from "../server/request-context.js";
 import { createTtlCache } from "../shared/ttl-cache.js";
 import type { UsageRecord } from "../usage/store.js";
 
@@ -168,9 +169,12 @@ export async function evaluateCondition(
       if (cached !== undefined) return cached;
     }
 
-    // A personal run has no org, but when its org's key paid for the check,
-    // the usage belongs to that org too, as the run's own usage does.
-    const usageOrgId = identity.orgId ?? getEngineCredentialOrgId(engine);
+    // Saved under the same org as the run's own usage.
+    const usageOrgId = automationUsageOrgId(
+      engine,
+      identity.orgId,
+      getRequestContext()?.providerKeyOrg?.orgId,
+    );
     // A classification is an answer, not a write of the call that emitted the event.
     const result = await withoutWriteObservation(() =>
       callClassifier(

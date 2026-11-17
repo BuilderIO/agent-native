@@ -1643,6 +1643,11 @@ Summarize the inbox.`,
   });
 
   it("charges a personal job's usage to the organization whose key paid", async () => {
+    dbExecuteMock.mockImplementation(async (query: { sql?: string }) =>
+      query.sql?.includes("FROM org_members")
+        ? { rows: [{ org_id: "org-a" }], rowsAffected: 0 }
+        : { rows: [{ "1": 1 }], rowsAffected: 1 },
+    );
     const orgKeyEngine = { ...testEngine };
     tagEngineCredentialOrg(orgKeyEngine, "org-a");
 
