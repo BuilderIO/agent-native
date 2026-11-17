@@ -149,8 +149,9 @@ mod custom_capture;
 pub(crate) use custom_capture::extract_mono_audio;
 #[cfg(target_os = "macos")]
 use custom_capture::{
-    prepare_clip_sink, start_custom_screencapturekit_backend_at, ClosedSegmentFile,
-    CustomCaptureResume, CustomScreenCaptureWriter, PreparedClipSink, SegmentFence,
+    prepare_clip_sink, start_custom_screencapturekit_backend_at, start_screen_capture,
+    ClosedSegmentFile, CustomCaptureResume, CustomScreenCaptureWriter, PreparedClipSink,
+    ScreenCapture, SegmentFence,
 };
 #[cfg(target_os = "macos")]
 mod live_upload;
@@ -167,6 +168,8 @@ mod input_track;
 mod rich_recording;
 #[cfg(target_os = "macos")]
 use rich_recording::{attach_rich_recording, RichRecording};
+#[cfg(target_os = "macos")]
+mod screen_track;
 #[cfg(target_os = "macos")]
 mod track_upload;
 mod upload_sizing;

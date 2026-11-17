@@ -7,10 +7,13 @@ use std::io::{Seek, SeekFrom, Write};
 use std::sync::RwLock;
 use tauri::{AppHandle, Emitter};
 
+mod screen_writer;
+pub(super) use screen_writer::{start_screen_capture, ScreenCapture};
+
 const AV_WRITER_STATUS_COMPLETED: i64 = 2;
 const AUDIO_FORMAT_AAC: i64 = 0x6161_6320;
 const OUTPUT_SEGMENT_INTERVAL_SECONDS: i64 = 1;
-const CAPTURE_VIDEO_BPP: f64 = 0.15;
+pub(super) const CAPTURE_VIDEO_BPP: f64 = 0.15;
 // AVAssetWriter closes the first media fragment once it accepts a second video
 // frame past the first segment boundary. ScreenCaptureKit only delivers a frame
 // when the screen changes, so a still screen never gets there.
@@ -575,13 +578,20 @@ impl SegmentProgress {
 
 pub(super) struct SegmentSink {
     state: Mutex<SegmentSinkState>,
+    /// Logs the recording's capture-health milestones; off for track files.
+    diagnostics: bool,
 }
 
 impl SegmentSink {
     fn create(path: &Path) -> Result<Arc<Self>, String> {
+        Self::create_with(path, true)
+    }
+
+    fn create_with(path: &Path, diagnostics: bool) -> Result<Arc<Self>, String> {
         let file = std::fs::File::create(path)
             .map_err(|e| format!("could not create recording file {}: {e}", path.display()))?;
         Ok(Arc::new(Self {
+            diagnostics,
             state: Mutex::new(SegmentSinkState {
                 file,
                 path: path.to_path_buf(),
@@ -674,10 +684,12 @@ impl SegmentSink {
         match segment_type {
             AV_ASSET_WRITER_SEGMENT_TYPE_INITIALIZATION => {
                 state.init_segment = Some(bytes.to_vec());
-                crate::logfile::diagnostic(&format!(
-                    "[capture-health] writer initialization segment: {} bytes",
-                    bytes.len()
-                ));
+                if self.diagnostics {
+                    crate::logfile::diagnostic(&format!(
+                        "[capture-health] writer initialization segment: {} bytes",
+                        bytes.len()
+                    ));
+                }
                 if state.media_fragments == 0 && state.bytes_written == 0 {
                     if let Err(error) = Self::write_current(&mut state, bytes) {
                         Self::fail(&mut state, error);
@@ -741,7 +753,7 @@ impl SegmentSink {
                     Self::fail(&mut state, error);
                 } else {
                     state.media_fragments = state.media_fragments.saturating_add(1);
-                    if state.media_fragments == 1 {
+                    if state.media_fragments == 1 && self.diagnostics {
                         crate::logfile::diagnostic(&format!(
                             "[capture-health] first writer media fragment: {} bytes",
                             bytes.len()

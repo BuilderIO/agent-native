@@ -28,10 +28,14 @@ use super::input_track::{
     event_host_nanos, input_capture_allowed, recording_ms, start_input_capture, DisplayGeometry,
     InputCapture, INPUT_TRACK_CONTENT_TYPE, INPUT_TRACK_FILE, INPUT_TRACK_ID, MOVE_INTERVAL_MS,
 };
+use super::screen_track::{
+    screen_area, screen_track_finish, SCREEN_TRACK_CONTENT_TYPE, SCREEN_TRACK_FILE, SCREEN_TRACK_ID,
+};
 use super::track_upload::{
     post_tracks_finalize, spawn_track_uploader, TrackSendGate, TrackUpload, TrackUploadCtrl,
     TrackUploadOutcome, TrackUploadTarget,
 };
+use super::ScreenCapture;
 
 /// How long a track's upload may go without storing a byte before the end of
 /// the recording gives up on it.
@@ -92,6 +96,11 @@ impl RecordingClock {
         }
     }
 
+    #[cfg(test)]
+    pub(super) fn set_paused_for_tests(&self, paused: bool) {
+        self.paused.store(paused, Ordering::SeqCst);
+    }
+
     fn session_start_secs(&self) -> f64 {
         f64::from_bits(self.session_start_bits.load(Ordering::SeqCst))
     }
@@ -119,10 +128,34 @@ impl RecordingClock {
         self.at_host_nanos(self.host_now_nanos())
     }
 
+    /// Recording seconds of a ScreenCaptureKit frame stamped `pts_secs`: the
+    /// first frame's time and the pause offset taken off, as the flattened
+    /// writer retimes its own frames. Negative for a frame captured before
+    /// the first one.
+    pub(super) fn frame_time(&self, pts_secs: f64) -> FrameTime {
+        if self.paused.load(Ordering::SeqCst) {
+            return FrameTime::Paused;
+        }
+        let start = self.session_start_secs();
+        if !start.is_finite() {
+            return FrameTime::BeforeStart;
+        }
+        let offset = f64::from_bits(self.pause_offset_bits.load(Ordering::SeqCst));
+        FrameTime::At(pts_secs - start - offset)
+    }
+
     fn host_now_nanos(&self) -> u64 {
         let (numer, denom) = self.timebase;
         (u128::from(host_ticks()) * u128::from(numer) / u128::from(denom.max(1))) as u64
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum FrameTime {
+    /// The recording has no first frame yet.
+    BeforeStart,
+    Paused,
+    At(f64),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -256,6 +289,24 @@ impl TrackSource for InputCapture {
     }
 }
 
+impl TrackSource for ScreenCapture {
+    fn stop(&mut self) {
+        ScreenCapture::stop(self);
+    }
+
+    fn pause(&mut self) {
+        ScreenCapture::pause(self);
+    }
+
+    fn resume(&mut self) {
+        ScreenCapture::resume(self);
+    }
+
+    fn finish(&self, duration_ms: u64) -> TrackFinish {
+        screen_track_finish(&self.report(), &self.area(), duration_ms)
+    }
+}
+
 struct RunningTrack {
     id: &'static str,
     source: Box<dyn TrackSource>,
@@ -367,6 +418,13 @@ pub(super) fn attach_rich_recording(
         &target,
         new_ctrl(),
     ));
+    tracks.extend(start_screen_track(
+        &folder,
+        &clock,
+        &capture,
+        &target,
+        new_ctrl(),
+    ));
     if tracks.is_empty() {
         let _ = std::fs::remove_dir(&folder);
         return skip("no track could start");
@@ -431,6 +489,47 @@ fn start_input_track(
     })
 }
 
+fn start_screen_track(
+    folder: &Path,
+    clock: &RecordingClock,
+    capture: &CaptureInfo,
+    target: &Arc<TrackUploadTarget>,
+    ctrl: Arc<TrackUploadCtrl>,
+) -> Option<RunningTrack> {
+    let display = capture.display?;
+    let area = screen_area(&display, capture.area_pt);
+    let path = folder.join(SCREEN_TRACK_FILE);
+    let source = match super::start_screen_capture(
+        &path,
+        display.id,
+        area,
+        clock.clone(),
+        Arc::clone(&ctrl),
+        &target.recording_id,
+    ) {
+        Ok(source) => source,
+        Err(error) => {
+            eprintln!(
+                "[rich-tracks] {}: no screen track: {error}",
+                target.recording_id
+            );
+            return None;
+        }
+    };
+    let upload = spawn_track_uploader(
+        Arc::clone(target),
+        SCREEN_TRACK_ID,
+        SCREEN_TRACK_CONTENT_TYPE,
+        path,
+        ctrl,
+    );
+    Some(RunningTrack {
+        id: SCREEN_TRACK_ID,
+        source: Box::new(source),
+        upload,
+    })
+}
+
 impl RichRecording {
     /// The capture pipeline just paused: its frames stop until `resume`.
     pub(super) fn pause(&mut self) {
@@ -459,7 +558,7 @@ impl RichRecording {
         }
     }
 
-    /// The recording stopped: stop capturing input and the like right away,
+    /// The recording stopped: stop capturing input and the screen right away,
     /// and hold every track's upload until the recording's own is finalized.
     pub(super) fn stop_capture(&mut self) {
         if self.stopped_at.is_none() {
@@ -893,19 +992,30 @@ mod tests {
         };
         let body = tracks_finalize_body(
             &fields,
-            &[FinishedTrack {
-                id: INPUT_TRACK_ID,
-                finish: TrackFinish {
-                    complete: true,
-                    start_ms: 0,
-                    end_ms: 61_250,
-                    meta: serde_json::json!({
-                        "space": "screen-px",
-                        "moveIntervalMs": 10,
-                        "covers": "global",
-                    }),
+            &[
+                FinishedTrack {
+                    id: INPUT_TRACK_ID,
+                    finish: TrackFinish {
+                        complete: true,
+                        start_ms: 0,
+                        end_ms: 61_250,
+                        meta: serde_json::json!({
+                            "space": "screen-px",
+                            "moveIntervalMs": 10,
+                            "covers": "global",
+                        }),
+                    },
                 },
-            }],
+                FinishedTrack {
+                    id: SCREEN_TRACK_ID,
+                    finish: TrackFinish {
+                        complete: false,
+                        start_ms: 140,
+                        end_ms: 20_000,
+                        meta: serde_json::json!({ "cursor": "hidden" }),
+                    },
+                },
+            ],
         );
         assert_eq!(
             body,
@@ -942,6 +1052,12 @@ mod tests {
                     "endMs": 61_250,
                     "complete": true,
                     "meta": { "space": "screen-px", "moveIntervalMs": 10, "covers": "global" },
+                }, {
+                    "id": "screen",
+                    "startMs": 140,
+                    "endMs": 20_000,
+                    "complete": false,
+                    "meta": { "cursor": "hidden" },
                 }],
             })
         );
@@ -963,6 +1079,24 @@ mod tests {
             serde_json::json!({ "kind": "window", "displays": [] })
         );
         assert_eq!(window["compat"]["camera"], "bubble");
+    }
+
+    #[test]
+    fn frames_get_the_recording_time_the_pipeline_gives_its_own() {
+        let start = Arc::new(AtomicU64::new(f64::NAN.to_bits()));
+        let offset = Arc::new(AtomicU64::new(0.0_f64.to_bits()));
+        let clock = RecordingClock::new(Arc::clone(&start), Arc::clone(&offset), (1, 1));
+        assert_eq!(clock.frame_time(99.0), FrameTime::BeforeStart);
+        start.store(100.0_f64.to_bits(), Ordering::SeqCst);
+        // Captured just before the first frame: before zero.
+        assert_eq!(clock.frame_time(99.75), FrameTime::At(-0.25));
+        assert_eq!(clock.frame_time(102.5), FrameTime::At(2.5));
+        clock.paused.store(true, Ordering::SeqCst);
+        assert_eq!(clock.frame_time(104.0), FrameTime::Paused);
+        // Paused at 3 s for 6 s.
+        offset.store(6.0_f64.to_bits(), Ordering::SeqCst);
+        clock.paused.store(false, Ordering::SeqCst);
+        assert_eq!(clock.frame_time(110.0), FrameTime::At(4.0));
     }
 
     /// A source that closes its file as soon as it is stopped.
@@ -997,7 +1131,7 @@ mod tests {
             ));
             let _ = std::fs::remove_dir_all(&folder);
             std::fs::create_dir_all(&folder).unwrap();
-            std::fs::write(folder.join(INPUT_TRACK_FILE), b"fragments").unwrap();
+            std::fs::write(folder.join(SCREEN_TRACK_FILE), b"fragments").unwrap();
             Self {
                 folder,
                 target: Arc::new(TrackUploadTarget {
@@ -1056,7 +1190,7 @@ mod tests {
                 pauses: Vec::new(),
                 paused_at_ms: None,
                 stopped_at: None,
-                tracks: vec![self.track(INPUT_TRACK_ID, TrackUploadOutcome::Cancelled)],
+                tracks: vec![self.track(SCREEN_TRACK_ID, TrackUploadOutcome::Cancelled)],
             }
         }
 
@@ -1133,7 +1267,7 @@ mod tests {
         let stopped = Fixture::new("stopped");
         stopped.tracks_stopped.store(true, Ordering::SeqCst);
         let track = stopped.track(
-            INPUT_TRACK_ID,
+            SCREEN_TRACK_ID,
             TrackUploadOutcome::Stopped("tracksStopped".into()),
         );
         assert_eq!(stopped.finish(vec![track], Ok(())), None);
@@ -1146,7 +1280,7 @@ mod tests {
         let tracks = vec![
             failed.track(INPUT_TRACK_ID, TrackUploadOutcome::Empty),
             failed.track(
-                INPUT_TRACK_ID,
+                SCREEN_TRACK_ID,
                 TrackUploadOutcome::Sent {
                     bytes: 9,
                     chunks: 1,
@@ -1155,12 +1289,12 @@ mod tests {
         ];
         let body = failed.finish(tracks, Err("finalize failed after 6 attempts".into()));
         assert!(!failed.folder.exists());
-        // The empty track isn't listed; the sent one is, with its own start
-        // and end.
+        // The empty input track isn't listed; the screen track is, with its own
+        // start and end.
         assert_eq!(
             body.unwrap()["tracks"],
             serde_json::json!([{
-                "id": "input",
+                "id": "screen",
                 "startMs": 140,
                 "endMs": 9_000,
                 "complete": true,
@@ -1170,7 +1304,7 @@ mod tests {
 
         let done = Fixture::new("finalized");
         let track = done.track(
-            INPUT_TRACK_ID,
+            SCREEN_TRACK_ID,
             TrackUploadOutcome::Sent {
                 bytes: 9,
                 chunks: 1,
@@ -1181,7 +1315,10 @@ mod tests {
 
         // A track that failed to send isn't listed, and the folder still goes.
         let unsent = Fixture::new("unsent");
-        let track = unsent.track(INPUT_TRACK_ID, TrackUploadOutcome::Failed("offline".into()));
+        let track = unsent.track(
+            SCREEN_TRACK_ID,
+            TrackUploadOutcome::Failed("offline".into()),
+        );
         assert_eq!(unsent.finish(vec![track], Ok(())), None);
         assert!(!unsent.folder.exists());
     }
