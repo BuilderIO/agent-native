@@ -163,6 +163,56 @@ describe("TimelineTrack pointer gestures", () => {
     expect(onCommit).not.toHaveBeenCalled();
   });
 
+  it("shows exact source timestamps throughout range selection, resize, and move", () => {
+    function ControlledTrack() {
+      const [selection, setSelection] = React.useState<TrackSelection | null>(
+        null,
+      );
+      return (
+        <TimelineTrack
+          width={WIDTH}
+          height={100}
+          durationMs={DURATION}
+          edits={addCut(DEFAULT_EDITS, 100, 600, "cut-a")}
+          selection={selection}
+          onSelectionChange={setSelection}
+          onPreview={onPreview}
+          onCommit={onCommit}
+        />
+      );
+    }
+
+    act(() => root.render(<ControlledTrack />));
+    act(() => {
+      pointer(pieces()[2], "pointerdown", 123.4);
+      pointer(track(), "pointermove", 126.8);
+    });
+    expect(container.textContent).toContain("00:01.234");
+    expect(container.textContent).toContain("00:01.268");
+
+    act(() => pointer(track(), "pointerup", 126.8));
+    expect(container.textContent).toContain("00:01.234");
+    expect(container.textContent).toContain("00:01.268");
+
+    act(() => {
+      pointer(pieces()[2], "pointerdown", 126.8);
+      pointer(track(), "pointermove", 153.7);
+    });
+    expect(container.textContent).toContain("00:01.234");
+    expect(container.textContent).toContain("00:01.537");
+    act(() => pointer(track(), "pointerup", 153.7));
+
+    act(() => {
+      pointer(pieces()[2], "pointerdown", 140);
+      pointer(track(), "pointermove", 160);
+    });
+    expect(container.textContent).toContain("00:01.434");
+    expect(container.textContent).toContain("00:01.737");
+    act(() => pointer(track(), "pointerup", 160));
+    expect(container.textContent).toContain("00:01.434");
+    expect(container.textContent).toContain("00:01.737");
+  });
+
   describe("with a range already selected", () => {
     const RANGE: TrackSelection = {
       kind: "range",

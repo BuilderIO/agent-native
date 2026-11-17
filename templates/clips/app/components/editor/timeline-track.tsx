@@ -25,6 +25,8 @@ export type TrackSelection =
 export interface TimelineTrackProps {
   width: number;
   height: number;
+  viewportWidth?: number;
+  scrollLeft?: number;
   durationMs: number;
   edits: EditsJson;
   selection: TrackSelection | null;
@@ -238,6 +240,8 @@ function anchorFor(
 export function TimelineTrack({
   width,
   height,
+  viewportWidth = width,
+  scrollLeft = 0,
   durationMs,
   edits,
   selection,
@@ -516,14 +520,39 @@ export function TimelineTrack({
       })}
 
       {selection?.kind === "range" ? (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute top-0 h-full rounded-[3px] border border-primary bg-primary/20 ring-2 ring-inset ring-primary"
-          style={{
-            left: toX(selection.startMs),
-            width: Math.max(1, toX(selection.endMs) - toX(selection.startMs)),
-          }}
-        />
+        <>
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute top-0 h-full rounded-[3px] border border-primary bg-primary/20 ring-2 ring-inset ring-primary"
+            style={{
+              left: toX(selection.startMs),
+              width: Math.max(1, toX(selection.endMs) - toX(selection.startMs)),
+            }}
+          />
+          <div
+            className="pointer-events-none absolute top-0 z-10 h-full"
+            style={{ left: scrollLeft, width: viewportWidth }}
+          >
+            {[selection.startMs, selection.endMs].map((ms, index) => {
+              const x = clamp(toX(ms) - scrollLeft, 0, viewportWidth);
+              return (
+                <span
+                  key={index}
+                  className={cn(
+                    "absolute whitespace-nowrap rounded bg-background/90 px-1 font-mono text-[10px] leading-4 text-foreground shadow-sm tabular-nums",
+                    index === 0 ? "top-0.5" : "bottom-0.5",
+                  )}
+                  style={{
+                    left: x,
+                    transform: `translateX(clamp(max(-100%, -${x}px), -50%, min(0px, calc(${viewportWidth - x}px - 100%))))`,
+                  }}
+                >
+                  {formatMs(ms)}.{String(ms % 1000).padStart(3, "0")}
+                </span>
+              );
+            })}
+          </div>
+        </>
       ) : null}
 
       {/*
