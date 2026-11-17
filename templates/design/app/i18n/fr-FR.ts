@@ -2375,6 +2375,7 @@ export default {
         "Double-cliquez sur une ligne du canevas pour modifier son texte",
       eyedropperUnsupported:
         "La pipette n'est pas prise en charge par ce navigateur",
+      claimBoardError: "Impossible de déplacer ce tableau dans votre compte",
       saveCopyError: "Impossible d'enregistrer une copie de ce design",
       auditRunFailed: "Impossible d'executer l'audit de design",
       componentCreated: "Component created",

@@ -17,7 +17,8 @@ unless the user says no Design, headless, or just the code, or Design is
 unavailable; then use the image finish in **Finish Without Design**.
 
 Design is available when the authenticated Design MCP connector is connected
-or a browser that runs page JavaScript holds a signed-in Design tab. A missing
+or a browser that runs page JavaScript can load a Design tab, signed in or
+not. A missing
 connector is not enough to skip the board: open Design through the launch order
 in **Put Design Beside The Chat** (MCP App, then the host's inline browser such
 as Claude Code's side-panel browser, then the desktop app, then the system
@@ -262,21 +263,23 @@ Lab) can edit GSAP-style tracks and keyframes. It is optional; knobs come first.
 Open Design as `/visual-edit` does (same launch targets and links) and lay out
 one board, left to right, at the same viewport size.
 
-A board writes files to a Design project, so it needs the authenticated
-connector or a signed-in Design tab. Before the first launch, read
+A board needs no sign-in. Before the first launch, read
 `/_agent-native/auth/session` from the Design tab: a session with an
 `email` means signed in; a failed or non-OK read is unknown, so retry it
-rather than treating it as signed out. Signed-out loopback
-`open-visual-edit` still works, but its workspace-owned project cannot take
-the account-backed file writes a board needs, and a signed-out tab lists only
-the visual-edit tools (`open-visual-edit` and a few others); file tools such
-as `create-file`, `update-file` and `list-files` register for a
-signed-in session. When the tab is signed out, ask the user to sign in to
-Design there and wait, then launch with `newDesign: true` so the board is a
-new project the user owns and can edit. If a write is refused for permission,
-start a new board the same way rather than reusing someone else's project;
-fall back to **Finish Without Design** only when no signed-in session is
-possible.
+rather than treating it as signed out. Signed in (or through the connector),
+launch with `newDesign: true` so the board is a new project the user owns.
+Signed out, call the page's `open-visual-edit` with `withoutBridge: true`;
+it starts a new board and opens it in the tab. Once the tab shows the board,
+the page registers that board's tools (`create-file`, `update-file`,
+`update-design`, `rename-screen`, `apply-tweaks`, `list-files`,
+`get-design`, `get-design-snapshot`, `migrate-board-objects-to-file`);
+discover them again after the navigation. They write only to that board. A
+signed-out board shows no localhost screens, so the Original is the captured
+static screen and the Remix is an inline screen. Do not ask the user to sign
+in to build it. Sign-in is needed only to share the board, save it to an
+account, or generate: the board's **Share** control sends the user through
+sign-in, and the board then moves into their account. If a write is refused
+for permission, start a new board rather than reusing someone else's project.
 
 1. **Original**: the source screen from "Put Both Sites On The Canvas" (live
    where it frames, else the served capture, else a static snapshot).

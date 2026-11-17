@@ -1087,7 +1087,10 @@ export function useEditorGenerationAndAccess({
         canEditLiveScreens: roleCanEditLiveScreens,
         publicVisualEdit: rolePublicVisualEdit,
         canCommentDesign: roleCanCommentDesign,
-        canRenderAuthenticatedShare: isSignedIn || roleCanEditDesign,
+        // A signed-out visual-edit board's capability can edit the board but
+        // never share it, so Share stays the sign-in path there.
+        canRenderAuthenticatedShare:
+          isSignedIn || (roleCanEditDesign && !isVisualEditSurface),
       },
       writableWidget || readOnlyWidget,
       writableWidget && !visualEditAccessLost,

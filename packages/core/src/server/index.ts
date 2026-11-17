@@ -79,6 +79,10 @@ export {
 } from "./deep-link.js";
 export { createOpenRouteHandler, type OpenRouteOptions } from "./open-route.js";
 export {
+  VISUAL_EDIT_CAPABILITY_ACTIONS,
+  visualEditCapabilityDesignId,
+} from "./visual-edit-capability.js";
+export {
   createEmbedStartRouteHandler,
   buildEmbedStartPath,
   type EmbedStartRouteOptions,

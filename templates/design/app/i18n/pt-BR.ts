@@ -2362,6 +2362,7 @@ export default {
         "Clique duas vezes em uma linha na tela para editar o texto",
       eyedropperUnsupported:
         "O conta-gotas não é compatível com este navegador",
+      claimBoardError: "Nao foi possivel mover este quadro para sua conta",
       saveCopyError: "Nao foi possivel salvar uma copia deste design",
       auditRunFailed: "Nao foi possivel executar a auditoria de design",
       componentCreated: "Component created",

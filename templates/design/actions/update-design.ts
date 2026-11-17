@@ -9,6 +9,7 @@ import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
+import { assertVisualEditCapabilityDesign } from "../server/lib/visual-edit-capability.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
@@ -707,6 +708,7 @@ export default defineAction({
       .optional()
       .describe("Design system ID to link, or null to unlink"),
   }),
+  capabilityScopes: ["visual-edit"],
   run: async (
     {
       id,
@@ -757,6 +759,7 @@ export default defineAction({
       }
     }
 
+    assertVisualEditCapabilityDesign(id);
     const access = await assertAccess("design", id, "editor");
     await snapshotDesignBeforeAgentEdit(id, context);
     if (designSystemId != null) {

@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
       minimum === "editor" && ["editor", "admin", "owner"].includes(role),
   ),
   writeAppState: vi.fn(),
+  issueVisualEditBoardClaim: vi.fn(),
+  markVisualEditBoard: vi.fn(),
   designData: null as string | null,
   designFiles: [] as Array<{ id: string; filename: string; fileType: string }>,
 }));
@@ -99,6 +101,11 @@ vi.mock("../server/db/index.js", () => {
     schema,
   };
 });
+
+vi.mock("../server/lib/visual-edit-board-claim.js", () => ({
+  issueVisualEditBoardClaim: mocks.issueVisualEditBoardClaim,
+  markVisualEditBoard: mocks.markVisualEditBoard,
+}));
 
 vi.mock("./connect-localhost.js", () => ({
   default: {
@@ -194,6 +201,16 @@ describe("open-visual-edit", () => {
       resource: { id: "design_existing" },
     });
     mocks.writeAppState.mockReset();
+    mocks.markVisualEditBoard.mockReset().mockResolvedValue(undefined);
+    mocks.issueVisualEditBoardClaim
+      .mockReset()
+      .mockImplementation(async () =>
+        mocks
+          .getRequestUserEmail()
+          ?.endsWith("@local.visual-edit.agent-native.invalid")
+          ? "example-claim-secret-0123456789abcdef0123"
+          : undefined,
+      );
     mocks.designData = null;
     mocks.designFiles = [];
 
@@ -1307,5 +1324,108 @@ describe("open-visual-edit", () => {
       "agent-native://open/visual-edit/design_1?editorView=overview&embedChrome=1",
     );
     expect(result).not.toHaveProperty("embedStartUrl");
+  });
+
+  describe("signed-out boards", () => {
+    const pageContext = (caller: "frontend" | "webmcp") => ({
+      actionName: "open-visual-edit",
+      caller,
+      userEmail: undefined,
+      orgId: null,
+      requestHeaders: new Headers({
+        origin: "https://design.example.com",
+        "sec-fetch-site": "same-origin",
+      }),
+    });
+
+    beforeEach(() => {
+      mocks.getRequestUserEmail.mockReturnValue(undefined);
+      mocks.getRequestAuthCapability.mockReturnValue(
+        `capability:visual-edit-bootstrap:${"e".repeat(32)}`,
+      );
+    });
+
+    it("refuses to reopen an existing design from a signed-out page", async () => {
+      await expect(
+        action.run(
+          {
+            designId: "someone_elses_board",
+            devServerUrl: "http://localhost:5173",
+            navigate: false,
+          },
+          pageContext("frontend"),
+        ),
+      ).rejects.toThrow(/can only start a new board/);
+      expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+      expect(mocks.createDesignRun).not.toHaveBeenCalled();
+    });
+
+    it("ignores the shared principal's saved project and starts a new board", async () => {
+      mocks.readAppState.mockResolvedValue({
+        designId: "someone_elses_board",
+        connectionId: "localhost_custom",
+      });
+      const result = await action.run(
+        { devServerUrl: "http://localhost:5173", navigate: false },
+        pageContext("frontend"),
+      );
+      expect(mocks.readAppState).not.toHaveBeenCalled();
+      expect(result.designId).toBe("design_created");
+    });
+
+    it("builds a board without a bridge and keeps the claim secret on the page", async () => {
+      const result = await action.run(
+        {
+          devServerUrl: "http://localhost:5173",
+          withoutBridge: true,
+          publicReadOnly: true,
+          navigate: false,
+        },
+        pageContext("frontend"),
+      );
+      expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+      expect(mocks.addLocalhostScreensRun).not.toHaveBeenCalled();
+      expect(mocks.writeAppState).not.toHaveBeenCalled();
+      expect(mocks.markVisualEditBoard).toHaveBeenCalledWith(
+        "design_created",
+        true,
+      );
+      expect(result).toMatchObject({
+        designId: "design_created",
+        connectionId: null,
+        screenCount: 0,
+        publicReadOnly: true,
+      });
+      expect((result as { claimSecret?: string }).claimSecret).toBe(
+        "example-claim-secret-0123456789abcdef0123",
+      );
+    });
+
+    it("hides the claim secret from a WebMCP caller's serialized result", async () => {
+      const result = await action.run(
+        {
+          devServerUrl: "http://localhost:5173",
+          withoutBridge: true,
+          navigate: false,
+        },
+        pageContext("webmcp"),
+      );
+      expect(result.designId).toBe("design_created");
+      expect(JSON.stringify(result)).not.toContain("example-claim-secret");
+    });
+
+    it("mints no claim secret for a signed-in creator", async () => {
+      mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+      mocks.getRequestAuthCapability.mockReturnValue(undefined);
+      const result = await action.run(
+        {
+          devServerUrl: "http://localhost:5173",
+          withoutBridge: true,
+          navigate: false,
+        },
+        pageContext("frontend"),
+      );
+      expect(JSON.stringify(result)).not.toContain("claim");
+    });
   });
 });

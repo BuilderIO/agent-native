@@ -2265,6 +2265,7 @@ export default {
       repeatRowPickOnCanvas:
         "Double-click a row on the canvas to edit its text",
       eyedropperUnsupported: "Eyedropper isn't supported in this browser",
+      claimBoardError: "Could not move this board into your account",
       saveCopyError: "Could not save a copy of this design",
       auditRunFailed: "Unable to run design audit",
       componentCreated: "Component created",

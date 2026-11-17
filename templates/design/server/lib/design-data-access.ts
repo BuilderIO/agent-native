@@ -4,6 +4,30 @@ const EDITOR_ROLES = new Set(["owner", "admin", "editor"]);
 
 const VISUAL_EDIT_CAPABILITY_PREFIX = "capability:visual-edit:design:";
 
+/**
+ * `open-visual-edit` marks the designs it creates. A signed-out board built
+ * from inline screens has no localhost source, and its capability still needs
+ * editor access to that one design.
+ */
+export const VISUAL_EDIT_BOARD_DATA_KEY = "visualEditBoard";
+
+function isVisualEditBoardData(data: unknown): boolean {
+  let parsed = data;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed) as unknown;
+    } catch {
+      // coercion-ok: unreadable design data is not a board marker; access falls back to viewer.
+      return false;
+    }
+  }
+  return (
+    !!parsed &&
+    typeof parsed === "object" &&
+    (parsed as Record<string, unknown>)[VISUAL_EDIT_BOARD_DATA_KEY] === true
+  );
+}
+
 export function publicDesignAccessRole(
   resource?: { id?: unknown; data?: unknown } | null,
   ctx: {
@@ -14,7 +38,11 @@ export function publicDesignAccessRole(
 ): "viewer" | "editor" {
   const designId =
     typeof resource?.id === "string" ? resource.id.trim() : undefined;
-  if (!designId || designSourceTypeFromData(resource?.data) !== "localhost") {
+  if (
+    !designId ||
+    (designSourceTypeFromData(resource?.data) !== "localhost" &&
+      !isVisualEditBoardData(resource?.data))
+  ) {
     return "viewer";
   }
   if (!ctx.authCapability?.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX)) {

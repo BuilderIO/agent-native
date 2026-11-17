@@ -42,9 +42,8 @@ export default defineAction({
     if (!getRequestUserEmail() && designId) {
       const access = await resolveAccess("design", designId);
       const linkedId = designConnectionIdFromData(access?.resource?.data);
-      if (!linkedId) {
-        throw new Error("The visual-edit design has no localhost connection.");
-      }
+      // A board built without a bridge links no connection: it has none to list.
+      if (!linkedId) return { connections: [], count: 0 };
       if (scopedId && scopedId !== linkedId) {
         throw new Error(
           "The connection is not linked to this visual-edit design.",

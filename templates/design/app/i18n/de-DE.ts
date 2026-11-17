@@ -2381,6 +2381,8 @@ export default {
         "Doppelklicke auf eine Zeile auf der Leinwand, um ihren Text zu bearbeiten",
       eyedropperUnsupported:
         "Die Pipette wird von diesem Browser nicht unterstützt",
+      claimBoardError:
+        "Dieses Board konnte nicht in dein Konto verschoben werden",
       saveCopyError:
         "Eine Kopie dieses Designs konnte nicht gespeichert werden",
       auditRunFailed: "Design-Audit konnte nicht ausgefuehrt werden",

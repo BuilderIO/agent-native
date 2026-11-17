@@ -2330,6 +2330,7 @@ export default {
       repeatListNotEditable: "이 반복 목록을 업데이트할 수 없습니다",
       repeatRowPickOnCanvas: "캔버스에서 행을 두 번 클릭해 텍스트를 편집하세요",
       eyedropperUnsupported: "이 브라우저에서는 스포이드를 지원하지 않습니다",
+      claimBoardError: "이 보드를 계정으로 옮길 수 없습니다",
       saveCopyError: "이 디자인의 사본을 저장할 수 없습니다",
       auditRunFailed: "디자인 감사를 실행할 수 없습니다",
       componentCreated: "Component created",

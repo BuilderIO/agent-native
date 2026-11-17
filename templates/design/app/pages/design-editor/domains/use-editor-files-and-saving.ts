@@ -61,6 +61,10 @@ import {
 } from "@/lib/design-save-outbox-writers";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { createLatestReadGate } from "@/lib/latest-read-gate";
+import {
+  clearVisualEditBoardClaimSecret,
+  readVisualEditBoardClaimSecret,
+} from "@/lib/visual-edit-board-claim";
 
 import type {
   LiveScreenSnapshot,
@@ -923,17 +927,52 @@ export function useEditorFilesAndSaving({
     if (postAuthSaveRef.current === key) return;
     postAuthSaveRef.current = key;
 
-    duplicateDesignMutation
-      .mutateAsync({ id, title: design.title } as any)
-      .then((result: any) => {
-        if (!result?.id) throw new Error("Missing copied design id");
-        const nextSearch = postAuthIntent === "share" ? "?intent=share" : "";
-        void navigate(`/design/${result.id}${nextSearch}`, { replace: true });
+    const nextSearch = postAuthIntent === "share" ? "?intent=share" : "";
+    const copyIntoAccount = () =>
+      duplicateDesignMutation
+        .mutateAsync({ id, title: design.title })
+        .then((result: unknown) => {
+          const copiedId = (result as { id?: unknown } | null)?.id;
+          if (typeof copiedId !== "string" || !copiedId) {
+            throw new Error("Missing copied design id");
+          }
+          void navigate(`/design/${copiedId}${nextSearch}`, { replace: true });
+        })
+        .catch((error) => {
+          postAuthSaveRef.current = null;
+          reportWriteFailure(error, {
+            label: t("designEditor.toasts.saveCopyError"),
+          });
+        });
+
+    // A board this tab built signed out moves into the account instead of
+    // being copied. Any other board, or a refused claim, falls back to a copy.
+    const storedClaim = readVisualEditBoardClaimSecret(id);
+    if (storedClaim.status !== "found") {
+      void copyIntoAccount();
+      return;
+    }
+    callAction("claim-visual-edit-board", {
+      designId: id,
+      claimSecret: storedClaim.secret,
+    })
+      .then(() => {
+        clearVisualEditBoardClaimSecret(id);
+        // A full load drops the signed-out board capability and reads the
+        // design again with the new owner's access.
+        window.location.replace(
+          `${appBasePath()}/design/${encodeURIComponent(id)}${nextSearch}`,
+        );
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
+        if ((error as { status?: unknown } | null)?.status === 403) {
+          clearVisualEditBoardClaimSecret(id);
+          void copyIntoAccount();
+          return;
+        }
         postAuthSaveRef.current = null;
         reportWriteFailure(error, {
-          label: t("designEditor.toasts.saveCopyError"),
+          label: t("designEditor.toasts.claimBoardError"),
         });
       });
   }, [

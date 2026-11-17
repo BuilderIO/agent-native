@@ -16,6 +16,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
+  assertVisualEditCapabilityDesign,
+  visualEditCapabilityFileScope,
+} from "../server/lib/visual-edit-capability.js";
+import {
   designSourceMutationLockKey,
   lockDesignFilesTable,
 } from "../server/source-workspace.js";
@@ -169,6 +173,7 @@ export default defineAction({
         });
       }
     }),
+  capabilityScopes: ["visual-edit"],
   run: async ({ id, name, requestSource, contentOverrides }) => {
     const db = getDb();
 
@@ -185,7 +190,9 @@ export default defineAction({
       .where(
         and(
           eq(schema.designFiles.id, id),
-          accessFilter(schema.designs, schema.designShares),
+          visualEditCapabilityFileScope(
+            accessFilter(schema.designs, schema.designShares),
+          ),
         ),
       )
       .limit(1);
@@ -196,6 +203,7 @@ export default defineAction({
       });
     }
 
+    assertVisualEditCapabilityDesign(scopedFile.designId);
     await assertAccess("design", scopedFile.designId, "editor");
 
     const overrideIds = new Set<string>();

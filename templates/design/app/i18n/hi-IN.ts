@@ -2319,6 +2319,7 @@ export default {
       repeatRowPickOnCanvas:
         "टेक्स्ट बदलने के लिए कैनवास पर किसी पंक्ति पर डबल-क्लिक करें",
       eyedropperUnsupported: "इस ब्राउज़र में आई-ड्रॉपर समर्थित नहीं है",
+      claimBoardError: "इस board को आपके खाते में नहीं ले जाया जा सका",
       saveCopyError: "इस design की copy सहेजी नहीं जा सकी",
       auditRunFailed: "design audit चलाया नहीं जा सका",
       componentCreated: "Component created",

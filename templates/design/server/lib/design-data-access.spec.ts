@@ -131,6 +131,22 @@ describe("design data access policy", () => {
       ).toBe("editor");
     });
 
+    it("grants editor to the matching capability on a visual-edit board without localhost screens", () => {
+      const board = {
+        id: resource.id,
+        data: JSON.stringify({ sourceType: "inline", visualEditBoard: true }),
+      };
+      expect(
+        publicDesignAccessRole(board, { authCapability: capability }),
+      ).toBe("editor");
+      expect(
+        publicDesignAccessRole(board, {
+          authCapability: "capability:visual-edit:design:another-design",
+        }),
+      ).toBe("viewer");
+      expect(publicDesignAccessRole(board)).toBe("viewer");
+    });
+
     it.each(["inline", "fusion"])(
       "does not upgrade a matching %s design",
       (sourceType) => {
