@@ -1933,6 +1933,16 @@ async function filterWorkspaceAppsByAccess(
   return apps.filter((app) => visibleIds.has(app.id));
 }
 
+function filterOrgAccessInventory(
+  apps: WorkspaceAppSummary[],
+): WorkspaceAppSummary[] {
+  // The authenticated gateway inventory is already scoped to this workspace.
+  // A shared mounted app may have no row in the current organization (Dispatch
+  // itself is deliberately excluded from persistence), so DB membership cannot
+  // be used as the completeness test for the Access settings inventory.
+  return apps.filter((app) => app.status === "ready" && !app.archived);
+}
+
 async function filterOrganizationVisibleWorkspaceApps(
   apps: WorkspaceAppSummary[],
   orgId: string,
@@ -2572,7 +2582,7 @@ export async function updateWorkspaceAppMetadata(input: {
 
 async function listWorkspaceAppsWithPrincipal(
   options: ListWorkspaceAppsOptions = {},
-  principal: "user" | "organization" = "user",
+  principal: "user" | "organization" | "org-access-inventory" = "user",
 ): Promise<WorkspaceAppSummary[]> {
   const finalize = async (
     apps: WorkspaceAppSummary[],
@@ -2587,12 +2597,14 @@ async function listWorkspaceAppsWithPrincipal(
       : recorded.filter((app) => !app.archived);
     const candidates = filterAppsByAudience(listed, options.audience);
     const visible =
-      principal === "organization"
-        ? await filterOrganizationVisibleWorkspaceApps(
-            candidates,
-            requireWorkspaceAppOrgId(),
-          )
-        : await filterWorkspaceAppsByAccess(candidates);
+      principal === "org-access-inventory"
+        ? filterOrgAccessInventory(candidates)
+        : principal === "organization"
+          ? await filterOrganizationVisibleWorkspaceApps(
+              candidates,
+              requireWorkspaceAppOrgId(),
+            )
+          : await filterWorkspaceAppsByAccess(candidates);
     return maybeIncludeAgentCards(visible, options);
   };
   let gatewayDenial: WorkspaceAppsGatewayAuthorizationError | null = null;
@@ -2606,7 +2618,21 @@ async function listWorkspaceAppsWithPrincipal(
   if (gatewayApps?.kind === "apps") {
     return finalize(gatewayApps.apps);
   }
-  if (gatewayDenial && gatewayDenial.statusCode >= 500) {
+  // The admin inventory is only complete after a verified gateway read.
+  // A domainless or unreachable configured gateway cannot be replaced with
+  // the local manifest without silently hiding mounted applications.
+  if (
+    principal === "org-access-inventory" &&
+    getAppConfig().workspace.gatewayUrl?.trim()
+  ) {
+    if (gatewayDenial) throw gatewayDenial;
+    throw new WorkspaceAppsGatewayAuthorizationError(
+      503,
+      "workspace_gateway_inventory_unavailable",
+      "Workspace apps gateway could not provide a complete admin inventory.",
+    );
+  }
+  if (gatewayDenial?.statusCode && gatewayDenial.statusCode >= 500) {
     throw gatewayDenial;
   }
   const unverified =
@@ -2669,6 +2695,20 @@ export function listWorkspaceApps(
   options: ListWorkspaceAppsOptions = {},
 ): Promise<WorkspaceAppSummary[]> {
   return listWorkspaceAppsWithPrincipal(options, "user");
+}
+
+export async function listWorkspaceAppsForOrgAccessInventory(): Promise<
+  WorkspaceAppSummary[]
+> {
+  requireWorkspaceAppOrgId();
+  const role = await requestOwnerRole();
+  if (role !== "owner" && role !== "admin") {
+    throw new WorkspaceAppMetadataAuthorizationError();
+  }
+  return listWorkspaceAppsWithPrincipal(
+    { includeAgentCards: false, includeArchived: false, audience: "all" },
+    "org-access-inventory",
+  );
 }
 
 export async function listOrganizationVisibleWorkspaceApps(): Promise<

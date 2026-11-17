@@ -17,6 +17,7 @@ import {
   listAvailableWorkspaceTemplates,
   listOrganizationVisibleWorkspaceApps,
   listWorkspaceApps,
+  listWorkspaceAppsForOrgAccessInventory,
   scaffoldWorkspaceAppFromTemplate,
   setAppCreationSettings,
   startWorkspaceAppCreation,
@@ -767,6 +768,84 @@ describe("listWorkspaceApps", () => {
       warn.mockRestore();
     },
   );
+
+  it("fails admin access inventory on a denied gateway instead of trusting the manifest", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("denied", { status: 403 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "retired", name: "Retired", path: "/retired" },
+    ]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "admin@example.test", orgId: "org-123" },
+          () => listWorkspaceAppsForOrgAccessInventory(),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        errorCode: "workspace_gateway_rejected",
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("includes mounted shared apps and Dispatch without current-org records in the admin inventory", async () => {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "shared", name: "Shared", path: "/shared" },
+    ]);
+    mocks.state.workspaceApps = [
+      {
+        id: "shared",
+        owner_email: "other@example.test",
+        org_id: "other-org",
+        visibility: "org",
+        org_enabled: 1,
+      },
+    ];
+
+    const apps = await runWithRequestContext(
+      { userEmail: "admin@example.test", orgId: "org-123" },
+      () => listWorkspaceAppsForOrgAccessInventory(),
+    );
+    expect(apps.map((app) => app.id).sort()).toEqual(["dispatch", "shared"]);
+    expect(
+      mocks.executedSql.filter((sql) => /\b(UPDATE|DELETE)\b/i.test(sql)),
+    ).toEqual([]);
+  });
+
+  it("fails admin inventory for a domainless hosted organization instead of using the manifest", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "retired", name: "Retired", path: "/retired" },
+    ]);
+    mocks.getOrgDomain.mockResolvedValueOnce(null);
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "admin@example.test", orgId: "org-123" },
+        () => listWorkspaceAppsForOrgAccessInventory(),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_inventory_unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it("derives manifest app URLs from the Vercel preview when no workspace origin is configured", async () => {
     stubNoPendingContext();
