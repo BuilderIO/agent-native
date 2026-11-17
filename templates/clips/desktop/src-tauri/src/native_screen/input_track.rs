@@ -4,14 +4,17 @@
 //! members read as one gzip stream, so the file is valid after every flush and
 //! the uploader can send any prefix of it.
 //!
-//! `t` is recording milliseconds; `x`/`y` are pixels of the captured display at
-//! its native resolution, from its top-left, and fall outside it when the
-//! pointer is on another display.
+//! `t` is recording milliseconds; `x`/`y` are pixels of the screen track: the
+//! captured area at its display's native resolution, from the area's top-left.
+//! They fall outside it when the pointer is elsewhere.
 //!
-//! Typing is never kept as characters: only shortcuts (a key pressed with Cmd,
-//! Ctrl or Option) and named keys (Enter, Escape, Tab, arrows, Backspace,
-//! Delete, Home/End/Page keys, F-keys) are, and every other key press adds to a
-//! per-second `typing` count. While secure input is on, no keys are kept.
+//! Typing is never kept as characters: only shortcuts (a key pressed with Cmd
+//! or Ctrl) and named keys (Enter, Escape, Tab, arrows, Backspace, Delete,
+//! Home/End/Page keys, F-keys) are, and every other key press adds to a
+//! per-second `typing` count. Option alone doesn't make a shortcut: Option with
+//! a letter or digit types a character on macOS (é, ˚). Option with a named key
+//! is kept like any named key, with `alt` in its `mods`. While secure input is
+//! on, no keys are kept.
 
 use std::io::Write;
 
@@ -69,7 +72,7 @@ pub(super) struct Modifiers {
 
 impl Modifiers {
     fn makes_shortcut(self) -> bool {
-        self.meta || self.ctrl || self.alt
+        self.meta || self.ctrl
     }
 
     fn labels(self) -> Vec<&'static str> {
@@ -86,7 +89,7 @@ impl Modifiers {
 }
 
 /// One input event, already through the privacy filter, with positions in the
-/// captured display's pixels.
+/// screen track's pixels.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum InputSample {
     Move {
@@ -446,11 +449,35 @@ impl DisplayGeometry {
         }
     }
 
-    /// A global point as pixels of this display from its top-left; outside the
-    /// display when the point is on another one.
+    /// The pixels of the screen track: those of this display, from the top-left
+    /// of `area` (global points) when only part of it is captured.
+    pub(super) fn pixel_space(&self, area_origin_pt: Option<(f64, f64)>) -> PixelSpace {
+        let (x_pt, y_pt) = area_origin_pt.unwrap_or((self.x_pt, self.y_pt));
+        PixelSpace {
+            x_pt,
+            y_pt,
+            scale: self.scale(),
+        }
+    }
+}
+
+/// The screen track's pixels in the global coordinate space: the captured
+/// area's top-left in points, and the display's pixels per point.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct PixelSpace {
+    pub(super) x_pt: f64,
+    pub(super) y_pt: f64,
+    pub(super) scale: f64,
+}
+
+impl PixelSpace {
+    /// A global point as pixels from the captured area's top-left; outside the
+    /// area when the point is.
     pub(super) fn to_px(&self, x_pt: f64, y_pt: f64) -> (f64, f64) {
-        let scale = self.scale();
-        ((x_pt - self.x_pt) * scale, (y_pt - self.y_pt) * scale)
+        (
+            (x_pt - self.x_pt) * self.scale,
+            (y_pt - self.y_pt) * self.scale,
+        )
     }
 }
 
@@ -734,7 +761,7 @@ mod capture {
 
     struct TapContext {
         clock: RecordingClock,
-        display: DisplayGeometry,
+        space: PixelSpace,
         privacy: Mutex<KeyPrivacy>,
         sender: SyncSender<TapEvent>,
         gaps: Arc<AtomicBool>,
@@ -766,7 +793,7 @@ mod capture {
             raw: *const std::ffi::c_void,
         ) -> Option<InputSample> {
             let point = event.location();
-            let (x, y) = self.display.to_px(point.x, point.y);
+            let (x, y) = self.space.to_px(point.x, point.y);
             let button_event = |down: bool, button: MouseButton| InputSample::Button {
                 down,
                 button,
@@ -796,7 +823,7 @@ mod capture {
                     // Point deltas in pixels, signed like a web WheelEvent
                     // (positive scrolls toward the bottom and right), the
                     // opposite of how macOS signs them.
-                    let scale = self.display.scale();
+                    let scale = self.space.scale;
                     InputSample::Wheel {
                         x,
                         y,
@@ -884,7 +911,7 @@ mod capture {
     pub(in super::super) fn start_input_capture(
         folder: &Path,
         clock: RecordingClock,
-        display: DisplayGeometry,
+        space: PixelSpace,
         upload: Arc<TrackUploadCtrl>,
     ) -> Result<InputCapture, String> {
         let path = folder.join(INPUT_TRACK_FILE);
@@ -913,7 +940,7 @@ mod capture {
 
         let context = TapContext {
             clock,
-            display,
+            space,
             privacy: Mutex::new(KeyPrivacy::default()),
             sender,
             gaps: Arc::clone(&gaps),
@@ -1143,6 +1170,22 @@ mod tests {
             serialize_sample(4100.5, &shortcut).unwrap(),
             r#"{"t":4100.5,"e":"key","down":true,"code":"KeyK","key":"k","mods":["meta"]}"#
         );
+        assert_eq!(
+            serialize_sample(
+                4200.0,
+                &InputSample::Key {
+                    down: true,
+                    code: "ArrowLeft",
+                    key: "ArrowLeft".into(),
+                    mods: Modifiers {
+                        alt: true,
+                        ..Modifiers::default()
+                    },
+                }
+            )
+            .unwrap(),
+            r#"{"t":4200.0,"e":"key","down":true,"code":"ArrowLeft","key":"ArrowLeft","mods":["alt"]}"#
+        );
         assert_eq!(serialize_sample(1.0, &InputSample::TypingPress), None);
         assert_eq!(MouseButton::from_number(2), MouseButton::Middle);
         assert_eq!(MouseButton::from_number(4), MouseButton::Other);
@@ -1177,8 +1220,33 @@ mod tests {
             privacy.classify(0x28, false, false, none, false),
             KeyDecision::Drop
         );
-        // Cmd, Ctrl and Option make a shortcut.
-        for mods in [cmd, ctrl, option] {
+        // Option with a letter or digit types a character (é, ˚), so it is
+        // typing, and its release is dropped.
+        for keycode in [0x0E, 0x28, 0x12] {
+            assert_eq!(
+                privacy.classify(keycode, true, false, option, false),
+                KeyDecision::Typing
+            );
+            assert_eq!(
+                privacy.classify(keycode, false, false, option, false),
+                KeyDecision::Drop
+            );
+        }
+        assert_eq!(
+            privacy.classify(
+                0x0E,
+                true,
+                false,
+                Modifiers {
+                    shift: true,
+                    ..option
+                },
+                false
+            ),
+            KeyDecision::Typing
+        );
+        // Cmd and Ctrl make a shortcut, with Option held too or not.
+        for mods in [cmd, ctrl, Modifiers { alt: true, ..cmd }] {
             assert_eq!(
                 privacy.classify(0x28, true, false, mods, false),
                 KeyDecision::Keep {
@@ -1191,7 +1259,28 @@ mod tests {
                 KeyDecision::Keep { code: "KeyK", .. }
             ));
         }
-        // Named keys are kept with or without modifiers.
+        // Named keys are kept with or without modifiers, Option included.
+        assert_eq!(
+            privacy.classify(0x7B, true, false, option, false),
+            KeyDecision::Keep {
+                code: "ArrowLeft",
+                named: Some("ArrowLeft")
+            }
+        );
+        assert!(matches!(
+            privacy.classify(0x7B, false, false, option, false),
+            KeyDecision::Keep {
+                code: "ArrowLeft",
+                ..
+            }
+        ));
+        assert_eq!(
+            privacy.classify(0x33, true, false, option, false),
+            KeyDecision::Keep {
+                code: "Backspace",
+                named: Some("Backspace")
+            }
+        );
         assert_eq!(
             privacy.classify(0x24, true, false, none, false),
             KeyDecision::Keep {
@@ -1428,7 +1517,7 @@ mod tests {
     }
 
     #[test]
-    fn global_points_become_pixels_of_the_captured_display() {
+    fn global_points_become_pixels_of_the_captured_area() {
         // A 1512x982-point Retina display at 3024x1964 pixels, to the right of
         // the main display.
         let display = DisplayGeometry {
@@ -1441,15 +1530,20 @@ mod tests {
             height_px: 1964,
         };
         assert_eq!(display.scale(), 2.0);
-        assert_eq!(display.to_px(1728.0, 0.0), (0.0, 0.0));
-        assert_eq!(display.to_px(2330.25, 344.0), (1204.5, 688.0));
+        let space = display.pixel_space(None);
+        assert_eq!(space.to_px(1728.0, 0.0), (0.0, 0.0));
+        assert_eq!(space.to_px(2330.25, 344.0), (1204.5, 688.0));
         // On the main display, to its left: negative x.
-        assert_eq!(display.to_px(100.0, 50.0), (-3256.0, 100.0));
+        assert_eq!(space.to_px(100.0, 50.0), (-3256.0, 100.0));
         // Above a display arranged lower than the main one: negative y.
         let lower = DisplayGeometry {
             y_pt: 200.0,
             ..display
         };
-        assert_eq!(lower.to_px(1728.0, 100.0), (0.0, -200.0));
+        assert_eq!(lower.pixel_space(None).to_px(1728.0, 100.0), (0.0, -200.0));
+        // A region counts from its own top-left.
+        let region = display.pixel_space(Some((2106.0, 491.0)));
+        assert_eq!(region.to_px(2106.0, 491.0), (0.0, 0.0));
+        assert_eq!(region.to_px(2330.25, 344.0), (448.5, -294.0));
     }
 }

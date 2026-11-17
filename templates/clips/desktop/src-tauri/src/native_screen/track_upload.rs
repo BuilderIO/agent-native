@@ -4,6 +4,11 @@
 //! recording and the remainder once the track's file is closed. A track never
 //! holds up or fails the recording: every outcome here only decides whether the
 //! track is listed when the tracks are finalized.
+//!
+//! Tracks never slow the recording's own upload. While recording, a track chunk
+//! goes only when the recording's upload has nothing waiting beyond the chunk
+//! it is on. After Stop, nothing goes until the recording's upload is finalized
+//! and the track is released, one track after another.
 
 use super::*;
 
@@ -47,26 +52,109 @@ impl TrackUploadTarget {
     }
 }
 
+/// When a track may send, read from the recording's own upload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SendPhase {
+    /// Only while the recording's upload has nothing waiting beyond the chunk
+    /// it is on.
+    Recording,
+    /// Stopped: the recording's upload is draining and finalizing.
+    AwaitingRecordingUpload,
+    Released,
+}
+
+/// Whether a track chunk may go now. `video_unsent` is what the recording's
+/// upload has written but not yet had acknowledged; `None` when that can't be
+/// read, which holds the track back.
+pub(super) fn track_chunk_may_go(phase: SendPhase, video_unsent: Option<u64>, chunk: u64) -> bool {
+    match phase {
+        SendPhase::Recording => video_unsent.is_some_and(|unsent| unsent <= chunk),
+        SendPhase::AwaitingRecordingUpload => false,
+        SendPhase::Released => true,
+    }
+}
+
+/// Shared by every track of a recording: what holds their chunks back.
+pub(super) struct TrackSendGate {
+    recording_stopped: AtomicBool,
+    video_unsent: Box<dyn Fn() -> Option<u64> + Send + Sync>,
+}
+
+impl TrackSendGate {
+    pub(super) fn new(video_unsent: impl Fn() -> Option<u64> + Send + Sync + 'static) -> Self {
+        Self {
+            recording_stopped: AtomicBool::new(false),
+            video_unsent: Box::new(video_unsent),
+        }
+    }
+
+    /// The recording stopped: hold every track until it is released.
+    pub(super) fn stop_recording(&self) {
+        self.recording_stopped.store(true, Ordering::SeqCst);
+    }
+}
+
 pub(super) struct TrackUploadCtrl {
     source_closed: AtomicBool,
     cancelled: AtomicBool,
+    released: AtomicBool,
+    sent_bytes: AtomicU64,
     /// Shared by every track of the recording: once the server says to stop
     /// sending tracks, none of them sends again.
     tracks_stopped: Arc<AtomicBool>,
+    gate: Arc<TrackSendGate>,
 }
 
 impl TrackUploadCtrl {
-    pub(super) fn new(tracks_stopped: Arc<AtomicBool>) -> Self {
+    pub(super) fn new(tracks_stopped: Arc<AtomicBool>, gate: Arc<TrackSendGate>) -> Self {
         Self {
             source_closed: AtomicBool::new(false),
             cancelled: AtomicBool::new(false),
+            released: AtomicBool::new(false),
+            sent_bytes: AtomicU64::new(0),
             tracks_stopped,
+            gate,
         }
+    }
+
+    /// The recording's own upload is finalized and it is this track's turn:
+    /// send the rest of it.
+    pub(super) fn release(&self) {
+        self.released.store(true, Ordering::SeqCst);
+    }
+
+    /// Bytes stored so far, to tell a slow upload from a stuck one.
+    pub(super) fn sent_bytes(&self) -> u64 {
+        self.sent_bytes.load(Ordering::SeqCst)
+    }
+
+    fn phase(&self) -> SendPhase {
+        if self.released.load(Ordering::SeqCst) {
+            SendPhase::Released
+        } else if self.gate.recording_stopped.load(Ordering::SeqCst) {
+            SendPhase::AwaitingRecordingUpload
+        } else {
+            SendPhase::Recording
+        }
+    }
+
+    fn may_send(&self, chunk: u64) -> bool {
+        let phase = self.phase();
+        let video_unsent = match phase {
+            SendPhase::Recording => (self.gate.video_unsent)(),
+            _ => None,
+        };
+        track_chunk_may_go(phase, video_unsent, chunk)
     }
 
     /// The track's file is complete: send what is left of it.
     pub(super) fn close_source(&self) {
         self.source_closed.store(true, Ordering::SeqCst);
+    }
+
+    /// Nothing writes the track's file any more.
+    pub(super) fn source_closed(&self) -> bool {
+        self.source_closed.load(Ordering::SeqCst)
     }
 
     pub(super) fn cancel(&self) {
@@ -318,7 +406,8 @@ async fn track_upload_loop(
             return TrackUploadOutcome::Failed(format!("track upload client failed: {error}"))
         }
     };
-    let mut state = TrackUploadState::new(UPLOAD_CHUNK_BYTES as u64);
+    let chunk = UPLOAD_CHUNK_BYTES as u64;
+    let mut state = TrackUploadState::new(chunk);
     loop {
         if ctrl.cancelled.load(Ordering::SeqCst) {
             return TrackUploadOutcome::Cancelled;
@@ -340,6 +429,10 @@ async fn track_upload_loop(
             }
         };
         let (index, offset, len) = match state.next(file_len, source_closed) {
+            NextSend::Chunk { .. } if !ctrl.may_send(chunk) => {
+                tokio::time::sleep(Duration::from_millis(TRACK_POLL_MS)).await;
+                continue;
+            }
             NextSend::Chunk { index, offset, len } => (index, offset, len),
             NextSend::Wait => {
                 tokio::time::sleep(Duration::from_millis(TRACK_POLL_MS)).await;
@@ -352,7 +445,9 @@ async fn track_upload_loop(
             Err(error) => return TrackUploadOutcome::Failed(error),
         };
         let reply = send_track_chunk(&client, target, track, content_type, index, bytes).await;
-        match state.on_reply(len, reply, file_len) {
+        let step = state.on_reply(len, reply, file_len);
+        ctrl.sent_bytes.store(state.offset, Ordering::SeqCst);
+        match step {
             Step::Continue => {}
             Step::RetryAfter(delay) => {
                 eprintln!(
@@ -665,6 +760,45 @@ mod tests {
             state.on_reply(100, ChunkReply::TracksStopped("413".into()), 100),
             Step::Finish(TrackUploadOutcome::Stopped("413".into()))
         );
+    }
+
+    #[test]
+    fn tracks_send_only_behind_the_recordings_own_upload() {
+        // While recording: only when the recording's upload has no more than
+        // the chunk it is on waiting.
+        let recording = SendPhase::Recording;
+        assert!(track_chunk_may_go(recording, Some(0), CHUNK));
+        assert!(track_chunk_may_go(recording, Some(CHUNK), CHUNK));
+        assert!(!track_chunk_may_go(recording, Some(CHUNK + 1), CHUNK));
+        assert!(!track_chunk_may_go(recording, Some(5 * CHUNK), CHUNK));
+        // Unknown backlog holds the track back.
+        assert!(!track_chunk_may_go(recording, None, CHUNK));
+        // After Stop, nothing goes until the track is released.
+        let stopped = SendPhase::AwaitingRecordingUpload;
+        assert!(!track_chunk_may_go(stopped, Some(0), CHUNK));
+        assert!(track_chunk_may_go(SendPhase::Released, None, CHUNK));
+
+        let unsent = Arc::new(AtomicU64::new(0));
+        let probe = Arc::clone(&unsent);
+        let gate = Arc::new(TrackSendGate::new(move || {
+            Some(probe.load(Ordering::SeqCst))
+        }));
+        let input = TrackUploadCtrl::new(Arc::new(AtomicBool::new(false)), Arc::clone(&gate));
+        let screen = TrackUploadCtrl::new(Arc::new(AtomicBool::new(false)), Arc::clone(&gate));
+        assert_eq!(input.phase(), SendPhase::Recording);
+        assert!(input.may_send(CHUNK));
+        unsent.store(3 * CHUNK, Ordering::SeqCst);
+        assert!(!screen.may_send(CHUNK));
+        unsent.store(0, Ordering::SeqCst);
+        gate.stop_recording();
+        assert_eq!(screen.phase(), SendPhase::AwaitingRecordingUpload);
+        assert!(!input.may_send(CHUNK) && !screen.may_send(CHUNK));
+        // Released one at a time: the input track first, the screen after it.
+        input.release();
+        assert!(input.may_send(CHUNK));
+        assert!(!screen.may_send(CHUNK));
+        screen.release();
+        assert!(screen.may_send(CHUNK));
     }
 
     #[test]

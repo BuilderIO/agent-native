@@ -1,15 +1,22 @@
 //! Clips' rich recordings on the desktop, behind the Rich recordings lab:
 //! separate track files kept beside the flattened recording. Each track writes
 //! append-only into `<stem>.tracks/` next to the recording's local file, and
-//! its uploader sends the file as it grows. Once the recording's own upload is
-//! finalized, the tracks are finalized with what Clips needs to line them up
-//! with the video, and the folder is deleted; it stays when anything fails.
-//! A track never delays or fails the recording.
+//! its uploader sends the file as it grows, but only while the recording's own
+//! live upload has nothing waiting. After Stop, tracks send the rest one at a
+//! time once the recording's own upload is finalized, then are finalized with
+//! what Clips needs to line them up with the video. A track never delays or
+//! fails the recording.
 //!
-//! Tracks are kept only for recordings on the custom capture pipeline with live
-//! upload. Track times are that pipeline's: milliseconds from the flattened
-//! recording's first frame on the host clock ScreenCaptureKit stamps frames
-//! with, with paused stretches taken out the way the pipeline retimes frames.
+//! The folder is deleted however the recording ends: finalized or not, the
+//! tracks abandoned, the recording discarded. Nothing retries a track later
+//! (kept originals are for resending the flattened file only), so a folder
+//! left behind would never be read again; the screen file runs to gigabytes.
+//!
+//! Tracks are kept only for display and region recordings on the custom
+//! capture pipeline with live upload. Track times are that pipeline's:
+//! milliseconds from the flattened recording's first frame on the host clock
+//! ScreenCaptureKit stamps frames with, with paused stretches taken out the
+//! way the pipeline retimes frames.
 //!
 //! A new kind of track is a `TrackSource` started in `attach_rich_recording`:
 //! it writes one file in the folder and calls `TrackUploadCtrl::close_source`
@@ -22,12 +29,16 @@ use super::input_track::{
     InputCapture, INPUT_TRACK_CONTENT_TYPE, INPUT_TRACK_FILE, INPUT_TRACK_ID, MOVE_INTERVAL_MS,
 };
 use super::track_upload::{
-    post_tracks_finalize, spawn_track_uploader, TrackUpload, TrackUploadCtrl, TrackUploadOutcome,
-    TrackUploadTarget,
+    post_tracks_finalize, spawn_track_uploader, TrackSendGate, TrackUpload, TrackUploadCtrl,
+    TrackUploadOutcome, TrackUploadTarget,
 };
 
-/// How long the end of a recording waits for a track's last chunks.
-const TRACK_UPLOAD_DEADLINE: Duration = Duration::from_secs(10 * 60);
+/// How long a track's upload may go without storing a byte before the end of
+/// the recording gives up on it.
+const TRACK_UPLOAD_STALL: Duration = Duration::from_secs(5 * 60);
+const TRACK_UPLOAD_CHECK: Duration = Duration::from_secs(15);
+/// How long deleting the folder waits for its sources to close their files.
+const FOLDER_REMOVAL_WAIT: Duration = Duration::from_secs(30);
 const MAX_RECORDING_MS: u64 = 24 * 60 * 60 * 1000;
 
 #[repr(C)]
@@ -139,14 +150,24 @@ pub(super) struct CaptureInfo {
     pub(super) area_pt: Option<RectPt>,
 }
 
-/// A capture region (fractions of the display) in global points.
-pub(super) fn region_area_pt(display: &DisplayGeometry, region: &NativeCaptureRegion) -> RectPt {
-    RectPt {
-        x: display.x_pt + region.x * display.width_pt,
-        y: display.y_pt + region.y * display.height_pt,
-        width: region.width * display.width_pt,
-        height: region.height * display.height_pt,
-    }
+/// A capture region (fractions of the display) in global points, cropped to
+/// whole points exactly as the flattened recording's stream crops it.
+pub(super) fn region_area_pt(
+    display: &DisplayGeometry,
+    region: &NativeCaptureRegion,
+) -> Result<RectPt, String> {
+    let (rect, width, height) = region_source_rect(
+        Some(*region),
+        display.width_pt.round() as u32,
+        display.height_pt.round() as u32,
+    )?
+    .ok_or_else(|| "the region has no size".to_string())?;
+    Ok(RectPt {
+        x: display.x_pt + rect.x,
+        y: display.y_pt + rect.y,
+        width: f64::from(width),
+        height: f64::from(height),
+    })
 }
 
 fn capture_info(restart: &RestartInfo) -> Result<CaptureInfo, String> {
@@ -180,7 +201,8 @@ fn capture_info(restart: &RestartInfo) -> Result<CaptureInfo, String> {
     };
     let area_pt = restart
         .capture_region
-        .map(|region| region_area_pt(&geometry, &region));
+        .map(|region| region_area_pt(&geometry, &region))
+        .transpose()?;
     Ok(CaptureInfo {
         kind: if area_pt.is_some() {
             CaptureKind::Region
@@ -193,8 +215,12 @@ fn capture_info(restart: &RestartInfo) -> Result<CaptureInfo, String> {
 }
 
 /// What finalizing lists for a track, read once its file is closed.
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct TrackFinish {
     pub(super) complete: bool,
+    /// Recording milliseconds the track covers.
+    pub(super) start_ms: u64,
+    pub(super) end_ms: u64,
     pub(super) meta: serde_json::Value,
 }
 
@@ -203,8 +229,11 @@ pub(super) trait TrackSource: Send {
     /// Stops capturing. The source then closes its file on its own and tells
     /// its uploader with `TrackUploadCtrl::close_source`. Never blocks.
     fn stop(&mut self);
+    /// The capture pipeline paused or resumed. Never blocks.
+    fn pause(&mut self) {}
+    fn resume(&mut self) {}
     /// Read after the uploader has sent the whole file.
-    fn finish(&self) -> TrackFinish;
+    fn finish(&self, duration_ms: u64) -> TrackFinish;
 }
 
 impl TrackSource for InputCapture {
@@ -212,10 +241,12 @@ impl TrackSource for InputCapture {
         InputCapture::stop(self);
     }
 
-    fn finish(&self) -> TrackFinish {
+    fn finish(&self, duration_ms: u64) -> TrackFinish {
         let report = self.report();
         TrackFinish {
             complete: report.closed && !report.gaps && !report.write_failed,
+            start_ms: 0,
+            end_ms: duration_ms,
             meta: serde_json::json!({
                 "space": "screen-px",
                 "moveIntervalMs": MOVE_INTERVAL_MS as u64,
@@ -241,6 +272,7 @@ pub(super) struct RichRecording {
     folder: PathBuf,
     target: Arc<TrackUploadTarget>,
     tracks_stopped: Arc<AtomicBool>,
+    gate: Arc<TrackSendGate>,
     clock: RecordingClock,
     capture: CaptureInfo,
     camera_bubble: bool,
@@ -279,9 +311,9 @@ pub(super) fn attach_rich_recording(
         }
         _ => return skip("it is not on the custom capture pipeline"),
     };
-    if session.live_upload.is_none() {
+    let Some(live_upload) = session.live_upload.as_ref() else {
         return skip("it has no live upload");
-    }
+    };
     let (Some(server_url), auth_token, cookie) = (
         server_url.filter(|url| !url.trim().is_empty()),
         auth_token.unwrap_or_default(),
@@ -293,6 +325,12 @@ pub(super) fn attach_rich_recording(
         Ok(capture) => capture,
         Err(reason) => return skip(&reason),
     };
+    // A window's filter brings the camera bubble and the window's own frame,
+    // and the window can move between displays, so neither its pixels nor
+    // input on it map simply onto one display yet.
+    if capture.kind == CaptureKind::Window {
+        return skip("window recordings keep no tracks yet");
+    }
 
     let folder = tracks_folder_for(&session.path);
     if let Err(error) = std::fs::create_dir_all(&folder) {
@@ -305,13 +343,30 @@ pub(super) fn attach_rich_recording(
         cookie: cookie.to_string(),
     });
     let tracks_stopped = Arc::new(AtomicBool::new(false));
+    let live_ctrl = Arc::clone(&live_upload.ctrl);
+    let video_path = session.path.clone();
+    let gate = Arc::new(TrackSendGate::new(move || {
+        let written = std::fs::metadata(&video_path).ok()?.len();
+        Some(written.saturating_sub(live_ctrl.uploaded_bytes.load(Ordering::SeqCst)))
+    }));
     let (session_start_bits, pause_offset_bits) = clock_bits;
     let clock = RecordingClock::new(session_start_bits, pause_offset_bits, host_timebase());
+    let new_ctrl = || {
+        Arc::new(TrackUploadCtrl::new(
+            Arc::clone(&tracks_stopped),
+            Arc::clone(&gate),
+        ))
+    };
 
+    // Input first: tracks send their last chunks in this order, small first.
     let mut tracks = Vec::new();
-    if let Some(track) = start_input_track(&folder, &clock, &capture, &target, &tracks_stopped) {
-        tracks.push(track);
-    }
+    tracks.extend(start_input_track(
+        &folder,
+        &clock,
+        &capture,
+        &target,
+        new_ctrl(),
+    ));
     if tracks.is_empty() {
         let _ = std::fs::remove_dir(&folder);
         return skip("no track could start");
@@ -329,6 +384,7 @@ pub(super) fn attach_rich_recording(
         folder,
         target,
         tracks_stopped,
+        gate,
         clock,
         capture,
         camera_bubble: has_camera && session.restart.include_camera_overlay,
@@ -345,19 +401,16 @@ fn start_input_track(
     clock: &RecordingClock,
     capture: &CaptureInfo,
     target: &Arc<TrackUploadTarget>,
-    tracks_stopped: &Arc<AtomicBool>,
+    ctrl: Arc<TrackUploadCtrl>,
 ) -> Option<RunningTrack> {
     let id = &target.recording_id;
-    let Some(display) = capture.display else {
-        eprintln!("[rich-tracks] {id}: no input track: a window recording has no captured display to place input on");
-        return None;
-    };
+    let display = capture.display?;
     if !input_capture_allowed() {
         eprintln!("[rich-tracks] {id}: no input track: Clips has neither Input Monitoring nor Accessibility access");
         return None;
     }
-    let ctrl = Arc::new(TrackUploadCtrl::new(Arc::clone(tracks_stopped)));
-    let source = match start_input_capture(folder, clock.clone(), display, Arc::clone(&ctrl)) {
+    let space = display.pixel_space(capture.area_pt.map(|area| (area.x, area.y)));
+    let source = match start_input_capture(folder, clock.clone(), space, Arc::clone(&ctrl)) {
         Ok(source) => source,
         Err(error) => {
             eprintln!("[rich-tracks] {id}: no input track: {error}");
@@ -386,6 +439,9 @@ impl RichRecording {
         }
         self.paused_at_ms = Some(self.clock.now_ms().unwrap_or(0.0));
         self.clock.paused.store(true, Ordering::SeqCst);
+        for track in &mut self.tracks {
+            track.source.pause();
+        }
     }
 
     /// The capture pipeline resumed with `paused_for` added to its offset.
@@ -398,31 +454,42 @@ impl RichRecording {
             wall_ms: paused_for.as_millis() as u64,
         });
         self.clock.paused.store(false, Ordering::SeqCst);
+        for track in &mut self.tracks {
+            track.source.resume();
+        }
     }
 
-    /// The recording stopped: stop capturing input and the like right away.
+    /// The recording stopped: stop capturing input and the like right away,
+    /// and hold every track's upload until the recording's own is finalized.
     pub(super) fn stop_capture(&mut self) {
         if self.stopped_at.is_none() {
             self.stopped_at = Some((Utc::now(), self.clock.host_now_nanos()));
         }
+        self.gate.stop_recording();
         for track in &mut self.tracks {
             track.source.stop();
         }
     }
 
+    /// Stops every track and deletes the folder once their files are closed.
     fn halt(&mut self) {
         self.stop_capture();
-        for track in &self.tracks {
+        let tracks = std::mem::take(&mut self.tracks);
+        for track in &tracks {
             track.upload.ctrl.cancel();
         }
+        let ctrls = tracks
+            .iter()
+            .map(|track| Arc::clone(&track.upload.ctrl))
+            .collect();
+        remove_tracks_folder(&self.target.recording_id, self.folder.clone(), ctrls);
     }
 
-    /// The recording carries on without tracks; what was written stays on disk.
+    /// The recording carries on without tracks.
     pub(super) fn abandon(mut self, reason: &str) {
         eprintln!(
-            "[rich-tracks] {}: tracks stopped ({reason}); keeping {}",
-            self.target.recording_id,
-            self.folder.display()
+            "[rich-tracks] {}: tracks stopped ({reason})",
+            self.target.recording_id
         );
         self.halt();
     }
@@ -430,10 +497,6 @@ impl RichRecording {
     /// The recording is being thrown away, so its tracks are too.
     pub(super) fn discard(mut self) {
         self.halt();
-        self.tracks.clear();
-        // The writer may still be closing its file; whatever is left after
-        // this is removed with the folder by the next discard of it.
-        let _ = std::fs::remove_dir_all(&self.folder);
     }
 
     /// The recording's own upload is finalized: send the rest of each track,
@@ -460,15 +523,58 @@ impl RichRecording {
                 camera_bubble: self.camera_bubble,
             },
         };
-        tauri::async_runtime::spawn(finish_tracks(finish, tracks));
+        tauri::async_runtime::spawn(finish_tracks(finish, tracks, |target, body| async move {
+            post_tracks_finalize(&target, &body).await
+        }));
     }
 }
 
 impl Drop for RichRecording {
+    /// Dropped without `finish`, `abandon` or `discard`: the tracks will never
+    /// be finalized.
     fn drop(&mut self) {
         if !self.tracks.is_empty() {
+            eprintln!(
+                "[rich-tracks] {}: tracks dropped without finishing",
+                self.target.recording_id
+            );
             self.halt();
         }
+    }
+}
+
+/// Deletes a tracks folder once every source has closed its file, so nothing
+/// writes into it afterwards, or after `FOLDER_REMOVAL_WAIT` regardless. Right
+/// away when they already have.
+fn remove_tracks_folder(recording_id: &str, folder: PathBuf, sources: Vec<Arc<TrackUploadCtrl>>) {
+    if sources.iter().all(|ctrl| ctrl.source_closed()) {
+        return remove_folder(recording_id, &folder);
+    }
+    let id = recording_id.to_string();
+    let in_thread = folder.clone();
+    let spawned = std::thread::Builder::new()
+        .name("clips-rich-tracks-cleanup".into())
+        .spawn(move || {
+            let deadline = Instant::now() + FOLDER_REMOVAL_WAIT;
+            while Instant::now() < deadline && sources.iter().any(|ctrl| !ctrl.source_closed()) {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            remove_folder(&id, &in_thread);
+        });
+    if let Err(error) = spawned {
+        eprintln!("[rich-tracks] {recording_id}: removing the tracks folder now ({error})");
+        remove_folder(recording_id, &folder);
+    }
+}
+
+fn remove_folder(recording_id: &str, folder: &Path) {
+    match std::fs::remove_dir_all(folder) {
+        Ok(()) => eprintln!("[rich-tracks] {recording_id}: removed {}", folder.display()),
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => eprintln!(
+            "[rich-tracks] {recording_id}: {} could not be removed: {error}",
+            folder.display()
+        ),
     }
 }
 
@@ -499,8 +605,7 @@ pub(super) struct ManifestFields {
 
 pub(super) struct FinishedTrack {
     pub(super) id: &'static str,
-    pub(super) complete: bool,
-    pub(super) meta: serde_json::Value,
+    pub(super) finish: TrackFinish,
 }
 
 /// The body of `POST /api/uploads/:id/tracks/finalize`.
@@ -579,10 +684,10 @@ pub(super) fn tracks_finalize_body(
             .map(|track| {
                 serde_json::json!({
                     "id": track.id,
-                    "startMs": 0,
-                    "endMs": fields.duration_ms,
-                    "complete": track.complete,
-                    "meta": track.meta,
+                    "startMs": track.finish.start_ms,
+                    "endMs": track.finish.end_ms,
+                    "complete": track.finish.complete,
+                    "meta": track.finish.meta,
                 })
             })
             .collect::<Vec<_>>(),
@@ -597,81 +702,100 @@ struct FinishContext {
     fields: ManifestFields,
 }
 
-async fn finish_tracks(mut finish: FinishContext, tracks: Vec<RunningTrack>) {
+/// Sends the rest of each track, one at a time and in order, finalizes the
+/// ones that made it, then deletes the folder whatever happened.
+async fn finish_tracks<Post, Posted>(
+    mut finish: FinishContext,
+    tracks: Vec<RunningTrack>,
+    post: Post,
+) where
+    Post: FnOnce(Arc<TrackUploadTarget>, serde_json::Value) -> Posted,
+    Posted: std::future::Future<Output = Result<(), String>>,
+{
+    let ctrls = tracks
+        .iter()
+        .map(|track| Arc::clone(&track.upload.ctrl))
+        .collect();
+    finalize_tracks(&mut finish, tracks, post).await;
+    remove_tracks_folder(&finish.target.recording_id, finish.folder.clone(), ctrls);
+}
+
+async fn finalize_tracks<Post, Posted>(
+    finish: &mut FinishContext,
+    tracks: Vec<RunningTrack>,
+    post: Post,
+) where
+    Post: FnOnce(Arc<TrackUploadTarget>, serde_json::Value) -> Posted,
+    Posted: std::future::Future<Output = Result<(), String>>,
+{
     let id = finish.target.recording_id.clone();
     let mut finished = Vec::new();
-    let mut all_sent = true;
     for RunningTrack {
         id: track,
         source,
         upload: TrackUpload { ctrl, result_rx },
     } in tracks
     {
-        let outcome = match tokio::time::timeout(TRACK_UPLOAD_DEADLINE, result_rx).await {
-            Ok(Ok(outcome)) => outcome,
-            Ok(Err(_)) => TrackUploadOutcome::Failed("the uploader ended without an answer".into()),
-            Err(_) => {
-                ctrl.cancel();
-                TrackUploadOutcome::Failed("its last chunks took too long".into())
-            }
-        };
-        match outcome {
-            TrackUploadOutcome::Sent { .. } => {
-                let TrackFinish { complete, meta } = source.finish();
-                finished.push(FinishedTrack {
-                    id: track,
-                    complete,
-                    meta,
-                });
-            }
+        ctrl.release();
+        match await_track_upload(&ctrl, result_rx).await {
+            TrackUploadOutcome::Sent { .. } => finished.push(FinishedTrack {
+                id: track,
+                finish: source.finish(finish.fields.duration_ms),
+            }),
             TrackUploadOutcome::Empty => {
                 eprintln!("[rich-tracks] {id}: the {track} track is empty; not listed");
             }
-            other => {
-                all_sent = false;
-                eprintln!("[rich-tracks] {id}: the {track} track was not sent: {other:?}");
-            }
+            other => eprintln!("[rich-tracks] {id}: the {track} track was not sent: {other:?}"),
         }
     }
     if finish.tracks_stopped.load(Ordering::SeqCst) {
         eprintln!(
-            "[rich-tracks] {id}: the server stopped this recording's tracks; not finalizing them, keeping {}",
-            finish.folder.display()
+            "[rich-tracks] {id}: the server stopped this recording's tracks; not finalizing them"
         );
         return;
     }
     if finished.is_empty() {
         eprintln!("[rich-tracks] {id}: no track to finalize");
-        if all_sent {
-            let _ = std::fs::remove_dir_all(&finish.folder);
-        }
         return;
     }
     let Some(started_at) = finish.started_at.take() else {
         eprintln!(
-            "[rich-tracks] {id}: the recording never started its clock; not finalizing tracks, keeping {}",
-            finish.folder.display()
+            "[rich-tracks] {id}: the recording never started its clock; not finalizing tracks"
         );
         return;
     };
     finish.fields.started_at = started_at;
     let body = tracks_finalize_body(&finish.fields, &finished);
-    match post_tracks_finalize(&finish.target, &body).await {
-        Ok(()) if all_sent => {
-            eprintln!(
-                "[rich-tracks] {id}: tracks finalized; removing {}",
-                finish.folder.display()
-            );
-            let _ = std::fs::remove_dir_all(&finish.folder);
+    match post(Arc::clone(&finish.target), body).await {
+        Ok(()) => eprintln!("[rich-tracks] {id}: tracks finalized"),
+        Err(error) => eprintln!("[rich-tracks] {id}: tracks finalize failed: {error}"),
+    }
+}
+
+/// A released track's upload outcome. Gives up on one that stores nothing for
+/// `TRACK_UPLOAD_STALL`, however long a large one takes while it moves.
+async fn await_track_upload(
+    ctrl: &TrackUploadCtrl,
+    mut result_rx: tokio::sync::oneshot::Receiver<TrackUploadOutcome>,
+) -> TrackUploadOutcome {
+    let mut sent = ctrl.sent_bytes();
+    let mut moved_at = Instant::now();
+    loop {
+        match tokio::time::timeout(TRACK_UPLOAD_CHECK, &mut result_rx).await {
+            Ok(Ok(outcome)) => return outcome,
+            Ok(Err(_)) => {
+                return TrackUploadOutcome::Failed("the uploader ended without an answer".into())
+            }
+            Err(_) if ctrl.sent_bytes() != sent => {
+                sent = ctrl.sent_bytes();
+                moved_at = Instant::now();
+            }
+            Err(_) if moved_at.elapsed() >= TRACK_UPLOAD_STALL => {
+                ctrl.cancel();
+                return TrackUploadOutcome::Failed("its upload stalled".into());
+            }
+            Err(_) => {}
         }
-        Ok(()) => eprintln!(
-            "[rich-tracks] {id}: tracks finalized without every track; keeping {}",
-            finish.folder.display()
-        ),
-        Err(error) => eprintln!(
-            "[rich-tracks] {id}: tracks finalize failed ({error}); keeping {}",
-            finish.folder.display()
-        ),
     }
 }
 
@@ -719,14 +843,15 @@ mod tests {
             width: 0.5,
             height: 0.25,
         };
+        // Cropped to whole points as the flattened recording's stream is.
         assert_eq!(
             region_area_pt(&display(), &region),
-            RectPt {
+            Ok(RectPt {
                 x: -1134.0,
                 y: 491.0,
                 width: 756.0,
-                height: 245.5
-            }
+                height: 245.0
+            })
         );
         let stop = chrono::DateTime::parse_from_rfc3339("2026-11-16T10:00:10.000Z")
             .unwrap()
@@ -761,7 +886,7 @@ mod tests {
                     x: -1134.0,
                     y: 491.0,
                     width: 756.0,
-                    height: 245.5,
+                    height: 245.0,
                 }),
             },
             camera_bubble: false,
@@ -770,12 +895,16 @@ mod tests {
             &fields,
             &[FinishedTrack {
                 id: INPUT_TRACK_ID,
-                complete: true,
-                meta: serde_json::json!({
-                    "space": "screen-px",
-                    "moveIntervalMs": 10,
-                    "covers": "global",
-                }),
+                finish: TrackFinish {
+                    complete: true,
+                    start_ms: 0,
+                    end_ms: 61_250,
+                    meta: serde_json::json!({
+                        "space": "screen-px",
+                        "moveIntervalMs": 10,
+                        "covers": "global",
+                    }),
+                },
             }],
         );
         assert_eq!(
@@ -803,7 +932,7 @@ mod tests {
                         "scale": 2.0,
                         "boundsPt": { "x": -1512.0, "y": 0.0, "width": 1512.0, "height": 982.0 },
                     }],
-                    "areaPt": { "x": -1134.0, "y": 491.0, "width": 756.0, "height": 245.5 },
+                    "areaPt": { "x": -1134.0, "y": 491.0, "width": 756.0, "height": 245.0 },
                 },
                 "compat": { "offsetMs": 0, "cursor": "in-pixels", "camera": "none" },
                 "privacy": { "keys": "shortcuts", "pageInputs": "masked" },
@@ -834,5 +963,226 @@ mod tests {
             serde_json::json!({ "kind": "window", "displays": [] })
         );
         assert_eq!(window["compat"]["camera"], "bubble");
+    }
+
+    /// A source that closes its file as soon as it is stopped.
+    struct ClosingSource {
+        ctrl: Arc<TrackUploadCtrl>,
+        finish: TrackFinish,
+    }
+
+    impl TrackSource for ClosingSource {
+        fn stop(&mut self) {
+            self.ctrl.close_source();
+        }
+
+        fn finish(&self, _duration_ms: u64) -> TrackFinish {
+            self.finish.clone()
+        }
+    }
+
+    struct Fixture {
+        folder: PathBuf,
+        target: Arc<TrackUploadTarget>,
+        tracks_stopped: Arc<AtomicBool>,
+        gate: Arc<TrackSendGate>,
+        clock: RecordingClock,
+    }
+
+    impl Fixture {
+        fn new(name: &str) -> Self {
+            let folder = std::env::temp_dir().join(format!(
+                "clips-rich-tracks-test-{}-{name}.tracks",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&folder);
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join(INPUT_TRACK_FILE), b"fragments").unwrap();
+            Self {
+                folder,
+                target: Arc::new(TrackUploadTarget {
+                    server_url: "http://127.0.0.1:9".into(),
+                    recording_id: format!("rec-{name}"),
+                    auth_token: String::new(),
+                    cookie: String::new(),
+                }),
+                tracks_stopped: Arc::new(AtomicBool::new(false)),
+                gate: Arc::new(TrackSendGate::new(|| Some(0))),
+                clock: RecordingClock::new(
+                    Arc::new(AtomicU64::new(100.0_f64.to_bits())),
+                    Arc::new(AtomicU64::new(0.0_f64.to_bits())),
+                    (1, 1),
+                ),
+            }
+        }
+
+        /// A track whose upload ends with `outcome` once it is asked.
+        fn track(&self, id: &'static str, outcome: TrackUploadOutcome) -> RunningTrack {
+            let ctrl = Arc::new(TrackUploadCtrl::new(
+                Arc::clone(&self.tracks_stopped),
+                Arc::clone(&self.gate),
+            ));
+            let (tx, result_rx) = tokio::sync::oneshot::channel();
+            tx.send(outcome).unwrap();
+            RunningTrack {
+                id,
+                source: Box::new(ClosingSource {
+                    ctrl: Arc::clone(&ctrl),
+                    finish: TrackFinish {
+                        complete: true,
+                        start_ms: 140,
+                        end_ms: 9_000,
+                        meta: serde_json::json!({ "cursor": "hidden" }),
+                    },
+                }),
+                upload: TrackUpload { ctrl, result_rx },
+            }
+        }
+
+        fn recording(&self) -> RichRecording {
+            RichRecording {
+                folder: self.folder.clone(),
+                target: Arc::clone(&self.target),
+                tracks_stopped: Arc::clone(&self.tracks_stopped),
+                gate: Arc::clone(&self.gate),
+                clock: self.clock.clone(),
+                capture: CaptureInfo {
+                    kind: CaptureKind::Display,
+                    display: Some(display()),
+                    area_pt: None,
+                },
+                camera_bubble: false,
+                app_version: "1.4.0".into(),
+                pauses: Vec::new(),
+                paused_at_ms: None,
+                stopped_at: None,
+                tracks: vec![self.track(INPUT_TRACK_ID, TrackUploadOutcome::Cancelled)],
+            }
+        }
+
+        fn finish_context(&self) -> FinishContext {
+            FinishContext {
+                folder: self.folder.clone(),
+                target: Arc::clone(&self.target),
+                tracks_stopped: Arc::clone(&self.tracks_stopped),
+                started_at: Some("2026-11-16T10:00:00.500Z".into()),
+                fields: ManifestFields {
+                    started_at: String::new(),
+                    duration_ms: 9_500,
+                    app_version: "1.4.0".into(),
+                    os: "macOS 26.1.0".into(),
+                    pauses: Vec::new(),
+                    capture: CaptureInfo {
+                        kind: CaptureKind::Display,
+                        display: Some(display()),
+                        area_pt: None,
+                    },
+                    camera_bubble: false,
+                },
+            }
+        }
+
+        /// Runs the end of a recording, its finalize answering `answer`, and
+        /// returns the body it was sent, if any.
+        fn finish(
+            &self,
+            tracks: Vec<RunningTrack>,
+            answer: Result<(), String>,
+        ) -> Option<serde_json::Value> {
+            let sent = Arc::new(Mutex::new(None));
+            let seen = Arc::clone(&sent);
+            for track in &tracks {
+                track.upload.ctrl.close_source();
+            }
+            tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap()
+                .block_on(finish_tracks(
+                    self.finish_context(),
+                    tracks,
+                    move |_, body| async move {
+                        *seen.lock().unwrap() = Some(body);
+                        answer
+                    },
+                ));
+            let body = sent.lock().unwrap().take();
+            body
+        }
+    }
+
+    #[test]
+    fn tracks_that_will_not_be_finalized_leave_no_folder() {
+        let abandoned = Fixture::new("abandon");
+        abandoned.recording().abandon("the recording restarted");
+        assert!(!abandoned.folder.exists());
+
+        let discarded = Fixture::new("discard");
+        discarded.recording().discard();
+        assert!(!discarded.folder.exists());
+
+        // Dropped without `finish`.
+        let dropped = Fixture::new("drop");
+        let recording = dropped.recording();
+        let ctrl = Arc::clone(&recording.tracks[0].upload.ctrl);
+        drop(recording);
+        assert!(!dropped.folder.exists());
+        assert!(ctrl.source_closed());
+
+        // The server said to stop sending tracks: nothing is finalized.
+        let stopped = Fixture::new("stopped");
+        stopped.tracks_stopped.store(true, Ordering::SeqCst);
+        let track = stopped.track(
+            INPUT_TRACK_ID,
+            TrackUploadOutcome::Stopped("tracksStopped".into()),
+        );
+        assert_eq!(stopped.finish(vec![track], Ok(())), None);
+        assert!(!stopped.folder.exists());
+    }
+
+    #[test]
+    fn the_folder_goes_once_finalize_is_done_or_has_failed_for_good() {
+        let failed = Fixture::new("finalize-failed");
+        let tracks = vec![
+            failed.track(INPUT_TRACK_ID, TrackUploadOutcome::Empty),
+            failed.track(
+                INPUT_TRACK_ID,
+                TrackUploadOutcome::Sent {
+                    bytes: 9,
+                    chunks: 1,
+                },
+            ),
+        ];
+        let body = failed.finish(tracks, Err("finalize failed after 6 attempts".into()));
+        assert!(!failed.folder.exists());
+        // The empty track isn't listed; the sent one is, with its own start
+        // and end.
+        assert_eq!(
+            body.unwrap()["tracks"],
+            serde_json::json!([{
+                "id": "input",
+                "startMs": 140,
+                "endMs": 9_000,
+                "complete": true,
+                "meta": { "cursor": "hidden" },
+            }])
+        );
+
+        let done = Fixture::new("finalized");
+        let track = done.track(
+            INPUT_TRACK_ID,
+            TrackUploadOutcome::Sent {
+                bytes: 9,
+                chunks: 1,
+            },
+        );
+        assert!(done.finish(vec![track], Ok(())).is_some());
+        assert!(!done.folder.exists());
+
+        // A track that failed to send isn't listed, and the folder still goes.
+        let unsent = Fixture::new("unsent");
+        let track = unsent.track(INPUT_TRACK_ID, TrackUploadOutcome::Failed("offline".into()));
+        assert_eq!(unsent.finish(vec![track], Ok(())), None);
+        assert!(!unsent.folder.exists());
     }
 }
