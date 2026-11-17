@@ -31,7 +31,10 @@ Ask only when something essential is missing and cannot be inferred, such as
 an ambiguous source page or destination. For a new site, scaffold in the user's
 stack. Follow the repo's instructions and reuse its components and conventions.
 
-Work in this order so the user sees the remix within minutes, not at the end:
+Work in this order so the user sees the remix within minutes, not at the end.
+When the run finishes without Design (the user said no Design, headless or
+just the code, or Design is unavailable), skip the Design sign-in, the board
+and the frame subagents in these steps:
 
 1. Start or reuse the destination dev server in the background while you work
    on the source. Capture its current appearance. Open the Design tab and check
