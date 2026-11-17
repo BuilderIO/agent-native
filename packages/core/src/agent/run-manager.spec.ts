@@ -9871,6 +9871,62 @@ describe("run manager soft timeout", () => {
       expect(releaseTurnExecutionLease).toHaveBeenCalledOnce();
     });
 
+    it("keeps renewing the lease through a long tool call after renewals hang on a dead connection", async () => {
+      const runId = "run-hung-renewals-long-tool";
+      let releaseTool!: () => void;
+      let markStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const toolGate = new Promise<void>((resolve) => {
+        releaseTool = resolve;
+      });
+      vi.mocked(markRunAborted).mockClear();
+      vi.mocked(renewTurnExecutionLease).mockReset();
+      let calls = 0;
+      let settledAfterHang = 0;
+      vi.mocked(renewTurnExecutionLease).mockImplementation(() => {
+        calls += 1;
+        if (calls <= 3) return new Promise<void>(() => {});
+        settledAfterHang += 1;
+        return Promise.resolve();
+      });
+
+      const run = startRun(
+        runId,
+        "thread-hung-renewals-long-tool",
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "long-running-tool",
+            id: "call-hung-renewals",
+            input: {},
+          });
+          markStarted();
+          await toolGate;
+        },
+        undefined,
+        {
+          softTimeoutMs: 0,
+          noProgressTimeoutMs: 0,
+          executionLease: true,
+        },
+      );
+
+      await started;
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(settledAfterHang).toBeGreaterThan(10);
+      expect(run.status).toBe("running");
+
+      vi.mocked(renewTurnExecutionLease).mockReset();
+      vi.mocked(renewTurnExecutionLease).mockImplementation(() =>
+        Promise.resolve(),
+      );
+      releaseTool();
+      await run.finalized;
+    });
+
     it("does not abort a completed run when its lease expires during finalization", async () => {
       const completion = Promise.withResolvers<void>();
       const completionStarted = Promise.withResolvers<void>();

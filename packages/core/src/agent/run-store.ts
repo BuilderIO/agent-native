@@ -37,7 +37,10 @@ import {
   stripInlineBytes,
   stripInlineBytesFromJson,
 } from "../shared/inline-bytes.js";
-import { isRequestedStopAbortReason } from "./abort-reasons.js";
+import {
+  EXECUTION_LEASE_LOST_ABORT_REASON,
+  isRequestedStopAbortReason,
+} from "./abort-reasons.js";
 import {
   approvalKeyForHistory,
   approvalKeyForPrivateHistory,
@@ -4036,6 +4039,15 @@ export function terminalEventForAbortReason(
     return {
       type: "done",
       ...(normalized !== "displaced" ? { reason: "user" } : {}),
+    };
+  }
+  if (normalized === EXECUTION_LEASE_LOST_ABORT_REASON) {
+    return {
+      type: "error",
+      error:
+        "The server lost track of this run and stopped it before it finished. Everything it produced so far is kept; retry to pick up from there.",
+      errorCode: `aborted_${normalized}`,
+      recoverable: true,
     };
   }
   return {

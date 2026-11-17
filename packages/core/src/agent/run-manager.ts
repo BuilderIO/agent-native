@@ -1819,10 +1819,18 @@ export function startRun(
       heartbeatInFlight = true;
       pendingHeartbeats += 1;
       const attempt = ++heartbeatAttempt;
-      // One renewal stuck acquiring a connection must not hold the slot until
-      // the lease lapses, so a later tick retries while it settles. Only one
-      // retry may overlap it, or a stalled pool would fill with renewals.
+      // A renewal on a dead socket never settles and no statement timeout can
+      // fire. Past its deadline it is abandoned, slot included, or two hung
+      // renewals would end renewal for the rest of the run and the lease would
+      // lapse under a healthy tool call. One retry per deadline bounds the load.
+      let slotHeld = true;
+      const releaseSlot = () => {
+        if (!slotHeld) return;
+        slotHeld = false;
+        pendingHeartbeats -= 1;
+      };
       const releaseStuckHeartbeat = setTimeout(() => {
+        releaseSlot();
         if (heartbeatAttempt === attempt) heartbeatInFlight = false;
       }, HEARTBEAT_ATTEMPT_DEADLINE_MS);
       (options?.executionLease
@@ -1863,7 +1871,7 @@ export function startRun(
         })
         .finally(() => {
           clearTimeout(releaseStuckHeartbeat);
-          pendingHeartbeats -= 1;
+          releaseSlot();
           if (heartbeatAttempt === attempt) heartbeatInFlight = false;
         });
     }
