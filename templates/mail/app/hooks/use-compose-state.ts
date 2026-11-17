@@ -603,24 +603,42 @@ export function useComposeState() {
   const knownDraftIdsRef = useRef<Set<string> | null>(null);
   const removedDraftIdsRef = useRef<Record<string, number>>({});
   const draftSaveFailuresRef = useRef<Set<string>>(new Set());
+  // Drafts whose latest mailbox save Gmail kept without Mail learning where
+  // its files moved: the refs held here name a message Gmail dropped, and only
+  // another save finds them again.
+  const unconfirmedDraftFilesRef = useRef<Set<string>>(new Set());
 
   const saveDraft = useCallback(
     async (draft: ComposeState): Promise<DraftSaveResult> => {
       const usesAlias = [draft.to, draft.cc, draft.bcc].some((field) =>
         field?.includes(ALIAS_PREFIX),
       );
-      if (!usesAlias) return saveDraftToEmailsBestEffort(draft);
-      try {
-        const aliases = await qc.fetchQuery(aliasesQueryOptions);
-        return saveDraftToEmailsBestEffort(draft, aliases);
-      } catch (error) {
-        return {
-          status: "failed",
-          error: new AliasResolutionError("Could not load recipient aliases", {
-            cause: error,
-          }),
-        };
+      let result: DraftSaveResult;
+      if (!usesAlias) {
+        result = await saveDraftToEmailsBestEffort(draft);
+      } else {
+        try {
+          const aliases = await qc.fetchQuery(aliasesQueryOptions);
+          result = await saveDraftToEmailsBestEffort(draft, aliases);
+        } catch (error) {
+          result = {
+            status: "failed",
+            error: new AliasResolutionError(
+              "Could not load recipient aliases",
+              { cause: error },
+            ),
+          };
+        }
       }
+      if (result.status === "saved") {
+        unconfirmedDraftFilesRef.current.delete(draft.id);
+      } else if (
+        result.status === "failed" &&
+        result.error instanceof DraftSaveIncompleteError
+      ) {
+        unconfirmedDraftFilesRef.current.add(draft.id);
+      }
+      return result;
     },
     [qc],
   );
@@ -800,6 +818,28 @@ export function useComposeState() {
     [qc, putMutation],
   );
 
+  const keepDraftSaveMetadata = useCallback(
+    (id: string, result: DraftSaveQueueResult) => {
+      const latest = (
+        qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
+      ).find((draft) => draft.id === id);
+      const updatedDraft = getDraftSaveMetadataUpdate(
+        latest,
+        result,
+        id in removedDraftIdsRef.current,
+      );
+      if (!updatedDraft) return;
+
+      qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
+        (old ?? []).map((draft) => (draft.id === id ? updatedDraft : draft)),
+      );
+      void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
+        putMutation.mutateAsync(updatedDraft),
+      ).catch((error) => reportDraftWriteFailed(id, error));
+    },
+    [qc, putMutation],
+  );
+
   const autoSaveToGmail = useCallback(
     (id: string) => {
       const current = (
@@ -819,25 +859,10 @@ export function useComposeState() {
       ).then((result) => {
         if (result.status === "cancelled") return;
         reportDraftSaveResult(current, result);
-        const latest = (
-          qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
-        ).find((draft) => draft.id === id);
-        const updatedDraft = getDraftSaveMetadataUpdate(
-          latest,
-          result,
-          removedDraftIdsRef.current[id] !== undefined,
-        );
-        if (!updatedDraft) return;
-
-        qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
-          (old ?? []).map((draft) => (draft.id === id ? updatedDraft : draft)),
-        );
-        void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
-          putMutation.mutateAsync(updatedDraft),
-        ).catch((error) => reportDraftWriteFailed(id, error));
+        keepDraftSaveMetadata(id, result);
       });
     },
-    [qc, putMutation, reportDraftSaveResult, saveDraft],
+    [qc, keepDraftSaveMetadata, reportDraftSaveResult, saveDraft],
   );
 
   const update = useCallback(
@@ -1206,21 +1231,48 @@ export function useComposeState() {
    * A staged draft with the Gmail file refs to send it with. A mailbox save
    * still running when it was staged replaces the Gmail message its own files
    * are read from; the draft held here follows that move, the staged copy
-   * doesn't.
+   * doesn't. When the latest save couldn't confirm where the files moved, one
+   * more save finds them, since send itself only reads the refs it's given;
+   * if that save fails too, this rejects and nothing is sent.
    */
   const settleForSend = useCallback(
     async (staged: ComposeState): Promise<ComposeState> => {
       await pendingDraftSavesRef.current.get(staged.id);
+      let sendable = staged;
+      if (unconfirmedDraftFilesRef.current.has(staged.id)) {
+        const getLatest = () =>
+          (qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []).find(
+            (draft) => draft.id === staged.id,
+          );
+        const result = await enqueueDraftSave(
+          pendingDraftSavesRef.current,
+          getLatest() ?? staged,
+          getLatest,
+          () => staged.id in removedDraftIdsRef.current,
+          saveDraft,
+        );
+        if (result.status !== "cancelled") {
+          reportDraftSaveResult(staged, result);
+          keepDraftSaveMetadata(staged.id, result);
+        }
+        if (result.status === "failed") throw result.error;
+        if (result.status !== "saved") {
+          throw new Error(
+            `Draft ${staged.id} couldn't be saved to find its Gmail attachments`,
+          );
+        }
+        sendable = applyDraftSaveResult(staged, result);
+      }
       const latest = (
         qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
       ).find((draft) => draft.id === staged.id);
-      if (!staged.attachments || !latest?.attachments) return staged;
+      if (!sendable.attachments || !latest?.attachments) return sendable;
       const latestById = new Map(
         latest.attachments.map((attachment) => [attachment.id, attachment]),
       );
       return {
-        ...staged,
-        attachments: staged.attachments.map((attachment) => {
+        ...sendable,
+        attachments: sendable.attachments.map((attachment) => {
           const current = latestById.get(attachment.id);
           return attachment.source === "gmail" &&
             current?.source === "gmail" &&
@@ -1235,7 +1287,7 @@ export function useComposeState() {
         }),
       };
     },
-    [qc],
+    [keepDraftSaveMetadata, qc, reportDraftSaveResult, saveDraft],
   );
 
   const flush = useCallback(

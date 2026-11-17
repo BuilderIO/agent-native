@@ -401,47 +401,65 @@ async function storeComposeDraft(
   }
 }
 
+const GMAIL_DRAFT_REPAIR_ATTEMPTS = 3;
+
 /**
  * Gives the draft that beat this call to the store what this call's Gmail
  * update left it: Gmail dropped the message the draft's files and a reopened
  * draft's message ID named, so the record a redo starts from has to name the
- * Gmail draft and its files where they are now. The other save's edits stay.
+ * Gmail draft and its files where they are now. The other saves' edits stay.
+ * `repaired` is false when the record still names this Gmail draft by its
+ * replaced refs, because every attempt lost to another edit or failed.
  */
 async function followGmailDraftUpdate(
   key: string,
   stored: Record<string, unknown>,
   savedDraftId: unknown,
   update: { draftId: string; movedAttachments?: MovedGmailAttachment[] },
-): Promise<Record<string, unknown>> {
-  if (
-    stored.savedDraftId !== savedDraftId ||
-    stored.savedDraftBackend === "local"
-  ) {
-    return stored;
-  }
-  const attachments =
-    Array.isArray(stored.attachments) && update.movedAttachments
-      ? moveGmailAttachments(
-          stored.attachments as ComposeAttachment[],
-          update.movedAttachments,
-        )
-      : stored.attachments;
-  if (
-    stored.savedDraftId === update.draftId &&
-    attachments === stored.attachments
-  ) {
-    return stored;
-  }
-  const next = {
-    ...stored,
-    savedDraftId: update.draftId,
-    ...(attachments === undefined ? {} : { attachments }),
-  };
+): Promise<{ current: Record<string, unknown> | null; repaired: boolean }> {
+  let current: Record<string, unknown> | null = stored;
   try {
-    return (await compareAndSetAppState(key, stored, next)) ? next : stored;
+    for (let attempt = 1; ; attempt += 1) {
+      if (
+        !current ||
+        (current.savedDraftId !== savedDraftId &&
+          current.savedDraftId !== update.draftId) ||
+        current.savedDraftBackend === "local"
+      ) {
+        return { current, repaired: true };
+      }
+      const attachments =
+        Array.isArray(current.attachments) && update.movedAttachments
+          ? moveGmailAttachments(
+              current.attachments as ComposeAttachment[],
+              update.movedAttachments,
+            )
+          : current.attachments;
+      if (
+        current.savedDraftId === update.draftId &&
+        attachments === current.attachments
+      ) {
+        return { current, repaired: true };
+      }
+      const next = {
+        ...current,
+        savedDraftId: update.draftId,
+        ...(attachments === undefined ? {} : { attachments }),
+      };
+      if (await compareAndSetAppState(key, current, next)) {
+        return { current: next, repaired: true };
+      }
+      if (attempt === GMAIL_DRAFT_REPAIR_ATTEMPTS) {
+        console.error(
+          `[manage-draft] ${key} kept its replaced Gmail refs: lost ${attempt} writes to other edits`,
+        );
+        return { current, repaired: false };
+      }
+      current = await readAppState(key);
+    }
   } catch (error) {
     console.error(`[manage-draft] ${key} kept its replaced Gmail refs:`, error);
-    return stored;
+    return { current, repaired: false };
   }
 }
 
@@ -877,7 +895,7 @@ export default defineAction({
         const discarded =
           !newGmailDraft || (await discardUnstoredGmailDraft(newGmailDraft));
         const stored = await readAppState(`compose-${safeId}`);
-        const latest =
+        const { current: latest, repaired } =
           stored && savedGmailDraft?.updated
             ? await followGmailDraftUpdate(
                 `compose-${safeId}`,
@@ -885,15 +903,24 @@ export default defineAction({
                 storedDraft.savedDraftId,
                 savedGmailDraft,
               )
-            : stored;
-        throw saveConflict(
+            : { current: stored, repaired: true };
+        const conflict = saveConflict(
           "draft",
           latest,
           latest ? saveRevisionOf(latest) : null,
-          discarded
-            ? undefined
-            : { leftoverGmailDraftId: newGmailDraft.draftId },
+          {
+            ...(discarded
+              ? {}
+              : { leftoverGmailDraftId: newGmailDraft.draftId }),
+            ...(repaired || !savedGmailDraft
+              ? {}
+              : { unrecordedGmailDraftId: savedGmailDraft.draftId }),
+          },
         );
+        if (!repaired && savedGmailDraft) {
+          conflict.message += ` Gmail saved this update as draft ${savedGmailDraft.draftId}, but Mail couldn't update the draft's Gmail draft ID and file refs to match, so details.current still names the message Gmail replaced.`;
+        }
+        throw conflict;
       }
       countSaveOutcome("draft", "written");
       if (savedGmailDraft?.attachmentsError) {

@@ -1796,4 +1796,99 @@ describe("manage-draft updates of a reopened Gmail draft with its own file", () 
       attachments: [draftFile],
     });
   });
+
+  /**
+   * Gmail takes the agent's update, then the person's edit beats the agent's
+   * write to the store, and each later write in `edits` is beaten by one more
+   * edit of the person's.
+   */
+  function racedByEdits(edits: Record<string, unknown>[]) {
+    const save = mocks.saveGmailDraft.getMockImplementation();
+    mocks.saveGmailDraft.mockImplementationOnce(async (args) => {
+      const result = await save?.(args);
+      appState.set("compose-reopened", {
+        ...(appState.get("compose-reopened") as object),
+        body: "Person's edit",
+      });
+      return result;
+    });
+    const write = mocks.compareAndSetAppState.getMockImplementation();
+    let writes = 0;
+    mocks.compareAndSetAppState.mockImplementation(
+      (key: string, expected: unknown, next: unknown) => {
+        const edit = writes > 0 ? edits[writes - 1] : undefined;
+        writes += 1;
+        if (edit) {
+          appState.set(key, { ...(appState.get(key) as object), ...edit });
+        }
+        return write?.(key, expected, next);
+      },
+    );
+  }
+
+  it("records the Gmail draft and its file after more edits beat the first repair", async () => {
+    racedByEdits([{ cc: "copy@example.com" }]);
+
+    const conflict = await failure(
+      action.run({
+        action: "update",
+        id: "reopened",
+        expectedRevision: revisionOf("reopened"),
+        subject: "Agent subject",
+      }),
+    );
+
+    const repaired = {
+      body: "Person's edit",
+      cc: "copy@example.com",
+      subject: "Brief",
+      savedDraftId: "r-draft-7",
+      attachments: [
+        {
+          ...draftFile,
+          gmailMessageId: "message-2",
+          gmailAttachmentId: "part-2",
+        },
+      ],
+    };
+    expect(conflict.errorCode).toBe("save_conflict");
+    expect(conflict.details?.current).toMatchObject(repaired);
+    expect(appState.get("compose-reopened")).toMatchObject(repaired);
+    expect(conflict.details).not.toHaveProperty("unrecordedGmailDraftId");
+  });
+
+  it("says which Gmail draft it saved when every repair loses to another edit", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    racedByEdits([
+      { cc: "one@example.com" },
+      { cc: "two@example.com" },
+      { cc: "three@example.com" },
+    ]);
+
+    const conflict = (await failure(
+      action.run({
+        action: "update",
+        id: "reopened",
+        expectedRevision: revisionOf("reopened"),
+        subject: "Agent subject",
+      }),
+    )) as { errorCode?: string; message?: string; details?: object };
+
+    expect(conflict.errorCode).toBe("save_conflict");
+    expect(conflict.details).toMatchObject({
+      unrecordedGmailDraftId: "r-draft-7",
+    });
+    expect(conflict.message).toContain(
+      "Gmail saved this update as draft r-draft-7, but Mail couldn't update the draft's Gmail draft ID and file refs",
+    );
+    expect(appState.get("compose-reopened")).toMatchObject({
+      cc: "three@example.com",
+      savedDraftId: "message-of-draft",
+      attachments: [draftFile],
+    });
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
 });
