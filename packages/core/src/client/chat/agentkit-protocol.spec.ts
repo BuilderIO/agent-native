@@ -7824,7 +7824,7 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
-  it("bounds process-local event retention and rejects stale cursors", async () => {
+  it("bounds process-local event retention and resumes a stale cursor from the earliest retained event", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       for (let index = 0; index < 6; index += 1) {
         yield {
@@ -7847,9 +7847,28 @@ describe("createAgentKitProtocolAdapter", () => {
       expect(run?.status).toBe("completed");
     });
 
-    await expect(
-      drain(transport.subscribeToRun({ threadId: "thread-1", runId })),
-    ).rejects.toThrow("earliest available sequence");
+    const fromStart = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const [omitted, ...retained] = fromStart;
+    expect(omitted).toMatchObject({
+      type: "x-agent-native.persisted-event-omission-range",
+      sequence: 1,
+    });
+    expect(retained).toHaveLength(4);
+    expect(
+      (omitted as { payload: { lastSequence: number } }).payload.lastSequence,
+    ).toBe(retained[0]!.sequence - 1);
+    expect(retained.map((event) => event.sequence)).toEqual(
+      retained.map((_, index) => retained[0]!.sequence + index),
+    );
+    expect(
+      retained.some(
+        (event) =>
+          event.type === "run.completed" ||
+          (event.type === "run.status" && event.status === "completed"),
+      ),
+    ).toBe(true);
     const run = await transport.getRun?.({ threadId: "thread-1", runId });
     const replay = await drain(
       transport.subscribeToRun({

@@ -234,6 +234,7 @@ const RUNTIME_EVENT_TYPE = "x-core.runtime-event";
 const RUNTIME_USAGE_EVENT_TYPE = "x-core.usage";
 const DEFAULT_MAX_RETAINED_EVENTS = 1_000;
 const DEFAULT_MAX_RETAINED_RUNS = 100;
+const MAX_OMISSION_RANGE = 256;
 const DEFAULT_RETAINED_RUN_TTL_MS = 30 * 60 * 1_000;
 const MAX_DURABLE_RESUME_ATTEMPTS = 3;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
@@ -3946,10 +3947,21 @@ export function createAgentKitProtocolAdapter(
     let nextSequence = Math.max(1, afterSequence + 1);
     try {
       while (!signal?.aborted) {
-        if (nextSequence < run.firstRetainedSequence) {
-          throw new Error(
-            `AgentKit run ${run.runId} no longer retains sequence ${nextSequence}; the earliest available sequence is ${run.firstRetainedSequence}.`,
+        while (nextSequence < run.firstRetainedSequence) {
+          const lastSequence = Math.min(
+            run.firstRetainedSequence - 1,
+            nextSequence + MAX_OMISSION_RANGE - 1,
           );
+          yield {
+            id: `retention-pruned:${run.runId}:${nextSequence}`,
+            threadId: run.threadId,
+            runId: run.runId,
+            sequence: nextSequence,
+            occurredAt: run.events[0]?.occurredAt ?? now(),
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { lastSequence, sourceType: "retention_pruned" },
+          } as AgentEvent;
+          nextSequence = lastSequence + 1;
         }
         while (nextSequence <= run.sequence) {
           const event = run.events[nextSequence - run.firstRetainedSequence];
