@@ -2576,21 +2576,34 @@ function prefersApprovalReplaySnapshot(
   );
 }
 
+/** A saved AgentKit widget, as much of it as the merge reads. */
+interface AgentKitWidgetEntry {
+  messageId?: unknown;
+  widget?: { kind?: unknown };
+}
+
 // A peer's approval card keeps one id per approval, and each call that finds
 // the approval still waiting rewrites it with that call. The rewrite from a
 // later run wins, or the card stays tied to a call the person already settled.
 function prefersNewerApprovalCard(
-  existing: any,
-  incoming: any,
+  existing: AgentKitWidgetEntry | undefined,
+  incoming: AgentKitWidgetEntry | undefined,
   existingMessageRunIds: Map<string, string>,
   incomingMessageRunIds: Map<string, string>,
   existingRuns: unknown,
   incomingRuns: unknown,
 ): boolean {
   if (incoming?.widget?.kind !== AGENT_CALL_APPROVAL_WIDGET_KIND) return false;
+  const runIdOf = (
+    entry: AgentKitWidgetEntry | undefined,
+    runIds: Map<string, string>,
+  ) =>
+    typeof entry?.messageId === "string"
+      ? runIds.get(entry.messageId)
+      : undefined;
   return isIncomingToolCallRunNewer(
-    { runId: existingMessageRunIds.get(existing?.messageId) },
-    { runId: incomingMessageRunIds.get(incoming?.messageId) },
+    { runId: runIdOf(existing, existingMessageRunIds) },
+    { runId: runIdOf(incoming, incomingMessageRunIds) },
     existingRuns,
     incomingRuns,
   );
