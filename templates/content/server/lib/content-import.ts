@@ -52,6 +52,7 @@ import {
   type ImportSkippedFile,
   isImportImageMediaType,
   MAX_IMPORT_ATTACHMENT_BYTES,
+  MAX_IMPORT_IMAGE_BYTES,
   MAX_IMPORT_MARKDOWN_BYTES,
   MAX_IMPORT_PAGE_CHARACTERS,
   MAX_IMPORT_TOTAL_MARKDOWN_BYTES,
@@ -757,7 +758,13 @@ async function fetchExpiringFile(
       response.ok && mimeType
         ? await readAtMost(
             response,
-            Math.min(MAX_IMPORT_ATTACHMENT_BYTES, budget.bytes),
+            // Private storage takes images up to 10 MB, so a larger one stops the read.
+            Math.min(
+              mimeType === "application/pdf"
+                ? MAX_IMPORT_ATTACHMENT_BYTES
+                : MAX_IMPORT_IMAGE_BYTES,
+              budget.bytes,
+            ),
           )
         : null;
     if (!data || !mimeType) {

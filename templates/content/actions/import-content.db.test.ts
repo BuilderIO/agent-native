@@ -1217,6 +1217,48 @@ describe("Notion export import", () => {
     }
   });
 
+  it("keeps a signed image past what private storage takes as a link", async () => {
+    // Twenty megabytes: past the 10 MB an image gets, under a PDF's 25.
+    const megabyte = new Uint8Array(1024 * 1024);
+    let sent = 0;
+    signedFiles.fetch.mockResolvedValueOnce(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (sent++ < 20) controller.enqueue(megabyte);
+            else controller.close();
+          },
+        }),
+        { headers: { "content-type": "image/png" } },
+      ),
+    );
+    const applied = await asOwner(() =>
+      importContent.run({
+        files: notionFiles(),
+        parentId: PARENT_ID,
+        dryRun: false,
+      }),
+    );
+    const plan = present(applied.pages[0]);
+    const [stored] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, present(plan.id)));
+
+    expect(stored.content).toContain(CHART.split("?")[0]);
+    expect(plan.notes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "expiring-link-not-rehosted",
+          samples: ["chart.png"],
+        }),
+      ]),
+    );
+    expect(uploads.upload).not.toHaveBeenCalled();
+    // The read stopped once it passed the cap.
+    expect(sent).toBeLessThan(20);
+  });
+
   it("says when the same files were imported before, until those pages go to Trash", async () => {
     const files = () => notionFiles("Imported twice.");
     const applied = await asOwner(() =>

@@ -252,8 +252,8 @@ function zipErrorMessage(
 }
 
 async function readImportFiles(sources: ImportSource[]) {
-  const payload: ImportContentFileInput[] = [];
   const skipped: ImportSkippedFile[] = [];
+  const kept: Array<{ source: ImportSource; markdown: boolean }> = [];
   let markdownBytes = 0;
   for (const source of sources) {
     const kind = importFileKind(
@@ -268,8 +268,16 @@ async function readImportFiles(sources: ImportSource[]) {
       continue;
     }
     if (kind === "markdown") markdownBytes += source.size;
+    kept.push({ source, markdown: kind === "markdown" });
+  }
+  // The files' sizes give the total, so none is read once it's too much.
+  if (markdownBytes > MAX_IMPORT_TOTAL_MARKDOWN_BYTES) {
+    return { payload: [], skipped, markdownBytes };
+  }
+  const payload: ImportContentFileInput[] = [];
+  for (const { source, markdown } of kept) {
     payload.push(
-      kind === "markdown"
+      markdown
         ? { name: source.name, text: await source.file.text() }
         : { name: source.name },
     );
