@@ -494,6 +494,32 @@ describe("real-time waits", () => {
     ]);
   });
 
+  it("counts a break as leaving a loop only when it ends that loop", () => {
+    const source = [
+      "async function drain(queue) {",
+      "  while (queue.length > 0) {",
+      "    const job = queue.shift();",
+      "    switch (job.kind) {",
+      "      case 'expiring':",
+      "        if (Date.now() > job.expiresAt) break;",
+      "        await run(job);",
+      "    }",
+      "  }",
+      "}",
+      "async function firstReady(sources) {",
+      "  const deadline = Date.now() + 1_000;",
+      "  outer: while (true) {",
+      "    for (const source of sources) {",
+      "      if (Date.now() > deadline) break outer;",
+      "      if (await source.ready()) return source;",
+      "    }",
+      "  }",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flaggedKinds(source), [[13, "real-time deadline loop"]]);
+  });
+
   it("flags a poll that sleeps and gives up after a number of attempts", () => {
     const source = [
       "async function waitForLockWait(minimum) {",
@@ -523,6 +549,37 @@ describe("real-time waits", () => {
     assert.deepEqual(flaggedKinds(source), [
       [2, "poll that gives up after a fixed number of attempts"],
       [10, "poll that gives up after a fixed number of attempts"],
+    ]);
+  });
+
+  it("flags a poll checked after the loop, not a loop that sleeps between steps", () => {
+    const source = [
+      "const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));",
+      "it('finds the row', async () => {",
+      "  let found = false;",
+      "  for (let attempt = 0; attempt < 20; attempt++) {",
+      "    if (await exists()) { found = true; break; }",
+      "    await sleep(50);",
+      "  }",
+      "  if (!found) throw new Error('no row');",
+      "  let attempts = 0;",
+      "  let rows = [];",
+      "  while (!rows.length && attempts++ < 10) {",
+      "    rows = await read();",
+      "    await sleep(50);",
+      "  }",
+      "  expect(rows).toHaveLength(1);",
+      "  for (let step = 0; step < 3; step++) {",
+      "    await send(step);",
+      "    await sleep(10);",
+      "  }",
+      "  expect(sent).toEqual([0, 1, 2]);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedKinds(source), [
+      [4, "poll that gives up after a fixed number of attempts"],
+      [11, "poll that gives up after a fixed number of attempts"],
     ]);
   });
 
@@ -562,6 +619,8 @@ describe("real-time waits", () => {
       "const LIMIT = 2_000;",
       "it('uses a constant', async () => {}, LIMIT);",
       "nodeTest('node:test sets its own', { timeout: 100 }, () => {});",
+      "const timeout = 1_000;",
+      "it('uses shorthand', { timeout }, async () => {});",
     ].join("\n");
 
     assert.deepEqual(flaggedKinds(source), [
@@ -569,6 +628,7 @@ describe("real-time waits", () => {
       [8, "timeout below the config default"],
       [9, "timeout below the config default"],
       [13, "timeout below the config default"],
+      [16, "timeout below the config default"],
     ]);
   });
 
@@ -603,6 +663,47 @@ describe("real-time waits", () => {
     assert.deepEqual(flaggedLines(source), [9]);
   });
 
+  it("still flags sleeps that fake timers do not replace", () => {
+    const source = [
+      "import { setTimeout as sleep, scheduler } from 'node:timers/promises';",
+      "const tick = () => new Promise((resolve) => setTimeout(resolve, 10));",
+      "it('ticks the global timer', async () => {",
+      "  vi.useFakeTimers();",
+      "  for (let attempt = 0; attempt < 5; attempt++) {",
+      "    if (await ready()) return;",
+      "    await tick();",
+      "  }",
+      "  throw new Error('not ready');",
+      "});",
+      "it('sleeps on node:timers/promises', async () => {",
+      "  vi.useFakeTimers();",
+      "  for (let attempt = 0; attempt < 5; attempt++) {",
+      "    if (await ready()) return;",
+      "    await sleep(10);",
+      "  }",
+      "  throw new Error('not ready');",
+      "});",
+      "it('waits on the scheduler', async () => {",
+      "  vi.useFakeTimers();",
+      "  for (let attempt = 0; attempt < 5; attempt++) {",
+      "    if (await ready()) return;",
+      "    await scheduler.wait(10);",
+      "  }",
+      "  throw new Error('not ready');",
+      "});",
+      "it('waits in the browser', async ({ page }) => {",
+      "  vi.useFakeTimers();",
+      "  for (let attempt = 0; attempt < 5; attempt++) {",
+      "    if (await page.isVisible('#done')) return;",
+      "    await page.waitForTimeout(10);",
+      "  }",
+      "  throw new Error('not visible');",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source), [13, 21, 29]);
+  });
+
   it("reports a wait when its limit changes, and an added call to a helper that waits", () => {
     const source = [
       "async function waitForFile(file, timeoutMs = 5_000) {",
@@ -630,6 +731,33 @@ describe("real-time waits", () => {
     assert.deepEqual(flaggedLines(source, new Set([15])), [15]);
     assert.deepEqual(flaggedLines(source, new Set([16])), []);
     assert.deepEqual(flaggedLines(source, null), [3]);
+  });
+
+  it("counts a poll's sleep and a race's timer delay as part of its limit", () => {
+    const source = [
+      "const POLL_MS = 50;",
+      "const TIMEOUT_MS = 5_000;",
+      "const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));",
+      "async function waitForRow() {",
+      "  for (let attempt = 0; attempt < 20; attempt++) {",
+      "    if (await exists()) return;",
+      "    await sleep(POLL_MS);",
+      "  }",
+      "  throw new Error('no row');",
+      "}",
+      "it('does not hang', async () => {",
+      "  await Promise.race([",
+      "    work(),",
+      "    new Promise((_, reject) => setTimeout(() => reject(new Error('hung')), TIMEOUT_MS)),",
+      "  ]);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source, new Set([1])), [5]);
+    assert.deepEqual(flaggedLines(source, new Set([3])), [5]);
+    assert.deepEqual(flaggedLines(source, new Set([7])), [5]);
+    assert.deepEqual(flaggedLines(source, new Set([6])), []);
+    assert.deepEqual(flaggedLines(source, new Set([2])), [12]);
   });
 
   it("lets an opt-out on a helper's wait cover its callers", () => {

@@ -37,8 +37,9 @@
  *
  *   - a loop whose condition, or an `if` in it that leaves it, compares a clock
  *     reading or an elapsed time (`while (Date.now() < deadline)`);
- *   - a loop bounded by an attempt count that sleeps on a timer each pass and
- *     throws once it runs out
+ *   - a loop bounded by an attempt count that sleeps on a timer each pass,
+ *     can stop early, and fails once it runs out: a `throw`, an `if` that
+ *     throws, or an assertion right after it
  *     (`for (let i = 0; i < 100; i++) { ...; await sleep(10); } throw ...`);
  *   - `Promise.race` against a promise that a timer rejects;
  *   - a Vitest test, describe or hook timeout below the `testTimeout` or
@@ -51,7 +52,7 @@
  * that gives a variable it reads its clock or elapsed value: changing
  * `const elapsed = ...` can turn an unchanged assertion into a bound. A wait
  * counts as added when this branch changed its limit: the condition and the
- * declarations it reads, the race, the timeout value.
+ * declarations it reads, the race, each timer's delay, the timeout value.
  *
  * An assertion or wait that runs under fake timers is skipped: there `Date.now()` is
  * the test's own clock and an exact elapsed value is deterministic. The guard
@@ -59,7 +60,8 @@
  * `beforeEach`/`beforeAll` of an enclosing describe block or the file, then
  * those before it in its enclosing functions, including calls to local
  * helpers - and skips the assertion only when every clock it reads is fake (a
- * sleep or a timer race needs `setTimeout` faked):
+ * sleep or a timer race needs `setTimeout` faked; no fake timers replace a
+ * sleep from node:timers/promises or Playwright's `waitForTimeout`):
  *
  *   - `vi.useFakeTimers()` (and the jest and sinon spellings) fakes `Date`,
  *     `performance`, `hrtime` and `setTimeout`, or what its `toFake` lists;
@@ -1077,11 +1079,11 @@ function literalNumber(node: ts.Expression): number | undefined {
   }
 }
 
-/** A literal number, or a local `const` that holds one. */
+/** A literal number, or a local `const` that holds one, named or shorthand: `{ timeout }`. */
 function numericValue(file: TestFile, node: ts.Expression): number | undefined {
   const target = unwrap(node);
   if (!ts.isIdentifier(target)) return literalNumber(target);
-  const declaration = localSymbol(file, target)?.valueDeclaration;
+  const declaration = referencedSymbol(file, target)?.valueDeclaration;
   return declaration &&
     ts.isVariableDeclaration(declaration) &&
     declaration.initializer &&
@@ -1140,23 +1142,45 @@ function isConditionalLoop(node: ts.Node): node is ConditionalLoop {
   );
 }
 
-/** Whether `statement` can leave the loop around it, outside nested functions. */
-function canLeaveLoop(statement: ts.Statement): boolean {
-  let leaves = false;
-  const visit = (node: ts.Node) => {
-    if (leaves || ts.isFunctionLike(node)) return;
-    if (
-      ts.isBreakStatement(node) ||
-      ts.isReturnStatement(node) ||
-      ts.isThrowStatement(node)
+/** Whether `statement` ends at a loop, switch or label inside `loop`, which then keeps running. */
+function breaksInside(statement: ts.BreakStatement, loop: ts.Node): boolean {
+  for (let node = statement.parent; node !== loop; node = node.parent) {
+    if (statement.label) {
+      if (
+        ts.isLabeledStatement(node) &&
+        node.label.text === statement.label.text
+      ) {
+        return true;
+      }
+    } else if (
+      ts.isIterationStatement(node, false) ||
+      ts.isSwitchStatement(node)
     ) {
-      leaves = true;
+      return true;
+    }
+  }
+  return false;
+}
+
+type LoopExit = ts.BreakStatement | ts.ReturnStatement | ts.ThrowStatement;
+
+/** The statements in `node` that leave `loop`, outside nested functions. */
+function loopExits(node: ts.Node, loop: ConditionalLoop): LoopExit[] {
+  const exits: LoopExit[] = [];
+  const visit = (child: ts.Node) => {
+    if (ts.isFunctionLike(child)) return;
+    if (
+      ts.isReturnStatement(child) ||
+      ts.isThrowStatement(child) ||
+      (ts.isBreakStatement(child) && !breaksInside(child, loop))
+    ) {
+      exits.push(child);
       return;
     }
-    ts.forEachChild(node, visit);
+    ts.forEachChild(child, visit);
   };
-  visit(statement);
-  return leaves;
+  visit(node);
+  return exits;
 }
 
 /** The loop's own condition, and the conditions of the ifs in it that leave it. */
@@ -1165,13 +1189,68 @@ function exitConditions(loop: ConditionalLoop): ts.Expression[] {
   const conditions = own ? [own] : [];
   const visit = (node: ts.Node) => {
     if (ts.isFunctionLike(node)) return;
-    if (ts.isIfStatement(node) && canLeaveLoop(node.thenStatement)) {
+    if (
+      ts.isIfStatement(node) &&
+      loopExits(node.thenStatement, loop).length > 0
+    ) {
       conditions.push(node.expression);
     }
     ts.forEachChild(node, visit);
   };
   visit(loop.statement);
   return conditions;
+}
+
+function conjuncts(node: ts.Expression): ts.Expression[] {
+  const target = unwrap(node);
+  return ts.isBinaryExpression(target) &&
+    target.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+    ? [...conjuncts(target.left), ...conjuncts(target.right)]
+    : [target];
+}
+
+/**
+ * Whether an attempt-bounded loop can end before its count runs out: a
+ * `break` or `return` out of it, or a condition besides the count
+ * (`while (!found && attempt < 10)`).
+ */
+function stopsEarly(loop: ConditionalLoop, own: ts.Expression): boolean {
+  return (
+    loopExits(loop.statement, loop).some(
+      (exit) => !ts.isThrowStatement(exit),
+    ) || conjuncts(own).some((part) => comparisons(part).length === 0)
+  );
+}
+
+/** Whether `node` asserts: `expect(...)` and its matchers, or `assert` / `assert.<method>`. */
+function isAssertion(file: TestFile, node: ts.Expression): boolean {
+  let target = unwrap(node);
+  while (ts.isCallExpression(target) || ts.isPropertyAccessExpression(target)) {
+    if (
+      ts.isCallExpression(target) &&
+      (apiName(file, target.expression)?.split(".")[0] === "expect" ||
+        isAssertCall(file, target))
+    ) {
+      return true;
+    }
+    target = unwrap(target.expression);
+  }
+  return false;
+}
+
+/** Whether `statement` can fail the test: a throw, an `if` that throws, an assertion. */
+function canFail(file: TestFile, statement: ts.Statement): boolean {
+  if (ts.isThrowStatement(statement)) return true;
+  if (ts.isBlock(statement)) {
+    return statement.statements.some((child) => canFail(file, child));
+  }
+  if (ts.isIfStatement(statement)) {
+    return canFail(file, statement.thenStatement);
+  }
+  return (
+    ts.isExpressionStatement(statement) &&
+    isAssertion(file, statement.expression)
+  );
 }
 
 function nextStatement(statement: ts.Statement): ts.Statement | undefined {
@@ -1216,14 +1295,17 @@ function callsParameter(
   return calls;
 }
 
-/**
- * How a `new Promise(...)` around `setTimeout` settles when the timer fires:
- * `resolve` for a sleep, `reject` for a deadline.
- */
-function timerSettles(
+interface PromiseTimer {
+  /** `resolve` for a sleep, `reject` for a deadline. */
+  settles: "resolve" | "reject";
+  delay: ts.Expression | undefined;
+}
+
+/** How a `new Promise(...)` around `setTimeout` settles when the timer fires. */
+function promiseTimer(
   file: TestFile,
   node: ts.Expression,
-): "resolve" | "reject" | undefined {
+): PromiseTimer | undefined {
   const target = unwrap(node);
   if (
     !ts.isNewExpression(target) ||
@@ -1244,23 +1326,44 @@ function timerSettles(
   };
   const resolve = parameter(0);
   const reject = parameter(1);
-  let settles: "resolve" | "reject" | undefined;
+  let timer: PromiseTimer | undefined;
   const visit = (node: ts.Node) => {
     if (
       ts.isCallExpression(node) &&
       apiName(file, node.expression) === "setTimeout"
     ) {
-      const callback = node.arguments[0];
+      const [callback, delay] = node.arguments;
       if (callback && callsParameter(file, callback, reject)) {
-        settles = "reject";
+        timer = { settles: "reject", delay };
       } else if (callback && callsParameter(file, callback, resolve)) {
-        settles ??= "resolve";
+        timer ??= { settles: "resolve", delay };
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(executor.body);
-  return settles;
+  return timer;
+}
+
+/** What a wait on timers depends on. */
+interface TimerWait {
+  /** Code whose change changes how long it waits: its calls and each timer's delay. */
+  limits: ts.Expression[];
+  /** Whether fake timers replace every timer it waits on. */
+  fakeable: boolean;
+}
+
+function joinWaits(
+  node: ts.Expression,
+  waits: readonly (TimerWait | undefined)[],
+): TimerWait | undefined {
+  const found = waits.filter((wait) => wait !== undefined);
+  return found.length > 0
+    ? {
+        limits: [node, ...found.flatMap((wait) => wait.limits)],
+        fakeable: found.every((wait) => wait.fakeable),
+      }
+    : undefined;
 }
 
 const PROMISE_TIMER_MODULES = new Set([
@@ -1269,18 +1372,25 @@ const PROMISE_TIMER_MODULES = new Set([
 ]);
 
 /**
- * Whether `node` sleeps on a timer: a promise `setTimeout` resolves,
+ * The wait when `node` sleeps on a timer: a promise `setTimeout` resolves,
  * node:timers/promises' `setTimeout(ms)` or `scheduler.wait(ms)`,
  * Playwright's `waitForTimeout(ms)`, or a local helper that sleeps.
+ * `seen` holds the helpers being followed, so a recursive one ends.
  */
-function isTimerSleep(
+function timerSleep(
   file: TestFile,
   node: ts.Expression,
   seen: Set<ts.Node> = new Set(),
-): boolean {
+): TimerWait | undefined {
   const target = unwrap(node);
-  if (timerSettles(file, target) === "resolve") return true;
-  if (!ts.isCallExpression(target)) return false;
+  const timer = promiseTimer(file, target);
+  if (timer?.settles === "resolve") {
+    return {
+      limits: timer.delay ? [target, timer.delay] : [target],
+      fakeable: true,
+    };
+  }
+  if (!ts.isCallExpression(target)) return undefined;
   const callee = unwrap(target.expression);
   const name = apiName(file, callee);
   const receiver = ts.isPropertyAccessExpression(callee)
@@ -1289,39 +1399,43 @@ function isTimerSleep(
   const module = ts.isIdentifier(receiver)
     ? importModule(file, receiver)
     : undefined;
+  // Vitest's and node:test's fake timers patch the global setTimeout, not
+  // these: under fake timers they still sleep in real time.
   if (
-    (name === "setTimeout" || name === "scheduler.wait") &&
-    module !== undefined &&
-    PROMISE_TIMER_MODULES.has(module)
+    ((name === "setTimeout" || name === "scheduler.wait") &&
+      module !== undefined &&
+      PROMISE_TIMER_MODULES.has(module)) ||
+    propertyChain(callee)?.at(-1) === "waitForTimeout"
   ) {
-    return true;
+    return { limits: [target], fakeable: false };
   }
-  if (propertyChain(callee)?.at(-1) === "waitForTimeout") return true;
   const fn = calledFunction(file, target);
-  if (!fn || seen.has(fn)) return false;
+  if (!fn || seen.has(fn)) return undefined;
   seen.add(fn);
-  return (
-    returnedExpressions(fn).some((returned) =>
-      isTimerSleep(file, returned, seen),
-    ) || awaitsTimerSleep(file, fn.body, seen)
-  );
+  const wait = joinWaits(target, [
+    ...returnedExpressions(fn).map((returned) =>
+      timerSleep(file, returned, seen),
+    ),
+    ...awaitedSleeps(file, fn.body, seen),
+  ]);
+  seen.delete(fn);
+  return wait;
 }
 
-/** Whether `node` awaits a timer sleep, outside nested functions. */
-function awaitsTimerSleep(
+/** The timer sleeps `node` awaits, outside nested functions. */
+function awaitedSleeps(
   file: TestFile,
   node: ts.Node | undefined,
   seen: Set<ts.Node> = new Set(),
-): boolean {
-  if (!node) return false;
-  let sleeps = false;
+): TimerWait[] {
+  if (!node) return [];
+  const sleeps: TimerWait[] = [];
   const visit = (child: ts.Node) => {
-    if (sleeps || (child !== node && ts.isFunctionLike(child))) return;
-    if (
-      ts.isAwaitExpression(child) &&
-      isTimerSleep(file, child.expression, seen)
-    ) {
-      sleeps = true;
+    if (child !== node && ts.isFunctionLike(child)) return;
+    const sleep =
+      ts.isAwaitExpression(child) && timerSleep(file, child.expression, seen);
+    if (sleep) {
+      sleeps.push(sleep);
       return;
     }
     ts.forEachChild(child, visit);
@@ -1330,34 +1444,48 @@ function awaitsTimerSleep(
   return sleeps;
 }
 
-/** Whether `node` is a promise a timer rejects, held directly, in a const, or returned by a local helper. */
-function rejectsOnTimer(
+/**
+ * The wait when `node` is a promise a timer rejects, held directly, in a
+ * const, or returned by a local helper. `seen` holds what is being followed.
+ */
+function rejectingTimer(
   file: TestFile,
   node: ts.Expression,
   seen: Set<ts.Node> = new Set(),
-): boolean {
+): TimerWait | undefined {
   const target = unwrap(node);
-  if (timerSettles(file, target) === "reject") return true;
+  const timer = promiseTimer(file, target);
+  if (timer?.settles === "reject") {
+    return {
+      limits: timer.delay ? [target, timer.delay] : [target],
+      fakeable: true,
+    };
+  }
+  let followed: ts.Node | undefined;
+  let next: ts.Expression[] = [];
   if (ts.isIdentifier(target)) {
     const declaration = localSymbol(file, target)?.valueDeclaration;
     if (
-      !declaration ||
-      !ts.isVariableDeclaration(declaration) ||
-      !declaration.initializer ||
-      seen.has(declaration)
+      declaration &&
+      ts.isVariableDeclaration(declaration) &&
+      declaration.initializer
     ) {
-      return false;
+      followed = declaration;
+      next = [declaration.initializer];
     }
-    seen.add(declaration);
-    return rejectsOnTimer(file, declaration.initializer, seen);
+  } else if (ts.isCallExpression(target)) {
+    const fn = calledFunction(file, target);
+    followed = fn;
+    next = fn ? returnedExpressions(fn) : [];
   }
-  if (!ts.isCallExpression(target)) return false;
-  const fn = calledFunction(file, target);
-  if (!fn || seen.has(fn)) return false;
-  seen.add(fn);
-  return returnedExpressions(fn).some((returned) =>
-    rejectsOnTimer(file, returned, seen),
+  if (!followed || seen.has(followed)) return undefined;
+  seen.add(followed);
+  const wait = joinWaits(
+    target,
+    next.map((expression) => rejectingTimer(file, expression, seen)),
   );
+  seen.delete(followed);
+  return wait;
 }
 
 const TEST_CALLS = new Set(["it", "test", "describe", "suite", "bench"]);
@@ -1415,14 +1543,18 @@ function shortTimeout(
     let value: ts.Expression | undefined;
     if (ts.isObjectLiteralExpression(target)) {
       const property = target.properties.find(
-        (member) =>
-          ts.isPropertyAssignment(member) &&
+        (
+          member,
+        ): member is ts.PropertyAssignment | ts.ShorthandPropertyAssignment =>
+          (ts.isPropertyAssignment(member) ||
+            ts.isShorthandPropertyAssignment(member)) &&
           propertyNameText(member.name) === "timeout",
       );
       value =
-        property && ts.isPropertyAssignment(property)
+        property &&
+        (ts.isPropertyAssignment(property)
           ? property.initializer
-          : undefined;
+          : property.name);
     } else {
       const previous = call.arguments[index - 1];
       value =
@@ -1477,18 +1609,20 @@ function deadlineAt(
     }
     const own = ts.isForStatement(node) ? node.condition : node.expression;
     const next = nextStatement(node);
+    const sleeps = awaitedSleeps(file, node.statement);
     if (
       own &&
       comparisons(own).length > 0 &&
+      sleeps.length > 0 &&
+      stopsEarly(node, own) &&
       next &&
-      ts.isThrowStatement(next) &&
-      awaitsTimerSleep(file, node.statement)
+      canFail(file, next)
     ) {
       return {
         kind: "poll that gives up after a fixed number of attempts",
         node,
-        limits: [own, next],
-        fakeable: TIMERS,
+        limits: [own, next, ...sleeps.flatMap((sleep) => sleep.limits)],
+        fakeable: sleeps.every((sleep) => sleep.fakeable) ? TIMERS : NO_CLOCKS,
       };
     }
     return undefined;
@@ -1496,16 +1630,19 @@ function deadlineAt(
   if (!ts.isCallExpression(node)) return undefined;
   if (apiName(file, node.expression) === "Promise.race") {
     const entries = node.arguments[0] && unwrap(node.arguments[0]);
-    if (
+    const race =
       entries &&
       ts.isArrayLiteralExpression(entries) &&
-      entries.elements.some((entry) => rejectsOnTimer(file, entry))
-    ) {
+      joinWaits(
+        node,
+        entries.elements.map((entry) => rejectingTimer(file, entry)),
+      );
+    if (race) {
       return {
         kind: "Promise.race against a rejecting timer",
         node,
-        limits: [node],
-        fakeable: TIMERS,
+        limits: race.limits,
+        fakeable: race.fakeable ? TIMERS : NO_CLOCKS,
       };
     }
   }
