@@ -1686,6 +1686,15 @@ impl CustomScreenCaptureWriter {
             .store(seconds.max(0.0).to_bits(), Ordering::SeqCst);
     }
 
+    /// The first frame's host time and the pause offset, shared so rich
+    /// recording tracks time their events the way frames are timed.
+    pub(super) fn recording_clock_bits(&self) -> (Arc<AtomicU64>, Arc<AtomicU64>) {
+        (
+            Arc::clone(&self.session_start_bits),
+            Arc::clone(&self.pause_offset_bits),
+        )
+    }
+
     fn append_sample(
         &self,
         sample: &screencapturekit::cm::CMSampleBuffer,

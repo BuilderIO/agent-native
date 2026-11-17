@@ -161,6 +161,14 @@ use live_upload::{
     attach_live_uploader_to_session, cancel_clip_live_upload, finalize_clip_live_upload,
     start_clip_live_uploader, LiveUpload,
 };
+#[cfg(target_os = "macos")]
+mod input_track;
+#[cfg(target_os = "macos")]
+mod rich_recording;
+#[cfg(target_os = "macos")]
+use rich_recording::{attach_rich_recording, RichRecording};
+#[cfg(target_os = "macos")]
+mod track_upload;
 mod upload_sizing;
 use upload_sizing::{
     avconvert_presets, encode_is_worth_uploading, kept_original_expired, transcode_dimensions,
@@ -400,6 +408,9 @@ struct NativeFullscreenSession {
     #[cfg(target_os = "macos")]
     live_upload: Option<LiveUpload>,
     had_live_upload: bool,
+    /// Clips' rich recording tracks, kept only when the webview asked for them.
+    #[cfg(target_os = "macos")]
+    rich_recording: Option<RichRecording>,
     disk_monitor_stop: Option<Arc<AtomicBool>>,
 }
 
@@ -2914,6 +2925,7 @@ pub async fn native_fullscreen_recording_begin(
     local_only: Option<bool>,
     has_camera: Option<bool>,
     include_camera_overlay: bool,
+    rich_tracks: Option<bool>,
 ) -> Result<NativeFullscreenStartInfo, String> {
     #[cfg(not(target_os = "macos"))]
     {
@@ -2929,6 +2941,7 @@ pub async fn native_fullscreen_recording_begin(
             local_only,
             has_camera,
             include_camera_overlay,
+            rich_tracks,
         );
         return Err("Native full-screen recording is currently macOS-only.".into());
     }
@@ -3050,6 +3063,17 @@ pub async fn native_fullscreen_recording_begin(
                     include_audio,
                     has_camera.unwrap_or(false),
                 );
+                if rich_tracks.unwrap_or(false) {
+                    attach_rich_recording(
+                        &app,
+                        session,
+                        &recording_id,
+                        server_url.as_deref(),
+                        auth_token.as_deref(),
+                        cookie.as_deref(),
+                        has_camera.unwrap_or(false),
+                    );
+                }
                 persist_active_recording_intent(
                     session,
                     &recording_id,
@@ -3145,6 +3169,17 @@ pub async fn native_fullscreen_recording_begin(
             include_audio,
             has_camera.unwrap_or(false),
         );
+        if rich_tracks.unwrap_or(false) {
+            attach_rich_recording(
+                &app,
+                session,
+                &recording_id,
+                server_url.as_deref(),
+                auth_token.as_deref(),
+                cookie.as_deref(),
+                has_camera.unwrap_or(false),
+            );
+        }
         persist_active_recording_intent(
             session,
             &recording_id,
@@ -3457,6 +3492,9 @@ pub async fn native_fullscreen_recording_stop_and_upload(
             Ok(upload) => {
                 if !upload.verification_pending {
                     clear_saved_recording_after_success(&app, &saved);
+                }
+                if let Some(rich) = session.rich_recording.take() {
+                    rich.finish(verified_duration_ms as u64);
                 }
                 emit_native_upload_finished(&app, &server_url, &recording_id, true, None, None);
                 Ok(NativeFullscreenUploadResult {
@@ -3794,6 +3832,9 @@ pub async fn native_fullscreen_recording_pause(
                 ));
             }
             session.paused_at = Some(Instant::now());
+            if let Some(rich) = session.rich_recording.as_mut() {
+                rich.pause();
+            }
             eprintln!(
                 "[clips-tray] soft-paused {} (writer/file/live upload kept alive)",
                 session.restart.safe_id
@@ -3809,6 +3850,10 @@ pub async fn native_fullscreen_recording_pause(
             session.restart.safe_id
         );
         live.ctrl.cancelled.store(true, Ordering::SeqCst);
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(rich) = session.rich_recording.take() {
+        rich.abandon("the recording lost its live upload when it paused");
     }
     if session.backend.is_none() {
         #[cfg(target_os = "macos")]
@@ -3942,6 +3987,9 @@ pub async fn native_fullscreen_recording_resume(
                 .checked_add(paused_for)
                 .unwrap_or(session.paused_total);
             session.paused_at = None;
+            if let Some(rich) = session.rich_recording.as_mut() {
+                rich.resume(paused_for);
+            }
             eprintln!(
                 "[clips-tray] soft-resumed {} after {}ms paused (single continuous file, paused_total={}ms)",
                 session.restart.safe_id,
@@ -4175,6 +4223,10 @@ fn take_and_finalize_active_session(
     if let Some(stop) = &session.disk_monitor_stop {
         stop.store(true, Ordering::Relaxed);
     }
+    #[cfg(target_os = "macos")]
+    if let Some(rich) = session.rich_recording.as_mut() {
+        rich.stop_capture();
+    }
     let stop_outcome = finalize_active_backend(&mut session, true);
     recover_from_unusable_current_segment(&mut session, "final stop", false);
     println!(
@@ -4302,6 +4354,10 @@ fn discard_session(session: &mut NativeFullscreenSession) {
     if let Some(live) = session.live_upload.take() {
         live.ctrl.cancelled.store(true, Ordering::SeqCst);
     }
+    #[cfg(target_os = "macos")]
+    if let Some(rich) = session.rich_recording.take() {
+        rich.discard();
+    }
     if let Some(stop) = &session.disk_monitor_stop {
         stop.store(true, Ordering::Relaxed);
     }
@@ -4357,6 +4413,8 @@ mod detached_discard_tests {
             #[cfg(target_os = "macos")]
             live_upload: None,
             had_live_upload: false,
+            #[cfg(target_os = "macos")]
+            rich_recording: None,
             disk_monitor_stop: None,
         }
     }
@@ -6985,6 +7043,8 @@ fn new_fullscreen_session(
         #[cfg(target_os = "macos")]
         live_upload: None,
         had_live_upload: false,
+        #[cfg(target_os = "macos")]
+        rich_recording: None,
         disk_monitor_stop: None,
     }
 }
@@ -11201,6 +11261,8 @@ mod segment_recovery_tests {
             #[cfg(target_os = "macos")]
             live_upload: None,
             had_live_upload: false,
+            #[cfg(target_os = "macos")]
+            rich_recording: None,
             disk_monitor_stop: None,
         }
     }

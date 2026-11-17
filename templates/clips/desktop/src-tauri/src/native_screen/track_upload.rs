@@ -1,0 +1,713 @@
+//! Sends a rich recording's track files to Clips while they grow:
+//! `POST /api/uploads/:id/tracks/:track?index=<n>&contentType=<type>`, chunks
+//! in order and the size the recording's own upload uses. Whole chunks go while
+//! recording and the remainder once the track's file is closed. A track never
+//! holds up or fails the recording: every outcome here only decides whether the
+//! track is listed when the tracks are finalized.
+
+use super::*;
+
+const TRACK_POLL_MS: u64 = 500;
+const TRACK_CHUNK_ATTEMPTS: u32 = 5;
+const TRACK_RETRY_BASE_MS: u64 = 500;
+const TRACK_RETRY_MAX_MS: u64 = 8_000;
+const TRACKS_FINALIZE_ATTEMPTS: u32 = 6;
+const TRACKS_FINALIZE_RETRY_BASE_MS: u64 = 1_000;
+
+/// Where a recording's tracks go, and the credentials the recording's own
+/// live upload uses.
+pub(super) struct TrackUploadTarget {
+    pub(super) server_url: String,
+    pub(super) recording_id: String,
+    pub(super) auth_token: String,
+    pub(super) cookie: String,
+}
+
+impl TrackUploadTarget {
+    fn url(&self, path: &str) -> Result<url::Url, String> {
+        let base = self.server_url.trim_end_matches('/');
+        url::Url::parse(&format!(
+            "{base}/api/uploads/{}/tracks/{path}",
+            self.recording_id
+        ))
+        .map_err(|error| format!("invalid track upload URL: {error}"))
+    }
+
+    fn post(&self, client: &reqwest::Client, url: url::Url) -> reqwest::RequestBuilder {
+        let mut request = client.post(url).header("X-Request-Source", "clips-desktop");
+        let token = self.auth_token.trim();
+        if !token.is_empty() {
+            request = request.bearer_auth(token);
+        }
+        let cookie = self.cookie.trim();
+        if !cookie.is_empty() {
+            request = request.header("Cookie", cookie);
+        }
+        request
+    }
+}
+
+pub(super) struct TrackUploadCtrl {
+    source_closed: AtomicBool,
+    cancelled: AtomicBool,
+    /// Shared by every track of the recording: once the server says to stop
+    /// sending tracks, none of them sends again.
+    tracks_stopped: Arc<AtomicBool>,
+}
+
+impl TrackUploadCtrl {
+    pub(super) fn new(tracks_stopped: Arc<AtomicBool>) -> Self {
+        Self {
+            source_closed: AtomicBool::new(false),
+            cancelled: AtomicBool::new(false),
+            tracks_stopped,
+        }
+    }
+
+    /// The track's file is complete: send what is left of it.
+    pub(super) fn close_source(&self) {
+        self.source_closed.store(true, Ordering::SeqCst);
+    }
+
+    pub(super) fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum TrackUploadOutcome {
+    /// Every byte of the closed file is stored.
+    Sent {
+        bytes: u64,
+        chunks: u64,
+    },
+    /// The file was empty when it closed, so there is nothing to list.
+    Empty,
+    /// The server said to stop sending this recording's tracks.
+    Stopped(String),
+    Cancelled,
+    Failed(String),
+}
+
+pub(super) struct TrackUpload {
+    pub(super) ctrl: Arc<TrackUploadCtrl>,
+    pub(super) result_rx: tokio::sync::oneshot::Receiver<TrackUploadOutcome>,
+}
+
+/// The server's answer to one chunk, as the uploader acts on it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum ChunkReply {
+    /// Stored now, or stored before and acknowledged again.
+    Stored,
+    /// The server has a different next chunk in mind.
+    ExpectedIndex(u64),
+    /// Wait and send the same chunk again.
+    Retryable(String),
+    /// Stop every track of this recording; the recording itself carries on.
+    TracksStopped(String),
+    /// No answer: a network error, or a server error with no instructions.
+    Transient(String),
+    Rejected(String),
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReplyBody {
+    ok: Option<bool>,
+    error: Option<String>,
+    message: Option<String>,
+    retryable: Option<bool>,
+    tracks_stopped: Option<bool>,
+    expected_index: Option<u64>,
+    already_finalized: Option<bool>,
+    dropped_tracks: Option<serde_json::Value>,
+}
+
+impl ReplyBody {
+    fn parse(body: &str) -> Self {
+        serde_json::from_str(body).unwrap_or_default()
+    }
+
+    fn reason(&self, status: u16, body: &str) -> String {
+        let text = self
+            .error
+            .clone()
+            .or_else(|| self.message.clone())
+            .unwrap_or_else(|| body.chars().take(200).collect());
+        format!("{status}: {text}")
+    }
+}
+
+pub(super) fn classify_chunk_reply(status: u16, body: &str) -> ChunkReply {
+    let reply = ReplyBody::parse(body);
+    if (200..300).contains(&status) && reply.ok == Some(true) {
+        return ChunkReply::Stored;
+    }
+    let reason = reply.reason(status, body);
+    if reply.tracks_stopped == Some(true) {
+        ChunkReply::TracksStopped(reason)
+    } else if reply.retryable == Some(true) {
+        ChunkReply::Retryable(reason)
+    } else if let Some(index) = reply.expected_index {
+        ChunkReply::ExpectedIndex(index)
+    } else if status >= 500 {
+        ChunkReply::Transient(reason)
+    } else {
+        ChunkReply::Rejected(reason)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum NextSend {
+    Chunk {
+        index: u64,
+        offset: u64,
+        len: u64,
+    },
+    /// Less than a chunk is waiting and the file is still growing.
+    Wait,
+    Done,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Step {
+    Continue,
+    RetryAfter(Duration),
+    Finish(TrackUploadOutcome),
+}
+
+/// Which chunk goes next and what each answer means, apart from the network.
+pub(super) struct TrackUploadState {
+    chunk: u64,
+    offset: u64,
+    index: u64,
+    attempts: u32,
+}
+
+impl TrackUploadState {
+    pub(super) fn new(chunk: u64) -> Self {
+        Self {
+            chunk: chunk.max(1),
+            offset: 0,
+            index: 0,
+            attempts: 0,
+        }
+    }
+
+    pub(super) fn next(&self, file_len: u64, source_closed: bool) -> NextSend {
+        let waiting = file_len.saturating_sub(self.offset);
+        let len = if waiting >= self.chunk {
+            self.chunk
+        } else if source_closed && waiting > 0 {
+            waiting
+        } else if source_closed {
+            return NextSend::Done;
+        } else {
+            return NextSend::Wait;
+        };
+        NextSend::Chunk {
+            index: self.index,
+            offset: self.offset,
+            len,
+        }
+    }
+
+    /// The outcome once `next` says `Done`.
+    pub(super) fn done(&self) -> TrackUploadOutcome {
+        if self.offset == 0 {
+            TrackUploadOutcome::Empty
+        } else {
+            TrackUploadOutcome::Sent {
+                bytes: self.offset,
+                chunks: self.index,
+            }
+        }
+    }
+
+    pub(super) fn on_reply(&mut self, sent_len: u64, reply: ChunkReply, file_len: u64) -> Step {
+        match reply {
+            ChunkReply::Stored => {
+                self.offset += sent_len;
+                self.index += 1;
+                self.attempts = 0;
+                Step::Continue
+            }
+            ChunkReply::ExpectedIndex(index) => {
+                // Every chunk but the last is whole, so chunk n starts at n
+                // chunks in.
+                let offset = index.saturating_mul(self.chunk);
+                if offset > file_len {
+                    return Step::Finish(TrackUploadOutcome::Failed(format!(
+                        "the server expects chunk {index}, past the end of the file"
+                    )));
+                }
+                self.attempts += 1;
+                if self.attempts >= TRACK_CHUNK_ATTEMPTS {
+                    return Step::Finish(TrackUploadOutcome::Failed(format!(
+                        "the server kept asking for a different chunk (last: {index})"
+                    )));
+                }
+                self.index = index;
+                self.offset = offset;
+                Step::Continue
+            }
+            ChunkReply::Retryable(reason) | ChunkReply::Transient(reason) => {
+                self.attempts += 1;
+                if self.attempts >= TRACK_CHUNK_ATTEMPTS {
+                    return Step::Finish(TrackUploadOutcome::Failed(format!(
+                        "chunk {} failed {} times: {reason}",
+                        self.index, self.attempts
+                    )));
+                }
+                Step::RetryAfter(retry_delay(
+                    TRACK_RETRY_BASE_MS,
+                    TRACK_RETRY_MAX_MS,
+                    self.attempts,
+                ))
+            }
+            ChunkReply::TracksStopped(reason) => Step::Finish(TrackUploadOutcome::Stopped(reason)),
+            ChunkReply::Rejected(reason) => Step::Finish(TrackUploadOutcome::Failed(reason)),
+        }
+    }
+}
+
+fn retry_delay(base_ms: u64, max_ms: u64, attempt: u32) -> Duration {
+    let shift = attempt.saturating_sub(1).min(16);
+    Duration::from_millis((base_ms << shift).min(max_ms))
+}
+
+pub(super) fn spawn_track_uploader(
+    target: Arc<TrackUploadTarget>,
+    track: &'static str,
+    content_type: &'static str,
+    path: PathBuf,
+    ctrl: Arc<TrackUploadCtrl>,
+) -> TrackUpload {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let task_ctrl = Arc::clone(&ctrl);
+    tauri::async_runtime::spawn(async move {
+        let outcome = track_upload_loop(&target, track, content_type, &path, &task_ctrl).await;
+        if matches!(outcome, TrackUploadOutcome::Stopped(_)) {
+            task_ctrl.tracks_stopped.store(true, Ordering::SeqCst);
+        }
+        eprintln!(
+            "[rich-tracks] {}: {track} upload ended: {outcome:?}",
+            target.recording_id
+        );
+        let _ = tx.send(outcome);
+    });
+    TrackUpload {
+        ctrl,
+        result_rx: rx,
+    }
+}
+
+async fn track_upload_loop(
+    target: &TrackUploadTarget,
+    track: &'static str,
+    content_type: &'static str,
+    path: &Path,
+    ctrl: &TrackUploadCtrl,
+) -> TrackUploadOutcome {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            return TrackUploadOutcome::Failed(format!("track upload client failed: {error}"))
+        }
+    };
+    let mut state = TrackUploadState::new(UPLOAD_CHUNK_BYTES as u64);
+    loop {
+        if ctrl.cancelled.load(Ordering::SeqCst) {
+            return TrackUploadOutcome::Cancelled;
+        }
+        if ctrl.tracks_stopped.load(Ordering::SeqCst) {
+            return TrackUploadOutcome::Stopped("another track was stopped".into());
+        }
+        // Read before the length: once the source is closed, the length read
+        // after it is final.
+        let source_closed = ctrl.source_closed.load(Ordering::SeqCst);
+        let file_len = match std::fs::metadata(path) {
+            Ok(metadata) => metadata.len(),
+            Err(error) if error.kind() == ErrorKind::NotFound => 0,
+            Err(error) => {
+                return TrackUploadOutcome::Failed(format!(
+                    "track file {} unreadable: {error}",
+                    path.display()
+                ))
+            }
+        };
+        let (index, offset, len) = match state.next(file_len, source_closed) {
+            NextSend::Chunk { index, offset, len } => (index, offset, len),
+            NextSend::Wait => {
+                tokio::time::sleep(Duration::from_millis(TRACK_POLL_MS)).await;
+                continue;
+            }
+            NextSend::Done => return state.done(),
+        };
+        let bytes = match read_track_range(path, offset, len) {
+            Ok(bytes) => bytes,
+            Err(error) => return TrackUploadOutcome::Failed(error),
+        };
+        let reply = send_track_chunk(&client, target, track, content_type, index, bytes).await;
+        match state.on_reply(len, reply, file_len) {
+            Step::Continue => {}
+            Step::RetryAfter(delay) => {
+                eprintln!(
+                    "[rich-tracks] {}: {track} chunk #{index} not stored; retrying in {}ms",
+                    target.recording_id,
+                    delay.as_millis()
+                );
+                tokio::time::sleep(delay).await;
+            }
+            Step::Finish(outcome) => return outcome,
+        }
+    }
+}
+
+fn read_track_range(path: &Path, offset: u64, len: u64) -> Result<Vec<u8>, String> {
+    let mut file = File::open(path).map_err(|e| format!("track file open failed: {e}"))?;
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|e| format!("track file seek failed: {e}"))?;
+    let mut buf = vec![0_u8; len as usize];
+    file.read_exact(&mut buf)
+        .map_err(|e| format!("track file read failed: {e}"))?;
+    Ok(buf)
+}
+
+async fn send_track_chunk(
+    client: &reqwest::Client,
+    target: &TrackUploadTarget,
+    track: &str,
+    content_type: &str,
+    index: u64,
+    body: Vec<u8>,
+) -> ChunkReply {
+    let mut url = match target.url(track) {
+        Ok(url) => url,
+        Err(error) => return ChunkReply::Rejected(error),
+    };
+    url.query_pairs_mut()
+        .append_pair("index", &index.to_string())
+        .append_pair("contentType", content_type);
+    let response = target
+        .post(client, url)
+        .header("Content-Type", content_type)
+        .body(body)
+        .send()
+        .await;
+    match response {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            classify_chunk_reply(status, &body)
+        }
+        Err(error) => ChunkReply::Transient(format!("track upload failed: {error}")),
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum FinalizeReply {
+    Done,
+    Retryable(String),
+    Failed(String),
+}
+
+pub(super) fn classify_finalize_reply(status: u16, body: &str) -> FinalizeReply {
+    let reply = ReplyBody::parse(body);
+    let reason = reply.reason(status, body);
+    if (200..300).contains(&status) && reply.ok == Some(true) {
+        // A 200 can still say no track was kept.
+        if reply.tracks_stopped == Some(true) && reply.already_finalized != Some(true) {
+            let dropped = reply
+                .dropped_tracks
+                .map(|value| value.to_string())
+                .unwrap_or_default();
+            return FinalizeReply::Failed(format!("the server kept no tracks {dropped}"));
+        }
+        return FinalizeReply::Done;
+    }
+    if reply.tracks_stopped == Some(true) {
+        FinalizeReply::Failed(reason)
+    } else if reply.retryable == Some(true) || status >= 500 {
+        FinalizeReply::Retryable(reason)
+    } else {
+        FinalizeReply::Failed(reason)
+    }
+}
+
+/// `POST /api/uploads/:id/tracks/finalize`, retrying a retryable answer a few
+/// times with backoff.
+pub(super) async fn post_tracks_finalize(
+    target: &TrackUploadTarget,
+    body: &serde_json::Value,
+) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|error| format!("tracks finalize client failed: {error}"))?;
+    let url = target.url("finalize")?;
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        let reply = match target.post(&client, url.clone()).json(body).send().await {
+            Ok(response) => {
+                let status = response.status().as_u16();
+                let text = response.text().await.unwrap_or_default();
+                classify_finalize_reply(status, &text)
+            }
+            Err(error) => FinalizeReply::Retryable(format!("tracks finalize failed: {error}")),
+        };
+        match reply {
+            FinalizeReply::Done => return Ok(()),
+            FinalizeReply::Failed(reason) => return Err(reason),
+            FinalizeReply::Retryable(reason) if attempt >= TRACKS_FINALIZE_ATTEMPTS => {
+                return Err(format!("gave up after {attempt} attempts: {reason}"))
+            }
+            FinalizeReply::Retryable(reason) => {
+                let delay = retry_delay(TRACKS_FINALIZE_RETRY_BASE_MS, 30_000, attempt);
+                eprintln!(
+                    "[rich-tracks] {}: tracks finalize attempt {attempt} not done ({reason}); retrying in {}ms",
+                    target.recording_id,
+                    delay.as_millis()
+                );
+                tokio::time::sleep(delay).await;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CHUNK: u64 = 100;
+
+    fn send_all(state: &mut TrackUploadState, file_len: u64, closed: bool) -> Vec<(u64, u64, u64)> {
+        let mut sent = Vec::new();
+        while let NextSend::Chunk { index, offset, len } = state.next(file_len, closed) {
+            sent.push((index, offset, len));
+            assert_eq!(
+                state.on_reply(len, ChunkReply::Stored, file_len),
+                Step::Continue
+            );
+        }
+        sent
+    }
+
+    #[test]
+    fn whole_chunks_go_while_recording_and_the_remainder_after_stop() {
+        let mut state = TrackUploadState::new(CHUNK);
+        assert_eq!(state.next(0, false), NextSend::Wait);
+        assert_eq!(state.next(99, false), NextSend::Wait);
+        assert_eq!(
+            send_all(&mut state, 250, false),
+            [(0, 0, 100), (1, 100, 100)]
+        );
+        assert_eq!(state.next(250, false), NextSend::Wait);
+        // Closed: the 50 bytes left go as the last chunk.
+        assert_eq!(send_all(&mut state, 250, true), [(2, 200, 50)]);
+        assert_eq!(state.next(250, true), NextSend::Done);
+        assert_eq!(
+            state.done(),
+            TrackUploadOutcome::Sent {
+                bytes: 250,
+                chunks: 3
+            }
+        );
+
+        // A file that ends on a chunk boundary has no short chunk.
+        let mut state = TrackUploadState::new(CHUNK);
+        assert_eq!(
+            send_all(&mut state, 200, true),
+            [(0, 0, 100), (1, 100, 100)]
+        );
+        assert_eq!(state.next(200, true), NextSend::Done);
+
+        // Nothing written at all.
+        let state = TrackUploadState::new(CHUNK);
+        assert_eq!(state.next(0, true), NextSend::Done);
+        assert_eq!(state.done(), TrackUploadOutcome::Empty);
+    }
+
+    #[test]
+    fn resumes_from_the_index_the_server_expects() {
+        let mut state = TrackUploadState::new(CHUNK);
+        assert_eq!(
+            send_all(&mut state, 300, false),
+            [(0, 0, 100), (1, 100, 100), (2, 200, 100)]
+        );
+        // Say the server lost the last chunk and wants chunk 2 again.
+        assert_eq!(
+            state.on_reply(100, ChunkReply::ExpectedIndex(2), 300),
+            Step::Continue
+        );
+        assert_eq!(
+            state.next(300, false),
+            NextSend::Chunk {
+                index: 2,
+                offset: 200,
+                len: 100
+            }
+        );
+        // A stored chunk acknowledged again counts as stored.
+        assert_eq!(
+            classify_chunk_reply(
+                200,
+                r#"{"ok":true,"track":"input","index":2,"bytesUploaded":300,"duplicate":true}"#
+            ),
+            ChunkReply::Stored
+        );
+        // An index past the file can't be resumed from.
+        assert!(matches!(
+            state.on_reply(100, ChunkReply::ExpectedIndex(9), 300),
+            Step::Finish(TrackUploadOutcome::Failed(_))
+        ));
+    }
+
+    #[test]
+    fn retryable_answers_back_off_and_then_fail_the_track() {
+        let mut state = TrackUploadState::new(CHUNK);
+        let delays: Vec<Step> = (0..TRACK_CHUNK_ATTEMPTS - 1)
+            .map(|_| state.on_reply(100, ChunkReply::Retryable("503".into()), 100))
+            .collect();
+        assert_eq!(
+            delays,
+            [
+                Step::RetryAfter(Duration::from_millis(500)),
+                Step::RetryAfter(Duration::from_millis(1000)),
+                Step::RetryAfter(Duration::from_millis(2000)),
+                Step::RetryAfter(Duration::from_millis(4000)),
+            ]
+        );
+        // Nothing moved while retrying.
+        assert_eq!(
+            state.next(100, true),
+            NextSend::Chunk {
+                index: 0,
+                offset: 0,
+                len: 100
+            }
+        );
+        assert!(matches!(
+            state.on_reply(100, ChunkReply::Transient("timeout".into()), 100),
+            Step::Finish(TrackUploadOutcome::Failed(_))
+        ));
+        // A stored chunk resets the count.
+        let mut state = TrackUploadState::new(CHUNK);
+        state.on_reply(100, ChunkReply::Transient("reset".into()), 100);
+        state.on_reply(100, ChunkReply::Stored, 100);
+        assert_eq!(state.attempts, 0);
+    }
+
+    #[test]
+    fn server_answers_are_classified_by_their_flags() {
+        assert_eq!(
+            classify_chunk_reply(
+                200,
+                r#"{"ok":true,"track":"input","index":0,"bytesUploaded":10}"#
+            ),
+            ChunkReply::Stored
+        );
+        // The size limit stops every track.
+        assert!(matches!(
+            classify_chunk_reply(
+                413,
+                r#"{"ok":false,"error":"Tracks for this recording reached their size limit.","tracksStopped":true,"bytesReceived":10,"maxBytes":5}"#
+            ),
+            ChunkReply::TracksStopped(_)
+        ));
+        assert!(matches!(
+            classify_chunk_reply(
+                403,
+                r#"{"ok":false,"error":"Rich recordings are off.","labDisabled":true,"tracksStopped":true}"#
+            ),
+            ChunkReply::TracksStopped(_)
+        ));
+        assert!(matches!(
+            classify_chunk_reply(409, r#"{"ok":false,"error":"Try again.","retryable":true}"#),
+            ChunkReply::Retryable(_)
+        ));
+        assert!(matches!(
+            classify_chunk_reply(
+                409,
+                r#"{"ok":false,"error":"The upload failed.","tracksStopped":true}"#
+            ),
+            ChunkReply::TracksStopped(_)
+        ));
+        assert_eq!(
+            classify_chunk_reply(
+                409,
+                r#"{"ok":false,"error":"Track chunks go in order; send chunk 3 next.","expectedIndex":3}"#
+            ),
+            ChunkReply::ExpectedIndex(3)
+        );
+        assert!(matches!(
+            classify_chunk_reply(502, "<html>bad gateway</html>"),
+            ChunkReply::Transient(_)
+        ));
+        assert!(matches!(
+            classify_chunk_reply(
+                409,
+                r#"{"ok":false,"error":"A newer upload of this recording is active.","staleAttempt":true}"#
+            ),
+            ChunkReply::Rejected(_)
+        ));
+        assert!(matches!(
+            classify_chunk_reply(401, r#"{"statusCode":401,"message":"Unauthorized"}"#),
+            ChunkReply::Rejected(_)
+        ));
+
+        let mut state = TrackUploadState::new(CHUNK);
+        assert_eq!(
+            state.on_reply(100, ChunkReply::TracksStopped("413".into()), 100),
+            Step::Finish(TrackUploadOutcome::Stopped("413".into()))
+        );
+    }
+
+    #[test]
+    fn finalize_answers_are_done_retryable_or_failed() {
+        assert_eq!(
+            classify_finalize_reply(
+                200,
+                r#"{"ok":true,"mediaFormat":"rich","richBytes":10,"tracks":[]}"#
+            ),
+            FinalizeReply::Done
+        );
+        assert_eq!(
+            classify_finalize_reply(200, r#"{"ok":true,"alreadyFinalized":true}"#),
+            FinalizeReply::Done
+        );
+        assert!(matches!(
+            classify_finalize_reply(
+                200,
+                r#"{"ok":true,"mediaFormat":"flat","tracks":[],"droppedTracks":["input"],"tracksStopped":true}"#
+            ),
+            FinalizeReply::Failed(_)
+        ));
+        assert!(matches!(
+            classify_finalize_reply(
+                409,
+                r#"{"ok":false,"error":"Not finalized yet.","recordingNotFinalized":true,"retryable":true}"#
+            ),
+            FinalizeReply::Retryable(_)
+        ));
+        assert!(matches!(
+            classify_finalize_reply(503, ""),
+            FinalizeReply::Retryable(_)
+        ));
+        assert!(matches!(
+            classify_finalize_reply(
+                409,
+                r#"{"ok":false,"error":"Burned.","tracksStopped":true}"#
+            ),
+            FinalizeReply::Failed(_)
+        ));
+        assert!(matches!(
+            classify_finalize_reply(400, r#"{"statusCode":400,"message":"Invalid body"}"#),
+            FinalizeReply::Failed(_)
+        ));
+    }
+}

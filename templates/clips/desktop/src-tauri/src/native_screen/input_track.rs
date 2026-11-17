@@ -1,0 +1,1455 @@
+//! The input track of a rich recording: the pointer path, clicks, wheel and
+//! keys as data, one JSON object per line in time order, gzipped
+//! (`input.jsonl.gz`). Each flush appends one complete gzip member, and joined
+//! members read as one gzip stream, so the file is valid after every flush and
+//! the uploader can send any prefix of it.
+//!
+//! `t` is recording milliseconds; `x`/`y` are pixels of the captured display at
+//! its native resolution, from its top-left, and fall outside it when the
+//! pointer is on another display.
+//!
+//! Typing is never kept as characters: only shortcuts (a key pressed with Cmd,
+//! Ctrl or Option) and named keys (Enter, Escape, Tab, arrows, Backspace,
+//! Delete, Home/End/Page keys, F-keys) are, and every other key press adds to a
+//! per-second `typing` count. While secure input is on, no keys are kept.
+
+use std::io::Write;
+
+use flate2::write::GzEncoder;
+use flate2::Compression;
+use serde::Serialize;
+
+pub(super) const INPUT_TRACK_ID: &str = "input";
+pub(super) const INPUT_TRACK_FILE: &str = "input.jsonl.gz";
+pub(super) const INPUT_TRACK_CONTENT_TYPE: &str = "application/gzip";
+
+/// The shortest gap between two `move` lines while the pointer moves.
+pub(super) const MOVE_INTERVAL_MS: f64 = 10.0;
+
+/// Key presses that aren't kept are counted per window this long, so the file
+/// says how much was typed but not the rhythm of it.
+const TYPING_WINDOW_MS: f64 = 1000.0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum MouseButton {
+    Left,
+    Right,
+    Middle,
+    Other,
+}
+
+impl MouseButton {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Middle => "middle",
+            Self::Other => "other",
+        }
+    }
+
+    /// macOS numbers buttons from 0: left, right, then the middle (2).
+    pub(super) fn from_number(number: i64) -> Self {
+        match number {
+            0 => Self::Left,
+            1 => Self::Right,
+            2 => Self::Middle,
+            _ => Self::Other,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct Modifiers {
+    pub(super) meta: bool,
+    pub(super) ctrl: bool,
+    pub(super) alt: bool,
+    pub(super) shift: bool,
+}
+
+impl Modifiers {
+    fn makes_shortcut(self) -> bool {
+        self.meta || self.ctrl || self.alt
+    }
+
+    fn labels(self) -> Vec<&'static str> {
+        [
+            (self.meta, "meta"),
+            (self.ctrl, "ctrl"),
+            (self.alt, "alt"),
+            (self.shift, "shift"),
+        ]
+        .into_iter()
+        .filter_map(|(held, label)| held.then_some(label))
+        .collect()
+    }
+}
+
+/// One input event, already through the privacy filter, with positions in the
+/// captured display's pixels.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum InputSample {
+    Move {
+        x: f64,
+        y: f64,
+    },
+    Button {
+        down: bool,
+        button: MouseButton,
+        x: f64,
+        y: f64,
+        clicks: u32,
+    },
+    Wheel {
+        x: f64,
+        y: f64,
+        dx: f64,
+        dy: f64,
+    },
+    Key {
+        down: bool,
+        code: &'static str,
+        key: String,
+        mods: Modifiers,
+    },
+    /// A key press the privacy rule only counts.
+    TypingPress,
+}
+
+#[derive(Serialize)]
+struct InputLine<'a> {
+    t: f64,
+    e: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    down: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    b: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    x: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    y: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    n: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dx: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dy: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mods: Option<Vec<&'static str>>,
+}
+
+impl InputLine<'_> {
+    fn bare(t: f64, e: &'static str) -> Self {
+        InputLine {
+            t: round2(t),
+            e,
+            down: None,
+            b: None,
+            x: None,
+            y: None,
+            n: None,
+            dx: None,
+            dy: None,
+            code: None,
+            key: None,
+            mods: None,
+        }
+    }
+}
+
+fn round2(value: f64) -> f64 {
+    (value * 100.0).round() / 100.0
+}
+
+/// One line of the track, without its newline.
+pub(super) fn serialize_sample(t: f64, sample: &InputSample) -> Option<String> {
+    let line = match sample {
+        InputSample::Move { x, y } => InputLine {
+            x: Some(round2(*x)),
+            y: Some(round2(*y)),
+            ..InputLine::bare(t, "move")
+        },
+        InputSample::Button {
+            down,
+            button,
+            x,
+            y,
+            clicks,
+        } => InputLine {
+            b: Some(button.label()),
+            x: Some(round2(*x)),
+            y: Some(round2(*y)),
+            n: Some(*clicks),
+            ..InputLine::bare(t, if *down { "down" } else { "up" })
+        },
+        InputSample::Wheel { x, y, dx, dy } => InputLine {
+            x: Some(round2(*x)),
+            y: Some(round2(*y)),
+            dx: Some(round2(*dx)),
+            dy: Some(round2(*dy)),
+            ..InputLine::bare(t, "wheel")
+        },
+        InputSample::Key {
+            down,
+            code,
+            key,
+            mods,
+        } => InputLine {
+            down: Some(*down),
+            code: Some(code),
+            key: Some(key),
+            mods: Some(mods.labels()),
+            ..InputLine::bare(t, "key")
+        },
+        // Typing presses are written as counts by `InputLog`, never one by one.
+        InputSample::TypingPress => return None,
+    };
+    serde_json::to_string(&line).ok()
+}
+
+fn typing_line(t: f64, presses: u32) -> String {
+    serde_json::to_string(&InputLine {
+        n: Some(presses),
+        ..InputLine::bare(t, "typing")
+    })
+    .unwrap_or_default()
+}
+
+/// What the privacy rule keeps of one key event.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum KeyDecision {
+    Drop,
+    Typing,
+    /// Kept. `named` is the key's name when it is a named key; a shortcut's
+    /// label comes from the event's character instead.
+    Keep {
+        code: &'static str,
+        named: Option<&'static str>,
+    },
+}
+
+/// The privacy filter for keys. Runs in the event tap's callback, before any
+/// character is read from the event, so a typed character never leaves it.
+#[derive(Default)]
+pub(super) struct KeyPrivacy {
+    kept_down: Vec<u16>,
+}
+
+impl KeyPrivacy {
+    pub(super) fn classify(
+        &mut self,
+        keycode: u16,
+        down: bool,
+        autorepeat: bool,
+        mods: Modifiers,
+        secure_input: bool,
+    ) -> KeyDecision {
+        if secure_input {
+            self.kept_down.clear();
+            return KeyDecision::Drop;
+        }
+        if !down {
+            // A key's release is kept only when its press was, whatever the
+            // modifiers are by then.
+            let Some(at) = self.kept_down.iter().position(|code| *code == keycode) else {
+                return KeyDecision::Drop;
+            };
+            self.kept_down.swap_remove(at);
+            return KeyDecision::Keep {
+                code: key_code_name(keycode).unwrap_or("Unidentified"),
+                named: named_key(keycode),
+            };
+        }
+        if autorepeat {
+            return KeyDecision::Drop;
+        }
+        let named = named_key(keycode);
+        if named.is_none() && !mods.makes_shortcut() {
+            return KeyDecision::Typing;
+        }
+        if !self.kept_down.contains(&keycode) {
+            self.kept_down.push(keycode);
+        }
+        KeyDecision::Keep {
+            code: key_code_name(keycode).unwrap_or("Unidentified"),
+            named,
+        }
+    }
+}
+
+/// The `key` of a kept shortcut: the character the event carries when it is a
+/// printable one, otherwise the key its code names (Ctrl+K carries a control
+/// character, and comes out as "k").
+pub(super) fn shortcut_key_label(chars: Option<&str>, code: &str) -> String {
+    if let Some(chars) = chars {
+        let mut iter = chars.chars();
+        if let (Some(ch), None) = (iter.next(), iter.next()) {
+            if !ch.is_control() {
+                return ch.to_string();
+            }
+        }
+    }
+    if let Some(letter) = code.strip_prefix("Key") {
+        return letter.to_ascii_lowercase();
+    }
+    if let Some(digit) = code.strip_prefix("Digit") {
+        return digit.to_string();
+    }
+    code.to_string()
+}
+
+/// The `key` value of a named key, by macOS virtual key code.
+fn named_key(keycode: u16) -> Option<&'static str> {
+    Some(match keycode {
+        0x24 | 0x4C => "Enter",
+        0x35 => "Escape",
+        0x30 => "Tab",
+        0x33 => "Backspace",
+        0x75 => "Delete",
+        0x73 => "Home",
+        0x77 => "End",
+        0x74 => "PageUp",
+        0x79 => "PageDown",
+        0x7B => "ArrowLeft",
+        0x7C => "ArrowRight",
+        0x7D => "ArrowDown",
+        0x7E => "ArrowUp",
+        0x7A => "F1",
+        0x78 => "F2",
+        0x63 => "F3",
+        0x76 => "F4",
+        0x60 => "F5",
+        0x61 => "F6",
+        0x62 => "F7",
+        0x64 => "F8",
+        0x65 => "F9",
+        0x6D => "F10",
+        0x67 => "F11",
+        0x6F => "F12",
+        0x69 => "F13",
+        0x6B => "F14",
+        0x71 => "F15",
+        0x6A => "F16",
+        0x40 => "F17",
+        0x4F => "F18",
+        0x50 => "F19",
+        0x5A => "F20",
+        _ => return None,
+    })
+}
+
+/// The web `KeyboardEvent.code` of a macOS virtual key code (ANSI layout
+/// positions, as the web names them).
+fn key_code_name(keycode: u16) -> Option<&'static str> {
+    if let Some(named) = named_key(keycode) {
+        return Some(match keycode {
+            0x4C => "NumpadEnter",
+            _ => named,
+        });
+    }
+    Some(match keycode {
+        0x00 => "KeyA",
+        0x01 => "KeyS",
+        0x02 => "KeyD",
+        0x03 => "KeyF",
+        0x04 => "KeyH",
+        0x05 => "KeyG",
+        0x06 => "KeyZ",
+        0x07 => "KeyX",
+        0x08 => "KeyC",
+        0x09 => "KeyV",
+        0x0A => "IntlBackslash",
+        0x0B => "KeyB",
+        0x0C => "KeyQ",
+        0x0D => "KeyW",
+        0x0E => "KeyE",
+        0x0F => "KeyR",
+        0x10 => "KeyY",
+        0x11 => "KeyT",
+        0x12 => "Digit1",
+        0x13 => "Digit2",
+        0x14 => "Digit3",
+        0x15 => "Digit4",
+        0x16 => "Digit6",
+        0x17 => "Digit5",
+        0x18 => "Equal",
+        0x19 => "Digit9",
+        0x1A => "Digit7",
+        0x1B => "Minus",
+        0x1C => "Digit8",
+        0x1D => "Digit0",
+        0x1E => "BracketRight",
+        0x1F => "KeyO",
+        0x20 => "KeyU",
+        0x21 => "BracketLeft",
+        0x22 => "KeyI",
+        0x23 => "KeyP",
+        0x25 => "KeyL",
+        0x26 => "KeyJ",
+        0x27 => "Quote",
+        0x28 => "KeyK",
+        0x29 => "Semicolon",
+        0x2A => "Backslash",
+        0x2B => "Comma",
+        0x2C => "Slash",
+        0x2D => "KeyN",
+        0x2E => "KeyM",
+        0x2F => "Period",
+        0x31 => "Space",
+        0x32 => "Backquote",
+        0x41 => "NumpadDecimal",
+        0x43 => "NumpadMultiply",
+        0x45 => "NumpadAdd",
+        0x47 => "NumLock",
+        0x4B => "NumpadDivide",
+        0x4E => "NumpadSubtract",
+        0x51 => "NumpadEqual",
+        0x52 => "Numpad0",
+        0x53 => "Numpad1",
+        0x54 => "Numpad2",
+        0x55 => "Numpad3",
+        0x56 => "Numpad4",
+        0x57 => "Numpad5",
+        0x58 => "Numpad6",
+        0x59 => "Numpad7",
+        0x5B => "Numpad8",
+        0x5C => "Numpad9",
+        0x72 => "Insert",
+        _ => return None,
+    })
+}
+
+/// The captured display, in the global coordinate space events report: points
+/// from the main display's top-left, y down.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct DisplayGeometry {
+    pub(super) id: u32,
+    pub(super) x_pt: f64,
+    pub(super) y_pt: f64,
+    pub(super) width_pt: f64,
+    pub(super) height_pt: f64,
+    pub(super) width_px: u32,
+    pub(super) height_px: u32,
+}
+
+impl DisplayGeometry {
+    /// Pixels per point. The same on both axes on every Mac display mode.
+    pub(super) fn scale(&self) -> f64 {
+        if self.width_pt > 0.0 {
+            f64::from(self.width_px) / self.width_pt
+        } else {
+            1.0
+        }
+    }
+
+    /// A global point as pixels of this display from its top-left; outside the
+    /// display when the point is on another one.
+    pub(super) fn to_px(&self, x_pt: f64, y_pt: f64) -> (f64, f64) {
+        let scale = self.scale();
+        ((x_pt - self.x_pt) * scale, (y_pt - self.y_pt) * scale)
+    }
+}
+
+/// An event's timestamp as host nanoseconds (the clock ScreenCaptureKit stamps
+/// its frames with: `mach_absolute_time` scaled by its timebase).
+///
+/// `CGEventGetTimestamp` is documented as "roughly, nanoseconds since startup"
+/// (CGEventTypes.h), but on Apple Silicon hardware events can carry raw
+/// `mach_absolute_time` ticks (125/3 ns each) while posted events carry
+/// nanoseconds, even on one tap. So each value is read both ways and the
+/// reading closer to now wins; the two differ by a factor of about 41, so the
+/// wrong one is hours or days away. On Intel the timebase is 1/1 and both
+/// readings agree.
+pub(super) fn event_host_nanos(raw: u64, now_ticks: u64, numer: u32, denom: u32) -> u64 {
+    let ticks_to_nanos =
+        |ticks: u64| (u128::from(ticks) * u128::from(numer) / u128::from(denom.max(1))) as u64;
+    if numer == denom {
+        return raw;
+    }
+    let now = ticks_to_nanos(now_ticks);
+    let as_ticks = ticks_to_nanos(raw);
+    if now.abs_diff(raw) <= now.abs_diff(as_ticks) {
+        raw
+    } else {
+        as_ticks
+    }
+}
+
+/// Recording milliseconds of a host time: zero is the flattened recording's
+/// first frame, and paused stretches are taken out the way the capture
+/// pipeline retimes its frames. `None` before the first frame.
+pub(super) fn recording_ms(
+    host_nanos: u64,
+    session_start_secs: f64,
+    pause_offset_secs: f64,
+) -> Option<f64> {
+    if !session_start_secs.is_finite() {
+        return None;
+    }
+    let ms = (host_nanos as f64 / 1e9 - session_start_secs - pause_offset_secs) * 1000.0;
+    (ms >= 0.0).then_some(ms)
+}
+
+struct TypingRun {
+    started: f64,
+    presses: u32,
+}
+
+/// Turns samples into the track's lines: moves at most every
+/// `MOVE_INTERVAL_MS` while the pointer moves, plus the position it stops at;
+/// typing presses as per-second counts at the first press of each second; and
+/// every line in time order.
+#[derive(Default)]
+pub(super) struct InputLog {
+    last_move_at: Option<f64>,
+    pending_move: Option<(f64, f64, f64)>,
+    typing: Option<TypingRun>,
+    last_at: f64,
+    // Lines in time order, each with its time. A typing count is placed at its
+    // first press once its window closes, so lines after that wait for it.
+    lines: Vec<(f64, String)>,
+}
+
+impl InputLog {
+    pub(super) fn push(&mut self, at: f64, sample: InputSample) {
+        // The tap delivers in order; clamp the odd late stamp so lines stay so.
+        let at = at.max(self.last_at);
+        self.last_at = at;
+        self.close_typing_before(at);
+        if let InputSample::Move { x, y } = sample {
+            let due = self
+                .last_move_at
+                .is_none_or(|last| at - last >= MOVE_INTERVAL_MS);
+            if due {
+                self.pending_move = None;
+                self.write_move(at, x, y);
+            } else {
+                self.pending_move = Some((at, x, y));
+            }
+            return;
+        }
+        self.flush_pending_move();
+        match sample {
+            InputSample::TypingPress => match self.typing.as_mut() {
+                Some(run) => run.presses += 1,
+                None => {
+                    self.typing = Some(TypingRun {
+                        started: at,
+                        presses: 1,
+                    })
+                }
+            },
+            other => {
+                if let Some(line) = serialize_sample(at, &other) {
+                    self.lines.push((at, line));
+                }
+            }
+        }
+    }
+
+    /// Lines that can be written now, given the recording time is `now`: the
+    /// pointer's resting position once it has been still for a move interval,
+    /// and typing counts whose second has passed. `None` while paused.
+    pub(super) fn take_ready(&mut self, now: Option<f64>) -> String {
+        if let Some(now) = now {
+            self.close_typing_before(now);
+            if self
+                .pending_move
+                .is_some_and(|(at, _, _)| now - at >= MOVE_INTERVAL_MS)
+            {
+                self.flush_pending_move();
+            }
+        }
+        let hold_from = self
+            .typing
+            .as_ref()
+            .map_or(f64::INFINITY, |run| run.started);
+        let ready = self.lines.partition_point(|(at, _)| *at <= hold_from);
+        Self::joined(self.lines.drain(..ready))
+    }
+
+    /// Everything left, at the end of the recording.
+    pub(super) fn take_all(&mut self) -> String {
+        self.flush_pending_move();
+        self.close_typing_before(f64::INFINITY);
+        Self::joined(self.lines.drain(..))
+    }
+
+    fn joined(lines: impl Iterator<Item = (f64, String)>) -> String {
+        let mut out = String::new();
+        for (_, line) in lines {
+            out.push_str(&line);
+            out.push('\n');
+        }
+        out
+    }
+
+    fn write_move(&mut self, at: f64, x: f64, y: f64) {
+        self.last_move_at = Some(at);
+        if let Some(line) = serialize_sample(at, &InputSample::Move { x, y }) {
+            self.lines.push((at, line));
+        }
+    }
+
+    fn flush_pending_move(&mut self) {
+        if let Some((at, x, y)) = self.pending_move.take() {
+            self.write_move(at, x, y);
+        }
+    }
+
+    fn close_typing_before(&mut self, at: f64) {
+        let closes = self
+            .typing
+            .as_ref()
+            .is_some_and(|run| at >= run.started + TYPING_WINDOW_MS);
+        if !closes {
+            return;
+        }
+        if let Some(run) = self.typing.take() {
+            let place = self.lines.partition_point(|(t, _)| *t <= run.started);
+            self.lines
+                .insert(place, (run.started, typing_line(run.started, run.presses)));
+        }
+    }
+}
+
+/// One complete gzip member holding `text`. Members appended one after another
+/// read back as one gzip stream.
+pub(super) fn gzip_member(text: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut encoder = GzEncoder::new(
+        Vec::with_capacity(text.len() / 4 + 64),
+        Compression::default(),
+    );
+    encoder.write_all(text)?;
+    encoder.finish()
+}
+
+pub(super) use capture::{input_capture_allowed, start_input_capture, InputCapture};
+
+mod capture {
+    use super::*;
+
+    use std::fs::OpenOptions;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
+    use std::sync::{Arc, Mutex};
+    use std::thread::JoinHandle;
+    use std::time::{Duration, Instant};
+
+    use core_foundation::runloop::{kCFRunLoopCommonModes, kCFRunLoopDefaultMode, CFRunLoop};
+    use core_graphics::event::{
+        CGEvent, CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions,
+        CGEventTapPlacement, CGEventType, CallbackResult, EventField,
+    };
+
+    use super::super::rich_recording::RecordingClock;
+    use super::super::track_upload::TrackUploadCtrl;
+
+    const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
+    const TAP_POLL: Duration = Duration::from_millis(250);
+    /// Events waiting for the writer. A full queue drops events and marks the
+    /// track incomplete rather than ever holding up the tap.
+    const QUEUE_DEPTH: usize = 8192;
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGPreflightListenEventAccess() -> bool;
+        fn CGEventGetTimestamp(event: *const std::ffi::c_void) -> u64;
+        fn CGEventKeyboardGetUnicodeString(
+            event: *const std::ffi::c_void,
+            max_len: std::ffi::c_ulong,
+            actual_len: *mut std::ffi::c_ulong,
+            buffer: *mut u16,
+        );
+    }
+
+    #[link(name = "Carbon", kind = "framework")]
+    extern "C" {
+        fn IsSecureEventInputEnabled() -> u8;
+    }
+
+    /// Whether a listen-only tap can run without asking: Input Monitoring or
+    /// Accessibility is already granted. Both checks are preflights that never
+    /// prompt.
+    pub(in super::super) fn input_capture_allowed() -> bool {
+        // SAFETY: takes no arguments and only reads the process's access
+        // decision; it never prompts.
+        let listen = unsafe { CGPreflightListenEventAccess() };
+        listen || crate::accessibility::macos::is_trusted(false)
+    }
+
+    /// What the input track ended up as, read once its writer has closed.
+    #[derive(Clone, Debug, Default)]
+    pub(in super::super) struct InputCaptureReport {
+        pub(in super::super) bytes: u64,
+        pub(in super::super) lines: u64,
+        pub(in super::super) last_ms: Option<f64>,
+        /// Events were lost: the tap was switched off for a while, or the
+        /// queue to the writer overflowed.
+        pub(in super::super) gaps: bool,
+        /// The file could not be written, so what is on disk can't be trusted.
+        pub(in super::super) write_failed: bool,
+        pub(in super::super) closed: bool,
+    }
+
+    pub(in super::super) struct InputCapture {
+        stop: Arc<AtomicBool>,
+        report: Arc<Mutex<InputCaptureReport>>,
+        tap_thread: Option<JoinHandle<()>>,
+    }
+
+    impl InputCapture {
+        /// Stops the tap. The writer then writes what is left, closes the file
+        /// and tells the uploader to send the rest; nothing here waits on it.
+        pub(in super::super) fn stop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            // The tap thread notices within one poll; never joined here, so a
+            // stuck run loop can't hold up the recording's stop.
+            drop(self.tap_thread.take());
+        }
+
+        pub(in super::super) fn report(&self) -> InputCaptureReport {
+            self.report
+                .lock()
+                .map(|report| report.clone())
+                .unwrap_or_else(|poisoned| poisoned.into_inner().clone())
+        }
+    }
+
+    impl Drop for InputCapture {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+        }
+    }
+
+    struct TapEvent {
+        at: f64,
+        sample: InputSample,
+    }
+
+    struct TapContext {
+        clock: RecordingClock,
+        display: DisplayGeometry,
+        privacy: Mutex<KeyPrivacy>,
+        sender: SyncSender<TapEvent>,
+        gaps: Arc<AtomicBool>,
+        reenable: Arc<AtomicBool>,
+    }
+
+    impl TapContext {
+        fn handle(&self, kind: CGEventType, event: &CGEvent) {
+            // SAFETY: a `&CGEventRef` is the CGEventRef itself (foreign-types),
+            // valid for the callback; both calls only read it.
+            let raw = &**event as *const _ as *const std::ffi::c_void;
+            let stamp = unsafe { CGEventGetTimestamp(raw) };
+            let Some(at) = self.clock.at_event_stamp(stamp) else {
+                return;
+            };
+            let Some(sample) = self.sample(kind, event, raw) else {
+                return;
+            };
+            match self.sender.try_send(TapEvent { at, sample }) {
+                Ok(()) | Err(TrySendError::Disconnected(_)) => {}
+                Err(TrySendError::Full(_)) => self.gaps.store(true, Ordering::SeqCst),
+            }
+        }
+
+        fn sample(
+            &self,
+            kind: CGEventType,
+            event: &CGEvent,
+            raw: *const std::ffi::c_void,
+        ) -> Option<InputSample> {
+            let point = event.location();
+            let (x, y) = self.display.to_px(point.x, point.y);
+            let button_event = |down: bool, button: MouseButton| InputSample::Button {
+                down,
+                button,
+                x,
+                y,
+                clicks: event
+                    .get_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE)
+                    .clamp(0, i64::from(u32::MAX)) as u32,
+            };
+            let other_button = || {
+                MouseButton::from_number(
+                    event.get_integer_value_field(EventField::MOUSE_EVENT_BUTTON_NUMBER),
+                )
+            };
+            Some(match kind {
+                CGEventType::MouseMoved
+                | CGEventType::LeftMouseDragged
+                | CGEventType::RightMouseDragged
+                | CGEventType::OtherMouseDragged => InputSample::Move { x, y },
+                CGEventType::LeftMouseDown => button_event(true, MouseButton::Left),
+                CGEventType::LeftMouseUp => button_event(false, MouseButton::Left),
+                CGEventType::RightMouseDown => button_event(true, MouseButton::Right),
+                CGEventType::RightMouseUp => button_event(false, MouseButton::Right),
+                CGEventType::OtherMouseDown => button_event(true, other_button()),
+                CGEventType::OtherMouseUp => button_event(false, other_button()),
+                CGEventType::ScrollWheel => {
+                    // Point deltas in pixels, signed like a web WheelEvent
+                    // (positive scrolls toward the bottom and right), the
+                    // opposite of how macOS signs them.
+                    let scale = self.display.scale();
+                    InputSample::Wheel {
+                        x,
+                        y,
+                        dx: -event.get_double_value_field(
+                            EventField::SCROLL_WHEEL_EVENT_POINT_DELTA_AXIS_2,
+                        ) * scale,
+                        dy: -event.get_double_value_field(
+                            EventField::SCROLL_WHEEL_EVENT_POINT_DELTA_AXIS_1,
+                        ) * scale,
+                    }
+                }
+                CGEventType::KeyDown | CGEventType::KeyUp => {
+                    return self.key_sample(matches!(kind, CGEventType::KeyDown), event, raw);
+                }
+                _ => return None,
+            })
+        }
+
+        fn key_sample(
+            &self,
+            down: bool,
+            event: &CGEvent,
+            raw: *const std::ffi::c_void,
+        ) -> Option<InputSample> {
+            let flags = event.get_flags();
+            let mods = Modifiers {
+                meta: flags.contains(CGEventFlags::CGEventFlagCommand),
+                ctrl: flags.contains(CGEventFlags::CGEventFlagControl),
+                alt: flags.contains(CGEventFlags::CGEventFlagAlternate),
+                shift: flags.contains(CGEventFlags::CGEventFlagShift),
+            };
+            let keycode = event
+                .get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE)
+                .clamp(0, i64::from(u16::MAX)) as u16;
+            let autorepeat =
+                event.get_integer_value_field(EventField::KEYBOARD_EVENT_AUTOREPEAT) != 0;
+            // SAFETY: takes no arguments; reads whether any process holds
+            // secure input (a password field, say).
+            let secure_input = unsafe { IsSecureEventInputEnabled() } != 0;
+            let decision = self
+                .privacy
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .classify(keycode, down, autorepeat, mods, secure_input);
+            match decision {
+                KeyDecision::Drop => None,
+                KeyDecision::Typing => Some(InputSample::TypingPress),
+                KeyDecision::Keep { code, named } => {
+                    let key = match named {
+                        Some(named) => named.to_string(),
+                        // Read only now: the key is a shortcut, never typing.
+                        None => shortcut_key_label(event_chars(raw).as_deref(), code),
+                    };
+                    Some(InputSample::Key {
+                        down,
+                        code,
+                        key,
+                        mods,
+                    })
+                }
+            }
+        }
+    }
+
+    fn event_chars(raw: *const std::ffi::c_void) -> Option<String> {
+        let mut buffer = [0_u16; 4];
+        let mut len: std::ffi::c_ulong = 0;
+        // SAFETY: the buffer holds `buffer.len()` UTF-16 units and the event is
+        // valid for the callback this runs in.
+        unsafe {
+            CGEventKeyboardGetUnicodeString(
+                raw,
+                buffer.len() as std::ffi::c_ulong,
+                &mut len,
+                buffer.as_mut_ptr(),
+            );
+        }
+        let len = (len as usize).min(buffer.len());
+        (len > 0).then(|| String::from_utf16_lossy(&buffer[..len]))
+    }
+
+    /// Starts the input track: a listen-only tap on its own thread and a writer
+    /// that appends to `<folder>/input.jsonl.gz` about once a second. Call only
+    /// after `input_capture_allowed`.
+    pub(in super::super) fn start_input_capture(
+        folder: &Path,
+        clock: RecordingClock,
+        display: DisplayGeometry,
+        upload: Arc<TrackUploadCtrl>,
+    ) -> Result<InputCapture, String> {
+        let path = folder.join(INPUT_TRACK_FILE);
+        let stop = Arc::new(AtomicBool::new(false));
+        let gaps = Arc::new(AtomicBool::new(false));
+        let report = Arc::new(Mutex::new(InputCaptureReport::default()));
+        let (sender, receiver) = sync_channel(QUEUE_DEPTH);
+
+        let writer_report = Arc::clone(&report);
+        let writer_gaps = Arc::clone(&gaps);
+        let writer_clock = clock.clone();
+        std::thread::Builder::new()
+            .name("clips-input-track-writer".into())
+            .spawn(move || {
+                run_writer(receiver, path, || writer_clock.now_ms(), &writer_report);
+                if let Ok(mut report) = writer_report.lock() {
+                    report.gaps |= writer_gaps.load(Ordering::SeqCst);
+                    report.closed = true;
+                    if report.write_failed {
+                        upload.cancel();
+                    }
+                }
+                upload.close_source();
+            })
+            .map_err(|error| format!("input track writer could not start: {error}"))?;
+
+        let context = TapContext {
+            clock,
+            display,
+            privacy: Mutex::new(KeyPrivacy::default()),
+            sender,
+            gaps: Arc::clone(&gaps),
+            reenable: Arc::new(AtomicBool::new(false)),
+        };
+        let tap_stop = Arc::clone(&stop);
+        let tap_thread = std::thread::Builder::new()
+            .name("clips-input-track-tap".into())
+            .spawn(move || run_tap(context, tap_stop))
+            .map_err(|error| {
+                stop.store(true, Ordering::SeqCst);
+                format!("input track tap could not start: {error}")
+            })?;
+        Ok(InputCapture {
+            stop,
+            report,
+            tap_thread: Some(tap_thread),
+        })
+    }
+
+    fn run_tap(context: TapContext, stop: Arc<AtomicBool>) {
+        let reenable = Arc::clone(&context.reenable);
+        let gaps = Arc::clone(&context.gaps);
+        let tap = CGEventTap::new(
+            CGEventTapLocation::Session,
+            CGEventTapPlacement::TailAppendEventTap,
+            CGEventTapOptions::ListenOnly,
+            vec![
+                CGEventType::MouseMoved,
+                CGEventType::LeftMouseDragged,
+                CGEventType::RightMouseDragged,
+                CGEventType::OtherMouseDragged,
+                CGEventType::LeftMouseDown,
+                CGEventType::LeftMouseUp,
+                CGEventType::RightMouseDown,
+                CGEventType::RightMouseUp,
+                CGEventType::OtherMouseDown,
+                CGEventType::OtherMouseUp,
+                CGEventType::ScrollWheel,
+                CGEventType::KeyDown,
+                CGEventType::KeyUp,
+            ],
+            move |_proxy, kind, event| {
+                match kind {
+                    CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput => {
+                        context.gaps.store(true, Ordering::SeqCst);
+                        context.reenable.store(true, Ordering::SeqCst);
+                    }
+                    _ => context.handle(kind, event),
+                }
+                CallbackResult::Keep
+            },
+        );
+        let tap = match tap {
+            Ok(tap) => tap,
+            Err(()) => {
+                eprintln!(
+                    "[rich-tracks] input: the event tap could not be created, so this recording has no input track"
+                );
+                return;
+            }
+        };
+        let source = match tap.mach_port().create_runloop_source(0) {
+            Ok(source) => source,
+            Err(()) => {
+                eprintln!(
+                    "[rich-tracks] input: the event tap's run loop source failed, so this recording has no input track"
+                );
+                return;
+            }
+        };
+        let runloop = CFRunLoop::get_current();
+        // SAFETY: the mode constant is a static CFString.
+        runloop.add_source(&source, unsafe { kCFRunLoopCommonModes });
+        tap.enable();
+        while !stop.load(Ordering::SeqCst) {
+            if reenable.swap(false, Ordering::SeqCst) {
+                eprintln!(
+                    "[rich-tracks] input: the event tap was switched off; switching it back on"
+                );
+                gaps.store(true, Ordering::SeqCst);
+                tap.enable();
+            }
+            // SAFETY: the mode constant is a static CFString.
+            let _ = CFRunLoop::run_in_mode(unsafe { kCFRunLoopDefaultMode }, TAP_POLL, true);
+        }
+        // Dropping the tap disables it, and dropping its callback closes the
+        // writer's queue, which ends the writer.
+    }
+
+    fn run_writer(
+        receiver: Receiver<TapEvent>,
+        path: PathBuf,
+        now_ms: impl Fn() -> Option<f64>,
+        report: &Mutex<InputCaptureReport>,
+    ) {
+        let mut log = InputLog::default();
+        let mut file: Option<std::fs::File> = None;
+        let mut next_flush = Instant::now() + FLUSH_INTERVAL;
+        let mut lines: u64 = 0;
+        let mut last_ms: Option<f64> = None;
+        let write = |text: String, file: &mut Option<std::fs::File>| -> bool {
+            if text.is_empty() {
+                return true;
+            }
+            let written = (|| -> std::io::Result<u64> {
+                let member = gzip_member(text.as_bytes())?;
+                if file.is_none() {
+                    *file = Some(OpenOptions::new().create(true).append(true).open(&path)?);
+                }
+                let handle = file.as_mut().expect("opened above");
+                handle.write_all(&member)?;
+                handle.flush()?;
+                Ok(member.len() as u64)
+            })();
+            match written {
+                Ok(bytes) => {
+                    if let Ok(mut report) = report.lock() {
+                        report.bytes += bytes;
+                        report.lines += text.lines().count() as u64;
+                    }
+                    true
+                }
+                Err(error) => {
+                    eprintln!(
+                        "[rich-tracks] input: writing {} failed, so the input track stops: {error}",
+                        path.display()
+                    );
+                    if let Ok(mut report) = report.lock() {
+                        report.write_failed = true;
+                    }
+                    false
+                }
+            }
+        };
+        loop {
+            let wait = next_flush.saturating_duration_since(Instant::now());
+            match receiver.recv_timeout(wait) {
+                Ok(TapEvent { at, sample }) => {
+                    last_ms = Some(at);
+                    lines += 1;
+                    log.push(at, sample);
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+            if Instant::now() >= next_flush {
+                next_flush = Instant::now() + FLUSH_INTERVAL;
+                if !write(log.take_ready(now_ms()), &mut file) {
+                    return;
+                }
+            }
+        }
+        if write(log.take_all(), &mut file) {
+            if let Ok(mut report) = report.lock() {
+                report.last_ms = last_ms;
+            }
+            eprintln!(
+                "[rich-tracks] input: closed {} after {lines} event(s)",
+                path.display()
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+
+    fn lines(text: &str) -> Vec<serde_json::Value> {
+        text.lines()
+            .map(|line| serde_json::from_str(line).expect("each line is JSON"))
+            .collect()
+    }
+
+    #[test]
+    fn serializes_each_event_kind_in_the_track_format() {
+        let shortcut = InputSample::Key {
+            down: true,
+            code: "KeyK",
+            key: "k".into(),
+            mods: Modifiers {
+                meta: true,
+                ..Modifiers::default()
+            },
+        };
+        assert_eq!(
+            serialize_sample(
+                1532.414,
+                &InputSample::Move {
+                    x: 1204.5,
+                    y: 688.0
+                }
+            )
+            .unwrap(),
+            r#"{"t":1532.41,"e":"move","x":1204.5,"y":688.0}"#
+        );
+        assert_eq!(
+            serialize_sample(
+                1610.02,
+                &InputSample::Button {
+                    down: true,
+                    button: MouseButton::Left,
+                    x: 1210.0,
+                    y: 690.0,
+                    clicks: 1,
+                }
+            )
+            .unwrap(),
+            r#"{"t":1610.02,"e":"down","b":"left","x":1210.0,"y":690.0,"n":1}"#
+        );
+        assert_eq!(
+            serialize_sample(
+                1650.0,
+                &InputSample::Wheel {
+                    x: 1210.0,
+                    y: 690.0,
+                    dx: 0.0,
+                    dy: -12.5,
+                }
+            )
+            .unwrap(),
+            r#"{"t":1650.0,"e":"wheel","x":1210.0,"y":690.0,"dx":0.0,"dy":-12.5}"#
+        );
+        assert_eq!(
+            serialize_sample(4100.5, &shortcut).unwrap(),
+            r#"{"t":4100.5,"e":"key","down":true,"code":"KeyK","key":"k","mods":["meta"]}"#
+        );
+        assert_eq!(serialize_sample(1.0, &InputSample::TypingPress), None);
+        assert_eq!(MouseButton::from_number(2), MouseButton::Middle);
+        assert_eq!(MouseButton::from_number(4), MouseButton::Other);
+    }
+
+    #[test]
+    fn privacy_keeps_shortcuts_and_named_keys_and_counts_the_rest() {
+        let mut privacy = KeyPrivacy::default();
+        let none = Modifiers::default();
+        let shift = Modifiers {
+            shift: true,
+            ..none
+        };
+        let cmd = Modifiers { meta: true, ..none };
+        let option = Modifiers { alt: true, ..none };
+        let ctrl = Modifiers { ctrl: true, ..none };
+        // Letters, digits, space and shifted letters are typing.
+        assert_eq!(
+            privacy.classify(0x28, true, false, none, false),
+            KeyDecision::Typing
+        );
+        assert_eq!(
+            privacy.classify(0x12, true, false, shift, false),
+            KeyDecision::Typing
+        );
+        assert_eq!(
+            privacy.classify(0x31, true, false, none, false),
+            KeyDecision::Typing
+        );
+        // Their releases are dropped.
+        assert_eq!(
+            privacy.classify(0x28, false, false, none, false),
+            KeyDecision::Drop
+        );
+        // Cmd, Ctrl and Option make a shortcut.
+        for mods in [cmd, ctrl, option] {
+            assert_eq!(
+                privacy.classify(0x28, true, false, mods, false),
+                KeyDecision::Keep {
+                    code: "KeyK",
+                    named: None
+                }
+            );
+            assert!(matches!(
+                privacy.classify(0x28, false, false, none, false),
+                KeyDecision::Keep { code: "KeyK", .. }
+            ));
+        }
+        // Named keys are kept with or without modifiers.
+        assert_eq!(
+            privacy.classify(0x24, true, false, none, false),
+            KeyDecision::Keep {
+                code: "Enter",
+                named: Some("Enter")
+            }
+        );
+        assert_eq!(
+            privacy.classify(0x30, true, false, shift, false),
+            KeyDecision::Keep {
+                code: "Tab",
+                named: Some("Tab")
+            }
+        );
+        assert_eq!(
+            privacy.classify(0x4C, true, false, none, false),
+            KeyDecision::Keep {
+                code: "NumpadEnter",
+                named: Some("Enter")
+            }
+        );
+        for (keycode, name) in [
+            (0x35, "Escape"),
+            (0x33, "Backspace"),
+            (0x75, "Delete"),
+            (0x7B, "ArrowLeft"),
+            (0x7E, "ArrowUp"),
+            (0x73, "Home"),
+            (0x79, "PageDown"),
+            (0x7A, "F1"),
+            (0x5A, "F20"),
+        ] {
+            assert_eq!(
+                privacy.classify(keycode, true, false, none, false),
+                KeyDecision::Keep {
+                    code: name,
+                    named: Some(name)
+                },
+                "{name}"
+            );
+        }
+        // Held keys repeat; repeats are not presses.
+        assert_eq!(
+            privacy.classify(0x7B, true, true, none, false),
+            KeyDecision::Drop
+        );
+        assert_eq!(
+            privacy.classify(0x28, true, true, none, false),
+            KeyDecision::Drop
+        );
+    }
+
+    #[test]
+    fn secure_input_keeps_no_keys_at_all() {
+        let mut privacy = KeyPrivacy::default();
+        let cmd = Modifiers {
+            meta: true,
+            ..Modifiers::default()
+        };
+        assert!(matches!(
+            privacy.classify(0x28, true, false, cmd, false),
+            KeyDecision::Keep { .. }
+        ));
+        // Not even a shortcut, a named key, a typing count or a release.
+        assert_eq!(
+            privacy.classify(0x28, true, false, cmd, true),
+            KeyDecision::Drop
+        );
+        assert_eq!(
+            privacy.classify(0x24, true, false, Modifiers::default(), true),
+            KeyDecision::Drop
+        );
+        assert_eq!(
+            privacy.classify(0x00, true, false, Modifiers::default(), true),
+            KeyDecision::Drop
+        );
+        assert_eq!(
+            privacy.classify(0x28, false, false, cmd, true),
+            KeyDecision::Drop
+        );
+        // A release after secure input ends belongs to no kept press.
+        assert_eq!(
+            privacy.classify(0x28, false, false, cmd, false),
+            KeyDecision::Drop
+        );
+    }
+
+    #[test]
+    fn shortcut_labels_come_from_printable_characters_or_the_code() {
+        assert_eq!(shortcut_key_label(Some("k"), "KeyK"), "k");
+        // Ctrl+K carries a control character.
+        assert_eq!(shortcut_key_label(Some("\u{b}"), "KeyK"), "k");
+        assert_eq!(shortcut_key_label(None, "Digit4"), "4");
+        assert_eq!(shortcut_key_label(Some(""), "Space"), "Space");
+        assert_eq!(shortcut_key_label(Some("ab"), "Comma"), "Comma");
+    }
+
+    #[test]
+    fn moves_are_throttled_to_one_per_interval_and_keep_the_resting_position() {
+        let mut log = InputLog::default();
+        for step in 0..=20 {
+            let at = 100.0 + f64::from(step) * 2.0;
+            log.push(at, InputSample::Move { x: at, y: 0.0 });
+        }
+        // 100..=140 every 2 ms: written at 100, 110, 120, 130, 140.
+        let written = lines(&log.take_ready(Some(141.0)));
+        let times: Vec<f64> = written
+            .iter()
+            .map(|line| line["t"].as_f64().unwrap())
+            .collect();
+        assert_eq!(times, [100.0, 110.0, 120.0, 130.0, 140.0]);
+
+        // The pointer stops between intervals: its last position is written
+        // once it has been still for an interval, not before.
+        log.push(143.0, InputSample::Move { x: 143.0, y: 5.0 });
+        log.push(145.0, InputSample::Move { x: 145.0, y: 5.0 });
+        assert_eq!(log.take_ready(Some(150.0)), "");
+        let rest = lines(&log.take_ready(Some(155.0)));
+        assert_eq!(rest.len(), 1);
+        assert_eq!(rest[0]["t"], 145.0);
+        assert_eq!(rest[0]["x"], 145.0);
+
+        // A click writes the pending position first.
+        log.push(160.0, InputSample::Move { x: 1.0, y: 1.0 });
+        log.push(162.0, InputSample::Move { x: 2.0, y: 2.0 });
+        log.push(
+            163.0,
+            InputSample::Button {
+                down: true,
+                button: MouseButton::Left,
+                x: 2.0,
+                y: 2.0,
+                clicks: 1,
+            },
+        );
+        let kinds: Vec<String> = lines(&log.take_ready(Some(163.0)))
+            .iter()
+            .map(|line| format!("{}@{}", line["e"].as_str().unwrap(), line["t"]))
+            .collect();
+        assert_eq!(kinds, ["move@160.0", "move@162.0", "down@163.0"]);
+    }
+
+    #[test]
+    fn typing_is_counted_per_second_and_lines_stay_in_time_order() {
+        let mut log = InputLog::default();
+        log.push(1000.0, InputSample::TypingPress);
+        log.push(1100.0, InputSample::Move { x: 1.0, y: 1.0 });
+        log.push(1200.0, InputSample::TypingPress);
+        log.push(1300.0, InputSample::TypingPress);
+        // The count's second is still open, so nothing after it is written.
+        assert_eq!(log.take_ready(Some(1500.0)), "");
+        // A press past the second starts the next count.
+        log.push(2100.0, InputSample::TypingPress);
+        let first = lines(&log.take_ready(Some(2200.0)));
+        assert_eq!(first.len(), 2);
+        assert_eq!(
+            first[0],
+            serde_json::json!({"t": 1000.0, "e": "typing", "n": 3})
+        );
+        assert_eq!(first[1]["e"], "move");
+        let rest = lines(&log.take_all());
+        assert_eq!(
+            rest,
+            [serde_json::json!({"t": 2100.0, "e": "typing", "n": 1})]
+        );
+
+        // Late stamps are clamped so the file stays in order.
+        let mut log = InputLog::default();
+        log.push(50.0, InputSample::Move { x: 0.0, y: 0.0 });
+        log.push(40.0, InputSample::Move { x: 9.0, y: 9.0 });
+        let all = lines(&log.take_all());
+        let times: Vec<f64> = all.iter().map(|line| line["t"].as_f64().unwrap()).collect();
+        assert!(times.windows(2).all(|pair| pair[0] <= pair[1]), "{times:?}");
+    }
+
+    #[test]
+    fn appended_gzip_members_read_back_as_one_stream() {
+        let mut file = Vec::new();
+        file.extend(gzip_member(b"{\"t\":1.0,\"e\":\"move\",\"x\":1.0,\"y\":2.0}\n").unwrap());
+        file.extend(gzip_member(b"{\"t\":2.0,\"e\":\"typing\",\"n\":4}\n").unwrap());
+        let mut text = String::new();
+        flate2::read::MultiGzDecoder::new(&file[..])
+            .read_to_string(&mut text)
+            .unwrap();
+        assert_eq!(
+            text,
+            "{\"t\":1.0,\"e\":\"move\",\"x\":1.0,\"y\":2.0}\n{\"t\":2.0,\"e\":\"typing\",\"n\":4}\n"
+        );
+        // Any prefix that ends between members is itself a whole file.
+        let first_len = gzip_member(b"{\"t\":1.0,\"e\":\"move\",\"x\":1.0,\"y\":2.0}\n")
+            .unwrap()
+            .len();
+        let mut prefix = String::new();
+        flate2::read::MultiGzDecoder::new(&file[..first_len])
+            .read_to_string(&mut prefix)
+            .unwrap();
+        assert_eq!(prefix.lines().count(), 1);
+    }
+
+    #[test]
+    fn event_times_are_read_as_nanoseconds_or_ticks_whichever_is_now() {
+        // Apple Silicon: 125/3 ns per tick, about 35 days of uptime.
+        let now_ticks: u64 = 72_541_582_675_928;
+        let now_nanos = now_ticks * 125 / 3;
+        // A hardware event 3 ms ago, stamped in ticks.
+        let ticks_stamp = now_ticks - 72_000;
+        assert_eq!(
+            event_host_nanos(ticks_stamp, now_ticks, 125, 3),
+            ticks_stamp * 125 / 3
+        );
+        // A posted event 3 ms ago, stamped in nanoseconds.
+        let nanos_stamp = now_nanos - 3_000_000;
+        assert_eq!(
+            event_host_nanos(nanos_stamp, now_ticks, 125, 3),
+            nanos_stamp
+        );
+        // Intel: ticks are nanoseconds.
+        assert_eq!(event_host_nanos(5_000, 6_000, 1, 1), 5_000);
+    }
+
+    #[test]
+    fn recording_time_starts_at_the_first_frame_and_skips_pauses() {
+        let start = 2_000_000.0;
+        let at = |seconds_after_start: f64| ((start + seconds_after_start) * 1e9) as u64;
+        // Before the first frame there is no recording time.
+        assert_eq!(recording_ms(at(1.0), f64::NAN, 0.0), None);
+        assert_eq!(recording_ms(at(-0.5), start, 0.0), None);
+        let ms = recording_ms(at(1.5324), start, 0.0).unwrap();
+        assert!((ms - 1532.4).abs() < 0.01, "{ms}");
+        // After a 4-second pause, the pipeline subtracts 4 seconds from its
+        // frames' times; events are retimed the same way.
+        let ms = recording_ms(at(10.0), start, 4.0).unwrap();
+        assert!((ms - 6000.0).abs() < 0.01, "{ms}");
+    }
+
+    #[test]
+    fn global_points_become_pixels_of_the_captured_display() {
+        // A 1512x982-point Retina display at 3024x1964 pixels, to the right of
+        // the main display.
+        let display = DisplayGeometry {
+            id: 2,
+            x_pt: 1728.0,
+            y_pt: 0.0,
+            width_pt: 1512.0,
+            height_pt: 982.0,
+            width_px: 3024,
+            height_px: 1964,
+        };
+        assert_eq!(display.scale(), 2.0);
+        assert_eq!(display.to_px(1728.0, 0.0), (0.0, 0.0));
+        assert_eq!(display.to_px(2330.25, 344.0), (1204.5, 688.0));
+        // On the main display, to its left: negative x.
+        assert_eq!(display.to_px(100.0, 50.0), (-3256.0, 100.0));
+        // Above a display arranged lower than the main one: negative y.
+        let lower = DisplayGeometry {
+            y_pt: 200.0,
+            ..display
+        };
+        assert_eq!(lower.to_px(1728.0, 100.0), (0.0, -200.0));
+    }
+}
