@@ -231,6 +231,9 @@ describe("the Discussion panel", () => {
   // Sort and Filter are Content's menus, which open on a press or Enter, not a
   // bare click().
   const openMenu = async (selector: string) => {
+    // A menu that just closed hands focus back on a timer. Let it, first: once
+    // this menu is open, that focus lands outside it and closes it.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
     await act(async () => {
       button(selector).dispatchEvent(
         new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
