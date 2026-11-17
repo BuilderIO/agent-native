@@ -1,4 +1,7 @@
-import type { AgentWidget } from "@agent-native/agentkit/protocol";
+import type {
+  AgentParticipant,
+  AgentWidget,
+} from "@agent-native/agentkit/protocol";
 import {
   AGENT_CALL_APPROVAL_WIDGET_KIND,
   sendToAgentChatAndConfirm,
@@ -53,8 +56,8 @@ const SETTLED_PREFIX = "agent-native:agent-call-approval:";
 
 // A reload renders the same widget again, so a card the person already
 // continued or dismissed stays closed for the rest of the session. It records
-// the call that was waiting on this approval then, so a newer call that finds
-// the same approval still waiting shows the card again.
+// the calls its task had made by then, so a newer call that finds the same
+// approval still waiting, or a newer call that failed, shows the card again.
 function readSettled(id: string): readonly string[] | undefined {
   try {
     const saved: unknown = JSON.parse(
@@ -102,6 +105,21 @@ function laterApprovalOnTask(
   );
 }
 
+// Another call on the task that is working means the task is being resumed,
+// from this tab or another one, and Continue would only resume it twice. A run
+// that stopped can leave its call marked working, so this holds only while the
+// chat has a run going.
+function resumeRunning(
+  thread: AgentThread,
+  calls: readonly AgentParticipant[],
+  callId: string,
+): boolean {
+  return (
+    thread.activeRunIds.length > 0 &&
+    calls.some((call) => call.id !== callId && call.status === "working")
+  );
+}
+
 /**
  * The peer runs the action only after the person approves it on the peer's
  * own page. Continuing then resumes the same delegated task, which returns the
@@ -114,26 +132,35 @@ export function AgentKitAgentCallApproval({
   const thread = useAgentThread(threadId);
   const approval = readApproval(widget.data);
   if (!approval) return null;
+  const calls = Object.values(thread.agents).filter(
+    (agent) => agent.activeTaskId === approval.taskId,
+  );
   // A call on the same task that completed means the approved action already
   // ran, or the task ended. The task's own status can't tell: the chat settles
   // a paused task as soon as its own turn ends. A failed call doesn't count:
   // the resume itself can fail while the approval is still waiting.
   if (
-    Object.values(thread.agents).some(
-      (agent) =>
-        agent.activeTaskId === approval.taskId && agent.status === "completed",
-    ) ||
-    laterApprovalOnTask(thread, widget.id, approval.taskId)
+    calls.some((call) => call.status === "completed") ||
+    laterApprovalOnTask(thread, widget.id, approval.taskId) ||
+    resumeRunning(thread, calls, approval.callId)
   ) {
     return null;
   }
-  return <AgentCallApprovalCard key={approval.id} approval={approval} />;
+  return (
+    <AgentCallApprovalCard
+      key={approval.id}
+      approval={approval}
+      calls={calls}
+    />
+  );
 }
 
 function AgentCallApprovalCard({
   approval,
+  calls,
 }: {
   approval: AgentCallApprovalWidgetData;
+  calls: readonly AgentParticipant[];
 }) {
   const t = useT();
   const { agent } = approval;
@@ -148,12 +175,28 @@ function AgentCallApprovalCard({
   // Continue can come before the approval: the peer then answers with the same
   // approval still waiting, on a newer call, and the card comes back for it. A
   // call that pauses on another approval writes that approval's card instead.
-  if (settledCalls?.includes(approval.callId)) return null;
+  // A call that failed after the card closed brings it back as well: the
+  // approval may still be waiting.
+  if (
+    settledCalls &&
+    settledCalls.includes(approval.callId) &&
+    !calls.some(
+      (call) => call.status === "failed" && !settledCalls.includes(call.id),
+    )
+  ) {
+    return null;
+  }
 
   const settle = () => {
-    const calls = [...(settledCalls ?? []), approval.callId];
-    rememberSettled(approval.id, calls);
-    setSettledCalls(calls);
+    const known = Array.from(
+      new Set([
+        ...(settledCalls ?? []),
+        approval.callId,
+        ...calls.map((call) => call.id),
+      ]),
+    );
+    rememberSettled(approval.id, known);
+    setSettledCalls(known);
     setPhase("review");
   };
   // The card closes only once the chat took the continuation. If it didn't,

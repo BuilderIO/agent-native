@@ -67,7 +67,10 @@ afterEach(async () => {
 async function threadClient(
   tasks: AgentTask[] = [],
   agents: AgentParticipant[] = [],
-  saved: Pick<AgentThreadSnapshot, "messages" | "widgets"> = { messages: [] },
+  saved: Pick<AgentThreadSnapshot, "messages"> &
+    Partial<Pick<AgentThreadSnapshot, "widgets" | "runs" | "activeRunIds">> = {
+    messages: [],
+  },
 ) {
   const transport: AgentTransport = {
     async startRun() {
@@ -231,6 +234,38 @@ describe("AgentKitAgentCallApproval", () => {
     expect(action("continue")).toBeNull();
   });
 
+  it("comes back in the tab that continued when the resume fails", async () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    await renderCard(await threadClient([], [waiting("call-1")]));
+    await press("review");
+    await press("continue");
+    expect(container.textContent).toBe("");
+
+    // The resume failed and wrote no new card, so the approval may still wait.
+    await reload(
+      await threadClient(
+        [],
+        [waiting("call-1"), { ...waiting("call-2"), status: "failed" }],
+      ),
+    );
+    expect(container.textContent).toContain("Slides needs your approval");
+  });
+
+  it("stays closed when a call had failed before it was continued", async () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    const failedEarlier = await threadClient(
+      [],
+      [{ ...waiting("call-0"), status: "failed" }, waiting("call-1")],
+    );
+    await renderCard(failedEarlier);
+    await press("review");
+    await press("continue");
+    expect(container.textContent).toBe("");
+
+    await reload(failedEarlier);
+    expect(container.textContent).toBe("");
+  });
+
   it("stays closed when the task pauses on a different approval", async () => {
     vi.spyOn(window, "open").mockReturnValue(null);
     await renderCard(await threadClient([], [waiting("call-1")]));
@@ -296,6 +331,39 @@ describe("AgentKitAgentCallApproval", () => {
     );
 
     expect(container.textContent).toContain("Slides needs your approval");
+  });
+
+  describe("while another call resumes the task", () => {
+    const resuming = [
+      waiting("call-1"),
+      { ...waiting("call-2"), status: "working" as const },
+    ];
+
+    it("hides in a tab that never continued", async () => {
+      await renderCard(
+        await threadClient([], resuming, {
+          messages: [],
+          runs: [
+            {
+              id: "run-2",
+              threadId: "thread-1",
+              status: "running",
+              lastSequence: 1,
+            },
+          ],
+          activeRunIds: ["run-2"],
+        }),
+      );
+
+      expect(container.textContent).toBe("");
+    });
+
+    it("shows again once no run is going", async () => {
+      // A stopped run can leave its call marked working.
+      await renderCard(await threadClient([], resuming));
+
+      expect(container.textContent).toContain("Slides needs your approval");
+    });
   });
 
   describe("once the task waits on a later approval", () => {
