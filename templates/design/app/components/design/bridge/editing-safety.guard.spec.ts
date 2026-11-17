@@ -18,6 +18,51 @@ function editingSafetyBridgeScript(
 }
 
 describe("editing safety bridge", () => {
+  it("drops a removed loop's positional rule so a new entrance in its slot plays", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<iframe id="preview"></iframe>`);
+      const iframe = page.frames()[1];
+      if (!iframe) throw new Error("Preview iframe did not load");
+      await iframe.setContent(`<!doctype html><html><head><style>
+        .spin { animation: spin 1s linear infinite; }
+        .fade-up { opacity: 0; animation: fade-up 0.5s ease forwards; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fade-up { to { opacity: 1; } }
+      </style></head><body><div class="spin" id="loop">Loop</div></body></html>`);
+      await iframe.addScriptTag({ content: editingSafetyBridgeScript(true) });
+
+      await expect
+        .poll(() =>
+          iframe
+            .locator("#loop")
+            .evaluate((element) => getComputedStyle(element).animationName),
+        )
+        .toBe("none");
+
+      await iframe.evaluate(() => {
+        const entrance = document.createElement("div");
+        entrance.className = "fade-up";
+        entrance.id = "entrance";
+        entrance.textContent = "Entrance";
+        document.getElementById("loop")!.replaceWith(entrance);
+      });
+
+      await expect
+        .poll(
+          () =>
+            iframe
+              .locator("#entrance")
+              .evaluate((element) => getComputedStyle(element).opacity),
+          { timeout: 5_000 },
+        )
+        .toBe("1");
+    } finally {
+      await browser.close();
+    }
+  });
+
   it.each([true, false])(
     "plays authored entrance animations to completion with editing safety %s",
     async (enabled) => {

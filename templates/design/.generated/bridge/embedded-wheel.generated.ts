@@ -144,6 +144,10 @@ export const embeddedWheelBridgeScript: string = `"use strict";
           return target.getAnimations({ subtree: true }).length > 0 || containsFrozenAnimationTarget(target);
         }
         if (target && containsFrozenAnimationTarget(target)) return true;
+        if (Array.from(record.removedNodes).some(function(node) {
+          return node instanceof Element && containsFrozenAnimationTarget(node);
+        }))
+          return true;
         return Array.from(record.addedNodes).concat(Array.from(record.removedNodes)).some(function(node) {
           return node instanceof Element && node !== freezeStyle && (node.matches("style") || !!node.querySelector("style") || node.getAnimations({ subtree: true }).length > 0);
         });
@@ -158,6 +162,17 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       attributeOldValue: true
     });
     window.addEventListener("resize", syncEditingSafetyStyle);
+    document.addEventListener(
+      "animationstart",
+      function(event) {
+        var target = event.target;
+        if (editingSafetyEnabled && target instanceof Element && !frozenAnimationTargets.has(target) && getComputedStyle(target, event.pseudoElement || null).animationIterationCount.split(",").some(function(count) {
+          return count.trim() === "infinite";
+        }))
+          syncEditingSafetyStyle();
+      },
+      true
+    );
     document.addEventListener(
       "load",
       function(event) {

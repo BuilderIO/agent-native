@@ -271,6 +271,14 @@ declare var __INTERACTION_MODE__: boolean;
         );
       }
       if (target && containsFrozenAnimationTarget(target)) return true;
+      // A removed node's animations are already cancelled, so check the
+      // frozen set directly; its positional rule would hit the next sibling.
+      if (
+        Array.from(record.removedNodes).some(function (node) {
+          return node instanceof Element && containsFrozenAnimationTarget(node);
+        })
+      )
+        return true;
       return Array.from(record.addedNodes)
         .concat(Array.from(record.removedNodes))
         .some(function (node) {
@@ -293,6 +301,25 @@ declare var __INTERACTION_MODE__: boolean;
     attributeOldValue: true,
   });
   window.addEventListener("resize", syncEditingSafetyStyle);
+  // :hover, :focus and attribute selectors can start a loop without a mutation.
+  document.addEventListener(
+    "animationstart",
+    function (event) {
+      var target = event.target;
+      if (
+        editingSafetyEnabled &&
+        target instanceof Element &&
+        !frozenAnimationTargets.has(target) &&
+        getComputedStyle(target, event.pseudoElement || null)
+          .animationIterationCount.split(",")
+          .some(function (count) {
+            return count.trim() === "infinite";
+          })
+      )
+        syncEditingSafetyStyle();
+    },
+    true,
+  );
   // A stylesheet applies after its link is inserted, without a DOM mutation.
   document.addEventListener(
     "load",
