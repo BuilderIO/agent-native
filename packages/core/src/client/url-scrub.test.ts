@@ -320,6 +320,27 @@ describe("scrubUrl allowlist", () => {
       "https://bad host/path",
     );
   });
+
+  it.each([
+    ["https://user:password@bad host/path?token=x", "https://bad host/path"],
+    [
+      "https://user:password@exa mple.com:99999/p?code=1#frag",
+      "https://exa mple.com:99999/p",
+    ],
+    ["//user:password@bad host/p?token=x", "//bad host/p"],
+    ["https:\\\\user:password@bad host/p?token=x", "https:\\\\bad host/p"],
+    ["https:user:password@bad host/p?token=x", "https:bad host/p"],
+    ["https://user:pa@ss@bad host/p#x", "https://bad host/p"],
+    ["ftp://user:password@bad host/p", "ftp://bad host/p"],
+  ])("drops credentials from the authority of %s", (url, expected) => {
+    expect(scrubUrl(url)).toBe(expected);
+  });
+
+  it("keeps an @ in the path of a URL it cannot parse", () => {
+    expect(scrubUrl("https://bad host/@handle/profile?token=x")).toBe(
+      "https://bad host/@handle/profile",
+    );
+  });
 });
 
 describe("scrubUrl route paths", () => {

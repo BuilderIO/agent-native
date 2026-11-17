@@ -33,6 +33,10 @@ const ENCODED_ROUTE_QUERY_DELIMITER = /%(?:25)*3f/i;
 // not knowing the route.
 const ID_PATH_SEGMENT = /^(?:[0-9a-f]{8,}|\d{6,}|[A-Za-z0-9_-]{20,})$/i;
 const EMAIL_PATH_SEGMENT = /@|%40/i;
+// `userinfo@` after `scheme:`, `scheme://` or `//`, up to the last `@` before
+// the path. `new URL` treats `\` like `/` and lets a special scheme omit the
+// slashes, so both are matched.
+const UNPARSED_USERINFO = /^([A-Za-z][A-Za-z0-9+.-]*:[/\\]*|[/\\]{2})[^/\\]*@/;
 
 function normalizeQueryParamName(key: string): string {
   return key.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -330,7 +334,7 @@ export function scrubUrl(
     }
     return u.toString();
   } catch {
-    return url.split(/[?#]/, 1)[0];
+    return url.split(/[?#]/, 1)[0].replace(UNPARSED_USERINFO, "$1");
   }
 }
 
