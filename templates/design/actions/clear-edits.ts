@@ -15,6 +15,10 @@ const errors = defineActionErrors(
   "design_data_conflict",
 );
 
+function firstOrUndefined<T>(rows: T[]): T | undefined {
+  return rows.length > 0 ? rows[0] : undefined;
+}
+
 export default defineAction({
   description:
     "Discard pending design edits without applying them to source: reset tweak selections to tweakSourceBaseline and clear the exact visual-edit handoff revision and publisherId. Read get-visual-edit-pending first. The handoff author or design owner can clear it; clearing another publisher's handoff requires owner access.",
@@ -73,7 +77,7 @@ export default defineAction({
         .from(schema.designs)
         .where(eq(schema.designs.id, designId))
         .limit(1);
-      const design = designs.find(() => true);
+      const design = firstOrUndefined(designs);
       if (!design) {
         fail("Design data is unavailable while clearing pending edits.", {
           errorCode: "invalid_design_state",
@@ -128,7 +132,7 @@ export default defineAction({
         .from(schema.designVisualEditPending)
         .where(eq(schema.designVisualEditPending.designId, designId))
         .limit(1);
-      const pending = pendingRows.find(() => true);
+      const pending = firstOrUndefined(pendingRows);
       const hasHandoff =
         pending !== undefined &&
         (pending.status !== "empty" || pending.pendingEditCount > 0);
@@ -165,11 +169,14 @@ export default defineAction({
           statusCode: 403,
         });
       }
+      const handoffMatches =
+        pending !== undefined &&
+        (pending.status !== "empty" || pending.pendingEditCount > 0) &&
+        pending.revision === revision &&
+        pending.publisherId === publisherId;
       if (
         (revision !== undefined || publisherId !== undefined) &&
-        (!hasHandoff ||
-          pending?.revision !== revision ||
-          pending?.publisherId !== publisherId)
+        !handoffMatches
       ) {
         return {
           designId,
