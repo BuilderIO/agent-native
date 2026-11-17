@@ -14,6 +14,7 @@ import { isLocalVisualEditPrincipal } from "../../shared/local-visual-edit-princ
 import { getDb, schema } from "../db/index.js";
 import {
   designDataForAccessRole,
+  markVisualEditBoardClaimed,
   VISUAL_EDIT_BOARD_DATA_KEY,
 } from "./design-data-access.js";
 import { firstRow } from "./visual-edit-capability.js";
@@ -172,6 +173,7 @@ export async function claimVisualEditBoard(args: {
 
   const previousOwner = design.ownerEmail;
   try {
+    await markVisualEditBoardClaimed(designId);
     const data = designDataForAccessRole(
       JSON.stringify(parseDesignData(design.data)),
       "viewer",

@@ -105,7 +105,9 @@ vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   desc: mocks.desc,
   eq: mocks.eq,
+  inArray: vi.fn(),
   isNull: mocks.isNull,
+  sql: vi.fn(),
 }));
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mocks.db,

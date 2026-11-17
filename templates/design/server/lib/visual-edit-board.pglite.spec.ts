@@ -4,12 +4,36 @@ import { runWithRequestContext } from "@agent-native/core/server/request-context
 import { getSetting } from "@agent-native/core/settings";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+const versions = vi.hoisted(() => ({ skipSnapshots: false }));
+
+// A nearly 1 MiB board's pre-edit checkpoint needs private blob storage,
+// which this database-only harness does not have.
+vi.mock("./design-versions.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./design-versions.js")>();
+  return {
+    ...actual,
+    snapshotDesignBeforeAgentEdit: (
+      ...args: Parameters<typeof actual.snapshotDesignBeforeAgentEdit>
+    ) =>
+      versions.skipSnapshots
+        ? Promise.resolve(undefined)
+        : actual.snapshotDesignBeforeAgentEdit(...args),
+  };
+});
+
+import addBreakpoint from "../../actions/add-breakpoint.js";
+import addLocalhostScreens from "../../actions/add-localhost-screens.js";
+import applyTweaks from "../../actions/apply-tweaks.js";
 import claimAction from "../../actions/claim-visual-edit-board.js";
 import createFile from "../../actions/create-file.js";
 import getDesign from "../../actions/get-design.js";
+import listLocalhostConnections from "../../actions/list-localhost-connections.js";
+import migrateBoardObjectsToFile from "../../actions/migrate-board-objects-to-file.js";
+import readLocalFile from "../../actions/read-local-file.js";
 import renameScreen from "../../actions/rename-screen.js";
 import updateDesign from "../../actions/update-design.js";
 import updateFile from "../../actions/update-file.js";
+import updateScreenSource from "../../actions/update-screen-source.js";
 import { LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN } from "../../shared/local-visual-edit-principal.js";
 import {
   sourceContentHash,
@@ -21,6 +45,7 @@ import {
   issueVisualEditBoardClaim,
 } from "./visual-edit-board-claim.js";
 import {
+  linkVisualEditBoardConnections,
   VISUAL_EDIT_BOARD_MAX_DATA_BYTES,
   VISUAL_EDIT_BOARD_MAX_FILE_BYTES,
   VISUAL_EDIT_BOARD_MAX_FILES,
@@ -55,6 +80,59 @@ async function seedBoard(
       "<html><body></body></html>",
     ],
   });
+}
+
+async function seedConnection(id: string, port: number) {
+  await exec.execute({
+    sql: "INSERT INTO design_localhost_connections (id, name, dev_server_url, bridge_url, bridge_token, preview_token, owner_email, org_id, route_manifest) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+    args: [
+      id,
+      id,
+      `http://localhost:${port}`,
+      `http://127.0.0.1:${port + 1000}`,
+      `${id}-bridge-token`,
+      `${id}-preview-token`,
+      PRINCIPAL,
+      JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: `http://localhost:${port}`,
+        routes: [{ id: "home", path: "/" }],
+        generatedAt: "2026-11-17T00:00:00.000Z",
+      }),
+    ],
+  });
+}
+
+async function fillBoard(designId: string, files: number) {
+  for (let index = 0; index < files; index += 1) {
+    await exec.execute({
+      sql: "INSERT INTO design_files (id, design_id, filename, file_type, content) VALUES (?, ?, ?, ?, ?)",
+      args: [
+        `${designId}:fill-${index}`,
+        designId,
+        `fill-${index}.html`,
+        "html",
+        "<p>screen</p>",
+      ],
+    });
+  }
+}
+
+async function fileCount(designId: string) {
+  const { rows } = await exec.execute({
+    sql: "SELECT COUNT(*) AS files FROM design_files WHERE design_id = ?",
+    args: [designId],
+  });
+  return Number(rows[0]?.files);
+}
+
+// Board data a few bytes under the cap, so any real addition crosses it.
+function nearlyFullBoardData(extra: Record<string, unknown> = {}) {
+  const base = { visualEditBoard: true, ...extra, filler: "" };
+  const room =
+    VISUAL_EDIT_BOARD_MAX_DATA_BYTES - Buffer.byteLength(JSON.stringify(base));
+  return { ...base, filler: "x".repeat(room - 8) };
 }
 
 async function designRow(id: string) {
@@ -478,5 +556,302 @@ describe("claim-visual-edit-board", () => {
     ).rejects.toMatchObject({
       errorCode: "visual_edit_board_claim_requires_account",
     });
+  });
+});
+
+describe("claimed boards", () => {
+  it("stops accepting a capability issued before the claim, for reads and writes", async () => {
+    await seedBoard("revoked-board");
+    const secret = await issue("revoked-board");
+    await asCapabilityOnly("revoked-board", () =>
+      updateFile.run(
+        {
+          id: "revoked-board:board",
+          content: "<html><body>before claim</body></html>",
+        },
+        frontend,
+      ),
+    );
+    await claim(ALICE, "revoked-board", secret);
+
+    for (const as of [asCapabilityOnly, asPrincipal]) {
+      await expect(
+        as("revoked-board", () =>
+          getDesign.run({ id: "revoked-board" }, frontend),
+        ),
+      ).rejects.toMatchObject({ statusCode: 404 });
+      await expect(
+        as("revoked-board", () =>
+          updateFile.run(
+            {
+              id: "revoked-board:board",
+              content: "<html><body>replayed</body></html>",
+            },
+            frontend,
+          ),
+        ),
+      ).rejects.toBeTruthy();
+      await expect(
+        as("revoked-board", () =>
+          updateDesign.run(
+            {
+              id: "revoked-board",
+              dataOperations: [{ op: "set", path: ["x"], value: 1 }],
+            },
+            frontend,
+          ),
+        ),
+      ).rejects.toBeTruthy();
+    }
+
+    await asUser(ALICE, () =>
+      updateFile.run(
+        {
+          id: "revoked-board:board",
+          content: "<html><body>owner edit</body></html>",
+        },
+        frontend,
+      ),
+    );
+    const read = (await asUser(ALICE, () =>
+      getDesign.run({ id: "revoked-board" }, frontend),
+    )) as { files?: Array<{ content?: string }> };
+    expect(read.files?.[0]?.content).toContain("owner edit");
+  });
+
+  it("keeps a claimed localhost board's old capability read-only after its owner makes it public", async () => {
+    await seedBoard(
+      "revoked-localhost",
+      PRINCIPAL,
+      { sourceType: "localhost", visualEditBoard: true },
+      "public",
+    );
+    const secret = await issue("revoked-localhost");
+    await claim(ALICE, "revoked-localhost", secret);
+    await exec.execute({
+      sql: "UPDATE designs SET visibility = 'public' WHERE id = ?",
+      args: ["revoked-localhost"],
+    });
+
+    await asCapabilityOnly("revoked-localhost", () =>
+      getDesign.run({ id: "revoked-localhost" }, frontend),
+    );
+    await expect(
+      asCapabilityOnly("revoked-localhost", () =>
+        updateFile.run(
+          {
+            id: "revoked-localhost:board",
+            content: "<html><body>replayed</body></html>",
+          },
+          frontend,
+        ),
+      ),
+    ).rejects.toBeTruthy();
+    const { rows } = await exec.execute({
+      sql: "SELECT content FROM design_files WHERE id = ?",
+      args: ["revoked-localhost:board"],
+    });
+    expect(rows[0]?.content).not.toContain("replayed");
+  });
+});
+
+describe("board connections", () => {
+  beforeAll(async () => {
+    await seedConnection("conn-a", 5101);
+    await seedConnection("conn-b", 5102);
+    await seedBoard("linked-a", PRINCIPAL, {
+      sourceType: "localhost",
+      visualEditBoard: true,
+      connectionId: "conn-a",
+    });
+    await seedBoard("linked-b", PRINCIPAL, {
+      sourceType: "localhost",
+      visualEditBoard: true,
+      connectionId: "conn-b",
+    });
+    await seedBoard("bridgeless");
+    await linkVisualEditBoardConnections("linked-a", ["conn-a"]);
+    await linkVisualEditBoardConnections("linked-b", ["conn-b"]);
+  });
+
+  it("lists only the board's own linked connection", async () => {
+    const own = (await asCapabilityOnly("linked-a", () =>
+      listLocalhostConnections.run({ designId: "linked-a" }, frontend),
+    )) as { connections: Array<{ id: string }> };
+    expect(own.connections.map((c) => c.id)).toEqual(["conn-a"]);
+    const other = (await asCapabilityOnly("linked-a", () =>
+      listLocalhostConnections.run(
+        { designId: "linked-a", id: "conn-b" },
+        frontend,
+      ),
+    )) as { connections: unknown[] };
+    expect(other.connections).toEqual([]);
+    const none = (await asCapabilityOnly("bridgeless", () =>
+      listLocalhostConnections.run({ designId: "bridgeless" }, frontend),
+    )) as { connections: unknown[] };
+    expect(none.connections).toEqual([]);
+  });
+
+  it("refuses another board's connection for bridge, screen and data writes", async () => {
+    await expect(
+      asCapabilityOnly("linked-a", () =>
+        readLocalFile.run(
+          { designId: "linked-a", connectionId: "conn-b", path: "src/a.ts" },
+          frontend,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_connection_not_linked" });
+    await expect(
+      asCapabilityOnly("linked-a", () =>
+        addLocalhostScreens.run(
+          { designId: "linked-a", connectionId: "conn-b", paths: ["/"] },
+          frontend,
+        ),
+      ),
+    ).rejects.toThrow(/No localhost connection/);
+    await expect(
+      asCapabilityOnly("bridgeless", () =>
+        addLocalhostScreens.run(
+          { designId: "bridgeless", paths: ["/"] },
+          frontend,
+        ),
+      ),
+    ).rejects.toThrow(/No localhost connection/);
+    // The capability can write its board's data, so it could otherwise name
+    // conn-b there and have later actions treat it as the board's own.
+    await expect(
+      asCapabilityOnly("linked-a", () =>
+        updateDesign.run(
+          {
+            id: "linked-a",
+            dataOperations: [
+              { op: "set", path: ["connectionId"], value: "conn-b" },
+            ],
+          },
+          frontend,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_connection_not_linked" });
+    expect(JSON.parse((await designRow("linked-a")).data).connectionId).toBe(
+      "conn-a",
+    );
+    expect(await fileCount("linked-a")).toBe(1);
+  });
+
+  it("uses the board's own connection", async () => {
+    await asCapabilityOnly("linked-a", () =>
+      addLocalhostScreens.run(
+        { designId: "linked-a", connectionId: "conn-a", paths: ["/"] },
+        frontend,
+      ),
+    );
+    expect(await fileCount("linked-a")).toBe(2);
+  });
+});
+
+describe("caps on every board writer", () => {
+  it("caps the data add-breakpoint, apply-tweaks and the board migration leave", async () => {
+    versions.skipSnapshots = true;
+    await seedBoard("full-data", PRINCIPAL, nearlyFullBoardData());
+    await exec.execute({
+      sql: "DELETE FROM design_files WHERE design_id = ?",
+      args: ["full-data"],
+    });
+    const before = (await designRow("full-data")).data;
+    await expect(
+      asCapabilityOnly("full-data", () =>
+        addBreakpoint.run(
+          { designId: "full-data", label: "Tablet", widthPx: 768 },
+          frontend,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_board_data_too_large" });
+    await expect(
+      asCapabilityOnly("full-data", () =>
+        applyTweaks.run(
+          { designId: "full-data", selections: { "theme-accent": "#0EA5E9" } },
+          frontend,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_board_data_too_large" });
+    await expect(
+      asCapabilityOnly("full-data", () =>
+        migrateBoardObjectsToFile.run({ designId: "full-data" }, frontend),
+      ),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_board_data_too_large" });
+    expect((await designRow("full-data")).data).toBe(before);
+    versions.skipSnapshots = false;
+  });
+
+  it("applies the file cap inside screen and board-file insertion", async () => {
+    await seedConnection("conn-full", 5103);
+    await seedBoard("full-files", PRINCIPAL, {
+      sourceType: "localhost",
+      visualEditBoard: true,
+      connectionId: "conn-full",
+    });
+    await linkVisualEditBoardConnections("full-files", ["conn-full"]);
+    await fillBoard("full-files", VISUAL_EDIT_BOARD_MAX_FILES - 1);
+    await expect(
+      asCapabilityOnly("full-files", () =>
+        addLocalhostScreens.run(
+          { designId: "full-files", connectionId: "conn-full", paths: ["/"] },
+          frontend,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_board_file_limit" });
+
+    await seedBoard("full-migration");
+    await exec.execute({
+      sql: "DELETE FROM design_files WHERE design_id = ?",
+      args: ["full-migration"],
+    });
+    await fillBoard("full-migration", VISUAL_EDIT_BOARD_MAX_FILES);
+    await expect(
+      asCapabilityOnly("full-migration", () =>
+        migrateBoardObjectsToFile.run({ designId: "full-migration" }, frontend),
+      ),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_board_file_limit" });
+    expect(await fileCount("full-files")).toBe(VISUAL_EDIT_BOARD_MAX_FILES);
+    expect(await fileCount("full-migration")).toBe(VISUAL_EDIT_BOARD_MAX_FILES);
+  });
+
+  it("caps a screen snapshot update-screen-source would store", async () => {
+    await seedConnection("conn-snap", 5104);
+    await seedBoard("snapshot-board", PRINCIPAL, {
+      sourceType: "localhost",
+      visualEditBoard: true,
+      connectionId: "conn-snap",
+      screenMetadata: {
+        "snapshot-board:board": {
+          sourceType: "url",
+          url: "http://localhost:5104/",
+          connectionId: "conn-snap",
+        },
+      },
+    });
+    await linkVisualEditBoardConnections("snapshot-board", ["conn-snap"]);
+    await exec.execute({
+      sql: "UPDATE design_files SET content = ? WHERE id = ?",
+      args: ["http://localhost:5104/", "snapshot-board:board"],
+    });
+    await expect(
+      asCapabilityOnly("snapshot-board", () =>
+        updateScreenSource.run(
+          {
+            designId: "snapshot-board",
+            fileId: "snapshot-board:board",
+            sourceType: "static",
+            snapshotHtml: `<div>${"x".repeat(VISUAL_EDIT_BOARD_MAX_FILE_BYTES)}</div>`,
+          },
+          frontend,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_board_file_too_large" });
+    const { rows } = await exec.execute({
+      sql: "SELECT content FROM design_files WHERE id = ?",
+      args: ["snapshot-board:board"],
+    });
+    expect(rows[0]?.content).toBe("http://localhost:5104/");
   });
 });

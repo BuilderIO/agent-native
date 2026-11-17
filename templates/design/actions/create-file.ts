@@ -18,6 +18,7 @@ import {
 import { readDesignDataForUpdate } from "../server/lib/screen-frame-type-store.js";
 import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
 import {
+  assertVisualEditBoardDataSize,
   assertVisualEditBoardFileCount,
   assertVisualEditBoardFileSize,
   assertVisualEditCapabilityDesign,
@@ -539,6 +540,9 @@ export default defineAction({
           }
         }
 
+        if (duplicateDesignData !== undefined) {
+          assertVisualEditBoardDataSize(duplicateDesignData);
+        }
         await tx
           .update(schema.designs)
           .set({

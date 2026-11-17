@@ -98,6 +98,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: () => ({ requestOrigin: "https://design.example.test" }),
   getRequestUserEmail: () => "commenter@example.com",
+  getRequestAuthCapability: () => undefined,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -641,7 +642,7 @@ describe("visual-edit pending handoff", () => {
   it("upserts a skill-capability handoff without exposing bridge credentials", async () => {
     mocks.isSameOrigin.mockReturnValue(true);
     const authCapability = `capability:visual-edit:design:${encodeURIComponent(design.id)}`;
-    const role = capabilityDesignAccessRole(design, { authCapability });
+    const role = await capabilityDesignAccessRole(design, { authCapability });
     expect(role).toBe("editor");
     const prompt = "Change the title in Clips at src/Library.tsx:42.";
 

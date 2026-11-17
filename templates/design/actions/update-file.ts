@@ -31,6 +31,7 @@ import {
   serializeFrameTypeChange,
 } from "../server/lib/screen-frame-type-store.js";
 import {
+  assertVisualEditBoardDataSize,
   assertVisualEditBoardFileSize,
   assertVisualEditCapabilityDesign,
   visualEditCapabilityFileScope,
@@ -482,6 +483,7 @@ export default defineAction({
                   previousContent,
                 })
               : undefined;
+          if (data !== undefined) assertVisualEditBoardDataSize(data);
           await tx
             .update(schema.designs)
             .set({ updatedAt: now, ...(data === undefined ? {} : { data }) })

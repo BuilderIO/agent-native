@@ -1,3 +1,6 @@
+import { getSetting, putSetting } from "@agent-native/core/settings";
+
+import { isLocalVisualEditPrincipal } from "../../shared/local-visual-edit-principal.js";
 import { designSourceTypeFromData } from "../../shared/source-mode";
 
 const EDITOR_ROLES = new Set(["owner", "admin", "editor"]);
@@ -28,35 +31,70 @@ function isVisualEditBoardData(data: unknown): boolean {
   );
 }
 
+const CLAIMED_BOARD_SETTING_PREFIX = "design-visual-edit-board-claimed:";
+
 /**
- * The role a visual-edit capability grants on the one design it names: editor
- * on a localhost design or a board `open-visual-edit` created, whatever the
- * design's visibility. Any other capability falls through to the normal rules.
+ * Record that a board moved into an account. Written before the owner
+ * changes, so a capability minted while the board was signed out never
+ * outlives the claim, even if its new owner makes it public again.
  */
-export function capabilityDesignAccessRole(
-  resource: { id?: unknown; data?: unknown } | null | undefined,
-  ctx: { authCapability: string },
-): "editor" | undefined {
-  const designId =
-    typeof resource?.id === "string" ? resource.id.trim() : undefined;
-  if (
-    !designId ||
-    !ctx.authCapability.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX) ||
-    (designSourceTypeFromData(resource?.data) !== "localhost" &&
-      !isVisualEditBoardData(resource?.data))
-  ) {
-    return undefined;
-  }
+export async function markVisualEditBoardClaimed(
+  designId: string,
+): Promise<void> {
+  await putSetting(`${CLAIMED_BOARD_SETTING_PREFIX}${designId}`, {
+    claimedAt: new Date().toISOString(),
+  });
+}
+
+function capabilityNamesDesign(capability: string, designId: string): boolean {
+  if (!capability.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX)) return false;
   try {
-    return decodeURIComponent(
-      ctx.authCapability.slice(VISUAL_EDIT_CAPABILITY_PREFIX.length),
-    ) === designId
-      ? "editor"
-      : undefined;
+    return (
+      decodeURIComponent(
+        capability.slice(VISUAL_EDIT_CAPABILITY_PREFIX.length),
+      ) === designId
+    );
   } catch {
     // coercion-ok: a malformed capability names no design and grants nothing.
+    return false;
+  }
+}
+
+/**
+ * The role a visual-edit capability grants on the one design it names.
+ * While a signed-out principal owns the design, a localhost design or a board
+ * `open-visual-edit` created is editable whatever its visibility. Once an
+ * account owns it, only a public localhost design that was never claimed
+ * keeps accepting the capability: claiming a board revokes every capability
+ * issued for it.
+ */
+export async function capabilityDesignAccessRole(
+  resource:
+    | {
+        id?: unknown;
+        data?: unknown;
+        ownerEmail?: unknown;
+        visibility?: unknown;
+      }
+    | null
+    | undefined,
+  ctx: { authCapability: string },
+): Promise<"editor" | undefined> {
+  const designId =
+    typeof resource?.id === "string" ? resource.id.trim() : undefined;
+  if (!designId || !capabilityNamesDesign(ctx.authCapability, designId)) {
     return undefined;
   }
+  const localhost = designSourceTypeFromData(resource?.data) === "localhost";
+  if (!localhost && !isVisualEditBoardData(resource?.data)) return undefined;
+  const ownerEmail =
+    typeof resource?.ownerEmail === "string" ? resource.ownerEmail : undefined;
+  if (isLocalVisualEditPrincipal(ownerEmail)) return "editor";
+  if (!localhost || resource?.visibility !== "public") return undefined;
+  const claimed = await getSetting(
+    `${CLAIMED_BOARD_SETTING_PREFIX}${designId}`,
+  );
+  return claimed ? undefined : "editor";
 }
 
 interface RedactionPolicy {

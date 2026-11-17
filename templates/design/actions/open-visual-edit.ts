@@ -31,6 +31,7 @@ import {
   issueVisualEditBoardClaim,
   markVisualEditBoard,
 } from "../server/lib/visual-edit-board-claim.js";
+import { linkVisualEditBoardConnections } from "../server/lib/visual-edit-capability.js";
 import {
   nextCanvasFramePosition,
   nextFreeCanvasRowY,
@@ -756,6 +757,12 @@ export default defineAction({
 
       const urlPath = localVisualEditPath(designId, args.minimalUi);
       if (connection) {
+        // Before any capability for this design exists: the capability
+        // reaches only the connections linked here.
+        await linkVisualEditBoardConnections(designId, [
+          connection.id,
+          ...screens.screens.map((screen) => screen.connectionId),
+        ]);
         await writeAppState("visual-edit", {
           designId,
           connectionId: connection.id,

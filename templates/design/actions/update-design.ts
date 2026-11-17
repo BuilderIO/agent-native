@@ -10,8 +10,10 @@ import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js"
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
 import {
+  assertLinkedVisualEditConnections,
   assertVisualEditBoardDataSize,
   assertVisualEditCapabilityDesign,
+  visualEditCapabilityConnectionIds,
 } from "../server/lib/visual-edit-capability.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
@@ -808,6 +810,7 @@ export default defineAction({
       return { id, updated: true, changed: true };
     }
 
+    const capabilityConnectionIds = await visualEditCapabilityConnectionIds();
     const maxAttempts = dataOperations ? MAX_DATA_CAS_ATTEMPTS : 1;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const result = await db.transaction(async (tx) => {
@@ -1056,6 +1059,10 @@ export default defineAction({
           ),
         ];
         const requiredConnectionIds = [...requiredScopeIds];
+        assertLinkedVisualEditConnections(capabilityConnectionIds, [
+          ...requiredConnectionIds,
+          ...addedConnectionIds,
+        ]);
         if (requiredConnectionIds.length > 0 && access?.role !== "owner") {
           const connectionScope = await resolveLocalhostConnectionScope().catch(
             (error: unknown) => {

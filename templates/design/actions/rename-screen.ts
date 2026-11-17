@@ -363,6 +363,7 @@ export default defineAction({
               const updates: Record<string, unknown> = { updatedAt };
               if (filenameChanged) updates.filename = nextFilename;
               if (contentChanged) {
+                assertVisualEditBoardFileSize(nextContent);
                 updates.content = nextContent;
                 updates.contentOperationSource = null;
                 updates.contentOperationRevision = null;

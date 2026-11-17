@@ -1,7 +1,8 @@
 import { fail } from "@agent-native/core/action";
 import { visualEditCapabilityDesignId } from "@agent-native/core/server";
 import { getRequestAuthCapability } from "@agent-native/core/server/request-context";
-import { count, eq, type SQL } from "drizzle-orm";
+import { getSetting, putSetting } from "@agent-native/core/settings";
+import { count, eq, inArray, sql, type SQL } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -69,6 +70,97 @@ export function visualEditCapabilityDesignScope(
   return requestVisualEditCapabilityDesignId() === designId
     ? eq(schema.designs.id, designId)
     : accountScope;
+}
+
+// Design data is writable through the capability and every signed-out board
+// in a workspace shares one principal, so neither the data's connection ids
+// nor connection ownership can say which connections a board may reach. Only
+// open-visual-edit, which no capability can call, writes this record.
+const BOARD_CONNECTIONS_SETTING_PREFIX =
+  "design-visual-edit-board-connections:";
+
+function boardConnectionsSettingKey(designId: string): string {
+  return `${BOARD_CONNECTIONS_SETTING_PREFIX}${designId}`;
+}
+
+function linkedConnectionIds(value: Record<string, unknown> | null): string[] {
+  const ids = value?.connectionIds;
+  if (!Array.isArray(ids)) return [];
+  return ids.filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+}
+
+/** Record the local connections open-visual-edit placed on a design. */
+export async function linkVisualEditBoardConnections(
+  designId: string,
+  connectionIds: readonly (string | null | undefined)[],
+): Promise<void> {
+  const ids = connectionIds.filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+  if (ids.length === 0) return;
+  const key = boardConnectionsSettingKey(designId);
+  const existing = linkedConnectionIds(
+    await getSetting(key, { bypassCache: true }),
+  );
+  const merged = [...new Set([...existing, ...ids])];
+  if (merged.length === existing.length) return;
+  await putSetting(key, { connectionIds: merged });
+}
+
+/**
+ * The connections the request's visual-edit capability may reach, or `null`
+ * when the request carries no visual-edit capability. A board created without
+ * a bridge links none.
+ */
+export async function visualEditCapabilityConnectionIds(): Promise<
+  string[] | null
+> {
+  const designId = requestVisualEditCapabilityDesignId();
+  if (designId === null) return null;
+  return linkedConnectionIds(
+    await getSetting(boardConnectionsSettingKey(designId)),
+  );
+}
+
+export async function assertVisualEditCapabilityConnections(
+  connectionIds: Iterable<string | null | undefined>,
+): Promise<void> {
+  assertLinkedVisualEditConnections(
+    await visualEditCapabilityConnectionIds(),
+    connectionIds,
+  );
+}
+
+/** For callers that read the linked set before opening a transaction. */
+export function assertLinkedVisualEditConnections(
+  linked: readonly string[] | null,
+  connectionIds: Iterable<string | null | undefined>,
+): void {
+  if (linked === null) return;
+  for (const connectionId of connectionIds) {
+    if (!connectionId || !linked.includes(connectionId)) {
+      fail("This visual-edit board is not linked to that local connection.", {
+        errorCode: "visual_edit_connection_not_linked",
+        statusCode: 403,
+      });
+    }
+  }
+}
+
+/**
+ * Extra row filter for `design_localhost_connections` reads: under a
+ * visual-edit capability, only the board's linked connections match.
+ */
+export async function visualEditCapabilityConnectionClause(): Promise<
+  SQL | undefined
+> {
+  const linked = await visualEditCapabilityConnectionIds();
+  if (linked === null) return undefined;
+  return linked.length > 0
+    ? inArray(schema.designLocalhostConnections.id, linked)
+    : sql`false`;
 }
 
 export function assertVisualEditBoardFileSize(content: string | undefined) {
