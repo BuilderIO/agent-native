@@ -7286,11 +7286,8 @@ function composerIntegrationContext(
 
   const hostnames: string[] = [];
   const prose = text.replace(/https?:\/\/[^\s<>()[\]{}]+/gi, (candidate) => {
-    try {
-      hostnames.push(new URL(candidate.replace(/[.,!?;:'"]+$/, "")).hostname);
-    } catch {
-      // Ignore prose that only looks like a URL.
-    }
+    const cleaned = candidate.replace(/[.,!?;:'"]+$/, "");
+    if (URL.canParse(cleaned)) hostnames.push(new URL(cleaned).hostname);
     return " ";
   });
   const mentions = (term: string) => {
