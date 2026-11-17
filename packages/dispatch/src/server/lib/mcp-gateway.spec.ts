@@ -361,6 +361,40 @@ describe("Dispatch MCP gateway app discovery", () => {
     );
   });
 
+  it("opens an app's home when only the app is named", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => openGrantedDispatchMcpApp({ app: "customer-ticket-triage" }),
+    );
+
+    expect(result.url).toBe(
+      "https://beta.agent-workspace.builder.io/customer-ticket-triage/",
+    );
+  });
+
   it("keeps Dispatch-page apps out of the granted list when the registry omits them", async () => {
     mocks.discoverAgents.mockResolvedValue([
       {
@@ -1670,6 +1704,28 @@ describe("openGrantedDispatchMcpApp", () => {
     expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
   });
 
+  it("sends no delegated credential to a plain-HTTP target off this machine", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "http://analytics.example.test" },
+    ]);
+    mocks.managerCallTool.mockClear();
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/HTTPS target endpoint/);
+    expect(mocks.managerCallTool).not.toHaveBeenCalled();
+  });
+
   it("returns the normal open URL when embed preminting fails", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.managerCallTool.mockRejectedValueOnce(
@@ -1696,9 +1752,83 @@ describe("openGrantedDispatchMcpApp", () => {
       url: "http://localhost:8086/dashboards",
       embed: true,
       chrome: "minimal",
+      embedUnavailable: "Target app did not return an embed session.",
     });
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+
+  it("pre-mints no session for a target whose endpoint is plain HTTP off this machine", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "http://analytics.example.test" },
+    ]);
+    mocks.managerCallTool.mockClear();
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "analytics",
+          path: "/dashboards",
+          embed: true,
+        }),
+    );
+
+    expect(mocks.managerCallTool).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty("embedStartUrl");
+    expect(result).toMatchObject({
+      embedUnavailable: expect.stringContaining("HTTPS target endpoint"),
+    });
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("answers with the link when the target is slow to mint a session", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      let rejectCall: (error: Error) => void = () => {};
+      mocks.managerCallTool.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectCall = reject;
+          }),
+      );
+      // Stopping the client fails its pending call, as the SDK transport does.
+      mocks.managerStop.mockImplementation(async () =>
+        rejectCall(new Error("Connection closed")),
+      );
+      const pending = runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          openGrantedDispatchMcpApp({
+            app: "analytics",
+            path: "/dashboards",
+            embed: true,
+          }),
+      );
+      await vi.advanceTimersByTimeAsync(15_000);
+      await expect(pending).resolves.toMatchObject({
+        url: "http://localhost:8086/dashboards",
+        embedUnavailable: expect.stringContaining("within 15s"),
+      });
+      await vi.advanceTimersByTimeAsync(60_000);
+      // The abandoned request was stopped, not retried in the background.
+      expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+      expect(mocks.managerStop).toHaveBeenCalled();
+    } finally {
+      mocks.managerStop.mockReset();
+      mocks.managerStop.mockResolvedValue(undefined);
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("rejects Dispatch-owned extension routes on sibling apps", async () => {

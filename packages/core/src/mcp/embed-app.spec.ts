@@ -622,6 +622,9 @@ describe("embedApp", () => {
       "/deck/reports",
     );
 
+    fetch.mockResolvedValueOnce(new Response("", { status: 503 }));
+    await installedFetch("/deck/_agent-native/auth/session");
+
     const installedEventSource = windowObject.EventSource as (
       url: string,
     ) => unknown;
@@ -678,6 +681,28 @@ describe("embedApp", () => {
       ),
     ).toBe(false);
 
+    // read_view reports these: the host shows no console for the panel.
+    fetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(
+      installedFetch("/mail/_agent-native/auth/session"),
+    ).rejects.toThrow("Failed to fetch");
+    fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: "Approve this call first.",
+          errorCode: "approval_required",
+        }),
+        { status: 409 },
+      ),
+    );
+    await installedFetch("/mail/_agent-native/actions/x", { method: "post" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(windowObject.__agentNativeEmbedRequestFailures).toEqual([
+      "GET /deck/_agent-native/auth/session HTTP 503",
+      "GET /mail/_agent-native/auth/session failed: Failed to fetch (sent without the panel session)",
+      "POST /mail/_agent-native/actions/x HTTP 409 approval_required: Approve this call first. (sent without the panel session)",
+    ]);
+
     // Off the target's mount its reads go out unsigned, still without
     // cookies: neither the signed transport nor the page's.
     const unsignedTransport = fetchTransport(installedFetch as typeof fetch);
@@ -689,6 +714,16 @@ describe("embedApp", () => {
     locationObject.href = "https://host.example/deck/reports";
     expect(fetchTransport(installedFetch as typeof fetch)).toBe(
       signedTransport,
+    );
+
+    // A token the app attached itself is named when it is not the panel's.
+    fetch.mockResolvedValueOnce(new Response("{}", { status: 403 }));
+    await installedFetch("/deck/_agent-native/actions/y", {
+      method: "POST",
+      headers: { Authorization: "Bearer another-session" },
+    });
+    expect(windowObject.__agentNativeEmbedRequestFailures.at(-1)).toBe(
+      "POST /deck/_agent-native/actions/y HTTP 403 (sent with a session other than the panel's)",
     );
   });
 
@@ -2361,6 +2396,7 @@ return requestFullscreenOnFirstInteraction;`;
       frameSrc?: string;
       modelContext?: unknown;
       app?: unknown;
+      windowListeners?: Record<string, Array<(event: unknown) => void>>;
     }) => {
       const resource = embedApp({ title: "Mail" });
       const html =
@@ -2376,6 +2412,10 @@ return requestFullscreenOnFirstInteraction;`;
       );
       const pushed: Array<{ state: unknown; url: string }> = [];
       const popstates: unknown[] = [];
+      const windowListeners: Record<
+        string,
+        Array<(event: unknown) => void>
+      > = options.windowListeners ?? {};
       const fakeWindow = {
         location: { href: options.href },
         history: {
@@ -2391,6 +2431,9 @@ return requestFullscreenOnFirstInteraction;`;
         },
         getSelection: () => "",
         __agentNativeWebMcp: options.pageHelper,
+        addEventListener(type: string, listener: (event: unknown) => void) {
+          (windowListeners[type] ??= []).push(listener);
+        },
       };
       const objectValue = (value: unknown) =>
         value && typeof value === "object" && !Array.isArray(value)
@@ -2546,6 +2589,24 @@ return requestFullscreenOnFirstInteraction;`;
         path: "/mail/inbox?q=acme",
         title: "Inbox",
         visibleText: "Invoice from Acme due Friday",
+      });
+    });
+
+    it("reports why the open page failed to load", async () => {
+      const windowListeners: Record<
+        string,
+        Array<(event: unknown) => void>
+      > = {};
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+        windowListeners,
+      });
+      windowListeners.unhandledrejection![0]!({
+        reason: new Error("Failed to fetch dynamically imported module"),
+      });
+      const read = await tools.callViewTool({ name: "read_view" });
+      expect(read.structuredContent).toMatchObject({
+        errors: ["Failed to fetch dynamically imported module"],
       });
     });
 

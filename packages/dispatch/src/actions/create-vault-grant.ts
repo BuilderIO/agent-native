@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createGrant } from "../server/lib/vault-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Grant an app access to a vault secret in manual vault access mode. Admin only.",
   schema: z.object({
