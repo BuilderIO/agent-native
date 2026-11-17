@@ -40,20 +40,25 @@ Work in this order so the user sees the remix within minutes, not at the end:
 2. Drive the source in your own browser (Playwright, Chrome, or an inline
    browser), capture the running effect and inspect its shipped code using the
    two-step extraction below. No Design connector or canvas is needed.
-3. As soon as the behavior spec exists, open the remix board (see **Finish On A
-   Remix Board**) with the Original and the Remix screen, so the user watches
-   the effect land as you build it. In the same step, start one subagent per
-   How It Works frame, in parallel, each given the spec, the knob list and the
-   frame rules; they build while you implement.
+3. Make the behavior spec include the knob list: each knob's name, CSS custom
+   property, range and default. As soon as the spec exists, open the remix
+   board (see **Finish On A Remix Board**) with the Original and the Remix
+   screen, so the user watches the effect land as you build it. In the same
+   step, start one subagent per How It Works frame, in parallel, each given the
+   spec with its knob list and the frame rules. Frames draw from the spec's
+   maths and read the knobs' CSS variables, so they need neither the finished
+   code nor the Remix screen; they build while you implement.
 4. Implement from the behavior spec in the destination. Apply the requested
    change: "make it blue" maps the palette to blue while keeping everything
    else identical, subject to the original-code and asset rules below.
-5. Expose knobs as typed props or CSS custom properties with explicit defaults.
-   Run the single fidelity check below, place the finished frames, and finish
-   the board, or finish without Design as described below.
+5. Expose the spec's knobs as typed props or CSS custom properties with the
+   same names and defaults. Run the fidelity check below, place the finished
+   frames, and finish the board, or finish without Design as described below.
 6. Verification beyond that check (breakpoints, reduced motion, tests, guards,
    longer motion comparisons) runs in a background subagent after the board is
-   up; report what it finds and fix only real failures.
+   up. It reports pass or fail for each check; fix real failures and update the
+   Remix. The remix is not done until that pass reports: give its results in
+   the final report and name anything left unverified.
 
 ## Design Mode: Choose On The Canvas
 
@@ -224,9 +229,10 @@ user the original-colors side-by-side and the final one, and name any remaining
 difference.
 
 Pin the clock once: read the source's time uniform or time setter and match it
-directly. Do not sweep the rebuild's clock frame by frame to find a match; one
-pinned original-colors comparison and one short motion clip are enough before
-the board, and longer drift checks belong to the background verification.
+directly, rather than sweeping the rebuild's clock frame by frame to find a
+match. Iterate at that pinned time until the two read as the same effect, and
+confirm motion with one short clip; longer drift checks belong to the
+background verification.
 
 ## Swappable Assets
 
