@@ -24,6 +24,7 @@ const EXTERNAL_CONNECTOR_TOOL_NAMES = [
   "export-coding-handoff",
   "open-visual-edit",
   "get-visual-edit-pending",
+  "clear-edits",
   "acknowledge-visual-edit-pending",
   "connect-localhost",
   "add-localhost-screens",

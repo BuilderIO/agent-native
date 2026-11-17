@@ -2173,6 +2173,7 @@ export default {
       copyPrompt: "에이전트에 프롬프트 복사",
       copyAgentPrompt: "에이전트 프롬프트 복사",
       copyFullPrompt: "전체 프롬프트 복사",
+      clearEdits: "편집 지우기",
       abortPreview: "미리보기를 중단하고 상호작용",
       agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
       sentToast: "디자인 업데이트를 에이전트로 보냈습니다",
@@ -2187,6 +2188,8 @@ export default {
       copiedToastDescription:
         "코딩 에이전트에 붙여넣고 시각적 변경 사항을 적용해 달라고 요청하세요.",
       abortedToast: "보류 중인 미리보기를 버렸습니다",
+      clearedToast: "보류 중인 편집을 지웠습니다",
+      clearFailedToast: "보류 중인 편집을 지울 수 없습니다. 다시 시도하세요.",
       interactBlocked:
         "상호작용 모드로 전환하기 전에 보류 중인 라이브 편집을 적용하거나 중단하세요.",
       leaveTitle: "나가기 전에 디자인 업데이트를 적용할까요?",

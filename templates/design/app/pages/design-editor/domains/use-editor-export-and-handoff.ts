@@ -233,6 +233,10 @@ export function useEditorExportAndHandoff({
     null,
   );
   const [codingHandoffLoading, setCodingHandoffLoading] = useState(false);
+  const clearCodingHandoffError = useCallback(
+    () => setCodingHandoffError(null),
+    [],
+  );
   const layersPanelRef = useRef<LayersPanelHandle | null>(null);
   const exportTracking = useMemo<BrowserDesignExportContext>(
     () => ({ designId: id, signedIn: isSignedIn }),
@@ -1548,6 +1552,7 @@ export function useEditorExportAndHandoff({
     figmaSvgExporting,
     codingHandoffResult,
     codingHandoffError,
+    clearCodingHandoffError,
     codingHandoffLoading,
     layersPanelRef,
     handleSelectAllFrames,

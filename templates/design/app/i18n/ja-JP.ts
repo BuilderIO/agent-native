@@ -2196,6 +2196,7 @@ export default {
       copyPrompt: "エージェントにプロンプトをコピー",
       copyAgentPrompt: "エージェントプロンプトをコピー",
       copyFullPrompt: "完全なプロンプトをコピー",
+      clearEdits: "編集をクリア",
       abortPreview: "プレビューを中止して操作",
       agentMessage:
         "保留中のビジュアルスタイル編集をソースに適用してください。",
@@ -2211,6 +2212,9 @@ export default {
       copiedToastDescription:
         "コーディングエージェントに貼り付けて、ビジュアルの変更を適用するよう依頼してください。",
       abortedToast: "保留中のプレビューを破棄しました",
+      clearedToast: "保留中の編集をクリアしました",
+      clearFailedToast:
+        "保留中の編集をクリアできませんでした。もう一度お試しください。",
       interactBlocked:
         "操作モードに切り替える前に、保留中のライブ編集を適用するか中止してください。",
       leaveTitle: "離れる前にデザインの更新を適用しますか？",
