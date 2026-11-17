@@ -7,3 +7,4 @@ export {
   registerLabs,
   type LabDefinition,
 } from "./registry.js";
+export { assertLabEnabled } from "./guard.js";

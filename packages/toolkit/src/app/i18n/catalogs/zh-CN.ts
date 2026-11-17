@@ -2127,6 +2127,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsReadError":
     "无法读取此已保存选项。请选择开启或关闭以重新设置。",
   "settingsShell.appGroup.labsSaveError": "无法更改 {{lab}}。请重试。",
+  "settingsShell.appGroup.labsShowAll": "显示所有 Labs 功能",
   "settingsShell.appGroup.labsUseDefault": "使用默认设置",
   "settingsShell.appGroup.mcpAbout":
     "将 {{app}} 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 {{app}} 中工作。它只能看到你有权看到的内容。",
