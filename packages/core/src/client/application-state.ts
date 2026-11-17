@@ -132,31 +132,41 @@ function runClientAppStateMutation<T>(
 // Compare-and-sets and writes with an abort signal keep their own requests. A
 // write queued behind one never goes ahead of it when the page hides (see
 // flushOnPageHide): the server doesn't order compare-and-sets, and a signalled
-// write may yet be aborted. Counts these per key until they settle.
-const unsettledBarriers = new Map<string, number>();
+// write may yet be aborted. Holds these per key until they settle.
+interface Barrier {
+  settled: boolean;
+}
+const unsettledBarriers = new Map<string, Set<Barrier>>();
 
 function runBarrierMutation<T>(
   key: string,
   operation: () => Promise<T>,
 ): Promise<T> {
   const id = requestKey(key);
-  unsettledBarriers.set(id, (unsettledBarriers.get(id) ?? 0) + 1);
+  const barrier: Barrier = { settled: false };
+  const barriers = unsettledBarriers.get(id) ?? new Set<Barrier>();
+  barriers.add(barrier);
+  unsettledBarriers.set(id, barriers);
   const mutation = runClientAppStateMutation(key, operation);
   const settle = () => {
-    const left = (unsettledBarriers.get(id) ?? 1) - 1;
-    if (left > 0) unsettledBarriers.set(id, left);
-    else unsettledBarriers.delete(id);
+    barrier.settled = true;
+    barriers.delete(barrier);
+    if (barriers.size === 0 && unsettledBarriers.get(id) === barriers) {
+      unsettledBarriers.delete(id);
+    }
   };
   mutation.then(settle, settle);
   return mutation;
 }
 
 // Writes sent as their own request (`ownRequest`) that wait for an earlier
-// write to their key. They're numbered like queued writes, so when the page
-// hides a keepalive one can go at once, as a queued one does.
+// write to their key. They're numbered like queued writes, so a keepalive one
+// can go at once when the page hides, or when it's made while the page is
+// hidden and may get no later chance.
 interface WaitingOwnRequest {
-  key: string;
   keepalive: boolean;
+  /** Barriers made before it, which it never goes ahead of. */
+  barriersAhead: Barrier[];
   start: () => Promise<unknown>;
 }
 const waitingOwnRequests = new Set<WaitingOwnRequest>();
@@ -168,15 +178,28 @@ function runOwnRequestMutation<T>(
 ): Promise<T> {
   let started: Promise<T> | undefined;
   const waiting: WaitingOwnRequest = {
-    key,
     keepalive,
+    barriersAhead: [...(unsettledBarriers.get(requestKey(key)) ?? [])],
     start: () => {
       waitingOwnRequests.delete(waiting);
       return (started ??= operation());
     },
   };
   waitingOwnRequests.add(waiting);
-  return runClientAppStateMutation(key, () => waiting.start() as Promise<T>);
+  watchPageHide();
+  const mutation = runClientAppStateMutation(
+    key,
+    () => waiting.start() as Promise<T>,
+  );
+  if (pageIsHiding()) startWaitingOwnRequest(waiting);
+  return mutation;
+}
+
+// Its caller hears how it went once the earlier write settles.
+function startWaitingOwnRequest(waiting: WaitingOwnRequest): void {
+  if (!waiting.keepalive || !waitingOwnRequests.has(waiting)) return;
+  if (waiting.barriersAhead.some((barrier) => !barrier.settled)) return;
+  waiting.start().catch(() => {});
 }
 
 interface Replacement {
@@ -367,7 +390,12 @@ function watchPageHide(): void {
     pageHidden = false;
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") flushReplacements();
+    if (document.visibilityState !== "hidden") return;
+    // A hidden tab may be discarded without a pagehide.
+    for (const waiting of [...waitingOwnRequests]) {
+      startWaitingOwnRequest(waiting);
+    }
+    flushReplacements();
   });
 }
 
@@ -378,13 +406,11 @@ function flushOnPageHide(): void {
   // write. It's numbered after the earlier one, so the server skips the
   // earlier one if it lands last. The server keeps no record of a delete,
   // though, so an earlier write landing after one brings the row back.
-  // A keepalive write sent as its own request goes now too. Nothing goes
-  // ahead of a compare-and-set or a signalled write.
+  // A keepalive write sent as its own request goes now too, unless a
+  // compare-and-set or a signalled write made before it is still unsettled.
+  // Nothing else goes ahead of a compare-and-set or a signalled write.
   for (const waiting of [...waitingOwnRequests]) {
-    if (!waiting.keepalive) continue;
-    if (unsettledBarriers.has(requestKey(waiting.key))) continue;
-    // Its caller hears how it went once the earlier write settles.
-    waiting.start().catch(() => {});
+    startWaitingOwnRequest(waiting);
   }
   for (const entry of [...queuedReplacements.values()]) {
     if (unsettledBarriers.has(requestKey(entry.key))) continue;

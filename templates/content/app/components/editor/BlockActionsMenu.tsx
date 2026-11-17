@@ -811,8 +811,12 @@ export function BlockActionsMenu({
           }}
           onEscapeKeyDown={markEscaped}
           onKeyDown={handleMenuKeyDown}
-          // The phone's keyboard stays down until the search is tapped.
-          onOpenAutoFocus={(event) => event.preventDefault()}
+          // The phone's keyboard stays down until the search is tapped. Focus
+          // still moves into the sheet, so a keyboard can reach its rows.
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            contentRef.current?.focus({ preventScroll: true });
+          }}
           showClose={false}
           side="bottom"
         >

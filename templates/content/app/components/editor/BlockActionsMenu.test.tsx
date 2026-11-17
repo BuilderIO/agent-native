@@ -787,8 +787,10 @@ describe("BlockActionsMenu", () => {
         "editor.blockMenu.askAgent",
       ]);
       for (const row of rows()) expect(row.className).toContain("min-h-11");
-      // The phone's keyboard stays down until the search is tapped.
+      // The phone's keyboard stays down until the search is tapped, but focus
+      // is in the sheet, so a keyboard user can work it straight away.
       expect(document.activeElement).not.toBe(sheet().querySelector("input"));
+      expect(sheet().contains(document.activeElement)).toBe(true);
     });
 
     it("turns a block into a heading from Turn into's own view, with a way back", () => {

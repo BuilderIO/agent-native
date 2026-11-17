@@ -1415,6 +1415,93 @@ describe("client application-state helpers", () => {
       ]);
     });
 
+    it("sends a write sent as its own request when the page hides, though a compare-and-set made after it waits", async () => {
+      const { fresh, listeners, fetchMock } = await hidingPage();
+      let commitFirst!: () => void;
+      fetchMock.mockImplementationOnce(
+        (_url, init) =>
+          new Promise<Response>((resolve) => {
+            commitFirst = () =>
+              resolve(jsonResponse(JSON.parse(String(init?.body))));
+          }),
+      );
+
+      const first = fresh.writeClientAppState("draft", { text: "a" });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const own = fresh.writeClientAppState(
+        "draft",
+        { text: "b" },
+        { keepalive: true, ownRequest: true },
+      );
+      const swap = fresh.compareAndSetClientAppState(
+        "draft",
+        { text: "b" },
+        { text: "c" },
+      );
+      await Promise.resolve();
+      for (const listener of listeners.pagehide ?? []) listener();
+
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+        method: "PUT",
+        body: JSON.stringify({ text: "b" }),
+        keepalive: true,
+      });
+      fetchMock.mockImplementationOnce(() =>
+        Promise.resolve(jsonResponse({ changed: true })),
+      );
+      commitFirst();
+      await Promise.all([first, own, swap]);
+      expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual([
+        "PUT",
+        "PUT",
+        "PATCH",
+      ]);
+    });
+
+    it("sends a write sent as its own request at once when it's made while the page is hidden", async () => {
+      const { fresh, fetchMock } = await hidingPage("hidden");
+      fetchMock.mockImplementationOnce(() => new Promise<Response>(() => {}));
+
+      void fresh.writeClientAppState("draft", { text: "a" });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      void fresh.writeClientAppState(
+        "draft",
+        { text: "ab" },
+        { keepalive: true, ownRequest: true },
+      );
+
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+        body: JSON.stringify({ text: "ab" }),
+        keepalive: true,
+      });
+    });
+
+    it("sends a waiting write sent as its own request when the tab is hidden", async () => {
+      const { fresh, listeners, fetchMock } = await hidingPage();
+      fetchMock.mockImplementationOnce(() => new Promise<Response>(() => {}));
+
+      void fresh.writeClientAppState("draft", { text: "a" });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      void fresh.writeClientAppState(
+        "draft",
+        { text: "ab" },
+        { keepalive: true, ownRequest: true },
+      );
+      await Promise.resolve();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // A hidden tab may be discarded without a pagehide.
+      (document as { visibilityState: string }).visibilityState = "hidden";
+      for (const listener of listeners.visibilitychange ?? []) listener();
+
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+        body: JSON.stringify({ text: "ab" }),
+        keepalive: true,
+      });
+    });
+
     it("keeps the newer value when it fails on the client and the write it jumped ahead of commits last", async () => {
       const { fresh, listeners, fetchMock } = await hidingPage();
       // A server that applies the write order: it skips a write numbered at
