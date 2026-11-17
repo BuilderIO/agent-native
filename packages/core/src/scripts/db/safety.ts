@@ -86,6 +86,8 @@ const SENSITIVE_FRAMEWORK_TABLES = new Set([
   "agent_trace_summaries",
   "agent_feedback",
   "agent_instruction_updates",
+  // App-defined (templates/analytics): its actions enforce migrator and claim-token ownership raw SQL would bypass.
+  "bi_migration_external_dashboards",
   "pg_catalog",
   "information_schema",
   "pg_class",

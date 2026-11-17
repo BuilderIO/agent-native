@@ -304,6 +304,34 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
     expect(remaining[0].n).toBe(3);
   });
 
+  it("refuses member B any read or write of the BI migration claim table in a shared org", async () => {
+    await withClient(async (c) => {
+      await c.execute(
+        `CREATE TABLE bi_migration_external_dashboards (id TEXT PRIMARY KEY, org_id TEXT, migration_claim_token TEXT)`,
+      );
+      await c.execute({
+        sql: `INSERT INTO bi_migration_external_dashboards VALUES (?, ?, ?)`,
+        args: ["row-a", "org-1", "claim-token-a"],
+      });
+    });
+    vi.stubEnv("AGENT_USER_EMAIL", "b@x.com");
+    vi.stubEnv("AGENT_ORG_ID", "org-1");
+    await expect(
+      runQuery(
+        "SELECT migration_claim_token FROM bi_migration_external_dashboards",
+      ),
+    ).rejects.toThrow(
+      /Sensitive framework table "bi_migration_external_dashboards"/,
+    );
+    await expect(
+      runExec(
+        "DELETE FROM bi_migration_external_dashboards WHERE id = 'row-a'",
+      ),
+    ).rejects.toThrow(
+      /Sensitive framework table "bi_migration_external_dashboards"/,
+    );
+  });
+
   it("rejects a schema-qualified write", async () => {
     const { default: dbExec } = await import("./exec.js");
     await expect(

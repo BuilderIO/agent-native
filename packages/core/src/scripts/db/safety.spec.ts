@@ -259,6 +259,19 @@ describe("sensitive framework tables", () => {
     );
   });
 
+  it("keeps the BI migration claim table out of every raw tool", () => {
+    const table = "bi_migration_external_dashboards";
+    expect(() => readRawDbReadStatement(`SELECT * FROM ${table}`)).toThrow(
+      new RegExp(`Sensitive framework table "${table}"`),
+    );
+    expect(() =>
+      readRawDbWriteStatement(`DELETE FROM "${table}" WHERE id = 'x'`),
+    ).toThrow(new RegExp(`Sensitive framework table "${table}"`));
+    expect(() => assertNoSensitiveFrameworkTables(table, "patch")).toThrow(
+      new RegExp(`Sensitive framework table "${table}"`),
+    );
+  });
+
   it("rejects direct and qualified reads", () => {
     expect(() =>
       assertNoSensitiveFrameworkTables("SELECT * FROM oauth_tokens", "read"),
