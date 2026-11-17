@@ -767,6 +767,7 @@ describe("scheduled automations that cannot run", () => {
     ).toMatchObject({ status: "success" });
     expect(readJob("alice@agent-native.test", "safety-paused")).toMatchObject({
       enabled: false,
+      lastStatus: "paused",
       pausedReason: "write_tool_outcome_unknown",
       lastErrorCode: "write_tool_outcome_unknown",
       lastError: "Check the earlier write.",
@@ -803,21 +804,22 @@ describe("scheduled automations that cannot run", () => {
         throw new EngineError("Gateway failed", { errorCode: "http_502" });
       });
 
-      expect(
-        await runJobNow(
-          "alice@agent-native.test",
-          "safety-paused-failure",
-          deps,
-        ),
-      ).toMatchObject({ status: "error" });
+      const latestRun = await runJobNow(
+        "alice@agent-native.test",
+        "safety-paused-failure",
+        deps,
+      );
+      expect(latestRun).toMatchObject({ status: "error" });
       expect(
         readJob("alice@agent-native.test", "safety-paused-failure"),
       ).toMatchObject({
         enabled: false,
+        lastStatus: "paused",
         pausedReason: "write_tool_outcome_unknown",
         pausedAt: "2026-09-30T23:00:00.000Z",
-        lastErrorCode: "write_tool_outcome_unknown",
-        lastError: "Check the earlier write.",
+        lastErrorCode:
+          failure === "unknown" ? "write_tool_outcome_unknown" : "http_502",
+        lastError: latestRun.error,
         consecutiveFailures: 1,
       });
       expect(await historyOf("safety-paused-failure")).toMatchObject([
