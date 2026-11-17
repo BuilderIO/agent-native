@@ -538,10 +538,17 @@ OpenAI's `text-embedding-3-small`.
   page meanwhile, it records nothing and removes what it stored. Vectors live
   in a
   `SearchVectorStore`, by default pgvector's per-dimension tables under the
-  `search` namespace. When the database offers `vector` but hasn't installed
-  it, the store creates the extension. A database without `vector`, or one
-  that refuses to install it, is checked again every 10 minutes; a check that
-  fails isn't remembered, so the next drain or search checks again.
+  `search` namespace. A hosted request function refuses every schema
+  statement, so an app lists `semanticVectorStoreMigration` after
+  `semanticSearchMigration`: at release it installs `vector` and makes the
+  table for the built-in families' 1,024 dimensions, and a database without
+  `vector` defers it to a later release. A request only checks that table and
+  its indexes exist before writing. Elsewhere, such as local development, when
+  the database offers `vector` but hasn't installed it, the store creates the
+  extension, and the first write makes its table. A database without
+  `vector`, or one that refuses to install it, is checked again every 10
+  minutes; a check that fails isn't remembered, so the next drain or search
+  checks again.
 - **Provider.** Pages embed with the organization's embedding family, Builder's
   gateway by default. A page with no organization, such as one in a personal
   space, embeds as its owner, whose credentials resolve to their active
@@ -696,7 +703,8 @@ back a `CommandSearchProvider` when the shared command menu lands.
   so the meaning lane reports `unavailable` (`no-vector-store`) and search
   matches words. Tests plug in core's in-memory vector store from
   `@agent-native/core/testing`.
-- **Neon:** the meaning lane creates `vector` on first use; `pg_trgm` is
+- **Neon:** the release installs `vector` and makes the meaning lane's table
+  (`semanticVectorStoreMigration`); `pg_trgm` is
   created at release when that lane lands. Each search reads the index state and pending changes in its own
   round trip. That's short when the app runs in the database's region; from a
   distant client it was the whole latency difference from the previous

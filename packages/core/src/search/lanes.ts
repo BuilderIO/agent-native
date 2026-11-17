@@ -3,6 +3,7 @@
  * Postgres full-text tables keyed by namespace, and reciprocal rank fusion.
  */
 import type { DbExec } from "../db/index.js";
+import { deferMigration, type MigrationEntry } from "../db/migrations.js";
 
 export const DEFAULT_SEARCH_NAMESPACE = "creative_context";
 export const PGVECTOR_REQUIRED_MESSAGE =
@@ -114,8 +115,9 @@ export function assertPgVectorAvailable(postgres = true): void {
 }
 
 // guard:allow-unreleased-schema - the table name is derived at call time from
-// the search namespace and embedding dimensions (`${namespace}_vectors${suffix}`),
-// so the set of tables is not known at release time and cannot be pre-created.
+// the search namespace and embedding dimensions (`${namespace}_vectors${suffix}`).
+// An app creates the tables it knows at release with pgVectorIndexMigration;
+// this creates any other where schema changes are allowed.
 export async function ensurePgVectorIndex(
   db: DbExec,
   dimensions: number,
@@ -125,6 +127,9 @@ export async function ensurePgVectorIndex(
   const names = searchNamespaceIdentifiers(resolved.namespace, dimensions);
   assertPgVectorAvailable(resolved.postgres);
   try {
+    // Hosted request functions refuse any schema statement, even one that
+    // would change nothing, so a table the release made is only checked.
+    if (await pgVectorIndexComplete(db, names)) return;
     await db.execute("CREATE EXTENSION IF NOT EXISTS vector");
     // raw-sql-ok: names come from searchNamespaceIdentifiers (lowercase letters, digits, underscores); values are bound.
     await db.execute(`
@@ -151,6 +156,67 @@ export async function ensurePgVectorIndex(
   } catch (error) {
     throw new Error(PGVECTOR_REQUIRED_MESSAGE, { cause: error });
   }
+}
+
+/** Whether the table has the audience column and both indexes. */
+async function pgVectorIndexComplete(
+  db: DbExec,
+  names: SearchNamespaceIdentifiers,
+): Promise<boolean> {
+  const { rows } = await db.execute({
+    sql: `SELECT to_regclass(?) IS NOT NULL
+        AND to_regclass(?) IS NOT NULL
+        AND to_regclass(?) IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = ?
+            AND column_name = 'audience_ids'
+        ) AS complete`,
+    args: [
+      names.vectorTable,
+      names.vectorIndex,
+      names.vectorAudienceIndex,
+      names.vectorTable,
+    ],
+  });
+  return rows[0]?.complete === true;
+}
+
+/**
+ * A named migration that makes pgvector tables at release, since hosted
+ * request functions can't change schema: it installs the extension and makes
+ * a table, with both indexes, for each of `dimensions` in `namespace`. A
+ * database without pgvector defers it, so it runs at a later release once the
+ * extension is there.
+ */
+export function pgVectorIndexMigration(entry: {
+  version: number;
+  name: string;
+  namespace: string;
+  dimensions: readonly number[];
+}): MigrationEntry {
+  return {
+    version: entry.version,
+    name: entry.name,
+    sql: {},
+    run: async (exec) => {
+      const { rows } = await exec.execute(
+        "SELECT 1 AS present FROM pg_available_extensions WHERE name = 'vector'",
+      );
+      if (!rows.length) {
+        console.info(
+          `[search] This database has no pgvector, so "${entry.name}" waits for a later release.`,
+        );
+        return deferMigration();
+      }
+      for (const dimensions of entry.dimensions) {
+        await ensurePgVectorIndex(exec, dimensions, {
+          namespace: entry.namespace,
+        });
+      }
+    },
+  };
 }
 
 export async function upsertPgVector(

@@ -2,6 +2,7 @@ import { runMigrations } from "@agent-native/core/db";
 import {
   searchIndexMigration,
   semanticSearchMigration,
+  semanticVectorStoreMigration,
 } from "@agent-native/core/search";
 
 import { documentSearchIndex } from "../db/index.js";
@@ -1791,6 +1792,9 @@ export const runContentMigrations = runMigrations(
       version: 139,
       name: "search-embeddings-documents",
     }),
+    // Makes the table those embeddings go in. A hosted request can't, so
+    // without it search reports no vector store and matches words alone.
+    semanticVectorStoreMigration({ version: 140, name: "search-vectors-1024" }),
   ],
   { table: "content_migrations" },
 );
