@@ -4,6 +4,14 @@ import {
   automationNoOpReasonFromEvents,
 } from "./actions/automation-no-op.js";
 
+export function automationWorkFailureCode(
+  failedTool?: Extract<AgentChatEvent, { type: "tool_done" }>,
+): string {
+  return failedTool?.outcomeUnknown
+    ? "write_tool_outcome_unknown"
+    : (failedTool?.errorCode ?? "automation_no_confirmed_work");
+}
+
 export function inspectAutomationWork(
   events: readonly AgentChatEvent[],
   options: {

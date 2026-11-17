@@ -14,6 +14,7 @@ import {
   isPausedByFramework,
   isPseudoOwner,
   isReservedIdentityBlocked,
+  isTransientAutomationFailureCode,
   pauseNow,
   PRECONDITION_PAUSE_AFTER,
   RUNTIME_PAUSE_AFTER,
@@ -90,6 +91,7 @@ describe("classifyAutomationFailure", () => {
     ["http_401", "http_401", false],
     ["credits-limit-daily", "credits-limit-daily", false],
     ["http_502", "http_502", false],
+    ["write_tool_outcome_unknown", "write_tool_outcome_unknown", false],
     [
       "background_automation_hard_timeout",
       "background_automation_hard_timeout",
@@ -101,6 +103,13 @@ describe("classifyAutomationFailure", () => {
       message: "boom",
       precondition,
     });
+  });
+
+  it("does not classify an unknown write as a transient provider failure", () => {
+    expect(isTransientAutomationFailureCode("write_tool_outcome_unknown")).toBe(
+      false,
+    );
+    expect(isTransientAutomationFailureCode("http_503")).toBe(true);
   });
 
   it("types the app tool supplier's untyped missing-tools error", () => {

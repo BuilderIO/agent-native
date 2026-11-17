@@ -134,7 +134,10 @@ import {
   automationRunTerminalError,
   type AutomationTerminalEvent,
 } from "./automation-terminal-error.js";
-import { inspectAutomationWork } from "./automation-work-evidence.js";
+import {
+  automationWorkFailureCode,
+  inspectAutomationWork,
+} from "./automation-work-evidence.js";
 import { effectiveTimezone } from "./cron.js";
 import {
   recoveredFactoryOwnerOrgId,
@@ -1346,7 +1349,7 @@ async function confirmAutomationWork(
   const detail = unknown ? undefined : evidence.failedTool?.result;
   throw new BackgroundAutomationRunError(
     `${unknown ? `${messages.outcomeUnknown} ` : ""}${deliveryPlatform && deliveryDestination ? messages.emptyDelivery : messages.noWork}${detail ? ` ${detail}` : ""}`,
-    evidence.failedTool?.errorCode ?? "automation_no_confirmed_work",
+    automationWorkFailureCode(evidence.failedTool),
   );
 }
 

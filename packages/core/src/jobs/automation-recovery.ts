@@ -19,7 +19,10 @@ import type { Resource } from "../resources/store.js";
 import { AutomationNoOpEvidenceUnreadableError } from "./actions/automation-no-op.js";
 import { withDeliveryNote } from "./automation-outcome.js";
 import { automationRunTerminalError } from "./automation-terminal-error.js";
-import { inspectAutomationWork } from "./automation-work-evidence.js";
+import {
+  automationWorkFailureCode,
+  inspectAutomationWork,
+} from "./automation-work-evidence.js";
 import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
@@ -346,8 +349,7 @@ export async function inspectAutomationRecovery(
           `${unknown ? `${messages.outcomeUnknown} ` : ""}${message}${detail ? ` ${detail}` : ""}`,
           deliveryNote,
         ),
-        errorCode:
-          evidence.failedTool?.errorCode ?? "automation_no_confirmed_work",
+        errorCode: automationWorkFailureCode(evidence.failedTool),
         deliveryNote,
       };
     }

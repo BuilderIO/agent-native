@@ -1212,7 +1212,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
           tool: "send-report",
           isError: true,
           outcomeUnknown: true,
-          errorCode: "provider_failed",
+          errorCode: "http_503",
           result: `${privateValue} ${"provider response ".repeat(100)}`,
         });
         opts.send({
@@ -1230,7 +1230,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
       standardDeps,
     );
     await expect(run).rejects.toMatchObject({
-      errorCode: "provider_failed",
+      errorCode: "write_tool_outcome_unknown",
       message: expect.stringContaining(warning),
     });
     const row = (await pglite
@@ -1334,7 +1334,9 @@ describe("runBackgroundAutomation — confirmed work", () => {
           },
         );
         await expect(run).rejects.toMatchObject({
-          errorCode: "web_request_url_blocked",
+          errorCode: dispatched
+            ? "write_tool_outcome_unknown"
+            : "web_request_url_blocked",
           message: expect.stringContaining(dispatched ? warning : diagnostic),
         });
         if (dispatched) {
@@ -1420,7 +1422,9 @@ describe("runBackgroundAutomation — confirmed work", () => {
         expect(recovery).toMatchObject({
           state: "settle",
           status: "error",
-          errorCode: "web_request_url_blocked",
+          errorCode: dispatched
+            ? "write_tool_outcome_unknown"
+            : "web_request_url_blocked",
           error: expect.stringContaining(dispatched ? warning : diagnostic),
         });
         if (recovery?.state !== "settle")
@@ -1567,9 +1571,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
           errorCode:
             tool === "provider-api-request"
               ? "provider_api_rejected"
-              : status === 200
-                ? "web_request_provider_failed"
-                : `http_${status}`,
+              : "write_tool_outcome_unknown",
           message: expect.stringContaining(
             tool === "provider-api-request"
               ? `HTTP ${status}`

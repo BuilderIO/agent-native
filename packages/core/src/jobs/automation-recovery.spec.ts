@@ -241,7 +241,7 @@ describe("automation worker recovery", () => {
           tool: "send-report",
           isError: true,
           outcomeUnknown: true,
-          errorCode: "provider_failed",
+          errorCode: "http_503",
           result: `PRIVATE_CUSTOMER_SENTINEL ${"provider response ".repeat(100)}`,
         },
         {
@@ -280,7 +280,7 @@ describe("automation worker recovery", () => {
           "background_automation_delivery_unknown",
         );
       } else {
-        expect(recovery.errorCode).toBe("provider_failed");
+        expect(recovery.errorCode).toBe("write_tool_outcome_unknown");
       }
       expect(recovery.error).not.toContain("provider response");
       expect(recovery.error).not.toContain("PRIVATE_CUSTOMER_SENTINEL");

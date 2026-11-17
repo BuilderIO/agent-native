@@ -631,6 +631,59 @@ describe("scheduled automations that cannot run", () => {
     expect(sendFailureEmailMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not probe a pause caused by an unknown write outcome", async () => {
+    runAgentLoopMock.mockImplementation(
+      async ({ send }: Parameters<typeof successfulAutomationRun>[0]) => {
+        send({
+          type: "tool_done",
+          tool: "send-notification",
+          isError: true,
+          outcomeUnknown: true,
+          errorCode: "http_503",
+          result: "PRIVATE_PROVIDER_RESPONSE",
+        });
+        return okUsage;
+      },
+    );
+    putJob("alice@agent-native.test", "unknown-write", [
+      'schedule: "*/15 * * * *"',
+      "enabled: true",
+      "createdBy: alice@agent-native.test",
+      'appId: "calendar"',
+      `nextRun: "${new Date(START - MINUTE).toISOString()}"`,
+    ]);
+
+    let now = START;
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      await tickAt(now);
+      const job = readJob("alice@agent-native.test", "unknown-write");
+      expect(job.lastErrorCode).toBe("write_tool_outcome_unknown");
+      expect(job.lastError).toContain("An action may already have applied.");
+      expect(job.lastError).not.toContain("PRIVATE_PROVIDER_RESPONSE");
+      if (attempt < 5) {
+        if (typeof job.nextRun !== "string")
+          throw new Error("Missing next run");
+        now = Date.parse(job.nextRun);
+      }
+    }
+    const paused = readJob("alice@agent-native.test", "unknown-write");
+    expect(paused).toMatchObject({
+      enabled: false,
+      pausedReason: "write_tool_outcome_unknown",
+      consecutiveFailures: 5,
+    });
+    expect(paused.lastError).not.toContain("resumes once this clears");
+
+    if (typeof paused.pausedAt !== "string")
+      throw new Error("Missing pause time");
+    await tickAt(Date.parse(paused.pausedAt) + 7 * 60 * MINUTE);
+    expect(readJob("alice@agent-native.test", "unknown-write")).toMatchObject({
+      enabled: false,
+      pausedReason: "write_tool_outcome_unknown",
+    });
+    expect(await historyOf("unknown-write")).toHaveLength(5);
+  });
+
   it("pauses on spent credits, probes on its own, and resumes after the credits reset", async () => {
     runAgentLoopMock.mockRejectedValue(
       new EngineError("Daily Builder credits are used up", {
