@@ -403,9 +403,13 @@ describe("the meaning lane", () => {
   });
 
   it("embeds a page again for a new version of its model, whose searches never match the old version's vectors", async () => {
-    await insertPage("versioned", "Laptop policy", "Hardware goes to IT.");
-    await settle();
-    await drain();
+    // The resolver answers with the new version from the next call on, as a
+    // provider's model can change while the process runs.
+    let version = "1";
+    search.configureSemanticSearch({
+      vectorStore: store,
+      resolveEmbeddingFamily: async () => ({ ...family, version }),
+    });
     const found = async () => {
       const result = await searchAs(
         { userEmail: "reader@a.com", orgId: "org-a" },
@@ -413,13 +417,13 @@ describe("the meaning lane", () => {
       );
       return result.status === "used" ? result.hits.map((hit) => hit.id) : [];
     };
-    expect(await found()).toContain("versioned");
-
-    search.configureSemanticSearch({
-      vectorStore: store,
-      resolveEmbeddingFamily: async () => ({ ...family, version: "2" }),
-    });
     try {
+      await insertPage("versioned", "Laptop policy", "Hardware goes to IT.");
+      await settle();
+      await drain();
+      expect(await found()).toContain("versioned");
+
+      version = "2";
       embedCalls.length = 0;
       expect(await found()).not.toContain("versioned");
       // The question is embedded again with the new version, not reused.
@@ -1287,10 +1291,11 @@ describe("when something fails part way", () => {
     expect(starts[0]).toBeLessThan(0);
     // The call's timeout is the time left, not the full 15 seconds.
     expect(signals[0]?.aborted).toBe(true);
-    // Out of time isn't a failure: the pages stay queued.
-    expect(await pendingIds()).toEqual(
-      expect.arrayContaining(["budget-0", "budget-1", "budget-2", "budget-3"]),
-    );
+    // The pages the late call returned are stored and done. Out of time isn't
+    // a failure, so the rest stay queued.
+    expect(keysFor("budget-0")).toHaveLength(12);
+    expect(keysFor("budget-1")).toHaveLength(12);
+    expect(await pendingIds()).toEqual(["budget-2", "budget-3"]);
 
     await run(`DELETE FROM pages WHERE id LIKE 'budget-%'`);
     await settle();
