@@ -24,6 +24,7 @@ import {
 import type { ActionEntry } from "../agent/production-agent.js";
 import { auditAttribution } from "../audit/attribution.js";
 import {
+  isAuditDisabled,
   normalizeAuditConfig,
   resolveAuditAttach,
   shouldRecordAudit,
@@ -545,13 +546,14 @@ function auditedArguments(args: unknown): unknown {
 /**
  * Whether an action's calls may be recorded with their arguments: not when
  * it keeps them out of chat history, keeps them out of its audit rows, or
- * has no audit rows, by its settings or by the audit log's default
- * exclusions. Its ledger rows then keep none either, so run status shows
- * none, to the run's owner included.
+ * has no audit rows, by its settings, by the audit log's default
+ * exclusions, or because the audit log is off. Its ledger rows then keep
+ * none either, so run status shows none, to the run's owner included.
  */
 export function actionRecordsInputs(name: string, entry: ActionEntry): boolean {
   const audit = normalizeAuditConfig(entry.audit);
   return (
+    !isAuditDisabled() &&
     entry.persistInChatHistory !== false &&
     audit?.enabled !== false &&
     audit?.recordInputs !== false &&

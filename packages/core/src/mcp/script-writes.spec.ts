@@ -765,6 +765,16 @@ describe("createScriptWriteGate", () => {
     ]);
   });
 
+  it("keeps no arguments for any write while the audit log is off", async () => {
+    vi.stubEnv("AGENT_NATIVE_AUDIT_ENABLED", "false");
+    try {
+      await gate().begin(call(0, { key: "a", rows: 1 }));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect((await rows())[0]?.call_arguments).toBeNull();
+  });
+
   it("settles a write the script stopped before running as not applied", async () => {
     const writes = gate({ rowBudget: 10 });
     const begun = await writes.begin(call(0, { key: "a", rows: 10 }));
