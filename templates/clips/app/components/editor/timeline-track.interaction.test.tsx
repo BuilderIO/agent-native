@@ -165,10 +165,15 @@ describe("TimelineTrack pointer gestures", () => {
 
   it("shows exact source timestamps throughout range selection, resize, and move", () => {
     const thirdPiece = () => {
-      const piece = pieces()[2];
+      const piece = pieces().at(2);
       if (!piece) throw new Error("third timeline piece not rendered");
       return piece;
     };
+    const timestamps = () =>
+      Array.from(
+        container.querySelectorAll("span"),
+        (span) => span.textContent,
+      ).filter((text) => /^\d{2}:\d{2}\.\d{3}$/.test(text));
 
     function ControlledTrack() {
       const [selection, setSelection] = React.useState<TrackSelection | null>(
@@ -193,30 +198,26 @@ describe("TimelineTrack pointer gestures", () => {
       pointer(thirdPiece(), "pointerdown", 123.4);
       pointer(track(), "pointermove", 126.8);
     });
-    expect(container.textContent).toContain("00:01.234");
-    expect(container.textContent).toContain("00:01.268");
+    expect(timestamps()).toEqual(["00:01.234", "00:01.268"]);
 
     act(() => pointer(track(), "pointerup", 126.8));
-    expect(container.textContent).toContain("00:01.234");
-    expect(container.textContent).toContain("00:01.268");
+    expect(timestamps()).toEqual(["00:01.234", "00:01.268"]);
 
     act(() => {
       pointer(thirdPiece(), "pointerdown", 126.8);
       pointer(track(), "pointermove", 153.7);
     });
-    expect(container.textContent).toContain("00:01.234");
-    expect(container.textContent).toContain("00:01.537");
+    expect(timestamps()).toEqual(["00:01.234", "00:01.537"]);
     act(() => pointer(track(), "pointerup", 153.7));
+    expect(timestamps()).toEqual(["00:01.234", "00:01.537"]);
 
     act(() => {
       pointer(thirdPiece(), "pointerdown", 140);
       pointer(track(), "pointermove", 160);
     });
-    expect(container.textContent).toContain("00:01.434");
-    expect(container.textContent).toContain("00:01.737");
+    expect(timestamps()).toEqual(["00:01.434", "00:01.737"]);
     act(() => pointer(track(), "pointerup", 160));
-    expect(container.textContent).toContain("00:01.434");
-    expect(container.textContent).toContain("00:01.737");
+    expect(timestamps()).toEqual(["00:01.434", "00:01.737"]);
   });
 
   describe("with a range already selected", () => {
