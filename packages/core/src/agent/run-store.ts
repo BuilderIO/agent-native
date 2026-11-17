@@ -4170,7 +4170,11 @@ async function updateRunAborted(
       terminalRun.terminal_reason === `aborted:${reason ?? "user"}` &&
       (!requireSafeBoundary || terminalRun.in_flight_since == null);
     if (appendTerminalEvent) {
-      await appendAbortTerminalRunEventInTransaction(tx, runId, abortEvent);
+      await appendAbortTerminalRunEventInTransaction(
+        tx,
+        runId,
+        await withFirstStopCutoff(tx, runId, abortEvent),
+      );
       return { rowsAffected: 0, appendTerminalEvent: true };
     }
     return { rowsAffected: 0, appendTerminalEvent: false };
@@ -4187,6 +4191,36 @@ async function updateRunAborted(
     );
   }
   return abortResult.rowsAffected > 0 || abortResult.appendTerminalEvent;
+}
+
+/**
+ * The final event a Stop writes on a run that is already stopped keeps the
+ * first Stop's cutoff: that Stop ended the run where its browser was.
+ */
+async function withFirstStopCutoff(
+  tx: DbExec,
+  runId: string,
+  event: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (event["type"] !== "done" || event["reason"] !== "user") return event;
+  const { rows } = await tx.execute({
+    sql: `SELECT event_data FROM agent_run_events
+          WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
+    args: [runId],
+  });
+  const data = (rows[0] as { event_data?: string } | undefined)?.event_data;
+  let last: { type?: unknown; reason?: unknown; shownThroughSeq?: unknown };
+  try {
+    last = data ? JSON.parse(data) : {};
+  } catch {
+    // coercion-ok: appending the final event reports the malformed last event.
+    return event;
+  }
+  return last.type === "done" &&
+    last.reason === "user" &&
+    Number.isSafeInteger(last.shownThroughSeq)
+    ? { ...event, shownThroughSeq: last.shownThroughSeq }
+    : event;
 }
 
 async function lockExecutionLeasesForRuns(

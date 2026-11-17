@@ -399,6 +399,49 @@ describe("createHttpAgentChatRuntime", () => {
     ).not.toHaveProperty("shownThroughSeq");
   });
 
+  it("doesn't count a server event as shown until all it maps to is handed on", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "text", text: "One,", seq: 0 }]),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
+      fetch: fetchMock as typeof fetch,
+      // A reply's first text starts its message, as the app's mapping does.
+      mapEvent: (event) => [
+        {
+          type: "message-start",
+          message: { id: "m1", role: "assistant", content: [] },
+        },
+        {
+          type: "message-delta",
+          messageId: "m1",
+          delta: {
+            type: "text",
+            text: String((event as { text?: unknown }).text),
+          },
+        },
+      ],
+    });
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({ prompt: "Count to ten" });
+    const events = turn.events[Symbol.asyncIterator]();
+    expect((await events.next()).value).toMatchObject({
+      type: "message-start",
+    });
+
+    await turn.cancel?.({ reason: "user" });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({
+      shownThroughSeq: -1,
+    });
+    expect((await events.next()).done).toBe(true);
+  });
+
   it("closes an unconsumed response stream without cancelling its run", async () => {
     const fetchMock = vi.fn().mockResolvedValue(sseResponse([]));
     const runtime = createHttpAgentChatRuntime({

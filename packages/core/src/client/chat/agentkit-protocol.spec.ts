@@ -5511,6 +5511,85 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it("settles a Stop only once its readers have taken the stopped reply's text", async () => {
+    const stopSent = Promise.withResolvers<void>();
+    const trailingArrived = Promise.withResolvers<void>();
+    async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      yield {
+        type: "message-delta",
+        messageId: "assistant-1",
+        delta: { type: "text", text: "44. A salmon rests" },
+      };
+      await stopSent.promise;
+      await trailingArrived.promise;
+      yield {
+        type: "message-delta",
+        messageId: "assistant-1",
+        delta: { type: "text", text: " in the shadow." },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const cancel = vi.fn(async () => {
+      stopSent.resolve();
+      return { status: "cancelled" as const };
+    });
+    const runtime = createRuntime(activeEvents);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: activeEvents(),
+        cancel,
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("List river sentences")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    while (true) {
+      const next = await iterator.next();
+      if (next.value?.type === "message.delta") break;
+    }
+
+    let settled = false;
+    const cancelling = transport
+      .cancelRun({ threadId: "thread-1", runId })
+      .then(() => {
+        settled = true;
+      });
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    trailingArrived.resolve();
+    // The stream has ended, but the reader hasn't taken its last text.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(settled).toBe(false);
+
+    const taken: AgentEvent[] = [];
+    while (!settled) {
+      const next = await iterator.next();
+      if (next.done) break;
+      taken.push(next.value);
+    }
+    await cancelling;
+
+    expect(
+      taken.flatMap((event) =>
+        event.type === "message.delta" ? [event.text] : [],
+      ),
+    ).toEqual([" in the shadow."]);
+    await transport.dispose();
+  });
+
   it("releases readers when a cancel whose stream closed first fails", async () => {
     const streamClosed = Promise.withResolvers<void>();
     async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {

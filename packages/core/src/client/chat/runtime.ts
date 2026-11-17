@@ -1275,28 +1275,32 @@ async function* streamResponseEvents<TEvent extends AgentChatRuntimeEventBase>(
     signal?: AbortSignal;
     /**
      * Called with each server event's sequence number, or undefined for an
-     * event without one, before it is handed on.
+     * event without one, as the last of the events it maps to is handed on.
      */
     onEventSeq?: (seq: number | undefined) => void;
   },
 ): AsyncGenerator<TEvent> {
   const context = {
     sessionId: input.sessionId,
-    turnId: input.turnId,
-    runId: input.runId,
+    ...(input.turnId !== undefined ? { turnId: input.turnId } : {}),
+    ...(input.runId !== undefined ? { runId: input.runId } : {}),
   };
   const contentType = response.headers.get("content-type") ?? "";
   if (response.body && !contentType.includes("application/json")) {
     for await (const raw of readJsonEventStream(response.body)) {
       if (input.signal?.aborted) return;
       const seq = asRecord(raw)?.seq;
-      input.onEventSeq?.(
+      const eventSeq =
         typeof seq === "number" && Number.isSafeInteger(seq) && seq >= 0
           ? seq
-          : undefined,
-      );
-      for (const event of normalizeMappedEvents(input.mapEvent(raw, context))) {
+          : undefined;
+      const events = normalizeMappedEvents(input.mapEvent(raw, context));
+      // A Stop between the events one server event maps to, such as a reply's
+      // start and its first text, leaves that server event unshown.
+      if (events.length === 0) input.onEventSeq?.(eventSeq);
+      for (const [index, event] of events.entries()) {
         if (input.signal?.aborted) return;
+        if (index === events.length - 1) input.onEventSeq?.(eventSeq);
         yield event;
       }
     }

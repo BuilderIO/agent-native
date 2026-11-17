@@ -194,6 +194,10 @@ interface ProtocolRun {
   cancelStreamDrained?: boolean;
   /** The Stop in flight; a second Stop waits on it rather than returning early. */
   pendingCancellation?: Promise<void>;
+  /** For each reader, the last event its consumer has taken. */
+  readerCursors?: Set<{ through: number }>;
+  /** A Stop is waiting for readers to take what the run delivered. */
+  awaitingReaders?: boolean;
   /** A restored decline must verify its request against the replayed stream. */
   requiresRestoredConnectionRequestReplay?: boolean;
   outcomeReported?: boolean;
@@ -3894,7 +3898,8 @@ export function createAgentKitProtocolAdapter(
   /**
    * Gives the run's stream a moment, once the server has stopped the run, to
    * deliver what it streamed before the stop, so the stopped reply shows the
-   * text the server kept.
+   * text the server kept. Its readers get the same moment to take it, so a
+   * client that stops reading once the Stop resolves has already applied it.
    */
   async function waitForCancelStreamDrain(run: ProtocolRun): Promise<void> {
     // Only a run reading its stream at Stop has text still on the way.
@@ -3914,6 +3919,25 @@ export function createAgentKitProtocolAdapter(
       const remaining = deadline - Date.now();
       if (remaining <= 0) return;
       await notifyWhenChanged(run, readers.signal, remaining);
+    }
+    const delivered = run.sequence;
+    const readerBehind = () =>
+      [...(run.readerCursors ?? [])].some(
+        (cursor) => cursor.through < delivered,
+      );
+    run.awaitingReaders = true;
+    try {
+      while (
+        readerBehind() &&
+        !readers.signal.aborted &&
+        isRunCancelling(run)
+      ) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) return;
+        await notifyWhenChanged(run, readers.signal, remaining);
+      }
+    } finally {
+      run.awaitingReaders = false;
     }
   }
 
@@ -4005,6 +4029,13 @@ export function createAgentKitProtocolAdapter(
     run.activeReaders += 1;
     touchRun(run);
     let nextSequence = Math.max(1, afterSequence + 1);
+    const cursor = { through: nextSequence - 1 };
+    const cursors = (run.readerCursors ??= new Set());
+    cursors.add(cursor);
+    const wakeWaitingStop = () => {
+      if (!run.awaitingReaders) return;
+      for (const listener of run.listeners) listener();
+    };
     try {
       while (!signal?.aborted) {
         if (nextSequence < run.firstRetainedSequence) {
@@ -4021,6 +4052,9 @@ export function createAgentKitProtocolAdapter(
             );
           }
           yield event;
+          // Asking for the next event means the consumer has taken this one.
+          cursor.through = nextSequence - 1;
+          wakeWaitingStop();
         }
         if (
           run.phase.type === "disposed" ||
@@ -4033,6 +4067,8 @@ export function createAgentKitProtocolAdapter(
         await notifyWhenChanged(run, signal);
       }
     } finally {
+      cursors.delete(cursor);
+      wakeWaitingStop();
       run.activeReaders -= 1;
       touchRun(run);
       pruneRetainedRuns();

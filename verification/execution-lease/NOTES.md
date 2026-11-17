@@ -145,6 +145,12 @@ the run's leases and fences, moves the run from running to aborted, revokes
 its lease and appends the terminal event in that order, so `StopRun` and the
 existing model remain applicable.
 
+A later refresh re-read it again. A Stop on a run that is already aborted
+still rewrites the terminal event, but now reads the run's last event first,
+inside the same transaction and after the same locks, and keeps the first
+Stop's `shownThroughSeq` in the event it writes. That read adds no lock and no
+write, so the order above and the model's `StopRun` are unchanged.
+
 ## Results after the F2/F3 retention regression update
 
 | Config                                                                    | Result                          | Distinct states | Time   |

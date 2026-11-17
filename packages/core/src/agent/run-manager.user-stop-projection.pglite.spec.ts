@@ -292,6 +292,28 @@ describe("a stopped leased run's completion", () => {
     expect(savedText(reply).trim()).toBe("1. Tides turn. 2. Moons pull.");
   });
 
+  it("keeps the first Stop's cutoff when a Stop without one follows", async () => {
+    const runId = "run-user-stop-twice";
+    const { run, ready } = startStoppableRun({
+      runId,
+      threadId: "thread-user-stop-twice",
+      text: "1. Tides turn. 2. Moons pull. 3. Reefs",
+    });
+    await ready;
+    const shownThroughSeq = seqOfText(run, "pull. ");
+    await abortRunAndTurnDurably(runId, "user", { shownThroughSeq });
+    await run.finalized;
+
+    // Another tab, which resumed the run after a reload, stops it too.
+    expect(await markRunAborted(runId, "user")).toBe(true);
+
+    expect((await events(runId)).at(-1)).toMatchObject({
+      type: "done",
+      reason: "user",
+      shownThroughSeq,
+    });
+  });
+
   it("saves the reply only up to what the browser showed when another server handles the Stop", async () => {
     const runId = "run-user-stop-other-server-shown-through";
     const { completion } = await stopOnAnotherServer(
