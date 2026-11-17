@@ -2203,7 +2203,7 @@ describe("script writes", () => {
     ]);
   });
 
-  it("tells a script a failed write may still have been applied", async () => {
+  it("tells a script whether a failed write was or may have been applied", async () => {
     const { writes } = fakeGate();
     const outcomes: McpActionCallOutcome[] = [
       {
@@ -2220,6 +2220,28 @@ describe("script writes", () => {
         errorCode: "not_found",
         effect: "none",
       },
+      // An error the action reported in its value, after which its receipt
+      // decides.
+      {
+        status: "completed",
+        value: { isError: true },
+        reportedError: true,
+        effect: "none",
+      },
+      {
+        status: "failed",
+        stage: "result",
+        message: "Do not know how to serialize a BigInt",
+        effect: "committed",
+      },
+      // An output contract's error says it already.
+      {
+        status: "failed",
+        stage: "result",
+        message: "Its changes are already applied: do not retry it.",
+        errorCode: "output_contract_violation",
+        effect: "committed",
+      },
     ];
     const { run } = writeRunner(
       { "save-doc": writeEntry() },
@@ -2228,16 +2250,20 @@ describe("script writes", () => {
     );
     const payload = await run(`
       const seen = [];
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < 5; i++) {
         try { await api.saveDoc({ id: "doc_" + i }); } catch (error) {
           seen.push(error.code + ": " + error.message);
         }
       }
       return seen;
     `);
+    const mayHave = `The write may still have been applied: check ${MCP_SCRIPT_STATUS_TOOL} for this run before calling it again.`;
     expect(payload.result).toEqual([
-      `timeout: The action timed out. The write may still have been applied: check ${MCP_SCRIPT_STATUS_TOOL} for this run before calling it again.`,
+      `timeout: The action timed out. ${mayHave}`,
       "not_found: Not found.",
+      `action_reported_error: api.saveDoc reported an error: {"isError":true}. ${mayHave}`,
+      "action_failed: Do not know how to serialize a BigInt. The write was applied: do not call it again. Read the current state instead.",
+      "output_contract_violation: Its changes are already applied: do not retry it.",
     ]);
   });
 

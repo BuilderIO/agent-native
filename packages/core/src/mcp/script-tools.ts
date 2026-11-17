@@ -98,6 +98,19 @@ export const MCP_SCRIPT_LIMITS = Object.freeze({
  *  script gave is its own text, which may carry anything it read. */
 const UNKNOWN_FUNCTION = "(unknown)";
 
+/** Added to the error of a write that failed after it may have committed. */
+const WRITE_MAY_HAVE_APPLIED = `The write may still have been applied: check ${MCP_SCRIPT_STATUS_TOOL} for this run before calling it again.`;
+
+/** Added to the error of a write that committed before it failed. */
+const WRITE_APPLIED =
+  "The write was applied: do not call it again. Read the current state instead.";
+
+/** A message with `note` after it, as a sentence of its own. */
+function withNote(message: string, note: string | undefined): string {
+  if (!note) return message;
+  return `${message}${/[.!?]$/.test(message) ? "" : "."} ${note}`;
+}
+
 /**
  * Tools that run other code, other tools or an agent. A script that reached
  * one could do whatever it does on the caller's behalf inside a single
@@ -1709,12 +1722,17 @@ export async function runMcpScript(
         switch (outcome.status) {
           case "completed": {
             if (outcome.reportedError) {
+              // A write may have committed part of its change before it
+              // reported the error, so its ledger row asks its receipt.
               return refuse(
                 fn,
                 action,
                 "failed",
                 "action_reported_error",
-                `api.${fn} reported an error: ${oneLine(jsonText(outcome.value), 500)}`,
+                withNote(
+                  `api.${fn} reported an error: ${oneLine(jsonText(outcome.value), 500)}`,
+                  ticket ? WRITE_MAY_HAVE_APPLIED : undefined,
+                ),
                 startedAt,
               );
             }
@@ -1781,11 +1799,20 @@ export async function runMcpScript(
                 (outcome.stage === "authorization"
                   ? "forbidden"
                   : "action_failed"),
-              // A write that may have committed says so, so a script does
-              // not run it again as one that changed nothing.
-              ticket && outcome.effect === "unknown"
-                ? `${outcome.message} The write may still have been applied: check ${MCP_SCRIPT_STATUS_TOOL} for this run before calling it again.`
-                : outcome.message,
+              // A write that committed, or may have, says so, so a script
+              // does not run it again as one that changed nothing. An output
+              // contract's error says it already.
+              withNote(
+                outcome.message,
+                !ticket
+                  ? undefined
+                  : outcome.effect === "unknown"
+                    ? WRITE_MAY_HAVE_APPLIED
+                    : outcome.effect === "committed" &&
+                        outcome.errorCode !== "output_contract_violation"
+                      ? WRITE_APPLIED
+                      : undefined,
+              ),
               startedAt,
             );
           case "unknown-tool":
