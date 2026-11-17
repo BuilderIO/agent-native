@@ -29,15 +29,16 @@ import type { BigQueryJobBilling } from "./bigquery-usage.js";
 const LEASE_SUBMIT_MARGIN_MS = 15_000;
 
 /**
- * An outside agent is an MCP client calling Analytics' tools. Its caller is set
- * by core's MCP dispatcher, never by anything the tool call sends. MCP App
- * widgets (`mcp-widget*`) are a person clicking in a rendered Analytics view
- * and keep the in-app behavior.
+ * An outside agent is an MCP client calling Analytics' tools, or another app's
+ * agent calling its read-only tools directly over A2A. Its caller is set by
+ * core's dispatcher, never by anything the tool call sends. MCP App widgets
+ * (`mcp-widget*`) are a person clicking in a rendered Analytics view and keep
+ * the in-app behavior.
  */
 export function isOutsideAgentCaller(
   caller: ActionCaller | undefined,
 ): boolean {
-  return caller === "mcp";
+  return caller === "mcp" || caller === "a2a";
 }
 
 export type OutsideAgentBigQueryRefusalCode =

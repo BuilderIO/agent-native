@@ -110,12 +110,15 @@ describe("set-bigquery-agent-budget", () => {
     expect(mocks.settings.size).toBe(0);
   });
 
-  it("refuses an outside agent, even one acting for an admin", async () => {
-    await expect(
-      setBudget.run({ scope: "org", dailyLimitUsd: 500 }, { caller: "mcp" }),
-    ).rejects.toMatchObject({ errorCode: "forbidden" });
-    expect(mocks.settings.size).toBe(0);
-  });
+  it.each(["mcp", "a2a"] as const)(
+    "refuses an outside agent (%s), even one acting for an admin",
+    async (caller) => {
+      await expect(
+        setBudget.run({ scope: "org", dailyLimitUsd: 500 }, { caller }),
+      ).rejects.toMatchObject({ errorCode: "forbidden" });
+      expect(mocks.settings.size).toBe(0);
+    },
+  );
 
   it("refuses someone outside the org and a limit past the sanity ceiling", async () => {
     mocks.memberRole = null;

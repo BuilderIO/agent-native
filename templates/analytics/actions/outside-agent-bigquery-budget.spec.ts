@@ -414,6 +414,32 @@ describe("outside-agent (MCP) jobs go through admission", () => {
     expect(submissions).toHaveLength(0);
   });
 
+  it("admits a job another app's agent starts over A2A the same way", async () => {
+    const result = (await getHealth.run({}, { caller: "a2a" })) as Record<
+      string,
+      any
+    >;
+    expect(budget.admit).toHaveBeenCalledTimes(1);
+    expect(submissions[0].configuration.query.maximumBytesBilled).toBe(
+      "100000000",
+    );
+    expect(result.bigQueryBudget).toMatchObject({
+      thisCall: { jobsAdmitted: 1 },
+    });
+  });
+
+  it("refuses a job an A2A caller's tool starts without a budget", async () => {
+    const unbudgeted = defineAction({
+      description: "A tool that forgot its budget.",
+      schema: z.object({}),
+      run: async () => runQuery("SELECT 1"),
+    });
+    await expect(unbudgeted.run({}, { caller: "a2a" })).rejects.toMatchObject({
+      code: "budget_required",
+    });
+    expect(submissions).toHaveLength(0);
+  });
+
   it("refuses a job an outside agent's tool starts without a budget, before anything is sent", async () => {
     const unbudgeted = defineAction({
       description: "A tool that forgot its budget.",
