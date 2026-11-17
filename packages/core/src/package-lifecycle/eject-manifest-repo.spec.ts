@@ -118,6 +118,14 @@ describe("repository eject manifests", () => {
     expect(auth?.sourceEntries).toContain("src/app/auth/server.ts");
   });
 
+  it("rewrites dashboard chart imports to the copies when the Dashboard kit is ejected", () => {
+    const owner = toolkit.units.find((unit) =>
+      unit.entrypoints.includes("./app/dashboard-charts/*"),
+    );
+    expect(owner?.id).toBe("toolkit/dashboard");
+    expect(owner?.sourceEntries).toContain("src/app/dashboard-charts");
+  });
+
   it("tracks every item in the five live integration catalogs", () => {
     expect(items(manifests, "remote-mcp-presets")).toEqual(
       DEFAULT_MCP_INTEGRATIONS.map((entry) => entry.id).sort(),

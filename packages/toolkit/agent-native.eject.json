@@ -1877,7 +1877,11 @@
       "label": "Dashboard kit",
       "catalog": "toolkit-ui",
       "catalogItems": ["dashboard"],
-      "entrypoints": ["./dashboard", "./dashboard/*"],
+      "entrypoints": [
+        "./dashboard",
+        "./dashboard/*",
+        "./app/dashboard-charts/*"
+      ],
       "strategy": "source-copy",
       "sourceEntries": ["src/dashboard", "src/app/dashboard-charts"],
       "targetRoot": "app/components/agent-native/toolkit",
