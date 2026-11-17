@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-16",
+    "text": "Every inspector row uses the same columns again: two field columns, then the action column. Rows without an action (alignment, Font, the type rows, the variant menu) leave the action column empty instead of widening, and Responsive rules follow the grid at any width, so every field edge lines up down the panel."
+  },
+  {
+    "date": "2026-11-16",
     "text": "In minimal UI with nothing selected, the inspector's column gives way to its head alone: Comments, people and Share float top right as an island across the column's width, so they barely move when selecting something brings the docked column back. The canvas and toolbar stay put."
   },
   {

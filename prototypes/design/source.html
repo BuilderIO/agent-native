@@ -9740,7 +9740,7 @@ render();
 #insp .ex-set { grid-template-columns: 100px 68px 32px; column-gap: 8px; }
 #insp .ex-set > .icon-btn, #insp .ex-set > .ex-sp { justify-self: center; }
 #insp .resp-rules { padding: 0 0 12px; }
-#insp .resp-rule { grid-template-columns: 176px 32px; column-gap: 8px; }
+#insp .resp-rule { grid-template-columns: minmax(0, 1fr) 32px; column-gap: 8px; }
 #insp .resp-rule > .icon-btn { justify-self: center; }
 
 /* The inspector's section heads are the same component as Pages and Layers: a 16px chevron slot, 8px, then an 11/16
@@ -9771,14 +9771,12 @@ render();
 /* Radix Kbd: one keycap holding the whole shortcut, surface fill, a hairline ring with a heavier bottom edge. */
 .kc { min-width: 20px; height: 20px; padding: 0 6px; border: 0; border-radius: 4px; background: var(--rx-surface, var(--color-background)); box-shadow: inset 0 0 0 1px var(--rx-a4), inset 0 -1px 0 1px var(--rx-a5); font: 500 11px/20px var(--font); letter-spacing: .06em; white-space: nowrap; }
 
-/* Without labels the inspector is one grid: fields span to 16px from the right edge, two to a row or one across, with
-   8px between rows and 16px under each section, so every section is a whole number of 8px lines. Rows that end in
-   real actions (Fill's visibility and remove, a responsive rule's remove) keep their 32px slots, glyphs on the 16px
-   line. */
+/* Without labels the inspector is one grid, the same in every row: two field columns, then the action column. A row
+   with no action leaves that column empty rather than widening its fields, so every field edge lines up down the
+   panel. 8px between rows and 16px under each section keep every section a whole number of 8px lines. */
 #insp .flabel { display: none; }
-#insp .g5 { grid-template-columns: minmax(0, 1fr) 8px minmax(0, 1fr) 0 8px; }
 #insp .psec-b { padding-bottom: 16px; }
-#insp .state { padding-inline: 16px; }
+#insp .state { padding-inline: 16px 48px; }
 
 /* Inspector section titles sit on the fields' 16px edge, one step up from the 11px fields at 12/16 600, so each
    section reads as a heading. */
