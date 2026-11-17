@@ -1186,9 +1186,12 @@ export function MeetingPill() {
                   askSheetClosing ? "closing" : askSheetOpen ? "open" : "closed"
                 }
                 style={{
+                  // Collapsed, the sheet is just the AgentKit composer: let it
+                  // take the composer's own height (context chip, field and
+                  // toolbar) instead of clipping it to the old one-line bar.
                   height: askSheetOpen
                     ? `${Math.round(askSheetHeight * 100)}%`
-                    : "72px",
+                    : "auto",
                   animation:
                     !askSheetOpen && !askSheetClosing ? "none" : undefined,
                 }}
@@ -1241,7 +1244,7 @@ export function MeetingPill() {
                     providerStatus !== "eligible" &&
                     providerStatus !== "unknown"
                       ? t("agentChat.setup.connectToChat")
-                      : t("agentNativeClips.meetingAsk.placeholder")
+                      : t("agentChat.agentNativeClips.meetingAsk.placeholder")
                   }
                   composerSlot={
                     <>
