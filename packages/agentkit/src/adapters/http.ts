@@ -64,6 +64,7 @@ import {
   parseDiscoverCapabilitiesInput,
   parseVoidResponse,
   resumeEntryFromApproval,
+  agentEventSequenceEnd,
 } from "../protocol/index.js";
 
 export interface AgentKitHttpTransportOptions {
@@ -888,24 +889,26 @@ function eventStream(
     new ReadableStream({
       async pull(controller) {
         try {
-          const next = await iterator.next();
-          if (next.done) {
+          let next = await iterator.next();
+          let event: AgentEvent | undefined;
+          while (!next.done) {
+            const candidate = parseAgentEvent(next.value);
+            if (subscription && candidate.threadId !== subscription.threadId) {
+              throw new AgentProtocolValidationError(
+                "event.threadId",
+                "must match the subscribed thread",
+              );
+            }
+            if (!subscription || candidate.runId === subscription.runId) {
+              event = candidate;
+              break;
+            }
+            next = await iterator.next();
+          }
+          if (next.done || !event) {
             if (!readerCancelled) controller.close();
             await finalize();
             return;
-          }
-          const event = parseAgentEvent(next.value);
-          if (subscription && event.threadId !== subscription.threadId) {
-            throw new AgentProtocolValidationError(
-              "event.threadId",
-              "must match the subscribed thread",
-            );
-          }
-          if (subscription && event.runId !== subscription.runId) {
-            throw new AgentProtocolValidationError(
-              "event.runId",
-              "must match the subscribed run",
-            );
           }
           if (event.sequence !== lastSequence + 1) {
             throw new AgentProtocolValidationError(
@@ -913,7 +916,7 @@ function eventStream(
               `must be contiguous after sequence ${lastSequence}`,
             );
           }
-          lastSequence = event.sequence;
+          lastSequence = agentEventSequenceEnd(event);
           controller.enqueue(
             encoder.encode(
               `id: ${event.sequence}\ndata: ${JSON.stringify(encodeAgentEvent(event))}\n\n`,

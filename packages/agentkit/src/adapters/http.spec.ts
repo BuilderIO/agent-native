@@ -606,6 +606,41 @@ describe("AgentKit HTTP adapter", () => {
     );
   });
 
+  it("drops backend events for another run instead of failing the SSE stream", async () => {
+    const event = (runId: string, sequence: number) =>
+      ({
+        id: `event-${runId}-${sequence}`,
+        threadId: "thread-1",
+        runId,
+        sequence,
+        occurredAt: "2026-08-29T00:00:00.000Z",
+        type: "run.started",
+      }) satisfies AgentEvent;
+    const handler = createAgentKitHttpHandler({
+      transport: {
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun() {
+          yield event("run-1", 1);
+          yield event("run-2", 9);
+          yield event("run-1", 2);
+        },
+        async cancelRun() {},
+      },
+    });
+
+    const response = await handler(
+      new Request(
+        "https://agentkit.test/agentkit/runs/run-1/events?threadId=thread-1",
+      ),
+    );
+    const body = await response.text();
+    expect(body).toContain("id: 1\n");
+    expect(body).toContain("id: 2\n");
+    expect(body).not.toContain("id: 9\n");
+  });
+
   it("propagates one correlation id through request envelopes, headers, and errors", async () => {
     const transport = createAgentKitHttpTransport({
       baseUrl: "https://agentkit.test/agentkit",

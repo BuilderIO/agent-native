@@ -153,6 +153,9 @@ interface ProtocolEventInput {
   [key: string]: unknown;
 }
 
+// Matches the agentkit validator's cap on one omission range.
+const MAX_PRUNED_REPLAY_OMISSION_RANGE = 256;
+
 interface ProtocolRun {
   readonly runId: string;
   readonly threadId: string;
@@ -3946,10 +3949,21 @@ export function createAgentKitProtocolAdapter(
     let nextSequence = Math.max(1, afterSequence + 1);
     try {
       while (!signal?.aborted) {
-        if (nextSequence < run.firstRetainedSequence) {
-          throw new Error(
-            `AgentKit run ${run.runId} no longer retains sequence ${nextSequence}; the earliest available sequence is ${run.firstRetainedSequence}.`,
+        while (nextSequence < run.firstRetainedSequence) {
+          const lastSequence = Math.min(
+            run.firstRetainedSequence - 1,
+            nextSequence + MAX_PRUNED_REPLAY_OMISSION_RANGE - 1,
           );
+          yield {
+            id: `${run.runId}:pruned:${nextSequence}`,
+            threadId: run.threadId,
+            runId: run.runId,
+            sequence: nextSequence,
+            occurredAt: run.events[0]?.occurredAt ?? now(),
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { lastSequence, sourceType: "pruned_replay_prefix" },
+          } as AgentEvent;
+          nextSequence = lastSequence + 1;
         }
         while (nextSequence <= run.sequence) {
           const event = run.events[nextSequence - run.firstRetainedSequence];

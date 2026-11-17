@@ -9,6 +9,7 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import {
   AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+  agentEventSequenceEnd,
   AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
   createAgentKitProtocolVersionOffer,
   fingerprintAgentSubmissionAttachment,
@@ -7824,7 +7825,7 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
-  it("bounds process-local event retention and rejects stale cursors", async () => {
+  it("bounds process-local event retention and resumes stale cursors from the earliest retained event", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       for (let index = 0; index < 6; index += 1) {
         yield {
@@ -7847,10 +7848,24 @@ describe("createAgentKitProtocolAdapter", () => {
       expect(run?.status).toBe("completed");
     });
 
-    await expect(
-      drain(transport.subscribeToRun({ threadId: "thread-1", runId })),
-    ).rejects.toThrow("earliest available sequence");
     const run = await transport.getRun?.({ threadId: "thread-1", runId });
+    const lastSequence = run?.lastSequence ?? 0;
+    const fromStart = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    expect(fromStart).toHaveLength(5);
+    expect(fromStart[0]).toMatchObject({
+      type: "x-agent-native.persisted-event-omission-range",
+      sequence: 1,
+      payload: { lastSequence: lastSequence - 4 },
+    });
+    expect(fromStart.slice(1).map((event) => event.sequence)).toEqual([
+      lastSequence - 3,
+      lastSequence - 2,
+      lastSequence - 1,
+      lastSequence,
+    ]);
+    expect(agentEventSequenceEnd(fromStart[0]!)).toBe(lastSequence - 4);
     const replay = await drain(
       transport.subscribeToRun({
         threadId: "thread-1",

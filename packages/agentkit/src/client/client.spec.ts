@@ -7963,6 +7963,28 @@ describe("AgentKitClient", () => {
     ).toEqual([1]);
   });
 
+  it("ignores events from a run other than the subscribed one", async () => {
+    const transport = createTransport([]);
+    transport.subscribeToRun = async function* ({ runId }) {
+      yield protocolEvent(1, { type: "run.started" });
+      yield { ...protocolEvent(7, { type: "run.started" }), runId: "run-2" };
+      yield { ...protocolEvent(8, { type: "run.completed" }), runId: "run-2" };
+      yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+    };
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 0 },
+    });
+
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
+
+    await run.completed;
+    expect(client.getThread("thread-1").runs["run-2"]).toBeUndefined();
+    expect(client.getThread("thread-1").runs["run-1"]?.status).toBe(
+      "completed",
+    );
+  });
+
   it("rejects a stream that closes without an explicit terminal event", async () => {
     const client = new AgentKitClient({
       transport: createTransport([protocolEvent(1, { type: "run.started" })]),
