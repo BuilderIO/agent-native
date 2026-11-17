@@ -31,7 +31,9 @@ export {
 export {
   redactPublicReviewCommentIdentity,
   redactPublicReviewStatusIdentity,
+  reviewActorKindFromContext,
   reviewAuthorNameFromContext,
+  reviewReactionActor,
   shouldRedactReviewIdentity,
 } from "./identity.js";
 export { extractReviewMentions, normalizeReviewMentions } from "./mentions.js";
@@ -58,6 +60,7 @@ export {
   ensureReviewTables,
   findReviewCommentLink,
   getReviewCommentById,
+  getReviewDiscussionStateForComments,
   getReviewStatus,
   getReviewThreadSummary,
   getReviewThreadRoot,

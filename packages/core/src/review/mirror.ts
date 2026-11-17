@@ -265,6 +265,7 @@ async function mirrorReactions(
   client: DbExec,
   copies: readonly ReviewCommentCopy[],
 ): Promise<void> {
+  if (copies.length === 0) return;
   const ids = copies.map((copy) => copy.id);
   const { rows } =
     await client.execute(sql`SELECT comment_id, actor_email, reaction
@@ -327,13 +328,20 @@ async function mirrorReactions(
  * it; call `ensureReviewTables()` before opening that transaction. A comment
  * ID the kit holds on another resource is refused with a
  * `ReviewCommentResourceConflictError`, which rolls the write back.
+ *
+ * With `onlyMissing`, it only adds the comments the kit lacks, with their
+ * reactions, and leaves every comment it has as it is, deleted ones too. An
+ * app that has switched to the kit copies with it, so a comment changed
+ * through the kit since is never put back as the app's table had it.
  */
 export async function mirrorReviewComments(
   resource: ReviewMirrorResource,
   copies: readonly ReviewCommentCopy[],
+  options: { onlyMissing?: boolean } = {},
 ): Promise<{ written: number }> {
   if (copies.length === 0) return { written: 0 };
   await prepareTables();
+  if (options.onlyMissing) return addMissingComments(resource, copies);
   return inWrite(async (client) => {
     const row = `(${COPY_COLUMNS.map(() => "?").join(", ")})`;
     const updates = UPDATED_COLUMNS.map(
@@ -366,6 +374,38 @@ export async function mirrorReviewComments(
         batch.map((copy) => copy.id),
       );
       await mirrorReactions(client, batch);
+    }
+    return { written };
+  });
+}
+
+async function addMissingComments(
+  resource: ReviewMirrorResource,
+  copies: readonly ReviewCommentCopy[],
+): Promise<{ written: number }> {
+  return inWrite(async (client) => {
+    const row = `(${COPY_COLUMNS.map(() => "?").join(", ")})`;
+    let written = 0;
+    for (const batch of chunks(copies)) {
+      // raw-sql-ok: the column list and placeholders are constant text; every value is bound.
+      const { rows } = await client.execute({
+        sql: `INSERT INTO agent_review_comments (${COPY_COLUMNS.join(", ")})
+          VALUES ${batch.map(() => row).join(", ")}
+          ON CONFLICT (id) DO NOTHING
+          RETURNING id`,
+        args: batch.flatMap((copy) => copyValues(resource, copy)),
+      });
+      written += rows.length;
+      await assertSameResource(
+        client,
+        resource,
+        batch.map((copy) => copy.id),
+      );
+      const added = new Set(rows.map((inserted) => String(inserted.id)));
+      await mirrorReactions(
+        client,
+        batch.filter((copy) => added.has(copy.id)),
+      );
     }
     return { written };
   });

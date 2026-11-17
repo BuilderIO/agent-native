@@ -1,0 +1,5 @@
+---
+"@agent-native/core": minor
+---
+
+Comments & Review Kit: a registration can now set `comments.resolveRole`, the lowest role that may resolve and reopen threads (default `editor`), and `resolveTitle`, `resolveUrl(resourceId, comment)` and `email: { preferenceKey, settingsName }` for the comment email, which then names the resource, links to the thread's slide or page and reads the app's own email setting. The agent's reactions are kept as its own, apart from the person it works for, and `reviewActorKindFromContext()` and `reviewReactionActor()` are exported. `mirrorReviewComments(resource, copies, { onlyMissing: true })` adds only the comments the kit lacks, for an app's last copy once it has switched. Slides now reads and writes its comments through the kit.

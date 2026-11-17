@@ -330,6 +330,75 @@ afterEach(async () => {
   vi.clearAllMocks();
 });
 
+it("keeps the agent's reactions apart from the person it works for", async () => {
+  const root = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "private",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+  const resource = { resourceType: "doc", resourceId: "private" };
+  const person = { userEmail: EDITOR_EMAIL, caller: "frontend" };
+  const agent = { userEmail: EDITOR_EMAIL, caller: "tool" };
+  const react = (ctx: typeof person, active: boolean) =>
+    reactToReviewCommentAction.run(
+      { ...resource, commentId: root.id, reaction: "👍", active },
+      ctx,
+    );
+
+  await react(person, true);
+  await react(agent, true);
+  await react(person, false);
+
+  const asPerson = await listReviewCommentsAction.run(resource, person);
+  expect(asPerson.discussion.reactions[root.id]).toEqual([
+    { reaction: "👍", count: 1, reactedByMe: false },
+  ]);
+  const asAgent = await listReviewCommentsAction.run(resource, agent);
+  expect(asAgent.discussion.reactions[root.id]).toEqual([
+    { reaction: "👍", count: 1, reactedByMe: true },
+  ]);
+});
+
+it("lets a resource choose who may resolve its threads", async () => {
+  registerReviewableResource({
+    type: "deck",
+    resolveAccess: () => ({
+      role: "commenter",
+      ownerEmail: OWNER_EMAIL,
+      orgId: null,
+      visibility: "private",
+    }),
+    comments: { resolveRole: "commenter" },
+  });
+  const commenter = { userEmail: COMMENTER_EMAIL, caller: "frontend" };
+  const onDoc = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "private",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+  const onDeck = await insertReviewComment({
+    resourceType: "deck",
+    resourceId: "deck-1",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+
+  await expect(
+    resolveReviewThreadAction.run(
+      { resourceType: "doc", resourceId: "private", threadId: onDoc.threadId },
+      commenter,
+    ),
+  ).rejects.toThrow();
+  await expect(
+    resolveReviewThreadAction.run(
+      { resourceType: "deck", resourceId: "deck-1", threadId: onDeck.threadId },
+      commenter,
+    ),
+  ).resolves.toMatchObject({ resolved: true });
+});
+
 describe("review actions", () => {
   it("claims a notification recipient once across concurrent retries", async () => {
     const [first, second] = await Promise.all([

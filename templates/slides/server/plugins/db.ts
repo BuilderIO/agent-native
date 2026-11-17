@@ -10,7 +10,7 @@ import { setResponseHeader, setResponseStatus } from "h3";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import {
-  copySlideCommentsToReviewKit,
+  addMissingSlideCommentsToReviewKit,
   type SlideCommentCopyReport,
 } from "../lib/slide-comment-mirror.js";
 
@@ -365,15 +365,25 @@ ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS content_hash TEXT`,
       version: 38,
       name: "slides-comments-copy-to-review-kit",
       sql: {},
-      // Comment actions mirror each comment they change into the review kit
-      // from now on; this brings over the comments written before. A deck
-      // that fails, or still differs after its copy, leaves the copy pending,
-      // so it runs again on the next start. So does a failure of the whole
-      // copy, which shouldn't stop the app starting.
+      // This copied the comments written before Slides mirrored each change
+      // into the review kit, overwriting the kit's copy. Slides now keeps
+      // its comments in the kit, so an overwrite could undo a change made
+      // there; 39 does the copy, adding only what the kit lacks.
+      run: async () => {},
+    },
+    {
+      version: 39,
+      name: "slides-comments-add-missing-to-review-kit",
+      sql: {},
+      // Slides reads and writes its comments in the review kit from now on.
+      // This adds any comment the kit still lacks from `slide_comments`. A
+      // deck that fails leaves the copy pending, so it runs again on the next
+      // start. So does a failure of the whole copy, which shouldn't stop the
+      // app starting.
       run: async () => {
         let report: SlideCommentCopyReport;
         try {
-          report = await copySlideCommentsToReviewKit();
+          report = await addMissingSlideCommentsToReviewKit();
         } catch (error) {
           console.error(
             "[db] Couldn't copy comments to the review kit; it runs again on the next start:",
@@ -381,18 +391,10 @@ ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS content_hash TEXT`,
           );
           return deferMigration();
         }
-        const summary = `[db] Copied ${report.comments} comment(s) on ${report.decks} deck(s) to the review kit`;
-        if (report.differences.length > 0) {
-          console.warn(
-            `${summary}; ${report.differences.length} still differ:`,
-            report.differences.slice(0, 20),
-          );
-        } else {
-          console.log(summary);
-        }
-        if (report.failedDecks.length > 0 || report.differences.length > 0) {
-          return deferMigration();
-        }
+        console.log(
+          `[db] Checked ${report.comments} comment(s) on ${report.decks} deck(s); added ${report.added} the review kit lacked`,
+        );
+        if (report.failedDecks.length > 0) return deferMigration();
       },
     },
   ],

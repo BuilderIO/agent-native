@@ -42,9 +42,28 @@ export interface ReviewResourceContext {
 export interface ReviewableResourceRegistration {
   type: string;
   displayName?: string;
+  /** Where a comment email links: the resource, or the comment's place on it. */
   resolveUrl?: (
     resourceId: string,
+    comment?: ReviewComment,
   ) => Promise<string | null | undefined> | string | null | undefined;
+  /**
+   * The resource's title. Comment emails name it, as in `Ada commented on
+   * "Q3 plan"`, and say "review" without it.
+   */
+  resolveTitle?: (
+    resourceId: string,
+  ) => Promise<string | null | undefined> | string | null | undefined;
+  /** How this resource's comment emails can be turned off. */
+  email?: {
+    /**
+     * The user setting whose `emailNotifications: false` turns them off,
+     * when the app keeps its own. Defaults to the kit's.
+     */
+    preferenceKey?: string;
+    /** Where people change it, named in each email, such as "Slides settings". */
+    settingsName?: string;
+  };
   resolveAccess?: (
     resourceId: string,
     ctx?: ReviewResourceContext,
@@ -88,6 +107,8 @@ export interface ReviewCommentPolicy {
    * people. A thread with a mention always goes to people.
    */
   unmentionedRoute?: ReviewResolutionTarget;
+  /** The lowest role that may resolve and reopen threads. Defaults to `editor`. */
+  resolveRole?: ReviewResourceRole;
 }
 
 export interface ReviewAnchorKind {

@@ -1,12 +1,14 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { ensureReviewTables } from "@agent-native/core/review";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import resolveReviewThread from "@agent-native/core/review/actions/resolve-review-thread";
+import updateReviewComment from "@agent-native/core/review/actions/update-review-comment";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
-import { mirrorSlideComments } from "../server/lib/slide-comment-mirror.js";
+import {
+  DECK_REVIEW_RESOURCE,
+  findSlideComment,
+  slideReviewContext,
+} from "../server/lib/slide-comments.js";
 
 export default defineAction({
   description:
@@ -26,7 +28,7 @@ export default defineAction({
     resourceType: "deck",
     resourceId: deckId,
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const hasContent = args.content !== undefined;
     if (!hasContent && args.resolved === undefined) {
       fail("Provide comment content or a resolved state", {
@@ -36,24 +38,7 @@ export default defineAction({
     }
 
     await assertAccess("deck", args.deckId, "commenter");
-    const db = getDb();
-    const [comment] = await db
-      .select({
-        deckId: schema.slideComments.deckId,
-        slideId: schema.slideComments.slideId,
-        threadId: schema.slideComments.threadId,
-        authorEmail: schema.slideComments.authorEmail,
-        resolved: schema.slideComments.resolved,
-      })
-      .from(schema.slideComments)
-      .where(
-        and(
-          eq(schema.slideComments.id, args.id),
-          eq(schema.slideComments.deckId, args.deckId),
-        ),
-      )
-      .limit(1);
-
+    const comment = await findSlideComment(args.deckId, args.id);
     if (!comment) {
       fail(`Comment not found: ${args.id}`, {
         errorCode: "not_found",
@@ -62,72 +47,34 @@ export default defineAction({
     }
 
     const nextResolved =
-      args.resolved !== undefined && args.resolved !== comment.resolved
+      args.resolved !== undefined &&
+      args.resolved !== (comment.status === "resolved")
         ? args.resolved
         : undefined;
+    const reviewCtx = slideReviewContext(ctx);
+    const resource = {
+      resourceType: DECK_REVIEW_RESOURCE,
+      resourceId: args.deckId,
+    };
 
-    const userEmail = getRequestUserEmail()?.trim().toLowerCase();
-    if (hasContent && comment.authorEmail.trim().toLowerCase() !== userEmail) {
-      await assertAccess("deck", comment.deckId, "editor");
+    // Only its author can change what a comment says. That's checked
+    // first, so a refused edit resolves nothing.
+    if (args.content !== undefined) {
+      await updateReviewComment.run(
+        { ...resource, commentId: comment.id, body: args.content },
+        reviewCtx,
+      );
     }
-
     // Sending the thread's current resolved state alone changes nothing.
-    if (args.content === undefined && nextResolved === undefined) {
-      return { ok: true };
-    }
-
-    const updatedAt = new Date().toISOString();
-    await ensureReviewTables();
-    await db.transaction(async (tx) => {
-      // Adding and deleting comments lock the deck first, as does the copy
-      // into the review kit, so a reply can't land partway through resolving
-      // its thread, and the copy never waits on rows this holds.
-      await tx
-        .select({ id: schema.decks.id })
-        .from(schema.decks)
-        .where(eq(schema.decks.id, comment.deckId))
-        .for("update");
-      const changedIds = new Set<string>();
-
-      if (args.content !== undefined) {
-        const updated = await tx
-          .update(schema.slideComments)
-          .set({ content: args.content, updatedAt })
-          .where(
-            and(
-              eq(schema.slideComments.id, args.id),
-              eq(schema.slideComments.deckId, comment.deckId),
-            ),
-          )
-          .returning({ id: schema.slideComments.id });
-        if (updated.length === 0) {
-          fail(`Comment not found: ${args.id}`, {
-            errorCode: "not_found",
-            statusCode: 404,
-          });
-        }
-        changedIds.add(args.id);
-      }
-
-      if (nextResolved !== undefined) {
-        const resolvedRows = await tx
-          .update(schema.slideComments)
-          .set({ resolved: nextResolved, updatedAt })
-          .where(
-            and(
-              eq(schema.slideComments.deckId, comment.deckId),
-              eq(schema.slideComments.slideId, comment.slideId),
-              eq(schema.slideComments.threadId, comment.threadId),
-            ),
-          )
-          .returning({ id: schema.slideComments.id });
-        for (const row of resolvedRows) changedIds.add(row.id);
-      }
-
-      await mirrorSlideComments(tx, comment.deckId, [...changedIds]);
-    });
-
     if (nextResolved !== undefined) {
+      await resolveReviewThread.run(
+        {
+          ...resource,
+          threadId: comment.threadId,
+          status: nextResolved ? "resolved" : "open",
+        },
+        reviewCtx,
+      );
       return { ok: true, resolved: nextResolved };
     }
 

@@ -183,6 +183,35 @@ describe("mirrorReviewComments", () => {
     });
   });
 
+  it("only adds what the kit lacks when asked, leaving the rest as the kit has it", async () => {
+    const deck = { ...DECK, resourceId: "deck-only-missing" };
+    const kept = copy();
+    const deleted = copy();
+    await mirrorReviewComments(deck, [kept, deleted]);
+    await deleteMirroredReviewComments(deck, [deleted.id], "tiana@example.com");
+    const added = copy();
+
+    const result = await mirrorReviewComments(
+      deck,
+      [{ ...kept, body: "An older wording", reactions: [] }, deleted, added],
+      { onlyMissing: true },
+    );
+
+    expect(result).toEqual({ written: 1 });
+    expect(await stored(kept.id)).toMatchObject({
+      body: kept.body,
+      revision: 1,
+    });
+    expect(await reactionsOn(kept.id)).toEqual([
+      { actor_email: "sam@example.com", reaction: "👍" },
+    ]);
+    expect(await stored(deleted.id)).toMatchObject({ status: "deleted" });
+    expect(await stored(added.id)).toMatchObject({ body: added.body });
+    expect(await reactionsOn(added.id)).toEqual([
+      { actor_email: "sam@example.com", reaction: "👍" },
+    ]);
+  });
+
   it("refuses an ID the kit holds on another resource and writes nothing", async () => {
     const comment = copy();
     await mirrorReviewComments(DECK, [comment]);

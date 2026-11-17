@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { deleteMirroredSlideComments } from "../server/lib/slide-comment-mirror.js";
+import { deleteDeckComments } from "../server/lib/slide-comments.js";
 import { deckHttpError } from "./_deck-write.js";
 
 export default defineAction({
@@ -82,7 +82,7 @@ export default defineAction({
         await tx
           .delete(schema.slideComments)
           .where(eq(schema.slideComments.deckId, id));
-        await deleteMirroredSlideComments(id, "all");
+        await deleteDeckComments(id);
         await tx
           .delete(schema.deckShareLinks)
           .where(eq(schema.deckShareLinks.deckId, id));

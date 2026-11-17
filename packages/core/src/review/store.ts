@@ -431,9 +431,15 @@ export async function setReviewThreadUnreadPreferences(input: {
   }));
 }
 
+/**
+ * Reactions and thread preferences for these comments, as `userEmail` sees
+ * them. `reactionActor` is whose reactions count as theirs, when that isn't
+ * `userEmail` (see `reviewReactionActor`).
+ */
 export async function getReviewDiscussionStateForComments(
   comments: Pick<ReviewComment, "id" | "threadId">[],
   userEmail: string | null,
+  reactionActor: string | null = userEmail,
 ) {
   const reactions: Record<string, ReviewCommentReaction[]> = {};
   const threadPreferences: Record<string, ReviewThreadPreference> = {};
@@ -445,10 +451,11 @@ export async function getReviewDiscussionStateForComments(
   for (const id of threadIds)
     threadPreferences[id] = { muted: false, unread: false };
   const client = getDbExec();
+  // raw-sql-ok: the IN lists are placeholders only; every value is bound.
   const [reactionRows, preferenceRows] = await Promise.all([
     client.execute({
       sql: `SELECT comment_id,reaction,COUNT(*) AS count,MAX(CASE WHEN actor_email = ? THEN 1 ELSE 0 END) AS reacted_by_me FROM agent_review_comment_reactions WHERE comment_id IN (${commentIds.map(() => "?").join(",")}) GROUP BY comment_id,reaction ORDER BY comment_id,reaction`,
-      args: [userEmail, ...commentIds],
+      args: [reactionActor, ...commentIds],
     }),
     userEmail
       ? client.execute({

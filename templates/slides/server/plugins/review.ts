@@ -1,11 +1,47 @@
 import { registerReviewableResource } from "@agent-native/core/review";
 import { defineNitroPlugin } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 
+import { getDeckUrl } from "../../actions/_app-url.js";
 import { slideCommentAnchorSchema } from "../../shared/slide-comment-anchor.js";
+import { withUniqueSlideIds } from "../../shared/slide-ids.js";
+import { SLIDES_USER_PREFS_KEY } from "../../shared/slides-user-prefs.js";
+import { getDb, schema } from "../db/index.js";
 import {
+  assertCommentSlideInDeck,
   DECK_REVIEW_RESOURCE,
   SLIDE_POINT_ANCHOR,
-} from "../lib/slide-comment-mirror.js";
+} from "../lib/slide-comments.js";
+
+async function readDeck(deckId: string) {
+  // guard:allow-unscoped — the kit asks for a deck's title and link only for a comment it has already let someone write there.
+  const rows = await getDb()
+    .select({ title: schema.decks.title, data: schema.decks.data })
+    .from(schema.decks)
+    .where(eq(schema.decks.id, deckId))
+    .limit(1);
+  return rows.at(0) ?? null;
+}
+
+// The slide's number, which the deck's link opens at, or null.
+function slideNumber(
+  deckId: string,
+  data: string,
+  slideId: string,
+): number | null {
+  let parsed: unknown;
+  try {
+    parsed = withUniqueSlideIds(deckId, JSON.parse(data));
+    // coercion-ok: a deck whose data can't be read still gets a link, to the deck rather than the slide.
+  } catch {
+    return null;
+  }
+  const slides = (parsed as { slides?: Array<{ id?: unknown } | null> } | null)
+    ?.slides;
+  if (!Array.isArray(slides)) return null;
+  const index = slides.findIndex((slide) => slide?.id === slideId);
+  return index >= 0 ? index + 1 : null;
+}
 
 export default defineNitroPlugin(() => {
   registerReviewableResource({
@@ -17,10 +53,26 @@ export default defineNitroPlugin(() => {
         parse: (anchor) => slideCommentAnchorSchema.parse(anchor),
       },
     },
-    // Until Slides reads its comments from the kit, its own comment actions
-    // write them, mirroring each into the kit. A write through the kit's
-    // actions wouldn't show in Slides, so they're refused.
-    commentsWrittenByApp:
-      "Slide comments are written with add-slide-comment, update-slide-comment, delete-slide-comment and toggle-slide-comment-reaction.",
+    // A comment that mentions no one is for the deck's people, not the
+    // agent, and anyone who can comment can resolve a thread, as before
+    // Slides kept its comments in the kit.
+    comments: { unmentionedRoute: "human", resolveRole: "commenter" },
+    resolveTitle: async (deckId) => (await readDeck(deckId))?.title,
+    resolveUrl: async (deckId, comment) => {
+      const url = getDeckUrl(deckId);
+      if (!comment?.surfaceId) return url;
+      const deck = await readDeck(deckId);
+      const number = deck && slideNumber(deckId, deck.data, comment.surfaceId);
+      return number ? `${url}?slide=${number}` : url;
+    },
+    email: {
+      preferenceKey: SLIDES_USER_PREFS_KEY,
+      settingsName: "Slides settings",
+    },
+    onCommentWrite: async (event, tx) => {
+      if (event.type === "created" && !event.comment.parentCommentId) {
+        await assertCommentSlideInDeck(tx, event.comment);
+      }
+    },
   });
 });

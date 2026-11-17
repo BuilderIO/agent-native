@@ -1,8 +1,10 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
+import { reviewReactionActor } from "../identity.js";
 import { assertReviewCommentAccess } from "../registry.js";
 import { getReviewCommentById, setReviewCommentReaction } from "../store.js";
+import type { ReviewResourceContext } from "../types.js";
 
 export default defineAction({
   description: "Add or remove your reaction on a review comment.",
@@ -42,7 +44,7 @@ export default defineAction({
         statusCode: 404,
         errorCode: "not_found",
       });
-    const actorEmail = (ctx as any)?.userEmail;
+    const actorEmail = reviewReactionActor(ctx as ReviewResourceContext);
     if (!actorEmail)
       fail("A signed-in actor is required", {
         statusCode: 401,

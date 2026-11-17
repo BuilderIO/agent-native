@@ -95,9 +95,19 @@ A registration can also set how comments behave on its resource:
 ```ts
 registerReviewableResource({
   type: "deck",
-  comments: { minimumRole: "viewer", unmentionedRoute: "human" },
+  comments: {
+    minimumRole: "viewer",
+    unmentionedRoute: "human",
+    resolveRole: "commenter",
+  },
   anchorKinds: {
     "slide-point": { version: 2, parse: parseSlidePoint },
+  },
+  resolveTitle: async (deckId) => (await readDeck(deckId))?.title,
+  resolveUrl: (deckId, comment) => deckUrl(deckId, comment?.surfaceId),
+  email: {
+    preferenceKey: "slides-user-prefs",
+    settingsName: "Slides settings",
   },
   async onCommentWrite(event, tx) {
     await tx.execute(/* keep the deck's comment count in step */);
@@ -109,7 +119,14 @@ registerReviewableResource({
   edit or delete their own comments (default `commenter`). Suggesting needs it
   too, and never less than `commenter`.
   `comments.unmentionedRoute` sends a new thread with no mention to the agent
-  (the default) or to people.
+  (the default) or to people. `comments.resolveRole` is the lowest role that
+  may resolve and reopen threads (default `editor`).
+- The comment email names the resource by `resolveTitle`, links to
+  `resolveUrl`, which is given the comment so it can open the slide or page the
+  thread is on, and reads each person's choice from the setting
+  `email.preferenceKey` (default `activity-notification-prefs`), whose
+  `emailNotifications: false` turns it off. `email.settingsName` tells them
+  where that setting is.
 - `anchorKinds` types the anchor. Once a resource declares any, every anchored
   comment names its `anchorKind`, and `parse(anchor, version)` checks it and
   returns what's stored, so an older version can be read forward. A comment is
@@ -174,7 +191,14 @@ app switches only once the stores agree. Sharing counts: the kit keeps the
 resource's owner, org and visibility on each copy, so a resource whose sharing
 changed since its comments were copied differs until they're copied again. `listMirroredResourceIds(type, page)`
 finds resources with comments only the kit still has, which a copy driven by
-the app's own table would miss. Slides is the first app to move.
+the app's own table would miss.
+
+At the switch the app's actions keep their names and results but call the
+kit's actions, `commentsWrittenByApp` comes off, and the copy runs once more
+with `mirrorReviewComments(resource, copies, { onlyMissing: true })`, which
+only adds the comments the kit lacks. A comment changed or deleted through the
+kit since stays as it is. Slides has switched; its old table goes in a later
+release.
 
 ## UI Usage {#ui-usage}
 
