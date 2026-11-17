@@ -59,13 +59,19 @@ describe("external design authoring catalog", () => {
       "connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES",
     );
     expect(agentChatSource).toContain(
-      'keyToolNames: ["get-visual-edit-pending"]',
+      'keyToolNames: ["get-visual-edit-pending", "clear-edits"]',
     );
     const connectorCatalog = agentChatSource.slice(
       agentChatSource.indexOf("const EXTERNAL_CONNECTOR_TOOL_NAMES = ["),
       agentChatSource.indexOf("const INITIAL_TOOL_NAMES = ["),
     );
     expect(connectorCatalog).toContain('"get-visual-edit-pending"');
+    expect(connectorCatalog).toContain('"clear-edits"');
+    const initialTools = agentChatSource.slice(
+      agentChatSource.indexOf("const INITIAL_TOOL_NAMES = ["),
+      agentChatSource.indexOf("const DESIGN_EDIT_TOOLS = new Set(["),
+    );
+    expect(initialTools).toContain('"clear-edits"');
     expect(connectorCatalog).toContain('"delete-file"');
     expect(agentChatSource).toContain(
       'externalAgents: { writes: "allowlisted" }',
