@@ -1441,18 +1441,10 @@ export function CommentAiRequestStatus({
             try {
               await onRetry();
             } catch (error) {
-              const cause =
-                error instanceof CommentAiConversationUnavailableError
-                  ? error.cause
-                  : error;
               toast.error(
                 error instanceof CommentAiConversationUnavailableError
                   ? error.message
                   : t("empty.genericError"),
-                {
-                  description:
-                    cause instanceof Error ? cause.message : undefined,
-                },
               );
             }
           }}

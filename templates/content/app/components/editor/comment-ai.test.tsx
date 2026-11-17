@@ -225,6 +225,7 @@ describe("comment AI controls", () => {
   it.each([
     "This AI conversation is no longer available",
     "The AI conversation could not be loaded",
+    "Internal details that must not be displayed",
   ])(
     "reports a protected conversation load failure and can retry: %s",
     async (message) => {
@@ -273,7 +274,6 @@ describe("comment AI controls", () => {
       await act(async () => retry().click());
       expect(api.toastError).toHaveBeenCalledWith(
         "comments.aiConversationUnavailable",
-        { description: message },
       );
       expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
       expect(api.callAction).not.toHaveBeenCalled();
@@ -315,9 +315,7 @@ describe("comment AI controls", () => {
         .find((button) => button.textContent === "comments.retry")!
         .click();
     });
-    expect(api.toastError).toHaveBeenCalledWith("empty.genericError", {
-      description: "Unexpected failure",
-    });
+    expect(api.toastError).toHaveBeenCalledWith("empty.genericError");
     expect(document.body.textContent).toContain("comments.retry");
   });
 
