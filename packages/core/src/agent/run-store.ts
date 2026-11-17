@@ -4203,7 +4203,19 @@ async function withFirstStopCutoff(
   event: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   if (event["type"] !== "done" || event["reason"] !== "user") return event;
-  const { rows } = await tx.execute({
+  const shownThroughSeq = await readUserStopCutoff(tx, runId);
+  return shownThroughSeq === undefined ? event : { ...event, shownThroughSeq };
+}
+
+/**
+ * Where the browser was when a user's Stop ended the run, as the Stop wrote it
+ * in the run's final event, or undefined when it reported none.
+ */
+async function readUserStopCutoff(
+  db: DbExec,
+  runId: string,
+): Promise<number | undefined> {
+  const { rows } = await db.execute({
     sql: `SELECT event_data FROM agent_run_events
           WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
     args: [runId],
@@ -4214,13 +4226,14 @@ async function withFirstStopCutoff(
     last = data ? JSON.parse(data) : {};
   } catch {
     // coercion-ok: appending the final event reports the malformed last event.
-    return event;
+    return undefined;
   }
   return last.type === "done" &&
     last.reason === "user" &&
+    typeof last.shownThroughSeq === "number" &&
     Number.isSafeInteger(last.shownThroughSeq)
-    ? { ...event, shownThroughSeq: last.shownThroughSeq }
-    : event;
+    ? last.shownThroughSeq
+    : undefined;
 }
 
 async function lockExecutionLeasesForRuns(
@@ -4546,7 +4559,7 @@ export async function isRunAborted(runId: string): Promise<boolean> {
 
 export async function getRunAbortState(
   runId: string,
-): Promise<{ aborted: boolean; reason?: string }> {
+): Promise<{ aborted: boolean; reason?: string; shownThroughSeq?: number }> {
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
@@ -4556,9 +4569,17 @@ export async function getRunAbortState(
   if (rows.length === 0) return { aborted: false };
   const row = rows[0] as { status: string; abort_reason?: string | null };
   if (row.status !== "aborted") return { aborted: false };
+  // A server still running the reply ends it where the Stop's browser was.
+  let shownThroughSeq: number | undefined;
+  try {
+    shownThroughSeq = await readUserStopCutoff(client, runId);
+  } catch {
+    // coercion-ok: the run still stops; its saved reply reads the cutoff itself.
+  }
   return {
     aborted: true,
     ...(row.abort_reason ? { reason: row.abort_reason } : {}),
+    ...(shownThroughSeq !== undefined ? { shownThroughSeq } : {}),
   };
 }
 

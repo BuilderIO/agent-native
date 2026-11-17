@@ -189,10 +189,12 @@ const ABORT_STATE_READ_RETRY_MS = 200;
 /**
  * Reads a run's abort state, retrying a failed read until the deadline.
  * Null means it couldn't be read in time, which is not the same as no Stop.
+ * Each failed read goes to `onFailedRead`, so the caller can report the last.
  */
 export async function readAbortStateBeforeDeadline<TState>(
   read: () => Promise<TState>,
   deadlineMs: number,
+  onFailedRead?: (error: unknown) => void,
 ): Promise<TState | null> {
   const deadline = Date.now() + deadlineMs;
   while (Date.now() < deadline) {
@@ -207,8 +209,9 @@ export async function readAbortStateBeforeDeadline<TState>(
       ]);
       if (result === "timed-out") return null;
       return result.state;
-    } catch {
+    } catch (error) {
       // coercion-ok: a failed read is retried until the deadline, then reported.
+      onFailedRead?.(error);
       const wait = Math.min(ABORT_STATE_READ_RETRY_MS, deadline - Date.now());
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
     } finally {
@@ -1785,10 +1788,14 @@ export function startRun(
   let terminalStatusWriteOutcomeUnknown = false;
   // An abort this server reads from SQL was written by the server that took
   // the Stop, with its terminal event, and that write revoked this run's
-  // lease. Writing it again here would fail on the revoked lease.
-  const adoptPersistedAbort = (reason: string | undefined) => {
+  // lease. Writing it again here would fail on the revoked lease. Ending the
+  // run here keeps that Stop's cutoff too, so this copy matches the one in SQL.
+  const adoptPersistedAbort = (state: {
+    reason?: string;
+    shownThroughSeq?: number;
+  }) => {
     run.abortPersistenceManaged = true;
-    abortInMemoryRun(run, reason ?? "user");
+    abortInMemoryRun(run, state.reason ?? "user", userStopFrom(state));
   };
   const inspectSqlAbortState = async (
     includeTerminalStatus: boolean,
@@ -1796,7 +1803,7 @@ export function startRun(
     // raw-sql-ok: getRunAbortState binds runId through its query args.
     const state = await getRunAbortState(runId);
     if (state.aborted && !abort.signal.aborted) {
-      adoptPersistedAbort(state.reason);
+      adoptPersistedAbort(state);
       return;
     }
     let status: string | null = null;
@@ -1866,17 +1873,24 @@ export function startRun(
   // Ending the run as that Stop, as the abort check would, lets the run's
   // completion still save the reply it streamed.
   const abortForRevokedLease = async () => {
+    let lastReadError: unknown;
     const state = await readAbortStateBeforeDeadline(
       // raw-sql-ok: getRunAbortState binds runId through its query args.
       () => getRunAbortState(runId),
       REVOKED_LEASE_ABORT_STATE_DEADLINE_MS,
+      (error) => {
+        lastReadError = error;
+      },
     );
     if (completionInProgress || abort.signal.aborted) return;
-    if (state?.aborted) adoptPersistedAbort(state.reason);
+    if (state?.aborted) adoptPersistedAbort(state);
     else {
       if (!state) {
+        // A read still pending at the deadline leaves no error to attach.
         captureError(
-          new Error("Could not read the run's abort state in time"),
+          new Error("Could not read the run's abort state in time", {
+            cause: lastReadError,
+          }),
           {
             route: "/_agent-native/agent-chat",
             aiTraceId: runId,
@@ -4107,7 +4121,7 @@ async function abortRunAtSafeBoundaryDurablyResult(
     try {
       const state = await getRunAbortState(runId);
       if (state.aborted && run) {
-        abortRunInMemory(runId, state.reason ?? reason);
+        abortRunInMemory(runId, state.reason ?? reason, userStopFrom(state));
       }
     } catch (stateError) {
       captureError(stateError, {

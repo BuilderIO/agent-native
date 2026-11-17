@@ -11253,4 +11253,24 @@ describe("readAbortStateBeforeDeadline", () => {
     await expect(result).resolves.toBeNull();
     expect(read.mock.calls.length).toBeGreaterThan(1);
   });
+
+  it("hands each failed read's error to the caller", async () => {
+    vi.useFakeTimers();
+    const first = new Error("connection reset");
+    const last = new Error("database unavailable");
+    const read = vi
+      .fn<() => Promise<{ aborted: boolean }>>()
+      .mockRejectedValueOnce(first)
+      .mockRejectedValue(last);
+    const failures: unknown[] = [];
+    const result = readAbortStateBeforeDeadline(read, 1_000, (error) =>
+      failures.push(error),
+    );
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(result).resolves.toBeNull();
+    expect(failures[0]).toBe(first);
+    expect(failures.at(-1)).toBe(last);
+  });
 });

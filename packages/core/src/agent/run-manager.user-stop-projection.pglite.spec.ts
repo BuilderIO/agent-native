@@ -330,6 +330,25 @@ describe("a stopped leased run's completion", () => {
     expect(savedText(reply).trim()).toBe("1. Tides turn.");
   });
 
+  it("ends the run with the cutoff another server's Stop wrote", async () => {
+    let shownThroughSeq: number | undefined;
+    const { run } = await stopOnAnotherServer(
+      {
+        runId: "run-user-stop-other-server-terminal-cutoff",
+        threadId: "thread-user-stop-other-server-terminal-cutoff",
+        text: "1. Tides turn. 2. Moons pull. 3. Reefs",
+      },
+      (streaming) => (shownThroughSeq = seqOfText(streaming, "turn. ")),
+    );
+
+    // The server running the reply hands its subscribers this copy of the Stop.
+    expect(run.events.at(-1)?.event).toMatchObject({
+      type: "done",
+      reason: "user",
+      shownThroughSeq,
+    });
+  });
+
   it("leaves a run another server stopped for the projection retry when its save fails", async () => {
     const runId = "run-user-stop-other-server-save-failed";
     const { completion } = await stopOnAnotherServer({
