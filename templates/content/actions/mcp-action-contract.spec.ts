@@ -538,4 +538,27 @@ describe("Content action-owned agent catalogs", () => {
     expect(editProperties?.baseRevision?.description).toContain("get-document");
     expect(editProperties?.idempotencyKey?.description).toContain("stable key");
   });
+
+  it("lets agents chain document writes from their receipts without a readback", () => {
+    // create-document and edit-document already return the saved revision, and
+    // an applied edit's receipt is read back inside its transaction, so their
+    // guidance must not send agents to get-document after a successful write.
+    expect(createDocument.tool.description).not.toContain(
+      "for subsequent get-document",
+    );
+    expect(createDocument.tool.description).toContain(
+      "pass that revision to edit-document as baseRevision",
+    );
+    expect(editDocument.tool.description).not.toContain(
+      "First call get-document",
+    );
+    expect(editDocument.tool.description).toContain(
+      "an applied receipt needs no readback",
+    );
+    const baseRevision =
+      editDocument.tool.parameters?.properties?.baseRevision?.description;
+    expect(baseRevision).toContain("create-document");
+    expect(baseRevision).toContain("receipt.revisions.after");
+    expect(baseRevision).toContain("don't call get-document to check the edit");
+  });
 });
