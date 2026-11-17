@@ -89,9 +89,7 @@ const executor = {
   execute: async (input: string | { sql: string; args?: unknown[] }) => {
     const sql = typeof input === "string" ? input : input.sql;
     const args = typeof input === "string" ? [] : (input.args ?? []);
-    if (
-      failing instanceof RegExp ? failing.test(sql) : failing?.(sql, args)
-    ) {
+    if (failing instanceof RegExp ? failing.test(sql) : failing?.(sql, args)) {
       throw new Error("connection reset");
     }
     const pause = pausing;
