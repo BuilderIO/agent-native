@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const listenerSets = new Map<string, Set<EventListenerOrEventListenerObject>>();
 const origin = "https://host.example";
+let negotiatedOrigin: string | null = origin;
 const parent = { postMessage: vi.fn() };
 const windowStub: {
   parent: unknown;
@@ -41,8 +42,12 @@ vi.stubGlobal("window", windowStub);
 
 vi.mock("./frame.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./frame.js")>()),
-  getFrameOrigin: () => origin,
-  isTrustedFrameMessage: (event: MessageEvent) => event.origin === origin,
+  getFrameOrigin: () => negotiatedOrigin,
+  isTrustedFrameMessage: (event: MessageEvent) =>
+    event.origin === origin ||
+    (event.origin === "null" &&
+      event.source === parent &&
+      negotiatedOrigin === "null"),
 }));
 vi.mock("./builder-frame.js", () => ({
   isInBuilderFrame: () => false,
@@ -61,6 +66,7 @@ vi.mock("./analytics.js", async (importOriginal) => ({
 const { AGENT_CHAT_SUBMIT_RESULT_EVENT } = await import("./agent-chat.js");
 
 afterEach(() => {
+  negotiatedOrigin = origin;
   for (const type of listenerSets.keys()) {
     if (type !== "message") listenerSets.delete(type);
   }
@@ -114,7 +120,6 @@ describe("agent chat parent acknowledgement listener", () => {
       { origin: "https://evil.example" },
       { origin: "https://evil.example" },
     ],
-    ["an opaque origin", { origin: "null" }, { origin: "null" }],
   ])("ignores acknowledgements from %s", (_label, _unused, eventOptions) => {
     const result = vi.fn();
     windowStub.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, result);
@@ -123,6 +128,32 @@ describe("agent chat parent acknowledgement listener", () => {
       { submitMessageId: "submit-1", delivered: true },
       options.origin ? options : { source: {} },
     );
+    expect(result).not.toHaveBeenCalled();
+  });
+
+  it("accepts an acknowledgement from the negotiated opaque parent origin", () => {
+    negotiatedOrigin = "null";
+    const result = vi.fn();
+    windowStub.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, result);
+
+    sendAck(
+      { submitMessageId: "submit-1", delivered: true },
+      { origin: "null" },
+    );
+
+    expect(result).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an opaque acknowledgement from a sibling frame", () => {
+    negotiatedOrigin = "null";
+    const result = vi.fn();
+    windowStub.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, result);
+
+    sendAck(
+      { submitMessageId: "submit-1", delivered: true },
+      { origin: "null", source: {} },
+    );
+
     expect(result).not.toHaveBeenCalled();
   });
 

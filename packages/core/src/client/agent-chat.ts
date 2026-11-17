@@ -290,7 +290,6 @@ if (typeof window !== "undefined") {
       if (
         window.parent === window ||
         event.source !== window.parent ||
-        event.origin === "null" ||
         event.origin !== getFrameOrigin()
       ) {
         return;
