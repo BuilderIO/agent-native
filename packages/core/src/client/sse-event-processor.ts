@@ -10,7 +10,10 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isTerminalRecoveryErrorCode,
 } from "../agent/engine/error-detail.js";
-import type { AgentChatRichEventEnvelope } from "../agent/types.js";
+import type {
+  A2APeerApproval,
+  AgentChatRichEventEnvelope,
+} from "../agent/types.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { normalizeConnectRequiredResult } from "../shared/connect-required.js";
@@ -148,6 +151,8 @@ export interface SSEEvent {
   agentCallId?: string;
   durationMs?: number;
   terminalCode?: string;
+  /** A peer approval on a pending `agent_call` (mirrors AgentChatEvent). */
+  approval?: A2APeerApproval;
   snapshot?: A2AAgentActivitySnapshot;
   reason?: string;
   // Agent task fields
