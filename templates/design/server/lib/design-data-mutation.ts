@@ -6,6 +6,10 @@ import {
   designSourceMutationLockKey,
   lockDesignFilesTable,
 } from "../source-workspace.js";
+import {
+  assertVisualEditBoardDataSize,
+  assertVisualEditBoardFileSize,
+} from "./visual-edit-capability.js";
 
 const DEFAULT_MAX_ATTEMPTS = 8;
 const CONFLICT_BACKOFF_MS = 8;
@@ -212,6 +216,7 @@ async function mutateDesignDataUnlocked<TTransactionResult>({
         const currentData = parseDesignData(designId, currentRow.data);
         const nextData = mutate(currentData, { updatedAt });
         const nextSerialized = serializeDesignData(designId, nextData);
+        assertVisualEditBoardDataSize(nextSerialized);
         const currentFiles = mutateFiles
           ? await tx
               .select({
@@ -281,6 +286,7 @@ async function mutateDesignDataUnlocked<TTransactionResult>({
               );
             }
             if (file.content === mutation.content) continue;
+            assertVisualEditBoardFileSize(mutation.content);
             const fileUpdatedAt = nextUpdatedAt(file.updatedAt, currentTime);
             await tx
               .update(schema.designFiles)

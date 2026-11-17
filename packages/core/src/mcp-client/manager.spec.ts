@@ -1956,6 +1956,39 @@ describe("McpClientManager", () => {
     }
   });
 
+  it("abandons a stalled connect and closes its transport when the caller aborts", async () => {
+    const origConnect = FakeClient.prototype.connect;
+    FakeClient.prototype.connect = async function (transport: FakeTransport) {
+      await origConnect.call(this, transport);
+      await new Promise(() => {
+        // Intentionally never resolves.
+      });
+    };
+
+    try {
+      const abort = new AbortController();
+      const mgr = new McpClientManager(
+        {
+          servers: {
+            stalled: { type: "http", url: "https://stalled.example.com/mcp" },
+          },
+        },
+        { signal: abort.signal, connectTimeoutMs: 60_000 },
+      );
+      const start = mgr.start();
+      await Promise.resolve();
+      abort.abort(new Error("caller gave up"));
+      await start;
+
+      expect(mgr.connectedServers).toEqual([]);
+      expect(
+        (fakeClients.at(-1)?.getTransport() as FakeHttp | undefined)?.closed,
+      ).toBe(true);
+    } finally {
+      FakeClient.prototype.connect = origConnect;
+    }
+  });
+
   it("attaches transport.onerror before connect so SDK transport errors don't leak as unhandled rejections", async () => {
     const seenOnError: Array<((error: unknown) => void) | undefined> = [];
     const origConnect = FakeClient.prototype.connect;

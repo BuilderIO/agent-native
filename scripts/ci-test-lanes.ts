@@ -79,6 +79,15 @@ type PnpmWorkspace = {
   name?: unknown;
 };
 
+/**
+ * Only a Vitest script forwards `--shard` to the runner. Appended arguments
+ * land on the last command of an `&&` chain, so a `pnpm <script> &&` prefix
+ * (Design's bridge codegen) still ends in Vitest.
+ */
+export function isShardableTestScript(script: string): boolean {
+  return /^(?:pnpm [\w:-]+ && )?vitest(?:[ \t][^&|;#\r\n]*)?$/.test(script);
+}
+
 function discoverTestPackages(includeCommunityTemplates: boolean): Pkg[] {
   const out: Pkg[] = [];
   const dirs: string[] = [];
@@ -111,8 +120,7 @@ function discoverTestPackages(includeCommunityTemplates: boolean): Pkg[] {
       throw new Error(`Duplicate workspace package name ${pj.name}`);
     }
     seen.add(pj.name);
-    // Only a bare Vitest script forwards `--shard` to the runner.
-    const shardable = /^vitest(\s|$)/.test(pj.scripts.test);
+    const shardable = isShardableTestScript(pj.scripts.test);
     out.push({ name: pj.name, dir, shardable });
   }
   return out;
@@ -230,6 +238,7 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
 // register tools: a missed directory skips the contract without any failure.
 const CATALOG_CONTRACT_CORE_SPECS = [
   "src/mcp/advertised-tool-annotations.spec.ts",
+  "src/mcp/agent-mcp-parity.spec.ts",
   "src/mcp/instructions-name-advertised-tools.spec.ts",
   "src/mcp/hidden-inline-apps.spec.ts",
 ] as const;

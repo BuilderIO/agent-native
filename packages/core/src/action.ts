@@ -18,6 +18,7 @@ import {
   endInvocationEvidence,
   holdInvocationEvidence,
   noteObservedWrite,
+  currentInvocationEvidence,
   runOutsideActionInvocation,
   takeVouchedEvidence,
   withoutWriteObservation,
@@ -71,6 +72,11 @@ import { assertUsableSchema } from "./json-schema/usable-schema.js";
 import { describeThrownForLog } from "./mcp/embed-redaction.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
 import { observeOutboundWrites } from "./outbound-write-observation.js";
+import {
+  isDurableProviderInteractiveScope,
+  isProviderInteractiveScope,
+  runWithProviderInteractiveScope,
+} from "./provider-api/interactive-scope.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 export {
@@ -1020,6 +1026,8 @@ export type ActionOutputResult<
       | StandardSchemaV1.InferInput<TOutputSchema>
       | (TStrategy extends "fallback" ? undefined : never);
 
+export type ActionUserTurn = "read" | "approval";
+
 export interface ActionMcpToolAnnotations {
   readOnlyHint: boolean;
   destructiveHint: boolean;
@@ -1163,6 +1171,13 @@ interface DefineActionWithSchema<
   requiresAuth?: boolean;
   maxBodyBytes?: number;
   uiOnly?: boolean;
+  /** Refuse this action from a full-app embed session, such as an app panel
+   *  in an MCP host: minting credentials, changing passwords, members or
+   *  provider keys needs the owner's own signed-in browser. */
+  requiresSignedInBrowser?: boolean;
+  /** Returns an embed start URL that another app on its own origin minted
+   *  for the caller, which the MCP server keeps instead of re-minting. */
+  opensAnotherAppEmbed?: boolean;
   agentTool?: boolean;
   /** Whether this action is exposed to EXTERNAL agents over MCP (and the direct
    *  A2A action surface, which shares the same policy).
@@ -1224,6 +1239,16 @@ interface DefineActionWithSchema<
    *  padding, so the call is refused rather than guessed at. */
   emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
+  /** Lets a verified user turn from an outside MCP client use the app page's
+   *  short-lived turn grant for this action: `"read"` for reads, `"approval"`
+   *  for writes that still need the person's approval on the review page.
+   *  Absent means no grant; it is never inferred from `readOnly`. Advertised
+   *  in the MCP tool listing as `_meta["agent-native/userTurn"]`. */
+  userTurn?: ActionUserTurn;
+  /** Over MCP, refuse this action unless the call carries an admitted user
+   *  turn grant: client-side approval cannot stand in for it. Needs
+   *  `userTurn: "approval"`. */
+  requiresUserTurn?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: ActionPlanModeConfig<StandardSchemaV1.InferInput<TSchema>>;
@@ -1357,6 +1382,13 @@ interface DefineActionWithParams<
   requiresAuth?: boolean;
   maxBodyBytes?: number;
   uiOnly?: boolean;
+  /** Refuse this action from a full-app embed session, such as an app panel
+   *  in an MCP host: minting credentials, changing passwords, members or
+   *  provider keys needs the owner's own signed-in browser. */
+  requiresSignedInBrowser?: boolean;
+  /** Returns an embed start URL that another app on its own origin minted
+   *  for the caller, which the MCP server keeps instead of re-minting. */
+  opensAnotherAppEmbed?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
@@ -1369,6 +1401,16 @@ interface DefineActionWithParams<
   eagerInputStreaming?: boolean;
   emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
+  /** Lets a verified user turn from an outside MCP client use the app page's
+   *  short-lived turn grant for this action: `"read"` for reads, `"approval"`
+   *  for writes that still need the person's approval on the review page.
+   *  Absent means no grant; it is never inferred from `readOnly`. Advertised
+   *  in the MCP tool listing as `_meta["agent-native/userTurn"]`. */
+  userTurn?: ActionUserTurn;
+  /** Over MCP, refuse this action unless the call carries an admitted user
+   *  turn grant: client-side approval cannot stand in for it. Needs
+   *  `userTurn: "approval"`. */
+  requiresUserTurn?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: ActionPlanModeConfig<InferParams<TParams>>;
@@ -1427,6 +1469,8 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly requiresAuth?: boolean;
   readonly maxBodyBytes?: number;
   readonly uiOnly?: boolean;
+  readonly requiresSignedInBrowser?: boolean;
+  readonly opensAnotherAppEmbed?: boolean;
   readonly agentTool?: boolean;
   readonly mcpTool?: boolean;
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
@@ -1437,6 +1481,9 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly eagerInputStreaming?: boolean;
   readonly emptyListsEraseNothing?: boolean;
   readonly readOnly?: boolean;
+  /** See `userTurn` on the action options. */
+  readonly userTurn?: ActionUserTurn;
+  readonly requiresUserTurn?: boolean;
   readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
   readonly planMode?: ActionPlanModeConfig<TInput>;
@@ -1591,6 +1638,21 @@ export function defineAction<
 >;
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
+  if (options.requiresUserTurn === true && options.userTurn !== "approval") {
+    throw new Error(
+      'defineAction: requiresUserTurn needs userTurn: "approval"; without it no MCP call could ever run the action.',
+    );
+  }
+
+  if (
+    options.userTurn === "approval" &&
+    options.requiresUserTurn !== true &&
+    (options.needsApproval === undefined || options.needsApproval === false)
+  ) {
+    throw new Error(
+      'defineAction: userTurn: "approval" needs needsApproval (not false) or requiresUserTurn; otherwise a call without an admitted grant would run the write unattended.',
+    );
+  }
 
   const tool: ActionTool = {
     ...(typeof options.title === "string" && options.title.trim()
@@ -1665,7 +1727,15 @@ export function defineAction(options: any) {
         }
       }
     }
-    return options.run(args, ctx);
+    if (ctx?.caller === "frontend") return options.run(args, ctx);
+    return runWithProviderInteractiveScope(
+      (ctx?.caller === "tool" &&
+        (isProviderInteractiveScope() ||
+          isDurableProviderInteractiveScope())) ||
+        (ctx?.caller === "mcp" &&
+          currentInvocationEvidence()?.providerInteractive === true),
+      () => options.run(args, ctx),
+    );
   };
   const accessCheckedRun =
     typeof options.authorize === "function" || options.access
@@ -2013,6 +2083,12 @@ export function defineAction(options: any) {
       ? { maxBodyBytes: options.maxBodyBytes }
       : {}),
     ...(typeof uiOnly === "boolean" ? { uiOnly } : {}),
+    ...(options.requiresSignedInBrowser === true
+      ? { requiresSignedInBrowser: true }
+      : {}),
+    ...(options.opensAnotherAppEmbed === true
+      ? { opensAnotherAppEmbed: true }
+      : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
     ...(mcpAnnotations ? { mcpAnnotations } : {}),
@@ -2033,6 +2109,10 @@ export function defineAction(options: any) {
       ? { emptyListsEraseNothing: options.emptyListsEraseNothing }
       : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
+    ...(options.userTurn === "read" || options.userTurn === "approval"
+      ? { userTurn: options.userTurn }
+      : {}),
+    ...(options.requiresUserTurn === true ? { requiresUserTurn: true } : {}),
     ...(typeof options.grounding === "boolean"
       ? { grounding: options.grounding }
       : {}),

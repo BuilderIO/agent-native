@@ -8,6 +8,8 @@ export const SettingsShell = lazy(() =>
     default: module.SettingsShell,
   })),
 );
+// Apps with their own settings navigation can reuse personal skills management.
+export const SkillsSettingsPage = lazy(() => import("./pages/skills.js"));
 export type {
   AppSettingsNavigationItem,
   AppSettingsNavigationSection,
@@ -30,6 +32,7 @@ export {
   type CoreSettingsPageId,
   type SettingsPageContext,
   type SettingsPageDefinition,
+  type SchemaSettingsPageDefinition,
   type SettingsPageGroup,
   type SettingsPageIcon,
   type SettingsPageProps,
@@ -43,6 +46,9 @@ export {
   type SettingsBridgeInput,
 } from "./bridge.js";
 export {
+  // Apps with their own settings chrome that mount a shared page directly
+  // supply the shell context the page reads.
+  SettingsShellProvider,
   useSettingsPageHeader,
   useSettingsShell,
   type SettingsPageHeader,

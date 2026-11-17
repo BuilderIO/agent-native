@@ -246,6 +246,10 @@ export const FRAMEWORK_STORES: ReadonlyArray<
     () => import("../mcp/approval-store.js").then((m) => m.mcpApprovalsStore),
   ],
   [
+    "mcp_chat_turns",
+    () => import("../mcp/chat-turn-store.js").then((m) => m.mcpChatTurnsStore),
+  ],
+  [
     "mcp_connect",
     () => import("../mcp/connect-store.js").then((m) => m.mcpConnectStore),
   ],
@@ -256,6 +260,11 @@ export const FRAMEWORK_STORES: ReadonlyArray<
   [
     "mcp_script_ledger",
     () => import("../mcp/script-ledger.js").then((m) => m.mcpScriptLedgerStore),
+  ],
+  [
+    "mcp_turn_grants",
+    () =>
+      import("../mcp/turn-grant-store.js").then((m) => m.mcpTurnGrantsStore),
   ],
   [
     "notifications",
@@ -373,6 +382,10 @@ export const FRAMEWORK_STORES: ReadonlyArray<
     "scheduler_health",
     () =>
       import("../jobs/scheduler-health.js").then((m) => m.schedulerHealthStore),
+  ],
+  [
+    "search_embeddings",
+    () => import("../search/semantic.js").then((m) => m.semanticSearchStore),
   ],
   [
     "search_resources",

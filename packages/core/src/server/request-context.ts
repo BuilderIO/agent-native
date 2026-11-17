@@ -1,5 +1,6 @@
 import type { AgentActionScope } from "../agent/types.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
+import { registerBackgroundWorkerProbe } from "../provider-api/interactive-scope.js";
 import type { ContextStatus } from "../shared/context-status.js";
 import type { FirstRunBuilderCreditsV2RequestAssignment } from "../shared/first-run-builder-credits-experiment.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -166,6 +167,11 @@ export interface RequestContext {
   credentialScope?: "org";
   /** Storage-only org selection; null prevents an active-org fallback. */
   builderStorageCredentialOrgId?: string | null;
+  /**
+   * Personal runs only: the org whose AI provider keys back `userEmail` alone
+   * when they have none. `orgId` must stay unset so data and sharing stay personal.
+   */
+  providerKeyOrg?: { orgId: string; userEmail: string };
   /** Provenance set only after a stored org service token is verified. */
   verifiedServiceIdentity?: { userEmail: string; orgId: string };
   identityAuthenticatedAtMs?: number;
@@ -748,3 +754,7 @@ export function ensureRequestRunContext(): RequestRunContext | undefined {
   if (!store.run) store.run = {};
   return store.run;
 }
+
+registerBackgroundWorkerProbe(
+  () => getRequestRunContext()?.isBackgroundWorker === true,
+);

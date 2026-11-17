@@ -116,7 +116,17 @@ export function preserveActionFlags(
     out.requiresAuth = entry.requiresAuth;
   }
   if (typeof entry.uiOnly === "boolean") out.uiOnly = entry.uiOnly;
+  if (entry.requiresSignedInBrowser === true) {
+    out.requiresSignedInBrowser = true;
+  }
+  if (entry.opensAnotherAppEmbed === true) {
+    out.opensAnotherAppEmbed = true;
+  }
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
+  if (entry.userTurn === "read" || entry.userTurn === "approval") {
+    out.userTurn = entry.userTurn;
+  }
+  if (entry.requiresUserTurn === true) out.requiresUserTurn = true;
   if (typeof entry.grounding === "boolean") out.grounding = entry.grounding;
   if (typeof entry.allowInPlanMode === "boolean") {
     out.allowInPlanMode = entry.allowInPlanMode;
@@ -190,6 +200,9 @@ export function preserveActionFlags(
     typeof entry.needsApproval === "function"
   ) {
     out.needsApproval = entry.needsApproval as Flag<"needsApproval">;
+  }
+  if (typeof entry.approvalLabel === "function") {
+    out.approvalLabel = entry.approvalLabel as Flag<"approvalLabel">;
   }
   if (typeof entry.allowPersistentApproval === "boolean") {
     out.allowPersistentApproval = entry.allowPersistentApproval;

@@ -106,7 +106,21 @@ import {
   mcpApprovalReviewUrl,
 } from "./approval-route.js";
 import { mcpApprovalAppId } from "./approval-store.js";
+import { runWithMcpChatTurnCall } from "./chat-turn-scope.js";
 import { isFrameworkMcpTool } from "./framework-tools.js";
+import { recordTurnGrantConnectCredential } from "./turn-grant-identity.js";
+import {
+  actionUserTurn,
+  isAgentTurnGrantContext,
+  MCP_USER_TURN_META_KEY,
+  requiresTurnGrantPageApproval,
+  runWithMcpTurnGrantScope,
+  runWithoutMcpTurnGrantScope,
+} from "./turn-grant-scope.js";
+import {
+  admitMcpTurnGrant,
+  type TurnGrantAdmission,
+} from "./turn-grant-store.js";
 export { isAutoReadExcludedActionName } from "./action-eligibility.js";
 import { isMcpAppsInlineEnabled } from "./app-cards-lab.js";
 import {
@@ -479,6 +493,12 @@ After they approve, call ${name} again with exactly the same arguments before ${
 }
 
 export interface MCPRequestMeta {
+  /** A page-minted user-turn grant id the call carries. */
+  turnGrant?: string;
+  /** The request runs in agent work, so no turn grant may apply. */
+  turnGrantExcluded?: boolean;
+  /** Origin verified at the HTTP boundary for a page-grant review link. */
+  approvalOrigin?: string;
   localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
   origin?: string;
   resolveEmbedRequestOrigin?: () => string;
@@ -1264,13 +1284,14 @@ function hostSpecificDomainString(value: unknown): string | undefined {
 }
 
 function withMcpChatBridgeParam(urlOrPath: string): string {
+  // `//host/path` names another origin; resolving it against a base would
+  // reduce it to an in-app `/path`, so it passes through for validation.
+  const appRelative = /^\/(?![/\\])/.test(urlOrPath);
   try {
     const base = "http://agent-native.invalid";
-    const url = urlOrPath.startsWith("/")
-      ? new URL(urlOrPath, base)
-      : new URL(urlOrPath);
+    const url = appRelative ? new URL(urlOrPath, base) : new URL(urlOrPath);
     url.searchParams.set(MCP_APP_CHAT_BRIDGE_QUERY_PARAM, "1");
-    return urlOrPath.startsWith("/")
+    return appRelative
       ? `${url.pathname}${url.search}${url.hash}`
       : url.toString();
   } catch {
@@ -1604,6 +1625,123 @@ export async function withServerMintedMcpAppEmbedStart(
   return {
     ...resultWithoutExistingEmbedTicket,
     embedStartUrl,
+    embedTargetPath: targetPath,
+    embedExpiresAt: ticket.expiresAt,
+  };
+}
+
+function sameOriginEmbedStart(
+  value: string,
+  origin: string,
+  anyOrigin = false,
+): { ticket: string; pathname: string } | null {
+  try {
+    const url = new URL(value, origin);
+    if ((!anyOrigin && url.origin !== origin) || !isEmbedStartUrl(url.href))
+      return null;
+    const ticket = url.searchParams.get("ticket");
+    return ticket ? { ticket, pathname: url.pathname } : null;
+    // coercion-ok: an unparsable URL is not one this server issued; the caller warns and drops it.
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Gives a result the full-session ticket a full-app embed starts from, opening
+ * the page the result names, in the open link's order, or the tool's link. A
+ * ticket the action minted on this server for the caller, such as a cross-app open, is kept. Callers mint only for a verified
+ * user, anchored to the credential's issue time so revoking it ends the session.
+ */
+export async function withServerMintedFullAppEmbedStart(
+  result: unknown,
+  entry: ActionEntry,
+  args: Record<string, unknown>,
+  revocationAnchorCreatedAtMs: number,
+): Promise<unknown> {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return result;
+  }
+  const record = result as Record<string, unknown>;
+  if (record.embed === false) return withoutMcpAppEmbedTicket(record);
+  const ctx = getRequestContext();
+  const ownerEmail = ctx?.userEmail?.trim();
+  const requestOrigin = getEmbedSessionOrigin();
+  if (!ownerEmail || !requestOrigin) return withoutMcpAppEmbedTicket(record);
+  // A ticket for this app must be an unredeemed one issued to this caller.
+  const {
+    normalizeEmbedTargetPath,
+    createEmbedSessionTicket,
+    embedSessionTicketBelongsTo,
+    FULL_APP_EMBED_SCOPE,
+  } = await import("../server/embed-session.js");
+  const { buildEmbedStartPath } = await import("../server/embed-route.js");
+  if (typeof record.embedStartUrl === "string") {
+    const start = sameOriginEmbedStart(
+      record.embedStartUrl,
+      requestOrigin,
+      entry.opensAnotherAppEmbed === true,
+    );
+    const ownStartPath = new URL(buildEmbedStartPath("x"), requestOrigin)
+      .pathname;
+    // Another app's ticket cannot be checked here, so only an action that
+    // declares it opens another app may pass one on.
+    const foreign =
+      start !== null &&
+      (new URL(record.embedStartUrl, requestOrigin).origin !== requestOrigin ||
+        start.pathname !== ownStartPath);
+    if (
+      start &&
+      (foreign
+        ? entry.opensAnotherAppEmbed === true
+        : await embedSessionTicketBelongsTo(start.ticket, ownerEmail))
+    ) {
+      return result;
+    }
+    console.warn(
+      "[mcp] Dropping an embed start URL that this server did not issue to this caller.",
+    );
+  }
+  const embedTarget = (value: unknown) =>
+    typeof value === "string" &&
+    value !== HIDDEN_EMBED_URL &&
+    !isEmbedStartUrl(value)
+      ? normalizeEmbedTargetPath(withMcpChatBridgeParam(value), requestOrigin)
+      : null;
+  const linkedTarget = () => {
+    try {
+      return embedTarget(
+        entry.link?.({ args, result: { ...record, embed: false } })?.url,
+      );
+    } catch (error) {
+      console.warn(
+        `[mcp] The tool's link threw; opening no full app for it: ${describeThrownForLog(error)}`,
+      );
+      return null;
+    }
+  };
+  const targetPath =
+    [record.deepLinkUrl, record.url, record.path]
+      .map(embedTarget)
+      .find((value): value is string => !!value) ?? linkedTarget();
+  if (!targetPath) {
+    return typeof record.embedStartUrl === "string"
+      ? withoutMcpAppEmbedTicket(record)
+      : result;
+  }
+  const ticket = await createEmbedSessionTicket({
+    ownerEmail,
+    ...(ctx?.orgId ? { orgId: ctx.orgId } : {}),
+    targetPath,
+    scope: FULL_APP_EMBED_SCOPE,
+    revocationAnchorCreatedAtMs,
+  });
+  return {
+    ...(withoutMcpAppEmbedTicket(record) as Record<string, unknown>),
+    embedStartUrl: new URL(
+      buildEmbedStartPath(ticket.ticket),
+      requestOrigin,
+    ).toString(),
     embedTargetPath: targetPath,
     embedExpiresAt: ticket.expiresAt,
   };
@@ -2506,21 +2644,42 @@ export async function resolveMcpAppResourceSafely(
 ): Promise<ResolvedMcpAppResource | null> {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
+  // A directory listing only mounts scoped widgets. Elsewhere a tool whose
+  // resource needs an embed session and has no widget target mounts the full
+  // app from the session ticket its own result carries.
   const widgetTargets = config.directoryProfile?.widgetTargets;
   if (
-    (config.catalogMode === "directory" ||
-      resource.requiresEmbedSession === true) &&
+    config.catalogMode === "directory" &&
     (!widgetTargets || !Object.hasOwn(widgetTargets, actionName))
   ) {
     return null;
   }
   const resolvedUri = getMcpAppResourceUri(config, actionName, entry);
   if (!resolvedUri) return null;
-  const requestOrigin = requestMeta?.resolveEmbedRequestOrigin
-    ? validateEmbedRequestOrigin(requestMeta.resolveEmbedRequestOrigin())
-    : requestMeta?.origin === undefined
-      ? undefined
-      : validateEmbedRequestOrigin(requestMeta.origin);
+  const opensFullApp =
+    resource.requiresEmbedSession === true &&
+    (!widgetTargets || !Object.hasOwn(widgetTargets, actionName));
+  let requestOrigin: string | undefined;
+  try {
+    requestOrigin = requestMeta?.resolveEmbedRequestOrigin
+      ? validateEmbedRequestOrigin(requestMeta.resolveEmbedRequestOrigin())
+      : requestMeta?.origin === undefined
+        ? undefined
+        : validateEmbedRequestOrigin(requestMeta.origin);
+  } catch (error) {
+    // A full-app tool falls back to its link; one rejected origin must not
+    // fail the whole catalog it is listed in.
+    if (!opensFullApp) throw error;
+    console.warn(
+      `[mcp] ${actionName} opens as a link: the server rejects this request's embed origin: ${describeThrownForLog(error)}`,
+    );
+    return null;
+  }
+  if (opensFullApp && !requestOrigin) {
+    // A full-app session is minted for the request's origin; without one the
+    // tool answers with a link.
+    return null;
+  }
   try {
     const description = resource.description ?? entry.tool.description;
     const resolvedCsp = await resolveMcpAppCsp(resource, {
@@ -3167,6 +3326,8 @@ export async function createMCPServerForRequest(
     inputResponse,
   } = await import("@modelcontextprotocol/server");
 
+  const turnGrantExcluded =
+    requestMeta?.turnGrantExcluded === true || isAgentTurnGrantContext();
   const ownerFromEnv = getConfiguredMcpOwnerEmail();
   const effectiveIdentity: MCPCallerIdentity | undefined =
     identity ??
@@ -3479,7 +3640,8 @@ export async function createMCPServerForRequest(
     warnFullCatalogServed(Object.keys(advertisedActions).length);
   }
   const hasApprovalActions = Object.values(actions).some(
-    (entry) => entry.needsApproval !== undefined,
+    (entry) =>
+      entry.needsApproval !== undefined || actionUserTurn(entry) === "approval",
   );
   const approvalOrgId = hasApprovalActions ? await orgIdPromise : undefined;
   const approvalAppId = mcpApprovalAppId(config);
@@ -3620,22 +3782,31 @@ export async function createMCPServerForRequest(
     {
       mcpRequestId,
       timezone,
+      toolName,
     }: {
       mcpRequestId?: string | undefined;
       timezone?: string | undefined;
+      toolName: string;
     },
   ): Promise<T> {
     // Only a signed-in person has browser tabs for a call to act on.
     const browserTabTarget = hasVerifiedMcpUserIdentity(effectiveIdentity)
       ? createBrowserTabTargetSlot()
       : undefined;
-    const result = await withCallerContext(
-      fn,
-      mcpRequestId,
-      await resolveCallerAuthUserId(),
-      browserTabTarget ? { browserTabTarget } : undefined,
-      timezone,
-      "UTC",
+    const authUserId = await resolveCallerAuthUserId();
+    const result = await runWithMcpChatTurnCall(
+      effectiveIdentity,
+      toolName,
+      turnGrantExcluded,
+      () =>
+        withCallerContext(
+          fn,
+          mcpRequestId,
+          authUserId,
+          browserTabTarget ? { browserTabTarget } : undefined,
+          timezone,
+          "UTC",
+        ),
     );
     return withBrowserTabTargetNote(result, browserTabTarget);
   }
@@ -3662,6 +3833,17 @@ export async function createMCPServerForRequest(
     ctx: ServerContext,
   ): Promise<InputRequiredResult | CallToolResult> {
     const name = approvalState.actionName;
+    // A turn-grant write is approved on the app's own review page, never in
+    // the client, so the link opens on the origin the page minted it from.
+    if (requiresTurnGrantPageApproval(name)) {
+      const origin = requestMeta?.resolveEmbedRequestOrigin?.();
+      return actionApprovalReviewResult(
+        review,
+        "opened",
+        origin ? { ...requestMeta, approvalOrigin: origin } : requestMeta,
+        effectiveIdentity?.userEmail,
+      );
+    }
     // Calls reach approval only when `canRequestApproval` saw a codec.
     const codec = approvalCodec;
     if (!codec) {
@@ -3870,8 +4052,10 @@ export async function createMCPServerForRequest(
               name === "open_app" &&
               !inputSchema.required?.length &&
               Boolean(inputSchema.properties?.app);
+            const userTurn = actionUserTurn(entry);
             const toolMeta = {
               ...rawToolMeta,
+              ...(userTurn ? { [MCP_USER_TURN_META_KEY]: userTurn } : {}),
               ...(Array.isArray(entry.mcpApp?.visibility)
                 ? {
                     ui: {
@@ -4278,6 +4462,7 @@ export async function createMCPServerForRequest(
       const toolCallContext = {
         mcpRequestId,
         timezone: mcpCallTimezone(ctx.mcpReq._meta),
+        toolName: request.params.name,
       };
       const result = await withToolCallContext(async () => {
         const { name, arguments: args } = request.params;
@@ -4435,9 +4620,35 @@ export async function createMCPServerForRequest(
           }
         }
 
-        return directActionCall({ name, args, request, ctx }, (error) => {
-          failure = error;
-        });
+        const call = () =>
+          directActionCall({ name, args, request, ctx }, (error) => {
+            failure = error;
+          });
+        const userTurn = actionUserTurn(actions[name]);
+        const turnGrant = requestMeta.turnGrant;
+        if (userTurn === undefined && turnGrant === undefined) {
+          return runWithoutMcpTurnGrantScope(call);
+        }
+        const admission: TurnGrantAdmission = turnGrantExcluded
+          ? { status: "refused", reason: "agent-context" }
+          : userTurn === undefined
+            ? { status: "refused", reason: "action-not-allowlisted" }
+            : await admitMcpTurnGrant(
+                turnGrant,
+                config.appId ?? "",
+                effectiveIdentity,
+              );
+        if (admission.status === "refused") {
+          console.info("[mcp-turn-grant] refused", {
+            reason: admission.reason,
+            appId: config.appId,
+            actionName: name,
+          });
+          return runWithoutMcpTurnGrantScope(call);
+        }
+        return userTurn === undefined
+          ? runWithoutMcpTurnGrantScope(call)
+          : runWithMcpTurnGrantScope(name, userTurn, admission.expiresAt, call);
       }, toolCallContext);
 
       const toolName = request.params?.name;
@@ -5139,6 +5350,16 @@ async function admitIssuedMcpCredential(
   );
   if (admitted.authed && credential.connect) {
     await markConnectTokenUsed(credential.connect.jti);
+    if (
+      admitted.identity &&
+      stored?.kind === "personal" &&
+      credential.connect.jti
+    ) {
+      recordTurnGrantConnectCredential(
+        admitted.identity,
+        credential.connect.jti,
+      );
+    }
   } else if (
     admitted.authed &&
     credential.oauthClientId &&

@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { analyticsChartMessagesByLocale } from "./analytics-chart-messages";
 import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
 import {
   discussionMessages,
@@ -1108,6 +1109,9 @@ const editorToolbarMessages = {
   temporaryAgentLink: "Temporary agent link",
   privateLinkCanView: "Only people with access can view",
   publicLinkCanView: "Anyone with the link can view",
+  publicSubPagesOne: "This page and its sub-page",
+  publicSubPages: "This page and its {{count}} sub-pages",
+  publicSubPagesMore: "This page and more than {{count}} sub-pages",
   copiedAgentPrompt: "Agent prompt copied",
   couldNotCopyAgentPrompt: "Could not copy agent prompt",
   agentPrompt:
@@ -2274,6 +2278,7 @@ const enUS = {
   trash: trashMessagesByLocale["en-US"],
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
+  analyticsChart: analyticsChartMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -2338,6 +2343,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     trash: enUS.trash,
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
+    analyticsChart: enUS.analyticsChart,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2859,6 +2865,7 @@ function mergeMessagesForLocale(
     trash: trashMessagesByLocale[locale],
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
+    analyticsChart: analyticsChartMessagesByLocale[locale],
   };
 }
 

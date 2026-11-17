@@ -1,3 +1,4 @@
+import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
 import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 
 import {
@@ -7,7 +8,6 @@ import {
   SEED_BUILTIN_DASHBOARD_IDS,
   builtinDashboardIdForLegacyId,
 } from "../../shared/builtin-dashboard-ids";
-import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 import {
   buildBuiltinDashboard,
