@@ -4024,7 +4024,7 @@ const RECOVERABLE_ABORT_REASONS = new Set(["background_worker_died"]);
 
 /** What a user's Stop request reports about the run it stops. */
 export interface UserStopOptions {
-  /** The last event of the run the user's browser had shown. */
+  /** The last event of the run the user's browser had shown, or -1 for none. */
   shownThroughSeq?: number;
 }
 

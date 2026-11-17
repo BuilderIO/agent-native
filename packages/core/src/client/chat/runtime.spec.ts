@@ -349,7 +349,7 @@ describe("createHttpAgentChatRuntime", () => {
     expect((await events.next()).done).toBe(true);
   });
 
-  it("sends no cutoff when it stops before the server sent anything", async () => {
+  it("tells the server it showed nothing when it stops before the first event", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(sseResponse([]))
@@ -362,6 +362,35 @@ describe("createHttpAgentChatRuntime", () => {
     const turn = await (
       await runtime.createSession({ id: "thread-1" })
     ).startTurn({ prompt: "Count to ten" });
+
+    await turn.cancel?.({ reason: "user" });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({
+      shownThroughSeq: -1,
+    });
+  });
+
+  it("sends no cutoff after an event without a sequence number", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "message-start",
+            message: { id: "m1", role: "assistant", content: [] },
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({ prompt: "Count to ten" });
+    await turn.events[Symbol.asyncIterator]().next();
 
     await turn.cancel?.({ reason: "user" });
 

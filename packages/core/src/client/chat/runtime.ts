@@ -1273,8 +1273,11 @@ async function* streamResponseEvents<TEvent extends AgentChatRuntimeEventBase>(
     ) => TEvent | readonly TEvent[] | null;
     /** Once aborted, events already read from the stream aren't handed on. */
     signal?: AbortSignal;
-    /** Called with each server event's sequence number before it is handed on. */
-    onEventSeq?: (seq: number) => void;
+    /**
+     * Called with each server event's sequence number, or undefined for an
+     * event without one, before it is handed on.
+     */
+    onEventSeq?: (seq: number | undefined) => void;
   },
 ): AsyncGenerator<TEvent> {
   const context = {
@@ -1287,9 +1290,11 @@ async function* streamResponseEvents<TEvent extends AgentChatRuntimeEventBase>(
     for await (const raw of readJsonEventStream(response.body)) {
       if (input.signal?.aborted) return;
       const seq = asRecord(raw)?.seq;
-      if (typeof seq === "number" && Number.isSafeInteger(seq) && seq >= 0) {
-        input.onEventSeq?.(seq);
-      }
+      input.onEventSeq?.(
+        typeof seq === "number" && Number.isSafeInteger(seq) && seq >= 0
+          ? seq
+          : undefined,
+      );
       for (const event of normalizeMappedEvents(input.mapEvent(raw, context))) {
         if (input.signal?.aborted) return;
         yield event;
@@ -1304,6 +1309,7 @@ async function* streamResponseEvents<TEvent extends AgentChatRuntimeEventBase>(
     input.sessionId,
     input.turnId,
   )) {
+    input.onEventSeq?.(undefined);
     for (const mapped of normalizeMappedEvents(
       input.mapEvent(event, context),
     )) {
@@ -1718,9 +1724,10 @@ export function createHttpAgentChatRuntime<
       } catch {
         // coercion-ok: an observer of a started turn must not stop it.
       }
-      // The last event of the run this browser has been handed, so a Stop can
-      // tell the server where the reply it shows ends.
-      let shownThroughSeq: number | undefined;
+      // Where the reply this browser was handed ends, so a Stop can tell the
+      // server: the last event's sequence number, or -1 before any event.
+      // An event without one, before any with one, leaves it unknown.
+      let shownThroughSeq: number | undefined = -1;
       const events = (async function* () {
         let retryableFailure = false;
         try {
@@ -1731,7 +1738,8 @@ export function createHttpAgentChatRuntime<
             mapEvent,
             signal: controller.signal,
             onEventSeq: (seq) => {
-              shownThroughSeq = seq;
+              if (seq !== undefined) shownThroughSeq = seq;
+              else if (shownThroughSeq === -1) shownThroughSeq = undefined;
             },
           })) {
             if (event.type === "error") {

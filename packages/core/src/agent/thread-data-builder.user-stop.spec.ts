@@ -251,4 +251,15 @@ describe("folding a run stopped at what the user's browser showed", () => {
       { type: "text", text: "Switching to blue." },
     ]);
   });
+
+  it("saves no text when the browser had shown nothing yet", () => {
+    const folded = foldStoppedRun([
+      { seq: 0, event: { type: "text", text: "1. The ocean covers most " } },
+      { seq: 1, event: { type: "done", reason: "user", shownThroughSeq: -1 } },
+    ]);
+
+    expect(storedMessages(folded).map((message: any) => message.role)).toEqual([
+      "user",
+    ]);
+  });
 });
