@@ -1,6 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import {
   MAX_PUBLIC_FOLLOWERS,
+  resolveAccess,
   roleSatisfies,
 } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -51,7 +52,8 @@ export default defineAction({
       });
     }
     // The sub-pages that aren't public yet go public with the page. Core
-    // carries only the ones the caller can share, so only those count here.
+    // carries only the ones the caller can share, read with its own access
+    // check (not Content's space fallback), so only those count here.
     const ids = await publicSubPageIds(page.resource, { isPublic: false });
     const more = ids.length > MAX_PUBLIC_FOLLOWERS;
     const charts: z.infer<typeof subPageChartSchema>[] = [];
@@ -62,8 +64,9 @@ export default defineAction({
         carried
           .slice(index, index + SUB_PAGES_AT_ONCE)
           .map(async (subPageId) => {
-            const access = await resolveDocumentAccess(subPageId);
+            const access = await resolveAccess("document", subPageId);
             if (!access || !roleSatisfies(access.role, "admin")) return null;
+            if (access.resource.visibility === "public") return null;
             const content = access.resource.content;
             return analyticsChartsInBody(
               typeof content === "string" ? content : null,

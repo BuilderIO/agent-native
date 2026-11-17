@@ -72,10 +72,15 @@ import { ContentIcon } from "../icons/ContentIcon";
 import {
   analyticsShareAsks,
   analyticsShareCheck,
+  subPageChartsRead,
   type ChartsGoingWider,
+  type ChartsRead,
 } from "./analytics-chart/analytics-chart-share";
 
 const NO_CHARTS: AnalyticsChartData[] = [];
+// A widget can't make a page public when that would carry sub-pages: core
+// refuses the change and sends the person to the app.
+const WIDGET_SUB_PAGES: ChartsRead = { charts: NO_CHARTS, unread: false };
 
 const AgentsShareTab = lazy(() =>
   import("./AgentsShareTab").then((m) => ({ default: m.AgentsShareTab })),
@@ -1122,7 +1127,7 @@ export function DocumentToolbar({
     (!scanned || scanned.unreadable > 0);
   // Making the page public carries its sub-pages that aren't public yet, so
   // their charts are read from the server too. A widget may call only the
-  // share actions, so there they stay unread, and going public asks first.
+  // share actions and can't carry sub-pages, so it doesn't read them.
   const subPageCharts = useActionQuery(
     "list-sub-page-analytics-charts",
     { documentId },
@@ -1132,17 +1137,21 @@ export function DocumentToolbar({
       refetchOnWindowFocus: false,
     },
   );
-  const subPagesRead = subPageCharts.data;
   const subPageRead = useMemo(
-    () => ({
-      charts: subPagesRead?.charts ?? NO_CHARTS,
-      unread:
-        !subPagesRead ||
-        subPagesRead.unreadable > 0 ||
-        subPagesRead.more ||
-        subPageCharts.isFetching,
-    }),
-    [subPagesRead, subPageCharts.isFetching],
+    () =>
+      inWidget
+        ? WIDGET_SUB_PAGES
+        : subPageChartsRead({
+            data: subPageCharts.data,
+            isError: subPageCharts.isError,
+            isFetching: subPageCharts.isFetching,
+          }),
+    [
+      inWidget,
+      subPageCharts.data,
+      subPageCharts.isError,
+      subPageCharts.isFetching,
+    ],
   );
   // Sharing a page wider than a chart's dashboard asks first; a table that
   // would go wider is refused by the server when the change is saved, a

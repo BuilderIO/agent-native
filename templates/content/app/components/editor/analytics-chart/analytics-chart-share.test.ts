@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   analyticsShareAsks,
   analyticsShareCheck,
+  subPageChartsRead,
 } from "./analytics-chart-share";
 
 function chart(
@@ -87,5 +88,31 @@ describe("analyticsShareCheck", () => {
     );
     expect(check.page.warn).toHaveLength(1);
     expect(analyticsShareAsks(check)).toBe(true);
+  });
+});
+
+describe("subPageChartsRead", () => {
+  const whole = { charts: [chart("org")], unreadable: 0, more: false };
+  const settled = { isError: false, isFetching: false };
+
+  it("weighs a whole answer", () => {
+    expect(subPageChartsRead({ data: whole, ...settled })).toEqual({
+      charts: whole.charts,
+      unread: false,
+    });
+  });
+
+  it("keeps the sub-pages unread until there's a whole answer to weigh", () => {
+    for (const query of [
+      { data: undefined, ...settled },
+      { data: {}, ...settled },
+      { data: whole, isError: false, isFetching: true },
+      // A failed refetch keeps the earlier answer, which may be out of date.
+      { data: whole, isError: true, isFetching: false },
+      { data: { ...whole, unreadable: 1 }, ...settled },
+      { data: { ...whole, more: true }, ...settled },
+    ]) {
+      expect(subPageChartsRead(query)).toEqual({ charts: [], unread: true });
+    }
   });
 });

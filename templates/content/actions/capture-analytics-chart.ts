@@ -129,6 +129,9 @@ export default defineAction({
   http: { method: "POST" },
   maxResultChars: CAPTURE_MAX_RESULT_CHARS,
   readOnly: true,
+  // An outside agent adds a chart as the app's own agent does: it gets the
+  // tag to write with edit-document, under the same checks.
+  mcpTool: true,
   run: async (args, ctx) => {
     const page = await authorizeAnalyticsChartPage(args.documentId, "editor");
 

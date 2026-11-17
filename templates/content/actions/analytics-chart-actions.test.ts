@@ -1,3 +1,4 @@
+import { isActionExposedToExternalAgents } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -7,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   track: vi.fn(),
   shares: [] as { principalType: string; principalId: string }[],
   publicSubPageIds: vi.fn(),
+  resolveAccess: vi.fn(),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -34,6 +36,11 @@ vi.mock("./_document-access.js", () => ({
 
 vi.mock("../server/lib/public-documents.js", () => ({
   isPublicViewerOwner: (email: string) => email.startsWith("public-"),
+}));
+
+vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
+  resolveAccess: mocks.resolveAccess,
 }));
 
 vi.mock("../server/lib/public-sub-pages.js", () => ({
@@ -128,6 +135,7 @@ beforeEach(() => {
   mocks.resolveDocumentAccess.mockResolvedValue(page("private"));
   mocks.requestAnalytics.mockResolvedValue({ ok: true, data: chart() });
   mocks.publicSubPageIds.mockResolvedValue([]);
+  mocks.resolveAccess.mockResolvedValue(null);
 });
 
 describe("capture-analytics-chart", () => {
@@ -178,6 +186,16 @@ describe("capture-analytics-chart", () => {
     );
     expect(forAgent).not.toHaveProperty("chart");
     expect(forAgent).toHaveProperty("analyticsChartTag");
+  });
+
+  it("is offered to outside agents over MCP, who get the tag too", async () => {
+    expect(isActionExposedToExternalAgents(captureAnalyticsChart)).toBe(true);
+    const overMcp = await captureAnalyticsChart.run(
+      { documentId: "doc_1", link: LINK, purpose: "insert" },
+      { caller: "mcp", maxResultChars: 75_000 },
+    );
+    expect(overMcp).not.toHaveProperty("chart");
+    expect(overMcp).toHaveProperty("analyticsChartTag");
   });
 
   it("fails clearly when the tag won't fit what the agent keeps", async () => {
@@ -577,23 +595,34 @@ describe("get-analytics-links", () => {
 });
 
 describe("list-sub-page-analytics-charts", () => {
-  function subPage(id: string, role: string, content: string | null) {
+  function subPage(
+    id: string,
+    role: string,
+    content: string | null,
+    visibility = "private",
+  ) {
     return {
       role,
       resource: {
         id,
         ownerEmail: "owner@example.test",
         orgId: "org_1",
-        visibility: "private",
+        visibility,
         trashedAt: null,
         content,
       },
     };
   }
 
+  // The page through Content's access, its sub-pages through core's, as
+  // making the page public reads them.
   function access(pages: Record<string, ReturnType<typeof subPage>>) {
     mocks.resolveDocumentAccess.mockImplementation(async (id: string) =>
-      id === "doc_1" ? page("private", "owner") : (pages[id] ?? null),
+      id === "doc_1" ? page("private", "owner") : null,
+    );
+    mocks.resolveAccess.mockImplementation(
+      async (type: string, id: string) =>
+        (type === "document" && pages[id]) || null,
     );
   }
 
@@ -673,11 +702,43 @@ ${analyticsChartBlockRaw("analytics-chart-00000001", chart({ type: "table" }) as
     expect(mocks.publicSubPageIds).not.toHaveBeenCalled();
   });
 
-  it("reads a page in Trash, or one the caller can't open, as missing", async () => {
-    mocks.resolveDocumentAccess.mockResolvedValue(null);
+  it("leaves out sub-pages core wouldn't carry: ones it can't open for the caller, or already public", async () => {
+    mocks.publicSubPageIds.mockResolvedValue(["sub_1", "sub_2"]);
+    const tag = analyticsChartBlockRaw(
+      "analytics-chart-00000001",
+      chart() as never,
+    );
+    // sub_1 would only open through a space's organization, which core's
+    // check doesn't use; sub_2 went public since it was listed.
+    access({ sub_2: subPage("sub_2", "owner", tag, "public") });
+
     await expect(
-      failureOf(listSubPageAnalyticsCharts.run({ documentId: "doc_1" })),
-    ).resolves.toEqual({ errorCode: "document_not_found", statusCode: 404 });
+      listSubPageAnalyticsCharts.run({ documentId: "doc_1" }),
+    ).resolves.toEqual({ charts: [], unreadable: 0, more: false });
+    expect(mocks.resolveAccess).toHaveBeenCalledWith("document", "sub_1");
+  });
+
+  it("says when there are more sub-pages than one change can carry", async () => {
+    mocks.publicSubPageIds.mockResolvedValue(
+      Array.from({ length: 501 }, (_, index) => `sub_${index}`),
+    );
+    access({});
+
+    await expect(
+      listSubPageAnalyticsCharts.run({ documentId: "doc_1" }),
+    ).resolves.toEqual({ charts: [], unreadable: 0, more: true });
+    expect(mocks.resolveAccess).toHaveBeenCalledTimes(500);
+  });
+
+  it("reads a page in Trash, or one the caller can't open, as missing", async () => {
+    const trashed = page("private", "owner");
+    trashed.resource.trashedAt = "2026-11-10T12:00:00.000Z" as never;
+    for (const found of [trashed, null]) {
+      mocks.resolveDocumentAccess.mockResolvedValue(found);
+      await expect(
+        failureOf(listSubPageAnalyticsCharts.run({ documentId: "doc_1" })),
+      ).resolves.toEqual({ errorCode: "document_not_found", statusCode: 404 });
+    }
     expect(mocks.publicSubPageIds).not.toHaveBeenCalled();
   });
 });

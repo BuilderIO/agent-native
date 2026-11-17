@@ -28,6 +28,39 @@ export interface AnalyticsShareCheck {
   subPages: ChartsGoingWider | null;
 }
 
+/** What the share dialog has read of the sub-pages' charts. */
+export interface SubPageChartsQuery {
+  data?: {
+    charts?: readonly Chart[];
+    unreadable?: number;
+    more?: boolean;
+  };
+  isError: boolean;
+  isFetching: boolean;
+}
+
+/**
+ * The sub-pages' charts, or unread while they're loading, when the last read
+ * failed (a failed refetch keeps the earlier answer), when the answer isn't
+ * whole, or when some can't be weighed.
+ */
+export function subPageChartsRead(query: SubPageChartsQuery): ChartsRead {
+  const { data } = query;
+  if (
+    data === undefined ||
+    !Array.isArray(data.charts) ||
+    typeof data.unreadable !== "number" ||
+    typeof data.more !== "boolean" ||
+    data.unreadable > 0 ||
+    data.more ||
+    query.isError ||
+    query.isFetching
+  ) {
+    return { charts: [], unread: true };
+  }
+  return { charts: data.charts ?? [], unread: false };
+}
+
 function goingWider(to: EmbedVisibility, read: ChartsRead): ChartsGoingWider {
   if (read.unread) return { warn: [], block: [], unread: true };
   return { ...analyticsChartsWiderThan(to, read.charts), unread: false };
