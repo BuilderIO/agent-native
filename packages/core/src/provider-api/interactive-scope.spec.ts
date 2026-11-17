@@ -130,6 +130,50 @@ describe("provider interactive scope", () => {
     );
   });
 
+  it("lets a tool action under an admitted A2A chat turn count in a background worker", async () => {
+    registerBackgroundWorkerProbe(() => true);
+    const controller = new AbortController();
+    await runWithProviderInteractiveScope(
+      false,
+      () =>
+        runWithDurableTurnToolScope(
+          () => expect(isProviderInteractiveScope()).toBe(true),
+          new AbortController().signal,
+          {
+            runId: "run-1",
+            turnId: "turn-1",
+            owner: "person@example.test",
+            networkProtocol: "a2a",
+          },
+        ),
+      { action: false, chatTurnGrant: grant(), signal: controller.signal },
+    );
+  });
+
+  it("revokes an admitted chat turn's grant when its task is canceled", async () => {
+    registerBackgroundWorkerProbe(() => true);
+    const controller = new AbortController();
+    await runWithProviderInteractiveScope(
+      false,
+      () =>
+        runWithDurableTurnToolScope(
+          () => {
+            expect(isProviderInteractiveScope()).toBe(true);
+            controller.abort();
+            expect(isProviderInteractiveScope()).toBe(false);
+          },
+          new AbortController().signal,
+          {
+            runId: "run-1",
+            turnId: "turn-1",
+            owner: "person@example.test",
+            networkProtocol: "a2a",
+          },
+        ),
+      { action: false, chatTurnGrant: grant(), signal: controller.signal },
+    );
+  });
+
   it("revokes a durable tool call's scope when its signal aborts", async () => {
     const controller = new AbortController();
     await runWithProviderInteractiveScope(

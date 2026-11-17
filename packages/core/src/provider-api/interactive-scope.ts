@@ -167,6 +167,8 @@ export async function runWithProviderInteractiveScope<T>(
     action?: boolean;
     turnGrant?: ProviderTurnGrant;
     chatTurnGrant?: ProviderTurnGrant;
+    /** Revokes the scope when it aborts, e.g. a canceled task. */
+    signal?: AbortSignal;
   } = {},
 ): Promise<T> {
   const scope: InteractiveScope = {
@@ -178,6 +180,7 @@ export async function runWithProviderInteractiveScope<T>(
     ...(options.turnGrant ? { turnGrant: options.turnGrant } : {}),
     action: options.action !== false,
     parent: interactiveScope?.getStore(),
+    ...(options.signal ? { signal: options.signal } : {}),
   };
   return runInScope(scope, async () => {
     let streaming = false;

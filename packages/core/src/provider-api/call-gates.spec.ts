@@ -136,6 +136,23 @@ describe("provider call gates", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("runs only the owning gate's precheck", async () => {
+    const owner = vi.fn(async () => {});
+    const later = vi.fn(async () => {
+      throw new Error("Not the owner");
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(okResponse());
+    registerProviderCallGate(fakeGate({ precheck: owner }).gate);
+    registerProviderCallGate({
+      ...fakeGate({ precheck: later }).gate,
+      id: "later-gate",
+    });
+
+    await expect(request()).resolves.toBeDefined();
+    expect(owner).toHaveBeenCalledTimes(1);
+    expect(later).not.toHaveBeenCalled();
+  });
+
   it("does not wrap a refusal from admission or the final check as a network failure", async () => {
     const fetch = vi.spyOn(globalThis, "fetch");
     const paused = new Error("Example provider is paused.");

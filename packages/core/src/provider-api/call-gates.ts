@@ -140,13 +140,9 @@ export function findProviderCallGate(
   return registry.gates.find((gate) => gate.matches(target));
 }
 
-/** Run every matching gate's precheck for a request naming `providerId`. */
+/** Run the precheck of the gate that owns a request naming `providerId`. */
 export async function precheckProviderCall(providerId: string): Promise<void> {
-  for (const gate of registry.gates) {
-    if (gate.precheck && gate.matches({ providerId })) {
-      await gate.precheck(providerId);
-    }
-  }
+  await findProviderCallGate({ providerId })?.precheck?.(providerId);
 }
 
 export function prepareProviderCallGate(

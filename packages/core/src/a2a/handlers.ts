@@ -864,6 +864,7 @@ async function withMcpChatTaskScope<T>(
   taskId: string,
   event: { context?: Record<string, unknown> } | undefined,
   work: () => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
   const admission = await readMcpChatTurn(
     chatTurnBinding(config, taskId, event),
@@ -875,6 +876,7 @@ async function withMcpChatTaskScope<T>(
   }
   return runWithProviderInteractiveScope(false, work, {
     action: false,
+    ...(signal ? { signal } : {}),
     ...(admission.status === "admitted"
       ? { chatTurnGrant: admission.grant }
       : {}),
@@ -893,19 +895,24 @@ async function runHandlerAndPersist(
   signal?: AbortSignal,
   processingAttemptId?: string,
 ): Promise<void> {
-  return withMcpChatTaskScope(config, taskId, event, () =>
-    runHandlerAndPersistInScope(
-      taskId,
-      message,
-      config,
-      contextId,
-      metadata,
-      event,
-      sourceContext,
-      ownerEmail,
-      signal,
-      processingAttemptId,
-    ),
+  return withMcpChatTaskScope(
+    config,
+    taskId,
+    event,
+    () =>
+      runHandlerAndPersistInScope(
+        taskId,
+        message,
+        config,
+        contextId,
+        metadata,
+        event,
+        sourceContext,
+        ownerEmail,
+        signal,
+        processingAttemptId,
+      ),
+    signal,
   );
 }
 

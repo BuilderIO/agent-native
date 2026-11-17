@@ -112,6 +112,7 @@ const actions: Record<string, ActionEntry> = {
     description: "Update an item",
     mcpTool: true,
     userTurn: "approval",
+    needsApproval: true,
     schema: z.object({ title: z.string().default("Test") }),
     run: probe("update-item"),
   }),
@@ -300,6 +301,16 @@ it("rejects requiresUserTurn without an approval user turn", () => {
       run: () => null,
     }),
   ).toThrow(/requiresUserTurn/);
+});
+
+it("rejects an approval user turn that nothing would ask the person to approve", () => {
+  expect(() =>
+    defineAction({
+      description: "Unattended write",
+      userTurn: "approval",
+      run: () => null,
+    }),
+  ).toThrow(/needsApproval or requiresUserTurn/);
 });
 
 it("a proven page mints an opaque grant and stores only its hash", async () => {
