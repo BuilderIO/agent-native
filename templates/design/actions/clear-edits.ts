@@ -142,9 +142,10 @@ export default defineAction({
         ctx?.caller === "frontend" &&
         access.role === "editor" &&
         visualEditCapabilityDesignId(getRequestAuthCapability()) === designId &&
+        pending !== undefined &&
         revision !== undefined &&
-        revision === pending?.revision &&
-        publisherId === pending?.publisherId;
+        revision === pending.revision &&
+        publisherId === pending.publisherId;
       if (
         pending &&
         hasHandoff &&
