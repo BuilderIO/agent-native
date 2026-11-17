@@ -396,10 +396,10 @@ export function App() {
     const allowedOrigins = (() => {
       const host = window.location.hostname || "localhost";
       const gatewayUrl = getTemplateGatewayUrl();
-      let gatewayOrigin: string | null = null;
-      try {
-        gatewayOrigin = gatewayUrl ? new URL(gatewayUrl).origin : null;
-      } catch {}
+      const gatewayOrigin =
+        gatewayUrl && URL.canParse(gatewayUrl)
+          ? new URL(gatewayUrl).origin
+          : null;
       return new Set([
         ...TEMPLATES.flatMap((a) => [
           `http://localhost:${a.devPort || 8080}`,
