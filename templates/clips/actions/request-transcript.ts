@@ -1247,7 +1247,7 @@ const requestTranscriptAction = defineAction({
       !args.regenerate &&
       existingNativeTranscript?.status === "ready" &&
       !existingNativeTranscript.fullText?.trim() &&
-      existingNativeTranscript.segmentsJson.trim() === "[]"
+      (existingNativeTranscript.segmentsJson ?? "[]").trim() === "[]"
     ) {
       return {
         recordingId: args.recordingId,
