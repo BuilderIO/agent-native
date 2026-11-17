@@ -2262,6 +2262,40 @@ export function presentsFullAppEmbedToken(
   );
 }
 
+/**
+ * Why the panel's own header token did not prove a full-app request, in words
+ * that name no credential, so a refusal seen from the MCP host says which
+ * check failed instead of only that the request was cross-origin.
+ */
+export async function fullAppEmbedTokenRefusal(
+  event: H3Event,
+): Promise<string> {
+  const token = bearerToken(event) ?? queryToken(event);
+  if (!token) return "the request carried no panel session";
+  const verified = verifyEmbedSessionToken(token, { allowExpired: true });
+  if (!verified.ok)
+    return `the panel session is unreadable (${verified.reason})`;
+  const claims = verified.claims;
+  if (claims.scope !== FULL_APP_EMBED_SCOPE) {
+    return `the panel session has scope ${claims.scope ?? "none"}`;
+  }
+  if ((claims.audienceBasePath ?? "") !== getConfiguredAppBasePath()) {
+    return `the panel session is for ${claims.audienceBasePath || "/"}, not ${getConfiguredAppBasePath() || "/"}`;
+  }
+  if (!embedTokenMatchesRequestAudience(event, claims)) {
+    return "the panel session is for another host";
+  }
+  if (claims.exp * 1000 <= Date.now()) return "the panel session expired";
+  if (!embedSessionAllowsRequest(event, claims)) {
+    return "the request is outside the panel session's target";
+  }
+  const origin = requestOrigin(event);
+  if (!origin || !(await resolveEmbedSessionTokenForOrigin(token, origin))) {
+    return "the panel session was revoked";
+  }
+  return "another session was resolved first";
+}
+
 export function hasPresentedEmbedSessionCredential(event: H3Event): boolean {
   if (hasEmbedSessionRequestMarker(event)) return true;
   const cookie = verifyEmbedSessionToken(

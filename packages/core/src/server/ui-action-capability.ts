@@ -20,6 +20,7 @@ import {
 import {
   FULL_APP_EMBED_SCOPE,
   hasEmbedSessionRequestMarker,
+  fullAppEmbedTokenRefusal,
   presentsFullAppEmbedToken,
   resolveEmbedSessionFromRequest,
 } from "./embed-session.js";
@@ -80,11 +81,13 @@ async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
     ownerEmail = normalizedEmail(session?.email);
   }
   let panelToken = false;
+  let panelSession = false;
   if (!ownerEmail) {
     // A full-app panel is the app's own UI, run by its verified owner.
     const embedSession = await resolveEmbedSessionFromRequest(event);
     if (embedSession?.scope === FULL_APP_EMBED_SCOPE) {
       ownerEmail = normalizedEmail(embedSession.email);
+      panelSession = true;
       panelToken =
         !!ownerEmail && presentsFullAppEmbedToken(event, embedSession);
     } else if (embedMarked) {
@@ -103,7 +106,12 @@ async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
   // its actions accept that token where this cookie cannot be kept.
   if (!panelToken && !hasSameOriginBrowserEvidence(event)) {
     setResponseStatus(event, 403);
-    return { error: "Same-origin request required" };
+    return panelSession
+      ? {
+          error: `Same-origin request required; ${await fullAppEmbedTokenRefusal(event)}`,
+          errorCode: "panel_session_rejected",
+        }
+      : { error: "Same-origin request required" };
   }
 
   const token = signShortLivedToken({

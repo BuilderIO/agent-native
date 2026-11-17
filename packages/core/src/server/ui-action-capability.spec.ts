@@ -306,6 +306,36 @@ describe("UI action capability", () => {
     },
   );
 
+  it("says why a panel's own token was not accepted", async () => {
+    mockGetBrowserCookieSession.mockResolvedValue(null);
+    const sign = (audienceHost: string) =>
+      signEmbedSessionToken({
+        ownerEmail: "panel@example.com",
+        targetPath: "/inbox",
+        audienceHost,
+        scope: "full-app",
+      });
+    const app = createApp();
+    mountUiActionCapabilityRoute(app);
+    const response = await app.fetch(
+      new Request("https://example.test/_agent-native/ui-capability", {
+        headers: {
+          "sec-fetch-site": "cross-site",
+          origin: "https://panel.claudemcpcontent.com",
+          cookie: `an_embed_session=${sign("https://example.test")}`,
+          authorization: `Bearer ${sign("https://other.test")}`,
+          "x-agent-native-embed-target": "/inbox",
+        },
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error:
+        "Same-origin request required; the panel session is for another host",
+      errorCode: "panel_session_rejected",
+    });
+  });
+
   it.each(["bearer", "cookie"] as const)(
     "mints for the owner of a full-app panel's %s session",
     async (source) => {
