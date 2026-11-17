@@ -2,6 +2,7 @@ import {
   COMMENT_DOC_MENTION,
   commentDocToMarkdown,
   commentMarkdownToDoc,
+  type CommentDocNode,
 } from "@agent-native/core/review/markdown";
 import type { ReviewMention } from "@agent-native/core/review/types";
 import type { JSONContent } from "@tiptap/core";
@@ -18,7 +19,31 @@ export function reviewMentionLeafText(node: ProseMirrorNode): string {
  * quotes, code and formatting, each mention chip written as `@label`.
  */
 export function serializeReviewComposerDoc(doc: ProseMirrorNode): string {
-  return commentDocToMarkdown(doc.toJSON());
+  return commentDocToMarkdown(withAgentMentionBoundaries(doc.toJSON()));
+}
+
+function withAgentMentionBoundaries(content: CommentDocNode): CommentDocNode {
+  const visit = (node: CommentDocNode) => {
+    const children = node.content;
+    if (!children) return;
+    for (const [index, child] of children.entries()) {
+      const next = children.at(index + 1);
+      if (
+        child.type === REVIEW_MENTION_NODE_NAME &&
+        (child.attrs?.kind === "agent" ||
+          (typeof child.attrs?.id === "string" &&
+            child.attrs.id.startsWith("agent:"))) &&
+        next?.type === "text" &&
+        next.text !== undefined &&
+        /^[\p{L}\p{M}\p{N}_]/u.test(next.text)
+      ) {
+        next.text = ` ${next.text}`;
+      }
+      visit(child);
+    }
+  };
+  visit(content);
+  return content;
 }
 
 /**

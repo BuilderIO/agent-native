@@ -1043,6 +1043,10 @@ const editor = {
     fourColumns: "4 أعمدة",
     codeBlock: "كتلة الكود",
     codeBlockDescription: "مقتطف الكود",
+    toggleHeading1: "عنوان قابل للطي 1",
+    toggleHeading2: "عنوان قابل للطي 2",
+    toggleHeading3: "عنوان قابل للطي 3",
+    toggleHeadingDescription: "عنوان يفتح ويغلق",
     collapsibleBlockDescription: "كتلة قابلة للطي",
     database: "المجموعة",
     databaseDescription: "مجموعة مضمنة في هذه الصفحة",
@@ -1130,6 +1134,12 @@ const editor = {
     agentLevelUpdateFailed: "تعذّر تغيير ما يمكن للوكلاء فعله هنا.",
     agentLevelNote: "يمكن للوكلاء التعليق",
     agentLevelNoteHint: "يمكن للوكلاء التعليق في هذه الصفحة. غيّر ذلك من «شارك».",
+    agentLevelViewDescription:
+      "يمكنهم قراءة هذه الصفحة فقط، دون التعليق أو الاقتراح أو التعديل.",
+    agentLevelViewConfirm: "يمكن للوكلاء الآن قراءة هذه الصفحة فقط.",
+    agentLevelViewNote: "يمكن للوكلاء العرض فقط",
+    agentLevelViewNoteHint:
+      "يمكن للوكلاء عرض هذه الصفحة فقط. غيّر ذلك من «شارك».",
     sendPageToAgent: "إرسال هذه الصفحة إلى وكيل",
     connectAgentOverMcp: "ربط وكيل عبر MCP",
     importingFromNotion: "الاستيراد من الفكرة...",

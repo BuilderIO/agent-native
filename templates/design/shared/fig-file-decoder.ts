@@ -18,7 +18,7 @@ import {
   readUtf8,
   sha1Hex,
   utf8ByteLength,
-} from "../../shared/fig-bytes.js";
+} from "./fig-bytes.js";
 import { SERVER_FIG_LIMITS, type FigImportLimits } from "./fig-file-limits.js";
 
 const MAX_SCHEMA_BYTES = 4 * 1024 * 1024;

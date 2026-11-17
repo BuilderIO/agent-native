@@ -1089,6 +1089,10 @@ const editor = {
     fourColumns: "4 Spalten",
     codeBlock: "Codeblock",
     codeBlockDescription: "Codeausschnitt",
+    toggleHeading1: "Aufklappbare Überschrift 1",
+    toggleHeading2: "Aufklappbare Überschrift 2",
+    toggleHeading3: "Aufklappbare Überschrift 3",
+    toggleHeadingDescription: "Überschrift zum Auf- und Zuklappen",
     collapsibleBlockDescription: "Zusammenklappbarer Block",
     database: "Sammlung",
     databaseDescription: "Inline-Sammlung auf dieser Seite",
@@ -1183,6 +1187,12 @@ const editor = {
     agentLevelNote: "Agenten können kommentieren",
     agentLevelNoteHint:
       "Agenten können auf dieser Seite kommentieren. Ändere das unter Teilen.",
+    agentLevelViewDescription:
+      "Können diese Seite lesen, aber nicht kommentieren, vorschlagen oder bearbeiten.",
+    agentLevelViewConfirm: "Agenten können diese Seite jetzt nur noch lesen.",
+    agentLevelViewNote: "Agenten können nur ansehen",
+    agentLevelViewNoteHint:
+      "Agenten können diese Seite nur ansehen. Ändere das unter Teilen.",
     sendPageToAgent: "Diese Seite an einen Agenten senden",
     connectAgentOverMcp: "Agenten über MCP verbinden",
     importingFromNotion: "Aus Notion importieren...",

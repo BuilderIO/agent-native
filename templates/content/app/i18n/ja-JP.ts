@@ -1070,6 +1070,10 @@ const editor = {
     fourColumns: "4列",
     codeBlock: "コードブロック",
     codeBlockDescription: "コードスニペット",
+    toggleHeading1: "トグル見出し 1",
+    toggleHeading2: "トグル見出し 2",
+    toggleHeading3: "トグル見出し 3",
+    toggleHeadingDescription: "開閉できる見出し",
     collapsibleBlockDescription: "折りたたみ可能なブロック",
     database: "コレクション",
     databaseDescription: "このページ内のインラインコレクション",
@@ -1160,6 +1164,13 @@ const editor = {
     agentLevelNote: "エージェントはコメント可",
     agentLevelNoteHint:
       "エージェントはこのページにコメントできます。「シェアする」から変更できます。",
+    agentLevelViewDescription:
+      "このページを閲覧できます。コメント、提案、編集はできません。",
+    agentLevelViewConfirm:
+      "エージェントはこのページの閲覧のみできるようになりました。",
+    agentLevelViewNote: "エージェントは閲覧のみ",
+    agentLevelViewNoteHint:
+      "エージェントはこのページを閲覧のみできます。「シェアする」から変更できます。",
     sendPageToAgent: "このページをエージェントに送信",
     connectAgentOverMcp: "MCP でエージェントを接続",
     importingFromNotion: "Notion からインポートしています...",

@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   userEmail: undefined as string | undefined,
   userName: undefined as string | undefined,
-  documentRows: [] as Array<{ visibility: string; trashedAt: string | null }>,
+  documentRows: [] as Array<{
+    visibility: string;
+    trashedAt: string | null;
+    orgId?: string;
+    agentTextLocked?: number;
+  }>,
   resolveDocumentAccess: vi.fn(),
   isFeatureFlagEnabled: vi.fn(),
   requestClips: vi.fn(),
@@ -733,5 +738,82 @@ describe("Clip reads in the browser", () => {
   it("keep grants and comments out of the browser's saved query cache", () => {
     expect(getClipPlayback.persistInBrowser).toBe(false);
     expect(listClipComments.persistInBrowser).toBe(false);
+  });
+});
+
+describe("Clip comments on a page set to Can view", () => {
+  const agent = { caller: "mcp" as const };
+  const person = { caller: "frontend" as const };
+  const pageAt = (agentTextLocked: number) => {
+    mocks.documentRows = [
+      {
+        visibility: "private",
+        trashedAt: null,
+        orgId: "org_page",
+        agentTextLocked,
+      },
+    ];
+  };
+
+  beforeEach(() => {
+    mocks.resolveDocumentAccess.mockResolvedValue({ role: "editor" });
+    mocks.writeClipComment.mockImplementation(async ({ write }) => ({
+      ok: true,
+      body:
+        write.operation === "resolve"
+          ? { id: write.commentId, resolved: write.resolved }
+          : { id: "c9", threadId: "c9" },
+    }));
+  });
+
+  it("refuses an agent's comment, reply and resolve before asking Clips", async () => {
+    pageAt(2);
+    for (const call of [
+      () =>
+        addClipComment.run(
+          { ...args, content: "Hi", videoTimestampMs: 0 },
+          agent as never,
+        ),
+      () =>
+        addClipComment.run(
+          { ...args, content: "Hi", threadId: "c1" },
+          agent as never,
+        ),
+      () =>
+        resolveClipComment.run(
+          { ...args, threadId: "c1", resolved: true },
+          agent as never,
+        ),
+    ]) {
+      await expect(failureOf(call())).resolves.toEqual({
+        errorCode: "AGENT_VIEW_ONLY",
+        statusCode: 403,
+      });
+    }
+    expect(mocks.writeClipComment).not.toHaveBeenCalled();
+  });
+
+  it("lets a person comment there, and agents at Can comment or Can edit", async () => {
+    pageAt(2);
+    await addClipComment.run(
+      { ...args, content: "Hi", videoTimestampMs: 0 },
+      person as never,
+    );
+    await resolveClipComment.run(
+      { ...args, threadId: "c1", resolved: true },
+      person as never,
+    );
+    for (const level of [1, 0]) {
+      pageAt(level);
+      await addClipComment.run(
+        { ...args, content: "Hi", videoTimestampMs: 0 },
+        agent as never,
+      );
+      await resolveClipComment.run(
+        { ...args, threadId: "c1", resolved: true },
+        agent as never,
+      );
+    }
+    expect(mocks.writeClipComment).toHaveBeenCalledTimes(6);
   });
 });
