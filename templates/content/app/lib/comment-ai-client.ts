@@ -51,6 +51,7 @@ export function parseCommentAiConversation(
   threadData: string,
   initialTurnId: string,
   receiptTurnIds: readonly string[] = [],
+  historyExpected = false,
 ): CommentAiConversationTurn[] {
   let parsed: { messages?: unknown };
   try {
@@ -64,6 +65,9 @@ export function parseCommentAiConversation(
     !Array.isArray(parsed) &&
     Object.keys(parsed).length === 0
   ) {
+    if (initialTurnId || receiptTurnIds.length || historyExpected) {
+      throw new Error("The AI conversation could not be read");
+    }
     return [];
   }
   if (
@@ -117,6 +121,12 @@ export function parseCommentAiConversation(
     turns.set(turnId, current);
   }
   const conversation = [...turns.values()];
+  if (
+    (historyExpected && conversation.length === 0) ||
+    receiptTurnIds.some((id) => !turns.has(id))
+  ) {
+    throw new Error("The AI conversation could not be read");
+  }
   if (!initialTurnId) return conversation;
   const initialIndex = conversation.findIndex(
     (turn) => turn.turnId === initialTurnId,
@@ -136,6 +146,7 @@ export async function loadCommentAiConversation(options: {
   const thread = await callAction<{
     threadData?: unknown;
     receiptTurnIds?: unknown;
+    historyExpected?: unknown;
   }>(
     "get-comment-ai-conversation",
     { requestId: options.operationId },
@@ -146,7 +157,8 @@ export async function loadCommentAiConversation(options: {
   }
   if (
     !Array.isArray(thread.receiptTurnIds) ||
-    !thread.receiptTurnIds.every((id) => typeof id === "string")
+    !thread.receiptTurnIds.every((id) => typeof id === "string") ||
+    typeof thread.historyExpected !== "boolean"
   ) {
     throw new Error("The AI conversation could not be read");
   }
@@ -154,5 +166,6 @@ export async function loadCommentAiConversation(options: {
     thread.threadData,
     options.initialTurnId,
     thread.receiptTurnIds,
+    thread.historyExpected,
   );
 }

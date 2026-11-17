@@ -25,6 +25,7 @@ export default defineAction({
   outputSchema: z.object({
     threadData: z.string(),
     receiptTurnIds: z.array(z.string()),
+    historyExpected: z.boolean(),
   }),
   errors,
   run: async ({ requestId }) => {

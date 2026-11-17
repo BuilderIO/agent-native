@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
-import { createThread, runWithRequestContext } from "@agent-native/core/server";
+import {
+  createThread,
+  getCurrentTurnRunIdsForThread,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { and, eq } from "drizzle-orm";
 import {
@@ -518,6 +522,69 @@ describe("comment AI durable action binding", () => {
     ).rejects.toMatchObject({ errorCode: "comment_ai_operation_conflict" });
   });
 
+  it("distinguishes a fresh empty thread from a persisted successful or submitted run", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest({
+        ...startArgs(OP_A, ROOT_A),
+        agentThreadId: `agent-thread-${crypto.randomUUID()}`,
+      }),
+    );
+    await createThread(OWNER, {
+      id: requiredId(started.agentThreadId),
+      scope: started.backgroundSession.scope,
+      source: { appId: "content" },
+    });
+    const read = () =>
+      asUser(() =>
+        getConversation.run(
+          { requestId: OP_A },
+          { caller: "web", userEmail: OWNER },
+        ),
+      );
+    expect(await read()).toMatchObject({
+      threadData: "{}",
+      historyExpected: false,
+    });
+    await getCurrentTurnRunIdsForThread(
+      requiredId(started.agentThreadId),
+      requiredId(started.agentTurnId),
+    );
+    await getDbExec().execute({
+      sql: "INSERT INTO agent_runs (id, thread_id, turn_id, status, started_at) VALUES (?, ?, ?, ?, ?)",
+      args: [
+        crypto.randomUUID(),
+        requiredId(started.agentThreadId),
+        requiredId(started.agentTurnId),
+        "running",
+        Date.now(),
+      ],
+    });
+    expect(await read()).toMatchObject({
+      threadData: "{}",
+      historyExpected: true,
+    });
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({
+        status: "replied",
+        resultJson: JSON.stringify({ commentId: "receipt" }),
+      })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    expect(await read()).toMatchObject({
+      threadData: "{}",
+      historyExpected: true,
+      receiptTurnIds: [started.agentTurnId],
+    });
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "failed", resultJson: null, runId: "submitted-run" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    expect(await read()).toMatchObject({
+      threadData: "{}",
+      historyExpected: true,
+    });
+  });
+
   it("lists the latest requests of a long continuation chain with bounded ancestry reads", async () => {
     await asUser(() =>
       commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
@@ -693,7 +760,7 @@ describe("comment AI durable action binding", () => {
     ).toEqual(new Set([OP_A, OP_B]));
   });
 
-  it("fails explicitly when a continuation history exceeds the ancestry read budget", async () => {
+  it("reports over-limit legacy ancestry without hiding unrelated active requests", async () => {
     await asUser(() =>
       commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
     );
@@ -710,7 +777,7 @@ describe("comment AI durable action binding", () => {
         ...origin,
         id,
         continuationOfRequestId: parentId,
-        status: "replied",
+        status: index === 260 ? "queued" : "replied",
         createdAt: new Date(
           Date.parse(origin.createdAt) + index * 1000,
         ).toISOString(),
@@ -722,12 +789,34 @@ describe("comment AI durable action binding", () => {
       .set({ status: "replied" })
       .where(eq(schema.commentAiRequests.id, OP_A));
     await getDb().insert(schema.commentAiRequests).values(rows);
+    await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_B, ROOT_B)),
+    );
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ createdAt: "2099-01-01T00:00:00.000Z" })
+      .where(eq(schema.commentAiRequests.id, OP_B));
     const select = vi.spyOn(getDb(), "select");
     try {
-      await expect(
-        asUser(() => commentAi.listCommentAiRequests(DOCUMENT_ID)),
-      ).rejects.toMatchObject({ errorCode: "comment_ai_ancestry_limit" });
-      expect(select.mock.calls.length).toBeLessThanOrEqual(130);
+      const result = await asUser(() =>
+        commentAi.listCommentAiRequests(DOCUMENT_ID),
+      );
+      expect(result.requests).toContainEqual(
+        expect.objectContaining({
+          operationId: parentId,
+          status: "queued",
+          scopeUnavailable: true,
+          pendingSession: null,
+        }),
+      );
+      expect(result.requests).toContainEqual(
+        expect.objectContaining({
+          operationId: OP_B,
+          status: "queued",
+          agentThreadScopeId: OP_B,
+        }),
+      );
+      expect(select.mock.calls.length).toBeLessThanOrEqual(265);
     } finally {
       select.mockRestore();
     }
@@ -781,7 +870,11 @@ describe("comment AI durable action binding", () => {
     );
     await expect(
       asCollaborator(() => commentAi.getCommentAiConversation(OP_B)),
-    ).resolves.toEqual({ threadData: '{"messages":[]}', receiptTurnIds: [] });
+    ).resolves.toEqual({
+      threadData: '{"messages":[]}',
+      receiptTurnIds: [],
+      historyExpected: true,
+    });
     await expect(
       asCollaborator(() => commentAi.loadCommentAiRequest(OP_A)),
     ).rejects.toThrow();
@@ -874,7 +967,11 @@ describe("comment AI durable action binding", () => {
     });
     await expect(
       asCollaborator(() => commentAi.getCommentAiConversation(OP_A)),
-    ).resolves.toEqual({ threadData: '{"messages":[]}', receiptTurnIds: [] });
+    ).resolves.toEqual({
+      threadData: '{"messages":[]}',
+      receiptTurnIds: [],
+      historyExpected: false,
+    });
     await getDb()
       .delete(schema.documentShares)
       .where(eq(schema.documentShares.id, "comment-ai-reader-share"));

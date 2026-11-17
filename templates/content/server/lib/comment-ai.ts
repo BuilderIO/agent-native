@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 
-import { fail } from "@agent-native/core/action";
+import { ActionContractError, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { getDbExec } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   getRequestRunContext,
   getRequestUserEmail,
+  getRunStatus,
   getThread,
 } from "@agent-native/core/server";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
@@ -17,7 +19,9 @@ import {
   eq,
   inArray,
   isNull,
+  isNotNull,
   notInArray,
+  or,
   sql,
 } from "drizzle-orm";
 import { z } from "zod";
@@ -637,6 +641,8 @@ export async function getCommentAiConversation(requestId: string) {
     .select({
       turnId: schema.commentAiRequests.agentTurnId,
       resultJson: schema.commentAiRequests.resultJson,
+      status: schema.commentAiRequests.status,
+      runId: schema.commentAiRequests.runId,
     })
     .from(schema.commentAiRequests)
     .where(
@@ -646,7 +652,10 @@ export async function getCommentAiConversation(requestId: string) {
         eq(schema.commentAiRequests.threadId, request.threadId),
         eq(schema.commentAiRequests.rootCommentId, request.rootCommentId),
         eq(schema.commentAiRequests.agentThreadId, request.agentThreadId ?? ""),
-        inArray(schema.commentAiRequests.status, [...TERMINAL_SUCCESS]),
+        or(
+          inArray(schema.commentAiRequests.status, [...TERMINAL_SUCCESS]),
+          isNotNull(schema.commentAiRequests.runId),
+        ),
       ),
     )
     .limit(1001);
@@ -656,12 +665,28 @@ export async function getCommentAiConversation(requestId: string) {
       errorCode: "comment_ai_ancestry_limit",
     });
   }
-  const receiptTurnIds = receipts.flatMap(({ turnId, resultJson }) => {
-    if (!turnId || !resultJson) return [];
+  const receiptTurnIds = receipts.flatMap(({ turnId, resultJson, status }) => {
+    if (
+      !TERMINAL_SUCCESS.includes(status as (typeof TERMINAL_SUCCESS)[number]) ||
+      !turnId ||
+      !resultJson
+    )
+      return [];
     const result = resultSchema.parse(JSON.parse(resultJson));
     return result.commentId || result.suggestionId ? [turnId] : [];
   });
-  return { threadData: thread.threadData, receiptTurnIds };
+  let historyExpected = thread.messageCount > 0 || receipts.length > 0;
+  if (!historyExpected) {
+    // Initialize Core's run tables through its public API before the bounded
+    // existence check. The thread binding and current Page access were checked above.
+    await getRunStatus("");
+    const { rows } = await getDbExec().execute({
+      sql: "SELECT 1 FROM agent_runs WHERE thread_id = ? AND dispatch_mode IS DISTINCT FROM 'turn-abort' LIMIT 1",
+      args: [thread.id],
+    });
+    historyExpected = rows.length > 0;
+  }
+  return { threadData: thread.threadData, receiptTurnIds, historyExpected };
 }
 
 function backgroundSession(request: RequestRow, threadScopeId = request.id) {
@@ -2044,7 +2069,20 @@ export async function listCommentAiRequests(documentId: string) {
   const resolveScope = commentAiScopeResolver(rows);
   const requests: CommentAiRequest[] = [];
   for (const row of rows) {
-    requests.push(serializeCommentAiRequest(row, await resolveScope(row)));
+    try {
+      requests.push(serializeCommentAiRequest(row, await resolveScope(row)));
+    } catch (error) {
+      if (
+        !(error instanceof ActionContractError) ||
+        error.errorCode !== "comment_ai_ancestry_limit"
+      )
+        throw error;
+      requests.push({
+        ...serializeCommentAiRequest(row),
+        scopeUnavailable: true,
+        pendingSession: null,
+      });
+    }
   }
   return { requests };
 }

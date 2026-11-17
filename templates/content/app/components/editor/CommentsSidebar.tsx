@@ -2375,6 +2375,10 @@ export function CommentsSidebar({
   // the root of its own thread, exactly as it would for a reply.
   const handlePendingAiSubmit = async (selection: CommentAiSubmitPayload) => {
     if (!commentAi) return;
+    if (commentAi.listUnavailable) {
+      toast.error(t("comments.aiRequestsUnavailable"));
+      return;
+    }
     const instructions = pendingText.trim();
     const created = await handlePendingSubmit(selection);
     if (!created) return;
@@ -2453,6 +2457,10 @@ export function CommentsSidebar({
   };
   const handlePageAiSubmit = async (selection: CommentAiSubmitPayload) => {
     if (!commentAi) return;
+    if (commentAi.listUnavailable) {
+      toast.error(t("comments.aiRequestsUnavailable"));
+      return;
+    }
     const instructions = pageDraft.draft.text.trim();
     const created = await handlePageSubmit(selection);
     if (!created) return;
@@ -3621,6 +3629,8 @@ export function CommentsSidebar({
               id === thread.comments[0]?.id &&
               aiRequest?.agentThreadId &&
               aiRequest.agentTurnId &&
+              !aiRequest.scopeUnavailable &&
+              !commentAi?.listUnavailable &&
               commentAi
                 ? () => commentAi.open(aiRequest)
                 : undefined
@@ -3628,15 +3638,30 @@ export function CommentsSidebar({
           />
         )}
         feedback={
-          (aiRequest && commentAi) || receiptless.length ? (
+          (aiRequest && commentAi) ||
+          commentAi?.listUnavailable ||
+          receiptless.length ? (
             <>
+              {commentAi?.listUnavailable ? (
+                <div role="alert" className="text-xs text-destructive">
+                  {t("comments.aiRequestsUnavailable")}{" "}
+                  <button
+                    type="button"
+                    onClick={() => void commentAi.reloadRequests?.()}
+                  >
+                    {t("comments.retry")}
+                  </button>
+                </div>
+              ) : null}
               {receiptless.map((members) => (
                 <ThreadSuggestionRow
                   key={members[0]!.id}
                   {...suggestionProps(members)}
                 />
               ))}
-              {!aiRequest || !commentAi ? null : continuation ||
+              {!aiRequest ||
+              !commentAi ||
+              aiRequest.scopeUnavailable ? null : continuation ||
                 aiRequest.status === "replied" ||
                 (aiRequest.status === "suggested" && !showsRequestSuggestion) ||
                 aiRequest.status === "resolved" ? (
@@ -3663,7 +3688,9 @@ export function CommentsSidebar({
               ) : null}
               {!aiRequest ||
               !commentAi ||
-              (aiRequest.status === "suggested" && !continuation) ? null : (
+              (aiRequest.status === "suggested" &&
+                !continuation &&
+                !aiRequest.scopeUnavailable) ? null : (
                 <CommentAiRequestStatus
                   request={aiRequest}
                   continuation={continuation}
@@ -4118,6 +4145,12 @@ export function CommentsSidebar({
         <div className="sticky top-0 z-10 border-b border-border bg-background empty:hidden">
           {toolbar}
         </div>
+        {commentAi?.listUnavailable ? (
+          <div role="alert" className="px-4 py-2 text-xs text-destructive">
+            {t("comments.aiRequestsUnavailable")}{" "}
+            <button type="button" onClick={() => void commentAi.reloadRequests?.()}>{t("comments.retry")}</button>
+          </div>
+        ) : null}
         {composer}
         <div
           className="flex flex-col divide-y divide-border/60"

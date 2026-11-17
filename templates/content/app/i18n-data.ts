@@ -1987,6 +1987,7 @@ const enUS = {
     aiOpenConversation: "Open AI conversation",
     aiConversationPrefill: "Continue this comment conversation…",
     aiConversationUnavailable: "This AI conversation is unavailable.",
+    aiRequestsUnavailable: "AI request status is unavailable. Retry before submitting.",
     aiFollowUpYou: "You",
     aiFollowUpIncomplete: "This response ended before it finished.",
     aiRequestCouldNotBeConfirmed: "The AI request could not be confirmed",

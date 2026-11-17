@@ -31,6 +31,8 @@ const api = vi.hoisted(() => ({
   cancelBackgroundAgentSession: vi.fn(),
   loadCommentAiConversation: vi.fn(),
   requests: [] as CommentAiRequest[],
+  queryMissing: false,
+  queryError: false,
   toastError: vi.fn(),
 }));
 
@@ -38,7 +40,8 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   callAction: (...args: unknown[]) => api.callAction(...args),
   useActionQuery: () => ({
-    data: { requests: api.requests },
+    data: api.queryMissing ? undefined : { requests: api.requests },
+    isError: api.queryError,
     refetch: api.refetch,
   }),
 }));
@@ -114,6 +117,8 @@ describe("comment AI controls", () => {
     document.body.append(container);
     root = createRoot(container);
     api.requests = [];
+    api.queryMissing = false;
+    api.queryError = false;
     api.refetch.mockResolvedValue(undefined);
     api.cancelBackgroundAgentSession.mockResolvedValue(undefined);
     api.loadCommentAiConversation.mockResolvedValue([]);
@@ -137,6 +142,57 @@ describe("comment AI controls", () => {
     act(() => root.unmount());
     container.remove();
     vi.clearAllMocks();
+  });
+
+  it("keeps known active requests and exposes list failure instead of treating it as empty", async () => {
+    api.requests = [request({ status: "running", error: null })];
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    act(() => root.render(createElement(Probe)));
+    api.queryMissing = true;
+    api.queryError = true;
+    act(() => root.render(createElement(Probe)));
+    expect(controller!.listUnavailable).toBe(true);
+    expect(controller!.requests).toContainEqual(
+      expect.objectContaining({ status: "running" }),
+    );
+    await expect(
+      controller!.start({
+        threadId: "other-thread",
+        rootCommentId: "other",
+        submittedMode: "reply",
+        instructions: "Question",
+      }),
+    ).rejects.toThrow();
+    expect(api.callAction).not.toHaveBeenCalled();
+    await act(async () => {
+      await controller!.reloadRequests!();
+    });
+    expect(api.refetch).toHaveBeenCalled();
+  });
+
+  it("reports an initial list failure and blocks new AI requests", async () => {
+    api.queryMissing = true;
+    api.queryError = true;
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    act(() => root.render(createElement(Probe)));
+    expect(controller!.listUnavailable).toBe(true);
+    await expect(
+      controller!.start({
+        threadId: "thread-1",
+        rootCommentId: "comment-1",
+        submittedMode: "reply",
+        instructions: "Question",
+      }),
+    ).rejects.toThrow();
+    expect(api.callAction).not.toHaveBeenCalled();
   });
 
   it("uses the model's maker for logos when a gateway routes the model", () => {
@@ -194,6 +250,27 @@ describe("comment AI controls", () => {
       engine: "builder",
       continuationOfRequestId: "prior-request",
     });
+  });
+
+  it("shows an unavailable scope without pretending a running request stopped", async () => {
+    const active = request({
+      status: "running",
+      scopeUnavailable: true,
+      error: null,
+    });
+    await act(async () =>
+      root.render(
+        createElement(CommentAiRequestStatus, {
+          request: active,
+          onRetry: vi.fn(),
+          onStop: vi.fn(),
+        }),
+      ),
+    );
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      "comments.aiConversationUnavailable",
+    );
+    expect(active.status).toBe("running");
   });
 
   it("shows actionable errors and retries with the same request id", async () => {

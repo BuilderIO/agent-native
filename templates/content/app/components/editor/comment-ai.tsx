@@ -159,6 +159,9 @@ function dispatchRecoveryOptions(options: BackgroundAgentSessionStartOptions) {
 
 export interface CommentAiController {
   requests: CommentAiRequest[];
+  /** A failed list read leaves the status of other operations unknown. */
+  listUnavailable?: boolean;
+  reloadRequests?: () => Promise<void>;
   /**
    * The requests as the server last reported them, before a local dispatch
    * or continuation error shows one as needing review. What a run wrote to
@@ -584,10 +587,14 @@ export function latestCommentAiRequest(
  * quote has moved, is refused.
  */
 export function isCommentAiWorkingOn(
-  commentAi: Pick<CommentAiController, "requests" | "startingThreadIds">,
+  commentAi: Pick<
+    CommentAiController,
+    "requests" | "startingThreadIds" | "listUnavailable"
+  >,
   threadId: string,
 ) {
-  if (commentAi.startingThreadIds.has(threadId)) return true;
+  if (commentAi.listUnavailable || commentAi.startingThreadIds.has(threadId))
+    return true;
   const request = latestCommentAiRequest(commentAi.requests, threadId);
   return Boolean(request && isCommentAiRequestActive(request));
 }
@@ -633,7 +640,20 @@ export function useCommentAiRequests(
         commentAiRequestsRefetchInterval(state.state.data),
     },
   );
-  const serverRequests = query.data?.requests ?? [];
+  const lastRequestsRef = useRef<{
+    documentId: string;
+    requests: CommentAiRequest[];
+  } | null>(null);
+  if (lastRequestsRef.current?.documentId !== documentId)
+    lastRequestsRef.current = null;
+  if (query.data)
+    lastRequestsRef.current = { documentId, requests: query.data.requests };
+  const listUnavailable = options.enabled && (query.isError || !query.data);
+  const serverRequests =
+    query.data?.requests ?? lastRequestsRef.current?.requests ?? [];
+  const reloadRequests = useCallback(async () => {
+    await query.refetch();
+  }, [query.refetch]);
   const serverRequestsRef = useRef(serverRequests);
   serverRequestsRef.current = serverRequests;
   const refetchRef = useRef(query.refetch);
@@ -841,6 +861,7 @@ export function useCommentAiRequests(
       const receipt = sessionReceipt(request);
       if (
         !ACTIVE_STATUSES.has(request.status) ||
+        request.scopeUnavailable ||
         !receipt ||
         monitoredRequestsRef.current.has(request.operationId)
       )
@@ -901,6 +922,13 @@ export function useCommentAiRequests(
       continuationOfRequestId,
       requestId: retryRequestId,
     }) => {
+      if (listUnavailable)
+        throw new Error(t("comments.aiConversationUnavailable"));
+      const currentRequest = serverRequestsRef.current.find(
+        (row) => row.operationId === retryRequestId,
+      );
+      if (currentRequest?.scopeUnavailable)
+        throw new Error(t("comments.aiConversationUnavailable"));
       const recovery = retryRequestId
         ? dispatchRecoveryRecord[retryRequestId]
         : undefined;
@@ -1152,6 +1180,7 @@ export function useCommentAiRequests(
       dispatch,
       dispatchRecoveryRecord,
       documentId,
+      listUnavailable,
       query,
       t,
       updateContinuation,
@@ -1162,6 +1191,8 @@ export function useCommentAiRequests(
   useEffect(() => {
     for (const request of serverRequests) {
       if (
+        listUnavailable ||
+        request.scopeUnavailable ||
         (request.status !== "classifying" &&
           request.status !== "classified" &&
           request.status !== "queued") ||
@@ -1192,7 +1223,7 @@ export function useCommentAiRequests(
         }
       });
     }
-  }, [serverRequests, start, t]);
+  }, [serverRequests, start, t, listUnavailable]);
 
   const monitorContinuation = useCallback(
     async (request: CommentAiRequest, receipt: CommentAiContinuationState) => {
@@ -1243,9 +1274,10 @@ export function useCommentAiRequests(
       const request = serverRequests.find(
         (candidate) => candidate.operationId === operationId,
       );
-      if (request) void monitorContinuation(request, continuation);
+      if (request && !request.scopeUnavailable && !listUnavailable)
+        void monitorContinuation(request, continuation);
     }
-  }, [continuations, monitorContinuation, serverRequests]);
+  }, [continuations, monitorContinuation, serverRequests, listUnavailable]);
 
   const dispatchContinuation = useCallback(
     async (
@@ -1253,7 +1285,11 @@ export function useCommentAiRequests(
       message: string,
       mode: "follow-up" | "resume",
     ) => {
-      if (!request.agentThreadId) {
+      if (
+        listUnavailable ||
+        request.scopeUnavailable ||
+        !request.agentThreadId
+      ) {
         throw new Error("This AI conversation is not available yet");
       }
       const existing = continuationRecordRef.current[request.operationId];
@@ -1361,7 +1397,7 @@ export function useCommentAiRequests(
         throw error;
       }
     },
-    [monitorContinuation, t, updateContinuation],
+    [monitorContinuation, t, updateContinuation, listUnavailable],
   );
 
   const continueConversation = useCallback<CommentAiController["continue"]>(
@@ -1482,19 +1518,22 @@ export function useCommentAiRequests(
 
   const open = useCallback(
     (request: CommentAiRequest) => {
-      if (!request.agentThreadId) return;
+      if (listUnavailable || request.scopeUnavailable || !request.agentThreadId)
+        return;
       requestAgentChatThreadOpen({
         threadId: request.agentThreadId,
         prefill: t("comments.aiConversationPrefill"),
       });
     },
-    [t],
+    [t, listUnavailable],
   );
 
   return useMemo(
     () => ({
       requests,
       serverRequests,
+      listUnavailable,
+      reloadRequests,
       startingThreadIds,
       stoppingRequestIds,
       continuations,
@@ -1512,6 +1551,8 @@ export function useCommentAiRequests(
     [
       requests,
       serverRequests,
+      listUnavailable,
+      reloadRequests,
       startingThreadIds,
       stoppingRequestIds,
       continuations,
@@ -1581,6 +1622,13 @@ export function CommentAiRequestStatus({
   onDone?: () => void;
 }) {
   const t = useT();
+  if (request.scopeUnavailable) {
+    return (
+      <div role="alert" className="text-xs text-destructive">
+        {t("comments.aiConversationUnavailable")}
+      </div>
+    );
+  }
   if (
     !continuation &&
     isAppliedResolution(request) &&
