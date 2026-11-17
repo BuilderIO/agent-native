@@ -214,13 +214,14 @@ export function createRecordingTrackGrant(input: {
 }
 
 export interface RecordingTracksRefusal {
-  errorCode: "not_found" | "no_tracks" | "redaction_pending";
+  errorCode: "not_found" | "not_ready" | "no_tracks" | "redaction_pending";
   statusCode: number;
   message: string;
 }
 
 /** Why a recording's tracks can't be read right now, or null when they can. */
 export function recordingTracksRefusal(recording: {
+  status?: string | null;
   trashedAt?: string | null;
   failureCode?: string | null;
   mediaFormat?: string | null;
@@ -232,6 +233,15 @@ export function recordingTracksRefusal(recording: {
       errorCode: "not_found",
       statusCode: 404,
       message: "This recording is in the Trash or no longer available.",
+    };
+  }
+  // A recording that failed after its tracks were finalized keeps their rows.
+  if (recording.status !== "ready") {
+    return {
+      errorCode: "not_ready",
+      statusCode: 409,
+      message:
+        "This recording is still uploading or processing. Try again once it is ready.",
     };
   }
   // A burn deletes the tracks and turns the recording flat; refusing on its

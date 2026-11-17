@@ -112,6 +112,7 @@ function collectUrls(value: unknown, urls: Set<string>): void {
           "compressedUrl",
           "outputUrl",
           "storageUrl",
+          "completedUrl",
         ].includes(key)
       )
         collectUrls(item, urls);

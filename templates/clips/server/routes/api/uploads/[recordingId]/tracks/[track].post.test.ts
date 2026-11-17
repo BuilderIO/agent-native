@@ -41,7 +41,8 @@ vi.mock("@agent-native/core/application-state", () => ({
   ) => {
     const current = mocks.state.get(key) ?? null;
     if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
-    mocks.state.set(key, structuredClone(next));
+    if (next === null) mocks.state.delete(key);
+    else mocks.state.set(key, structuredClone(next));
     return true;
   },
   deleteAppState: async (key: string) => {
@@ -375,6 +376,25 @@ describe("POST /api/uploads/:recordingId/tracks/:track", () => {
       sessionId: "upload-loser",
     });
     expect(mocks.state.get(sessionKey)).toEqual(winner);
+  });
+
+  it("names a losing upload in the log when storage won't cancel it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    provider.resumable.startSession.mockImplementationOnce(async () => {
+      mocks.state.set(sessionKey, {
+        providerId: "fake-storage",
+        sessionId: "upload-winner",
+        meta: { uploadGenerationId: "gen-1" },
+        bytesUploaded: 0,
+        lastCommittedIndex: -1,
+      });
+      return { sessionId: "upload-loser", meta: {} };
+    });
+    mocks.abort.mockResolvedValueOnce(false);
+    const { status } = await send(chunk(0, 4, { uploadGenerationId: "gen-1" }));
+    expect(status).toBe(409);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("upload-loser"));
+    warn.mockRestore();
   });
 
   it("acknowledges a chunk another request stored and recorded meanwhile", async () => {

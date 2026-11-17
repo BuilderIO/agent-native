@@ -38,11 +38,14 @@ import {
 } from "../../../../../lib/recording-leases.js";
 import { deleteStoredMediaUrl } from "../../../../../lib/recording-media-cleanup.js";
 import { withRecordingMediaProduction } from "../../../../../lib/recording-media-lifecycle.js";
-import { snapshotRichRecordingPolicy } from "../../../../../lib/recording-policy.js";
+import {
+  richRecordingStopped,
+  snapshotRichRecordingPolicy,
+} from "../../../../../lib/recording-policy.js";
 import {
   compareAndSetTrackSession,
   deleteStoredRecordingTracks,
-  deleteTrackSession,
+  deleteTrackSessionIf,
   discardTrackUpload,
   getTrackSession,
   listRecordingTracks,
@@ -318,9 +321,7 @@ export async function handleFinalizeTracks(event: H3Event) {
         };
       }
 
-      if (
-        !(await snapshotRichRecordingPolicy(ownerEmail, orgId, recordingId))
-      ) {
+      const tracksOff = () => {
         setResponseStatus(event, 403);
         return {
           ok: false,
@@ -328,6 +329,11 @@ export async function handleFinalizeTracks(event: H3Event) {
           labDisabled: true,
           tracksStopped: true,
         };
+      };
+      if (
+        !(await snapshotRichRecordingPolicy(ownerEmail, orgId, recordingId))
+      ) {
+        return tracksOff();
       }
 
       // The tracks can show what the owner marked for redaction, so they wait
@@ -402,7 +408,8 @@ export async function handleFinalizeTracks(event: H3Event) {
               session,
             }))
           ) {
-            await deleteTrackSession(recordingId, track);
+            // Unless a chunk started a newer upload over it meanwhile.
+            await deleteTrackSessionIf(recordingId, track, session);
           }
         }
 
@@ -445,7 +452,7 @@ export async function handleFinalizeTracks(event: H3Event) {
               };
             }
             dropped.push({ id: track.id, reason: "storage_refused" });
-            await deleteTrackSession(recordingId, track.id);
+            await deleteTrackSessionIf(recordingId, track.id, uploaded);
             continue;
           }
 
@@ -479,20 +486,29 @@ export async function handleFinalizeTracks(event: H3Event) {
               };
             }
             if (!accounting.ok) {
-              await deleteRejectedHostedUpload({
+              // The helper throws the failure it was given once the file is
+              // gone, and counts the bytes when it couldn't delete them.
+              const full = new Error("Hosted Clips storage is full.");
+              const deleted = await deleteRejectedHostedUpload({
                 recordingId,
                 ownerEmail,
                 url: completed.url,
                 additionalBytes: session.bytesUploaded,
-                failure: new Error("Hosted Clips storage is full."),
+                failure: full,
               }).catch((err: unknown) => {
+                if (err === full) return true;
                 console.warn(
                   `[track-finalize] ${track.id} track of ${recordingId} over the hosted limit:`,
                   errorMessage(err),
                 );
+                return false;
               });
               dropped.push({ id: track.id, reason: "storage_full" });
-              await deleteTrackSession(recordingId, track.id);
+              // A file storage kept keeps its session, the only thing that
+              // points to it, so a retry or permanent deletion still finds it.
+              if (deleted) {
+                await deleteTrackSessionIf(recordingId, track.id, session);
+              }
               continue;
             }
             // Marked before the row is written, so a retry never counts the
@@ -542,7 +558,12 @@ export async function handleFinalizeTracks(event: H3Event) {
               )
               .for("update")
               .limit(1);
-            if (!unchanged.length) return false;
+            if (!unchanged.length) return "changed" as const;
+            // A burn saves its stop before it changes this row, so the stop
+            // shows here even once the owner clears the marks again.
+            if (await richRecordingStopped(tx, ownerKey, recordingId)) {
+              return "stopped" as const;
+            }
             // A row another finalize wrote first is left alone, file and all.
             const inserted = await tx
               .insert(schema.recordingTracks)
@@ -560,9 +581,30 @@ export async function handleFinalizeTracks(event: H3Event) {
                 ],
               })
               .returning({ id: schema.recordingTracks.id });
-            return inserted.length > 0;
+            return inserted.length > 0
+              ? ("kept" as const)
+              : ("changed" as const);
           });
-          if (!kept) {
+          if (kept === "stopped") {
+            // No finalize keeps this track now, so its upload goes too, unless
+            // a stored track already points to the same file.
+            const referenced = (
+              await listRecordingTracks(recordingId, ownerEmail)
+            ).some((row) => row.url === completed.url);
+            if (
+              referenced ||
+              (await discardTrackUpload({
+                recordingId,
+                ownerEmail,
+                storageMode: existing.storageMode,
+                session,
+              }))
+            ) {
+              await deleteTrackSessionIf(recordingId, track.id, session);
+            }
+            return tracksOff();
+          }
+          if (kept === "changed") {
             // The completed upload stays on its session for the next try, unless
             // a burn already discarded the session and left the file to this
             // one. A file a stored track points to is never this one's to delete.
@@ -586,7 +628,7 @@ export async function handleFinalizeTracks(event: H3Event) {
               retryable: true,
             };
           }
-          await deleteTrackSession(recordingId, track.id);
+          await deleteTrackSessionIf(recordingId, track.id, session);
         }
 
         const rows = await listRecordingTracks(recordingId, ownerEmail);
@@ -631,26 +673,39 @@ export async function handleFinalizeTracks(event: H3Event) {
         }
 
         const richBytes = rows.reduce((sum, row) => sum + row.bytes, 0);
-        const updated = await db
-          .update(schema.recordings)
-          .set({
-            mediaFormat: "rich",
-            richManifestUrl: manifestUrl,
-            richBytes,
-            updatedAt: new Date().toISOString(),
-          })
-          .where(
-            and(
-              recordingWhere,
-              eq(schema.recordings.mediaFormat, "flat"),
-              // A redaction marked since the read would make these tracks stale.
-              editsUnchanged,
-            ),
-          )
-          .returning({ id: schema.recordings.id });
-        if (!updated.length) {
-          // Another finalize finished first, or the recording's edits changed;
-          // either way this manifest copy is surplus.
+        // Under the row lock and the stop check, like each track's row.
+        const flipped = await db.transaction(async (tx) => {
+          const unchanged = await tx
+            .select({ id: schema.recordings.id })
+            .from(schema.recordings)
+            .where(
+              and(
+                recordingWhere,
+                eq(schema.recordings.mediaFormat, "flat"),
+                // A redaction marked since the read would make these tracks stale.
+                editsUnchanged,
+              ),
+            )
+            .for("update")
+            .limit(1);
+          if (!unchanged.length) return "changed" as const;
+          if (await richRecordingStopped(tx, ownerKey, recordingId)) {
+            return "stopped" as const;
+          }
+          await tx
+            .update(schema.recordings)
+            .set({
+              mediaFormat: "rich",
+              richManifestUrl: manifestUrl,
+              richBytes,
+              updatedAt: new Date().toISOString(),
+            })
+            .where(recordingWhere);
+          return "rich" as const;
+        });
+        if (flipped !== "rich") {
+          // Another finalize finished first, the recording's edits changed, or
+          // a burn stopped its tracks; this manifest copy is surplus either way.
           const surplusDeleted = await deleteStoredMediaUrl(manifestUrl, {
             storageMode: existing.storageMode,
             recordingId,
@@ -666,6 +721,7 @@ export async function handleFinalizeTracks(event: H3Event) {
               `[track-finalize] surplus manifest of ${recordingId} is left in storage: ${manifestUrl}`,
             );
           }
+          if (flipped === "stopped") return tracksOff();
           const currentRows = await db
             .select({
               mediaFormat: schema.recordings.mediaFormat,

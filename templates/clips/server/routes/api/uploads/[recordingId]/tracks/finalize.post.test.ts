@@ -21,6 +21,7 @@ let db: ReturnType<typeof drizzle<typeof schema>>;
 const mocks = vi.hoisted(() => ({
   state: new Map<string, unknown>(),
   rich: true,
+  stopped: false,
   provider: {
     id: "fake-storage",
     resumable: {
@@ -50,7 +51,8 @@ vi.mock("@agent-native/core/application-state", () => ({
   ) => {
     const current = mocks.state.get(key) ?? null;
     if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
-    mocks.state.set(key, structuredClone(next));
+    if (next === null) mocks.state.delete(key);
+    else mocks.state.set(key, structuredClone(next));
     return true;
   },
   deleteAppState: async (key: string) => {
@@ -102,6 +104,7 @@ vi.mock("../../../../../lib/recording-media-lifecycle.js", () => ({
 
 vi.mock("../../../../../lib/recording-policy.js", () => ({
   snapshotRichRecordingPolicy: async () => mocks.rich,
+  richRecordingStopped: async () => mocks.stopped,
 }));
 
 vi.mock("../../../../../lib/recordings.js", async () => {
@@ -246,6 +249,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   mocks.state.clear();
   mocks.rich = true;
+  mocks.stopped = false;
   client = new PGlite();
   db = drizzle(client, { schema });
   await client.exec(
@@ -430,6 +434,26 @@ describe("POST /api/uploads/:recordingId/tracks/finalize", () => {
     expect(resumable.completeSession).not.toHaveBeenCalled();
     expect(await trackRows()).toEqual([]);
     expect(mocks.releaseLease).toHaveBeenCalled();
+  });
+
+  it("keeps a newer upload a chunk started while an earlier one was cancelled", async () => {
+    session("screen", 10, { uploadGenerationId: "gen-0" });
+    const newer = {
+      providerId: "fake-storage",
+      sessionId: "upload-newer",
+      meta: {
+        objectKey: "clips/rec-1.track-screen",
+        uploadGenerationId: "gen-1",
+      },
+      bytesUploaded: 4,
+      lastCommittedIndex: 0,
+    };
+    mocks.abort.mockImplementationOnce(async () => {
+      mocks.state.set(key("screen"), newer);
+      return true;
+    });
+    await finalize(body([listed("screen")]));
+    expect(mocks.state.get(key("screen"))).toEqual(newer);
   });
 
   it("drops a track upload left from an earlier upload generation", async () => {
@@ -619,6 +643,45 @@ describe("POST /api/uploads/:recordingId/tracks/finalize", () => {
     });
   });
 
+  it("keeps no track when a burn stops the recording mid-finalize, even once its marks are cleared", async () => {
+    session("screen", 10);
+    // The burn saved its stop after this finalize's first check, and the
+    // owner cleared the marks again, so the recording's edits look unchanged.
+    resumable.completeSession.mockImplementationOnce(async () => {
+      mocks.stopped = true;
+      return trackUrl("screen");
+    });
+    const { status, body: result } = await finalize(body([listed("screen")]));
+    expect(status).toBe(403);
+    expect(result).toMatchObject({ tracksStopped: true });
+    expect(await trackRows()).toEqual([]);
+    expect(await recordingRow()).toMatchObject({ media_format: "flat" });
+    expect(mocks.deleteUrl).toHaveBeenCalledWith(trackUrl("screen"), {
+      storageMode: "own",
+      recordingId: "rec-1",
+    });
+    expect(mocks.state.has(key("screen"))).toBe(false);
+  });
+
+  it("stays flat when a burn stops the recording just before it turns rich", async () => {
+    session("screen", 10);
+    mocks.upload.mockImplementationOnce(async () => {
+      mocks.stopped = true;
+      return { url: manifestUrl, provider: "s3" };
+    });
+    const { status, body: result } = await finalize(body([listed("screen")]));
+    expect(status).toBe(403);
+    expect(result).toMatchObject({ tracksStopped: true });
+    expect(await recordingRow()).toMatchObject({
+      media_format: "flat",
+      rich_manifest_url: null,
+    });
+    expect(mocks.deleteUrl).toHaveBeenCalledWith(manifestUrl, {
+      storageMode: "own",
+      recordingId: "rec-1",
+    });
+  });
+
   it("stays flat and asks for a retry when the recording's edits change mid-finalize", async () => {
     session("screen", 10);
     mocks.upload.mockImplementationOnce(async () => {
@@ -694,6 +757,12 @@ describe("POST /api/uploads/:recordingId/tracks/finalize", () => {
     await client.query("UPDATE recordings SET storage_mode='hosted'");
     session("screen", 10);
     mocks.addHosted.mockResolvedValueOnce({ ok: false });
+    // Once the file is gone, the helper throws the failure it was given.
+    mocks.rejectHosted.mockImplementationOnce(
+      async (input: { failure: Error }) => {
+        throw input.failure;
+      },
+    );
     const { body: result } = await finalize(body([listed("screen")]));
     expect(result).toMatchObject({
       mediaFormat: "flat",
@@ -702,6 +771,23 @@ describe("POST /api/uploads/:recordingId/tracks/finalize", () => {
     expect(mocks.rejectHosted).toHaveBeenCalledWith(
       expect.objectContaining({ url: trackUrl("screen"), additionalBytes: 10 }),
     );
+    expect(mocks.state.has(key("screen"))).toBe(false);
+  });
+
+  it("keeps the session of a hosted track that doesn't fit while storage keeps its file", async () => {
+    await client.query("UPDATE recordings SET storage_mode='hosted'");
+    session("screen", 10);
+    mocks.addHosted.mockResolvedValueOnce({ ok: false });
+    mocks.rejectHosted.mockRejectedValueOnce(
+      new Error("The uploaded derivative could not be deleted."),
+    );
+    const { body: result } = await finalize(body([listed("screen")]));
+    expect(result).toMatchObject({
+      droppedTracks: [{ id: "screen", reason: "storage_full" }],
+    });
+    expect(mocks.state.get(key("screen"))).toMatchObject({
+      meta: { completedUrl: trackUrl("screen") },
+    });
   });
 
   it("refuses a finalize from an earlier upload generation", async () => {

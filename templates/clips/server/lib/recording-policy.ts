@@ -5,12 +5,15 @@ import {
 } from "@agent-native/core/application-state";
 import { getUserLabState } from "@agent-native/core/labs/server";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { and, eq } from "drizzle-orm";
+import { pgTable, text } from "drizzle-orm/pg-core";
 
 import {
   CLIPS_RESILIENT_RECORDING,
   CLIPS_RICH_RECORDINGS,
 } from "../../shared/labs.js";
 import { recordingPolicyFromLab } from "../../shared/recording-policy.js";
+import type { CleanupTransaction } from "./recording-media-lifecycle.js";
 
 async function getRecordingLabPolicy(userEmail: string, orgId?: string) {
   const state = await getUserLabState(userEmail, CLIPS_RESILIENT_RECORDING, {
@@ -145,4 +148,37 @@ export async function stopRichRecording(
     () =>
       writeAppState(richPolicyKey(recordingId), { version: 1, rich: false }),
   );
+}
+
+const appStateTable = pgTable("application_state", {
+  sessionId: text("session_id").notNull(),
+  key: text("key").notNull(),
+  value: text("value").notNull(),
+});
+
+/**
+ * Whether the recording was stopped keeping tracks, read in the caller's
+ * transaction. A burn saves the stop before it changes the recording's row,
+ * so a transaction that locks the row after the owner clears the marks again
+ * still sees it.
+ */
+export async function richRecordingStopped(
+  tx: CleanupTransaction,
+  ownerEmail: string,
+  recordingId: string,
+): Promise<boolean> {
+  const rows = await tx
+    .select({ value: appStateTable.value })
+    .from(appStateTable)
+    .where(
+      and(
+        eq(appStateTable.sessionId, ownerEmail.trim().toLowerCase()),
+        eq(appStateTable.key, richPolicyKey(recordingId)),
+      ),
+    )
+    .limit(1);
+  const row = rows.length ? rows[0] : null;
+  if (!row) return false;
+  const saved = JSON.parse(row.value) as Record<string, unknown> | null;
+  return parseRichRecordingPolicy(saved) === false;
 }

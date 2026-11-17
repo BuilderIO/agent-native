@@ -75,6 +75,7 @@ export default defineAction({
     const recording = access.resource as {
       id: string;
       ownerEmail: string;
+      status?: string | null;
       trashedAt?: string | null;
       failureCode?: string | null;
       mediaFormat?: string | null;

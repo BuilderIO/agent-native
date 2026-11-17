@@ -74,6 +74,24 @@ export async function deleteTrackSession(
   await deleteAppState(trackSessionKey(recordingId, track));
 }
 
+/**
+ * Deletes a track session only while it still holds the same upload, so one a
+ * chunk started over it meanwhile keeps its session.
+ */
+export async function deleteTrackSessionIf(
+  recordingId: string,
+  track: RichTrackId,
+  expected: StoredResumableSession,
+): Promise<boolean> {
+  const current = await getTrackSession(recordingId, track);
+  if (!current || current.sessionId !== expected.sessionId) return false;
+  return compareAndSetAppState(
+    trackSessionKey(recordingId, track),
+    current as unknown as Record<string, unknown>,
+    null,
+  );
+}
+
 /** Every track session the recording holds, from any upload generation. */
 export async function listTrackSessions(
   recordingId: string,
@@ -213,7 +231,8 @@ export async function discardTrackUploads(recording: {
         storageMode: recording.storageMode,
         session,
       }));
-    if (discarded) await asOwner(() => deleteTrackSession(recording.id, track));
+    if (discarded)
+      await asOwner(() => deleteTrackSessionIf(recording.id, track, session));
     else left.push(`unfinished ${track} track upload of ${recording.id}`);
   }
   return left;

@@ -333,6 +333,37 @@ describe("durable permanent media removal", () => {
     ).toBe(true);
   });
 
+  it("captures a completed upload's file from its saved session", async () => {
+    // A finished track upload whose file nothing else points to yet.
+    await client.query("INSERT INTO application_state VALUES ($1,$2,$3,0)", [
+      recording.ownerEmail,
+      "resumable-session-rec-1-track-screen",
+      JSON.stringify({
+        providerId: "s3",
+        sessionId: "upload-screen",
+        providerClosed: true,
+        meta: {
+          completedUrl:
+            "https://cdn.builder.io/o/assets%2Ffake-space%2Ffeedfacefeedfacefeedfacefeedface?token=fake-track",
+        },
+        bytesUploaded: 10,
+      }),
+    ]);
+    await db.transaction((tx) => captureRecordingMediaCleanup(tx, recording));
+    const objects = await client.query<{ payload: string }>(
+      "SELECT payload FROM recording_media_cleanup_objects",
+    );
+    expect(objects.rows.some((row) => row.payload.includes("fake-track"))).toBe(
+      true,
+    );
+    const cleanup = await client.query<{ manifest: string }>(
+      "SELECT manifest FROM recording_media_cleanups",
+    );
+    expect(
+      cleanup.rows[0] && openCleanupPayload(cleanup.rows[0].manifest),
+    ).toMatchObject({ unresolvedProducer: false });
+  });
+
   it("prevents attachment through an alias after deletion is claimed", async () => {
     await db.transaction((tx) => captureRecordingMediaCleanup(tx, recording));
     await client.exec(

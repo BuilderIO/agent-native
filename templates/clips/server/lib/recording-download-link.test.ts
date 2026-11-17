@@ -316,6 +316,7 @@ describe("resolveRecordingTrackAccess", () => {
 
 describe("recordingTracksRefusal", () => {
   const rich = {
+    status: "ready",
     mediaFormat: "rich",
     richManifestUrl: "https://storage.example.com/clips/rec-1/manifest.json",
     editsJson: null,
@@ -337,6 +338,16 @@ describe("recordingTracksRefusal", () => {
       recordingTracksRefusal({ ...rich, editsJson: withRedaction })?.errorCode,
     ).toBe("redaction_pending");
   });
+
+  it.each(["failed", "processing", "uploading"])(
+    "refuses a %s recording, as the video's link does",
+    (status) => {
+      expect(recordingTracksRefusal({ ...rich, status })).toMatchObject({
+        errorCode: "not_ready",
+        statusCode: 409,
+      });
+    },
+  );
 
   it("refuses a recording with a burned redaction, even if a track was left behind", () => {
     expect(

@@ -48,7 +48,7 @@ import {
 import { snapshotRichRecordingPolicy } from "../../../../../lib/recording-policy.js";
 import {
   compareAndSetTrackSession,
-  deleteTrackSession,
+  deleteTrackSessionIf,
   discardTrackUpload,
   getTrackSession,
   listRecordingTracks,
@@ -360,7 +360,14 @@ export async function handleTrackChunk(event: H3Event) {
         if (
           !(await compareAndSetTrackSession(recordingId, track, stale, fresh))
         ) {
-          await abortResumableUploadSession(fresh, { provider, label });
+          if (
+            !(await abortResumableUploadSession(fresh, { provider, label }))
+          ) {
+            // Never saved, so nothing else will find it to cancel it.
+            console.warn(
+              `[${label}] upload ${fresh.sessionId} lost a race and was not cancelled`,
+            );
+          }
           setResponseStatus(event, 409);
           return {
             ok: false,
@@ -388,10 +395,7 @@ export async function handleTrackChunk(event: H3Event) {
           isHeldForRedaction(editsJson, null)
         ) {
           if (await abortResumableUploadSession(fresh, { provider, label })) {
-            const current = await getTrackSession(recordingId, track);
-            if (current?.sessionId === fresh.sessionId) {
-              await deleteTrackSession(recordingId, track);
-            }
+            await deleteTrackSessionIf(recordingId, track, fresh);
           }
           setResponseStatus(event, 409);
           return {

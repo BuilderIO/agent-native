@@ -190,6 +190,19 @@ describe("get-recording-tracks", () => {
     });
   });
 
+  it("refuses a recording that failed after its tracks were stored", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: { ...recording, status: "failed" },
+    });
+    const error = await failureOf(action.run({ recordingId: "rec-1" }));
+    expect(error.options).toMatchObject({
+      errorCode: "not_ready",
+      statusCode: 409,
+    });
+    expect(mocks.createScopedAgentAccessGrant).not.toHaveBeenCalled();
+  });
+
   it("refuses earlier screen time attached to another clip", async () => {
     mocks.contextClipIdForFootage.mockResolvedValue("clip-2");
     const error = await failureOf(action.run({ recordingId: "rec-1" }));
