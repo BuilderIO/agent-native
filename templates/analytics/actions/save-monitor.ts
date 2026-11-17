@@ -152,7 +152,10 @@ export default defineAction({
     if (!email) throw new Error("no authenticated user");
     const orgId = getRequestOrgId() || null;
     const name = args.name?.trim() || deriveNameFromUrl(args.url);
-    const monitor = await saveMonitor({ ...args, name }, { email, orgId });
+    const monitor = await saveMonitor(
+      { ...args, name },
+      { email, orgId, caller: ctx?.caller },
+    );
     return {
       ...monitorForCaller(monitor, ctx?.caller),
       monitorAppUrl: `${getAppProductionUrl()}/monitoring?view=uptime&monitor=${encodeURIComponent(monitor.id)}`,

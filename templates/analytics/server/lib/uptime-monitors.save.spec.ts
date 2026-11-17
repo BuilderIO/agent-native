@@ -233,6 +233,8 @@ describe("saveMonitor and URL credentials", () => {
 
 describe("saveMonitor and the URL a non-UI caller was shown", () => {
   const keyedUrl = "https://api.example.com/health?api_key=secret123";
+  const mcpCtx = { ...ctx, caller: "mcp" as const };
+  const uiCtx = { ...ctx, caller: "frontend" as const };
 
   async function readAsAgent() {
     const found = await getMonitor("monitor-1", ctx);
@@ -246,7 +248,7 @@ describe("saveMonitor and the URL a non-UI caller was shown", () => {
 
     await saveMonitor(
       { id: "monitor-1", name: "Renamed", url: shown.url },
-      ctx,
+      mcpCtx,
     );
 
     expect(fake.updates[0]).toMatchObject({
@@ -266,7 +268,7 @@ describe("saveMonitor and the URL a non-UI caller was shown", () => {
 
     await saveMonitor(
       { id: "monitor-1", name: "Renamed", url: shown.url },
-      ctx,
+      mcpCtx,
     );
 
     expect(fake.updates[0]).toMatchObject({
@@ -286,7 +288,7 @@ describe("saveMonitor and the URL a non-UI caller was shown", () => {
         name: "Prod",
         url: "https://other.example/health?api_key=***",
       },
-      ctx,
+      mcpCtx,
     );
 
     expect(fake.updates[0]).toMatchObject({
@@ -299,7 +301,7 @@ describe("saveMonitor and the URL a non-UI caller was shown", () => {
   it("still treats a URL with nothing to mask as unchanged only when it is identical", async () => {
     await saveMonitor(
       { id: "monitor-1", name: "Renamed", url: storedRow.url },
-      ctx,
+      mcpCtx,
     );
     expect(fake.updates[0]).toMatchObject({
       url: storedRow.url,
@@ -309,10 +311,89 @@ describe("saveMonitor and the URL a non-UI caller was shown", () => {
 
     await saveMonitor(
       { id: "monitor-1", name: "Renamed", url: `${storedRow.url}?v=2` },
-      ctx,
+      mcpCtx,
     );
     expect(fake.updates[1]).toMatchObject({
       url: `${storedRow.url}?v=2`,
+      requestHeaders: "{}",
+      requestBody: null,
+    });
+  });
+
+  it("keeps everything when the app UI saves the exact stored URL", async () => {
+    fake.rows = new Map([[schema.monitors, [{ ...storedRow, url: keyedUrl }]]]);
+
+    await saveMonitor(
+      { id: "monitor-1", name: "Renamed", url: keyedUrl },
+      uiCtx,
+    );
+
+    expect(fake.updates[0]).toMatchObject({
+      name: "Renamed",
+      url: keyedUrl,
+      requestHeaders: storedRow.requestHeaders,
+      requestBody: "body-fixture",
+    });
+  });
+
+  it("lets the app UI remove the userinfo from a stored URL, as a real URL change", async () => {
+    fake.rows = new Map([
+      [
+        schema.monitors,
+        [
+          {
+            ...storedRow,
+            url: "https://user:pass-fixture@api.example.com/health",
+          },
+        ],
+      ],
+    ]);
+
+    await saveMonitor(
+      { id: "monitor-1", name: "Prod", url: "https://api.example.com/health" },
+      uiCtx,
+    );
+
+    expect(fake.updates[0]).toMatchObject({
+      url: "https://api.example.com/health",
+      requestHeaders: "{}",
+      requestBody: null,
+    });
+  });
+
+  it("does not read a masked URL from the app UI as unchanged", async () => {
+    fake.rows = new Map([[schema.monitors, [{ ...storedRow, url: keyedUrl }]]]);
+
+    await saveMonitor(
+      {
+        id: "monitor-1",
+        name: "Prod",
+        url: "https://api.example.com/health?api_key=***",
+      },
+      uiCtx,
+    );
+
+    expect(fake.updates[0]).toMatchObject({
+      url: "https://api.example.com/health?api_key=***",
+      requestHeaders: "{}",
+      requestBody: null,
+    });
+  });
+
+  it("does not read a masked URL as unchanged when no caller is given", async () => {
+    fake.rows = new Map([[schema.monitors, [{ ...storedRow, url: keyedUrl }]]]);
+
+    await saveMonitor(
+      {
+        id: "monitor-1",
+        name: "Prod",
+        url: "https://api.example.com/health?api_key=***",
+      },
+      ctx,
+    );
+
+    expect(fake.updates[0]).toMatchObject({
+      url: "https://api.example.com/health?api_key=***",
       requestHeaders: "{}",
       requestBody: null,
     });

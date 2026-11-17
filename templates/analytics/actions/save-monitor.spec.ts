@@ -72,6 +72,21 @@ describe("save-monitor action name defaulting", () => {
     );
   });
 
+  it.each(["frontend", "mcp"] as const)(
+    "tells the save which caller it is serving (%s)",
+    async (caller) => {
+      await saveMonitorAction.run(
+        { url: "https://example.com" } as never,
+        { caller } as never,
+      );
+
+      expect(saveMonitorLib).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ caller }),
+      );
+    },
+  );
+
   it("returns a focused link for the saved monitor", () => {
     expect(
       saveMonitorAction.link?.({

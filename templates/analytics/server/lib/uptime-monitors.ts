@@ -21,6 +21,7 @@
  */
 import { randomUUID } from "node:crypto";
 
+import type { ActionCaller } from "@agent-native/core/action";
 import {
   createSsrfSafeDispatcher,
   isBlockedExtensionUrl,
@@ -1511,7 +1512,7 @@ async function computeUptime(
 
 export async function saveMonitor(
   input: MonitorInput,
-  ctx: AccessCtx,
+  ctx: AccessCtx & { caller?: ActionCaller },
 ): Promise<Monitor> {
   const db = getDb() as any;
   const updatedAt = nowIso();
@@ -1529,13 +1530,17 @@ export async function saveMonitor(
 
   const name = normalizeName(input.name);
   // A URL saved before credentials were refused stays editable as long as the
-  // URL itself is unchanged. Callers other than the app UI were shown the
-  // masked URL and send it back, which is not a change either.
+  // URL itself is unchanged. Callers that read masked monitors send the masked
+  // URL back, which is not a change either; the app UI reads the stored URL, so
+  // for it a masked-looking URL, or one with the userinfo removed, is an edit.
   const submittedUrl = input.url.trim();
+  const readsMaskedMonitors =
+    ctx.caller !== undefined && ctx.caller !== "frontend";
   const urlUnchanged =
     stored !== undefined &&
     (submittedUrl === stored.url ||
-      submittedUrl === (maskMonitorUrl(stored.url) ?? UNREADABLE_URL));
+      (readsMaskedMonitors &&
+        submittedUrl === (maskMonitorUrl(stored.url) ?? UNREADABLE_URL)));
   const url = urlUnchanged ? stored.url : normalizeUrl(input.url);
   const method = normalizeMethod(input.method);
   const requestHeaders =
