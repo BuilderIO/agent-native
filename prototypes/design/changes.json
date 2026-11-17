@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-16",
+    "text": "The last inspector controls off the grid now sit on it: the Export button, the icon's name row and Swap (now 48px), and the icon scope control end 16px in like every other control, at any inspector width."
+  },
+  {
+    "date": "2026-11-16",
     "text": "The inspector flows on its grid instead of reserving an action column: a section with no row actions (Position, Typography) fills the whole width, and a row with an action (W/H and its aspect lock, opacity and radius with independent corners, paint and responsive rows) gives the action its slot at the end. Position's Constraints moved to its header, so its rows keep one shape and line up. Responsive rules flow on the grid at any width."
   },
   {

@@ -9942,4 +9942,9 @@ render();
 
 /* Share's width would follow its label (64.5px in Inter) and put the head's buttons on half pixels; it's a fixed 64. */
 #share-btn { width: 64px; padding-inline: 0; justify-content: center; }
+
+/* Sections pad 8px on the right so trailing glyphs land on the 16px line; grid rows add their own 8px, and blocks that
+   aren't grid rows (the export button, the icon row and its size control) take it as a margin so they end 16px in. */
+#insp .psec-b > :is(.wide-btn, .ic-row, .kit-seg, .ex-files, .qe-f) { width: auto; margin-right: 8px; }
+#insp #ic-swap { width: 48px; padding-inline: 0; justify-content: center; }
 </style>
