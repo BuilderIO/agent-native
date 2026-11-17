@@ -1199,54 +1199,59 @@ describe("runBackgroundAutomation — confirmed work", () => {
     ).rejects.toMatchObject({ errorCode: "automation_no_confirmed_work" });
   });
 
-  it("does not deliver a report or report success after an uncertain write", async () => {
-    const { runAgentLoopDirectWithSoftTimeout } =
-      await import("../agent/run-loop-with-resume.js");
-    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
-      async (opts) => {
-        opts.send({
-          type: "tool_done",
-          tool: "record-report",
-          result: "Recorded",
-          completedSideEffect: true,
-        });
-        opts.send({
-          type: "tool_done",
-          tool: "send-report",
-          isError: true,
-          outcomeUnknown: true,
-          result: "PRIVATE_PROVIDER_RESPONSE",
-        });
-        opts.send({ type: "text", text: "Report ready." });
-        return usage;
-      },
-    );
-    const adapters = await import("../integrations/adapters/index.js");
-    const sendMessageToTarget = vi.fn();
-    const adapter = vi.spyOn(adapters, "getDefaultAdapter").mockReturnValue({
-      formatAgentResponse: (text: string) => ({ text }),
-      sendMessageToTarget,
-    } as any);
-    try {
-      await expect(
-        runBackgroundAutomation(
-          runOptions(
-            precondition("uncertain-with-delivery", {
-              deliveryPlatform: "slack",
-              deliveryDestination: "example-channel",
-            }),
+  it.each([false, true])(
+    "does not deliver a report or report success after an uncertain write (isError: %s)",
+    async (isError) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          opts.send({
+            type: "tool_done",
+            tool: "record-report",
+            result: "Recorded",
+            completedSideEffect: true,
+          });
+          opts.send({
+            type: "tool_done",
+            tool: "send-report",
+            ...(isError ? { isError: true as const } : {}),
+            outcomeUnknown: true,
+            result: "PRIVATE_PROVIDER_RESPONSE",
+          });
+          opts.send({ type: "text", text: "Report ready." });
+          return usage;
+        },
+      );
+      const adapters = await import("../integrations/adapters/index.js");
+      const sendMessageToTarget = vi.fn();
+      const adapter = vi.spyOn(adapters, "getDefaultAdapter").mockReturnValue({
+        formatAgentResponse: (text: string) => ({ text }),
+        sendMessageToTarget,
+      } as any);
+      try {
+        await expect(
+          runBackgroundAutomation(
+            runOptions(
+              precondition("uncertain-with-delivery", {
+                deliveryPlatform: "slack",
+                deliveryDestination: "example-channel",
+              }),
+            ),
+            standardDeps,
           ),
-          standardDeps,
-        ),
-      ).rejects.toMatchObject({
-        errorCode: "write_tool_outcome_unknown",
-        message: expect.stringContaining("An action may already have applied."),
-      });
-      expect(sendMessageToTarget).not.toHaveBeenCalled();
-    } finally {
-      adapter.mockRestore();
-    }
-  });
+        ).rejects.toMatchObject({
+          errorCode: "write_tool_outcome_unknown",
+          message: expect.stringContaining(
+            "An action may already have applied.",
+          ),
+        });
+        expect(sendMessageToTarget).not.toHaveBeenCalled();
+      } finally {
+        adapter.mockRestore();
+      }
+    },
+  );
 
   it("keeps the unknown action warning in persisted history without copying provider data", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =

@@ -1649,7 +1649,13 @@ async function recordExecutionOutcome(
   let extra: JobFrontmatterPatch = {};
   let resumed = false;
   let pausedAfter: number | undefined;
-  if (failed) {
+  // A later run cannot establish whether an earlier uncertain write landed.
+  const safetyPause =
+    isPausedByFramework(current.meta) &&
+    current.meta.pausedReason === "write_tool_outcome_unknown";
+  if (safetyPause) {
+    extra = { lastError: current.meta.lastError };
+  } else if (failed) {
     const transition = failed.pauseImmediately
       ? pauseNow(
           {
@@ -1675,18 +1681,10 @@ async function recordExecutionOutcome(
       );
     }
   } else if (outcome.lastStatus === "success") {
-    // A later run cannot establish whether an earlier uncertain write landed.
-    const safetyPause =
-      isPausedByFramework(current.meta) &&
-      current.meta.pausedReason === "write_tool_outcome_unknown";
-    if (safetyPause) {
-      extra = { lastError: current.meta.lastError };
-    } else {
-      resumed = isPausedByFramework(current.meta);
-      extra = resumed
-        ? { ...CLEAR_FAILURE_STATE, enabled: true }
-        : CLEAR_FAILURE_STATE;
-    }
+    resumed = isPausedByFramework(current.meta);
+    extra = resumed
+      ? { ...CLEAR_FAILURE_STATE, enabled: true }
+      : CLEAR_FAILURE_STATE;
   }
   if (
     (advanceSchedule !== false || resumed) &&

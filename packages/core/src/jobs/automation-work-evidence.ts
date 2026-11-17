@@ -21,7 +21,6 @@ export function findUnknownAutomationWrite(
       (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
         event.type === "tool_done" &&
         event.tool !== AUTOMATION_NO_OP_TOOL &&
-        event.isError === true &&
         event.outcomeUnknown === true,
     );
 }

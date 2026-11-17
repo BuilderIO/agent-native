@@ -775,63 +775,137 @@ describe("scheduled automations that cannot run", () => {
     expect(await historyOf("safety-paused")).toHaveLength(1);
   });
 
-  it("pauses when an unknown write precedes a terminal run error", async () => {
-    const emitted: string[] = [];
-    runAgentLoopMock.mockImplementation(async ({ send }) => {
-      emitted.push("unknown");
-      send({
-        type: "tool_done",
-        tool: "send-notification",
-        isError: true,
-        outcomeUnknown: true,
-        result: "PRIVATE_PROVIDER_RESPONSE",
+  it.each(["ordinary", "unknown"] as const)(
+    "preserves the original safety pause after a failed manual run (%s)",
+    async (failure) => {
+      putJob("alice@agent-native.test", "safety-paused-failure", [
+        'schedule: "*/15 * * * *"',
+        "enabled: false",
+        "createdBy: alice@agent-native.test",
+        'appId: "calendar"',
+        `nextRun: "${new Date(START - MINUTE).toISOString()}"`,
+        'pausedReason: "write_tool_outcome_unknown"',
+        'pausedAt: "2026-09-30T23:00:00.000Z"',
+        'lastErrorCode: "write_tool_outcome_unknown"',
+        'lastError: "Check the earlier write."',
+        "consecutiveFailures: 1",
+      ]);
+      runAgentLoopMock.mockImplementation(async ({ send }) => {
+        if (failure === "unknown") {
+          send({
+            type: "tool_done",
+            tool: "send-notification",
+            outcomeUnknown: true,
+            result: "Another uncertain write",
+          });
+        }
+        send({ type: "error", error: "Gateway failed", errorCode: "http_502" });
+        throw new EngineError("Gateway failed", { errorCode: "http_502" });
       });
-      emitted.push("terminal");
-      send({ type: "error", error: "Gateway failed", errorCode: "http_502" });
-      throw new EngineError("Gateway failed", { errorCode: "http_502" });
-    });
-    putJob("alice@agent-native.test", "unknown-terminal", [
-      'schedule: "*/15 * * * *"',
-      "enabled: true",
-      "createdBy: alice@agent-native.test",
-      'appId: "calendar"',
-      `nextRun: "${new Date(START - MINUTE).toISOString()}"`,
-    ]);
 
-    await tickAt(START);
-    expect(emitted).toEqual(["unknown", "terminal"]);
-    expect(
-      readJob("alice@agent-native.test", "unknown-terminal"),
-    ).toMatchObject({
-      enabled: false,
-      pausedReason: "write_tool_outcome_unknown",
-      lastErrorCode: "write_tool_outcome_unknown",
-    });
-    expect(await historyOf("unknown-terminal")).toMatchObject([
-      { status: "error", error_code: "write_tool_outcome_unknown" },
-    ]);
-    const row = (await pglite
-      .prepare("SELECT run_id FROM automation_runs WHERE automation = ?")
-      .get("unknown-terminal")) as { run_id: string };
-    const ref = await getRunTurnRef(row.run_id);
-    if (!ref) throw new Error("Missing run turn");
-    const events = await getCurrentTurnRunEventsForThread(
-      ref.threadId,
-      ref.turnId,
-    );
-    expect(events.map(({ event }) => event.type)).toEqual(
-      expect.arrayContaining(["tool_done", "error"]),
-    );
-    const unknownIndex = events.findIndex(
-      ({ event }) =>
-        event.type === "tool_done" && event.outcomeUnknown === true,
-    );
-    const errorIndex = events.findIndex(({ event }) => event.type === "error");
-    expect(unknownIndex).toBeGreaterThanOrEqual(0);
-    expect(errorIndex).toBeGreaterThan(unknownIndex);
-    await tickAt(START + 7 * 60 * MINUTE);
-    expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
-  });
+      expect(
+        await runJobNow(
+          "alice@agent-native.test",
+          "safety-paused-failure",
+          deps,
+        ),
+      ).toMatchObject({ status: "error" });
+      expect(
+        readJob("alice@agent-native.test", "safety-paused-failure"),
+      ).toMatchObject({
+        enabled: false,
+        pausedReason: "write_tool_outcome_unknown",
+        pausedAt: "2026-09-30T23:00:00.000Z",
+        lastErrorCode: "write_tool_outcome_unknown",
+        lastError: "Check the earlier write.",
+        consecutiveFailures: 1,
+      });
+      expect(await historyOf("safety-paused-failure")).toMatchObject([
+        {
+          status: "error",
+          error_code:
+            failure === "unknown" ? "write_tool_outcome_unknown" : "http_502",
+        },
+      ]);
+      await tickAt(START + 7 * 60 * MINUTE);
+      expect(await historyOf("safety-paused-failure")).toHaveLength(1);
+      const row = resourceStore.rows.get(
+        "alice@agent-native.test:jobs/safety-paused-failure.md",
+      );
+      if (!row) throw new Error("Missing automation");
+      row.content = row.content.replace("enabled: false", "enabled: true");
+      await tickAt(START + 7 * 60 * MINUTE + MINUTE);
+      const resumed = readJob(
+        "alice@agent-native.test",
+        "safety-paused-failure",
+      );
+      expect(resumed.enabled).toBe(true);
+      expect(resumed.pausedReason).toBeUndefined();
+    },
+  );
+
+  it.each([false, true])(
+    "pauses when an unknown write precedes a terminal run error (isError: %s)",
+    async (isError) => {
+      const emitted: string[] = [];
+      runAgentLoopMock.mockImplementation(async ({ send }) => {
+        emitted.push("unknown");
+        send({
+          type: "tool_done",
+          tool: "send-notification",
+          ...(isError ? { isError: true as const } : {}),
+          outcomeUnknown: true,
+          result: "PRIVATE_PROVIDER_RESPONSE",
+        });
+        emitted.push("terminal");
+        send({ type: "error", error: "Gateway failed", errorCode: "http_502" });
+        throw new EngineError("Gateway failed", { errorCode: "http_502" });
+      });
+      putJob("alice@agent-native.test", "unknown-terminal", [
+        'schedule: "*/15 * * * *"',
+        "enabled: true",
+        "createdBy: alice@agent-native.test",
+        'appId: "calendar"',
+        `nextRun: "${new Date(START - MINUTE).toISOString()}"`,
+      ]);
+
+      await tickAt(START);
+      expect(emitted).toEqual(["unknown", "terminal"]);
+      expect(
+        readJob("alice@agent-native.test", "unknown-terminal"),
+      ).toMatchObject({
+        enabled: false,
+        pausedReason: "write_tool_outcome_unknown",
+        lastErrorCode: "write_tool_outcome_unknown",
+      });
+      expect(await historyOf("unknown-terminal")).toMatchObject([
+        { status: "error", error_code: "write_tool_outcome_unknown" },
+      ]);
+      const row = (await pglite
+        .prepare("SELECT run_id FROM automation_runs WHERE automation = ?")
+        .get("unknown-terminal")) as { run_id: string };
+      const ref = await getRunTurnRef(row.run_id);
+      if (!ref) throw new Error("Missing run turn");
+      const events = await getCurrentTurnRunEventsForThread(
+        ref.threadId,
+        ref.turnId,
+      );
+      expect(events.map(({ event }) => event.type)).toEqual(
+        expect.arrayContaining(["tool_done", "error"]),
+      );
+      const unknownIndex = events.findIndex(
+        ({ event }) =>
+          event.type === "tool_done" && event.outcomeUnknown === true,
+      );
+      const errorIndex = events.findIndex(
+        ({ event }) => event.type === "error",
+      );
+      expect(unknownIndex).toBeGreaterThanOrEqual(0);
+      expect(errorIndex).toBeGreaterThan(unknownIndex);
+      await tickAt(START + 7 * 60 * MINUTE);
+      expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("pauses on spent credits, probes on its own, and resumes after the credits reset", async () => {
     runAgentLoopMock.mockRejectedValue(
