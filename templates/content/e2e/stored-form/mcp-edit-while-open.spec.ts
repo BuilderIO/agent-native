@@ -425,11 +425,13 @@ test.describe(
           // the agent's edit, so the saves of the merged text can't send the
           // tab's edits until it ends.
           let stallNext = false;
+          let stalled = 0;
           await typing.route(
             (url) =>
               /^\/_agent-native\/collab\/[^/]+\/update$/.test(url.pathname),
             async (route) => {
               const delay = stallNext ? variant.stallMs : COLLAB_POST_DELAY_MS;
+              if (stallNext) stalled += 1;
               stallNext = false;
               await new Promise((resolve) => setTimeout(resolve, delay));
               await route.fallback();
@@ -460,6 +462,8 @@ test.describe(
             shown,
             keepTyping(typing, ALPHA, markers, typedOn),
           ]);
+          // The stall was not skipped: a post after the edit showed was held.
+          expect(stalled).toBe(variant.stallMs > 0 ? 1 : 0);
 
           await expectEachOnce([typing], page, id, markers);
           await expectReplay(agent, tabs, page, id, edit);
