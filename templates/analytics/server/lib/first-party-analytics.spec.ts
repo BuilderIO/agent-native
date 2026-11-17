@@ -459,7 +459,7 @@ describe("recordAnalyticsEvents", () => {
           path: "/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b",
           search: `?utm_source=news&p-key=${canary}`,
           referrer: `https://other.example.test/in?api-key=${canary}`,
-          entry_path: "/invite/alice@example.com",
+          entry_path: "/invite/team",
           landing_path: "/orders/1234567",
           site_landing_path: `/blog/launch?token=${canary}`,
           title: "Shared clip",
@@ -477,27 +477,62 @@ describe("recordAnalyticsEvents", () => {
 
     const [row] = analyticsDbMocks.insertValues.mock.lastCall![0];
     expect(row).toMatchObject({
-      url: "https://app.example.test/share/:id?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E",
-      path: "/share/:id",
+      url: "https://app.example.test/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E",
+      path: "/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b",
       hostname: "app.example.test",
       referrer: "https://other.example.test/in?api-key=%3Credacted%3E",
     });
     expect(JSON.parse(row.properties)).toMatchObject({
-      path: "/share/:id",
+      path: "/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b",
       search: "?utm_source=news&p-key=%3Credacted%3E",
-      entry_path: "/invite/:id",
-      landing_path: "/orders/:id",
+      entry_path: "/invite/team",
+      landing_path: "/orders/1234567",
       site_landing_path: "/blog/launch?token=%3Credacted%3E",
       title: "Shared clip",
     });
     expect(JSON.parse(row.context).page).toEqual({
-      url: "https://app.example.test/share/:id?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E",
-      path: "/share/:id",
+      url: "https://app.example.test/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E",
+      path: "/share/3f2a9c1e-7b4d-4e11-9a0f-1c2d3e4f5a6b",
     });
-    const stored = JSON.stringify(row);
-    expect(stored).not.toContain(canary);
-    expect(stored).not.toContain("3f2a9c1e");
-    expect(stored).not.toContain("alice@example.com");
+    expect(JSON.stringify(row)).not.toContain(canary);
+  });
+
+  it("keeps the path as the client sent it and redacts the query beside it", async () => {
+    const canary = "canary-secret-value";
+    const longSlug = "/blog/building-your-first-agent-native-template";
+    const shortSlug = "/blog/short-post";
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "pageview",
+        properties: {
+          url: `https://agent-native.com${longSlug}?utm_source=news&p-key=${canary}`,
+          path: longSlug,
+          landing_path: longSlug,
+        },
+      },
+      {
+        event: "pageview",
+        properties: {
+          url: `https://agent-native.com${shortSlug}`,
+          path: shortSlug,
+        },
+      },
+    ]);
+
+    const [longRow, shortRow] = analyticsDbMocks.insertValues.mock.lastCall![0];
+    expect(longRow).toMatchObject({
+      url: `https://agent-native.com${longSlug}?utm_source=news&p-key=%3Credacted%3E`,
+      path: longSlug,
+    });
+    expect(JSON.parse(longRow.properties)).toMatchObject({
+      path: longSlug,
+      landing_path: longSlug,
+    });
+    expect(shortRow).toMatchObject({
+      url: `https://agent-native.com${shortSlug}`,
+      path: shortSlug,
+    });
+    expect(JSON.stringify(longRow)).not.toContain(canary);
   });
 
   it("leaves a URL that is already a route template as it is", async () => {

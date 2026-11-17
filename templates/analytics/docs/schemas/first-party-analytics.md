@@ -112,7 +112,7 @@ Events are stored in `analytics_events`. Common query columns include:
 | `url`, `path`, `hostname`, `referrer` | Page context                                           |
 | `properties`, `context`               | Original JSON objects                                  |
 
-New browser events carry the route template (`/share/:shareId`) in `path` and in the path of `url`; rows stored before that hold the raw path. Match both when filtering or grouping by path.
+New browser events carry the route template (`/share/:shareId`) in `path` and in the path of `url` unless the app sets `configureTracking({ routeTemplates: false })`; ingest stores the path as the sender wrote it, and rows stored before that hold the raw path. Match both when filtering or grouping by path.
 
 ## Action response telemetry
 

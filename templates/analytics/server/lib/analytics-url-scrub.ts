@@ -1,9 +1,11 @@
 import { scrubUrl } from "@agent-native/core/client/url-scrub";
 
-// Fields a caller can use to name a page. A path field holds a pathname, a URL
-// field a whole URL; both are reported as their route template so an id or
-// token in the path is not stored.
-const ROUTE_FIELDS = [
+// Fields a caller can use to name a page: a path field holds a pathname, a URL
+// field a whole URL. The path stays as the sender wrote it. Only the sender
+// knows its routes, and an app such as the docs site keeps real slugs on
+// purpose, so ingest guesses no route template; a client that has its router
+// manifest already sends one.
+const URL_FIELDS = [
   "url",
   "href",
   "referrer",
@@ -13,10 +15,6 @@ const ROUTE_FIELDS = [
   "landing_path",
   "first_touch_path",
   "last_touch_path",
-] as const;
-// The marketing site's own page, forwarded as a campaign parameter: its path is
-// content, so only its query and hash are scrubbed.
-const QUERY_ONLY_FIELDS = [
   "site_landing_path",
   "last_touch_site_path",
 ] as const;
@@ -32,13 +30,7 @@ function scrubFields(record: Record<string, unknown>): Record<string, unknown> {
     scrubbed ??= { ...record };
     scrubbed[key] = value;
   };
-  for (const key of ROUTE_FIELDS) {
-    const value = record[key];
-    if (typeof value === "string") {
-      set(key, scrubUrl(value, { routePath: true }));
-    }
-  }
-  for (const key of QUERY_ONLY_FIELDS) {
+  for (const key of URL_FIELDS) {
     const value = record[key];
     if (typeof value === "string") set(key, scrubUrl(value));
   }
