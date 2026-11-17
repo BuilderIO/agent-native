@@ -28,6 +28,15 @@ export const PASTE_LIMITS = {
   fontFamilyChars: 80,
   /** Style properties read from one layer. */
   styleProperties: 200,
+  /** Image fills one layer may carry, and fills of any kind a copy may list. */
+  imageFills: 8,
+  fillsPerLayer: 64,
+  shadowsPerLayer: 32,
+  /** Columns in one grid definition, and how deeply a track may nest. */
+  gridTracks: 64,
+  gridTrackDepth: 4,
+  /** Characters kept of a layer's name. */
+  labelChars: 200,
 } as const;
 
 /**

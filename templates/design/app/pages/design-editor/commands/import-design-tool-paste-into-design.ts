@@ -12,6 +12,7 @@ import { toast } from "sonner";
 
 import type { DesignTool, DesignToolPaste } from "@/lib/design-tool-paste";
 import { hostRemoteImages } from "@/lib/design-tool-paste/images";
+import { pushWarning } from "@/lib/design-tool-paste/ir";
 import {
   frameFilename,
   framePositions,
@@ -84,9 +85,7 @@ class PartialImportError extends Error {
 /**
  * Creates one screen per frame through the batch import: each request is one
  * transaction, retries are idempotent, and a failure removes whatever the
- * batch created, including when the response that reported it was lost. The
- * batch id also scopes the receipts of images hosted for this paste, so the
- * server commits them with the final batch and deletes them on abort.
+ * batch created, including when the response that reported it was lost.
  */
 async function createScreens(
   designId: string,
@@ -125,9 +124,21 @@ async function createScreens(
   });
   // Sized as the JSON that is sent, not as raw HTML: escaping control
   // characters and backslashes can double a frame on the wire.
+  const sized = frames.map((frame) => ({
+    frame,
+    size: utf8ByteLength(JSON.stringify(frame)) + FRAME_REQUEST_SLACK,
+  }));
+  for (const { frame, size } of sized) {
+    // A frame that passed the HTML check can still be too big once escaped.
+    if (size > MAX_REQUEST_BYTES) {
+      throw new Error(
+        `frame "${frame.frameTitle}" is ${size} bytes once serialized, over the ${MAX_REQUEST_BYTES} byte request limit`,
+      );
+    }
+  }
   const batches = packBatches(
-    frames,
-    (frame) => utf8ByteLength(JSON.stringify(frame)) + FRAME_REQUEST_SLACK,
+    sized,
+    (entry) => entry.size,
     MAX_FRAMES_PER_REQUEST,
     MAX_REQUEST_BYTES,
   );
@@ -135,7 +146,7 @@ async function createScreens(
     for (const [batchIndex, batch] of batches.entries()) {
       const result = await importFrames({
         clientImportFinalBatch: batchIndex === batches.length - 1,
-        frames: batch.map(({ item }) => item),
+        frames: batch.map(({ item }) => item.frame),
       });
       if (result.error) throw new Error(result.error);
       ids.push(...(result.files ?? []).map((file) => file.id));
@@ -198,7 +209,14 @@ export async function runImportDesignToolPasteIntoDesign(
       description: lines.join(" "),
     });
   };
+  // Read now: the selection or canvas can change while images upload, and the
+  // paste belongs where it was made.
+  const scene = resolvePasteScene();
   const pasteId = browserImportId();
+  // Receipts live outside the screen batch's id prefix, so the server's final
+  // commit never sees an upload that is pending, failed or unused; this code
+  // releases or deletes every one of them itself.
+  const receiptPrefix = `images:${pasteId}:`;
   let hostedKeys: string[] = [];
   // True once screens or layers may point at the hosted images, after which
   // deleting them would break what the paste made.
@@ -251,10 +269,24 @@ export async function runImportDesignToolPasteIntoDesign(
           pastedLayers,
           remoteImages,
           mirrorImage,
-          `${pasteId}:image:`,
+          receiptPrefix,
         );
         layers = hosted.layers;
         hostedKeys = hosted.keys;
+        // An upload that failed may still have left a receipt behind.
+        const failedKeys = hosted.attemptedKeys.filter(
+          (key) => !hosted.keys.includes(key),
+        );
+        void Promise.all(
+          failedKeys.map((key) =>
+            settleImage(key, "delete").catch((settleError: unknown) => {
+              console.error(
+                "[design-paste] could not clear a failed upload:",
+                settleError,
+              );
+            }),
+          ),
+        );
         if (hosted.kept > 0) {
           warnings.push({
             kind: "images-linked",
@@ -266,11 +298,17 @@ export async function runImportDesignToolPasteIntoDesign(
         toast.dismiss(progressId);
       }
     }
-    const plan = planFigmaPaste(layers, resolvePasteScene());
+    const plan = planFigmaPaste(layers, scene);
     if (plan.kind === "screens") {
       const createdIds = await createScreens(id, layers, plan.placeAt, pasteId);
-      // The server committed this batch's upload receipts with it.
       referenced = true;
+      const unsavedScreens = await releaseHostedImages();
+      if (unsavedScreens > 0) {
+        pushWarning(warnings, {
+          kind: "images-unsaved",
+          count: unsavedScreens,
+        });
+      }
       await queryClient.invalidateQueries({ queryKey: ["action"] });
       const overviewPath = `/design/${id}?editorView=overview`;
       const firstFileId = createdIds[0];
@@ -302,10 +340,15 @@ export async function runImportDesignToolPasteIntoDesign(
     }
     referenced = true;
     const unsaved = await releaseHostedImages();
-    if (unsaved > 0) warnings.push({ kind: "images-unsaved", count: unsaved });
+    if (unsaved > 0)
+      pushWarning(warnings, { kind: "images-unsaved", count: unsaved });
     announceOutcome([fileId]);
   } catch (error) {
-    if (error instanceof PartialImportError) referenced = true;
+    if (error instanceof PartialImportError) {
+      // Screens may remain and point at the hosted images; keep them.
+      referenced = true;
+      await releaseHostedImages();
+    }
     if (!referenced) await deleteHostedImages();
     if (error instanceof ShownPasteError) {
       failed(error.message);

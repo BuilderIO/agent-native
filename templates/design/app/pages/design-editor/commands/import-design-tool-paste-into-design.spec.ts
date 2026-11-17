@@ -221,7 +221,7 @@ describe("a design-tool paste that links remote images", () => {
     });
     await runImportDesignToolPasteIntoDesign(args, withImage());
     expect(keys).toHaveLength(1);
-    expect(keys[0]).toMatch(/:image:0$/);
+    expect(keys[0]).toMatch(/^images:[^:]+:0$/);
     expect(settleImage).toHaveBeenCalledWith(keys[0], "release");
     expect(settleImage).not.toHaveBeenCalledWith(keys[0], "delete");
   });
@@ -282,13 +282,13 @@ describe("a design-tool paste that links remote images", () => {
     });
     await runImportDesignToolPasteIntoDesign(args, withImage());
     expect(settleImage).toHaveBeenCalledWith(
-      expect.stringMatching(/:image:0$/),
+      expect.stringMatching(/^images:[^:]+:0$/),
       "delete",
     );
     expect(settleImage).not.toHaveBeenCalledWith(expect.anything(), "release");
   });
 
-  it("scopes the screen batch to the same id as the upload receipts", async () => {
+  it("keeps upload receipts out of the screen batch and releases them after it commits", async () => {
     callAction.mockResolvedValueOnce({ files: [{ id: "f1" }] });
     const keys: string[] = [];
     const { args, settleImage } = setup(noTarget, {
@@ -301,9 +301,40 @@ describe("a design-tool paste that links remote images", () => {
     const [, body] = callAction.mock.calls[0] ?? [];
     const batchId = (body as { clientImportBatchId: string })
       .clientImportBatchId;
-    expect(keys[0]?.startsWith(`${batchId}:`)).toBe(true);
-    // The server commits receipts under the batch id on the final batch.
-    expect(settleImage).not.toHaveBeenCalled();
+    // A receipt under the batch id would be swept up by the server's commit,
+    // even a pending or unused one.
+    expect(keys[0]?.startsWith(`${batchId}:`)).toBe(false);
+    expect(settleImage).toHaveBeenCalledWith(keys[0], "release");
+    expect(settleImage).not.toHaveBeenCalledWith(keys[0], "delete");
+  });
+
+  it("clears the receipt of an upload that failed", async () => {
+    const { args, settleImage } = setup(insideScreen, {
+      mirrorImage: async () => {
+        throw new Error("request timed out");
+      },
+    });
+    await runImportDesignToolPasteIntoDesign(args, withImage());
+    expect(settleImage).toHaveBeenCalledWith(
+      expect.stringMatching(/^images:[^:]+:0$/),
+      "delete",
+    );
+  });
+
+  it("plans the paste against the scene captured before the uploads", async () => {
+    const order: string[] = [];
+    const { args } = setup(insideScreen, {
+      resolvePasteScene: () => {
+        order.push("scene");
+        return insideScreen;
+      },
+      mirrorImage: async () => {
+        order.push("upload");
+        return "https://files.test/a.png";
+      },
+    });
+    await runImportDesignToolPasteIntoDesign(args, withImage());
+    expect(order).toEqual(["scene", "upload"]);
   });
 
   it("still inserts when hosting fails and logs the reason", async () => {
@@ -553,6 +584,26 @@ describe("a design-tool paste with no screen to land in", () => {
       { description: "designEditor.import.pastePartialImport" },
     );
     expect(settleImage).not.toHaveBeenCalledWith(expect.anything(), "delete");
+    // Screens may point at the upload, so it is kept rather than left to expire.
+    expect(settleImage).toHaveBeenCalledWith(
+      expect.stringMatching(/^images:[^:]+:0$/),
+      "release",
+    );
+  });
+
+  it("refuses a frame that is too big once JSON escaping is counted", async () => {
+    // 1.6M backslashes pass the 2 MiB HTML check and are 3.2 MB on the wire.
+    const heavy = {
+      ...layer("Heavy"),
+      content: `<!DOCTYPE html><html><body>${"\\".repeat(1_600_000)}</body></html>`,
+    };
+    const { args } = setup(noTarget);
+    await runImportDesignToolPasteIntoDesign(args, paste({ layers: [heavy] }));
+    expect(callAction).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.import.errors.wonderPasteFailed",
+      { description: "common.genericError" },
+    );
   });
 
   it("tells the user screens may remain when clearing the batch also fails", async () => {

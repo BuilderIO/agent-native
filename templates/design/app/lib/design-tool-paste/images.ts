@@ -16,6 +16,8 @@ export interface HostedImages {
   reason: string | null;
   /** Receipt keys of the uploads that succeeded, for the caller to settle. */
   keys: string[];
+  /** Every key an upload was attempted under, including ones that failed. */
+  attemptedKeys: string[];
 }
 
 /**
@@ -31,6 +33,7 @@ export async function hostRemoteImages(
 ): Promise<HostedImages> {
   const hosted = new Map<string, string>();
   const keys: string[] = [];
+  const attemptedKeys: string[] = [];
   let reason: string | null =
     urls.length > PASTE_LIMITS.hostedImages
       ? `only the first ${PASTE_LIMITS.hostedImages} images are copied`
@@ -42,6 +45,7 @@ export async function hostRemoteImages(
   const worker = async () => {
     for (let item = queue.shift(); item; item = queue.shift()) {
       const { url, key } = item;
+      attemptedKeys.push(key);
       try {
         hosted.set(url, await mirror(url, key));
         keys.push(key);
@@ -53,11 +57,13 @@ export async function hostRemoteImages(
   };
   await Promise.all(
     Array.from(
-      { length: Math.min(MAX_CONCURRENT_UPLOADS, urls.length) },
+      { length: Math.min(MAX_CONCURRENT_UPLOADS, queue.length) },
       worker,
     ),
   );
-  if (hosted.size === 0) return { layers, kept: urls.length, reason, keys };
+  if (hosted.size === 0) {
+    return { layers, kept: urls.length, reason, keys, attemptedKeys };
+  }
   const escaped = new Map(
     Array.from(hosted, ([from, to]) => [escapeHtml(from), escapeHtml(to)]),
   );
@@ -73,5 +79,6 @@ export async function hostRemoteImages(
     kept: urls.length - hosted.size,
     reason,
     keys,
+    attemptedKeys,
   };
 }

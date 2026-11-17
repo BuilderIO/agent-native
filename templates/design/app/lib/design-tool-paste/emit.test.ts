@@ -240,3 +240,17 @@ describe("fonts, kept images and warnings are bounded", () => {
     });
   });
 });
+
+describe("layer names are bounded", () => {
+  it("keeps only the start of an enormous, quote-heavy label", () => {
+    const { layers } = emit({
+      kind: "box",
+      label: '"'.repeat(1_000_000),
+      style: {},
+      children: [],
+    });
+    const content = layers[0]?.content ?? "";
+    expect(content.length).toBeLessThan(5000);
+    expect(content).toContain(`${"&quot;".repeat(PASTE_LIMITS.labelChars)}"`);
+  });
+});

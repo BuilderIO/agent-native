@@ -58,6 +58,8 @@ describe("hostRemoteImages", () => {
     expect(result.kept).toBe(1);
     expect(result.reason).toBe("storage rejected it");
     expect(result.keys).toEqual(["p:image:0"]);
+    // The failed upload's key is reported too, so its receipt can be cleared.
+    expect(result.attemptedKeys.sort()).toEqual(["p:image:0", "p:image:1"]);
     expect(result.layers[0]?.content).toContain("https://files.test/a");
     expect(result.layers[0]?.content).toContain(B);
   });
@@ -77,6 +79,7 @@ describe("hostRemoteImages", () => {
       kept: 1,
       reason: "file storage is not set up",
       keys: [],
+      attemptedKeys: ["p:image:0"],
     });
   });
 

@@ -74,7 +74,7 @@ const Style = z
       .optional(),
     typography: z
       .object({
-        fills: z.array(Fill).optional(),
+        fills: z.array(Fill).max(PASTE_LIMITS.fillsPerLayer).optional(),
         fontFamily: z.string().optional(),
         fontFallback: z.string().optional(),
         fontSize: CssScalar.optional(),
@@ -87,7 +87,7 @@ const Style = z
         wordBreak: CssScalar.optional(),
       })
       .optional(),
-    fills: z.array(Fill).optional(),
+    fills: z.array(Fill).max(PASTE_LIMITS.fillsPerLayer).optional(),
     borderRadius: z.unknown().optional(),
     border: z
       .object({
@@ -110,6 +110,7 @@ const Style = z
               color: Color.optional(),
             }),
           )
+          .max(PASTE_LIMITS.shadowsPerLayer)
           .optional(),
       })
       .catchall(z.unknown())
@@ -274,15 +275,17 @@ function color(
   return hexColor(channels.r, channels.g, channels.b, channels.alpha ?? 1);
 }
 
-function gridTrack(track: unknown): string | null {
+function gridTrack(track: unknown, depth = 0): string | null {
+  // Nested min/max objects are not covered by the layer-tree depth guard.
+  if (depth > PASTE_LIMITS.gridTrackDepth) return null;
   if (typeof track === "number") return `${track}px`;
   if (typeof track === "string") return track;
   if (!track || typeof track !== "object") return null;
   const t = track as { fr?: unknown; min?: unknown; max?: unknown };
   if (typeof t.fr === "number") return `${t.fr}fr`;
   if (t.min !== undefined && t.max !== undefined) {
-    const min = gridTrack(t.min);
-    const max = gridTrack(t.max);
+    const min = gridTrack(t.min, depth + 1);
+    const max = gridTrack(t.max, depth + 1);
     return min && max ? `minmax(${min},${max})` : null;
   }
   return null;
@@ -309,7 +312,10 @@ function layoutStyle(
     // planned from globalX/globalY, so they must not leak into the element.
     if (isRoot && (name === "left" || name === "top")) continue;
     if (name === "gridTemplateColumns" && Array.isArray(value)) {
-      const tracks = value.map(gridTrack);
+      const tracks =
+        value.length <= PASTE_LIMITS.gridTracks
+          ? value.map((track) => gridTrack(track))
+          : [null];
       if (tracks.every((track) => track !== null)) {
         style[name] = tracks.join(" ");
       } else {
@@ -359,18 +365,25 @@ function styleFor(
   const fills = source.fills ?? [];
   const solid = fills.find((fill) => fill.type === "solid");
   if (solid) set("backgroundColor", color(solid.color, warnings));
-  const images = fills.flatMap((fill): PasteImage[] =>
-    fill.type === "image" && fill.image
-      ? [
-          {
-            url: fill.image,
-            size: fill.backgroundSize,
-            position: fill.backgroundPosition,
-            repeat: fill.backgroundRepeat,
-          },
-        ]
-      : [],
-  );
+  const images: PasteImage[] = [];
+  for (const fill of fills) {
+    if (fill.type !== "image" || !fill.image) continue;
+    if (images.length >= PASTE_LIMITS.imageFills) {
+      pushWarning(
+        warnings,
+        inexact(
+          `Kept the first ${PASTE_LIMITS.imageFills} image fills of a layer.`,
+        ),
+      );
+      break;
+    }
+    images.push({
+      url: fill.image,
+      size: fill.backgroundSize,
+      position: fill.backgroundPosition,
+      repeat: fill.backgroundRepeat,
+    });
+  }
   const type = source.typography;
   let font: PasteFont | undefined;
   if (type) {

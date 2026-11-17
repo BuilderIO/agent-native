@@ -351,3 +351,75 @@ describe("Wonder clipboard", () => {
     });
   });
 });
+
+describe("Wonder arrays and nesting are bounded before conversion", () => {
+  const image = (i: number) => ({
+    type: "image",
+    image: `https://cdn.example.test/${i}.png`,
+  });
+
+  it("converts only the first image fills of a layer and says so", async () => {
+    const result = await read(
+      node({
+        label: "Gallery",
+        style: { fills: Array.from({ length: 30 }, (_, i) => image(i)) },
+      }),
+    );
+    expect(result.remoteImages).toHaveLength(8);
+    expect(result.warnings).toContainEqual({
+      kind: "inexact",
+      detail: "Kept the first 8 image fills of a layer.",
+    });
+  });
+
+  it("refuses a layer that lists more fills than the paste limit", async () => {
+    const fills = Array.from({ length: 65 }, (_, i) => image(i));
+    expect(
+      await readDesignToolPasteHtml(
+        clipboard(node({ label: "Gallery", style: { fills } })),
+      ),
+    ).toMatchObject({ status: "invalid", tool: "wonder" });
+  });
+
+  it("refuses a layer that lists more shadows than the paste limit", async () => {
+    const boxShadow = Array.from({ length: 33 }, () => ({ blur: 1 }));
+    expect(
+      await readDesignToolPasteHtml(
+        clipboard(node({ label: "Cards", style: { effects: { boxShadow } } })),
+      ),
+    ).toMatchObject({ status: "invalid", tool: "wonder" });
+  });
+
+  it("skips a deeply nested grid track instead of overflowing the stack", async () => {
+    let track: unknown = { fr: 1 };
+    for (let i = 0; i < 50_000; i += 1) track = { min: 0, max: track };
+    const result = await read(
+      node({
+        label: "Grid",
+        style: { layout: { display: "grid", gridTemplateColumns: [track] } },
+      }),
+    );
+    expect(result.warnings).toContainEqual({
+      kind: "inexact",
+      detail: "Skipped a grid column definition Design cannot read.",
+    });
+  });
+
+  it("skips a grid with more columns than the paste limit", async () => {
+    const result = await read(
+      node({
+        label: "Grid",
+        style: {
+          layout: {
+            display: "grid",
+            gridTemplateColumns: Array.from({ length: 65 }, () => ({ fr: 1 })),
+          },
+        },
+      }),
+    );
+    expect(result.warnings).toContainEqual({
+      kind: "inexact",
+      detail: "Skipped a grid column definition Design cannot read.",
+    });
+  });
+});

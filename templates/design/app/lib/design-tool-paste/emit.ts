@@ -94,9 +94,6 @@ const VALUE_GRAMMAR = /^[\w\s.,%#()/+*-]+$/;
 const RESOURCE_FUNCTION = /(?:url|expression|image-set|attr)\s*\(/i;
 // CSS drops comments before it tokenizes, so `url/**/(...)` is still a url().
 const CSS_COMMENT = /\/\*|\*\//;
-// Image fills one layer may carry; a bounded copy cannot expand into a huge
-// declaration ahead of the output budget.
-const MAX_IMAGE_FILLS = 8;
 const HTTPS_URL = /^https:\/\/[^\s"'()\\<>]+$/;
 
 export function escapeHtml(value: string): string {
@@ -254,13 +251,15 @@ function imageDeclarations(
   images: PasteImage[],
   walk: Walk,
 ): { declarations: Array<string | null>; urls: string[] } {
-  if (images.length > MAX_IMAGE_FILLS) {
+  if (images.length > PASTE_LIMITS.imageFills) {
     pushWarning(
       walk.warnings,
-      inexact(`Kept the first ${MAX_IMAGE_FILLS} image fills of a layer.`),
+      inexact(
+        `Kept the first ${PASTE_LIMITS.imageFills} image fills of a layer.`,
+      ),
     );
   }
-  const linked = images.slice(0, MAX_IMAGE_FILLS).filter((image) => {
+  const linked = images.slice(0, PASTE_LIMITS.imageFills).filter((image) => {
     if (HTTPS_URL.test(image.url)) return true;
     pushWarning(
       walk.warnings,
@@ -292,6 +291,11 @@ function imageDeclarations(
     ),
   ];
   return { declarations, urls: linked.map((image) => image.url) };
+}
+
+/** A layer's name, bounded so escaping it cannot grow a temporary string far past the budget. */
+function layerName(label: string): string {
+  return escapeHtml(label.slice(0, PASTE_LIMITS.labelChars));
 }
 
 function allowedTag(tag: string | undefined, fallback: string, walk: Walk) {
@@ -384,7 +388,7 @@ function nodeHtml(node: PasteNode, depth: number, walk: Walk): string {
       return charge(walk, open, close) ? open + close : "";
     }
     case "svg": {
-      const open = `<svg data-agent-native-layer-name="${escapeHtml(node.label)}"${attributes(node.attrs, walk)}${styleAttribute(node.style, [], walk)} xmlns="http://www.w3.org/2000/svg">`;
+      const open = `<svg data-agent-native-layer-name="${layerName(node.label)}"${attributes(node.attrs, walk)}${styleAttribute(node.style, [], walk)} xmlns="http://www.w3.org/2000/svg">`;
       if (!charge(walk, open, "</svg>")) return "";
       const inner = node.children
         .map((child) => nodeHtml(child, depth + 1, walk))
@@ -394,7 +398,7 @@ function nodeHtml(node: PasteNode, depth: number, walk: Walk): string {
     case "text": {
       if (overBudget(walk, node.text.length)) return "";
       const tag = allowedTag(node.tag, "span", walk);
-      const open = `<${tag} data-agent-native-layer-name="${escapeHtml(node.label)}"${styleAttribute(node.style, fontDeclaration(node.font, walk), walk)}>`;
+      const open = `<${tag} data-agent-native-layer-name="${layerName(node.label)}"${styleAttribute(node.style, fontDeclaration(node.font, walk), walk)}>`;
       const text = escapeHtml(node.text);
       const close = `</${tag}>`;
       return charge(walk, open, text, close) ? open + text + close : "";
@@ -408,7 +412,7 @@ function nodeHtml(node: PasteNode, depth: number, walk: Walk): string {
         ...fontDeclaration(node.font, walk),
         ...images.declarations,
       ];
-      const open = `<${tag} data-agent-native-layer-name="${escapeHtml(node.label)}"${styleAttribute(node.style, extra, walk)}>`;
+      const open = `<${tag} data-agent-native-layer-name="${layerName(node.label)}"${styleAttribute(node.style, extra, walk)}>`;
       const close = `</${tag}>`;
       if (!charge(walk, open, close)) return "";
       // Only a layer that is kept may send its images to be hosted.
