@@ -1399,8 +1399,10 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       return;
     }
     endAxisPress();
-    if (!press.moved) openAxisMenu(press.kind);
-    else if (press.drag) dropAxisBlock(press.kind, press.drag);
+    // A press that never became a drag is a click, even if it wobbled past
+    // DRAG_THRESHOLD over a row or column with nowhere to go.
+    if (press.drag) dropAxisBlock(press.kind, press.drag);
+    else openAxisMenu(press.kind);
     syncOverlay();
   };
 

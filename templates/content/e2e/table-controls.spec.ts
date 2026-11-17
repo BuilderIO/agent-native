@@ -730,6 +730,33 @@ test.describe("inline table controls", () => {
     expect(await caretCell(page)).toBe("Notes");
   });
 
+  test("a handle whose column has nowhere to go opens its menu after a wobble", async ({
+    page,
+  }) => {
+    await openTablePage(
+      page,
+      "Table drag nowhere",
+      ["| Item |", "| --- |", "| Alpha |", "| Beta |"].join("\n"),
+    );
+    await cell(page, "Alpha").hover();
+    const handle = (await page
+      .getByRole("button", { name: "Column options" })
+      .boundingBox())!;
+    // Let go off the handle, in the header cell below it: a release on the
+    // handle clicks it, which opens the menu by itself.
+    await dragHandle(page, "Column options", {
+      x: handle.x + handle.width / 2,
+      y: handle.y + handle.height + 5,
+    });
+
+    await expect(page.getByRole("menu")).toBeVisible();
+    expect(await cellTexts(page, "tr > :first-child")).toEqual([
+      "Item",
+      "Alpha",
+      "Beta",
+    ]);
+  });
+
   test("Escape during a drag leaves the row where it was", async ({ page }) => {
     await openTablePage(page, "Table drag escape");
     await cell(page, "Beta").hover();
