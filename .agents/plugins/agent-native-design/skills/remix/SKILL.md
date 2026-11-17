@@ -31,17 +31,41 @@ Ask only when something essential is missing and cannot be inferred, such as
 an ambiguous source page or destination. For a new site, scaffold in the user's
 stack. Follow the repo's instructions and reuse its components and conventions.
 
-1. Start or reuse the destination dev server. Capture its current appearance.
+Work in this order so the user sees the remix within minutes, not at the end.
+When the run finishes without Design (the user said no Design, headless or
+just the code, or Design is unavailable), skip the Design sign-in, the board
+and the frame subagents in these steps:
+
+1. Start or reuse the destination dev server in the background while you work
+   on the source. Capture its current appearance. Open the Design tab and check
+   sign-in now (see **Finish On A Remix Board**), so any sign-in request reaches
+   the user while you work instead of when the board is due.
 2. Drive the source in your own browser (Playwright, Chrome, or an inline
    browser), capture the running effect and inspect its shipped code using the
    two-step extraction below. No Design connector or canvas is needed.
-3. Implement from the behavior spec in the destination. Apply the requested
+3. Make the behavior spec include the knob list (each knob's name, CSS custom
+   property, range and default) and the planned layers (each layer's
+   `data-agent-native-node-id` and layer name); implement the Remix with
+   exactly those ids and names. As soon as the spec exists, open the remix
+   board (see **Finish On A Remix Board**) with the Original and the Remix
+   screen, so the user watches the effect land as you build it. In the same
+   step, start one subagent per How It Works frame, in parallel, each given the
+   spec with its knob list, planned layers and the frame rules. Frames draw
+   from the spec's maths, read the knobs' CSS variables and depict the planned
+   layers, so they need neither the finished code nor the Remix screen; they
+   build while you implement.
+4. Implement from the behavior spec in the destination. Apply the requested
    change: "make it blue" maps the palette to blue while keeping everything
    else identical, subject to the original-code and asset rules below.
-4. Expose knobs as typed props or CSS custom properties with explicit defaults.
-   Verify source versus rebuild using matched screenshots and motion clips,
-   including the original-colors fidelity check below, then finish on the
-   remix board, or without Design as described below.
+5. Expose the spec's knobs as typed props or CSS custom properties with the
+   same names and defaults. Run the fidelity check below, place the finished
+   frames, and finish the board, or finish without Design as described below.
+6. Verification beyond that check (breakpoints, reduced motion, tests, guards,
+   longer motion comparisons) runs in a background subagent once the board is
+   up, or once the source and result captures exist when finishing without
+   Design. It reports pass or fail for each check; fix real failures and update the
+   Remix. The remix is not done until that pass reports: give its results in
+   the final report and name anything left unverified.
 
 ## Design Mode: Choose On The Canvas
 
@@ -210,6 +234,12 @@ copy). Fonts and copy change text wrapping and placement, so compare layout
 again after the swap and fix drift without undoing the brand mapping. Show the
 user the original-colors side-by-side and the final one, and name any remaining
 difference.
+
+Pin the clock once: read the source's time uniform or time setter and match it
+directly, rather than sweeping the rebuild's clock frame by frame to find a
+match. Iterate at that pinned time until the two read as the same effect, and
+confirm motion with one short clip; longer drift checks belong to the
+background verification.
 
 ## Swappable Assets
 
@@ -444,4 +474,5 @@ the original-colors fidelity side by side with the source. Then add
 source-versus-result captures (clips for motion), knobs and defaults,
 swappable assets, and unverified behavior or remaining differences. With a
 board, give its link, and in Design mode hand off source edits the
-visual-edit way. Without Design, include the three image sets above.
+visual-edit way; the board is the report, so do not also publish a separate
+report page. Without Design, include the three image sets above.
