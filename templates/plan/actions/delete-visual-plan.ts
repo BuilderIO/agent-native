@@ -11,6 +11,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { deletePrivatePlanAssetBytes } from "../server/lib/plan-assets.js";
 import {
   isAnonymousPublicViewer,
   isGuestAuthorIdentity,
@@ -187,6 +188,10 @@ async function hardDeletePlanRows(planId: string, ownerEmail: string) {
   await db
     .delete(schema.planShares)
     .where(eq(schema.planShares.resourceId, planId));
+  const assets = await db
+    .select({ data: schema.planAssets.data })
+    .from(schema.planAssets)
+    .where(eq(schema.planAssets.planId, planId));
   await db
     .delete(schema.planAssets)
     .where(eq(schema.planAssets.planId, planId));
@@ -196,6 +201,8 @@ async function hardDeletePlanRows(planId: string, ownerEmail: string) {
       and(eq(schema.plans.id, planId), eq(schema.plans.ownerEmail, ownerEmail)),
     );
   await deletePlanCollabState(planId);
+  // Last, so a failure above leaves no plan pointing at missing images.
+  await deletePrivatePlanAssetBytes(assets);
 }
 
 export default defineAction({

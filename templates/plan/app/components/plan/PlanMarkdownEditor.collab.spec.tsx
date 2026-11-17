@@ -9,7 +9,6 @@ const collab = vi.hoisted(() => ({
 }));
 const editorProps = vi.hoisted(() => vi.fn());
 const imageSlashAction = vi.hoisted(() => vi.fn());
-const uploadImageMock = vi.hoisted(() => vi.fn());
 const fileStorage = vi.hoisted(() => ({
   configured: false,
   isSuccess: true,
@@ -39,7 +38,6 @@ vi.mock("@agent-native/toolkit/editor", () => ({
   createImageSlashCommand: () => ({ action: imageSlashAction }),
 }));
 vi.mock("@agent-native/core/client/uploads", () => ({
-  uploadEditorImage: uploadImageMock,
   useFileUploadStatus: () => ({
     data: { configured: fileStorage.configured },
     isSuccess: fileStorage.isSuccess,
@@ -125,9 +123,18 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
 
   it("shows setup on upload intent and requires a fresh click after connecting", async () => {
     vi.stubEnv("DEV", false);
+    const uploadRequest = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ url: "/_agent-native/plan-asset/passet_1/cat.png" }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", uploadRequest);
     const props = {
       markdown: "Canonical body",
       onSave: vi.fn(),
+      planId: "plan-1",
     };
 
     const container = document.createElement("div");
@@ -148,12 +155,9 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
     expect(fileStorage.setupPopoverOpen).toBe(true);
     expect(imageSlashAction).not.toHaveBeenCalled();
 
-    uploadImageMock.mockResolvedValue({
-      src: "https://cdn.example.com/cat.png",
-    });
     const file = new File(["image"], "cat.png", { type: "image/png" });
     const pendingUpload = editorProps.mock.lastCall?.[0].onImageUpload(file);
-    expect(uploadImageMock).not.toHaveBeenCalled();
+    expect(uploadRequest).not.toHaveBeenCalled();
 
     fileStorage.configured = true;
     await act(async () => {
@@ -161,7 +165,8 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await expect(pendingUpload).resolves.toEqual({
-      src: "https://cdn.example.com/cat.png",
+      src: "/_agent-native/plan-asset/passet_1/cat.png",
+      alt: "cat",
     });
     expect(
       container.querySelector('[data-testid="file-storage-setup-popover"]'),
@@ -169,9 +174,10 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
     expect(imageSlashAction).not.toHaveBeenCalled();
     act(() => editorProps.mock.lastCall?.[0].slashItems[0].action(editor));
     expect(imageSlashAction).toHaveBeenCalledWith(editor);
-    expect(uploadImageMock).toHaveBeenCalledWith(file);
+    expect(uploadRequest).toHaveBeenCalledTimes(1);
     act(() => root.unmount());
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   it("cancels queued image files when storage setup is dismissed", async () => {

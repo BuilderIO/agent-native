@@ -1,11 +1,60 @@
-import {
-  uploadEditorImage,
-  useFileUploadStatus,
-} from "@agent-native/core/client/uploads";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export function usePlanImageUpload() {
+/** No storage is connected that can keep the plan's image. */
+export class PlanImageStorageUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PlanImageStorageUnavailableError";
+  }
+}
+
+/**
+ * Adds an image to a plan. The image is stored privately and loads only for
+ * people who can open the plan.
+ */
+export async function uploadPlanImage(
+  file: File,
+  planId: string,
+): Promise<{ src: string; alt?: string }> {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Only image files can be uploaded.");
+  }
+  const form = new FormData();
+  form.append("file", file);
+  form.append("planId", planId);
+  const response = await fetch(agentNativePath("/_agent-native/plan-asset"), {
+    method: "POST",
+    body: form,
+    credentials: "include",
+    headers: { "X-Agent-Native-CSRF": "1" },
+  });
+  const body = (await response.json().catch(() => null)) as {
+    url?: unknown;
+    error?: unknown;
+    code?: unknown;
+  } | null;
+  const message =
+    typeof body?.error === "string" && body.error
+      ? body.error
+      : `Image upload failed (${response.status}).`;
+  if (response.status === 503 && body?.code === "storage_unavailable") {
+    throw new PlanImageStorageUnavailableError(message);
+  }
+  if (!response.ok || typeof body?.url !== "string" || !body.url) {
+    throw new Error(message);
+  }
+  const alt = file.name ? file.name.replace(/\.[^./\\]+$/, "") : "";
+  return { src: body.url, alt };
+}
+
+/**
+ * Image uploads into one plan, with the prompt to connect storage when none
+ * is. Without a plan, `uploadImage` refuses: an image belongs to a plan.
+ */
+export function usePlanImageUpload(planId: string | null | undefined) {
   const { data, isError, isSuccess, refetch } = useFileUploadStatus();
   const storageConfigured = !isError && data?.configured === true;
   const storageMissing =
@@ -13,6 +62,7 @@ export function usePlanImageUpload() {
   const canUploadImages = import.meta.env.DEV || storageConfigured;
   const [uploadAttempted, setUploadAttempted] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [storageRefused, setStorageRefused] = useState(false);
   const pendingUploadsRef = useRef<
     Array<{
       file: File;
@@ -20,18 +70,33 @@ export function usePlanImageUpload() {
       reject: (error: unknown) => void;
     }>
   >([]);
+  const upload = useCallback(
+    async (file: File) => {
+      if (!planId) throw new Error("Save the plan before adding images.");
+      try {
+        return await uploadPlanImage(file, planId);
+      } catch (error) {
+        // The server has no storage for the image even though the status
+        // said some was connected: offer to connect it.
+        if (error instanceof PlanImageStorageUnavailableError) {
+          setStorageRefused(true);
+          setSetupOpen(true);
+        }
+        throw error;
+      }
+    },
+    [planId],
+  );
+
   useEffect(() => {
     if (!canUploadImages) return;
 
     setSetupOpen(false);
     setUploadAttempted(false);
     for (const pending of pendingUploadsRef.current.splice(0)) {
-      void uploadEditorImage(pending.file).then(
-        pending.resolve,
-        pending.reject,
-      );
+      void upload(pending.file).then(pending.resolve, pending.reject);
     }
-  }, [canUploadImages]);
+  }, [canUploadImages, upload]);
 
   useEffect(
     () => () => {
@@ -59,13 +124,13 @@ export function usePlanImageUpload() {
 
   const uploadImage = useCallback(
     (file: File) => {
-      if (requestUpload()) return uploadEditorImage(file);
+      if (requestUpload()) return upload(file);
 
       return new Promise<{ src: string; alt?: string }>((resolve, reject) => {
         pendingUploadsRef.current.push({ file, resolve, reject });
       });
     },
-    [requestUpload],
+    [requestUpload, upload],
   );
 
   const handleSetupOpenChange = useCallback(
@@ -73,6 +138,7 @@ export function usePlanImageUpload() {
       setSetupOpen(open);
       if (!open) {
         setUploadAttempted(false);
+        setStorageRefused(false);
         if (reason === "dismiss") {
           for (const pending of pendingUploadsRef.current.splice(0)) {
             pending.reject(new Error("Image upload was canceled."));
@@ -94,7 +160,7 @@ export function usePlanImageUpload() {
             open
             onOpenChange={handleSetupOpenChange}
             onConnected={() => void refetch()}
-            {...(isError || !isSuccess
+            {...((isError || !isSuccess) && !storageRefused
               ? {
                   status: "unavailable" as const,
                   onRetry: () => void refetch(),

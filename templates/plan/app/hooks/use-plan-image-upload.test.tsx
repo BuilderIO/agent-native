@@ -13,8 +13,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/uploads", () => ({
-  uploadEditorImage: vi.fn(),
   useFileUploadStatus: () => mocks.status,
+}));
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => `/plan${path}`,
 }));
 
 vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", async () => {
@@ -39,8 +42,12 @@ vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", async () => {
 
 import { usePlanImageUpload } from "./use-plan-image-upload";
 
-function Probe() {
-  const { requestUpload, storagePrompt } = usePlanImageUpload();
+let upload: ReturnType<typeof usePlanImageUpload> | null = null;
+
+function Probe({ planId = "plan_1" }: { planId?: string | null }) {
+  const hook = usePlanImageUpload(planId);
+  const { requestUpload, storagePrompt } = hook;
+  upload = hook;
   return createElement(
     "div",
     null,
@@ -66,7 +73,16 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  upload = null;
 });
+
+function storageConnected() {
+  mocks.status.data = { configured: true };
+  mocks.status.isSuccess = true;
+}
+
+const image = () => new File(["PNGDATA"], "diagram.png", { type: "image/png" });
 
 describe("usePlanImageUpload", () => {
   it("shows retryable storage status only after upload is requested", () => {
@@ -78,5 +94,66 @@ describe("usePlanImageUpload", () => {
     expect(
       container.querySelector('[role="dialog"]')?.getAttribute("data-status"),
     ).toBe("unavailable");
+  });
+
+  it("adds the image to the plan, privately, through the plan's image route", async () => {
+    storageConnected();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ id: "passet_1", url: "/_agent-native/plan-asset/passet_1/diagram.png" }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    act(() => root.render(createElement(Probe) as ReactNode));
+
+    await expect(upload!.uploadImage(image())).resolves.toEqual({
+      src: "/_agent-native/plan-asset/passet_1/diagram.png",
+      alt: "diagram",
+    });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/plan/_agent-native/plan-asset");
+    expect(init.method).toBe("POST");
+    const body = init.body as FormData;
+    expect(body.get("planId")).toBe("plan_1");
+    expect((body.get("file") as File).name).toBe("diagram.png");
+  });
+
+  it("offers to connect storage when the server has none to keep the image", async () => {
+    storageConnected();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ error: "Connect storage", code: "storage_unavailable" }),
+            { status: 503, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+    act(() => root.render(createElement(Probe) as ReactNode));
+
+    await act(async () => {
+      await expect(upload!.uploadImage(image())).rejects.toThrow(
+        "Connect storage",
+      );
+    });
+
+    expect(
+      container.querySelector('[role="dialog"]')?.getAttribute("data-status"),
+    ).toBe("missing");
+  });
+
+  it("won't add an image outside a plan", async () => {
+    storageConnected();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    act(() => root.render(createElement(Probe, { planId: null }) as ReactNode));
+
+    await expect(upload!.uploadImage(image())).rejects.toThrow(
+      "Save the plan before adding images.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
