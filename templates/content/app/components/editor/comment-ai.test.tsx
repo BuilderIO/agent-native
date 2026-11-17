@@ -65,6 +65,11 @@ vi.mock("sonner", () => ({
   toast: { error: (...args: unknown[]) => api.toastError(...args) },
 }));
 
+function requireValue<T>(value: T | null | undefined, description: string): T {
+  if (value == null) throw new Error(`Expected ${description} to be present`);
+  return value;
+}
+
 function request(overrides: Partial<CommentAiRequest> = {}): CommentAiRequest {
   return {
     operationId: "request-1",
@@ -257,7 +262,7 @@ describe("comment AI controls", () => {
         const controller = useCommentAiRequests("document-1", {
           enabled: true,
         });
-        const current = controller.requests[0]!;
+        const current = requireValue(controller.requests[0], "AI request");
         return createElement(CommentAiRequestStatus, {
           request: current,
           continuation: controller.continuations.get(current.operationId),
@@ -267,9 +272,12 @@ describe("comment AI controls", () => {
       }
       await act(async () => root.render(createElement(Probe)));
       const retry = () =>
-        [...document.querySelectorAll<HTMLButtonElement>("button")].find(
-          (button) => button.textContent === "comments.retry",
-        )!;
+        requireValue(
+          [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+            (button) => button.textContent === "comments.retry",
+          ),
+          "retry button",
+        );
 
       await act(async () => retry().click());
       expect(api.toastError).toHaveBeenCalledWith(
@@ -311,9 +319,12 @@ describe("comment AI controls", () => {
       );
     });
     await act(async () => {
-      [...document.querySelectorAll<HTMLButtonElement>("button")]
-        .find((button) => button.textContent === "comments.retry")!
-        .click();
+      requireValue(
+        [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+          (button) => button.textContent === "comments.retry",
+        ),
+        "retry button",
+      ).click();
     });
     expect(api.toastError).toHaveBeenCalledWith("empty.genericError");
     expect(document.body.textContent).toContain("comments.retry");
@@ -351,14 +362,14 @@ describe("comment AI controls", () => {
     }
     await act(async () => root.render(createElement(Probe)));
     await expect(
-      act(async () => controller!.continue(base, "Follow up")),
+      act(async () => controller.continue(base, "Follow up")),
     ).rejects.toMatchObject({
       message: "comments.aiConversationUnavailable",
       cause: failure,
     });
     expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
     expect(api.callAction).not.toHaveBeenCalled();
-    await act(async () => controller!.continue(base, "Follow up"));
+    await act(async () => controller.continue(base, "Follow up"));
     expect(api.startBackgroundAgentSession).toHaveBeenCalledWith(
       expect.objectContaining({
         message: "Follow up",

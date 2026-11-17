@@ -1440,16 +1440,18 @@ export function CommentAiRequestStatus({
           type="button"
           variant="ghost"
           size="sm"
-          onClick={async () => {
-            try {
-              await onRetry();
-            } catch (error) {
-              toast.error(
-                error instanceof CommentAiConversationUnavailableError
-                  ? error.message
-                  : t("empty.genericError"),
-              );
-            }
+          onClick={() => {
+            void (async () => {
+              try {
+                await onRetry();
+              } catch (error) {
+                toast.error(
+                  error instanceof CommentAiConversationUnavailableError
+                    ? error.message
+                    : t("empty.genericError"),
+                );
+              }
+            })();
           }}
         >
           {t("comments.retry")}
