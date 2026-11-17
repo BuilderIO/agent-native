@@ -4369,7 +4369,6 @@ export async function createMCPServerForRequest(
           );
         }
 
-
         // From here on the call is to the unlisted tool `call-tool` names, so
         // it passes the same grant, scope and approval checks as a direct call.
         // The unlisted set already leaves out denied actions, and is empty
