@@ -43,6 +43,22 @@ async function untilTypingPauses(getIdentity: () => string): Promise<void> {
   }
 }
 
+// A save the editor could not send, because its live document's edits had not
+// reached the server yet, wrote nothing: the page did not change elsewhere, so
+// the same page gets another try. Only a stall this long ends in recovery.
+const UNSENT_SAVE_RETRY_MS = 1_000;
+const UNSENT_SAVE_MAX_WAIT_MS = 30_000;
+
+async function untilUnsentSaveRetry(since: number): Promise<boolean> {
+  const wait = Math.min(
+    UNSENT_SAVE_RETRY_MS,
+    since + UNSENT_SAVE_MAX_WAIT_MS - Date.now(),
+  );
+  if (wait <= 0) return false;
+  await new Promise((resolve) => setTimeout(resolve, wait));
+  return true;
+}
+
 interface AutomaticSave {
   generation: number;
   newerBase: ReconcileSaveBase | null;
@@ -57,11 +73,12 @@ export function useDocumentReconcileRecovery({
   getSaveIdentity = getDraft,
   stateRef,
 }: {
+  /** Resolves "unsent" when the save could not be sent and wrote nothing. */
   save: (
     draft: ReconcileRecoveryDraft,
     base?: ReconcileSaveBase,
-  ) => Promise<boolean>;
-  retain?: (draft: ReconcileRecoveryDraft) => Promise<void>;
+  ) => Promise<boolean | "unsent">;
+  retain?:(draft: ReconcileRecoveryDraft) => Promise<void>;
   getDraft: () => string;
   getTitle?: () => string;
   getSaveIdentity?: () => string;
@@ -147,6 +164,7 @@ export function useDocumentReconcileRecovery({
       const started = generation.current;
       publish({ ...current.current, saving: true });
       let saveBase: ReconcileSaveBase | undefined = base;
+      let unsentSince: number | null = null;
       try {
         while (generation.current === started) {
           const identity = callbacks.current.getSaveIdentity();
@@ -156,7 +174,11 @@ export function useDocumentReconcileRecovery({
             await retainLatest();
             return false;
           }
-          if (!persisted) {
+          if (persisted === "unsent") {
+            unsentSince ??= Date.now();
+            if (await untilUnsentSaveRetry(unsentSince)) continue;
+          } else unsentSince = null;
+          if (persisted !== true) {
             await retainLatest();
             publish({
               reason: "conflict",
@@ -209,6 +231,7 @@ export function useDocumentReconcileRecovery({
       let saveBase: ReconcileSaveBase | undefined = base;
       let draft = initialDraft;
       let refused = false;
+      let unsentSince: number | null = null;
       try {
         while (generation.current === started && !current.current) {
           if (run.newerBase) {
@@ -233,6 +256,15 @@ export function useDocumentReconcileRecovery({
             await retainLatest();
             return false;
           }
+          if (persisted === "unsent") {
+            // Nothing was written, so the page this save was based on is
+            // still the one to save against.
+            unsentSince ??= Date.now();
+            if (await untilUnsentSaveRetry(unsentSince)) draft = latestDraft();
+            else refused = true;
+            continue;
+          }
+          unsentSince = null;
           if (persisted && callbacks.current.getSaveIdentity() === identity)
             return true;
           // A save that landed while typing continued is not a retry: counting

@@ -3644,7 +3644,7 @@ function PageEditorSessionBody({
     (
       draft: ReconcileRecoveryDraft,
       base?: ReconcileSaveBase,
-    ) => Promise<boolean>
+    ) => Promise<boolean | "unsent">
   >(async () => false);
   const reconcileRetainRef = useRef<
     (draft: ReconcileRecoveryDraft) => Promise<void>
@@ -8436,8 +8436,8 @@ function PageEditorSessionBody({
       recovery: ReconcileRecoveryDraft,
       reconcileBase?: ReconcileSaveBase,
       telemetryOrigin?: "recovery",
-    ) => {
-      if (!editorCanEdit) return false;
+    ): Promise<DocumentSaveResult> => {
+      if (!editorCanEdit) return { contentPersisted: false };
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
       // A draft saved against a reviewed body was written over that body:
@@ -8479,17 +8479,12 @@ function PageEditorSessionBody({
           titleBase: reconcileBase?.title ?? lastSavedTitleRef.current.title,
         },
       );
-      const result = await queueDocumentSave(
-        recovery.localTitle,
-        recovery.localDraft,
-        {
-          contentBase,
-          titleBase: reconcileBase?.title,
-          saveAttemptId,
-          telemetryOrigin,
-        },
-      );
-      return result.contentPersisted;
+      return queueDocumentSave(recovery.localTitle, recovery.localDraft, {
+        contentBase,
+        titleBase: reconcileBase?.title,
+        saveAttemptId,
+        telemetryOrigin,
+      });
     },
     [
       authoredContentBase,
@@ -8498,8 +8493,14 @@ function PageEditorSessionBody({
       queueDocumentSave,
     ],
   );
-  reconcileSaveRef.current = (draft, base) =>
-    handleContentSaveNow(draft, base, "recovery");
+  reconcileSaveRef.current = async (draft, base) => {
+    const result = await handleContentSaveNow(draft, base, "recovery");
+    // The live document's edits had not reached the server, so the save
+    // wrote nothing.
+    return result.outcome === "pending_collaboration_flush"
+      ? "unsent"
+      : result.contentPersisted;
+  };
   reconcileRetainRef.current = ({ localTitle, localDraft }) =>
     queueRecoveryDraftRetention(
       localTitle,
@@ -8695,10 +8696,12 @@ function PageEditorSessionBody({
       )
         return "unchanged";
       authoredContentBaseRef.current.edited(newContent);
-      return (await handleContentSaveNow({
-        localTitle: localTitleRef.current,
-        localDraft: newContent,
-      }))
+      return (
+        await handleContentSaveNow({
+          localTitle: localTitleRef.current,
+          localDraft: newContent,
+        })
+      ).contentPersisted
         ? "persisted"
         : "failed";
     },
