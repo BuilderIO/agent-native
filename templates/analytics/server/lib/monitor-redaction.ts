@@ -52,9 +52,13 @@ export function monitorForCaller<T extends Monitor>(
 ): T | CallerMonitor<T> {
   if (caller === "frontend") return monitor;
   const { requestHeaders, requestBody, ...rest } = monitor;
+  const url = maskMonitorUrl(monitor.url) ?? UNREADABLE_URL;
   return {
     ...rest,
-    url: maskMonitorUrl(monitor.url) ?? UNREADABLE_URL,
+    url,
+    // A check error can quote the monitor URL, and errors stored before they
+    // were masked at the source still hold it as typed.
+    lastError: monitor.lastError?.split(monitor.url).join(url) ?? null,
     slackWebhookUrl: maskWebhookUrl(monitor.slackWebhookUrl),
     webhookUrl: maskWebhookUrl(monitor.webhookUrl),
     hasAuthHeader: Object.keys(requestHeaders).some(isSecretName),

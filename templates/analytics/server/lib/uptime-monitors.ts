@@ -43,6 +43,7 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { maskMonitorUrl, UNREADABLE_URL } from "./monitor-redaction.js";
 
 declare global {
   var __AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__: boolean | undefined;
@@ -872,6 +873,12 @@ function getSharedSsrfDispatcher(): Promise<unknown> {
   return sharedSsrfDispatcherPromise;
 }
 
+// The text of a failed check is stored and shown to agent, MCP and A2A callers,
+// so a monitor URL that carries an `?api_key=` style parameter must not reach it.
+function urlForErrorText(url: string): string {
+  return maskMonitorUrl(url) ?? UNREADABLE_URL;
+}
+
 async function prepareMonitorFetch(
   url: string,
   opts: { allowPrivateHosts: boolean },
@@ -882,7 +889,7 @@ async function prepareMonitorFetch(
 
   if (!opts.allowPrivateHosts && (await isBlockedExtensionUrlWithDns(url))) {
     throw new Error(
-      `SSRF blocked: refusing to fetch private/internal address (${url})`,
+      `SSRF blocked: refusing to fetch private/internal address (${urlForErrorText(url)})`,
     );
   }
 
@@ -918,7 +925,7 @@ async function safeMonitorFetch(
       (await isBlockedExtensionUrlWithDns(currentUrl))
     ) {
       throw new Error(
-        `SSRF blocked: refusing to fetch private/internal address (${currentUrl})`,
+        `SSRF blocked: refusing to fetch private/internal address (${urlForErrorText(currentUrl)})`,
       );
     }
     const fetchOpts: RequestInit & { dispatcher?: unknown } = {
@@ -939,7 +946,7 @@ async function safeMonitorFetch(
     return response;
   }
   throw new Error(
-    `SSRF blocked: too many redirects (>${opts.maxRedirects}) while fetching ${url}`,
+    `SSRF blocked: too many redirects (>${opts.maxRedirects}) while fetching ${urlForErrorText(url)}`,
   );
 }
 
@@ -1102,7 +1109,7 @@ export async function runMonitorCheck(
         headers: {},
         matcher,
         assertions,
-        fetchError: `SSRF blocked: ${monitor.url} is a private, internal, or non-http(s) address`,
+        fetchError: `SSRF blocked: ${urlForErrorText(monitor.url)} is a private, internal, or non-http(s) address`,
         errorKind: "config",
       }),
       error: "SSRF blocked: private/internal or non-http(s) address",

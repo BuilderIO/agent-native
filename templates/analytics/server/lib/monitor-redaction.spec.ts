@@ -124,3 +124,55 @@ describe("monitorForCaller", () => {
     });
   });
 });
+
+describe("monitorForCaller and check errors", () => {
+  const url = "https://api.example.com/h?api_key=key-fixture";
+  const lastError = `SSRF blocked: refusing to fetch private/internal address (${url})`;
+
+  it("masks the monitor URL inside the last error for callers other than the UI", () => {
+    const projected = monitorForCaller(monitor({ url, lastError }), "tool");
+
+    expect(projected.lastError).toBe(
+      "SSRF blocked: refusing to fetch private/internal address (https://api.example.com/h?api_key=***)",
+    );
+    expect(JSON.stringify(projected)).not.toContain("key-fixture");
+  });
+
+  it("masks every occurrence of the URL", () => {
+    const projected = monitorForCaller(
+      monitor({ url, lastError: `${url} then ${url}` }),
+      "mcp",
+    );
+
+    expect(projected.lastError).toBe(
+      "https://api.example.com/h?api_key=*** then https://api.example.com/h?api_key=***",
+    );
+  });
+
+  it("gives the signed-in UI the last error as stored", () => {
+    const stored = monitor({ url, lastError });
+
+    expect(monitorForCaller(stored, "frontend").lastError).toBe(lastError);
+  });
+
+  it("leaves an error that does not quote the URL, and a missing one, alone", () => {
+    expect(
+      monitorForCaller(
+        monitor({ url, lastError: "Timed out after 5000ms" }),
+        "a2a",
+      ).lastError,
+    ).toBe("Timed out after 5000ms");
+    expect(
+      monitorForCaller(monitor({ url, lastError: null }), "a2a").lastError,
+    ).toBeNull();
+  });
+
+  it("swaps a URL it cannot read for the placeholder inside the error", () => {
+    const projected = monitorForCaller(
+      monitor({ url: "not a url", lastError: "bad address (not a url)" }),
+      "tool",
+    );
+
+    expect(projected.lastError).toBe("bad address ([unreadable URL])");
+  });
+});
