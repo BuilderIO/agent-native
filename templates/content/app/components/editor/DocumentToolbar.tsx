@@ -1141,6 +1141,7 @@ export function DocumentToolbar({
       // open and on coming back to the tab. Tables are refused at the write
       // whatever this says.
       refetchInterval: SUB_PAGE_CHARTS_REFRESH_MS,
+      // request-storm-allow: one read on return to the tab, only while Share is open, so going public asks about the sub-pages as they are.
       refetchOnWindowFocus: true,
     },
   );
