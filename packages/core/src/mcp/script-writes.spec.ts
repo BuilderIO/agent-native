@@ -940,6 +940,46 @@ describe("recoverScriptWrites", () => {
     );
   });
 
+  it("keeps what the script saw of a write recovery settled before its call came back", async () => {
+    const writes = gate();
+    const begun = await writes.begin(call(0, { key: "a", rows: 1 }));
+    if (begun.status !== "go") throw new Error("expected go");
+    receipts.add("a");
+    await recoverScriptWrites({
+      appId: "app-a",
+      actions,
+      now: T0 + 3 * 60_000,
+    });
+    await writes.settle(begun.ticket, committed, { status: "completed" });
+    expect((await rows())[0]).toEqual(
+      expect.objectContaining({
+        effect_status: "committed",
+        response_status: "completed",
+      }),
+    );
+    // The run's change marker is recovery's, already sent.
+    expect(audits.change).toHaveBeenCalledTimes(1);
+  });
+
+  it("records no audit row for a recovered write of an action the audit log leaves out by default", async () => {
+    const writes = gate();
+    await writes.begin({
+      ...call(0, { key: "a", rows: 1 }),
+      action: "change-appearance",
+    });
+    receipts.add("a");
+    await recoverScriptWrites({
+      appId: "app-a",
+      actions: { "change-appearance": writeEntry() },
+      now: T0 + 3 * 60_000,
+    });
+    expect((await rows())[0]).toEqual(
+      expect.objectContaining({ effect_status: "committed" }),
+    );
+    expect(audits.insert).not.toHaveBeenCalled();
+    expect(audits.change).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a write with no receipt unknown, then closes its key before settling it not-applied", async () => {
     await leavePending(0, "a");
     await expect(

@@ -232,8 +232,9 @@ export type ScriptOutboxItem =
  * may replace `unknown` or `not-applied` when a receipt turns up. A fenced
  * key never gets a receipt, so that replaces only a `not-applied` the run
  * itself recorded. A run's own `unknown` may land on a row recovery already
- * marked `unknown` while the write was still running, so run status keeps
- * what the script saw.
+ * marked `unknown` while the write was still running, and a row recovery
+ * settled before the call came back keeps its effect but takes the
+ * response, so run status keeps what the script saw.
  */
 export async function settleScriptWriteRow(
   owner: ScriptRunOwner,
@@ -290,7 +291,23 @@ export async function settleScriptWriteRow(
       owner.appId,
     ],
   });
-  return result.rowsAffected === 1;
+  if (result.rowsAffected === 1) return true;
+  if (response) {
+    await client.execute({
+      sql: `UPDATE mcp_script_calls
+        SET response_status = ?, response_code = ?
+        WHERE run_id = ? AND seq = ? AND app_id = ? AND kind = 'write'
+          AND response_status = 'unfinished'`,
+      args: [
+        response.status,
+        response.code ?? null,
+        owner.runId,
+        seq,
+        owner.appId,
+      ],
+    });
+  }
+  return false;
 }
 
 /** A write recovery may settle: unsettled, and old enough to ask about. */
