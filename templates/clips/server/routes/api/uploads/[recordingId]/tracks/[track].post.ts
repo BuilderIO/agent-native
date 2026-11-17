@@ -38,6 +38,7 @@ import {
   isRichTrackId,
   normalizeRichTrackContentType,
 } from "../../../../../../shared/rich-recording.js";
+import { isRetryableUploadInterruption } from "../../../../../../shared/upload-interruption.js";
 import { formatUploadBytes } from "../../../../../../shared/upload-limits.js";
 import { getDb, schema } from "../../../../../db/index.js";
 import { refuseContentUploadChunk } from "../../../../../lib/content-uploads.js";
@@ -145,6 +146,7 @@ export async function handleTrackChunk(event: H3Event) {
           editsJson: schema.recordings.editsJson,
           trashedAt: schema.recordings.trashedAt,
           failureCode: schema.recordings.failureCode,
+          failureReason: schema.recordings.failureReason,
         })
         .from(schema.recordings)
         .where(recordingWhere)
@@ -177,13 +179,21 @@ export async function handleTrackChunk(event: H3Event) {
         };
       }
       // Finalize keeps no tracks for a failed recording, so none are taken.
+      // An interrupted upload resumes on the same attempt, tracks included.
       if (existing.status === "failed") {
         setResponseStatus(event, 409);
-        return {
-          ok: false,
-          error: "The recording failed, so its tracks were not kept.",
-          tracksStopped: true,
-        };
+        return isRetryableUploadInterruption(existing.failureReason)
+          ? {
+              ok: false,
+              error:
+                "The recording's upload was interrupted. Send this again once it resumes.",
+              retryable: true,
+            }
+          : {
+              ok: false,
+              error: "The recording failed, so its tracks were not kept.",
+              tracksStopped: true,
+            };
       }
       // Pending redaction marks don't stop the chunks of a track upload under
       // way: the burn that applies them discards every track upload, and

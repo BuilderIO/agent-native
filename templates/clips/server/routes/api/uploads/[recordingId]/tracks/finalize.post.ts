@@ -26,6 +26,7 @@ import {
 } from "h3";
 
 import type { RichTrackId } from "../../../../../../shared/rich-recording.js";
+import { isRetryableUploadInterruption } from "../../../../../../shared/upload-interruption.js";
 import { getDb, schema } from "../../../../../db/index.js";
 import {
   hasBurnedRedactions,
@@ -244,6 +245,7 @@ export async function handleFinalizeTracks(event: H3Event) {
           editsJson: schema.recordings.editsJson,
           trashedAt: schema.recordings.trashedAt,
           failureCode: schema.recordings.failureCode,
+          failureReason: schema.recordings.failureReason,
         })
         .from(schema.recordings)
         .where(recordingWhere)
@@ -280,13 +282,21 @@ export async function handleFinalizeTracks(event: H3Event) {
       }
       // Hosted storage counts a recording's bytes once its video is in, and
       // the flattened video always goes first, so tracks wait for it.
+      // An interrupted upload resumes on the same attempt, tracks included.
       if (existing.status === "failed") {
         setResponseStatus(event, 409);
-        return {
-          ok: false,
-          error: "The recording failed, so its tracks were not kept.",
-          tracksStopped: true,
-        };
+        return isRetryableUploadInterruption(existing.failureReason)
+          ? {
+              ok: false,
+              error:
+                "The recording's upload was interrupted. Send this again once it resumes.",
+              retryable: true,
+            }
+          : {
+              ok: false,
+              error: "The recording failed, so its tracks were not kept.",
+              tracksStopped: true,
+            };
       }
       if (existing.status === "uploading") {
         setResponseStatus(event, 409);

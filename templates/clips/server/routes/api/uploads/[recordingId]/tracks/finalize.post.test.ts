@@ -138,6 +138,7 @@ vi.mock("../../../../../lib/video-storage.js", () => ({
   addHostedClipRecordingBytes: (...args: unknown[]) => mocks.addHosted(...args),
 }));
 
+import { RETRYABLE_UPLOAD_INTERRUPTION_REASON } from "../../../../../../shared/upload-interruption.js";
 import { handleFinalizeTracks } from "./finalize.post";
 
 const resumable = mocks.provider.resumable;
@@ -308,6 +309,26 @@ describe("POST /api/uploads/:recordingId/tracks/finalize", () => {
       retryable: true,
     });
     expect(resumable.completeSession).not.toHaveBeenCalled();
+  });
+
+  it("stops tracks for a failed recording, but waits out an interrupted upload", async () => {
+    session("screen", 10);
+    await client.query(
+      "UPDATE recordings SET status='failed', failure_reason='Upload failed'",
+    );
+    const failed = await finalize(body([listed("screen")]));
+    expect(failed.status).toBe(409);
+    expect(failed.body).toMatchObject({ tracksStopped: true });
+
+    await client.query("UPDATE recordings SET failure_reason=$1", [
+      RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+    ]);
+    const interrupted = await finalize(body([listed("screen")]));
+    expect(interrupted.status).toBe(409);
+    expect(interrupted.body).toMatchObject({ retryable: true });
+    expect(interrupted.body).not.toHaveProperty("tracksStopped");
+    expect(resumable.completeSession).not.toHaveBeenCalled();
+    expect(mocks.state.has(key("screen"))).toBe(true);
   });
 
   it("refuses tracks when the owner's lab was off", async () => {

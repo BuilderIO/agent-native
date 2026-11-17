@@ -139,6 +139,7 @@ vi.mock("../../../../../lib/video-storage.js", () => ({
   resolveClipsVideoStorage: async () => ({ provider: mocks.provider }),
 }));
 
+import { RETRYABLE_UPLOAD_INTERRUPTION_REASON } from "../../../../../../shared/upload-interruption.js";
 import { MAX_RICH_BYTES_ENV } from "../../../../../../shared/upload-limits.js";
 import { trackStorageFilename } from "../../../../../lib/recording-tracks.js";
 import { handleTrackChunk } from "./[track].post";
@@ -339,6 +340,21 @@ describe("POST /api/uploads/:recordingId/tracks/:track", () => {
     );
     expect(status).toBe(409);
     expect(body).toMatchObject({ tracksStopped: true });
+    expect(provider.resumable.startSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps tracks waiting while the recording's upload is interrupted", async () => {
+    mocks.recording = {
+      ...mocks.recording,
+      status: "failed",
+      failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+    };
+    const { status, body } = await send(
+      chunk(0, 4, { uploadGenerationId: "gen-1" }),
+    );
+    expect(status).toBe(409);
+    expect(body).toMatchObject({ retryable: true });
+    expect(body).not.toHaveProperty("tracksStopped");
     expect(provider.resumable.startSession).not.toHaveBeenCalled();
   });
 
