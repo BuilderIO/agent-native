@@ -126,7 +126,8 @@ function remapCodeBlockPos(transaction: Transaction, pos: number | null) {
  * The bar over a code block the pointer is on or the cursor is in: its
  * language, line wrapping and a Copy button. It sits outside the editor's
  * text, in the room the block keeps at its top, so it never covers code or
- * takes part in the block's editing. Readers get Copy alone.
+ * takes part in the block's editing. Readers get Copy, and the language's
+ * name when the block has one.
  */
 export function CodeBlockToolbar({ editor, canEdit }: CodeBlockToolbarProps) {
   const t = useT();
