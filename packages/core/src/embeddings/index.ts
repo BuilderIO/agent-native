@@ -34,6 +34,18 @@ export interface EmbeddingFamily {
   version: string;
   dimensions: number;
   supportedImageMimeTypes?: readonly EmbeddingImageInput["mimeType"][];
+  /**
+   * The cosine similarity below which a query and a passage are unrelated
+   * for this model, so search drops the match. Each model scores on its own
+   * scale; leave it unset until an eval has measured it.
+   */
+  minSimilarity?: number;
+  /**
+   * How many inputs the provider takes in one request, when `embed` sends a
+   * call's inputs in several. A request it refuses part way loses the ones
+   * before it, so callers that keep progress send at most this many a call.
+   */
+  inputsPerRequest?: number;
   embed(
     inputs: readonly MultimodalEmbeddingInput[],
     purpose: EmbeddingInputPurpose,
@@ -42,6 +54,12 @@ export interface EmbeddingFamily {
 }
 
 const DEFAULT_DIMENSIONS = 1024;
+/**
+ * voyage-multimodal-3.5's floor, which Builder's model also serves. On the
+ * question-search eval corpus every judged page scored 0.326 or more, and no
+ * off-topic question scored above 0.250.
+ */
+const VOYAGE_MULTIMODAL_MIN_SIMILARITY = 0.3;
 const BUILDER_EMBEDDING_MODEL = "builder-multimodal-embedding";
 const BUILDER_EMBEDDING_BATCH_LIMIT = 32;
 const BUILDER_EMBEDDING_INPUT_TEXT_LIMIT = 32_000;
@@ -118,6 +136,32 @@ function builderEmbeddingBatches(inputs: readonly MultimodalEmbeddingInput[]) {
   if (batch.length) batches.push(batch);
   return batches;
 }
+
+/**
+ * An embedding provider's answer that wasn't 2xx. Status 429 means the
+ * caller is rate limited, so any input would fail until the wait is over.
+ */
+export class EmbeddingProviderError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    /** How long the provider's Retry-After asked callers to wait. */
+    readonly retryAfterMs?: number,
+  ) {
+    super(message);
+    this.name = "EmbeddingProviderError";
+  }
+}
+
+/** A Retry-After header, in seconds or as a date, as milliseconds. */
+function retryAfterMs(header: string | null): number | undefined {
+  if (!header?.trim()) return undefined;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const at = Date.parse(header);
+  return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now());
+}
+
 async function postJson(
   url: string,
   headers: Record<string, string>,
@@ -142,8 +186,10 @@ async function postJson(
       }),
     );
     if (!response.ok)
-      throw new Error(
+      throw new EmbeddingProviderError(
         `Embedding provider ${providerModel} failed with status ${response.status}.`,
+        response.status,
+        retryAfterMs(response.headers.get("retry-after")),
       );
     const bytes = await readBoundedResponseBytes(response, 1_000_000);
     return JSON.parse(new TextDecoder().decode(bytes)) as Record<
@@ -184,6 +230,8 @@ export function createGeminiEmbeddingFamily(
     version: "stable-2026-04",
     dimensions,
     supportedImageMimeTypes: ["image/png", "image/jpeg"],
+    // embedContent takes one input a request.
+    inputsPerRequest: 1,
     async embed(inputs, purpose, options) {
       const vectors: number[][] = [];
       for (const raw of inputs) {
@@ -278,6 +326,7 @@ export function createVoyageEmbeddingFamily(apiKey: string): EmbeddingFamily {
     model,
     version: "3.5",
     dimensions: 1024,
+    minSimilarity: VOYAGE_MULTIMODAL_MIN_SIMILARITY,
     supportedImageMimeTypes: [
       "image/png",
       "image/jpeg",
@@ -358,6 +407,7 @@ export function createBuilderEmbeddingFamily(
     model: BUILDER_EMBEDDING_MODEL,
     version: "3.5",
     dimensions: DEFAULT_DIMENSIONS,
+    minSimilarity: VOYAGE_MULTIMODAL_MIN_SIMILARITY,
     supportedImageMimeTypes: [
       "image/png",
       "image/jpeg",

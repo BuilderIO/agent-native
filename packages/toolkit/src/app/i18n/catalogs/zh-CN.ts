@@ -2122,10 +2122,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.demoModeDescription":
     "在此浏览器中使用示例数据进行演示。",
   "settingsShell.appGroup.labsFootnote": "这些新功能尚不稳定，可能存在错误。",
+  "settingsShell.appGroup.labsHostDecided": "此项已为你设定，无法在这里更改。",
   "settingsShell.appGroup.labsLoadError": "无法加载实验室功能。",
   "settingsShell.appGroup.labsReadError":
     "无法读取此已保存选项。请选择开启或关闭以重新设置。",
   "settingsShell.appGroup.labsSaveError": "无法更改 {{lab}}。请重试。",
+  "settingsShell.appGroup.labsUseDefault": "使用默认设置",
   "settingsShell.appGroup.mcpAbout":
     "将 {{app}} 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 {{app}} 中工作。它只能看到你有权看到的内容。",
   "settingsShell.appGroup.mcpAppCards": "聊天应用中的应用卡片",
@@ -2779,6 +2781,17 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "为幻灯片和设计生成图像。",
   "settingsInfra.whyEmbeddings":
     "改进语义搜索。不使用它，关键词搜索也照常可用。",
+  "settingsInfra.semanticSearch": "语义搜索",
+  "settingsInfra.semanticSearchOn":
+    "除了字词，还按含义查找页面。页面文本和搜索内容会发送给嵌入提供商。",
+  "settingsInfra.semanticSearchOff":
+    "已关闭。搜索只匹配字词，不会向嵌入提供商发送页面文本。",
+  "settingsInfra.semanticSearchUnknown": "无法读取语义搜索是否已开启。",
+  "settingsInfra.semanticSearchTurnedOn":
+    "语义搜索已开启。现有页面会在后台建立索引。",
+  "settingsInfra.semanticSearchTurnedOff":
+    "语义搜索已关闭。已删除存储的页面向量。",
+  "settingsInfra.semanticSearchSaveFailed": "无法更改语义搜索。",
   "settingsInfra.designSystem": "设计系统智能",
   "settingsInfra.whyDesignSystem": "让生成的幻灯片和设计符合品牌规范。",
   "settingsInfra.whyBackground": "在生产环境中修改代码。",

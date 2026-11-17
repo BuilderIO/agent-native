@@ -2301,11 +2301,14 @@ const messages: ToolkitAgentChatTranslation = {
     "プレゼンテーション用に、このブラウザでサンプルデータを使用します。",
   "settingsShell.appGroup.labsFootnote":
     "これらの新しい不安定な機能にはバグがある可能性があります。",
+  "settingsShell.appGroup.labsHostDecided":
+    "この設定はあらかじめ決められているため、ここでは変更できません。",
   "settingsShell.appGroup.labsLoadError": "ラボを読み込めませんでした。",
   "settingsShell.appGroup.labsReadError":
     "保存された設定を読み込めませんでした。オンまたはオフを選んで設定し直してください。",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} を変更できませんでした。もう一度お試しください。",
+  "settingsShell.appGroup.labsUseDefault": "デフォルトを使用",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって {{app}} で作業できます。アプリが見られるのは、あなたが見られるものだけです。",
   "settingsShell.appGroup.mcpAppCards": "チャットアプリでのアプリカード",
@@ -3050,6 +3053,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "スライドとデザインの画像を生成します。",
   "settingsInfra.whyEmbeddings":
     "セマンティック検索を改善します。キーワード検索はこれがなくても使えます。",
+  "settingsInfra.semanticSearch": "セマンティック検索",
+  "settingsInfra.semanticSearchOn":
+    "言葉だけでなく意味でもページを見つけます。ページのテキストと検索語は埋め込みのプロバイダーに送信されます。",
+  "settingsInfra.semanticSearchOff":
+    "オフ。検索は言葉の一致だけで、ページのテキストは埋め込みのプロバイダーに送信されません。",
+  "settingsInfra.semanticSearchUnknown":
+    "セマンティック検索がオンかどうかを読み取れませんでした。",
+  "settingsInfra.semanticSearchTurnedOn":
+    "セマンティック検索をオンにしました。既存のページはバックグラウンドでインデックスされます。",
+  "settingsInfra.semanticSearchTurnedOff":
+    "セマンティック検索をオフにしました。保存されていたページのベクトルは削除されました。",
+  "settingsInfra.semanticSearchSaveFailed":
+    "セマンティック検索を変更できませんでした。",
   "settingsInfra.designSystem": "デザインシステムインテリジェンス",
   "settingsInfra.whyDesignSystem":
     "生成したスライドとデザインをブランドに沿わせます。",

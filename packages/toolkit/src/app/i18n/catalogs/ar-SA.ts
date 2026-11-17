@@ -2449,10 +2449,13 @@ const messages: ToolkitAgentChatTranslation = {
     "استخدم بيانات نموذجية في هذا المتصفح للعروض التقديمية.",
   "settingsShell.appGroup.labsFootnote":
     "قد تحتوي هذه الميزات الجديدة غير المستقرة على أخطاء.",
+  "settingsShell.appGroup.labsHostDecided":
+    "هذا الإعداد مضبوط لك، لذا لا يمكن تغييره هنا.",
   "settingsShell.appGroup.labsLoadError": "تعذّر تحميل المختبرات.",
   "settingsShell.appGroup.labsReadError":
     "تعذّرت قراءة هذا الاختيار المحفوظ. اختر تشغيل أو إيقاف لإعداده مجددًا.",
   "settingsShell.appGroup.labsSaveError": "تعذّر تغيير {{lab}}. حاول مرة أخرى.",
+  "settingsShell.appGroup.labsUseDefault": "استخدام الافتراضي",
   "settingsShell.appGroup.mcpAbout":
     "اربط {{app}} بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في {{app}} نيابةً عنك. ولا يرى إلا ما يمكنك رؤيته.",
   "settingsShell.appGroup.mcpAppCards": "بطاقات التطبيق في تطبيقات الدردشة",
@@ -3226,6 +3229,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "ينشئ صورًا للشرائح والتصاميم.",
   "settingsInfra.whyEmbeddings":
     "يحسّن البحث الدلالي. البحث بالكلمات المفتاحية يعمل بدونه.",
+  "settingsInfra.semanticSearch": "البحث الدلالي",
+  "settingsInfra.semanticSearchOn":
+    "يعثر على الصفحات حسب المعنى إلى جانب الكلمات. يُرسَل نص الصفحات وعمليات البحث إلى مزوّد التضمينات.",
+  "settingsInfra.semanticSearchOff":
+    "متوقف. يطابق البحث الكلمات فقط، ولا يُرسَل أي نص من الصفحات إلى مزوّد التضمينات.",
+  "settingsInfra.semanticSearchUnknown":
+    "تعذّرت معرفة ما إذا كان البحث الدلالي مُفعّلًا.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "البحث الدلالي مُفعّل. تتم فهرسة الصفحات الحالية في الخلفية.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "البحث الدلالي متوقف. تم حذف متجهات الصفحات المخزّنة.",
+  "settingsInfra.semanticSearchSaveFailed": "تعذّر تغيير البحث الدلالي.",
   "settingsInfra.designSystem": "ذكاء نظام التصميم",
   "settingsInfra.whyDesignSystem":
     "يُبقي الشرائح والتصاميم المُنشأة متوافقة مع علامتك التجارية.",

@@ -2302,10 +2302,13 @@ const messages = {
     "Use sample data in this browser for presentations.",
   "settingsShell.appGroup.labsFootnote":
     "These new, unstable features may have bugs.",
+  "settingsShell.appGroup.labsHostDecided":
+    "This one is set for you, so it can't be changed here.",
   "settingsShell.appGroup.labsLoadError": "Couldn't load your labs.",
   "settingsShell.appGroup.labsReadError":
     "Couldn't read this saved choice. Choose On or Off to set it again.",
   "settingsShell.appGroup.labsSaveError": "Couldn't change {{lab}}. Try again.",
+  "settingsShell.appGroup.labsUseDefault": "Use default",
   "settingsShell.appGroup.mcpAbout":
     "Connect {{app}} to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in {{app}} for you. It sees only what you can see.",
   "settingsShell.appGroup.mcpAppCards": "App cards in chat apps",
@@ -3068,6 +3071,18 @@ const messages = {
   "settingsInfra.whyImages": "Generates images for slides and designs.",
   "settingsInfra.whyEmbeddings":
     "Improves semantic search. Keyword search still works without it.",
+  "settingsInfra.semanticSearch": "Semantic search",
+  "settingsInfra.semanticSearchOn":
+    "Finds pages by meaning as well as words. Page text and searches go to the Embeddings provider.",
+  "settingsInfra.semanticSearchOff":
+    "Off. Search matches words only, and no page text goes to the Embeddings provider.",
+  "settingsInfra.semanticSearchUnknown":
+    "Couldn't read whether semantic search is on.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "Semantic search is on. Existing pages are indexed in the background.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "Semantic search is off. Stored page vectors were deleted.",
+  "settingsInfra.semanticSearchSaveFailed": "Couldn't change semantic search.",
   "settingsInfra.designSystem": "Design system intelligence",
   "settingsInfra.whyDesignSystem":
     "Keeps generated slides and designs on brand.",
