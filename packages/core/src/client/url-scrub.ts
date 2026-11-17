@@ -366,7 +366,7 @@ export function scrubUrl(
     }
     return u.toString();
   } catch {
-    return url.split(/[?#]/, 1)[0].replace(UNPARSED_USERINFO, "$1");
+    return url.replace(/[?#][\s\S]*/, "").replace(UNPARSED_USERINFO, "$1");
   }
 }
 
