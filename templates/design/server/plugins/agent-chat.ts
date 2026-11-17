@@ -148,6 +148,7 @@ const DESIGN_EDIT_TOOLS = new Set([
   "apply-motion-edit",
   "apply-tweaks",
   "apply-visual-edit",
+  "clear-edits",
   "create-file",
   "detach-component-instance",
   "delete-file",

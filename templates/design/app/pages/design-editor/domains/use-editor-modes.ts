@@ -1288,13 +1288,6 @@ export function useEditorModes({
     if (!hasLocalEdits && !clearableHandoff) return;
 
     try {
-      requestPendingVisualStyleRevert(pendingVisualStyleEdits);
-      requestPendingLiveNonStyleRevert(pendingLiveNonStyleEdits);
-      discardPendingLiveEditCollections({
-        stylesRef: pendingVisualStyleEditsRef,
-        liveRef: pendingLiveNonStyleEditsRef,
-        clearState: clearPendingLiveEditState,
-      });
       await settlePendingTweakSaves();
       const result = await clearEditsMutation.mutateAsync({
         designId: id,
@@ -1307,6 +1300,13 @@ export function useEditorModes({
           "The pending edits changed before they could be cleared.",
         );
       }
+      requestPendingVisualStyleRevert(pendingVisualStyleEdits);
+      requestPendingLiveNonStyleRevert(pendingLiveNonStyleEdits);
+      discardPendingLiveEditCollections({
+        stylesRef: pendingVisualStyleEditsRef,
+        liveRef: pendingLiveNonStyleEditsRef,
+        clearState: clearPendingLiveEditState,
+      });
       if (result.resetTweakSelections) resetTweakSelectionsToSourceBaseline();
       if (
         result.handoffCleared ||

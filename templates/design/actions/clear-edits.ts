@@ -140,8 +140,9 @@ export default defineAction({
         pending &&
         hasHandoff &&
         (revision === undefined || publisherId === undefined) &&
+        ctx?.caller === "frontend" &&
         access.role !== "owner" &&
-        (!ctx?.userEmail || pending.authorEmail !== ctx.userEmail)
+        (!ctx.userEmail || pending.authorEmail !== ctx.userEmail)
       ) {
         return {
           designId,

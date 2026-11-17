@@ -393,6 +393,14 @@ describe("visual-edit handoff records", () => {
       resetTweakSelections: false,
       handoffCleared: false,
     });
+    for (const caller of ["tool", "mcp"] as const) {
+      await expect(
+        clearEditsAction.run(
+          { designId },
+          { caller, userEmail: "editor@example.com" },
+        ),
+      ).rejects.toThrow(/Read the current handoff/);
+    }
     expect(await readDesignData(designId)).toMatchObject({
       tweakSelections: { accent: "#1b7585", extra: true },
     });
