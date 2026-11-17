@@ -164,6 +164,12 @@ describe("TimelineTrack pointer gestures", () => {
   });
 
   it("shows exact source timestamps throughout range selection, resize, and move", () => {
+    const thirdPiece = () => {
+      const piece = pieces()[2];
+      if (!piece) throw new Error("third timeline piece not rendered");
+      return piece;
+    };
+
     function ControlledTrack() {
       const [selection, setSelection] = React.useState<TrackSelection | null>(
         null,
@@ -184,7 +190,7 @@ describe("TimelineTrack pointer gestures", () => {
 
     act(() => root.render(<ControlledTrack />));
     act(() => {
-      pointer(pieces()[2], "pointerdown", 123.4);
+      pointer(thirdPiece(), "pointerdown", 123.4);
       pointer(track(), "pointermove", 126.8);
     });
     expect(container.textContent).toContain("00:01.234");
@@ -195,7 +201,7 @@ describe("TimelineTrack pointer gestures", () => {
     expect(container.textContent).toContain("00:01.268");
 
     act(() => {
-      pointer(pieces()[2], "pointerdown", 126.8);
+      pointer(thirdPiece(), "pointerdown", 126.8);
       pointer(track(), "pointermove", 153.7);
     });
     expect(container.textContent).toContain("00:01.234");
@@ -203,7 +209,7 @@ describe("TimelineTrack pointer gestures", () => {
     act(() => pointer(track(), "pointerup", 153.7));
 
     act(() => {
-      pointer(pieces()[2], "pointerdown", 140);
+      pointer(thirdPiece(), "pointerdown", 140);
       pointer(track(), "pointermove", 160);
     });
     expect(container.textContent).toContain("00:01.434");
