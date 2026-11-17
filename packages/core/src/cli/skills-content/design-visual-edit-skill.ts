@@ -608,5 +608,10 @@ only to diagnose an actual report, or to confirm an applied edit landed:
 - A query/path edit changes only the target screen's URL metadata and iframe.
 - \`get-visual-edit-pending\` is the tab-free handoff; acknowledge its revision
   after applying. \`get-visual-edit-prompt\` is the browser equivalent.
+- When asked to discard pending edits, call \`get-visual-edit-pending\` then
+  \`clear-edits\` with its exact revision and publisherId. This resets tweak
+  selections to their source baseline; it does not apply edits to source. The
+  handoff author or design owner can clear it, and only the owner can clear a
+  different publisher's handoff.
 - The Code tab shows a local-files root for the connection and opens its files.
 `;

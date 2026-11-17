@@ -1759,6 +1759,7 @@ export function useEditorFilesAndSaving({
     } | null;
     revision: number | null;
     publisherId: string | null;
+    canClear: boolean;
     updatedAt: string | null;
   }>(
     "get-visual-edit-pending",

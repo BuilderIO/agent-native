@@ -345,6 +345,26 @@ describe("visual-edit handoff records", () => {
       prompt: "",
       records: [],
     });
+    await getDbExec().execute({
+      sql: `UPDATE designs SET data = $2 WHERE id = $1`,
+      args: [
+        designId,
+        JSON.stringify({
+          tweakSourceBaseline: { accent: "#00dff6" },
+          tweakSelections: { accent: "#4a5568" },
+        }),
+      ],
+    });
+    await expect(
+      clearEditsAction.run({
+        designId,
+        revision: published.revision ?? 0,
+        publisherId,
+      }),
+    ).resolves.toMatchObject({ stale: true, resetTweakSelections: false });
+    expect(await readDesignData(designId)).toMatchObject({
+      tweakSelections: { accent: "#4a5568" },
+    });
   });
 
   it("lets the design owner clear another publisher's exact handoff but not an editor", async () => {
@@ -364,6 +384,20 @@ describe("visual-edit handoff records", () => {
     };
 
     await expect(
+      clearEditsAction.run(
+        { designId },
+        { caller: "frontend", userEmail: "editor@example.com" },
+      ),
+    ).resolves.toMatchObject({
+      cleared: true,
+      resetTweakSelections: false,
+      handoffCleared: false,
+    });
+    expect(await readDesignData(designId)).toMatchObject({
+      tweakSelections: { accent: "#1b7585", extra: true },
+    });
+
+    await expect(
       clearEditsAction.run(args, {
         caller: "frontend",
         userEmail: "editor@example.com",
@@ -378,6 +412,42 @@ describe("visual-edit handoff records", () => {
       cleared: true,
       handoffCleared: true,
     });
+    expect(await readDesignData(designId)).toMatchObject({
+      tweakSelections: { accent: "#00dff6" },
+    });
+  });
+
+  it("lets the handoff author clear it from another browser session", async () => {
+    const designId = "design_clear_author_browser";
+    await seedChangedTweaks(designId);
+    const foreignPublisher = "22222222-2222-4222-8222-222222222222";
+    const published = await publish(
+      designId,
+      1,
+      [tweakRecord("accent", "#1b7585")],
+      foreignPublisher,
+    );
+    await getDbExec().execute({
+      sql: `UPDATE design_visual_edit_pending SET author_email = $2 WHERE design_id = $1`,
+      args: [designId, "editor@example.com"],
+    });
+
+    await expect(
+      getPendingAction.run(
+        { designId },
+        { caller: "frontend", userEmail: "editor@example.com" },
+      ),
+    ).resolves.toMatchObject({ canClear: true });
+    await expect(
+      clearEditsAction.run(
+        {
+          designId,
+          revision: published.revision ?? 0,
+          publisherId: foreignPublisher,
+        },
+        { caller: "frontend", userEmail: "editor@example.com" },
+      ),
+    ).resolves.toMatchObject({ cleared: true, handoffCleared: true });
     expect(await readDesignData(designId)).toMatchObject({
       tweakSelections: { accent: "#00dff6" },
     });

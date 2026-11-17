@@ -179,7 +179,7 @@ describe("visual-edit pending handoff", () => {
     });
     expect(getPendingAction.description).toContain("source provenance");
     expect(getPendingAction.description).toContain(
-      "Apply the prompt to connected app source",
+      "apply the prompt to connected app source",
     );
     expect(getPendingAction.description).toContain("verify the running app");
     expect(getPendingAction.description).toContain("it does not modify source");

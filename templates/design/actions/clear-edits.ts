@@ -18,6 +18,11 @@ const errors = defineActionErrors(
 export default defineAction({
   description:
     "Discard pending design edits without applying them to source: reset tweak selections to tweakSourceBaseline and clear the exact visual-edit handoff revision and publisherId. Read get-visual-edit-pending first. The handoff author or design owner can clear it; clearing another publisher's handoff requires owner access.",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   schema: z.object({
     designId: z
       .string()
@@ -68,7 +73,7 @@ export default defineAction({
         .from(schema.designs)
         .where(eq(schema.designs.id, designId))
         .limit(1);
-      const design = designs[0];
+      const design = designs.find(() => true);
       if (!design) {
         fail("Design data is unavailable while clearing pending edits.", {
           errorCode: "invalid_design_state",
@@ -76,19 +81,26 @@ export default defineAction({
         });
       }
 
-      let data: Record<string, unknown>;
+      let parsedData: unknown;
       try {
-        const parsed: unknown = JSON.parse(design.data);
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          throw new Error("Design data must be an object.");
-        }
-        data = parsed as Record<string, unknown>;
+        parsedData = JSON.parse(design.data);
       } catch {
         fail("Design data is unreadable; pending edits were not cleared.", {
           errorCode: "invalid_design_state",
           statusCode: 409,
         });
       }
+      if (
+        !parsedData ||
+        typeof parsedData !== "object" ||
+        Array.isArray(parsedData)
+      ) {
+        fail("Design data is unreadable; pending edits were not cleared.", {
+          errorCode: "invalid_design_state",
+          statusCode: 409,
+        });
+      }
+      const data = parsedData as Record<string, unknown>;
 
       const baseline = data.tweakSourceBaseline;
       if (
@@ -116,10 +128,26 @@ export default defineAction({
         .from(schema.designVisualEditPending)
         .where(eq(schema.designVisualEditPending.designId, designId))
         .limit(1);
-      const pending = pendingRows[0];
-      const hasHandoff = Boolean(
-        pending && (pending.status !== "empty" || pending.pendingEditCount > 0),
-      );
+      const pending = pendingRows.find(() => true);
+      const hasHandoff =
+        pending !== undefined &&
+        (pending.status !== "empty" || pending.pendingEditCount > 0);
+      if (
+        pending &&
+        hasHandoff &&
+        (revision === undefined || publisherId === undefined) &&
+        access.role !== "owner" &&
+        (!ctx?.userEmail || pending.authorEmail !== ctx.userEmail)
+      ) {
+        return {
+          designId,
+          cleared: true,
+          stale: false,
+          revision: pending.revision,
+          resetTweakSelections: false,
+          handoffCleared: false,
+        };
+      }
       if (hasHandoff && (revision === undefined || publisherId === undefined)) {
         fail("Read the current handoff before clearing it.", {
           errorCode: "invalid_design_state",
@@ -138,10 +166,10 @@ export default defineAction({
         });
       }
       if (
-        hasHandoff &&
-        revision !== undefined &&
-        publisherId !== undefined &&
-        (pending?.revision !== revision || pending.publisherId !== publisherId)
+        (revision !== undefined || publisherId !== undefined) &&
+        (!hasHandoff ||
+          pending?.revision !== revision ||
+          pending?.publisherId !== publisherId)
       ) {
         return {
           designId,

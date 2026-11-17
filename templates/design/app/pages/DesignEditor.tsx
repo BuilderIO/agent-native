@@ -190,7 +190,10 @@ function DesignEditor() {
     editorToolsAndVectors,
     editorLayoutAndStructure,
     editorEditCommands,
-    clearCodingHandoffError: editorExportAndHandoff.clearCodingHandoffError,
+    clearCodingHandoffError: () => {
+      editorExportAndHandoff.clearCodingHandoffError();
+      editorCore.setPendingVisualEditPublicationFailed(false);
+    },
   });
   const editorLayerModels = useEditorLayerModels({
     editorCore,

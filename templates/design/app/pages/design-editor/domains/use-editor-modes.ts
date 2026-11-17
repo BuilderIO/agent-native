@@ -1266,33 +1266,28 @@ export function useEditorModes({
   const clearEditsMutation = useActionMutation("clear-edits");
   const handleClearPendingVisualEdits = useCallback(async () => {
     const pending = visualEditPendingQuery.data;
+    if (!id || !pending) return;
     const ownsHandoff =
-      pending?.status !== "empty" &&
-      pending?.publisherId === pendingVisualEditPublisherIdRef.current &&
-      pending?.revision !== null &&
-      pending?.revision !== undefined;
+      pending.status !== "empty" &&
+      pending.publisherId === pendingVisualEditPublisherIdRef.current &&
+      pending.revision !== null;
     const canClearOtherPublisher = designAccessRole === "owner";
     const clearableHandoff =
-      pending?.status !== "empty" &&
-      pending?.revision !== null &&
-      pending?.revision !== undefined &&
-      Boolean(pending?.publisherId) &&
-      (ownsHandoff || canClearOtherPublisher);
+      pending.status !== "empty" &&
+      pending.revision !== null &&
+      pending.publisherId !== null &&
+      (ownsHandoff || canClearOtherPublisher || pending.canClear);
     const hasLocalEdits =
       pendingVisualStyleEdits.length > 0 ||
       pendingLiveNonStyleEdits.length > 0 ||
       pendingTweakChanges.length > 0;
-    if (!id || (!hasLocalEdits && !clearableHandoff)) return;
+    if (!hasLocalEdits && !clearableHandoff) return;
 
     try {
       await settlePendingTweakSaves();
       const result = await clearEditsMutation.mutateAsync({
         designId: id,
-        ...(pending &&
-        clearableHandoff &&
-        pending.revision !== null &&
-        pending.revision !== undefined &&
-        pending.publisherId
+        ...(clearableHandoff && pending.revision !== null && pending.publisherId
           ? { revision: pending.revision, publisherId: pending.publisherId }
           : {}),
       });
@@ -1308,9 +1303,11 @@ export function useEditorModes({
         liveRef: pendingLiveNonStyleEditsRef,
         clearState: clearPendingLiveEditState,
       });
-      resetTweakSelectionsToSourceBaseline();
-      clearCodingHandoffError();
-      toast.dismiss("design-visual-edit-pending-publication");
+      if (result.resetTweakSelections) resetTweakSelectionsToSourceBaseline();
+      if (result.handoffCleared || !pending || pending.status === "empty") {
+        clearCodingHandoffError();
+        toast.dismiss("design-visual-edit-pending-publication");
+      }
       window.setTimeout(() => handleModeChange("edit"), 50);
       toast.success(t("designEditor.pendingVisualStyles.clearedToast"));
     } catch {

@@ -102,7 +102,8 @@ export function renderVisualEditApplyToolbar({
       remoteVisualEditPending &&
       (remoteVisualEdit?.publisherId ===
         editorCore.pendingVisualEditPublisherIdRef.current ||
-        canClearOtherPublisherHandoff),
+        canClearOtherPublisherHandoff ||
+        remoteVisualEdit?.canClear),
     );
 
   return (
