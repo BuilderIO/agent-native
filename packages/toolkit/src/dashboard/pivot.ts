@@ -1,4 +1,4 @@
-import type { PivotConfig } from "./types";
+import type { PivotConfig } from "./sql-dashboard-types.js";
 
 export interface PivotResult {
   rows: Record<string, unknown>[];

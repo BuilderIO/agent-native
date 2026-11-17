@@ -1,5 +1,5 @@
-import type { PanelEvent } from "../app/pages/adhoc/sql-dashboard/types";
-import { isSafeSvgHexColor } from "./svg-color";
+import type { PanelEvent } from "./sql-dashboard-types.js";
+import { isSafeSvgHexColor } from "./svg-color.js";
 
 export interface ResolvedPanelEvent {
   index: number;

@@ -1,6 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { isExtensionApiPath } from "@agent-native/toolkit/app/extensions";
-import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import { IconChevronRight } from "@tabler/icons-react";
 import {
   useId,
@@ -10,7 +8,9 @@ import {
   type ReactNode,
 } from "react";
 
-import { cn } from "@/lib/utils";
+import { cn } from "../../utils.js";
+import { isExtensionApiPath } from "../extensions/extension-links.js";
+import { InlineMarkdown } from "../review/InlineMarkdown.js";
 
 const BLOCKED_API_PATH_PREFIXES = [
   "/_agent-native/auth",
