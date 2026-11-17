@@ -3,7 +3,9 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { eq, lt } from "drizzle-orm";
 import { bigint, pgTable, text } from "drizzle-orm/pg-core";
 
+import { getDbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
+import { sql } from "../db/sql.js";
 import { defineStore } from "../db/store-registry.js";
 import type { MCPCallerIdentity } from "./build-server.js";
 import { isDeviceConnectToken } from "./connect-store.js";
@@ -54,11 +56,26 @@ export class TurnGrantUnavailableError extends Error {
   }
 }
 
+export class TurnGrantRateLimitedError extends Error {
+  readonly actionContractError = true;
+  readonly errorCode = "turn_grant_rate_limited";
+  readonly statusCode = 429;
+
+  constructor() {
+    super("Too many turn grants were minted recently; try again shortly.");
+    this.name = "TurnGrantRateLimitedError";
+  }
+}
+
 function grantHash(id: string): string {
   return createHash("sha256").update(id).digest("hex");
 }
 
 // Expired grants are dead weight; keep a day of them for diagnosis, then drop them.
+// One owner can hold at most this many grants minted inside the window.
+const GRANT_MINT_CAP = 60;
+const GRANT_MINT_WINDOW_MS = 10 * 60_000;
+
 const GRANT_RETENTION_MS = 24 * 60 * 60_000;
 
 async function pruneExpiredTurnGrants(now: number): Promise<void> {
@@ -78,20 +95,22 @@ export async function mintMcpTurnGrant(
 ): Promise<{ grantId: string }> {
   const grantId = randomBytes(32).toString("base64url");
   const createdAt = Date.now();
+  const owner = ownerEmail.trim().toLowerCase();
+  let minted: boolean;
   try {
     await mcpTurnGrantsStore.ready();
-    await getDb()
-      .insert(turnGrants)
-      .values({
-        grantHash: grantHash(grantId),
-        ownerEmail: ownerEmail.trim().toLowerCase(),
-        appId,
-        createdAt,
-        expiresAt: createdAt + MCP_TURN_GRANT_TTL_MS,
-      });
+    // The cap counts in the statement that inserts, so concurrent mints from
+    // one owner cannot all pass it.
+    const { rows } = await getDbExec().execute(sql`
+      INSERT INTO mcp_turn_grants (grant_hash, owner_email, app_id, created_at, expires_at)
+      SELECT ${sql.value(grantHash(grantId))}, ${sql.value(owner)}, ${sql.value(appId)}, ${sql.value(createdAt)}, ${sql.value(createdAt + MCP_TURN_GRANT_TTL_MS)}
+      WHERE (SELECT count(*) FROM mcp_turn_grants WHERE owner_email = ${sql.value(owner)} AND created_at > ${sql.value(createdAt - GRANT_MINT_WINDOW_MS)}) < ${sql.value(GRANT_MINT_CAP)}
+      RETURNING grant_hash`);
+    minted = rows.length === 1;
   } catch {
     throw new TurnGrantUnavailableError();
   }
+  if (!minted) throw new TurnGrantRateLimitedError();
   await pruneExpiredTurnGrants(createdAt);
   return { grantId };
 }

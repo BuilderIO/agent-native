@@ -2414,22 +2414,25 @@ export async function executeProviderApiRequest(
       );
     }
   }
-  const gate = prepareProviderCallGate({
-    providerId: config.id,
-    url: url.href,
-    method,
-    path: args.path,
-    body: args.body,
-    appId: runtimeOptionsAppId(runtime),
-    accountId:
-      args.accountId ??
-      auth.credentialSources.find((source) => source.accountId)?.accountId ??
-      undefined,
-    connectionId: args.connectionId ?? null,
-    runtime,
-    deadline: admissionDeadline,
-    signal: args.signal,
-  });
+  // A paged request is admitted page by page, against that page's own URL and body.
+  const gateFor = (target: string, body: unknown) =>
+    prepareProviderCallGate({
+      providerId: config.id,
+      url: target,
+      method,
+      path: args.path,
+      body,
+      appId: runtimeOptionsAppId(runtime),
+      accountId:
+        args.accountId ??
+        auth.credentialSources.find((source) => source.accountId)?.accountId ??
+        undefined,
+      connectionId: args.connectionId ?? null,
+      runtime,
+      deadline: admissionDeadline,
+      signal: args.signal,
+    });
+  const gate = gateFor(url.href, args.body);
   const extraHeaders = substituteUnknown(args.headers ?? {}, placeholders);
   const headers = sanitizeOutboundHeaders({
     ...(config.defaultHeaders ?? {}),
@@ -2488,7 +2491,7 @@ export async function executeProviderApiRequest(
       });
       const resp = applyBodyEnvelopeOutcome(
         await fetchWithTimeout(pageUrl.href, {
-          gate: gate ?? null,
+          gate: gateFor(pageUrl.href, bodyWithCursor) ?? null,
           method,
           headers,
           body: pageBody,
@@ -3495,24 +3498,26 @@ async function executeCustomProviderApiRequest(
     ...auth.headers,
   });
   const body = prepareBody(args.body, headers);
-  const gate = prepareProviderCallGate({
-    providerId: customConfig.id,
-    url: url.href,
-    method,
-    path: args.path,
-    body: args.body,
-    appId: runtimeOptionsAppId(runtime),
-    accountId:
-      args.accountId ??
-      auth.credentialSources.find((source) => source.accountId)?.accountId ??
-      undefined,
-    connectionId: args.connectionId ?? null,
-    runtime,
-    deadline:
-      Date.now() +
-      Math.min(PROVIDER_CALL_ADMISSION_WAIT_MS, clampTimeout(args.timeoutMs)),
-    signal: args.signal,
-  });
+  const customGateFor = (target: string, requestBody: unknown) =>
+    prepareProviderCallGate({
+      providerId: customConfig.id,
+      url: target,
+      method,
+      path: args.path,
+      body: requestBody,
+      appId: runtimeOptionsAppId(runtime),
+      accountId:
+        args.accountId ??
+        auth.credentialSources.find((source) => source.accountId)?.accountId ??
+        undefined,
+      connectionId: args.connectionId ?? null,
+      runtime,
+      deadline:
+        Date.now() +
+        Math.min(PROVIDER_CALL_ADMISSION_WAIT_MS, clampTimeout(args.timeoutMs)),
+      signal: args.signal,
+    });
+  const gate = customGateFor(url.href, args.body);
 
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
@@ -3570,7 +3575,7 @@ async function executeCustomProviderApiRequest(
         timeoutMs: clampTimeout(args.timeoutMs),
         signal: args.signal,
         secretValues: auth.secretValues,
-        gate: gate ?? null,
+        gate: customGateFor(pageUrl.href, bodyWithCursor) ?? null,
         census: providerCallCensusKey(
           customConfig.id,
           runtime,

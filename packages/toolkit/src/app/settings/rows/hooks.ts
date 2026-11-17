@@ -305,10 +305,14 @@ export function useSettingsTextDraft(row: TextRow) {
     },
     change(next: string) {
       if (commit === "change") {
+        // Keep what was typed while the write is pending, so a controlled
+        // input does not snap back to the old value between keystrokes.
+        setDraft(next);
         store?.report(row.id, null);
         void (async () => {
           try {
             await binding.set?.(next);
+            setDraft((current) => (current === next ? null : current));
           } catch (cause) {
             store?.report(
               row.id,

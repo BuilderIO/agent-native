@@ -301,6 +301,35 @@ describe("settings rows: fields real settings pages needed", () => {
     ).toBe("Name is reserved");
   });
 
+  it("keeps what was typed in a change-commit text row while its write is pending", async () => {
+    const sections: SettingsSectionDefinition[] = [
+      {
+        id: "profile",
+        rows: [
+          {
+            id: "settings.profile.nickname",
+            kind: "text",
+            label: "Nickname",
+            binding: { value: "", set: () => new Promise<void>(() => {}) },
+          },
+        ],
+      },
+    ];
+    act(() => root.render(<SettingsSections sections={sections} />));
+    const input = document.querySelector(
+      '[data-row-kind="text"] input',
+    ) as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "ada");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(input.value).toBe("ada");
+  });
+
   it("keeps an add form open with its values and shows the message when a submit does not save", async () => {
     const submits: unknown[] = [];
     let result: SettingsSubmitResult = { error: "That name is taken" };

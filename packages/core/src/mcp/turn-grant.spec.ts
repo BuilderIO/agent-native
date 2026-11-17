@@ -573,3 +573,15 @@ it("still mints a chat-turn proof under a tab-target run context, but not inside
   ).toHaveProperty("__agentNativeMcpChatTurn");
   expect(await mintUnder({ runId: "run-1" })).toBeUndefined();
 });
+
+it("refuses further turn-grant mints once an owner has minted too many recently", async () => {
+  const owner = "capped@example.test";
+  for (let index = 0; index < 60; index += 1) {
+    await mintMcpTurnGrant(owner, APP);
+  }
+  await expect(mintMcpTurnGrant(owner, APP)).rejects.toMatchObject({
+    errorCode: "turn_grant_rate_limited",
+    statusCode: 429,
+  });
+  await expect(mintMcpTurnGrant(OWNER, APP)).resolves.toHaveProperty("grantId");
+});

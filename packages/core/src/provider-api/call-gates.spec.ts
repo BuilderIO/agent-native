@@ -197,6 +197,34 @@ describe("provider call gates", () => {
     ]);
   });
 
+  it("admits each page of a paged request against that page's own URL", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch");
+    fetch
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ next: "p2", items: [1] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ next: null, items: [2] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const { gate, prepared } = fakeGate();
+    registerProviderCallGate(gate);
+
+    await request("/records", {
+      fetchAllPages: { cursorPath: "next", cursorParam: "cursor" },
+    });
+
+    expect(prepared.map((entry) => entry.url).slice(-2)).toEqual([
+      expect.stringContaining("/records"),
+      expect.stringContaining("cursor=p2"),
+    ]);
+  });
+
   it("runs only the owning gate's precheck", async () => {
     const owner = vi.fn(async () => {});
     const later = vi.fn(async () => {
