@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 import type { ActionRunContext } from "../action.js";
 import { getDbExec } from "../db/client.js";
 import { effectiveOrgMemberRole } from "../server/personal-provider-key-policy.js";
@@ -138,10 +140,7 @@ export function defineAppRoles<
   }
 
   const existing = registry.get(appId);
-  if (
-    existing &&
-    existing !== (descriptor as unknown as AppRolesDescriptor<string, string>)
-  ) {
+  if (existing && !isDeepStrictEqual(existing, descriptor)) {
     throw new Error(
       `defineAppRoles: appId "${appId}" is already declared with a different descriptor`,
     );
