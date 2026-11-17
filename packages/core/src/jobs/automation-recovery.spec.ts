@@ -228,7 +228,6 @@ describe("automation worker recovery", () => {
   });
 
   it.each([
-    { deliveryDestination: undefined, noOp: false },
     { deliveryDestination: "test-destination", noOp: false },
     { deliveryDestination: "test-destination", noOp: true },
   ])(

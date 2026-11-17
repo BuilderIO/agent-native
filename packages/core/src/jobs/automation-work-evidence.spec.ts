@@ -27,6 +27,22 @@ const failedSend: ToolDone = {
 };
 
 describe("inspectAutomationWork failure evidence", () => {
+  it("does not treat earlier confirmed work as success when a later write is uncertain", () => {
+    const confirmed: ToolDone = {
+      type: "tool_done",
+      tool: "record-report",
+      result: "Recorded",
+      completedSideEffect: true,
+    };
+    const uncertain: ToolDone = { ...failedSend, outcomeUnknown: true };
+
+    expect(inspectAutomationWork([confirmed, uncertain])).toEqual({
+      status: "unconfirmed",
+      noOpDeclared: false,
+      failedTool: uncertain,
+    });
+  });
+
   it("preserves an unknown web request failure over a later sibling refusal", () => {
     const blocked: ToolDone = {
       type: "tool_done",
