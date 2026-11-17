@@ -62,6 +62,7 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   toastInfo: vi.fn(),
   reportWriteFailure: vi.fn(),
+  hostChatEmbed: false,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -104,6 +105,10 @@ vi.mock("@agent-native/core/client/write-failure", () => ({
 
 vi.mock("sonner", () => ({
   toast: { error: mocks.toastError, info: mocks.toastInfo },
+}));
+
+vi.mock("@/lib/agent-chat", () => ({
+  isDesignHostChatEmbed: () => mocks.hostChatEmbed,
 }));
 
 const DESIGN_ID = "design-1";
@@ -176,6 +181,7 @@ describe("useReviewAgentRequests", () => {
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
     mocks.list = { requests: [] };
+    mocks.hostChatEmbed = false;
     mocks.queryOptions = undefined;
     mocks.chatModelsOptions = [];
     mocks.refetch.mockReset().mockImplementation(async () => ({
@@ -1012,6 +1018,39 @@ describe("useReviewAgentRequests", () => {
       expect(lastModelsEnabled()).toBe(false);
       await act(async () => controller.markSurfaceUsed());
       expect(lastModelsEnabled()).toBe(true);
+    });
+
+    it("offers the default host mention when the local model catalog is unavailable", async () => {
+      mocks.hostChatEmbed = true;
+      mocks.chatModels = {
+        availableModels: [],
+        selectedModel: "",
+        selectedEngine: "",
+        selectionReady: false,
+      };
+      await render();
+      expect(controller.mentionOptions).toEqual([
+        { id: "agent:default", label: "agent", email: null },
+      ]);
+      mocks.chatModels = {
+        availableModels: [
+          {
+            engine: "anthropic",
+            label: "Anthropic",
+            models: ["claude-sonnet-5-5", "claude-opus-5-5"],
+            configured: true,
+          },
+          {
+            engine: "openai",
+            label: "OpenAI",
+            models: ["gpt-5-4"],
+            configured: false,
+          },
+        ],
+        selectedModel: "claude-sonnet-5-5",
+        selectedEngine: "anthropic",
+        selectionReady: true,
+      };
     });
 
     it("never loads models for someone who cannot use agents", async () => {

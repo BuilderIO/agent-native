@@ -3622,6 +3622,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "Verbinde ein KI-Modell, um Agenten zu nutzen",
       startFailed: "Der Agent konnte nicht gestartet werden",
+      hostChatUnconfirmed:
+        "Es ließ sich nicht bestätigen, dass die Nachricht den Host-Chat erreicht hat. Prüfe den Host-Chat, bevor du es erneut versuchst.",
       cancelFailed: "Der Agent konnte nicht gestoppt werden",
       busy: "Ein Agent arbeitet bereits an diesem Thread",
       error: {

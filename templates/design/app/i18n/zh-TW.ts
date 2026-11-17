@@ -403,6 +403,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "連接 AI 模型後才能使用代理",
       startFailed: "無法啟動代理",
+      hostChatUnconfirmed:
+        "無法確認訊息是否已送達主控聊天。請先檢查主控聊天，再重試。",
       cancelFailed: "無法停止代理",
       busy: "已有代理正在處理此討論串",
       error: {

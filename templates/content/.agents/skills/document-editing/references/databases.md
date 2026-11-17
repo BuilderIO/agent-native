@@ -150,6 +150,12 @@ nobody has written reads as one `<empty-block/>` at revision 0. To move text,
 write it to the new field first, then rewrite the old field without it, each
 with its own revision.
 
+`get-content-database` carries every tab's text except the primary Content
+field's: that one is each row's page body, and it reads `null` unless the call
+passes `includePageText: true`. Pages can be long, so such a read returns at
+most 25 rows; page through the rest with `offset`. `null` there means the page
+wasn't read, not that it's empty. For one row, `get-document` returns the body.
+
 Each tab shows the field's name and word count, tabs reorder by dragging, and a
 dot marks a tab that changed since this browser last showed it. People who can
 change the collection's properties also get "+" after the last tab, which adds
