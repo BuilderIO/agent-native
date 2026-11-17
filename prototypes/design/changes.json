@@ -1,7 +1,7 @@
 [
   {
     "date": "2026-11-16",
-    "text": "Every inspector row uses the same columns again: two field columns, then the action column. Rows without an action (alignment, Font, the type rows, the variant menu, Rotate and flip) leave the action column empty instead of widening, and Responsive rules follow the grid at any width, so every field edge lines up down the panel."
+    "text": "The inspector flows on its grid instead of reserving an action column: a section with no row actions (Position, Typography) fills the whole width, and a row with an action (W/H and its aspect lock, opacity and radius with independent corners, paint and responsive rows) gives the action its slot at the end. Position's Constraints moved to its header, so its rows keep one shape and line up. Responsive rules flow on the grid at any width."
   },
   {
     "date": "2026-11-16",
