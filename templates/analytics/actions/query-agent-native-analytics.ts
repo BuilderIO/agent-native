@@ -8,6 +8,19 @@ import {
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { outsideAgentIdentity } from "../server/lib/bigquery-agent-budget.js";
+import {
+  describeOutsideAgentBigQueryReport,
+  failForOutsideAgentRefusal,
+  outsideAgentBigQueryReportSchema,
+  outsideAgentCallReportOf,
+  runOutsideAgentBigQueryCall,
+  type OutsideAgentBigQueryReport,
+} from "../server/lib/bigquery-agent-calls.js";
+import {
+  isOutsideAgentCaller,
+  OutsideAgentBigQueryRefusalError,
+} from "../server/lib/bigquery-agent-context.js";
 import { FirstPartyAnalyticsValidationError } from "../server/lib/first-party-analytics-errors.js";
 import {
   FirstPartyAnalyticsBackendNotPostgresError,
@@ -18,6 +31,7 @@ import {
   ANALYTICS_ANALYSIS_RESULT_RENDERER,
   getSingleNumericAnalysisResult,
 } from "../shared/analysis-result.js";
+import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import { TRAFFIC_ENVIRONMENTS } from "../shared/traffic-environment.js";
 
 function resolveScope() {
@@ -297,13 +311,17 @@ function queryFailure(error: unknown): QueryFailure {
 }
 
 class FirstPartyAnalyticsActionQueryError extends Error {
-  constructor(readonly failure: QueryFailure) {
+  constructor(
+    readonly failure: QueryFailure,
+    spend?: OutsideAgentBigQueryReport,
+  ) {
     const rewriteInstruction =
       failure.recovery === "rewrite_once"
         ? " Do not repeat unchanged SQL."
         : "";
+    const spent = spend ? ` ${describeOutsideAgentBigQueryReport(spend)}` : "";
     super(
-      `[${failure.failureClass}; recovery=${failure.recovery}] ${failure.message}${rewriteInstruction}`,
+      `[${failure.failureClass}; recovery=${failure.recovery}] ${failure.message}${rewriteInstruction}${spent}`,
     );
     this.name = "FirstPartyAnalyticsActionQueryError";
   }
@@ -321,6 +339,7 @@ export default defineAction({
     "SQL may read analytics_events, analytics_event_daily_rollups, analytics_user_days, and session_recordings; session_replay_chunks is unavailable. Reads are scoped to the current user/org. Prefer analytics_event_daily_rollups for event counts and analytics_user_days for active-user or retention questions. After the explicit BigQuery cutover, events and rollups read from BigQuery while session_recordings stays in Postgres; cross-backend joins are not supported. " +
     "Do not call DIV(); for ratios use CAST(numerator AS NUMERIC) / NULLIF(denominator, 0). Extract properties with properties::jsonb ->> 'key'; LATERAL/unnest/generate_series are unsupported. Use `||` explicitly between strings. On errors, follow typed recovery instructions and never repeat non-retryable SQL unchanged. If the user rules out BigQuery, skip get-first-party-analytics-health; otherwise call it before large or historical queries. Aggregate, project only needed columns, use bounded recent drill-downs, and add a LIMIT for raw or high-cardinality reads; an explicit all-time or lifetime request remains all-time. " +
     "Columns. analytics_events: event_name, timestamp, event_date, user_id, anonymous_id, user_key, session_id, app, template, signed_in, url, path, hostname, referrer, properties, context. analytics_event_daily_rollups: tenant_key, owner_email, org_id, event_date, event_name, app, template, event_count. analytics_user_days: tenant_key, owner_email, org_id, event_date, user_key. session_recordings: id, session_id, user_id, anonymous_id, user_key, started_at, ended_at, duration_ms, chunk_count, event_count, page_count, error_count, rage_click_count, app, template, status, first_url, last_url, path, hostname, referrer, metadata. " +
+    "For another app's agent over A2A, BigQuery reads count against its daily BigQuery budget ($1 a person without asking, a $5 person ceiling, $50 an organization, per UTC day; each job up to 50 GB), and the response adds bigQueryBudget with the call's cost and what is left today. " +
     "The data-querying skill lists the `$ai_generation` properties and backend routing.",
   schema: z.object({
     sql: z
@@ -360,6 +379,8 @@ export default defineAction({
       schema: z.array(z.object({ name: z.string(), type: z.string() })),
       truncated: z.boolean().optional(),
       backend: z.enum(["postgres", "bigquery"]),
+      /** Outside agents (A2A) only: what this call's BigQuery jobs cost against today's budget. */
+      bigQueryBudget: outsideAgentBigQueryReportSchema.optional(),
     }),
   ]),
   chatUI: {
@@ -387,14 +408,33 @@ export default defineAction({
       actionContext,
     );
     let result: FirstPartyAnalyticsQueryResultWithBackend;
-    try {
-      result = await queryFirstPartyAnalyticsWithBackend(args.sql, scope, {
+    let bigQueryBudget: OutsideAgentBigQueryReport | undefined;
+    const query = () =>
+      queryFirstPartyAnalyticsWithBackend(args.sql, scope, {
         cache: true,
         includeTestIdentities: args.includeTestIdentities === true,
         ...(args.environment ? { trafficEnvironment: args.environment } : {}),
         ...(args.backend ? { requireBackend: args.backend } : {}),
         ...(actionContext?.signal ? { signal: actionContext.signal } : {}),
       });
+    try {
+      if (isOutsideAgentCaller(actionContext?.caller)) {
+        // Another app's agent (A2A) reads BigQuery under its daily budget,
+        // each job reserved at its dry-run estimate; a Postgres read admits
+        // none and reports nothing spent.
+        ({ value: result, report: bigQueryBudget } =
+          await runOutsideAgentBigQueryCall(
+            {
+              identity: outsideAgentIdentity(scope.userEmail, scope.orgId),
+              source: "query-agent-native-analytics",
+              reservation: "dry-run",
+              leaseMs: FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS + 60_000,
+            },
+            query,
+          ));
+      } else {
+        result = await query();
+      }
     } catch (error) {
       if (isQueryCancellation(error, actionContext?.signal)) {
         try {
@@ -415,6 +455,9 @@ export default defineAction({
           // Telemetry is best-effort and must not replace the cancellation.
         }
         throw safeCancellationError();
+      }
+      if (error instanceof OutsideAgentBigQueryRefusalError) {
+        failForOutsideAgentRefusal(error);
       }
       const failure: QueryFailure =
         error instanceof FirstPartyAnalyticsBackendNotPostgresError
@@ -448,7 +491,10 @@ export default defineAction({
           details: { bigQueryTables: error.bigQueryTables },
         });
       }
-      throw new FirstPartyAnalyticsActionQueryError(failure);
+      throw new FirstPartyAnalyticsActionQueryError(
+        failure,
+        outsideAgentCallReportOf(error),
+      );
     }
     track(
       "query_executed",
@@ -462,6 +508,8 @@ export default defineAction({
       },
       actionContext,
     );
+    // An outside agent gets the rows and their cost; it renders no table.
+    if (bigQueryBudget) return { ...result, bigQueryBudget };
     return args.showTable ? toDataTableResult(result) : result;
   },
 });

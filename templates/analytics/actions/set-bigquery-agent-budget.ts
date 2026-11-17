@@ -183,11 +183,14 @@ export default defineAction({
             try {
               next = parseBigQueryAgentBudgetOverrides(current);
             } catch (error) {
-              // An unreadable setting refuses every outside-agent job, so a
-              // reset to the defaults replaces it instead of failing on it.
+              // An unreadable setting refuses every outside-agent job. Resetting
+              // the organization's limit replaces it with the defaults for
+              // everyone; any other change fails, so resetting one person
+              // can't silently drop the limits it couldn't read.
               if (
                 !(error instanceof BigQueryAgentBudgetUnavailableError) ||
-                args.dailyLimitUsd !== null
+                args.dailyLimitUsd !== null ||
+                args.scope !== "org"
               ) {
                 throw error;
               }
@@ -213,7 +216,7 @@ export default defineAction({
     } catch (error) {
       if (error instanceof BigQueryAgentBudgetUnavailableError) {
         fail(
-          "The stored BigQuery budget setting could not be read, so it was not changed.",
+          'The stored BigQuery budget setting could not be read, so it was not changed. Resetting the limit for the whole organization (scope "org", dailyLimitUsd null) replaces it with the defaults for everyone.',
           { errorCode: "budget_unavailable", statusCode: 503 },
         );
       }

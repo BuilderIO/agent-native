@@ -137,6 +137,22 @@ vi.mock(
   },
 );
 
+vi.mock("../server/lib/first-party-analytics", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../server/lib/first-party-analytics")
+    >();
+  return {
+    ...actual,
+    queryFirstPartyAnalyticsWithBackend: async () => {
+      const { runQuery } = await import("../server/lib/bigquery");
+      await runQuery("SELECT 1 AS events", { maxBytesBilled: 100_000_000 });
+      await after.firstJob?.();
+      return { rows: [{ events: 1 }], schema: [], backend: "bigquery" };
+    },
+  };
+});
+
 const { runQuery } = await import("../server/lib/bigquery");
 const { OutsideAgentBigQueryRefusalError } =
   await import("../server/lib/bigquery-agent-context");
@@ -151,6 +167,8 @@ const { default: getOnboardingJourney } =
 const { default: getHealth } =
   await import("./get-first-party-analytics-health");
 const { default: bigquery } = await import("./bigquery");
+const { default: queryFirstParty } =
+  await import("./query-agent-native-analytics");
 const { OnboardingJourneyReadError } =
   await import("../server/lib/onboarding-journey");
 const {
@@ -387,6 +405,56 @@ describe("outside-agent (MCP) jobs go through admission", () => {
     ).rejects.toMatchObject({
       errorCode: "approval_required",
       message: expect.stringMatching(/00:00 UTC.*|admin can raise/),
+    });
+    expect(submissions).toHaveLength(0);
+  });
+
+  it("query-agent-native-analytics admits another app's agent's job at its dry-run estimate and reports it", async () => {
+    dryRun.response = () =>
+      json({
+        statistics: {
+          totalBytesProcessed: "20971520",
+          query: { totalBytesProcessed: "20971520", referencedTables: [] },
+        },
+      });
+    const result = (await queryFirstParty.run(
+      { sql: "SELECT 1" },
+      { caller: "a2a" },
+    )) as Record<string, any>;
+
+    expect(budget.admit).toHaveBeenCalledTimes(1);
+    expect(budget.admit.mock.calls[0]![1]).toMatchObject({
+      source: "query-agent-native-analytics",
+      estimatedBytes: 20_971_520,
+    });
+    expect(submissions).toHaveLength(1);
+    expect(result).toMatchObject({
+      rows: [{ events: 1 }],
+      backend: "bigquery",
+      bigQueryBudget: { thisCall: { jobsAdmitted: 1 } },
+    });
+  });
+
+  it("query-agent-native-analytics answers another app's agent with a budget refusal", async () => {
+    dryRun.response = () =>
+      json({
+        statistics: {
+          totalBytesProcessed: "20971520",
+          query: { totalBytesProcessed: "20971520", referencedTables: [] },
+        },
+      });
+    budget.admit.mockImplementation(async (_identity, request) => ({
+      status: "refused",
+      code: "approval_required",
+      scope: "person",
+      reservedBytes: request.reservedBytes,
+      budget: snapshot(0),
+    }));
+    await expect(
+      queryFirstParty.run({ sql: "SELECT 1" }, { caller: "a2a" }),
+    ).rejects.toMatchObject({
+      errorCode: "approval_required",
+      statusCode: 429,
     });
     expect(submissions).toHaveLength(0);
   });

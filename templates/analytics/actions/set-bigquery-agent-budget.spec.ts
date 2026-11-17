@@ -133,6 +133,37 @@ describe("set-bigquery-agent-budget", () => {
     },
   );
 
+  it("replaces an unreadable setting only when the organization's limit is reset", async () => {
+    const unreadable = {
+      orgDailyLimitBytes: billedBytesForUsd(120),
+      personDailyAllowanceBytes: { "bob@example.com": -1 },
+    };
+    mocks.settings.set(
+      `org-1:${BIGQUERY_AGENT_BUDGET_SETTING_KEY}`,
+      unreadable,
+    );
+
+    await expect(
+      setBudget.run(
+        { scope: "person", email: "carol@example.com", dailyLimitUsd: null },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({ errorCode: "budget_unavailable" });
+    expect(
+      mocks.settings.get(`org-1:${BIGQUERY_AGENT_BUDGET_SETTING_KEY}`),
+    ).toBe(unreadable);
+
+    await setBudget.run(
+      { scope: "org", dailyLimitUsd: null },
+      { caller: "tool" },
+    );
+    // The org reset starts over from the defaults for everyone.
+    expect(await readBigQueryAgentBudgetOverrides("org-1")).toEqual({
+      updatedAt: expect.any(String),
+      updatedBy: "admin@example.com",
+    });
+  });
+
   it("refuses someone outside the org and a limit past the sanity ceiling", async () => {
     mocks.memberRole = null;
     await expect(
