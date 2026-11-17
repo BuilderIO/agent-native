@@ -86,15 +86,10 @@ describe("durable read filter against stored rows", () => {
         " Alice@Example.TEST ",
         1,
       );
-      const execute = async (
-        input: string | { sql: string; args?: unknown[] },
-      ) => {
-        const q = typeof input === "string" ? { sql: input, args: [] } : input;
-        return {
-          rows: await (await db.prepare(q.sql)).all(...(q.args ?? [])),
-          rowsAffected: 0,
-        };
-      };
+      const execute = async (query: { args?: unknown[]; sql: string }) => ({
+        rows: await (await db.prepare(query.sql)).all(...(query.args ?? [])),
+        rowsAffected: 0,
+      });
       const state = new AppSyncState({ getDb: () => ({ execute }) as never });
       const result = await state.getDurableChangesSinceForUser(
         5,
