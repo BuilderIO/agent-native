@@ -116,6 +116,7 @@ vi.mock("../server/lib/dashboard-panel-source-resolver", () => ({
         jobId: `agent_native_${budget.admit.mock.calls.length + 1}`,
         credentialScope: "default",
         credentialFingerprint: null,
+        exclusive: true,
         capBytes: gate.jobCapFor(750_000_000_000),
         estimate: async () => ({ status: "ok", bytes: 2 * 1024 ** 3 }),
       });

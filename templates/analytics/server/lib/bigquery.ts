@@ -1898,6 +1898,8 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
           projectId,
           jobId: nextJobId,
           ...sender,
+          // An identical call derives the same resumable ID and may send it too.
+          exclusive: resumableId === null,
           capBytes: agentGate.jobCapFor(maxBytesBilled),
           estimate: () => dryRunBillableEstimate(estimateSql, signal),
           reconciler: createBigQueryAgentReconciler(token, sender),

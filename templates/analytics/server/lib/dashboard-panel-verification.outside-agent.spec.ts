@@ -120,6 +120,7 @@ beforeEach(() => {
         jobId: `job-${id}`,
         credentialScope: "default",
         credentialFingerprint: null,
+        exclusive: true,
         capBytes: gate.jobCapFor(750_000_000_000),
         estimate: mocks.estimate,
       });

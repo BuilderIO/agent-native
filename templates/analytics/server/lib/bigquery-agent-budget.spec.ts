@@ -641,6 +641,7 @@ describe("the lease a job is sent under", () => {
       jobId: "late",
       credentialScope: "default",
       credentialFingerprint: PRINCIPAL,
+      exclusive: true,
       capBytes: JOB,
       reconciler: slow,
     });
@@ -696,6 +697,68 @@ describe("the lease a job is sent under", () => {
       leaseExpiresAt: new Date(NOON.getTime() + 105_000).toISOString(),
     });
     expect(await leaseOf("resumable_3")).toBe(NOON.getTime() + 105_000);
+  });
+});
+
+describe("a send BigQuery refused", () => {
+  const gateAt = () =>
+    createOutsideAgentBigQueryGate({
+      identity: alice,
+      source: "test",
+      reservation: "full-cap",
+      leaseMs: 60_000,
+      now: () => NOON,
+    });
+  const job = (jobId: string, exclusive: boolean) => ({
+    projectId: "builder-3b0a2",
+    jobId,
+    credentialScope: "default",
+    credentialFingerprint: PRINCIPAL,
+    exclusive,
+    capBytes: JOB,
+  });
+
+  it("keeps a resumable job ID reserved when the call that created its admission is refused, since another call may still send it", async () => {
+    const first = gateAt();
+    const second = gateAt();
+    const created = await first.admit(job("resumable_shared", false));
+    // An identical call, sending as another account, reuses the admission.
+    const reused = await second.admit({
+      ...job("resumable_shared", false),
+      credentialFingerprint: "sa:runner-b@example.invalid#fake-key-hash",
+    });
+    expect(created.created).toBe(true);
+    expect(reused.created).toBe(false);
+    expect(admissionLapsed(reused, NOON.getTime())).toBe(false);
+
+    await first.rejected(created);
+    await second.rejected(reused);
+    expect(await row("resumable_shared")).toMatchObject({ state: "pending" });
+    expect(first.summary().jobs).toEqual([
+      expect.objectContaining({ state: "reserved" }),
+    ]);
+    expect(first.summary().unsettledBytes).toBe(JOB);
+  });
+
+  it("releases an exclusive job ID's reservation when its one send is refused", async () => {
+    const gate = gateAt();
+    const admission = await gate.admit(job("random_once", true));
+    await gate.rejected(admission);
+    expect(await row("random_once")).toMatchObject({
+      state: "released",
+      resolution: "rejected",
+    });
+    expect(gate.summary().jobs).toEqual([
+      expect.objectContaining({ state: "released" }),
+    ]);
+  });
+
+  it("never treats a job ID already admitted as exclusive", async () => {
+    await gateAt().admit(job("taken", true));
+    const gate = gateAt();
+    const again = await gate.admit(job("taken", true));
+    await gate.rejected(again);
+    expect(await row("taken")).toMatchObject({ state: "pending" });
   });
 });
 

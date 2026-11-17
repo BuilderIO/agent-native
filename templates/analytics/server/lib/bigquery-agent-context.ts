@@ -130,6 +130,12 @@ export interface OutsideAgentBigQueryAdmission {
   /** This call created the reservation; false when it reuses an earlier admission of the job. */
   created: boolean;
   /**
+   * Only this call can send the job: it created the reservation for an ID no
+   * other call can be admitted under. `created` alone is not that: an
+   * identical call may reuse a resumable ID's admission and send it too.
+   */
+  exclusive: boolean;
+  /**
    * Epoch ms after which the job must not be sent, from the lease the ledger
    * committed: past it a reconciler may release the reservation.
    */
@@ -190,6 +196,11 @@ export interface OutsideAgentBigQueryGate {
     credentialScope: string;
     /** The Google principal the job is sent as; null when unknown. */
     credentialFingerprint: string | null;
+    /**
+     * The job ID is this call's own and is sent once, such as a random one.
+     * False for an ID another call may also be admitted under and send.
+     */
+    exclusive: boolean;
     capBytes: number;
     /** The job's own dry run. A `dry-run` gate refuses a job without a usable one. */
     estimate?: () => Promise<BigQueryBillableEstimate>;
@@ -200,7 +211,11 @@ export interface OutsideAgentBigQueryGate {
     state: "accepted" | "unknown",
     location?: string,
   ): Promise<void>;
-  /** BigQuery refused to create this call's job: nothing ran. */
+  /**
+   * BigQuery definitively refused this call's send of the admission's job.
+   * That proves only this send created no job, so only an exclusive admission
+   * is released; any other stays reserved until a reconciler confirms the job.
+   */
   rejected(admission: OutsideAgentBigQueryAdmission): Promise<void>;
   settle(
     admission: OutsideAgentBigQueryAdmission,
@@ -401,6 +416,7 @@ export function createOutsideAgentBigQueryGate(options: {
         reservedBytes: result.reservedBytes,
         estimatedBytes,
         created: result.created,
+        exclusive: input.exclusive && result.created,
       };
       open.set(admission.requestId, admission);
       if (admission.created) {
@@ -437,7 +453,7 @@ export function createOutsideAgentBigQueryGate(options: {
       }
     },
     async rejected(admission) {
-      if (!admission.created) return;
+      if (!admission.exclusive) return;
       try {
         await settleBigQueryAgentJob(
           admission.projectId,

@@ -17,6 +17,10 @@ const journey = vi.hoisted(() => ({
 const dryRun = vi.hoisted(() => ({
   response: null as null | (() => Response),
 }));
+// What BigQuery answers a job's send, when not the default acceptance.
+const send = vi.hoisted(() => ({
+  response: null as null | (() => Response),
+}));
 const PRINCIPAL =
   "sa:runner@builder-3b0a2.iam.gserviceaccount.com#0a1b2c3d4e5f6a7b";
 
@@ -173,11 +177,25 @@ function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status });
 }
 
+/** BigQuery's definite refusal of a send: no job was created by it. */
+const accessDenied = () =>
+  json(
+    {
+      error: {
+        code: 403,
+        message: "Access Denied: Project builder-3b0a2",
+        errors: [{ reason: "accessDenied", message: "Access Denied" }],
+      },
+    },
+    403,
+  );
+
 beforeEach(() => {
   submissions.length = 0;
   duplicate.jobId = null;
   journey.args.length = 0;
   dryRun.response = null;
+  send.response = null;
   budget.admit.mockReset();
   budget.admit.mockImplementation(async (_identity, request) => ({
     status: "admitted",
@@ -203,6 +221,7 @@ beforeEach(() => {
           return dryRun.response();
         }
         submissions.push(body);
+        if (send.response) return send.response();
         if (duplicate.jobId === "next")
           duplicate.jobId = body.jobReference.jobId;
         if (body.jobReference.jobId === duplicate.jobId) {
@@ -448,6 +467,21 @@ describe("submission stays inside the admission", () => {
     );
   });
 
+  it("releases a job's reservation when BigQuery refuses the one send of its random ID", async () => {
+    send.response = accessDenied;
+    await expect(runBudgeted("full-cap")).rejects.toMatchObject({
+      backendStatus: 403,
+    });
+    expect(submissions).toHaveLength(1);
+    expect(submissions[0].jobReference.jobId).not.toMatch(/^agent_native_r_/);
+    expect(budget.settle).toHaveBeenCalledWith(
+      "builder-3b0a2",
+      submissions[0].jobReference.jobId,
+      { kind: "rejected" },
+      expect.any(Date),
+    );
+  });
+
   it("reserves a dry-run job from its own estimate and caps the job at that reservation", async () => {
     dryRun.response = () =>
       json({
@@ -543,6 +577,31 @@ describe("resumable jobs", () => {
       jobId,
       { kind: "billed", billedBytes: 10_485_760, cacheHit: false },
       expect.any(Date),
+    );
+  });
+
+  it("keeps the reservation when BigQuery refuses a resumable job's send, since an identical call may send the same ID", async () => {
+    const { runOutsideAgentBigQueryCall } =
+      await import("../server/lib/bigquery-agent-calls");
+    send.response = accessDenied;
+    await expect(
+      runOutsideAgentBigQueryCall(
+        {
+          identity: { ownerEmail: "alice@example.com", orgId: "org-1" },
+          source: "test",
+          reservation: "full-cap",
+          leaseMs: 60_000,
+        },
+        () => resumable.run({}, { caller: "mcp" }),
+      ),
+    ).rejects.toMatchObject({ backendStatus: 403 });
+    expect(submissions).toHaveLength(1);
+    expect(submissions[0].jobReference.jobId).toMatch(/^agent_native_r_/);
+    expect(budget.settle).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { kind: "rejected" },
+      expect.anything(),
     );
   });
 
