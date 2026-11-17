@@ -35,7 +35,9 @@ const renewTaskExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
 const releaseTurnExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
 
 const chatTurn = vi.hoisted(() => ({
-  admit: vi.fn(async (..._args: unknown[]) => {}),
+  admit: vi.fn(
+    async (..._args: unknown[]): Promise<unknown> => ({ status: "absent" }),
+  ),
   read: vi.fn(
     async (..._args: unknown[]): Promise<unknown> => ({
       status: "absent",
@@ -1185,6 +1187,49 @@ describe("handleJsonRpc", () => {
       }),
     );
     expect(seen.at(-1)).toEqual({ metadata: { keep: 1 }, interactive: true });
+  });
+
+  it("fails the task instead of running it when a chat-turn proof is refused", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const send = () => {
+      const event = mockEvent();
+      event.context = {
+        __a2aVerifiedEmail: "alice@example.org",
+        __a2aIdentityAssurance: "user",
+      };
+      return handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 8,
+          method: "message/send",
+          params: {
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: "hi" }],
+              metadata: { __agentNativeMcpChatTurn: { v: "claim" } },
+            },
+          },
+        },
+        event,
+        config,
+      );
+    };
+
+    chatTurn.admit.mockResolvedValueOnce({
+      status: "refused",
+      reason: "replay",
+    });
+    const replayed = await send();
+    expect(replayed.error?.message).toContain("replay");
+
+    chatTurn.read.mockResolvedValueOnce({
+      status: "refused",
+      reason: "durable-invalid-or-expired",
+    });
+    const unreadable = await send();
+    expect(unreadable.error?.message).toContain("durable-invalid-or-expired");
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("reuses an authenticated owner's task for duplicate message/send keys", async () => {

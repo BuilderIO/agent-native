@@ -842,6 +842,22 @@ function chatTurnBinding(
   };
 }
 
+class ChatTurnRefusedError extends Error {
+  constructor(readonly reason: string) {
+    super(`MCP chat-turn proof refused: ${reason}`);
+  }
+}
+
+/** Fails a just-created task whose chat-turn proof was refused, so it is never left submitted. */
+async function failRefusedChatTurn(taskId: string, reason: string) {
+  const text = `MCP chat-turn proof refused: ${reason}`;
+  await updateTask(taskId, {
+    state: "failed",
+    message: taskFailureMessage(new Error(text), text),
+  });
+  return { ...jsonRpcError(0, -32000, text), _id: 0 };
+}
+
 /** Runs a task's handler inside the chat-turn grant its admitted proof earned, if any. */
 async function withMcpChatTaskScope<T>(
   config: A2AConfig,
@@ -855,7 +871,7 @@ async function withMcpChatTaskScope<T>(
   // Only an absent proof means "an ordinary turn"; a refused lookup must not
   // pass for one, or an intended interactive turn quietly loses its grant.
   if (admission.status === "refused") {
-    throw new Error(`MCP chat-turn proof refused: ${admission.reason}`);
+    throw new ChatTurnRefusedError(admission.reason);
   }
   return runWithProviderInteractiveScope(false, work, {
     action: false,
@@ -1166,10 +1182,13 @@ async function handleSend(
         _id: 0,
       };
     }
-    await admitMcpChatTurn(
+    const admitted = await admitMcpChatTurn(
       chatTurnClaim,
       chatTurnBinding(config, task.id, event),
     );
+    if (admitted.status === "refused") {
+      return failRefusedChatTurn(task.id, admitted.reason);
+    }
     const working = await updateTask(task.id, { state: "working" });
 
     try {
@@ -1199,10 +1218,13 @@ async function handleSend(
         _id: 0,
       };
     }
-    await admitMcpChatTurn(
+    const admitted = await admitMcpChatTurn(
       chatTurnClaim,
       chatTurnBinding(config, task.id, event),
     );
+    if (admitted.status === "refused") {
+      return failRefusedChatTurn(task.id, admitted.reason);
+    }
     return withMcpChatTaskScope(config, task.id, event, async () => {
       await updateTask(task.id, { state: "working" });
 
@@ -1286,7 +1308,11 @@ async function handleSend(
         }
         throw err;
       }
-    });
+    }).catch((err: unknown) =>
+      err instanceof ChatTurnRefusedError
+        ? failRefusedChatTurn(task.id, err.reason)
+        : Promise.reject(err),
+    );
   });
 }
 

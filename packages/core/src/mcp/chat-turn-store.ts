@@ -170,20 +170,18 @@ export async function admitMcpChatTurn(
     appId: string;
     taskId: string;
   },
-): Promise<void> {
+): Promise<{ status: "admitted" | "absent" } | Refusal> {
   const { appId, taskId } = binding;
-  if (candidate === undefined) return;
+  if (candidate === undefined) return { status: "absent" };
   if (
     binding.assurance !== "user" ||
     !binding.owner ||
     parseServiceIdentityEmail(binding.owner)
   ) {
-    refused("not-user", appId);
-    return;
+    return refused("not-user", appId);
   }
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
-    refused("invalid", appId);
-    return;
+    return refused("invalid", appId);
   }
   const c = candidate as Partial<Claim>;
   if (
@@ -199,21 +197,17 @@ export async function admitMcpChatTurn(
     c.issuedAt > Date.now() ||
     c.expiresAt <= Date.now()
   ) {
-    refused("invalid-or-expired", appId);
-    return;
+    return refused("invalid-or-expired", appId);
   }
   if (c.owner !== binding.owner.trim().toLowerCase()) {
-    refused("owner-mismatch", appId);
-    return;
+    return refused("owner-mismatch", appId);
   }
   if (c.appId !== appId) {
-    refused("app-mismatch", appId);
-    return;
+    return refused("app-mismatch", appId);
   }
   try {
     if (!verifyMcpChatTurnProof(claimPayload(c as Claim), c.signature)) {
-      refused("signature", appId);
-      return;
+      return refused("signature", appId);
     }
     const grant: McpChatTurnBinding = {
       owner: c.owner,
@@ -237,13 +231,13 @@ export async function admitMcpChatTurn(
       .onConflictDoNothing()
       .returning({ nonce: admissions.nonce });
     if (rows.length !== 1) {
-      refused("replay", appId);
-      return;
+      return refused("replay", appId);
     }
     await pruneExpiredChatTurnAdmissions();
     console.info("[mcp-chat-turn] admitted", { appId });
+    return { status: "admitted" };
   } catch {
-    refused("storage-or-signing-unavailable", appId);
+    return refused("storage-or-signing-unavailable", appId);
   }
 }
 
