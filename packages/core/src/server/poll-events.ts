@@ -12,6 +12,7 @@ import {
   type ChangeEvent,
   getDefaultAppSyncState,
   POLL_CHANGE_EVENT,
+  sanitizeChangeEvent,
 } from "./poll.js";
 
 export function canSeeAwarenessChangeForUser(
@@ -90,9 +91,12 @@ export function createPollEventsHandler(
       );
       if (closed) return;
       if (visibility === "visible") {
-        safePush(JSON.stringify(change));
+        safePush(JSON.stringify(sanitizeChangeEvent(change)));
       } else if (visibility === "pending") {
         // The reconnecting client polls from its last delivered cursor.
+        closed = true;
+        void stream.close();
+      } else if (visibility === "unreadable") {
         closed = true;
         void stream.close();
       }
@@ -108,7 +112,12 @@ export function createPollEventsHandler(
         );
         if (visibility === "hidden") return;
         if (visibility === "visible") {
-          safePush(JSON.stringify(change));
+          safePush(JSON.stringify(sanitizeChangeEvent(change)));
+          return;
+        }
+        if (visibility === "unreadable") {
+          closed = true;
+          void stream.close();
           return;
         }
       }

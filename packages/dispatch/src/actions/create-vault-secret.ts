@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createSecret } from "../server/lib/vault-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Store a secret in the workspace vault. Admin only. Existing credential keys are updated. By default, saved vault keys are available to every workspace app; manual mode uses per-app grants.",
   schema: z.object({

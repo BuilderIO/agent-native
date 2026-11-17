@@ -1035,6 +1035,36 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "लाइव प्रीव्यू साझा करें",
+      instructions:
+        "अपने ऐप के लिए सार्वजनिक HTTPS प्रीव्यू URL पेस्ट करें, जैसे ngrok या cloudflared टनल। आपकी मशीन localhost लोड करती रहेगी; दूसरे सार्वजनिक प्रीव्यू देख सकते हैं या प्रकाशित स्नैपशॉट में बदलाव सुझा सकते हैं।",
+      tunnelUrl: "सार्वजनिक प्रीव्यू URL",
+      enableCollaboration:
+        "डिज़ाइन का एक्सेस रखने वाले सभी लोगों के लिए लाइव सहयोग चालू करें",
+      save: "सहेजें",
+      unavailable: "लाइव प्रीव्यू उपलब्ध नहीं है — स्नैपशॉट दिखाया जा रहा है",
+      live: "लाइव प्रीव्यू",
+      openLive: "{{hostname}} पर लाइव प्रीव्यू खोलें",
+      suggest: "स्नैपशॉट पर सुझाव दें",
+      localOnly: "लाइव प्रीव्यू केवल मालिक की मशीन पर",
+    },
+    referenceCopy: {
+      staticNotice: "JavaScript बंद है; डायनेमिक सामग्री गायब हो सकती है।",
+      captureAction: "स्थिर स्नैपशॉट लें",
+      capturePrompt:
+        "इस सार्वजनिक संदर्भ URL का स्क्रीनशॉट और DOM स्नैपशॉट लें और इस डिज़ाइन कैनवास में स्थिर संदर्भ स्क्रीन के रूप में जोड़ें। इसे लाइव पेज नहीं, स्नैपशॉट के रूप में चिह्नित करें।",
+      unavailable: "यह पेज फ़्रेम रोक सकता है या लोड नहीं हुआ।",
+      load: "संदर्भ प्रति लोड करें",
+      label: "संदर्भ प्रति · सार्वजनिक पेज, केवल पढ़ने के लिए",
+      noBridge: "सार्वजनिक संदर्भ प्रति लोड करने के लिए लोकल ब्रिज जोड़ें।",
+      snapshot: "प्रकाशित स्नैपशॉट उपयोग करें",
+      capture: "एजेंट से स्क्रीनशॉट और DOM स्नैपशॉट लेने को कहें।",
+      failed: "संदर्भ प्रति विफल। स्क्रीनशॉट और DOM स्नैपशॉट लें।",
+      loading: "संदर्भ प्रति लोड हो रही है…",
+      original: "मूल पेज आज़माएँ",
+    },
+
     sourceLoadFailed: "यह स्क्रीन लोड नहीं हो सकी।",
     selectionPublishFailed:
       "एजेंट शायद आपका नवीनतम चयन नहीं देख पाएगा। उसे फिर से चुनें।",
@@ -1084,6 +1114,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "लेयर चुनें",
+      layerKinds: {
+        webgl: "कैनवस · WebGL",
+        canvas: "कैनवस",
+        video: "वीडियो",
+        image: "छवि",
+        svg: "SVG ग्राफ़िक",
+        embed: "एम्बेड",
+        background: "पृष्ठभूमि",
+        effect: "इफ़ेक्ट",
+      },
       goToMain: "मुख्य कॉम्पोनेंट पर जाएं",
       restore: "कॉम्पोनेंट पुनर्स्थापित करें",
       swap: "इंस्टेंस बदलें",
@@ -1695,6 +1735,19 @@ export default {
         "जल्द आ रहा है: repository से screens और components सीधे import करें।",
       localDescription: "/visual-edit से किसी भी चल रहे local app को connect करें।",
       warningsToast: "Import warnings के साथ पूरा हुआ",
+      pasteUnreadable: "कॉपी की गई लेयर पढ़ी नहीं जा सकीं।",
+      pasteInexact: "ठीक से पेस्ट न हुए विवरण: {{count}}",
+      pasteLayerTypes:
+        "सामान्य फ़्रेम के रूप में पेस्ट किए गए {{tool}} लेयर प्रकार: {{count}}",
+      pasteImagePlaceholders:
+        "प्लेसहोल्डर के रूप में पेस्ट की गई छवियाँ: {{count}}। {{tool}} छवि डेटा कॉपी नहीं करता।",
+      pasteImagesLinked:
+        "अब भी {{tool}} से जुड़ी छवियाँ: {{count}}। उन्हें आपके फ़ाइल स्टोरेज में कॉपी नहीं किया जा सका।",
+      pasteImagesUnsaved:
+        "वे छवियाँ जो सहेजे जाने की पुष्टि न होने के कारण लोड होना बंद कर सकती हैं: {{count}}",
+      pasteNeedsEditAccess: "इस डिज़ाइन में पेस्ट करने के लिए संपादन की अनुमति चाहिए।",
+      pastePartialImport:
+        "पेस्ट विफल रहा और कुछ स्क्रीन बन गई हो सकती हैं। अपनी स्क्रीन जाँचें।",
       figmaSuccess: "Figma paste import हो गया",
       htmlSuccess: "HTML import हो गया",
       uploadSuccess: "File import हो गई",
@@ -1705,6 +1758,8 @@ export default {
         notHtml: "Import करने के लिए valid HTML paste करें या चुनें।",
         importFailed: "आयात विफल रहा",
         figmaPasteFailed: "Figma paste आयात विफल रहा",
+        paperPasteFailed: "Paper पेस्ट आयात विफल रहा",
+        wonderPasteFailed: "Wonder पेस्ट आयात विफल रहा",
         uploadFailed: "File upload विफल रहा",
         invalidFigFile: ".fig पर समाप्त होने वाली file चुनें।",
         unsupportedFileType: "कोई .fig, .html या .htm फ़ाइल चुनें।",
@@ -2030,6 +2085,9 @@ export default {
     addTweaks: "बदलाव जोड़ें",
     addTweakControls: "ट्विक नियंत्रण जोड़ें",
     closeTweaks: "बदलाव बंद करें",
+    showFloatingTweaks: "फ़्लोटिंग बदलाव दिखाएँ",
+    collapseTweaks: "बदलाव संक्षिप्त करें",
+    expandTweaks: "बदलाव विस्तृत करें",
     tweaksHelp:
       "ट्वीक्स आधार डिज़ाइन पर लागू ब्रेकपॉइंट और स्थिति-विशिष्ट विज़ुअल ओवरराइड हैं। विरासत में मिले मान पर लौटने के लिए कंट्रोल रीसेट करें।",
     tweaksDocs: "और जानें।",
@@ -2094,6 +2152,7 @@ export default {
       applyAria: "लंबित visual style edits लागू करें",
       applyButton: "Styles लागू करें",
       applySharedEdits: "संपादन लागू करें",
+      reviewSuggestion: "सुझाव की समीक्षा करें",
       previewLabel: "लंबित visual preview",
       applyDesignUpdates: "डिज़ाइन अपडेट लागू करें",
       applying: "लागू किया जा रहा है…",
@@ -2196,6 +2255,9 @@ export default {
       annotationSendError:
         "एनोटेशन नहीं भेजे जा सके। आपकी ड्रॉइंग यहीं सुरक्षित है—फिर से कोशिश करें।",
       codingHandoffError: "कोडिंग हैंडऑफ़ नहीं बनाया जा सका",
+      unknownCollaborator: "सहयोगी",
+      supersededVisualEditSuggestion:
+        "{{authorEmail}} का पिछला सुझाव बदल दिया गया। मूल पाठ: {{text}}",
       visualEditPendingConflict:
         "किसी अन्य सहयोगी के बदलाव लागू होने की प्रतीक्षा में हैं। नए बदलाव भेजने से पहले उन्हें लागू करें या हटाएँ।",
       codingHandoffCopied: "कोडिंग हैंडऑफ़ कॉपी हुआ",
@@ -2272,12 +2334,16 @@ export default {
       repeatRowPickOnCanvas:
         "टेक्स्ट बदलने के लिए कैनवास पर किसी पंक्ति पर डबल-क्लिक करें",
       eyedropperUnsupported: "इस ब्राउज़र में आई-ड्रॉपर समर्थित नहीं है",
+      claimBoardError: "इस board को आपके खाते में नहीं ले जाया जा सका",
       saveCopyError: "इस design की copy सहेजी नहीं जा सकी",
       auditRunFailed: "design audit चलाया नहीं जा सका",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "ट्वीक्स कहीं और बदल दिए गए हैं। फिर से प्रयास करने से पहले डिज़ाइन रीफ़्रेश करें।",
+      tweakBaselineUnreadable:
+        "सहेजा गया tweak baseline पढ़ा नहीं जा सका। डिज़ाइन डेटा ठीक होने तक tweak बदलाव रोक दिए गए हैं.",
+      resetTweakBaseline: "आधार रीसेट करें",
       tweakSaveNotDurable:
         "ट्वीक्स अभी सहेजे नहीं गए हैं। इस टैब को खुला रखें और फिर से प्रयास करें।",
       undoSkippedConcurrentEdit:
@@ -3367,6 +3433,18 @@ export default {
     addEmoji: "इमोजी जोड़ें",
     mention: "किसी को मेंशन करें",
     noMentions: "कोई व्यक्ति नहीं मिला",
+    format: {
+      toolbar: "फ़ॉर्मैटिंग",
+      bold: "बोल्ड",
+      italic: "इटैलिक",
+      strike: "स्ट्राइकथ्रू",
+      code: "कोड",
+      link: "लिंक",
+      linkField: "लिंक का पता",
+      linkPlaceholder: "लिंक पेस्ट करें",
+      applyLink: "लिंक लागू करें",
+      removeLink: "लिंक हटाएँ",
+    },
     mentionsFailed: "लोगों को लोड नहीं किया जा सका",
     reopen: "फिर से खोलें",
     reopening: "फिर से खोला जा रहा है…",
@@ -3391,6 +3469,10 @@ export default {
     markedUnread: "अपठित के रूप में चिह्नित",
     markUnreadFailed: "अपठित के रूप में चिह्नित नहीं किया जा सका",
     attachImage: "इमेज संलग्न करें",
+    removeImage: "इमेज हटाएं",
+    imageUploadFailed: "इमेज अपलोड नहीं हो सकी",
+    editChanged:
+      "संपादन शुरू करने के बाद यह टिप्पणी बदल गई। इसे बदलने के लिए फिर से सहेजें।",
     searching: "खोज जारी…",
     reactionFailed: "प्रतिक्रिया अपडेट नहीं हो सकी",
     moveFailed: "टिप्पणी स्थानांतरित नहीं हो सकी",
@@ -3434,6 +3516,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "एजेंट इस्तेमाल करने के लिए एक AI मॉडल जोड़ें",
       startFailed: "एजेंट शुरू नहीं हो सका",
+      hostChatUnconfirmed:
+        "पुष्टि नहीं हो सकी कि संदेश होस्ट चैट तक पहुँचा। दोबारा प्रयास करने से पहले होस्ट चैट देखें।",
       cancelFailed: "एजेंट को रोका नहीं जा सका",
       busy: "इस थ्रेड पर पहले से एक एजेंट काम कर रहा है",
       error: {

@@ -961,7 +961,11 @@ const editor = {
     imageUploaded_other: "アップロードされた画像",
     includeTime: "時間を含む",
     loadingProperties: "プロパティの読み込み中",
-    content: "コンテンツ",
+    pageDetails: "ページの詳細",
+    createdOn: "{{date}}に作成",
+    editedAgo: "{{time}}に編集",
+    editedOn: "{{date}}に編集",
+    editedJustNow: "たった今編集",
     loadingContent: "コンテンツを読み込み中",
     wordCount_zero: "{{count}}語",
     wordCount_one: "{{count}}語",
@@ -1066,6 +1070,10 @@ const editor = {
     fourColumns: "4列",
     codeBlock: "コードブロック",
     codeBlockDescription: "コードスニペット",
+    toggleHeading1: "トグル見出し 1",
+    toggleHeading2: "トグル見出し 2",
+    toggleHeading3: "トグル見出し 3",
+    toggleHeadingDescription: "開閉できる見出し",
     collapsibleBlockDescription: "折りたたみ可能なブロック",
     database: "コレクション",
     databaseDescription: "このページ内のインラインコレクション",
@@ -1156,6 +1164,13 @@ const editor = {
     agentLevelNote: "エージェントはコメント可",
     agentLevelNoteHint:
       "エージェントはこのページにコメントできます。「シェアする」から変更できます。",
+    agentLevelViewDescription:
+      "このページを閲覧できます。コメント、提案、編集はできません。",
+    agentLevelViewConfirm:
+      "エージェントはこのページの閲覧のみできるようになりました。",
+    agentLevelViewNote: "エージェントは閲覧のみ",
+    agentLevelViewNoteHint:
+      "エージェントはこのページを閲覧のみできます。「シェアする」から変更できます。",
     sendPageToAgent: "このページをエージェントに送信",
     connectAgentOverMcp: "MCP でエージェントを接続",
     importingFromNotion: "Notion からインポートしています...",
@@ -1263,6 +1278,7 @@ const rawLiterals = {
     rename: "名前を変更",
     duplicate: "複製",
     moveTo: "移動先",
+    addSubPage: "サブページを追加",
     moveToTrash: "ゴミ箱に移動",
     lastEditedBy: "最終編集者: {{name}}",
     lastEdited: "最終編集",
@@ -1489,6 +1505,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "この提案は別の場所で変更されました。未保存の下書きはここに残っています。",
     discardSuggestionDraft: "下書きを破棄",
+    mermaid: {
+      source: "Mermaid",
+      done: "完了",
+      doneShortcut: "ソースを閉じる (Esc)",
+      editDiagram: "図を編集",
+      cantDraw: "この図を描画できません",
+    },
     failedToCreatePage: "ページを作成できませんでした",
     slash: {
       blockEquation: "ブロック数式",
@@ -1526,6 +1549,9 @@ const exactEnglish = {
       temporaryAgentLink: "一時的なエージェントリンク",
       privateLinkCanView: "アクセス権のある人だけが閲覧できます",
       publicLinkCanView: "リンクを知っている人は誰でも閲覧できます",
+      publicSubPagesOne: "このページとそのサブページ",
+      publicSubPages: "このページと{{count}}件のサブページ",
+      publicSubPagesMore: "このページと{{count}}件を超えるサブページ",
       copiedAgentPrompt: "エージェント用指示をコピーしました",
       couldNotCopyAgentPrompt: "エージェント用指示をコピーできませんでした",
       agentPrompt:
@@ -1697,9 +1723,20 @@ const overrides = {
     commandDatabasesHeading: "コレクション",
     commandLocalFilesHeading: "ローカルファイル",
     commandDatabaseResultDescription: "コレクションページを開く",
-    commandAppearance: "外観",
     openAgent: "エージェントを開く",
     toggleTheme: "テーマを切り替え",
+    commandOnPage: "「{{title}}」",
+    commandSearchInPage: "このページ内を検索",
+    commandSearchInPageDescription: "このページとその中のページのみ",
+    commandScopeChip: "「{{title}}」内",
+    commandClearScope: "ワークスペース全体を検索",
+    commandAskAgent: "エージェントに質問:「{{query}}」",
+    commandAskAgentDescription:
+      "エージェントが検索、閲覧、要約を代わりに行います",
+    commandPreview: "プレビュー",
+    commandHintNavigate: "移動",
+    commandHintOpen: "開く",
+    commandHintClose: "閉じる",
   },
   theme: {
     system: "システムテーマ",
@@ -1832,6 +1869,18 @@ const overrides = {
       "このコレクションのすべての行から「{{name}}」とそのテキストが削除されます。元に戻すことはできません。",
     deleteBlockFieldBodyWarning:
       "「{{name}}」はページ本文のため、すべての行の本文も削除されます。",
+    blockFieldFrozen: "{{column}} が {{value}} の間は固定",
+    blockFieldFrozenDescription:
+      "このコレクションのルールにより、人もエージェントもこのタブを変更できません。編集するには {{column}} を {{value}} 以外に変更してください。",
+    blockFieldFrozenByManagers:
+      "{{column}} が {{value}} の間は固定されます。変更できるのは、コレクションへのフルアクセス権を持つユーザーだけです。",
+    blockFieldFrozenSaveRefused:
+      "このタブは固定されているため、編集は保存されませんでした",
+    freezeBlockField: "固定する条件…",
+    freezeBlockFieldWhile: "{{column}} が次の値の間",
+    freezeBlockFieldNoColumns:
+      "固定の条件にするステータス列または選択列を追加してください",
+    unfreezeBlockField: "固定しない",
   },
   comments: {
     add: "コメントを追加...",

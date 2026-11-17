@@ -732,7 +732,7 @@ const messages = {
   "errorMessages.invalidAttachment":
     "The model provider rejected this attachment's format or size. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported file format or paste the relevant text, then attach it again.",
   "errorMessages.noProviderConnected":
-    "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
+    "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.",
   "errorMessages.openBuilderSpaceSettings": "Open Builder space settings",
   "errorMessages.providerAuthentication":
     "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
@@ -773,6 +773,10 @@ const messages = {
   "history.searching": "Searching...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Yesterday",
+  "history.today": "Today",
+  "commandMenu.systemGroup": "Application",
+  "share.alreadyInvited": "Already invited",
+  "share.notInvitedToPage": "Not invited to page",
   "history.mine": "My chats",
   "history.sharedWithYou": "Shared with you",
   "history.showAll": "Show all",
@@ -1497,6 +1501,7 @@ const messages = {
   "share.public": "Public",
   "share.publicDescription": "Anyone with the link can view",
   "share.remove": "Remove",
+  "share.removeInvitee": "Remove {{email}}",
   "share.role": "Role",
   "share.searching": "Searching...",
   "share.share": "Share",
@@ -1520,6 +1525,10 @@ const messages = {
     "Everyone in {{organization}}, including new members, will be able to open this and see everything in it, including any messages, files, and other content. You can change this later.",
   "share.confirmOrganizationAction": "Share with organization",
   "share.confirmOrganizationSharing": "Sharing...",
+  "share.confirmPublicTitle": "Share with anyone who has the link?",
+  "share.confirmPublicDescription":
+    "Anyone with the link, including people outside your organization, will be able to open this and see everything in it. You can change this later.",
+  "share.confirmPublicAction": "Share publicly",
   "status.resuming": "Resuming",
   "status.stillWorking": "Still working",
   "status.thinking": "Thinking",
@@ -2219,6 +2228,10 @@ const messages = {
   "settingsShell.account.passwordSaved": "Password updated",
   "settingsShell.account.photoError": "Could not update photo.",
   "settingsShell.account.photoUpdated": "Photo updated",
+  "settingsShell.account.photoRemoved": "Photo removed",
+  "settingsShell.account.removePhoto": "Remove photo",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "Email delivery is not set up here",
   "settingsShell.account.profilePhoto": "Profile photo",
   "settingsShell.account.requestCopyDescription":
     "An administrator verifies your identity and follows up.",
@@ -2289,10 +2302,13 @@ const messages = {
     "Use sample data in this browser for presentations.",
   "settingsShell.appGroup.labsFootnote":
     "These new, unstable features may have bugs.",
+  "settingsShell.appGroup.labsHostDecided":
+    "This one is set for you, so it can't be changed here.",
   "settingsShell.appGroup.labsLoadError": "Couldn't load your labs.",
   "settingsShell.appGroup.labsReadError":
     "Couldn't read this saved choice. Choose On or Off to set it again.",
   "settingsShell.appGroup.labsSaveError": "Couldn't change {{lab}}. Try again.",
+  "settingsShell.appGroup.labsUseDefault": "Use default",
   "settingsShell.appGroup.mcpAbout":
     "Connect {{app}} to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in {{app}} for you. It sees only what you can see.",
   "settingsShell.appGroup.mcpAppCards": "App cards in chat apps",
@@ -3055,6 +3071,18 @@ const messages = {
   "settingsInfra.whyImages": "Generates images for slides and designs.",
   "settingsInfra.whyEmbeddings":
     "Improves semantic search. Keyword search still works without it.",
+  "settingsInfra.semanticSearch": "Semantic search",
+  "settingsInfra.semanticSearchOn":
+    "Finds pages by meaning as well as words. Page text and searches go to the Embeddings provider.",
+  "settingsInfra.semanticSearchOff":
+    "Off. Search matches words only, and no page text goes to the Embeddings provider.",
+  "settingsInfra.semanticSearchUnknown":
+    "Couldn't read whether semantic search is on.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "Semantic search is on. Existing pages are indexed in the background.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "Semantic search is off. Stored page vectors were deleted.",
+  "settingsInfra.semanticSearchSaveFailed": "Couldn't change semantic search.",
   "settingsInfra.designSystem": "Design system intelligence",
   "settingsInfra.whyDesignSystem":
     "Keeps generated slides and designs on brand.",
@@ -3434,7 +3462,7 @@ const messages = {
   "message.responseFailed": "Response failed",
   "message.waitingForApproval": "Waiting for approval",
   "message.waitingForInput": "Waiting for input",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}} failed",
+  "message.workSummaryFailedCount": "{{summary}}, failed attempts: {{count}}",
   "message.taskStatusPending": "Pending",
   "message.taskStatusRunning": "Running",
   "message.taskStatusCompleted": "Done",
@@ -3784,6 +3812,65 @@ const messages = {
   "settingsShell.account.voiceChatSaveError":
     "Could not save your voice chat settings.",
   "voice.dictation.cancelTranscription": "Cancel transcription",
+  "common.noData": "No data",
+  "common.rowsPerPage": "Rows per page:",
+  "dashboardMode.columnResizePersonal":
+    "Drag to resize for you only. Double-click to reset.",
+  "dashboardMode.columnResizeShared": "Drag to resize for everyone",
+  "sessions.watchReplay": "Watch replay",
+  "sqlDashboard.calloutSeverityCritical": "Critical",
+  "sqlDashboard.calloutSeverityInfo": "Info",
+  "sqlDashboard.calloutSeverityWarning": "Warning",
+  "sqlDashboard.chartPointLimitFirst":
+    "Showing the first {{shown}} of {{total}} points",
+  "sqlDashboard.chartPointLimitLast":
+    "Showing the last {{shown}} of {{total}} points",
+  "sqlDashboard.chartPointLimitNewest":
+    "Showing the newest {{shown}} of {{total}} points",
+  "sqlDashboard.collapseDescription": "Collapse description",
+  "sqlDashboard.columnFormat": "Format",
+  "sqlDashboard.columnFormatCurrency": "Currency",
+  "sqlDashboard.columnFormatDate": "Date",
+  "sqlDashboard.columnFormatDuration": "Duration (seconds)",
+  "sqlDashboard.columnFormatNumber": "Number",
+  "sqlDashboard.columnFormatPercent": "Percent",
+  "sqlDashboard.columnFormatText": "Plain text",
+  "sqlDashboard.columnHide": "Hide column",
+  "sqlDashboard.columnName": "Column name",
+  "sqlDashboard.columnRename": "Rename column",
+  "sqlDashboard.columnResize": "Resize column",
+  "sqlDashboard.columnShow": 'Show "{{name}}"',
+  "sqlDashboard.columnShowHidden": "Show hidden columns",
+  "sqlDashboard.drilldownChartPoints": "Chart points",
+  "sqlDashboard.drilldownNextPage": "Next page of chart points",
+  "sqlDashboard.drilldownPageRange": "Showing {{start}}–{{end}} of {{total}}",
+  "sqlDashboard.drilldownPreviousPage": "Previous page of chart points",
+  "sqlDashboard.expandDescription": "Expand description",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "Completed",
+  "sqlDashboard.funnelLeft": "Left the app",
+  "sqlDashboard.funnelLeftHere": "Left the app here",
+  "sqlDashboard.funnelMovedOn": "Moved on without either",
+  "sqlDashboard.funnelOptional": "Optional",
+  "sqlDashboard.funnelShown": "{{count}} shown",
+  "sqlDashboard.funnelShownLabel": "Shown",
+  "sqlDashboard.funnelSkipped": "Skipped",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}} (better)",
+  "sqlDashboard.metricComparisonDown":
+    "Down {{change}} from {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonFlat":
+    "No change from {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonNoChange": "No change",
+  "sqlDashboard.metricComparisonPoints": "{{value}} pts",
+  "sqlDashboard.metricComparisonPreviousPeriod": "the period before",
+  "sqlDashboard.metricComparisonUp":
+    "Up {{change}} from {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonVs": "vs {{period}}",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}} (worse)",
+  "sqlDashboard.multiColumnSortHelp":
+    "Click to sort. Shift-click to add another sort.",
+  "sqlDashboard.noXValue": "No value",
 } as const;
 
 export default messages;

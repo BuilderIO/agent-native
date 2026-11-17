@@ -1823,6 +1823,51 @@ describe("queryFirstPartyAnalytics", () => {
       expect(execute).not.toHaveBeenCalled();
     },
   );
+  it("marks a resumable query's job to be left running when its deadline or its own timeout stops it", async () => {
+    vi.useFakeTimers();
+    try {
+      const scope = { userEmail: "example@example.test", orgId: "example-org" };
+      const sql = "SELECT COUNT(*) AS events FROM analytics_events";
+      backendMocks.get.mockResolvedValue({ sink: "bigquery" });
+      await queryFirstPartyAnalytics(sql, scope);
+      expect(backendMocks.query.mock.calls[0]?.[3]).not.toHaveProperty(
+        "resumeAfter",
+      );
+
+      const deadline = new AbortController();
+      await queryFirstPartyAnalytics(sql, scope, {
+        resumable: { deadline: deadline.signal },
+      });
+      const deadlineStopped = backendMocks.query.mock.calls[1]?.[3]
+        ?.resumeAfter as AbortSignal;
+      expect(deadlineStopped.aborted).toBe(false);
+      deadline.abort();
+      expect(deadlineStopped.aborted).toBe(true);
+
+      let finish!: () => void;
+      backendMocks.query.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = () => resolve({ rows: [], schema: [] });
+          }),
+      );
+      const timedOut = queryFirstPartyAnalytics(sql, scope, {
+        timeoutMs: 1_000,
+        resumable: {},
+      });
+      const timedOutRejection = expect(timedOut).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(0);
+      const timeoutStopped = backendMocks.query.mock.calls[2]?.[3]
+        ?.resumeAfter as AbortSignal;
+      expect(timeoutStopped.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(timeoutStopped.aborted).toBe(true);
+      await timedOutRejection;
+      finish();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it.each([
     "now()",
     "to_char(CURRENT_DATE, 'YYYY-MM-DD')",

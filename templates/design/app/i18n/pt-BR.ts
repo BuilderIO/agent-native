@@ -1048,6 +1048,37 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Compartilhar prévia ao vivo",
+      instructions:
+        "Cole uma URL HTTPS pública de prévia para seu app, como um túnel ngrok ou cloudflared. Sua máquina continua usando localhost; outras pessoas podem ver a prévia pública ou sugerir alterações na captura publicada.",
+      tunnelUrl: "URL pública de prévia",
+      enableCollaboration:
+        "Ativar colaboração ao vivo para todas as pessoas com acesso ao design",
+      save: "Salvar",
+      unavailable: "Prévia ao vivo indisponível — mostrando o instantâneo",
+      live: "Prévia ao vivo",
+      openLive: "Abrir a prévia ao vivo em {{hostname}}",
+      suggest: "Sugerir na captura",
+      localOnly: "Prévia ao vivo apenas na máquina do proprietário",
+    },
+    referenceCopy: {
+      staticNotice:
+        "O JavaScript está desativado; conteúdo dinâmico pode estar ausente.",
+      captureAction: "Capturar imagem estática",
+      capturePrompt:
+        "Capture a tela e o DOM desta URL de referência pública e adicione-os como tela estática de referência neste canvas. Identifique como captura, não como página ao vivo.",
+      unavailable: "Esta página pode bloquear quadros ou não ter carregado.",
+      load: "Carregar cópia de referência",
+      label: "Cópia de referência · página pública, somente leitura",
+      noBridge: "Conecte uma ponte local para carregar uma cópia pública.",
+      snapshot: "Usar captura publicada",
+      capture: "Peça ao agente uma captura de tela e do DOM.",
+      failed: "A cópia falhou. Capture a tela e o DOM.",
+      loading: "Carregando cópia de referência…",
+      original: "Tentar página original",
+    },
+
     sourceLoadFailed: "Não foi possível carregar esta tela.",
     selectionPublishFailed:
       "O agente pode não ver sua seleção mais recente. Selecione-a novamente.",
@@ -1097,6 +1128,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Selecionar camada",
+      layerKinds: {
+        webgl: "Tela · WebGL",
+        canvas: "Tela",
+        video: "Vídeo",
+        image: "Imagem",
+        svg: "Gráfico SVG",
+        embed: "Incorporação",
+        background: "Fundo",
+        effect: "Efeito",
+      },
       goToMain: "Ir para o componente principal",
       restore: "Restaurar componente",
       swap: "Trocar instância",
@@ -1716,6 +1757,20 @@ export default {
       localDescription:
         "Conecte qualquer app local em execução com /visual-edit.",
       warningsToast: "Importação concluída com avisos",
+      pasteUnreadable: "Não foi possível ler as camadas copiadas.",
+      pasteInexact: "Detalhes não colados com exatidão: {{count}}",
+      pasteLayerTypes:
+        "Tipos de camada do {{tool}} colados como quadros simples: {{count}}",
+      pasteImagePlaceholders:
+        "Imagens coladas como marcadores: {{count}}. O {{tool}} não copia dados de imagem.",
+      pasteImagesLinked:
+        "Imagens ainda vinculadas ao {{tool}}: {{count}}. Não foi possível copiá-las para o seu armazenamento de arquivos.",
+      pasteImagesUnsaved:
+        "Imagens que podem deixar de carregar porque o salvamento não foi confirmado: {{count}}",
+      pasteNeedsEditAccess:
+        "Você precisa de acesso de edição para colar neste design.",
+      pastePartialImport:
+        "A colagem falhou e algumas telas podem ter sido criadas. Confira suas telas.",
       figmaSuccess: "Colagem do Figma importada",
       htmlSuccess: "HTML importado",
       uploadSuccess: "Arquivo importado",
@@ -1726,6 +1781,8 @@ export default {
         notHtml: "Cole ou escolha HTML válido para importar.",
         importFailed: "Falha ao importar",
         figmaPasteFailed: "Falha ao importar colagem do Figma",
+        paperPasteFailed: "Falha ao importar a colagem do Paper",
+        wonderPasteFailed: "Falha ao importar a colagem do Wonder",
         uploadFailed: "Falha no upload do arquivo",
         invalidFigFile: "Escolha um arquivo que termine em .fig.",
         unsupportedFileType: "Escolha um arquivo .fig, .html ou .htm.",
@@ -2056,6 +2113,9 @@ export default {
     addTweaks: "Adicionar ajustes",
     addTweakControls: "Adicionar controles de ajuste",
     closeTweaks: "Fechar ajustes",
+    showFloatingTweaks: "Mostrar ajustes flutuantes",
+    collapseTweaks: "Recolher ajustes",
+    expandTweaks: "Expandir ajustes",
     tweaksHelp:
       "Os ajustes são substituições visuais específicas de breakpoint e estado sobre o design base. Redefina um controle para voltar ao valor herdado.",
     tweaksDocs: "Saiba mais.",
@@ -2122,6 +2182,7 @@ export default {
       applyAria: "Aplicar edições visuais de estilo pendentes",
       applyButton: "Aplicar estilos",
       applySharedEdits: "Aplicar edições",
+      reviewSuggestion: "Revisar sugestão",
       previewLabel: "Prévia visual pendente",
       applyDesignUpdates: "Aplicar atualizações de design",
       applying: "Aplicando…",
@@ -2226,6 +2287,9 @@ export default {
       annotationSendError:
         "Não foi possível enviar as anotações. Seu desenho continua aqui; tente novamente.",
       codingHandoffError: "Não foi possível criar o handoff de código",
+      unknownCollaborator: "um colaborador",
+      supersededVisualEditSuggestion:
+        "Uma sugestão anterior de {{authorEmail}} foi substituída. Texto original: {{text}}",
       visualEditPendingConflict:
         "Há alterações de outro colaborador aguardando aplicação. Aplique ou limpe-as antes de enviar novas alterações.",
       codingHandoffCopied: "Handoff de código copiado",
@@ -2314,12 +2378,16 @@ export default {
         "Clique duas vezes em uma linha na tela para editar o texto",
       eyedropperUnsupported:
         "O conta-gotas não é compatível com este navegador",
+      claimBoardError: "Nao foi possivel mover este quadro para sua conta",
       saveCopyError: "Nao foi possivel salvar uma copia deste design",
       auditRunFailed: "Nao foi possivel executar a auditoria de design",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Os ajustes foram alterados em outro lugar. Atualize o design antes de tentar novamente.",
+      tweakBaselineUnreadable:
+        "Não foi possível ler a referência salva dos ajustes. As alterações estão pausadas até que os dados do design sejam corrigidos.",
+      resetTweakBaseline: "Redefinir referência",
       tweakSaveNotDurable:
         "Os ajustes ainda não foram salvos. Mantenha esta aba aberta e tente novamente.",
       undoSkippedConcurrentEdit: "Desfazer ignorado — outra pessoa moveu isso",
@@ -3433,6 +3501,18 @@ export default {
     addEmoji: "Adicionar emoji",
     mention: "Mencionar alguém",
     noMentions: "Nenhuma pessoa encontrada",
+    format: {
+      toolbar: "Formatação",
+      bold: "Negrito",
+      italic: "Itálico",
+      strike: "Tachado",
+      code: "Código",
+      link: "Inserir link",
+      linkField: "Endereço do link",
+      linkPlaceholder: "Cole um link",
+      applyLink: "Aplicar link",
+      removeLink: "Remover link",
+    },
     mentionsFailed: "Não foi possível carregar as pessoas",
     reopen: "Reabrir",
     reopening: "Reabrindo…",
@@ -3459,6 +3539,10 @@ export default {
     markedUnread: "Marcado como não lido",
     markUnreadFailed: "Não foi possível marcar como não lido",
     attachImage: "Anexar imagem",
+    removeImage: "Remover imagem",
+    imageUploadFailed: "Não foi possível enviar a imagem",
+    editChanged:
+      "Este comentário mudou depois que você começou a editá-lo. Salve de novo para substituí-lo.",
     searching: "Pesquisando…",
     reactionFailed: "Não foi possível atualizar a reação",
     moveFailed: "Não foi possível mover o comentário",
@@ -3506,6 +3590,8 @@ export default {
       fallbackName: "IA",
       setupRequired: "Conecte um modelo de IA para usar agentes",
       startFailed: "Não foi possível iniciar o agente",
+      hostChatUnconfirmed:
+        "Não foi possível confirmar se a mensagem chegou ao chat anfitrião. Confira esse chat antes de tentar novamente.",
       cancelFailed: "Não foi possível interromper o agente",
       busy: "Um agente já está trabalhando nesta conversa",
       error: {

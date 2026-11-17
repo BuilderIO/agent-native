@@ -13,7 +13,10 @@ import {
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import { isA2AIdentityVerificationUnavailableError } from "../a2a/server.js";
-import { actionChangeResource } from "../action-call-classification.js";
+import {
+  actionAlwaysReadOnly,
+  actionChangeResource,
+} from "../action-call-classification.js";
 import {
   actionCallIntent,
   ActionContractError,
@@ -92,6 +95,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { PRIVATE_ACTION_SCOPE_HEADER } from "../shared/private-action-scope.js";
 import {
   countActionFailure,
   countCredentialState,
@@ -116,7 +120,10 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import {
+  FULL_APP_EMBED_SCOPE,
   hasEmbedSessionRequestMarker,
+  hasFullAppEmbedSession,
+  presentsFullAppEmbedToken,
   hasPresentedEmbedSessionCredential,
   isExpiredMcpDirectoryWidgetSessionRequest,
   resolveEmbedSessionFromRequest,
@@ -130,11 +137,17 @@ import {
   setHttpRequestTelemetryActionName,
 } from "./http-response-telemetry.js";
 import { consumeOneTimeJti } from "./identity-sso-store.js";
+import { privateActionScopeMatches } from "./private-action-scope.js";
 import {
   getForwardedRequestOrigin,
   hasSameOriginBrowserEvidence,
 } from "./request-origin.js";
 import { hasUiActionCapability } from "./ui-action-capability.js";
+import {
+  allowsVisualEditCapabilityResource,
+  isVisualEditCapability,
+  isVisualEditCapabilityAction,
+} from "./visual-edit-capability.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
@@ -293,7 +306,21 @@ async function isProvenUiRequest(
   caller: ActionCaller,
   userEmail: string | undefined,
   embedded: boolean,
+  embedSession: ResolvedEmbedSession | null,
 ): Promise<boolean> {
+  // A full-app panel's own requests: the host's agent can navigate the panel
+  // but cannot send them, so they carry the owner's UI authority.
+  if (embedSession && embedSession.scope === FULL_APP_EMBED_SCOPE) {
+    return (
+      caller === "frontend" &&
+      !!userEmail &&
+      embedSession.email.trim().toLowerCase() ===
+        userEmail.trim().toLowerCase() &&
+      (presentsFullAppEmbedToken(event, embedSession) ||
+        (hasSameOriginBrowserEvidence(event) &&
+          hasUiActionCapability(event, userEmail)))
+    );
+  }
   if (
     caller !== "frontend" ||
     !userEmail ||
@@ -362,8 +389,8 @@ function handleOptionsRequest(event: any): string {
       corsAllowHeadersFor(
         getHeader(event, "access-control-request-headers"),
         cors.credentials
-          ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Content-Save-Origin,X-Agent-Native-Browser-Tab,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
-          : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
+          ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Content-Save-Origin,X-Agent-Native-Browser-Tab,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Interactive,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
+          : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Interactive,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
       ),
     );
   }
@@ -585,38 +612,13 @@ function isPublicWebMcpAction(entry: ActionEntry): boolean {
   );
 }
 
-const VISUAL_EDIT_CAPABILITY_ACTIONS = new Set([
-  "acknowledge-visual-edit-pending",
-  "add-breakpoint",
-  "add-localhost-screens",
-  "clear-localhost-write-consent-request",
-  "get-design",
-  "get-design-snapshot",
-  "get-localhost-write-consent-request",
-  "get-visual-edit-pending",
-  "get-visual-edit-snapshot",
-  "list-design-source-capabilities",
-  "list-design-states",
-  "list-files",
-  "list-local-files",
-  "list-localhost-connections",
-  "migrate-board-objects-to-file",
-  "publish-visual-edit-pending",
-  "read-local-file",
-  "refresh-localhost-preview-token",
-  "remove-breakpoint",
-  "request-localhost-write-consent",
-  "update-breakpoint",
-  "update-screen-source",
-]);
-
 function allowsWebMcpCapability(
   name: string,
   entry: ActionEntry,
   authCapability: string | undefined,
 ): boolean {
-  if (authCapability?.startsWith("capability:visual-edit:")) {
-    if (!VISUAL_EDIT_CAPABILITY_ACTIONS.has(name)) return false;
+  if (isVisualEditCapability(authCapability)) {
+    if (!isVisualEditCapabilityAction(name)) return false;
     if (name === "get-design") return true;
   }
   if (!authCapability || !Array.isArray(entry.capabilityScopes)) return false;
@@ -654,25 +656,6 @@ function allowsMcpDirectoryWidgetReadManifestAction(
       requireArgumentMatch: false,
     })
   );
-}
-
-function allowsWebMcpCapabilityResource(
-  actionName: string,
-  authCapability: string | undefined,
-  params: Record<string, unknown>,
-): boolean {
-  const prefix = "capability:visual-edit:";
-  if (!authCapability?.startsWith(prefix)) return true;
-  const match = /^design:([^:]+)$/.exec(authCapability.slice(prefix.length));
-  const encodedDesignId = match?.[1];
-  const designId = actionName === "get-design" ? params.id : params.designId;
-  if (!encodedDesignId || typeof designId !== "string") return false;
-  try {
-    return decodeURIComponent(encodedDesignId) === designId;
-  } catch {
-    // coercion-ok: malformed capability scope is invalid and must fail closed.
-    return false;
-  }
 }
 
 async function resolveRequestEmbedSession(
@@ -856,7 +839,10 @@ function mountActionRoutesInternal(
           FRONTEND_MUTATION_METHODS.has(effectiveMethod);
         if (effectiveMethod !== method && !isFrontendMutation) {
           setResponseStatus(event, 405);
-          return { error: `Method not allowed. Use ${method}.` };
+          return {
+            error: `Method not allowed. Use ${method}.`,
+            ...(actionAlwaysReadOnly(entry) ? { readOnly: true } : {}),
+          };
         }
 
         const requiredCompatibility = requiredClientCompatibilityVersion(
@@ -1364,6 +1350,7 @@ function mountActionRoutesInternal(
           requestCaller,
           userEmail,
           embedded,
+          embedSession,
         );
         if (entry.uiOnly === true && !provenUiRequest) {
           setResponseStatus(event, 403);
@@ -1374,6 +1361,43 @@ function mountActionRoutesInternal(
               : UI_CAPABILITY_REQUIRED_ERROR_CODE,
           };
         }
+        if (
+          entry.requiresSignedInBrowser === true &&
+          (embedSession?.scope === FULL_APP_EMBED_SCOPE ||
+            hasFullAppEmbedSession(event))
+        ) {
+          setResponseStatus(event, 403);
+          return {
+            error: "Sign in to the app in your browser to do this.",
+            errorCode: "signed_in_browser_required",
+          };
+        }
+        const privateScope = getHeader(event, PRIVATE_ACTION_SCOPE_HEADER);
+        if (
+          privateScope !== undefined &&
+          (method !== "POST" ||
+            entry.uiOnly !== true ||
+            entry.persistInChatHistory !== false ||
+            entry.agentTool !== false ||
+            entry.mcpTool !== false ||
+            entry.toolCallable !== false ||
+            !privateActionScopeMatches(privateScope, {
+              email: userEmail,
+              orgId:
+                orgId ??
+                (orgScope === "personal" || hasExplicitPersonalOrgScope(event)
+                  ? null
+                  : undefined),
+              authUserId,
+            }))
+        ) {
+          setResponseStatus(event, 409);
+          return {
+            error: "Private action scope could not be confirmed.",
+            errorCode: "private_action_scope_mismatch",
+          };
+        }
+        if (privateScope !== undefined && !orgId) orgScope = "personal";
         const timezone = readTimezoneHeader(event);
         const browserSessionId = readBrowserSessionIdHeader(event);
         const clientPlatform = readAnalyticsClientPlatformHeader(event);
@@ -1398,6 +1422,7 @@ function mountActionRoutesInternal(
           {
             ...(requestId ? { requestId } : {}),
             userEmail,
+            provenUiRequest,
             ...(verifiedServiceIdentity &&
             verifiedServiceIdentity.userEmail.trim().toLowerCase() ===
               userEmail?.trim().toLowerCase() &&
@@ -1606,7 +1631,11 @@ function mountActionRoutesInternal(
                 params = normalizedArgs;
               }
               if (
-                !allowsWebMcpCapabilityResource(name, authCapability, params)
+                !allowsVisualEditCapabilityResource(
+                  name,
+                  authCapability,
+                  params,
+                )
               ) {
                 throw createError({
                   statusCode: 401,

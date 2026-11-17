@@ -502,6 +502,8 @@ type AgentChatEventPayload =
        * server-side approval record binds it with `approvalKeyWithArguments`.
        */
       argumentsHash?: string;
+      /** The question the approval card asks; omitted for the generic one. */
+      label?: string;
       allowPersistentApproval?: false;
       toolCallId?: string;
       askId?: string;
@@ -549,6 +551,7 @@ type AgentChatEventPayload =
       taskId: string;
       threadId: string;
       description: string;
+      name?: string;
       status: "running" | "completed" | "errored";
     }
   | {

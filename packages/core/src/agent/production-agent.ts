@@ -50,6 +50,7 @@ import {
   AgentConnectionRequiredError,
   describeToolParameterSignature,
   isActionContractError,
+  isActionOutputContractError,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   isAgentConnectionRequiredError,
@@ -61,6 +62,7 @@ import {
   runPreparedActionCall,
   boundActionCallIntent,
   preparedCallArguments,
+  preparedCallApprovalLabel,
   preparedCallNeedsApproval,
   recordInvalidActionCall,
   resolveToolMaxResultChars,
@@ -202,6 +204,7 @@ import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
+  personalRunProviderKeyOrgId,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
 } from "../server/personal-provider-key-policy.js";
@@ -396,6 +399,10 @@ import {
   getContextWindowForModel,
   resolveFallbackModel,
 } from "./model-config.js";
+import {
+  createModelInputScopeGuardRegistry,
+  MODEL_INPUT_SCOPE_ABORT_REASON,
+} from "./model-input-scope-guards.js";
 import {
   maybeCompactThread,
   buildObservationalContext,
@@ -796,6 +803,7 @@ async function getOwnerApiKeyDetailed(
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   const orgId = getRequestOrgId();
+  const policyOrgId = orgId ?? personalRunProviderKeyOrgId(secretKey);
   // Restricted members keep their stored keys, but none of the personal rows
   // below (user, solo workspace, legacy settings) may answer. Unknown is a
   // failed lookup, never "not restricted". Keys outside the policy (Jev) are
@@ -805,7 +813,9 @@ async function getOwnerApiKeyDetailed(
     personalRestricted =
       isPersonalProviderPolicyKey(secretKey) &&
       (await isPersonalProviderKeyUseRestricted(
-        orgId ? { email: ownerEmail, orgId } : { email: ownerEmail },
+        policyOrgId
+          ? { email: ownerEmail, orgId: policyOrgId }
+          : { email: ownerEmail },
       ));
   } catch {
     lookupFailed = true;
@@ -1367,10 +1377,15 @@ export interface ActionEntry {
   access?: import("../authorization/check-action.js").ActionAccessConfig;
   fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   schema?: unknown;
+  /** The input schema agents are shown, when `defineAction` was given one
+   *  narrower than `schema`. */
+  agentInputSchema?: unknown;
   http?: import("../action.js").ActionHttpConfig | false;
   requiresAuth?: boolean;
   maxBodyBytes?: number;
   uiOnly?: boolean;
+  requiresSignedInBrowser?: boolean;
+  opensAnotherAppEmbed?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
   /** True when this entry's raw tool schema was authored by an external MCP
@@ -1383,6 +1398,8 @@ export interface ActionEntry {
    *  Schema dialect when the schema omits `$schema`. */
   fromMcpServer?: boolean;
   mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
+  /** See `mcpScript` in `defineAction`. Read only by the MCP script tools. */
+  mcpScript?: "read";
   mcpOutputContract?: import("../action-output-contract.js").ActionMcpOutputContract;
   /** Hints the framework supplies for an action that declares none, such as a
    *  file a dev server discovers. MCP advertises them only when
@@ -1397,6 +1414,8 @@ export interface ActionEntry {
   emptyListsEraseNothing?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
+  userTurn?: import("../action.js").ActionUserTurn;
+  requiresUserTurn?: boolean;
   /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
   confirmsAutomationWork?: boolean;
   grounding?: boolean;
@@ -1432,6 +1451,10 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  approvalLabel?(
+    args: unknown,
+    ctx?: import("../action.js").ActionRunContext,
+  ): string;
   allowPersistentApproval?: boolean;
   /**
    * Identifies what this entry does under its name. Approvals, including
@@ -7148,20 +7171,55 @@ function repairToolCallInput(
   entry: ActionEntry | undefined,
   input: unknown,
 ): ToolInputRepair {
-  if (!entry || getStrictToolInputValidator(entry)) {
-    return { input, changed: false };
+  if (!entry) return { input, changed: false };
+  const schema = entry.tool.parameters;
+  if (getStrictToolInputValidator(entry)) {
+    return dropModelChosenRequestId(schema, input);
   }
-  const json = coerceStringifiedJsonToolValues(entry.tool.parameters, input);
+  const json = coerceStringifiedJsonToolValues(schema, input);
   const placeholders = normalizeOptionalToolPlaceholders(
-    entry.tool.parameters,
+    schema,
     json.input,
     entry,
   );
   if (placeholders.error) return placeholders;
+  const requestId = dropModelChosenRequestId(schema, placeholders.input);
   return {
-    input: placeholders.input,
-    changed: json.changed || placeholders.changed,
+    input: requestId.input,
+    changed: json.changed || placeholders.changed || requestId.changed,
   };
+}
+
+/**
+ * A model cannot know a stable idempotency key. It invents one, or reuses one
+ * it saw in an earlier turn, and the write receipt guard then refuses the next
+ * write ("Request ID was already used for different data") or replays an
+ * unrelated saved result. Every action that takes an OPTIONAL `requestId` is
+ * the class. Drop the model's value so the write runs fresh; a schema that
+ * REQUIRES one keeps what the model sent, because that action cannot run
+ * without it.
+ */
+function dropModelChosenRequestId(
+  schema: RawJsonSchema | undefined,
+  input: unknown,
+): ToolInputRepair {
+  if (!schema?.properties || !input || typeof input !== "object") {
+    return { input, changed: false };
+  }
+  if (Array.isArray(input)) return { input, changed: false };
+  const requestIdSchema: unknown = schema.properties.requestId;
+  if (!requestIdSchema || typeof requestIdSchema !== "object") {
+    return { input, changed: false };
+  }
+  if (Array.isArray(schema.required) && schema.required.includes("requestId")) {
+    return { input, changed: false };
+  }
+  const args = input as Record<string, unknown>;
+  if (!Object.prototype.hasOwnProperty.call(args, "requestId")) {
+    return { input, changed: false };
+  }
+  const { requestId: _modelChosen, ...rest } = args;
+  return { input: rest, changed: true };
 }
 
 /**
@@ -7415,6 +7473,13 @@ function projectModelInputForObserver(messages: readonly unknown[]): unknown[] {
     }
 
     const part = value as Record<string, unknown>;
+    if (part.omitFromPersistedHistory === true) {
+      return {
+        type: "text",
+        text: "[Private content omitted]",
+        omitFromPersistedHistory: true,
+      };
+    }
     const isMedia =
       isImageListEntry || part.type === "image" || part.type === "file";
     if (isMedia) {
@@ -7449,10 +7514,28 @@ function projectModelInputForObserver(messages: readonly unknown[]): unknown[] {
 function notifyModelInputObserver(
   observer: ModelInputObserver | undefined,
   messages: readonly unknown[],
+  privateTurn = false,
 ): void {
   if (!observer) return;
   try {
-    const result = observer(projectModelInputForObserver(messages));
+    // Observers may persist their input independently of the run's trace writer.
+    // Once a turn is private, even unmarked derived context stays model-only.
+    const result = observer(
+      privateTurn
+        ? [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "[Private content omitted]",
+                  omitFromPersistedHistory: true,
+                },
+              ],
+            },
+          ]
+        : projectModelInputForObserver(messages),
+    );
     if (result !== undefined) {
       void Promise.resolve(result).catch(() => {
         // coercion-ok: observer failures cannot change agent execution.
@@ -7469,6 +7552,7 @@ export function createRunSafeBoundaryGuards(input: {
   signal: AbortSignal;
   flushEvents: () => Promise<void>;
   interruptRequestedAtBoundary: () => Promise<QueuedRunInterruptBoundaryResult>;
+  validateModelInput?: () => boolean | Promise<boolean>;
 }): {
   beforeModelDispatch: BeforeModelDispatch;
   beforeWrite: () => Promise<void>;
@@ -7480,6 +7564,17 @@ export function createRunSafeBoundaryGuards(input: {
       if (input.signal.aborted || interruptResult !== "none") {
         return { started: false as const };
       }
+      if (input.validateModelInput) {
+        try {
+          const current = input.validateModelInput();
+          if (current !== true && (await current) !== true) {
+            return { started: false as const };
+          }
+        } catch {
+          return { started: false as const };
+        }
+      }
+      if (isSignalAborted(input.signal)) return { started: false as const };
       return { started: true as const, value: dispatch() };
     },
     beforeWrite: async () => {
@@ -7537,6 +7632,7 @@ export async function runAgentLoop(opts: {
   signal: AbortSignal;
   beforeWrite?: () => Promise<void>;
   beforeModelDispatch?: BeforeModelDispatch;
+  registerModelInputGuard?: ActionRunContext["registerModelInputGuard"];
   unknownWriteToolNames?: Set<string>;
   /** The request's unknown outcomes, which each of its loops feeds and holds by. */
   unknownOutcomes?: UnknownOutcomes;
@@ -8647,10 +8743,15 @@ export async function runAgentLoop(opts: {
             }
           },
           providerOptions,
+          ...(send.isPrivateTurn() ? { privateContent: true } : {}),
         };
 
         opts.onModelSettings?.(model, effectiveReasoningEffort);
-        notifyModelInputObserver(opts.onModelInput, engineMessages);
+        notifyModelInputObserver(
+          opts.onModelInput,
+          engineMessages,
+          send.isPrivateTurn(),
+        );
         if (signal.aborted) {
           reportOutcome({
             state: "canceled",
@@ -10246,28 +10347,33 @@ export async function runAgentLoop(opts: {
         const approvalUserEmail = requiresWriteApproval
           ? undefined
           : getRequestUserEmail();
+        const approvalContext = {
+          ...(approvalUserEmail === undefined
+            ? {}
+            : { userEmail: approvalUserEmail }),
+          orgId: getRequestOrgId() ?? null,
+          ...(opts.appId === undefined ? {} : { appId: opts.appId }),
+          caller: opts.actionCaller ?? "tool",
+          ...(opts.automation === undefined
+            ? {}
+            : { automation: opts.automation }),
+          ...(opts.networkProtocol === undefined
+            ? {}
+            : { networkProtocol: opts.networkProtocol }),
+          ...(opts.networkId === undefined
+            ? {}
+            : { networkId: opts.networkId }),
+          ...(opts.networkPeer === undefined
+            ? {}
+            : { networkPeer: opts.networkPeer }),
+        };
         let mustApprove =
           requiresWriteApproval ||
-          (await preparedCallNeedsApproval(actionEntry, intent, {
-            ...(approvalUserEmail === undefined
-              ? {}
-              : { userEmail: approvalUserEmail }),
-            orgId: getRequestOrgId() ?? null,
-            ...(opts.appId === undefined ? {} : { appId: opts.appId }),
-            caller: opts.actionCaller ?? "tool",
-            ...(opts.automation === undefined
-              ? {}
-              : { automation: opts.automation }),
-            ...(opts.networkProtocol === undefined
-              ? {}
-              : { networkProtocol: opts.networkProtocol }),
-            ...(opts.networkId === undefined
-              ? {}
-              : { networkId: opts.networkId }),
-            ...(opts.networkPeer === undefined
-              ? {}
-              : { networkPeer: opts.networkPeer }),
-          }));
+          (await preparedCallNeedsApproval(
+            actionEntry,
+            intent,
+            approvalContext,
+          ));
         if (
           mustApprove &&
           opts.requireWriteApproval !== true &&
@@ -10300,6 +10406,11 @@ export async function runAgentLoop(opts: {
           }
           const askId =
             (await opts.onApprovalRequired?.(approvalBinding())) || undefined;
+          // A private call's arguments stay out of the chat, so its card
+          // keeps the generic question.
+          const approvalLabel = isPrivateCall()
+            ? undefined
+            : preparedCallApprovalLabel(actionEntry, intent, approvalContext);
           await send({
             type: "tool_start",
             id: toolCall.id,
@@ -10312,6 +10423,7 @@ export async function runAgentLoop(opts: {
             input: liveToolInput as Record<string, string>,
             approvalKey,
             argumentsHash,
+            ...(approvalLabel ? { label: approvalLabel } : {}),
             ...(actionEntry.allowPersistentApproval === false
               ? { allowPersistentApproval: false }
               : {}),
@@ -11121,6 +11233,7 @@ export async function runAgentLoop(opts: {
         let chatUIResult: unknown;
         let isError = false;
         let thrown: unknown;
+        let actionRaceFailure: { error: unknown } | undefined;
         // A deadline or abort after invocation leaves a zombie that may still
         // commit, so a retry-safe action stays blocked for it; an error the
         // handler returned does not.
@@ -11230,6 +11343,12 @@ export async function runAgentLoop(opts: {
               actionName: toolCall.name,
               toolCallId: toolCall.id,
               maxResultChars: toolMaxResultChars,
+              ...(actionEntry.persistInChatHistory === false &&
+              engine.supportsPrivateContent === true &&
+              opts.beforeModelDispatch &&
+              opts.registerModelInputGuard
+                ? { registerModelInputGuard: opts.registerModelInputGuard }
+                : {}),
               get omitFromPersistedHistory(): true | undefined {
                 return isPrivateCall() ? true : undefined;
               },
@@ -11289,113 +11408,153 @@ export async function runAgentLoop(opts: {
               toolCall.name,
               ledgerArgumentsHash,
             );
-            const zombieLedgerPromise = actionPromise
-              .then(async (zombieRaw: unknown) => {
-                await new Promise<void>((resolve) => setTimeout(resolve, 0));
-                if (!toolResultLost) return;
-                // A call is recovered only when it may have written.
-                if (ranEffect({}).effect === "none") return;
-                const zombieMcp = isMcpActionResult(zombieRaw)
-                  ? zombieRaw
-                  : null;
-                if (
-                  zombieMcp &&
-                  zombieMcp.raw &&
-                  typeof zombieMcp.raw === "object" &&
-                  (zombieMcp.raw as Record<string, unknown>).isError === true
-                ) {
-                  return;
-                }
-                const zombieResultForAgent = zombieMcp
-                  ? zombieMcp.text
-                  : extractAgentImagesFromActionResult(zombieRaw).value;
-                const zombieResultMetadata =
-                  zombieMcp?.raw ?? zombieResultForAgent;
-                const zombieStr =
-                  typeof zombieResultForAgent === "string"
-                    ? zombieResultForAgent
-                    : JSON.stringify(zombieResultForAgent, null, 2);
-                const zombieArtifacts = detectArtifactReceipts(
-                  zombieResultMetadata,
-                  toolCall.name,
-                );
-                const zombieReceipt = readWriteReceipt(zombieResultMetadata);
-                const zombieChatUI = actionChatUIForResult(
-                  toolCall.name,
-                  actionEntry,
-                  toolCall.input as Record<string, unknown>,
-                  zombieResultForAgent,
-                  false,
-                );
-                const zombieFileMutation = actionEntry.fileMutationProof?.(
-                  toolCall.input,
-                );
-                if (executionStepIntent) {
-                  await recordLateAgentExecutionStepOutcome(
-                    executionStepIntent,
-                    serializeDurableExecutionStepOutcome({
-                      result: isPrivateCall()
-                        ? "[Private content omitted]"
-                        : stripInlineBytes(zombieStr, "placeholder").slice(
-                            0,
-                            toolMaxResultChars,
-                          ),
-                      isError: false,
-                      completedSideEffect: true,
-                      ...(isPrivateCall()
-                        ? {}
-                        : { artifacts: zombieArtifacts }),
-                      ...(!isPrivateCall() && zombieReceipt
-                        ? { receipt: zombieReceipt }
-                        : {}),
-                      ...(!isPrivateCall() && zombieMcp?.mcpApp
-                        ? { mcpApp: zombieMcp.mcpApp }
-                        : {}),
-                      ...(!isPrivateCall() && zombieChatUI
-                        ? {
-                            chatUI: zombieChatUI.chatUI,
-                            chatUIResult: zombieChatUI.result,
-                          }
-                        : {}),
-                      ...(!isPrivateCall() && zombieFileMutation
-                        ? { fileMutation: zombieFileMutation }
-                        : {}),
-                    }),
-                  );
-                }
-                if (!executionStepIntent && !isPrivateCall()) {
-                  await writeLedgerEntry(
-                    ledgerThreadId,
-                    ledgerToolKey,
-                    zombieStr,
-                    zombieArtifacts,
-                    typeof zombieResultForAgent === "string",
-                    zombieChatUI
-                      ? JSON.stringify(zombieChatUI.result)
-                      : undefined,
-                    ledgerArgumentsHash,
-                  );
-                }
-              })
-              .catch((error) => {
-                captureError(
-                  isPrivateCall()
-                    ? new Error("Private content omitted")
-                    : error,
-                  {
-                    ...(isPrivateCall()
-                      ? { errorMessagePolicy: "omit" as const }
-                      : {}),
-                    route: "/_agent-native/agent-chat",
-                    ...(opts.runId ? { aiTraceId: opts.runId } : {}),
-                    tags: {
-                      component: "agent-execution-step",
-                      phase: "late-outcome-persistence",
-                      tool: toolCall.name,
-                    },
+            const reportLateError = (
+              error: unknown,
+              phase: "late-action-rejection" | "late-outcome-persistence",
+            ) => {
+              const privateCall = isPrivateCall();
+              captureError(
+                privateCall ? new Error("Private content omitted") : error,
+                {
+                  ...(privateCall || phase === "late-action-rejection"
+                    ? { errorMessagePolicy: "omit" as const }
+                    : {}),
+                  route: "/_agent-native/agent-chat",
+                  ...(opts.runId ? { aiTraceId: opts.runId } : {}),
+                  tags: {
+                    component: "agent-execution-step",
+                    phase,
+                    tool: toolCall.name,
                   },
+                },
+              );
+            };
+            const zombieLedgerPromise = actionPromise.then(
+              async (zombieRaw: unknown) => {
+                try {
+                  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                  if (!toolResultLost) return;
+                  // A call is recovered only when it may have written.
+                  if (ranEffect({}).effect === "none") return;
+                  const zombieMcp = isMcpActionResult(zombieRaw)
+                    ? zombieRaw
+                    : null;
+                  if (
+                    zombieMcp &&
+                    zombieMcp.raw &&
+                    typeof zombieMcp.raw === "object" &&
+                    (zombieMcp.raw as Record<string, unknown>).isError === true
+                  ) {
+                    return;
+                  }
+                  const zombieResultForAgent = zombieMcp
+                    ? zombieMcp.text
+                    : extractAgentImagesFromActionResult(zombieRaw).value;
+                  const zombieResultMetadata =
+                    zombieMcp?.raw ?? zombieResultForAgent;
+                  const zombieStr =
+                    typeof zombieResultForAgent === "string"
+                      ? zombieResultForAgent
+                      : JSON.stringify(zombieResultForAgent, null, 2);
+                  const zombieArtifacts = detectArtifactReceipts(
+                    zombieResultMetadata,
+                    toolCall.name,
+                  );
+                  const zombieReceipt = readWriteReceipt(zombieResultMetadata);
+                  const zombieChatUI = actionChatUIForResult(
+                    toolCall.name,
+                    actionEntry,
+                    toolCall.input as Record<string, unknown>,
+                    zombieResultForAgent,
+                    false,
+                  );
+                  const zombieFileMutation = actionEntry.fileMutationProof?.(
+                    toolCall.input,
+                  );
+                  if (executionStepIntent) {
+                    await recordLateAgentExecutionStepOutcome(
+                      executionStepIntent,
+                      serializeDurableExecutionStepOutcome({
+                        result: isPrivateCall()
+                          ? "[Private content omitted]"
+                          : stripInlineBytes(zombieStr, "placeholder").slice(
+                              0,
+                              toolMaxResultChars,
+                            ),
+                        isError: false,
+                        completedSideEffect: true,
+                        ...(isPrivateCall()
+                          ? {}
+                          : { artifacts: zombieArtifacts }),
+                        ...(!isPrivateCall() && zombieReceipt
+                          ? { receipt: zombieReceipt }
+                          : {}),
+                        ...(!isPrivateCall() && zombieMcp?.mcpApp
+                          ? { mcpApp: zombieMcp.mcpApp }
+                          : {}),
+                        ...(!isPrivateCall() && zombieChatUI
+                          ? {
+                              chatUI: zombieChatUI.chatUI,
+                              chatUIResult: zombieChatUI.result,
+                            }
+                          : {}),
+                        ...(!isPrivateCall() && zombieFileMutation
+                          ? { fileMutation: zombieFileMutation }
+                          : {}),
+                      }),
+                    );
+                  }
+                  if (!executionStepIntent && !isPrivateCall()) {
+                    await writeLedgerEntry(
+                      ledgerThreadId,
+                      ledgerToolKey,
+                      zombieStr,
+                      zombieArtifacts,
+                      typeof zombieResultForAgent === "string",
+                      zombieChatUI
+                        ? JSON.stringify(zombieChatUI.result)
+                        : undefined,
+                      ledgerArgumentsHash,
+                    );
+                  }
+                } catch (error) {
+                  reportLateError(error, "late-outcome-persistence");
+                }
+              },
+              async (error: unknown) => {
+                // Let the race record which rejection it actually handled.
+                await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                if (
+                  !actionRaceFailure ||
+                  Object.is(actionRaceFailure.error, error) ||
+                  (error instanceof ActionInputValidationError &&
+                    actionExecutionOutcome.evidence?.writeObserved === false) ||
+                  (isActionContractError(error) &&
+                    !isActionOutputContractError(error) &&
+                    (error.statusCode < 500 ||
+                      error.errorCode === "storage_setup_required") &&
+                    actionExecutionOutcome.evidence?.writeObserved === false) ||
+                  (isAgentActionStopError(error) &&
+                    actionExecutionOutcome.evidence?.writeObserved === false) ||
+                  // Retry safety does not establish that a write did not happen.
+                  (signal.aborted &&
+                    error instanceof Error &&
+                    error.name === "AbortError" &&
+                    ranEffect({ failed: { error }, retrySafe: false })
+                      .effect === "none") ||
+                  (!actionInvoked &&
+                    error instanceof Error &&
+                    ((signal.aborted && error.message === "Run aborted") ||
+                      (timeoutSignal.aborted &&
+                        error.message === timeoutMessage())))
+                )
+                  return;
+                reportLateError(
+                  new Error("Late action failed"),
+                  "late-action-rejection",
                 );
-              });
+              },
+            );
             void retainRequestDbPoolScope(zombieLedgerPromise);
           }
 
@@ -11417,7 +11576,10 @@ export async function runAgentLoop(opts: {
                 { once: true },
               );
             }),
-          ]);
+          ]).catch((error: unknown) => {
+            actionRaceFailure = { error };
+            throw error;
+          });
           settlementOnReturn = settlementWasRequested();
           const mcpResult = isMcpActionResult(raw) ? raw : null;
           const rawForAgent = mcpResult ? mcpResult.text : raw;
@@ -14504,6 +14666,9 @@ export function createProductionAgentHandler(
       const requestContext = getRequestContext();
       mutableBody[AGENT_CHAT_REQUEST_CONTEXT_FIELD] = {
         requestOrigin: requestContext?.requestOrigin ?? null,
+        ...(requestContext?.timezone
+          ? { timezone: requestContext.timezone }
+          : {}),
         isLoopbackRequest:
           !dispatchToBackground && requestContext?.isLoopbackRequest === true,
         isDirectLoopbackRequest:
@@ -17755,11 +17920,15 @@ export function createProductionAgentHandler(
             }
             return "none";
           };
+        const modelInputScopes = createModelInputScopeGuardRegistry(() => {
+          abortRun(runId, MODEL_INPUT_SCOPE_ABORT_REASON);
+        });
         const { beforeModelDispatch: guardedBeforeModelDispatch, beforeWrite } =
           createRunSafeBoundaryGuards({
             signal,
             flushEvents: control.flushEvents,
             interruptRequestedAtBoundary: interruptQueuedRunAtBoundary,
+            validateModelInput: modelInputScopes.validate,
           });
         const exposureAssignment =
           questionIntakeAssignment && !internalContinuation && !continueOf
@@ -17821,19 +17990,24 @@ export function createProductionAgentHandler(
         if (customAgentRefs.length > 0) {
           const ownerEmail = getRequestUserEmail();
           if (!ownerEmail) throw new Error("no authenticated user");
-          const { findAccessibleCustomAgent } =
-            await import("../resources/agents.js");
+          const {
+            findAccessibleCustomAgent,
+            resolveAccessibleCustomAgentReference,
+          } = await import("../resources/agents.js");
           const customResults = await Promise.allSettled(
             customAgentRefs.map(async (ref, index) => {
+              const agentCallId = randomUUID();
               send({
                 type: "agent_call",
                 agent: ref.name,
                 status: "start",
+                agentCallId,
               });
               try {
-                const profile = await findAccessibleCustomAgent(
+                const profile = await resolveAccessibleCustomAgentReference(
                   ownerEmail,
-                  ref.refId || ref.path || ref.name,
+                  ref,
+                  findAccessibleCustomAgent,
                 );
                 if (!profile) {
                   throw new Error("Profile not found");
@@ -17920,6 +18094,7 @@ export function createProductionAgentHandler(
                         type: "agent_call_text",
                         agent: ref.name,
                         text: event.text,
+                        agentCallId,
                       });
                     } else if (
                       event.type === "tool_start" ||
@@ -17977,6 +18152,7 @@ export function createProductionAgentHandler(
                   type: "agent_call",
                   agent: ref.name,
                   status: "done",
+                  agentCallId,
                 });
                 return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent">\n${responseText}\n</agent-response>`;
               } catch (err: any) {
@@ -17984,6 +18160,7 @@ export function createProductionAgentHandler(
                   type: "agent_call",
                   agent: ref.name,
                   status: "error",
+                  agentCallId,
                 });
                 const message =
                   userFacingLlmCredentialError(err, {
@@ -18128,6 +18305,7 @@ export function createProductionAgentHandler(
           systemSections: contextXraySystemSections,
           actions: requestActions,
           beforeModelDispatch,
+          registerModelInputGuard: modelInputScopes.register,
           beforeWrite,
           unknownOutcomes,
           internalContinuation,

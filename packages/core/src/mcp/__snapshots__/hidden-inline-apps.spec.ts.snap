@@ -1,11 +1,37 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-// oracle-change: the deleted Slides 2 template no longer has an inline app, and Mail's manage-draft now has one
-exports[`explicit connector inline apps > advertises each inline tool on the default production catalog, with a UI resource only for a scoped widget target 1`] = `
+// oracle-change(packages/core/src/mcp/__snapshots__/hidden-inline-apps.spec.ts.snap): embedApp cards outside a directory listing now carry their UI resource and open the full app, and the harness sends a hosted origin that widget CSP names
+exports[`explicit connector inline apps > advertises each inline tool on the default production catalog with its UI resource 1`] = `
 {
   "analytics": [
     {
-      "_meta": undefined,
+      "_meta": {
+        "openai/outputTemplate": "ui://analytics/open-traffic-dashboard/shell-v65",
+        "openai/toolInvocation/invoked": "Traffic dashboard ready",
+        "openai/toolInvocation/invoking": "Opening Traffic dashboard",
+        "openai/widgetAccessible": true,
+        "openai/widgetCSP": {
+          "connect_domains": [
+            "https://esm.sh",
+            "https://catalog.agent-native.test",
+          ],
+          "frame_domains": [
+            "https://catalog.agent-native.test",
+          ],
+          "resource_domains": [
+            "https://esm.sh",
+            "https://catalog.agent-native.test",
+          ],
+        },
+        "ui": {
+          "resourceUri": "ui://analytics/open-traffic-dashboard/shell-v65",
+          "visibility": [
+            "model",
+            "app",
+          ],
+        },
+        "ui/resourceUri": "ui://analytics/open-traffic-dashboard/shell-v65",
+      },
       "annotations": {
         "destructiveHint": false,
         "openWorldHint": false,
@@ -17,7 +43,33 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
   ],
   "calendar": [
     {
-      "_meta": undefined,
+      "_meta": {
+        "openai/outputTemplate": "ui://calendar/manage-event-draft/shell-v65",
+        "openai/toolInvocation/invoked": "Review calendar invite ready",
+        "openai/toolInvocation/invoking": "Opening Review calendar invite",
+        "openai/widgetAccessible": true,
+        "openai/widgetCSP": {
+          "connect_domains": [
+            "https://esm.sh",
+            "https://catalog.agent-native.test",
+          ],
+          "frame_domains": [
+            "https://catalog.agent-native.test",
+          ],
+          "resource_domains": [
+            "https://esm.sh",
+            "https://catalog.agent-native.test",
+          ],
+        },
+        "ui": {
+          "resourceUri": "ui://calendar/manage-event-draft/shell-v65",
+          "visibility": [
+            "model",
+            "app",
+          ],
+        },
+        "ui/resourceUri": "ui://calendar/manage-event-draft/shell-v65",
+      },
       "annotations": {
         "destructiveHint": true,
         "idempotentHint": false,
@@ -38,14 +90,14 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
         "openai/widgetCSP": {
           "connect_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "frame_domains": [
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "resource_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
         },
         "ui": {
@@ -77,14 +129,14 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
         "openai/widgetCSP": {
           "connect_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "frame_domains": [
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "resource_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
         },
         "ui": {
@@ -114,14 +166,14 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
         "openai/widgetCSP": {
           "connect_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "frame_domains": [
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "resource_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
         },
         "ui": {
@@ -153,14 +205,14 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
         "openai/widgetCSP": {
           "connect_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "frame_domains": [
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "resource_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
         },
         "ui": {
@@ -183,7 +235,33 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
   ],
   "slides": [
     {
-      "_meta": undefined,
+      "_meta": {
+        "openai/outputTemplate": "ui://slides/clone-context-slide/shell-v65",
+        "openai/toolInvocation/invoked": "Cloned native slide ready",
+        "openai/toolInvocation/invoking": "Opening Cloned native slide",
+        "openai/widgetAccessible": true,
+        "openai/widgetCSP": {
+          "connect_domains": [
+            "https://esm.sh",
+            "https://catalog.agent-native.test",
+          ],
+          "frame_domains": [
+            "https://catalog.agent-native.test",
+          ],
+          "resource_domains": [
+            "https://esm.sh",
+            "https://catalog.agent-native.test",
+          ],
+        },
+        "ui": {
+          "resourceUri": "ui://slides/clone-context-slide/shell-v65",
+          "visibility": [
+            "model",
+            "app",
+          ],
+        },
+        "ui/resourceUri": "ui://slides/clone-context-slide/shell-v65",
+      },
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": false,

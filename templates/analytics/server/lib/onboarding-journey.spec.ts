@@ -55,6 +55,7 @@ import {
   type JourneySummary,
   type JourneyTree,
   type OnboardingJourneyArgs,
+  type OnboardingJourneyCohorts,
 } from "./onboarding-journey";
 
 const scope = { userEmail: "owner@example.test", orgId: null };
@@ -1214,7 +1215,7 @@ describe("getOnboardingJourney", () => {
       });
       expect(mocks.queryFirstPartyAnalytics.mock.calls[1]?.[2]).toMatchObject({
         eventDateRange: { startDate: "2026-10-01", endDate: "2026-10-02" },
-        maxBytesBilled: 10_000_000_000,
+        maxBytesBilled: 25_000_000_000,
       });
     } finally {
       now.mockRestore();
@@ -2009,8 +2010,19 @@ describe("getOnboardingJourney", () => {
       })) as JourneySummary;
 
       expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(1);
+      expect(mocks.queryFirstPartyAnalytics.mock.calls[0]?.[2]).toMatchObject({
+        resumable: { deadline: expect.any(AbortSignal) },
+      });
       expect(summary.coverage.truncated).toBe(true);
-      expect(summary.notes?.join(" ")).toMatch(/45-second deadline/);
+      expect(summary.notes?.join(" ")).toMatch(/15-second time budget/);
+      expect(summary.notes?.join(" ")).toMatch(
+        /stopped at its time budget \(15 seconds for the event read, 22 in all\)\. Call again within a few minutes with the same arguments and observationWatermark="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z": queries that finished are kept in the query cache and unfinished BigQuery queries keep running/,
+      );
+      expect(summary.continueWith).toEqual({
+        observationWatermark: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/,
+        ),
+      });
       expect(summary.followUp).toMatchObject({
         status: "incomplete",
         incompleteReason: "journey_event_read_truncated",
@@ -2018,6 +2030,325 @@ describe("getOnboardingJourney", () => {
       });
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it.each(["postgres", "dual"] as const)(
+    "tells a %s-backed read stopped at its deadline to continue from its cached pages",
+    async (sink) => {
+      // Finished pages are cached there too, but nothing is left running.
+      vi.useFakeTimers();
+      mocks.getFirstPartyAnalyticsBackend.mockResolvedValue({
+        sink,
+        table: null,
+      });
+      mocks.queryFirstPartyAnalytics.mockImplementationOnce(async () => {
+        await vi.advanceTimersByTimeAsync(ONBOARDING_EVENT_READ_DEADLINE_MS);
+        return {
+          rows: Array.from({ length: 4_000 }, (_, index) =>
+            eventRow(`deadline-${index}`, "signup", index),
+          ),
+          schema: [],
+        };
+      });
+
+      try {
+        const summary = (await getOnboardingJourney(scope, {
+          ...ARGS,
+          dateTo: "2026-10-09",
+          format: "summary",
+          maxEventRows: 20_000,
+        })) as JourneySummary;
+
+        const notes = summary.notes?.join(" ");
+        expect(notes).toMatch(
+          /queries that finished are kept in the query cache, so the next call continues from them\. Repeat until this note is gone\./,
+        );
+        expect(notes).not.toMatch(/BigQuery/);
+        expect(summary.continueWith).toBeDefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("gives cohort trees the watermark to continue from at the event-read deadline", async () => {
+    vi.useFakeTimers();
+    mocks.queryFirstPartyAnalytics.mockImplementationOnce(async () => {
+      await vi.advanceTimersByTimeAsync(ONBOARDING_EVENT_READ_DEADLINE_MS);
+      return {
+        rows: Array.from({ length: 4_000 }, (_, index) =>
+          eventRow(`deadline-${index}`, "signup", index),
+        ),
+        schema: [],
+      };
+    });
+
+    try {
+      const cohorts = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        app: "design",
+        splitDesignFirstTouch: true,
+        dateTo: "2026-10-09",
+        maxEventRows: 20_000,
+      })) as OnboardingJourneyCohorts;
+
+      expect(cohorts.readCoverage.truncated).toBe(true);
+      expect(cohorts.continueWith).toEqual({
+        observationWatermark: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/,
+        ),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("requests the pages after the first side by side once it reports the total", async () => {
+    const total = 10_001;
+    const rows = Array.from({ length: total }, (_, index) =>
+      eventRow(
+        `side-${String(Math.floor(index / 10)).padStart(4, "0")}`,
+        "signup",
+        index,
+        { journey_total_rows: total, journey_rows_fingerprint: 7 },
+      ),
+    );
+    const offsets: number[] = [];
+    let releaseSecondPage!: () => void;
+    const thirdPageRequested = new Promise<void>((resolve) => {
+      releaseSecondPage = resolve;
+    });
+    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
+      if (!sql.includes("journey_total_rows")) return { rows: [], schema: [] };
+      const offset = Number(/OFFSET (\d+)$/.exec(sql)?.[1] ?? 0);
+      offsets.push(offset);
+      if (offset === 8_000) releaseSecondPage();
+      // A read that waited for each page before asking for the next would
+      // never request the third page, and this one would never answer.
+      if (offset === 4_000) await thirdPageRequested;
+      return { rows: rows.slice(offset, offset + 4_000), schema: [] };
+    });
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      format: "summary",
+      maxEventRows: 12_000,
+    })) as JourneySummary;
+
+    expect(offsets).toEqual([0, 4_000, 8_000]);
+    expect(summary.coverage.truncated).toBe(false);
+    expect(summary.followUp.coverage.journeyEventRead).toMatchObject({
+      rows: total,
+      pages: 3,
+      paginationConsistency: "stable",
+    });
+  });
+
+  it("runs both follow-ups side by side in the time the event read left, at 25 GB each", async () => {
+    let clockMs = 0;
+    const clock = vi
+      .spyOn(performance, "now")
+      .mockImplementation(() => clockMs);
+    let call = 0;
+    let releaseSessionFollowup!: () => void;
+    const personFollowupRequested = new Promise<void>((resolve) => {
+      releaseSessionFollowup = resolve;
+    });
+    mocks.queryFirstPartyAnalytics.mockImplementation(async () => {
+      call += 1;
+      if (call === 1) {
+        clockMs = 18_000;
+        return { rows: journeyRows(), schema: [] };
+      }
+      // Waiting for the session follow-up first would leave this unanswered.
+      if (call === 2) await personFollowupRequested;
+      else releaseSessionFollowup();
+      return { rows: [], schema: [] };
+    });
+
+    try {
+      const summary = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        followUpMode: "person",
+        format: "summary",
+      })) as JourneySummary;
+
+      expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(3);
+      for (const [
+        ,
+        ,
+        options,
+      ] of mocks.queryFirstPartyAnalytics.mock.calls.slice(1)) {
+        expect(options).toMatchObject({
+          maxBytesBilled: 25_000_000_000,
+          timeoutMs: 4_000,
+        });
+      }
+      expect(summary.personFollowUp).toBeDefined();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it.each([
+    {
+      name: "says how to continue when a follow-up was cut short by the budget",
+      readMs: 10_000,
+    },
+    {
+      // Its job keeps running, so the next call collects it.
+      name: "says how to continue when a follow-up ran out of a query's full time",
+      readMs: 0,
+    },
+  ])("$name", async ({ readMs }) => {
+    let clockMs = 0;
+    const clock = vi
+      .spyOn(performance, "now")
+      .mockImplementation(() => clockMs);
+    mocks.queryFirstPartyAnalytics
+      .mockImplementationOnce(async () => {
+        clockMs = readMs;
+        return { rows: journeyRows(), schema: [] };
+      })
+      .mockRejectedValueOnce(new FirstPartyAnalyticsQueryTimeoutError());
+
+    try {
+      const summary = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        format: "summary",
+      })) as JourneySummary;
+
+      expect(mocks.queryFirstPartyAnalytics.mock.calls[1]?.[2]).toMatchObject({
+        resumable: {},
+      });
+      expect(summary.followUp).toMatchObject({
+        status: "incomplete",
+        incompleteReason: "followup_aggregate_query_timeout",
+      });
+      expect(summary.notes?.join(" ")).toMatch(
+        /stopped at its time budget.*Call again within a few minutes with the same arguments and observationWatermark=/,
+      );
+      expect(summary.notes).toHaveLength(1);
+      expect(summary.continueWith).toBeDefined();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it.each(["postgres", "dual"] as const)(
+    "does not offer a retry when a %s-backed follow-up had a query's full time",
+    async (sink) => {
+      // Only a BigQuery job keeps running for the next call to collect.
+      mocks.getFirstPartyAnalyticsBackend.mockResolvedValue({
+        sink,
+        table: null,
+      });
+      mocks.queryFirstPartyAnalytics
+        .mockResolvedValueOnce({ rows: journeyRows(), schema: [] })
+        .mockRejectedValueOnce(new FirstPartyAnalyticsQueryTimeoutError());
+
+      const summary = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        format: "summary",
+      })) as JourneySummary;
+
+      expect(summary.followUp).toMatchObject({
+        status: "incomplete",
+        incompleteReason: "followup_aggregate_query_timeout",
+      });
+      expect(summary.notes).toEqual([
+        expect.stringMatching(
+          /needed more than the 20 seconds one query may run, so calling again will not finish it/,
+        ),
+      ]);
+      expect(summary.continueWith).toBeUndefined();
+    },
+  );
+
+  it("reads as of a pinned observationWatermark, so a later call sends the same queries", async () => {
+    const watermark = "2026-10-09T11:58:00.000Z";
+    const now = vi.spyOn(Date, "now");
+    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => ({
+      rows: sql.includes("journey_total_rows") ? journeyRows() : [],
+      schema: [],
+    }));
+    const pinned = {
+      ...ARGS,
+      dateTo: "2026-10-09",
+      followUpMode: "person" as const,
+      format: "summary" as const,
+      observationWatermark: watermark,
+    };
+    const queriesAt = async (nowIso: string) => {
+      mocks.queryFirstPartyAnalytics.mockClear();
+      now.mockReturnValue(Date.parse(nowIso));
+      const summary = (await getOnboardingJourney(
+        scope,
+        pinned,
+      )) as JourneySummary;
+      expect(summary.personFollowUp?.observationWatermark).toBe(watermark);
+      return mocks.queryFirstPartyAnalytics.mock.calls.map(([sql]) => sql);
+    };
+
+    try {
+      const first = await queriesAt("2026-10-09T12:00:00.000Z");
+      expect(first).toHaveLength(3);
+      expect(first.every((sql) => sql.includes(watermark))).toBe(true);
+      expect(await queriesAt("2026-10-09T12:07:30.000Z")).toEqual(first);
+      for (const observationWatermark of [
+        "2026-10-09T11:58:30.000Z",
+        "2026-10-09T11:58:00Z",
+        "2026-10-09T12:30:00.000Z",
+      ]) {
+        await expect(
+          getOnboardingJourney(scope, { ...pinned, observationWatermark }),
+        ).rejects.toThrow(/past UTC minute/);
+      }
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("gives a window ending today a watermark that rebuilds the same queries", async () => {
+    const now = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.parse("2026-10-09T12:07:30.000Z"));
+    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => ({
+      rows: sql.includes("journey_total_rows") ? journeyRows() : [],
+      schema: [],
+    }));
+    const today = {
+      ...ARGS,
+      dateTo: "2026-10-09",
+      followUpMode: "person" as const,
+      format: "summary" as const,
+    };
+
+    try {
+      const first = (await getOnboardingJourney(
+        scope,
+        today,
+      )) as JourneySummary;
+      const firstQueries = mocks.queryFirstPartyAnalytics.mock.calls.map(
+        ([sql]) => sql,
+      );
+      expect(first.personFollowUp?.observationWatermark).toBe(
+        "2026-10-09T12:07:00.000Z",
+      );
+      expect(first.followUp.observationCutoff).toBe("2026-10-09T12:07:00.000Z");
+
+      mocks.queryFirstPartyAnalytics.mockClear();
+      now.mockReturnValue(Date.parse("2026-10-09T12:09:10.000Z"));
+      await getOnboardingJourney(scope, {
+        ...today,
+        observationWatermark: "2026-10-09T12:07:00.000Z",
+      });
+      expect(
+        mocks.queryFirstPartyAnalytics.mock.calls.map(([sql]) => sql),
+      ).toEqual(firstQueries);
+    } finally {
+      now.mockRestore();
     }
   });
 

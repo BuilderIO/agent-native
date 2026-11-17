@@ -980,7 +980,11 @@ const editor = {
     imageUploaded_other: "Bilder hochgeladen",
     includeTime: "Zeit einbeziehen",
     loadingProperties: "Eigenschaften werden geladen",
-    content: "Inhalt",
+    pageDetails: "Seitendetails",
+    createdOn: "Erstellt am {{date}}",
+    editedAgo: "Bearbeitet {{time}}",
+    editedOn: "Bearbeitet am {{date}}",
+    editedJustNow: "Gerade eben bearbeitet",
     loadingContent: "Inhalt wird geladen",
     wordCount_zero: "{{count}} Wörter",
     wordCount_one: "{{count}} Wort",
@@ -1085,6 +1089,10 @@ const editor = {
     fourColumns: "4 Spalten",
     codeBlock: "Codeblock",
     codeBlockDescription: "Codeausschnitt",
+    toggleHeading1: "Aufklappbare Überschrift 1",
+    toggleHeading2: "Aufklappbare Überschrift 2",
+    toggleHeading3: "Aufklappbare Überschrift 3",
+    toggleHeadingDescription: "Überschrift zum Auf- und Zuklappen",
     collapsibleBlockDescription: "Zusammenklappbarer Block",
     database: "Sammlung",
     databaseDescription: "Inline-Sammlung auf dieser Seite",
@@ -1179,6 +1187,12 @@ const editor = {
     agentLevelNote: "Agenten können kommentieren",
     agentLevelNoteHint:
       "Agenten können auf dieser Seite kommentieren. Ändere das unter Teilen.",
+    agentLevelViewDescription:
+      "Können diese Seite lesen, aber nicht kommentieren, vorschlagen oder bearbeiten.",
+    agentLevelViewConfirm: "Agenten können diese Seite jetzt nur noch lesen.",
+    agentLevelViewNote: "Agenten können nur ansehen",
+    agentLevelViewNoteHint:
+      "Agenten können diese Seite nur ansehen. Ändere das unter Teilen.",
     sendPageToAgent: "Diese Seite an einen Agenten senden",
     connectAgentOverMcp: "Agenten über MCP verbinden",
     importingFromNotion: "Aus Notion importieren...",
@@ -1290,6 +1304,7 @@ const rawLiterals = {
     rename: "Umbenennen",
     duplicate: "Duplizieren",
     moveTo: "Verschieben nach",
+    addSubPage: "Unterseite hinzufügen",
     moveToTrash: "In den Papierkorb verschieben",
     lastEditedBy: "Zuletzt bearbeitet von {{name}}",
     lastEdited: "Zuletzt bearbeitet",
@@ -1524,6 +1539,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "Dieser Vorschlag wurde an anderer Stelle geändert. Ihr nicht gespeicherter Entwurf ist noch vorhanden.",
     discardSuggestionDraft: "Entwurf verwerfen",
+    mermaid: {
+      source: "Mermaid",
+      done: "Fertig",
+      doneShortcut: "Quelltext schließen (Esc)",
+      editDiagram: "Diagramm bearbeiten",
+      cantDraw: "Dieses Diagramm kann nicht gezeichnet werden",
+    },
     failedToCreatePage: "Seite konnte nicht erstellt werden",
     slash: {
       blockEquation: "Blockgleichung",
@@ -1562,6 +1584,9 @@ const exactEnglish = {
       temporaryAgentLink: "Temporärer Agentenlink",
       privateLinkCanView: "Nur Personen mit Zugriff können ihn ansehen",
       publicLinkCanView: "Jede Person mit dem Link kann ihn ansehen",
+      publicSubPagesOne: "Diese Seite und ihre Unterseite",
+      publicSubPages: "Diese Seite und ihre {{count}} Unterseiten",
+      publicSubPagesMore: "Diese Seite und mehr als {{count}} Unterseiten",
       copiedAgentPrompt: "Agenten-Anweisung kopiert",
       couldNotCopyAgentPrompt: "Agenten-Anweisung konnte nicht kopiert werden",
       agentPrompt:
@@ -1738,9 +1763,20 @@ const overrides = {
     commandDatabasesHeading: "Sammlungen",
     commandLocalFilesHeading: "Lokale Dateien",
     commandDatabaseResultDescription: "Sammlungsseite öffnen",
-    commandAppearance: "Darstellung",
     openAgent: "Agent öffnen",
     toggleTheme: "Theme wechseln",
+    commandOnPage: "In „{{title}}“",
+    commandSearchInPage: "In dieser Seite suchen",
+    commandSearchInPageDescription: "Nur diese Seite und die Seiten darin",
+    commandScopeChip: "In „{{title}}“",
+    commandClearScope: "Ganzen Bereich durchsuchen",
+    commandAskAgent: "Agent fragen: „{{query}}“",
+    commandAskAgentDescription:
+      "Der Agent kann für dich suchen, lesen und zusammenfassen",
+    commandPreview: "Vorschau",
+    commandHintNavigate: "Navigieren",
+    commandHintOpen: "Öffnen",
+    commandHintClose: "Schließen",
   },
   theme: {
     system: "Systemtheme",
@@ -1875,6 +1911,18 @@ const overrides = {
       "Dadurch werden „{{name}}“ und sein Text aus jeder Zeile dieser Sammlung gelöscht. Das lässt sich nicht rückgängig machen.",
     deleteBlockFieldBodyWarning:
       "„{{name}}“ ist der Seiteninhalt, daher wird auch der Haupttext jeder Zeile gelöscht.",
+    blockFieldFrozen: "Eingefroren, solange {{column}} {{value}} ist",
+    blockFieldFrozenDescription:
+      "Eine Regel dieser Sammlung verhindert, dass jemand, ob Person oder Agent, diesen Tab ändert. Setzen Sie {{column}} auf einen anderen Wert als {{value}}, um ihn zu bearbeiten.",
+    blockFieldFrozenByManagers:
+      "Eingefroren, solange {{column}} {{value}} ist. Nur Personen mit Vollzugriff auf die Sammlung können das ändern.",
+    blockFieldFrozenSaveRefused:
+      "Dieser Tab ist eingefroren, Ihre Änderung wurde nicht gespeichert",
+    freezeBlockField: "Einfrieren, solange …",
+    freezeBlockFieldWhile: "Solange {{column}} ist:",
+    freezeBlockFieldNoColumns:
+      "Fügen Sie eine Status- oder Auswahlspalte hinzu, um danach einzufrieren",
+    unfreezeBlockField: "Nicht einfrieren",
   },
   comments: {
     add: "Kommentar hinzufügen...",

@@ -375,6 +375,7 @@ function EmailSettings({ email }: { email: string }) {
     status,
     setStatus,
     submit: requestChange,
+    serverMessage,
   } = useEmailChange();
 
   useEffect(() => {
@@ -399,7 +400,7 @@ function EmailSettings({ email }: { email: string }) {
           </span>
         ) : status === "error" ? (
           <span className="text-destructive" role="alert">
-            {t("settings.emailChangeError")}
+            {serverMessage ?? t("settings.emailChangeError")}
           </span>
         ) : (
           email

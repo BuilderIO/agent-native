@@ -41,6 +41,7 @@ const FIELDS = [
 ] as const;
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,

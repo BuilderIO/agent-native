@@ -7,6 +7,7 @@ import {
   assertPersonReviewAnchorKind,
   canCommentOnReviewableResource,
   resolveReviewableResourceAccess,
+  reviewWriteRefusal,
 } from "../registry.js";
 import { getReviewCommentById, updateReviewComment } from "../store.js";
 import type { ReviewResourceContext } from "../types.js";
@@ -76,7 +77,13 @@ export default defineAction({
     }
     const isAuthor = comment.authorEmail?.trim().toLowerCase() === userEmail;
     if (!access || !canCommentOnReviewableResource(args.resourceType, access)) {
-      throw new ForbiddenError("Not allowed to move this review comment");
+      throw new ForbiddenError(
+        reviewWriteRefusal(
+          args.resourceType,
+          access,
+          "Not allowed to move this review comment",
+        ),
+      );
     }
     if (!isAuthor && !roleSatisfies(access.role, "editor")) {
       throw new ForbiddenError("Not allowed to move this review comment");

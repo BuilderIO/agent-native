@@ -131,7 +131,10 @@ function readHeaderValue(event: any, name: string): unknown {
 
 export function readAgentRunTimezone(event: H3Event): string | undefined {
   const raw = readHeaderValue(event, "x-user-timezone");
-  const value = Array.isArray(raw) ? raw[0] : raw;
+  return normalizeAgentRunTimezone(Array.isArray(raw) ? raw[0] : raw);
+}
+
+function normalizeAgentRunTimezone(value: unknown): string | undefined {
   return typeof value === "string" &&
     value.trim().length > 0 &&
     value.trim().length < 64
@@ -308,6 +311,34 @@ export async function resolveAgentRunOrgScope(options: {
 }): Promise<AgentRunOrgScope> {
   const { ownerContext } = options;
   await assertOrgScopeAvailable(options.event);
+  // Only this explicit host credential can supply a personal scope here.
+  // Ordinary callers retain the resolver's existing precedence and failure handling.
+  const bearer = /^Bearer\s+(\S+)$/i.exec(
+    String(readHeaderValue(options.event, "authorization") ?? ""),
+  )?.[1];
+  if (bearer) {
+    const { verifyEmbedSessionToken } = await import("./embed-session.js");
+    const { isWorkspaceAppChatScope } =
+      await import("../shared/workspace-app-chat-capability.js");
+    const verified = verifyEmbedSessionToken(bearer);
+    if (verified.ok && isWorkspaceAppChatScope(verified.claims.scope)) {
+      const { getSession } = await import("./auth.js");
+      const session = await getSession(options.event);
+      if (
+        !session ||
+        session.token !== bearer ||
+        session.email.trim().toLowerCase() !==
+          verified.claims.ownerEmail.trim().toLowerCase()
+      )
+        throw createError({
+          statusCode: 401,
+          statusMessage: "Invalid chat session",
+        });
+      return session.orgId
+        ? { orgId: session.orgId }
+        : { orgScope: "personal" };
+    }
+  }
   const hasOwnerOrgId = Object.prototype.hasOwnProperty.call(
     ownerContext,
     "orgId",
@@ -426,6 +457,16 @@ export async function resolveAgentRunRequestContext(options: {
       "string"
       ? (durableRequestContext as Record<string, string>).requestOrigin
       : undefined;
+  // A durable worker's request is server-to-server, so the browser's zone only
+  // arrives through the payload captured when the turn was admitted.
+  const durableTimezone =
+    durableRequestContext &&
+    typeof durableRequestContext === "object" &&
+    !Array.isArray(durableRequestContext)
+      ? normalizeAgentRunTimezone(
+          (durableRequestContext as Record<string, unknown>).timezone,
+        )
+      : undefined;
   const run = {
     ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
     ...(waitUntil ? { waitUntil } : {}),
@@ -449,7 +490,7 @@ export async function resolveAgentRunRequestContext(options: {
     ...(identitySessionToken ? { identitySessionToken } : {}),
     userName: options.ownerContext.name,
     orgId,
-    timezone,
+    timezone: timezone ?? durableTimezone,
     ...(browserSessionId ? { browserSessionId } : {}),
     ...(clientPlatform ? { clientPlatform } : {}),
     ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),

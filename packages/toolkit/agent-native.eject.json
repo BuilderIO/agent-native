@@ -731,6 +731,7 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/client/app-config",
         "@agent-native/core/client/action-query-cache",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/dev-overlay",
@@ -802,6 +803,7 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/client/mobile-auth",
         "@agent-native/core/client/analytics",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/auth/auth-page-helpers",
@@ -1356,6 +1358,7 @@
         "@agent-native/core",
         "@tabler/icons-react",
         "@tiptap/core",
+        "@tiptap/extension-code",
         "@tiptap/extension-placeholder",
         "@tiptap/pm",
         "@tiptap/react",
@@ -1364,13 +1367,16 @@
         "react",
         "react-markdown",
         "remark-gfm",
+        "sonner",
         "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/review/use-review",
+        "@agent-native/core/client/uploads",
         "@agent-native/core/client/use-avatar",
+        "@agent-native/core/review/markdown",
         "@agent-native/core/review/plain-text",
         "@agent-native/core/review/types"
       ]
@@ -1434,6 +1440,8 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/localization",
+        "@agent-native/core/client/agent-engine-readiness",
         "@agent-native/core/client/agent-chat",
         "@agent-native/core/client/agent-native-version",
         "@agent-native/core/client/analytics",
@@ -1446,6 +1454,7 @@
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/route-chunk-recovery",
         "@agent-native/core/client/sign-out",
+        "@agent-native/core/client/theme",
         "@agent-native/core/client/use-agent-engine-configured",
         "@agent-native/core/client/use-chat-models",
         "@agent-native/core/client/use-session",
@@ -1868,24 +1877,40 @@
       "label": "Dashboard kit",
       "catalog": "toolkit-ui",
       "catalogItems": ["dashboard"],
-      "entrypoints": ["./dashboard", "./dashboard/*"],
+      "entrypoints": [
+        "./dashboard",
+        "./dashboard/*",
+        "./app/dashboard-charts/*"
+      ],
       "strategy": "source-copy",
-      "sourceEntries": ["src/dashboard"],
+      "sourceEntries": ["src/dashboard", "src/app/dashboard-charts"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/core",
+        "@radix-ui/react-context-menu",
+        "@radix-ui/react-dropdown-menu",
+        "@radix-ui/react-hover-card",
+        "@radix-ui/react-popover",
         "@radix-ui/react-select",
         "@radix-ui/react-slot",
+        "@radix-ui/react-tooltip",
         "@tabler/icons-react",
         "class-variance-authority",
         "clsx",
         "culori",
         "react",
+        "react-dom",
+        "react-markdown",
+        "react-router",
         "recharts",
+        "remark-gfm",
         "tailwind-merge"
       ],
       "protectedImports": [
+        "@agent-native/core/client/i18n",
         "@agent-native/toolkit/ui/button",
         "@agent-native/toolkit/ui/card",
+        "@agent-native/toolkit/ui/hover-card",
         "@agent-native/toolkit/ui/select",
         "@agent-native/toolkit/ui/skeleton",
         "@agent-native/toolkit/ui/table",
@@ -2055,6 +2080,7 @@
       "sourceEntries": ["src/ui"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/core",
         "@radix-ui/react-accordion",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-aspect-ratio",

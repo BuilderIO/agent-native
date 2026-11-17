@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
+import { visualEditCapabilityConnectionClause } from "../server/lib/visual-edit-capability.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import { DESIGN_CAPABILITY_NAMES } from "../shared/design-source-capabilities.js";
 import "../server/db/index.js";
@@ -53,6 +54,7 @@ export default defineAction({
           const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
             designId,
           });
+          const capabilityClause = await visualEditCapabilityConnectionClause();
           const [conn] = await db
             .select({
               capabilities: schema.designLocalhostConnections.capabilities,
@@ -65,6 +67,7 @@ export default defineAction({
                 orgId
                   ? eq(schema.designLocalhostConnections.orgId, orgId)
                   : isNull(schema.designLocalhostConnections.orgId),
+                capabilityClause,
               ),
             )
             .limit(1);

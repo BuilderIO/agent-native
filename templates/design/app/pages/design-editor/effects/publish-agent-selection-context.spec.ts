@@ -417,6 +417,35 @@ describe("runPublishAgentSelectionContext application state write", () => {
     expect(JSON.stringify(value).length).toBeLessThan(16_000);
   });
 
+  it("tells the agent which effect layers sit behind the selected wrapper", () => {
+    const canvas = {
+      sourceId: "hero-canvas",
+      selector: '[data-agent-native-node-id="hero-canvas"]',
+      tagName: "canvas",
+      kind: "webgl" as const,
+      relation: "behind" as const,
+      coverage: 1,
+      animated: true,
+      webgl: true,
+    };
+    runPublishAgentSelectionContext(
+      argsFor({
+        selectedElement: {
+          ...deepScreenElement(),
+          tagName: "div",
+          sourceId: "hero",
+          effectCandidates: [canvas],
+        },
+      }),
+    );
+
+    const selected = writtenSelection().selectedElement as Record<
+      string,
+      unknown
+    >;
+    expect(selected.effectCandidates).toEqual([canvas]);
+  });
+
   it("marks both persisted selection keys as this browser tab while retaining immediate context", () => {
     const args = argsFor();
     runPublishAgentSelectionContext(args);

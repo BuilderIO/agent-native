@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
-
-import { buildDashboardPanelGroups } from "../app/pages/adhoc/sql-dashboard/dashboard-layout";
 import {
   clampDashboardColumns,
   type SqlPanel,
-} from "../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import { describe, expect, it } from "vitest";
+
+import { buildDashboardPanelGroups } from "../app/pages/adhoc/sql-dashboard/dashboard-layout";
 import {
   DASHBOARD_MUTATION_API_TYPES,
   DASHBOARD_MUTATION_EXAMPLES,

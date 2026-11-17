@@ -953,7 +953,11 @@ const editor = {
     imageUploaded_other: "업로드된 이미지",
     includeTime: "시간 포함",
     loadingProperties: "속성 로드 중",
-    content: "콘텐츠",
+    pageDetails: "페이지 세부정보",
+    createdOn: "{{date}}에 생성됨",
+    editedAgo: "{{time}} 편집됨",
+    editedOn: "{{date}}에 편집됨",
+    editedJustNow: "방금 편집됨",
     loadingContent: "콘텐츠 로드 중",
     wordCount_zero: "{{count}}단어",
     wordCount_one: "{{count}}단어",
@@ -1058,6 +1062,10 @@ const editor = {
     fourColumns: "4열",
     codeBlock: "코드 블록",
     codeBlockDescription: "코드 조각",
+    toggleHeading1: "토글 제목 1",
+    toggleHeading2: "토글 제목 2",
+    toggleHeading3: "토글 제목 3",
+    toggleHeadingDescription: "열고 닫을 수 있는 제목",
     collapsibleBlockDescription: "접이식 블록",
     database: "컬렉션",
     databaseDescription: "이 페이지 안의 인라인 컬렉션",
@@ -1148,6 +1156,12 @@ const editor = {
     agentLevelNote: "에이전트 댓글 가능",
     agentLevelNoteHint:
       "에이전트는 이 페이지에 댓글을 달 수 있습니다. 공유에서 변경하세요.",
+    agentLevelViewDescription:
+      "이 페이지를 읽을 수 있습니다. 댓글, 제안, 편집은 할 수 없습니다.",
+    agentLevelViewConfirm: "이제 에이전트는 이 페이지를 읽기만 할 수 있습니다.",
+    agentLevelViewNote: "에이전트 보기만 가능",
+    agentLevelViewNoteHint:
+      "에이전트는 이 페이지를 보기만 할 수 있습니다. 공유에서 변경하세요.",
     sendPageToAgent: "이 페이지를 에이전트에게 보내기",
     connectAgentOverMcp: "MCP로 에이전트 연결",
     importingFromNotion: "Notion에서 가져오는 중...",
@@ -1254,6 +1268,7 @@ const rawLiterals = {
     rename: "이름 바꾸기",
     duplicate: "복제",
     moveTo: "이동",
+    addSubPage: "하위 페이지 추가",
     moveToTrash: "휴지통으로 이동",
     lastEditedBy: "최종 편집자: {{name}}",
     lastEdited: "최종 편집",
@@ -1480,6 +1495,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "이 제안은 다른 곳에서 변경되었습니다. 저장하지 않은 초안은 여기에 그대로 있습니다.",
     discardSuggestionDraft: "초안 삭제",
+    mermaid: {
+      source: "Mermaid",
+      done: "완료",
+      doneShortcut: "소스 닫기 (Esc)",
+      editDiagram: "다이어그램 편집",
+      cantDraw: "이 다이어그램을 그릴 수 없습니다",
+    },
     failedToCreatePage: "페이지를 만들지 못했습니다",
     slash: {
       blockEquation: "블록 수식",
@@ -1516,6 +1538,9 @@ const exactEnglish = {
       temporaryAgentLink: "임시 에이전트 링크",
       privateLinkCanView: "접근 권한이 있는 사람만 볼 수 있습니다",
       publicLinkCanView: "링크가 있는 누구나 볼 수 있습니다",
+      publicSubPagesOne: "이 페이지와 하위 페이지",
+      publicSubPages: "이 페이지와 하위 페이지 {{count}}개",
+      publicSubPagesMore: "이 페이지와 하위 페이지 {{count}}개 이상",
       copiedAgentPrompt: "에이전트 지침을 복사했습니다",
       couldNotCopyAgentPrompt: "에이전트 지침을 복사할 수 없습니다",
       agentPrompt:
@@ -1686,9 +1711,19 @@ const overrides = {
     commandDatabasesHeading: "컬렉션",
     commandLocalFilesHeading: "로컬 파일",
     commandDatabaseResultDescription: "컬렉션 페이지 열기",
-    commandAppearance: "모양",
     openAgent: "에이전트 열기",
     toggleTheme: "테마 전환",
+    commandOnPage: "“{{title}}”",
+    commandSearchInPage: "이 페이지에서 검색",
+    commandSearchInPageDescription: "이 페이지와 그 안의 페이지만",
+    commandScopeChip: "“{{title}}” 안에서",
+    commandClearScope: "워크스페이스 전체 검색",
+    commandAskAgent: "에이전트에게 묻기: “{{query}}”",
+    commandAskAgentDescription: "에이전트가 대신 검색하고 읽고 요약해 드립니다",
+    commandPreview: "미리 보기",
+    commandHintNavigate: "이동",
+    commandHintOpen: "열기",
+    commandHintClose: "닫기",
   },
   theme: { system: "시스템 테마", light: "라이트 테마", dark: "다크 테마" },
   navigation: {
@@ -1814,6 +1849,17 @@ const overrides = {
       "이 컬렉션의 모든 행에서 ‘{{name}}’과(와) 그 텍스트가 삭제됩니다. 되돌릴 수 없습니다.",
     deleteBlockFieldBodyWarning:
       "‘{{name}}’은(는) 페이지 본문이므로 모든 행의 본문 텍스트도 삭제됩니다.",
+    blockFieldFrozen: "{{column}}이(가) {{value}}인 동안 고정됨",
+    blockFieldFrozenDescription:
+      "이 컬렉션의 규칙에 따라 사람이든 에이전트든 이 탭을 변경할 수 없습니다. 편집하려면 {{column}}을(를) {{value}}이(가) 아닌 값으로 바꾸세요.",
+    blockFieldFrozenByManagers:
+      "{{column}}이(가) {{value}}인 동안 고정됩니다. 컬렉션에 대한 전체 액세스 권한이 있는 사람만 변경할 수 있습니다.",
+    blockFieldFrozenSaveRefused:
+      "이 탭은 고정되어 있어 편집 내용이 저장되지 않았습니다",
+    freezeBlockField: "고정 조건…",
+    freezeBlockFieldWhile: "{{column}}이(가) 다음 값인 동안",
+    freezeBlockFieldNoColumns: "기준으로 삼을 상태 또는 선택 열을 추가하세요",
+    unfreezeBlockField: "고정 안 함",
   },
   comments: {
     add: "댓글 추가...",
