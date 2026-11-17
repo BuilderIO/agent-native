@@ -1344,7 +1344,7 @@ describe("mcpScriptRunStatusResult", () => {
     ]);
   });
 
-  it("shows the run to an admin of its org, and to no one else", async () => {
+  it("shows the run to an admin of its org without its arguments, and to no one else", async () => {
     await seed();
     const stranger = await asUser("eve@example.com", "org-1", () =>
       mcpScriptRunStatusResult("app-a", { runId: "run-1" }, reader()),
@@ -1355,6 +1355,18 @@ describe("mcpScriptRunStatusResult", () => {
       mcpScriptRunStatusResult("app-a", { runId: "run-1" }, reader()),
     );
     expect(admin.isError).toBeUndefined();
+    // Audit rows keep their input from admins unless the action shares it.
+    expect(
+      JSON.parse(admin.content[0]?.text ?? "{}").calls.map(
+        (call: { seq: number; arguments: unknown }) => [
+          call.seq,
+          call.arguments,
+        ],
+      ),
+    ).toEqual([
+      [0, null],
+      [1, null],
+    ]);
     const otherOrgAdmin = await asUser("root@example.com", "org-2", () =>
       mcpScriptRunStatusResult("app-a", { runId: "run-1" }, reader()),
     );

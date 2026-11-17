@@ -439,7 +439,8 @@ export interface ScriptRunCallRecord {
   function: string;
   action: string | null;
   kind: "write" | "denied";
-  /** As stored: redacted and capped, and `null` once the week is up. */
+  /** As stored: redacted and capped, and `null` once the week is up or for
+   *  anyone but the run's owner. */
   arguments: unknown;
   denialReason: string | null;
   effect: ScriptWriteEffect | null;
@@ -463,7 +464,9 @@ function storedArgumentsValue(value: unknown): unknown {
 
 /**
  * A run's ledger in call order, for its owner, or for an admin of the org it
- * ran in. Empty when the run is not theirs or has none.
+ * ran in without its arguments: an action's audit rows keep their input from
+ * admins unless the action shares them, and run status shows admins no more.
+ * Empty when the run is not theirs or has none.
  */
 export async function listScriptRunCalls(
   appId: string,
@@ -475,7 +478,7 @@ export async function listScriptRunCalls(
   const asAdmin = reader.isOrgAdmin && reader.orgId !== null;
   // raw-sql-ok: the admin clause is a literal; the org id is bound.
   const { rows } = await getDbExec().execute({
-    sql: `SELECT seq, function_name, action_name, kind, call_arguments, denial_reason, effect_status, response_status, response_code, row_bound, reserved_rows, created_at, settled_at
+    sql: `SELECT seq, function_name, action_name, kind, owner_email, call_arguments, denial_reason, effect_status, response_status, response_code, row_bound, reserved_rows, created_at, settled_at
       FROM mcp_script_calls
       WHERE run_id = ? AND app_id = ?
         AND (owner_email = ?${asAdmin ? " OR org_id = ?" : ""})
@@ -487,7 +490,10 @@ export async function listScriptRunCalls(
     function: String(row.function_name),
     action: stringOrNull(row.action_name),
     kind: row.kind === "denied" ? "denied" : "write",
-    arguments: storedArgumentsValue(row.call_arguments),
+    arguments:
+      email !== null && row.owner_email === email
+        ? storedArgumentsValue(row.call_arguments)
+        : null,
     denialReason: stringOrNull(row.denial_reason),
     effect: stringOrNull(row.effect_status) as ScriptWriteEffect | null,
     response: stringOrNull(row.response_status) as ScriptCallResponse | null,

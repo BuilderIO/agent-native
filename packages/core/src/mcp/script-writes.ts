@@ -547,7 +547,7 @@ function auditedArguments(args: unknown): unknown {
  * it keeps them out of chat history, keeps them out of its audit rows, or
  * has no audit rows, by its settings or by the audit log's default
  * exclusions. Its ledger rows then keep none either, so run status shows
- * none, to org admins included.
+ * none, to the run's owner included.
  */
 export function actionRecordsInputs(name: string, entry: ActionEntry): boolean {
   const audit = normalizeAuditConfig(entry.audit);
@@ -858,8 +858,9 @@ function withinRecoveryTimeout<T>(
 }
 
 /**
- * `get-script-run`: one run's ledger, for the person who ran it or an admin
- * of the org it ran in. Lists writes and refused calls in call order; a read
+ * `get-script-run`: one run's ledger, for the person who ran it or, without
+ * its arguments, an admin of the org it ran in. Lists writes and refused
+ * calls in call order; a read
  * that completed is in the run's own result, not here. `reader` is matched
  * as the gate records a run's owner.
  */
