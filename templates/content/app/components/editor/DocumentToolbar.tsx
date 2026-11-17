@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   openMcpAppHostLink,
@@ -24,7 +25,6 @@ import {
 } from "@agent-native/toolkit/sharing";
 import {
   ANALYTICS_CHART_TAG,
-  analyticsChartsWiderThan,
   type AnalyticsChartData,
 } from "@shared/analytics-chart-block";
 import { analyticsChartsInBody } from "@shared/analytics-charts-in-body";
@@ -69,6 +69,11 @@ import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { ContentIcon } from "../icons/ContentIcon";
+import {
+  analyticsShareAsks,
+  analyticsShareCheck,
+  type ChartsGoingWider,
+} from "./analytics-chart/analytics-chart-share";
 
 const NO_CHARTS: AnalyticsChartData[] = [];
 
@@ -1115,40 +1120,86 @@ export function DocumentToolbar({
   const chartsUnread =
     Boolean(documentContent?.includes(`<${ANALYTICS_CHART_TAG}`)) &&
     (!scanned || scanned.unreadable > 0);
-  // Sharing a page wider than a chart's dashboard asks first; a table that
-  // would go wider is refused by the server when the change is saved.
-  // Narrowing who can open the page never asks.
-  const confirmChartAudience = useCallback(
-    (from: EmbedVisibility, to: EmbedVisibility) => {
-      if (!isWiderVisibility(to, from)) return false;
-      if (chartsUnread) return true;
-      const { warn, block } = analyticsChartsWiderThan(to, analyticsCharts);
-      return warn.length + block.length > 0;
+  // Making the page public carries its sub-pages that aren't public yet, so
+  // their charts are read from the server too. A widget may call only the
+  // share actions, so there they stay unread, and going public asks first.
+  const subPageCharts = useActionQuery(
+    "list-sub-page-analytics-charts",
+    { documentId },
+    {
+      enabled: shareMounted && !inWidget && Boolean(documentId),
+      retry: false,
+      refetchOnWindowFocus: false,
     },
-    [analyticsCharts, chartsUnread],
   );
-  const chartShareDetail = useMemo(() => {
-    if (chartsUnread) return () => t("analyticsChart.shareDetailUnread");
-    if (analyticsCharts.length === 0) return undefined;
-    return (to: EmbedVisibility) => {
-      const { warn, block } = analyticsChartsWiderThan(to, analyticsCharts);
-      const wider = [...warn, ...block];
-      if (wider.length === 0) return null;
-      const dashboards = [
-        ...new Set(wider.map((chart) => chart.dashboard.title)),
-      ].join(", ");
-      const text =
-        wider.length === 1
-          ? t("analyticsChart.shareDetailOne", { dashboards })
-          : t("analyticsChart.shareDetail", {
-              count: wider.length,
-              dashboards,
-            });
-      return block.length > 0
-        ? `${text} ${t("analyticsChart.blockedTable")}`
-        : text;
-    };
-  }, [analyticsCharts, chartsUnread, t]);
+  const subPagesRead = subPageCharts.data;
+  const subPageRead = useMemo(
+    () => ({
+      charts: subPagesRead?.charts ?? NO_CHARTS,
+      unread:
+        !subPagesRead ||
+        subPagesRead.unreadable > 0 ||
+        subPagesRead.more ||
+        subPageCharts.isFetching,
+    }),
+    [subPagesRead, subPageCharts.isFetching],
+  );
+  // Sharing a page wider than a chart's dashboard asks first; a table that
+  // would go wider is refused by the server when the change is saved, a
+  // sub-page's as well as the page's. Narrowing who can open the page never
+  // asks.
+  const shareCheck = useCallback(
+    (to: EmbedVisibility) =>
+      analyticsShareCheck(
+        to,
+        { charts: analyticsCharts, unread: chartsUnread },
+        subPageRead,
+      ),
+    [analyticsCharts, chartsUnread, subPageRead],
+  );
+  const confirmChartAudience = useCallback(
+    (from: EmbedVisibility, to: EmbedVisibility) =>
+      isWiderVisibility(to, from) && analyticsShareAsks(shareCheck(to)),
+    [shareCheck],
+  );
+  const chartShareDetail = useCallback(
+    (to: EmbedVisibility) => {
+      const check = shareCheck(to);
+      const describe = (
+        part: ChartsGoingWider,
+        keys: { unread: string; one: string; many: string },
+      ) => {
+        if (part.unread) return t(keys.unread);
+        const wider = [...part.warn, ...part.block];
+        if (wider.length === 0) return null;
+        const dashboards = [
+          ...new Set(wider.map((chart) => chart.dashboard.title)),
+        ].join(", ");
+        return wider.length === 1
+          ? t(keys.one, { dashboards })
+          : t(keys.many, { count: wider.length, dashboards });
+      };
+      const parts = [
+        describe(check.page, {
+          unread: "analyticsChart.shareDetailUnread",
+          one: "analyticsChart.shareDetailOne",
+          many: "analyticsChart.shareDetail",
+        }),
+        check.subPages &&
+          describe(check.subPages, {
+            unread: "analyticsChart.shareDetailSubPagesUnread",
+            one: "analyticsChart.shareDetailSubPagesOne",
+            many: "analyticsChart.shareDetailSubPages",
+          }),
+      ].filter((part): part is string => Boolean(part));
+      if (parts.length === 0) return null;
+      const blocked =
+        check.page.block.length > 0 || (check.subPages?.block.length ?? 0) > 0;
+      if (blocked) parts.push(t("analyticsChart.blockedTable"));
+      return parts.join(" ");
+    },
+    [shareCheck, t],
+  );
   const [shareInitialTab, setShareInitialTab] = useState("share");
   const shareActionRef = useRef<ShareButtonActionHandle>(null);
   const agentLevel = useAgentLevel(documentId, savedAgentLevel);

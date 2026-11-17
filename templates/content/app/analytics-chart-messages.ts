@@ -32,6 +32,12 @@ const en = {
     "This page has a chart from a dashboard fewer people can open ({{dashboards}}). Everyone who can open the page will see its numbers.",
   shareDetail:
     "This page has {{count}} charts from dashboards fewer people can open ({{dashboards}}). Everyone who can open the page will see their numbers.",
+  shareDetailSubPagesUnread:
+    "Sub-pages going public with this page haven't been checked for Analytics charts yet. Anyone with the link will see the numbers of any charts in them.",
+  shareDetailSubPagesOne:
+    "A sub-page going public with this page has a chart from a dashboard fewer people can open ({{dashboards}}). Anyone with the link will see its numbers.",
+  shareDetailSubPages:
+    "Sub-pages going public with this page have {{count}} charts from dashboards fewer people can open ({{dashboards}}). Anyone with the link will see their numbers.",
 } as const;
 
 type AnalyticsChartMessages = Record<keyof typeof en, string>;
@@ -73,6 +79,12 @@ const translations: Record<
       "Esta página tiene un gráfico de un panel que pueden abrir menos personas ({{dashboards}}). Todos los que puedan abrir la página verán sus datos.",
     shareDetail:
       "Esta página tiene {{count}} gráficos de paneles que pueden abrir menos personas ({{dashboards}}). Todos los que puedan abrir la página verán sus datos.",
+    shareDetailSubPagesUnread:
+      "Las subpáginas que se hacen públicas con esta página aún no se han comprobado en busca de gráficos de Analytics. Cualquiera con el enlace verá los datos de los gráficos que tengan.",
+    shareDetailSubPagesOne:
+      "Una subpágina que se hace pública con esta página tiene un gráfico de un panel que pueden abrir menos personas ({{dashboards}}). Cualquiera con el enlace verá sus datos.",
+    shareDetailSubPages:
+      "Las subpáginas que se hacen públicas con esta página tienen {{count}} gráficos de paneles que pueden abrir menos personas ({{dashboards}}). Cualquiera con el enlace verá sus datos.",
   },
   "fr-FR": {
     openInAnalytics: "Ouvrir dans Analytics",
@@ -108,6 +120,12 @@ const translations: Record<
       "Cette page contient un graphique d'un tableau de bord que moins de personnes peuvent ouvrir ({{dashboards}}). Toutes les personnes qui peuvent ouvrir la page verront ses chiffres.",
     shareDetail:
       "Cette page contient {{count}} graphiques de tableaux de bord que moins de personnes peuvent ouvrir ({{dashboards}}). Toutes les personnes qui peuvent ouvrir la page verront leurs chiffres.",
+    shareDetailSubPagesUnread:
+      "Les sous-pages qui deviennent publiques avec cette page n'ont pas encore été vérifiées pour les graphiques Analytics. Toute personne disposant du lien verra les chiffres des graphiques qu'elles contiennent.",
+    shareDetailSubPagesOne:
+      "Une sous-page qui devient publique avec cette page contient un graphique d'un tableau de bord que moins de personnes peuvent ouvrir ({{dashboards}}). Toute personne disposant du lien verra ses chiffres.",
+    shareDetailSubPages:
+      "Les sous-pages qui deviennent publiques avec cette page contiennent {{count}} graphiques de tableaux de bord que moins de personnes peuvent ouvrir ({{dashboards}}). Toute personne disposant du lien verra leurs chiffres.",
   },
   "de-DE": {
     openInAnalytics: "In Analytics öffnen",
@@ -143,6 +161,12 @@ const translations: Record<
       "Diese Seite enthält ein Diagramm aus einem Dashboard, das weniger Personen öffnen können ({{dashboards}}). Alle, die die Seite öffnen können, sehen seine Zahlen.",
     shareDetail:
       "Diese Seite enthält {{count}} Diagramme aus Dashboards, die weniger Personen öffnen können ({{dashboards}}). Alle, die die Seite öffnen können, sehen ihre Zahlen.",
+    shareDetailSubPagesUnread:
+      "Unterseiten, die mit dieser Seite öffentlich werden, wurden noch nicht auf Analytics-Diagramme geprüft. Alle mit dem Link sehen die Zahlen der Diagramme darin.",
+    shareDetailSubPagesOne:
+      "Eine Unterseite, die mit dieser Seite öffentlich wird, enthält ein Diagramm aus einem Dashboard, das weniger Personen öffnen können ({{dashboards}}). Alle mit dem Link sehen seine Zahlen.",
+    shareDetailSubPages:
+      "Unterseiten, die mit dieser Seite öffentlich werden, enthalten {{count}} Diagramme aus Dashboards, die weniger Personen öffnen können ({{dashboards}}). Alle mit dem Link sehen ihre Zahlen.",
   },
   "pt-BR": {
     openInAnalytics: "Abrir no Analytics",
@@ -177,6 +201,12 @@ const translations: Record<
       "Esta página tem um gráfico de um painel que menos pessoas podem abrir ({{dashboards}}). Todos que podem abrir a página verão os números dele.",
     shareDetail:
       "Esta página tem {{count}} gráficos de painéis que menos pessoas podem abrir ({{dashboards}}). Todos que podem abrir a página verão os números deles.",
+    shareDetailSubPagesUnread:
+      "As subpáginas que ficam públicas com esta página ainda não foram verificadas quanto a gráficos do Analytics. Qualquer pessoa com o link verá os números dos gráficos que elas tiverem.",
+    shareDetailSubPagesOne:
+      "Uma subpágina que fica pública com esta página tem um gráfico de um painel que menos pessoas podem abrir ({{dashboards}}). Qualquer pessoa com o link verá os números dele.",
+    shareDetailSubPages:
+      "As subpáginas que ficam públicas com esta página têm {{count}} gráficos de painéis que menos pessoas podem abrir ({{dashboards}}). Qualquer pessoa com o link verá os números deles.",
   },
   "zh-CN": {
     openInAnalytics: "在 Analytics 中打开",
@@ -207,6 +237,12 @@ const translations: Record<
       "此页面包含一个来自较少人能打开的仪表板的图表（{{dashboards}}）。所有能打开此页面的人都会看到它的数据。",
     shareDetail:
       "此页面包含 {{count}} 个来自较少人能打开的仪表板的图表（{{dashboards}}）。所有能打开此页面的人都会看到它们的数据。",
+    shareDetailSubPagesUnread:
+      "随此页面一起公开的子页面尚未检查是否包含 Analytics 图表。任何拥有链接的人都会看到其中图表的数据。",
+    shareDetailSubPagesOne:
+      "随此页面一起公开的一个子页面包含一个来自较少人能打开的仪表板的图表（{{dashboards}}）。任何拥有链接的人都会看到它的数据。",
+    shareDetailSubPages:
+      "随此页面一起公开的子页面包含 {{count}} 个来自较少人能打开的仪表板的图表（{{dashboards}}）。任何拥有链接的人都会看到它们的数据。",
   },
   "zh-TW": {
     openInAnalytics: "在 Analytics 中開啟",
@@ -238,6 +274,12 @@ const translations: Record<
       "此頁面有一個來自較少人能開啟之儀表板的圖表（{{dashboards}}）。所有能開啟此頁面的人都會看到它的數字。",
     shareDetail:
       "此頁面有 {{count}} 個來自較少人能開啟之儀表板的圖表（{{dashboards}}）。所有能開啟此頁面的人都會看到它們的數字。",
+    shareDetailSubPagesUnread:
+      "隨此頁面一起公開的子頁面尚未檢查是否有 Analytics 圖表。任何擁有連結的人都會看到其中圖表的數字。",
+    shareDetailSubPagesOne:
+      "隨此頁面一起公開的一個子頁面有一個來自較少人能開啟之儀表板的圖表（{{dashboards}}）。任何擁有連結的人都會看到它的數字。",
+    shareDetailSubPages:
+      "隨此頁面一起公開的子頁面有 {{count}} 個來自較少人能開啟之儀表板的圖表（{{dashboards}}）。任何擁有連結的人都會看到它們的數字。",
   },
   "ja-JP": {
     openInAnalytics: "Analytics で開く",
@@ -273,6 +315,12 @@ const translations: Record<
       "このページには、開ける人がより少ないダッシュボードのグラフがあります（{{dashboards}}）。ページを開ける全員がその数値を見られるようになります。",
     shareDetail:
       "このページには、開ける人がより少ないダッシュボードのグラフが {{count}} 件あります（{{dashboards}}）。ページを開ける全員がそれらの数値を見られるようになります。",
+    shareDetailSubPagesUnread:
+      "このページと一緒に公開されるサブページは、まだ Analytics のグラフがあるか確認していません。リンクを知っている人は誰でも、その中のグラフの数値を見られるようになります。",
+    shareDetailSubPagesOne:
+      "このページと一緒に公開されるサブページに、開ける人がより少ないダッシュボードのグラフがあります（{{dashboards}}）。リンクを知っている人は誰でもその数値を見られるようになります。",
+    shareDetailSubPages:
+      "このページと一緒に公開されるサブページに、開ける人がより少ないダッシュボードのグラフが {{count}} 件あります（{{dashboards}}）。リンクを知っている人は誰でもそれらの数値を見られるようになります。",
   },
   "ko-KR": {
     openInAnalytics: "Analytics에서 열기",
@@ -306,6 +354,12 @@ const translations: Record<
       "이 페이지에는 더 적은 사람이 열 수 있는 대시보드의 차트가 있습니다({{dashboards}}). 페이지를 열 수 있는 모든 사람이 그 수치를 보게 됩니다.",
     shareDetail:
       "이 페이지에는 더 적은 사람이 열 수 있는 대시보드의 차트가 {{count}}개 있습니다({{dashboards}}). 페이지를 열 수 있는 모든 사람이 그 수치를 보게 됩니다.",
+    shareDetailSubPagesUnread:
+      "이 페이지와 함께 공개되는 하위 페이지는 아직 Analytics 차트가 있는지 확인하지 않았습니다. 링크가 있는 모든 사람이 그 안의 차트 수치를 보게 됩니다.",
+    shareDetailSubPagesOne:
+      "이 페이지와 함께 공개되는 하위 페이지에 더 적은 사람이 열 수 있는 대시보드의 차트가 있습니다({{dashboards}}). 링크가 있는 모든 사람이 그 수치를 보게 됩니다.",
+    shareDetailSubPages:
+      "이 페이지와 함께 공개되는 하위 페이지에 더 적은 사람이 열 수 있는 대시보드의 차트가 {{count}}개 있습니다({{dashboards}}). 링크가 있는 모든 사람이 그 수치를 보게 됩니다.",
   },
   "hi-IN": {
     openInAnalytics: "Analytics में खोलें",
@@ -339,6 +393,12 @@ const translations: Record<
       "इस पेज में एक ऐसे डैशबोर्ड का चार्ट है जिसे कम लोग खोल सकते हैं ({{dashboards}})। पेज खोल सकने वाला हर व्यक्ति उसके आँकड़े देखेगा।",
     shareDetail:
       "इस पेज में ऐसे डैशबोर्ड के {{count}} चार्ट हैं जिन्हें कम लोग खोल सकते हैं ({{dashboards}})। पेज खोल सकने वाला हर व्यक्ति उनके आँकड़े देखेगा।",
+    shareDetailSubPagesUnread:
+      "इस पेज के साथ सार्वजनिक होने वाले उप-पेज अभी Analytics चार्ट के लिए जाँचे नहीं गए हैं। लिंक वाला हर व्यक्ति उनमें मौजूद चार्ट के आँकड़े देख सकेगा।",
+    shareDetailSubPagesOne:
+      "इस पेज के साथ सार्वजनिक होने वाले एक उप-पेज में एक ऐसे डैशबोर्ड का चार्ट है जिसे कम लोग खोल सकते हैं ({{dashboards}})। लिंक वाला हर व्यक्ति उसके आँकड़े देख सकेगा।",
+    shareDetailSubPages:
+      "इस पेज के साथ सार्वजनिक होने वाले उप-पेजों में ऐसे डैशबोर्ड के {{count}} चार्ट हैं जिन्हें कम लोग खोल सकते हैं ({{dashboards}})। लिंक वाला हर व्यक्ति उनके आँकड़े देख सकेगा।",
   },
   "ar-SA": {
     openInAnalytics: "فتح في Analytics",
@@ -372,6 +432,12 @@ const translations: Record<
       "تحتوي هذه الصفحة على مخطط من لوحة يمكن لعدد أقل من الأشخاص فتحها ({{dashboards}}). سيرى كل من يمكنه فتح الصفحة أرقامه.",
     shareDetail:
       "تحتوي هذه الصفحة على {{count}} مخططات من لوحات يمكن لعدد أقل من الأشخاص فتحها ({{dashboards}}). سيرى كل من يمكنه فتح الصفحة أرقامها.",
+    shareDetailSubPagesUnread:
+      "لم يتم بعد التحقق من الصفحات الفرعية التي تصبح عامة مع هذه الصفحة بحثًا عن مخططات Analytics. سيرى كل من لديه الرابط أرقام أي مخططات فيها.",
+    shareDetailSubPagesOne:
+      "تحتوي صفحة فرعية تصبح عامة مع هذه الصفحة على مخطط من لوحة يمكن لعدد أقل من الأشخاص فتحها ({{dashboards}}). سيرى كل من لديه الرابط أرقامه.",
+    shareDetailSubPages:
+      "تحتوي الصفحات الفرعية التي تصبح عامة مع هذه الصفحة على {{count}} مخططات من لوحات يمكن لعدد أقل من الأشخاص فتحها ({{dashboards}}). سيرى كل من لديه الرابط أرقامها.",
   },
 };
 

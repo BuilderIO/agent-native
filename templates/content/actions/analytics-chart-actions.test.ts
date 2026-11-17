@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   requestAnalytics: vi.fn(),
   track: vi.fn(),
   shares: [] as { principalType: string; principalId: string }[],
+  publicSubPageIds: vi.fn(),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -35,6 +36,10 @@ vi.mock("../server/lib/public-documents.js", () => ({
   isPublicViewerOwner: (email: string) => email.startsWith("public-"),
 }));
 
+vi.mock("../server/lib/public-sub-pages.js", () => ({
+  publicSubPageIds: mocks.publicSubPageIds,
+}));
+
 vi.mock("../server/lib/analytics-peer.js", () => ({
   requestAnalytics: mocks.requestAnalytics,
   resolveAnalyticsAppUrl: () => "https://analytics.example.test",
@@ -44,9 +49,11 @@ vi.mock("../server/lib/analytics-peer.js", () => ({
   ],
 }));
 
+import { analyticsChartBlockRaw } from "../shared/analytics-chart-block";
 import captureAnalyticsChart from "./capture-analytics-chart";
 import getAnalyticsChartStatus from "./get-analytics-chart-status";
 import getAnalyticsLinks from "./get-analytics-links";
+import listSubPageAnalyticsCharts from "./list-sub-page-analytics-charts";
 
 const LINK =
   "https://analytics.example.test/dashboards/growth?f_timeRange=90d&tile=wau";
@@ -120,6 +127,7 @@ beforeEach(() => {
   mocks.shares = [];
   mocks.resolveDocumentAccess.mockResolvedValue(page("private"));
   mocks.requestAnalytics.mockResolvedValue({ ok: true, data: chart() });
+  mocks.publicSubPageIds.mockResolvedValue([]);
 });
 
 describe("capture-analytics-chart", () => {
@@ -565,5 +573,111 @@ describe("get-analytics-links", () => {
         "https://analytics.beta.example.test",
       ],
     });
+  });
+});
+
+describe("list-sub-page-analytics-charts", () => {
+  function subPage(id: string, role: string, content: string | null) {
+    return {
+      role,
+      resource: {
+        id,
+        ownerEmail: "owner@example.test",
+        orgId: "org_1",
+        visibility: "private",
+        trashedAt: null,
+        content,
+      },
+    };
+  }
+
+  function access(pages: Record<string, ReturnType<typeof subPage>>) {
+    mocks.resolveDocumentAccess.mockImplementation(async (id: string) =>
+      id === "doc_1" ? page("private", "owner") : (pages[id] ?? null),
+    );
+  }
+
+  it("lists the charts in the sub-pages that would go public with the page", async () => {
+    mocks.publicSubPageIds.mockResolvedValue(["sub_1", "sub_2"]);
+    access({
+      sub_1: subPage(
+        "sub_1",
+        "owner",
+        `# Plan
+
+${analyticsChartBlockRaw("analytics-chart-00000001", chart({ type: "table" }) as never)}
+`,
+      ),
+      sub_2: subPage("sub_2", "admin", "No charts here."),
+    });
+
+    const result = await listSubPageAnalyticsCharts.run({
+      documentId: "doc_1",
+    });
+
+    expect(mocks.publicSubPageIds).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "doc_1" }),
+      { isPublic: false },
+    );
+    expect(result).toEqual({
+      charts: [
+        {
+          panel: chart({ type: "table" }).panel,
+          dashboard: chart({ type: "table" }).dashboard,
+        },
+      ],
+      unreadable: 0,
+      more: false,
+    });
+    expect(mocks.requestAnalytics).not.toHaveBeenCalled();
+  });
+
+  it("leaves out sub-pages the caller can't share, as making the page public does", async () => {
+    mocks.publicSubPageIds.mockResolvedValue(["sub_1"]);
+    access({
+      sub_1: subPage(
+        "sub_1",
+        "editor",
+        analyticsChartBlockRaw("analytics-chart-00000001", chart() as never),
+      ),
+    });
+
+    await expect(
+      listSubPageAnalyticsCharts.run({ documentId: "doc_1" }),
+    ).resolves.toEqual({ charts: [], unreadable: 0, more: false });
+  });
+
+  it("counts a chart tag it can't read", async () => {
+    mocks.publicSubPageIds.mockResolvedValue(["sub_1"]);
+    access({
+      sub_1: subPage(
+        "sub_1",
+        "owner",
+        analyticsChartBlockRaw(
+          "analytics-chart-00000001",
+          chart() as never,
+        ).replace(/ dashboard={{[^}]*}}/, ""),
+      ),
+    });
+
+    await expect(
+      listSubPageAnalyticsCharts.run({ documentId: "doc_1" }),
+    ).resolves.toMatchObject({ charts: [], unreadable: 1 });
+  });
+
+  it("refuses someone who can't share the page, before reading its sub-pages", async () => {
+    mocks.resolveDocumentAccess.mockResolvedValue(page("private", "editor"));
+    await expect(
+      failureOf(listSubPageAnalyticsCharts.run({ documentId: "doc_1" })),
+    ).resolves.toMatchObject({ statusCode: 403 });
+    expect(mocks.publicSubPageIds).not.toHaveBeenCalled();
+  });
+
+  it("reads a page in Trash, or one the caller can't open, as missing", async () => {
+    mocks.resolveDocumentAccess.mockResolvedValue(null);
+    await expect(
+      failureOf(listSubPageAnalyticsCharts.run({ documentId: "doc_1" })),
+    ).resolves.toEqual({ errorCode: "document_not_found", statusCode: 404 });
+    expect(mocks.publicSubPageIds).not.toHaveBeenCalled();
   });
 });
