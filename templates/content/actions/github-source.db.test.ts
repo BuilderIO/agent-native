@@ -81,6 +81,8 @@ const github = vi.hoisted(() => {
     readOrgIds: [] as Array<string | undefined>,
     /** The workspace each upload and file storage lookup ran in. */
     storageOrgIds: [] as Array<string | undefined>,
+    /** The workspace each stored image's record names. */
+    mediaOrgIds: [] as Array<string | null>,
   };
   let commitCount = 0;
   let resets = 0;
@@ -127,6 +129,7 @@ const github = vi.hoisted(() => {
       state.connected = true;
       state.readOrgIds = [];
       state.storageOrgIds = [];
+      state.mediaOrgIds = [];
     },
     commit(files: Record<string, string>, renames: typeof state.renames = []) {
       commitCount += 1;
@@ -379,6 +382,7 @@ vi.mock("@agent-native/core/private-media", async (importOriginal) => {
         );
       }
       github.state.uploads += 1;
+      github.state.mediaOrgIds.push(input.orgId ?? null);
       const after = github.state.afterUpload;
       github.state.afterUpload = null;
       after?.();
@@ -1753,7 +1757,7 @@ describe("GitHub folder source", () => {
     ]);
   });
 
-  it("reads GitHub from the workspace it was linked from when the collection has none, and stores images in the collection's own", async () => {
+  it("reads GitHub and stores images in the workspace it was linked from when the collection has none", async () => {
     github.commit({ "docs/1.md": "# One\n" });
     const database = await newCollection();
     expect(database.orgId ?? null).toBeNull();
@@ -1777,14 +1781,18 @@ describe("GitHub folder source", () => {
       "One, edited",
     ]);
 
-    // Once storage is set up, the next sync finds it and adds the waiting
-    // image, both in the collection's own context, with no workspace.
+    // Once that workspace's storage is set up, the next sync finds it and
+    // adds the waiting image there. The image's record stays Personal, like
+    // the collection.
     github.state.noStorage = false;
     github.state.storageOrgIds = [];
     await syncGitHubSource({ sourceId: id, budgetMs: 30_000 });
     expect(github.state.uploads).toBe(1);
     expect(github.state.storageOrgIds.length).toBeGreaterThan(1);
-    expect(new Set(github.state.storageOrgIds)).toEqual(new Set([undefined]));
+    expect(new Set(github.state.storageOrgIds)).toEqual(
+      new Set(["org-linker"]),
+    );
+    expect(github.state.mediaOrgIds).toEqual([null]);
   });
 
   it("keeps GitHub pages view only for agents and records specific problems", async () => {
