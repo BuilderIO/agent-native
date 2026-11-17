@@ -1342,9 +1342,10 @@ async function confirmAutomationWork(
   if (evidence.status === "success") return evidence;
 
   const messages = await automationOutcomeMessagesForUser(ownerEmail);
-  const detail = evidence.failedTool?.result;
+  const unknown = evidence.failedTool?.outcomeUnknown;
+  const detail = unknown ? undefined : evidence.failedTool?.result;
   throw new BackgroundAutomationRunError(
-    `${deliveryPlatform && deliveryDestination ? messages.emptyDelivery : messages.noWork}${detail ? ` ${detail}` : ""}${evidence.failedTool?.outcomeUnknown ? ` ${messages.outcomeUnknown}` : ""}`,
+    `${unknown ? `${messages.outcomeUnknown} ` : ""}${deliveryPlatform && deliveryDestination ? messages.emptyDelivery : messages.noWork}${detail ? ` ${detail}` : ""}`,
     evidence.failedTool?.errorCode ?? "automation_no_confirmed_work",
   );
 }

@@ -335,14 +335,15 @@ export async function inspectAutomationRecovery(
       const message = meta.deliveryDestination
         ? messages.emptyDelivery
         : messages.noWork;
-      const detail = evidence.failedTool?.result;
+      const unknown = evidence.failedTool?.outcomeUnknown;
+      const detail = unknown ? undefined : evidence.failedTool?.result;
       const deliveryNote = deliveryNoteForEvents(events);
       return {
         state: "settle",
         status: "error",
         history,
         error: withDeliveryNote(
-          `${message}${detail ? ` ${detail}` : ""}${evidence.failedTool?.outcomeUnknown ? ` ${messages.outcomeUnknown}` : ""}`,
+          `${unknown ? `${messages.outcomeUnknown} ` : ""}${message}${detail ? ` ${detail}` : ""}`,
           deliveryNote,
         ),
         errorCode:
@@ -355,7 +356,7 @@ export async function inspectAutomationRecovery(
       status: "error",
       history,
       error: automationDeliveryNote(
-        automationRecoveryMessagesForLocale().deliveryUnknown,
+        `${evidence.status === "unconfirmed" && evidence.failedTool?.outcomeUnknown ? `${automationOutcomeMessagesForLocale("en-US").outcomeUnknown} ` : ""}${automationRecoveryMessagesForLocale().deliveryUnknown}`,
         events,
       ),
       errorCode: "background_automation_delivery_unknown",

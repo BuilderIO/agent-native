@@ -1199,6 +1199,49 @@ describe("runBackgroundAutomation — confirmed work", () => {
     ).rejects.toMatchObject({ errorCode: "automation_no_confirmed_work" });
   });
 
+  it("keeps the unknown action warning in persisted history without copying provider data", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const privateValue = "PRIVATE_CUSTOMER_SENTINEL";
+    const warning =
+      "An action may already have applied. Check its current state before retrying.";
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send({
+          type: "tool_done",
+          tool: "send-report",
+          isError: true,
+          outcomeUnknown: true,
+          errorCode: "provider_failed",
+          result: `${privateValue} ${"provider response ".repeat(100)}`,
+        });
+        opts.send({
+          type: "tool_done",
+          tool: "send-report",
+          isError: true,
+          result: "Retry refused",
+        });
+        return usage;
+      },
+    );
+    const name = "unknown-long-provider-result";
+    const run = runBackgroundAutomation(
+      runOptions(precondition(name), { manual: true }),
+      standardDeps,
+    );
+    await expect(run).rejects.toMatchObject({
+      errorCode: "provider_failed",
+      message: expect.stringContaining(warning),
+    });
+    const row = (await pglite
+      .prepare("SELECT status, error FROM automation_runs WHERE automation = ?")
+      .get(name)) as { status: string; error: string };
+    expect(row.status).toBe("error");
+    expect(row.error.startsWith(warning)).toBe(true);
+    expect(row.error).not.toContain("provider response");
+    expect(row.error).not.toContain(privateValue);
+  });
+
   it.each(["dispatched redirect", "pre-dispatch rejection"])(
     "reports the outcome of a %s without exposing request data",
     async (scenario) => {
@@ -1292,10 +1335,10 @@ describe("runBackgroundAutomation — confirmed work", () => {
         );
         await expect(run).rejects.toMatchObject({
           errorCode: "web_request_url_blocked",
-          message: expect.stringContaining(diagnostic),
+          message: expect.stringContaining(dispatched ? warning : diagnostic),
         });
         if (dispatched) {
-          await expect(run).rejects.toThrow(warning);
+          await expect(run).rejects.not.toThrow(diagnostic);
         } else {
           await expect(run).rejects.not.toThrow(warning);
         }
@@ -1305,9 +1348,13 @@ describe("runBackgroundAutomation — confirmed work", () => {
           )
           .get(name)) as { status: string; error: string };
         expect(row.status).toBe("error");
-        expect(row.error).toContain(diagnostic);
-        if (dispatched) expect(row.error).toContain(warning);
-        else expect(row.error).not.toContain(warning);
+        if (dispatched) {
+          expect(row.error.startsWith(warning)).toBe(true);
+          expect(row.error).not.toContain(diagnostic);
+        } else {
+          expect(row.error).toContain(diagnostic);
+          expect(row.error).not.toContain(warning);
+        }
         expect(row.error).not.toContain("fake-secret-value");
         expect(row.error).not.toContain("customer-fixture-value");
         expect(fetchSpy).toHaveBeenCalledTimes(dispatched ? 1 : 0);
@@ -1374,12 +1421,16 @@ describe("runBackgroundAutomation — confirmed work", () => {
           state: "settle",
           status: "error",
           errorCode: "web_request_url_blocked",
-          error: expect.stringContaining(diagnostic),
+          error: expect.stringContaining(dispatched ? warning : diagnostic),
         });
         if (recovery?.state !== "settle")
           throw new Error("Expected settlement");
-        if (dispatched) expect(recovery.error).toContain(warning);
-        else expect(recovery.error).not.toContain(warning);
+        if (dispatched) {
+          expect(recovery.error?.startsWith(warning)).toBe(true);
+          expect(recovery.error).not.toContain(diagnostic);
+        } else {
+          expect(recovery.error).not.toContain(warning);
+        }
         expect(recovery.error).not.toContain("fake-secret-value");
         expect(recovery.error).not.toContain("customer-fixture-value");
       } finally {
@@ -1519,7 +1570,11 @@ describe("runBackgroundAutomation — confirmed work", () => {
               : status === 200
                 ? "web_request_provider_failed"
                 : `http_${status}`,
-          message: expect.stringContaining(`HTTP ${status}`),
+          message: expect.stringContaining(
+            tool === "provider-api-request"
+              ? `HTTP ${status}`
+              : "An action may already have applied.",
+          ),
         });
         expect(requests).toBe(2);
         expect(assistantContent()).toContainEqual(
