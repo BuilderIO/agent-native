@@ -1544,7 +1544,6 @@ describe("workspace deploy", () => {
       {
         src: "^(?:/dispatch/assets/app-aB12_cdE\\.js|/dispatch/assets/chunks/chunk-12345678\\.js)$",
         headers: {
-          "access-control-allow-origin": "*",
           "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -1555,7 +1554,6 @@ describe("workspace deploy", () => {
       {
         src: "^(?:/starter/assets/app-aB12_cdE\\.js|/starter/assets/chunks/chunk-12345678\\.js)$",
         headers: {
-          "access-control-allow-origin": "*",
           "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
