@@ -232,6 +232,9 @@ test("shards a Vitest script behind a pnpm prefix such as Design's bridge codege
   assert.equal(isShardableTestScript("tsx scripts/run.ts"), false);
   assert.equal(isShardableTestScript("pnpm build && tsx run-tests.ts"), false);
   assert.equal(isShardableTestScript("vitestx --run"), false);
+  assert.equal(isShardableTestScript("vitest --run && tsc"), false);
+  assert.equal(isShardableTestScript("vitest --run; echo done"), false);
+  assert.equal(isShardableTestScript("vitest --run | tee out.log"), false);
 });
 
 test("keeps packages whole when they are unshardable or too small to split", () => {

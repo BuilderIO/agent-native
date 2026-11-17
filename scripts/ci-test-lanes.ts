@@ -85,7 +85,7 @@ type PnpmWorkspace = {
  * (Design's bridge codegen) still ends in Vitest.
  */
 export function isShardableTestScript(script: string): boolean {
-  return /^(?:pnpm [\w:-]+ && )?vitest(\s|$)/.test(script);
+  return /^(?:pnpm [\w:-]+ && )?vitest(?:\s[^&|;]*)?$/.test(script);
 }
 
 function discoverTestPackages(includeCommunityTemplates: boolean): Pkg[] {
