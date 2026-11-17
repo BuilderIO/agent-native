@@ -263,6 +263,11 @@ test.describe("signed-out remix board", () => {
       const getDesignUrl = appUrl(
         `/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
       );
+      // Keep the cookies and headers that carry the board's capability, to
+      // replay them after the claim from outside this tab.
+      const capabilityRequest = page.waitForRequest((request) =>
+        request.url().includes("/_agent-native/actions/get-design?"),
+      );
       expect(
         await page.evaluate(async (url) => {
           const response = await fetch(url, { credentials: "same-origin" });
@@ -273,6 +278,52 @@ test.describe("signed-out remix board", () => {
           };
         }, getDesignUrl),
       ).toEqual({ status: 200, visibility: "private" });
+      const capabilityHeaders = Object.fromEntries(
+        Object.entries(await (await capabilityRequest).allHeaders()).filter(
+          ([name]) => name === "authorization" || name.startsWith("x-"),
+        ),
+      );
+      const capabilityCookies = await context.cookies();
+      const replayCapability = async () => {
+        const replay = await browser.newContext({
+          storageState: { cookies: capabilityCookies, origins: [] },
+        });
+        try {
+          const read = await replay.request.get(getDesignUrl, {
+            headers: capabilityHeaders,
+          });
+          // Writes need same-origin browser evidence, so send this one from a
+          // page on the app's origin in the replaying context.
+          const replayPage = await replay.newPage();
+          await replayPage.goto(getDesignUrl);
+          const write = await replayPage.evaluate(
+            async ({ url, headers, body }) =>
+              (
+                await fetch(url, {
+                  method: "POST",
+                  credentials: "same-origin",
+                  headers: { ...headers, "Content-Type": "application/json" },
+                  body: JSON.stringify(body),
+                })
+              ).status,
+            {
+              url: appUrl("/_agent-native/webmcp/actions/update-design"),
+              headers: capabilityHeaders,
+              body: {
+                id: designId,
+                dataOperations: [
+                  { op: "set", path: ["replayed"], value: true },
+                ],
+              },
+            },
+          );
+          return { read: read.status(), write };
+        } finally {
+          await replay.close();
+        }
+      };
+      const beforeClaim = await replayCapability();
+      expect(beforeClaim).toEqual({ read: 200, write: 200 });
       const stranger = await browser.newContext({
         storageState: { cookies: [], origins: [] },
       });
@@ -369,6 +420,10 @@ test.describe("signed-out remix board", () => {
         visibility: "private",
         secret: null,
       });
+      // The capability the board had while signed out no longer reaches it.
+      const afterClaim = await replayCapability();
+      expect(afterClaim.read).toBe(404);
+      expect(afterClaim.write).toBeGreaterThanOrEqual(400);
       // The claim moves the design row only; the board's files come along.
       const claimedFiles = await page.evaluate(
         async (url) =>

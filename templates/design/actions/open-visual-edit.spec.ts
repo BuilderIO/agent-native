@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   writeAppState: vi.fn(),
   issueVisualEditBoardClaim: vi.fn(),
   markVisualEditBoard: vi.fn(),
+  linkVisualEditBoardConnections: vi.fn(),
   designData: null as string | null,
   designFiles: [] as Array<{ id: string; filename: string; fileType: string }>,
 }));
@@ -107,6 +108,10 @@ vi.mock("../server/lib/visual-edit-board-claim.js", () => ({
   markVisualEditBoard: mocks.markVisualEditBoard,
 }));
 
+vi.mock("../server/lib/visual-edit-capability.js", () => ({
+  linkVisualEditBoardConnections: mocks.linkVisualEditBoardConnections,
+}));
+
 vi.mock("./connect-localhost.js", () => ({
   default: {
     run: mocks.connectLocalhostRun,
@@ -154,6 +159,7 @@ describe("open-visual-edit", () => {
 
   beforeEach(() => {
     mocks.addLocalhostScreensRun.mockReset();
+    mocks.linkVisualEditBoardConnections.mockReset();
     mocks.assertAccess.mockReset().mockResolvedValue(undefined);
     mocks.createEmbedSessionTicket.mockReset();
     mocks.createEmbedSessionTicket.mockResolvedValue({
@@ -418,6 +424,10 @@ describe("open-visual-edit", () => {
     expect(mocks.createDesignRun).toHaveBeenCalledOnce();
     expect(result.designId).toBe("design_created");
     expect(result.createdDesign).toBe(true);
+    expect(mocks.linkVisualEditBoardConnections).toHaveBeenCalledWith(
+      "design_created",
+      ["localhost_canonical", undefined],
+    );
   });
 
   it("rejects conflicting existing and new project targets", async () => {
@@ -1444,6 +1454,7 @@ describe("open-visual-edit", () => {
       );
       expect(result.designId).toBe("design_created");
       expect(JSON.stringify(result)).not.toContain("example-claim-secret");
+      expect(mocks.linkVisualEditBoardConnections).not.toHaveBeenCalled();
     });
 
     it("mints no claim secret for a signed-in creator", async () => {

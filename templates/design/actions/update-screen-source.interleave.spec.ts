@@ -107,6 +107,7 @@ vi.mock("drizzle-orm", () => ({
   eq: mocks.eq,
   inArray: vi.fn(),
   isNull: mocks.isNull,
+  // raw-sql-ok: inert stand-in for drizzle's sql tag; this spec never builds SQL.
   sql: vi.fn(),
 }));
 vi.mock("../server/db/index.js", () => ({

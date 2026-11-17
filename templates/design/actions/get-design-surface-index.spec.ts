@@ -62,6 +62,9 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", () => ({
   and: (...parts: unknown[]) => parts,
   eq: (left: unknown, right: unknown) => ({ left, right }),
+  inArray: vi.fn(),
+  // raw-sql-ok: inert stand-in for drizzle's sql tag; this spec never builds SQL.
+  sql: vi.fn(),
 }));
 vi.mock("../server/db/index.js", () => ({
   getDb: mocks.getDb,

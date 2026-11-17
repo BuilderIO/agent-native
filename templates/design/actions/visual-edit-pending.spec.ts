@@ -124,6 +124,11 @@ vi.mock("./visual-edit-browser-request.js", () => ({
   isSameOriginVisualEditBrowserRequest: mocks.isSameOrigin,
 }));
 
+vi.mock("@agent-native/core/settings", () => ({
+  getSetting: async () => null,
+  putSetting: async () => undefined,
+}));
+
 import { capabilityDesignAccessRole } from "../server/lib/design-data-access.js";
 import acknowledgePendingAction from "./acknowledge-visual-edit-pending.js";
 import getPendingAction from "./get-visual-edit-pending.js";
