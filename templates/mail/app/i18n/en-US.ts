@@ -909,6 +909,7 @@ const messages = {
     reading: "Reading",
     readingPane: "Reading pane",
     readingPaneSaveFailed: "Could not save the reading pane setting.",
+    readingPaneLoadFailed: "Couldn't load the reading pane setting.",
     deleteAlias: "Delete Alias",
     editAlias: "Edit Alias",
   },

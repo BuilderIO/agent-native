@@ -920,6 +920,7 @@ const messages = {
     reading: "閲覧",
     readingPane: "閲覧ウィンドウ",
     readingPaneSaveFailed: "閲覧ウィンドウの設定を保存できませんでした。",
+    readingPaneLoadFailed: "閲覧ウィンドウの設定を読み込めませんでした。",
     deleteAlias: "エイリアスを削除",
     editAlias: "エイリアスを編集",
   },

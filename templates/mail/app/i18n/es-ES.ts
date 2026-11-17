@@ -941,6 +941,7 @@ const messages = {
     reading: "Lectura",
     readingPane: "Panel de lectura",
     readingPaneSaveFailed: "No se pudo guardar el ajuste del panel de lectura.",
+    readingPaneLoadFailed: "No se pudo cargar el ajuste del panel de lectura.",
     deleteAlias: "Eliminar alias",
     editAlias: "Editar alias",
   },

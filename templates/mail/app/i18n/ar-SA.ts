@@ -904,6 +904,7 @@ const messages = {
     reading: "القراءة",
     readingPane: "جزء القراءة",
     readingPaneSaveFailed: "تعذر حفظ إعداد جزء القراءة.",
+    readingPaneLoadFailed: "تعذر تحميل إعداد جزء القراءة.",
     deleteAlias: "حذف الاسم المستعار",
     editAlias: "تحرير الاسم المستعار",
   },

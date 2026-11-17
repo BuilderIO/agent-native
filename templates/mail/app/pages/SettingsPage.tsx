@@ -1287,23 +1287,29 @@ function ReadingSection() {
         id="reading-pane"
         label={t("settings.readingPane")}
         control={
-          <Switch
-            id="mail-reading-pane-setting"
-            aria-label={t("settings.readingPane")}
-            checked={settings?.previewPane !== "off"}
-            onCheckedChange={(checked) =>
-              updateSettings.mutate(
-                { previewPane: checked ? "right" : "off" },
-                {
-                  onError: (error) =>
-                    reportWriteFailure(error, {
-                      label: t("settings.readingPaneSaveFailed"),
-                    }),
-                },
-              )
-            }
-            disabled={updateSettings.isPending}
-          />
+          settings === undefined ? (
+            <span className="text-sm text-muted-foreground" role="alert">
+              {t("settings.readingPaneLoadFailed")}
+            </span>
+          ) : (
+            <Switch
+              id="mail-reading-pane-setting"
+              aria-label={t("settings.readingPane")}
+              checked={settings.previewPane !== "off"}
+              onCheckedChange={(checked) =>
+                updateSettings.mutate(
+                  { previewPane: checked ? "right" : "off" },
+                  {
+                    onError: (error) =>
+                      reportWriteFailure(error, {
+                        label: t("settings.readingPaneSaveFailed"),
+                      }),
+                  },
+                )
+              }
+              disabled={updateSettings.isPending}
+            />
+          )
         }
       />
     </SettingsGroup>

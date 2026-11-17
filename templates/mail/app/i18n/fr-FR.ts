@@ -952,6 +952,8 @@ const messages = {
     readingPane: "Volet de lecture",
     readingPaneSaveFailed:
       "Impossible d’enregistrer le paramètre du volet de lecture.",
+    readingPaneLoadFailed:
+      "Impossible de charger le paramètre du volet de lecture.",
     deleteAlias: "Supprimer l’alias",
     editAlias: "Modifier l’alias",
   },

@@ -876,6 +876,7 @@ const messages = {
     reading: "阅读",
     readingPane: "阅读窗格",
     readingPaneSaveFailed: "无法保存阅读窗格设置。",
+    readingPaneLoadFailed: "无法加载阅读窗格设置。",
     deleteAlias: "删除别名",
     editAlias: "编辑别名",
   },

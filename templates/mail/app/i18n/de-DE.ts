@@ -954,6 +954,8 @@ const messages = {
     readingPane: "Lesebereich",
     readingPaneSaveFailed:
       "Die Einstellung für den Lesebereich konnte nicht gespeichert werden.",
+    readingPaneLoadFailed:
+      "Die Einstellung für den Lesebereich konnte nicht geladen werden.",
     deleteAlias: "Alias löschen",
     editAlias: "Alias bearbeiten",
   },

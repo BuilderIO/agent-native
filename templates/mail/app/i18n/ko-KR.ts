@@ -911,6 +911,7 @@ const messages = {
     reading: "읽기",
     readingPane: "읽기 창",
     readingPaneSaveFailed: "읽기 창 설정을 저장하지 못했습니다.",
+    readingPaneLoadFailed: "읽기 창 설정을 불러오지 못했습니다.",
     deleteAlias: "별칭 삭제",
     editAlias: "별칭 편집",
   },

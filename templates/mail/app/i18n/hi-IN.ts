@@ -906,6 +906,7 @@ const messages = {
     reading: "पढ़ना",
     readingPane: "रीडिंग पेन",
     readingPaneSaveFailed: "रीडिंग पेन सेटिंग सहेजी नहीं जा सकी।",
+    readingPaneLoadFailed: "रीडिंग पेन सेटिंग लोड नहीं की जा सकी।",
     deleteAlias: "उपनाम हटाएँ",
     editAlias: "उपनाम संपादित करें",
   },
