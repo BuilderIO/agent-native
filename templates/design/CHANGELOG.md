@@ -5,8 +5,26 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-11-16
 
+### Added
+
+- Build a remix board in Design without signing in; sign in only to share it, and the board moves into your account.
+- Dragging a dial or slider inside an Interact frame now saves that knob, so other frames follow and Apply includes the change
+- Floating tweaks stay available over the canvas while you work in Design
+- Paste frames and elements copied from other design apps into a design.
+
+### Improved
+
+- One tweak knob can now drive several screens, and Interact keeps the current tweak values instead of resetting them to defaults.
+- Review comments can mention the default agent or choose a specific model.
+
 ### Fixed
 
+- Applying canvas changes now keeps sent tweaks pending until source verification is acknowledged.
+- Applying pending tweaks preserves the remaining undo history and uses the current design when acknowledging source updates.
+- Fixed Apply handoffs for live edits, tweak tokens, and Interact previews
+- Fixed the floating Tweaks panel covering inspector controls by default.
+- Pending visual edits stay queued until the host starts applying them
+- Review comments that mention the agent now reach the host chat from both new comments and replies.
 - Shared live previews now show the snapshot when a tunnel is unavailable.
 
 ### Changed
@@ -32,7 +50,12 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- A Lab you changed can go back to its default with Use default in Settings › Labs, so it follows later rollouts again.
 - Invalid screen placement requests are rejected before incomplete designs are saved.
+
+### Fixed
+
+- Labs that Builder decides for you now show as set and can't be switched, instead of offering a choice that wasn't applied.
 
 ## 2026-11-13
 

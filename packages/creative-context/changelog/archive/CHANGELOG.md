@@ -1,3 +1,9 @@
+## 0.7.0
+
+### Minor Changes
+
+- 39383b5: designs can be generated using creative context
+
 ## 0.6.6
 
 ### Patch Changes

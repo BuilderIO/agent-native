@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.8.74
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.73
 
 ### Patch Changes
@@ -637,11 +643,5 @@
   an unread `REALTIME_VOICE_REQUEST_SOURCE`. No runtime behavior changes.
   `eslint/no-unused-vars` is now an oxlint error instead of a warning, so CI
   blocks new ones.
-
-## 0.7.0
-
-### Minor Changes
-
-- 39383b5: designs can be generated using creative context
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

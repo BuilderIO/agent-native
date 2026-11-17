@@ -39,6 +39,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Hovering an email action shows its name and shortcut, and keys now follow Superhuman: Space pages, X selects, Enter replies all in an open email, ? asks the agent, and Shift+U opens Unread.
 
+## 2026-11-07
+
+### Fixed
+
+- Gmail's copy of a draft now matches Mail's when you and the agent edit it at the same time, instead of sometimes keeping the edit that lost.
+
 ## 2026-11-05
 
 ### Improved

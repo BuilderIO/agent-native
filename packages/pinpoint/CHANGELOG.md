@@ -1,5 +1,11 @@
 # @agent-native/pinpoint
 
+## 0.1.117
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.116
 
 ### Patch Changes
@@ -607,11 +613,5 @@
   `needsApproval`.
 
   Update the Pinpoint MCP server example to use the stable split MCP v2 packages.
-
-## 0.1.17
-
-### Patch Changes
-
-- 22e9951: Test-only: the `FileStore.update()` spec now drives the clock with fake timers instead of assuming wall-clock advances between two back-to-back writes, which made it flake when both landed in the same millisecond. No runtime behavior change.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
