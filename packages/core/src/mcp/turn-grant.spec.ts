@@ -69,6 +69,7 @@ import { runWithMcpChatTurnCall } from "./chat-turn-scope.js";
 import {
   admitMcpChatTurn,
   mintMcpChatTurn,
+  mintMcpChatTurnMetadata,
   readMcpChatTurn,
   registerMcpChatTurnApps,
   resetMcpChatTurnAppsForTests,
@@ -506,4 +507,36 @@ it("keeps an admitted chat turn readable after its 120 s proof expired", async (
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("sends an ordinary turn for a non-user caller but fails on a real mint refusal", async () => {
+  registerMcpChatTurnApps([APP]);
+  const asCaller = (assurance: "user" | "none", userEmail: string) =>
+    runWithMcpChatTurnCall(
+      {
+        userEmail,
+        orgDomain: undefined,
+        orgId: null,
+        identityAssurance: assurance,
+      },
+      "ask_app",
+      false,
+      () => mintMcpChatTurnMetadata(APP),
+    );
+  expect(await asCaller("user", OWNER)).toHaveProperty(
+    "__agentNativeMcpChatTurn",
+  );
+  await expect(
+    runWithMcpChatTurnCall(
+      {
+        userEmail: OWNER,
+        orgDomain: undefined,
+        orgId: null,
+        identityAssurance: "user",
+      },
+      "list-items",
+      false,
+      () => mintMcpChatTurnMetadata(APP),
+    ),
+  ).resolves.toBeUndefined();
 });

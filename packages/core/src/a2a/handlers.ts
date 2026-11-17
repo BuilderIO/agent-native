@@ -1322,7 +1322,16 @@ async function handleStream(
   res: { write: (chunk: string) => void; end: () => void },
   event?: any,
 ): Promise<void> {
-  const message = params.message as Message;
+  const incomingMessage = params.message as Message | undefined;
+  // Streaming turns take no chat-turn grant: drop a supplied proof so it never
+  // lands in task history or the handler's input.
+  const message = incomingMessage && {
+    ...incomingMessage,
+    ...(incomingMessage.metadata
+      ? { metadata: { ...incomingMessage.metadata } }
+      : {}),
+  };
+  if (message?.metadata) delete message.metadata[MCP_CHAT_TURN_FIELD];
   if (!message || !message.role || !Array.isArray(message.parts)) {
     res.write(
       `data: ${JSON.stringify(jsonRpcError(0, -32602, "Invalid params"))}\n\n`,

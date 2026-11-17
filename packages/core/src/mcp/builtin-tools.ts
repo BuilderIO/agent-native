@@ -22,8 +22,7 @@ import type { MCPConfig, MCPCallerIdentity } from "./build-server.js";
 import { mcpChatTurnOwner } from "./chat-turn-scope.js";
 import {
   hasMcpChatTurnApps,
-  MCP_CHAT_TURN_FIELD,
-  mintMcpChatTurn,
+  mintMcpChatTurnMetadata,
 } from "./chat-turn-store.js";
 import { embedApp } from "./embed-app.js";
 import { frameworkMcpTool } from "./framework-tools.js";
@@ -504,17 +503,10 @@ async function submitAskAppA2ATask(
     issuerAudience,
     message,
   );
-  const mint = await mintMcpChatTurn(route.app);
-  // Only `not-registered` means "send without a proof"; a refused mint (owner
-  // cap, storage or signing failure) must not quietly drop the interactive grant.
-  if (mint.status === "refused") {
-    throw new Error(`MCP chat-turn proof refused: ${mint.reason}`);
-  }
+  const chatTurn = await mintMcpChatTurnMetadata(route.app);
   const task = await client.send(
     {
-      ...(mint.status === "minted"
-        ? { metadata: { [MCP_CHAT_TURN_FIELD]: mint.claim } }
-        : {}),
+      ...(chatTurn ? { metadata: chatTurn } : {}),
       role: "user",
       parts: [{ type: "text", text: message }],
     },
@@ -1346,11 +1338,9 @@ async function routeAskOverA2A(
   const auth = await resolveA2ACallerAuth({
     audience: canonicalA2AAudience(origin),
   });
-  const mint = await mintMcpChatTurn(id);
+  const chatTurn = await mintMcpChatTurnMetadata(id);
   const response = await callAgent(origin, message, {
-    ...(mint.status === "minted"
-      ? { metadata: { [MCP_CHAT_TURN_FIELD]: mint.claim } }
-      : {}),
+    ...(chatTurn ? { metadata: chatTurn } : {}),
     apiKey: auth.apiKey,
     userEmail: auth.userEmail,
     orgId: auth.orgId,

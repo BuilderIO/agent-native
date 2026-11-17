@@ -2065,6 +2065,38 @@ describe("handleJsonRpc", () => {
     expect(events[0].result).toBeUndefined();
   });
 
+  it("never hands a streamed task a chat-turn proof", async () => {
+    const seen: unknown[] = [];
+    const event = mockEvent();
+    event.context = { __a2aVerifiedEmail: "alice@example.org" };
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 36,
+        method: "message/stream",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+            metadata: { __agentNativeMcpChatTurn: { v: "claim" }, keep: 1 },
+          },
+        },
+      },
+      event,
+      {
+        ...customHandler,
+        streaming: true,
+        handler: async (message: Message) => {
+          seen.push(message.metadata);
+          return {
+            message: { role: "agent", parts: [{ type: "text", text: "ok" }] },
+          } as never;
+        },
+      },
+    );
+    expect(seen).toEqual([{ keep: 1 }]);
+  });
+
   it("preserves current submission behavior without an authenticated owner", async () => {
     const handler = vi.fn(customHandler.handler!);
     const config = { ...customHandler, handler };

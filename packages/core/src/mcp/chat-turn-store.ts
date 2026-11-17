@@ -162,6 +162,24 @@ async function pruneExpiredChatTurnAdmissions(): Promise<void> {
   }
 }
 
+/**
+ * The task metadata that carries a freshly minted proof, or none when the
+ * target takes no proof or the caller is not a verified user turn (both mean
+ * "send as an ordinary turn"). Any other refusal (owner cap, storage or
+ * signing failure) throws, so an intended interactive turn never quietly
+ * loses its grant.
+ */
+export async function mintMcpChatTurnMetadata(
+  appId: string,
+): Promise<Record<string, unknown> | undefined> {
+  const mint = await mintMcpChatTurn(appId);
+  if (mint.status === "minted") return { [MCP_CHAT_TURN_FIELD]: mint.claim };
+  if (mint.status === "refused" && mint.reason !== "not-user-call") {
+    throw new Error(`MCP chat-turn proof refused: ${mint.reason}`);
+  }
+  return undefined;
+}
+
 export async function admitMcpChatTurn(
   candidate: unknown,
   binding: {
