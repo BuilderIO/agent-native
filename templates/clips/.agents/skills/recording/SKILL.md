@@ -329,6 +329,8 @@ the recorder recreates it on every start.
 | `MediaRecorder` error event    | Stop, finalize what we have, set `failureReason`; let the user retry.                 |
 | User closes tab mid-recording  | No background resend or closed-tab recovery is promised.                              |
 
+Failure events carry facts, not a verdict: `recorder_stage` (the recorder's state when it aborted; `pickingSources` covers the countdown) and `status_at_timeout` (on `upload_timed_out`). Classify user dropoff vs. technical failure from those in analytics, so a changed rule reclassifies history.
+
 ## Code sketch
 
 ```ts

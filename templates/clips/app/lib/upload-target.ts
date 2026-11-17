@@ -282,8 +282,9 @@ export async function openUploadTarget(options: {
 }
 
 /**
- * Give up a take's server upload when its recorder could not start: an
- * intake row is aborted, any other row trashed unless it is already ready.
+ * Give up the server row of a take that never recorded. Always abort it: a
+ * row that is only trashed is still reaped as a timeout. An intake row is not
+ * trashed, because it belongs to the intake's owner.
  */
 export function abandonUploadTarget(
   pending: { id: string; abortUrl: string; localOnly?: boolean } | null,
@@ -294,12 +295,17 @@ export function abandonUploadTarget(
   },
 ): Promise<unknown> | null {
   if (!pending || pending.localOnly) return null;
-  return (
-    options.intake
-      ? options.abort(pending.abortUrl)
-      : options.abandon(pending.id)
-  ).catch((err: unknown) => {
-    // coercion-ok: a row left behind is reaped when its lease expires.
-    console.warn("[recorder] could not give up the upload row:", err);
+  const steps = [options.abort(pending.abortUrl)];
+  if (!options.intake) steps.push(options.abandon(pending.id));
+  return Promise.allSettled(steps).then((results) => {
+    for (const result of results) {
+      if (result.status === "rejected") {
+        // coercion-ok: a row left behind is reaped when its lease expires.
+        console.warn(
+          "[recorder] could not give up the upload row:",
+          result.reason,
+        );
+      }
+    }
   });
 }
