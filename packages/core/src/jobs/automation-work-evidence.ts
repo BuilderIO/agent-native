@@ -34,9 +34,10 @@ export function inspectAutomationWork(
     );
   // A rejected no-op call is a failed declaration, not failed work, so it must
   // not veto a valid skip whether it comes before or after the declaration.
-  const workFailure = failures.find(
-    (event) => event.tool !== AUTOMATION_NO_OP_TOOL,
-  );
+  const workFailure =
+    failures.find(
+      (event) => event.tool !== AUTOMATION_NO_OP_TOOL && event.outcomeUnknown,
+    ) ?? failures.find((event) => event.tool !== AUTOMATION_NO_OP_TOOL);
   const failedTool = workFailure ?? failures[0];
   const noOpReason =
     options.noOpReason ?? automationNoOpReasonFromEvents(events);
