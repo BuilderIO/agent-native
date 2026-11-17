@@ -2305,7 +2305,7 @@ export type BoundedBigQueryJobOutcome =
       location: string | undefined;
       providerCacheHit: boolean | null;
     }
-  /** BigQuery definitively refused to create the job: nothing ran or billed. */
+  /** BigQuery definitively refused the job's only send: nothing ran or billed. */
   | {
       status: "rejected";
       code:
@@ -2471,9 +2471,12 @@ export async function runBoundedBigQueryJob(input: {
     const message =
       bigQueryProviderDetailFromResponse(text) ??
       `BigQuery refused the job (${res.status}).`;
+    // A refused resend proves nothing about the first send, which may have
+    // created the job, so only a refused first send is a rejection.
     if (
-      isMaximumBytesBilledError(res.status, text) ||
-      isDefiniteJobSubmissionRejection(res.status, text)
+      attempt === 0 &&
+      (isMaximumBytesBilledError(res.status, text) ||
+        isDefiniteJobSubmissionRejection(res.status, text))
     ) {
       return {
         status: "rejected",

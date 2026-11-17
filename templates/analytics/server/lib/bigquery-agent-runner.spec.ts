@@ -615,6 +615,62 @@ describe("runBigQueryAgentQuery", () => {
     expect(released).toMatchObject({ state: "released" });
   });
 
+  it("never makes its first send once the admission it committed has lapsed, even with time left on its deadline", async () => {
+    // Admission returns with the server clock already past its send deadline.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const client = database.client!;
+      const transaction = client.transaction.bind(client);
+      vi.spyOn(client, "transaction").mockImplementation((async (
+        callback: Parameters<typeof transaction>[0],
+      ) => {
+        const result = await transaction(callback);
+        vi.setSystemTime(Date.now() + 10 * 60_000);
+        return result;
+      }) as typeof client.transaction);
+      const result = await runBigQueryAgentQuery({ sql: SQL, source: "test" });
+      expect(result).toMatchObject({
+        status: "refused",
+        code: "query_timeout",
+      });
+      expect(calls.submissions).toHaveLength(0);
+      expect(await admissions()).toEqual([
+        expect.objectContaining({ state: "released" }),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the reservation when the resend of an ambiguous first send is refused", async () => {
+    let sends = 0;
+    scenario.submit = async () => {
+      sends++;
+      // The first send's answer is lost, so the job may exist in a region
+      // the locationless lookup below does not see.
+      if (sends === 1) throw new TypeError("fetch failed");
+      return json(
+        {
+          error: {
+            code: 403,
+            errors: [{ reason: "accessDenied", message: "Access Denied" }],
+          },
+        },
+        403,
+      );
+    };
+    scenario.jobsGet = () => json({ error: { code: 404 } }, 404);
+    const result = await runBigQueryAgentQuery({ sql: SQL, source: "test" });
+    expect(calls.submissions).toHaveLength(2);
+    expect(result).toMatchObject({
+      status: "uncertain",
+      code: "job_outcome_unknown",
+    });
+    expect(await admissions()).toEqual([
+      expect.objectContaining({ state: "pending" }),
+    ]);
+  });
+
   it("calls a missing table an invalid query and still records the call", async () => {
     scenario.table = () =>
       json({ error: { code: 404, message: "Not found" } }, 404);

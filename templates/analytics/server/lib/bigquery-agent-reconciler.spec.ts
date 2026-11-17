@@ -182,7 +182,41 @@ describe("confirming an outside agent's job with BigQuery", () => {
 });
 
 describe("a bounded job's one resend", () => {
-  function stubAmbiguousSubmit() {
+  const accepted = () =>
+    json({ jobReference: { projectId: job.projectId, jobId: TARGET } });
+  // BigQuery's definite refusals of a send: neither created a job.
+  const refusals: Array<[string, () => Response]> = [
+    [
+      "access denied",
+      () =>
+        json(
+          {
+            error: {
+              code: 403,
+              errors: [{ reason: "accessDenied", message: "Access Denied" }],
+            },
+          },
+          403,
+        ),
+    ],
+    [
+      "over its bytes billed",
+      () =>
+        json(
+          {
+            error: {
+              code: 400,
+              message: "Query exceeded limit for bytes billed: 10485760.",
+              errors: [{ reason: "bytesBilledLimitExceeded" }],
+            },
+          },
+          400,
+        ),
+    ],
+  ];
+
+  /** The first send's answer is lost; the second gets `resend`'s. */
+  function stubAmbiguousSubmit(resend: () => Response = accepted) {
     const sent: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -192,9 +226,7 @@ describe("a bounded job's one resend", () => {
           sent.push(JSON.parse(String(init.body)).jobReference.jobId);
           // The first send's answer is lost; whether it landed is unknown.
           if (sent.length === 1) throw new TypeError("fetch failed");
-          return json({
-            jobReference: { projectId: job.projectId, jobId: TARGET },
-          });
+          return resend();
         }
         if (url.pathname.endsWith(`/jobs/${TARGET}`)) {
           return json({ error: { code: 404 } }, 404);
@@ -242,4 +274,34 @@ describe("a bounded job's one resend", () => {
     });
     expect(sent).toEqual([TARGET]);
   });
+
+  it.each(refusals)(
+    "keeps the outcome uncertain when the resend is refused for %s, since the first send may have created the job",
+    async (_label, refusal) => {
+      const sent = stubAmbiguousSubmit(refusal);
+      expect(await run(Date.now() + 60_000)).toMatchObject({
+        status: "uncertain",
+        reason: "submission_unknown",
+      });
+      expect(sent).toEqual([TARGET, TARGET]);
+    },
+  );
+
+  it.each(refusals)(
+    "reports a refused first send, %s, as a rejection",
+    async (_label, refusal) => {
+      const sent: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          sent.push(JSON.parse(String(init?.body)).jobReference.jobId);
+          return refusal();
+        }),
+      );
+      expect(await run(Date.now() + 60_000)).toMatchObject({
+        status: "rejected",
+      });
+      expect(sent).toEqual([TARGET]);
+    },
+  );
 });
