@@ -24,3 +24,5 @@ Hashed build assets are served with `Access-Control-Allow-Origin: *`, so an app 
 A full-app panel's reads that carry its session in the URL, as the app's own requests do, now count as the panel's own, so it can get the UI capability its approval-gated actions need. Only a session cookie still needs same-origin proof.
 
 `open_app` given only an app id opens that app's home page instead of refusing the call for a missing view or path.
+
+An app open in an MCP host's panel no longer sends its first-touch attribution to the server, which refused that cookieless request and reported it as a failed request in `read_view`.
