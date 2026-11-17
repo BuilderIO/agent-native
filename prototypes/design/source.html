@@ -3448,7 +3448,7 @@ function renderInspectorBase() {
     ${sec("position", "Position", act("layout-distribute-horizontal", "Auto layout", true), `
       <div class="g5">${field("Alignment", segc(["layout-align-left", "layout-align-center", "layout-align-right"], -1, true))}${field("&nbsp;", segc(["layout-align-top", "layout-align-middle", "layout-align-bottom"], -1, true), "c3")}</div>
       <div class="g5">${field("Position", inp("X", p.x + "px"))}${field("&nbsp;", inp("Y", p.y + "px"), "c3")}<div class="c5" style="align-self:end">${act("box-model-2", "Constraints")}</div></div>
-      <div class="g5">${field("Rotation", inp(ic("angle", "s12"), "0deg"))}${field("&nbsp;", `<div class="segc xf" role="group" aria-label="Transform">${[["rotate-clockwise", "Rotate 90° right"], ["flip-horizontal", "Flip horizontal"], ["flip-vertical", "Flip vertical"]].map(([n, t]) => `<button aria-label="${t}" data-tip="${t}" data-xf="${n}">${ic(n)}</button>`).join("")}</div>`, "c35")}</div>`)}
+      <div class="g5">${field("Rotation", inp(ic("angle", "s12"), "0deg"))}${field("&nbsp;", `<div class="segc xf" role="group" aria-label="Transform">${[["rotate-clockwise", "Rotate 90° right"], ["flip-horizontal", "Flip horizontal"], ["flip-vertical", "Flip vertical"]].map(([n, t]) => `<button aria-label="${t}" data-tip="${t}" data-xf="${n}">${ic(n)}</button>`).join("")}</div>`, "c3")}</div>`)}
     ${sec("layout", "Layout", "", `
       <div class="g5">${field("Width", inp("W", p.w + "px", ic("chevron-down", "s12")))}${field("Height", inp("H", p.h + "px", ic("chevron-down", "s12")), "c3")}<div class="c5" style="align-self:end">${act("link-off", "Lock aspect ratio")}</div></div>`)}
     ${sec("appearance", "Appearance", act("eye", "Visible") + act("droplet", "Blend mode"), `
@@ -9904,7 +9904,7 @@ render();
 .tkp-o.act, .tkd-o.act { background: var(--brand); color: var(--on-brand); }
 .tkp-o.act .v, .tkp-o.act .gl, .tkd-o.act .v { color: var(--on-brand); opacity: .8; }
 .tkp-empty { padding: 4px 8px 8px; }
-/* Rotate and both flips are one transform group across the two field columns. */
+/* Rotate and both flips are one transform group in the second field column, like every other row. */
 #insp .segc.xf { width: 100%; }
 #insp .segc.xf > button { flex: 1 1 0; }
 
