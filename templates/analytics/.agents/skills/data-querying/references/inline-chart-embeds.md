@@ -54,21 +54,21 @@ height: 320
 
 ## The Panel JSON Shape (validated by `decodePanel`, `chart.tsx:31-73`)
 
-| Field       | Required | Type / allowed values                                                                     | Notes                                                                                                                                                                                                             |
-| ----------- | -------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sql`       | yes      | non-empty string                                                                          | The query to run.                                                                                                                                                                                                 |
-| `source`    | yes      | `"bigquery"` \| `"ga4"` \| `"amplitude"` \| `"first-party"` \| `"demo"` \| `"prometheus"` | `chart.tsx:22-29`. This is every `DataSourceType` (`packages/toolkit/src/dashboard/sql-dashboard-types.ts`) **except `"program"`** — data-program-backed sources cannot be embedded this way.                     |
-| `chartType` | yes      | `"line"` \| `"area"` \| `"bar"` \| `"metric"` \| `"table"` \| `"pie"`                     | `chart.tsx:12-19`. This is every `ChartType` (`types.ts:10-20`) **except `"section"`, `"heatmap"`, `"callout"`, `"extension"`** — those are dashboard-layout-only types and are not valid for a standalone embed. |
-| `id`        | no       | string                                                                                    | Defaults to `"embed"`.                                                                                                                                                                                            |
-| `title`     | no       | string                                                                                    | Defaults to `""`. Shown above the chart in `ChartRoute` (`chart.tsx:109-113`) — separate from the outer `embed` fence's own `title:` line, which only sets the iframe's `title` attribute.                        |
-| `width`     | no       | number ≥ 1, floored                                                                       | Defaults to `1`. Legacy dashboard row-layout field; has no effect on the standalone `/chart` page.                                                                                                                |
-| `config`    | no       | `SqlPanelConfig` object (`types.ts`)                                                      | Passed through as-is — `decodePanel` only checks `typeof === "object"`, it does not validate individual keys.                                                                                                     |
+| Field       | Required | Type / allowed values                                                                     | Notes                                                                                                                                                                                                                           |
+| ----------- | -------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sql`       | yes      | non-empty string                                                                          | The query to run.                                                                                                                                                                                                               |
+| `source`    | yes      | `"bigquery"` \| `"ga4"` \| `"amplitude"` \| `"first-party"` \| `"demo"` \| `"prometheus"` | `chart.tsx:22-29`. This is every `DataSourceType` (`packages/toolkit/src/dashboard/sql-dashboard-types.ts`) **except `"program"`** — data-program-backed sources cannot be embedded this way.                                   |
+| `chartType` | yes      | `"line"` \| `"area"` \| `"bar"` \| `"metric"` \| `"table"` \| `"pie"`                     | `chart.tsx:12-19`. This is every `ChartType` (`sql-dashboard-types.ts:13-26`) **except `"section"`, `"heatmap"`, `"callout"`, `"extension"`** — those are dashboard-layout-only types and are not valid for a standalone embed. |
+| `id`        | no       | string                                                                                    | Defaults to `"embed"`.                                                                                                                                                                                                          |
+| `title`     | no       | string                                                                                    | Defaults to `""`. Shown above the chart in `ChartRoute` (`chart.tsx:109-113`) — separate from the outer `embed` fence's own `title:` line, which only sets the iframe's `title` attribute.                                      |
+| `width`     | no       | number ≥ 1, floored                                                                       | Defaults to `1`. Legacy dashboard row-layout field; has no effect on the standalone `/chart` page.                                                                                                                              |
+| `config`    | no       | `SqlPanelConfig` object (`sql-dashboard-types.ts`)                                        | Passed through as-is — `decodePanel` only checks `typeof === "object"`, it does not validate individual keys.                                                                                                                   |
 
 Any other `source`/`chartType` value, or a missing/blank `sql`, makes
 `decodePanel` return an error and the route renders `ChartError`
 (`chart.tsx:75-92`) instead of a chart.
 
-### Useful `config` keys (from `SqlPanelConfig`, `types.ts`)
+### Useful `config` keys (from `SqlPanelConfig`, `sql-dashboard-types.ts`)
 
 - `xKey`, `yKey` / `yKeys` — column names for the x-axis and series. If
   omitted, the chart's `detectKeys` (`packages/toolkit/src/dashboard/panel-render-contract.ts`) auto-picks a
@@ -97,7 +97,7 @@ Any other `source`/`chartType` value, or a missing/blank `sql`, makes
   `format` is `"number"`, `"currency"`, `"percent"`, `"delta"`, `"date"`,
   `"link"`, `"text"`, or `"duration"` (seconds; sorts by the number).
 - `stacked`, `legend`, `pivot`, `limit`, `valueLabels`, `comparison`,
-  `description` — see `SqlPanelConfig` in `types.ts` for the full list.
+  `description` — see `SqlPanelConfig` in `sql-dashboard-types.ts` for the full list.
 
 ## Encoding The `panel` Param
 
