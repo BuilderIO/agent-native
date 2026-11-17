@@ -119,6 +119,7 @@ export function useSettingsWrite<Value>(binding: SettingsBinding<Value>) {
 export function useSettingsAction(action: SettingsRowAction) {
   const [ownOpen, setOwnOpen] = useState(false);
   const [running, setRunning] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const trigger = action.trigger;
   const disabled = isSettingsActionDisabled(action) || running;
   const controlled =
@@ -126,6 +127,7 @@ export function useSettingsAction(action: SettingsRowAction) {
   const open =
     trigger.kind === "dialog" && controlled ? trigger.open === true : ownOpen;
   const setOpen = (next: boolean) => {
+    if (next) setConfirmError(null);
     if (trigger.kind === "dialog" && controlled) trigger.setOpen?.(next);
     else setOwnOpen(next);
   };
@@ -140,6 +142,8 @@ export function useSettingsAction(action: SettingsRowAction) {
   return {
     disabled,
     running,
+    /** The last confirm run's rejection message; the dialog stays open. */
+    confirmError,
     href: trigger.kind === "navigate" ? trigger.href : undefined,
     external: trigger.kind === "navigate" ? trigger.external === true : false,
     opensDialog: trigger.kind === "dialog" || trigger.kind === "confirm",
@@ -156,11 +160,12 @@ export function useSettingsAction(action: SettingsRowAction) {
     async confirm() {
       if (trigger.kind !== "confirm") return;
       setRunning(true);
+      setConfirmError(null);
       try {
         await trigger.run();
         setOpen(false);
-      } catch {
-        // coercion-ok: the model reports the failure; the dialog stays for another try.
+      } catch (cause) {
+        setConfirmError(cause instanceof Error ? cause.message : String(cause));
       } finally {
         setRunning(false);
       }
@@ -383,6 +388,15 @@ export function useBindingWrite(
   return useCallback(
     async (binding, value) => {
       store?.report(id, null);
+      // This control has no dialog to ask in; writing would skip the
+      // confirmation the binding declared.
+      if (binding.confirm?.when(value)) {
+        store?.report(
+          id,
+          "This change needs a confirmation this control cannot show.",
+        );
+        return false;
+      }
       try {
         await binding.set?.(value);
         return true;

@@ -1377,6 +1377,11 @@ function HouseAction({
           }
         >
           <span {...dialogTags} />
+          {state.confirmError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {state.confirmError}
+            </p>
+          ) : null}
         </Dialog>
       ) : null}
     </>

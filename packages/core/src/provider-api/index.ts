@@ -2353,9 +2353,10 @@ export async function executeProviderApiRequest(
   args: ProviderApiRequestArgs,
   runtime: ProviderApiRuntimeOptions,
 ) {
-  const admissionDeadline =
-    Date.now() +
-    Math.min(PROVIDER_CALL_ADMISSION_WAIT_MS, clampTimeout(args.timeoutMs));
+  const admissionWaitMs = Math.min(
+    PROVIDER_CALL_ADMISSION_WAIT_MS,
+    clampTimeout(args.timeoutMs),
+  );
   await precheckProviderCall(args.provider);
   await assertProviderAllowedAsync(args.provider, runtime);
 
@@ -2429,7 +2430,7 @@ export async function executeProviderApiRequest(
         undefined,
       connectionId: args.connectionId ?? null,
       runtime,
-      deadline: admissionDeadline,
+      deadline: Date.now() + admissionWaitMs,
       signal: args.signal,
     });
   const gate = gateFor(url.href, args.body);

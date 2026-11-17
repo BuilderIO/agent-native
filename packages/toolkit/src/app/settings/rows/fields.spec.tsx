@@ -265,6 +265,94 @@ describe("settings rows: fields real settings pages needed", () => {
     ).toBe("Out of range for this plan");
   });
 
+  it("refuses a select write the binding marks for confirmation instead of skipping the ask", async () => {
+    const set = vi.fn();
+    const sections: SettingsSectionDefinition[] = [
+      {
+        id: "limits",
+        rows: [
+          {
+            id: "settings.limits.mode",
+            kind: "select",
+            label: "Mode",
+            options: [
+              { value: "a", label: "A" },
+              { value: "b", label: "B" },
+            ],
+            binding: {
+              value: "a",
+              set,
+              confirm: {
+                when: () => true,
+                title: "Change mode?",
+                confirmLabel: "Change",
+                cancelLabel: "Cancel",
+              },
+            },
+          },
+        ],
+      },
+    ];
+    act(() => root.render(<SettingsSections sections={sections} />));
+    const trigger = document.querySelector(
+      '[data-row-kind="select"] [role="combobox"], [data-row-kind="select"] button',
+    ) as HTMLElement;
+    act(() => trigger.click());
+    const option = Array.from(
+      document.body.querySelectorAll('[role="option"]'),
+    ).find((node) => node.textContent?.includes("B")) as HTMLElement;
+    await act(async () => option.click());
+    expect(set).not.toHaveBeenCalled();
+    expect(
+      tagged("settings.limits.mode", "settings.row.error")?.textContent,
+    ).toMatch(/confirmation/);
+  });
+
+  it("keeps a confirm dialog open and shows why its action failed", async () => {
+    const sections: SettingsSectionDefinition[] = [
+      {
+        id: "danger",
+        rows: [
+          {
+            id: "settings.danger.reset",
+            kind: "action",
+            label: "Reset",
+            action: {
+              id: "settings.danger.reset.action",
+              label: "Reset",
+              trigger: {
+                kind: "confirm",
+                title: "Reset everything?",
+                confirmLabel: "Reset now",
+                cancelLabel: "Cancel",
+                run: async () => {
+                  throw new Error("Reset is locked");
+                },
+              },
+            },
+          },
+        ],
+      } as SettingsSectionDefinition,
+    ];
+    act(() => root.render(<SettingsSections sections={sections} />));
+    const opener = Array.from(document.body.querySelectorAll("button")).find(
+      (node) => node.textContent === "Reset",
+    ) as HTMLButtonElement;
+    act(() => opener.click());
+    const confirm = Array.from(document.body.querySelectorAll("button")).find(
+      (node) => node.textContent === "Reset now",
+    ) as HTMLButtonElement;
+    await act(async () => confirm.click());
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe(
+      "Reset is locked",
+    );
+    expect(
+      Array.from(document.body.querySelectorAll("button")).some(
+        (node) => node.textContent === "Reset now",
+      ),
+    ).toBe(true);
+  });
+
   it("shows why a text row's write was rejected", async () => {
     const sections: SettingsSectionDefinition[] = [
       {

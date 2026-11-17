@@ -114,7 +114,7 @@ export function mcpApprovalReviewUrl(
   const route = requestMeta?.approvalRoute ?? mcpApprovalRoute();
   return toAbsoluteOpenUrl(
     publicFrameworkPath(`${route}/${encodeURIComponent(nonce)}`),
-    requestMeta?.approvalOrigin ?? declaredLinkOrigin(requestMeta?.origin),
+    declaredLinkOrigin(requestMeta?.approvalOrigin ?? requestMeta?.origin),
   );
 }
 
