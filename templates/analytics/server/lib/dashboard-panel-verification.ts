@@ -245,7 +245,7 @@ function resolvedSqlOf(
   );
 }
 
-function renderFingerprint(panel: Record<string, unknown>): string {
+export function renderFingerprint(panel: Record<string, unknown>): string {
   return stableStringify({
     sql: panel.sql,
     source: panel.source,

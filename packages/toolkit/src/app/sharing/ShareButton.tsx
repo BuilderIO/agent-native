@@ -177,9 +177,16 @@ export interface ShareButtonProps {
   publicFollowersLabel?: (count: number, more: boolean) => ReactNode;
   /**
    * What is specific to this resource, already translated, added to the
-   * confirmation shown before it becomes visible to the organization.
+   * confirmation shown before it becomes visible to the organization. A
+   * function gets the visibility the change would save.
    */
-  visibilityConfirmDetail?: ReactNode;
+  visibilityConfirmDetail?: ReactNode | ((to: Visibility) => ReactNode);
+  /**
+   * Asks before a visibility change the resource type would otherwise save at
+   * once (such as going public), when it returns true. The same confirmation
+   * shows, with `visibilityConfirmDetail` under it.
+   */
+  confirmVisibility?: (from: Visibility, to: Visibility) => boolean;
   /** `action` names the `roleMenu` item that switches a person to the role. */
   roleCopy?: Partial<
     Record<Role, { label?: string; description?: string; action?: string }>
@@ -419,6 +426,7 @@ export function ShareButton(props: ShareButtonProps) {
     shareUrl: props.shareUrl,
     allowedRoles: allowedRolesFor(props),
     hideInSearchControl: props.hideInSearchControl,
+    confirmVisibility: props.confirmVisibility,
   });
   useImperativeHandle(
     props.actionRef,
@@ -2321,7 +2329,7 @@ export interface ShareGeneralAccessRowProps {
   /** Show the description in the trigger instead of the label. */
   sentenceTrigger?: boolean;
   /** Resource-specific text added to the organization confirmation. */
-  confirmDetail?: ReactNode;
+  confirmDetail?: ShareButtonProps["visibilityConfirmDetail"];
   /** Opens the access menu from elsewhere in the panel; leave unset otherwise. */
   menuOpen?: boolean;
   onMenuOpenChange?: (open: boolean) => void;

@@ -41,6 +41,9 @@ const DIRECT_MCP_READS = [
   "open-traffic-dashboard",
   "account-deep-dive",
   "builder-blog-articles",
+  // Runs one saved panel as the caller, rows capped, for a copy kept in a
+  // Content page. Direct A2A shares this catalog, so Content's call needs it.
+  "capture-dashboard-panel",
   "data-source-status",
   "estimate-dashboard-cost",
   "estimate-onboarding-journey-cost",
@@ -48,6 +51,7 @@ const DIRECT_MCP_READS = [
   "find-data",
   "query-dbt-semantic-metric",
   "get-analysis",
+  "get-dashboard-panel-status",
   "get-data-program",
   "get-error-issue",
   "get-first-party-analytics-health",

@@ -108,6 +108,23 @@ describe("DashboardPanelChart", () => {
     },
   );
 
+  it("dashes the day the rows were read as unfinished, not today", async () => {
+    const line = panel("line", { xKey: "day", yKeys: ["people"] });
+    await render(<DashboardPanelChart panel={line} rows={DAYS} />);
+    expect(container.querySelector('path[stroke-dasharray="3 5"]')).toBeNull();
+
+    await render(
+      <DashboardPanelChart
+        panel={line}
+        rows={DAYS}
+        asOf="2026-10-14T20:00:00.000Z"
+      />,
+    );
+    expect(
+      container.querySelector('path[stroke-dasharray="3 5"]'),
+    ).not.toBeNull();
+  });
+
   it("draws a metric from its first row", async () => {
     await render(
       <DashboardPanelChart panel={panel("metric")} rows={[{ value: 1234 }]} />,
