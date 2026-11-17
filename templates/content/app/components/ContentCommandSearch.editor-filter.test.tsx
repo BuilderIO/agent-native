@@ -72,7 +72,9 @@ describe("EditorSearchChoice", () => {
               focusInput={() => {}}
             />
           )}
-        />,
+        >
+          {null}
+        </CommandMenu>,
       ),
     );
     const trigger = required(
