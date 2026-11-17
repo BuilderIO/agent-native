@@ -2023,8 +2023,6 @@ const overrides = {
     aiOpenConversation: "Abrir conversa com a IA",
     aiConversationPrefill: "Continuar esta conversa de comentários…",
     aiConversationUnavailable: "Esta conversa com a IA não está disponível.",
-    aiRequestsUnavailable:
-      "O status das solicitações de IA não está disponível. Tente novamente antes de enviar.",
     aiFollowUpYou: "Você",
     aiFollowUpIncomplete: "Esta resposta terminou antes de ser concluída.",
     aiRequestCouldNotBeConfirmed:

@@ -1965,8 +1965,6 @@ const overrides = {
     aiOpenConversation: "AI 대화 열기",
     aiConversationPrefill: "이 댓글 대화 계속하기…",
     aiConversationUnavailable: "이 AI 대화를 사용할 수 없습니다.",
-    aiRequestsUnavailable:
-      "AI 요청 상태를 확인할 수 없습니다. 보내기 전에 다시 시도하세요.",
     aiFollowUpYou: "나",
     aiFollowUpIncomplete: "이 답변은 완료되기 전에 종료되었습니다.",
     aiRequestCouldNotBeConfirmed: "AI 요청을 확인할 수 없습니다",

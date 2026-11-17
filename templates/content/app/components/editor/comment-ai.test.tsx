@@ -31,8 +31,6 @@ const api = vi.hoisted(() => ({
   cancelBackgroundAgentSession: vi.fn(),
   loadCommentAiConversation: vi.fn(),
   requests: [] as CommentAiRequest[],
-  queryMissing: false,
-  queryError: false,
   toastError: vi.fn(),
 }));
 
@@ -40,8 +38,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   callAction: (...args: unknown[]) => api.callAction(...args),
   useActionQuery: () => ({
-    data: api.queryMissing ? undefined : { requests: api.requests },
-    isError: api.queryError,
+    data: { requests: api.requests },
     refetch: api.refetch,
   }),
 }));
@@ -117,8 +114,6 @@ describe("comment AI controls", () => {
     document.body.append(container);
     root = createRoot(container);
     api.requests = [];
-    api.queryMissing = false;
-    api.queryError = false;
     api.refetch.mockResolvedValue(undefined);
     api.cancelBackgroundAgentSession.mockResolvedValue(undefined);
     api.loadCommentAiConversation.mockResolvedValue([]);
@@ -142,57 +137,6 @@ describe("comment AI controls", () => {
     act(() => root.unmount());
     container.remove();
     vi.clearAllMocks();
-  });
-
-  it("keeps known active requests and exposes list failure instead of treating it as empty", async () => {
-    api.requests = [request({ status: "running", error: null })];
-    let controller: CommentAiController;
-    function Probe() {
-      controller = useCommentAiRequests("document-1", { enabled: true });
-      return null;
-    }
-    act(() => root.render(createElement(Probe)));
-    api.queryMissing = true;
-    api.queryError = true;
-    act(() => root.render(createElement(Probe)));
-    expect(controller!.listUnavailable).toBe(true);
-    expect(controller!.requests).toContainEqual(
-      expect.objectContaining({ status: "running" }),
-    );
-    await expect(
-      controller!.start({
-        threadId: "other-thread",
-        rootCommentId: "other",
-        submittedMode: "reply",
-        instructions: "Question",
-      }),
-    ).rejects.toThrow();
-    expect(api.callAction).not.toHaveBeenCalled();
-    await act(async () => {
-      await controller!.reloadRequests!();
-    });
-    expect(api.refetch).toHaveBeenCalled();
-  });
-
-  it("reports an initial list failure and blocks new AI requests", async () => {
-    api.queryMissing = true;
-    api.queryError = true;
-    let controller: CommentAiController;
-    function Probe() {
-      controller = useCommentAiRequests("document-1", { enabled: true });
-      return null;
-    }
-    act(() => root.render(createElement(Probe)));
-    expect(controller!.listUnavailable).toBe(true);
-    await expect(
-      controller!.start({
-        threadId: "thread-1",
-        rootCommentId: "comment-1",
-        submittedMode: "reply",
-        instructions: "Question",
-      }),
-    ).rejects.toThrow();
-    expect(api.callAction).not.toHaveBeenCalled();
   });
 
   it("uses the model's maker for logos when a gateway routes the model", () => {
@@ -249,124 +193,6 @@ describe("comment AI controls", () => {
       model: "gpt-5-6-sol",
       engine: "builder",
       continuationOfRequestId: "prior-request",
-    });
-  });
-
-  it("shows an unavailable scope without pretending a running request stopped", async () => {
-    const active = request({
-      status: "running",
-      scopeUnavailable: true,
-      error: null,
-    });
-    await act(async () =>
-      root.render(
-        createElement(CommentAiRequestStatus, {
-          request: active,
-          onRetry: vi.fn(),
-          onStop: vi.fn(),
-        }),
-      ),
-    );
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-      "comments.aiConversationUnavailable",
-    );
-    expect(active.status).toBe("running");
-  });
-
-  it("monitors and offers Stop for an active request whose scope is unavailable", async () => {
-    api.requests = [
-      request({
-        status: "running",
-        scopeUnavailable: true,
-        error: null,
-        agentThreadId: "agent-thread-1",
-        agentTurnId: "turn-1",
-      }),
-    ];
-    api.getBackgroundAgentSessionStatus.mockResolvedValue({
-      status: "completed",
-      runId: "run-1",
-      operationId: "request-1",
-      threadId: "agent-thread-1",
-      turnId: "turn-1",
-    });
-    function Probe() {
-      const controller = useCommentAiRequests("document-1", { enabled: true });
-      const current = controller.requests[0]!;
-      return createElement(CommentAiRequestStatus, {
-        request: current,
-        onRetry: () => controller.retry(current),
-        onStop: () => controller.stop(current),
-      });
-    }
-    await act(async () => {
-      root.render(createElement(Probe));
-    });
-    expect(api.callAction).toHaveBeenCalledWith(
-      "reconcile-comment-ai-session",
-      expect.objectContaining({
-        operationId: "request-1",
-        status: "completed",
-        runId: "run-1",
-      }),
-    );
-    const stop = [
-      ...document.querySelectorAll<HTMLButtonElement>("button"),
-    ].find((button) => button.textContent === "comments.aiStop");
-    expect(stop).toBeDefined();
-    await act(async () => {
-      stop!.click();
-    });
-    expect(api.cancelBackgroundAgentSession).toHaveBeenCalledWith({
-      threadId: "agent-thread-1",
-      turnId: "turn-1",
-      reason: "user",
-    });
-  });
-
-  it("keeps an over-limit classifier active when Stop returns an ambiguous 404", async () => {
-    api.requests = [
-      request({
-        status: "classifying",
-        submittedMode: "auto",
-        scopeUnavailable: true,
-        error: null,
-        pendingSession: {
-          phase: "classification",
-          prompt: "Classify",
-          backgroundSession: {
-            operationId: "request-1:classification",
-            threadId: "classifier-thread",
-            turnId: "classifier-turn",
-            scope: { type: "content-comment-ai-classifier", id: "request-1" },
-            actionScope: {
-              kind: "content-comment-ai-classifier",
-              requestId: "request-1",
-            },
-          },
-        },
-      }),
-    ];
-    api.cancelBackgroundAgentSession.mockRejectedValue(new Error("HTTP 404"));
-    let controller: CommentAiController;
-    function Probe() {
-      controller = useCommentAiRequests("document-1", { enabled: true });
-      return null;
-    }
-    await act(async () => {
-      root.render(createElement(Probe));
-    });
-    expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
-    await expect(
-      act(async () => controller!.stop(controller!.requests[0]!)),
-    ).rejects.toThrow("HTTP 404");
-    expect(api.callAction).not.toHaveBeenCalledWith(
-      "reconcile-comment-ai-session",
-      expect.anything(),
-    );
-    expect(controller!.serverRequests[0]).toMatchObject({
-      status: "classifying",
-      scopeUnavailable: true,
     });
   });
 
@@ -910,345 +736,6 @@ describe("comment AI controls", () => {
     });
   });
 
-  it.each([true, false])(
-    "loads the protected transcript before dispatching a continued reply (readable: %s)",
-    async (readable) => {
-      let controller: CommentAiController;
-      function Probe() {
-        controller = useCommentAiRequests("document-1", { enabled: true });
-        return null;
-      }
-      const session = {
-        operationId: "request-1",
-        threadId: "agent-thread-1",
-        turnId: "turn-1",
-        scope: { type: "content-comment-ai", id: "original-request" },
-        actionScope: { kind: "content-comment-ai", requestId: "request-1" },
-      };
-      api.callAction.mockResolvedValue({
-        ...request({
-          status: "queued",
-          intent: "reply",
-          error: null,
-          continuationOfRequestId: "original-request",
-        }),
-        outcome: "confirmed-start",
-        dispatch: true,
-        pendingSession: {
-          phase: "execution",
-          backgroundSession: session,
-          prompt: "Explain further",
-          context: "Use scoped context",
-        },
-      });
-      if (readable) {
-        api.loadCommentAiConversation.mockResolvedValue([
-          {
-            turnId: "original-turn",
-            userText: "Why?",
-            assistantText: "Because.",
-            status: "complete",
-          },
-        ]);
-      } else {
-        api.loadCommentAiConversation.mockRejectedValue(
-          new Error("unreadable transcript"),
-        );
-      }
-      act(() => root.render(createElement(Probe)));
-      const start = () =>
-        controller.start({
-          threadId: "thread-1",
-          rootCommentId: "comment-1",
-          submittedMode: "reply",
-          instructions: "Explain further",
-          continuationOfRequestId: "original-request",
-        });
-      if (readable) {
-        await act(async () => {
-          await start();
-        });
-        expect(api.startBackgroundAgentSession).toHaveBeenCalledWith(
-          expect.objectContaining({
-            ...session,
-            instructions: expect.stringContaining("Assistant: Because."),
-          }),
-        );
-        expect(
-          window.localStorage.getItem(
-            "content-comment-ai-dispatch-recovery:document-1",
-          ),
-        ).not.toContain("Assistant: Because.");
-      } else {
-        await expect(act(async () => start())).rejects.toThrow(
-          "comments.aiConversationUnavailable",
-        );
-        expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
-        expect(api.callAction).not.toHaveBeenCalledWith(
-          "reconcile-comment-ai-session",
-          expect.anything(),
-        );
-        api.requests = [
-          request({
-            status: "queued",
-            intent: "reply",
-            error: null,
-            continuationOfRequestId: "original-request",
-          }),
-        ];
-        act(() => root.render(createElement(Probe)));
-        expect(controller.requests[0]).toMatchObject({
-          status: "needs-review",
-          transportUnknown: true,
-        });
-        api.loadCommentAiConversation.mockResolvedValue([
-          {
-            turnId: "original-turn",
-            userText: "Why?",
-            assistantText: "Because.",
-            status: "complete",
-          },
-        ]);
-        await act(async () => {
-          await controller.retry(controller.requests[0]);
-        });
-        expect(api.startBackgroundAgentSession).toHaveBeenCalledWith(
-          expect.objectContaining({
-            ...session,
-            instructions: expect.stringContaining("Assistant: Because."),
-          }),
-        );
-        expect(api.callAction).not.toHaveBeenCalledWith(
-          "reconcile-comment-ai-session",
-          expect.anything(),
-        );
-      }
-    },
-  );
-
-  it("resumes a queued continued request after opening it on another device", async () => {
-    const base = request({
-      status: "queued",
-      intent: "reply",
-      error: null,
-      continuationOfRequestId: "original-request",
-      agentThreadId: "agent-thread-1",
-      agentTurnId: "turn-1",
-    });
-    api.requests = [base];
-    api.callAction.mockResolvedValue({
-      ...base,
-      outcome: "confirmed-start",
-      dispatch: true,
-      pendingSession: {
-        phase: "execution",
-        prompt: "Explain further",
-        context: "Scoped",
-        backgroundSession: {
-          operationId: "request-1",
-          threadId: "agent-thread-1",
-          turnId: "turn-1",
-          scope: { type: "content-comment-ai", id: "original-request" },
-          actionScope: { kind: "content-comment-ai", requestId: "request-1" },
-        },
-      },
-    });
-    api.loadCommentAiConversation.mockResolvedValue([
-      {
-        turnId: "prior",
-        userText: "Question",
-        assistantText: "Answer",
-        status: "complete",
-      },
-    ]);
-    function Probe() {
-      useCommentAiRequests("document-1", { enabled: true });
-      return null;
-    }
-    await act(async () => {
-      root.render(createElement(Probe));
-    });
-    expect(api.startBackgroundAgentSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operationId: "request-1",
-        instructions: expect.stringContaining("Assistant: Answer"),
-      }),
-    );
-  });
-
-  it("does not let a stale local transcript error mask a running request", () => {
-    window.localStorage.setItem(
-      "content-comment-ai-transcript-errors:document-1",
-      JSON.stringify({ "request-1": "old error" }),
-    );
-    api.requests = [
-      request({ status: "running", error: null, runId: "run-1" }),
-    ];
-    let controller: CommentAiController;
-    function Probe() {
-      controller = useCommentAiRequests("document-1", { enabled: true });
-      return null;
-    }
-    act(() => root.render(createElement(Probe)));
-    expect(controller.requests[0]).toMatchObject({
-      status: "running",
-      runId: "run-1",
-      error: null,
-    });
-  });
-
-  it("rehydrates a legacy dispatch recovery without persisting or replaying stale protected context", async () => {
-    const base = request({
-      status: "queued",
-      intent: "reply",
-      error: null,
-      continuationOfRequestId: "original-request",
-      agentThreadId: "agent-thread-1",
-      agentTurnId: "turn-1",
-    });
-    api.requests = [base];
-    window.localStorage.setItem(
-      "content-comment-ai-dispatch-recovery:document-1",
-      JSON.stringify({
-        "request-1": {
-          options: {
-            message: "Explain",
-            instructions:
-              "Scoped\n\nProtected conversation context:\n\nSTALE PRIVATE CONTEXT",
-            operationId: "request-1",
-            threadId: "agent-thread-1",
-            scope: { type: "content-comment-ai", id: "original-request" },
-            actionScope: { kind: "content-comment-ai", requestId: "request-1" },
-          },
-          phase: "execution",
-          error: "retry",
-        },
-      }),
-    );
-    api.loadCommentAiConversation.mockResolvedValue([
-      {
-        turnId: "prior",
-        userText: "Question",
-        assistantText: "Trusted prior",
-        status: "complete",
-      },
-      {
-        turnId: "turn-1",
-        userText: "Explain",
-        assistantText: null,
-        status: "complete",
-      },
-    ]);
-    function Probe() {
-      useCommentAiRequests("document-1", { enabled: true });
-      return null;
-    }
-    await act(async () => {
-      root.render(createElement(Probe));
-    });
-    expect(api.startBackgroundAgentSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operationId: "request-1",
-        instructions:
-          "Scoped\n\nProtected conversation context:\n\nUser: Question\n\nAssistant: Trusted prior",
-      }),
-    );
-    expect(
-      window.localStorage.getItem(
-        "content-comment-ai-dispatch-recovery:document-1",
-      ),
-    ).not.toContain("PRIVATE CONTEXT");
-    expect(
-      window.localStorage.getItem(
-        "content-comment-ai-dispatch-recovery:document-1",
-      ),
-    ).not.toContain("Trusted prior");
-  });
-
-  it("offers retry when sanitized remount recovery cannot read its protected transcript", async () => {
-    const base = request({
-      status: "queued",
-      intent: "reply",
-      error: null,
-      continuationOfRequestId: "original-request",
-      agentThreadId: "agent-thread-1",
-      agentTurnId: "turn-1",
-    });
-    api.requests = [base];
-    window.localStorage.setItem(
-      "content-comment-ai-dispatch-recovery:document-1",
-      JSON.stringify({
-        "request-1": {
-          options: {
-            message: "Explain",
-            instructions: "Scoped",
-            operationId: "request-1",
-            threadId: "agent-thread-1",
-            scope: { type: "content-comment-ai", id: "original-request" },
-            actionScope: { kind: "content-comment-ai", requestId: "request-1" },
-          },
-          phase: "execution",
-          needsTranscript: true,
-        },
-      }),
-    );
-    api.loadCommentAiConversation.mockRejectedValue(new Error("access denied"));
-    let controller: CommentAiController;
-    function Probe() {
-      controller = useCommentAiRequests("document-1", { enabled: true });
-      const current = controller.requests[0];
-      return createElement(CommentAiRequestStatus, {
-        request: current,
-        onRetry: () => controller.retry(current),
-        onStop: async () => {},
-      });
-    }
-    await act(async () => {
-      root.render(createElement(Probe));
-    });
-    expect(controller!.requests[0]).toMatchObject({
-      status: "needs-review",
-      transportUnknown: true,
-    });
-    expect(
-      document.querySelector('[role="alert"]')?.getAttribute("title"),
-    ).toBe("comments.aiConversationUnavailable");
-    expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
-    expect(api.callAction).not.toHaveBeenCalledWith(
-      "reconcile-comment-ai-session",
-      expect.anything(),
-    );
-    api.loadCommentAiConversation.mockResolvedValue([
-      {
-        turnId: "prior",
-        userText: "Question",
-        assistantText: "Fresh answer",
-        status: "complete",
-      },
-    ]);
-    api.startBackgroundAgentSession.mockReturnValue({
-      accepted: Promise.resolve(),
-      status: vi.fn(),
-    });
-    await act(async () => {
-      const retry = [
-        ...document.querySelectorAll<HTMLButtonElement>("button"),
-      ].find((button) => button.textContent === "comments.retry");
-      expect(retry).toBeDefined();
-      retry!.click();
-    });
-    expect(api.startBackgroundAgentSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        instructions: expect.stringContaining("Assistant: Fresh answer"),
-      }),
-    );
-    expect(
-      window.localStorage.getItem(
-        "content-comment-ai-dispatch-recovery:document-1",
-      ),
-    ).not.toContain("Fresh answer");
-  });
-
   it("does not dispatch an active request returned by a racing start", async () => {
     let controller: CommentAiController;
     function Probe() {
@@ -1727,8 +1214,6 @@ describe("comment AI controls", () => {
       status: "replied",
       errorCode: null,
       error: null,
-      continuationOfRequestId: "previous-request",
-      agentThreadScopeId: "original-request",
       agentThreadId: "agent-thread-1",
       agentTurnId: "initial-turn-1",
     });
@@ -1781,16 +1266,6 @@ describe("comment AI controls", () => {
       controller!.continue(base, "Accidentally submit another follow-up"),
     ).rejects.toThrow("Follow-up POST failed");
     expect(api.startBackgroundAgentSession).toHaveBeenCalledOnce();
-    expect(
-      window.localStorage.getItem(
-        "content-comment-ai-continuations:document-1",
-      ),
-    ).not.toContain("Original comment and protected document context");
-    expect(
-      window.localStorage.getItem(
-        "content-comment-ai-continuations:document-1",
-      ),
-    ).not.toContain("It preserves the author's stated intent.");
 
     act(() => root.unmount());
     root = createRoot(container);
@@ -1808,8 +1283,6 @@ describe("comment AI controls", () => {
       message: "What about accessibility?",
       operationId: "continuation-1",
       threadId: "agent-thread-1",
-      scope: { type: "content-comment-ai", id: "original-request" },
-      actionScope: { kind: "content-comment-ai", requestId: "request-1" },
     });
     expect(api.loadCommentAiConversation).toHaveBeenCalledWith({
       operationId: "request-1",

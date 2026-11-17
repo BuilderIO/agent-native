@@ -93,9 +93,6 @@ export interface CommentAiRequest {
   attemptCount: number;
   runId: string | null;
   agentThreadId: string | null;
-  agentThreadScopeId?: string;
-  /** This request's legacy thread scope could not be resolved within the safety limit. */
-  scopeUnavailable?: boolean;
   agentTurnId: string | null;
   model: string | null;
   engine: string | null;

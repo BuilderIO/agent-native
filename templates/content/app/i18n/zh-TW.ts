@@ -1270,7 +1270,6 @@ const overrides = {
     aiOpenConversation: "開啟 AI 對話",
     aiConversationPrefill: "繼續此留言對話…",
     aiConversationUnavailable: "此 AI 對話無法使用。",
-    aiRequestsUnavailable: "無法取得 AI 請求狀態。請在送出前重試。",
     aiFollowUpYou: "你",
     aiFollowUpIncomplete: "此回覆尚未完成。",
     aiRequestCouldNotBeConfirmed: "無法確認 AI 請求",

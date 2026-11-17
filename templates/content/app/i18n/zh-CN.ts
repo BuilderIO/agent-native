@@ -2000,7 +2000,6 @@ const overrides = {
     aiOpenConversation: "打开 AI 对话",
     aiConversationPrefill: "继续此评论对话…",
     aiConversationUnavailable: "此 AI 对话不可用。",
-    aiRequestsUnavailable: "AI 请求状态不可用。请在提交前重试。",
     aiFollowUpYou: "你",
     aiFollowUpIncomplete: "此回复未完成。",
     aiRequestCouldNotBeConfirmed: "无法确认 AI 请求",

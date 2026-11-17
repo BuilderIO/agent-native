@@ -2031,8 +2031,6 @@ const overrides = {
     aiOpenConversation: "KI-Unterhaltung öffnen",
     aiConversationPrefill: "Diese Kommentarunterhaltung fortsetzen…",
     aiConversationUnavailable: "Diese KI-Unterhaltung ist nicht verfügbar.",
-    aiRequestsUnavailable:
-      "Der Status der KI-Anfragen ist nicht verfügbar. Versuche es vor dem Senden erneut.",
     aiFollowUpYou: "Du",
     aiFollowUpIncomplete: "Diese Antwort wurde vorzeitig beendet.",
     aiRequestCouldNotBeConfirmed:

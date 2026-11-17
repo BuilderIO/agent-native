@@ -1114,27 +1114,6 @@ describe("comment review interactions", () => {
   const suggestedCommentAi = (suggestionId: string) =>
     commentAiWithRequests([suggestedRequest(suggestionId)]);
 
-  it("shows an unavailable request list and offers a read retry", async () => {
-    const reloadRequests = vi.fn().mockResolvedValue(undefined);
-    const commentAi = {
-      ...commentAiWithRequests([]),
-      listUnavailable: true,
-      reloadRequests,
-    };
-    render("one", [thread("one")], "inline", { commentAi });
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      "comments.aiRequestsUnavailable",
-    );
-    const retry = [
-      ...container.querySelectorAll<HTMLButtonElement>("button"),
-    ].find((button) => button.textContent === "comments.retry");
-    expect(retry).toBeDefined();
-    await act(async () => {
-      retry!.click();
-    });
-    expect(reloadRequests).toHaveBeenCalledOnce();
-  });
-
   describe("Accept and resolve", () => {
     const asked = (id: string, status: ResourceSuggestion["status"]) => ({
       ...proposalSuggestion(id, status),

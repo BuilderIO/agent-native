@@ -122,16 +122,12 @@ export interface CommentAiContinuationState {
   turnId: string;
   status: BackgroundAgentSessionStatus;
   options?: BackgroundAgentSessionStartOptions;
-  needsTranscript?: boolean;
   error?: string;
 }
 
 class CommentAiConversationUnavailableError extends Error {
-  constructor(
-    message: string,
-    readonly cause: unknown,
-  ) {
-    super(message);
+  constructor(message: string, cause: unknown) {
+    super(message, { cause });
   }
 }
 
@@ -139,29 +135,10 @@ interface CommentAiDispatchRecovery {
   options: BackgroundAgentSessionStartOptions;
   phase?: "classification" | "execution";
   error?: string;
-  needsTranscript?: boolean;
-}
-
-const PROTECTED_CONTEXT_SEPARATOR = "\n\nProtected conversation context:\n\n";
-
-function dispatchRecoveryOptions(options: BackgroundAgentSessionStartOptions) {
-  const index =
-    options.instructions?.indexOf(PROTECTED_CONTEXT_SEPARATOR) ?? -1;
-  if (index < 0) return { options };
-  return {
-    options: {
-      ...options,
-      instructions: options.instructions?.slice(0, index),
-    },
-    needsTranscript: true,
-  };
 }
 
 export interface CommentAiController {
   requests: CommentAiRequest[];
-  /** A failed list read leaves the status of other operations unknown. */
-  listUnavailable?: boolean;
-  reloadRequests?: () => Promise<void>;
   /**
    * The requests as the server last reported them, before a local dispatch
    * or continuation error shows one as needing review. What a run wrote to
@@ -587,14 +564,10 @@ export function latestCommentAiRequest(
  * quote has moved, is refused.
  */
 export function isCommentAiWorkingOn(
-  commentAi: Pick<
-    CommentAiController,
-    "requests" | "startingThreadIds" | "listUnavailable"
-  >,
+  commentAi: Pick<CommentAiController, "requests" | "startingThreadIds">,
   threadId: string,
 ) {
-  if (commentAi.listUnavailable || commentAi.startingThreadIds.has(threadId))
-    return true;
+  if (commentAi.startingThreadIds.has(threadId)) return true;
   const request = latestCommentAiRequest(commentAi.requests, threadId);
   return Boolean(request && isCommentAiRequestActive(request));
 }
@@ -640,20 +613,7 @@ export function useCommentAiRequests(
         commentAiRequestsRefetchInterval(state.state.data),
     },
   );
-  const lastRequestsRef = useRef<{
-    documentId: string;
-    requests: CommentAiRequest[];
-  } | null>(null);
-  if (lastRequestsRef.current?.documentId !== documentId)
-    lastRequestsRef.current = null;
-  if (query.data)
-    lastRequestsRef.current = { documentId, requests: query.data.requests };
-  const listUnavailable = options.enabled && (query.isError || !query.data);
-  const serverRequests =
-    query.data?.requests ?? lastRequestsRef.current?.requests ?? [];
-  const reloadRequests = useCallback(async () => {
-    await query.refetch();
-  }, [query.refetch]);
+  const serverRequests = query.data?.requests ?? [];
   const serverRequestsRef = useRef(serverRequests);
   serverRequestsRef.current = serverRequests;
   const refetchRef = useRef(query.refetch);
@@ -671,54 +631,15 @@ export function useCommentAiRequests(
   const [dispatchRecoveryRecord, setDispatchRecoveryRecord] = useLocalStorage<
     Record<string, CommentAiDispatchRecovery>
   >(`content-comment-ai-dispatch-recovery:${documentId}`, {});
-  const [transcriptErrors, setTranscriptErrors] = useLocalStorage<
-    Record<string, string>
-  >(`content-comment-ai-transcript-errors:${documentId}`, {});
-  useEffect(() => {
-    setDispatchRecoveryRecord((current) => {
-      let changed = false;
-      const next = Object.fromEntries(
-        Object.entries(current).map(([id, record]) => {
-          const safe = dispatchRecoveryOptions(record.options);
-          if (!safe.needsTranscript) return [id, record];
-          changed = true;
-          return [id, { ...record, ...safe }];
-        }),
-      );
-      return changed ? next : current;
-    });
-  }, [setDispatchRecoveryRecord]);
   const [continuationRecord, setContinuationRecord] = useLocalStorage<
     Record<string, CommentAiContinuationState>
   >(`content-comment-ai-continuations:${documentId}`, {});
-  useEffect(() => {
-    setContinuationRecord((current) => {
-      let changed = false;
-      const next = Object.fromEntries(
-        Object.entries(current).map(([id, record]) => {
-          if (!record.options) return [id, record];
-          const safe = dispatchRecoveryOptions(record.options);
-          if (!safe.needsTranscript) return [id, record];
-          changed = true;
-          return [id, { ...record, ...safe }];
-        }),
-      );
-      return changed ? next : current;
-    });
-  }, [setContinuationRecord]);
   const requests = useMemo(
     () =>
       serverRequests.map((request) => {
         const recovery = dispatchRecoveryRecord[request.operationId];
         const continuation = continuationRecord[request.operationId];
-        const error =
-          request.status === "running" || request.status === "refreshing"
-            ? undefined
-            : (recovery?.error ??
-              continuation?.error ??
-              (request.status === "queued" || request.status === "classified"
-                ? transcriptErrors[request.operationId]
-                : undefined));
+        const error = recovery?.error ?? continuation?.error;
         if (
           !error ||
           (!ACTIVE_STATUSES.has(request.status) &&
@@ -733,12 +654,7 @@ export function useCommentAiRequests(
           transportUnknown: true,
         };
       }),
-    [
-      continuationRecord,
-      dispatchRecoveryRecord,
-      serverRequests,
-      transcriptErrors,
-    ],
+    [continuationRecord, dispatchRecoveryRecord, serverRequests],
   );
   const requestsRef = useRef(requests);
   requestsRef.current = requests;
@@ -750,15 +666,12 @@ export function useCommentAiRequests(
   continuationRecordRef.current = continuationRecord;
   const updateContinuation = useCallback(
     (operationId: string, state: CommentAiContinuationState) => {
-      const retained = state.options
-        ? { ...state, ...dispatchRecoveryOptions(state.options) }
-        : state;
       continuationRecordRef.current = {
         ...continuationRecordRef.current,
-        [operationId]: retained,
+        [operationId]: state,
       };
       setContinuationRecord((current) => {
-        const next = { ...current, [operationId]: retained };
+        const next = { ...current, [operationId]: state };
         continuationRecordRef.current = next;
         return next;
       });
@@ -774,10 +687,9 @@ export function useCommentAiRequests(
       options: BackgroundAgentSessionStartOptions,
       phase?: "classification" | "execution",
     ) => {
-      const retained = dispatchRecoveryOptions(options);
       setDispatchRecoveryRecord((current) => ({
         ...current,
-        [requestId]: { ...retained, phase },
+        [requestId]: { options, phase },
       }));
       const handle = startBackgroundAgentSession(options);
       try {
@@ -810,7 +722,7 @@ export function useCommentAiRequests(
         setDispatchRecoveryRecord((current) => ({
           ...current,
           [requestId]: {
-            ...retained,
+            options,
             phase,
             error: [
               error instanceof Error
@@ -921,13 +833,6 @@ export function useCommentAiRequests(
       continuationOfRequestId,
       requestId: retryRequestId,
     }) => {
-      if (listUnavailable)
-        throw new Error(t("comments.aiConversationUnavailable"));
-      const currentRequest = serverRequestsRef.current.find(
-        (row) => row.operationId === retryRequestId,
-      );
-      if (currentRequest?.scopeUnavailable)
-        throw new Error(t("comments.aiConversationUnavailable"));
       const recovery = retryRequestId
         ? dispatchRecoveryRecord[retryRequestId]
         : undefined;
@@ -951,75 +856,17 @@ export function useCommentAiRequests(
       startingRef.current.add(threadId);
       setStartingThreadIds(new Set(startingRef.current));
       let started: StartCommentAiResult | null = null;
-      const loadRecoveryTranscript = async (agentThreadId: string) => {
-        try {
-          const turns = await loadCommentAiConversation({
-            operationId: requestId,
-            agentThreadId,
-            initialTurnId: "",
-          });
-          setTranscriptErrors((current) => {
-            if (!current[requestId]) return current;
-            const next = { ...current };
-            delete next[requestId];
-            return next;
-          });
-          return turns;
-        } catch (error) {
-          setTranscriptErrors((current) => ({
-            ...current,
-            [requestId]: t("comments.aiConversationUnavailable"),
-          }));
-          throw new CommentAiConversationUnavailableError(
-            t("comments.aiConversationUnavailable"),
-            error,
-          );
-        }
-      };
       try {
         if (continuationRecovery?.options && continuationRecovery.error) {
-          const retained = dispatchRecoveryOptions(
-            continuationRecovery.options,
-          );
-          let recoveredOptions = retained.options;
-          if (
-            continuationRecovery.needsTranscript ||
-            retained.needsTranscript
-          ) {
-            const request = serverRequestsRef.current.find(
-              (row) => row.operationId === requestId,
-            );
-            if (!request?.agentThreadId) {
-              setTranscriptErrors((current) => ({
-                ...current,
-                [requestId]: t("comments.aiConversationUnavailable"),
-              }));
-              throw new CommentAiConversationUnavailableError(
-                t("comments.aiConversationUnavailable"),
-                new Error("This AI conversation is not available yet"),
-              );
-            }
-            const turns = await loadRecoveryTranscript(request.agentThreadId);
-            const currentTurn = turns.findIndex(
-              (turn) => turn.turnId === continuationRecovery.turnId,
-            );
-            const prior = boundedContinuationContext(
-              currentTurn < 0 ? turns : turns.slice(0, currentTurn),
-            );
-            recoveredOptions = {
-              ...recoveredOptions,
-              instructions:
-                (recoveredOptions.instructions ?? "") +
-                (prior ? `${PROTECTED_CONTEXT_SEPARATOR}${prior}` : ""),
-            };
-          }
           const retrying = {
             ...continuationRecovery,
             status: "queued" as const,
             error: undefined,
           };
           updateContinuation(requestId, retrying);
-          const handle = startBackgroundAgentSession(recoveredOptions);
+          const handle = startBackgroundAgentSession(
+            continuationRecovery.options,
+          );
           try {
             await handle.accepted;
             const observed = continuationRecordRef.current[requestId];
@@ -1053,37 +900,7 @@ export function useCommentAiRequests(
           return "confirmed-start";
         }
         if (recovery) {
-          const retained = dispatchRecoveryOptions(recovery.options);
-          let recoveredOptions = retained.options;
-          if (recovery.needsTranscript || retained.needsTranscript) {
-            const request = serverRequestsRef.current.find(
-              (row) => row.operationId === requestId,
-            );
-            if (!request?.agentThreadId || !request.agentTurnId) {
-              setTranscriptErrors((current) => ({
-                ...current,
-                [requestId]: t("comments.aiConversationUnavailable"),
-              }));
-              throw new CommentAiConversationUnavailableError(
-                t("comments.aiConversationUnavailable"),
-                new Error("This AI conversation is not available yet"),
-              );
-            }
-            const turns = await loadRecoveryTranscript(request.agentThreadId);
-            const currentTurn = turns.findIndex(
-              (turn) => turn.turnId === request.agentTurnId,
-            );
-            const prior = boundedContinuationContext(
-              currentTurn < 0 ? turns : turns.slice(0, currentTurn),
-            );
-            recoveredOptions = {
-              ...recoveredOptions,
-              instructions:
-                (recoveredOptions.instructions ?? "") +
-                (prior ? `${PROTECTED_CONTEXT_SEPARATOR}${prior}` : ""),
-            };
-          }
-          await dispatch(requestId, recoveredOptions, recovery.phase);
+          await dispatch(requestId, recovery.options, recovery.phase);
           return "confirmed-start";
         }
         started = await callAction<StartCommentAiResult>(
@@ -1106,7 +923,6 @@ export function useCommentAiRequests(
           return "busy";
         }
         if (started.dispatch) {
-          const operationId = started.operationId;
           const pendingSession =
             started.pendingSession ??
             ({
@@ -1115,52 +931,12 @@ export function useCommentAiRequests(
               prompt: started.prompt,
               context: started.context,
             } as const);
-          let context = pendingSession.context;
-          if (
-            pendingSession.phase === "execution" &&
-            started.continuationOfRequestId &&
-            pendingSession.backgroundSession.scope.id !== started.operationId
-          ) {
-            try {
-              const turns = await loadCommentAiConversation({
-                operationId: started.operationId,
-                agentThreadId: pendingSession.backgroundSession.threadId,
-                initialTurnId: "",
-              });
-              setTranscriptErrors((current) => {
-                if (!current[operationId]) return current;
-                const next = { ...current };
-                delete next[operationId];
-                return next;
-              });
-              const currentTurn = turns.findIndex(
-                (turn) =>
-                  turn.turnId === pendingSession.backgroundSession.turnId,
-              );
-              const priorConversation = boundedContinuationContext(
-                currentTurn < 0 ? turns : turns.slice(0, currentTurn),
-              );
-              if (priorConversation) {
-                context = `${context ?? ""}${PROTECTED_CONTEXT_SEPARATOR}${priorConversation}`;
-              }
-            } catch (error) {
-              setTranscriptErrors((current) => ({
-                ...current,
-                [operationId]: t("comments.aiConversationUnavailable"),
-              }));
-              await query.refetch();
-              throw new CommentAiConversationUnavailableError(
-                t("comments.aiConversationUnavailable"),
-                error,
-              );
-            }
-          }
           resumedPendingRequestsRef.current.add(
             `${started.operationId}:${started.status}`,
           );
           const options = {
             message: pendingSession.prompt,
-            instructions: context,
+            instructions: pendingSession.context,
             ...pendingSession.backgroundSession,
             usageLabel: "content:comment-ai",
           } satisfies BackgroundAgentSessionStartOptions;
@@ -1175,26 +951,13 @@ export function useCommentAiRequests(
         setStartingThreadIds(new Set(startingRef.current));
       }
     },
-    [
-      dispatch,
-      dispatchRecoveryRecord,
-      documentId,
-      listUnavailable,
-      query,
-      t,
-      updateContinuation,
-      setTranscriptErrors,
-    ],
+    [dispatch, dispatchRecoveryRecord, documentId, query, updateContinuation],
   );
 
   useEffect(() => {
     for (const request of serverRequests) {
       if (
-        listUnavailable ||
-        request.scopeUnavailable ||
-        (request.status !== "classifying" &&
-          request.status !== "classified" &&
-          request.status !== "queued") ||
+        (request.status !== "classifying" && request.status !== "classified") ||
         resumedPendingRequestsRef.current.has(
           `${request.operationId}:${request.status}`,
         )
@@ -1216,13 +979,9 @@ export function useCommentAiRequests(
           ? { continuationOfRequestId: request.continuationOfRequestId }
           : {}),
         requestId: request.requestId,
-      }).catch((error) => {
-        if (!(error instanceof CommentAiConversationUnavailableError)) {
-          resumedPendingRequestsRef.current.delete(resumeKey);
-        }
-      });
+      }).catch(() => resumedPendingRequestsRef.current.delete(resumeKey));
     }
-  }, [serverRequests, start, t, listUnavailable]);
+  }, [serverRequests, start, t]);
 
   const monitorContinuation = useCallback(
     async (request: CommentAiRequest, receipt: CommentAiContinuationState) => {
@@ -1275,7 +1034,7 @@ export function useCommentAiRequests(
       );
       if (request) void monitorContinuation(request, continuation);
     }
-  }, [continuations, monitorContinuation, serverRequests, listUnavailable]);
+  }, [continuations, monitorContinuation, serverRequests]);
 
   const dispatchContinuation = useCallback(
     async (
@@ -1283,11 +1042,7 @@ export function useCommentAiRequests(
       message: string,
       mode: "follow-up" | "resume",
     ) => {
-      if (
-        listUnavailable ||
-        request.scopeUnavailable ||
-        !request.agentThreadId
-      ) {
+      if (!request.agentThreadId) {
         throw new Error("This AI conversation is not available yet");
       }
       const existing = continuationRecordRef.current[request.operationId];
@@ -1300,12 +1055,6 @@ export function useCommentAiRequests(
         throw new Error(
           existing.error ?? "This AI follow-up is already in progress",
         );
-      }
-      const threadScopeId =
-        request.agentThreadScopeId ??
-        (request.continuationOfRequestId ? null : request.operationId);
-      if (!threadScopeId) {
-        throw new Error("This AI conversation is not available yet");
       }
       const operationId = globalThis.crypto.randomUUID();
       let continuation: CommentAiContinuationState | null = null;
@@ -1330,7 +1079,7 @@ export function useCommentAiRequests(
           message,
           operationId,
           threadId: request.agentThreadId,
-          scope: { type: "content-comment-ai", id: threadScopeId },
+          scope: { type: "content-comment-ai", id: request.operationId },
           actionScope: {
             kind: "content-comment-ai",
             requestId: request.operationId,
@@ -1395,7 +1144,7 @@ export function useCommentAiRequests(
         throw error;
       }
     },
-    [monitorContinuation, t, updateContinuation, listUnavailable],
+    [monitorContinuation, t, updateContinuation],
   );
 
   const continueConversation = useCallback<CommentAiController["continue"]>(
@@ -1413,8 +1162,7 @@ export function useCommentAiRequests(
       const continuation = continuationRecordRef.current[request.operationId];
       if (
         (continuation?.status === "unavailable" && continuation.options) ||
-        dispatchRecoveryRecord[request.operationId] ||
-        transcriptErrors[request.operationId]
+        dispatchRecoveryRecord[request.operationId]
       ) {
         await start({
           threadId: request.threadId,
@@ -1437,7 +1185,7 @@ export function useCommentAiRequests(
       }
       await resumeConversation(request);
     },
-    [dispatchRecoveryRecord, resumeConversation, start, t, transcriptErrors],
+    [dispatchRecoveryRecord, resumeConversation, start, t],
   );
 
   const stop = useCallback<CommentAiController["stop"]>(
@@ -1516,22 +1264,19 @@ export function useCommentAiRequests(
 
   const open = useCallback(
     (request: CommentAiRequest) => {
-      if (listUnavailable || request.scopeUnavailable || !request.agentThreadId)
-        return;
+      if (!request.agentThreadId) return;
       requestAgentChatThreadOpen({
         threadId: request.agentThreadId,
         prefill: t("comments.aiConversationPrefill"),
       });
     },
-    [t, listUnavailable],
+    [t],
   );
 
   return useMemo(
     () => ({
       requests,
       serverRequests,
-      listUnavailable,
-      reloadRequests,
       startingThreadIds,
       stoppingRequestIds,
       continuations,
@@ -1549,8 +1294,6 @@ export function useCommentAiRequests(
     [
       requests,
       serverRequests,
-      listUnavailable,
-      reloadRequests,
       startingThreadIds,
       stoppingRequestIds,
       continuations,
@@ -1620,28 +1363,6 @@ export function CommentAiRequestStatus({
   onDone?: () => void;
 }) {
   const t = useT();
-  if (request.scopeUnavailable) {
-    return (
-      <div className="flex items-center gap-2">
-        <div role="alert" className="text-xs text-destructive">
-          {t("comments.aiConversationUnavailable")}
-        </div>
-        {ACTIVE_STATUSES.has(request.status) ||
-        continuation?.status === "queued" ||
-        continuation?.status === "running" ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={stopping}
-            onClick={() => void onStop()}
-          >
-            {t("comments.aiStop")}
-          </Button>
-        ) : null}
-      </div>
-    );
-  }
   if (
     !continuation &&
     isAppliedResolution(request) &&

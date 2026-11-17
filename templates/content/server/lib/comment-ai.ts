@@ -1,10 +1,8 @@
 import { createHash } from "node:crypto";
 
-import { ActionContractError, fail } from "@agent-native/core/action";
+import { fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getDbExec } from "@agent-native/core/db";
 import {
-  getRequestOrgId,
   getRequestRunContext,
   getRequestUserEmail,
   getThread,
@@ -258,7 +256,6 @@ export function serializeCommentAiRequest(
     | "createdAt"
     | "updatedAt"
   >,
-  threadScopeId?: string,
 ): CommentAiRequest {
   return {
     operationId: row.id,
@@ -281,7 +278,6 @@ export function serializeCommentAiRequest(
     attemptCount: row.attemptCount,
     runId: row.runId,
     agentThreadId: row.agentThreadId,
-    ...(threadScopeId ? { agentThreadScopeId: threadScopeId } : {}),
     agentTurnId: row.agentTurnId,
     model: row.model,
     engine: row.engine,
@@ -291,12 +287,7 @@ export function serializeCommentAiRequest(
         : resultSchema.parse(JSON.parse(row.resultJson)),
     errorCode: errorCodeSchema.parse(row.errorCode),
     error: row.error,
-    pendingSession:
-      row.continuationOfRequestId &&
-      !threadScopeId &&
-      row.status !== "classifying"
-        ? null
-        : pendingSession(row as RequestRow, threadScopeId),
+    pendingSession: pendingSession(row as RequestRow),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -518,177 +509,7 @@ export async function assertCommentAiSourceUnchanged(request: RequestRow) {
   return source;
 }
 
-async function loadCommentAiAncestor(
-  id: string,
-  binding: Pick<
-    RequestRow,
-    "requesterEmail" | "documentId" | "threadId" | "rootCommentId"
-  >,
-) {
-  const [parent] = await getDb()
-    .select()
-    .from(schema.commentAiRequests)
-    .where(
-      and(
-        eq(schema.commentAiRequests.id, id),
-        eq(schema.commentAiRequests.requesterEmail, binding.requesterEmail),
-        eq(schema.commentAiRequests.documentId, binding.documentId),
-        eq(schema.commentAiRequests.threadId, binding.threadId),
-        eq(schema.commentAiRequests.rootCommentId, binding.rootCommentId),
-      ),
-    )
-    .limit(1);
-  if (!parent) {
-    fail("The prior Comment AI request cannot continue this comment", {
-      statusCode: 409,
-      errorCode: "comment_ai_operation_conflict",
-    });
-  }
-  return parent;
-}
-
-function commentAiScopeResolver(rows: RequestRow[] = []) {
-  const bindings = new Map(rows.map((row) => [row.id, row]));
-  const scopes = new Map<string, { id: string; depth: number }>();
-  const limit = 128;
-  const limitError = () =>
-    fail("This comment conversation has too much history to inspect", {
-      statusCode: 409,
-      errorCode: "comment_ai_ancestry_limit",
-    });
-  return async (request: RequestRow): Promise<string> => {
-    let origin = request;
-    const path: string[] = [];
-    const seen = new Set<string>();
-    while (true) {
-      if (seen.has(origin.id)) throw new Error("Comment AI continuation cycle");
-      seen.add(origin.id);
-      path.push(origin.id);
-      const known = scopes.get(origin.id);
-      if (known) {
-        if (path.length - 1 + known.depth > limit) limitError();
-        for (let index = 0; index < path.length; index++) {
-          scopes.set(path[index]!, {
-            id: known.id,
-            depth: path.length - 1 - index + known.depth,
-          });
-        }
-        return known.id;
-      }
-      if (path.length - 1 > limit) limitError();
-      if (!origin.continuationOfRequestId) break;
-      let parent = bindings.get(origin.continuationOfRequestId);
-      if (!parent) {
-        parent = await loadCommentAiAncestor(
-          origin.continuationOfRequestId,
-          request,
-        );
-      }
-      if (
-        parent.requesterEmail !== request.requesterEmail ||
-        parent.documentId !== request.documentId ||
-        parent.threadId !== request.threadId ||
-        parent.rootCommentId !== request.rootCommentId
-      )
-        throw new Error("Comment AI continuation is bound to another comment");
-      bindings.set(parent.id, parent);
-      if (parent.agentThreadId !== request.agentThreadId) break;
-      origin = parent;
-    }
-    for (let index = 0; index < path.length; index++) {
-      scopes.set(path[index]!, {
-        id: origin.id,
-        depth: path.length - 1 - index,
-      });
-    }
-    return origin.id;
-  };
-}
-
-async function commentAiThreadScopeId(request: RequestRow): Promise<string> {
-  return commentAiScopeResolver([request])(request);
-}
-
-async function requireCommentAiThread(request: RequestRow) {
-  const scopeId = await commentAiThreadScopeId(request);
-  const thread = request.agentThreadId
-    ? await getThread(request.agentThreadId)
-    : null;
-  if (
-    !thread ||
-    thread.ownerEmail !== request.requesterEmail ||
-    thread.orgId !== (getRequestOrgId() ?? null) ||
-    thread.source?.appId !== "content" ||
-    thread.scope?.type !== "content-comment-ai" ||
-    thread.scope.id !== scopeId
-  ) {
-    fail("This agent thread is unavailable", {
-      statusCode: 404,
-      errorCode: "comment_ai_thread_unavailable",
-    });
-  }
-  return thread;
-}
-
-export async function getCommentAiConversation(requestId: string) {
-  const request = await loadCommentAiRequest(requestId);
-  await readCommentAiSource(request);
-  const thread = await requireCommentAiThread(request);
-  const receipts = await getDb()
-    .select({
-      turnId: schema.commentAiRequests.agentTurnId,
-      resultJson: schema.commentAiRequests.resultJson,
-      status: schema.commentAiRequests.status,
-      runId: schema.commentAiRequests.runId,
-    })
-    .from(schema.commentAiRequests)
-    .where(
-      and(
-        eq(schema.commentAiRequests.requesterEmail, request.requesterEmail),
-        eq(schema.commentAiRequests.documentId, request.documentId),
-        eq(schema.commentAiRequests.threadId, request.threadId),
-        eq(schema.commentAiRequests.rootCommentId, request.rootCommentId),
-        eq(schema.commentAiRequests.agentThreadId, request.agentThreadId ?? ""),
-        inArray(schema.commentAiRequests.status, [...TERMINAL_SUCCESS]),
-      ),
-    )
-    .limit(1001);
-  if (receipts.length > 1000) {
-    fail("This comment conversation has too many receipts to inspect", {
-      statusCode: 409,
-      errorCode: "comment_ai_ancestry_limit",
-    });
-  }
-  const receiptTurnIds = receipts.flatMap(({ turnId, resultJson, status }) => {
-    if (
-      !TERMINAL_SUCCESS.includes(status as (typeof TERMINAL_SUCCESS)[number]) ||
-      !turnId ||
-      !resultJson
-    )
-      return [];
-    const result = resultSchema.parse(JSON.parse(resultJson));
-    return result.commentId || result.suggestionId ? [turnId] : [];
-  });
-  // Core derives its public count from threadData, so an empty/corrupt blob can
-  // hide the separately persisted count. Read that count by the authorized ID.
-  const { rows } = await getDbExec().execute({
-    sql: "SELECT message_count FROM chat_threads WHERE id = ? LIMIT 1",
-    args: [thread.id],
-  });
-  const storedCount = Number(rows[0]?.message_count);
-  if (
-    rows[0]?.message_count == null ||
-    !Number.isSafeInteger(storedCount) ||
-    storedCount < 0
-  ) {
-    throw new Error("The AI conversation could not be read");
-  }
-  const historyExpected =
-    storedCount > 0 || thread.messageCount > 0 || receipts.length > 0;
-  return { threadData: thread.threadData, receiptTurnIds, historyExpected };
-}
-
-function backgroundSession(request: RequestRow, threadScopeId = request.id) {
+function backgroundSession(request: RequestRow) {
   if (!request.agentThreadId || !request.agentTurnId) {
     throw new Error(
       "Comment AI operation is missing its agent session binding",
@@ -698,7 +519,7 @@ function backgroundSession(request: RequestRow, threadScopeId = request.id) {
     operationId: request.id,
     threadId: request.agentThreadId,
     turnId: request.agentTurnId,
-    scope: { type: "content-comment-ai" as const, id: threadScopeId },
+    scope: { type: "content-comment-ai" as const, id: request.id },
     actionScope: {
       kind: "content-comment-ai" as const,
       requestId: request.id,
@@ -751,10 +572,7 @@ function executionContext(request: RequestRow) {
   return `Original comment: /page/${encodeURIComponent(request.documentId)}?comment=${encodeURIComponent(request.threadId)}.${tab}${continuation} Read the scoped context before acting and follow any refresh instruction before publishing.`;
 }
 
-function pendingSession(
-  request: RequestRow,
-  threadScopeId = request.id,
-): CommentAiPendingSession | null {
+function pendingSession(request: RequestRow): CommentAiPendingSession | null {
   if (request.status === "classifying") {
     return {
       phase: "classification",
@@ -774,7 +592,7 @@ function pendingSession(
   if (request.status === "classified" || request.status === "queued") {
     return {
       phase: "execution",
-      backgroundSession: backgroundSession(request, threadScopeId),
+      backgroundSession: backgroundSession(request),
       prompt: executionPrompt(request),
       context: executionContext(request),
     };
@@ -870,17 +688,8 @@ export async function startCommentAiRequest(
       submission.submittedMode === "auto"
         ? null
         : commentAiIntentSchema.parse(submission.submittedMode);
-    const source = await readCommentAiSource({
-      ...args,
-      intent: resolvedIntent ?? "reply",
-    });
     const continuation = submission.continuationOfRequestId
-      ? await loadCommentAiAncestor(submission.continuationOfRequestId, {
-          requesterEmail: email,
-          documentId: args.documentId,
-          threadId: args.threadId,
-          rootCommentId: args.rootCommentId,
-        })
+      ? await loadCommentAiRequest(submission.continuationOfRequestId)
       : null;
     if (
       continuation &&
@@ -906,23 +715,10 @@ export async function startCommentAiRequest(
         errorCode: "comment_ai_thread_conflict",
       });
     }
-    if (
-      continuation &&
-      (resolvedIntent === "reply" ||
-        submission.submittedMode === "auto" ||
-        args.agentThreadId?.trim() === continuation.agentThreadId)
-    ) {
-      // Auto may later reuse this thread if classification chooses reply. Check
-      // every prospective reuse now, before it can acquire the active guard.
-      await commentAiThreadScopeId({
-        ...continuation,
-        id: args.requestId,
-        continuationOfRequestId: continuation.id,
-      });
-    }
-    if (continuation && resolvedIntent === "reply") {
-      await requireCommentAiThread(continuation);
-    }
+    const source = await readCommentAiSource({
+      ...args,
+      intent: resolvedIntent ?? "reply",
+    });
     assertAiMayAnswerOnPage(source.document);
     if (source.root.resolved)
       throw new Error("Reopen the comment before asking AI");
@@ -1082,13 +878,12 @@ export async function startCommentAiRequest(
     });
   }
 
-  const threadScopeId = await commentAiThreadScopeId(request);
-  const pending = pendingSession(request, threadScopeId);
+  const pending = pendingSession(request);
   const next =
     pending ??
     ({
       phase: "execution",
-      backgroundSession: backgroundSession(request, threadScopeId),
+      backgroundSession: backgroundSession(request),
       prompt: executionPrompt(request),
       context: executionContext(request),
     } satisfies CommentAiPendingSession);
@@ -1100,14 +895,13 @@ export async function startCommentAiRequest(
     intent: request.intent === "unresolved" ? null : request.intent,
   });
   return {
-    ...serializeCommentAiRequest(request, threadScopeId),
+    ...serializeCommentAiRequest(request),
     outcome,
     dispatch:
       outcome === "confirmed-start" &&
       (dispatch ||
         request.status === "classifying" ||
-        request.status === "classified" ||
-        request.status === "queued"),
+        request.status === "classified"),
     pendingSession: next,
     backgroundSession: next.backgroundSession,
     actionScope: next.backgroundSession.actionScope,
@@ -1214,49 +1008,6 @@ export async function resolveCommentAiActionSurface(
       errorCode: "comment_ai_thread_unavailable",
     });
   }
-  if (!requestId && protectedScope.success) {
-    const [origin] = await getDb()
-      .select({ id: schema.commentAiRequests.id })
-      .from(schema.commentAiRequests)
-      .where(
-        and(
-          eq(schema.commentAiRequests.id, protectedScope.data.id),
-          eq(schema.commentAiRequests.agentThreadId, details.threadId ?? ""),
-          eq(schema.commentAiRequests.requesterEmail, details.ownerEmail ?? ""),
-        ),
-      )
-      .limit(1);
-    if (!origin) {
-      fail("This protected comment conversation has no authorized operation", {
-        statusCode: 409,
-        errorCode: "comment_ai_binding_missing",
-      });
-    }
-    const latest = await getDb()
-      .select({
-        id: schema.commentAiRequests.id,
-        createdAt: schema.commentAiRequests.createdAt,
-      })
-      .from(schema.commentAiRequests)
-      .where(
-        and(
-          eq(schema.commentAiRequests.agentThreadId, details.threadId ?? ""),
-          eq(schema.commentAiRequests.requesterEmail, details.ownerEmail ?? ""),
-        ),
-      )
-      .orderBy(
-        desc(schema.commentAiRequests.createdAt),
-        desc(schema.commentAiRequests.id),
-      )
-      .limit(2);
-    if (latest.length > 1 && latest[0]?.createdAt === latest[1]?.createdAt) {
-      fail("This agent thread has ambiguous comment operation bindings", {
-        statusCode: 409,
-        errorCode: "comment_ai_thread_conflict",
-      });
-    }
-    requestId = latest[0]?.id ?? origin.id;
-  }
   if (!requestId && details.threadId) {
     const bindings = await getDb()
       .select({ id: schema.commentAiRequests.id })
@@ -1296,28 +1047,11 @@ export async function resolveCommentAiActionSurface(
       errorCode: "comment_ai_thread_conflict",
     });
   }
-  if (thread) await requireCommentAiThread(request);
-  if (
-    protectedScope.success &&
-    protectedScope.data.id !== (await commentAiThreadScopeId(request))
-  ) {
+  if (protectedScope.success && protectedScope.data.id !== request.id) {
     fail("This agent thread is bound to another comment operation", {
       statusCode: 409,
       errorCode: "comment_ai_thread_conflict",
     });
-  }
-  if (details.queuedMessageId && details.queuedMessageId !== request.id) {
-    const [otherOperation] = await getDb()
-      .select({ id: schema.commentAiRequests.id })
-      .from(schema.commentAiRequests)
-      .where(eq(schema.commentAiRequests.id, details.queuedMessageId))
-      .limit(1);
-    if (otherOperation) {
-      fail("This agent turn is bound to another comment operation", {
-        statusCode: 409,
-        errorCode: "comment_ai_operation_conflict",
-      });
-    }
   }
   if (details.queuedMessageId === request.id) {
     if (!details.requestedTurnId) {
@@ -1400,12 +1134,11 @@ export async function submitCommentAiClassification(intent: CommentAiIntent) {
       request.intent === resolvedIntent &&
       request.status === "classified"
     ) {
-      const threadScopeId = await commentAiThreadScopeId(request);
-      const next = pendingSession(request, threadScopeId);
+      const next = pendingSession(request);
       if (!next)
         throw new Error("Classified operation has no execution session");
       return {
-        request: serializeCommentAiRequest(request, threadScopeId),
+        request: serializeCommentAiRequest(request),
         pendingSession: next,
       };
     }
@@ -1417,11 +1150,8 @@ export async function submitCommentAiClassification(intent: CommentAiIntent) {
 
   await readCommentAiSource({ ...request, intent: resolvedIntent });
   const continuation = request.continuationOfRequestId
-    ? await loadCommentAiAncestor(request.continuationOfRequestId, request)
+    ? await loadCommentAiRequest(request.continuationOfRequestId)
     : null;
-  if (resolvedIntent === "reply" && continuation) {
-    await requireCommentAiThread(continuation);
-  }
   const executionThreadId =
     resolvedIntent === "reply" && continuation?.agentThreadId
       ? continuation.agentThreadId
@@ -1460,13 +1190,9 @@ export async function submitCommentAiClassification(intent: CommentAiIntent) {
     threadId: request.threadId,
     intent: resolvedIntent,
   });
-  const threadScopeId = await commentAiThreadScopeId(request);
-  const next = pendingSession(request, threadScopeId);
+  const next = pendingSession(request);
   if (!next) throw new Error("Classified operation has no execution session");
-  return {
-    request: serializeCommentAiRequest(request, threadScopeId),
-    pendingSession: next,
-  };
+  return { request: serializeCommentAiRequest(request), pendingSession: next };
 }
 
 export async function requireCommentAiRequest(intent?: CommentAiIntent) {
@@ -2065,25 +1791,5 @@ export async function listCommentAiRequests(documentId: string) {
     )
     .orderBy(desc(schema.commentAiRequests.createdAt))
     .limit(100);
-  const resolveScope = commentAiScopeResolver(rows);
-  const requests: CommentAiRequest[] = [];
-  for (const row of rows) {
-    try {
-      requests.push(serializeCommentAiRequest(row, await resolveScope(row)));
-    } catch (error) {
-      if (
-        !(error instanceof ActionContractError) ||
-        error.errorCode !== "comment_ai_ancestry_limit"
-      )
-        throw error;
-      const serialized = serializeCommentAiRequest(row);
-      requests.push({
-        ...serialized,
-        scopeUnavailable: true,
-        pendingSession:
-          row.status === "classifying" ? serialized.pendingSession : null,
-      });
-    }
-  }
-  return { requests };
+  return { requests: rows.map(serializeCommentAiRequest) };
 }

@@ -1967,8 +1967,6 @@ const overrides = {
     aiOpenConversation: "فتح محادثة الذكاء الاصطناعي",
     aiConversationPrefill: "متابعة محادثة التعليق هذه…",
     aiConversationUnavailable: "محادثة الذكاء الاصطناعي هذه غير متاحة.",
-    aiRequestsUnavailable:
-      "حالة طلبات الذكاء الاصطناعي غير متاحة. أعد المحاولة قبل الإرسال.",
     aiFollowUpYou: "أنت",
     aiFollowUpIncomplete: "انتهى هذا الرد قبل اكتماله.",
     aiRequestCouldNotBeConfirmed: "تعذر تأكيد طلب الذكاء الاصطناعي",

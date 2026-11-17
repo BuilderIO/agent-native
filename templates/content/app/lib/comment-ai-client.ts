@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client/hooks";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 
 export interface CommentAiConversationTurn {
   turnId: string;
@@ -14,19 +14,16 @@ type StoredMessage = {
   metadata?: {
     custom?: {
       turnId?: unknown;
-      submittedTurnId?: unknown;
       agentNativeQueuedMessageId?: unknown;
     };
   };
 };
 
 function storedMessage(entry: unknown): StoredMessage | null {
-  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  if (!entry || typeof entry !== "object") return null;
   const record = entry as { message?: unknown };
-  const value = "message" in record ? record.message : entry;
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as StoredMessage)
-    : null;
+  const value = record.message ?? entry;
+  return value && typeof value === "object" ? (value as StoredMessage) : null;
 }
 
 function messageText(message: StoredMessage): string | null {
@@ -50,8 +47,6 @@ function messageText(message: StoredMessage): string | null {
 export function parseCommentAiConversation(
   threadData: string,
   initialTurnId: string,
-  receiptTurnIds: readonly string[] = [],
-  historyExpected = false,
 ): CommentAiConversationTurn[] {
   let parsed: { messages?: unknown };
   try {
@@ -59,52 +54,20 @@ export function parseCommentAiConversation(
   } catch {
     throw new Error("The AI conversation could not be read");
   }
-  if (
-    parsed &&
-    typeof parsed === "object" &&
-    !Array.isArray(parsed) &&
-    Object.keys(parsed).length === 0
-  ) {
-    if (initialTurnId || receiptTurnIds.length || historyExpected) {
-      throw new Error("The AI conversation could not be read");
-    }
-    return [];
-  }
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    Array.isArray(parsed) ||
-    !Array.isArray(parsed.messages)
-  ) {
-    throw new Error("The AI conversation could not be read");
-  }
+  if (!Array.isArray(parsed.messages)) return [];
 
   const turns = new Map<string, CommentAiConversationTurn>();
   for (const entry of parsed.messages) {
     const message = storedMessage(entry);
-    if (!message || typeof message.role !== "string") {
-      throw new Error("The AI conversation could not be read");
-    }
+    if (!message) continue;
     const role = message.role;
-    if (
-      (role === "user" || role === "assistant") &&
-      message.content != null &&
-      typeof message.content !== "string" &&
-      !Array.isArray(message.content)
-    ) {
-      throw new Error("The AI conversation could not be read");
-    }
     const custom = message.metadata?.custom;
     const turnId =
       role === "assistant"
         ? custom?.turnId
-        : (custom?.submittedTurnId ?? custom?.agentNativeQueuedMessageId);
-    if (role !== "user" && role !== "assistant") continue;
-    if (typeof turnId !== "string" || !turnId) {
-      if (messageText(message))
-        throw new Error("The AI conversation could not be read");
+        : custom?.agentNativeQueuedMessageId;
+    if (typeof turnId !== "string" || !turnId || turnId === initialTurnId)
       continue;
-    }
     const current = turns.get(turnId) ?? {
       turnId,
       userText: null,
@@ -120,21 +83,7 @@ export function parseCommentAiConversation(
     }
     turns.set(turnId, current);
   }
-  const conversation = [...turns.values()];
-  if (
-    (historyExpected && conversation.length === 0) ||
-    receiptTurnIds.some((id) => !turns.has(id))
-  ) {
-    throw new Error("The AI conversation could not be read");
-  }
-  if (!initialTurnId) return conversation;
-  const initialIndex = conversation.findIndex(
-    (turn) => turn.turnId === initialTurnId,
-  );
-  if (initialIndex < 0)
-    throw new Error("The AI conversation could not be read");
-  const excluded = new Set([initialTurnId, ...receiptTurnIds]);
-  return conversation.filter((turn) => !excluded.has(turn.turnId));
+  return [...turns.values()];
 }
 
 export async function loadCommentAiConversation(options: {
@@ -143,29 +92,23 @@ export async function loadCommentAiConversation(options: {
   operationId: string;
   signal?: AbortSignal;
 }): Promise<CommentAiConversationTurn[]> {
-  const thread = await callAction<{
-    threadData?: unknown;
-    receiptTurnIds?: unknown;
-    historyExpected?: unknown;
-  }>(
-    "get-comment-ai-conversation",
-    { requestId: options.operationId },
-    { method: "GET", signal: options.signal },
+  const params = new URLSearchParams({
+    scopeType: "content-comment-ai",
+    scopeId: options.operationId,
+  });
+  const response = await fetch(
+    `${agentNativePath("/_agent-native/agent-chat/threads")}/${encodeURIComponent(options.agentThreadId)}?${params}`,
+    { credentials: "same-origin", cache: "no-store", signal: options.signal },
   );
+  if (response.status === 404) {
+    throw new Error("This AI conversation is no longer available");
+  }
+  if (!response.ok) {
+    throw new Error("The AI conversation could not be loaded");
+  }
+  const thread = (await response.json()) as { threadData?: unknown };
   if (typeof thread.threadData !== "string") {
     throw new Error("The AI conversation could not be read");
   }
-  if (
-    !Array.isArray(thread.receiptTurnIds) ||
-    !thread.receiptTurnIds.every((id) => typeof id === "string") ||
-    typeof thread.historyExpected !== "boolean"
-  ) {
-    throw new Error("The AI conversation could not be read");
-  }
-  return parseCommentAiConversation(
-    thread.threadData,
-    options.initialTurnId,
-    thread.receiptTurnIds,
-    thread.historyExpected,
-  );
+  return parseCommentAiConversation(thread.threadData, options.initialTurnId);
 }
