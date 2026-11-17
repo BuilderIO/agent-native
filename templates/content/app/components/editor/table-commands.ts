@@ -48,6 +48,23 @@ export function findTableByIndex(
   return result;
 }
 
+/** The index `findTableByIndex` takes for the table at `tablePos`, or -1. */
+export function tableIndexAt(doc: ProseMirrorNode, tablePos: number) {
+  let currentIndex = -1;
+  let result = -1;
+
+  doc.descendants((node, pos) => {
+    if (result >= 0) return false;
+    if (node.type.name !== "table") return !node.isTextblock;
+
+    currentIndex += 1;
+    if (pos === tablePos) result = currentIndex;
+    return true;
+  });
+
+  return result;
+}
+
 function tableNodeAt(doc: ProseMirrorNode, tablePos: number) {
   const table = doc.nodeAt(tablePos);
   if (!table) throw new Error(`No table at position ${tablePos}`);
@@ -446,10 +463,155 @@ function keepHeaders(
   );
 }
 
+// Where child `index` of `node` starts, from the start of its content.
+function childOffset(node: ProseMirrorNode, index: number) {
+  let offset = 0;
+  for (let child = 0; child < index; child += 1) {
+    offset += node.child(child).nodeSize;
+  }
+  return offset;
+}
+
 /**
- * Moves rows `block` to `gap`, one of `tableMoveGaps`. Each row moves whole,
- * colour and all. Only the moved rows change, so a collaborator's edit
- * elsewhere in the table survives.
+ * Rows or columns `takeTableBlock` took out of a table, each part with the
+ * index it goes back in at, in the table or row that's left.
+ */
+export type TakenTableBlock =
+  | { axis: "row"; at: number; rows: Fragment }
+  | {
+      axis: "column";
+      parts: { row: number; at: number; cells: Fragment }[];
+    };
+
+/**
+ * Takes rows or columns `block` out of the table, for `putTableBlock` to put
+ * back in at `gap`, one of `tableMoveGaps`. What's left is a whole table, so
+ * the two can go in separate changes, as a page with a live copy needs: the
+ * live copy works out each change by comparing the page before and after it,
+ * and in one change a move reads as every row or cell it passes being
+ * rewritten, which puts a collaborator's typing in those into the wrong one.
+ * Each row gives up only its own cells, so a cell merged down from a row
+ * above moves in that row.
+ */
+export function takeTableBlock(
+  tr: Transaction,
+  table: TableAt,
+  axis: TableAxis,
+  block: TableSpan,
+  gap: number,
+): TakenTableBlock {
+  const contentPos = table.pos + 1;
+  if (axis === "row") {
+    const from = childOffset(table.node, block.start);
+    const to = childOffset(table.node, block.end);
+    tr.delete(contentPos + from, contentPos + to);
+    return {
+      axis,
+      at: movedBlockStart(block, gap),
+      rows: table.node.content.cut(from, to),
+    };
+  }
+
+  const map = TableMap.get(table.node);
+  const firstStep = tr.steps.length;
+  const mapped = (pos: number) => tr.mapping.slice(firstStep).map(pos);
+  const parts: { row: number; at: number; cells: Fragment }[] = [];
+  table.node.forEach((row, rowOffset, rowIndex) => {
+    // The moved cells run from `from` up to `to`, and they go back before the
+    // row's first other cell at or past the gap.
+    let from = -1;
+    let to = -1;
+    let at = -1;
+    row.forEach((_cell, cellOffset, cellIndex) => {
+      const { left } = map.findCell(rowOffset + 1 + cellOffset);
+      if (left >= block.start && left < block.end) {
+        if (from < 0) from = cellIndex;
+        to = cellIndex + 1;
+      } else if (at < 0 && left >= gap) {
+        at = cellIndex;
+      }
+    });
+    if (from < 0) return;
+    if (at < 0) at = row.childCount;
+
+    const rowPos = contentPos + rowOffset + 1;
+    const start = childOffset(row, from);
+    const end = childOffset(row, to);
+    tr.delete(mapped(rowPos + start), mapped(rowPos + end));
+    parts.push({
+      row: rowIndex,
+      at: at > from ? at - (to - from) : at,
+      cells: row.content.cut(start, end),
+    });
+  });
+  return { axis, parts };
+}
+
+/** Puts rows or columns `takeTableBlock` took back into the table. */
+export function putTableBlock(
+  tr: Transaction,
+  tablePos: number,
+  taken: TakenTableBlock,
+) {
+  if (taken.axis === "row") {
+    const table = tableNodeAt(tr.doc, tablePos);
+    tr.insert(tablePos + 1 + childOffset(table, taken.at), taken.rows);
+    return tr;
+  }
+  for (const part of taken.parts) {
+    const table = tableNodeAt(tr.doc, tablePos);
+    const rowPos = tablePos + 1 + childOffset(table, part.row) + 1;
+    tr.insert(rowPos + childOffset(table.child(part.row), part.at), part.cells);
+  }
+  return tr;
+}
+
+/**
+ * Settles the table once `block` has moved to `gap`, given the table as it
+ * was: the columns' colours and widths in `colMeta` move with their columns,
+ * and the header row or column stays first.
+ */
+export function finishTableMove(
+  tr: Transaction,
+  tablePos: number,
+  before: ProseMirrorNode,
+  axis: TableAxis,
+  block: TableSpan,
+  gap: number,
+) {
+  const columns = axis === "column" ? getColumnMeta(before) : [];
+  if (columns.length > 0) {
+    while (columns.length < TableMap.get(before).width) columns.push({});
+    const moved = columns.splice(block.start, block.end - block.start);
+    columns.splice(movedBlockStart(block, gap), 0, ...moved);
+    const isEmpty = (column: ColumnMeta | undefined) =>
+      !column?.color && !column?.width;
+    while (columns.length > 0 && isEmpty(columns[columns.length - 1])) {
+      columns.pop();
+    }
+    setColumnMeta(tr, tablePos, columns);
+  }
+  keepHeaders(tr, tablePos, getTableHeaders(before), axis, block, gap);
+  return tr;
+}
+
+// Takes the block out and puts it back in one change, for a page with no live
+// copy.
+function moveTableBlock(
+  tr: Transaction,
+  table: TableAt,
+  axis: TableAxis,
+  block: TableSpan,
+  gap: number,
+) {
+  if (!tableMoveChangesOrder(block, gap)) return tr;
+  putTableBlock(tr, table.pos, takeTableBlock(tr, table, axis, block, gap));
+  return finishTableMove(tr, table.pos, table.node, axis, block, gap);
+}
+
+/**
+ * Moves rows `block` to `gap`, one of `tableMoveGaps`, in one change. Each
+ * row moves whole, colour and all.
  */
 export function moveTableRows(
   tr: Transaction,
@@ -457,29 +619,13 @@ export function moveTableRows(
   block: TableSpan,
   gap: number,
 ) {
-  if (!tableMoveChangesOrder(block, gap)) return tr;
-  const rowPos = (index: number) => {
-    let pos = table.pos + 1;
-    for (let row = 0; row < index; row += 1) {
-      pos += table.node.child(row).nodeSize;
-    }
-    return pos;
-  };
-  const from = rowPos(block.start);
-  const to = rowPos(block.end);
-  const rows = table.node.content.cut(from - table.pos - 1, to - table.pos - 1);
-  const firstStep = tr.steps.length;
-  tr.delete(from, to);
-  tr.insert(tr.mapping.slice(firstStep).map(rowPos(gap)), rows);
-  keepHeaders(tr, table.pos, getTableHeaders(table.node), "row", block, gap);
-  return tr;
+  return moveTableBlock(tr, table, "row", block, gap);
 }
 
 /**
- * Moves columns `block` to `gap`, one of `tableMoveGaps`. Cells keep their
- * widths, and the columns' colours and widths in `colMeta` move with them.
- * Each row moves only its own cells, so a cell merged down from a row above
- * moves in that row.
+ * Moves columns `block` to `gap`, one of `tableMoveGaps`, in one change.
+ * Cells keep their widths, and the columns' colours and widths move with
+ * them.
  */
 export function moveTableColumns(
   tr: Transaction,
@@ -487,48 +633,7 @@ export function moveTableColumns(
   block: TableSpan,
   gap: number,
 ) {
-  if (!tableMoveChangesOrder(block, gap)) return tr;
-  const map = TableMap.get(table.node);
-  const firstStep = tr.steps.length;
-  const mapped = (pos: number) => tr.mapping.slice(firstStep).map(pos);
-
-  table.node.forEach((row, rowOffset) => {
-    // Offsets in the row: the moved cells run from `from` to `to`, and they
-    // go before the row's first other cell at or past the gap.
-    let from = -1;
-    let to = -1;
-    let at = -1;
-    row.forEach((cell, cellOffset) => {
-      const { left } = map.findCell(rowOffset + 1 + cellOffset);
-      if (left >= block.start && left < block.end) {
-        if (from < 0) from = cellOffset;
-        to = cellOffset + cell.nodeSize;
-      } else if (at < 0 && left >= gap) {
-        at = cellOffset;
-      }
-    });
-    if (at < 0) at = row.content.size;
-    if (from < 0 || at === from || at === to) return;
-
-    const contentPos = table.pos + 1 + rowOffset + 1;
-    const cells = row.content.cut(from, to);
-    tr.delete(mapped(contentPos + from), mapped(contentPos + to));
-    tr.insert(mapped(contentPos + at), cells);
-  });
-
-  const columns = getColumnMeta(table.node);
-  if (columns.length > 0) {
-    while (columns.length < map.width) columns.push({});
-    const moved = columns.splice(block.start, block.end - block.start);
-    columns.splice(movedBlockStart(block, gap), 0, ...moved);
-    const isEmpty = (column: ColumnMeta) => !column.color && !column.width;
-    while (columns.length > 0 && isEmpty(columns[columns.length - 1])) {
-      columns.pop();
-    }
-    setColumnMeta(tr, table.pos, columns);
-  }
-  keepHeaders(tr, table.pos, getTableHeaders(table.node), "column", block, gap);
-  return tr;
+  return moveTableBlock(tr, table, "column", block, gap);
 }
 
 /**

@@ -4,7 +4,9 @@ import { getSchema } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorState, type Transaction } from "@tiptap/pm/state";
 import { TableMap } from "@tiptap/pm/tables";
+import { initProseMirrorDoc, updateYFragment } from "@tiptap/y-tiptap";
 import { describe, expect, it } from "vitest";
+import * as Y from "yjs";
 
 import {
   deleteTableColumn,
@@ -12,6 +14,7 @@ import {
   deleteTableRow,
   deleteTableRows,
   findTableByIndex,
+  finishTableMove,
   getColumnColor,
   getRowColor,
   getTableHeaders,
@@ -20,6 +23,7 @@ import {
   movedBlockStart,
   moveTableColumns,
   moveTableRows,
+  putTableBlock,
   setColumnColor,
   setColumnColors,
   setRowColor,
@@ -29,11 +33,16 @@ import {
   setTableHeaders,
   setTableRowCount,
   type TableAt,
+  type TableAxis,
   tableGridSize,
+  tableIndexAt,
   tableMoveBlock,
   tableMoveChangesOrder,
   tableMoveGaps,
+  type TableSpan,
   tableWithDuplicatedColumn,
+  takeTableBlock,
+  type TakenTableBlock,
 } from "./table-commands";
 import { createVisualEditorExtensions } from "./VisualEditor";
 
@@ -94,6 +103,26 @@ function cells(node: ProseMirrorNode) {
   return rows;
 }
 
+// Moves `block` to `gap` as a page with a live copy does: taken out in one
+// change, then put back in the next. Gives the table between and after.
+function moveInTwoChanges(
+  node: ProseMirrorNode,
+  axis: TableAxis,
+  block: TableSpan,
+  gap: number,
+) {
+  let taken = null as TakenTableBlock | null;
+  const between = edit(node, (tr, target) => {
+    taken = takeTableBlock(tr, target, axis, block, gap);
+  });
+  const after = edit(between, (tr, target) => {
+    if (!taken) throw new Error("Nothing was taken");
+    putTableBlock(tr, target.pos, taken);
+    finishTableMove(tr, target.pos, node, axis, block, gap);
+  });
+  return { between, after };
+}
+
 const columnColors = (node: ProseMirrorNode) =>
   Array.from({ length: TableMap.get(node).width }, (_, index) =>
     getColumnColor(node, index),
@@ -108,6 +137,8 @@ describe("findTableByIndex", () => {
       doc.child(0).nodeSize + doc.child(1).nodeSize,
     );
     expect(findTableByIndex(doc, 2)).toBeNull();
+    expect(tableIndexAt(doc, findTableByIndex(doc, 1)?.pos ?? -1)).toBe(1);
+    expect(tableIndexAt(doc, 0)).toBe(-1);
   });
 });
 
@@ -431,6 +462,96 @@ describe("moving rows and columns", () => {
       ["h:Draft", "Alpha"],
     ]);
     expect(getTableHeaders(moved)).toEqual({ row: false, column: true });
+  });
+
+  it("moves in two changes as it does in one, leaving a whole table between", () => {
+    const coloured = edit(table(rows, { headerRow: true }), (tr, target) => {
+      setColumnColor(tr, target, 2, "red");
+      setRowColor(tr, target, 2, "blue_bg");
+    });
+    const moves = [
+      ["row", { start: 2, end: 3 }, 0],
+      ["row", { start: 0, end: 1 }, 3],
+      ["column", { start: 2, end: 3 }, 0],
+      ["column", { start: 0, end: 2 }, 3],
+    ] as const;
+    for (const [axis, block, gap] of moves) {
+      const once = edit(coloured, (tr, target) =>
+        axis === "row"
+          ? moveTableRows(tr, target, block, gap)
+          : moveTableColumns(tr, target, block, gap),
+      );
+      const { between, after } = moveInTwoChanges(coloured, axis, block, gap);
+      expect(TableMap.get(between).problems).toBeNull();
+      expect(after.toJSON()).toEqual(once.toJSON());
+    }
+  });
+});
+
+describe("moving rows and columns on a page with a live copy", () => {
+  // This tab moves `block` to `gap` in two changes while another tab adds "!"
+  // to the cell at `typed`, neither seeing the other's change until both are
+  // done. Gives the table both tabs end up with.
+  function moveWhileTyping(
+    node: ProseMirrorNode,
+    axis: TableAxis,
+    block: TableSpan,
+    gap: number,
+    typed: [row: number, column: number],
+  ) {
+    // As the editor's binding does, this tab writes each change to the live
+    // copy by comparing the page before and after it.
+    const here = new Y.Doc();
+    const binding = { mapping: new Map(), isOMark: new Map() };
+    let doc = docWith(node);
+    updateYFragment(here, here.getXmlFragment("default"), doc, binding);
+
+    const there = new Y.Doc();
+    Y.applyUpdate(there, Y.encodeStateAsUpdate(here));
+    const theirTable = there.getXmlFragment("default").get(1) as Y.XmlElement;
+    const theirCell = (theirTable.get(typed[0]) as Y.XmlElement).get(
+      typed[1],
+    ) as Y.XmlElement;
+    const text = (theirCell.get(0) as Y.XmlElement).get(0) as Y.XmlText;
+    text.insert(text.length, "!");
+
+    const { between, after } = moveInTwoChanges(node, axis, block, gap);
+    for (const next of [between, after]) {
+      doc = docWith(next);
+      updateYFragment(here, here.getXmlFragment("default"), doc, binding);
+    }
+
+    Y.applyUpdate(there, Y.encodeStateAsUpdate(here));
+    Y.applyUpdate(here, Y.encodeStateAsUpdate(there));
+    const [ours, theirs] = [here, there].map((ydoc) => {
+      const page = initProseMirrorDoc(ydoc.getXmlFragment("default"), schema);
+      return cells(firstTable(page.doc).node);
+    });
+    expect(theirs).toEqual(ours);
+    return ours;
+  }
+
+  it("keeps a collaborator's typing in the row they typed it in", () => {
+    const node = table([["A"], ["B"], ["C"], ["D"]]);
+    expect(
+      moveWhileTyping(node, "row", { start: 2, end: 3 }, 0, [1, 0]),
+    ).toEqual([["C"], ["A"], ["B!"], ["D"]]);
+    expect(
+      moveWhileTyping(node, "row", { start: 0, end: 1 }, 4, [3, 0]),
+    ).toEqual([["B"], ["C"], ["D!"], ["A"]]);
+  });
+
+  it("keeps a collaborator's typing in the column they typed it in", () => {
+    const node = table([
+      ["A", "B", "C"],
+      ["D", "E", "F"],
+    ]);
+    expect(
+      moveWhileTyping(node, "column", { start: 2, end: 3 }, 0, [1, 1]),
+    ).toEqual([
+      ["C", "A", "B"],
+      ["F", "D", "E!"],
+    ]);
   });
 });
 

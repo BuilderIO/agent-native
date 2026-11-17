@@ -7,6 +7,7 @@ import {
   type Rect as TableCellRect,
 } from "@tiptap/pm/tables";
 import { Editor } from "@tiptap/react";
+import { ySyncPluginKey, yUndoPluginKey } from "@tiptap/y-tiptap";
 import {
   useEffect,
   useRef,
@@ -34,9 +35,15 @@ import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { instantCloseMenuClass } from "./menu-classes";
 import { MenuSwitchItem } from "./MenuSwitchItem";
 import {
+  anchorTable,
+  findAnchoredTable,
+  type TableAnchor,
+} from "./table-anchor";
+import {
   deleteTableColumns,
   deleteTableRows,
   findTableByIndex,
+  finishTableMove,
   getColumnColor,
   getRowColor,
   getTableHeaders,
@@ -45,6 +52,7 @@ import {
   movedBlockStart,
   moveTableColumns,
   moveTableRows,
+  putTableBlock,
   setColumnColors,
   setRowColors,
   setTableColumnCount,
@@ -53,11 +61,14 @@ import {
   type TableAt,
   type TableAxis,
   tableGridSize,
+  tableIndexAt,
   tableMoveBlock,
   tableMoveChangesOrder,
   tableMoveGaps,
   type TableSpan,
   tableWithDuplicatedColumn,
+  takeTableBlock,
+  type TakenTableBlock,
 } from "./table-commands";
 import { COLUMN_SIZING_ATTRIBUTE } from "./table-sizing";
 
@@ -99,6 +110,8 @@ interface SelectionOverlayRect {
 
 // A row or column moved by dragging its options handle.
 interface AxisDrag {
+  anchor: TableAnchor;
+  // The table where the drag last found it.
   table: HTMLElement;
   tableIndex: number;
   // The dragged cell, by the grid, and the rows or columns moving with it.
@@ -420,6 +433,11 @@ function getTableOverlayId(table: HTMLElement) {
   return id;
 }
 
+// `items[index]`, or undefined past either end.
+function itemAt<T>(items: readonly T[], index: number): T | undefined {
+  return index >= 0 && index < items.length ? items[index] : undefined;
+}
+
 /**
  * Where each gap between a table's rows or columns is on screen, by the grid:
  * entry `g` is the edge before row or column `g`, and the last the table's
@@ -432,11 +450,12 @@ function getAxisEdges(
   axis: TableAxis,
 ) {
   const rows = getRows(table);
-  if (rows.length === 0 || rows.length !== node.childCount) return null;
+  const lastRow = itemAt(rows, rows.length - 1);
+  if (!lastRow || rows.length !== node.childCount) return null;
   if (axis === "row") {
     return [
       ...rows.map((row) => row.getBoundingClientRect().top),
-      rows[rows.length - 1].getBoundingClientRect().bottom,
+      lastRow.getBoundingClientRect().bottom,
     ];
   }
 
@@ -446,7 +465,7 @@ function getAxisEdges(
   node.forEach((row, rowOffset, rowIndex) => {
     const cells = getCells(rows[rowIndex]);
     row.forEach((_cell, cellOffset, cellIndex) => {
-      const rect = cells[cellIndex]?.getBoundingClientRect();
+      const rect = itemAt(cells, cellIndex)?.getBoundingClientRect();
       if (!rect) return;
       const { left, right } = map.findCell(rowOffset + 1 + cellOffset);
       if (Number.isNaN(edges[left])) edges[left] = rtl ? rect.right : rect.left;
@@ -460,11 +479,13 @@ function getAxisEdges(
 
 /** The gap among `gaps` whose edge is nearest `at`. */
 export function nearestMoveGap(edges: number[], gaps: number[], at: number) {
-  let nearest = gaps[0];
+  let nearest: number | null = null;
+  let distance = Infinity;
   for (const gap of gaps) {
-    if (Math.abs(edges[gap] - at) < Math.abs(edges[nearest] - at)) {
-      nearest = gap;
-    }
+    const edge = itemAt(edges, gap);
+    if (edge === undefined || Math.abs(edge - at) >= distance) continue;
+    nearest = gap;
+    distance = Math.abs(edge - at);
   }
   return nearest;
 }
@@ -527,12 +548,15 @@ function getAxisDragView(
   press: AxisPress,
   drag: AxisDrag,
   edges: number[],
-): AxisDragView {
+): AxisDragView | null {
+  const startEdge = itemAt(edges, drag.block.start);
+  const endEdge = itemAt(edges, drag.block.end);
+  if (startEdge === undefined || endEdge === undefined) return null;
   const tableRect = drag.table.getBoundingClientRect();
   const scrollport = getTableScrollport(drag.table);
-  const blockStart = Math.min(edges[drag.block.start], edges[drag.block.end]);
-  const blockSize = Math.abs(edges[drag.block.end] - edges[drag.block.start]);
-  const lineAt = drag.gap === null ? null : edges[drag.gap];
+  const blockStart = Math.min(startEdge, endEdge);
+  const blockSize = Math.abs(endEdge - startEdge);
+  const lineAt = drag.gap === null ? null : (itemAt(edges, drag.gap) ?? null);
 
   if (press.kind === "row") {
     const left = Math.max(tableRect.left, scrollport.left);
@@ -1210,12 +1234,15 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       return null;
     }
     const edges = getAxisEdges(table, node, press.kind);
-    if (!edges) return null;
+    const startEdge = edges ? itemAt(edges, block.start) : undefined;
+    const endEdge = edges ? itemAt(edges, block.end) : undefined;
+    if (startEdge === undefined || endEdge === undefined) return null;
 
     closeTableMenus();
     document.documentElement.classList.add("content-table-moving");
-    const blockStart = Math.min(edges[block.start], edges[block.end]);
+    const blockStart = Math.min(startEdge, endEdge);
     return {
+      anchor: anchorTable(editor.state, context.table),
       table,
       tableIndex: context.address.tableIndex,
       cell,
@@ -1226,14 +1253,27 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     };
   };
 
+  // The dragged table as it is now, wherever a collaborator's change has put
+  // it, or null once they've changed its rows or columns, which the drag's
+  // block counts by.
+  const findDraggedTable = (drag: AxisDrag) => {
+    const view = getMountedEditorView(editor);
+    const target = view ? findAnchoredTable(view.state, drag.anchor) : null;
+    if (!view || !target) return null;
+    const tableIndex = tableIndexAt(view.state.doc, target.pos);
+    const table = itemAt(getEditorTables(view.dom), tableIndex);
+    if (!table) return null;
+    drag.table = table;
+    drag.tableIndex = tableIndex;
+    return target;
+  };
+
   // Picks the gap nearest the pointer from the table as it is now: the page or
   // the table may have scrolled, and a collaborator may have changed it.
   const updateAxisDrag = (press: AxisPress) => {
     const drag = press.drag;
-    const view = getMountedEditorView(editor);
-    const target =
-      view && drag ? findTableByIndex(view.state.doc, drag.tableIndex) : null;
-    if (!drag || !target || !drag.table.isConnected) {
+    const target = drag ? findDraggedTable(drag) : null;
+    if (!drag || !target) {
       cancelAxisPress(press);
       return;
     }
@@ -1253,15 +1293,21 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       gaps,
       press.kind === "row" ? press.y : press.x,
     );
-    drag.gap = tableMoveChangesOrder(drag.block, gap) ? gap : null;
+    drag.gap =
+      gap !== null && tableMoveChangesOrder(drag.block, gap) ? gap : null;
     setAxisDragView(getAxisDragView(press, drag, edges));
   };
 
   const autoScrollAxisDrag = (press: AxisPress) => {
     if (axisPressRef.current !== press || !press.drag) return;
     const at = press.kind === "row" ? press.y : press.x;
-    if (autoScrollForDrag(press.drag.table, press.kind, at)) {
+    // A collaborator's change can redraw the table: find it again.
+    if (
+      !press.drag.table.isConnected ||
+      autoScrollForDrag(press.drag.table, press.kind, at)
+    ) {
       updateAxisDrag(press);
+      if (axisPressRef.current !== press) return;
     }
     press.scrollFrame = requestAnimationFrame(() => autoScrollAxisDrag(press));
   };
@@ -1290,22 +1336,20 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   // Moves the block to the gap it was dropped at, and puts the caret back in
   // the dragged cell, so its handles stay with it.
   const dropAxisBlock = (kind: TableAxis, drag: AxisDrag) => {
-    let next = null as SelectedCellAddress | null;
-    editTable(drag.tableIndex, (tr, table) => {
-      const { block, cell, gap } = drag;
-      const gaps = tableMoveGaps(table.node, kind);
-      if (
-        gap === null ||
-        ![block.start, block.end, gap].every((edge) => gaps.includes(edge))
-      ) {
-        return;
-      }
-      if (kind === "row") moveTableRows(tr, table, block, gap);
-      else moveTableColumns(tr, table, block, gap);
+    const view = getMountedEditorView(editor);
+    const table = findDraggedTable(drag);
+    const { block, cell, gap } = drag;
+    if (!view || !table || gap === null) return;
+    const gaps = tableMoveGaps(table.node, kind);
+    if (![block.start, block.end, gap].every((edge) => gaps.includes(edge))) {
+      return;
+    }
 
-      const moved = movedBlockStart(block, gap) - block.start;
+    let next = null as SelectedCellAddress | null;
+    const moved = movedBlockStart(block, gap) - block.start;
+    const land = (tr: Transaction, target: TableAt) => {
       const landed = getCellAtGrid(
-        { node: tr.doc.nodeAt(table.pos) ?? table.node, pos: table.pos },
+        { node: tr.doc.nodeAt(target.pos) ?? target.node, pos: target.pos },
         drag.tableIndex,
         cell.top + (kind === "row" ? moved : 0),
         cell.left + (kind === "column" ? moved : 0),
@@ -1313,17 +1357,38 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       if (!landed) return;
       next = landed.address;
       tr.setSelection(TextSelection.near(tr.doc.resolve(landed.pos + 1)));
-    });
+    };
+
+    if (ySyncPluginKey.getState(view.state)?.binding) {
+      // With a live copy, the block comes out in one change and goes back in
+      // the next (see takeTableBlock). Yjs's undo takes the two as one step.
+      const undoManager = yUndoPluginKey.getState(view.state)?.undoManager;
+      let taken = null as TakenTableBlock | null;
+      undoManager?.stopCapturing();
+      editTable(drag.tableIndex, (tr, target) => {
+        taken = takeTableBlock(tr, target, kind, block, gap);
+      });
+      editTable(drag.tableIndex, (tr, target) => {
+        if (!taken) return;
+        putTableBlock(tr, target.pos, taken);
+        finishTableMove(tr, target.pos, table.node, kind, block, gap);
+        land(tr, target);
+      });
+      undoManager?.stopCapturing();
+    } else {
+      editTable(drag.tableIndex, (tr, target) => {
+        if (kind === "row") moveTableRows(tr, target, block, gap);
+        else moveTableColumns(tr, target, block, gap);
+        land(tr, target);
+      });
+    }
     if (!next) return;
 
     selectedCellRef.current = null;
     selectedCellAddressRef.current = next;
-    const view = getMountedEditorView(editor);
-    view?.focus();
+    view.focus();
     requestAnimationFrame(() => {
-      const nextCell = view
-        ? getCellAtAddress(getEditorTables(view.dom), next)
-        : null;
+      const nextCell = getCellAtAddress(getEditorTables(view.dom), next);
       if (nextCell) selectCellForCommand(nextCell, true);
       else syncOverlay();
     });
@@ -1398,7 +1463,10 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
   useEffect(
     () => () => {
-      axisPressRef.current?.listeners.abort();
+      const press = axisPressRef.current;
+      axisPressRef.current = null;
+      press?.listeners.abort();
+      if (press) cancelAnimationFrame(press.scrollFrame);
       document.documentElement.classList.remove("content-table-moving");
     },
     [],
