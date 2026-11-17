@@ -136,12 +136,14 @@ async function writeIfCurrent(input: {
       );
     }
     const revision = resourceContentRevision(seen);
+    // A file already holding this content takes the write, so a resent write
+    // doesn't conflict with itself and still sets the options it names.
+    const alreadyThere = seen.content === input.content;
     // The write itself checks the whole row, so another save can refuse it
     // while the content still matches. After two of those, this read decides.
     const lastTry = attempt === 2;
-    if (lastTry || revision !== input.expectedRevision) {
-      if (seen.content === input.content) {
-        // A repeat of a write that already landed.
+    if (lastTry || (revision !== input.expectedRevision && !alreadyThere)) {
+      if (alreadyThere) {
         countSaveOutcome(RESOURCE_CONTENT_RECORD, "already_applied");
         return seen;
       }

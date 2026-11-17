@@ -89,10 +89,16 @@ export function AgentPersonalizationSettings() {
   const instructionsValue =
     instructionsDraft ?? instructions.data?.content ?? "";
   const memoryValue = memoryDraft ?? memoryInstructions.data?.content ?? "";
+  // A field being edited keeps its draft on screen while its file loads, such
+  // as the file this page's own first save just made.
   const loading =
     resourceList.isPending ||
-    (Boolean(instructionsMeta) && instructions.isPending) ||
-    (Boolean(memoryInstructionsMeta) && memoryInstructions.isPending);
+    (Boolean(instructionsMeta) &&
+      instructions.isPending &&
+      instructionsDraft === null) ||
+    (Boolean(memoryInstructionsMeta) &&
+      memoryInstructions.isPending &&
+      memoryDraft === null);
   const hasLoadError =
     resourceList.isError || instructions.isError || memoryInstructions.isError;
   const saving = savingField !== null;

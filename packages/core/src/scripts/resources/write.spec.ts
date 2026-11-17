@@ -211,12 +211,38 @@ describe("resource-write", () => {
       );
     });
 
-    it("treats a repeat of a write that landed as done", async () => {
+    it("lets a repeat of a write that landed through, with its options", async () => {
+      const landed = stored("mine");
+      mocks.resourceGetByPath.mockResolvedValue(landed);
+      mocks.resourcePutIfSnapshot.mockResolvedValue({ resource: landed });
+
+      const out = await write([
+        "--expected-revision",
+        revisionOf("old"),
+        "--visibility",
+        "workspace",
+      ]);
+
+      expect(mocks.resourcePutIfSnapshot).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          previous: landed,
+          content: "mine",
+          options: { visibility: "workspace" },
+        }),
+      );
+      expect(mocks.countSaveOutcome).toHaveBeenCalledWith(
+        "resource_content",
+        "written",
+      );
+      expect(out).toContain(`revision ${revisionOf("mine")}`);
+    });
+
+    it("takes a repeat whose writes keep losing as done", async () => {
       mocks.resourceGetByPath.mockResolvedValue(stored("mine"));
 
       const out = await write(["--expected-revision", revisionOf("old")]);
 
-      expect(mocks.resourcePutIfSnapshot).not.toHaveBeenCalled();
+      expect(mocks.resourcePutIfSnapshot).toHaveBeenCalledTimes(2);
       expect(mocks.countSaveOutcome).toHaveBeenCalledWith(
         "resource_content",
         "already_applied",

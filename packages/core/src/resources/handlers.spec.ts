@@ -689,6 +689,41 @@ Legacy webhook.`,
       expect(mockResourcePut).not.toHaveBeenCalled();
     });
 
+    it("returns an organization's shared file from before organizations instead of copying over it", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "owner",
+      });
+      const legacy = {
+        id: "legacy-agents",
+        path: "AGENTS.md",
+        owner: "__shared__",
+        content: "the team's instructions",
+      };
+      mockResourceGetByPath.mockImplementation(async (owner, path, options) =>
+        owner === "__shared__" &&
+        path === "AGENTS.md" &&
+        options?.orgId === "org-1"
+          ? legacy
+          : null,
+      );
+
+      const result = await handleCreateResource({
+        _body: {
+          path: "AGENTS.md",
+          content: "default instructions",
+          shared: true,
+          ifNotExists: true,
+        },
+      });
+
+      expect(result).toEqual(withRevision(legacy));
+      expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
     it("refuses an ifNotExists create when the file keeps appearing and going", async () => {
       const result = await handleCreateResource({
         _body: { path: "AGENTS.md", content: "mine", ifNotExists: true },

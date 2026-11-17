@@ -32,7 +32,7 @@ vi.mock("@agent-native/core/client/resources/use-resources", () => ({
   }),
   useResource: (id: string | null) => ({
     data: id ? resources.files[id] : undefined,
-    isPending: false,
+    isPending: id !== null && !(id in resources.files),
     isError: false,
   }),
   useCreateResource: () => ({ mutateAsync: resources.create }),
@@ -204,6 +204,25 @@ describe("AgentPersonalizationSettings", () => {
       expect.objectContaining({ path: "AGENTS.md", ifNotExists: true }),
     );
     expect(await screen.findByText("saveConflict.title")).toBeTruthy();
+  });
+
+  it("keeps showing a draft while the file its first save made loads", () => {
+    const view = render(<AgentPersonalizationSettings />);
+    fireEvent.change(
+      screen.getByLabelText("agentChat.personalization.customInstructions"),
+      { target: { value: "mine" } },
+    );
+    // The page's list catches up with the new file before the file loads.
+    resources.list = [{ id: "agents-1", path: "AGENTS.md" }];
+    view.rerender(<AgentPersonalizationSettings />);
+
+    expect(
+      (
+        screen.getByLabelText(
+          "agentChat.personalization.customInstructions",
+        ) as HTMLTextAreaElement
+      ).value,
+    ).toBe("mine");
   });
 
   it("gets the other version back only after a save that's out comes back", async () => {
