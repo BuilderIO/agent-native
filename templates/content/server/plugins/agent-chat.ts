@@ -11,6 +11,7 @@ import { flushOpenDocumentEditorToSql } from "../../actions/_document-flush.js";
 import { getDb, schema } from "../db/index.js";
 import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
 import { resolveCommentAiActionSurface } from "../lib/comment-ai.js";
+import { requireCreatedPageLinks } from "../lib/created-page-links.js";
 import {
   documentChatStartVersionId,
   recordDocumentHistoryTransition,
@@ -184,6 +185,7 @@ export default createAgentChatPlugin({
   appId: "content",
   onAgentTurnStart: autosaveDocumentBeforeAgentTurn,
   onAgentTurnComplete: autosaveDocumentAfterAgentTurn,
+  finalResponseGuard: requireCreatedPageLinks,
   nativeActionsInDev: true,
   resolveActionSurface: resolveCommentAiActionSurface,
   durableBackgroundRuns: true,

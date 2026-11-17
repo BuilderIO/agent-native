@@ -31,9 +31,15 @@ import {
 } from "../server/lib/dashboard-panel-verification";
 import {
   getDashboard,
+  requireDashboardAccess,
   upsertDashboardWithRetryOutcome,
   type DashboardRecord,
 } from "../server/lib/dashboards-store";
+import {
+  expectedUpdatedAtArg,
+  guardWrite,
+  idempotencyKeyArg,
+} from "../server/lib/guarded-writes";
 import {
   PANEL_CHART_TYPES,
   validatePanelContract,
@@ -258,6 +264,18 @@ const agentInputSchema = z.object({
     .boolean()
     .optional()
     .describe("With no dashboardId, return the `code` API and examples."),
+  // Every chat pays for these, so the protocol lives in the MCP instructions.
+  expectedUpdatedAt: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("updatedAt from your last read; a 409 means it changed."),
+  idempotencyKey: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe("New unique key per write; resend it only to retry."),
 });
 
 function resolveScope() {
@@ -493,8 +511,27 @@ export default defineAction({
       .boolean()
       .optional()
       .describe("With no dashboardId, return the `code` API and examples."),
+    expectedUpdatedAt: expectedUpdatedAtArg("dashboard"),
+    idempotencyKey: idempotencyKeyArg,
   }),
   agentInputSchema,
+  mcpTool: true,
+  // Its operations can remove or replace panels.
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  // The MCP input gate matches the `code` field by name. It is the
+  // constrained dashboard script, parsed and never evaluated; panel SQL in it
+  // is validated and verified like every other agent write. Nothing else is
+  // exposed: no public catalog, no direct A2A.
+  publicAgent: {
+    expose: false,
+    readOnly: false,
+    requiresAuth: true,
+    allowRawQueryInput: true,
+  },
   http: { method: "POST" },
   mcpApp: {
     compactCatalog: true,
@@ -535,6 +572,27 @@ export default defineAction({
     const ctx = { email: scope.email, orgId: scope.orgId };
     const agentCaller = isAgentCaller(actionContext?.caller);
     const verificationMemo = new Map<string, PanelVerification>();
+    const guard = guardWrite({
+      action: "mutate-dashboard",
+      target: { kind: "dashboard", id: dashboardId },
+      caller: actionContext?.caller,
+      scope: ctx,
+      idempotencyKey: args.idempotencyKey,
+      expectedUpdatedAt: args.expectedUpdatedAt,
+      request: {
+        code: code ?? null,
+        operations: requestedOperations ?? null,
+        allowEmptyResult: args.allowEmptyResult === true,
+      },
+    });
+    if (args.dryRun !== true) {
+      guard.requireKey();
+      guard.requireFence();
+      const replayed = await guard.preflight(() =>
+        requireDashboardAccess(dashboardId, ctx, "editor"),
+      );
+      if (replayed) return { id: dashboardId, dashboardId, ...replayed };
+    }
 
     function verifyMutation(
       base: Record<string, unknown>,
@@ -616,7 +674,7 @@ export default defineAction({
           existing.config as Record<string, unknown>,
           actionContext?.signal,
         );
-        if (sqlError) throw new Error(sqlError);
+        if (sqlError) fail(sqlError);
         verdict = await verifyMutation(
           existing.config as Record<string, unknown>,
           root,
@@ -645,7 +703,7 @@ export default defineAction({
               existing.config as Record<string, unknown>,
               actionContext?.signal,
             );
-            if (sqlError) throw new Error(sqlError);
+            if (sqlError) fail(sqlError);
             verdict = await verifyMutation(
               existing.config as Record<string, unknown>,
               computed.nextRoot,
@@ -653,7 +711,12 @@ export default defineAction({
           }
           return { kind: "sql" as const, body: computed.nextRoot };
         },
-      );
+        undefined,
+        guard.store,
+      ).catch(guard.recover);
+      if ("replayed" in persisted) {
+        return { id: dashboardId, dashboardId, ...persisted };
+      }
       root = persisted.dashboard.config as Record<string, unknown>;
       savedUpdatedAt = persisted.dashboard.updatedAt;
       didWrite = persisted.didWrite;
@@ -748,6 +811,9 @@ export default defineAction({
               timeoutMs: DASHBOARD_COLLAB_SYNC_TIMEOUT_MS,
             },
           }),
+      ...(savedUpdatedAt === undefined
+        ? {}
+        : guard.resultFields({ updatedAt: savedUpdatedAt })),
       ...(args.returnConfig === true ? { config: root } : {}),
       ...(args.returnTypes === true
         ? {

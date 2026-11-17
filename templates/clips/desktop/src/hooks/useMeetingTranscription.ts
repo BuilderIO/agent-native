@@ -46,6 +46,12 @@ export interface MeetingTranscriptionPayload {
 
 interface MeetingTranscriptionSession {
   meetingId: string;
+  /**
+   * The id the start was requested with. A calendar event start resolves to a
+   * new meeting row id, and later starts for the same event still carry the
+   * calendar id; they must find this session rather than replace it.
+   */
+  requestedMeetingId: string;
   audioRunId: number;
   resumingRunId: number | null;
   settlingRunDeadlines: Map<number, number>;
@@ -580,7 +586,8 @@ export function useMeetingTranscription({
         if (
           !existing.stopping &&
           !existing.stopPending &&
-          existing.meetingId === meetingId
+          (existing.meetingId === meetingId ||
+            existing.requestedMeetingId === meetingId)
         ) {
           clearPendingStart();
           await invoke("recording_pill_show", {
@@ -622,6 +629,10 @@ export function useMeetingTranscription({
         initialNotes: "",
         starting: true,
       };
+      // Mark the meeting active with its pill, not once the engine is up: the
+      // ad hoc watcher and overlay teardown only leave a meeting's pill alone
+      // while it is active. The failed-start cleanup below clears it again.
+      invoke("set_meeting_active", { active: true, meetingId }).catch(() => {});
       invoke("recording_pill_show", { meetingId, mode: "meeting" }).catch(
         () => {},
       );
@@ -686,6 +697,7 @@ export function useMeetingTranscription({
 
         const session: MeetingTranscriptionSession = {
           meetingId,
+          requestedMeetingId: meetingId,
           audioRunId: allocateVoiceRunId(),
           resumingRunId: null,
           settlingRunDeadlines: new Map(),
@@ -1030,6 +1042,12 @@ export function useMeetingTranscription({
           starting: true,
         };
 
+        // Restarted notes reload the lines they already saved, which hold the
+        // same speech Rewind recovers from the meeting's start. Whichever
+        // arrives second yields to the saved lines, so it is kept only once.
+        const savedLinesLoadedRef: { current: boolean } = { current: false };
+        let rewindLines: TranscriptLine[] = [];
+
         callClipsAction<{
           meeting?: { userNotesMd?: string; title?: string | null };
           transcript?: { segmentsJson?: string | null } | null;
@@ -1077,6 +1095,15 @@ export function useMeetingTranscription({
                       recovered: s.recovered,
                     }),
                   );
+                  savedLinesLoadedRef.current = true;
+                  if (rewindLines.length) {
+                    const duplicates = new Set(rewindLines);
+                    session.lines = session.lines.filter(
+                      (line) => !duplicates.has(line),
+                    );
+                    rewindLines = [];
+                    if (!session.stopping) scheduleFlush();
+                  }
                   session.lines = [...storedLines, ...session.lines];
                   const preloadedLines = pillTranscriptLines(session.lines);
                   if (
@@ -1158,17 +1185,26 @@ export function useMeetingTranscription({
           meetingId: resolvedMeetingId,
         }).catch(() => {});
 
-        if (historyPreparedRef.current) {
+        if (historyPreparedRef.current && savedLinesLoadedRef.current) {
+          invoke("rewind_meeting_history_cancel", {
+            token: historyPreparedRef.current.token,
+          }).catch(() => {});
+        } else if (historyPreparedRef.current) {
           const prepared = historyPreparedRef.current;
           const historyPromise = invoke<{
             segments: SourcedTranscriptSegment[];
           }>("rewind_meeting_history_collect", { token: prepared.token })
             .then((history) => {
-              if (sessionRef.current !== session) return;
-              const historyLines = history.segments.map((segment) =>
+              if (
+                sessionRef.current !== session ||
+                savedLinesLoadedRef.current
+              ) {
+                return;
+              }
+              rewindLines = history.segments.map((segment) =>
                 transcriptLineFromSegment({ ...segment, recovered: true }),
               );
-              session.lines = [...historyLines, ...session.lines];
+              session.lines = [...rewindLines, ...session.lines];
               const preloadedLines = pillTranscriptLines(session.lines);
               if (pendingPillInitRef.current?.meetingId === resolvedMeetingId) {
                 pendingPillInitRef.current = {
@@ -1187,6 +1223,8 @@ export function useMeetingTranscription({
               });
             })
             .catch((error) => {
+              // The saved lines already hold the earlier speech.
+              if (savedLinesLoadedRef.current) return;
               const message =
                 typeof error === "string"
                   ? error

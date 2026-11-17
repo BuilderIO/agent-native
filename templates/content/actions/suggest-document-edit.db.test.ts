@@ -54,6 +54,14 @@ const ctx = {
   userEmail: "owner@example.com",
 };
 
+/** A script rewriting the page from its latest read. */
+async function rewriteBody(id: string, content: string) {
+  const { revision } = (await getDocument.run({ id }, ctx)) as {
+    revision: string;
+  };
+  await updateDocument.run({ id, content, baseRevision: revision }, ctx);
+}
+
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
@@ -226,7 +234,7 @@ describe("suggest-document-edit", () => {
         expect(replay.suggestionIds).toEqual(result.suggestionIds);
         expect(replay.proposalId).toBe(result.proposalId);
 
-        await updateDocument.run({ id, content: "A newer body." }, ctx);
+        await rewriteBody(id, "A newer body.");
         const staleReplay = (await suggestDocumentEdit.run(
           args,
           ctx,
@@ -353,6 +361,101 @@ describe("suggest-document-edit", () => {
           (item) => item.id === second.suggestionIds[0],
         );
         expect(added?.metadata?.reviewUnit).toBeUndefined();
+      },
+    );
+  });
+
+  it("names the proposal when a suggestion ID is passed as the proposal ID", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage(
+          "The launch is next week.\nThe team is ready.",
+        );
+        const summary = "Tighten the launch note";
+        const first = (await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `wrong-id-first-${id}`,
+            find: "The launch is next week.",
+            replace: "The launch is on Tuesday.",
+            summary,
+          },
+          ctx,
+        )) as { proposalId: string; suggestionId: string };
+        const second = {
+          id,
+          baseRevision: revision,
+          idempotencyKey: `wrong-id-second-${id}`,
+          find: "The team is ready.",
+          replace: "The team is set.",
+          summary,
+        };
+
+        const wrong = await suggestDocumentEdit
+          .run({ ...second, proposalId: first.suggestionId }, ctx)
+          .catch((error: unknown) => error);
+        expect(wrong).toMatchObject({
+          errorCode: "suggestion_id_not_proposal_id",
+          statusCode: 400,
+          details: {
+            suggestionId: first.suggestionId,
+            proposalId: first.proposalId,
+          },
+        });
+        expect((wrong as Error).message).toContain(first.proposalId);
+
+        // Another page's suggestion says nothing about this page's proposals.
+        const other = await createPage("Another page.");
+        await expect(
+          suggestDocumentEdit.run(
+            {
+              id: other.id,
+              baseRevision: other.revision,
+              idempotencyKey: `wrong-id-other-${other.id}`,
+              proposalId: first.suggestionId,
+              find: "Another page.",
+              replace: "A different page.",
+              summary,
+            },
+            ctx,
+          ),
+        ).rejects.toMatchObject({ errorCode: "not_found" });
+
+        // Nor does another author's suggestion: only its author can append.
+        const collaborator = "wrong-id-collaborator@example.com";
+        await getDb()
+          .insert(schema.documentShares)
+          .values({
+            id: `wrong-id-share-${id}`,
+            resourceId: id,
+            principalType: "user",
+            principalId: collaborator,
+            role: "commenter",
+            createdBy: ctx.userEmail,
+            createdAt: Date.now(),
+          });
+        await runWithRequestContext(
+          { userEmail: collaborator, orgId: null },
+          () =>
+            expect(
+              suggestDocumentEdit.run(
+                {
+                  ...second,
+                  idempotencyKey: `wrong-id-collaborator-${id}`,
+                  proposalId: first.suggestionId,
+                },
+                { ...ctx, userEmail: collaborator },
+              ),
+            ).rejects.toMatchObject({ errorCode: "not_found" }),
+        );
+
+        const retried = (await suggestDocumentEdit.run(
+          { ...second, proposalId: first.proposalId },
+          ctx,
+        )) as { proposalId: string };
+        expect(retried.proposalId).toBe(first.proposalId);
       },
     );
   });
@@ -529,10 +632,7 @@ describe("suggest-document-edit", () => {
         const first = (await suggestDocumentEdit.run(args, ctx)) as {
           suggestionId: string;
         };
-        await updateDocument.run(
-          { id, content: "The page changed underneath the proposal." },
-          ctx,
-        );
+        await rewriteBody(id, "The page changed underneath the proposal.");
         const retry = (await suggestDocumentEdit.run(args, ctx)) as {
           suggestionId: string;
         };
@@ -1084,7 +1184,7 @@ describe("suggest-document-edit", () => {
             "<details>",
             "<details open>",
           );
-          await updateDocument.run({ id, content: opened }, ctx);
+          await rewriteBody(id, opened);
           const before = (await getDocument.run({ id }, ctx)) as {
             content: string;
           };
@@ -1159,7 +1259,7 @@ describe("suggest-document-edit", () => {
             ctx,
           )) as { id: string };
           const edited = canonicalizeNfm(content).replace("Waiting", "Blocked");
-          await updateDocument.run({ id, content: edited }, ctx);
+          await rewriteBody(id, edited);
           const suggestion = await getResourceSuggestion.run(
             { id: created.id },
             ctx,

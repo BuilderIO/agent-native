@@ -40,13 +40,6 @@ vi.mock("../agent/run-store.js", () => ({
   TURN_EXECUTION_LEASE_MS: 15_000,
 }));
 
-vi.mock("../agent/run-store.js", () => ({
-  claimTaskExecutionLease: claimTaskExecutionLeaseMock,
-  renewTaskExecutionLease: renewTaskExecutionLeaseMock,
-  releaseTurnExecutionLease: releaseTurnExecutionLeaseMock,
-  TURN_EXECUTION_LEASE_MS: 15_000,
-}));
-
 vi.mock("h3", () => ({
   getHeader: (event: any, name: string) =>
     event.req?.headers?.get?.(name) ?? event.node?.req?.headers?.[name],

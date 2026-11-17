@@ -37,7 +37,11 @@ import {
   actionChangeResource,
   classifyActionCall,
 } from "../action-call-classification.js";
-import { runOutsideActionInvocation, vouchedOutcome } from "../action-frame.js";
+import {
+  actionExecutionStorage,
+  runOutsideActionInvocation,
+  vouchedOutcome,
+} from "../action-frame.js";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
@@ -46,6 +50,7 @@ import {
   AgentConnectionRequiredError,
   describeToolParameterSignature,
   isActionContractError,
+  isActionOutputContractError,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   isAgentConnectionRequiredError,
@@ -57,6 +62,7 @@ import {
   runPreparedActionCall,
   boundActionCallIntent,
   preparedCallArguments,
+  preparedCallApprovalLabel,
   preparedCallNeedsApproval,
   recordInvalidActionCall,
   resolveToolMaxResultChars,
@@ -182,6 +188,7 @@ import {
 import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
+  sortResourceSkills,
 } from "../server/agent-chat/skill-frontmatter.js";
 import { captureError } from "../server/capture-error.js";
 import {
@@ -234,6 +241,7 @@ import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
 import {
   DurableAttachmentReferenceRequiredError,
   stripInlineBytes,
+  stripInlineDataUrls,
 } from "../shared/inline-bytes.js";
 import {
   isReasoningEffort,
@@ -303,6 +311,7 @@ import {
   isContextOverflowMessage,
   isInvalidAttachmentProviderMessage,
   isProviderConnectionErrorMessage,
+  isProviderTokenRateLimitMessage,
   isRejectedRequestErrorCode,
   PROVIDER_RATE_LIMITED_ERROR_CODE,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
@@ -390,6 +399,10 @@ import {
   getContextWindowForModel,
   resolveFallbackModel,
 } from "./model-config.js";
+import {
+  createModelInputScopeGuardRegistry,
+  MODEL_INPUT_SCOPE_ABORT_REASON,
+} from "./model-input-scope-guards.js";
 import {
   maybeCompactThread,
   buildObservationalContext,
@@ -491,6 +504,7 @@ import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import { toolCallInputSignature } from "./tool-call-input-signature.js";
 import {
   ambiguousLegacyCallEffectKey,
+  buildResumeJournalNote,
   findAmbiguousLegacyJournalEntryForCall,
   findUnresolvedJournalStepForCall,
   findInterruptedLegacyJournalEntryForCall,
@@ -1425,6 +1439,10 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  approvalLabel?(
+    args: unknown,
+    ctx?: import("../action.js").ActionRunContext,
+  ): string;
   allowPersistentApproval?: boolean;
   /**
    * Identifies what this entry does under its name. Approvals, including
@@ -3476,7 +3494,7 @@ function engineStopError(
   const attachmentRejected =
     event.errorCode === "invalid_attachment" ||
     (hasInlineAttachment &&
-      (event.statusCode === 413 ||
+      ((event.statusCode === 413 && !isProviderTokenRateLimitMessage(error)) ||
         ((event.statusCode === undefined ||
           event.statusCode === 400 ||
           event.statusCode === 422) &&
@@ -4110,26 +4128,59 @@ export async function resolveSkillReferenceContent(
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail || !ref.path) return null;
     try {
-      const { resourceEffectiveContext, resourceGet } =
-        await import("../resources/store.js");
+      const [
+        { resourceEffectiveContext, resourceGet },
+        {
+          readSkillChoices,
+          readSkillReference,
+          requiredSkillResource,
+          skillReferenceResource,
+        },
+        { getSkillNameFromPath },
+      ] = await Promise.all([
+        import("../resources/store.js"),
+        import("../resources/skill-choices.js"),
+        import("../resources/metadata.js"),
+      ]);
       const resourceOptions = {
         userEmail: ownerEmail,
         orgId: getRequestOrgId() ?? null,
       };
-      const effective = await resourceEffectiveContext(ownerEmail, ref.path, {
-        ...resourceOptions,
+      const choices = await readSkillChoices({
+        email: ownerEmail,
+        orgId: resourceOptions.orgId,
       });
-      if (!effective.effectiveResource) return null;
-      const full = await resourceGet(effective.effectiveResource.id, {
-        ...resourceOptions,
-      });
-      if (
-        !full?.content ||
-        !(await isRuntimeVisibleSkillContent(full.content, ownerEmail))
-      ) {
-        return null;
-      }
-      return full.content;
+      // The copy the prompt would use at a path: a Required organization or
+      // Dispatch skill, then the first one the person has on.
+      const readSkill = async (path: string) => {
+        const effective = await resourceEffectiveContext(ownerEmail, path, {
+          ...resourceOptions,
+        });
+        const chosen = skillReferenceResource(effective, choices);
+        const full = chosen
+          ? await resourceGet(chosen.id, { ...resourceOptions })
+          : null;
+        if (!chosen || !full?.content) return null;
+        const name =
+          parseSkillFrontmatter(full.content).name ||
+          getSkillNameFromPath(chosen.path);
+        return {
+          name,
+          content: full.content,
+          owner: chosen.owner,
+          path: chosen.path,
+          updatedAt: chosen.updatedAt,
+          required: chosen.id === requiredSkillResource(effective, choices)?.id,
+          visible: await isRuntimeVisibleSkillContent(full.content, ownerEmail),
+        };
+      };
+      // Same-named Required skills in the order the prompt keeps them.
+      return await readSkillReference(ref.path, choices, readSkill, (skills) =>
+        sortResourceSkills(skills, {
+          owner: ownerEmail,
+          orgId: resourceOptions.orgId,
+        }),
+      );
     } catch {
       return null;
     }
@@ -4553,6 +4604,9 @@ interface DurableExecutionStepOutcome {
   errorCode?: string;
   completedSideEffect: boolean;
   replayTruncated?: boolean;
+  actionSettled?: true;
+  settledOnCleanToolStop?: true;
+  hasAgentWarnings?: true;
   artifacts?: ArtifactReceipt[];
   receipt?: WriteReceipt;
   mcpApp?: import("../mcp-client/app-result.js").AgentMcpAppPayload;
@@ -4598,6 +4652,7 @@ function serializeDurableExecutionStepOutcome(
     replayTruncated: true,
     replayOmittedFields: omittedFields,
     ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+    ...(outcome.hasAgentWarnings ? { hasAgentWarnings: true as const } : {}),
     ...(outcome.receipt ? { receipt: outcome.receipt } : {}),
   };
   let serialized: string;
@@ -7104,20 +7159,55 @@ function repairToolCallInput(
   entry: ActionEntry | undefined,
   input: unknown,
 ): ToolInputRepair {
-  if (!entry || getStrictToolInputValidator(entry)) {
-    return { input, changed: false };
+  if (!entry) return { input, changed: false };
+  const schema = entry.tool.parameters;
+  if (getStrictToolInputValidator(entry)) {
+    return dropModelChosenRequestId(schema, input);
   }
-  const json = coerceStringifiedJsonToolValues(entry.tool.parameters, input);
+  const json = coerceStringifiedJsonToolValues(schema, input);
   const placeholders = normalizeOptionalToolPlaceholders(
-    entry.tool.parameters,
+    schema,
     json.input,
     entry,
   );
   if (placeholders.error) return placeholders;
+  const requestId = dropModelChosenRequestId(schema, placeholders.input);
   return {
-    input: placeholders.input,
-    changed: json.changed || placeholders.changed,
+    input: requestId.input,
+    changed: json.changed || placeholders.changed || requestId.changed,
   };
+}
+
+/**
+ * A model cannot know a stable idempotency key. It invents one, or reuses one
+ * it saw in an earlier turn, and the write receipt guard then refuses the next
+ * write ("Request ID was already used for different data") or replays an
+ * unrelated saved result. Every action that takes an OPTIONAL `requestId` is
+ * the class. Drop the model's value so the write runs fresh; a schema that
+ * REQUIRES one keeps what the model sent, because that action cannot run
+ * without it.
+ */
+function dropModelChosenRequestId(
+  schema: RawJsonSchema | undefined,
+  input: unknown,
+): ToolInputRepair {
+  if (!schema?.properties || !input || typeof input !== "object") {
+    return { input, changed: false };
+  }
+  if (Array.isArray(input)) return { input, changed: false };
+  const requestIdSchema: unknown = schema.properties.requestId;
+  if (!requestIdSchema || typeof requestIdSchema !== "object") {
+    return { input, changed: false };
+  }
+  if (Array.isArray(schema.required) && schema.required.includes("requestId")) {
+    return { input, changed: false };
+  }
+  const args = input as Record<string, unknown>;
+  if (!Object.prototype.hasOwnProperty.call(args, "requestId")) {
+    return { input, changed: false };
+  }
+  const { requestId: _modelChosen, ...rest } = args;
+  return { input: rest, changed: true };
 }
 
 /**
@@ -7371,6 +7461,13 @@ function projectModelInputForObserver(messages: readonly unknown[]): unknown[] {
     }
 
     const part = value as Record<string, unknown>;
+    if (part.omitFromPersistedHistory === true) {
+      return {
+        type: "text",
+        text: "[Private content omitted]",
+        omitFromPersistedHistory: true,
+      };
+    }
     const isMedia =
       isImageListEntry || part.type === "image" || part.type === "file";
     if (isMedia) {
@@ -7405,10 +7502,28 @@ function projectModelInputForObserver(messages: readonly unknown[]): unknown[] {
 function notifyModelInputObserver(
   observer: ModelInputObserver | undefined,
   messages: readonly unknown[],
+  privateTurn = false,
 ): void {
   if (!observer) return;
   try {
-    const result = observer(projectModelInputForObserver(messages));
+    // Observers may persist their input independently of the run's trace writer.
+    // Once a turn is private, even unmarked derived context stays model-only.
+    const result = observer(
+      privateTurn
+        ? [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "[Private content omitted]",
+                  omitFromPersistedHistory: true,
+                },
+              ],
+            },
+          ]
+        : projectModelInputForObserver(messages),
+    );
     if (result !== undefined) {
       void Promise.resolve(result).catch(() => {
         // coercion-ok: observer failures cannot change agent execution.
@@ -7425,6 +7540,7 @@ export function createRunSafeBoundaryGuards(input: {
   signal: AbortSignal;
   flushEvents: () => Promise<void>;
   interruptRequestedAtBoundary: () => Promise<QueuedRunInterruptBoundaryResult>;
+  validateModelInput?: () => boolean | Promise<boolean>;
 }): {
   beforeModelDispatch: BeforeModelDispatch;
   beforeWrite: () => Promise<void>;
@@ -7436,6 +7552,17 @@ export function createRunSafeBoundaryGuards(input: {
       if (input.signal.aborted || interruptResult !== "none") {
         return { started: false as const };
       }
+      if (input.validateModelInput) {
+        try {
+          const current = input.validateModelInput();
+          if (current !== true && (await current) !== true) {
+            return { started: false as const };
+          }
+        } catch {
+          return { started: false as const };
+        }
+      }
+      if (isSignalAborted(input.signal)) return { started: false as const };
       return { started: true as const, value: dispatch() };
     },
     beforeWrite: async () => {
@@ -7493,6 +7620,7 @@ export async function runAgentLoop(opts: {
   signal: AbortSignal;
   beforeWrite?: () => Promise<void>;
   beforeModelDispatch?: BeforeModelDispatch;
+  registerModelInputGuard?: ActionRunContext["registerModelInputGuard"];
   unknownWriteToolNames?: Set<string>;
   /** The request's unknown outcomes, which each of its loops feeds and holds by. */
   unknownOutcomes?: UnknownOutcomes;
@@ -7669,6 +7797,9 @@ export async function runAgentLoop(opts: {
   };
   if (followUpRunId) send({ type: "suggestions", suggestions: [] });
   let model = normalizeModelForEngine(engine, opts.model);
+  let settlementCandidate = false;
+  let settledEmptyFinal = false;
+  let turnHasActionWarnings = false;
   let outcomeReported = false;
   const reportOutcome = (outcome: AgentLoopOutcome) => {
     if (outcomeReported) return;
@@ -7685,10 +7816,10 @@ export async function runAgentLoop(opts: {
   const deliverSteeredMessagesAtToolBoundary = async (
     toolResultParts: EngineContentPart[],
   ) => {
-    if (signal.aborted) return;
+    if (signal.aborted) return 0;
     const threadId = opts.threadId;
     const runId = opts.runId;
-    if (!threadId || !runId) return;
+    if (!threadId || !runId) return 0;
     const { claimSteeredQueuedMessages } =
       await import("../chat-threads/store.js");
     let delivered: Awaited<ReturnType<typeof claimSteeredQueuedMessages>>;
@@ -7701,7 +7832,7 @@ export async function runAgentLoop(opts: {
         "[agent-chat] Send now delivery skipped at a tool boundary:",
         error instanceof Error ? error.message : String(error),
       );
-      return;
+      return 0;
     }
     for (const { queued, record } of delivered) {
       toolResultParts.push(
@@ -7723,6 +7854,7 @@ export async function runAgentLoop(opts: {
         continuationMessageId: record.continuationMessageId,
       });
     }
+    return delivered.length;
   };
   const deferSteeredMessagesPastFinalResponse = async () => {
     if (!opts.threadId || !opts.runId) return;
@@ -7984,6 +8116,14 @@ export async function runAgentLoop(opts: {
   );
   const toolCallJournal =
     journalRead.status === "read" ? journalRead.toolCallJournal : null;
+  turnHasActionWarnings =
+    journalRead.status === "read" &&
+    journalRead.events.some(
+      (event) =>
+        event.type === "tool_done" &&
+        (event.hasAgentWarnings === true ||
+          event.result.includes("<agent-warning ")),
+    );
   const journalHistory = messages.slice(
     findCurrentTurnStartForContinuation(messages),
   );
@@ -8059,6 +8199,157 @@ export async function runAgentLoop(opts: {
   };
   toolCallHistory.push(...journaledPriorToolCalls);
   toolResultHistory.push(...journaledPriorToolResults);
+  if (
+    (internalContinuationTurn ||
+      opts.recoverCompletedExecutionSteps === true) &&
+    toolCallJournal &&
+    toolCallJournal.interrupted.length === 0
+  ) {
+    const tail = journalHistory.at(-1);
+    const continuationText =
+      tail?.role === "user" &&
+      tail.content.length === 1 &&
+      tail.content[0]?.type === "text"
+        ? tail.content[0].text
+        : undefined;
+    const journalNote = buildResumeJournalNote(toolCallJournal);
+    const safeContinuation =
+      continuationText !== undefined &&
+      (
+        [
+          "run_timeout",
+          "loop_limit",
+          "stream_ended",
+          "gateway_timeout",
+          "rate_limited",
+          "network_interrupted",
+          "no_progress",
+        ] as const
+      ).some((reason) =>
+        [undefined, journalNote ?? undefined].some((note) => {
+          const expected: EngineMessage[] = [];
+          appendAgentLoopContinuation(
+            expected,
+            reason,
+            note ? { journalNote: note } : {},
+          );
+          return (
+            expected[0]?.content[0]?.type === "text" &&
+            expected[0].content[0].text === continuationText
+          );
+        }),
+      );
+    const lastMessage = journalHistory.at(safeContinuation ? -2 : -1);
+    const previousMessage = journalHistory.at(safeContinuation ? -3 : -2);
+    const pairs = matchToolCallResultsInHistory(journalHistory);
+    const calls =
+      previousMessage?.role === "assistant"
+        ? previousMessage.content.filter((part) => part.type === "tool-call")
+        : [];
+    const events = journalRead.status === "read" ? journalRead.events : [];
+    const batchIndex = events
+      .map(
+        (event) =>
+          event.type === "rich_event" &&
+          event.event.namespace === "agent-native.tool-batch" &&
+          event.event.name === "declared" &&
+          event.event.version === 1,
+      )
+      .lastIndexOf(true);
+    const batchEvent = batchIndex < 0 ? undefined : events.at(batchIndex);
+    const batchData =
+      batchEvent?.type === "rich_event" ? batchEvent.event.data : undefined;
+    const batchCalls =
+      isRecord(batchData) && Array.isArray(batchData.calls)
+        ? batchData.calls
+        : [];
+    const afterBatch = events.slice(batchIndex + 1);
+    const starts = afterBatch.filter((event) => event.type === "tool_start");
+    const dones = afterBatch.filter((event) => event.type === "tool_done");
+    if (
+      batchIndex >= 0 &&
+      batchCalls.length > 0 &&
+      batchCalls.every(
+        (call) =>
+          isRecord(call) &&
+          typeof call.id === "string" &&
+          call.id.length > 0 &&
+          typeof call.name === "string" &&
+          call.name.length > 0,
+      ) &&
+      new Set(batchCalls.map((call) => call.id)).size === batchCalls.length &&
+      starts.length === batchCalls.length &&
+      dones.length === batchCalls.length &&
+      !afterBatch.some(
+        (event) =>
+          event.type === "user_message" ||
+          event.type === "tool_input_start" ||
+          event.type === "tool_input_delta" ||
+          (event.type === "model_stream" &&
+            event.status === "end" &&
+            event.reason !== "end_turn"),
+      ) &&
+      lastMessage?.role === "user" &&
+      lastMessage.content.length > 0 &&
+      lastMessage.content.every(
+        (part) =>
+          part.type === "tool-result" &&
+          !part.isError &&
+          part.outcome !== "unknown" &&
+          !part.approvalPause,
+      ) &&
+      batchCalls.every((call) => {
+        if (
+          !isRecord(call) ||
+          typeof call.id !== "string" ||
+          typeof call.name !== "string"
+        )
+          return false;
+        const matchingStarts = starts.filter(
+          (start) => start.id === call.id && start.tool === call.name,
+        );
+        if (matchingStarts.length !== 1 || !matchingStarts[0]?.executionStepId)
+          return false;
+        const stepId = matchingStarts[0].executionStepId;
+        const matchingDones = dones.filter(
+          (done) =>
+            done.executionStepId === stepId &&
+            done.tool === call.name &&
+            done.id === call.id,
+        );
+        const matchingPairs = pairs.filter(
+          (pair) =>
+            calls.includes(pair.call) &&
+            lastMessage.content.includes(pair.result) &&
+            pair.call.executionStepId === stepId &&
+            pair.result.executionStepId === stepId &&
+            pair.call.name === call.name &&
+            pair.result.toolName === call.name,
+        );
+        const entries = toolCallJournal.completed.filter(
+          (entry) =>
+            entry.executionStepId === stepId && entry.tool === call.name,
+        );
+        return (
+          matchingDones.length === 1 &&
+          matchingDones[0]?.actionSettled === true &&
+          matchingDones[0].settledOnCleanToolStop === true &&
+          !matchingDones[0].isError &&
+          matchingDones[0].outcomeUnknown !== true &&
+          matchingPairs.length === 1 &&
+          entries.length === 1 &&
+          entries[0]?.actionSettled === true &&
+          entries[0].settledOnCleanToolStop === true &&
+          !entries[0].isError
+        );
+      }) &&
+      !toolResultHistory.some((result) => result.isError) &&
+      !turnHasActionWarnings &&
+      !writeReceiptGuard(turnReceipts(), false)
+    ) {
+      settlementCandidate = true;
+    }
+  }
   const unreadableJournalStop: TerminalActionStop | null =
     journalRead.status === "unreadable" &&
     (journalRead.code === "private_history_unrecoverable" ||
@@ -8440,10 +8731,15 @@ export async function runAgentLoop(opts: {
             }
           },
           providerOptions,
+          ...(send.isPrivateTurn() ? { privateContent: true } : {}),
         };
 
         opts.onModelSettings?.(model, effectiveReasoningEffort);
-        notifyModelInputObserver(opts.onModelInput, engineMessages);
+        notifyModelInputObserver(
+          opts.onModelInput,
+          engineMessages,
+          send.isPrivateTurn(),
+        );
         if (signal.aborted) {
           reportOutcome({
             state: "canceled",
@@ -9136,6 +9432,9 @@ export async function runAgentLoop(opts: {
       }
       if (followUpResults.length > 0)
         messages.push({ role: "user", content: followUpResults });
+      if (terminalStopReason === "max_tokens" || followUpResults.length > 0) {
+        settlementCandidate = false;
+      }
       if (terminalStopReason === "max_tokens") {
         if (hasEmptyFinalResponse) {
           preserveReasoningEffortForEmptyResponseRetries = true;
@@ -9178,7 +9477,14 @@ export async function runAgentLoop(opts: {
         flushUnstreamedAssistantText();
         continue;
       }
-      if (hasEmptyFinalResponse) {
+      const canSettleEmptyFinal =
+        hasEmptyFinalResponse &&
+        settlementCandidate &&
+        terminalStopReason === "end_turn" &&
+        followUpResults.length === 0 &&
+        !isSignalAborted(signal) &&
+        !writeReceiptGuard(turnReceipts(), receiptGuardRetried);
+      if (hasEmptyFinalResponse && !canSettleEmptyFinal) {
         completedFollowUpSuggestions = undefined;
         if (emptyFinalResponseRetries < EMPTY_FINAL_RESPONSE_RETRY_LIMIT) {
           emptyFinalResponseRetries += 1;
@@ -9244,6 +9550,7 @@ export async function runAgentLoop(opts: {
           : receiptGuard;
       }
       if (guard) {
+        settlementCandidate = false;
         completedFollowUpSuggestions = undefined;
         const retryMessage =
           typeof guard === "string" ? guard : guard.retryMessage;
@@ -9294,6 +9601,7 @@ export async function runAgentLoop(opts: {
       } else {
         flushUnstreamedAssistantText();
         if (
+          !canSettleEmptyFinal &&
           followUpRunId &&
           completedFollowUpSuggestions === undefined &&
           (terminalStopReason === "end_turn" || followUpResults.length > 0)
@@ -9308,6 +9616,7 @@ export async function runAgentLoop(opts: {
           continue;
         }
       }
+      settledEmptyFinal = canSettleEmptyFinal && !guard;
       emptyFinalResponseRetries = 0;
       preserveReasoningEffortForEmptyResponseRetries = false;
       consecutiveMaxTokensContinuations = 0;
@@ -9324,6 +9633,7 @@ export async function runAgentLoop(opts: {
     consecutiveMaxTokensContinuations = 0;
 
     const toolCallTruncatedByOutputCap = terminalStopReason === "max_tokens";
+    const toolCallHasCleanStop = terminalStopReason === "tool_use";
     if (toolCallTruncatedByOutputCap) {
       if (truncatedToolCallRetries < TRUNCATED_TOOL_CALL_RETRY_LIMIT) {
         truncatedToolCallRetries += 1;
@@ -9339,6 +9649,29 @@ export async function runAgentLoop(opts: {
 
     flushUnstreamedAssistantText();
 
+    settlementCandidate = false;
+    const batchCallIds = toolCallParts.map((call) => call.id);
+    if (
+      currentExecutionFence() &&
+      toolCallHasCleanStop &&
+      followUpResults.length === 0 &&
+      !send.isPrivateTurn() &&
+      batchCallIds.every(Boolean) &&
+      new Set(batchCallIds).size === batchCallIds.length
+    ) {
+      await send({
+        type: "rich_event",
+        event: {
+          namespace: "agent-native.tool-batch",
+          name: "declared",
+          version: 1,
+          data: { calls: toolCallParts.map(({ id, name }) => ({ id, name })) },
+        },
+      });
+    }
+    const settledToolCalls = new Set<
+      import("./engine/types.js").EngineToolCallPart
+    >();
     let requestedActionStop: TerminalActionStop | null = null;
     // Tool closures set the stop, so control flow still reads it as null here.
     const actionStopRequested = () => requestedActionStop !== null;
@@ -10002,28 +10335,33 @@ export async function runAgentLoop(opts: {
         const approvalUserEmail = requiresWriteApproval
           ? undefined
           : getRequestUserEmail();
+        const approvalContext = {
+          ...(approvalUserEmail === undefined
+            ? {}
+            : { userEmail: approvalUserEmail }),
+          orgId: getRequestOrgId() ?? null,
+          ...(opts.appId === undefined ? {} : { appId: opts.appId }),
+          caller: opts.actionCaller ?? "tool",
+          ...(opts.automation === undefined
+            ? {}
+            : { automation: opts.automation }),
+          ...(opts.networkProtocol === undefined
+            ? {}
+            : { networkProtocol: opts.networkProtocol }),
+          ...(opts.networkId === undefined
+            ? {}
+            : { networkId: opts.networkId }),
+          ...(opts.networkPeer === undefined
+            ? {}
+            : { networkPeer: opts.networkPeer }),
+        };
         let mustApprove =
           requiresWriteApproval ||
-          (await preparedCallNeedsApproval(actionEntry, intent, {
-            ...(approvalUserEmail === undefined
-              ? {}
-              : { userEmail: approvalUserEmail }),
-            orgId: getRequestOrgId() ?? null,
-            ...(opts.appId === undefined ? {} : { appId: opts.appId }),
-            caller: opts.actionCaller ?? "tool",
-            ...(opts.automation === undefined
-              ? {}
-              : { automation: opts.automation }),
-            ...(opts.networkProtocol === undefined
-              ? {}
-              : { networkProtocol: opts.networkProtocol }),
-            ...(opts.networkId === undefined
-              ? {}
-              : { networkId: opts.networkId }),
-            ...(opts.networkPeer === undefined
-              ? {}
-              : { networkPeer: opts.networkPeer }),
-          }));
+          (await preparedCallNeedsApproval(
+            actionEntry,
+            intent,
+            approvalContext,
+          ));
         if (
           mustApprove &&
           opts.requireWriteApproval !== true &&
@@ -10056,6 +10394,11 @@ export async function runAgentLoop(opts: {
           }
           const askId =
             (await opts.onApprovalRequired?.(approvalBinding())) || undefined;
+          // A private call's arguments stay out of the chat, so its card
+          // keeps the generic question.
+          const approvalLabel = isPrivateCall()
+            ? undefined
+            : preparedCallApprovalLabel(actionEntry, intent, approvalContext);
           await send({
             type: "tool_start",
             id: toolCall.id,
@@ -10068,6 +10411,7 @@ export async function runAgentLoop(opts: {
             input: liveToolInput as Record<string, string>,
             approvalKey,
             argumentsHash,
+            ...(approvalLabel ? { label: approvalLabel } : {}),
             ...(actionEntry.allowPersistentApproval === false
               ? { allowPersistentApproval: false }
               : {}),
@@ -10308,6 +10652,7 @@ export async function runAgentLoop(opts: {
           );
         }
         const isError = outcome.isError === true;
+        if (outcome.hasAgentWarnings === true) turnHasActionWarnings = true;
         const completedSideEffect = outcome.completedSideEffect === true;
         const artifacts = Array.isArray(outcome.artifacts)
           ? outcome.artifacts.filter(isArtifactReceipt)
@@ -10338,8 +10683,21 @@ export async function runAgentLoop(opts: {
           ...(errorCode ? { errorCode } : {}),
           completedSideEffect,
           replayed: true,
+          ...(outcome.hasAgentWarnings === true
+            ? { hasAgentWarnings: true as const }
+            : {}),
           ...(artifacts.length > 0 ? { artifacts } : {}),
           ...(receipt ? { receipt } : {}),
+          ...(outcome.isError === false &&
+          outcome.actionSettled === true &&
+          outcome.settledOnCleanToolStop === true &&
+          toolCallHasCleanStop &&
+          outcome.replayTruncated !== true
+            ? {
+                actionSettled: true as const,
+                settledOnCleanToolStop: true as const,
+              }
+            : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(chatUI ? { chatUI } : {}),
           ...(chatUI && outcome.chatUIResult !== undefined
@@ -10348,6 +10706,16 @@ export async function runAgentLoop(opts: {
           ...(fileMutation ? { fileMutation } : {}),
         });
         recordToolResult(result, isError, artifacts, receipt, false);
+        if (
+          !isError &&
+          outcome.isError === false &&
+          typeof outcome.completedSideEffect === "boolean" &&
+          outcome.actionSettled === true &&
+          outcome.settledOnCleanToolStop === true &&
+          outcome.replayTruncated !== true
+        ) {
+          settledToolCalls.add(originalToolCall);
+        }
         if (!isError) {
           noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
         }
@@ -10480,6 +10848,16 @@ export async function runAgentLoop(opts: {
             result,
             ...(replayedFailure ? { isError: true } : {}),
             ...(journaled.errorCode ? { errorCode: journaled.errorCode } : {}),
+            ...(journaled.receipt ? { receipt: journaled.receipt } : {}),
+            ...(!replayedFailure &&
+            journaled.actionSettled &&
+            journaled.settledOnCleanToolStop &&
+            toolCallHasCleanStop
+              ? {
+                  actionSettled: true as const,
+                  settledOnCleanToolStop: true as const,
+                }
+              : {}),
             completedSideEffect: true,
             replayed: true,
             ...(journaled.artifacts?.length
@@ -10500,9 +10878,15 @@ export async function runAgentLoop(opts: {
             result,
             replayedFailure,
             journaled.artifacts,
-            undefined,
+            journaled.receipt,
             false,
           );
+          if (
+            !replayedFailure &&
+            journaled.actionSettled &&
+            journaled.settledOnCleanToolStop
+          )
+            settledToolCalls.add(originalToolCall);
           if (!replayedFailure) {
             noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
           }
@@ -10837,6 +11221,7 @@ export async function runAgentLoop(opts: {
         let chatUIResult: unknown;
         let isError = false;
         let thrown: unknown;
+        let actionRaceFailure: { error: unknown } | undefined;
         // A deadline or abort after invocation leaves a zombie that may still
         // commit, so a retry-safe action stays blocked for it; an error the
         // handler returned does not.
@@ -10854,6 +11239,10 @@ export async function runAgentLoop(opts: {
         let toolArtifacts: ArtifactReceipt[] = [];
         let fileMutation: AgentFileMutationProof | undefined;
         let receipt: WriteReceipt | undefined;
+        let requestedSettlement = false;
+        const settlementWasRequested = () => requestedSettlement;
+        let settlementOnReturn = false;
+        let requiresNextAction = false;
         try {
           // The run may have been aborted while we waited above for an
           // interrupted tool's ledger result (the wait can poll for minutes).
@@ -10908,6 +11297,15 @@ export async function runAgentLoop(opts: {
             }
             const actionContext = {
               send,
+              settle: () => {
+                if (
+                  actionExecutionOutcome.evidence &&
+                  actionExecutionStorage?.getStore()?.frame ===
+                    actionExecutionOutcome.evidence
+                ) {
+                  requestedSettlement = true;
+                }
+              },
               userEmail: actionUserEmail ?? undefined,
               orgId: actionOrgId,
               appId: opts.appId,
@@ -10933,6 +11331,12 @@ export async function runAgentLoop(opts: {
               actionName: toolCall.name,
               toolCallId: toolCall.id,
               maxResultChars: toolMaxResultChars,
+              ...(actionEntry.persistInChatHistory === false &&
+              engine.supportsPrivateContent === true &&
+              opts.beforeModelDispatch &&
+              opts.registerModelInputGuard
+                ? { registerModelInputGuard: opts.registerModelInputGuard }
+                : {}),
               get omitFromPersistedHistory(): true | undefined {
                 return isPrivateCall() ? true : undefined;
               },
@@ -10992,113 +11396,153 @@ export async function runAgentLoop(opts: {
               toolCall.name,
               ledgerArgumentsHash,
             );
-            const zombieLedgerPromise = actionPromise
-              .then(async (zombieRaw: unknown) => {
-                await new Promise<void>((resolve) => setTimeout(resolve, 0));
-                if (!toolResultLost) return;
-                // A call is recovered only when it may have written.
-                if (ranEffect({}).effect === "none") return;
-                const zombieMcp = isMcpActionResult(zombieRaw)
-                  ? zombieRaw
-                  : null;
-                if (
-                  zombieMcp &&
-                  zombieMcp.raw &&
-                  typeof zombieMcp.raw === "object" &&
-                  (zombieMcp.raw as Record<string, unknown>).isError === true
-                ) {
-                  return;
-                }
-                const zombieResultForAgent = zombieMcp
-                  ? zombieMcp.text
-                  : extractAgentImagesFromActionResult(zombieRaw).value;
-                const zombieResultMetadata =
-                  zombieMcp?.raw ?? zombieResultForAgent;
-                const zombieStr =
-                  typeof zombieResultForAgent === "string"
-                    ? zombieResultForAgent
-                    : JSON.stringify(zombieResultForAgent, null, 2);
-                const zombieArtifacts = detectArtifactReceipts(
-                  zombieResultMetadata,
-                  toolCall.name,
-                );
-                const zombieReceipt = readWriteReceipt(zombieResultMetadata);
-                const zombieChatUI = actionChatUIForResult(
-                  toolCall.name,
-                  actionEntry,
-                  toolCall.input as Record<string, unknown>,
-                  zombieResultForAgent,
-                  false,
-                );
-                const zombieFileMutation = actionEntry.fileMutationProof?.(
-                  toolCall.input,
-                );
-                if (executionStepIntent) {
-                  await recordLateAgentExecutionStepOutcome(
-                    executionStepIntent,
-                    serializeDurableExecutionStepOutcome({
-                      result: isPrivateCall()
-                        ? "[Private content omitted]"
-                        : stripInlineBytes(zombieStr, "placeholder").slice(
-                            0,
-                            toolMaxResultChars,
-                          ),
-                      isError: false,
-                      completedSideEffect: true,
-                      ...(isPrivateCall()
-                        ? {}
-                        : { artifacts: zombieArtifacts }),
-                      ...(!isPrivateCall() && zombieReceipt
-                        ? { receipt: zombieReceipt }
-                        : {}),
-                      ...(!isPrivateCall() && zombieMcp?.mcpApp
-                        ? { mcpApp: zombieMcp.mcpApp }
-                        : {}),
-                      ...(!isPrivateCall() && zombieChatUI
-                        ? {
-                            chatUI: zombieChatUI.chatUI,
-                            chatUIResult: zombieChatUI.result,
-                          }
-                        : {}),
-                      ...(!isPrivateCall() && zombieFileMutation
-                        ? { fileMutation: zombieFileMutation }
-                        : {}),
-                    }),
-                  );
-                }
-                if (!executionStepIntent && !isPrivateCall()) {
-                  await writeLedgerEntry(
-                    ledgerThreadId,
-                    ledgerToolKey,
-                    zombieStr,
-                    zombieArtifacts,
-                    typeof zombieResultForAgent === "string",
-                    zombieChatUI
-                      ? JSON.stringify(zombieChatUI.result)
-                      : undefined,
-                    ledgerArgumentsHash,
-                  );
-                }
-              })
-              .catch((error) => {
-                captureError(
-                  isPrivateCall()
-                    ? new Error("Private content omitted")
-                    : error,
-                  {
-                    ...(isPrivateCall()
-                      ? { errorMessagePolicy: "omit" as const }
-                      : {}),
-                    route: "/_agent-native/agent-chat",
-                    ...(opts.runId ? { aiTraceId: opts.runId } : {}),
-                    tags: {
-                      component: "agent-execution-step",
-                      phase: "late-outcome-persistence",
-                      tool: toolCall.name,
-                    },
+            const reportLateError = (
+              error: unknown,
+              phase: "late-action-rejection" | "late-outcome-persistence",
+            ) => {
+              const privateCall = isPrivateCall();
+              captureError(
+                privateCall ? new Error("Private content omitted") : error,
+                {
+                  ...(privateCall || phase === "late-action-rejection"
+                    ? { errorMessagePolicy: "omit" as const }
+                    : {}),
+                  route: "/_agent-native/agent-chat",
+                  ...(opts.runId ? { aiTraceId: opts.runId } : {}),
+                  tags: {
+                    component: "agent-execution-step",
+                    phase,
+                    tool: toolCall.name,
                   },
+                },
+              );
+            };
+            const zombieLedgerPromise = actionPromise.then(
+              async (zombieRaw: unknown) => {
+                try {
+                  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                  if (!toolResultLost) return;
+                  // A call is recovered only when it may have written.
+                  if (ranEffect({}).effect === "none") return;
+                  const zombieMcp = isMcpActionResult(zombieRaw)
+                    ? zombieRaw
+                    : null;
+                  if (
+                    zombieMcp &&
+                    zombieMcp.raw &&
+                    typeof zombieMcp.raw === "object" &&
+                    (zombieMcp.raw as Record<string, unknown>).isError === true
+                  ) {
+                    return;
+                  }
+                  const zombieResultForAgent = zombieMcp
+                    ? zombieMcp.text
+                    : extractAgentImagesFromActionResult(zombieRaw).value;
+                  const zombieResultMetadata =
+                    zombieMcp?.raw ?? zombieResultForAgent;
+                  const zombieStr =
+                    typeof zombieResultForAgent === "string"
+                      ? zombieResultForAgent
+                      : JSON.stringify(zombieResultForAgent, null, 2);
+                  const zombieArtifacts = detectArtifactReceipts(
+                    zombieResultMetadata,
+                    toolCall.name,
+                  );
+                  const zombieReceipt = readWriteReceipt(zombieResultMetadata);
+                  const zombieChatUI = actionChatUIForResult(
+                    toolCall.name,
+                    actionEntry,
+                    toolCall.input as Record<string, unknown>,
+                    zombieResultForAgent,
+                    false,
+                  );
+                  const zombieFileMutation = actionEntry.fileMutationProof?.(
+                    toolCall.input,
+                  );
+                  if (executionStepIntent) {
+                    await recordLateAgentExecutionStepOutcome(
+                      executionStepIntent,
+                      serializeDurableExecutionStepOutcome({
+                        result: isPrivateCall()
+                          ? "[Private content omitted]"
+                          : stripInlineBytes(zombieStr, "placeholder").slice(
+                              0,
+                              toolMaxResultChars,
+                            ),
+                        isError: false,
+                        completedSideEffect: true,
+                        ...(isPrivateCall()
+                          ? {}
+                          : { artifacts: zombieArtifacts }),
+                        ...(!isPrivateCall() && zombieReceipt
+                          ? { receipt: zombieReceipt }
+                          : {}),
+                        ...(!isPrivateCall() && zombieMcp?.mcpApp
+                          ? { mcpApp: zombieMcp.mcpApp }
+                          : {}),
+                        ...(!isPrivateCall() && zombieChatUI
+                          ? {
+                              chatUI: zombieChatUI.chatUI,
+                              chatUIResult: zombieChatUI.result,
+                            }
+                          : {}),
+                        ...(!isPrivateCall() && zombieFileMutation
+                          ? { fileMutation: zombieFileMutation }
+                          : {}),
+                      }),
+                    );
+                  }
+                  if (!executionStepIntent && !isPrivateCall()) {
+                    await writeLedgerEntry(
+                      ledgerThreadId,
+                      ledgerToolKey,
+                      zombieStr,
+                      zombieArtifacts,
+                      typeof zombieResultForAgent === "string",
+                      zombieChatUI
+                        ? JSON.stringify(zombieChatUI.result)
+                        : undefined,
+                      ledgerArgumentsHash,
+                    );
+                  }
+                } catch (error) {
+                  reportLateError(error, "late-outcome-persistence");
+                }
+              },
+              async (error: unknown) => {
+                // Let the race record which rejection it actually handled.
+                await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                if (
+                  !actionRaceFailure ||
+                  Object.is(actionRaceFailure.error, error) ||
+                  (error instanceof ActionInputValidationError &&
+                    actionExecutionOutcome.evidence?.writeObserved === false) ||
+                  (isActionContractError(error) &&
+                    !isActionOutputContractError(error) &&
+                    (error.statusCode < 500 ||
+                      error.errorCode === "storage_setup_required") &&
+                    actionExecutionOutcome.evidence?.writeObserved === false) ||
+                  (isAgentActionStopError(error) &&
+                    actionExecutionOutcome.evidence?.writeObserved === false) ||
+                  // Retry safety does not establish that a write did not happen.
+                  (signal.aborted &&
+                    error instanceof Error &&
+                    error.name === "AbortError" &&
+                    ranEffect({ failed: { error }, retrySafe: false })
+                      .effect === "none") ||
+                  (!actionInvoked &&
+                    error instanceof Error &&
+                    ((signal.aborted && error.message === "Run aborted") ||
+                      (timeoutSignal.aborted &&
+                        error.message === timeoutMessage())))
+                )
+                  return;
+                reportLateError(
+                  new Error("Late action failed"),
+                  "late-action-rejection",
                 );
-              });
+              },
+            );
             void retainRequestDbPoolScope(zombieLedgerPromise);
           }
 
@@ -11120,9 +11564,16 @@ export async function runAgentLoop(opts: {
                 { once: true },
               );
             }),
-          ]);
+          ]).catch((error: unknown) => {
+            actionRaceFailure = { error };
+            throw error;
+          });
+          settlementOnReturn = settlementWasRequested();
           const mcpResult = isMcpActionResult(raw) ? raw : null;
           const rawForAgent = mcpResult ? mcpResult.text : raw;
+          requiresNextAction =
+            isRecord(rawForAgent) &&
+            typeof rawForAgent.nextRequiredAction === "string";
           if (
             mcpResult &&
             mcpResult.raw &&
@@ -11186,7 +11637,11 @@ export async function runAgentLoop(opts: {
           let resultStr =
             typeof resultForAgent === "string"
               ? resultForAgent
-              : JSON.stringify(resultForAgent, null, 2);
+              : JSON.stringify(resultForAgent, (_key, value: unknown) =>
+                  typeof value === "string"
+                    ? stripInlineDataUrls(value)
+                    : value,
+                );
           if (resultStr.length > toolMaxResultChars) {
             const truncated = resultStr.slice(0, toolMaxResultChars);
             resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
@@ -11346,8 +11801,23 @@ export async function runAgentLoop(opts: {
 
         const agentWarnings = drainAgentWarnings();
         if (agentWarnings.length > 0) {
+          turnHasActionWarnings = true;
           result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
         }
+        const actionSettled = Boolean(
+          !isError &&
+          !toolResultLost &&
+          !isSignalAborted(signal) &&
+          settlementOnReturn &&
+          !requiresNextAction &&
+          callEffect !== "unknown" &&
+          toolCallHasCleanStop &&
+          agentWarnings.length === 0 &&
+          !writeReceiptGuard(
+            receipt ? [{ tool: toolCall.name, ...receipt }] : [],
+            false,
+          ),
+        );
 
         const resolvedChatUI = actionChatUIForResult(
           toolCall.name,
@@ -11415,6 +11885,15 @@ export async function runAgentLoop(opts: {
                   ? { errorCode: toolErrorCode }
                   : {}),
                 completedSideEffect: callEffect === "committed",
+                ...(!isPrivateCall() && actionSettled
+                  ? {
+                      actionSettled: true as const,
+                      settledOnCleanToolStop: true as const,
+                    }
+                  : {}),
+                ...(agentWarnings.length > 0
+                  ? { hasAgentWarnings: true as const }
+                  : {}),
                 ...(isPrivateCall() ? {} : { artifacts: toolArtifacts }),
                 ...(!isPrivateCall() && receipt ? { receipt } : {}),
                 ...(!isPrivateCall() && mcpApp ? { mcpApp } : {}),
@@ -11462,9 +11941,21 @@ export async function runAgentLoop(opts: {
           ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
           ...(receipt ? { receipt } : {}),
+          ...(actionSettled
+            ? {
+                actionSettled: true as const,
+                settledOnCleanToolStop: true as const,
+              }
+            : {}),
+          ...(agentWarnings.length > 0
+            ? { hasAgentWarnings: true as const }
+            : {}),
         });
         toolDonePersistenceFailed = false;
         recordToolResult(result, isError, toolArtifacts, receipt);
+        if (actionSettled) {
+          settledToolCalls.add(originalToolCall);
+        }
         if (isError) {
           if (callEffect === "committed") {
             resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
@@ -11678,7 +12169,16 @@ export async function runAgentLoop(opts: {
         : toolResultParts,
     });
     if (!actionStopRequested()) {
-      await deliverSteeredMessagesAtToolBoundary(toolResultParts);
+      const delivered =
+        await deliverSteeredMessagesAtToolBoundary(toolResultParts);
+      settlementCandidate =
+        delivered === 0 &&
+        toolCallHasCleanStop &&
+        followUpResults.length === 0 &&
+        toolCallParts.length > 0 &&
+        toolCallParts.every((call) => settledToolCalls.has(call)) &&
+        !turnHasActionWarnings &&
+        !toolResultHistory.some((result) => result.isError);
     }
     if (requestedActionStop) {
       const stop = requestedActionStop as TerminalActionStop;
@@ -11756,14 +12256,16 @@ export async function runAgentLoop(opts: {
       send({ type: "suggestions", suggestions: completedFollowUpSuggestions });
     send({
       type: "done",
-      ...(loopBreakerStopped
-        ? {
-            reason: "loop_breaker",
-            ...(loopBreakerCloseout
-              ? { message: loopBreakerCloseout.message }
-              : {}),
-          }
-        : {}),
+      ...(settledEmptyFinal
+        ? { reason: "action_settled" as const }
+        : loopBreakerStopped
+          ? {
+              reason: "loop_breaker",
+              ...(loopBreakerCloseout
+                ? { message: loopBreakerCloseout.message }
+                : {}),
+            }
+          : {}),
     });
     if (opts.threadId) {
       void retainRequestDbPoolScope(
@@ -17403,11 +17905,15 @@ export function createProductionAgentHandler(
             }
             return "none";
           };
+        const modelInputScopes = createModelInputScopeGuardRegistry(() => {
+          abortRun(runId, MODEL_INPUT_SCOPE_ABORT_REASON);
+        });
         const { beforeModelDispatch: guardedBeforeModelDispatch, beforeWrite } =
           createRunSafeBoundaryGuards({
             signal,
             flushEvents: control.flushEvents,
             interruptRequestedAtBoundary: interruptQueuedRunAtBoundary,
+            validateModelInput: modelInputScopes.validate,
           });
         const exposureAssignment =
           questionIntakeAssignment && !internalContinuation && !continueOf
@@ -17469,19 +17975,24 @@ export function createProductionAgentHandler(
         if (customAgentRefs.length > 0) {
           const ownerEmail = getRequestUserEmail();
           if (!ownerEmail) throw new Error("no authenticated user");
-          const { findAccessibleCustomAgent } =
-            await import("../resources/agents.js");
+          const {
+            findAccessibleCustomAgent,
+            resolveAccessibleCustomAgentReference,
+          } = await import("../resources/agents.js");
           const customResults = await Promise.allSettled(
             customAgentRefs.map(async (ref, index) => {
+              const agentCallId = randomUUID();
               send({
                 type: "agent_call",
                 agent: ref.name,
                 status: "start",
+                agentCallId,
               });
               try {
-                const profile = await findAccessibleCustomAgent(
+                const profile = await resolveAccessibleCustomAgentReference(
                   ownerEmail,
-                  ref.refId || ref.path || ref.name,
+                  ref,
+                  findAccessibleCustomAgent,
                 );
                 if (!profile) {
                   throw new Error("Profile not found");
@@ -17568,6 +18079,7 @@ export function createProductionAgentHandler(
                         type: "agent_call_text",
                         agent: ref.name,
                         text: event.text,
+                        agentCallId,
                       });
                     } else if (
                       event.type === "tool_start" ||
@@ -17625,6 +18137,7 @@ export function createProductionAgentHandler(
                   type: "agent_call",
                   agent: ref.name,
                   status: "done",
+                  agentCallId,
                 });
                 return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent">\n${responseText}\n</agent-response>`;
               } catch (err: any) {
@@ -17632,6 +18145,7 @@ export function createProductionAgentHandler(
                   type: "agent_call",
                   agent: ref.name,
                   status: "error",
+                  agentCallId,
                 });
                 const message =
                   userFacingLlmCredentialError(err, {
@@ -17776,6 +18290,7 @@ export function createProductionAgentHandler(
           systemSections: contextXraySystemSections,
           actions: requestActions,
           beforeModelDispatch,
+          registerModelInputGuard: modelInputScopes.register,
           beforeWrite,
           unknownOutcomes,
           internalContinuation,

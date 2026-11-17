@@ -29,6 +29,7 @@ import {
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { FirstOutputNextStepBar } from "@agent-native/toolkit/app-shell";
 import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
@@ -112,6 +113,7 @@ import SlideEditor, {
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { useSlidesAgentSelect } from "@/components/editor/use-slides-agent-select";
+import { presentChannelSupported } from "@/components/presentation/present-channel";
 import {
   SlideTransitionPreview,
   transitionPreviewPair,
@@ -1555,7 +1557,9 @@ export default function DeckEditor() {
           emptyGenerationRecoveryRef.current = null;
         }
       })
-      .catch(() => toast.error(t("settings.saveFailed")));
+      .catch((error) =>
+        reportWriteFailure(error, { label: t("settings.saveFailed") }),
+      );
   }, [
     deck,
     flushDeckSave,
@@ -1649,7 +1653,9 @@ export default function DeckEditor() {
         generationFailureSlidesFingerprint: null,
       },
     });
-    void flushDeckSave(id).catch(() => toast.error(t("settings.saveFailed")));
+    void flushDeckSave(id).catch((error) =>
+      reportWriteFailure(error, { label: t("settings.saveFailed") }),
+    );
   }, [
     attemptObservedRun,
     flushDeckSave,
@@ -1912,9 +1918,9 @@ export default function DeckEditor() {
       try {
         updateDeck(id, { generationContext: retryContext });
         await flushDeckSave(id);
-      } catch {
+      } catch (error) {
         await restoreFailedRetry();
-        toast.error(t("settings.saveFailed"));
+        reportWriteFailure(error, { label: t("settings.saveFailed") });
         return;
       }
       let retryQuestionCheck: Awaited<
@@ -2068,8 +2074,8 @@ export default function DeckEditor() {
         ) {
           emptyGenerationRecoveryRef.current = null;
         }
-      } catch {
-        toast.error(t("settings.saveFailed"));
+      } catch (error) {
+        reportWriteFailure(error, { label: t("settings.saveFailed") });
       }
     } finally {
       retryEmptyGenerationInFlightRef.current = false;
@@ -2490,8 +2496,8 @@ export default function DeckEditor() {
         ) {
           emptyGenerationRecoveryRef.current = null;
         }
-      } catch {
-        toast.error(t("settings.saveFailed"));
+      } catch (error) {
+        reportWriteFailure(error, { label: t("settings.saveFailed") });
       }
     };
     void (async () => {
@@ -2631,8 +2637,10 @@ export default function DeckEditor() {
             ) {
               emptyGenerationRecoveryRef.current = null;
             }
-          } catch {
-            toast.error(t("editorSidebar.newSlideSaveFailed"));
+          } catch (error) {
+            reportWriteFailure(error, {
+              label: t("editorSidebar.newSlideSaveFailed"),
+            });
           }
           resumeSettlementAfterPausedSave();
           return;
@@ -2704,8 +2712,10 @@ export default function DeckEditor() {
             ) {
               emptyGenerationRecoveryRef.current = null;
             }
-          } catch {
-            toast.error(t("editorSidebar.newSlideSaveFailed"));
+          } catch (error) {
+            reportWriteFailure(error, {
+              label: t("editorSidebar.newSlideSaveFailed"),
+            });
           }
         }
         if (failureCode === "cancelled") {
@@ -2926,7 +2936,9 @@ export default function DeckEditor() {
               emptyGenerationRecoveryRef.current = null;
             }
           })
-          .catch(() => toast.error(t("settings.saveFailed")));
+          .catch((error) =>
+            reportWriteFailure(error, { label: t("settings.saveFailed") }),
+          );
       },
       Math.max(0, deadline - Date.now()),
     );
@@ -4212,9 +4224,13 @@ export default function DeckEditor() {
 
   const deleteSlidesWithUndo = useCallback(
     (deckId: string, slideIds: string[]) => {
-      const historyToken = deleteSlides(deckId, slideIds);
+      // A refused delete is restored by the deck resync and reported by the save
+      // banner, so "Slide deleted" with Undo would contradict both.
+      const historyToken = deleteSlides(deckId, slideIds, () =>
+        toast.dismiss(toastId),
+      );
       if (!historyToken) return;
-      toast(t("editorSidebar.slideDeleted"), {
+      const toastId = toast(t("editorSidebar.slideDeleted"), {
         className: "!bg-background !text-foreground !border-border",
         duration: 6000,
         closeButton: true,
@@ -5412,12 +5428,20 @@ export default function DeckEditor() {
     }
     // A popup is only allowed while the click is still being handled, so it
     // opens blank now and gets its address once the save has been flushed.
-    const presenterWindow =
-      mode === "presenter"
-        ? window.open("", presenterWindowName(id), PRESENTER_WINDOW_FEATURES)
-        : null;
-    if (mode === "presenter" && !presenterWindow) {
-      toast.error(t("editorToolbar.presenterViewBlocked"));
+    let presenterWindow: Window | null = null;
+    if (mode === "presenter") {
+      if (!presentChannelSupported()) {
+        toast.error(t("editorToolbar.presenterViewUnsupported"));
+      } else {
+        presenterWindow = window.open(
+          "",
+          presenterWindowName(id),
+          PRESENTER_WINDOW_FEATURES,
+        );
+        if (!presenterWindow) {
+          toast.error(t("editorToolbar.presenterViewBlocked"));
+        }
+      }
     }
     presentInFlightRef.current = true;
     const attemptId = ++presentAttemptRef.current;
@@ -5608,12 +5632,15 @@ export default function DeckEditor() {
           if (exportSlides.length === 0) {
             throw new Error(t("deckEditor.deckHasNoSlides"));
           }
-          await withExportStage(() =>
+          const { sidecarSkipped } = await withExportStage(() =>
             exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio, {
               analytics: deckExportAnalytics,
               signal,
             }),
           );
+          if (sidecarSkipped) {
+            toast.warning(t("editorExport.pdfSidecarSkipped"));
+          }
         }}
         flushInlineEdit={() => inlineEditFlushRef.current?.()}
         onExportPptx={async (signal) => {

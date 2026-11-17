@@ -18,6 +18,7 @@ import {
 import type { ReviewComment } from "@agent-native/core/review";
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 import { type ReviewThread } from "@agent-native/toolkit/app/review";
+import type { TweakDefinition } from "@shared/api";
 import { isLoopbackPreviewAllowed } from "@shared/builder-preview-url";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,
@@ -59,6 +60,11 @@ import {
 import { normalizeScreenHtml } from "@shared/screen-annotation";
 import { sourceContentHash } from "@shared/source-workspace";
 import { sanitizeVisualEditSnapshotHtml } from "@shared/visual-edit-snapshot";
+import {
+  CANVAS_CONTEXT_RECORDER_SCRIPT,
+  injectCanvasContextRecorder,
+  isVisualLayerKind,
+} from "@shared/visual-layers";
 import { IconPlugConnectedX, IconRefresh } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import {
@@ -177,7 +183,12 @@ import {
   forwardEmbeddedCanvasPanMessage,
   type EmbeddedCanvasPanSession,
 } from "./design-canvas/iframe-pan";
+import {
+  filterPastedMediaFiles,
+  hasSkippedImagePaste,
+} from "./design-canvas/image-paste-files";
 import { buildInteractPreviewDocument } from "./design-canvas/interact-document";
+import { createInteractTweakSetListener } from "./design-canvas/interact-tweak-set";
 import {
   inlineDesignStylesheets,
   useDesignStylesheets,
@@ -244,6 +255,7 @@ import {
 import { DeviceFrame } from "./DeviceFrame";
 import { dndHostLog } from "./dnd-debug";
 import type { RelativeStyleOperation } from "./edit-panel/style-change-types";
+import { ExternalReferenceFallback } from "./ExternalReferenceFallback";
 import { getBoardSurfaceRenderContent } from "./multi-screen/board-surface-html";
 import { shapeClosingHandles } from "./multi-screen/draft-primitives";
 import {
@@ -258,6 +270,7 @@ import {
   getIframePaintRetentionStyle,
   SCALED_IFRAME_PAINT_RETENTION_STYLE,
 } from "./scaled-iframe-paint";
+import { SharedTunnelPreview } from "./SharedTunnelPreview";
 import type {
   ElementInfo,
   GridGroupStructureMove,
@@ -272,6 +285,7 @@ import type {
   TextEditingState,
 } from "./types";
 import { useNativeShaderApprovals } from "./use-native-shader-approvals";
+import { useReferenceFrameFailure } from "./use-reference-frame-failure";
 
 function getSingleScreenZoomTransform(
   zoom: number,
@@ -645,6 +659,9 @@ interface DesignCanvasProps {
    */
   sourceType?: "inline" | "localhost" | "fusion";
   bridgeUrl?: string;
+  referenceBridgeUrl?: string;
+  referencePreviewToken?: string;
+  sharedTunnelUrl?: string;
   allowLocalNetworkAccessPrompt?: boolean;
   previewUrlOverride?: string;
   previewUrlSourceKey?: string;
@@ -926,6 +943,15 @@ interface DesignCanvasProps {
     },
   ) => boolean | "pending" | void;
   tweakValues: Record<string, string>;
+  /**
+   * The design's tweaks and the setter the inspector uses. With both, an
+   * Interact frame's on-figure controls can set a tweak scoped to this screen.
+   */
+  tweaks?: readonly TweakDefinition[];
+  onInteractTweakSet?: (
+    tweakId: string,
+    value: string | number | boolean,
+  ) => void;
   drawMode?: boolean;
   onExitDrawMode?: () => void;
   drawOverlayResetSignal?: number;
@@ -1494,6 +1520,9 @@ export function DesignCanvas({
   contentKey,
   sourceType,
   bridgeUrl,
+  referenceBridgeUrl,
+  referencePreviewToken,
+  sharedTunnelUrl,
   allowLocalNetworkAccessPrompt = true,
   previewUrlOverride,
   previewUrlSourceKey,
@@ -1587,6 +1616,8 @@ export function DesignCanvas({
   onVisualGridGroupChange,
   onVisualDuplicateChange,
   tweakValues,
+  tweaks,
+  onInteractTweakSet,
   drawMode,
   onExitDrawMode,
   drawOverlayResetSignal,
@@ -2693,6 +2724,16 @@ export function DesignCanvas({
     iframePreviewUrlRef.current.url = resolvedExternalPreviewUrl;
   }
   const externalPreviewUrl = iframePreviewUrlRef.current.url;
+  const [referenceCopyActive, setReferenceCopyActive] = useState(false);
+  const referenceEligible = Boolean(
+    externalPreviewUrl &&
+    sourceType !== "localhost" &&
+    !usesLiveEditInjectedBridge,
+  );
+  useEffect(() => {
+    setReferenceCopyActive(false);
+  }, [externalPreviewUrl, referenceEligible]);
+
   const { syncFrame: syncNativeShaderApprovals, approvedDefinitionHashes } =
     useNativeShaderApprovals({
       designId,
@@ -3612,6 +3653,34 @@ export function DesignCanvas({
     authoredSourceContent,
   ]);
 
+  const interactTweaksRef = useRef(tweaks);
+  interactTweaksRef.current = tweaks;
+  const interactContentRef = useRef(content);
+  interactContentRef.current = content;
+  const interactTweakCapabilityRef = useRef<string | undefined>(undefined);
+  const onInteractTweakSetRef = useRef(onInteractTweakSet);
+  onInteractTweakSetRef.current = onInteractTweakSet;
+  const acceptsInteractTweakSet =
+    interactMode &&
+    !rawExternalPreviewUrl &&
+    Boolean(screenId) &&
+    Boolean(onInteractTweakSet);
+  useEffect(() => {
+    if (!acceptsInteractTweakSet || !screenId) return;
+    const listener = createInteractTweakSetListener({
+      isInlineDocument: () => !rawExternalPreviewUrl,
+      getFrameWindow: () => iframeRef.current?.contentWindow,
+      getCapability: () => interactTweakCapabilityRef.current,
+      getTweaks: () => interactTweaksRef.current ?? [],
+      screenId,
+      getScreenHtml: () => interactContentRef.current,
+      onTweakSet: (tweakId, value) =>
+        onInteractTweakSetRef.current?.(tweakId, value),
+    });
+    window.addEventListener("message", listener);
+    return () => window.removeEventListener("message", listener);
+  }, [acceptsInteractTweakSet, screenId]);
+
   useEffect(() => {
     if (!interactMode) return;
     setRenderedDocument({
@@ -3653,20 +3722,38 @@ export function DesignCanvas({
   }, [centerInteractPreview, deviceFrame, contentKey, previewWidthPx]);
 
   const designStylesheets = useDesignStylesheets();
+  // Interact bakes only the values current when its document is built; later
+  // knob changes reach its tweaks bridge as the replayed `tweak-values`
+  // message, so they never reload the frame.
+  const latestTweakValuesRef = useRef(tweakValues);
+  latestTweakValuesRef.current = tweakValues;
   const srcdoc = useMemo(() => {
     if (rawExternalPreviewUrl) return undefined;
     // Interact runs the design as authored. Its document carries the theme and
     // links bridges and none of the editor's, so entering or leaving Interact
     // loads a new document rather than asking one to stand down.
     if (interactMode) {
+      const capabilityBytes = new Uint8Array(16);
+      if (typeof crypto.getRandomValues !== "function") {
+        throw new Error(
+          "Secure randomness is required for Interact capability.",
+        );
+      }
+      crypto.getRandomValues(capabilityBytes);
+      const tweakCapability = Array.from(capabilityBytes, (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("");
+      interactTweakCapabilityRef.current = tweakCapability;
       const interactDocument = buildInteractPreviewDocument({
         content: iframeRenderContent,
+        tweakCapability,
         embeddedFrameBackground,
         transparentBackground,
         contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
         heightMode: screenHeightMode,
+        tweakValues: latestTweakValuesRef.current,
       });
       return inlineDesignStylesheets(interactDocument, designStylesheets);
     }
@@ -3740,7 +3827,10 @@ export function DesignCanvas({
       imageDiagBridge;
     let frameDocument: string;
     if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
-      frameDocument = injectDocumentMarkup(frameContent, bridgeToInject);
+      frameDocument = injectDocumentMarkup(
+        injectCanvasContextRecorder(frameContent),
+        bridgeToInject,
+      );
     } else {
       const frameStyle = [
         getEmbeddedFrameBackgroundStyle({
@@ -3752,7 +3842,7 @@ export function DesignCanvas({
           embeddedFrame?.contentOffsetY ?? 0,
         ),
       ].join("");
-      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
+      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}${CANVAS_CONTEXT_RECORDER_SCRIPT}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
     }
     frameDocument = inlineDesignStylesheets(frameDocument, designStylesheets);
     if (isEmbeddedFrame) {
@@ -3886,6 +3976,12 @@ export function DesignCanvas({
   const liveEditBridgeConfigurationPending =
     liveEditFrameRequiresBridge && !usesLiveEditInjectedBridge;
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
+  const { failed: referenceFrameFailed, markFailed: markReferenceFrameFailed } =
+    useReferenceFrameFailure({
+      url: externalPreviewUrl,
+      eligible: referenceEligible,
+      loaded: previewFrameLoaded,
+    });
   const [motionOriginMarkerPosition, setMotionOriginMarkerPosition] = useState<{
     targetNodeId: string;
     x: number;
@@ -5753,31 +5849,12 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "canvas-image-paste") {
-        const raw = Array.isArray(e.data.files) ? e.data.files : [];
-        const MAX_IMAGE_PASTE_FILES = 20;
-        const MAX_DATA_URL_BYTES = 20 * 1024 * 1024;
-        const files = raw
-          .slice(0, MAX_IMAGE_PASTE_FILES)
-          .filter(
-            (
-              f: unknown,
-            ): f is { dataUrl: string; type: string; name: string } => {
-              if (!f || typeof f !== "object") return false;
-              const dataUrl = (f as { dataUrl?: unknown }).dataUrl;
-              if (typeof dataUrl !== "string") return false;
-              if (
-                !dataUrl.startsWith("data:image/") &&
-                !dataUrl.startsWith("data:video/")
-              )
-                return false;
-              if (dataUrl.length > MAX_DATA_URL_BYTES) return false;
-              return true;
-            },
-          );
-        if (files.length > 0) {
+        const { files, skipped } = filterPastedMediaFiles(e.data.files);
+        if (files.length > 0 || hasSkippedImagePaste(skipped)) {
           onImagePaste?.({
             files,
             screenId: boardSurface ? undefined : screenId,
+            skipped,
           });
         }
         return;
@@ -5827,6 +5904,9 @@ export function DesignCanvas({
                       typeof e.data.screenId === "string"
                         ? e.data.screenId
                         : undefined,
+                    ...(isVisualLayerKind(candidate.kind)
+                      ? { kind: candidate.kind }
+                      : {}),
                     info: candidate.info,
                   }))
               : [],
@@ -8508,6 +8588,7 @@ export function DesignCanvas({
             sandbox={previewIframeSandbox}
             allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
             data-design-preview-iframe
+            onError={markReferenceFrameFailed}
             onFocus={(event) => {
               if (
                 sourceType !== "localhost" ||
@@ -8579,10 +8660,35 @@ export function DesignCanvas({
           />
         </>
       )}
+      {referenceEligible && externalPreviewUrl ? (
+        <ExternalReferenceFallback
+          key={externalPreviewUrl}
+          url={externalPreviewUrl}
+          designId={designId}
+          screenId={screenId}
+          bridgeUrl={referenceBridgeUrl}
+          previewToken={referencePreviewToken}
+          snapshotHtml={matchingSharedSnapshot?.html ?? externalSnapshotHtml}
+          failed={referenceFrameFailed}
+          compact={previewFrameLoaded}
+          active={nativePreviewActive}
+          onReferenceChange={setReferenceCopyActive}
+        />
+      ) : null}
+      {snapshotOnly && !sharedTunnelUrl ? (
+        <span className="pointer-events-none absolute bottom-2 end-2 z-30 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
+          {t("designEditor.livePreview.localOnly")}
+        </span>
+      ) : null}
+      {snapshotOnly && sharedTunnelUrl ? (
+        <SharedTunnelPreview url={sharedTunnelUrl} />
+      ) : null}
       {motionOriginProxy}
       {externalPreviewUrl &&
       !appStartingFrame &&
       !previewFrameLoaded &&
+      !referenceCopyActive &&
+      !(referenceEligible && referenceFrameFailed) &&
       !liveEditConnectionFailed ? (
         <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center gap-2 bg-background px-2 text-muted-foreground">
           <Spinner className="size-4 shrink-0" />

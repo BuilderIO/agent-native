@@ -10,6 +10,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { withContentRecoverySaveContext } from "./_content-save-outcomes.js";
+import {
+  assertAgentsMayEditPageText,
+  keepAgentCallProvenance,
+} from "./_document-agent-lock.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 import {
   fencePreviewDocumentDraftGeneration,
@@ -127,6 +131,8 @@ export default defineAction({
       });
     }
     const access = await assertAccess("document", input.documentId, "editor");
+    if (input.choice === "keep_mine")
+      assertAgentsMayEditPageText(access.resource, ctx);
     const ownerEmail = access.resource.ownerEmail as string;
     const args =
       input.choice === "automatic"
@@ -827,7 +833,10 @@ export default defineAction({
             preserveLeadingTitleHeading: true,
             reuseLabels: [],
           },
-          withContentRecoverySaveContext({ ...ctx, caller: "frontend" }),
+          keepAgentCallProvenance(
+            withContentRecoverySaveContext({ ...ctx, caller: "frontend" }),
+            ctx,
+          ),
         );
         if ("conflict" in saved && saved.conflict === true) {
           const [winner] = await db

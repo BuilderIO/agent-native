@@ -4,6 +4,8 @@ import {
   actionErrorMessage,
   callAction,
 } from "@agent-native/core/client/hooks";
+import { useFormatters } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { pinCodeLayerDocuments } from "@shared/code-layer";
 import { extractProps } from "@shared/component-model";
 import { normalizeScreenHtml } from "@shared/screen-annotation";
@@ -21,7 +23,6 @@ import { flushSync } from "react-dom";
 import { useBlocker } from "react-router";
 import { toast } from "sonner";
 
-import type { DesignImportPanelHandle } from "@/components/design/DesignImportPanel";
 import { isTextElement } from "@/components/design/EditPanel";
 import {
   beginEyedropperPick,
@@ -40,6 +41,8 @@ import {
   DESIGN_IMPORT_FORMATS,
   requestImportFile,
 } from "@/lib/design-import-file-picker";
+import type { PreparedFigImport } from "@/lib/fig-client-import";
+import { claimPendingDesignImport } from "@/lib/pending-import";
 
 import {
   collectCodeLayerAncestors,
@@ -47,6 +50,7 @@ import {
   elementInfoFromCodeLayerNode,
 } from "../code-layer-state";
 import { runBooleanSubtractSelection } from "../commands/boolean-subtract-selection";
+import { runImportDesignFile } from "../commands/import-design-file";
 import {
   readLocalVisualEditPendingState,
   runPublishVisualEditPending,
@@ -83,6 +87,7 @@ import { findDesignFileByScreenTarget } from "../screen-command-utils";
 import { nextBoldFontWeight, nextItalicFontStyle } from "../text-style-toggle";
 import { annotationHotkeyHandlers } from "../tool-state";
 import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "../types";
+import { writeVisualEditPublisherSession } from "../visual-edit-publisher-session";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorClipboard } from "./use-editor-clipboard";
@@ -184,9 +189,6 @@ export function useEditorSourceAndSync({
     pendingVisualStyleEditsRef,
     pendingLiveNonStyleEditsRef,
     clearPendingLiveEditState,
-    minimalUi,
-    setMinimalUi,
-    setActiveLeftPanel,
     clearPendingLiveEditStateRef,
     clearReloadedPendingLiveEdits,
     activeLeftPanel,
@@ -281,8 +283,6 @@ export function useEditorSourceAndSync({
     handleDetachInstanceMenuAction,
     handleToggleMinimalUi,
     handleShowAssetsPanel,
-    uiHidden,
-    setUiHidden,
   } = editorContentAndComponents;
   const {
     activeCodeFile,
@@ -315,6 +315,7 @@ export function useEditorSourceAndSync({
     handleUngroupSelection,
     handleCutSelection,
     handleZoomToSelectionFit,
+    showPastedImagesNotice,
   } = editorClipboard;
   const {
     handleAlignSelection,
@@ -352,7 +353,9 @@ export function useEditorSourceAndSync({
     handleSelectAllFrames,
     handleShowLayersPanel,
     handleFindLayers,
-    pendingVisualStylePrompt,
+    pendingApplyPrompt,
+    pendingApplyEditCount,
+    pendingApplyRecords,
     handleCopyAsPng,
   } = editorExportAndHandoff;
   const {
@@ -828,35 +831,71 @@ export function useEditorSourceAndSync({
     clearAutoRetryTimer,
   ]);
   usePendingLiveEditUnloadGuard(hasPendingVisualStyleEdits);
-  const importPanelRef = useRef<DesignImportPanelHandle | null>(null);
   const skipPendingEditNavigationBlockRef = useRef(false);
-  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
-  // The import panel lives in the left sidebar, which is unmounted in minimal
-  // UI, so hand the file over only once that sidebar is back.
-  const importPanelMounted = !hostOwnsChrome && !uiHidden && !minimalUi;
-  useEffect(() => {
-    if (!pendingImportFile || !importPanelMounted) return;
-    importPanelRef.current?.importFile(pendingImportFile);
-    setPendingImportFile(null);
-  }, [pendingImportFile, importPanelMounted]);
+  const formatters = useFormatters();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileUploadStatusRef = useRef(fileUploadStatus);
+  fileUploadStatusRef.current = fileUploadStatus;
+  const importBusyRef = useRef(false);
   // The file input must render outside any dropdown: menus unmount on close,
   // before the file picker reports its change event.
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const startImportFile = useCallback(
-    (file: File) => {
-      setMinimalUi(false);
-      setUiHidden(false);
-      setActiveLeftPanel("import");
-      setPendingImportFile(file);
+    (file: File, prepared?: PreparedFigImport) => {
+      if (!id) return;
+      if (importBusyRef.current) {
+        prepared?.dispose();
+        toast.error(t("designEditor.import.errors.importBusy"));
+        return;
+      }
+      importBusyRef.current = true;
+      void runImportDesignFile({
+        designId: id,
+        file,
+        ...(prepared ? { prepared } : {}),
+        t,
+        formatNumber: (value) => formatters.formatNumber(value),
+        formatList: (items) =>
+          formatters.formatList(items, { type: "unit", style: "short" }),
+        onImported: async (result) => {
+          await queryClient.invalidateQueries({ queryKey: ["action"] });
+          const count = result.unresolvedImageRefCount ?? 0;
+          if (count > 0 && result.files?.length) {
+            showPastedImagesNotice({
+              count,
+              fileIds: result.files.map((f) => f.id),
+            });
+          }
+          void navigate(`/design/${result.designId ?? id}?editorView=overview`);
+        },
+        onRetry: () => startImportFile(file),
+        deps: {
+          isUploadStorageConfigured: async () => {
+            const current = fileUploadStatusRef.current;
+            const status = current.isSuccess
+              ? current
+              : await current.refetch();
+            return status.isSuccess && status.data.configured === true;
+          },
+        },
+      }).finally(() => {
+        importBusyRef.current = false;
+      });
     },
-    [setActiveLeftPanel, setMinimalUi, setUiHidden],
+    [formatters, id, navigate, queryClient, showPastedImagesNotice, t],
   );
+  // A .fig picked on the home page arrives with the new design.
+  useEffect(() => {
+    if (!canEditDesign || !id) return;
+    const pending = claimPendingDesignImport(id);
+    if (pending) startImportFile(pending.file, pending.prepared);
+  }, [canEditDesign, id, startImportFile]);
   const openImportFilePicker = useCallback(() => {
     requestImportFile({
       formats: DESIGN_IMPORT_FORMATS,
       allSupportedLabel: t("designEditor.import.allSupportedFiles"),
       openFallbackInput: () => importFileInputRef.current?.click(),
-      onFile: startImportFile,
+      onFile: (file) => startImportFile(file),
       onError: (error) =>
         toast.error(t("designEditor.import.errors.uploadFailed"), {
           description:
@@ -911,17 +950,17 @@ export function useEditorSourceAndSync({
     "get-visual-edit-pending",
     { designId: id! },
     {
-      enabled: Boolean(id) && canEditDesign && pendingVisualEditCount > 0,
+      enabled: Boolean(id) && canEditDesign && pendingApplyEditCount > 0,
       refetchInterval:
-        canEditDesign && pendingVisualEditCount > 0 ? 10_000 : false,
+        canEditDesign && pendingApplyEditCount > 0 ? 10_000 : false,
       refetchIntervalInBackground: false,
     },
   );
   useEffect(() => {
     if (!id) return;
-    if (pendingVisualEditCount > 0) {
+    if (pendingApplyEditCount > 0) {
       pendingEditSessionDesignIdRef.current = id;
-      const result = writePendingEditSessionMarker(id, pendingVisualEditCount);
+      const result = writePendingEditSessionMarker(id, pendingApplyEditCount);
       setPendingEditSessionMarker(
         result.status === "stored"
           ? { status: "absent" }
@@ -936,7 +975,7 @@ export function useEditorSourceAndSync({
         setPendingEditSessionMarker(result);
       }
     }
-  }, [id, pendingVisualEditCount]);
+  }, [id, pendingApplyEditCount]);
   useEffect(() => {
     if (!hasLocalPendingVisualEdits && !remoteVisualEditPending) {
       setPendingVisualEditRecoveryVisible(false);
@@ -956,28 +995,32 @@ export function useEditorSourceAndSync({
     if (
       !shouldPublishVisualEditHandoff({
         designId: id,
-        pendingEditCount: pendingVisualEditCount,
+        pendingEditCount: pendingApplyEditCount,
         clearRequestedDesignId: pendingVisualEditClearRequestedRef.current,
         hadPendingDesignId: pendingVisualEditHadPendingRef.current,
       })
     ) {
       return;
     }
-    const pendingEditCount = pendingVisualEditCount;
-    const pendingPrompt = pendingVisualStylePrompt;
+    const pendingEditCount = pendingApplyEditCount;
+    const pendingPrompt = pendingApplyPrompt;
     const bridgeRevisionSyncKey =
       activeScreenBridgeUrl &&
       activeScreenPreviewToken &&
       activeScreenLiveEditCapability
         ? `${id}\u0000${activeScreenBridgeUrl}`
         : null;
-    if (pendingVisualEditCount > 0) {
+    if (pendingApplyEditCount > 0) {
       pendingVisualEditClearRequestedRef.current = null;
       pendingVisualEditHadPendingRef.current = id;
     }
     const publish = async () => {
       const revision = pendingVisualEditPublicationRevisionRef.current + 1;
       pendingVisualEditPublicationRevisionRef.current = revision;
+      writeVisualEditPublisherSession(id, {
+        publisherId: pendingVisualEditPublisherIdRef.current,
+        revision,
+      });
       const pending =
         pendingEditCount > 0
           ? {
@@ -989,6 +1032,7 @@ export function useEditorSourceAndSync({
                 pendingEditCount,
                 status: "ready" as const,
                 prompt: pendingPrompt,
+                records: pendingApplyRecords,
               },
             }
           : {
@@ -1035,6 +1079,10 @@ export function useEditorSourceAndSync({
                   pendingVisualEditPublicationRevisionRef.current,
                   localRevision,
                 );
+                writeVisualEditPublisherSession(id, {
+                  publisherId: pendingVisualEditPublisherIdRef.current,
+                  revision: pendingVisualEditPublicationRevisionRef.current,
+                });
                 pendingVisualEditBridgeRevisionSyncKeyRef.current =
                   bridgeRevisionSyncKey;
                 return localRevision;
@@ -1110,6 +1158,16 @@ export function useEditorSourceAndSync({
             { id: "design-visual-edit-pending-publication" },
           );
         },
+        onSupersededSuggestion: ({ authorEmail, text }) => {
+          toast.info(
+            t("designEditor.toasts.supersededVisualEditSuggestion", {
+              authorEmail:
+                authorEmail ?? t("designEditor.toasts.unknownCollaborator"),
+              text,
+            }),
+            { id: "design-visual-edit-pending-publication" },
+          );
+        },
       });
     };
     pendingVisualEditPublicationQueueRef.current =
@@ -1130,8 +1188,9 @@ export function useEditorSourceAndSync({
     canEditDesign,
     clearReloadedPendingLiveEdits,
     id,
-    pendingVisualEditCount,
-    pendingVisualStylePrompt,
+    pendingApplyEditCount,
+    pendingApplyPrompt,
+    pendingApplyRecords,
     t,
   ]);
   useEffect(() => {
@@ -1145,7 +1204,9 @@ export function useEditorSourceAndSync({
     }
     const localPendingCount =
       pendingVisualStyleEditsRef.current.length +
-      pendingLiveNonStyleEditsRef.current.length;
+      pendingLiveNonStyleEditsRef.current.length +
+      editorExportAndHandoff.pendingApplyEditCount -
+      pendingVisualEditCount;
     const handoffPublication = pendingVisualEditHandoffPublicationRef.current;
     const serverRevision =
       handoffPublication?.designId === id &&
@@ -1182,6 +1243,8 @@ export function useEditorSourceAndSync({
     pendingVisualEditHandoffQuery.data,
     pendingVisualEditHandoffServerRevision,
     pendingVisualStyleEdits,
+    editorExportAndHandoff.pendingApplyEditCount,
+    pendingVisualEditCount,
   ]);
 
   useEffect(() => {
@@ -1883,7 +1946,6 @@ export function useEditorSourceAndSync({
     handleDrawTool,
     handleBooleanSubtractSelection,
     pendingVisualStyleNavigationBlocker,
-    importPanelRef,
     importFileInputRef,
     openImportFilePicker,
     handleImportFileChange,

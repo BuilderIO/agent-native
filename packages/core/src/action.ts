@@ -189,6 +189,8 @@ export function resolveToolMaxResultChars(
 
 export interface ActionRunContext {
   send?: (event: AgentChatEvent) => void;
+  /** Request a clean empty final after this invocation succeeds. Available only to agent tool calls; does not stop the model or override errors, receipts, or later instructions. */
+  settle?: () => void;
   /**
    * Result cap the agent loop enforces on this call, from
    * `resolveToolMaxResultChars`. Absent outside the agent loop.
@@ -236,6 +238,17 @@ export interface ActionRunContext {
   /** Marks calls made after a private action in this agent turn. */
   omitFromPersistedHistory?: true;
   /**
+   * Present only for a private tool on a server run with a protected model
+   * dispatch boundary. Register read-only scope checks before reading private
+   * content. Every check must return true before any later model request;
+   * false, rejection, or a thrown value prevents dispatch for the run.
+   * Returns false if this run has already refused a scope check.
+   * Capture identifiers only; callbacks are ephemeral and never persisted.
+   */
+  registerModelInputGuard?: (
+    guard: () => boolean | Promise<boolean>,
+  ) => boolean;
+  /**
    * The approval the agent loop ran this call under, for approval gates to
    * check. Audit rows read approval from the invocation's execution frame,
    * so a child given this context records none.
@@ -243,10 +256,16 @@ export interface ActionRunContext {
   approvedToolCallKey?: string;
   /**
    * The client behind a `caller: "mcp"` call. `name` and `version` are its
-   * self-reported `clientInfo`. `oauthClientId` is the OAuth client its
-   * credential was issued to.
+   * self-reported `clientInfo`, and `userAgent` its self-reported HTTP
+   * User-Agent. `oauthClientId` is the OAuth client its credential was issued
+   * to.
    */
-  mcpClient?: { name?: string; version?: string; oauthClientId?: string };
+  mcpClient?: {
+    name?: string;
+    version?: string;
+    userAgent?: string;
+    oauthClientId?: string;
+  };
 }
 
 export type ActionAuthorize<TArgs> = (
@@ -1087,11 +1106,13 @@ interface DefineActionWithSchema<
    *  characters. */
   searchHints?: readonly string[];
   eagerInputStreaming?: boolean;
-  /** An empty list on this action sets an option and erases nothing saved, so
-   *  a call that pads unused fields with `null` and `[]` can run as sent. Leave
-   *  this off for any action that stores a list: there, `[]` beside a padded
-   *  `null` might be a real clear or padding, so the call is refused rather
-   *  than guessed at. */
+  /** An empty list on this action erases nothing saved, so a call that pads
+   *  unused fields with `null` and `[]` can run as sent. The action must then
+   *  read every `[]` as if the field were left out: a padding model sends it
+   *  for each list it isn't using, so `[]` can't also mean "none" (give that
+   *  its own `true`-only switch). Leave this off for any action that stores a
+   *  list: there, `[]` beside a padded `null` might be a real clear or
+   *  padding, so the call is refused rather than guessed at. */
   emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
@@ -1159,6 +1180,16 @@ interface DefineActionWithSchema<
         args: StandardSchemaV1.InferOutput<TSchema>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * The question the approval card asks for this call, such as "Make 5
+   * recordings public?". Read only when `needsApproval` asks, and kept
+   * synchronous so wording can't hold up the approval. Without it, or when it
+   * throws, the card asks a generic question.
+   */
+  approvalLabel?: (
+    args: StandardSchemaV1.InferOutput<TSchema>,
+    ctx?: ActionRunContext,
+  ) => string;
   allowPersistentApproval?: boolean;
   /**
    * Authorization gate that runs before `run()` on **every** caller — agent
@@ -1257,6 +1288,16 @@ interface DefineActionWithParams<
         args: InferParams<TParams>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * The question the approval card asks for this call, such as "Make 5
+   * recordings public?". Read only when `needsApproval` asks, and kept
+   * synchronous so wording can't hold up the approval. Without it, or when it
+   * throws, the card asks a generic question.
+   */
+  approvalLabel?: (
+    args: InferParams<TParams>,
+    ctx?: ActionRunContext,
+  ) => string;
   allowPersistentApproval?: boolean;
   authorize?: ActionAuthorize<InferParams<TParams>>;
   access?: ActionAccessConfig;
@@ -1316,6 +1357,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly needsApproval?:
     | boolean
     | ((args: TInput, ctx?: ActionRunContext) => boolean | Promise<boolean>);
+  readonly approvalLabel?: (args: TInput, ctx?: ActionRunContext) => string;
   readonly allowPersistentApproval?: boolean;
   readonly audit?: ActionAuditConfig;
   readonly access?: ActionAccessConfig;
@@ -1649,7 +1691,12 @@ export function defineAction(options: any) {
     }
   };
   const run = hasSchema
-    ? wrapWithValidation(options.schema, classifiedRun, convertedParameters)
+    ? wrapWithValidation(
+        options.schema,
+        classifiedRun,
+        convertedParameters,
+        options.persistInChatHistory === false,
+      )
     : classifiedRun;
 
   const uiOnly: boolean | undefined =
@@ -1867,6 +1914,9 @@ export function defineAction(options: any) {
     ...(typeof options.needsApproval === "boolean" ||
     typeof options.needsApproval === "function"
       ? { needsApproval: options.needsApproval }
+      : {}),
+    ...(typeof options.approvalLabel === "function"
+      ? { approvalLabel: options.approvalLabel }
       : {}),
     ...(typeof options.allowPersistentApproval === "boolean"
       ? { allowPersistentApproval: options.allowPersistentApproval }
@@ -2609,6 +2659,15 @@ export class ActionInputValidationError extends Error {
   }
 }
 
+function inputValidationFailure(
+  error: unknown,
+  privateAction: boolean,
+): unknown {
+  return privateAction && error instanceof ActionInputValidationError
+    ? new ActionInputValidationError("Invalid action parameters", error.paths)
+    : error;
+}
+
 const inputIssueSchemas = new WeakMap<object, JsonSchemaObject | undefined>();
 
 /** Converted once, and only once an input is rejected: a rejection is the only reader. */
@@ -2909,6 +2968,7 @@ export async function actionCallIntent(
     tool?: { parameters?: ActionTool["parameters"] };
     readOnly?: boolean;
     planMode?: ActionPlanModeConfig<any>;
+    persistInChatHistory?: boolean;
   },
   input: unknown,
 ): Promise<ActionCallIntent> {
@@ -2938,7 +2998,13 @@ export async function actionCallIntent(
     // instance) are refused: a gate could not be sure it read what runs.
     snapshot = snapshotActionArguments(args);
   } catch (error) {
-    return { valid: false, error };
+    return {
+      valid: false,
+      error: inputValidationFailure(
+        error,
+        entry.persistInChatHistory === false,
+      ),
+    };
   }
   const intent = {
     valid: true,
@@ -2994,6 +3060,33 @@ export async function preparedCallNeedsApproval(
 }
 
 /**
+ * The question the approval card asks for `call`, by the action's
+ * `approvalLabel`. A label that fails leaves the card's generic question, so
+ * wording can never stop the approval from being asked.
+ */
+export function preparedCallApprovalLabel(
+  entry: {
+    // A method, so an action's label typed for its own arguments still fits.
+    approvalLabel?(args: unknown, ctx?: ActionRunContext): string;
+  },
+  call: PreparedActionCall,
+  ctx: ActionRunContext,
+): string | undefined {
+  if (!entry.approvalLabel) return undefined;
+  try {
+    const label: unknown = entry.approvalLabel(
+      preparedCallArguments(call),
+      ctx,
+    );
+    // coercion-ok: anything but text, a promise included, keeps the generic question.
+    return typeof label === "string" ? label.trim() || undefined : undefined;
+  } catch {
+    // coercion-ok: the approval still runs, with the generic question.
+    return undefined;
+  }
+}
+
+/**
  * @internal Executes a prepared call: `entry.run` receives its own copy of the
  * prepared arguments, which the action's input validation and classification
  * take as prepared instead of repeating. With `outcome`, the run is observed
@@ -3041,10 +3134,17 @@ function wrapWithValidation(
   schema: StandardSchemaV1,
   run: Function,
   toolParameters: () => ActionTool["parameters"],
+  privateAction: boolean,
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
     if (preparedRunFor(ctx, args)?.schema === schema) return run(args, ctx);
-    return run(await validateActionArgs(schema, args, toolParameters()), ctx);
+    let validated: unknown;
+    try {
+      validated = await validateActionArgs(schema, args, toolParameters());
+    } catch (error) {
+      throw inputValidationFailure(error, privateAction);
+    }
+    return run(validated, ctx);
   };
 }
 

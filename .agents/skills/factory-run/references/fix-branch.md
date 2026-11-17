@@ -81,7 +81,7 @@ reported failure, or change anything beyond fixing it.
    PROOF: <the fix-proof line, "visual: <before> <after>", or "fix-proof: test-only">
    ROOT CAUSE: confirmed | likely | unconfirmed - <one sentence, naming the evidence or what you couldn't check>
    CHANGE: <one plain sentence about what the reporter will notice>
-   CONFIDENCE: root-cause <0-100> - <rubric rows> | fix <0-100> - <rubric rows>
+   CONFIDENCE: root-cause <0-100> [<signal ids>] - <why> | fix <0-100> [<signal ids>] - <why>
    DESIGN: none | <one question for a designer, with the options and your pick>
    ```
 
@@ -91,7 +91,7 @@ reported failure, or change anything beyond fixing it.
    OUTCOME: could-not-reproduce | already-fixed <sha or PR url> | blocked | not-code
    ROOT CAUSE: <as above>
    WHY: <one sentence>
-   CONFIDENCE: root-cause <0-100> - <rubric rows>
+   CONFIDENCE: root-cause <0-100> [<signal ids>] - <why>
    DESIGN: none | <as above>
    ```
 

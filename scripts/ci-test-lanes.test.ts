@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
@@ -6,6 +10,7 @@ import {
   catalogContractCoreSpecs,
   partitionTargetedWeighted,
   partitionWeighted,
+  readChangedPaths,
   requiresFullCoreFastTests,
   splitLargePackages,
   toolSearchBenchmarkCoreSpecs,
@@ -277,4 +282,64 @@ test("refuses lanes that skip, repeat, or also run a sharded package whole", () 
     ],
     expected,
   );
+});
+
+test("reads changed paths in a blobless clone without fetching blobs", () => {
+  const root = mkdtempSync(join(tmpdir(), "ci-test-lanes-blobless-"));
+  const sourcePath = join(root, "source");
+  const clonePath = join(root, "clone");
+  const git = (cwd: string, ...args: string[]) => {
+    const result = spawnSync("git", ["-C", cwd, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    assert.equal(
+      result.status,
+      0,
+      `git ${args.join(" ")} failed: ${result.stderr}`,
+    );
+    return result.stdout.trim();
+  };
+
+  try {
+    mkdirSync(sourcePath);
+    git(sourcePath, "init", "--quiet");
+    git(sourcePath, "config", "user.name", "CI Test Lanes Test");
+    git(sourcePath, "config", "user.email", "ci-test-lanes@example.invalid");
+    const body = Array.from({ length: 40 }, (_, line) => `line ${line}\n`);
+    writeFileSync(join(sourcePath, "old.ts"), body.join(""));
+    git(sourcePath, "add", "--all");
+    git(sourcePath, "commit", "--quiet", "-m", "base");
+    const baseSha = git(sourcePath, "rev-parse", "HEAD");
+    rmSync(join(sourcePath, "old.ts"));
+    writeFileSync(join(sourcePath, "new.ts"), [...body, "edited\n"].join(""));
+    git(sourcePath, "add", "--all");
+    git(sourcePath, "commit", "--quiet", "-m", "head");
+
+    git(
+      root,
+      "clone",
+      "--quiet",
+      "--filter=blob:none",
+      "--no-checkout",
+      "--upload-pack",
+      "git -c uploadpack.allowFilter=true upload-pack",
+      `file://${sourcePath}`,
+      clonePath,
+    );
+    git(
+      clonePath,
+      "remote",
+      "set-url",
+      "origin",
+      "https://invalid.example/none.git",
+    );
+
+    assert.deepEqual(readChangedPaths(baseSha, clonePath).sort(), [
+      "new.ts",
+      "old.ts",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

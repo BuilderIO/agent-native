@@ -1237,6 +1237,41 @@ describe("useDbSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it("refetches mounted queries and restarts from the current watermark after a resync response", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    let calls = 0;
+    const urls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      calls++;
+      return calls === 1
+        ? new Response(
+            JSON.stringify({ error: "SYNC_EVENT_READ_UNAVAILABLE" }),
+            { status: 409 },
+          )
+        : new Response(JSON.stringify({ version: 20, events: [] }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<SyncProbe queryClient={queryClient} />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(queryClient.calls).toContain(undefined);
+    expect(urls[1]).toContain("since=0");
+  });
+
   it("polls at 60s while idle and switches immediately to 2s for an active agent run", async () => {
     vi.useFakeTimers();
     const queryClient = new QueryClientProbe();

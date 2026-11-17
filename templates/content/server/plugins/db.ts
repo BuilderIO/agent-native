@@ -4,6 +4,98 @@ import { searchIndexMigration } from "@agent-native/core/search";
 import { documentSearchIndex } from "../db/index.js";
 import { scheduleStartupMaintenance } from "../lib/startup-maintenance.js";
 
+/**
+ * The current time in the shape Content writes it, `new Date().toISOString()`
+ * (2026-11-11T21:52:00.123Z). Every text time column defaults to this. Postgres
+ * renders CURRENT_TIMESTAMP as text like 2026-11-11 21:52:00.123456+00, which
+ * sorts before every ISO time from the same day, so a row the database stamped
+ * itself would fall out of "recently edited" order.
+ */
+export const CONTENT_ISO_NOW_SQL = `to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+
+/** Columns whose default was CURRENT_TIMESTAMP before v138. */
+const DATABASE_STAMPED_TIMES: Record<string, readonly string[]> = {
+  documents: ["created_at", "updated_at"],
+  document_sync_links: ["created_at", "updated_at"],
+  document_versions: ["created_at"],
+  document_comments: ["created_at", "updated_at"],
+  document_shares: ["created_at"],
+  document_property_definitions: ["created_at", "updated_at"],
+  document_property_values: ["created_at", "updated_at"],
+  content_databases: ["created_at", "updated_at"],
+  content_database_items: ["created_at", "updated_at"],
+  content_database_sources: ["created_at", "updated_at"],
+  content_database_source_fields: ["created_at", "updated_at"],
+  content_database_source_rows: ["created_at", "updated_at"],
+  content_database_source_change_sets: ["created_at", "updated_at"],
+  content_database_source_change_reviews: ["created_at"],
+  content_database_source_executions: ["created_at", "updated_at"],
+  document_block_field_contents: ["created_at", "updated_at"],
+  builder_doc_sidecars: ["created_at", "updated_at"],
+  content_database_body_hydration_queue: ["created_at", "updated_at"],
+  document_preview_drafts: ["created_at", "updated_at"],
+  content_database_source_execution_claims: ["created_at"],
+  content_spaces: ["created_at", "updated_at"],
+  content_space_catalog_items: ["created_at", "updated_at"],
+  content_database_item_key_claims: ["created_at", "updated_at"],
+  content_database_migration_receipts: ["created_at", "updated_at"],
+  document_block_fields: ["created_at", "updated_at"],
+  document_blocks: ["created_at", "updated_at"],
+  content_database_row_mutation_receipts: ["created_at", "updated_at"],
+  document_edit_receipts: ["created_at"],
+  content_database_setup_receipts: ["created_at"],
+  comment_ai_requests: ["created_at", "updated_at"],
+  content_trash_purge_plans: ["created_at", "updated_at"],
+  content_trash_purge_plan_items: ["created_at"],
+  content_trash_purge_operations: ["created_at", "updated_at"],
+  document_preview_draft_settlements: ["updated_at"],
+  document_browser_save_attempts: ["created_at"],
+  document_body_intents: ["created_at"],
+  comment_ai_attempts: ["created_at", "updated_at"],
+  document_comment_reactions: ["created_at"],
+  content_private_icon_references: ["created_at"],
+  document_imports: ["created_at"],
+  content_database_builder_blob_cleanup: ["created_at"],
+  document_body_steps: ["created_at"],
+  content_webhooks: ["created_at", "updated_at"],
+  content_webhook_deliveries: ["created_at", "updated_at"],
+  content_private_media_references: ["created_at"],
+};
+
+/** A time Postgres wrote as text: date, space, time, optional fraction, offset. */
+const POSTGRES_TIME_TEXT = `'^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?[+-][0-9]{2}(:?[0-9]{2})?$'`;
+
+/**
+ * Switches each column's default to CONTENT_ISO_NOW_SQL and rewrites values
+ * the old default wrote in the same shape, one scan per table. A value that
+ * already matches the app's shape, or any other text, is left alone.
+ */
+export function isoTimeDefaultsSql(
+  columnsByTable: Record<string, readonly string[]>,
+): string {
+  const toIso = (column: string) =>
+    `to_char(${column}::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+  // raw-sql-ok: migration DDL; table and column names come from the constant list above, never from input.
+  return Object.entries(columnsByTable)
+    .flatMap(([table, columns]) => [
+      `ALTER TABLE ${table} ${columns
+        .map(
+          (column) =>
+            `ALTER COLUMN ${column} SET DEFAULT ${CONTENT_ISO_NOW_SQL}`,
+        )
+        .join(", ")}`,
+      `UPDATE ${table} SET ${columns
+        .map(
+          (column) =>
+            `${column} = CASE WHEN ${column} ~ ${POSTGRES_TIME_TEXT} THEN ${toIso(column)} ELSE ${column} END`,
+        )
+        .join(", ")} WHERE ${columns
+        .map((column) => `${column} ~ ${POSTGRES_TIME_TEXT}`)
+        .join(" OR ")}`,
+    ])
+    .join(";\n");
+}
+
 // Convention: every new migration below MUST set a unique `name:` slug (see
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
@@ -1670,6 +1762,25 @@ export const runContentMigrations = runMigrations(
         ON content_private_media_references (document_id, media_id);
       CREATE INDEX IF NOT EXISTS content_private_media_reference_media_idx
         ON content_private_media_references (media_id)`,
+    },
+    {
+      version: 136,
+      name: "content-document-agent-text-locked",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS agent_text_locked INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      version: 137,
+      name: "content-comment-author-client",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS author_client TEXT`,
+    },
+    {
+      version: 138,
+      name: "content-iso-time-defaults",
+      // Times the database stamps itself take the app's ISO shape, and the
+      // ones the old CURRENT_TIMESTAMP default already wrote are rewritten.
+      // New time columns default to CONTENT_ISO_NOW_SQL
+      // (iso-time-defaults.db.test.ts checks every column).
+      sql: isoTimeDefaultsSql(DATABASE_STAMPED_TIMES),
     },
   ],
   { table: "content_migrations" },

@@ -150,3 +150,130 @@ describe("visual-edit pending revision migration", () => {
     ).resolves.toMatchObject({ revision: 1750000000000 });
   });
 });
+
+describe("visual-edit handoff records", () => {
+  const tweakRecord = (key: string, value: string | number) => ({
+    kind: "tweak" as const,
+    key,
+    value,
+    prompt: `- ${key}: ${JSON.stringify(value)}`,
+  });
+
+  async function publish(
+    designId: string,
+    revision: number,
+    records: ReturnType<typeof tweakRecord>[],
+    publisher = publisherId,
+  ) {
+    return publishPendingAction.run(
+      {
+        designId,
+        publisherId: publisher,
+        revision,
+        pending: {
+          designId,
+          pendingEditCount: records.length,
+          status: "ready",
+          prompt: records.map((record) => record.prompt).join("\n"),
+          records,
+        },
+      },
+      { caller: "frontend", requestHeaders: new Headers() },
+    );
+  }
+
+  async function seedDesign(designId: string, baseline: object) {
+    await getDbExec().execute({
+      sql: `INSERT INTO designs (id, title, data, owner_email, visibility)
+            VALUES ($1, 'Handoff', $2, 'owner@example.com', 'private')`,
+      args: [designId, JSON.stringify({ tweakSourceBaseline: baseline })],
+    });
+  }
+
+  async function readBaseline(designId: string) {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT data FROM designs WHERE id = $1`,
+      args: [designId],
+    });
+    return JSON.parse(String(rows[0]?.data)).tweakSourceBaseline;
+  }
+
+  it("advances only tweaks recorded in the acknowledged revision with the same value", async () => {
+    const designId = "design_ack_records";
+    await seedDesign(designId, { speed: 1 });
+    const published = await publish(designId, 1, [
+      tweakRecord("speed", 3),
+      tweakRecord("gap", 8),
+    ]);
+
+    await expect(
+      acknowledgePendingAction.run({
+        designId,
+        revision: published.revision ?? 0,
+        appliedTweaks: [
+          { id: "speed", value: 3 },
+          { id: "gap", value: 12 },
+          { id: "color", value: "red" },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      status: "empty",
+      tweakAcknowledgedCount: 1,
+      notAcknowledgedTweaks: [
+        { id: "gap", value: 12 },
+        { id: "color", value: "red" },
+      ],
+    });
+    expect(await readBaseline(designId)).toEqual({ speed: 3 });
+  });
+
+  it("acknowledges no tweak against a stale revision", async () => {
+    const designId = "design_ack_stale";
+    await seedDesign(designId, {});
+    const first = await publish(designId, 1, [tweakRecord("speed", 3)]);
+    await publish(designId, 2, [tweakRecord("speed", 4)]);
+
+    await expect(
+      acknowledgePendingAction.run({
+        designId,
+        revision: first.revision ?? 0,
+        appliedTweaks: [{ id: "speed", value: 3 }],
+      }),
+    ).resolves.toMatchObject({
+      status: "stale",
+      tweakAcknowledgedCount: 0,
+      notAcknowledgedTweaks: [{ id: "speed", value: 3 }],
+    });
+    expect(await readBaseline(designId)).toEqual({});
+  });
+
+  it("returns each published record so a later handoff can recompose it", async () => {
+    const designId = "design_records_roundtrip";
+    const records = [tweakRecord("speed", 3)];
+    await publish(designId, 1, records);
+
+    await expect(getPendingAction.run({ designId })).resolves.toMatchObject({
+      status: "ready",
+      records,
+    });
+  });
+
+  it("lets the same publisher session replace its own waiting handoff but refuses another publisher", async () => {
+    const designId = "design_same_publisher";
+    await publish(designId, 1, [tweakRecord("speed", 3)]);
+    await expect(
+      publish(designId, 2, [tweakRecord("speed", 4)]),
+    ).resolves.toMatchObject({ status: "ready", revision: 2 });
+    await expect(
+      publish(
+        designId,
+        1,
+        [tweakRecord("speed", 5)],
+        "22222222-2222-4222-8222-222222222222",
+      ),
+    ).rejects.toThrow(/Another collaborator/);
+    await expect(getPendingAction.run({ designId })).resolves.toMatchObject({
+      records: [tweakRecord("speed", 4)],
+    });
+  });
+});

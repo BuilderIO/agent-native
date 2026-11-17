@@ -86,6 +86,12 @@ const SUPPORTED_MODELS: &[WhisperModel] =
 static DOWNLOADING: AtomicBool = AtomicBool::new(false);
 static DOWNLOADED_BYTES: AtomicU64 = AtomicU64::new(0);
 
+/// A meeting that transcribes with Whisper waits for this download to finish
+/// before it starts.
+pub(crate) fn download_in_progress() -> bool {
+    DOWNLOADING.load(Ordering::SeqCst)
+}
+
 pub(crate) fn custom_model_override() -> bool {
     std::env::var("CLIPS_WHISPER_MODEL")
         .map(|v| !v.trim().is_empty())

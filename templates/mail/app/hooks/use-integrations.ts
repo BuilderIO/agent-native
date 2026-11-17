@@ -4,6 +4,7 @@ import {
   deleteClientAppState,
   writeClientAppState,
 } from "@agent-native/core/client/hooks";
+import { surfaceMutationError } from "@agent-native/core/client/write-failure";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -102,6 +103,7 @@ function useIntegrationDisconnect(provider: MailIntegrationProvider) {
       });
       void qc.invalidateQueries({ queryKey: ["integration-data", provider] });
     },
+    meta: surfaceMutationError(),
   });
 }
 

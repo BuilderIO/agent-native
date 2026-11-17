@@ -290,6 +290,13 @@ function readCoreFastTestFiles(since?: string): string[] {
     cwd: ROOT,
     encoding: "utf8",
     shell: pnpm.shell,
+    // CI's blobless checkout cannot fetch the blobs that vitest --changed's rename detection reads.
+    env: {
+      ...process.env,
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "diff.renames",
+      GIT_CONFIG_VALUE_0: "false",
+    },
   });
   let result: unknown;
   try {
@@ -331,11 +338,14 @@ function readCoreFastTestFiles(since?: string): string[] {
   ];
 }
 
-function readChangedPaths(baseSha: string): string[] {
+export function readChangedPaths(
+  baseSha: string,
+  cwd = process.cwd(),
+): string[] {
   const output = execFileSync(
     "git",
-    ["diff", "--name-only", "-z", `${baseSha}...HEAD`],
-    { encoding: "utf8" },
+    ["diff", "--name-only", "--find-renames=100%", "-z", `${baseSha}...HEAD`],
+    { encoding: "utf8", cwd },
   );
   return output.split("\0").filter(Boolean);
 }

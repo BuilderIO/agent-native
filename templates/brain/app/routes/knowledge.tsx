@@ -102,7 +102,7 @@ export default function KnowledgeRoute() {
   const previewCanonical = useActionMutation<
     { preview: CanonicalPreviewData },
     { knowledgeId: string; operation: "publish" | "unpublish" }
-  >("preview-canonical-resource" as any);
+  >("preview-canonical-resource", { errorNotification: "caller" });
 
   const actionRows =
     knowledgeQuery.data?.rows ?? knowledgeQuery.data?.knowledge;

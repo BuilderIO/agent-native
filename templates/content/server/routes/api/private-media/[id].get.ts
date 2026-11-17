@@ -4,20 +4,26 @@ import {
   ownsPrivateMedia,
   PRIVATE_MEDIA_SVG_CSP,
 } from "@agent-native/core/private-media";
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import {
+  AGENT_ACCESS_PARAM,
+  getSession,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import {
   createError,
   defineEventHandler,
+  getQuery,
   sendRedirect,
   setResponseHeader,
 } from "h3";
 
+import { agentLinkOpensPrivateMedia } from "../../../lib/private-media-agent-links.js";
 import { canReadPrivateMediaThroughDocument } from "../../../lib/private-media-references.js";
 
 /**
  * Serves a private image to someone who can view a live page that carries it,
- * or to its uploader. Every refusal is the same 404, so the route never says
- * whether an image exists.
+ * to its uploader, or to anyone holding an unexpired agent link to it. Every
+ * refusal is the same 404, so the route never says whether an image exists.
  */
 const RESPONSE_HEADERS = {
   "Cache-Control": "private, no-store",
@@ -44,7 +50,9 @@ export default defineEventHandler(async (event) => {
       ...(session?.orgId ? { orgId: session.orgId } : {}),
     },
     async () => {
+      const token = getQuery(event)[AGENT_ACCESS_PARAM];
       const readable =
+        (typeof token === "string" && agentLinkOpensPrivateMedia(token, id)) ||
         (await canReadPrivateMediaThroughDocument(id)) ||
         (await ownsPrivateMedia(id, session?.email));
       if (!readable) throw notFound();

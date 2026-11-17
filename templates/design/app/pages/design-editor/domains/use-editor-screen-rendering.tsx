@@ -2,6 +2,7 @@ import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import { isBoardFile } from "@shared/board-file";
 import type { MotionPrototypeTransitionDecodeResult } from "@shared/motion-prototype-transition";
 import { isRunningAppSourceType } from "@shared/source-mode";
+import { visualEditPreviewForViewer } from "@shared/visual-edit-preview";
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 
@@ -210,6 +211,9 @@ export function useEditorScreenRendering({
   const {
     navigate,
     cssVarValues,
+    tweakMutationsEnabled,
+    tweaks,
+    handleTweakChange,
     files,
     codeLayerSourceForScreen,
     liveScreenSnapshotsById,
@@ -938,6 +942,30 @@ export function useEditorScreenRendering({
           publicVisualEdit={!screenSnapshotOnly && publicVisualEdit}
           externalSnapshotHtml={screenSnapshotOnly ? undefined : screenSnapshot}
           snapshotOnly={screenSnapshotOnly}
+          sharedTunnelUrl={
+            screenSnapshotOnly && liveCollaborationEnabled
+              ? visualEditPreviewForViewer({
+                  localUrl: screen.url ?? screen.previewUrl,
+                  tunnelUrl: screen.tunnelUrl,
+                  isOwner: false,
+                })
+              : undefined
+          }
+          referenceBridgeUrl={
+            !isLiveCanvasShareLink
+              ? Object.values(
+                  localhostPreviewTokenQuery.data?.connections ?? {},
+                ).find((item) => item.bridgeUrl && item.previewToken)?.bridgeUrl
+              : undefined
+          }
+          referencePreviewToken={
+            !isLiveCanvasShareLink
+              ? Object.values(
+                  localhostPreviewTokenQuery.data?.connections ?? {},
+                ).find((item) => item.bridgeUrl && item.previewToken)
+                  ?.previewToken
+              : undefined
+          }
           blockPreviewInteraction={
             remoteVisualEditPending &&
             (mode === "interact" || overviewInteractScreenId === screen.id)
@@ -1158,6 +1186,12 @@ export function useEditorScreenRendering({
             handleScreenElementDblClickText(screen.id, info)
           }
           tweakValues={cssVarValues}
+          tweaks={tweaks}
+          onInteractTweakSet={
+            canEditDesign && tweakMutationsEnabled
+              ? handleTweakChange
+              : undefined
+          }
           drawMode={false}
           pinMode={screenIsActive && pinMode}
           commentPinsHidden={commentPinsHidden || !screenIsActive}
@@ -1288,6 +1322,8 @@ export function useEditorScreenRendering({
       handleTextEditingStateChangeForScreen,
       handleScreenElementDblClickText,
       cssVarValues,
+      tweaks,
+      handleTweakChange,
       id,
       design?.title,
       session?.email,

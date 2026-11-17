@@ -1,4 +1,5 @@
 import { ActionContractError } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import type { DbExec } from "@agent-native/core/db";
 import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
@@ -7,6 +8,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { documentRevisionToken } from "../server/lib/document-revision.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
@@ -48,6 +50,7 @@ import {
   persistBlocksFieldIdentity,
   readBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
+import { assertBlocksFieldNotFrozen } from "./_column-rules.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -65,6 +68,7 @@ import {
   type MutationContext,
   type RowSnapshot,
 } from "./_database-row-mutation.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 import { nanoid } from "./_property-utils.js";
 
@@ -400,6 +404,13 @@ export async function listDatabaseBlocks(
     schemaRevision: loaded.context.schemaRevision,
     rowRevision: loaded.row.revision,
     fieldRevision: loaded.identity.revision,
+    baseRevision:
+      loaded.storageTarget === "document_body"
+        ? documentRevisionToken(
+            loaded.row.document.bodyRevision,
+            loaded.markdown,
+          )
+        : null,
     identityStatus: loaded.identity.identityStatus,
     total: blocks.length,
     order: blocks.map((block) => block.id),
@@ -595,6 +606,11 @@ export async function compareAndSwapAdditionalBlocksField(args: {
       { propertyId: args.propertyId },
     );
   }
+  await syncPrivateMediaReferences(args.db, {
+    documentId: args.documentId,
+    after: args.content,
+    userEmail: documentAttributionActor(),
+  });
 }
 
 async function readExistingReceipt(
@@ -901,6 +917,7 @@ async function mutatePrimaryBlockThroughLiveCopy(
   input: MutationInput,
   inputDigest: string,
   loaded: LoadedField,
+  ctx: ActionRunContext | undefined,
 ): Promise<ContentDatabaseBlockMutationResult | false> {
   if (
     loaded.storageTarget !== "document_body" ||
@@ -933,6 +950,8 @@ async function mutatePrimaryBlockThroughLiveCopy(
       db: tx,
       accessAlreadyResolved: true,
     });
+    // After the replay, so a write that landed before the lock keeps its receipt.
+    assertAgentsMayEditPageText(current.row.document, ctx);
     assertMutationRevisions(current, input);
     if (current.storageTarget !== "document_body") {
       contractError(
@@ -952,6 +971,7 @@ async function mutatePrimaryBlockThroughLiveCopy(
     assertNoNewlySharedVideoIds(loaded.markdown, changed.markdown);
     await editContentLiveCopy(input.target.rowDocumentId, {
       cause: {
+        ctx,
         operation: "mutate-content-database-block",
         lockCollections: [input.target.databaseId],
         expectedBlocksFieldRevision: {
@@ -1043,6 +1063,7 @@ async function mutatePrimaryBlockThroughLiveCopy(
 
 export async function mutateDatabaseBlock(
   input: MutationInput,
+  ctx?: ActionRunContext,
 ): Promise<ContentDatabaseBlockMutationResult> {
   const inputDigest = mutationDigest(input);
   await loadField({ target: input.target, role: "editor" });
@@ -1060,6 +1081,7 @@ export async function mutateDatabaseBlock(
         input,
         inputDigest,
         loaded,
+        ctx,
       );
       if (liveResult) return liveResult;
       return getDb().transaction(async (transaction) => {
@@ -1101,6 +1123,15 @@ export async function mutateDatabaseBlock(
           role: "editor",
           db: tx,
           accessAlreadyResolved: true,
+        });
+        // After both replays, so a write that landed before the lock keeps its
+        // receipt, and on this fresh read, because the queue can be a long wait.
+        assertAgentsMayEditPageText(loaded.row.document, ctx);
+        // Under the page's row lock, which a change to the rule's column takes too.
+        await assertBlocksFieldNotFrozen(tx, {
+          databaseId: input.target.databaseId,
+          documentId: input.target.rowDocumentId,
+          propertyId: input.target.propertyId,
         });
         const { resolved, changed } = await prepareBlockMutation(
           tx,

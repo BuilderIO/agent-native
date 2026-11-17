@@ -202,7 +202,7 @@ describe("designCanvasIntentDirectives", () => {
         "Create a 1080x1080 poster and a 1200x628 banner",
       ),
     ).toEqual([
-      "The user requested separate exact-size outputs. Generate each output as its own fixed canvas, using its exact dimensions from the request and passing `devices: []`; do not combine them into responsive breakpoints or add mobile variants.",
+      "The user requested separate exact-size outputs. Generate each output as its own fixed canvas, using its exact dimensions from the request and passing `fixedCanvas: true`; do not combine them into responsive breakpoints or add mobile variants.",
       "After generating each output, run `take-design-screenshot` once at that output's exact dimensions.",
     ]);
   });
@@ -215,7 +215,7 @@ describe("designCanvasIntentDirectives", () => {
       "Create a LinkedIn ad",
     ).join("\n");
     expect(text).toContain("LinkedIn Single Image Ad, 1200×627px");
-    expect(text).toContain("devices: []");
+    expect(text).toContain("fixedCanvas: true");
     expect(text).toContain("widths: [1200] and heights: [627]");
     expect(text).not.toContain("After responsive app generation");
   });
@@ -227,7 +227,7 @@ describe("designCanvasIntentDirectives", () => {
       0,
       "Create a LinkedIn ad with desktop and mobile versions",
     ).join("\n");
-    expect(text).toContain("Pass `devices: []` to `generate-design`");
+    expect(text).toContain("Pass `fixedCanvas: true` to `generate-design`");
     expect(text).toContain("even if the prompt mentions device versions");
   });
 

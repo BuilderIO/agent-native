@@ -1,6 +1,7 @@
 import { IconSearch } from "@tabler/icons-react";
 import {
   createElement,
+  useId,
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -181,24 +182,49 @@ function FieldShell({
   className,
   style,
   children,
+  controlId: suppliedControlId,
 }: {
+  controlId?: string;
   label?: ReactNode;
   description?: ReactNode;
   errorMessage?: ReactNode;
   className?: string;
   style?: CSSProperties;
-  children: ReactNode;
+  children: (field: {
+    id: string;
+    "aria-labelledby"?: string | undefined;
+    "aria-describedby"?: string | undefined;
+  }) => ReactNode;
 }) {
+  const generatedId = useId();
+  const id = suppliedControlId ?? generatedId;
+  const labelId = label ? `${generatedId}-label` : undefined;
+  const descriptionId =
+    errorMessage || description ? `${generatedId}-description` : undefined;
   return (
-    <label className={cn("grid gap-1.5", className)} style={style}>
-      {label ? <span className="text-sm font-medium">{label}</span> : null}
-      {children}
+    <label htmlFor={id} className={cn("grid gap-1.5", className)} style={style}>
+      {label ? (
+        <span id={labelId} className="text-sm font-medium">
+          {label}
+        </span>
+      ) : null}
+      {children({
+        id,
+        "aria-labelledby": labelId,
+        "aria-describedby": descriptionId,
+      })}
       {errorMessage ? (
-        <span className="text-xs text-destructive" role="alert">
+        <span
+          id={descriptionId}
+          className="text-xs text-destructive"
+          role="alert"
+        >
           {errorMessage}
         </span>
       ) : description ? (
-        <span className="text-xs text-muted-foreground">{description}</span>
+        <span id={descriptionId} className="text-xs text-muted-foreground">
+          {description}
+        </span>
       ) : null}
     </label>
   );
@@ -222,26 +248,40 @@ const DefaultTextField: DesignSystemComponents["TextField"] = ({
   ...props
 }) => (
   <FieldShell
+    controlId={props.id}
     label={label}
     description={description}
     errorMessage={errorMessage}
     className={className}
     style={style}
   >
-    <div className="flex items-center gap-2">
-      {leadingContent}
-      <Input
-        {...props}
-        ref={inputRef}
-        value={value}
-        aria-invalid={invalid || undefined}
-        onChange={(event) => onChange(event.currentTarget.value)}
-        onBlur={onBlur}
-        onFocus={onFocus}
-        onKeyDown={onKeyDown}
-      />
-      {trailingContent}
-    </div>
+    {(field) => (
+      <div className="flex items-center gap-2">
+        {leadingContent}
+        <Input
+          {...field}
+          {...props}
+          id={field.id}
+          ref={inputRef}
+          aria-labelledby={
+            props["aria-labelledby"] ??
+            (props["aria-label"] ? undefined : field["aria-labelledby"])
+          }
+          aria-describedby={
+            [props["aria-describedby"], field["aria-describedby"]]
+              .filter(Boolean)
+              .join(" ") || undefined
+          }
+          value={value}
+          aria-invalid={invalid || undefined}
+          onChange={(event) => onChange(event.currentTarget.value)}
+          onBlur={onBlur}
+          onFocus={onFocus}
+          onKeyDown={onKeyDown}
+        />
+        {trailingContent}
+      </div>
+    )}
   </FieldShell>
 );
 
@@ -261,22 +301,36 @@ const DefaultTextArea: DesignSystemComponents["TextArea"] = ({
   ...props
 }) => (
   <FieldShell
+    controlId={props.id}
     label={label}
     description={description}
     errorMessage={errorMessage}
     className={className}
     style={style}
   >
-    <Textarea
-      {...props}
-      ref={textAreaRef}
-      value={value}
-      aria-invalid={invalid || undefined}
-      onChange={(event) => onChange(event.currentTarget.value)}
-      onBlur={onBlur}
-      onFocus={onFocus}
-      onKeyDown={onKeyDown}
-    />
+    {(field) => (
+      <Textarea
+        {...field}
+        {...props}
+        id={field.id}
+        ref={textAreaRef}
+        aria-labelledby={
+          props["aria-labelledby"] ??
+          (props["aria-label"] ? undefined : field["aria-labelledby"])
+        }
+        aria-describedby={
+          [props["aria-describedby"], field["aria-describedby"]]
+            .filter(Boolean)
+            .join(" ") || undefined
+        }
+        value={value}
+        aria-invalid={invalid || undefined}
+        onChange={(event) => onChange(event.currentTarget.value)}
+        onBlur={onBlur}
+        onFocus={onFocus}
+        onKeyDown={onKeyDown}
+      />
+    )}
   </FieldShell>
 );
 
@@ -633,6 +687,7 @@ const DefaultDialog: DesignSystemComponents["Dialog"] = ({
   dismissible = true,
   hideClose,
   closeLabel,
+  closeDisabled,
   initialFocusRef,
   restoreFocusRef,
   portalContainer,
@@ -645,6 +700,7 @@ const DefaultDialog: DesignSystemComponents["Dialog"] = ({
       container={portalContainer}
       hideClose={hideClose || !dismissible}
       closeLabel={closeLabel}
+      closeDisabled={closeDisabled}
       {...(!description ? { "aria-describedby": undefined } : {})}
       style={style}
       className={cn(
@@ -736,108 +792,142 @@ const DefaultPicker: DesignSystemComponents["Picker"] = ({
   if (mode === "select") {
     return (
       <FieldShell
+        controlId={props.id}
         label={label}
         description={description}
         errorMessage={errorMessage}
         className={className}
         style={style}
       >
-        <Select
-          value={value == null ? undefined : String(value)}
-          open={open}
-          onOpenChange={onOpenChange}
-          onValueChange={(next) => {
-            const option = options.find(
-              (candidate) => String(candidate.value) === next,
-            );
-            onChange(option?.value ?? null);
-          }}
-          required={required}
-          disabled={disabled}
-        >
-          <SelectTrigger
-            {...props}
-            ref={pickerRef as Ref<HTMLButtonElement>}
-            aria-invalid={invalid || undefined}
+        {(field) => (
+          <Select
+            {...(value == null ? {} : { value: String(value) })}
+            {...(open === undefined ? {} : { open })}
+            {...(onOpenChange === undefined ? {} : { onOpenChange })}
+            onValueChange={(next) => {
+              const option = options.find(
+                (candidate) => String(candidate.value) === next,
+              );
+              onChange(option?.value ?? null);
+            }}
+            required={required ?? false}
+            disabled={disabled ?? false}
           >
-            <SelectValue placeholder={placeholder}>
-              {selected?.label}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent container={portalContainer}>
-            {loading
-              ? loadingContent
-              : options.length
-                ? options.map((option) => (
-                    <SelectItem
-                      key={option.value}
-                      value={String(option.value)}
-                      disabled={option.disabled}
-                    >
-                      {option.label}
-                    </SelectItem>
-                  ))
-                : emptyContent}
-          </SelectContent>
-        </Select>
+            <SelectTrigger
+              {...field}
+              {...props}
+              id={field.id}
+              aria-labelledby={
+                props["aria-labelledby"] ??
+                (props["aria-label"] ? undefined : field["aria-labelledby"])
+              }
+              aria-describedby={
+                [props["aria-describedby"], field["aria-describedby"]]
+                  .filter(Boolean)
+                  .join(" ") || undefined
+              }
+              ref={pickerRef as Ref<HTMLButtonElement>}
+              aria-invalid={invalid || undefined}
+            >
+              <SelectValue placeholder={placeholder}>
+                {selected?.label}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent container={portalContainer}>
+              {loading
+                ? loadingContent
+                : options.length
+                  ? options.map((option) => (
+                      <SelectItem
+                        key={option.value}
+                        value={String(option.value)}
+                        disabled={option.disabled ?? false}
+                      >
+                        {option.label}
+                      </SelectItem>
+                    ))
+                  : emptyContent}
+            </SelectContent>
+          </Select>
+        )}
       </FieldShell>
     );
   }
 
   return (
     <FieldShell
+      controlId={props.id}
       label={label}
       description={description}
       errorMessage={errorMessage}
       className={className}
       style={style}
     >
-      <Popover open={open} onOpenChange={onOpenChange}>
-        <PopoverTrigger asChild>
-          <ButtonBase
-            ref={pickerRef as Ref<HTMLButtonElement>}
-            type="button"
-            variant="outline"
-            disabled={disabled}
-            aria-invalid={invalid || undefined}
-          >
-            {selected?.label ?? placeholder}
-          </ButtonBase>
-        </PopoverTrigger>
-        <PopoverContent container={portalContainer} className="w-72 p-2">
-          <label className="flex items-center gap-2 border-b px-2 pb-2">
-            <IconSearch className="size-4 text-muted-foreground" />
-            <Input
-              value={searchValue}
-              onChange={(event) => onSearchChange?.(event.currentTarget.value)}
-              className="h-8 border-0 p-0 shadow-none focus-visible:ring-0"
-            />
-          </label>
-          <div className="max-h-64 overflow-auto py-1" role="listbox">
-            {loading
-              ? loadingContent
-              : filtered.length
-                ? filtered.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="option"
-                      aria-selected={option.value === value}
-                      disabled={option.disabled}
-                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-start text-sm hover:bg-accent disabled:opacity-50"
-                      onClick={() => {
-                        onChange(option.value);
-                        onOpenChange?.(false);
-                      }}
-                    >
-                      {option.icon}
-                      <span>{option.label}</span>
-                    </button>
-                  ))
-                : emptyContent}
-          </div>
-        </PopoverContent>
-      </Popover>
+      {(field) => (
+        <Popover
+          {...(open === undefined ? {} : { open })}
+          {...(onOpenChange === undefined ? {} : { onOpenChange })}
+        >
+          <PopoverTrigger asChild>
+            <ButtonBase
+              {...field}
+              {...props}
+              id={field.id}
+              aria-labelledby={
+                props["aria-labelledby"] ??
+                (props["aria-label"] ? undefined : field["aria-labelledby"])
+              }
+              aria-describedby={
+                [props["aria-describedby"], field["aria-describedby"]]
+                  .filter(Boolean)
+                  .join(" ") || undefined
+              }
+              ref={pickerRef as Ref<HTMLButtonElement>}
+              type="button"
+              variant="outline"
+              disabled={disabled}
+              aria-invalid={invalid || undefined}
+            >
+              {selected?.label ?? placeholder}
+            </ButtonBase>
+          </PopoverTrigger>
+          <PopoverContent container={portalContainer} className="w-72 p-2">
+            <label className="flex items-center gap-2 border-b px-2 pb-2">
+              <IconSearch className="size-4 text-muted-foreground" />
+              <Input
+                value={searchValue}
+                onChange={(event) =>
+                  onSearchChange?.(event.currentTarget.value)
+                }
+                className="h-8 border-0 p-0 shadow-none focus-visible:ring-0"
+              />
+            </label>
+            <div className="max-h-64 overflow-auto py-1" role="listbox">
+              {loading
+                ? loadingContent
+                : filtered.length
+                  ? filtered.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        role="option"
+                        aria-selected={option.value === value}
+                        disabled={option.disabled}
+                        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-start text-sm hover:bg-accent disabled:opacity-50"
+                        onClick={() => {
+                          onChange(option.value);
+                          onOpenChange?.(false);
+                        }}
+                      >
+                        {option.icon}
+                        <span>{option.label}</span>
+                      </button>
+                    ))
+                  : emptyContent}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
     </FieldShell>
   );
 };

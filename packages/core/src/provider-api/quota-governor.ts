@@ -17,6 +17,8 @@ export interface ProviderQuotaIdentityInput {
 
 export interface ProviderQuotaIdentity {
   quotaKey: string;
+  /** Cooldowns may span app-specific connections; response dedupe never does. */
+  cooldownKey?: string;
   providerId: string;
   scopeKey: string;
   credentialFingerprint: string;
@@ -32,6 +34,7 @@ export interface ProviderQuotaRequest {
 export interface ProviderQuotaObservedResult {
   status?: number;
   headers?: Record<string, string>;
+  json?: unknown;
 }
 
 export interface ProviderQuotaExhaustedDetail {
@@ -47,11 +50,15 @@ export interface ProviderQuotaExhaustedDetail {
 
 export interface ExecuteWithProviderQuotaOptions<T> {
   request: ProviderQuotaRequest;
+  /** Prepare every queue entry, including retry re-entry, without holding the queue. */
+  beforeAttempt?: () => Promise<void>;
   execute: () => Promise<T>;
   inspect: (result: T) => ProviderQuotaObservedResult;
   buildQuotaExhaustedResult: (detail: ProviderQuotaExhaustedDetail) => T;
   maxAttempts?: number;
   maxWaitMs?: number;
+  /** Hard cap for a non-replayable operation, independent of environment defaults. */
+  singleAttempt?: boolean;
 }
 
 interface QueueState {
@@ -116,10 +123,30 @@ export function createProviderQuotaIdentity(
     accountId: input.accountId ?? null,
     credentialSources,
   });
+  const resolvedAccounts = [
+    ...new Set(
+      input.credentialSources
+        .map((source) => stringOrNull(source.accountId)?.trim().toLowerCase())
+        .filter((account): account is string => Boolean(account)),
+    ),
+  ];
+  const cooldownAccount =
+    input.accountId?.trim().toLowerCase() ||
+    (resolvedAccounts.length === 1 ? resolvedAccounts[0] : undefined);
   return {
     providerId: input.providerId,
     scopeKey,
     credentialFingerprint,
+    ...(input.providerId === "gmail" && cooldownAccount
+      ? {
+          cooldownKey: hashStable({
+            providerId: input.providerId,
+            scopeKey,
+            accountId: cooldownAccount,
+            purpose: "mailbox-cooldown",
+          }),
+        }
+      : {}),
     quotaKey: hashStable({
       appId: input.appId,
       providerId: input.providerId,
@@ -160,7 +187,10 @@ export function createProviderRequestDedupeKey(input: {
 export async function executeWithProviderQuota<T>(
   options: ExecuteWithProviderQuotaOptions<T>,
 ): Promise<T> {
-  if (isQuotaGovernorDisabled()) return options.execute();
+  if (isQuotaGovernorDisabled()) {
+    await options.beforeAttempt?.();
+    return options.execute();
+  }
 
   const dedupeKey = options.request.requestKey
     ? `${options.request.identity.quotaKey}:${options.request.requestKey}`
@@ -170,9 +200,7 @@ export async function executeWithProviderQuota<T>(
     if (existing) return existing as Promise<T>;
   }
 
-  const run = runInQueue(options.request.identity.quotaKey, () =>
-    executeWithCooldown(options),
-  );
+  const run = executeWithCooldown(options);
   if (dedupeKey) {
     state.inflight.set(dedupeKey, run);
     run
@@ -203,50 +231,102 @@ async function executeWithCooldown<T>(
     "AGENT_NATIVE_PROVIDER_API_MAX_WAIT_MS",
     options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS,
   );
-  const deadline = Date.now() + maxWaitMs;
+  let deadline: number | undefined;
 
-  for (let attempt = 0; ; attempt++) {
-    const cooldownUntil = await getCooldownUntil(options.request.identity);
-    if (cooldownUntil > Date.now()) {
-      const waitMs = cooldownUntil - Date.now();
-      if (waitMs > Math.max(0, deadline - Date.now())) {
-        return options.buildQuotaExhaustedResult(
-          quotaExhaustedDetail(options.request, waitMs, "cooldown"),
+  for (let attempt = 0; ; ) {
+    // A later cooldown refusal may spend this reservation without a provider read.
+    await options.beforeAttempt?.();
+    const outcome = await runInQueue<{ result: T } | { waitMs: number }>(
+      options.request.identity.quotaKey,
+      async () => {
+        deadline ??= Date.now() + maxWaitMs;
+        const cooldownUntil = await getCooldownUntil(options.request.identity);
+        if (cooldownUntil > Date.now()) {
+          const waitMs = cooldownUntil - Date.now();
+          if (waitMs > Math.max(0, deadline - Date.now())) {
+            return {
+              result: options.buildQuotaExhaustedResult(
+                quotaExhaustedDetail(options.request, waitMs, "cooldown"),
+              ),
+            };
+          }
+          return { waitMs };
+        }
+
+        const result = await options.execute();
+        const observed = options.inspect(result);
+        const reason = quotaLimitReason(
+          observed,
+          options.request.identity.providerId,
         );
-      }
-      await sleepMs(waitMs);
-    }
+        if (!reason) return { result };
 
-    const result = await options.execute();
-    const observed = options.inspect(result);
-    if (observed.status !== 429) {
-      return result;
-    }
+        const retryAfterMs = retryDelayMs(observed.headers, attempt);
+        await setCooldownUntil(
+          options.request.identity,
+          Date.now() + retryAfterMs,
+          {
+            status: observed.status,
+            reason,
+          },
+        );
 
-    const retryAfterMs = retryDelayMs(observed.headers, attempt);
-    await setCooldownUntil(
-      options.request.identity,
-      Date.now() + retryAfterMs,
-      {
-        status: observed.status,
-        reason: "429",
+        if (options.singleAttempt) return { result };
+
+        if (attempt + 1 >= maxAttempts) {
+          return {
+            result: options.buildQuotaExhaustedResult(
+              quotaExhaustedDetail(
+                options.request,
+                retryAfterMs,
+                "max_attempts",
+              ),
+            ),
+          };
+        }
+
+        if (retryAfterMs > Math.max(0, deadline - Date.now())) {
+          return {
+            result: options.buildQuotaExhaustedResult(
+              quotaExhaustedDetail(
+                options.request,
+                retryAfterMs,
+                "retry_after",
+              ),
+            ),
+          };
+        }
+
+        attempt++;
+        return { waitMs: retryAfterMs };
       },
     );
-
-    if (attempt + 1 >= maxAttempts) {
-      return options.buildQuotaExhaustedResult(
-        quotaExhaustedDetail(options.request, retryAfterMs, "max_attempts"),
-      );
-    }
-
-    if (retryAfterMs > Math.max(0, deadline - Date.now())) {
-      return options.buildQuotaExhaustedResult(
-        quotaExhaustedDetail(options.request, retryAfterMs, "retry_after"),
-      );
-    }
-
-    await sleepMs(retryAfterMs);
+    if ("result" in outcome) return outcome.result;
+    await sleepMs(outcome.waitMs);
   }
+}
+
+function quotaLimitReason(
+  response: ProviderQuotaObservedResult,
+  providerId: string,
+): string | null {
+  if (response.status === 429) return "429";
+  if (response.status !== 403 || providerId !== "gmail") return null;
+  const body = response.json;
+  if (!body || typeof body !== "object" || !("error" in body)) return null;
+  const error = body.error;
+  if (!error || typeof error !== "object" || !("errors" in error)) return null;
+  if (!Array.isArray(error.errors)) return null;
+  for (const entry of error.errors) {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      (entry.reason === "rateLimitExceeded" ||
+        entry.reason === "userRateLimitExceeded")
+    )
+      return entry.reason;
+  }
+  return null;
 }
 
 async function runInQueue<T>(
@@ -276,17 +356,21 @@ async function runInQueue<T>(
 async function getCooldownUntil(
   identity: ProviderQuotaIdentity,
 ): Promise<number> {
-  const memory = state.cooldowns.get(identity.quotaKey);
+  const keys = new Set([
+    identity.cooldownKey ?? identity.quotaKey,
+    identity.quotaKey,
+  ]);
   const now = Date.now();
-  if (memory && memory.until <= now) {
-    state.cooldowns.delete(identity.quotaKey);
-  }
-  let until = memory && memory.until > now ? memory.until : 0;
-
-  const persisted = await readPersistedCooldown(identity.quotaKey);
-  if (persisted && persisted.until > now) {
-    state.cooldowns.set(identity.quotaKey, persisted);
-    until = Math.max(until, persisted.until);
+  let until = 0;
+  for (const key of keys) {
+    const memory = state.cooldowns.get(key);
+    if (memory && memory.until <= now) state.cooldowns.delete(key);
+    if (memory && memory.until > now) until = Math.max(until, memory.until);
+    const persisted = await readPersistedCooldown(key);
+    if (persisted && persisted.until > now) {
+      state.cooldowns.set(key, persisted);
+      until = Math.max(until, persisted.until);
+    }
   }
   return until;
 }
@@ -294,7 +378,7 @@ async function getCooldownUntil(
 async function setCooldownUntil(
   identity: ProviderQuotaIdentity,
   until: number,
-  options: { status?: number; reason?: string } = {},
+  options: { status?: number | undefined; reason?: string } = {},
 ): Promise<void> {
   const entry: CooldownEntry = {
     until,
@@ -303,8 +387,14 @@ async function setCooldownUntil(
     status: options.status,
     reason: options.reason,
   };
-  state.cooldowns.set(identity.quotaKey, entry);
-  await writePersistedCooldown(identity.quotaKey, entry);
+  const cooldownKey = identity.cooldownKey ?? identity.quotaKey;
+  const current = state.cooldowns.get(cooldownKey);
+  if (!current || current.until < entry.until)
+    state.cooldowns.set(cooldownKey, entry);
+  await writePersistedCooldown(
+    identity.cooldownKey ?? identity.quotaKey,
+    entry,
+  );
 }
 
 function quotaExhaustedDetail(
@@ -438,8 +528,8 @@ async function readPersistedCooldown(
     if (!Number.isFinite(until) || until <= Date.now()) {
       await db
         .execute({
-          sql: `DELETE FROM provider_api_cooldowns WHERE quota_key = ?`,
-          args: [quotaKey],
+          sql: `DELETE FROM provider_api_cooldowns WHERE quota_key = ? AND cooldown_until <= ?`,
+          args: [quotaKey, Date.now()],
         })
         .catch(() => undefined);
       return null;
@@ -482,6 +572,7 @@ async function writePersistedCooldown(
           status = excluded.status,
           reason = excluded.reason,
           updated_at = excluded.updated_at
+        WHERE excluded.cooldown_until > provider_api_cooldowns.cooldown_until
       `,
       args: [
         quotaKey,

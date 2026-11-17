@@ -1,5 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { toast } from "sonner";
 
 import {
@@ -50,9 +51,7 @@ export function SpaceDialogs({
       setRenameValue("");
       onMutationSuccess?.();
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : t("spaceDialog.renameFailed"),
-      );
+      reportWriteFailure(err, { label: t("spaceDialog.renameFailed") });
     }
   };
 
@@ -64,9 +63,7 @@ export function SpaceDialogs({
       setDeleteSpaceId(null);
       onMutationSuccess?.(deleteSpaceId);
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : t("spaceDialog.deleteFailed"),
-      );
+      reportWriteFailure(err, { label: t("spaceDialog.deleteFailed") });
     }
   };
 

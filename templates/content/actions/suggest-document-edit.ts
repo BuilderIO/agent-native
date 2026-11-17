@@ -14,6 +14,7 @@ import { roleSatisfies } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import {
   createWithSavedUnits,
@@ -35,6 +36,7 @@ import {
   contentSuggestionReviewPath,
 } from "../shared/suggestion-link.js";
 import { resolveDocumentAccess } from "./_document-access.js";
+import { assertAgentsMayCommentOnPage } from "./_document-agent-lock.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 
 const ANCHOR_CONTEXT_CHARS = 32;
@@ -61,7 +63,7 @@ const suggestDocumentEditSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Existing proposal ID for another edit in the same review pass. Reuse its summary.",
+      "Adds this edit to an earlier edit's review: the proposalId (not the suggestionId) an earlier suggest-document-edit call on this page returned. Pass that call's summary too.",
     ),
   find: z
     .string()
@@ -384,6 +386,7 @@ export default defineAction({
   agentInputSchema: externalSuggestDocumentEditSchema,
   schema: suggestDocumentEditSchema,
   http: false,
+  changeResource: (input) => documentChangeResource(input.id),
   // MCP Apps hosts embed this link as the inline review card. Every other
   // caller gets a link that forwards to the suggestion on its page.
   link: ({ args, result }) => {
@@ -568,6 +571,8 @@ export default defineAction({
       }
     }
 
+    // After the receipts, so a retry of a suggestion that landed first replays.
+    assertAgentsMayCommentOnPage(existing, ctx);
     const edit = { find: args.find, replace: args.replace ?? "" };
     const resolved = (await isLiveBodyWriterPage(id))
       ? resolveOnStoredForm(content, edit)

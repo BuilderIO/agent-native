@@ -13,6 +13,7 @@ import {
 import { DATA_NOTES_MIGRATION_SQL } from "../lib/data-notes-migration";
 import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-migration";
 import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs";
+import { WRITE_RECEIPTS_MIGRATION_SQL } from "../lib/write-receipts-migration";
 
 /**
  * Regression guard for the bug fixed here: `network_error_count` was added to
@@ -52,6 +53,7 @@ const migrationHistorySource = [
   KEY_DATES_MIGRATION_SQL.join("\n"),
   DATA_NOTES_MIGRATION_SQL.join("\n"),
   BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL.join("\n"),
+  WRITE_RECEIPTS_MIGRATION_SQL.join("\n"),
 ].join("\n");
 
 interface DrizzleColumn {
@@ -426,7 +428,7 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
 describe("Analytics release migrations repair persisted first-party dashboards", () => {
   it("runs the bounded dashboard repair after both release migration sets", () => {
     expect(migrateProductionTsSource).toMatch(
-      /await runFrameworkReleaseMigrations\(null\);[\s\S]*?await runAnalyticsMigrations\(null\);[\s\S]*?await repairPersistedFirstPartyDashboardQueries\(\);/,
+      /await runFrameworkReleaseMigrations\(null, \{ requirePostgres: true \}\);[\s\S]*?await runAnalyticsMigrations\(null\);[\s\S]*?await repairPersistedFirstPartyDashboardQueries\(\);/,
     );
   });
 });

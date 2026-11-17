@@ -61,6 +61,14 @@ import {
   readConfiguredWorkspaceAppHomePath,
 } from "../workspace-app-config.js";
 import {
+  bakedBuildId,
+  buildAppWithCache,
+  createDeployCacheRuntime,
+  defaultDeployCacheDir,
+  removeAppOutputs,
+  type DeployCacheRuntime,
+} from "./build-cache.js";
+import {
   assertEmittedBackgroundFunctionOnDisk,
   isRecurringJobsDeployEnabled,
   readVercelSweepCron,
@@ -73,6 +81,13 @@ import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_HEADERS,
 } from "./immutable-assets.js";
+import {
+  SERVED_APP_BUILD_ID_HEADER,
+  SERVED_REVISION_HEADER,
+  writeServedBuildManifest,
+} from "./served-build.js";
+import { resolveWorkspaceAppPaths } from "./workspace-app-paths.js";
+import { emitNetlifyWorkspaceKeepWarmFunction } from "./workspace-keep-warm.js";
 
 function workspaceFrameworkRoutePrefixEnv(): string {
   return (
@@ -99,7 +114,12 @@ export type WorkspaceDeployPreset = "netlify" | "vercel";
 const NETLIFY_WORKSPACE_STATIC_DIR = "_workspace_static";
 const DEFAULT_HOSTED_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
-const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
+// Extensions the workspace deploy ships from an app's public directory. A file
+// whose extension is missing here is silently left out of the static bundle, so
+// the app fetches a 404 for an asset its own source ships: a notebook runtime's
+// ES modules (.mjs) and its interpreter/packages (.zip, .whl) were dropped this
+// way while the .wasm beside them shipped.
+export const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
   "avif",
   "css",
   "gif",
@@ -110,6 +130,7 @@ const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
   "js",
   "json",
   "map",
+  "mjs",
   "mp4",
   "pdf",
   "pck",
@@ -120,16 +141,22 @@ const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
   "webm",
   "webmanifest",
   "webp",
+  "whl",
   "xml",
+  "zip",
 ]);
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_DIR = ".agent-native";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH = "/_agent-native/google/callback";
 const VERCEL_OUTPUT_DIR = ".vercel/output";
+// A split leg's build id travels with its output; whatever moves a leg's
+// output between machines must carry this path too.
+const APP_BUILD_ID_FILE = ".agent-native-app-build-id";
 
 interface WorkspaceAppManifestEntry {
   id: string;
+  icon?: string;
   name: string;
   description: string;
   "agent-native"?: { whenToUse?: string[]; aliases?: string[] };
@@ -153,11 +180,15 @@ function builtinAgentsEnvSnippet(): string {
 function workspaceDirectoryEnvSnippet(
   workspaceApps: WorkspaceAppManifestEntry[],
 ): string {
+  const directoryMode = getAppConfig().workspace.appAccessStore;
+  const directoryModeEnv = directoryMode
+    ? `\n  processRef.env.AGENT_NATIVE_WORKSPACE_APP_ACCESS_STORE ??= ${JSON.stringify(directoryMode)};\n`
+    : "";
   const configuredOrgDirectoryUrl =
     getAppConfig().workspace.orgDirectoryUrl?.trim();
   const dispatchApp = workspaceApps.find((app) => app.isDispatch);
   if (!configuredOrgDirectoryUrl && !dispatchApp) {
-    return builtinAgentsEnvSnippet();
+    return builtinAgentsEnvSnippet() + directoryModeEnv;
   }
   const runtimeDirectoryResolver = dispatchApp
     ? `
@@ -239,7 +270,7 @@ function workspaceDirectoryEnvSnippet(
   }
 `
     : "";
-  return `${builtinAgentsEnvSnippet()}
+  return `${builtinAgentsEnvSnippet()}${directoryModeEnv}
 ${runtimeDirectoryResolver}
   const directoryOrigin =
     processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
@@ -253,6 +284,9 @@ ${runtimeDirectoryResolver}
 
 interface WorkspaceAppManifestOverride {
   id: string;
+  name?: string;
+  description?: string;
+  icon?: string;
   url?: string;
   homePath?: string;
   audience?: WorkspaceAppAudience;
@@ -283,11 +317,21 @@ export async function runWorkspaceDeploy(
       process.env.CONTEXT ?? "production",
     ),
   );
-  const appsDirectory = config.deployment?.workspace?.appsDirectory ?? "apps";
+  const { appsDir, includes } = await resolveWorkspaceAppPaths(
+    workspaceRoot,
+    config,
+  );
   const workspaceAuthMode = config.deployment?.workspace?.authMode ?? "shared";
+  if (
+    getAppConfig().workspace.appAccessStore === "database" &&
+    workspaceAuthMode !== "shared"
+  ) {
+    throw new Error(
+      "Database app access requires shared workspace authentication",
+    );
+  }
   const workspaceRootPage =
     config.deployment?.workspace?.rootPage ?? "redirect";
-  const appsDir = path.resolve(workspaceRoot, appsDirectory);
   const deployEnv = withWorkspaceRootEnv(workspaceRoot, process.env);
   if (!fs.existsSync(appsDir)) {
     throw new Error(
@@ -301,7 +345,7 @@ export async function runWorkspaceDeploy(
 
   const apps = fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
+    .filter((e) => e.isDirectory() && includes(e.name))
     .map((e) => e.name)
     .filter((n) => fs.existsSync(path.join(appsDir, n, "package.json")))
     .sort(compareWorkspaceAppIds);
@@ -316,7 +360,7 @@ export async function runWorkspaceDeploy(
   const defaultApp = resolveWorkspaceDefaultApp(deployEnv, apps);
   if (configuredDefaultApp && !defaultApp) {
     console.warn(
-      `[workspace-deploy] WORKSPACE_DEFAULT_APP="${configuredDefaultApp}" matches no app in ${appsDirectory}/; ignoring it.`,
+      `[workspace-deploy] WORKSPACE_DEFAULT_APP="${configuredDefaultApp}" matches no app in ${path.relative(workspaceRoot, appsDir) || "."}/; ignoring it.`,
     );
   }
   const rootAppId =
@@ -362,18 +406,68 @@ export async function runWorkspaceDeploy(
   opts.onProgress?.({ step: "build", preset });
   const concurrency = workspaceBuildConcurrency();
   const runBuild: BuildRunner = opts.execFile ?? spawnBuild;
-  await runWithConcurrency(apps, concurrency, (app) =>
-    buildOneApp(
-      workspaceRoot,
-      appsDir,
+  const cacheConfig = getAppConfig().deployCache;
+  const selection = workspaceBuildSelection(apps, cacheConfig);
+  const toBuild =
+    selection.only ?? apps.filter((app) => !selection.prebuilt.has(app));
+  const cache = cacheConfig.enabled
+    ? createDeployCacheRuntime({
+        dir: path.resolve(
+          workspaceRoot,
+          cacheConfig.dir ?? defaultDeployCacheDir(workspaceRoot),
+        ),
+        workspaceRoot,
+        preset,
+        envIgnore: cacheConfig.envIgnore,
+        verifySample: cacheConfig.verifySample,
+      })
+    : null;
+  if (!cache) {
+    console.log(
+      "[workspace-deploy] Build cache disabled (AGENT_NATIVE_DEPLOY_CACHE=false); rebuilding every app",
+    );
+  }
+  const buildStartedAt = Date.now();
+  const appBuildIds = new Map<string, string>();
+  await runWithConcurrency(toBuild, concurrency, async (app) => {
+    appBuildIds.set(
       app,
-      preset,
-      runBuild,
-      workspaceApps,
-      workspaceAuthMode,
-      concurrency > 1 ? "pipe" : "inherit",
-    ),
-  );
+      await buildOneApp(
+        workspaceRoot,
+        appsDir,
+        app,
+        preset,
+        runBuild,
+        workspaceApps,
+        workspaceAuthMode,
+        concurrency > 1 ? "pipe" : "inherit",
+        cache,
+      ),
+    );
+  });
+  if (selection.only) {
+    for (const app of selection.only) {
+      fs.writeFileSync(
+        path.join(appsDir, app, APP_BUILD_ID_FILE),
+        appBuildIdFor(appBuildIds, app),
+      );
+    }
+  }
+  for (const app of selection.prebuilt) {
+    appBuildIds.set(app, readPrebuiltAppBuildId(appsDir, app));
+  }
+  if (cache) {
+    const { hits, misses, savedMs, verified } = cache.stats;
+    console.log(
+      `[workspace-deploy] Build cache: ${hits} hit, ${misses} miss${verified ? `, ${verified} verified by rebuild` : ""}; build phase ${((Date.now() - buildStartedAt) / 1000).toFixed(1)}s, ~${(savedMs / 1000).toFixed(1)}s saved`,
+    );
+  }
+  if (selection.only) {
+    console.log(
+      `[workspace-deploy] Built ${selection.only.join(", ")} only; packaging is left to the job that assembles the workspace`,
+    );
+    return;
+  }
   opts.onProgress?.({ step: "package" });
   // Copy in app order after all builds so shared outputs stay deterministic.
   const sweepCrons: Array<{ path: string; schedule: string }> = [];
@@ -387,6 +481,7 @@ export async function runWorkspaceDeploy(
       vercelOutputDir,
       workspaceApps,
       workspaceAuthMode,
+      appBuildIdFor(appBuildIds, app),
     );
     if (preset === "vercel") {
       sweepCrons.push(
@@ -398,6 +493,19 @@ export async function runWorkspaceDeploy(
     }
   }
   writeWorkspaceAppManifests(workspaceRoot, apps, workspaceApps, preset);
+  if (preset === "netlify") {
+    emitNetlifyWorkspaceKeepWarmFunction(
+      netlifyFunctionsDir(workspaceRoot),
+      apps,
+      workspaceFrameworkRoutePrefix(),
+    );
+    writeServedBuildManifest(workspaceRoot, {
+      revision: workspaceSourceRevision() ?? null,
+      apps: Object.fromEntries(
+        apps.map((app) => [app, appBuildIdFor(appBuildIds, app)]),
+      ),
+    });
+  }
   if (workspaceRootPage === "directory") {
     writeWorkspaceDirectoryPage(
       preset === "vercel" ? path.join(vercelOutputDir, "static") : distDir,
@@ -456,7 +564,8 @@ async function buildOneApp(
   workspaceApps: WorkspaceAppManifestEntry[],
   workspaceAuthMode: "shared" | "isolated",
   stdio: "inherit" | "pipe",
-): Promise<void> {
+  cache: DeployCacheRuntime | null,
+): Promise<string> {
   const appDir = path.join(appsDir, app);
   const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
   const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
@@ -535,17 +644,61 @@ async function buildOneApp(
     `[workspace-deploy] Building ${app} (base=/${app}, preset=${preset})`,
   );
 
-  cleanAppBuildOutputs(appDir);
-
-  const startedAt = Date.now();
-  await runBuild("pnpm", ["--filter", app, "build"], {
-    cwd: workspaceRoot,
+  const build = async (buildEnv: NodeJS.ProcessEnv) => {
+    const startedAt = Date.now();
+    await runBuild("pnpm", ["--filter", app, "build"], {
+      cwd: workspaceRoot,
+      env: buildEnv,
+      stdio,
+    });
+    console.log(
+      `[workspace-deploy] Built ${app} in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`,
+    );
+  };
+  if (!cache) {
+    removeAppOutputs(appDir);
+    await build(env);
+    return bakedBuildId(env);
+  }
+  const { appBuildId } = await buildAppWithCache({
+    runtime: cache,
+    app,
+    appDir,
     env,
-    stdio,
+    clean: () => removeAppOutputs(appDir),
+    build,
+    log: (message) => console.log(message),
   });
-  console.log(
-    `[workspace-deploy] Built ${app} in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`,
-  );
+  return appBuildId;
+}
+
+/** The id a split leg recorded for its build; packaging a prebuilt app cannot recompute it. */
+function readPrebuiltAppBuildId(appsDir: string, app: string): string {
+  const file = path.join(appsDir, app, APP_BUILD_ID_FILE);
+  const id = fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : "";
+  if (!id) {
+    throw new Error(
+      `Expected ${APP_BUILD_ID_FILE} under ${path.join(appsDir, app)} but none existed. Build the app with AGENT_NATIVE_DEPLOY_ONLY_APPS so its build id is recorded.`,
+    );
+  }
+  return id;
+}
+
+function appBuildIdFor(appBuildIds: Map<string, string>, app: string): string {
+  const id = appBuildIds.get(app);
+  if (!id) throw new Error(`No build id was recorded for ${app}`);
+  return id;
+}
+
+/**
+ * The workspace commit, stamped on served responses for readback. It is read
+ * from the deploy's own environment, never from an app bundle, so a cached app
+ * still reports the commit being deployed.
+ */
+function workspaceSourceRevision(): string | undefined {
+  // Build-time source metadata, never a runtime credential or deploy setting.
+  const candidate = process.env.AGENT_NATIVE_BUILD_ID?.trim();
+  return /^[a-f0-9]{40}$/i.test(candidate ?? "") ? candidate : undefined;
 }
 
 type BuildRunner = (
@@ -553,6 +706,36 @@ type BuildRunner = (
   args: string[],
   options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" | "pipe" },
 ) => unknown;
+
+/**
+ * A workspace deploy can be split across machines: `onlyApps` builds just those
+ * apps and stops before packaging, and `prebuiltApps` packages apps whose build
+ * output was put back into the app directory. An id that is not an app of this
+ * workspace is an error, never an empty selection.
+ */
+function workspaceBuildSelection(
+  apps: string[],
+  config: {
+    onlyApps?: string[] | undefined;
+    prebuiltApps?: string[] | undefined;
+  },
+): { only: string[] | null; prebuilt: Set<string> } {
+  const only = config.onlyApps?.length ? config.onlyApps : null;
+  const prebuilt = config.prebuiltApps ?? [];
+  if (only && prebuilt.length > 0) {
+    throw new Error(
+      "AGENT_NATIVE_DEPLOY_ONLY_APPS and AGENT_NATIVE_DEPLOY_PREBUILT_APPS cannot both be set",
+    );
+  }
+  const known = new Set(apps);
+  const unknown = [...(only ?? []), ...prebuilt].filter((id) => !known.has(id));
+  if (unknown.length > 0) {
+    throw new Error(
+      `Deploy selection names ${unknown.map((id) => `"${id}"`).join(", ")}, which ${unknown.length === 1 ? "is" : "are"} not in this workspace (${apps.join(", ")})`,
+    );
+  }
+  return { only, prebuilt: new Set(prebuilt) };
+}
 
 function workspaceBuildConcurrency(): number {
   const raw = process.env.AGENT_NATIVE_DEPLOY_CONCURRENCY?.trim();
@@ -604,7 +787,9 @@ async function runWithConcurrency<T>(
 
 /**
  * On Windows pnpm is a pnpm.cmd shim, which only starts through a shell. Each
- * argument is quoted there so it stays one argument.
+ * argument is quoted there so it stays one argument. A bare command name stays
+ * unquoted: cmd.exe gives a batch file it finds on PATH under a quoted name
+ * the current folder as `%~dp0`, which breaks launchers like pnpm 11's.
  */
 export function buildStart(
   cmd: string,
@@ -613,7 +798,10 @@ export function buildStart(
 ): { command: string; args: string[]; shell: boolean } {
   return platform === "win32"
     ? {
-        command: [cmd, ...args].map((arg) => `"${arg}"`).join(" "),
+        command: [
+          /^[\w.-]+$/.test(cmd) ? cmd : `"${cmd}"`,
+          ...args.map((arg) => `"${arg}"`),
+        ].join(" "),
         args: [],
         shell: true,
       }
@@ -658,6 +846,7 @@ function moveAppBuildIntoWorkspaceOutput(
   vercelOutputDir: string,
   workspaceApps: WorkspaceAppManifestEntry[],
   workspaceAuthMode: "shared" | "isolated",
+  appBuildId: string,
 ): void {
   const appDir = path.join(appsDir, app);
   if (preset === "vercel") {
@@ -696,6 +885,7 @@ function moveAppBuildIntoWorkspaceOutput(
       workspaceApps,
       target,
       workspaceAuthMode,
+      appBuildId,
     );
   }
 }
@@ -1039,6 +1229,7 @@ function copyNetlifyFunctionIntoWorkspace(
   workspaceApps: WorkspaceAppManifestEntry[],
   staticDir: string,
   workspaceAuthMode: "shared" | "isolated",
+  appBuildId: string,
 ): void {
   const appDir = path.join(appsDir, app);
   const src = path.join(appDir, ".netlify", "functions-internal", "server");
@@ -1057,6 +1248,7 @@ function copyNetlifyFunctionIntoWorkspace(
     workspaceApps,
     staticDir,
     workspaceAuthMode,
+    appBuildId,
   );
 
   const integrationDurableDispatch =
@@ -1084,6 +1276,37 @@ function copyNetlifyFunctionIntoWorkspace(
       workspaceAuthMode,
     );
   }
+}
+
+// Netlify invokes every scheduled function at second 0 of the matching minute,
+// so a workspace that emits one recurring-jobs function per app on "* * * * *"
+// fires the whole fleet at the shared database in the same second, and the
+// resulting database timeouts make every app's sweep fail together. Operators can spread the per-app sweeps over distinct
+// minute phases with a positive period; the default (unset/0/1) preserves the
+// historical every-minute cadence byte for byte.
+export function sweepStaggerMinutes(): number {
+  const raw = process.env.AGENT_NATIVE_SWEEP_STAGGER_MINUTES?.trim();
+  if (!raw) return 0;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 1 || parsed > 60) return 0;
+  return parsed;
+}
+
+// A stable (not randomized) per-app phase keeps the schedule reproducible across
+// builds while spreading apps that share a period. `${phase}-59/${period}` runs
+// at phase, phase+period, ... within every hour, so N apps on period N occupy
+// distinct minutes instead of one synchronized second.
+export function recurringJobsSweepSchedule(
+  app: string,
+  periodMinutes: number,
+): string {
+  if (periodMinutes <= 1) return "* * * * *";
+  let hash = 0;
+  for (let i = 0; i < app.length; i += 1) {
+    hash = (hash * 31 + app.charCodeAt(i)) >>> 0;
+  }
+  const phase = hash % periodMinutes;
+  return `${phase}-59/${periodMinutes} * * * *`;
 }
 
 function emitNetlifyRecurringJobsFunction(
@@ -1150,7 +1373,7 @@ export default async function handler(request) {
 export const config = {
   name: ${JSON.stringify(`${app} agent-native recurring jobs`)},
   generator: "agent-native workspace deploy",
-  schedule: "* * * * *",
+  schedule: ${JSON.stringify(recurringJobsSweepSchedule(app, sweepStaggerMinutes()))},
   nodeBundler: "none",
   includedFiles: ["**"],
 };
@@ -1442,11 +1665,13 @@ function patchNetlifyFunctionEntry(
   workspaceApps: WorkspaceAppManifestEntry[],
   staticDir: string,
   workspaceAuthMode: "shared" | "isolated",
+  appBuildId: string,
 ): void {
   const serverPath = path.join(functionDir, "server.mjs");
   if (!fs.existsSync(serverPath)) return;
 
   const basePath = `/${app}`;
+  const sourceRevision = workspaceSourceRevision();
   const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
   const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
     workspaceApps,
@@ -1462,6 +1687,8 @@ function patchNetlifyFunctionEntry(
       ? [
           `${workspaceFrameworkRoutePrefix()}/*`,
           "/.well-known/*",
+          basePath,
+          `${basePath}.data`,
           `${basePath}/*`,
         ]
       : [
@@ -1471,10 +1698,7 @@ function patchNetlifyFunctionEntry(
           ...netlifyOAuthDiscoveryPaths(app),
           ...rootGoogleCallbackPath,
         ];
-  const normalizeBasePathHelper =
-    app === "dispatch"
-      ? ""
-      : `
+  const normalizeBasePathHelper = `
 function normalizeBasePathArgs(args) {
   const request = args[0];
   if (!request || typeof request.url !== "string" || typeof Request !== "function") {
@@ -1492,8 +1716,7 @@ function normalizeBasePathArgs(args) {
   return args;
 }
 `;
-  const handlerArgs =
-    app === "dispatch" ? "...args" : "...normalizeBasePathArgs(args)";
+  const handlerArgs = "...normalizeBasePathArgs(args)";
   const server = `const basePath = ${JSON.stringify(basePath)};
 
 function setBasePathEnv() {
@@ -1529,7 +1752,15 @@ let cachedHandler;
 export default async function handler(...args) {
   setBasePathEnv();
   cachedHandler ??= (await import("./main.mjs")).default;
-  return cachedHandler(${handlerArgs});
+  const response = await cachedHandler(${handlerArgs});
+  const stamped = new Response(response.body, response);
+  ${
+    sourceRevision
+      ? `stamped.headers.set(${JSON.stringify(SERVED_REVISION_HEADER)}, ${JSON.stringify(sourceRevision)});
+  `
+      : ""
+  }stamped.headers.set(${JSON.stringify(SERVED_APP_BUILD_ID_HEADER)}, ${JSON.stringify(appBuildId)});
+  return stamped;
 }
 
 export const config = {
@@ -1682,6 +1913,16 @@ function netlifyOAuthDiscoveryPaths(app: string): string[] {
   ]);
 }
 
+/**
+ * Whether the workspace deploy ships a public file to the static host. The
+ * extension list is the whole gate: a file whose extension it does not name is
+ * left out of the bundle and its URL answers 404 in the deployed app.
+ */
+export function isNetlifyPublicAssetPath(relativePath: string): boolean {
+  const ext = path.extname(relativePath).slice(1).toLowerCase();
+  return NETLIFY_PUBLIC_ASSET_EXTENSIONS.has(ext);
+}
+
 function netlifyPublicAssetPaths(app: string, staticDir: string): string[] {
   if (!fs.existsSync(staticDir)) return [];
   const assetPaths: string[] = [];
@@ -1693,11 +1934,10 @@ function netlifyPublicAssetPaths(app: string, staticDir: string): string[] {
         visit(path.join(directory, entry.name), relativePath);
         continue;
       }
-      const ext = path.extname(entry.name).slice(1).toLowerCase();
       // The app root HTML shell must keep the server's routing contract.
       if (!relativeDirectory && entry.name.toLowerCase() === "index.html")
         continue;
-      if (NETLIFY_PUBLIC_ASSET_EXTENSIONS.has(ext)) {
+      if (isNetlifyPublicAssetPath(entry.name)) {
         assetPaths.push(relativePath);
       }
     }
@@ -1713,20 +1953,6 @@ function netlifyPublicAssetPaths(app: string, staticDir: string): string[] {
 
 function netlifyFunctionsDir(workspaceRoot: string): string {
   return path.join(workspaceRoot, ".netlify", "functions-internal");
-}
-
-function cleanAppBuildOutputs(appDir: string): void {
-  for (const name of ["dist", ".output", "build"]) {
-    fs.rmSync(path.join(appDir, name), { recursive: true, force: true });
-  }
-  fs.rmSync(path.join(appDir, ".netlify", "functions-internal"), {
-    recursive: true,
-    force: true,
-  });
-  fs.rmSync(path.join(appDir, ".vercel", "output"), {
-    recursive: true,
-    force: true,
-  });
 }
 
 function appUsesNetlifyUnpooledDatabaseUrl(appDir: string): boolean {
@@ -2010,8 +2236,9 @@ async function readWorkspaceAppManifest(
     }
     entries.push({
       id: app,
-      name: pkg?.displayName || titleCase(app),
-      description: profile.metadata.description ?? "",
+      ...(explicit?.icon ? { icon: explicit.icon } : {}),
+      name: explicit?.name ?? pkg?.displayName ?? titleCase(app),
+      description: explicit?.description ?? profile.metadata.description ?? "",
       ...(profile.metadata.whenToUse || profile.metadata.aliases
         ? {
             "agent-native": {
@@ -2098,7 +2325,9 @@ function parseWorkspaceAppsManifest(
       const e = entry as Record<string, unknown>;
       const id = typeof e.id === "string" ? e.id.trim() : "";
       if (!id) return null;
+      const name = typeof e.name === "string" ? e.name.trim() : "";
       const url = normalizeWorkspaceAppUrl(e.url);
+      const icon = typeof e.icon === "string" ? e.icon.trim() : "";
       const hasHomePath = Object.prototype.hasOwnProperty.call(e, "homePath");
       const homePath = hasHomePath
         ? normalizeWorkspaceAppHomePath(e.homePath)
@@ -2111,6 +2340,11 @@ function parseWorkspaceAppsManifest(
       const protectedPaths = normalizeWorkspaceAppPathList(e.protectedPaths);
       return {
         id,
+        ...(name ? { name } : {}),
+        ...(typeof e.description === "string"
+          ? { description: e.description.trim() }
+          : {}),
+        ...(icon ? { icon } : {}),
         ...(url ? { url } : {}),
         ...(homePath ? { homePath } : {}),
         ...(audience ? { audience } : {}),

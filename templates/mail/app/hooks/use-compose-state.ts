@@ -1,6 +1,6 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
-import { useActionMutation } from "@agent-native/core/client/hooks";
+import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
 import {
   isSaveConflict,
   mergeRecords,
@@ -11,8 +11,9 @@ import {
   type SavedRecord,
   type SaveOverlap,
 } from "@agent-native/core/save-conflict";
+import { DRAFT_MAILBOX_BUSY_ERROR_CODE } from "@shared/draft-mailbox";
 import { appendSignatureToBody } from "@shared/signature";
-import type { ComposeState, UserSettings } from "@shared/types";
+import type { Alias, ComposeState, UserSettings } from "@shared/types";
 import {
   useQuery,
   useMutation,
@@ -22,6 +23,13 @@ import {
 import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect } from "react";
 
+import { aliasesQueryOptions } from "@/hooks/use-aliases";
+import {
+  ALIAS_PREFIX,
+  AliasResolutionError,
+  expandAliasTokens,
+  unresolvedAliasIds,
+} from "@/lib/alias-utils";
 import { TAB_ID } from "@/lib/tab-id";
 
 export const FOCUS_COMPOSE_DRAFT_EVENT = "mail:focus-compose-draft";
@@ -73,7 +81,13 @@ async function saveComposeDraftIfCurrent(
       },
       body: JSON.stringify({ expectedRevision, next: draft }),
     },
-  );
+  ).catch((error: unknown) => {
+    unstoredDrafts.add(draft.id);
+    throw error;
+  });
+  // A conflict isn't a refusal: Mail holds a newer draft, which a sync can copy.
+  if (res.ok || res.status === 409) unstoredDrafts.delete(draft.id);
+  else unstoredDrafts.add(draft.id);
   if (res.ok) return res.json();
   if (res.status !== 409) {
     throw Object.assign(new Error(`Request failed (${res.status})`), {
@@ -118,6 +132,9 @@ const dirtyDrafts: Record<string, boolean> = {};
 const draftVersions: Record<string, number> = {};
 const savedDrafts = new Map<string, ComposeState>();
 const pendingDraftMutations = new Map<string, Promise<unknown>>();
+// Drafts whose last write Mail's store refused or never answered, so nothing says
+// it holds their text.
+const unstoredDrafts = new Set<string>();
 let resolveDraftOverlap:
   | ((
       overlap: SaveOverlap<ComposeState>,
@@ -240,7 +257,16 @@ export function filterRemovedDrafts<T extends { id: string }>(
 
 async function saveDraftToEmails(
   draft: ComposeState,
+  aliases: Alias[],
 ): Promise<SavedDraftMetadata | undefined> {
+  const unresolved = [draft.to, draft.cc ?? "", draft.bcc ?? ""].flatMap(
+    (field) => unresolvedAliasIds(field, aliases),
+  );
+  if (unresolved.length > 0) {
+    throw new AliasResolutionError(
+      `Draft recipients use unknown aliases: ${unresolved.join(", ")}`,
+    );
+  }
   const result = await apiFetch<{
     draftId?: string;
     backend?: "gmail" | "local";
@@ -248,9 +274,9 @@ async function saveDraftToEmails(
   }>("/api/emails/draft", {
     method: "POST",
     body: JSON.stringify({
-      to: draft.to,
-      cc: draft.cc,
-      bcc: draft.bcc,
+      to: expandAliasTokens(draft.to, aliases),
+      cc: expandAliasTokens(draft.cc ?? "", aliases),
+      bcc: expandAliasTokens(draft.bcc ?? "", aliases),
       subject: draft.subject,
       body: draft.body,
       draftId: draft.savedDraftId,
@@ -277,20 +303,35 @@ async function saveDraftToEmails(
   };
 }
 
+type DraftSaved = { status: "saved" } & SavedDraftMetadata & {
+    // The text on screen went to the mailbox with no sync, so nothing has stored
+    // this copy's ID on the draft yet.
+    idNotStored?: boolean;
+  };
+
 export type DraftSaveResult =
-  | ({ status: "saved" } & SavedDraftMetadata)
+  | DraftSaved
   | { status: "unavailable" }
-  | { status: "failed"; error: unknown };
+  | {
+      status: "failed";
+      error: unknown;
+      // A sync that stopped short may still have made the draft's mailbox copy
+      // and pointed Mail's copy at it.
+      savedDraft?: SavedDraftMetadata;
+    }
+  // Mail no longer stores the draft, so there was nothing to copy.
+  | { status: "gone" };
 
 export type DraftSaveQueueResult =
-  | ({ status: "saved" } & SavedDraftMetadata)
+  | DraftSaved
   | { status: "unavailable"; savedDraft?: SavedDraftMetadata }
   | {
       status: "failed";
       error: unknown;
       savedDraft?: SavedDraftMetadata;
     }
-  | { status: "cancelled"; savedDraft?: SavedDraftMetadata };
+  | { status: "cancelled"; savedDraft?: SavedDraftMetadata }
+  | { status: "gone"; savedDraft?: SavedDraftMetadata };
 
 export function enqueueDraftSave(
   pending: Map<string, Promise<DraftSaveQueueResult>>,
@@ -328,9 +369,10 @@ export function enqueueDraftSave(
       ? applyDraftSaveResult(latest, { status: "saved", ...savedDraft })
       : latest;
     const result = await save(nextDraft);
-    return result.status === "saved"
-      ? result
-      : { ...result, ...(savedDraft ? { savedDraft } : {}) };
+    if (result.status === "saved") return result;
+    const latestCopy =
+      ("savedDraft" in result ? result.savedDraft : undefined) ?? savedDraft;
+    return { ...result, ...(latestCopy ? { savedDraft: latestCopy } : {}) };
   })();
   pending.set(draft.id, next);
   const clear = () => {
@@ -417,20 +459,34 @@ export function applyDraftSaveResult(
   };
 }
 
+export function failedOnAliasResolution(
+  result: DraftSaveResult | DraftSaveQueueResult,
+): boolean {
+  return (
+    result.status === "failed" && result.error instanceof AliasResolutionError
+  );
+}
+
 export function getDraftSaveMetadataUpdate(
   draft: ComposeState | undefined,
   result: DraftSaveQueueResult,
   isRemoved: boolean,
 ): ComposeState | undefined {
-  if (isRemoved || !draft || result.status !== "saved") return undefined;
+  const metadata =
+    result.status === "saved"
+      ? result
+      : result.status === "failed"
+        ? result.savedDraft
+        : undefined;
+  if (isRemoved || !draft || !metadata) return undefined;
   if (
-    result.draftId === draft.savedDraftId &&
-    result.backend === draft.savedDraftBackend &&
-    result.accountEmail === draft.savedDraftAccountEmail
+    metadata.draftId === draft.savedDraftId &&
+    metadata.backend === draft.savedDraftBackend &&
+    metadata.accountEmail === draft.savedDraftAccountEmail
   ) {
     return undefined;
   }
-  return applyDraftSaveResult(draft, result);
+  return applyDraftSaveResult(draft, { status: "saved", ...metadata });
 }
 
 export async function deleteSavedDraftAfterPendingSave(
@@ -469,15 +525,98 @@ export async function deleteSavedDraftAfterPendingSave(
 
 export async function saveDraftToEmailsBestEffort(
   draft: ComposeState,
+  aliases: Alias[] = [],
 ): Promise<DraftSaveResult> {
   try {
-    const savedDraft = await saveDraftToEmails(draft);
+    const savedDraft = await saveDraftToEmails(draft, aliases);
     return savedDraft
       ? { status: "saved", ...savedDraft }
       : { status: "unavailable" };
   } catch (error) {
     return { status: "failed", error };
   }
+}
+
+type MailboxSyncResponse =
+  | { status: "synced"; savedDraft: SavedDraftMetadata }
+  | {
+      status: "pending";
+      errorCode: string;
+      message: string;
+      retryAfterMs?: number;
+      savedDraft?: SavedDraftMetadata;
+    }
+  | { status: "unavailable" }
+  | { status: "gone" };
+
+/**
+ * Brings a draft's mailbox copy up to date with the draft as Mail stores it,
+ * once this tab's queued writes of it have landed. The server copies what's
+ * stored, not this tab's text, so a write that lost to another save, or that
+ * the person settled by keeping the other version, can't leave its own text in
+ * Gmail.
+ */
+export async function syncDraftToMailboxBestEffort(
+  pendingMutations: Map<string, Promise<unknown>>,
+  id: string,
+): Promise<DraftSaveResult> {
+  await pendingMutations.get(id)?.catch(() => undefined);
+  try {
+    const result = (await callAction("sync-draft-mailbox", {
+      id,
+    })) as MailboxSyncResponse;
+    if (result.status === "synced") {
+      return { status: "saved", ...result.savedDraft };
+    }
+    if (result.status === "pending") {
+      return {
+        status: "failed",
+        error: Object.assign(new Error(result.message), {
+          errorCode: result.errorCode,
+          retryAfterMs: result.retryAfterMs,
+        }),
+        ...(result.savedDraft ? { savedDraft: result.savedDraft } : {}),
+      };
+    }
+    return { status: result.status };
+  } catch (error) {
+    return { status: "failed", error };
+  }
+}
+
+/**
+ * Whether a save's mailbox copy only fell behind newer saves of the draft,
+ * which each sync the copy after them. Typing again while a sync runs does
+ * this, so it isn't a failed save to tell the person about.
+ */
+export function mailboxCopyOvertaken(result: DraftSaveResult): boolean {
+  return (
+    result.status === "failed" &&
+    typeof result.error === "object" &&
+    result.error !== null &&
+    "errorCode" in result.error &&
+    result.error.errorCode === DRAFT_MAILBOX_BUSY_ERROR_CODE
+  );
+}
+
+/**
+ * Keeps a draft's mailbox copy current. When Mail's store refused the draft's
+ * last write or never answered it, nothing says it holds anything current to
+ * copy and the text on screen may be the only copy there is, so that text goes
+ * to the mailbox instead, through `saveText`.
+ */
+export async function keepMailboxCopyCurrent(
+  pendingMutations: Map<string, Promise<unknown>>,
+  draft: ComposeState,
+  saveText: (draft: ComposeState) => Promise<DraftSaveResult> = (draft) =>
+    saveDraftToEmailsBestEffort(draft),
+): Promise<DraftSaveResult> {
+  await pendingMutations.get(draft.id)?.catch(() => undefined);
+  if (!unstoredDrafts.has(draft.id)) {
+    return syncDraftToMailboxBestEffort(pendingMutations, draft.id);
+  }
+  const result = await saveText(draft);
+  return result.status === "saved" ? { ...result, idNotStored: true } : result;
 }
 
 export function useComposeState() {
@@ -500,8 +639,30 @@ export function useComposeState() {
   const removedDraftIdsRef = useRef<Record<string, number>>({});
   const draftSaveFailuresRef = useRef<Set<string>>(new Set());
 
+  const saveDraft = useCallback(
+    async (draft: ComposeState): Promise<DraftSaveResult> => {
+      const usesAlias = [draft.to, draft.cc, draft.bcc].some((field) =>
+        field?.includes(ALIAS_PREFIX),
+      );
+      if (!usesAlias) return saveDraftToEmailsBestEffort(draft);
+      try {
+        const aliases = await qc.fetchQuery(aliasesQueryOptions);
+        return saveDraftToEmailsBestEffort(draft, aliases);
+      } catch (error) {
+        return {
+          status: "failed",
+          error: new AliasResolutionError("Could not load recipient aliases", {
+            cause: error,
+          }),
+        };
+      }
+    },
+    [qc],
+  );
+
   const reportDraftSaveResult = useCallback(
     (draft: ComposeState, result: DraftSaveResult) => {
+      if (mailboxCopyOvertaken(result)) return;
       if (result.status !== "saved") {
         if (draftSaveFailuresRef.current.has(draft.id)) return;
         draftSaveFailuresRef.current.add(draft.id);
@@ -690,9 +851,14 @@ export function useComposeState() {
             (draft) => draft.id === id,
           ),
         () => removedDraftIdsRef.current[id] !== undefined,
-        saveDraftToEmailsBestEffort,
+        (draft) =>
+          keepMailboxCopyCurrent(
+            pendingDraftMutationsRef.current,
+            draft,
+            saveDraft,
+          ),
       ).then((result) => {
-        if (result.status === "cancelled") return;
+        if (result.status === "cancelled" || result.status === "gone") return;
         reportDraftSaveResult(current, result);
         const latest = (
           qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
@@ -707,12 +873,15 @@ export function useComposeState() {
         qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
           (old ?? []).map((draft) => (draft.id === id ? updatedDraft : draft)),
         );
+        // A sync stored this on the draft already, and saving the draft again
+        // could store text newer than what it copied, with no sync after.
+        if (result.status !== "saved" || !result.idNotStored) return;
         void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
           putMutation.mutateAsync(updatedDraft),
         ).catch((error) => reportDraftWriteFailed(id, error));
       });
     },
-    [qc, putMutation, reportDraftSaveResult],
+    [qc, putMutation, reportDraftSaveResult, saveDraft],
   );
 
   const update = useCallback(
@@ -781,7 +950,7 @@ export function useComposeState() {
                   qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
                 ).find((current) => current.id === id),
               () => removedDraftIdsRef.current[id] !== undefined,
-              saveDraftToEmailsBestEffort,
+              saveDraft,
               true,
             ).then((result) => {
               if (result.status === "cancelled") {
@@ -802,12 +971,31 @@ export function useComposeState() {
 
       qc.setQueryData<ComposeState[]>(["compose-drafts"], remaining);
 
-      void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
-        deleteMutation.mutateAsync(id),
-      ).catch(() => undefined);
+      const removeLocalDraft = () =>
+        enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
+          deleteMutation.mutateAsync(id),
+        ).catch(() => undefined);
+
+      if (!savePromise || !draft) {
+        void removeLocalDraft();
+        return savePromise;
+      }
+
+      void savePromise.then(
+        (result) => {
+          if (!failedOnAliasResolution(result)) return removeLocalDraft();
+          delete removedDraftIdsRef.current[id];
+          qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
+            old?.some((d) => d.id === id)
+              ? old
+              : [...(old ?? []), applyDraftSaveResult(draft, result)],
+          );
+        },
+        () => removeLocalDraft(),
+      );
       return savePromise;
     },
-    [qc, deleteMutation, resolvedActiveId, reportDraftSaveResult],
+    [qc, deleteMutation, resolvedActiveId, reportDraftSaveResult, saveDraft],
   );
 
   const discard = useCallback(
@@ -944,7 +1132,7 @@ export function useComposeState() {
           draft,
           () => undefined,
           () => removedDraftIdsRef.current[draft.id] !== undefined,
-          saveDraftToEmailsBestEffort,
+          saveDraft,
           true,
         ).then(
           async (result) => {
@@ -1048,7 +1236,14 @@ export function useComposeState() {
         ]),
       );
     },
-    [qc, deleteMutation, putMutation, reportDraftSaveResult, stagedSendIds],
+    [
+      qc,
+      deleteMutation,
+      putMutation,
+      reportDraftSaveResult,
+      saveDraft,
+      stagedSendIds,
+    ],
   );
 
   const flush = useCallback(
@@ -1061,10 +1256,14 @@ export function useComposeState() {
       if (current) {
         dirtyRef.current[id] = false;
         versionRef.current[id] = versionRef.current[id] ?? 0;
-        if (hasDraftContent(current)) autoSaveToGmail(id);
-        return enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
-          putMutation.mutateAsync(current),
+        const saved = enqueueDraftMutation(
+          pendingDraftMutationsRef.current,
+          id,
+          () => putMutation.mutateAsync(current),
         );
+        // After the write is queued, so the mailbox copy is made from it.
+        if (hasDraftContent(current)) autoSaveToGmail(id);
+        return saved;
       }
     },
     [qc, putMutation, autoSaveToGmail],

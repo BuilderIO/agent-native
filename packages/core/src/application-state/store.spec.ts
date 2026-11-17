@@ -62,6 +62,7 @@ const {
   appStateCompareAndSetMany,
   appStateList,
   appStateListKeysByKeySuffixPrefix,
+  appStateListUpdatedAt,
   appStateDeleteByPrefix,
 } = await import("./store.js");
 
@@ -151,6 +152,27 @@ describe("application-state store", () => {
     const rows = await appStateList(SESSION, "compose_");
 
     expect(rows).toEqual([{ key: "compose_draft", value: { id: "draft" } }]);
+  });
+
+  it("lists the keys under a prefix with when each was written, from a given time on", async () => {
+    const write = (sessionId: string, key: string, updatedAt: number) =>
+      rawClient.execute({
+        sql: `INSERT INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, ?, ?)`,
+        args: [sessionId, key, "{}", updatedAt],
+      });
+    await write(SESSION, "used_1:a", 2_000);
+    await write(SESSION, "used_1:b", 1_000);
+    await write(SESSION, "usedX1:c", 3_000);
+    await write("bob@example.com", "used_1:d", 3_000);
+
+    const all = await appStateListUpdatedAt(SESSION, "used_1:");
+    expect(all.sort((x, y) => x.updatedAt - y.updatedAt)).toEqual([
+      { key: "used_1:b", updatedAt: 1_000 },
+      { key: "used_1:a", updatedAt: 2_000 },
+    ]);
+    await expect(
+      appStateListUpdatedAt(SESSION, "used_1:", 2_000),
+    ).resolves.toEqual([{ key: "used_1:a", updatedAt: 2_000 }]);
   });
 
   it("lists only current-app keys without reading their values", async () => {

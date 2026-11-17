@@ -13,6 +13,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { ReviewMention } from "@agent-native/core/review";
 import type { ReviewMentionOption } from "@agent-native/toolkit/app/review";
 import {
@@ -30,6 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
+  DEFAULT_AGENT_MENTION_ID,
   reviewAgentMentionOption,
   reviewAgentSelections,
   resolveReviewAgentMention,
@@ -317,7 +319,17 @@ export function useReviewAgentRequests({
   );
   const ready = active && selectionReady && options.length > 0;
   const mentionOptions = useMemo<readonly ReviewMentionOption[]>(
-    () => (ready ? options.map(reviewAgentMentionOption) : []),
+    () =>
+      ready
+        ? [
+            {
+              id: DEFAULT_AGENT_MENTION_ID,
+              label: "agent",
+              email: null,
+            },
+            ...options.map(reviewAgentMentionOption),
+          ]
+        : [],
     [options, ready],
   );
   const optionsRef = useRef(options);
@@ -500,7 +512,9 @@ export function useReviewAgentRequests({
         return "started";
       } catch (error) {
         console.warn("[design] could not start the review agent", error);
-        toast.error(tRef.current("review.agent.startFailed"));
+        reportWriteFailure(error, {
+          label: tRef.current("review.agent.startFailed"),
+        });
         return "unavailable";
       } finally {
         startingRef.current.delete(threadId);
@@ -527,14 +541,18 @@ export function useReviewAgentRequests({
           } catch (error) {
             // No run to abort yet (its dispatch never landed) is fine; the row is already cancelled.
             if (httpStatusOf(error) !== 404) {
-              toast.error(tRef.current("review.agent.cancelFailed"));
+              reportWriteFailure(error, {
+                label: tRef.current("review.agent.cancelFailed"),
+              });
             }
           }
         }
         await refetch();
       } catch (error) {
         console.warn("[design] could not stop the review agent", error);
-        toast.error(tRef.current("review.agent.cancelFailed"));
+        reportWriteFailure(error, {
+          label: tRef.current("review.agent.cancelFailed"),
+        });
       } finally {
         if (mountedRef.current) {
           setStoppingRequestIds((current) => {
