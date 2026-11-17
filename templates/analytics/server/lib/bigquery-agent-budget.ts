@@ -459,7 +459,11 @@ export async function admitBigQueryAgentJob(
   request: BigQueryAgentAdmissionRequest,
   options: {
     now?: Date;
-    /** Reads the time the lease starts from, once the budget rows are locked. */
+    /**
+     * Reads the time the job is admitted at, once the budget rows are locked:
+     * its lease starts then, and its day and the usage it is checked against
+     * are that moment's.
+     */
     clock?: () => Date;
     reconcile?: BigQueryAgentReconciler;
   } = {},
@@ -500,10 +504,12 @@ export async function admitBigQueryAgentJob(
           WHERE scope_key IN ($1, $2) ORDER BY scope_key FOR UPDATE`,
         args: [keys[0], keys[1]],
       });
-      // Reconciling and reading settings can take seconds, so the lease is
-      // read here, under the locks, and is what the caller's deadline comes from.
+      // Reconciling and reading settings can take seconds, so the lease, the
+      // day and the usage are read here, under the locks, and the lease is
+      // what the caller's deadline comes from.
+      const admittedAt = clock();
       const leaseExpiresAt = new Date(
-        clock().getTime() + request.leaseMs,
+        admittedAt.getTime() + request.leaseMs,
       ).toISOString();
       const existing = await tx.execute({
         sql: `SELECT request_id, state, resolution, owner_email, reserved_bytes::text AS reserved
@@ -569,10 +575,10 @@ export async function admitBigQueryAgentJob(
           reservedBytes: readBytes(prior.reserved, "reserved"),
           created: false,
           leaseExpiresAt: lease,
-          budget: await snapshotWith(tx, identity, limits, now),
+          budget: await snapshotWith(tx, identity, limits, admittedAt),
         };
       }
-      const budget = await snapshotWith(tx, identity, limits, now);
+      const budget = await snapshotWith(tx, identity, limits, admittedAt);
       const refusal = refusalFor(budget, limits, request.reservedBytes);
       if (refusal) {
         return {
@@ -608,7 +614,7 @@ export async function admitBigQueryAgentJob(
           budget.utcDay,
           request.estimatedBytes,
           request.reservedBytes,
-          now.toISOString(),
+          admittedAt.toISOString(),
           leaseExpiresAt,
         ],
       });

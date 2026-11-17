@@ -305,6 +305,52 @@ describe("admission", () => {
       BigQueryAgentBudgetUnavailableError,
     );
   });
+
+  it("admits against the day the budget rows were locked in, not the day it started reconciling", async () => {
+    const lateEvening = new Date("2026-11-17T23:59:00.000Z");
+    for (let index = 0; index < 3; index++) {
+      await admit(alice, JOB, lateEvening);
+      await settleBigQueryAgentJob(
+        "builder-3b0a2",
+        `job_${index + 1}`,
+        { kind: "billed", billedBytes: JOB, cacheHit: false },
+        lateEvening,
+      );
+    }
+    const afterMidnight = new Date("2026-11-18T00:00:01.000Z");
+    const admission = await admitBigQueryAgentJob(
+      alice,
+      {
+        source: "test",
+        projectId: "builder-3b0a2",
+        jobId: "across_midnight",
+        credentialScope: "default",
+        credentialFingerprint: PRINCIPAL,
+        estimatedBytes: null,
+        reservedBytes: JOB,
+        leaseMs: 60_000,
+      },
+      {
+        now: new Date("2026-11-17T23:59:59.500Z"),
+        clock: () => afterMidnight,
+      },
+    );
+    // Yesterday's $0.85 no longer counts, so no approval is asked for.
+    expect(admission).toMatchObject({
+      status: "admitted",
+      budget: {
+        utcDay: "2026-11-18",
+        person: { settledBytes: 0, reservedBytes: JOB },
+      },
+    });
+    const { rows } = await database.client!.query(
+      "SELECT utc_day, created_at FROM analytics_bigquery_agent_jobs WHERE job_id = 'across_midnight'",
+    );
+    expect(rows[0]).toEqual({
+      utc_day: "2026-11-18",
+      created_at: afterMidnight.toISOString(),
+    });
+  });
 });
 
 describe("settlement", () => {
