@@ -3,7 +3,8 @@
  * dispatcher vouched for that one invocation. Not in the package exports: the
  * action entry exposes no frame-evidence helpers but `noteExternalWrite`, which
  * can only add observed-write evidence, and `withoutWriteObservation`, which
- * can only keep a write from being counted. Request input or
+ * can only keep a write from being counted, and `currentActionOriginCaller`,
+ * which only reads the dispatcher-set caller. Request input or
  * `ActionRunContext` fields never become evidence. Trusted server dispatcher
  * APIs (`executeAgentToolCall`, `runAgentLoop`) can still supply approval and
  * attribution. Nothing here imports `action.ts` at runtime, so `action.ts` and
@@ -11,6 +12,7 @@
  */
 import type {
   ActionCallRecord,
+  ActionCaller,
   ActionExecutionOutcome,
   ActionRunContext,
 } from "./action.js";
@@ -127,6 +129,23 @@ export function currentInvocationEvidence():
   | undefined {
   const frame = actionExecutionStorage?.getStore()?.frame;
   return frame ? held.get(frame) : undefined;
+}
+
+/**
+ * The caller that started the action calls running now: the outermost call's
+ * `caller`, which a dispatcher set, never a nested call's own label or
+ * anything the request sent. Undefined outside an action call.
+ */
+export function currentActionOriginCaller(): ActionCaller | undefined {
+  let caller: ActionCaller | undefined;
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    caller = frame.context?.caller ?? caller;
+  }
+  return caller;
 }
 
 /**
