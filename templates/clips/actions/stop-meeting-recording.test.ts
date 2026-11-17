@@ -65,6 +65,14 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+// Slack huddle participants have their own tests (slack-huddles-store.test.ts).
+vi.mock("../server/lib/slack-huddle-oauth.js", () => ({
+  slackHuddleDeps: () => ({}),
+}));
+vi.mock("../server/lib/slack-huddles-store.js", () => ({
+  fillSlackHuddleParticipantsForMeeting: async () => 0,
+}));
+
 import action from "./stop-meeting-recording";
 
 function createDb(
