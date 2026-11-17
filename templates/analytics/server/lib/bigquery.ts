@@ -2352,7 +2352,8 @@ function failureCode(
  * one deadline (`signal`) through submission, polling and every result page.
  * Never resubmits under a new ID: an ambiguous submission is looked up by its
  * ID, and an insert that may have landed is only ever retried with the same
- * ID. Reads at most `maxRows + 1` rows, so a cut result says so. No app cache.
+ * ID. Reads at most `maxRows + 1` rows, so a cut result says so, and fetches
+ * no page past the one where either cap was reached. No app cache.
  */
 export async function runBoundedBigQueryJob(input: {
   projectId: string;
@@ -2503,7 +2504,21 @@ export async function runBoundedBigQueryJob(input: {
     return `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(projectId)}/queries/${encodeURIComponent(jobId)}?${params}`;
   };
   let data: BigQueryGetQueryResultsResponse = { jobComplete: false };
-  const rawRows: { f: { v: unknown }[] }[] = [];
+  // Each page is cut to the caps as it arrives, so nothing past them is kept.
+  const rows: Record<string, unknown>[] = [];
+  let bytes = 2;
+  const keep = (
+    page: BigQueryGetQueryResultsResponse["rows"],
+  ): "rows" | "bytes" | null => {
+    for (const row of rowsToObjects(page ?? [], data.schema?.fields ?? [])) {
+      if (rows.length === input.maxRows) return "rows";
+      bytes += Buffer.byteLength(JSON.stringify(row)) + 1;
+      if (bytes > input.maxResultBytes) return "bytes";
+      rows.push(row);
+    }
+    return null;
+  };
+  let truncation: "rows" | "bytes" | null = null;
   try {
     while (!data.jobComplete) {
       if (signal.aborted) return uncertain("timeout");
@@ -2542,14 +2557,14 @@ export async function runBoundedBigQueryJob(input: {
         };
       }
     }
-    rawRows.push(...(data.rows ?? []));
+    truncation = keep(data.rows);
     let pageToken = data.nextPageToken;
-    while (pageToken && rawRows.length <= input.maxRows) {
+    while (pageToken && truncation === null) {
       if (signal.aborted) return uncertain("timeout");
       const res = await fetch(pageUrl(pageToken), { signal, headers });
       if (!res.ok) return uncertain("poll_unreadable");
       const page = (await res.json()) as BigQueryGetQueryResultsResponse;
-      rawRows.push(...(page.rows ?? []));
+      truncation = keep(page.rows);
       pageToken = page.nextPageToken;
     }
   } catch (error) {
@@ -2558,18 +2573,6 @@ export async function runBoundedBigQueryJob(input: {
   }
 
   const fields = data.schema?.fields ?? [];
-  let truncation: "rows" | "bytes" | null = null;
-  let rows = rowsToObjects(rawRows.slice(0, input.maxRows), fields);
-  if (rawRows.length > input.maxRows) truncation = "rows";
-  let bytes = 2;
-  for (let index = 0; index < rows.length; index++) {
-    bytes += Buffer.byteLength(JSON.stringify(rows[index])) + 1;
-    if (bytes > input.maxResultBytes) {
-      rows = rows.slice(0, index);
-      truncation = "bytes";
-      break;
-    }
-  }
   return {
     status: "completed",
     rows,

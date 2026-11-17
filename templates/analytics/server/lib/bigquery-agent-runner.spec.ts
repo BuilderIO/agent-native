@@ -517,6 +517,58 @@ describe("runBigQueryAgentQuery", () => {
     expect(result.rowCount).toBeGreaterThan(0);
   });
 
+  /** A result BigQuery serves over pages, each pointing at the next. */
+  function servePages(pages: Array<{ f: { v: unknown }[] }[]>) {
+    scenario.poll = async (url) => {
+      const index = Number(url.searchParams.get("pageToken") ?? 0);
+      return completedPoll(
+        pages[index]!,
+        index + 1 < pages.length ? { nextPageToken: String(index + 1) } : {},
+      );
+    };
+  }
+
+  it("fetches no further page once a page passes the byte cap", async () => {
+    const page = rowsOf(50, "y".repeat(200));
+    servePages([page, page, page]);
+    const result = await runBigQueryAgentQuery({
+      sql: SQL,
+      source: "test",
+      maxResultBytes: 2_000,
+    });
+    expect(calls.polls).toHaveLength(1);
+    expect(result).toMatchObject({ truncated: true, truncation: "bytes" });
+    if (result.status !== "completed") throw new Error("expected rows");
+    // Each row serializes to 218 bytes: nine fit in 2,000, a tenth does not.
+    expect(result.rows.map((row) => row.id)).toEqual([
+      0, 1, 2, 3, 4, 5, 6, 7, 8,
+    ]);
+    expect(Buffer.byteLength(JSON.stringify(result.rows))).toBeLessThanOrEqual(
+      2_000,
+    );
+  });
+
+  it("cuts at the row cap across pages and fetches no page past it", async () => {
+    servePages([rowsOf(3, "a"), rowsOf(3, "b"), rowsOf(3, "c")]);
+    const cut = await runBigQueryAgentQuery({
+      sql: SQL,
+      source: "test",
+      maxRows: 5,
+    });
+    expect(calls.polls).toHaveLength(2);
+    expect(cut).toMatchObject({ rowCount: 5, truncation: "rows" });
+    if (cut.status !== "completed") throw new Error("expected rows");
+    expect(cut.rows.map((row) => row.name)).toEqual(["a", "a", "a", "b", "b"]);
+
+    // Exactly the cap: only a further row would make it a cut.
+    calls.polls = [];
+    servePages([rowsOf(3, "a"), rowsOf(3, "b")]);
+    expect(
+      await runBigQueryAgentQuery({ sql: SQL, source: "test", maxRows: 6 }),
+    ).toMatchObject({ rowCount: 6, truncation: null });
+    expect(calls.polls).toHaveLength(2);
+  });
+
   it("settles a confirmed provider cache hit at zero", async () => {
     scenario.poll = async () => completedPoll(rowsOf(2), { cacheHit: true });
     scenario.jobsGet = (jobId) =>
