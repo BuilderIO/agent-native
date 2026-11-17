@@ -222,6 +222,157 @@ describe("comment AI controls", () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    "This AI conversation is no longer available",
+    "The AI conversation could not be loaded",
+  ])(
+    "reports a protected conversation load failure and can retry: %s",
+    async (message) => {
+      const partial = request({
+        status: "needs-review",
+        agentThreadId: "agent-thread-1",
+        agentTurnId: "initial-turn-1",
+        result: { editApplied: true },
+      });
+      api.requests = [partial];
+      api.loadCommentAiConversation
+        .mockRejectedValueOnce(new Error(message))
+        .mockResolvedValue([
+          {
+            turnId: "initial-turn-1",
+            userText: "Original protected comment",
+            assistantText: "Previous answer",
+            status: "complete",
+          },
+        ]);
+      api.startBackgroundAgentSession.mockReturnValue({
+        operationId: "resume-1",
+        threadId: "agent-thread-1",
+        turnId: "resume-turn-1",
+        accepted: Promise.resolve(),
+        status: vi.fn(),
+      });
+      function Probe() {
+        const controller = useCommentAiRequests("document-1", {
+          enabled: true,
+        });
+        const current = controller.requests[0]!;
+        return createElement(CommentAiRequestStatus, {
+          request: current,
+          continuation: controller.continuations.get(current.operationId),
+          onRetry: () => controller.retry(current),
+          onStop: () => controller.stop(current),
+        });
+      }
+      await act(async () => root.render(createElement(Probe)));
+      const retry = () =>
+        [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+          (button) => button.textContent === "comments.retry",
+        )!;
+
+      await act(async () => retry().click());
+      expect(api.toastError).toHaveBeenCalledWith(
+        "comments.aiConversationUnavailable",
+        { description: message },
+      );
+      expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
+      expect(api.callAction).not.toHaveBeenCalled();
+      expect(retry()).toBeTruthy();
+
+      await act(async () => retry().click());
+      expect(api.loadCommentAiConversation).toHaveBeenCalledTimes(2);
+      expect(api.loadCommentAiConversation).toHaveBeenLastCalledWith({
+        operationId: "request-1",
+        agentThreadId: "agent-thread-1",
+        initialTurnId: "",
+      });
+      expect(api.startBackgroundAgentSession).toHaveBeenCalledOnce();
+      expect(api.startBackgroundAgentSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: "agent-thread-1",
+          scope: { type: "content-comment-ai", id: "request-1" },
+          actionScope: { kind: "content-comment-ai", requestId: "request-1" },
+          instructions: expect.stringContaining("Original protected comment"),
+          usageLabel: "content:comment-ai-resume",
+        }),
+      );
+    },
+  );
+
+  it("reports unexpected retry rejections without losing the retry control", async () => {
+    const onRetry = vi.fn().mockRejectedValue(new Error("Unexpected failure"));
+    await act(async () => {
+      root.render(
+        createElement(CommentAiRequestStatus, {
+          request: request(),
+          onRetry,
+          onStop: vi.fn(),
+        }),
+      );
+    });
+    await act(async () => {
+      [...document.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent === "comments.retry")!
+        .click();
+    });
+    expect(api.toastError).toHaveBeenCalledWith("empty.genericError", {
+      description: "Unexpected failure",
+    });
+    expect(document.body.textContent).toContain("comments.retry");
+  });
+
+  it("propagates a protected conversation load failure for a follow-up", async () => {
+    const base = request({
+      status: "replied",
+      agentThreadId: "agent-thread-1",
+      agentTurnId: "initial-turn-1",
+    });
+    const failure = new Error("The AI conversation could not be loaded");
+    api.requests = [base];
+    api.loadCommentAiConversation
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValue([
+        {
+          turnId: "initial-turn-1",
+          userText: "Protected original",
+          assistantText: "Previous answer",
+          status: "complete",
+        },
+      ]);
+    api.startBackgroundAgentSession.mockReturnValue({
+      operationId: "follow-up-1",
+      threadId: "agent-thread-1",
+      turnId: "follow-up-turn-1",
+      accepted: Promise.resolve(),
+      status: vi.fn(),
+    });
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    await act(async () => root.render(createElement(Probe)));
+    await expect(
+      act(async () => controller!.continue(base, "Follow up")),
+    ).rejects.toMatchObject({
+      message: "comments.aiConversationUnavailable",
+      cause: failure,
+    });
+    expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
+    expect(api.callAction).not.toHaveBeenCalled();
+    await act(async () => controller!.continue(base, "Follow up"));
+    expect(api.startBackgroundAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Follow up",
+        threadId: "agent-thread-1",
+        scope: { type: "content-comment-ai", id: "request-1" },
+        actionScope: { kind: "content-comment-ai", requestId: "request-1" },
+        instructions: expect.stringContaining("Protected original"),
+        usageLabel: "content:comment-ai-follow-up",
+      }),
+    );
+  });
+
   it("names the model a comment was sent to while it works", async () => {
     const label = async (
       overrides: Partial<CommentAiRequest>,

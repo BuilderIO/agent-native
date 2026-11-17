@@ -28,6 +28,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -122,6 +123,12 @@ export interface CommentAiContinuationState {
   status: BackgroundAgentSessionStatus;
   options?: BackgroundAgentSessionStartOptions;
   error?: string;
+}
+
+class CommentAiConversationUnavailableError extends Error {
+  constructor(message: string, cause: unknown) {
+    super(message, { cause });
+  }
 }
 
 interface CommentAiDispatchRecovery {
@@ -1054,13 +1061,20 @@ export function useCommentAiRequests(
       try {
         // Background sessions submit an empty model history. Rehydrate a
         // bounded transcript from this request's protected thread instead.
-        const priorConversation = boundedContinuationContext(
-          await loadCommentAiConversation({
+        let turns: Awaited<ReturnType<typeof loadCommentAiConversation>>;
+        try {
+          turns = await loadCommentAiConversation({
             operationId: request.operationId,
             agentThreadId: request.agentThreadId,
             initialTurnId: "",
-          }),
-        );
+          });
+        } catch (error) {
+          throw new CommentAiConversationUnavailableError(
+            t("comments.aiConversationUnavailable"),
+            error,
+          );
+        }
+        const priorConversation = boundedContinuationContext(turns);
         const options = {
           message,
           operationId,
@@ -1130,7 +1144,7 @@ export function useCommentAiRequests(
         throw error;
       }
     },
-    [monitorContinuation, updateContinuation],
+    [monitorContinuation, t, updateContinuation],
   );
 
   const continueConversation = useCallback<CommentAiController["continue"]>(
@@ -1423,7 +1437,25 @@ export function CommentAiRequestStatus({
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => void onRetry()}
+          onClick={async () => {
+            try {
+              await onRetry();
+            } catch (error) {
+              const cause =
+                error instanceof CommentAiConversationUnavailableError
+                  ? error.cause
+                  : error;
+              toast.error(
+                error instanceof CommentAiConversationUnavailableError
+                  ? error.message
+                  : t("empty.genericError"),
+                {
+                  description:
+                    cause instanceof Error ? cause.message : undefined,
+                },
+              );
+            }
+          }}
         >
           {t("comments.retry")}
         </Button>
