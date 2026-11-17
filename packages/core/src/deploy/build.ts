@@ -3633,7 +3633,7 @@ export function copyInstalledExternalSsrPackages(
     // Preserve an undici Nitro already traced into the emitted output.
     if (undiciOnly && packageName === "undici" && keepTracedUndici) {
       console.log(
-        `[deploy] Kept the undici ${tracedUndici?.version ?? "(version unknown)"} already traced in the Node server output; skipped Core's copy to avoid overwriting the app's dependency.`,
+        `[deploy] Kept the undici ${tracedUndici.version ?? "(version unknown)"} already traced in the Node server output; skipped Core's copy to avoid overwriting the app's dependency.`,
       );
       continue;
     }
