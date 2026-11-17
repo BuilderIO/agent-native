@@ -177,8 +177,10 @@ impl ScreenCapture {
         Shared::start_stream(&self.shared);
     }
 
+    /// Stopped while paused, the file ends where the pause began: the
+    /// recording's own end, though no frame came since.
     pub(in crate::native_screen) fn stop(&self) {
-        let stopped_secs = self.shared.clock.now_ms().map(|ms| ms / 1000.0);
+        let stopped_secs = self.shared.clock.position_ms().map(|ms| ms / 1000.0);
         Shared::close(&self.shared, stopped_secs);
     }
 }
@@ -218,6 +220,13 @@ impl Shared {
         self.generation.fetch_add(1, Ordering::SeqCst) + 1
     }
 
+    /// Whether a stream started for `generation` is still the one wanted.
+    /// `closing` counts as well as the generation: a resume that passed its
+    /// check before `close` can still take a new generation after it.
+    fn wants_stream(&self, generation: u64) -> bool {
+        !self.closing.load(Ordering::SeqCst) && self.generation.load(Ordering::SeqCst) == generation
+    }
+
     /// Starts a new stream on its own thread, replacing any earlier one.
     fn start_stream(this: &Arc<Self>) {
         if this.closing.load(Ordering::SeqCst) {
@@ -229,7 +238,7 @@ impl Shared {
             .name("clips-screen-track-stream-start".into())
             .spawn(move || {
                 if let Err(error) = Self::run_stream(&shared, generation) {
-                    if shared.generation.load(Ordering::SeqCst) == generation {
+                    if shared.wants_stream(generation) {
                         let mut state = lock(&shared.state);
                         Self::end_early(&shared, &mut state, error);
                     }
@@ -299,10 +308,11 @@ impl Shared {
             .start_capture()
             .map_err(|error| format!("its stream did not start: {error}"))?;
         // Kept only if nothing paused or stopped the track while it started;
-        // checked under the slot's lock, which `close` and `pause` take after
-        // moving the generation on.
+        // checked under the slot's lock, which `pause` takes after moving the
+        // generation on and `close` after setting `closing`, so a stream is
+        // either in the slot when they empty it or never kept.
         let mut slot = lock(&this.stream);
-        if this.generation.load(Ordering::SeqCst) == generation {
+        if this.wants_stream(generation) {
             *slot = Some((stream, queue));
         } else {
             drop(slot);
@@ -408,7 +418,7 @@ impl Shared {
             state.stopped_early = Some(reason);
         }
         state.accepting = false;
-        let stopped_secs = this.clock.now_ms().map(|ms| ms / 1000.0);
+        let stopped_secs = this.clock.position_ms().map(|ms| ms / 1000.0);
         Self::close(this, stopped_secs);
     }
 
@@ -438,7 +448,8 @@ impl Shared {
                 "[rich-tracks] {}: screen track could not close its file: {error}",
                 this.recording_id
             );
-            this.upload.cancel();
+            this.upload
+                .fail_source(format!("its file could not be closed: {error}"));
             this.upload.close_source();
         }
     }
@@ -509,12 +520,9 @@ impl Shared {
                 .unwrap_or_default()
         );
         *lock(&self.report) = report;
-        if writer
-            .as_ref()
-            .and_then(|writer| writer.sink.failure())
-            .is_some()
-        {
-            self.upload.cancel();
+        if let Some(error) = writer.as_ref().and_then(|writer| writer.sink.failure()) {
+            self.upload
+                .fail_source(format!("its file could not be written: {error}"));
         }
         self.upload.close_source();
     }
@@ -854,6 +862,95 @@ unsafe fn video_settings(width: u32, height: u32) -> Result<Retained<AnyObject>,
 mod tests {
     use super::super::rebased_time;
     use super::*;
+    use crate::native_screen::track_upload::TrackSendGate;
+
+    /// A screen track with no stream and no AVFoundation writer: enough for
+    /// the generation, the slot check and closing.
+    fn idle_track(clock: RecordingClock) -> Arc<Shared> {
+        Arc::new(Shared {
+            recording_id: "rec-idle".into(),
+            display_id: 1,
+            area: ScreenArea {
+                source_rect_pt: None,
+                width_px: 64,
+                height_px: 64,
+                scale: 1.0,
+            },
+            clock,
+            upload: Arc::new(TrackUploadCtrl::new(
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(TrackSendGate::new(|| Some(0))),
+            )),
+            generation: AtomicU64::new(0),
+            admission: RwLock::new(()),
+            closing: AtomicBool::new(false),
+            state: Mutex::new(WriterState {
+                writer: None,
+                started: false,
+                accepting: true,
+                timeline: FrameTimeline::default(),
+                held: None,
+                not_ready: 0,
+                stopped_early: None,
+            }),
+            stream: Mutex::new(None),
+            report: Mutex::new(ScreenTrackReport::default()),
+        })
+    }
+
+    fn clock_at(start_secs: f64) -> RecordingClock {
+        RecordingClock::new(
+            Arc::new(AtomicU64::new(start_secs.to_bits())),
+            Arc::new(AtomicU64::new(0.0_f64.to_bits())),
+            (1, 1),
+        )
+    }
+
+    fn wait_until_closed(track: &Shared) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !track.upload.source_closed() {
+            assert!(Instant::now() < deadline, "the track never closed");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn a_stream_started_once_the_track_is_closing_is_never_kept() {
+        let track = idle_track(clock_at(100.0));
+        let started = track.next_generation();
+        assert!(track.wants_stream(started));
+        // Paused while it started: the generation moved on.
+        track.next_generation();
+        assert!(!track.wants_stream(started));
+
+        // A resume passes its `closing` check, the track closes (its upload
+        // failed for good), and only then does the resume take a generation.
+        assert!(!track.closing.load(Ordering::SeqCst));
+        Shared::close(&track, None);
+        let resumed = track.next_generation();
+        assert!(!track.wants_stream(resumed));
+        wait_until_closed(&track);
+    }
+
+    #[test]
+    fn a_track_stopped_while_paused_ends_where_the_pause_began() {
+        let clock = clock_at(100.0);
+        let track = idle_track(clock.clone());
+        // One frame 2 s in, then nothing changed on screen.
+        {
+            let mut state = lock(&track.state);
+            state.started = true;
+            state.timeline.commit(2.0);
+        }
+        // Paused 20 s in and stopped while still paused.
+        clock.pause_at(120_000_000_000);
+        let capture = ScreenCapture {
+            shared: Arc::clone(&track),
+        };
+        capture.stop();
+        wait_until_closed(&track);
+        assert_eq!(capture.report().end_ms, Some(20_000));
+    }
 
     #[test]
     fn screen_frames_land_where_the_flattened_writer_puts_its_own() {
@@ -889,17 +986,17 @@ mod tests {
         assert_eq!(check(5_001.75, 0.0), 135_000);
         // Paused at 3 s for 4.2 s: no frame has a time meanwhile.
         offset.store(0.0_f64.to_bits(), Ordering::SeqCst);
-        clock_pause(&clock, true);
+        clock.pause_at(host_nanos(5_003.25));
         assert_eq!(clock.frame_time(5_004.0), FrameTime::Paused);
         // Resumed with the pipeline's offset grown by the pause: the next frame
         // follows on from 3 s, not from 7.2.
         offset.store(4.2_f64.to_bits(), Ordering::SeqCst);
-        clock_pause(&clock, false);
+        clock.resume_at(host_nanos(5_007.45));
         assert_eq!(check(5_007.55, 4.2), 279_000);
         assert_eq!(timeline.start_ms(), Some(1_500));
     }
 
-    fn clock_pause(clock: &RecordingClock, paused: bool) {
-        clock.set_paused_for_tests(paused);
+    fn host_nanos(secs: f64) -> u64 {
+        (secs * 1e9).round() as u64
     }
 }

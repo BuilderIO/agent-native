@@ -96,6 +96,8 @@ impl TrackSendGate {
 
 pub(super) struct TrackUploadCtrl {
     source_closed: AtomicBool,
+    /// Why the source could not write its file, if it couldn't.
+    source_failure: Mutex<Option<String>>,
     cancelled: AtomicBool,
     released: AtomicBool,
     sent_bytes: AtomicU64,
@@ -109,6 +111,7 @@ impl TrackUploadCtrl {
     pub(super) fn new(tracks_stopped: Arc<AtomicBool>, gate: Arc<TrackSendGate>) -> Self {
         Self {
             source_closed: AtomicBool::new(false),
+            source_failure: Mutex::new(None),
             cancelled: AtomicBool::new(false),
             released: AtomicBool::new(false),
             sent_bytes: AtomicU64::new(0),
@@ -155,6 +158,23 @@ impl TrackUploadCtrl {
     /// Nothing writes the track's file any more.
     pub(super) fn source_closed(&self) -> bool {
         self.source_closed.load(Ordering::SeqCst)
+    }
+
+    /// The source could not write its file, so what is on disk can't be sent:
+    /// the upload fails for good, which stops the source and deletes the
+    /// file, as when the server can't take it. Called before `close_source`.
+    pub(super) fn fail_source(&self, reason: String) {
+        self.source_failure
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get_or_insert(reason);
+    }
+
+    pub(super) fn source_failure(&self) -> Option<String> {
+        self.source_failure
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     pub(super) fn cancel(&self) {
@@ -420,8 +440,12 @@ async fn track_upload_loop(
             return TrackUploadOutcome::Stopped("another track was stopped".into());
         }
         // Read before the length: once the source is closed, the length read
-        // after it is final.
+        // after it is final. Read before the failure too: a source that fails
+        // says so before it closes, so a closed file is never sent as whole.
         let source_closed = ctrl.source_closed.load(Ordering::SeqCst);
+        if let Some(reason) = ctrl.source_failure() {
+            return TrackUploadOutcome::Failed(reason);
+        }
         let file_len = match std::fs::metadata(path) {
             Ok(metadata) => metadata.len(),
             Err(error) if error.kind() == ErrorKind::NotFound => 0,
@@ -803,6 +827,57 @@ mod tests {
         assert!(!screen.may_send(CHUNK));
         screen.release();
         assert!(screen.may_send(CHUNK));
+    }
+
+    #[test]
+    fn a_source_that_cannot_write_its_file_fails_its_upload_even_once_closed() {
+        let target = TrackUploadTarget {
+            server_url: "http://127.0.0.1:9".into(),
+            recording_id: "rec-write-failed".into(),
+            auth_token: String::new(),
+            cookie: String::new(),
+        };
+        let ctrl = TrackUploadCtrl::new(
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(TrackSendGate::new(|| Some(0))),
+        );
+        // Nothing reached the file, and the source closed it after saying it
+        // failed: without the failure that reads as an empty track.
+        ctrl.fail_source("its file could not be written".into());
+        ctrl.close_source();
+        let path = std::env::temp_dir().join(format!(
+            "clips-track-upload-test-{}-missing.jsonl.gz",
+            std::process::id()
+        ));
+        let outcome = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(track_upload_loop(
+                &target,
+                "input",
+                "application/gzip",
+                &path,
+                &ctrl,
+            ));
+        assert_eq!(
+            outcome,
+            TrackUploadOutcome::Failed("its file could not be written".into())
+        );
+        // Cancelling still wins: the recording is going, not the track.
+        ctrl.cancel();
+        let outcome = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(track_upload_loop(
+                &target,
+                "input",
+                "application/gzip",
+                &path,
+                &ctrl,
+            ));
+        assert_eq!(outcome, TrackUploadOutcome::Cancelled);
     }
 
     #[test]

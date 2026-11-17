@@ -989,20 +989,14 @@ mod capture {
         std::thread::Builder::new()
             .name("clips-input-track-writer".into())
             .spawn(move || {
-                run_writer(
+                write_track(
                     receiver,
                     writer_path,
                     || writer_clock.now_ms(),
                     &writer_report,
+                    &writer_tap,
+                    &upload,
                 );
-                if let Ok(mut report) = writer_report.lock() {
-                    report.gaps |= writer_tap.lost.load(Ordering::SeqCst);
-                    report.closed = true;
-                    if report.write_failed {
-                        upload.cancel();
-                    }
-                }
-                upload.close_source();
             })
             .map_err(|error| format!("input track writer could not start: {error}"))?;
 
@@ -1019,6 +1013,36 @@ mod capture {
             .spawn(move || run_tap(context))
             .map_err(|error| format!("input track tap could not start: {error}"))?;
         Ok(InputCapture { tap, report })
+    }
+
+    /// When the tap thread reads whether secure input is on. A run loop no
+    /// event wakes waits out its whole timeout, so the wait never runs past
+    /// the next check: a stretch of secure input as long as the poll is
+    /// always seen.
+    #[derive(Default)]
+    struct SecureInputPoll {
+        checked_at: Option<Instant>,
+    }
+
+    impl SecureInputPoll {
+        /// Whether a check is due at `now`; when it is, it counts as made.
+        fn due(&mut self, now: Instant) -> bool {
+            let due = self
+                .checked_at
+                .is_none_or(|at| now.saturating_duration_since(at) >= SECURE_INPUT_POLL);
+            if due {
+                self.checked_at = Some(now);
+            }
+            due
+        }
+
+        /// How long the run loop may wait at `now`.
+        fn wait(&self, now: Instant) -> Duration {
+            let until_check = self.checked_at.map_or(Duration::ZERO, |at| {
+                SECURE_INPUT_POLL.saturating_sub(now.saturating_duration_since(at))
+            });
+            TAP_POLL.min(until_check)
+        }
     }
 
     fn run_tap(context: TapContext) {
@@ -1079,7 +1103,7 @@ mod capture {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(runloop);
         tap.enable();
-        let mut secure_checked: Option<Instant> = None;
+        let mut secure_poll = SecureInputPoll::default();
         while !tap_shared.stop.load(Ordering::SeqCst) {
             if tap_shared.reenable.swap(false, Ordering::SeqCst) {
                 eprintln!(
@@ -1089,16 +1113,16 @@ mod capture {
             }
             // Under secure input the tap sees no keys at all, so a key let go
             // meanwhile is never seen to go up.
-            if secure_checked.is_none_or(|at| at.elapsed() >= SECURE_INPUT_POLL) {
-                secure_checked = Some(Instant::now());
+            if secure_poll.due(Instant::now()) {
                 // SAFETY: takes no arguments; reads whether any process holds
                 // secure input.
                 if unsafe { IsSecureEventInputEnabled() } != 0 {
                     tap_shared.mark_break();
                 }
             }
+            let wait = secure_poll.wait(Instant::now());
             // SAFETY: the mode constant is a static CFString.
-            let _ = CFRunLoop::run_in_mode(unsafe { kCFRunLoopDefaultMode }, TAP_POLL, true);
+            let _ = CFRunLoop::run_in_mode(unsafe { kCFRunLoopDefaultMode }, wait, true);
         }
         tap_shared
             .runloop
@@ -1107,6 +1131,34 @@ mod capture {
             .take();
         // Dropping the tap disables it, and dropping its callback closes the
         // writer's queue, which ends the writer.
+    }
+
+    /// The writer thread: writes the track until the tap stops, then closes
+    /// the file. A file that can't be written ends the track then and there,
+    /// as an upload that fails for good does: the tap stops, and the uploader
+    /// fails, which deletes the file. Only this track; the other carries on.
+    fn write_track(
+        receiver: Receiver<TapEvent>,
+        path: PathBuf,
+        now_ms: impl Fn() -> Option<f64>,
+        report: &Mutex<InputCaptureReport>,
+        tap: &TapShared,
+        upload: &TrackUploadCtrl,
+    ) {
+        run_writer(receiver, path, now_ms, report);
+        let write_failed = {
+            let mut report = report
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            report.gaps |= tap.lost.load(Ordering::SeqCst);
+            report.closed = true;
+            report.write_failed
+        };
+        if write_failed {
+            tap.stop();
+            upload.fail_source("its file could not be written".into());
+        }
+        upload.close_source();
     }
 
     fn run_writer(
@@ -1174,6 +1226,7 @@ mod capture {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use crate::native_screen::track_upload::TrackSendGate;
 
         #[test]
         fn every_gap_in_capture_forgets_held_keys_and_lost_events_mark_the_track() {
@@ -1212,6 +1265,101 @@ mod capture {
                 );
                 assert_eq!(tap.lost.load(Ordering::SeqCst), lost, "{gap}");
             }
+        }
+
+        #[test]
+        fn a_quiet_tap_checks_secure_input_every_poll() {
+            let start = Instant::now();
+            // Quiet: each pass waits out its whole timeout. Busy: an event
+            // wakes the run loop every 30 ms.
+            for woken_every in [None, Some(Duration::from_millis(30))] {
+                let mut poll = SecureInputPoll::default();
+                let mut now = start;
+                let mut checks = Vec::new();
+                while now - start < Duration::from_secs(2) {
+                    if poll.due(now) {
+                        checks.push(now);
+                    }
+                    let wait = poll.wait(now);
+                    assert!(wait <= TAP_POLL);
+                    now += woken_every.map_or(wait, |every| wait.min(every));
+                }
+                assert!(checks.len() > 2, "{woken_every:?}");
+                for pair in checks.windows(2) {
+                    assert_eq!(pair[1] - pair[0], SECURE_INPUT_POLL, "{woken_every:?}");
+                }
+            }
+        }
+
+        #[test]
+        fn a_file_that_cannot_be_written_stops_the_tap_and_fails_the_upload() {
+            let tap = TapShared::default();
+            let report = Mutex::new(InputCaptureReport::default());
+            let upload = TrackUploadCtrl::new(
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(TrackSendGate::new(|| Some(0))),
+            );
+            // In a folder that isn't there, so the file can't be made.
+            let path = std::env::temp_dir()
+                .join(format!(
+                    "clips-input-track-test-{}-missing",
+                    std::process::id()
+                ))
+                .join(INPUT_TRACK_FILE);
+            let (sender, receiver) = sync_channel(4);
+            sender
+                .send(TapEvent {
+                    at: 5.0,
+                    sample: InputSample::Move { x: 1.0, y: 2.0 },
+                })
+                .unwrap();
+            drop(sender);
+            write_track(
+                receiver,
+                path.clone(),
+                || Some(10.0),
+                &report,
+                &tap,
+                &upload,
+            );
+            assert!(report.lock().unwrap().write_failed);
+            // The tap stops rather than run on with nothing writing its events,
+            // and the upload fails, which deletes the file and leaves the
+            // other track be.
+            assert!(tap.stop.load(Ordering::SeqCst));
+            assert_eq!(
+                upload.source_failure().as_deref(),
+                Some("its file could not be written")
+            );
+            assert!(upload.source_closed());
+            assert!(!path.exists());
+
+            // A track that writes fine only closes.
+            let dir = std::env::temp_dir().join(format!(
+                "clips-input-track-test-{}-written",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let tap = TapShared::default();
+            let report = Mutex::new(InputCaptureReport::default());
+            let upload = TrackUploadCtrl::new(
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(TrackSendGate::new(|| Some(0))),
+            );
+            let (sender, receiver) = sync_channel(4);
+            drop(sender);
+            write_track(
+                receiver,
+                dir.join(INPUT_TRACK_FILE),
+                || Some(10.0),
+                &report,
+                &tap,
+                &upload,
+            );
+            assert!(!tap.stop.load(Ordering::SeqCst));
+            assert_eq!(upload.source_failure(), None);
+            assert!(upload.source_closed());
+            let _ = std::fs::remove_dir_all(&dir);
         }
     }
 }

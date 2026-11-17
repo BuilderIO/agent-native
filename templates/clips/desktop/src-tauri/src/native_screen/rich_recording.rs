@@ -8,9 +8,10 @@
 //! fails the recording.
 //!
 //! The folder is deleted however the recording ends: finalized or not, the
-//! tracks abandoned, the recording discarded. Nothing retries a track later
-//! (kept originals are for resending the flattened file only), so a folder
-//! left behind would never be read again; the screen file runs to gigabytes.
+//! tracks abandoned, the recording discarded, the app quit before the tracks
+//! were sent. Nothing retries a track later (kept originals are for resending
+//! the flattened file only), so a folder left behind would never be read
+//! again; the screen file runs to gigabytes.
 //!
 //! Tracks are kept only for display and region recordings on the custom
 //! capture pipeline with live upload. Track times are that pipeline's:
@@ -23,6 +24,9 @@
 //! once that file is complete.
 
 use super::*;
+
+use std::collections::BTreeMap;
+use std::sync::MutexGuard;
 
 use super::input_track::{
     event_host_nanos, input_capture_allowed, recording_ms, start_input_capture, DisplayGeometry,
@@ -72,13 +76,37 @@ fn host_timebase() -> (u32, u32) {
     }
 }
 
+/// The recording's pauses on the host clock.
+#[derive(Debug, Default)]
+struct PauseLog {
+    /// The pause under way: the host time it began at, and the recording
+    /// position it holds.
+    current: Option<(u64, f64)>,
+    /// Pauses that have ended, `[began, ended)` in host time.
+    ended: Vec<(u64, u64)>,
+}
+
+impl PauseLog {
+    /// Whether something captured at `host_nanos` belongs to no recording
+    /// time: anything while paused, and anything from inside a pause that has
+    /// ended, however late its callback runs. After the resume the pipeline's
+    /// offset has grown, and would give it a time in the stretch after.
+    fn covers(&self, host_nanos: u64) -> bool {
+        self.current.is_some()
+            || self
+                .ended
+                .iter()
+                .any(|&(began, ended)| (began..ended).contains(&host_nanos))
+    }
+}
+
 /// Recording time, read from the capture pipeline's own clock state: the
 /// first frame's host time and the pause offset it subtracts from frames.
 #[derive(Clone)]
 pub(super) struct RecordingClock {
     session_start_bits: Arc<AtomicU64>,
     pause_offset_bits: Arc<AtomicU64>,
-    paused: Arc<AtomicBool>,
+    pauses: Arc<Mutex<PauseLog>>,
     /// The host time Stop was pressed at; nothing after it is kept.
     stop_host_nanos: Arc<AtomicU64>,
     timebase: (u32, u32),
@@ -93,7 +121,7 @@ impl RecordingClock {
         Self {
             session_start_bits,
             pause_offset_bits,
-            paused: Arc::new(AtomicBool::new(false)),
+            pauses: Arc::default(),
             stop_host_nanos: Arc::new(AtomicU64::new(u64::MAX)),
             timebase,
         }
@@ -109,26 +137,56 @@ impl RecordingClock {
         host_nanos > self.stop_host_nanos.load(Ordering::SeqCst)
     }
 
-    #[cfg(test)]
-    pub(super) fn set_paused_for_tests(&self, paused: bool) {
-        self.paused.store(paused, Ordering::SeqCst);
+    fn pause_log(&self) -> MutexGuard<'_, PauseLog> {
+        self.pauses
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The capture pipeline paused at `host_nanos`. Returns the recording
+    /// position the pause holds; a second call keeps the first one's.
+    pub(super) fn pause_at(&self, host_nanos: u64) -> f64 {
+        let position = recording_ms(
+            host_nanos,
+            self.session_start_secs(),
+            self.pause_offset_secs(),
+        )
+        .unwrap_or(0.0);
+        self.pause_log()
+            .current
+            .get_or_insert((host_nanos, position))
+            .1
+    }
+
+    /// The capture pipeline resumed at `host_nanos`. Returns the position the
+    /// pause held, or `None` when it wasn't paused.
+    pub(super) fn resume_at(&self, host_nanos: u64) -> Option<f64> {
+        let mut log = self.pause_log();
+        let (began, position) = log.current.take()?;
+        log.ended.push((began, host_nanos.max(began)));
+        Some(position)
+    }
+
+    /// The position the pause under way holds; `None` while not paused.
+    pub(super) fn paused_position_ms(&self) -> Option<f64> {
+        self.pause_log().current.map(|(_, position)| position)
     }
 
     fn session_start_secs(&self) -> f64 {
         f64::from_bits(self.session_start_bits.load(Ordering::SeqCst))
     }
 
-    /// Recording milliseconds of a host time; `None` before the first frame
-    /// and while paused.
+    fn pause_offset_secs(&self) -> f64 {
+        f64::from_bits(self.pause_offset_bits.load(Ordering::SeqCst))
+    }
+
+    /// Recording milliseconds of a host time; `None` before the first frame,
+    /// while paused and for a time inside an earlier pause.
     pub(super) fn at_host_nanos(&self, nanos: u64) -> Option<f64> {
-        if self.paused.load(Ordering::SeqCst) {
+        if self.pause_log().covers(nanos) {
             return None;
         }
-        recording_ms(
-            nanos,
-            self.session_start_secs(),
-            f64::from_bits(self.pause_offset_bits.load(Ordering::SeqCst)),
-        )
+        recording_ms(nanos, self.session_start_secs(), self.pause_offset_secs())
     }
 
     /// Recording milliseconds of an event's `CGEventGetTimestamp`; `None` for
@@ -146,23 +204,37 @@ impl RecordingClock {
         self.at_host_nanos(self.host_now_nanos())
     }
 
+    /// Where the recording is: now, or while paused the position the pause
+    /// holds, which is where a track stopped while paused ends.
+    pub(super) fn position_ms(&self) -> Option<f64> {
+        self.paused_position_ms().or_else(|| self.now_ms())
+    }
+
+    pub(super) fn pause(&self) -> f64 {
+        self.pause_at(self.host_now_nanos())
+    }
+
+    pub(super) fn resume(&self) -> Option<f64> {
+        self.resume_at(self.host_now_nanos())
+    }
+
     /// Recording seconds of a ScreenCaptureKit frame stamped `pts_secs`: the
     /// first frame's time and the pause offset taken off, as the flattened
     /// writer retimes its own frames. Negative for a frame captured before
     /// the first one.
     pub(super) fn frame_time(&self, pts_secs: f64) -> FrameTime {
-        if self.after_stop((pts_secs.max(0.0) * 1e9) as u64) {
+        let host_nanos = (pts_secs.max(0.0) * 1e9) as u64;
+        if self.after_stop(host_nanos) {
             return FrameTime::AfterStop;
         }
-        if self.paused.load(Ordering::SeqCst) {
+        if self.pause_log().covers(host_nanos) {
             return FrameTime::Paused;
         }
         let start = self.session_start_secs();
         if !start.is_finite() {
             return FrameTime::BeforeStart;
         }
-        let offset = f64::from_bits(self.pause_offset_bits.load(Ordering::SeqCst));
-        FrameTime::At(pts_secs - start - offset)
+        FrameTime::At(pts_secs - start - self.pause_offset_secs())
     }
 
     fn host_now_nanos(&self) -> u64 {
@@ -361,7 +433,6 @@ pub(super) struct RichRecording {
     camera_bubble: bool,
     app_version: String,
     pauses: Vec<Pause>,
-    paused_at_ms: Option<f64>,
     stopped_at: Option<(chrono::DateTime<Utc>, u64)>,
     tracks: Vec<RunningTrack>,
 }
@@ -419,6 +490,7 @@ pub(super) fn attach_rich_recording(
     if let Err(error) = std::fs::create_dir_all(&folder) {
         return skip(&format!("{} could not be made: {error}", folder.display()));
     }
+    FOLDERS_IN_USE.add(&folder, recording_id);
     let target = Arc::new(TrackUploadTarget {
         server_url: server_url.to_string(),
         recording_id: recording_id.to_string(),
@@ -473,7 +545,6 @@ pub(super) fn attach_rich_recording(
         camera_bubble: has_camera && session.restart.include_camera_overlay,
         app_version: app.package_info().version.to_string(),
         pauses: Vec::new(),
-        paused_at_ms: None,
         stopped_at: None,
         tracks,
     });
@@ -681,11 +752,10 @@ impl TrackTeardown {
 impl RichRecording {
     /// The capture pipeline just paused: its frames stop until `resume`.
     pub(super) fn pause(&mut self) {
-        if self.paused_at_ms.is_some() {
+        if self.clock.paused_position_ms().is_some() {
             return;
         }
-        self.paused_at_ms = Some(self.clock.now_ms().unwrap_or(0.0));
-        self.clock.paused.store(true, Ordering::SeqCst);
+        self.clock.pause();
         for track in &self.tracks {
             track.source.pause();
         }
@@ -693,14 +763,13 @@ impl RichRecording {
 
     /// The capture pipeline resumed with `paused_for` added to its offset.
     pub(super) fn resume(&mut self, paused_for: Duration) {
-        let Some(at_ms) = self.paused_at_ms.take() else {
+        let Some(at_ms) = self.clock.resume() else {
             return;
         };
         self.pauses.push(Pause {
             at_ms: (at_ms.round().max(0.0) as u64).min(MAX_RECORDING_MS),
             wall_ms: paused_for.as_millis() as u64,
         });
-        self.clock.paused.store(false, Ordering::SeqCst);
         for track in &self.tracks {
             track.source.resume();
         }
@@ -708,7 +777,7 @@ impl RichRecording {
 
     #[cfg(test)]
     pub(super) fn is_paused(&self) -> bool {
-        self.paused_at_ms.is_some() && self.clock.paused.load(Ordering::SeqCst)
+        self.clock.paused_position_ms().is_some()
     }
 
     /// The recording stopped: stop capturing input and the screen right away,
@@ -843,11 +912,63 @@ fn remove_path(recording_id: &str, path: &Path) {
     match removed {
         Ok(()) => eprintln!("[rich-tracks] {recording_id}: removed {}", path.display()),
         Err(error) if error.kind() == ErrorKind::NotFound => {}
-        Err(error) => eprintln!(
-            "[rich-tracks] {recording_id}: {} could not be removed: {error}",
-            path.display()
-        ),
+        Err(error) => {
+            eprintln!(
+                "[rich-tracks] {recording_id}: {} could not be removed: {error}",
+                path.display()
+            );
+            return;
+        }
     }
+    FOLDERS_IN_USE.forget(path);
+}
+
+/// The tracks folders this run has made and not yet removed, by recording id.
+/// After Stop a recording's tracks leave the session, and once the video is
+/// finalized they send on in the background, so a quit meanwhile reaches
+/// their folder only through here.
+struct FoldersInUse(Mutex<BTreeMap<PathBuf, String>>);
+
+static FOLDERS_IN_USE: FoldersInUse = FoldersInUse::new();
+
+impl FoldersInUse {
+    const fn new() -> Self {
+        Self(Mutex::new(BTreeMap::new()))
+    }
+
+    fn folders(&self) -> MutexGuard<'_, BTreeMap<PathBuf, String>> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn add(&self, folder: &Path, recording_id: &str) {
+        self.folders()
+            .insert(folder.to_path_buf(), recording_id.to_string());
+    }
+
+    fn forget(&self, path: &Path) {
+        self.folders().remove(path);
+    }
+
+    #[cfg(test)]
+    fn contains(&self, folder: &Path) -> bool {
+        self.folders().contains_key(folder)
+    }
+
+    /// Deletes every folder now, whatever is still writing or sending there.
+    fn remove_all(&self) {
+        let folders = std::mem::take(&mut *self.folders());
+        for (folder, recording_id) in folders {
+            remove_path(&recording_id, &folder);
+        }
+    }
+}
+
+/// The app is quitting: deletes every tracks folder this run still has,
+/// without waiting for anything writing or sending there.
+pub(super) fn remove_tracks_folders_in_use() {
+    FOLDERS_IN_USE.remove_all();
 }
 
 /// Whether `name` is a tracks folder this app made for a recording of another
@@ -1161,11 +1282,11 @@ mod tests {
         start.store(100.0_f64.to_bits(), Ordering::SeqCst);
         assert_eq!(clock.at_host_nanos(secs(101.5)), Some(1500.0));
         // Paused: nothing has a recording time.
-        clock.paused.store(true, Ordering::SeqCst);
+        clock.pause_at(secs(102.0));
         assert_eq!(clock.at_host_nanos(secs(103.0)), None);
         // Resumed after 5 seconds: the pipeline's offset grows by them.
         offset.store(5.0_f64.to_bits(), Ordering::SeqCst);
-        clock.paused.store(false, Ordering::SeqCst);
+        clock.resume_at(secs(107.0));
         let ms = clock.at_host_nanos(secs(108.0)).unwrap();
         assert!((ms - 3000.0).abs() < 1e-6, "{ms}");
     }
@@ -1322,16 +1443,17 @@ mod tests {
         let start = Arc::new(AtomicU64::new(f64::NAN.to_bits()));
         let offset = Arc::new(AtomicU64::new(0.0_f64.to_bits()));
         let clock = RecordingClock::new(Arc::clone(&start), Arc::clone(&offset), (1, 1));
+        let secs = |s: f64| (s * 1e9) as u64;
         assert_eq!(clock.frame_time(99.0), FrameTime::BeforeStart);
         start.store(100.0_f64.to_bits(), Ordering::SeqCst);
         // Captured just before the first frame: before zero.
         assert_eq!(clock.frame_time(99.75), FrameTime::At(-0.25));
         assert_eq!(clock.frame_time(102.5), FrameTime::At(2.5));
-        clock.paused.store(true, Ordering::SeqCst);
+        clock.pause_at(secs(103.0));
         assert_eq!(clock.frame_time(104.0), FrameTime::Paused);
         // Paused at 3 s for 6 s.
         offset.store(6.0_f64.to_bits(), Ordering::SeqCst);
-        clock.paused.store(false, Ordering::SeqCst);
+        clock.resume_at(secs(109.0));
         assert_eq!(clock.frame_time(110.0), FrameTime::At(4.0));
     }
 
@@ -1463,7 +1585,6 @@ mod tests {
                 camera_bubble: false,
                 app_version: "1.4.0".into(),
                 pauses: Vec::new(),
-                paused_at_ms: None,
                 stopped_at: None,
                 tracks: vec![self.track(SCREEN_TRACK_ID, TrackUploadOutcome::Cancelled)],
             }
@@ -1633,6 +1754,68 @@ mod tests {
     }
 
     #[test]
+    fn nothing_captured_inside_a_pause_has_a_recording_time_however_late_it_arrives() {
+        let start = Arc::new(AtomicU64::new(100.0_f64.to_bits()));
+        let offset = Arc::new(AtomicU64::new(0.0_f64.to_bits()));
+        let clock = RecordingClock::new(start, Arc::clone(&offset), (1, 1));
+        let secs = |s: f64| (s * 1e9) as u64;
+        // Paused 3 s in for 5 s; the pipeline's offset grows by them.
+        assert_eq!(clock.pause_at(secs(103.0)), 3000.0);
+        offset.store(5.0_f64.to_bits(), Ordering::SeqCst);
+        assert_eq!(clock.resume_at(secs(108.0)), Some(3000.0));
+        // An event and a frame captured during the pause whose callbacks run
+        // only after the resume, when the new offset would place them at 0 s
+        // and 2.9 s.
+        assert_eq!(clock.at_event_stamp(secs(105.0)), None);
+        assert_eq!(clock.frame_time(107.9), FrameTime::Paused);
+        // What came after the resume follows on from 3 s.
+        assert_eq!(clock.at_event_stamp(secs(108.5)), Some(3500.0));
+        assert_eq!(clock.frame_time(109.0), FrameTime::At(4.0));
+        // A second pause keeps the first one's stretch too.
+        assert_eq!(clock.pause_at(secs(110.0)), 5000.0);
+        offset.store(7.0_f64.to_bits(), Ordering::SeqCst);
+        clock.resume_at(secs(112.0));
+        assert_eq!(clock.at_event_stamp(secs(106.0)), None);
+        assert_eq!(clock.at_event_stamp(secs(111.0)), None);
+        assert_eq!(clock.at_event_stamp(secs(113.0)), Some(6000.0));
+    }
+
+    #[test]
+    fn stopped_while_paused_the_recording_is_where_the_pause_began() {
+        let start = Arc::new(AtomicU64::new(100.0_f64.to_bits()));
+        let offset = Arc::new(AtomicU64::new(0.0_f64.to_bits()));
+        let clock = RecordingClock::new(start, Arc::clone(&offset), (1, 1));
+        let secs = |s: f64| (s * 1e9) as u64;
+        // Paused 20 s in: no time is now, but the recording is at 20 s for
+        // as long as the pause lasts, and a second pause call keeps it there.
+        assert_eq!(clock.pause_at(secs(120.0)), 20_000.0);
+        assert_eq!(clock.pause_at(secs(125.0)), 20_000.0);
+        assert_eq!(clock.now_ms(), None);
+        assert_eq!(clock.position_ms(), Some(20_000.0));
+        offset.store(10.0_f64.to_bits(), Ordering::SeqCst);
+        assert_eq!(clock.resume_at(secs(130.0)), Some(20_000.0));
+        assert_eq!(clock.paused_position_ms(), None);
+        assert_eq!(clock.resume_at(secs(131.0)), None);
+
+        // The session's pause and resume go through the clock the tracks
+        // read, and the manifest's pause comes from the position it held.
+        let fixture = Fixture::new("paused-position");
+        let mut recording = fixture.recording();
+        recording.pause();
+        let held = recording.clock.paused_position_ms().unwrap();
+        assert_eq!(recording.clock.position_ms(), Some(held));
+        recording.resume(Duration::from_millis(4_200));
+        assert_eq!(
+            recording.pauses,
+            [Pause {
+                at_ms: (held.round() as u64).min(MAX_RECORDING_MS),
+                wall_ms: 4_200,
+            }]
+        );
+        recording.discard();
+    }
+
+    #[test]
     fn a_soft_pause_pauses_the_tracks_even_when_the_rest_of_it_fails() {
         let mut session = super::super::detached_discard_tests::hardware_free_session(
             PathBuf::from("paused.mp4"),
@@ -1739,6 +1922,92 @@ mod tests {
         assert!(!fixture.folder.exists());
         assert_eq!(*calls.lock().unwrap(), ["stop"]);
         assert!(!ctrl.source_closed());
+    }
+
+    #[test]
+    fn a_tracks_folder_is_listed_until_it_goes_and_quitting_deletes_the_rest() {
+        // Removing a folder by any path takes it off the list.
+        let discarded = Fixture::new("in-use-discard");
+        FOLDERS_IN_USE.add(&discarded.folder, &discarded.target.recording_id);
+        assert!(FOLDERS_IN_USE.contains(&discarded.folder));
+        discarded.recording().discard();
+        assert!(!discarded.folder.exists());
+        assert!(!FOLDERS_IN_USE.contains(&discarded.folder));
+
+        // Finished in the background after Stop: listed until finalizing is
+        // over and the folder has gone.
+        let finished = Fixture::new("in-use-finished");
+        FOLDERS_IN_USE.add(&finished.folder, &finished.target.recording_id);
+        let track = finished.track(
+            SCREEN_TRACK_ID,
+            TrackUploadOutcome::Sent {
+                bytes: 9,
+                chunks: 1,
+            },
+        );
+        assert!(finished.finish(vec![track], Ok(())).is_some());
+        assert!(!finished.folder.exists());
+        assert!(!FOLDERS_IN_USE.contains(&finished.folder));
+
+        // Quitting while stopped recordings' tracks still wait or send:
+        // every listed folder goes at once, files still open or not.
+        let in_use = FoldersInUse::new();
+        let sending = Fixture::new("in-use-sending");
+        let waiting = Fixture::new("in-use-waiting");
+        in_use.add(&sending.folder, &sending.target.recording_id);
+        in_use.add(&waiting.folder, &waiting.target.recording_id);
+        in_use.remove_all();
+        assert!(!sending.folder.exists());
+        assert!(!waiting.folder.exists());
+        assert!(!in_use.contains(&sending.folder));
+        assert!(!in_use.contains(&waiting.folder));
+    }
+
+    #[test]
+    fn a_track_whose_file_cannot_be_written_ends_alone_and_its_file_goes() {
+        let fixture = Fixture::new("write-failed");
+        std::fs::write(fixture.folder.join(INPUT_TRACK_FILE), b"lines").unwrap();
+        // Chunks are held back, so nothing here reaches the network.
+        fixture.gate.stop_recording();
+        let (input_ctrl, screen_ctrl) = (fixture.ctrl(), fixture.ctrl());
+        let input = TestSource::new(&input_ctrl);
+        let screen = TestSource::new(&screen_ctrl);
+        let calls = [input.calls(), screen.calls()];
+        let started = |id, file: &str, source: TestSource| StartedSource {
+            id,
+            file: fixture.folder.join(file),
+            content_type: "application/octet-stream",
+            ctrl: Arc::clone(&source.ctrl),
+            source: Arc::new(source),
+        };
+        let mut tracks = spawn_uploaders(
+            &fixture.target,
+            &fixture.folder,
+            vec![
+                started(INPUT_TRACK_ID, INPUT_TRACK_FILE, input),
+                started(SCREEN_TRACK_ID, SCREEN_TRACK_FILE, screen),
+            ],
+        );
+        // The input writer fails to write, says so, and closes its file.
+        input_ctrl.fail_source("its file could not be written".into());
+        input_ctrl.close_source();
+        let result_rx = tracks.remove(0).upload.result_rx;
+        let outcome = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(async { tokio::time::timeout(Duration::from_secs(10), result_rx).await });
+        assert!(
+            matches!(outcome, Ok(Ok(TrackUploadOutcome::Failed(_)))),
+            "{outcome:?}"
+        );
+        // Its source is stopped and its file gone; the screen track goes on.
+        assert_eq!(*calls[0].lock().unwrap(), ["stop"]);
+        assert!(!fixture.folder.join(INPUT_TRACK_FILE).exists());
+        assert!(calls[1].lock().unwrap().is_empty());
+        assert!(fixture.folder.join(SCREEN_TRACK_FILE).exists());
+        screen_ctrl.cancel();
+        let _ = std::fs::remove_dir_all(&fixture.folder);
     }
 
     #[test]

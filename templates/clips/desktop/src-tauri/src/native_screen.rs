@@ -3698,7 +3698,9 @@ pub(crate) fn kill_active_screencapture_child(state: &NativeFullscreenRecordingS
 
 /// Quitting: static state is never dropped and the quit may skip destructors,
 /// so a rich recording's tap, second stream and uploaders are stopped here and
-/// its folder deleted. Nothing would send its tracks after this run.
+/// its folder deleted, and so is every tracks folder of a recording already
+/// stopped, whose tracks wait or send in the background. Nothing would send
+/// their tracks after this run.
 #[cfg(target_os = "macos")]
 pub(crate) fn stop_rich_recording_on_exit(state: &NativeFullscreenRecordingState) {
     let rich = state
@@ -3710,6 +3712,7 @@ pub(crate) fn stop_rich_recording_on_exit(state: &NativeFullscreenRecordingState
     if let Some(rich) = rich {
         rich.quit();
     }
+    rich_recording::remove_tracks_folders_in_use();
 }
 
 /// Deletes the tracks folders earlier runs left beside their recordings, on a
