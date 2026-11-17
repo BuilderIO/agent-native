@@ -396,7 +396,7 @@ describe("set-resource-visibility on several resources", () => {
         verb: "updated",
         kind: "resource-share",
         title: "doc-a and 1 more",
-        detail: "private",
+        detail: "private · 2 changed",
       },
     });
     expect(await visibilities()).toEqual({
@@ -939,6 +939,51 @@ describe("set-resource-visibility approval", () => {
     await expect(
       approval({ resourceIds: ["doc-public"], visibility: "org" }),
     ).resolves.toBe(false);
+  });
+
+  it("asks with the count and what the change opens up", () => {
+    const label = setResourceVisibility.approvalLabel;
+    if (typeof label !== "function") {
+      throw new Error("set-resource-visibility approval label is missing");
+    }
+
+    expect(
+      label({
+        resourceType,
+        resourceIds: ["doc-a", "doc-b", "doc-a"],
+        visibility: "public",
+      }),
+    ).toBe("Make 2 visibility docs public?");
+    expect(
+      label({ resourceType, resourceId: "doc-a", visibility: "public" }),
+    ).toBe("Make this visibility doc public?");
+    expect(
+      label({
+        resourceType,
+        resourceIds: ["doc-a", "doc-b"],
+        visibility: "public",
+        role: "commenter",
+      }),
+    ).toBe(
+      "Make 2 visibility docs public, so anyone with the link can comment?",
+    );
+    expect(
+      label({
+        resourceType,
+        resourceIds: ["doc-a", "doc-b"],
+        visibility: "public",
+        role: "viewer",
+      }),
+    ).toBe("Make 2 visibility docs public?");
+
+    register({ displayName: "Visibility Library" });
+    expect(
+      label({
+        resourceType,
+        resourceIds: ["doc-a", "doc-b"],
+        visibility: "public",
+      }),
+    ).toBe("Make 2 visibility libraries public?");
   });
 
   it("doesn't ask for a type that can't be made public", async () => {

@@ -9,6 +9,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { firstRow } from "../server/lib/first-row.js";
 import {
   syncPrivateIconReference,
@@ -203,6 +204,11 @@ export default defineAction({
     summary: (_args, result) =>
       setupAuditSummary(result, "Configured a Content database property"),
   },
+  // The app's own calls, whose documentId may be a row, name nothing.
+  changeResource: (input) =>
+    "operation" in input
+      ? documentChangeResource(input.target.databaseDocumentId)
+      : null,
   run: async (args, context) => {
     if (context?.caller === "mcp") {
       configureDocumentPropertyAgentSchema.parse(args);
