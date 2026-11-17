@@ -8479,12 +8479,17 @@ function PageEditorSessionBody({
           titleBase: reconcileBase?.title ?? lastSavedTitleRef.current.title,
         },
       );
-      return queueDocumentSave(recovery.localTitle, recovery.localDraft, {
-        contentBase,
-        titleBase: reconcileBase?.title,
-        saveAttemptId,
-        telemetryOrigin,
-      });
+      const result = await queueDocumentSave(
+        recovery.localTitle,
+        recovery.localDraft,
+        {
+          contentBase,
+          titleBase: reconcileBase?.title,
+          saveAttemptId,
+          telemetryOrigin,
+        },
+      );
+      return result;
     },
     [
       authoredContentBase,

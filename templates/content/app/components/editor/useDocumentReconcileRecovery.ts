@@ -78,7 +78,7 @@ export function useDocumentReconcileRecovery({
     draft: ReconcileRecoveryDraft,
     base?: ReconcileSaveBase,
   ) => Promise<boolean | "unsent">;
-  retain?:(draft: ReconcileRecoveryDraft) => Promise<void>;
+  retain?: (draft: ReconcileRecoveryDraft) => Promise<void>;
   getDraft: () => string;
   getTitle?: () => string;
   getSaveIdentity?: () => string;
