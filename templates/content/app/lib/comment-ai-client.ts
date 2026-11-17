@@ -48,6 +48,7 @@ function messageText(message: StoredMessage): string | null {
 export function parseCommentAiConversation(
   threadData: string,
   initialTurnId: string,
+  receiptTurnIds: readonly string[] = [],
 ): CommentAiConversationTurn[] {
   let parsed: { messages?: unknown };
   try {
@@ -101,7 +102,8 @@ export function parseCommentAiConversation(
   );
   if (initialIndex < 0)
     throw new Error("The AI conversation could not be read");
-  return conversation.slice(initialIndex + 1);
+  const excluded = new Set([initialTurnId, ...receiptTurnIds]);
+  return conversation.filter((turn) => !excluded.has(turn.turnId));
 }
 
 export async function loadCommentAiConversation(options: {
@@ -110,7 +112,10 @@ export async function loadCommentAiConversation(options: {
   operationId: string;
   signal?: AbortSignal;
 }): Promise<CommentAiConversationTurn[]> {
-  const thread = await callAction<{ threadData?: unknown }>(
+  const thread = await callAction<{
+    threadData?: unknown;
+    receiptTurnIds?: unknown;
+  }>(
     "get-comment-ai-conversation",
     { requestId: options.operationId },
     { method: "GET", signal: options.signal },
@@ -118,5 +123,15 @@ export async function loadCommentAiConversation(options: {
   if (typeof thread.threadData !== "string") {
     throw new Error("The AI conversation could not be read");
   }
-  return parseCommentAiConversation(thread.threadData, options.initialTurnId);
+  if (
+    !Array.isArray(thread.receiptTurnIds) ||
+    !thread.receiptTurnIds.every((id) => typeof id === "string")
+  ) {
+    throw new Error("The AI conversation could not be read");
+  }
+  return parseCommentAiConversation(
+    thread.threadData,
+    options.initialTurnId,
+    thread.receiptTurnIds,
+  );
 }

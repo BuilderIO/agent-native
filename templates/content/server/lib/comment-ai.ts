@@ -549,6 +549,7 @@ async function loadCommentAiAncestor(
 function commentAiScopeResolver(rows: RequestRow[] = []) {
   const bindings = new Map(rows.map((row) => [row.id, row]));
   const scopes = new Map<string, string>();
+  let ancestryReads = 0;
   return async (request: RequestRow): Promise<string> => {
     let origin = request;
     const path: string[] = [];
@@ -563,9 +564,20 @@ function commentAiScopeResolver(rows: RequestRow[] = []) {
         return known;
       }
       if (!origin.continuationOfRequestId) break;
-      const parent =
-        bindings.get(origin.continuationOfRequestId) ??
-        (await loadCommentAiAncestor(origin.continuationOfRequestId, request));
+      let parent = bindings.get(origin.continuationOfRequestId);
+      if (!parent) {
+        if (ancestryReads >= 128) {
+          fail("This comment conversation has too much history to inspect", {
+            statusCode: 409,
+            errorCode: "comment_ai_ancestry_limit",
+          });
+        }
+        ancestryReads++;
+        parent = await loadCommentAiAncestor(
+          origin.continuationOfRequestId,
+          request,
+        );
+      }
       if (
         parent.requesterEmail !== request.requesterEmail ||
         parent.documentId !== request.documentId ||
@@ -611,7 +623,35 @@ export async function getCommentAiConversation(requestId: string) {
   const request = await loadCommentAiRequest(requestId);
   await readCommentAiSource(request);
   const thread = await requireCommentAiThread(request);
-  return { threadData: thread.threadData };
+  const receipts = await getDb()
+    .select({
+      turnId: schema.commentAiRequests.agentTurnId,
+      resultJson: schema.commentAiRequests.resultJson,
+    })
+    .from(schema.commentAiRequests)
+    .where(
+      and(
+        eq(schema.commentAiRequests.requesterEmail, request.requesterEmail),
+        eq(schema.commentAiRequests.documentId, request.documentId),
+        eq(schema.commentAiRequests.threadId, request.threadId),
+        eq(schema.commentAiRequests.rootCommentId, request.rootCommentId),
+        eq(schema.commentAiRequests.agentThreadId, request.agentThreadId ?? ""),
+        inArray(schema.commentAiRequests.status, [...TERMINAL_SUCCESS]),
+      ),
+    )
+    .limit(1001);
+  if (receipts.length > 1000) {
+    fail("This comment conversation has too many receipts to inspect", {
+      statusCode: 409,
+      errorCode: "comment_ai_ancestry_limit",
+    });
+  }
+  const receiptTurnIds = receipts.flatMap(({ turnId, resultJson }) => {
+    if (!turnId || !resultJson) return [];
+    const result = resultSchema.parse(JSON.parse(resultJson));
+    return result.commentId || result.suggestionId ? [turnId] : [];
+  });
+  return { threadData: thread.threadData, receiptTurnIds };
 }
 
 function backgroundSession(request: RequestRow, threadScopeId = request.id) {
@@ -1144,7 +1184,30 @@ export async function resolveCommentAiActionSurface(
         errorCode: "comment_ai_binding_missing",
       });
     }
-    requestId = origin.id;
+    const latest = await getDb()
+      .select({
+        id: schema.commentAiRequests.id,
+        createdAt: schema.commentAiRequests.createdAt,
+      })
+      .from(schema.commentAiRequests)
+      .where(
+        and(
+          eq(schema.commentAiRequests.agentThreadId, details.threadId ?? ""),
+          eq(schema.commentAiRequests.requesterEmail, details.ownerEmail ?? ""),
+        ),
+      )
+      .orderBy(
+        desc(schema.commentAiRequests.createdAt),
+        desc(schema.commentAiRequests.id),
+      )
+      .limit(2);
+    if (latest.length > 1 && latest[0]?.createdAt === latest[1]?.createdAt) {
+      fail("This agent thread has ambiguous comment operation bindings", {
+        statusCode: 409,
+        errorCode: "comment_ai_thread_conflict",
+      });
+    }
+    requestId = latest[0]?.id ?? origin.id;
   }
   if (!requestId && details.threadId) {
     const bindings = await getDb()

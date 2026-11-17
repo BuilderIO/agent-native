@@ -122,6 +122,7 @@ export interface CommentAiContinuationState {
   turnId: string;
   status: BackgroundAgentSessionStatus;
   options?: BackgroundAgentSessionStartOptions;
+  needsTranscript?: boolean;
   error?: string;
 }
 
@@ -138,6 +139,22 @@ interface CommentAiDispatchRecovery {
   options: BackgroundAgentSessionStartOptions;
   phase?: "classification" | "execution";
   error?: string;
+  needsTranscript?: boolean;
+}
+
+const PROTECTED_CONTEXT_SEPARATOR = "\n\nProtected conversation context:\n\n";
+
+function dispatchRecoveryOptions(options: BackgroundAgentSessionStartOptions) {
+  const index =
+    options.instructions?.indexOf(PROTECTED_CONTEXT_SEPARATOR) ?? -1;
+  if (index < 0) return { options };
+  return {
+    options: {
+      ...options,
+      instructions: options.instructions?.slice(0, index),
+    },
+    needsTranscript: true,
+  };
 }
 
 export interface CommentAiController {
@@ -637,18 +654,51 @@ export function useCommentAiRequests(
   const [transcriptErrors, setTranscriptErrors] = useLocalStorage<
     Record<string, string>
   >(`content-comment-ai-transcript-errors:${documentId}`, {});
+  useEffect(() => {
+    setDispatchRecoveryRecord((current) => {
+      let changed = false;
+      const next = Object.fromEntries(
+        Object.entries(current).map(([id, record]) => {
+          const safe = dispatchRecoveryOptions(record.options);
+          if (!safe.needsTranscript) return [id, record];
+          changed = true;
+          return [id, { ...record, ...safe }];
+        }),
+      );
+      return changed ? next : current;
+    });
+  }, [setDispatchRecoveryRecord]);
   const [continuationRecord, setContinuationRecord] = useLocalStorage<
     Record<string, CommentAiContinuationState>
   >(`content-comment-ai-continuations:${documentId}`, {});
+  useEffect(() => {
+    setContinuationRecord((current) => {
+      let changed = false;
+      const next = Object.fromEntries(
+        Object.entries(current).map(([id, record]) => {
+          if (!record.options) return [id, record];
+          const safe = dispatchRecoveryOptions(record.options);
+          if (!safe.needsTranscript) return [id, record];
+          changed = true;
+          return [id, { ...record, ...safe }];
+        }),
+      );
+      return changed ? next : current;
+    });
+  }, [setContinuationRecord]);
   const requests = useMemo(
     () =>
       serverRequests.map((request) => {
         const recovery = dispatchRecoveryRecord[request.operationId];
         const continuation = continuationRecord[request.operationId];
         const error =
-          recovery?.error ??
-          continuation?.error ??
-          transcriptErrors[request.operationId];
+          request.status === "running" || request.status === "refreshing"
+            ? undefined
+            : (recovery?.error ??
+              continuation?.error ??
+              (request.status === "queued" || request.status === "classified"
+                ? transcriptErrors[request.operationId]
+                : undefined));
         if (
           !error ||
           (!ACTIVE_STATUSES.has(request.status) &&
@@ -680,12 +730,15 @@ export function useCommentAiRequests(
   continuationRecordRef.current = continuationRecord;
   const updateContinuation = useCallback(
     (operationId: string, state: CommentAiContinuationState) => {
+      const retained = state.options
+        ? { ...state, ...dispatchRecoveryOptions(state.options) }
+        : state;
       continuationRecordRef.current = {
         ...continuationRecordRef.current,
-        [operationId]: state,
+        [operationId]: retained,
       };
       setContinuationRecord((current) => {
-        const next = { ...current, [operationId]: state };
+        const next = { ...current, [operationId]: retained };
         continuationRecordRef.current = next;
         return next;
       });
@@ -701,9 +754,10 @@ export function useCommentAiRequests(
       options: BackgroundAgentSessionStartOptions,
       phase?: "classification" | "execution",
     ) => {
+      const retained = dispatchRecoveryOptions(options);
       setDispatchRecoveryRecord((current) => ({
         ...current,
-        [requestId]: { options, phase },
+        [requestId]: { ...retained, phase },
       }));
       const handle = startBackgroundAgentSession(options);
       try {
@@ -736,7 +790,7 @@ export function useCommentAiRequests(
         setDispatchRecoveryRecord((current) => ({
           ...current,
           [requestId]: {
-            options,
+            ...retained,
             phase,
             error: [
               error instanceof Error
@@ -872,15 +926,44 @@ export function useCommentAiRequests(
       let started: StartCommentAiResult | null = null;
       try {
         if (continuationRecovery?.options && continuationRecovery.error) {
+          const retained = dispatchRecoveryOptions(
+            continuationRecovery.options,
+          );
+          let recoveredOptions = retained.options;
+          if (
+            continuationRecovery.needsTranscript ||
+            retained.needsTranscript
+          ) {
+            const request = serverRequestsRef.current.find(
+              (row) => row.operationId === requestId,
+            );
+            if (!request?.agentThreadId)
+              throw new Error("This AI conversation is not available yet");
+            const turns = await loadCommentAiConversation({
+              operationId: requestId,
+              agentThreadId: request.agentThreadId,
+              initialTurnId: "",
+            });
+            const currentTurn = turns.findIndex(
+              (turn) => turn.turnId === continuationRecovery.turnId,
+            );
+            const prior = boundedContinuationContext(
+              currentTurn < 0 ? turns : turns.slice(0, currentTurn),
+            );
+            recoveredOptions = {
+              ...recoveredOptions,
+              instructions:
+                (recoveredOptions.instructions ?? "") +
+                (prior ? `${PROTECTED_CONTEXT_SEPARATOR}${prior}` : ""),
+            };
+          }
           const retrying = {
             ...continuationRecovery,
             status: "queued" as const,
             error: undefined,
           };
           updateContinuation(requestId, retrying);
-          const handle = startBackgroundAgentSession(
-            continuationRecovery.options,
-          );
+          const handle = startBackgroundAgentSession(recoveredOptions);
           try {
             await handle.accepted;
             const observed = continuationRecordRef.current[requestId];
@@ -914,7 +997,34 @@ export function useCommentAiRequests(
           return "confirmed-start";
         }
         if (recovery) {
-          await dispatch(requestId, recovery.options, recovery.phase);
+          const retained = dispatchRecoveryOptions(recovery.options);
+          let recoveredOptions = retained.options;
+          if (recovery.needsTranscript || retained.needsTranscript) {
+            const request = serverRequestsRef.current.find(
+              (row) => row.operationId === requestId,
+            );
+            if (!request?.agentThreadId || !request.agentTurnId) {
+              throw new Error("This AI conversation is not available yet");
+            }
+            const turns = await loadCommentAiConversation({
+              operationId: requestId,
+              agentThreadId: request.agentThreadId,
+              initialTurnId: "",
+            });
+            const currentTurn = turns.findIndex(
+              (turn) => turn.turnId === request.agentTurnId,
+            );
+            const prior = boundedContinuationContext(
+              currentTurn < 0 ? turns : turns.slice(0, currentTurn),
+            );
+            recoveredOptions = {
+              ...recoveredOptions,
+              instructions:
+                (recoveredOptions.instructions ?? "") +
+                (prior ? `${PROTECTED_CONTEXT_SEPARATOR}${prior}` : ""),
+            };
+          }
+          await dispatch(requestId, recoveredOptions, recovery.phase);
           return "confirmed-start";
         }
         started = await callAction<StartCommentAiResult>(
@@ -964,9 +1074,15 @@ export function useCommentAiRequests(
                 delete next[operationId];
                 return next;
               });
-              const priorConversation = boundedContinuationContext(turns);
+              const currentTurn = turns.findIndex(
+                (turn) =>
+                  turn.turnId === pendingSession.backgroundSession.turnId,
+              );
+              const priorConversation = boundedContinuationContext(
+                currentTurn < 0 ? turns : turns.slice(0, currentTurn),
+              );
               if (priorConversation) {
-                context = `${context ?? ""}\n\nProtected conversation context:\n\n${priorConversation}`;
+                context = `${context ?? ""}${PROTECTED_CONTEXT_SEPARATOR}${priorConversation}`;
               }
             } catch (error) {
               setTranscriptErrors((current) => ({
@@ -1014,7 +1130,9 @@ export function useCommentAiRequests(
   useEffect(() => {
     for (const request of serverRequests) {
       if (
-        (request.status !== "classifying" && request.status !== "classified") ||
+        (request.status !== "classifying" &&
+          request.status !== "classified" &&
+          request.status !== "queued") ||
         resumedPendingRequestsRef.current.has(
           `${request.operationId}:${request.status}`,
         )

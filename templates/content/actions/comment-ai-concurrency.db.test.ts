@@ -45,6 +45,7 @@ let applyRequest: typeof import("./apply-comment-ai-request.js").default;
 let addComment: typeof import("./add-comment.js").default;
 let commentIdForIdempotency: typeof import("./add-comment.js").commentIdForIdempotency;
 let replyRequest: typeof import("./reply-to-comment-ai-request.js").default;
+let getConversation: typeof import("./get-comment-ai-conversation.js").default;
 
 const asUser = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, run);
@@ -127,6 +128,7 @@ beforeAll(async () => {
   addComment = addCommentModule.default;
   commentIdForIdempotency = addCommentModule.commentIdForIdempotency;
   replyRequest = (await import("./reply-to-comment-ai-request.js")).default;
+  getConversation = (await import("./get-comment-ai-conversation.js")).default;
 }, 60_000);
 
 beforeEach(async () => {
@@ -404,7 +406,10 @@ describe("comment AI durable action binding", () => {
     });
     await getDb()
       .update(schema.commentAiRequests)
-      .set({ status: "replied" })
+      .set({
+        status: "replied",
+        resultJson: JSON.stringify({ commentId: "receipt-a" }),
+      })
       .where(eq(schema.commentAiRequests.id, OP_A));
 
     const continuation = await asUser(() =>
@@ -446,8 +451,26 @@ describe("comment AI durable action binding", () => {
       ),
     ).rejects.toMatchObject({ errorCode: "comment_ai_operation_conflict" });
     const transcript = await asUser(() =>
-      commentAi.getCommentAiConversation(OP_B),
+      getConversation.run(
+        { requestId: OP_B },
+        { caller: "web", userEmail: OWNER },
+      ),
     );
+    expect(getConversation.outputSchema.safeParse(transcript).success).toBe(
+      true,
+    );
+    expect(transcript.receiptTurnIds).toEqual([original.agentTurnId]);
+    await expect(
+      asUser(() =>
+        getConversation.run(
+          { requestId: OP_C },
+          { caller: "web", userEmail: OWNER },
+        ),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "comment_ai_conversation_unavailable",
+      statusCode: 404,
+    });
     expect(JSON.parse(transcript.threadData)).toEqual({
       messages: [{ role: "user", content: "original question" }],
     });
@@ -539,6 +562,46 @@ describe("comment AI durable action binding", () => {
     }
   });
 
+  it("fails explicitly when a continuation history exceeds the ancestry read budget", async () => {
+    await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+    const [origin] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    if (!origin) throw new Error("Missing origin request");
+    let parentId = origin.id;
+    const rows = [];
+    for (let index = 1; index <= 260; index++) {
+      const id = crypto.randomUUID();
+      rows.push({
+        ...origin,
+        id,
+        continuationOfRequestId: parentId,
+        status: "replied",
+        createdAt: new Date(
+          Date.parse(origin.createdAt) + index * 1000,
+        ).toISOString(),
+      });
+      parentId = id;
+    }
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "replied" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    await getDb().insert(schema.commentAiRequests).values(rows);
+    const select = vi.spyOn(getDb(), "select");
+    try {
+      await expect(
+        asUser(() => commentAi.listCommentAiRequests(DOCUMENT_ID)),
+      ).rejects.toMatchObject({ errorCode: "comment_ai_ancestry_limit" });
+      expect(select.mock.calls.length).toBeLessThanOrEqual(130);
+    } finally {
+      select.mockRestore();
+    }
+  });
+
   it("lets a downgraded commenter continue a prior editor operation without restoring edit authority", async () => {
     await getDb().insert(schema.documentShares).values({
       id: "downgraded-share",
@@ -587,7 +650,7 @@ describe("comment AI durable action binding", () => {
     );
     await expect(
       asCollaborator(() => commentAi.getCommentAiConversation(OP_B)),
-    ).resolves.toEqual({ threadData: '{"messages":[]}' });
+    ).resolves.toEqual({ threadData: '{"messages":[]}', receiptTurnIds: [] });
     await expect(
       asCollaborator(() => commentAi.loadCommentAiRequest(OP_A)),
     ).rejects.toThrow();
@@ -624,6 +687,33 @@ describe("comment AI durable action binding", () => {
       scope: original.backgroundSession.scope,
       actionScope: { kind: "content-comment-ai", requestId: OP_C },
     });
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ createdAt: "2099-01-01T00:00:00.000Z" })
+      .where(eq(schema.commentAiRequests.id, OP_C));
+    const openChat = () =>
+      asCollaborator(() =>
+        commentAi.resolveCommentAiActionSurface({
+          ownerEmail: OTHER_USER,
+          threadId: requiredId(original.agentThreadId),
+          queuedMessageId: "ordinary-follow-up",
+          requestedTurnId: "follow-up-turn",
+        }),
+      );
+    await expect(openChat()).resolves.toMatchObject({
+      allowedActionNames: [
+        "get-comment-ai-context",
+        "reply-to-comment-ai-request",
+      ],
+      actionScope: { kind: "content-comment-ai", requestId: OP_C },
+    });
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ createdAt: "2099-01-01T00:00:00.000Z" })
+      .where(eq(schema.commentAiRequests.id, OP_B));
+    await expect(openChat()).rejects.toMatchObject({
+      errorCode: "comment_ai_thread_conflict",
+    });
   });
 
   it("denies a requester's transcript and continuation after Page access is revoked", async () => {
@@ -653,7 +743,7 @@ describe("comment AI durable action binding", () => {
     });
     await expect(
       asCollaborator(() => commentAi.getCommentAiConversation(OP_A)),
-    ).resolves.toEqual({ threadData: '{"messages":[]}' });
+    ).resolves.toEqual({ threadData: '{"messages":[]}', receiptTurnIds: [] });
     await getDb()
       .delete(schema.documentShares)
       .where(eq(schema.documentShares.id, "comment-ai-reader-share"));

@@ -800,6 +800,11 @@ describe("comment AI controls", () => {
             instructions: expect.stringContaining("Assistant: Because."),
           }),
         );
+        expect(
+          window.localStorage.getItem(
+            "content-comment-ai-dispatch-recovery:document-1",
+          ),
+        ).not.toContain("Assistant: Because.");
       } else {
         await expect(act(async () => start())).rejects.toThrow(
           "comments.aiConversationUnavailable",
@@ -846,6 +851,145 @@ describe("comment AI controls", () => {
       }
     },
   );
+
+  it("resumes a queued continued request after opening it on another device", async () => {
+    const base = request({
+      status: "queued",
+      intent: "reply",
+      error: null,
+      continuationOfRequestId: "original-request",
+      agentThreadId: "agent-thread-1",
+      agentTurnId: "turn-1",
+    });
+    api.requests = [base];
+    api.callAction.mockResolvedValue({
+      ...base,
+      outcome: "confirmed-start",
+      dispatch: true,
+      pendingSession: {
+        phase: "execution",
+        prompt: "Explain further",
+        context: "Scoped",
+        backgroundSession: {
+          operationId: "request-1",
+          threadId: "agent-thread-1",
+          turnId: "turn-1",
+          scope: { type: "content-comment-ai", id: "original-request" },
+          actionScope: { kind: "content-comment-ai", requestId: "request-1" },
+        },
+      },
+    });
+    api.loadCommentAiConversation.mockResolvedValue([
+      {
+        turnId: "prior",
+        userText: "Question",
+        assistantText: "Answer",
+        status: "complete",
+      },
+    ]);
+    function Probe() {
+      useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    await act(async () => {
+      root.render(createElement(Probe));
+    });
+    expect(api.startBackgroundAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: "request-1",
+        instructions: expect.stringContaining("Assistant: Answer"),
+      }),
+    );
+  });
+
+  it("does not let a stale local transcript error mask a running request", () => {
+    window.localStorage.setItem(
+      "content-comment-ai-transcript-errors:document-1",
+      JSON.stringify({ "request-1": "old error" }),
+    );
+    api.requests = [
+      request({ status: "running", error: null, runId: "run-1" }),
+    ];
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    act(() => root.render(createElement(Probe)));
+    expect(controller.requests[0]).toMatchObject({
+      status: "running",
+      runId: "run-1",
+      error: null,
+    });
+  });
+
+  it("rehydrates a legacy dispatch recovery without persisting or replaying stale protected context", async () => {
+    const base = request({
+      status: "queued",
+      intent: "reply",
+      error: null,
+      continuationOfRequestId: "original-request",
+      agentThreadId: "agent-thread-1",
+      agentTurnId: "turn-1",
+    });
+    api.requests = [base];
+    window.localStorage.setItem(
+      "content-comment-ai-dispatch-recovery:document-1",
+      JSON.stringify({
+        "request-1": {
+          options: {
+            message: "Explain",
+            instructions:
+              "Scoped\n\nProtected conversation context:\n\nSTALE PRIVATE CONTEXT",
+            operationId: "request-1",
+            threadId: "agent-thread-1",
+            scope: { type: "content-comment-ai", id: "original-request" },
+            actionScope: { kind: "content-comment-ai", requestId: "request-1" },
+          },
+          phase: "execution",
+          error: "retry",
+        },
+      }),
+    );
+    api.loadCommentAiConversation.mockResolvedValue([
+      {
+        turnId: "prior",
+        userText: "Question",
+        assistantText: "Trusted prior",
+        status: "complete",
+      },
+      {
+        turnId: "turn-1",
+        userText: "Explain",
+        assistantText: null,
+        status: "complete",
+      },
+    ]);
+    function Probe() {
+      useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    await act(async () => {
+      root.render(createElement(Probe));
+    });
+    expect(api.startBackgroundAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: "request-1",
+        instructions:
+          "Scoped\n\nProtected conversation context:\n\nUser: Question\n\nAssistant: Trusted prior",
+      }),
+    );
+    expect(
+      window.localStorage.getItem(
+        "content-comment-ai-dispatch-recovery:document-1",
+      ),
+    ).not.toContain("PRIVATE CONTEXT");
+    expect(
+      window.localStorage.getItem(
+        "content-comment-ai-dispatch-recovery:document-1",
+      ),
+    ).not.toContain("Trusted prior");
+  });
 
   it("does not dispatch an active request returned by a racing start", async () => {
     let controller: CommentAiController;
@@ -1379,6 +1523,16 @@ describe("comment AI controls", () => {
       controller!.continue(base, "Accidentally submit another follow-up"),
     ).rejects.toThrow("Follow-up POST failed");
     expect(api.startBackgroundAgentSession).toHaveBeenCalledOnce();
+    expect(
+      window.localStorage.getItem(
+        "content-comment-ai-continuations:document-1",
+      ),
+    ).not.toContain("Original comment and protected document context");
+    expect(
+      window.localStorage.getItem(
+        "content-comment-ai-continuations:document-1",
+      ),
+    ).not.toContain("It preserves the author's stated intent.");
 
     act(() => root.unmount());
     root = createRoot(container);

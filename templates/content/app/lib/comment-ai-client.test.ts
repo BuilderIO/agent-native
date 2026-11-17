@@ -117,11 +117,43 @@ describe("parseCommentAiConversation", () => {
         status: "complete",
       },
     ]);
-    expect(parseCommentAiConversation(threadData, "turn-b")).toEqual([
+    expect(
+      parseCommentAiConversation(threadData, "turn-b", ["turn-a"]),
+    ).toEqual([
       {
         turnId: "turn-c",
         userText: "Follow-up",
         assistantText: "Follow-up answer",
+        status: "complete",
+      },
+    ]);
+  });
+
+  it("retains an unreceipted follow-up between two receipted requests", () => {
+    const message = (role: string, turnId: string, content: string) => ({
+      role,
+      content,
+      metadata: {
+        custom: role === "user" ? { submittedTurnId: turnId } : { turnId },
+      },
+    });
+    const data = JSON.stringify({
+      messages: [
+        message("user", "origin", "Question"),
+        message("assistant", "origin", "Receipt"),
+        message("user", "follow-up", "Why?"),
+        message("assistant", "follow-up", "Because."),
+        message("user", "current", "Another question"),
+        message("assistant", "current", "Another receipt"),
+      ],
+    });
+    expect(
+      parseCommentAiConversation(data, "current", ["origin", "current"]),
+    ).toEqual([
+      {
+        turnId: "follow-up",
+        userText: "Why?",
+        assistantText: "Because.",
         status: "complete",
       },
     ]);
