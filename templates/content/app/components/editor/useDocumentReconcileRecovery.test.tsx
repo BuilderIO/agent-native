@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   useDocumentReconcileRecovery,
   type ReconcileSaveBase,
+  type UnsentReconcileSave,
 } from "./useDocumentReconcileRecovery";
 
 let root: Root;
@@ -37,7 +38,7 @@ function mount(
   save: (
     draft: { localDraft: string; localTitle: string },
     snapshot?: ReconcileSaveBase,
-  ) => Promise<boolean | "unsent">,
+  ) => Promise<boolean | UnsentReconcileSave>,
   getSaveIdentity?: () => string,
   retain?: (draft: { localDraft: string; localTitle: string }) => Promise<void>,
   report = true,
@@ -357,11 +358,10 @@ describe("document reconcile recovery", () => {
   it("sends an automatic save again when its live edits had not reached the server", async () => {
     vi.useFakeTimers();
     const retain = vi.fn(async () => undefined);
-    const save = vi.fn(async (): Promise<boolean | "unsent"> => true);
-    save.mockImplementation(async () => {
+    const save = vi.fn(async (): Promise<boolean | UnsentReconcileSave> => {
       if (save.mock.calls.length > 2) return true;
       draft = `typed while unsent ${save.mock.calls.length}`;
-      return "unsent";
+      return { unsent: true };
     });
     draft = "merged";
     mount(save, undefined, retain, false);
@@ -388,9 +388,75 @@ describe("document reconcile recovery", () => {
     expect(retain).not.toHaveBeenCalled();
   });
 
+  it("sends an unsent automatic save again after a newer page replaced a refused one", async () => {
+    vi.useFakeTimers();
+    const firstSave = deferred();
+    const save = vi.fn(
+      async (): Promise<boolean | UnsentReconcileSave> => firstSave.promise,
+    );
+    draft = "first merge";
+    mount(save, undefined, undefined, false);
+    const newerBase = { ...base, content: "edited by a peer", revision: "r2" };
+
+    let first!: Promise<boolean>;
+    act(() => {
+      first = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        base,
+      );
+    });
+    save
+      .mockResolvedValueOnce({ unsent: true })
+      .mockImplementation(async () => true);
+    act(() => {
+      draft = "second merge";
+      void recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        newerBase,
+      );
+    });
+
+    await act(async () => {
+      firstSave.resolve(false);
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(await first).toBe(true);
+    expect(save.mock.calls).toEqual([
+      [expect.anything(), base],
+      [expect.anything(), newerBase],
+      [expect.anything(), newerBase],
+    ]);
+    expect(recovery.state).toBeNull();
+  });
+
+  it("saves an automatic merge's title against the one an unsent save wrote", async () => {
+    vi.useFakeTimers();
+    const save = vi
+      .fn(async (): Promise<boolean | UnsentReconcileSave> => true)
+      .mockResolvedValueOnce({ unsent: true, writtenTitle: "Renamed here" });
+    mount(save, undefined, undefined, false);
+
+    let result!: Promise<boolean>;
+    await act(async () => {
+      result = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "Renamed here" },
+        base,
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(await result).toBe(true);
+    expect(save.mock.calls).toEqual([
+      [expect.anything(), base],
+      [expect.anything(), { ...base, title: "Renamed here" }],
+    ]);
+  });
+
   it("publishes recovery once an automatic save stays unsent for 30 s", async () => {
     vi.useFakeTimers();
-    const save = vi.fn(async (): Promise<boolean | "unsent"> => "unsent");
+    const save = vi.fn(
+      async (): Promise<boolean | UnsentReconcileSave> => ({ unsent: true }),
+    );
     mount(save, undefined, undefined, false);
 
     let result!: Promise<boolean>;
@@ -413,11 +479,40 @@ describe("document reconcile recovery", () => {
     });
   });
 
+  it("stops showing a notice as saving once the automatic save it interrupted ends", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(
+      async (): Promise<boolean | UnsentReconcileSave> => ({ unsent: true }),
+    );
+    mount(save, undefined, undefined, false);
+
+    let result!: Promise<boolean>;
+    await act(async () => {
+      result = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        base,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    act(() => recovery.report("conflict", draft));
+    expect(recovery.state?.saving).toBe(true);
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+
+    expect(await result).toBe(false);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(recovery.state).toEqual({
+      reason: "conflict",
+      localDraft: draft,
+      localTitle: "",
+      saving: false,
+    });
+  });
+
   it("keeps saving from the banner while its live edits had not reached the server", async () => {
     vi.useFakeTimers();
     const save = vi
-      .fn(async (): Promise<boolean | "unsent"> => true)
-      .mockResolvedValueOnce("unsent");
+      .fn(async (): Promise<boolean | UnsentReconcileSave> => true)
+      .mockResolvedValueOnce({ unsent: true });
     mount(save);
 
     let result!: Promise<boolean>;
@@ -434,6 +529,26 @@ describe("document reconcile recovery", () => {
       base,
     );
     expect(recovery.state).toBeNull();
+  });
+
+  it("saves the banner's title against the one an unsent save wrote", async () => {
+    vi.useFakeTimers();
+    const save = vi
+      .fn(async (): Promise<boolean | UnsentReconcileSave> => true)
+      .mockResolvedValueOnce({ unsent: true, writtenTitle: "Renamed here" });
+    mount(save);
+
+    let result!: Promise<boolean>;
+    await act(async () => {
+      result = recovery.resolve(base);
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(await result).toBe(true);
+    expect(save.mock.calls).toEqual([
+      [expect.anything(), base],
+      [expect.anything(), { ...base, title: "Renamed here" }],
+    ]);
   });
 
   it("saves text typed during recovery before clearing the banner", async () => {

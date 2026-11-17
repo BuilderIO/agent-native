@@ -36,6 +36,22 @@ describe("a save on a page whose body is written through its live copy", () => {
     ).toEqual({ contentPersisted: true });
   });
 
+  it("says which title it wrote while its body is still pending", () => {
+    expect(
+      liveCopyBodySaveResult({
+        titleSaved: true,
+        writtenTitle: "Renamed here",
+        bodyAcknowledged: false,
+        writePathConfirmed: true,
+        stillWritesThroughLiveCopy: true,
+      }),
+    ).toEqual({
+      contentPersisted: false,
+      outcome: "pending_collaboration_flush",
+      writtenTitle: "Renamed here",
+    });
+  });
+
   it("does not read as saved when its title was not", () => {
     expect(
       liveCopyBodySaveResult({

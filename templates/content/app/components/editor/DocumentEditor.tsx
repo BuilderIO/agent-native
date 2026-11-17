@@ -454,6 +454,7 @@ import {
   type DocumentReconcileRecoveryState,
   type ReconcileRecoveryDraft,
   type ReconcileSaveBase,
+  type UnsentReconcileSave,
 } from "./useDocumentReconcileRecovery";
 import {
   canProjectAcceptedSuggestion,
@@ -2523,6 +2524,8 @@ type DocumentUpdates = {
  */
 export function liveCopyBodySaveResult(args: {
   titleSaved: boolean;
+  /** The title this save wrote, which goes before the body. */
+  writtenTitle?: string;
   bodyAcknowledged: boolean;
   writePathConfirmed: boolean;
   stillWritesThroughLiveCopy: boolean;
@@ -2532,7 +2535,13 @@ export function liveCopyBodySaveResult(args: {
   if (!args.stillWritesThroughLiveCopy)
     return { contentPersisted: false, outcome: "superseded" };
   if (!args.bodyAcknowledged || !args.writePathConfirmed)
-    return { contentPersisted: false, outcome: "pending_collaboration_flush" };
+    return {
+      contentPersisted: false,
+      outcome: "pending_collaboration_flush",
+      ...(args.writtenTitle !== undefined
+        ? { writtenTitle: args.writtenTitle }
+        : {}),
+    };
   return { contentPersisted: args.titleSaved };
 }
 
@@ -3644,7 +3653,7 @@ function PageEditorSessionBody({
     (
       draft: ReconcileRecoveryDraft,
       base?: ReconcileSaveBase,
-    ) => Promise<boolean | "unsent">
+    ) => Promise<boolean | UnsentReconcileSave>
   >(async () => false);
   const reconcileRetainRef = useRef<
     (draft: ReconcileRecoveryDraft) => Promise<void>
@@ -5017,6 +5026,7 @@ function PageEditorSessionBody({
       options: DocumentSaveOptions,
     ): Promise<DocumentSaveResult> => {
       let titleSaved = true;
+      let writtenTitle: string | undefined;
       const titleSave = liveCopyTitleSave({
         title,
         lastSavedTitle: lastSavedTitleRef.current.title,
@@ -5054,6 +5064,7 @@ function PageEditorSessionBody({
         ) {
           titleSaved = false;
         } else {
+          writtenTitle = title;
           adoptConfirmedSaveWatermarks({
             saved,
             savedAt: saved.updatedAt,
@@ -5071,6 +5082,7 @@ function PageEditorSessionBody({
       const writePathConfirmed = await liveCopyWritePath.confirmed();
       return liveCopyBodySaveResult({
         titleSaved,
+        ...(writtenTitle !== undefined ? { writtenTitle } : {}),
         bodyAcknowledged,
         writePathConfirmed,
         stillWritesThroughLiveCopy: bodyWritesThroughLiveCopyRef.current,
@@ -8500,11 +8512,13 @@ function PageEditorSessionBody({
   );
   reconcileSaveRef.current = async (draft, base) => {
     const result = await handleContentSaveNow(draft, base, "recovery");
-    // The live document's edits had not reached the server, so the save
-    // wrote nothing.
-    return result.outcome === "pending_collaboration_flush"
-      ? "unsent"
-      : result.contentPersisted;
+    if (result.outcome !== "pending_collaboration_flush")
+      return result.contentPersisted;
+    // The live document's edits had not reached the server, so the save wrote
+    // none of the body.
+    return result.writtenTitle === undefined
+      ? { unsent: true }
+      : { unsent: true, writtenTitle: result.writtenTitle };
   };
   reconcileRetainRef.current = ({ localTitle, localDraft }) =>
     queueRecoveryDraftRetention(

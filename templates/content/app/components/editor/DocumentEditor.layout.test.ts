@@ -1766,9 +1766,7 @@ describe("document editor layout", () => {
     expect(source).toContain("<DocumentReconcileRecovery");
     expect(source).toContain("onKeepMine={handleResolveReconcile}");
     expect(source).toContain("const contentBase = reconcileBase");
-    expect(source).toContain(
-      'return result.outcome === "pending_collaboration_flush"',
-    );
+    expect(source).toContain("return result.contentPersisted;");
   });
 
   it("keeps a seeded document behind the skeleton while its fetch is pending", () => {

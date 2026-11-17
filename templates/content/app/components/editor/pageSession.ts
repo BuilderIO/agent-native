@@ -37,6 +37,11 @@ export interface PageSaveResult {
     | "abandoned"
     | "pending_preservation"
     | "pending_collaboration_flush";
+  /**
+   * The title a save on a page whose body is written through its live copy
+   * wrote before its body, when the body is still pending.
+   */
+  writtenTitle?: string;
   recoveryDraft?: {
     title: string;
     content: string;

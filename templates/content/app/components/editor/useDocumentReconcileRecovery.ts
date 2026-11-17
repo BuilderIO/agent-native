@@ -25,6 +25,18 @@ export interface ReconcileRecoveryDraft {
   localTitle: string;
 }
 
+/**
+ * A save the editor could not send, because its live document's edits had not
+ * reached the server yet. It wrote none of the body, so the page it was based
+ * on is still the one to save against. On a page whose body is written through
+ * its live copy the title goes first and can already be written, so the next
+ * try saves the title against the one written.
+ */
+export interface UnsentReconcileSave {
+  unsent: true;
+  writtenTitle?: string;
+}
+
 // After typing overtakes an automatic save, the next one waits for a pause,
 // as the editor's autosave does, but never longer than the cap.
 const AUTOMATIC_SAVE_IDLE_MS = 1_000;
@@ -43,9 +55,8 @@ async function untilTypingPauses(getIdentity: () => string): Promise<void> {
   }
 }
 
-// A save the editor could not send, because its live document's edits had not
-// reached the server yet, wrote nothing: the page did not change elsewhere, so
-// the same page gets another try. Only a stall this long ends in recovery.
+// An unsent save does not mean the page changed elsewhere, so the same page
+// gets another try. Only a stall this long ends in recovery.
 const UNSENT_SAVE_RETRY_MS = 1_000;
 const UNSENT_SAVE_MAX_WAIT_MS = 30_000;
 
@@ -57,6 +68,15 @@ async function untilUnsentSaveRetry(since: number): Promise<boolean> {
   if (wait <= 0) return false;
   await new Promise((resolve) => setTimeout(resolve, wait));
   return true;
+}
+
+function baseAfterUnsentSave(
+  base: ReconcileSaveBase | undefined,
+  unsent: UnsentReconcileSave,
+): ReconcileSaveBase | undefined {
+  return base && unsent.writtenTitle !== undefined
+    ? { ...base, title: unsent.writtenTitle }
+    : base;
 }
 
 interface AutomaticSave {
@@ -73,11 +93,10 @@ export function useDocumentReconcileRecovery({
   getSaveIdentity = getDraft,
   stateRef,
 }: {
-  /** Resolves "unsent" when the save could not be sent and wrote nothing. */
   save: (
     draft: ReconcileRecoveryDraft,
     base?: ReconcileSaveBase,
-  ) => Promise<boolean | "unsent">;
+  ) => Promise<boolean | UnsentReconcileSave>;
   retain?: (draft: ReconcileRecoveryDraft) => Promise<void>;
   getDraft: () => string;
   getTitle?: () => string;
@@ -174,7 +193,8 @@ export function useDocumentReconcileRecovery({
             await retainLatest();
             return false;
           }
-          if (persisted === "unsent") {
+          if (typeof persisted === "object") {
+            saveBase = baseAfterUnsentSave(saveBase, persisted);
             unsentSince ??= Date.now();
             if (await untilUnsentSaveRetry(unsentSince)) continue;
           } else unsentSince = null;
@@ -237,10 +257,11 @@ export function useDocumentReconcileRecovery({
           if (run.newerBase) {
             // A refusal can come from the page a newer merge handed over,
             // which the editor already holds, so that page gets the next
-            // attempt.
+            // attempt, and a refusal of an older page no longer counts.
             draft = latestDraft();
             saveBase = run.newerBase;
             run.newerBase = null;
+            refused = false;
           } else if (refused) {
             await retainLatest();
             // A newer merge can hand its page over while the draft is retained.
@@ -256,9 +277,10 @@ export function useDocumentReconcileRecovery({
             await retainLatest();
             return false;
           }
-          if (persisted === "unsent") {
-            // Nothing was written, so the page this save was based on is
-            // still the one to save against.
+          if (typeof persisted === "object") {
+            // None of the body was written, so the page this save was based
+            // on is still the one to save against.
+            saveBase = baseAfterUnsentSave(saveBase, persisted);
             unsentSince ??= Date.now();
             if (await untilUnsentSaveRetry(unsentSince)) draft = latestDraft();
             else refused = true;
@@ -294,6 +316,9 @@ export function useDocumentReconcileRecovery({
       } finally {
         inFlight.current = false;
         if (automaticSave.current === run) automaticSave.current = null;
+        // A notice reported while this save ran shows it saving.
+        if (current.current?.saving)
+          publish({ ...current.current, saving: false });
       }
     },
     [current, latestDraft, publish, retainLatest],
