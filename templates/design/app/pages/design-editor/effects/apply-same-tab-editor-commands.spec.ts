@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   sendDesignEditorCommand,
@@ -45,6 +45,10 @@ function listen(apply: (command: DesignEditorCommand) => boolean) {
   );
 }
 
+beforeEach(() => {
+  window.history.replaceState(null, "", "/design/design-1?panel=threads");
+});
+
 afterEach(() => {
   for (const unsubscribe of unsubscribes.splice(0)) unsubscribe();
   mocks.writes.length = 0;
@@ -61,8 +65,8 @@ describe("applySameTabEditorCommands", () => {
     const command = tokensCommand();
     sendDesignEditorCommand(command, TAB);
 
-    // Core changes the address right after the send returns; the editor
-    // already holds the new panel by then, so it never writes the old one back.
+    // Core changes the address right after the send returns, so the editor's
+    // updates for the command are queued ahead of the address change.
     expect(applied).toEqual([command]);
     expect(mocks.writes).toEqual([
       [STORED_KEY, command],
@@ -75,6 +79,18 @@ describe("applySameTabEditorCommands", () => {
     listen(apply);
 
     const command = tokensCommand("design-2");
+    sendDesignEditorCommand(command, TAB);
+
+    expect(apply).not.toHaveBeenCalled();
+    expect(mocks.writes).toEqual([[STORED_KEY, command]]);
+  });
+
+  it("leaves a command whose path opens another editor route stored for that editor", () => {
+    window.history.replaceState(null, "", "/visual-edit/design-1");
+    const apply = vi.fn(() => true);
+    listen(apply);
+
+    const command = { ...tokensCommand(), interactTheme: "dark" as const };
     sendDesignEditorCommand(command, TAB);
 
     expect(apply).not.toHaveBeenCalled();
