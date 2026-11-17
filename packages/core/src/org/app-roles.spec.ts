@@ -550,10 +550,60 @@ describe("app roles", () => {
     it("allows re-declaring the exact same descriptor object", () => {
       const descriptor = {
         appId: uniqueAppId("same-object"),
-        roles: ["member"] as const,
+        roles: ["member"],
       };
       defineAppRoles(descriptor);
+      descriptor.roles.push("admin");
       expect(() => defineAppRoles(descriptor)).not.toThrow();
+      expect(getRegisteredAppRoles(descriptor.appId)).toBe(descriptor);
+    });
+
+    it("rejects different non-enumerable permission grants on reload", () => {
+      const appId = uniqueAppId("hidden-grant");
+      const first = {
+        appId,
+        roles: ["editor", "reviewer"] as const,
+        permissions: Object.defineProperty({}, "edit", {
+          value: ["editor"],
+          enumerable: false,
+        }),
+      };
+      const changed = {
+        appId,
+        roles: ["editor", "reviewer"] as const,
+        permissions: Object.defineProperty({}, "edit", {
+          value: ["reviewer"],
+          enumerable: false,
+        }),
+      };
+
+      const access = defineAppRoles(first);
+      expect(() => access.requirePermission("edit")).not.toThrow();
+      expect(() => defineAppRoles(changed)).toThrow(
+        `defineAppRoles: appId "${appId}" is already declared with a different descriptor`,
+      );
+      expect(getRegisteredAppRoles(appId)).toBe(first);
+    });
+
+    it("compares hidden properties without rejecting the same object", () => {
+      const appId = uniqueAppId("hidden-equal");
+      const makeDescriptor = () => ({
+        appId,
+        roles: ["editor"] as const,
+        permissions: Object.defineProperty({}, "edit", {
+          value: ["editor"],
+          enumerable: false,
+        }),
+      });
+      const first = makeDescriptor();
+      defineAppRoles(first);
+      expect(() => defineAppRoles(first)).not.toThrow();
+      expect(() => defineAppRoles(makeDescriptor())).not.toThrow();
+
+      const missing = { appId, roles: ["editor"] as const, permissions: {} };
+      expect(() => defineAppRoles(missing)).toThrow(
+        "already declared with a different descriptor",
+      );
     });
 
     it("accepts an independently allocated equal descriptor on reload", () => {
