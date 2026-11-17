@@ -112,6 +112,7 @@ const {
   finishReviewNotificationDelivery,
   queryReviewComments,
   resolveReviewThread,
+  setReviewCommentReaction,
   upsertReviewStatus,
 } = await import("../store.js");
 
@@ -358,6 +359,42 @@ it("keeps the agent's reactions apart from the person it works for", async () =>
   expect(asAgent.discussion.reactions[root.id]).toEqual([
     { reaction: "👍", count: 1, reactedByMe: true },
   ]);
+});
+
+it("toggles a reaction when active is left out, whatever the case of the email", async () => {
+  const root = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "private",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+  const resource = { resourceType: "doc", resourceId: "private" };
+  const person = { userEmail: EDITOR_EMAIL, caller: "frontend" };
+  // A reaction saved before actors were kept in lower case.
+  await setReviewCommentReaction({
+    commentId: root.id,
+    actorEmail: "Editor@Example.com",
+    reaction: "👍",
+    active: true,
+  });
+  const toggle = () =>
+    reactToReviewCommentAction.run(
+      { ...resource, commentId: root.id, reaction: "👍" },
+      person,
+    );
+
+  const listed = await listReviewCommentsAction.run(resource, person);
+  expect(listed.discussion.reactions[root.id]).toEqual([
+    { reaction: "👍", count: 1, reactedByMe: true },
+  ]);
+  expect(await toggle()).toMatchObject({ active: false });
+  expect(
+    (await listReviewCommentsAction.run(resource, person)).discussion.reactions[
+      root.id
+    ],
+  ).toEqual([]);
+  expect(await toggle()).toMatchObject({ active: true });
+  expect(await toggle()).toMatchObject({ active: false });
 });
 
 it("lets a resource choose who may resolve its threads", async () => {

@@ -200,6 +200,13 @@ only adds the comments the kit lacks. A comment changed or deleted through the
 kit since stays as it is. Slides has switched; its old table goes in a later
 release.
 
+A comment write holds its thread, and then whatever the app's
+`onCommentWrite` hook reads, until it commits. An app that deletes a resource
+and its comments in one transaction calls `lockMirroredReviewThreads(resource)`
+first, before it locks the resource's own row, so the two take their locks in
+the same order. Slides' hook reads the deck `FOR KEY SHARE`, so a comment
+written while its deck is deleted is either deleted with it or refused.
+
 ## UI Usage {#ui-usage}
 
 ```tsx

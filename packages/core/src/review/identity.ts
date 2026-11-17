@@ -28,14 +28,14 @@ export function reviewActorKindFromContext(
 }
 
 /**
- * Whose a reaction is. The agent runs as the person it works for, so its
- * reactions are kept as `agent:<email>`, apart from theirs: neither one's
- * toggle can remove the other's.
+ * Whose a reaction is, in lower case. The agent runs as the person it works
+ * for, so its reactions are kept as `agent:<email>`, apart from theirs:
+ * neither one's toggle can remove the other's.
  */
 export function reviewReactionActor(
   ctx: ReviewResourceContext | undefined,
 ): string | null {
-  const email = ctx?.userEmail?.trim();
+  const email = ctx?.userEmail?.trim().toLowerCase();
   if (!email) return null;
   return reviewActorKindFromContext(ctx) === "agent" ? `agent:${email}` : email;
 }

@@ -58,7 +58,10 @@ export default defineAction({
     };
 
     // Only its author can change what a comment says. That's checked
-    // first, so a refused edit resolves nothing.
+    // first, so a refused edit resolves nothing. The edit and the resolve are
+    // two writes: anyone who may comment may resolve, so only a database
+    // failure can come between them, and sending the same call again then
+    // finishes the resolve.
     if (args.content !== undefined) {
       await updateReviewComment.run(
         { ...resource, commentId: comment.id, body: args.content },

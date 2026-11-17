@@ -70,7 +70,7 @@ export default defineNitroPlugin(() => {
       settingsName: "Slides settings",
     },
     onCommentWrite: async (event, tx) => {
-      if (event.type === "created" && !event.comment.parentCommentId) {
+      if (event.type === "created") {
         await assertCommentSlideInDeck(tx, event.comment);
       }
     },

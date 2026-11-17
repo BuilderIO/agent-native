@@ -4,6 +4,7 @@ import {
   deleteMirroredReviewComments,
   getReviewCommentById,
   getReviewDiscussionStateForComments,
+  lockMirroredReviewThreads,
   queryReviewComments,
   reviewReactionActor,
   type ReviewComment,
@@ -248,6 +249,18 @@ export async function toSlideCommentRows(
 }
 
 /** Deletes every comment on a deck that went. */
+/**
+ * Locks the deck's comment threads. A comment write locks its thread and then
+ * the deck row, so deleting a deck takes them in that same order, before the
+ * deck row, rather than each waiting on a row the other holds.
+ */
+export async function lockDeckCommentThreads(deckId: string): Promise<void> {
+  await lockMirroredReviewThreads({
+    resourceType: DECK_REVIEW_RESOURCE,
+    resourceId: deckId,
+  });
+}
+
 export async function deleteDeckComments(
   deckId: string,
   deletedBy?: string | null,
@@ -260,8 +273,11 @@ export async function deleteDeckComments(
 }
 
 /**
- * Refuses a new thread whose slide isn't in the deck. The kit runs it inside
- * the comment's own write, so `tx` reads the deck in that transaction.
+ * Refuses a new comment whose slide isn't in the deck. The kit runs it inside
+ * the comment's own write, so `tx` reads the deck in that transaction, and
+ * the deck row stays held until the comment commits: deleting the deck waits
+ * for it, or the comment waits and finds the deck gone. `FOR KEY SHARE` lets
+ * comments and deck edits go on at once; only a delete waits.
  */
 export async function assertCommentSlideInDeck(
   tx: DbExec,
@@ -277,7 +293,7 @@ export async function assertCommentSlideInDeck(
   // guard:allow-unscoped — the kit has already let the writer comment on this deck; this reads only its slide IDs.
   // raw-sql-ok: the statement is constant text; the deck ID is bound.
   const { rows } = await tx.execute({
-    sql: "SELECT data FROM decks WHERE id = ?",
+    sql: "SELECT data FROM decks WHERE id = ? FOR KEY SHARE",
     args: [comment.resourceId],
   });
   const data = rows[0]?.data;

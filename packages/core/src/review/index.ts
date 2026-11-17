@@ -75,6 +75,7 @@ export {
   compareMirroredReviewComments,
   deleteMirroredReviewComments,
   listMirroredResourceIds,
+  lockMirroredReviewThreads,
   mirrorReviewComments,
   type ReviewCommentCopy,
   type ReviewMirrorComparison,

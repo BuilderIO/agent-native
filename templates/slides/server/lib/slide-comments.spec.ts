@@ -6,6 +6,7 @@ import { getDbExec } from "@agent-native/core/db";
 import { getReviewCommentById } from "@agent-native/core/review";
 import createReviewComment from "@agent-native/core/review/actions/create-review-comment";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { SlideCommentRow } from "./slide-comments.js";
@@ -341,6 +342,63 @@ describe("Slides comments on the review kit", () => {
     await expect(
       asOwner(() => deleteComment.run({ ...deck, id: "missing" })),
     ).rejects.toThrow("Comment not found: missing");
+  });
+
+  it("refuses a reply on a slide the deck no longer has", async () => {
+    await createDeck("deck-removed-slide");
+    const deck = { deckId: "deck-removed-slide" };
+    const root = await asOwner(() =>
+      addComment.run({ ...deck, slideId: "slide-2", content: "On two" }),
+    );
+    const { getDb, schema } = dbModule;
+    await getDb()
+      .update(schema.decks)
+      .set({
+        data: JSON.stringify({
+          slides: [{ id: "slide-1", content: "<h1>One</h1>" }],
+        }),
+      })
+      .where(eq(schema.decks.id, "deck-removed-slide"));
+
+    await expect(
+      asOwner(() =>
+        addComment.run({
+          ...deck,
+          slideId: "slide-2",
+          content: "Still here?",
+          threadId: root.threadId,
+          parentId: root.id,
+        }),
+      ),
+    ).rejects.toThrow("Slide not found in deck: slide-2");
+    expect(
+      (await listed("deck-removed-slide")).comments.map(
+        (comment) => comment.id,
+      ),
+    ).toEqual([root.id]);
+  });
+
+  it("knows a person's reaction whatever the case of their email, and takes toggles in turn", async () => {
+    await createDeck("deck-reactions", [[COMMENTER, "commenter"]]);
+    const deck = { deckId: "deck-reactions" };
+    const root = await asOwner(() =>
+      addComment.run({ ...deck, slideId: "slide-1", content: "React" }),
+    );
+    const react = (userEmail: string) =>
+      as(userEmail, () =>
+        toggleReaction.run({ ...deck, commentId: root.id, emoji: "🎉" }),
+      );
+
+    expect((await react(COMMENTER)).reacted).toBe(true);
+    expect(await react("Commenter@Example.Test")).toMatchObject({
+      reacted: false,
+      reactions: [],
+    });
+
+    // Two toggles at once leave things as they were.
+    const both = await Promise.all([react(COMMENTER), react(COMMENTER)]);
+    expect(both.map((result) => result.reacted).sort()).toEqual([false, true]);
+    expect((await listed("deck-reactions")).comments[0]?.reactions).toEqual([]);
   });
 
   it("lets a commenter resolve threads, and only an author change what a comment says", async () => {

@@ -7,13 +7,14 @@ import { getReviewCommentById, setReviewCommentReaction } from "../store.js";
 import type { ReviewResourceContext } from "../types.js";
 
 export default defineAction({
-  description: "Add or remove your reaction on a review comment.",
+  description:
+    "Add or remove your reaction on a review comment. Leave out active to toggle it.",
   schema: z.object({
     resourceType: z.string().min(1),
     resourceId: z.string().min(1),
     commentId: z.string().min(1),
     reaction: z.string().trim().min(1).max(32),
-    active: z.boolean(),
+    active: z.boolean().optional(),
   }),
   mcpAnnotations: {
     readOnlyHint: false,
@@ -54,7 +55,7 @@ export default defineAction({
       commentId: comment.id,
       actorEmail,
       reaction: args.reaction,
-      active: args.active,
+      ...(args.active === undefined ? {} : { active: args.active }),
     });
   },
 });

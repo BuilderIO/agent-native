@@ -456,6 +456,28 @@ export async function deleteMirroredReviewComments(
 }
 
 /**
+ * Locks a resource's live thread roots `FOR UPDATE`, in ID order, the order
+ * the kit's own writes take them. A comment write holds its thread before the
+ * app's write hook reads the resource's row, so an app deleting a resource
+ * calls this inside its transaction before it locks that row, and neither
+ * waits on a row the other holds.
+ */
+export async function lockMirroredReviewThreads(
+  resource: ReviewMirrorResource,
+): Promise<void> {
+  await prepareTables();
+  await inWrite((client) =>
+    client.execute(sql`SELECT id FROM agent_review_comments
+        WHERE resource_type = ${sql.value(resource.resourceType)}
+          AND resource_id = ${sql.value(resource.resourceId)}
+          AND parent_comment_id IS NULL
+          AND deleted_at IS NULL
+        ORDER BY id
+          FOR UPDATE`),
+  );
+}
+
+/**
  * The IDs of resources of this type that have comments in the kit it hasn't
  * deleted, a page at a time in ID order, starting after `after`. A startup
  * copy uses it to reach resources whose comments only the kit still has.

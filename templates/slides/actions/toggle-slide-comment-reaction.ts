@@ -48,27 +48,24 @@ export default defineAction({
     }
 
     const reaction = emoji.trim();
-    const reactionsOn = async () =>
-      // coercion-ok: a comment no one has reacted to has no entry, which is no reactions.
-      (await slideCommentReactions([comment], ctx))[comment.id] ?? [];
-    const had = (await reactionsOn()).some(
-      (existing) => existing.emoji === reaction && existing.reacted,
-    );
-    await reactToReviewComment.run(
+    // Leaving out `active` has the kit toggle it under the comment's row lock,
+    // so two toggles at once take turns.
+    const { active } = await reactToReviewComment.run(
       {
         resourceType: DECK_REVIEW_RESOURCE,
         resourceId: deckId,
         commentId: comment.id,
         reaction,
-        active: !had,
       },
       reviewCtx,
     );
+    const reactions = await slideCommentReactions([comment], ctx);
     return {
       id: comment.id,
       emoji: reaction,
-      reacted: !had,
-      reactions: await reactionsOn(),
+      reacted: active,
+      // coercion-ok: a comment no one has reacted to has no entry, which is no reactions.
+      reactions: reactions[comment.id] ?? [],
     };
   },
 });

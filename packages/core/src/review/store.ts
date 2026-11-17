@@ -320,31 +320,58 @@ export function ensureReviewTables(): Promise<void> {
   return reviewStore.ready();
 }
 
+/**
+ * Turns an actor's reaction on or off. Without `active` it toggles: the
+ * comment's row lock makes two toggles at once take turns, so the second
+ * undoes the first. Actors match whatever their case.
+ */
 export async function setReviewCommentReaction(input: {
   commentId: string;
   actorEmail: string;
   reaction: string;
+  active?: boolean;
+}): Promise<{
+  commentId: string;
+  actorEmail: string;
+  reaction: string;
   active: boolean;
-}) {
+}> {
   await ensureReviewTables();
+  const set = async (client: DbExec) => {
+    let active = input.active;
+    if (active === undefined) {
+      await client.execute({
+        sql: "SELECT id FROM agent_review_comments WHERE id = ? FOR UPDATE",
+        args: [input.commentId],
+      });
+      const { rows } = await client.execute({
+        sql: "SELECT 1 FROM agent_review_comment_reactions WHERE comment_id = ? AND lower(actor_email) = lower(?) AND reaction = ?",
+        args: [input.commentId, input.actorEmail, input.reaction],
+      });
+      active = rows.length === 0;
+    }
+    if (active) {
+      await client.execute({
+        sql: "INSERT INTO agent_review_comment_reactions (comment_id,actor_email,reaction,created_at) VALUES (?,?,?,?) ON CONFLICT (comment_id,actor_email,reaction) DO NOTHING",
+        args: [
+          input.commentId,
+          input.actorEmail,
+          input.reaction,
+          new Date().toISOString(),
+        ],
+      });
+    } else {
+      await client.execute({
+        sql: "DELETE FROM agent_review_comment_reactions WHERE comment_id = ? AND lower(actor_email) = lower(?) AND reaction = ?",
+        args: [input.commentId, input.actorEmail, input.reaction],
+      });
+    }
+    return { ...input, active };
+  };
   const client = getDbExec();
-  if (input.active) {
-    await client.execute({
-      sql: "INSERT INTO agent_review_comment_reactions (comment_id,actor_email,reaction,created_at) VALUES (?,?,?,?) ON CONFLICT (comment_id,actor_email,reaction) DO NOTHING",
-      args: [
-        input.commentId,
-        input.actorEmail,
-        input.reaction,
-        new Date().toISOString(),
-      ],
-    });
-  } else {
-    await client.execute({
-      sql: "DELETE FROM agent_review_comment_reactions WHERE comment_id = ? AND actor_email = ? AND reaction = ?",
-      args: [input.commentId, input.actorEmail, input.reaction],
-    });
-  }
-  return { ...input };
+  return input.active === undefined && client.transaction
+    ? client.transaction(set)
+    : set(client);
 }
 
 export async function setReviewThreadPreference(input: {
@@ -454,7 +481,7 @@ export async function getReviewDiscussionStateForComments(
   // raw-sql-ok: the IN lists are placeholders only; every value is bound.
   const [reactionRows, preferenceRows] = await Promise.all([
     client.execute({
-      sql: `SELECT comment_id,reaction,COUNT(*) AS count,MAX(CASE WHEN actor_email = ? THEN 1 ELSE 0 END) AS reacted_by_me FROM agent_review_comment_reactions WHERE comment_id IN (${commentIds.map(() => "?").join(",")}) GROUP BY comment_id,reaction ORDER BY comment_id,reaction`,
+      sql: `SELECT comment_id,reaction,COUNT(*) AS count,MAX(CASE WHEN lower(actor_email) = lower(?) THEN 1 ELSE 0 END) AS reacted_by_me FROM agent_review_comment_reactions WHERE comment_id IN (${commentIds.map(() => "?").join(",")}) GROUP BY comment_id,reaction ORDER BY comment_id,reaction`,
       args: [reactionActor, ...commentIds],
     }),
     userEmail
