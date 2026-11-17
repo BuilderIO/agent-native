@@ -626,6 +626,7 @@ type MailboxSyncResponse =
       message: string;
       retryAfterMs?: number;
       savedDraft?: SavedDraftMetadata;
+      unrecordedGmailDraftId?: string;
     }
   | { status: "unavailable" }
   | { status: "gone" };
@@ -657,6 +658,12 @@ export async function syncDraftToMailboxBestEffort(
           retryAfterMs: result.retryAfterMs,
         }),
         ...(result.savedDraft ? { savedDraft: result.savedDraft } : {}),
+        ...(result.savedDraft ? { savedDraft: result.savedDraft } : {}),
+        // Gmail took the update as that draft, but Mail's copy still names
+        // the message Gmail replaced: only this write can record it.
+        ...(result.savedDraft && result.unrecordedGmailDraftId
+          ? { idNotStored: true }
+          : {}),
       };
     }
     return { status: result.status };

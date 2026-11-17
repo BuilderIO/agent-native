@@ -831,6 +831,16 @@ describe("syncDraftToMailbox with a Gmail draft reopened from Drafts", () => {
       errorCode: "draft_mailbox_busy",
       unrecordedGmailDraftId: "r-draft-7",
       message: expect.stringContaining("doesn't name Gmail draft r-draft-7"),
+      // For a caller holding the draft to record, from the refs it holds.
+      savedDraft: {
+        draftId: "r-draft-7",
+        movedAttachments: expect.arrayContaining([
+          {
+            from: { gmailMessageId: "message-1", gmailAttachmentId: "part-1" },
+            to: { gmailMessageId: "message-4", gmailAttachmentId: "part-4" },
+          },
+        ]),
+      },
     });
     // Three write attempts, then three tries at recording the update alone.
     expect(edits()).toBe(6);

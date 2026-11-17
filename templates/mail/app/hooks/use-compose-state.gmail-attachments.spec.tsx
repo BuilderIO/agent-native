@@ -151,11 +151,15 @@ const unconfirmedMessage =
  * on. Each save answers with the next of `answers`, or "moved": "moved"
  * finds the file, wherever the draft's refs left it, and reports its move;
  * "unconfirmed" is a save Gmail kept without Mail learning where the file
- * went. A sync stores where the save left the draft, then waits for
- * `afterAdopt` before answering. Mail's store holds each write made from the
- * revision it holds, answers any other with a save conflict, and refuses the
- * first `refuseStore` (all, if true): then the composer saves the text on
- * screen through Mail's draft route instead of a sync of the stored draft.
+ * went; "busy" is a sync whose Gmail update every adoption lost to other
+ * edits, so it stores nothing and names the draft and moves for the caller
+ * to record. A Gmail save naming neither "r-draft-7" nor its current message
+ * makes a second draft. A sync stores where the save left the draft, then
+ * waits for `afterAdopt` before answering. Mail's store holds each write
+ * made from the revision it holds, answers any other with a save conflict,
+ * and refuses the first `refuseStore` (all, if true): then the composer saves
+ * the text on screen through Mail's draft route instead of a sync of the
+ * stored draft.
  */
 async function mounted({
   savedDraftId = "r-draft-7",
@@ -164,7 +168,7 @@ async function mounted({
   afterAdopt,
 }: {
   savedDraftId?: string;
-  answers?: ("moved" | "unconfirmed")[];
+  answers?: ("moved" | "unconfirmed" | "busy")[];
   refuseStore?: boolean | number;
   afterAdopt?: () => Promise<void>;
 } = {}) {
@@ -181,6 +185,7 @@ async function mounted({
   const saves: { draftId: string | undefined; refs: string[] }[] = [];
   const writes: ComposeState[] = [];
   let conflicts = 0;
+  let secondDrafts = 0;
   let hold: Promise<void> | undefined;
   const metadata = {
     draftId: "r-draft-7",
@@ -192,6 +197,12 @@ async function mounted({
   const saveToGmail = async (sent: ComposeState) => {
     await hold;
     saves.push({ draftId: sent.savedDraftId, refs: refsOf(sent.attachments) });
+    if (
+      sent.savedDraftId !== "r-draft-7" &&
+      sent.savedDraftId !== current().gmailMessageId
+    ) {
+      secondDrafts += 1;
+    }
     const answer = answers.shift() ?? "moved";
     const [file] = sent.attachments ?? [];
     const from: Ref = {
@@ -199,15 +210,26 @@ async function mounted({
       gmailAttachmentId: file?.gmailAttachmentId ?? "",
     };
     version += 1;
-    return answer === "moved"
-      ? { moved: [{ from, to: current() }] }
-      : { moved: undefined };
+    const moved = [{ from, to: current() }];
+    return answer === "unconfirmed"
+      ? { answer, moved: undefined }
+      : { answer, moved };
   };
 
   mocks.callAction.mockReset();
   mocks.callAction.mockImplementation(async (name: string) => {
     if (name !== "sync-draft-mailbox") throw new Error(`Unexpected ${name}`);
-    const { moved } = await saveToGmail(stored);
+    const { answer, moved } = await saveToGmail(stored);
+    if (answer === "busy") {
+      return {
+        status: "pending",
+        errorCode: "draft_mailbox_busy",
+        message:
+          "The draft kept changing while its mailbox copy was saved, so Mail's copy doesn't name Gmail draft r-draft-7 yet and still names the message Gmail replaced.",
+        savedDraft: { ...metadata, movedAttachments: moved },
+        unrecordedGmailDraftId: "r-draft-7",
+      };
+    }
     stored = applyDraftSaveResult(stored, {
       status: "saved",
       ...metadata,
@@ -314,6 +336,7 @@ async function mounted({
     holdSaves,
     stored: () => stored,
     conflicts: () => conflicts,
+    secondDrafts: () => secondDrafts,
   };
 }
 
@@ -411,6 +434,27 @@ describe("useComposeState with a reopened Gmail draft's file", () => {
     ]);
   });
 
+  it("updates the Gmail draft a sync couldn't record, without making a second", async () => {
+    const { result, local, saves, stored, failures, secondDrafts } =
+      await mounted({ savedDraftId: "message-of-draft", answers: ["busy"] });
+
+    act(() => result.current.update("reopened", { body: "First edit" }));
+    await autosave();
+    await waitFor(() => expect(stored().savedDraftId).toBe("r-draft-7"));
+    expect(stored().attachments).toEqual([fileAt(2)]);
+    expect(failures).toEqual([]);
+
+    act(() => result.current.update("reopened", { body: "Second edit" }));
+    await autosave();
+    await waitFor(() => expect(local()?.attachments).toEqual([fileAt(3)]));
+
+    expect(saves).toEqual([
+      { draftId: "message-of-draft", refs: ["message-of-draft/part-1"] },
+      { draftId: "r-draft-7", refs: ["message-2/part-2"] },
+    ]);
+    expect(secondDrafts()).toBe(0);
+  });
+
   it("keeps a sync's moved file and Gmail draft ID when the person's next write conflicts with it", async () => {
     let adopted = () => {};
     const syncAdopted = new Promise<void>((resolve) => (adopted = resolve));
@@ -451,7 +495,7 @@ describe("sending a draft whose last save couldn't confirm where its file moved"
    * learning where the file went, and whose later saves answer `later`.
    */
   async function afterUnconfirmedSave(
-    later: ("moved" | "unconfirmed")[],
+    later: ("moved" | "unconfirmed" | "busy")[],
     options: { refuseStore?: boolean } = {},
   ) {
     const mail = await mounted({

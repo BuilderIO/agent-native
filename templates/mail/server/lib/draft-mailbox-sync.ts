@@ -58,14 +58,16 @@ export type MailboxSync =
       retryAfterMs?: number;
       /**
        * A copy this sync made and pointed Mail's copy at before it stopped,
-       * so the caller can update or delete that copy rather than lose track
-       * of it.
+       * or the Gmail draft `unrecordedGmailDraftId` names, so the caller can
+       * update or delete that copy rather than lose track of it.
        */
       savedDraft?: SavedDraftRef;
       leftoverDraftIds?: string[];
       /**
        * A Gmail draft this sync updated that Mail's copy doesn't name yet: the
-       * stored draft still names the message Gmail replaced.
+       * stored draft still names the message Gmail replaced, and its Gmail
+       * files the refs `savedDraft.movedAttachments` moves. A caller that
+       * holds the draft records both, or its next save makes a second draft.
        */
       unrecordedGmailDraftId?: string;
     }
@@ -423,11 +425,14 @@ export async function syncDraftToMailbox(args: {
         copy: SavedDraftRef;
       }
     | undefined;
-  const pendingCopy = () => ({
-    ...(adopted ? { savedDraft: refOf(adopted, moves) } : {}),
-    ...leftover(),
-    ...(unrecorded ? { unrecordedGmailDraftId: unrecorded.draftId } : {}),
-  });
+  const pendingCopy = () => {
+    const copy = unrecorded?.copy ?? adopted;
+    return {
+      ...(copy ? { savedDraft: refOf(copy, moves) } : {}),
+      ...leftover(),
+      ...(unrecorded ? { unrecordedGmailDraftId: unrecorded.draftId } : {}),
+    };
+  };
   try {
     for (let attempt = 0; attempt < MAX_SYNC_ATTEMPTS; attempt += 1) {
       const stored = await readAppState(key);
