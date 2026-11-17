@@ -118,7 +118,10 @@ pnpm action import-content --dryRun false --parentId abc123 --idempotencyKey gui
 Run the dry run first and tell the user each page's `status` and `notes`
 before applying. Applying fails with `IMPORT_IMAGE_NOT_UPLOADED` until every
 image named in `uploads` has a `url`; leave an image nobody can supply out of
-`files`, and its references become visible placeholders on the page. Other
+`files`, and its references become visible placeholders on the page. Images
+embedded as `data:` URLs are stored privately, readable by whoever can read the
+page; one whose bytes aren't the image type it names fails the apply with
+`IMPORT_IMAGE_INVALID` before any page is created. Other
 formats come back in `skipped` as not supported yet. Pass an
 `idempotencyKey` on every apply, and reuse it only to retry the same files,
 with the same image `url`s, into the same place. `IMPORT_INCOMPLETE` means
@@ -203,12 +206,18 @@ edit commits. Restore it before editing. A local-folder sync
 ### update-document
 
 Update an existing document's metadata or browser-owned content. External
-callers use the revisioned `edit-document` protocol for every body change.
+callers use the revisioned `edit-document` protocol for every body change. A
+script, CLI call or automation that replaces the body passes the `baseRevision`
+`get-document` returned (that read's `updatedAt` as `baseUpdatedAt` also
+works): with neither, the write refuses with `BASE_REVISION_REQUIRED` (400),
+and if the page changed since that read it fails with
+`DOCUMENT_REVISION_CONFLICT` (409), carrying the page's
+`details.currentRevision`, and writes nothing.
 
 ```bash
 pnpm action update-document --id abc123 --title "New Title"
-pnpm action update-document --id abc123 --content "# Updated Content\n\nNew text here"
-pnpm action update-document --id abc123 --title "New Title" --content "New content"
+pnpm action update-document --id abc123 --baseRevision "<revision from get-document>" --content "# Updated Content\n\nNew text here"
+pnpm action update-document --id abc123 --baseRevision "<revision from get-document>" --title "New Title" --content "New content"
 pnpm action update-document --id abc123 --description "Stable guidance for what belongs on this page"
 ```
 

@@ -609,7 +609,11 @@ describe("getOrgContext", () => {
 
     const calls = mockExecute.mock.calls.map((c) => c[0]);
     expect(calls[1].sql).toContain("LOWER(o.allowed_domain)");
-    expect(calls[1].args).toEqual(["existing@builder.io", "builder.io"]);
+    expect(calls[1].args).toEqual([
+      "existing@builder.io",
+      "existing@builder.io",
+      "builder.io",
+    ]);
     expect(calls[2].sql).toContain("INSERT INTO org_members");
     expect(calls.some((c) => c.sql.includes("INSERT INTO organizations"))).toBe(
       false,

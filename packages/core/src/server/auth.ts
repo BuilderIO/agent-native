@@ -64,6 +64,7 @@ import {
 } from "./consent-route.js";
 import { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 import { devLoopbackAuthHint } from "./dev-origin-hint.js";
+import { documentBuildIdMetaTag } from "./document-build-id.js";
 import {
   EMAIL_AUTH_LINK_LANDING_PATH,
   emailAuthLinkFields,
@@ -4095,7 +4096,7 @@ function desktopMagicLinkLandingPage(
         `<input type="hidden" name="${escapeHtmlAttr(name)}" value="${escapeHtmlAttr(value)}">`,
     )
     .join("");
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Continue sign-in</title></head><body><main><h1>Continue signing in</h1><p>Click continue to finish signing in to the Agent-Native desktop app.</p><form method="post" action="${safeActionUrl}" autocomplete="off">${hiddenInputs}<button type="submit">Continue</button></form></main></body></html>`;
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">${documentBuildIdMetaTag()}<meta name="viewport" content="width=device-width,initial-scale=1"><title>Continue sign-in</title></head><body><main><h1>Continue signing in</h1><p>Click continue to finish signing in to the Agent-Native desktop app.</p><form method="post" action="${safeActionUrl}" autocomplete="off">${hiddenInputs}<button type="submit">Continue</button></form></main></body></html>`;
   return new Response(html, {
     status: 200,
     headers: {
@@ -5810,6 +5811,7 @@ function getCustomAuthRequiredHtml(): string {
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+${documentBuildIdMetaTag()}
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Authentication required</title>
 <style>

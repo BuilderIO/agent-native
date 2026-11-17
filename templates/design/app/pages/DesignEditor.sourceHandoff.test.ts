@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { handleHostChatState } from "./design-editor/host-chat-state";
 import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
 
 describe("DesignEditor pending source handoff", () => {
@@ -26,27 +27,46 @@ describe("DesignEditor pending source handoff", () => {
   });
 
   it("resolves the handoff when the host's turn settles, not when it is posted", () => {
-    expect(handler).toContain("if (delivery.awaitingHostTurn) {");
-    expect(handler).toContain(
-      'stagedSourceHandoffRef.current = "awaiting-start";',
-    );
-    expect(handler).toContain("setApplyingViaHost(true);");
-    expect(handler).toContain("HOST_TURN_START_TIMEOUT_MS");
-    const chatState = source.slice(
-      source.indexOf('if (data.type === "design:chatState")'),
-      source.indexOf("const clearRedoStacks = useCallback(() => {"),
-    );
-    expect(chatState).toContain('stagedSourceHandoffRef.current = "running";');
-    expect(chatState).toContain(
-      'if (stagedSourceHandoffRef.current === "running")',
-    );
-    expect(chatState).toContain("clearPendingLiveEditStateRef.current();");
-    expect(chatState.indexOf("reloadRunningAppPreviewFrames();")).toBeLessThan(
-      chatState.indexOf("clearPendingLiveEditStateRef.current();"),
-    );
-    expect(chatState.indexOf("setApplyingViaHost(false);")).toBeLessThan(
-      chatState.indexOf('if (next === "idle")'),
-    );
+    const hostChatGeneratingRef = { current: false };
+    const stagedSourceHandoffRef = {
+      current: "awaiting-start" as "awaiting-start" | "running" | "idle",
+    };
+    const started = vi.fn();
+    const stagedHandoffStartedRef = {
+      current: started as (() => void) | undefined,
+    };
+    const setApplyingViaHost = vi.fn();
+    const reloadRunningAppPreviewFrames = vi.fn();
+
+    handleHostChatState({
+      next: "generating",
+      hostChatGeneratingRef,
+      stagedSourceHandoffRef,
+      stagedHandoffStartedRef,
+      clearStartTimer: vi.fn(),
+      setApplyingViaHost,
+      reloadRunningAppPreviewFrames,
+    });
+    expect(started).toHaveBeenCalledOnce();
+    expect(stagedHandoffStartedRef.current).toBeUndefined();
+    expect(stagedSourceHandoffRef.current).toBe("running");
+    expect(hostChatGeneratingRef.current).toBe(true);
+    expect(setApplyingViaHost).not.toHaveBeenCalled();
+
+    handleHostChatState({
+      next: "idle",
+      hostChatGeneratingRef,
+      stagedSourceHandoffRef,
+      stagedHandoffStartedRef,
+      clearStartTimer: vi.fn(),
+      setApplyingViaHost,
+      reloadRunningAppPreviewFrames,
+    });
+
+    expect(setApplyingViaHost).toHaveBeenCalledWith(false);
+    expect(reloadRunningAppPreviewFrames).toHaveBeenCalledOnce();
+    expect(stagedSourceHandoffRef.current).toBe("idle");
+    expect(hostChatGeneratingRef.current).toBe(false);
   });
 
   it("keeps visual-edit handoffs on the copy-prompt path when signed in", () => {

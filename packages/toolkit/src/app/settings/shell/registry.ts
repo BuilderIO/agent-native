@@ -95,6 +95,13 @@ export interface SettingsPageDefinition {
    * resolves these ids to this page until the redirect table owns them.
    */
   legacyTabIds?: readonly string[];
+  /**
+   * The page routes every path under it: `sub` is the rest of the path
+   * (`setup/abc/edit`) instead of a deeper path being rewritten to its parent.
+   */
+  nestedRoutes?: boolean;
+  /** Routable, but out of the nav and search, and drawn with no header title. */
+  unlisted?: boolean;
   /** Nav link to a route outside Settings instead of a page. */
   href?: string;
   /** Extra search terms for the page itself. */

@@ -1,5 +1,27 @@
 # @agent-native/dispatch
 
+## 0.42.8
+
+### Patch Changes
+
+- c28f853: A fresh Dispatch install no longer creates the retired, unused `vault_secrets` table. Databases that already have it keep it untouched, and the Vault keeps its keys in `app_secrets`.
+- d9515da: Scope app creation settings writes to their owner.
+- f152dfe: The MCP gateway and workspace app chat proxy forward app context and errors more reliably, and workspace app routes and cards handle mounted app paths.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [a4a4f9e]
+- Updated dependencies [988cdee]
+- Updated dependencies [dfe5aa0]
+- Updated dependencies [f152dfe]
+- Updated dependencies [fceb6b5]
+- Updated dependencies [425c9ac]
+- Updated dependencies
+- Updated dependencies [9af0433]
+- Updated dependencies [79bc394]
+- Updated dependencies [e79c1ae]
+- Updated dependencies [a6ccc79]
+- Updated dependencies [cf9ff10]
+  - @agent-native/toolkit@0.229.0
+
 ## 0.42.7
 
 ### Patch Changes
@@ -1541,11 +1563,5 @@
 ### Patch Changes
 
 - f2f60b9: Move the environment badge to the bottom-left, show a truthful dev badge during configured local development, raise Dispatch controls above it, and give default notifications enough clearance to avoid overlap.
-
-## 0.31.12
-
-### Patch Changes
-
-- dc0978d: Fix action request context to use the forwarded workspace gateway origin instead of the internal dev proxy host.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

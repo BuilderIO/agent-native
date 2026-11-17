@@ -174,6 +174,7 @@ export function runQuiet(
   args: string[],
   options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
 ): string {
+  // guard:allow-bare-pnpm — the deploy-paths check runs only in Linux CI (deploy-paths.yml, deploy-hosts.yml)
   return execFileSync(cmd, args, {
     cwd: options.cwd ?? repoRoot,
     env: options.env ?? baseEnv(),

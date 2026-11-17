@@ -521,6 +521,10 @@
       "dist/cli/agent-plugin.js"
     ],
     "./testing": ["dist/testing.d.ts", "dist/testing.js"],
+    "./testing/cpu-time": [
+      "dist/testing/cpu-time.d.ts",
+      "dist/testing/cpu-time.js"
+    ],
     "./router": ["dist/router/index.js"],
     "./collab": ["dist/collab/index.js"],
     "./a2a": ["dist/a2a/index.js"],
