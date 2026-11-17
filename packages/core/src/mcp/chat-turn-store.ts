@@ -60,6 +60,10 @@ export const mcpChatTurnsStore = defineStore({
       app_id TEXT NOT NULL, expires_at BIGINT NOT NULL, signature TEXT NOT NULL
     )`,
     },
+    {
+      name: "admissions-expiry-index",
+      sql: `CREATE INDEX IF NOT EXISTS mcp_chat_turn_admissions_expires_at_idx ON mcp_chat_turn_admissions (expires_at)`,
+    },
   ],
 });
 

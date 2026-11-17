@@ -852,6 +852,11 @@ async function withMcpChatTaskScope<T>(
   const admission = await readMcpChatTurn(
     chatTurnBinding(config, taskId, event),
   );
+  // Only an absent proof means "an ordinary turn"; a refused lookup must not
+  // pass for one, or an intended interactive turn quietly loses its grant.
+  if (admission.status === "refused") {
+    throw new Error(`MCP chat-turn proof refused: ${admission.reason}`);
+  }
   return runWithProviderInteractiveScope(false, work, {
     action: false,
     ...(admission.status === "admitted"

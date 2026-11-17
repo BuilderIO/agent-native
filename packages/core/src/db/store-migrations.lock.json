@@ -669,6 +669,10 @@
     {
       "name": "admissions",
       "checksum": "a5bc553b1278195c"
+    },
+    {
+      "name": "admissions-expiry-index",
+      "checksum": "b2db0a68585f45ec"
     }
   ],
   "mcp_connect": [
@@ -695,6 +699,10 @@
     {
       "name": "baseline",
       "checksum": "03228922a3cb9608"
+    },
+    {
+      "name": "expiry-index",
+      "checksum": "49e51b43de935222"
     }
   ],
   "notifications": [

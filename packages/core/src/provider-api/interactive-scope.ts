@@ -90,9 +90,11 @@ export function isChatTurnInteractiveScope(): boolean {
 }
 
 /**
- * True while a person is waiting on this work: a verified browser action or a
- * live chat turn. A background worker counts only with a chat-turn grant.
- * `actionOnly` also requires the innermost scope to be an action run.
+ * True while a person is waiting on this work through a scope: an MCP/tool call
+ * made for a live chat turn. A background worker counts only with a chat-turn
+ * grant. A browser request is not marked here; a gate recognises it from the
+ * request itself. `actionOnly` also requires the innermost scope to be an
+ * action run.
  */
 export function isProviderInteractiveScope(actionOnly = false): boolean {
   return hasInteractiveScope(actionOnly, false);

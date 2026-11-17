@@ -35,6 +35,10 @@ export const mcpTurnGrantsStore = defineStore({
       revoked_at BIGINT
     )`,
     },
+    {
+      name: "expiry-index",
+      sql: `CREATE INDEX IF NOT EXISTS mcp_turn_grants_expires_at_idx ON mcp_turn_grants (expires_at)`,
+    },
   ],
 });
 
