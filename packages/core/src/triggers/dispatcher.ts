@@ -106,6 +106,21 @@ export interface TriggerDispatcherDeps extends BackgroundAutomationDeps {
   ) => string[] | undefined;
 }
 
+export type AutomationEventGate = (input: {
+  automationId: string;
+  orgId: string | undefined;
+  eventOwner: string;
+}) => boolean | Promise<boolean>;
+
+let _eventGate: AutomationEventGate | undefined;
+
+/** Lets an app veto an event automation's run for one event owner before its condition is evaluated. */
+export function setAutomationEventGate(
+  gate: AutomationEventGate | undefined,
+): void {
+  _eventGate = gate;
+}
+
 export type AutomationWebhookTaskResult = "completed" | "retry";
 
 const _dispatchingTriggers = new Set<string>();
@@ -1331,6 +1346,16 @@ async function dispatchQueuedAutomationEvent(
       return "completed";
     }
     identity = resolved.identity;
+  }
+  if (
+    _eventGate &&
+    !(await _eventGate({
+      automationId: resource.id,
+      orgId: identity.orgId,
+      eventOwner: identity.eventOwner,
+    }))
+  ) {
+    return "completed";
   }
 
   // The condition check must see the same credential (owner key or Builder

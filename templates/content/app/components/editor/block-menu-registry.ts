@@ -3,6 +3,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 
 import { isMermaidCodeBlock } from "./extensions/CodeBlockNode";
+import { toggleTitleNode } from "./extensions/NotionExtensions";
 import {
   getTableHeaders,
   setTableFitWidth,
@@ -29,8 +30,8 @@ export interface BlockMenuSwitch {
 export interface BlockMenuEntry {
   /** The menu's title: the kind of block, as the slash menu names it. */
   title: (node: ProseMirrorNode, t: Translate) => string;
-  /** Turn into can make it another kind of block. */
-  turnInto?: boolean;
+  /** Turn into can make it another kind of block, or only some blocks of it. */
+  turnInto?: boolean | ((node: ProseMirrorNode) => boolean);
   /** Its own settings, which suggested edits can't change. */
   switches?: (node: ProseMirrorNode, t: Translate) => BlockMenuSwitch[];
 }
@@ -111,7 +112,12 @@ export const BLOCK_MENU_ENTRIES: Record<string, BlockMenuEntry> = {
   audio: { title: titled("editor.slash.audio") },
   table: { title: titled("editor.slash.table"), switches: tableSwitches },
   notionCallout: { title: titled("editor.slash.callout") },
-  notionToggle: { title: titled("editor.slash.toggle") },
+  // Turn into works from a Toggle's title line, which Toggles saved before
+  // their titles became page text don't have.
+  notionToggle: {
+    title: titled("editor.slash.toggle"),
+    turnInto: (node) => !!toggleTitleNode(node),
+  },
   notionColumns: { title: titled("editor.blockMenu.columns") },
   notionSyncedBlock: { title: titled("editor.blockMenu.syncedBlock") },
   notionBlockAtom: {

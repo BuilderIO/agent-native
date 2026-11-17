@@ -1681,6 +1681,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "Público",
   "share.publicDescription": "Cualquier persona con el enlace puede verlo",
   "share.remove": "Eliminar",
+  "share.removeInvitee": "Quitar {{email}}",
   "share.role": "Rol",
   "share.searching": "Buscando...",
   "share.share": "Compartir",
@@ -2447,11 +2448,14 @@ const messages: ToolkitAgentChatTranslation = {
     "Usa datos de ejemplo en este navegador para presentaciones.",
   "settingsShell.appGroup.labsFootnote":
     "Estas funciones nuevas e inestables pueden tener errores.",
+  "settingsShell.appGroup.labsHostDecided":
+    "Esto ya está configurado para ti, así que no se puede cambiar aquí.",
   "settingsShell.appGroup.labsLoadError": "No se pudieron cargar tus Labs.",
   "settingsShell.appGroup.labsReadError":
     "No se pudo leer esta opción guardada. Elige Activado o Desactivado para configurarla de nuevo.",
   "settingsShell.appGroup.labsSaveError":
     "No se pudo cambiar {{lab}}. Inténtalo de nuevo.",
+  "settingsShell.appGroup.labsUseDefault": "Usar el valor predeterminado",
   "settingsShell.appGroup.mcpAbout":
     "Conecta {{app}} con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en {{app}} por ti. Solo ve lo que tú puedes ver.",
   "settingsShell.appGroup.mcpAppCards": "Tarjetas de la app en apps de chat",

@@ -1,7 +1,7 @@
 import { callAction, getBrowserTabId } from "@agent-native/core/client/hooks";
 
-import { BROWSER_FIG_LIMITS } from "../../server/lib/fig-file-limits.js";
 import { bytesToBase64, utf8ByteLength } from "../../shared/fig-bytes.js";
+import { BROWSER_FIG_LIMITS } from "../../shared/fig-file-limits.js";
 import {
   completeFigImport,
   MAX_FIG_FRAME_HTML_BYTES,

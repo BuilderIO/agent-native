@@ -134,6 +134,9 @@ export function renderSingleScreenCanvas({
     remoteVisualEditPending,
     handleScreenExternalContentSnapshot,
     cssVarValues,
+    tweakMutationsEnabled,
+    tweaks,
+    handleTweakChange,
     files,
   } = editorFilesAndSaving;
   const {
@@ -555,6 +558,10 @@ export function renderSingleScreenCanvas({
         }
         onElementDblClickText={handleElementDblClickText}
         tweakValues={cssVarValues}
+        tweaks={tweaks}
+        onInteractTweakSet={
+          canEditDesign && tweakMutationsEnabled ? handleTweakChange : undefined
+        }
         drawMode={drawMode && annotateLab === "on"}
         onExitDrawMode={() => {
           handleExitFocusedDrawMode();

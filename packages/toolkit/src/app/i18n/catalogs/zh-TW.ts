@@ -1410,6 +1410,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "公開",
   "share.publicDescription": "擁有連結的任何人都可以檢視",
   "share.remove": "移除",
+  "share.removeInvitee": "移除 {{email}}",
   "share.role": "角色",
   "share.searching": "搜尋中...",
   "share.share": "分享",
@@ -2129,10 +2130,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.demoModeDescription":
     "在此瀏覽器中使用範例資料進行簡報。",
   "settingsShell.appGroup.labsFootnote": "這些新功能尚不穩定，可能會有錯誤。",
+  "settingsShell.appGroup.labsHostDecided":
+    "此項目已為你設定，無法在這裡變更。",
   "settingsShell.appGroup.labsLoadError": "無法載入實驗室功能。",
   "settingsShell.appGroup.labsReadError":
     "無法讀取已儲存的選項。請選擇開啟或關閉以重新設定。",
   "settingsShell.appGroup.labsSaveError": "無法變更 {{lab}}。請再試一次。",
+  "settingsShell.appGroup.labsUseDefault": "使用預設值",
   "settingsShell.appGroup.mcpAbout":
     "將 {{app}} 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 {{app}} 中工作。它只能看到你有權看到的內容。",
   "settingsShell.appGroup.mcpAppCards": "聊天應用程式中的應用程式卡片",

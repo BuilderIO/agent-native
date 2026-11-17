@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { ensureReviewTables } from "@agent-native/core/review";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   assertAccess,
@@ -9,6 +10,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { deleteMirroredSlideComments } from "../server/lib/slide-comment-mirror.js";
 import { commentAuthorKind } from "../shared/comment-author.js";
 
 type ThreadRow = { id: string; authorEmail: string };
@@ -131,6 +133,7 @@ export default defineAction({
       await assertAccess("deck", comment.deckId, "editor");
     }
 
+    await ensureReviewTables();
     const removedIds = await db.transaction(async (tx) => {
       // Reply insertion locks the deck row first; take it too so a reply can't land between this selection and the delete.
       await tx
@@ -185,6 +188,7 @@ export default defineAction({
             inArray(schema.slideComments.id, ids),
           ),
         );
+      await deleteMirroredSlideComments(comment.deckId, ids, userEmail);
       return ids;
     });
 

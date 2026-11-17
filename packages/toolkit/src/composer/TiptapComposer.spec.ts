@@ -2806,6 +2806,33 @@ describe("createTiptapComposerExtensions", () => {
     ).toBeNull();
   });
 
+  it("sends only on Mod+Enter when plain Enter is set to a new line", () => {
+    const enter = {
+      key: "Enter",
+      shiftKey: false,
+      metaKey: false,
+      ctrlKey: false,
+    };
+
+    expect(
+      getComposerSubmitIntentForEnterKey(enter, true, "newline"),
+    ).toBeNull();
+    expect(
+      getComposerSubmitIntentForEnterKey(
+        { ...enter, metaKey: true },
+        true,
+        "newline",
+      ),
+    ).toBe("immediate");
+    expect(
+      getComposerSubmitIntentForEnterKey(
+        { ...enter, ctrlKey: true },
+        false,
+        "newline",
+      ),
+    ).toBe("immediate");
+  });
+
   it("scrolls the composer caret into view for Shift+Enter line breaks", () => {
     const editor = new Editor({
       element: document.createElement("div"),

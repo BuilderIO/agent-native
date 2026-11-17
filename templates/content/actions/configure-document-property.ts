@@ -9,6 +9,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { firstRow } from "../server/lib/first-row.js";
 import {
   syncPrivateIconReference,
@@ -26,6 +27,11 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
+import {
+  assertKeepsRuledOptions,
+  assertNoColumnRuleOn,
+  columnRuleDefinitions,
+} from "./_column-rules.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   configureDocumentPropertyAgentSchema,
@@ -198,6 +204,11 @@ export default defineAction({
     summary: (_args, result) =>
       setupAuditSummary(result, "Configured a Content database property"),
   },
+  // The app's own calls, whose documentId may be a row, name nothing.
+  changeResource: (input) =>
+    "operation" in input
+      ? documentChangeResource(input.target.databaseDocumentId)
+      : null,
   run: async (args, context) => {
     if (context?.caller === "mcp") {
       configureDocumentPropertyAgentSchema.parse(args);
@@ -377,6 +388,30 @@ export default defineAction({
             database.id,
             context,
           );
+        const ruleDefinitions = await columnRuleDefinitions(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+        );
+        if (lockedDefinition.type !== type) {
+          assertNoColumnRuleOn(ruleDefinitions, propertyId, "type");
+        } else {
+          assertKeepsRuledOptions(
+            ruleDefinitions,
+            propertyId,
+            parsePropertyOptions(optionsJson).options,
+          );
+        }
+        // The rule isn't part of this action's options: a rename keeps it.
+        const keptFreezeRule =
+          lockedDefinition.type === type
+            ? lockedOptions.blocks?.freezeWhen
+            : undefined;
+        if (keptFreezeRule) {
+          optionsJson = serializePropertyOptions({
+            ...parsePropertyOptions(optionsJson),
+            blocks: { primary: false, freezeWhen: keptFreezeRule },
+          });
+        }
         if (lockedDefinition.type !== type) {
           const memberships = await tx
             .select({

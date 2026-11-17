@@ -15,6 +15,7 @@ import {
   initTriggerDispatcher,
   parseTriggerFrontmatter,
   refreshEventSubscriptions,
+  setAutomationEventGate,
   stopTriggerQueueWorker,
 } from "./dispatcher.js";
 import {
@@ -3705,6 +3706,57 @@ Respond to the event.`,
     await waitForEvent("event-owner-mismatch");
 
     expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
+  it("runs an event automation for an owner only while the app's gate allows it", async () => {
+    const owner = "alice+triggers@agent-native.test";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-gated",
+        owner,
+        path: "jobs/gated.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: event.gated
+mode: agentic
+createdBy: ${owner}
+---
+
+Handle the event.`,
+      },
+    ]);
+    const gate = vi.fn().mockResolvedValue(false);
+    setAutomationEventGate(gate);
+    try {
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+      const handler = busEventHandler("event.gated");
+      const fire = async (eventId: string) => {
+        await handler(
+          { ok: true },
+          { owner, eventId, emittedAt: "2026-04-30T00:00:00.000Z" },
+        );
+        await waitForEvent(eventId);
+      };
+
+      await fire("event-gated-closed");
+      expect(gate).toHaveBeenCalledWith({
+        automationId: "resource-gated",
+        orgId: undefined,
+        eventOwner: owner,
+      });
+      expect(startRunMock).not.toHaveBeenCalled();
+
+      gate.mockResolvedValue(true);
+      await fire("event-gated-open");
+      expect(startRunMock).toHaveBeenCalledOnce();
+    } finally {
+      setAutomationEventGate(undefined);
+    }
   });
 
   it("loads prompt resources for the trigger run owner", async () => {

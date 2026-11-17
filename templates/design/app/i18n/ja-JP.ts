@@ -1763,6 +1763,19 @@ export default {
       localDescription:
         "/visual-edit で任意の実行中ローカル app に接続します。",
       warningsToast: "警告付きでインポートが完了しました",
+      pasteUnreadable: "コピーしたレイヤーを読み取れませんでした。",
+      pasteInexact: "正確に貼り付けられなかった詳細: {{count}}",
+      pasteLayerTypes:
+        "シンプルなフレームとして貼り付けた{{tool}}のレイヤータイプ: {{count}}",
+      pasteImagePlaceholders:
+        "プレースホルダーとして貼り付けた画像: {{count}}。{{tool}}は画像データをコピーしません。",
+      pasteImagesLinked:
+        "{{tool}}にリンクされたままの画像: {{count}}。ファイルストレージにコピーできませんでした。",
+      pasteImagesUnsaved:
+        "保存を確認できず、表示されなくなる可能性のある画像: {{count}}",
+      pasteNeedsEditAccess: "このデザインに貼り付けるには編集権限が必要です。",
+      pastePartialImport:
+        "貼り付けに失敗しました。一部の画面が作成された可能性があります。画面を確認してください。",
       figmaSuccess: "Figma 貼り付けをインポートしました",
       htmlSuccess: "HTML をインポートしました",
       uploadSuccess: "ファイルをインポートしました",
@@ -1773,6 +1786,8 @@ export default {
         notHtml: "インポートする有効な HTML を貼り付けるか選択してください。",
         importFailed: "インポートに失敗しました",
         figmaPasteFailed: "Figma 貼り付けのインポートに失敗しました",
+        paperPasteFailed: "Paper 貼り付けのインポートに失敗しました",
+        wonderPasteFailed: "Wonder 貼り付けのインポートに失敗しました",
         uploadFailed: "ファイルのアップロードに失敗しました",
         invalidFigFile: ".fig で終わるファイルを選択してください。",
         unsupportedFileType: ".fig、.html、.htm ファイルを選択してください。",
@@ -2104,6 +2119,9 @@ export default {
     addTweaks: "微調整を追加する",
     addTweakControls: "微調整コントロールを追加する",
     closeTweaks: "微調整を閉じる",
+    showFloatingTweaks: "フローティング微調整を表示",
+    collapseTweaks: "微調整を折りたたむ",
+    expandTweaks: "微調整を展開",
     tweaksHelp:
       "調整はベースデザインに重ねる、ブレークポイントおよび状態固有の視覚的オーバーライドです。コントロールをリセットすると継承値に戻ります。",
     tweaksDocs: "詳細を見る。",
@@ -2362,6 +2380,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "調整内容が別の場所で変更されました。デザインを更新してからもう一度お試しください。",
+      tweakBaselineUnreadable:
+        "保存された調整の基準値を読み取れませんでした。デザインデータが修復されるまで調整の変更を一時停止します。",
+      resetTweakBaseline: "ベースラインをリセット",
       tweakSaveNotDurable:
         "調整内容はまだ保存されていません。このタブを開いたまま、もう一度お試しください。",
       undoSkippedConcurrentEdit:
@@ -3553,6 +3574,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "エージェントを使うには AI モデルを接続してください",
       startFailed: "エージェントを開始できませんでした",
+      hostChatUnconfirmed:
+        "メッセージがホストチャットに届いたか確認できませんでした。再試行する前にホストチャットを確認してください。",
       cancelFailed: "エージェントを停止できませんでした",
       busy: "このスレッドではすでにエージェントが作業中です",
       error: {

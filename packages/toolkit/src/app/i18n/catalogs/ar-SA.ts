@@ -1506,6 +1506,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "عام",
   "share.publicDescription": "يمكن لأي شخص لديه الرابط العرض",
   "share.remove": "إزالة",
+  "share.removeInvitee": "إزالة {{email}}",
   "share.role": "الدور",
   "share.searching": "جارٍ البحث...",
   "share.share": "مشاركة",
@@ -2444,10 +2445,13 @@ const messages: ToolkitAgentChatTranslation = {
     "استخدم بيانات نموذجية في هذا المتصفح للعروض التقديمية.",
   "settingsShell.appGroup.labsFootnote":
     "قد تحتوي هذه الميزات الجديدة غير المستقرة على أخطاء.",
+  "settingsShell.appGroup.labsHostDecided":
+    "هذا الإعداد مضبوط لك، لذا لا يمكن تغييره هنا.",
   "settingsShell.appGroup.labsLoadError": "تعذّر تحميل المختبرات.",
   "settingsShell.appGroup.labsReadError":
     "تعذّرت قراءة هذا الاختيار المحفوظ. اختر تشغيل أو إيقاف لإعداده مجددًا.",
   "settingsShell.appGroup.labsSaveError": "تعذّر تغيير {{lab}}. حاول مرة أخرى.",
+  "settingsShell.appGroup.labsUseDefault": "استخدام الافتراضي",
   "settingsShell.appGroup.mcpAbout":
     "اربط {{app}} بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في {{app}} نيابةً عنك. ولا يرى إلا ما يمكنك رؤيته.",
   "settingsShell.appGroup.mcpAppCards": "بطاقات التطبيق في تطبيقات الدردشة",

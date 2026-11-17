@@ -1080,6 +1080,10 @@ const editor = {
     fourColumns: "4列",
     codeBlock: "コードブロック",
     codeBlockDescription: "コードスニペット",
+    toggleHeading1: "トグル見出し 1",
+    toggleHeading2: "トグル見出し 2",
+    toggleHeading3: "トグル見出し 3",
+    toggleHeadingDescription: "開閉できる見出し",
     collapsibleBlockDescription: "折りたたみ可能なブロック",
     database: "コレクション",
     databaseDescription: "このページ内のインラインコレクション",
@@ -1170,6 +1174,13 @@ const editor = {
     agentLevelNote: "エージェントはコメント可",
     agentLevelNoteHint:
       "エージェントはこのページにコメントできます。「シェアする」から変更できます。",
+    agentLevelViewDescription:
+      "このページを閲覧できます。コメント、提案、編集はできません。",
+    agentLevelViewConfirm:
+      "エージェントはこのページの閲覧のみできるようになりました。",
+    agentLevelViewNote: "エージェントは閲覧のみ",
+    agentLevelViewNoteHint:
+      "エージェントはこのページを閲覧のみできます。「シェアする」から変更できます。",
     sendPageToAgent: "このページをエージェントに送信",
     connectAgentOverMcp: "MCP でエージェントを接続",
     importingFromNotion: "Notion からインポートしています...",
@@ -1865,6 +1876,18 @@ const overrides = {
       "このコレクションのすべての行から「{{name}}」とそのテキストが削除されます。元に戻すことはできません。",
     deleteBlockFieldBodyWarning:
       "「{{name}}」はページ本文のため、すべての行の本文も削除されます。",
+    blockFieldFrozen: "{{column}} が {{value}} の間は固定",
+    blockFieldFrozenDescription:
+      "このコレクションのルールにより、人もエージェントもこのタブを変更できません。編集するには {{column}} を {{value}} 以外に変更してください。",
+    blockFieldFrozenByManagers:
+      "{{column}} が {{value}} の間は固定されます。変更できるのは、コレクションへのフルアクセス権を持つユーザーだけです。",
+    blockFieldFrozenSaveRefused:
+      "このタブは固定されているため、編集は保存されませんでした",
+    freezeBlockField: "固定する条件…",
+    freezeBlockFieldWhile: "{{column}} が次の値の間",
+    freezeBlockFieldNoColumns:
+      "固定の条件にするステータス列または選択列を追加してください",
+    unfreezeBlockField: "固定しない",
   },
   comments: {
     add: "コメントを追加...",

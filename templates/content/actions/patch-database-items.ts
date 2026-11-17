@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import type { ContentDatabaseRowPatchBatchResult } from "../shared/api.js";
 import { withContentWebhookDelivery } from "./_content-webhooks.js";
 import {
@@ -81,6 +82,8 @@ export default defineAction({
         : "Patched Content collection rows";
     },
   },
+  changeResource: (input) =>
+    documentChangeResource(input.target.databaseDocumentId),
   run: (args, context) => {
     if (context?.caller === "mcp") agentSchema.parse(args);
     return withContentWebhookDelivery(context, () =>

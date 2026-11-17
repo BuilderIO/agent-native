@@ -220,7 +220,7 @@ import {
 import { TweakProperties } from "./edit-panel/tweak-properties";
 import {
   tweaksForSelection,
-  type TweakSelectionTarget,
+  tweakTargetsForSelection,
 } from "./edit-panel/tweak-scope";
 import {
   displayFontFamilyName,
@@ -2786,15 +2786,13 @@ export const EditPanel = memo(function EditPanel({
     !readOnly && activeTool === "frame" && Boolean(onCreateScreenFromPreset);
   const scopedTweaks = useMemo(() => {
     if (!tweaks?.length || !onTweakChange) return NO_TWEAKS;
-    const targets: TweakSelectionTarget[] = [];
-    if (effectiveSelectedElements.length > 0) {
-      for (const element of effectiveSelectedElements) {
-        const screenId = element.sourceLayerIdentity?.screenId ?? fileId;
-        if (screenId) targets.push({ screenId, element });
-      }
-    } else if (selectedScreenGeometry) {
-      targets.push({ screenId: selectedScreenGeometry.id });
-    }
+    const targets = tweakTargetsForSelection({
+      elements: effectiveSelectedElements,
+      ...(fileId ? { fallbackScreenId: fileId } : {}),
+      ...(selectedScreenGeometry?.id
+        ? { screenId: selectedScreenGeometry.id }
+        : {}),
+    });
     return tweaksForSelection(
       tweaks,
       targets,
