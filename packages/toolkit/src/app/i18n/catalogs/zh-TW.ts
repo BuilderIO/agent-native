@@ -2130,10 +2130,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.demoModeDescription":
     "在此瀏覽器中使用範例資料進行簡報。",
   "settingsShell.appGroup.labsFootnote": "這些新功能尚不穩定，可能會有錯誤。",
+  "settingsShell.appGroup.labsHostDecided":
+    "此項目已為你設定，無法在這裡變更。",
   "settingsShell.appGroup.labsLoadError": "無法載入實驗室功能。",
   "settingsShell.appGroup.labsReadError":
     "無法讀取已儲存的選項。請選擇開啟或關閉以重新設定。",
   "settingsShell.appGroup.labsSaveError": "無法變更 {{lab}}。請再試一次。",
+  "settingsShell.appGroup.labsUseDefault": "使用預設值",
   "settingsShell.appGroup.mcpAbout":
     "將 {{app}} 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 {{app}} 中工作。它只能看到你有權看到的內容。",
   "settingsShell.appGroup.mcpAppCards": "聊天應用程式中的應用程式卡片",
@@ -2788,6 +2791,17 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "為簡報和設計生成圖像。",
   "settingsInfra.whyEmbeddings":
     "改善語意搜尋。不使用它，關鍵字搜尋也照常可用。",
+  "settingsInfra.semanticSearch": "語意搜尋",
+  "settingsInfra.semanticSearchOn":
+    "除了字詞，也依含義尋找頁面。頁面文字和搜尋內容會傳送給嵌入供應商。",
+  "settingsInfra.semanticSearchOff":
+    "已關閉。搜尋只比對字詞，不會傳送頁面文字給嵌入供應商。",
+  "settingsInfra.semanticSearchUnknown": "無法讀取語意搜尋是否已開啟。",
+  "settingsInfra.semanticSearchTurnedOn":
+    "語意搜尋已開啟。現有頁面會在背景建立索引。",
+  "settingsInfra.semanticSearchTurnedOff":
+    "語意搜尋已關閉。已刪除儲存的頁面向量。",
+  "settingsInfra.semanticSearchSaveFailed": "無法變更語意搜尋。",
   "settingsInfra.designSystem": "設計系統智慧",
   "settingsInfra.whyDesignSystem": "讓生成的簡報和設計符合品牌規範。",
   "settingsInfra.whyBackground": "在正式環境中修改程式碼。",

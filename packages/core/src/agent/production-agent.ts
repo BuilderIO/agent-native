@@ -205,6 +205,7 @@ import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
+  personalRunProviderKeyOrgId,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
 } from "../server/personal-provider-key-policy.js";
@@ -803,6 +804,7 @@ async function getOwnerApiKeyDetailed(
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   const orgId = getRequestOrgId();
+  const policyOrgId = orgId ?? personalRunProviderKeyOrgId(secretKey);
   // Restricted members keep their stored keys, but none of the personal rows
   // below (user, solo workspace, legacy settings) may answer. Unknown is a
   // failed lookup, never "not restricted". Keys outside the policy (Jev) are
@@ -812,7 +814,9 @@ async function getOwnerApiKeyDetailed(
     personalRestricted =
       isPersonalProviderPolicyKey(secretKey) &&
       (await isPersonalProviderKeyUseRestricted(
-        orgId ? { email: ownerEmail, orgId } : { email: ownerEmail },
+        policyOrgId
+          ? { email: ownerEmail, orgId: policyOrgId }
+          : { email: ownerEmail },
       ));
   } catch {
     lookupFailed = true;
@@ -1374,6 +1378,9 @@ export interface ActionEntry {
   access?: import("../authorization/check-action.js").ActionAccessConfig;
   fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   schema?: unknown;
+  /** The input schema agents are shown, when `defineAction` was given one
+   *  narrower than `schema`. */
+  agentInputSchema?: unknown;
   http?: import("../action.js").ActionHttpConfig | false;
   requiresAuth?: boolean;
   maxBodyBytes?: number;
@@ -1390,6 +1397,8 @@ export interface ActionEntry {
    *  Schema dialect when the schema omits `$schema`. */
   fromMcpServer?: boolean;
   mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
+  /** See `mcpScript` in `defineAction`. Read only by the MCP script tools. */
+  mcpScript?: "read";
   mcpOutputContract?: import("../action-output-contract.js").ActionMcpOutputContract;
   /** Hints the framework supplies for an action that declares none, such as a
    *  file a dev server discovers. MCP advertises them only when

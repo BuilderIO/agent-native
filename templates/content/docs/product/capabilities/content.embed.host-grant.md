@@ -10,7 +10,11 @@ state: "approved_shape"
 publicness: "public"
 availability: "configured"
 dependencies: ["content.embed.surface", "content.access.visibility-closure"]
-related_features: ["content.feature.work-on-content-inside-another-application"]
+related_features:
+  [
+    "content.feature.work-on-content-inside-another-application",
+    "content.feature.use-content-from-chatgpt",
+  ]
 roadmap_boundary: "feature"
 acceptance_summary: "A named host grant scopes mount identity, permitted Actions, audience, expiry and revocation; every call is additionally constrained by the signed-in viewer's current Content authority."
 proof_requirements:

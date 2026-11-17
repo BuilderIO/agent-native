@@ -23,6 +23,7 @@ import {
   trackRecordingFailure,
 } from "../../../../lib/recording-failures.js";
 import { deleteStoredMediaUrl } from "../../../../lib/recording-media-cleanup.js";
+import { discardTrackUploads } from "../../../../lib/recording-tracks.js";
 import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
@@ -637,6 +638,24 @@ export async function handleAbortRecordingUpload(
         await deleteResumableSession(recordingId, abortedGenerationId).catch(
           () => {},
         );
+      }
+      // The recording's separate track uploads go with it. One storage
+      // didn't confirm keeps its session, and the reservation stays with it.
+      let tracksLeft: string[];
+      try {
+        tracksLeft = await discardTrackUploads({
+          id: recordingId,
+          ownerEmail,
+          storageMode: existing.storageMode,
+        });
+      } catch (err) {
+        tracksLeft = [
+          `track uploads of ${recordingId} (${err instanceof Error ? err.message : String(err)})`,
+        ];
+      }
+      if (tracksLeft.length) {
+        console.warn(`[abort] not cancelled: ${tracksLeft.join(", ")}`);
+        sessionCleanupConfirmed = false;
       }
     }
     if (existing.storageMode === "hosted" && !preserveRecoveryState) {

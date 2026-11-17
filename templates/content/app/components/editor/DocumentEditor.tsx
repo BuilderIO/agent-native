@@ -5341,6 +5341,25 @@ function PageEditorSessionBody({
         if (result.status === "superseded") {
           return { contentPersisted: false, outcome: "superseded" };
         }
+        if (result.status === "displaced-preserved") {
+          // The server kept another writer's version of a block this typing
+          // changed too and filed the typing in History. The editor still
+          // holds it: the page says so and lets the person choose what the
+          // page keeps, and edits wait in the recovery draft until then.
+          reportReconcileRef.current("conflict", localContentRef.current);
+          return {
+            contentPersisted: false,
+            recoveryDraft: {
+              title,
+              content: result.localDraft,
+              baseContent: result.document.content,
+              baseUpdatedAt: result.document.updatedAt,
+              ...(result.document.revision !== undefined
+                ? { baseRevision: result.document.revision }
+                : {}),
+            },
+          };
+        }
         if (result.status === "displaced") {
           const adopted = await retainThenAdoptDisplacedWinner({
             ownerVersion: contentEditVersion,
@@ -8415,7 +8434,12 @@ function PageEditorSessionBody({
       if (!editorCanEdit) return false;
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
-      const authoredBase = authoredContentBase();
+      // A draft saved against a reviewed body was written over that body:
+      // keeping it is the choice, so the server isn't asked to merge it with
+      // what the draft replaces.
+      const authoredBase = reconcileBase
+        ? { revision: reconcileBase.revision, content: reconcileBase.content }
+        : authoredContentBase();
       authoredContentIntentRef.current = {
         editGeneration: editorEditGenerationRef.current,
         baseRevision: authoredBase.revision,

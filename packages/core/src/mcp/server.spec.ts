@@ -1173,6 +1173,63 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
   });
 
+  it("offers the script catalog by header or URL parameter only when the app turns it on", async () => {
+    const scriptConfig = {
+      ...config,
+      actions: {
+        ...config.actions,
+        "read-thing": defineAction({
+          description: "Read a thing for a script.",
+          parameters: {},
+          readOnly: true,
+          mcpScript: "read",
+          run: async () => ({ ok: true }),
+        }),
+      },
+    };
+    const listed = async (opts: {
+      headers?: Record<string, string>;
+      query?: Record<string, string>;
+    }) => {
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 139, method: "tools/list", params: {} },
+        ...(opts.headers ? { headers: opts.headers } : {}),
+      });
+      // This file's h3 mock reads the query from `_query`.
+      if (opts.query) event._query = opts.query;
+      const res = await handleMcpRequest(event, scriptConfig as any);
+      const out = await rpcResponse(res as Response);
+      return out.result.tools.map((tool: { name: string }) => tool.name);
+    };
+    const byHeader = { headers: { "x-agent-native-mcp-catalog": "script" } };
+    const byQuery = { query: { catalog: "script" } };
+
+    // Off by default: the opt-in is ignored and the usual catalog is served.
+    const usual = await listed({});
+    expect(usual.length).toBeGreaterThan(0);
+    expect(usual).not.toContain("run-script");
+    expect(await listed(byHeader)).toEqual(usual);
+
+    vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_TOOLS", "true");
+    expect(await listed(byHeader)).toEqual(["run-script", "search-actions"]);
+    expect(await listed(byQuery)).toEqual(["run-script", "search-actions"]);
+    // Values are read trimmed and in any case; any other value asks for none.
+    expect(
+      await listed({ headers: { "x-agent-native-mcp-catalog": " Script " } }),
+    ).toEqual(["run-script", "search-actions"]);
+    expect(await listed({ query: { catalog: "SCRIPT" } })).toEqual([
+      "run-script",
+      "search-actions",
+    ]);
+    expect(
+      await listed({ headers: { "x-agent-native-mcp-catalog": "scripts" } }),
+    ).toEqual(usual);
+    expect(await listed({ query: { catalog: "full" } })).toEqual(usual);
+    // A connection that does not opt in keeps today's catalog.
+    expect(await listed({})).toEqual(usual);
+  });
+
   it("keeps the ChatGPT directory profile isolated from the general MCP route", async () => {
     const directoryOnlyAction = defineAction({
       description: "A tool reserved for the ChatGPT directory profile.",

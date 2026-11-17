@@ -2468,11 +2468,14 @@ const messages: ToolkitAgentChatTranslation = {
     "Utiliser des données d’exemple dans ce navigateur pour les présentations.",
   "settingsShell.appGroup.labsFootnote":
     "Ces nouvelles fonctionnalités instables peuvent comporter des bugs.",
+  "settingsShell.appGroup.labsHostDecided":
+    "Ce réglage est défini pour vous et ne peut pas être modifié ici.",
   "settingsShell.appGroup.labsLoadError": "Impossible de charger vos Labs.",
   "settingsShell.appGroup.labsReadError":
     "Impossible de lire ce choix enregistré. Choisissez Activé ou Désactivé pour le définir à nouveau.",
   "settingsShell.appGroup.labsSaveError":
     "Impossible de modifier {{lab}}. Réessayez.",
+  "settingsShell.appGroup.labsUseDefault": "Utiliser la valeur par défaut",
   "settingsShell.appGroup.mcpAbout":
     "Connectez {{app}} à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans {{app}} pour vous. Elle ne voit que ce que vous pouvez voir.",
   "settingsShell.appGroup.mcpAppCards":
@@ -3277,6 +3280,19 @@ const messages: ToolkitAgentChatTranslation = {
     "Génère des images pour les diapositives et les designs.",
   "settingsInfra.whyEmbeddings":
     "Améliore la recherche sémantique. La recherche par mots-clés fonctionne toujours sans.",
+  "settingsInfra.semanticSearch": "Recherche sémantique",
+  "settingsInfra.semanticSearchOn":
+    "Trouve les pages par leur sens, en plus de leurs mots. Le texte des pages et les recherches sont envoyés au fournisseur d’Embeddings.",
+  "settingsInfra.semanticSearchOff":
+    "Désactivée. La recherche ne trouve que les mots, et aucun texte de page n’est envoyé au fournisseur d’Embeddings.",
+  "settingsInfra.semanticSearchUnknown":
+    "Impossible de savoir si la recherche sémantique est activée.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "La recherche sémantique est activée. Les pages existantes sont indexées en arrière-plan.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "La recherche sémantique est désactivée. Les vecteurs de pages enregistrés ont été supprimés.",
+  "settingsInfra.semanticSearchSaveFailed":
+    "Impossible de modifier la recherche sémantique.",
   "settingsInfra.designSystem": "Intelligence du système de design",
   "settingsInfra.whyDesignSystem":
     "Garde les diapositives et designs générés fidèles à votre marque.",

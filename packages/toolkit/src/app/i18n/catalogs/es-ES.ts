@@ -2448,11 +2448,14 @@ const messages: ToolkitAgentChatTranslation = {
     "Usa datos de ejemplo en este navegador para presentaciones.",
   "settingsShell.appGroup.labsFootnote":
     "Estas funciones nuevas e inestables pueden tener errores.",
+  "settingsShell.appGroup.labsHostDecided":
+    "Esto ya está configurado para ti, así que no se puede cambiar aquí.",
   "settingsShell.appGroup.labsLoadError": "No se pudieron cargar tus Labs.",
   "settingsShell.appGroup.labsReadError":
     "No se pudo leer esta opción guardada. Elige Activado o Desactivado para configurarla de nuevo.",
   "settingsShell.appGroup.labsSaveError":
     "No se pudo cambiar {{lab}}. Inténtalo de nuevo.",
+  "settingsShell.appGroup.labsUseDefault": "Usar el valor predeterminado",
   "settingsShell.appGroup.mcpAbout":
     "Conecta {{app}} con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en {{app}} por ti. Solo ve lo que tú puedes ver.",
   "settingsShell.appGroup.mcpAppCards": "Tarjetas de la app en apps de chat",
@@ -3244,6 +3247,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "Genera imágenes para diapositivas y diseños.",
   "settingsInfra.whyEmbeddings":
     "Mejora la búsqueda semántica. La búsqueda por palabras clave sigue funcionando sin ella.",
+  "settingsInfra.semanticSearch": "Búsqueda semántica",
+  "settingsInfra.semanticSearchOn":
+    "Encuentra páginas por su significado, además de por sus palabras. El texto de las páginas y las búsquedas se envían al proveedor de Embeddings.",
+  "settingsInfra.semanticSearchOff":
+    "Desactivada. La búsqueda solo encuentra palabras y no se envía texto de las páginas al proveedor de Embeddings.",
+  "settingsInfra.semanticSearchUnknown":
+    "No se pudo saber si la búsqueda semántica está activada.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "La búsqueda semántica está activada. Las páginas existentes se indexan en segundo plano.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "La búsqueda semántica está desactivada. Se eliminaron los vectores de páginas guardados.",
+  "settingsInfra.semanticSearchSaveFailed":
+    "No se pudo cambiar la búsqueda semántica.",
   "settingsInfra.designSystem": "Inteligencia del sistema de diseño",
   "settingsInfra.whyDesignSystem":
     "Mantiene las diapositivas y los diseños generados fieles a tu marca.",

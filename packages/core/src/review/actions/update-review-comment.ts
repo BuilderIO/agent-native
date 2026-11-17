@@ -13,6 +13,7 @@ import {
   assertPersonReviewAnchorKind,
   canCommentOnReviewableResource,
   resolveReviewableResourceAccess,
+  reviewWriteRefusal,
 } from "../registry.js";
 import { getReviewCommentById, updateReviewComment } from "../store.js";
 import type { ReviewResourceContext } from "../types.js";
@@ -114,7 +115,13 @@ export default defineAction({
         ? !isAuthor
         : !isAuthor && !roleSatisfies(access.role, "editor"))
     ) {
-      throw new ForbiddenError("Not allowed to update this review comment");
+      throw new ForbiddenError(
+        reviewWriteRefusal(
+          args.resourceType,
+          access,
+          "Not allowed to update this review comment",
+        ),
+      );
     }
     if (args.anchor !== undefined) {
       // The kind the moved anchor ends up with, worked out as the store does.

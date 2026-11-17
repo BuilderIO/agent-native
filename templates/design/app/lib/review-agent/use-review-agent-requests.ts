@@ -30,6 +30,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { isDesignHostChatEmbed } from "@/lib/agent-chat";
+
 import {
   DEFAULT_AGENT_MENTION_ID,
   reviewAgentMentionOption,
@@ -320,7 +322,7 @@ export function useReviewAgentRequests({
   const ready = active && selectionReady && options.length > 0;
   const mentionOptions = useMemo<readonly ReviewMentionOption[]>(
     () =>
-      ready
+      ready || (active && isDesignHostChatEmbed())
         ? [
             {
               id: DEFAULT_AGENT_MENTION_ID,
@@ -330,7 +332,7 @@ export function useReviewAgentRequests({
             ...options.map(reviewAgentMentionOption),
           ]
         : [],
-    [options, ready],
+    [active, options, ready],
   );
   const optionsRef = useRef(options);
   optionsRef.current = options;
