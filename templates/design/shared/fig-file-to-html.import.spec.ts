@@ -2169,3 +2169,68 @@ describe("parser-specific property names", () => {
     expect(renderFrame(distributedRow("MIN", 206))).toContain("gap: 206px");
   });
 });
+
+describe("font names from a document cannot reach the CSS or the fonts URL", () => {
+  const withFamily = (family: string): Record<string, unknown> => ({
+    nodeChanges: [
+      { guid: { sessionID: 1, localID: 1 }, type: "DOCUMENT", name: "Doc" },
+      {
+        guid: { sessionID: 1, localID: 2 },
+        parentIndex: { guid: { sessionID: 1, localID: 1 }, position: "a" },
+        type: "CANVAS",
+        name: "Page",
+      },
+      {
+        guid: { sessionID: 1, localID: 10 },
+        parentIndex: { guid: { sessionID: 1, localID: 2 }, position: "a" },
+        type: "FRAME",
+        name: "Frame",
+        size: { x: 400, y: 300 },
+        transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+      },
+      {
+        guid: { sessionID: 1, localID: 20 },
+        parentIndex: { guid: { sessionID: 1, localID: 10 }, position: "a" },
+        type: "TEXT",
+        name: "Body",
+        size: { x: 300, y: 30 },
+        transform: { m00: 1, m01: 0, m02: 10, m10: 0, m11: 1, m12: 10 },
+        textData: { characters: "Hello" },
+        fontSize: 16,
+        fontName: { family, style: "Regular" },
+        fillPaints: [
+          { type: "SOLID", visible: true, color: { r: 0, g: 0, b: 0, a: 1 } },
+        ],
+      },
+    ],
+  });
+
+  it.each([
+    "Inter;background-image:url(https://example.test/x.png)",
+    'Inter" ; background-image:url(https://example.test/x.png) ; x:"',
+    "Inter&family=Evil+Font",
+  ])("neutralizes the injected punctuation of %j", (family) => {
+    const html = renderFrame(withFamily(family));
+    // The family collapses to one plain identifier: no declaration, URL,
+    // string or query separator survives from the name.
+    // A name with spaces is quoted, and the quote is HTML-escaped.
+    const name = /font-family:\s*(?:&quot;)?([^,;"&]*)/.exec(html)?.[1] ?? "";
+    expect(name).toMatch(/^[\p{L}\p{N} ._+-]+$/u);
+    expect(name).toContain("Inter");
+    expect(html).not.toMatch(/url\(\s*["']?https?:/i);
+    const fontsHref =
+      /href="(https:\/\/fonts\.googleapis\.com\/css2[^"]*)"/.exec(html)?.[1] ??
+      "";
+    expect((fontsHref.match(/family=/g) ?? []).length).toBeLessThanOrEqual(1);
+  });
+
+  it("falls back to a generic stack when nothing usable is left", () => {
+    const html = renderFrame(withFamily(";;();"));
+    expect(html).toMatch(/system-ui/);
+  });
+
+  it("keeps ordinary family names intact", () => {
+    const html = renderFrame(withFamily("Noto Sans JP"));
+    expect(html).toContain("Noto Sans JP");
+  });
+});

@@ -324,3 +324,34 @@ describe("Paper conversion", () => {
     expect(path.getAttribute("fill")).toBe("#ffffff");
   });
 });
+
+describe("Paper conversion depth", () => {
+  it("stops a very long chain at the depth limit instead of overflowing the stack", async () => {
+    // Without the depth passed down, a chain this long recurses 20,000 deep.
+    const length = 20_000;
+    const nodes: Record<string, unknown> = {};
+    const index: Record<string, string[]> = {};
+    for (let i = 0; i < length; i += 1) {
+      nodes[`c${i}`] = {
+        id: `c${i}`,
+        label: `c${i}`,
+        component: "Frame",
+        styles: {},
+      };
+      if (i + 1 < length) index[`c${i}`] = [`c${i + 1}`];
+    }
+    const chain = JSON.stringify({
+      topLevelNodeIds: ["c0"],
+      nodes,
+      parentToChildrenIndex: index,
+    });
+    const read = await readDesignToolPasteHtml(
+      html.replace(JSON.stringify(embed), chain),
+    );
+    expect(read.status).toBe("ok");
+    expect(read.status === "ok" && read.warnings).toContainEqual({
+      kind: "inexact",
+      detail: "Stopped at 200 nested layers.",
+    });
+  });
+});

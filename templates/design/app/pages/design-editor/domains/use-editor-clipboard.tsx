@@ -9,6 +9,7 @@ import {
   buildCodeLayerProjection,
   type CodeLayerNode,
 } from "@shared/code-layer";
+import type { FigmaPasteScene } from "@shared/figma-paste-plan";
 import {
   resolveSourceEquivalentSelector,
   SOURCE_EQUIVALENT_SELECTOR_PREFIX,
@@ -954,7 +955,7 @@ export function useEditorClipboard({
   );
 
   const importDesignToolPaste = useCallback(
-    async (paste: DesignToolPaste) =>
+    async (paste: DesignToolPaste, scene: FigmaPasteScene) =>
       runImportDesignToolPasteIntoDesign(
         {
           boardFileId,
@@ -965,7 +966,8 @@ export function useEditorClipboard({
           settleImage: settlePastedImage,
           navigate,
           queryClient,
-          resolvePasteScene: resolveFigmaPasteSceneForEditor,
+          // The scene captured when the paste was claimed, not a later read.
+          resolvePasteScene: () => scene,
           showPastedImagesNotice,
           t,
         },
@@ -980,7 +982,6 @@ export function useEditorClipboard({
       settlePastedImage,
       navigate,
       queryClient,
-      resolveFigmaPasteSceneForEditor,
       showPastedImagesNotice,
       t,
     ],
@@ -1064,6 +1065,7 @@ export function useEditorClipboard({
           canEditDesign,
           designToolPasteBusyRef,
           importDesignToolPaste,
+          resolvePasteScene: resolveFigmaPasteSceneForEditor,
           t,
         });
         return;
@@ -1104,6 +1106,7 @@ export function useEditorClipboard({
       canEditDesign,
       handlePastedSvg,
       importDesignToolPaste,
+      resolveFigmaPasteSceneForEditor,
       handlePasteSelection,
       t,
     ],
@@ -1423,6 +1426,7 @@ export function useEditorClipboard({
           importDesignToolPaste,
           lastWrittenClipboardMarkerRef,
           lastWrittenClipboardPlainTextRef,
+          resolvePasteScene: resolveFigmaPasteSceneForEditor,
           t,
         },
         event,
@@ -1435,6 +1439,7 @@ export function useEditorClipboard({
       handlePastedSvg,
       hasCanvasClipboard,
       importDesignToolPaste,
+      resolveFigmaPasteSceneForEditor,
       t,
     ],
   );

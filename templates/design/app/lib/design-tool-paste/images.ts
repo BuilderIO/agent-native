@@ -25,6 +25,14 @@ export interface HostedImages {
  * on another app keeping them online. `mirror` returns the hosted URL or
  * throws, and gets a receipt key so the upload can be released or deleted; an image it fails on keeps its link and is counted, never dropped.
  */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error("the upload timed out")), ms);
+  });
+  return Promise.race([promise, timedOut]).finally(() => clearTimeout(timer));
+}
+
 export async function hostRemoteImages(
   layers: FigmaPasteLayer[],
   urls: readonly string[],
@@ -42,12 +50,22 @@ export async function hostRemoteImages(
     url,
     key: `${keyPrefix}${index}`,
   }));
+  // Images not started by the deadline keep their link, so a slow source
+  // cannot hold the paste, and its busy flag, for long.
+  const deadline = Date.now() + PASTE_LIMITS.imageBudgetMs;
   const worker = async () => {
     for (let item = queue.shift(); item; item = queue.shift()) {
+      if (Date.now() > deadline) {
+        reason ??= "copying the images took too long";
+        continue;
+      }
       const { url, key } = item;
       attemptedKeys.push(key);
       try {
-        hosted.set(url, await mirror(url, key));
+        hosted.set(
+          url,
+          await withTimeout(mirror(url, key), PASTE_LIMITS.imageTimeoutMs),
+        );
         keys.push(key);
       } catch (error) {
         reason ??=

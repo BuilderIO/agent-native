@@ -1,3 +1,4 @@
+import type { FigmaPasteScene } from "@shared/figma-paste-plan";
 import type { RefObject } from "react";
 import { toast } from "sonner";
 
@@ -31,7 +32,12 @@ export interface EditorPasteArgs {
   hasCanvasClipboard: boolean;
   /** True while a design-tool copy is being read or imported, so a repeat paste waits. */
   designToolPasteBusyRef: RefObject<boolean>;
-  importDesignToolPaste: (paste: DesignToolPaste) => Promise<void>;
+  /** Reads the paste target now; a paste belongs where it was made. */
+  resolvePasteScene: () => FigmaPasteScene;
+  importDesignToolPaste: (
+    paste: DesignToolPaste,
+    scene: FigmaPasteScene,
+  ) => Promise<void>;
   lastWrittenClipboardMarkerRef: RefObject<string | null>;
   lastWrittenClipboardPlainTextRef: RefObject<string | null>;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -125,7 +131,11 @@ export async function runDesignToolPaste(
   source: DesignToolSource,
   args: Pick<
     EditorPasteArgs,
-    "canEditDesign" | "designToolPasteBusyRef" | "importDesignToolPaste" | "t"
+    | "canEditDesign"
+    | "designToolPasteBusyRef"
+    | "importDesignToolPaste"
+    | "resolvePasteScene"
+    | "t"
   >,
 ): Promise<void> {
   if (!args.canEditDesign) {
@@ -136,9 +146,12 @@ export async function runDesignToolPaste(
     toast.info(args.t("designEditor.import.figUploadProcessing"));
     return;
   }
+  // Captured before any await: decoding and uploads can take a while, and the
+  // user may change screens or selection meanwhile.
+  const scene = args.resolvePasteScene();
   args.designToolPasteBusyRef.current = true;
   try {
-    await readAndImportDesignToolPaste(source, args);
+    await readAndImportDesignToolPaste(source, args, scene);
   } finally {
     args.designToolPasteBusyRef.current = false;
   }
@@ -147,6 +160,7 @@ export async function runDesignToolPaste(
 async function readAndImportDesignToolPaste(
   source: DesignToolSource,
   args: Pick<EditorPasteArgs, "importDesignToolPaste" | "t">,
+  scene: FigmaPasteScene,
 ): Promise<void> {
   let progressId: string | number | undefined;
   const timer = setTimeout(() => {
@@ -162,7 +176,7 @@ async function readAndImportDesignToolPaste(
     if (progressId !== undefined) toast.dismiss(progressId);
   }
   if (read.status === "ok") {
-    await args.importDesignToolPaste(read);
+    await args.importDesignToolPaste(read, scene);
   } else if (read.status === "invalid") {
     console.error(`[design-paste] ${read.tool} copy unreadable:`, read.reason);
     toast.error(designToolPasteFailureTitle(read.tool, args.t), {
@@ -183,6 +197,7 @@ export function runEditorPaste(
     importDesignToolPaste,
     lastWrittenClipboardMarkerRef,
     lastWrittenClipboardPlainTextRef,
+    resolvePasteScene,
     t,
   }: EditorPasteArgs,
   event: ClipboardEvent,
@@ -201,6 +216,7 @@ export function runEditorPaste(
       canEditDesign,
       designToolPasteBusyRef,
       importDesignToolPaste,
+      resolvePasteScene,
       t,
     });
     return;

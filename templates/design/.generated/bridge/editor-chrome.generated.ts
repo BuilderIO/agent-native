@@ -931,7 +931,7 @@ export const editorChromeBridgeScript: string = `"use strict";
   function hasWonderClipboardMarker(value) {
     return value.includes("wonder-clipboard:");
   }
-  var WONDER_COMPLETE = /wonder-clipboard:[A-Za-z0-9+/=_-]{16,}/;
+  var WONDER_COMPLETE = /<!--\\s*wonder-clipboard:[A-Za-z0-9+/=_-]{16,}\\s*-->/;
   function findCompleteDesignToolMarker(value) {
     if (value.includes("<paper-paste-start") && value.includes("></paper-paste-start>")) {
       return "paper";

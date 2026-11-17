@@ -84,6 +84,7 @@ describe("plain-text detection is stricter than HTML detection", () => {
       "remember to read the wonder-clipboard: docs",
       "<paper-paste-start is the tag that wraps the data",
       "wonder-clipboard:short",
+      "see wonder-clipboard:AAAAAAAAAAAAAAAAAAAAAAAA in the docs",
     ]) {
       expect(findCompleteDesignToolMarker(text)).toBeNull();
       expect(

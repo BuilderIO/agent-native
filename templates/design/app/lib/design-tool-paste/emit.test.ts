@@ -254,3 +254,31 @@ describe("layer names are bounded", () => {
     expect(content).toContain(`${"&quot;".repeat(PASTE_LIMITS.labelChars)}"`);
   });
 });
+
+describe("UTF-8 accounting is exact", () => {
+  const textFrame = (text: string): PasteNode =>
+    box({}, [{ kind: "text", label: "t", style: {}, text }]);
+  const stopWarning = {
+    kind: "inexact",
+    detail: `Stopped at the ${PASTE_LIMITS.frameBytes} byte limit for one frame.`,
+  };
+
+  it("counts a lone surrogate as the 3 bytes it encodes to", () => {
+    // 2 bytes each would fit; the real 3 bytes each do not.
+    const count = Math.floor(PASTE_LIMITS.frameBytes / 2.5);
+    const text = "\ud800".repeat(count);
+    expect(new TextEncoder().encode(text).length).toBeGreaterThan(
+      PASTE_LIMITS.frameBytes,
+    );
+    expect(emit(textFrame(text)).warnings).toContainEqual(stopWarning);
+  });
+
+  it("counts a valid pair as the 4 bytes it encodes to, not more", () => {
+    const count = Math.floor(PASTE_LIMITS.frameBytes / 4) - 200;
+    const text = "\u{1F600}".repeat(count);
+    expect(new TextEncoder().encode(text).length).toBeLessThan(
+      PASTE_LIMITS.frameBytes,
+    );
+    expect(emit(textFrame(text)).warnings).not.toContainEqual(stopWarning);
+  });
+});

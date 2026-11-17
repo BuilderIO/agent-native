@@ -86,6 +86,11 @@ function harness(): Harness {
       },
       hasCanvasClipboard: false,
       designToolPasteBusyRef: ref(false),
+      resolvePasteScene: () => ({
+        container: null,
+        viewport: null,
+        screens: [],
+      }),
       importDesignToolPaste: async (paste) => {
         imported.push(
           `${paste.tool}:${paste.layers.map((layer) => layer.title).join(",")}`,
@@ -174,6 +179,26 @@ describe("runEditorPaste", () => {
 
     await vi.waitFor(() => expect(h.imported).toEqual(["figma:Card"]));
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("captures the paste target when the copy is claimed, not after decoding", async () => {
+    const h = harness();
+    let reads = 0;
+    h.args.resolvePasteScene = () => ({
+      container: null,
+      viewport: { x: ++reads, y: 0, width: 1, height: 1 },
+      screens: [],
+    });
+    const scenes: unknown[] = [];
+    h.args.importDesignToolPaste = async (_paste, scene) => {
+      scenes.push(scene);
+    };
+    runEditorPaste(h.args, pasteEvent({ "text/html": PAPER_HTML }));
+    // Read synchronously with the paste event, before any await.
+    expect(reads).toBe(1);
+    await vi.waitFor(() => expect(scenes).toHaveLength(1));
+    expect(reads).toBe(1);
+    expect(scenes[0]).toMatchObject({ viewport: { x: 1 } });
   });
 
   it("ignores a repeat paste while the first design-tool copy is still importing", async () => {

@@ -136,4 +136,53 @@ describe("hostRemoteImages", () => {
     expect(result.kept).toBe(1);
     expect(result.reason).toBe(`only the first ${limit} images are copied`);
   });
+
+  it("gives up on an upload that never answers and keeps its link", async () => {
+    vi.useFakeTimers();
+    try {
+      const { layers, imageUrls } = emitFrames([frame(A)], []);
+      const pending = hostRemoteImages(
+        layers,
+        imageUrls,
+        () => new Promise<string>(() => {}),
+        "p:image:",
+      );
+      await vi.advanceTimersByTimeAsync(PASTE_LIMITS.imageTimeoutMs + 1);
+      const result = await pending;
+      expect(result.kept).toBe(1);
+      expect(result.reason).toBe("the upload timed out");
+      // Its key is reported, so the caller can clear a receipt it left behind.
+      expect(result.attemptedKeys).toEqual(["p:image:0"]);
+      expect(result.keys).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops starting uploads once the paste's time budget is spent", async () => {
+    vi.useFakeTimers();
+    try {
+      const urls = Array.from(
+        { length: PASTE_LIMITS.hostedImages },
+        (_, i) => `https://cdn.example.test/${i}.png`,
+      );
+      const { layers } = emitFrames([frame(...urls)], []);
+      // Each upload takes just under the per-image limit, so the shared
+      // budget runs out before every image has started.
+      const mirror = vi.fn(
+        (url: string, _key: string) =>
+          new Promise<string>((resolve) =>
+            setTimeout(() => resolve(`${url}.hosted`), 15_000),
+          ),
+      );
+      const pending = hostRemoteImages(layers, urls, mirror, "p:image:");
+      await vi.advanceTimersByTimeAsync(PASTE_LIMITS.imageBudgetMs * 3);
+      const result = await pending;
+      expect(mirror.mock.calls.length).toBeLessThan(urls.length);
+      expect(result.kept).toBe(urls.length - mirror.mock.calls.length);
+      expect(result.reason).toBe("copying the images took too long");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

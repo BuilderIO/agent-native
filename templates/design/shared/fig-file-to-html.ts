@@ -644,7 +644,9 @@ function textStyleRuns(node: FigNode, ctx: Ctx): TextRun[] {
       const italic = /italic|oblique/i.test(entry.fontName.style);
       if (weight !== null) css.fontWeight = weight;
       if (italic) css.fontStyle = "italic";
-      const family = entry.fontName.family ?? node.fontName?.family;
+      const family = cleanFontFamily(
+        entry.fontName.family ?? node.fontName?.family ?? "",
+      );
       if (family)
         ctx.fontUsage.add(`${family}|${weight ?? 400}|${italic ? 1 : 0}`);
     }
@@ -1798,7 +1800,24 @@ function autolayoutStyles(
   return out;
 }
 
-function fontFamilyCss(fam: string): string {
+/**
+ * Keeps only the characters a font name needs. The name comes from the
+ * document, so it must not be able to end a declaration, open a string, or add
+ * a parameter to the fonts URL.
+ */
+function cleanFontFamily(raw: string): string {
+  return raw
+    .replace(/[^\p{L}\p{N} ._+-]/gu, "")
+    .trim()
+    .slice(0, 100);
+}
+
+const GENERIC_FONT_STACK =
+  "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+
+function fontFamilyCss(rawFamily: string): string {
+  const fam = cleanFontFamily(rawFamily);
+  if (!fam) return GENERIC_FONT_STACK;
   const quoted = /\s/.test(fam) ? `"${fam}"` : fam;
   if (/mono|courier|code|consol|menlo|fira code|source code/i.test(fam)) {
     return `${quoted}, ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace`;
@@ -1877,9 +1896,12 @@ function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
   if (fontName?.family) out.fontFamily = fontFamilyCss(fontName.family);
   const weight = fontWeightFromStyle(fontName?.style);
   if (weight !== null) out.fontWeight = weight;
-  if (ctx && fontName?.family) {
-    const italic = !!(fontName.style && /italic|oblique/i.test(fontName.style));
-    ctx.fontUsage.add(`${fontName.family}|${weight ?? 400}|${italic ? 1 : 0}`);
+  const usedFamily = fontName?.family ? cleanFontFamily(fontName.family) : "";
+  if (ctx && usedFamily) {
+    const italic = !!(
+      fontName?.style && /italic|oblique/i.test(fontName.style)
+    );
+    ctx.fontUsage.add(`${usedFamily}|${weight ?? 400}|${italic ? 1 : 0}`);
   }
   if (fontName?.style && /italic|oblique/i.test(fontName.style)) {
     out.fontStyle = "italic";

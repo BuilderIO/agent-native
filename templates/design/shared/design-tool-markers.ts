@@ -43,7 +43,7 @@ export function hasWonderClipboardMarker(value: string): boolean {
   return value.includes("wonder-clipboard:");
 }
 
-const WONDER_COMPLETE = /wonder-clipboard:[A-Za-z0-9+/=_-]{16,}/;
+const WONDER_COMPLETE = /<!--\s*wonder-clipboard:[A-Za-z0-9+/=_-]{16,}\s*-->/;
 
 /**
  * Like `findDesignToolMarker`, for a plain-text flavor: a paste of ordinary

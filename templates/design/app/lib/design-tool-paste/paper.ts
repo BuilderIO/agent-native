@@ -333,7 +333,7 @@ function toNode(
   }
   const children = (
     lookup(walk.payload.parentToChildrenIndex, id) ?? []
-  ).flatMap((childId) => toNode(childId, walk, false) ?? []);
+  ).flatMap((childId) => toNode(childId, walk, false, depth + 1) ?? []);
   const style = styleFor(node, isRoot);
   if (node.component === "SVG") {
     return {

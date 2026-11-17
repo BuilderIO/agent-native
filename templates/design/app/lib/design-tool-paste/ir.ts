@@ -23,6 +23,9 @@ export const PASTE_LIMITS = {
   totalBytes: 16 * 1024 * 1024,
   /** Remote images hosted for one paste; the rest keep their link. */
   hostedImages: 40,
+  /** How long one upload, and all of a paste's uploads together, may take. */
+  imageTimeoutMs: 20_000,
+  imageBudgetMs: 60_000,
   /** Distinct font families a frame may ask for, and the longest name. */
   fontFamilies: 8,
   fontFamilyChars: 80,

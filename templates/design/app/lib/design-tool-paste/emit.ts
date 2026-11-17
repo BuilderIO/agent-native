@@ -312,14 +312,23 @@ function utf8Length(text: string): number {
   let bytes = 0;
   for (let index = 0; index < text.length; index += 1) {
     const code = text.charCodeAt(index);
-    bytes +=
-      code < 0x80
-        ? 1
-        : code < 0x800
-          ? 2
-          : code >= 0xd800 && code < 0xdc00
-            ? 2
-            : 3;
+    if (code < 0x80) {
+      bytes += 1;
+    } else if (code < 0x800) {
+      bytes += 2;
+    } else if (code >= 0xd800 && code <= 0xdbff) {
+      // A pair is one 4-byte character; a lone surrogate encodes as the
+      // 3-byte replacement character.
+      const next = text.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
   }
   return bytes;
 }
