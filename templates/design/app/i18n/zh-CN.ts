@@ -2118,6 +2118,7 @@ export default {
       copyPrompt: "将提示复制给你的代理",
       copyAgentPrompt: "复制代理提示",
       copyFullPrompt: "复制完整提示",
+      clearEdits: "清除编辑",
       abortPreview: "中止预览并互动",
       agentMessage: "将待处理的视觉样式编辑应用到源文件。",
       sentToast: "设计更新已发送给代理",
@@ -2132,6 +2133,8 @@ export default {
       copiedToastDescription:
         "将其粘贴到你的编程代理中，并让它应用这些视觉更改。",
       abortedToast: "待处理的预览已丢弃",
+      clearedToast: "已清除待处理的编辑",
+      clearFailedToast: "无法清除待处理的编辑，请重试。",
       interactBlocked: "请先应用或中止待处理的实时编辑，再切换到互动模式。",
       leaveTitle: "离开前应用设计更新？",
       leaveDescriptionOne:

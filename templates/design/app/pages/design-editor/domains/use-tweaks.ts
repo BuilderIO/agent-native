@@ -62,6 +62,8 @@ interface UseTweaksArgs {
 export interface UseTweaksResult {
   cssVarValues: Record<string, string>;
   flushPendingTweakSave: () => void;
+  settlePendingTweakSaves: () => Promise<void>;
+  resetTweakSelectionsToSourceBaseline: () => void;
   handleTweakChange: (
     tweakId: string,
     value: string | number | boolean,
@@ -176,6 +178,22 @@ export function useTweaks({
     }
     sendLatestTweakSave(tweakSaveArgs);
   }, [tweakSaveArgs]);
+  const settlePendingTweakSaves = useCallback(async () => {
+    flushPendingTweakSave();
+    const deadline = Date.now() + 15_000;
+    while (
+      tweakSaveInFlightRef.current ||
+      pendingTweakSaveRef.current !== null
+    ) {
+      if (!tweakSaveInFlightRef.current && pendingTweakSaveRef.current) {
+        throw new Error("A pending tweak save did not complete.");
+      }
+      if (Date.now() >= deadline) {
+        throw new Error("Timed out waiting for pending tweak saves.");
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 25));
+    }
+  }, [flushPendingTweakSave]);
   const queueTweakSave = useCallback(
     (selections: TweakSelections) => {
       if (!id || !canEditDesignRef.current) return;
@@ -304,6 +322,12 @@ export function useTweaks({
       after: tweakSelections,
     });
   }, [sourceBaseline, tweakSelections, tweaks]);
+  const resetTweakSelectionsToSourceBaseline = useCallback(() => {
+    if (sourceBaseline.status === "unreadable") {
+      throw new Error("The tweak source baseline is unreadable.");
+    }
+    setTweakSelections(sourceBaseline.value);
+  }, [setTweakSelections, sourceBaseline]);
 
   const cssVarValues = useMemo(
     () => resolveTweaksToCssVars(tweaks, tweakSelections),
@@ -334,6 +358,8 @@ export function useTweaks({
   return {
     cssVarValues,
     flushPendingTweakSave,
+    settlePendingTweakSaves,
+    resetTweakSelectionsToSourceBaseline,
     handleTweakChange,
     setTweakSelections,
     tweakSelections,

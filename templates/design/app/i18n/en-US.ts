@@ -2111,6 +2111,7 @@ export default {
       copyPrompt: "Copy prompt to your agent",
       copyAgentPrompt: "Copy agent prompt",
       copyFullPrompt: "Copy full prompt",
+      clearEdits: "Clear edits",
       abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",
       sentToast: "Design updates sent to the agent",
@@ -2125,6 +2126,8 @@ export default {
       copiedToastDescription:
         "Paste it into your coding agent and ask it to apply the visual changes.",
       abortedToast: "Pending preview discarded",
+      clearedToast: "Pending edits cleared",
+      clearFailedToast: "Could not clear pending edits. Try again.",
       interactBlocked:
         "Apply or abort pending live edits before switching to Interact.",
       leaveTitle: "Apply design updates before leaving?",

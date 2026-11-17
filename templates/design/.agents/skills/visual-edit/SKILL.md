@@ -515,6 +515,13 @@ ChatGPT and Claude Code should pull, apply, acknowledge, and pull again.
 Browser WebMCP hosts can call `get-visual-edit-prompt`. Never acknowledge
 before applying the source change.
 
+If the user asks to discard pending edits, call `get-visual-edit-pending` and
+then `clear-edits` with its exact `revision` and `publisherId`. This resets
+persisted tweak selections to `tweakSourceBaseline` and clears only that
+handoff revision; it does not claim the source was changed. The Design menu
+uses the same action after settling local tweak saves, then reverts local
+preview edits.
+
 - Style, text, and drag/drop edits collect into one pending batch for a single
   apply.
 - After the write lands, the target app's own dev-server HMR refreshes the
