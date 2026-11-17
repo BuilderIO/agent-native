@@ -16,6 +16,14 @@ function withLayout(
   return reference?.layout ? { ...hints, ...reference.layout } : hints;
 }
 
+function layoutHints(
+  hints: SettingsHints | undefined,
+  reference: SettingsReferenceCompatibility | undefined,
+) {
+  const resolved = withLayout(hints, reference);
+  return resolved ? { hints: resolved } : {};
+}
+
 function optionIds(options: readonly SettingsOption[]) {
   return options.map((option) => ({ ...option, ...option.dom }));
 }
@@ -31,28 +39,39 @@ function itemPresentation(
 ): SettingsCollectionItem {
   return {
     ...item,
-    attributes: item.reference?.attributes
-      ? { ...item.attributes, ...item.reference.attributes }
-      : item.attributes,
-    actions: item.actions?.map(actionIds),
-    badges: item.badges?.map((badge) =>
-      typeof badge === "string" || !badge.reference?.attributes
-        ? badge
-        : {
-            ...badge,
-            attributes: { ...badge.attributes, ...badge.reference.attributes },
-          },
-    ),
-    cells:
-      item.cells &&
-      Object.fromEntries(
-        Object.entries(item.cells).map(([id, cell]) => [
-          id,
-          typeof cell === "object" && cell.kind === "select"
-            ? { ...cell, options: optionIds(cell.options) }
-            : cell,
-        ]),
-      ),
+    ...(item.reference?.attributes
+      ? {
+          attributes: { ...item.attributes, ...item.reference.attributes },
+        }
+      : {}),
+    ...(item.actions ? { actions: item.actions.map(actionIds) } : {}),
+    ...(item.badges
+      ? {
+          badges: item.badges.map((badge) =>
+            typeof badge === "string" || !badge.reference?.attributes
+              ? badge
+              : {
+                  ...badge,
+                  attributes: {
+                    ...badge.attributes,
+                    ...badge.reference.attributes,
+                  },
+                },
+          ),
+        }
+      : {}),
+    ...(item.cells
+      ? {
+          cells: Object.fromEntries(
+            Object.entries(item.cells).map(([id, cell]) => [
+              id,
+              typeof cell === "object" && cell.kind === "select"
+                ? { ...cell, options: optionIds(cell.options) }
+                : cell,
+            ]),
+          ),
+        }
+      : {}),
   };
 }
 
@@ -72,7 +91,7 @@ function rowPresentation(row: SettingsRowDefinition): SettingsRowDefinition {
   const base = {
     ...row,
     ...row.dom,
-    hints: withLayout(row.hints, row.reference),
+    ...layoutHints(row.hints, row.reference),
   };
   switch (base.kind) {
     case "disclosure":
@@ -87,12 +106,14 @@ function rowPresentation(row: SettingsRowDefinition): SettingsRowDefinition {
       return {
         ...base,
         options: optionIds(base.options),
-        disclosure: base.disclosure
+        ...(base.disclosure
           ? {
-              ...disclosurePresentation(base.disclosure),
-              ...base.disclosure.dom,
+              disclosure: {
+                ...disclosurePresentation(base.disclosure),
+                ...base.disclosure.dom,
+              },
             }
-          : undefined,
+          : {}),
       };
     case "multi-select":
     case "select":
@@ -108,9 +129,9 @@ function rowPresentation(row: SettingsRowDefinition): SettingsRowDefinition {
           base.items.status === "ready"
             ? { status: "ready", value: base.items.value.map(itemPresentation) }
             : base.items,
-        add:
-          base.add?.kind === "fields"
-            ? {
+        ...(base.add?.kind === "fields"
+          ? {
+              add: {
                 ...base.add,
                 fields: base.add.fields.map((field) =>
                   field.kind === "select" || field.kind === "color"
@@ -121,10 +142,11 @@ function rowPresentation(row: SettingsRowDefinition): SettingsRowDefinition {
                       }
                     : { ...field, ...field.dom },
                 ),
-              }
-            : base.add?.kind === "trigger"
-              ? { ...base.add, action: actionIds(base.add.action) }
-              : undefined,
+              },
+            }
+          : base.add?.kind === "trigger"
+            ? { add: { ...base.add, action: actionIds(base.add.action) } }
+            : {}),
       };
     case "checkbox":
     case "custom":
@@ -146,11 +168,11 @@ export function resolveSettingsPresentation(
   return {
     ...props,
     ...props.dom,
-    hints: withLayout(props.hints, props.reference),
+    ...layoutHints(props.hints, props.reference),
     sections: props.sections.map((section) => ({
       ...section,
       ...section.dom,
-      hints: withLayout(section.hints, section.reference),
+      ...layoutHints(section.hints, section.reference),
       rows: section.rows.map(rowPresentation),
     })),
   };

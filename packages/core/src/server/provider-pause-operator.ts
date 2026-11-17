@@ -40,8 +40,8 @@ function declaredBinding(): DeclaredBinding {
     const config = getAppConfig().providerPause;
     return {
       state: "read",
-      operatorEmails: config?.operatorEmails ?? [],
-      operatorOrgId: config?.operatorOrgId ?? null,
+      operatorEmails: config.operatorEmails,
+      operatorOrgId: config.operatorOrgId ?? null,
     };
   } catch {
     // An unreadable configuration is not permission, and it is not the same answer as "nobody was declared":

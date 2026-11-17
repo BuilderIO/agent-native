@@ -205,7 +205,10 @@ export function useSettingsCollectionAdd(
         setValues((current) => {
           const next = initial();
           for (const field of add.fields) {
-            if (field.keepAfterSubmit) next[field.id] = current[field.id];
+            const kept = Object.entries(current).find(
+              ([id]) => id === field.id,
+            );
+            if (field.keepAfterSubmit && kept) next[field.id] = kept[1];
           }
           return next;
         });

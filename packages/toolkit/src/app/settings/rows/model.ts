@@ -228,7 +228,7 @@ export function deriveSettingsSummary(
   if (names.length === 1) {
     list = names.join(separator);
   } else if (names.length === 2) {
-    const [first, second] = names;
+    const [first = "", second = ""] = names;
     const avoid = pair?.useSeparatorIfLabelIncludes;
     const usePair =
       pair && !(avoid && names.some((name) => name.includes(avoid)));

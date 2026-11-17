@@ -1036,12 +1036,13 @@ async function authorizeApproval(
   if (!pageApprovalOnly && entry.needsApproval === undefined) {
     return { status: "authorized" };
   }
+  const requestEmail = getRequestUserEmail();
   const mustApprove =
     pageApprovalOnly ||
     (await preparedCallNeedsApproval(entry, prepared, {
-      userEmail: getRequestUserEmail(),
+      ...(requestEmail ? { userEmail: requestEmail } : {}),
       orgId: getRequestOrgId() ?? null,
-      appId: context.appId,
+      ...(context.appId ? { appId: context.appId } : {}),
       caller: "mcp",
       actionName: name,
     }));

@@ -60,6 +60,16 @@ import type {
   SettingsSectionsProps,
 } from "./schema.js";
 
+/** Sets `key` only when `value` is present, so absent props stay absent. */
+function optional<K extends string, V>(
+  key: K,
+  value: V | undefined,
+): Partial<Record<K, V>> {
+  const props: Partial<Record<K, V>> = {};
+  if (value !== undefined) props[key] = value;
+  return props;
+}
+
 /**
  * Renders settings sections from data. A `SettingsSectionsRendererProvider`
  * may replace the whole part; without one, the house renderer draws it.
@@ -129,9 +139,9 @@ function HouseSection({ section }: { section: SettingsSectionDefinition }) {
   return (
     <div data-part="settings.section" data-section={section.id}>
       <SettingsGroup
-        id={section.headingId}
-        title={section.label}
-        description={section.description}
+        {...optional("id", section.headingId)}
+        {...optional("title", section.label)}
+        {...optional("description", section.description)}
       >
         {section.notice ? (
           <div
@@ -499,7 +509,7 @@ function TextRowControl({
             size="compact"
             intent="primary"
             disabled={disabled || !draft.dirty}
-            pending={row.binding.pending}
+            {...optional("pending", row.binding.pending)}
             onPress={draft.save}
           >
             {row.saveLabel}
@@ -535,8 +545,8 @@ function TextRowControl({
             aria-label={controlName(row)}
             value={draft.value}
             disabled={disabled}
-            placeholder={row.placeholder}
-            maxLength={row.maxLength}
+            {...optional("placeholder", row.placeholder)}
+            {...optional("maxLength", row.maxLength)}
             onChange={draft.change}
             onBlur={onBlur}
           />
@@ -575,14 +585,16 @@ function TextRowControl({
           aria-label={controlName(row)}
           value={draft.value}
           disabled={disabled}
-          placeholder={row.placeholder}
-          leadingContent={
-            row.prefix ? (
-              <span className="text-sm text-muted-foreground">
-                {row.prefix}
-              </span>
-            ) : undefined
-          }
+          {...optional("placeholder", row.placeholder)}
+          {...(row.prefix
+            ? {
+                leadingContent: (
+                  <span className="text-sm text-muted-foreground">
+                    {row.prefix}
+                  </span>
+                ),
+              }
+            : {})}
           onChange={(next) =>
             draft.change(
               row.maxLength === undefined ? next : next.slice(0, row.maxLength),
@@ -663,13 +675,13 @@ function HouseRow({
             id={controlId}
             aria-label={controlName(row)}
             value={row.binding.value}
-            placeholder={row.placeholder}
+            {...optional("placeholder", row.placeholder)}
             disabled={disabled}
             options={row.options.map((option) => ({
               value: option.value,
               label: option.label,
-              description: option.description,
-              disabled: option.disabled,
+              ...optional("description", option.description),
+              ...optional("disabled", option.disabled),
               icon: option.icon,
             }))}
             onChange={(value) => void row.binding.set?.(value)}
@@ -811,18 +823,19 @@ function HouseRow({
           row={row}
           expanded={disclosure.expanded}
           setExpanded={disclosure.setExpanded}
-          panelId={disclosure.panelId}
+          {...optional("panelId", disclosure.panelId)}
           summary={
             summary !== null &&
             (disclosure.summary?.when === "always" || !disclosure.expanded)
               ? summary
               : null
           }
-          countId={
+          {...optional(
+            "countId",
             disclosure.summary?.content.kind === "count"
               ? disclosure.summary.content.countId
-              : undefined
-          }
+              : undefined,
+          )}
         >
           <OptionGrid row={row} disabled={disabled} />
         </DisclosureFrame>
@@ -837,7 +850,7 @@ function HouseRow({
           row={row}
           expanded={row.expanded}
           setExpanded={row.setExpanded}
-          panelId={row.panelId}
+          {...optional("panelId", row.panelId)}
           summary={
             summary !== null &&
             (row.summary?.when === "always" || !row.expanded)
@@ -1120,12 +1133,12 @@ function OptionGrid({
           className="flex min-h-9 items-center"
         >
           <Checkbox
-            id={option.controlId}
+            {...optional("id", option.controlId)}
             label={option.label}
             aria-label={option.label}
-            description={option.description}
+            {...optional("description", option.description)}
             checked={selected.has(option.value)}
-            disabled={disabled || option.disabled}
+            {...optional("disabled", disabled || option.disabled)}
             onChange={(checked) => toggleOption(row, option.value, checked)}
           />
         </span>
@@ -1161,13 +1174,14 @@ function MultiSelect({
       <span {...settingsTags(row.id, "settings.row.control")}>
         <TextField
           type="search"
-          id={row.controlId}
+          {...optional("id", row.controlId)}
           aria-label={controlName(row)}
-          placeholder={
+          {...optional(
+            "placeholder",
             row.binding.value.length === 0
               ? (row.emptyValueLabel ?? row.placeholder)
-              : row.placeholder
-          }
+              : row.placeholder,
+          )}
           value={query}
           disabled={disabled}
           onChange={setQuery}
@@ -1239,21 +1253,23 @@ function HouseAction({
           size={compact ? "compact" : "default"}
           emphasis={compact ? "ghost" : "outline"}
           intent={action.intent ?? "neutral"}
-          id={controlId}
-          aria-label={accessibleLabel ?? action.accessibleLabel}
-          aria-pressed={action.active}
-          aria-expanded={
-            trigger.kind === "dialog" && !trigger.body ? state.open : undefined
-          }
-          aria-haspopup={
+          {...optional("id", controlId)}
+          {...optional("aria-label", accessibleLabel ?? action.accessibleLabel)}
+          {...optional("aria-pressed", action.active)}
+          {...optional(
+            "aria-expanded",
+            trigger.kind === "dialog" && !trigger.body ? state.open : undefined,
+          )}
+          {...optional<"aria-haspopup", "dialog">(
+            "aria-haspopup",
             trigger.kind === "dialog" || trigger.kind === "confirm"
               ? "dialog"
-              : undefined
-          }
-          pending={action.pending || state.running}
-          disabled={state.disabled}
-          title={action.condition?.disabledReason}
-          leadingIcon={action.icon}
+              : undefined,
+          )}
+          {...optional("pending", action.pending || state.running)}
+          {...optional("disabled", state.disabled)}
+          {...optional("title", action.condition?.disabledReason)}
+          {...optional("leadingIcon", action.icon)}
           onPress={state.activate}
         >
           {action.label}
@@ -1463,7 +1479,7 @@ function CollectionCell({
           value: option.value,
           label: option.label,
           icon: option.icon,
-          disabled: option.disabled,
+          ...optional("disabled", option.disabled),
         }))}
         onChange={(value) => {
           if (value !== null) void cell.binding.set?.(value);
@@ -1677,10 +1693,10 @@ function CollectionAddForm({
               return (
                 <span key={field.id} {...tags}>
                   <Checkbox
-                    id={field.controlId}
+                    {...optional("id", field.controlId)}
                     disabled={locked}
                     label={fieldLabel(field)}
-                    description={field.description}
+                    {...optional("description", field.description)}
                     checked={value === true}
                     onChange={(checked) => form.set(field.id, checked)}
                   />
@@ -1692,10 +1708,10 @@ function CollectionAddForm({
                 <span key={field.id} {...tags}>
                   <Picker
                     mode="select"
-                    id={field.controlId}
+                    {...optional("id", field.controlId)}
                     disabled={locked}
                     label={fieldLabel(field)}
-                    description={field.description}
+                    {...optional("description", field.description)}
                     value={typeof value === "string" && value ? value : null}
                     options={field.options.map((option) => ({
                       value: option.value,
@@ -1735,12 +1751,12 @@ function CollectionAddForm({
               return (
                 <span key={field.id} {...tags}>
                   <TextArea
-                    id={field.controlId}
+                    {...optional("id", field.controlId)}
                     disabled={locked}
                     label={fieldLabel(field)}
-                    description={field.description}
-                    placeholder={field.placeholder}
-                    maxLength={field.maxLength}
+                    {...optional("description", field.description)}
+                    {...optional("placeholder", field.placeholder)}
+                    {...optional("maxLength", field.maxLength)}
                     value={typeof value === "string" ? value : ""}
                     onChange={(next) => form.set(field.id, next)}
                   />
@@ -1750,11 +1766,11 @@ function CollectionAddForm({
             return (
               <span key={field.id} {...tags}>
                 <TextField
-                  id={field.controlId}
+                  {...optional("id", field.controlId)}
                   disabled={locked}
                   label={fieldLabel(field)}
-                  description={field.description}
-                  placeholder={field.placeholder}
+                  {...optional("description", field.description)}
+                  {...optional("placeholder", field.placeholder)}
                   value={typeof value === "string" ? value : ""}
                   onChange={(next) =>
                     form.set(
@@ -1894,10 +1910,11 @@ function HouseCollection({
               aria-label={row.search.label}
               placeholder={row.search.label}
               value={row.search.value}
-              inputRef={row.search.inputRef}
+              {...optional("inputRef", row.search.inputRef)}
               onChange={row.search.set}
-              onKeyDown={row.search.onKeyDown}
-              trailingContent={
+              {...optional("onKeyDown", row.search.onKeyDown)}
+              {...optional(
+                "trailingContent",
                 row.search.submit ? (
                   <span
                     {...settingsTags(
@@ -1909,14 +1926,14 @@ function HouseCollection({
                     <ActionButton
                       size="compact"
                       emphasis="outline"
-                      disabled={row.search.submit.disabled}
+                      {...optional("disabled", row.search.submit.disabled)}
                       onPress={() => void row.search?.submit?.run()}
                     >
                       {row.search.submit.label}
                     </ActionButton>
                   </span>
-                ) : undefined
-              }
+                ) : undefined,
+              )}
             />
           </span>
         ) : null}
