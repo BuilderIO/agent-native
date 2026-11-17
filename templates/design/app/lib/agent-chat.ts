@@ -59,7 +59,7 @@ export type DesignHostFollowUpResult =
   | { delivered: "unconfirmed" }
   | {
       delivered: false;
-      reason: "host-unavailable" | "host-rejected" | "host-timeout";
+      reason: "host-unavailable" | "host-rejected";
     };
 
 /** Submit to a known embedding host without retrying uncertain delivery locally. */
@@ -68,11 +68,12 @@ export async function sendDesignHostFollowUp(
   options?: { timeoutMs?: number },
 ): Promise<DesignHostFollowUpResult> {
   if (isEmbedChromeRequested() && isBuilderHostEmbed()) {
+    const targetOrigin = getVerifiedBuilderHostOrigin();
     const delivered = sendToHostChat({
       message: opts.message,
-      context: opts.context,
+      ...(opts.context !== undefined ? { context: opts.context } : {}),
       submit: true,
-      targetOrigin: getVerifiedBuilderHostOrigin() ?? undefined,
+      ...(targetOrigin !== null ? { targetOrigin } : {}),
     });
     return delivered
       ? { delivered: "unconfirmed" }
@@ -81,15 +82,17 @@ export async function sendDesignHostFollowUp(
   if (isInFrame() && !isMcpAppWidgetEmbed()) {
     const result = await sendToAgentChatAndConfirm(
       { ...opts, chatTarget: "auto" },
-      options,
+      { ...options, confirmParentFrame: true },
     );
-    return result.delivered
-      ? { delivered: true }
-      : { delivered: false, reason: "host-rejected" };
+    if (result.delivered) return { delivered: true };
+    if (result.reason === "timeout" || result.reason === "host-unconfirmed") {
+      return { delivered: "unconfirmed" };
+    }
+    return { delivered: false, reason: "host-rejected" };
   }
   const delivery = sendMcpAppHostMessage({
     message: opts.message,
-    context: opts.context,
+    ...(opts.context !== undefined ? { context: opts.context } : {}),
   });
   if (delivery === false) {
     return { delivered: false, reason: "host-unavailable" };
@@ -98,14 +101,16 @@ export async function sendDesignHostFollowUp(
   const result = await Promise.race([
     delivery
       .then((sent) =>
-        sent
+        sent === true
           ? ({ delivered: true } as const)
-          : ({ delivered: false, reason: "host-rejected" } as const),
+          : sent === false
+            ? ({ delivered: false, reason: "host-rejected" } as const)
+            : ({ delivered: "unconfirmed" } as const),
       )
-      .catch(() => ({ delivered: false, reason: "host-rejected" }) as const),
+      .catch(() => ({ delivered: "unconfirmed" }) as const),
     new Promise<DesignHostFollowUpResult>((resolve) => {
       timer = setTimeout(
-        () => resolve({ delivered: false, reason: "host-timeout" }),
+        () => resolve({ delivered: "unconfirmed" }),
         Math.max(100, options?.timeoutMs ?? DEFAULT_HOST_HANDOFF_TIMEOUT_MS),
       );
     }),

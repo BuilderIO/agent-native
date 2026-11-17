@@ -3464,6 +3464,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "Connect an AI model to use agents",
       startFailed: "Could not start the agent",
+      hostChatUnconfirmed:
+        "Could not confirm that the message reached the host chat. Check the host chat before trying again.",
       cancelFailed: "Could not stop the agent",
       busy: "An agent is already working on this thread",
       error: {

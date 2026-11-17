@@ -50,7 +50,9 @@ import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 
 const EMBED_SESSION_TIMEOUT_MS = 100_000;
-const MAX_FRAME_CHAT_FIELD_LENGTH = 20_000;
+const MAX_FRAME_CHAT_MESSAGE_LENGTH = 20_000;
+// Covers 51 bounded records after worst-case JSON escaping, plus framing.
+const MAX_FRAME_CHAT_CONTEXT_LENGTH = 700_000;
 
 interface EmbedSessionResult {
   startUrl: string;
@@ -568,9 +570,6 @@ export function WorkspaceAppFrame({
   useEffect(() => {
     if (!embedUrl) return;
 
-    const frame = embedFrameRef.current;
-    if (!frame) return;
-
     let expectedOrigin: string;
     try {
       expectedOrigin = new URL(embedUrl, window.location.href).origin;
@@ -581,8 +580,10 @@ export function WorkspaceAppFrame({
     if (expectedOrigin === window.location.origin) return;
 
     const handleFrameChatSubmit = (event: MessageEvent) => {
+      const source = embedFrameRef.current?.contentWindow;
       if (
-        event.source !== frame.contentWindow ||
+        !source ||
+        event.source !== source ||
         event.origin !== expectedOrigin
       ) {
         return;
@@ -599,14 +600,28 @@ export function WorkspaceAppFrame({
       if (
         typeof submitMessageId !== "string" ||
         submitMessageId.length === 0 ||
-        submitMessageId.length > 200 ||
+        submitMessageId.length > 200
+      )
+        return;
+      const invalidPayload =
         typeof message !== "string" ||
         message.length === 0 ||
-        message.length > MAX_FRAME_CHAT_FIELD_LENGTH ||
+        message.length > MAX_FRAME_CHAT_MESSAGE_LENGTH ||
         (context !== undefined &&
           (typeof context !== "string" ||
-            context.length > MAX_FRAME_CHAT_FIELD_LENGTH))
-      ) {
+            context.length > MAX_FRAME_CHAT_CONTEXT_LENGTH));
+      if (invalidPayload) {
+        source.postMessage(
+          {
+            type: "agentNative.submitChatResult",
+            data: {
+              submitMessageId,
+              delivered: false,
+              reason: "invalid-payload",
+            },
+          },
+          event.origin,
+        );
         return;
       }
 
@@ -620,8 +635,7 @@ export function WorkspaceAppFrame({
         },
         { submitMessageId },
       ).then((result) => {
-        const source = event.source as Window | null;
-        if (!source || typeof source.postMessage !== "function") return;
+        if (source !== embedFrameRef.current?.contentWindow) return;
         source.postMessage(
           {
             type: "agentNative.submitChatResult",

@@ -414,7 +414,9 @@ export function useEditorToolsAndVectors({
           }),
           submit: true,
         }).then((result) => {
-          if (!result.delivered) {
+          if (result.delivered === "unconfirmed") {
+            toast.message(t("review.agent.hostChatUnconfirmed"));
+          } else if (!result.delivered) {
             toast.error(t("review.agent.startFailed"));
           }
         });

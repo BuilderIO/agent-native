@@ -781,6 +781,59 @@ describe("WorkspaceAppKeepAlive", () => {
       "https://design.example.test",
     );
 
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.submitChat",
+            data: {
+              submitMessageId: "large-context",
+              submit: true,
+              message: "Review this design",
+              context: "x".repeat(600_000),
+            },
+          },
+          origin: "https://design.example.test",
+          source: frameWindow,
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(clientState.sendToAgentChatAndConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ context: "x".repeat(600_000) }),
+      { submitMessageId: "large-context" },
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.submitChat",
+            data: {
+              submitMessageId: "invalid-context",
+              submit: true,
+              message: "Review this design",
+              context: "x".repeat(700_001),
+            },
+          },
+          origin: "https://design.example.test",
+          source: frameWindow,
+        }),
+      );
+    });
+    expect(postMessage).toHaveBeenLastCalledWith(
+      {
+        type: "agentNative.submitChatResult",
+        data: {
+          submitMessageId: "invalid-context",
+          delivered: false,
+          reason: "invalid-payload",
+        },
+      },
+      "https://design.example.test",
+    );
+
     clientState.sendToAgentChatAndConfirm.mockClear();
     await act(async () => {
       window.dispatchEvent(

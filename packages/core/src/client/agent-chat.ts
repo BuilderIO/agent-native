@@ -1467,7 +1467,13 @@ export interface SendToAgentChatAndConfirmResult {
 
 function confirmAgentChatSubmit(
   opts: Omit<AgentChatMessage, "submitMessageId">,
-  options: { submitMessageId?: string; timeoutMs?: number } | undefined,
+  options:
+    | {
+        submitMessageId?: string;
+        timeoutMs?: number;
+        confirmParentFrame?: boolean;
+      }
+    | undefined,
   tabId: string,
   dispatch: (submission: AgentChatMessage) => void,
 ): Promise<SendToAgentChatAndConfirmResult> {
@@ -1516,14 +1522,19 @@ function confirmAgentChatSubmit(
 
 export function sendToAgentChatAndConfirm(
   opts: Omit<AgentChatMessage, "submitMessageId">,
-  options?: { submitMessageId?: string; timeoutMs?: number },
+  options?: {
+    submitMessageId?: string;
+    timeoutMs?: number;
+    confirmParentFrame?: boolean;
+  },
 ): Promise<SendToAgentChatAndConfirmResult> {
   const tabId = opts.tabId ?? generateTabId();
   if (typeof window === "undefined") {
     return Promise.resolve({ tabId, delivered: false, reason: "no-window" });
   }
   if (
-    (opts.chatTarget !== "local" && !isInFrame()) ||
+    (opts.chatTarget !== "local" &&
+      !(options?.confirmParentFrame === true && isInFrame())) ||
     routesToCodeFrame(opts) ||
     opts.submit === false
   ) {

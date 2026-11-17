@@ -1,11 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendToAgentChatMock = vi.hoisted(() => vi.fn(() => "tab-design"));
 const sendToAgentChatAndConfirmMock = vi.hoisted(() =>
   vi.fn(() => Promise.resolve({ tabId: "tab-design", delivered: true })),
 );
 const sendMcpAppHostMessageMock = vi.hoisted(() =>
-  vi.fn<() => false | Promise<boolean>>(() => false),
+  vi.fn<() => false | Promise<boolean | null>>(() => false),
 );
 
 const sendToBuilderChatMock = vi.hoisted(() => vi.fn(() => true));
@@ -47,6 +47,8 @@ import {
 } from "./agent-chat";
 
 describe("Design agent chat routing", () => {
+  afterEach(() => vi.useRealTimers());
+
   beforeEach(() => {
     sendToAgentChatMock.mockClear();
     sendToAgentChatAndConfirmMock.mockClear();
@@ -102,8 +104,25 @@ describe("Design agent chat routing", () => {
         submit: true,
         chatTarget: "auto",
       },
-      undefined,
+      { confirmParentFrame: true },
     );
+  });
+
+  it("treats host timeouts and null MCP acknowledgements as unconfirmed", async () => {
+    vi.useFakeTimers();
+    isMcpAppWidgetEmbedMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValueOnce(new Promise(() => {}));
+    const timedOut = sendDesignHostFollowUp(
+      { message: "Review", submit: true },
+      { timeoutMs: 100 },
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(timedOut).resolves.toEqual({ delivered: "unconfirmed" });
+
+    sendMcpAppHostMessageMock.mockReturnValueOnce(Promise.resolve(null));
+    await expect(
+      sendDesignHostFollowUp({ message: "Review", submit: true }),
+    ).resolves.toEqual({ delivered: "unconfirmed" });
   });
 
   it("forces Design handoffs to the local app chat", () => {

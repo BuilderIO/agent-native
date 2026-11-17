@@ -29,6 +29,7 @@ const fetchSpy = vi.fn(() =>
   Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve("") }),
 );
 const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
+const parentFrameState = vi.hoisted(() => ({ inFrame: false }));
 const sendToBuilderChatMock = vi.hoisted(() => vi.fn());
 const sendMcpAppHostMessageMock = vi.hoisted(() => vi.fn(() => false));
 const isOpenAiMcpAppHostMock = vi.hoisted(() => vi.fn(() => false));
@@ -37,6 +38,11 @@ vi.mock("./builder-frame.js", () => ({
   isInBuilderFrame: () => frameState.inBuilderFrame,
   isTrustedBuilderMessage: () => false,
   sendToBuilderChat: sendToBuilderChatMock,
+}));
+
+vi.mock("./frame.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./frame.js")>()),
+  isInFrame: () => parentFrameState.inFrame,
 }));
 
 vi.mock("./mcp-app-host.js", () => ({
@@ -124,6 +130,7 @@ describe("sendToAgentChat", () => {
   beforeEach(() => {
     windowListeners.clear();
     frameState.inBuilderFrame = false;
+    parentFrameState.inFrame = false;
     (window as unknown as { parent: unknown }).parent = {
       postMessage: parentPostMessageSpy,
     };
@@ -1451,6 +1458,28 @@ describe("sendToAgentChat", () => {
     reportAgentChatSubmitResult(payload.data.submitMessageId, true);
 
     await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+  });
+
+  it("requires explicit opt-in to confirm a parent-frame submit", async () => {
+    parentFrameState.inFrame = true;
+    const omitted = await sendToAgentChatAndConfirm({
+      message: "Review this thread",
+      submit: true,
+      chatTarget: "auto",
+    });
+    expect(omitted).toMatchObject({
+      delivered: false,
+      reason: "unsupported-target",
+    });
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+
+    const confirmed = sendToAgentChatAndConfirm(
+      { message: "Review this thread", submit: true, chatTarget: "auto" },
+      { confirmParentFrame: true, submitMessageId: "parent-review" },
+    );
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    reportAgentChatSubmitResult("parent-review", true);
+    await expect(confirmed).resolves.toMatchObject({ delivered: true });
   });
 
   it("confirms a local submit with a caller-provided correlation id", async () => {
