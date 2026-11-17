@@ -106,16 +106,23 @@ export function useFocusReturn<T extends Element>(
   forwardedRef: React.ForwardedRef<T>,
 ) {
   const entry = React.useRef<FocusReturn | null>(null);
-  const forwarded = React.useRef(forwardedRef);
-  forwarded.current = forwardedRef;
+  const node = React.useRef<T | null>(null);
+  const attached = React.useRef(forwardedRef);
+  // The wrapper below keeps one identity, so React never re-runs it for a new
+  // caller ref: hand the node over to the new ref here, and release the old one.
+  React.useLayoutEffect(() => {
+    if (attached.current === forwardedRef) return;
+    assignRef(attached.current, null);
+    attached.current = forwardedRef;
+    assignRef(forwardedRef, node.current);
+  });
   return React.useMemo(
     () => ({
       // runs when the content node mounts, before Radix moves focus into it
-      ref(node: T | null) {
-        const target = forwarded.current;
-        if (typeof target === "function") target(node);
-        else if (target) target.current = node;
-        if (node) entry.current = rememberFocusReturn(node);
+      ref(next: T | null) {
+        node.current = next;
+        assignRef(attached.current, next);
+        if (next) entry.current = rememberFocusReturn(next);
       },
       close(event: Event) {
         const current = entry.current;
@@ -127,6 +134,11 @@ export function useFocusReturn<T extends Element>(
     }),
     [],
   );
+}
+
+function assignRef<T>(target: React.ForwardedRef<T>, value: T | null) {
+  if (typeof target === "function") target(value);
+  else if (target) target.current = value;
 }
 
 /**

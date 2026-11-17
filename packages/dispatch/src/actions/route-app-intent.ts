@@ -45,6 +45,21 @@ export default defineAction({
         "The previous turn (text or a small object), so follow-ups keep their app.",
       ),
   }),
+  outputSchema: z.union([
+    z.object({
+      status: z.literal("ok"),
+      app: z.string(),
+      provider: z.string(),
+      model: z.string(),
+      cached: z.boolean(),
+      latencyMs: z.number(),
+    }),
+    z.object({
+      status: z.enum(["not_configured", "failed"]),
+      reason: z.string(),
+      latencyMs: z.number().optional(),
+    }),
+  ]),
   readOnly: true,
   parallelSafe: true,
   agentTool: false,
@@ -113,7 +128,9 @@ export default defineAction({
       return { status: result.status, reason: result.reason, latencyMs };
     }
 
-    const answer = result.answers[QUESTION];
+    const answer = result.answers[QUESTION] as
+      | (typeof result.answers)[string]
+      | undefined;
     const app =
       answer?.type === "choice" &&
       choices.some((choice) => choice.value === answer.choice)

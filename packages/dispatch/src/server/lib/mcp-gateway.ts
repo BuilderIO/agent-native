@@ -1381,7 +1381,10 @@ async function callTargetCreateEmbedSession(input: {
           },
         },
       },
-      { connectTimeoutMs: targetMcpConnectTimeout(deadline) },
+      {
+        connectTimeoutMs: targetMcpConnectTimeout(deadline),
+        ...(input.signal ? { signal: input.signal } : {}),
+      },
     );
     let connected = false;
     const stopOnAbort = () => {

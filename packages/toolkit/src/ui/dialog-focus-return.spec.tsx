@@ -198,3 +198,30 @@ describe("a dialog opened without a trigger returns focus to its opener", () => 
     );
   });
 });
+
+describe("DialogContent ref forwarding", () => {
+  it("hands the content node to a callback ref that changes between renders", async () => {
+    const seen: Array<string | null> = [];
+    const first = (node: HTMLDivElement | null) =>
+      seen.push(node ? "first:node" : "first:null");
+    const second = (node: HTMLDivElement | null) =>
+      seen.push(node ? "second:node" : "second:null");
+    const view = render(
+      <Dialog open>
+        <DialogContent ref={first}>
+          <DialogTitle>Invite people</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+    await screen.findByRole("dialog");
+    view.rerender(
+      <Dialog open>
+        <DialogContent ref={second}>
+          <DialogTitle>Invite people</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    expect(seen).toEqual(["first:node", "first:null", "second:node"]);
+  });
+});
