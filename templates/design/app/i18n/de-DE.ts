@@ -1771,6 +1771,20 @@ export default {
         "Demnächst: Bildschirme und Komponenten direkt aus einem Repository importieren.",
       localDescription: "Verbinde jede laufende lokale App mit /visual-edit.",
       warningsToast: "Import mit Warnungen abgeschlossen",
+      pasteUnreadable: "Die kopierten Ebenen konnten nicht gelesen werden.",
+      pasteInexact: "Details, die nicht exakt eingefügt wurden: {{count}}",
+      pasteLayerTypes:
+        "{{tool}}-Ebenentypen als einfache Frames eingefügt: {{count}}",
+      pasteImagePlaceholders:
+        "Als Platzhalter eingefügte Bilder: {{count}}. {{tool}} kopiert keine Bilddaten.",
+      pasteImagesLinked:
+        "Weiterhin mit {{tool}} verknüpfte Bilder: {{count}}. Sie konnten nicht in deinen Dateispeicher kopiert werden.",
+      pasteImagesUnsaved:
+        "Bilder, die möglicherweise nicht mehr geladen werden, weil ihr Speichern nicht bestätigt wurde: {{count}}",
+      pasteNeedsEditAccess:
+        "Zum Einfügen in dieses Design brauchst du Bearbeitungszugriff.",
+      pastePartialImport:
+        "Das Einfügen ist fehlgeschlagen, und einige Screens wurden möglicherweise erstellt. Prüfe deine Screens.",
       figmaSuccess: "Figma-Einfügung importiert",
       htmlSuccess: "HTML importiert",
       uploadSuccess: "Datei importiert",
@@ -1781,6 +1795,8 @@ export default {
         notHtml: "Füge gültiges HTML ein oder wähle es zum Importieren aus.",
         importFailed: "Import fehlgeschlagen",
         figmaPasteFailed: "Figma-Einfügeimport fehlgeschlagen",
+        paperPasteFailed: "Paper-Einfügeimport fehlgeschlagen",
+        wonderPasteFailed: "Wonder-Einfügeimport fehlgeschlagen",
         uploadFailed: "Dateiupload fehlgeschlagen",
         invalidFigFile: "Wähle eine Datei mit der Endung .fig.",
         unsupportedFileType: "Wähle eine .fig-, .html- oder .htm-Datei.",

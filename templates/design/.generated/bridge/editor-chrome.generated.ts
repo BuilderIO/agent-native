@@ -903,6 +903,56 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
+  // shared/design-tool-markers.ts
+  var FIGMA_OPEN = /\\((?:figmeta|figma)\\)/i;
+  var FIGMA_CLOSE = /\\(\\/(?:figmeta|figma)\\)/gi;
+  var FIGMA_ATTRIBUTE = /\\sdata-(?:metadata|buffer)=(["'])/gi;
+  function hasFigmaClipboardMarkers(value) {
+    const open = FIGMA_OPEN.exec(value);
+    if (open) {
+      const close = new RegExp(FIGMA_CLOSE.source, "gi");
+      close.lastIndex = open.index + open[0].length;
+      if (close.test(value)) return true;
+    }
+    const attribute = new RegExp(FIGMA_ATTRIBUTE.source, "gi");
+    for (let match = attribute.exec(value); match; match = attribute.exec(value)) {
+      const start = attribute.lastIndex;
+      const end = value.indexOf(match[0].endsWith("'") ? "'" : '"', start);
+      const slice = value.slice(start, end < 0 ? void 0 : end);
+      if (FIGMA_OPEN.test(slice)) return true;
+      if (end < 0) break;
+      attribute.lastIndex = end + 1;
+    }
+    return false;
+  }
+  function hasPaperClipboardMarker(value) {
+    return value.includes("<paper-paste-start");
+  }
+  function hasWonderClipboardMarker(value) {
+    return value.includes("wonder-clipboard:");
+  }
+  var WONDER_COMPLETE = /wonder-clipboard:[A-Za-z0-9+/=_-]{16,}/;
+  function findCompleteDesignToolMarker(value) {
+    if (value.includes("<paper-paste-start") && value.includes("></paper-paste-start>")) {
+      return "paper";
+    }
+    if (WONDER_COMPLETE.test(value)) return "wonder";
+    return hasFigmaClipboardMarkers(value) ? "figma" : null;
+  }
+  function findDesignToolMarker(value) {
+    if (hasPaperClipboardMarker(value)) return "paper";
+    if (hasWonderClipboardMarker(value)) return "wonder";
+    if (hasFigmaClipboardMarkers(value)) return "figma";
+    return null;
+  }
+  function designToolClipboardContent(data) {
+    if (!data) return "";
+    const html = data.getData("text/html") || "";
+    if (html && findDesignToolMarker(html)) return html;
+    const text = data.getData("text/plain") || "";
+    return text && findCompleteDesignToolMarker(text) ? text : "";
+  }
+
   // shared/export-image-source.ts
   var EXPORT_IMAGE_NATURAL_WIDTH = "data-agent-native-export-image-natural-width";
   function isResponsiveExportImage(image) {
@@ -23314,26 +23364,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       },
       true
     );
-    function hasFigmaClipboardPayload(value) {
-      var content = String(value || "");
-      return /\\((figmeta|figma)\\)[\\s\\S]*?\\(\\/(figmeta|figma)\\)/i.test(content) || /<[^>]+\\sdata-(metadata|buffer)=["'][^"']*\\((figmeta|figma)\\)[^"']*["']/i.test(
-        content
-      );
-    }
-    function getFigmaClipboardContent(data) {
-      if (!data || !data.getData) return "";
-      var html = data.getData("text/html") || "";
-      if (hasFigmaClipboardPayload(html)) return html;
-      var text = data.getData("text/plain") || "";
-      return hasFigmaClipboardPayload(text) ? text : "";
-    }
     document.addEventListener(
       "paste",
       function(e) {
         if (activeTextEditEl && e.target && activeTextEditEl.contains(e.target) || isEditorTypingTarget(e.target)) {
           return;
         }
-        var content = getFigmaClipboardContent(e.clipboardData);
+        var content = designToolClipboardContent(e.clipboardData);
         if (content) {
           clearPendingPlainPasteHotkey();
           stopNativeInteraction(e);

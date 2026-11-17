@@ -16,6 +16,13 @@ to pick visually. Both modes finish on a **remix board** in Design (below)
 unless the user says no Design, headless, or just the code, or Design is
 unavailable; then use the image finish in **Finish Without Design**.
 
+Design is available when the authenticated Design MCP connector is connected
+or a browser that runs page JavaScript holds a signed-in Design tab. A missing
+connector is not enough to skip the board: open Design through the launch order
+in **Put Design Beside The Chat** (MCP App, then the host's inline browser such
+as Claude Code's side-panel browser, then the desktop app, then the system
+browser) and use the page's WebMCP tools as `/visual-edit` describes.
+
 ## Repo Mode: Run End To End
 
 For `/remix add the stripe hero animation to ours but make it blue`, locate
@@ -253,12 +260,29 @@ Lab) can edit GSAP-style tracks and keyframes. It is optional; knobs come first.
 ## Finish On A Remix Board
 
 Open Design as `/visual-edit` does (same launch targets and links) and lay out
-one board, left to right, at the same viewport size:
+one board, left to right, at the same viewport size.
+
+A board writes files to a Design project, so it needs the authenticated
+connector or a signed-in Design tab. Before the first launch, read
+`/_agent-native/auth/session` from the Design tab: a session with an
+`email` means signed in; a failed or non-OK read is unknown, so retry it
+rather than treating it as signed out. Signed-out loopback
+`open-visual-edit` still works, but its workspace-owned project cannot take
+the account-backed file writes a board needs, and a signed-out tab lists only
+the visual-edit tools (`open-visual-edit` and a few others); file tools such
+as `create-file`, `update-file` and `list-files` register for a
+signed-in session. When the tab is signed out, ask the user to sign in to
+Design there and wait, then launch with `newDesign: true` so the board is a
+new project the user owns and can edit. If a write is refused for permission,
+start a new board the same way rather than reusing someone else's project;
+fall back to **Finish Without Design** only when no signed-in session is
+possible.
 
 1. **Original**: the source screen from "Put Both Sites On The Canvas" (live
    where it frames, else the served capture, else a static snapshot).
 2. **Remix**: the destination with the rebuilt effect, as a localhost screen
-   when its dev server runs, else an inline screen of the rebuilt section.
+   when a visual-edit bridge is connected for its dev server, else an inline
+   screen of the rebuilt section.
 3. **How it works**: a row of 3-5 small inline screens beneath, one stage of
    the technique each (geometry, motion, camera, shading, palette), each a
    live exploded view of the remix screen's layers (see **How It Works
@@ -365,7 +389,9 @@ each one paints:
   sliders and optionally a layer toggle, updating the planes live.
 - Show an in-figure config panel only when `window.__anInteract` exists or the
   frame is running standalone; hide it in Design Edit so the floating inspector
-  controls remain the only knobs on the canvas.
+  controls remain the only knobs on the canvas. Never animate knob values on
+  their own: every frame follows the shared tweaks, and a value changes only
+  when the user changes it.
 - At most one handwritten note per card (Caveat or Gochi Hand, else serif
   italic) with a hand-drawn arrow to the key plane ("the shader only paints
   this layer").
