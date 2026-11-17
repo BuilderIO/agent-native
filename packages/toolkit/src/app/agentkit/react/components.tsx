@@ -235,12 +235,16 @@ import { registerChatThreadView } from "./viewed-threads.js";
 import { useRealtimeVoiceTranscripts } from "./voice-transcripts.js";
 import {
   agentWorkCallObject,
+  agentWorkSources,
   agentWorkSteps,
   agentWorkTimeline,
   type AgentWorkCall,
   type AgentWorkGroup,
   type AgentWorkItem,
   type AgentWorkObject,
+  type AgentWorkSourceFailure,
+  type AgentWorkSourceKind,
+  type AgentWorkSources,
   type AgentWorkStep,
   type AgentWorkTimelineEntry,
   type AgentWorkVerb,
@@ -2205,6 +2209,179 @@ export function AgentSources({ citations }: { citations: CitationPart[] }) {
   );
 }
 
+const WORK_SOURCE_KINDS: readonly AgentWorkSourceKind[] = [
+  "document",
+  "web",
+  "file",
+  "search",
+];
+
+function workSourceCount(
+  kind: AgentWorkSourceKind,
+  count: number,
+  labels: AgentKitLabels,
+): string {
+  const pairs: Record<AgentWorkSourceKind, [string, string]> = {
+    document: [
+      labels.workStepSourcesDocumentsOne,
+      labels.workStepSourcesDocumentsOther,
+    ],
+    web: [labels.workStepSourcesWebOne, labels.workStepSourcesWebOther],
+    file: [labels.workStepSourcesFilesOne, labels.workStepSourcesFilesOther],
+    search: [
+      labels.workStepSourcesSearchesOne,
+      labels.workStepSourcesSearchesOther,
+    ],
+  };
+  const [one, other] = pairs[kind];
+  return countLabel(one, other, count);
+}
+
+function workSourceVerb(
+  kind: AgentWorkSourceKind,
+  labels: AgentKitLabels,
+): string {
+  return kind === "search"
+    ? labels.workStepSourceSearched
+    : kind === "web"
+      ? labels.workStepSourceOpened
+      : labels.workStepSourceRead;
+}
+
+function workSourceIcon(kind: AgentWorkSourceKind): ReactNode {
+  const props = { "aria-hidden": true, className: "agentkit-icon" } as const;
+  switch (kind) {
+    case "document":
+      return <IconFile {...props} />;
+    case "web":
+      return <IconWorld {...props} />;
+    case "file":
+      return <IconFileText {...props} />;
+    case "search":
+      return <IconSearch {...props} />;
+  }
+}
+
+function workSourceFailureLabel(
+  failure: AgentWorkSourceFailure,
+  labels: AgentKitLabels,
+): string {
+  const name = readableText(failure.text);
+  if (name) {
+    const template =
+      failure.kind === "search"
+        ? labels.workStepSourceFailedSearch
+        : failure.kind === "web"
+          ? labels.workStepSourceFailedOpen
+          : labels.workStepSourceFailedRead;
+    return template.replace("{{name}}", () => name);
+  }
+  switch (failure.kind) {
+    case "search":
+      return labels.workStepSourceFailedSearchAny;
+    case "web":
+      return labels.workStepSourceFailedWeb;
+    case "file":
+      return labels.workStepSourceFailedFile;
+    case "document":
+      return labels.workStepSourceFailedPage;
+  }
+}
+
+/**
+ * The line above a reply naming the pages, web pages, files and searches it
+ * drew on, folded to a count. Reads and searches that failed sit above it in
+ * amber, outside the fold, so they show before the answer; a saved chat
+ * rebuilds both from its tool results.
+ */
+function AgentWorkSourcesLine({ sources, failures }: AgentWorkSources) {
+  const { labels } = useAgentKit();
+  if (!sources.length && !failures.length) return null;
+  const counts = new Map<AgentWorkSourceKind, number>();
+  for (const source of sources) {
+    counts.set(source.kind, (counts.get(source.kind) ?? 0) + 1);
+  }
+  const label = labels.workStepSourcesUsed.replace("{{sources}}", () =>
+    WORK_SOURCE_KINDS.flatMap((kind) => {
+      const count = counts.get(kind);
+      return count ? [workSourceCount(kind, count, labels)] : [];
+    }).join(labels.workStepSourcesSeparator),
+  );
+  return (
+    <div className="agentkit-work-sources" data-agentkit-work-sources="true">
+      {failures.length ? (
+        <ul className="agentkit-work-source-failures">
+          {failures.map((failure) => (
+            <li key={failure.key} className="agentkit-work-source-failure">
+              <TraceIcon>
+                <IconAlertTriangle
+                  aria-hidden="true"
+                  className="agentkit-icon"
+                />
+              </TraceIcon>
+              {/* One wrapping run of text, so a narrow panel shows the whole
+                  failure rather than cutting the label short. */}
+              <span
+                {...SESSION_REPLAY_MASK_PROPS}
+                className="agentkit-work-source-failure-text"
+              >
+                <span className="agentkit-work-source-failure-label">
+                  {workSourceFailureLabel(failure, labels)}
+                </span>
+                {failure.reason ? (
+                  <>
+                    {" "}
+                    <span className="agentkit-work-source-failure-reason">
+                      {readableText(failure.reason)}
+                    </span>
+                  </>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {sources.length ? (
+        <Trace className="agentkit-sources">
+          <TraceCollapsible>
+            <TraceCollapsibleTrigger>
+              <TraceLine>
+                <TraceIcon>
+                  <IconBook2 aria-hidden="true" className="agentkit-icon" />
+                </TraceIcon>
+                <span className="agentkit-disclosure-label">{label}</span>
+              </TraceLine>
+            </TraceCollapsibleTrigger>
+            <TraceCollapsibleContent keepMounted>
+              <ul className="agentkit-sources-list">
+                {sources.map((source) => (
+                  <li key={source.key} data-kind={source.kind}>
+                    <AgentLink href={source.uri}>
+                      <TraceLine>
+                        <TraceIcon>{workSourceIcon(source.kind)}</TraceIcon>
+                        <span className="agentkit-work-source-verb">
+                          {workSourceVerb(source.kind, labels)}
+                        </span>
+                        <TraceTitle {...SESSION_REPLAY_MASK_PROPS}>
+                          {source.kind === "search" ? (
+                            <q>{readableText(source.text)}</q>
+                          ) : (
+                            readableText(source.text)
+                          )}
+                        </TraceTitle>
+                      </TraceLine>
+                    </AgentLink>
+                  </li>
+                ))}
+              </ul>
+            </TraceCollapsibleContent>
+          </TraceCollapsible>
+        </Trace>
+      ) : null}
+    </div>
+  );
+}
+
 function sourceTitle(source: CitationPart): string {
   const title = readableText(source.title);
   if (title) return title;
@@ -2975,7 +3152,28 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
         ))}
       </div>
     ) : null;
-  if (part === "results") return resultCards;
+  // The work row moves to the reply's footer; what the work read and what
+  // failed stays here, between the person's message and the reply.
+  const sourcesLine =
+    part === "row" ? null : (
+      <AgentWorkSourcesLine
+        {...agentWorkSources(
+          activityItems.flatMap((activity): AgentWorkCall[] => {
+            if (reasoningEntries.has(activity.id)) return [];
+            const tool = toolFor(activity.id);
+            return [{ id: activity.id, activity, ...(tool ? { tool } : {}) }];
+          }),
+        )}
+      />
+    );
+  if (part === "results") {
+    return (
+      <>
+        {sourcesLine}
+        {resultCards}
+      </>
+    );
+  }
   if (
     activityItems.length === 0 &&
     durableToolResults.length === 0 &&
@@ -3110,6 +3308,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   };
   return (
     <>
+      {sourcesLine}
       {resultCards}
       {hasExpandableActivity || activelyWorking ? (
         <AgentWorkDisclosure
@@ -3213,6 +3412,7 @@ function workGroupLabel(
   const pairs: Record<typeof verb, [string, string]> = {
     searched: [labels.workStepSearchedOne, labels.workStepSearchedOther],
     readPages: [labels.workStepReadPagesOne, labels.workStepReadPagesOther],
+    readDocuments: [labels.workStepReadPagesOne, labels.workStepReadPagesOther],
     fetched: [labels.workStepFetchedOne, labels.workStepFetchedOther],
     readFiles: [labels.workStepReadFilesOne, labels.workStepReadFilesOther],
     edited: [labels.workStepEditedOne, labels.workStepEditedOther],
@@ -3234,6 +3434,7 @@ function workStepVerbTitle(
     case "searched":
       return labels.workStepSearching;
     case "readPages":
+    case "readDocuments":
       return labels.workStepReadingPages;
     case "fetched":
       return labels.workStepFetching;
@@ -3259,6 +3460,8 @@ function workVerbIcon(verb: AgentWorkVerb): ReactNode {
       return <IconSearch {...props} />;
     case "readPages":
       return <IconWorld {...props} />;
+    case "readDocuments":
+      return <IconFile {...props} />;
     case "fetched":
       return <IconWorldDownload {...props} />;
     case "readFiles":

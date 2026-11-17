@@ -285,6 +285,7 @@ function placeByCalls(
 export type AgentWorkVerb =
   | "searched"
   | "readPages"
+  | "readDocuments"
   | "fetched"
   | "readFiles"
   | "edited"
@@ -293,8 +294,11 @@ export type AgentWorkVerb =
   | "used";
 
 export interface AgentWorkObject {
-  kind: "query" | "url" | "file" | "command";
+  /** `document` is a page in the app itself, named by the read's result. */
+  kind: "query" | "url" | "file" | "command" | "document";
   text: string;
+  /** Where a document opens, when its read returned a link. */
+  uri?: string;
 }
 
 export interface AgentWorkCall {
@@ -408,6 +412,36 @@ function fileName(value: string): string {
   return trimmed.split(/[\\/]/).at(-1) || trimmed;
 }
 
+function documentRecord(
+  record: Record<string, unknown> | undefined,
+): AgentWorkObject | undefined {
+  const id = firstString(record, ["id", "documentId"]);
+  const title = firstString(record, ["title", "name"]);
+  if (!id || !title) return undefined;
+  const uri = firstString(record, ["deepLink", "url"]);
+  return { kind: "document", text: title, ...(uri ? { uri } : {}) };
+}
+
+// A page read's result can be the whole page, so each call's is parsed once.
+const documentsByTool = new WeakMap<AgentToolCall, AgentWorkObject | null>();
+
+/**
+ * The page a successful read returned, named by the title in its result, as
+ * Content's get-document or another app's single-record read returns it.
+ */
+function documentObject(call: AgentWorkCall): AgentWorkObject | undefined {
+  const tool = call.tool;
+  if (!tool || call.activity.kind !== "read") return undefined;
+  if (call.activity.status === "failed" || tool.error) return undefined;
+  const cached = documentsByTool.get(tool);
+  if (cached !== undefined) return cached ?? undefined;
+  const output = inputRecord(tool.output);
+  const document =
+    documentRecord(output) ?? documentRecord(inputRecord(output?.document));
+  documentsByTool.set(tool, document ?? null);
+  return document;
+}
+
 /** The object a call acted on, read from its input or activity reference. */
 export function agentWorkCallObject(
   call: AgentWorkCall,
@@ -417,7 +451,9 @@ export function agentWorkCallObject(
   if (query) return { kind: "query", text: query };
   const url = firstString(input, URL_KEYS) ?? call.activity.object?.uri;
   const domain = url ? urlDomain(url) : undefined;
-  if (domain) return { kind: "url", text: domain };
+  if (url && domain) return { kind: "url", text: domain, uri: url };
+  const document = documentObject(call);
+  if (document) return document;
   const file =
     firstString(input, FILE_KEYS) ??
     (call.activity.object?.kind === "file"
@@ -446,6 +482,7 @@ export function agentWorkCallVerb(call: AgentWorkCall): AgentWorkVerb {
       ? "fetched"
       : "readPages";
   }
+  if (object?.kind === "document") return "readDocuments";
   if (object?.kind === "file") {
     return kind === "edit" || kind === "write" ? "edited" : "readFiles";
   }
@@ -475,6 +512,8 @@ export function agentWorkFailureReason(
   const line =
     status ?? source.split("\n").find((candidate) => candidate.trim()) ?? "";
   const sentence = (status ? line : (line.split(/(?<=[.!?])\s/)[0] ?? line))
+    // The agent loop prefixes a thrown error with the tool it was running.
+    .replace(/^error running \S+?:\s+/i, "")
     .replace(/^error:\s*/i, "")
     .replace(/[.:;,]\s*$/, "")
     .replace(/\s*\((?:error)?code:[^)]*\)\s*$/i, "")
@@ -650,4 +689,100 @@ export function agentWorkSteps(
     if (dominant) step.dominantVerb = dominant;
   }
   return steps;
+}
+
+/** What a reply drew on: a page in the app, a web page, a file or a search. */
+export type AgentWorkSourceKind = "document" | "web" | "file" | "search";
+
+export interface AgentWorkSource {
+  key: string;
+  kind: AgentWorkSourceKind;
+  /** A page's title, a web page's domain, a file's name or a query. */
+  text: string;
+  uri?: string;
+}
+
+export interface AgentWorkSourceFailure {
+  key: string;
+  /** What it tried to use. */
+  kind: AgentWorkSourceKind;
+  /** The object, when the call named one; a failed page read names none. */
+  text?: string;
+  /** The activity's own label, for a failure that names no object. */
+  label: string;
+  reason?: string;
+}
+
+export interface AgentWorkSources {
+  sources: AgentWorkSource[];
+  failures: AgentWorkSourceFailure[];
+}
+
+const SOURCE_KINDS: Partial<Record<AgentWorkVerb, AgentWorkSourceKind>> = {
+  readDocuments: "document",
+  readPages: "web",
+  fetched: "web",
+  readFiles: "file",
+  searched: "search",
+};
+
+/**
+ * The sources a segment's calls read or searched, each once in call order,
+ * and the reads and searches that failed, each once per object and reason.
+ * Writes, commands and running calls are not sources.
+ */
+export function agentWorkSources(
+  calls: readonly AgentWorkCall[],
+): AgentWorkSources {
+  const sources: AgentWorkSource[] = [];
+  const failures: AgentWorkSourceFailure[] = [];
+  const seen = new Set<string>();
+  for (const call of calls) {
+    const status = call.activity.status;
+    if (status === "running" || status === "cancelled") continue;
+    const verb = agentWorkCallVerb(call);
+    const object = agentWorkCallObject(call);
+    if (status === "failed") {
+      // A failed read has no result to name its page, so it counts by what
+      // the tool does.
+      const kind =
+        SOURCE_KINDS[verb] ??
+        (call.activity.kind === "search"
+          ? "search"
+          : call.activity.kind === "read"
+            ? "document"
+            : undefined);
+      if (!kind) continue;
+      const text = object?.kind === "command" ? undefined : object?.text;
+      const reason = agentWorkFailureReason(call);
+      const key = [
+        "failed",
+        kind,
+        text ?? call.activity.label,
+        reason ?? "",
+      ].join("\u0001");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      failures.push({
+        key,
+        kind,
+        ...(text ? { text } : {}),
+        label: call.activity.label,
+        ...(reason ? { reason } : {}),
+      });
+      continue;
+    }
+    const kind = SOURCE_KINDS[verb];
+    if (!kind || !object) continue;
+    const key = [kind, object.uri ?? object.text].join("\u0001");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    sources.push({
+      key,
+      kind,
+      text: object.text,
+      ...(object.uri ? { uri: object.uri } : {}),
+    });
+  }
+  return { sources, failures };
 }

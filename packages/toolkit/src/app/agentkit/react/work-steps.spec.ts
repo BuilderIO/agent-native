@@ -12,6 +12,7 @@ import {
   agentWorkCallObject,
   agentWorkCallVerb,
   agentWorkFailureReason,
+  agentWorkSources,
   agentWorkSteps,
   agentWorkTimeline,
   type AgentWorkCall,
@@ -525,7 +526,11 @@ describe("agentWorkCallObject and agentWorkCallVerb", () => {
       agentWorkCallObject(
         call("c", "web-request", { url: "https://www.iep.utm.edu/x" }),
       ),
-    ).toEqual({ kind: "url", text: "iep.utm.edu" });
+    ).toEqual({
+      kind: "url",
+      text: "iep.utm.edu",
+      uri: "https://www.iep.utm.edu/x",
+    });
     expect(
       agentWorkCallObject(call("c", "read", { path: "/repo/src/app.tsx" })),
     ).toEqual({ kind: "file", text: "app.tsx" });
@@ -556,6 +561,128 @@ describe("agentWorkCallObject and agentWorkCallVerb", () => {
     expect(
       agentWorkCallVerb(call("c", "web-request", { url: "https://a.dev" })),
     ).toBe("readPages");
+  });
+
+  it("names a page read by the title and link its result returned", () => {
+    const read = call(
+      "c",
+      "get-document",
+      { id: "doc-1" },
+      {
+        output: {
+          id: "doc-1",
+          title: "Launch plan",
+          deepLink: "/page/doc-1",
+          content: "Body.",
+        },
+      },
+    );
+    expect(agentWorkCallObject(read)).toEqual({
+      kind: "document",
+      text: "Launch plan",
+      uri: "/page/doc-1",
+    });
+    expect(agentWorkCallVerb(read)).toBe("readDocuments");
+    // A JSON string result, and one nesting the page, read the same way.
+    expect(
+      agentWorkCallObject(
+        call(
+          "c",
+          "get-document",
+          {},
+          {
+            output: JSON.stringify({
+              document: { documentId: "d", name: "Notes" },
+            }),
+          },
+        ),
+      ),
+    ).toEqual({ kind: "document", text: "Notes" });
+    // A failed read, a result without an id, or a write names no page.
+    expect(
+      agentWorkCallObject(
+        call(
+          "c",
+          "get-document",
+          {},
+          { status: "failed", output: { id: "d", title: "Draft" } },
+        ),
+      ),
+    ).toBe(undefined);
+    expect(
+      agentWorkCallObject(
+        call("c", "get-document", {}, { output: { title: "Draft" } }),
+      ),
+    ).toBe(undefined);
+    expect(
+      agentWorkCallObject(
+        call(
+          "c",
+          "update-document",
+          {},
+          { output: { id: "d", title: "Draft" } },
+        ),
+      ),
+    ).toBe(undefined);
+  });
+});
+
+describe("agentWorkSources", () => {
+  it("lists each source once in call order and leaves out other work", () => {
+    const page = { output: { id: "d1", title: "Launch plan" } };
+    const { sources, failures } = agentWorkSources([
+      call("a", "get-document", { id: "d1" }, page),
+      call("b", "web-search", { query: "pricing" }),
+      call("c", "get-document", { id: "d1" }, page),
+      call("d", "web-request", { url: "https://a.dev/x" }),
+      call("e", "web-request", { url: "https://a.dev/y" }),
+      call("f", "read", { path: "/repo/notes.md" }),
+      call("g", "bash", { command: "ls" }),
+      call("h", "update-document", { id: "d1" }),
+      call("i", "get-document", { id: "d2" }, { status: "running" }),
+    ]);
+    expect(sources.map(({ kind, text, uri }) => ({ kind, text, uri }))).toEqual(
+      [
+        { kind: "document", text: "Launch plan", uri: undefined },
+        { kind: "search", text: "pricing", uri: undefined },
+        { kind: "web", text: "a.dev", uri: "https://a.dev/x" },
+        { kind: "web", text: "a.dev", uri: "https://a.dev/y" },
+        { kind: "file", text: "notes.md", uri: undefined },
+      ],
+    );
+    expect(failures).toEqual([]);
+  });
+
+  it("keeps failed reads and searches with their reasons, once each", () => {
+    const failed = (output: string) => ({ status: "failed" as const, output });
+    const { sources, failures } = agentWorkSources([
+      call(
+        "a",
+        "search-documents",
+        { query: "roadmap" },
+        failed("Error: Timed out."),
+      ),
+      call("b", "get-document", { id: "d2" }, failed("Error: Not found.")),
+      call("c", "get-document", { id: "d2" }, failed("Error: Not found.")),
+      call("d", "web-request", { url: "https://a.dev/x" }, failed("HTTP 403")),
+      call("e", "update-document", { id: "d2" }, failed("Error: Denied.")),
+    ]);
+    expect(sources).toEqual([]);
+    expect(failures.map(({ key: _key, ...failure }) => failure)).toEqual([
+      {
+        kind: "search",
+        text: "roadmap",
+        label: "search-documents",
+        reason: "Timed out",
+      },
+      { kind: "document", label: "get-document", reason: "Not found" },
+      {
+        kind: "web",
+        text: "a.dev",
+        label: "web-request",
+        reason: "HTTP 403",
+      },
+    ]);
   });
 });
 
@@ -588,6 +715,19 @@ describe("agentWorkFailureReason", () => {
         ),
       ),
     ).toBe("HTTP 404 Not Found");
+    expect(
+      agentWorkFailureReason(
+        call(
+          "c",
+          "get-document",
+          {},
+          {
+            status: "failed",
+            output: 'Error running get-document: Document "d2" not found',
+          },
+        ),
+      ),
+    ).toBe('Document "d2" not found');
     expect(
       agentWorkFailureReason(
         call(

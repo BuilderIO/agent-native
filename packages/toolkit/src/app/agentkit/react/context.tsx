@@ -299,6 +299,26 @@ export interface AgentKitLabels {
   workStepEditing: string;
   workStepRunningCommands: string;
   workStepRunningActions: string;
+  workStepSourcesUsed: string;
+  workStepSourcesSeparator: string;
+  workStepSourcesDocumentsOne: string;
+  workStepSourcesDocumentsOther: string;
+  workStepSourcesWebOne: string;
+  workStepSourcesWebOther: string;
+  workStepSourcesFilesOne: string;
+  workStepSourcesFilesOther: string;
+  workStepSourcesSearchesOne: string;
+  workStepSourcesSearchesOther: string;
+  workStepSourceRead: string;
+  workStepSourceOpened: string;
+  workStepSourceSearched: string;
+  workStepSourceFailedRead: string;
+  workStepSourceFailedOpen: string;
+  workStepSourceFailedSearch: string;
+  workStepSourceFailedPage: string;
+  workStepSourceFailedFile: string;
+  workStepSourceFailedWeb: string;
+  workStepSourceFailedSearchAny: string;
   durationHourShort: string;
   durationMinuteShort: string;
   durationSecondShort: string;
@@ -538,6 +558,26 @@ export const defaultAgentKitLabels: ResolvedAgentKitLabels = {
   workStepEditing: "Editing files",
   workStepRunningCommands: "Running commands",
   workStepRunningActions: "Running actions",
+  workStepSourcesUsed: "Used {{sources}}",
+  workStepSourcesSeparator: ", ",
+  workStepSourcesDocumentsOne: "1 page",
+  workStepSourcesDocumentsOther: "{{count}} pages",
+  workStepSourcesWebOne: "1 web page",
+  workStepSourcesWebOther: "{{count}} web pages",
+  workStepSourcesFilesOne: "1 file",
+  workStepSourcesFilesOther: "{{count}} files",
+  workStepSourcesSearchesOne: "1 search",
+  workStepSourcesSearchesOther: "{{count}} searches",
+  workStepSourceRead: "Read",
+  workStepSourceOpened: "Opened",
+  workStepSourceSearched: "Searched",
+  workStepSourceFailedRead: "Couldn't read {{name}}",
+  workStepSourceFailedOpen: "Couldn't open {{name}}",
+  workStepSourceFailedSearch: "Couldn't search for {{name}}",
+  workStepSourceFailedPage: "Couldn't read a page",
+  workStepSourceFailedFile: "Couldn't read a file",
+  workStepSourceFailedWeb: "Couldn't open a web page",
+  workStepSourceFailedSearchAny: "Couldn't search",
   durationHourShort: "h",
   durationMinuteShort: "m",
   durationSecondShort: "s",

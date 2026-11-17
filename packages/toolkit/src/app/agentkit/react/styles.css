@@ -3360,6 +3360,66 @@
     padding-block-end: 0;
   }
 
+  /* What the work read sits above the reply. Failures stay unfolded on top,
+   so a missed page is seen before the answer that lacks it. */
+  .agentkit-work-sources {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+    margin-block-end: 0.5rem;
+  }
+
+  .agentkit-work-sources .agentkit-sources {
+    margin-block-start: 0;
+  }
+
+  /* A source without a link renders as a span, laid out like the links. */
+  .agentkit-work-sources .agentkit-sources-list li > span {
+    display: flex;
+    min-inline-size: 0;
+    padding-block: 0.125rem;
+  }
+
+  .agentkit-work-source-failures {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.125rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .agentkit-work-source-failure {
+    display: flex;
+    min-inline-size: 0;
+    align-items: flex-start;
+    gap: var(--agentkit-disclosure-gap, 0.5rem);
+    color: var(--agentkit-warning);
+  }
+
+  /* A line tall, so the icon sits on the first line of wrapped text. */
+  .agentkit-work-source-failure > .agentkit-disclosure-icon-slot {
+    block-size: 1lh;
+  }
+
+  .agentkit-work-source-failure-text {
+    display: -webkit-box;
+    min-inline-size: 0;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow-wrap: anywhere;
+  }
+
+  .agentkit-work-source-failure-reason {
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-work-source-verb {
+    flex: none;
+  }
+
   .agentkit-annotations a,
   .agentkit-annotations span,
   .agentkit-citations a {
