@@ -4860,7 +4860,10 @@ export function prepareVercelFunctionOutputs(
             );
           }
           fs.unlinkSync(entryPath);
-          fs.cpSync(target, entryPath, { recursive: true });
+          fs.cpSync(target, entryPath, {
+            recursive: true,
+            verbatimSymlinks: true,
+          });
         }
         bundleYjsRuntimeForServerlessOutput(entryPath, projectCwd);
       } else if (entry.isDirectory()) {
