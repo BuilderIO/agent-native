@@ -6,12 +6,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import {
-  BigQueryAgentBudgetUnavailableError,
-  outsideAgentIdentity,
-  readBigQueryAgentBudget,
-  type OutsideAgentIdentity,
-} from "../server/lib/bigquery-agent-budget.js";
+import { outsideAgentIdentity } from "../server/lib/bigquery-agent-budget.js";
 import {
   describeOutsideAgentBigQueryReport,
   failForOutsideAgentRefusal,
@@ -26,6 +21,7 @@ import {
   FIRST_PARTY_TEMPLATE_NAMES,
   isCalendarDate,
 } from "../server/lib/first-party-metric-catalog.js";
+import { outsideAgentOnboardingEventBytes } from "../server/lib/onboarding-journey-agent-budget.js";
 import {
   DEFAULT_ONBOARDING_EVENT_ROW_BUDGET,
   getOnboardingJourney,
@@ -34,8 +30,6 @@ import {
   ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED,
-  ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED,
-  ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
   ONBOARDING_JOURNEY_QUERY_BUDGET_MS,
   OnboardingJourneyReadError,
   JourneyRecordingsError,
@@ -52,39 +46,6 @@ function resolveScope() {
       statusCode: 401,
     });
   return { userEmail, orgId: getRequestOrgId() || null };
-}
-
-/**
- * Event pages an outside agent's remaining budget pays for, after the
- * follow-up queries the call will also run. At least one, so a refusal comes
- * from admission with the budget it saw.
- */
-async function affordableEventPages(
-  identity: OutsideAgentIdentity,
-  followUpQueries: number,
-): Promise<number> {
-  let budget;
-  try {
-    budget = await readBigQueryAgentBudget(identity);
-  } catch (error) {
-    if (error instanceof BigQueryAgentBudgetUnavailableError) {
-      throw new OutsideAgentBigQueryRefusalError({
-        code: "budget_unavailable",
-      });
-    }
-    throw error;
-  }
-  const available = Math.min(
-    budget.person.remainingBytes,
-    budget.org.remainingBytes,
-  );
-  return Math.max(
-    1,
-    Math.floor(
-      (available - followUpQueries * ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED) /
-        ONBOARDING_EVENTS_MAX_BYTES_BILLED,
-    ),
-  );
 }
 
 const isoDate = z
@@ -372,15 +333,10 @@ export default defineAction({
         );
       }
       const identity = outsideAgentIdentity(scope.userEmail, scope.orgId);
-      const requested =
-        args.maxTotalBytesBilled ??
-        ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED;
-      const applied = Math.min(
-        requested,
-        (await affordableEventPages(
-          identity,
-          args.followUpMode === "person" ? 2 : 1,
-        )) * ONBOARDING_EVENTS_MAX_BYTES_BILLED,
+      const { requested, applied } = await outsideAgentOnboardingEventBytes(
+        identity,
+        args.maxTotalBytesBilled,
+        args.followUpMode === "person" ? 2 : 1,
       );
       const { value, report } = await runOutsideAgentBigQueryCall(
         {

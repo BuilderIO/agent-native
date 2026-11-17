@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     observationDate: "2026-10-10",
   })),
   estimate: vi.fn(),
+  allowance: vi.fn(),
   CostError: class OnboardingJourneyCostError extends Error {
     constructor(readonly code: string) {
       super("The scoped onboarding journey cost estimate is unavailable.");
@@ -42,6 +43,19 @@ vi.mock("../server/lib/onboarding-journey-cost.js", () => ({
   OnboardingJourneyCostError: mocks.CostError,
 }));
 
+vi.mock("../server/lib/bigquery-agent-budget.js", () => ({
+  outsideAgentIdentity: (ownerEmail: string, orgId: string | null) => ({
+    ownerEmail,
+    orgId,
+  }),
+  formatUsd: () => "$0.00",
+}));
+
+vi.mock("../server/lib/onboarding-journey-agent-budget.js", () => ({
+  outsideAgentOnboardingEventBytes: mocks.allowance,
+}));
+
+import { OutsideAgentBigQueryRefusalError } from "../server/lib/bigquery-agent-context.js";
 import action from "./estimate-onboarding-journey-cost.js";
 
 const args = action.schema.parse({
@@ -178,5 +192,54 @@ describe("estimate-onboarding-journey-cost action", () => {
       statusCode: 502,
     });
     expect((failure as Error).message).toContain("no usable byte estimate");
+  });
+});
+
+describe("an outside agent's estimate", () => {
+  it.each(["mcp", "a2a"] as const)(
+    "estimates the pages the journey will read for an outside agent (%s), under today's budget",
+    async (caller) => {
+      mocks.allowance.mockResolvedValueOnce({
+        requested: 125_000_000_000,
+        applied: 50_000_000_000,
+      });
+      mocks.estimate.mockResolvedValueOnce({
+        maxTotalBytesBilled: 50_000_000_000,
+      });
+
+      const result = await action.run(args, { caller } as ActionRunContext);
+
+      expect(mocks.allowance).toHaveBeenCalledWith(
+        { ownerEmail: "caller@example.test", orgId: "org-1" },
+        undefined,
+        1,
+      );
+      expect(mocks.estimate.mock.calls[0]![6]).toBe(50_000_000_000);
+      expect(result).toEqual({
+        maxTotalBytesBilled: 50_000_000_000,
+        maxTotalBytesBilledRequested: 125_000_000_000,
+      });
+    },
+  );
+
+  it("keeps the in-app 275 GB default for Analytics' own callers", async () => {
+    await action.run(args, { caller: "tool" } as ActionRunContext);
+
+    expect(mocks.allowance).not.toHaveBeenCalled();
+    expect(mocks.estimate.mock.calls[0]![6]).toBe(275_000_000_000);
+  });
+
+  it("answers with the budget refusal when today's budget cannot be read", async () => {
+    mocks.allowance.mockRejectedValueOnce(
+      new OutsideAgentBigQueryRefusalError({ code: "budget_unavailable" }),
+    );
+
+    await expect(
+      action.run(args, { caller: "mcp" } as ActionRunContext),
+    ).rejects.toMatchObject({
+      errorCode: "budget_unavailable",
+      statusCode: 503,
+    });
+    expect(mocks.estimate).not.toHaveBeenCalled();
   });
 });

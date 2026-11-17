@@ -6,10 +6,17 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { outsideAgentIdentity } from "../server/lib/bigquery-agent-budget.js";
+import { failForOutsideAgentRefusal } from "../server/lib/bigquery-agent-calls.js";
+import {
+  isOutsideAgentCaller,
+  OutsideAgentBigQueryRefusalError,
+} from "../server/lib/bigquery-agent-context.js";
 import {
   FIRST_PARTY_TEMPLATE_NAMES,
   isCalendarDate,
 } from "../server/lib/first-party-metric-catalog.js";
+import { outsideAgentOnboardingEventBytes } from "../server/lib/onboarding-journey-agent-budget.js";
 import {
   estimateOnboardingJourneyEventQueryCost,
   OnboardingJourneyCostError,
@@ -83,9 +90,8 @@ export default defineAction({
       .min(ONBOARDING_EVENTS_MAX_BYTES_BILLED)
       .max(ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED)
       .optional()
-      .default(ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED)
       .describe(
-        "Aggregate cap for event-page queries, in bytes billed. Each allowed BigQuery page reserves its full 25 GB per-query cap. Defaults to 275 GB (11 pages); set a higher value deliberately to allow more pages, up to 1.275 TB (51 pages). Match get-onboarding-journey.",
+        "Aggregate cap for event-page queries, in bytes billed. Each allowed BigQuery page reserves its full 25 GB per-query cap. Defaults to 275 GB (11 pages), or 125 GB (5 pages) for an outside agent, whose cap is also lowered to what its daily BigQuery budget can still pay for, exactly as get-onboarding-journey applies it; the result's maxTotalBytesBilled is the cap applied, and maxTotalBytesBilledRequested what was asked when the budget lowered it. Set a higher value deliberately to allow more pages, up to 1.275 TB (51 pages). Match get-onboarding-journey.",
       ),
   }),
   http: { method: "GET" },
@@ -120,16 +126,32 @@ export default defineAction({
         : {}),
     };
     try {
-      return await estimateOnboardingJourneyEventQueryCost(
+      // An outside agent plans with the allowance its journey call will get.
+      const allowance = isOutsideAgentCaller(context?.caller)
+        ? await outsideAgentOnboardingEventBytes(
+            outsideAgentIdentity(scope.userEmail, scope.orgId),
+            args.maxTotalBytesBilled,
+            args.followUpMode === "person" ? 2 : 1,
+          )
+        : null;
+      const estimate = await estimateOnboardingJourneyEventQueryCost(
         scope,
         filters,
         args.maxEventRows,
         freezeOnboardingJourneyObservationWindow(filters),
         args.followUpMode === "person",
         context?.signal,
-        args.maxTotalBytesBilled,
+        allowance?.applied ??
+          args.maxTotalBytesBilled ??
+          ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
       );
+      return allowance && allowance.applied < allowance.requested
+        ? { ...estimate, maxTotalBytesBilledRequested: allowance.requested }
+        : estimate;
     } catch (error) {
+      if (error instanceof OutsideAgentBigQueryRefusalError) {
+        failForOutsideAgentRefusal(error);
+      }
       if (
         context?.signal?.aborted ||
         (error instanceof Error && error.name === "AbortError")
