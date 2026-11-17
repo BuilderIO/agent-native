@@ -6,6 +6,34 @@ import { buildInteractPreviewDocument } from "../design-canvas/interact-document
 const DESIGN = `<!doctype html><html><head><style>:root{--sail-twist:1;--sail-color:#000}</style></head>
 <body><div data-agent-native-node-id="sail">Sail</div></body></html>`;
 
+// A screen like a remix explainer: its in-figure panel sets the knob's CSS
+// variable on :root, calls setTweak as authored screens do, and resyncs its
+// rows when the editor sends new values.
+const KNOB_DESIGN = `<!doctype html><html><head><style>:root{--sail-twist:1;--sail-color:#000}</style></head>
+<body><div id="panel" hidden><input type="range" min="0" max="1" step="0.05" data-knob="--sail-twist"></div>
+<script>
+const panel = document.getElementById("panel");
+const knobs = panel.querySelectorAll("[data-knob]");
+function sync() {
+  knobs.forEach((input) => {
+    input.value = getComputedStyle(document.documentElement)
+      .getPropertyValue(input.dataset.knob)
+      .trim();
+  });
+}
+knobs.forEach((input) =>
+  input.addEventListener("input", () => {
+    document.documentElement.style.setProperty(input.dataset.knob, input.value);
+    window.__anInteract?.setTweak(input.dataset.knob, input.value);
+  }),
+);
+window.addEventListener("agent-native:tweak-values", sync);
+document.addEventListener("DOMContentLoaded", () => {
+  if (window.__anInteract) panel.hidden = false;
+  sync();
+});
+</script></body></html>`;
+
 function escapeAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
@@ -21,7 +49,6 @@ async function openSandboxedInteractFrame(
   const srcdoc = buildInteractPreviewDocument({
     ...options,
     content: options.content ?? DESIGN,
-    tweakCapability: "test-capability",
     fitBodyToFrame: true,
   });
   await page.setContent(
@@ -115,49 +142,77 @@ describe("Interact tweaks bridge", () => {
     }
   });
 
-  it("posts a tweak-set message to the editor from window.__anInteract.setTweak", async () => {
+  it("keeps an in-frame knob drag inside the frame and sends the editor nothing", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage();
-      const frame = await openSandboxedInteractFrame(page);
+      const frame = await openSandboxedInteractFrame(page, {
+        content: KNOB_DESIGN,
+        tweakValues: { "--sail-twist": "0.25" },
+      });
       await page.evaluate(() => {
-        (window as { received?: unknown[] }).received = [];
+        const received: unknown[] = [];
+        (window as { received?: unknown[] }).received = received;
         window.addEventListener("message", (event) => {
           if (event.source !== document.querySelector("iframe")!.contentWindow)
             return;
-          if (event.data?.type !== "tweak-set") return;
-          (window as { received?: unknown[] }).received!.push(event.data);
+          received.push(event.data);
         });
       });
+      expect(await readVar(frame, "--sail-twist")).toBe("0.25");
+      expect(await frame.locator("#panel").isVisible()).toBe(true);
 
-      await frame.evaluate(() => {
-        const api = (
-          window as {
-            __anInteract?: { setTweak(id: string, value: unknown): void };
-          }
-        ).__anInteract!;
-        api.setTweak("twist", 1.5);
-        api.setTweak("--sail-twist", "0.4");
-      });
+      await frame.locator('[data-knob="--sail-twist"]').fill("0.9");
+      expect(await readVar(frame, "--sail-twist")).toBe("0.9");
 
+      // postMessage from one window is delivered in order, so once the marker
+      // arrives anything the knob sent would already be here.
+      await frame.evaluate(() => window.parent.postMessage("marker", "*"));
       await expect
         .poll(() =>
           page.evaluate(() => (window as { received?: unknown[] }).received),
         )
-        .toEqual([
-          {
-            type: "tweak-set",
-            capability: "test-capability",
-            id: "twist",
-            value: 1.5,
-          },
-          {
-            type: "tweak-set",
-            capability: "test-capability",
-            cssVar: "--sail-twist",
-            value: "0.4",
-          },
-        ]);
+        .toEqual(["marker"]);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("lets an inspector change win over a local knob drag and tells the panel", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      const frame = await openSandboxedInteractFrame(page, {
+        content: KNOB_DESIGN,
+        tweakValues: { "--sail-twist": "0.25", "--sail-color": "#000" },
+      });
+      await frame.locator('[data-knob="--sail-twist"]').fill("0.9");
+      expect(await readVar(frame, "--sail-twist")).toBe("0.9");
+
+      // The editor re-sends unchanged values on unrelated renders; those must
+      // not undo the drag.
+      await postFromParent(page, {
+        "--sail-twist": "0.25",
+        "--sail-color": "#000",
+      });
+      await postFromParent(page, {
+        "--sail-twist": "0.25",
+        "--sail-color": "#123456",
+      });
+      await expect.poll(() => readVar(frame, "--sail-color")).toBe("#123456");
+      expect(await readVar(frame, "--sail-twist")).toBe("0.9");
+      expect(
+        await frame.locator('[data-knob="--sail-twist"]').inputValue(),
+      ).toBe("0.9");
+
+      await postFromParent(page, {
+        "--sail-twist": "0.6",
+        "--sail-color": "#123456",
+      });
+      await expect.poll(() => readVar(frame, "--sail-twist")).toBe("0.6");
+      await expect
+        .poll(() => frame.locator('[data-knob="--sail-twist"]').inputValue())
+        .toBe("0.6");
     } finally {
       await browser.close();
     }
