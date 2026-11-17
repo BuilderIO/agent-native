@@ -392,6 +392,7 @@ describe("reconciler", () => {
       state: "DONE",
       billedBytes: 1,
       cacheHit: false,
+      errorReason: null,
       location: "US",
     });
     expect(await reconcileStaleBigQueryAgentJobs(alice, done, NOON)).toBe(0);
@@ -408,6 +409,7 @@ describe("reconciler", () => {
         state: "DONE",
         billedBytes: 3 * 1024 ** 3,
         cacheHit: false,
+        errorReason: null,
         location: "US",
       }),
       later,
@@ -443,6 +445,7 @@ describe("reconciler", () => {
         state: "RUNNING",
         billedBytes: null,
         cacheHit: null,
+        errorReason: null,
         location: "US",
       }),
       later,
@@ -483,11 +486,87 @@ describe("reconciler", () => {
         state: "DONE",
         billedBytes: 0,
         cacheHit: true,
+        errorReason: null,
         location: "US",
       }),
       new Date(NOON.getTime() + 120_000),
     );
     expect(await row("job_1")).toMatchObject({ state: "settled", billed: "0" });
+  });
+});
+
+describe("settlement of finished jobs", () => {
+  function finished(errorReason: string | null) {
+    return {
+      credentialScope: "default",
+      observe: async () => ({
+        kind: "found" as const,
+        state: "DONE" as const,
+        billedBytes: null,
+        cacheHit: false,
+        errorReason,
+        location: "US",
+      }),
+    };
+  }
+
+  it("settles a job that ended in an error at zero, and charges a cancelled one its reservation", async () => {
+    await admit(alice, JOB, NOON);
+    await admit(alice, JOB, NOON);
+    const later = new Date(NOON.getTime() + 120_000);
+    await reconcileStaleBigQueryAgentJobs(
+      alice,
+      {
+        credentialScope: "default",
+        observe: async (job) =>
+          finished(
+            job.jobId === "job_1" ? "invalidQuery" : "stopped",
+          ).observe(),
+      },
+      later,
+    );
+    expect(await row("job_1")).toMatchObject({ state: "settled", billed: "0" });
+    expect(await row("job_2")).toMatchObject({
+      state: "settled",
+      billed: String(JOB),
+      resolution: "billed_bytes_missing",
+    });
+  });
+
+  it("never resubmits a job ID that was charged without BigQuery confirming the job", async () => {
+    await admit(alice, JOB, NOON, { jobId: "unconfirmed" });
+    await settleBigQueryAgentJob(
+      "builder-3b0a2",
+      "unconfirmed",
+      { kind: "charged_reservation", reason: "max_runtime_elapsed" },
+      NOON,
+    );
+    await expect(
+      admit(alice, JOB, NOON, { jobId: "unconfirmed" }),
+    ).rejects.toBeInstanceOf(BigQueryAgentBudgetUnavailableError);
+  });
+
+  it("does not let a reconciler release a reservation another admission is about to send again", async () => {
+    await admit(alice, JOB, NOON, { jobId: "resumable_2" });
+    // A second call reuses the admission 50 s later and extends its lease.
+    await admit(alice, JOB, new Date(NOON.getTime() + 50_000), {
+      jobId: "resumable_2",
+    });
+    await reconcileStaleBigQueryAgentJobs(
+      alice,
+      { credentialScope: "default", observe: async () => ({ kind: "absent" }) },
+      new Date(NOON.getTime() + 90_000),
+    );
+    expect(await row("resumable_2")).toMatchObject({ state: "pending" });
+    expect(
+      await settleBigQueryAgentJob(
+        "builder-3b0a2",
+        "resumable_2",
+        { kind: "not_found" },
+        new Date(NOON.getTime() + 90_000),
+        { leaseExpiredAt: new Date(NOON.getTime() + 90_000) },
+      ),
+    ).toBe(false);
   });
 });
 

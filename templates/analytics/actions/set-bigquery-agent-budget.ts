@@ -152,7 +152,20 @@ export default defineAction({
           admin.orgId,
           BIGQUERY_AGENT_BUDGET_SETTING_KEY,
           (current) => {
-            const next = parseBigQueryAgentBudgetOverrides(current);
+            let next: BigQueryAgentBudgetOverrides;
+            try {
+              next = parseBigQueryAgentBudgetOverrides(current);
+            } catch (error) {
+              // An unreadable setting refuses every outside-agent job, so a
+              // reset to the defaults replaces it instead of failing on it.
+              if (
+                !(error instanceof BigQueryAgentBudgetUnavailableError) ||
+                args.dailyLimitUsd !== null
+              ) {
+                throw error;
+              }
+              next = {};
+            }
             if (args.scope === "org") {
               if (bytes === null) delete next.orgDailyLimitBytes;
               else next.orgDailyLimitBytes = bytes;

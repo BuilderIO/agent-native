@@ -84,6 +84,15 @@ export function outsideAgentBigQueryReport(
       cacheHits: summary.cacheHits,
     },
     today,
+    // A job refused partway, such as a follow-up the call reported as partial.
+    ...(summary.refusal
+      ? {
+          refusal: {
+            code: summary.refusal.code,
+            message: summary.refusal.message,
+          },
+        }
+      : {}),
   };
 }
 
@@ -117,8 +126,15 @@ export async function runOutsideAgentBigQueryCall<T>(
   try {
     value = await withOutsideAgentBigQueryGate(gate, work);
   } catch (error) {
-    const refusal = gate.summary().refusal;
-    if (refusal) throw refusal;
+    // Only a refusal that caused this failure is reported as one; a refusal
+    // the work already handled must not mask a later, unrelated error.
+    for (let cause: unknown = error; cause; ) {
+      if (cause instanceof OutsideAgentBigQueryRefusalError) throw cause;
+      cause =
+        cause instanceof Error
+          ? (cause as Error & { cause?: unknown }).cause
+          : undefined;
+    }
     throw error;
   }
   return {

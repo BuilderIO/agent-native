@@ -482,7 +482,7 @@ export async function admitBigQueryAgentJob(
         args: [keys[0], keys[1]],
       });
       const existing = await tx.execute({
-        sql: `SELECT request_id, state, owner_email, reserved_bytes::text AS reserved
+        sql: `SELECT request_id, state, resolution, owner_email, reserved_bytes::text AS reserved
           FROM analytics_bigquery_agent_jobs WHERE project_id = $1 AND job_id = $2 FOR UPDATE`,
         args: [request.projectId, request.jobId],
       });
@@ -490,14 +490,37 @@ export async function admitBigQueryAgentJob(
         | {
             request_id: string;
             state: string;
+            resolution: string | null;
             owner_email: string;
             reserved: unknown;
           }
         | undefined;
-      // A job ID admitted before already holds its own reservation or bill.
+      // A job ID admitted before already holds its own reservation, or a bill
+      // for a job BigQuery confirmed. One charged without confirmation may
+      // never have existed, so submitting it again could start an unadmitted job.
+      if (
+        prior?.state === "settled" &&
+        prior.resolution !== "billed" &&
+        prior.resolution !== "cache_hit"
+      ) {
+        throw new BigQueryAgentBudgetUnavailableError("job_id_unconfirmed");
+      }
       if (prior && prior.state !== "released") {
         if (prior.owner_email !== identity.ownerEmail) {
           throw new BigQueryAgentBudgetUnavailableError("job_id_owned");
+        }
+        // This call may send the job again, so no reconciler may prove it
+        // absent before that send lands.
+        if (prior.state === "pending") {
+          await tx.execute({
+            sql: `UPDATE analytics_bigquery_agent_jobs
+              SET lease_expires_at = GREATEST(lease_expires_at, $2)
+              WHERE request_id = $1 AND state = 'pending'`,
+            args: [
+              prior.request_id,
+              new Date(now.getTime() + request.leaseMs).toISOString(),
+            ],
+          });
         }
         return {
           status: "admitted" as const,
@@ -657,15 +680,50 @@ export type BigQueryAgentSettlement =
    */
   | { kind: "charged_reservation"; reason: string };
 
+/**
+ * What a finished job settles at, from BigQuery's own metadata, or null when
+ * the metadata can't say. A cache hit bills nothing, and so does a query that
+ * ended in an error; a cancelled one may have billed, so it needs its bytes.
+ */
+export function settlementForFinishedJob(
+  observation: Extract<BigQueryJobBilling, { kind: "found" }>,
+): BigQueryAgentSettlement | null {
+  if (observation.state !== "DONE") return null;
+  if (observation.billedBytes !== null) {
+    return {
+      kind: "billed",
+      billedBytes: observation.cacheHit === true ? 0 : observation.billedBytes,
+      cacheHit: observation.cacheHit,
+    };
+  }
+  if (observation.cacheHit === true) {
+    return { kind: "billed", billedBytes: 0, cacheHit: true };
+  }
+  // BigQuery bills no query that ended in an error. A cancelled one may have.
+  if (
+    observation.errorReason !== null &&
+    observation.errorReason !== "stopped" &&
+    observation.errorReason !== "unreadable"
+  ) {
+    return { kind: "billed", billedBytes: 0, cacheHit: observation.cacheHit };
+  }
+  return null;
+}
+
 /** Exactly once: only a pending row changes, and only the first change lands. */
 export async function settleBigQueryAgentJob(
   projectId: string,
   jobId: string,
   settlement: BigQueryAgentSettlement,
   now: Date = new Date(),
+  options: {
+    /** A reconciler's verdict lands only while the lease it judged is still expired. */
+    leaseExpiredAt?: Date;
+  } = {},
 ): Promise<boolean> {
   return guardBudget(async () => {
     const at = now.toISOString();
+    const leaseGuard = options.leaseExpiredAt?.toISOString() ?? null;
     const result =
       settlement.kind === "billed"
         ? await getDbExec().execute({
@@ -688,16 +746,18 @@ export async function settleBigQueryAgentJob(
               sql: `UPDATE analytics_bigquery_agent_jobs
                 SET state = 'settled', billed_bytes = reserved_bytes, resolution = $3, resolved_at = $4
                 WHERE project_id = $1 AND job_id = $2 AND state = 'pending'
+                  AND ($5::text IS NULL OR lease_expires_at < $5::text)
                 RETURNING request_id`,
-              args: [projectId, jobId, settlement.reason, at],
+              args: [projectId, jobId, settlement.reason, at, leaseGuard],
             })
           : await getDbExec().execute({
               sql: `UPDATE analytics_bigquery_agent_jobs
                 SET state = 'released', resolution = $3, resolved_at = $4,
                   submission_state = CASE WHEN $3 = 'rejected' THEN 'rejected' ELSE submission_state END
                 WHERE project_id = $1 AND job_id = $2 AND state = 'pending'
+                  AND ($5::text IS NULL OR lease_expires_at < $5::text)
                 RETURNING request_id`,
-              args: [projectId, jobId, settlement.kind, at],
+              args: [projectId, jobId, settlement.kind, at, leaseGuard],
             });
     return result.rows.length > 0;
   });
@@ -775,7 +835,15 @@ export async function reconcileStaleBigQueryAgentJobs(
     const settlement = await reconcileOne(job, reconciler, deadline, now);
     if (settlement) {
       if (
-        await settleBigQueryAgentJob(job.projectId, job.jobId, settlement, now)
+        await settleBigQueryAgentJob(
+          job.projectId,
+          job.jobId,
+          settlement,
+          now,
+          {
+            leaseExpiredAt: now,
+          },
+        )
       )
         resolved++;
     } else {
@@ -811,18 +879,12 @@ async function reconcileOne(
   }
   if (observation.kind === "found") {
     if (observation.state === "DONE") {
-      // BigQuery never bills a result served from its cache.
-      if (observation.cacheHit === true) {
-        return { kind: "billed", billedBytes: 0, cacheHit: true };
-      }
-      if (observation.billedBytes !== null) {
-        return {
-          kind: "billed",
-          billedBytes: observation.billedBytes,
-          cacheHit: observation.cacheHit,
-        };
-      }
-      return { kind: "charged_reservation", reason: "billed_bytes_missing" };
+      return (
+        settlementForFinishedJob(observation) ?? {
+          kind: "charged_reservation",
+          reason: "billed_bytes_missing",
+        }
+      );
     }
     return pastMaxRuntime
       ? { kind: "charged_reservation", reason: "max_runtime_elapsed" }

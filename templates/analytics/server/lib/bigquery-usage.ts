@@ -237,6 +237,8 @@ export type BigQueryJobBilling =
       /** Absent from the metadata is null, never zero. */
       billedBytes: number | null;
       cacheHit: boolean | null;
+      /** The job's `errorResult.reason` once it failed: `stopped` means cancelled, `unreadable` that it can't be told. */
+      errorReason: string | null;
       location: string | undefined;
     }
   /** 404. Without the job's location this is not proof: a job in another region also reads as missing. */
@@ -251,7 +253,7 @@ export async function readBigQueryJobBilling(
 ): Promise<BigQueryJobBilling> {
   const params = new URLSearchParams({
     fields:
-      "jobReference,status(state),statistics(query(totalBytesBilled,cacheHit))",
+      "jobReference,status(state,errorResult),statistics(query(totalBytesBilled,cacheHit))",
   });
   if (job.location) params.set("location", job.location);
   try {
@@ -263,7 +265,7 @@ export async function readBigQueryJobBilling(
     if (!response.ok) return { kind: "unreadable" };
     const data = (await response.json()) as {
       jobReference?: { projectId?: string; jobId?: string; location?: string };
-      status?: { state?: string };
+      status?: { state?: string; errorResult?: { reason?: unknown } };
       statistics?: {
         query?: { totalBytesBilled?: unknown; cacheHit?: unknown };
       };
@@ -291,6 +293,11 @@ export async function readBigQueryJobBilling(
         typeof data.statistics?.query?.cacheHit === "boolean"
           ? data.statistics.query.cacheHit
           : null,
+      errorReason: data.status?.errorResult
+        ? typeof data.status.errorResult.reason === "string"
+          ? data.status.errorResult.reason
+          : "unreadable"
+        : null,
       location: data.jobReference.location ?? job.location ?? undefined,
     };
   } catch {

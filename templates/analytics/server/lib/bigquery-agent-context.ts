@@ -12,6 +12,7 @@ import {
   markBigQueryAgentJobSubmission,
   OUTSIDE_AGENT_JOB_CAP_BYTES,
   settleBigQueryAgentJob,
+  settlementForFinishedJob,
   type BigQueryAgentBudgetSnapshot,
   type BigQueryAgentReconciler,
   type BigQueryAgentRefusalCode,
@@ -19,6 +20,9 @@ import {
 } from "./bigquery-agent-budget.js";
 import { MIN_BILLED_BYTES_PER_QUERY } from "./bigquery-pricing.js";
 import type { BigQueryJobBilling } from "./bigquery-usage.js";
+
+// Time left on a lease when a job may no longer be sent under it.
+const LEASE_SUBMIT_MARGIN_MS = 15_000;
 
 /**
  * An outside agent is an MCP client calling Analytics' tools. Its caller is set
@@ -35,7 +39,8 @@ export function isOutsideAgentCaller(
 export type OutsideAgentBigQueryRefusalCode =
   | BigQueryAgentRefusalCode
   | "budget_required"
-  | "budget_unavailable";
+  | "budget_unavailable"
+  | "admission_expired";
 
 /** A job an outside agent asked for was not started. */
 export class OutsideAgentBigQueryRefusalError extends Error {
@@ -88,6 +93,8 @@ export function refusalMessage(input: {
       return "This tool cannot start BigQuery jobs for outside agents yet, so nothing ran. Use a tool whose description mentions the outside-agent BigQuery budget, or ask in the Analytics app.";
     case "budget_unavailable":
       return "The outside-agent BigQuery budget could not be read, so no job was started and nothing was charged. Try again in a few minutes.";
+    case "admission_expired":
+      return "The BigQuery job was not sent before its budget reservation lapsed, so it was not started and nothing was charged. Ask again.";
   }
 }
 
@@ -99,6 +106,8 @@ export interface OutsideAgentBigQueryAdmission {
   estimatedBytes: number | null;
   /** This call created the reservation; false when it reuses an earlier admission of the job. */
   created: boolean;
+  /** Epoch ms after which the job must not be sent: a reconciler may release it by then. */
+  submitBy: number;
 }
 
 /** What one tool call's jobs reserved and billed, for its response. */
@@ -298,6 +307,7 @@ export function createOutsideAgentBigQueryGate(options: {
         );
       }
       const admission: OutsideAgentBigQueryAdmission = {
+        submitBy: now().getTime() + options.leaseMs - LEASE_SUBMIT_MARGIN_MS,
         requestId: result.requestId,
         projectId: input.projectId,
         jobId: input.jobId,
@@ -355,23 +365,22 @@ export function createOutsideAgentBigQueryGate(options: {
         // coercion-ok: an unread job stays reserved for the reconciler.
         return;
       }
-      if (observation.kind !== "found" || observation.state !== "DONE") return;
-      const billedBytes =
-        observation.cacheHit === true ? 0 : observation.billedBytes;
-      if (billedBytes === null) return;
+      if (observation.kind !== "found") return;
+      const settlement = settlementForFinishedJob(observation);
+      if (settlement?.kind !== "billed") return;
       try {
         await settleBigQueryAgentJob(
           admission.projectId,
           admission.jobId,
-          { kind: "billed", billedBytes, cacheHit: observation.cacheHit },
+          settlement,
           now(),
         );
       } catch {
         // coercion-ok: a settlement that failed leaves the reservation counted until a reconciler settles it.
         return;
       }
-      if (admission.created) state.billedBytes += billedBytes;
-      if (observation.cacheHit === true) state.cacheHits += 1;
+      if (admission.created) state.billedBytes += settlement.billedBytes;
+      if (settlement.cacheHit === true) state.cacheHits += 1;
       close(admission);
     },
     summary: () => ({ ...state }),

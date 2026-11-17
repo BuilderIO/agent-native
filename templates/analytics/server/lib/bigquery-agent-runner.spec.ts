@@ -114,7 +114,8 @@ interface Scenario {
   dryRunStatistics: Record<string, unknown>;
   submit: (body: any, signal?: AbortSignal | null) => Promise<Response>;
   poll: (url: URL, signal?: AbortSignal | null) => Promise<Response>;
-  jobsGet: (jobId: string) => Response;
+  jobsGet: (jobId: string) => Response | Promise<Response>;
+  table: () => Response;
 }
 
 let scenario: Scenario;
@@ -163,6 +164,7 @@ beforeEach(async () => {
     submit: async (body) =>
       json({ jobReference: { ...body.jobReference, location: "US" } }),
     poll: async () => completedPoll(rowsOf(3)),
+    table: () => json({ type: "TABLE" }),
     jobsGet: (jobId) =>
       json({
         jobReference: { projectId: "builder-3b0a2", jobId, location: "US" },
@@ -182,7 +184,7 @@ beforeEach(async () => {
       const url = new URL(String(input));
       const method = init?.method ?? "GET";
       if (url.pathname.includes("/tables/")) {
-        return json({ type: "TABLE" });
+        return scenario.table();
       }
       if (method === "POST" && url.pathname.endsWith("/cancel")) {
         calls.cancels++;
@@ -539,6 +541,81 @@ describe("runBigQueryAgentQuery", () => {
     expect(await admissions()).toEqual([]);
     expect(await executions()).toEqual([
       expect.objectContaining({ status: "ready", job_id: null }),
+    ]);
+  });
+
+  it("saves the job's location once BigQuery accepts it, even when settlement can't read the bill", async () => {
+    scenario.jobsGet = () => json({ error: { code: 500 } }, 500);
+    const result = await runBigQueryAgentQuery({ sql: SQL, source: "test" });
+    expect(result).toMatchObject({
+      status: "completed",
+      cost: { billedBytes: null },
+    });
+    const { rows } = await database.client!.query(
+      "SELECT state, location, submission_state FROM analytics_bigquery_agent_jobs",
+    );
+    expect(rows).toEqual([
+      { state: "pending", location: "US", submission_state: "accepted" },
+    ]);
+  });
+
+  it("sends nothing when the deadline passes while admission reconciles", async () => {
+    const now = new Date();
+    await database.client!.query(
+      `INSERT INTO analytics_bigquery_agent_jobs (request_id, project_id, job_id, owner_email, org_id, org_key,
+         credential_scope, source, utc_day, reserved_bytes, state, submission_state, created_at, lease_expires_at)
+       VALUES ('stale', 'builder-3b0a2', 'stale_job', 'alice@example.com', 'org-1', 'org:org-1', 'default', 'test',
+         $1, 1000, 'pending', 'unknown', $2, $2)`,
+      [
+        now.toISOString().slice(0, 10),
+        new Date(now.getTime() - 600_000).toISOString(),
+      ],
+    );
+    scenario.jobsGet = (jobId) =>
+      new Promise((resolve) =>
+        setTimeout(
+          () =>
+            resolve(
+              json({
+                jobReference: {
+                  projectId: "builder-3b0a2",
+                  jobId,
+                  location: "US",
+                },
+                status: { state: "RUNNING" },
+              }),
+            ),
+          400,
+        ),
+      );
+    const result = await runBigQueryAgentQuery({
+      sql: SQL,
+      source: "test",
+      deadlineMs: 250,
+    });
+    expect(result).toMatchObject({ status: "refused", code: "query_timeout" });
+    expect(result.status === "refused" && result.message).toMatch(
+      /nothing ran/,
+    );
+    expect(calls.submissions).toHaveLength(0);
+    const released = (await admissions()).find(
+      (row) => row.job_id !== "stale_job",
+    );
+    expect(released).toMatchObject({ state: "released" });
+  });
+
+  it("calls a missing table an invalid query and still records the call", async () => {
+    scenario.table = () =>
+      json({ error: { code: 404, message: "Not found" } }, 404);
+    // Table metadata is cached in-process, so this table is one no other case reads.
+    const result = await runBigQueryAgentQuery({
+      sql: "SELECT id FROM `builder-3b0a2.dbt_mart.never_created`",
+      source: "test",
+    });
+    expect(result).toMatchObject({ status: "refused", code: "query_invalid" });
+    expect(calls.dryRuns).toBe(0);
+    expect(await executions()).toEqual([
+      expect.objectContaining({ status: "refused", code: "query_invalid" }),
     ]);
   });
 

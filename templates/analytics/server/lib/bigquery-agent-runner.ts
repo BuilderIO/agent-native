@@ -15,6 +15,7 @@ import {
   outsideAgentIdentity,
   readBigQueryAgentBudget,
   settleBigQueryAgentJob,
+  settlementForFinishedJob,
   usd,
   writeBigQueryAgentExecutionRecord,
   type BigQueryAgentBudgetSnapshot,
@@ -37,6 +38,7 @@ import {
 } from "./bigquery-agent-sql-policy.js";
 import { readBigQueryJobBilling } from "./bigquery-usage.js";
 import {
+  BigQueryMetadataError,
   createBigQueryAgentReconciler,
   dryRunQuerySchema,
   getBigQueryProjectId,
@@ -44,7 +46,7 @@ import {
   runBoundedBigQueryJob,
   type BoundedBigQueryJobOutcome,
 } from "./bigquery.js";
-import { requireRequestCredentialContext } from "./credentials-context.js";
+import { credentialCacheScope } from "./credentials-context.js";
 import { getBigQueryAccessToken } from "./gcloud.js";
 
 /**
@@ -339,9 +341,8 @@ export async function runBigQueryAgentQuery(
             record.estimatedBytes,
             OUTSIDE_AGENT_JOB_CAP_BYTES,
           );
-    credentialScope =
-      requireRequestCredentialContext("BIGQUERY_PROJECT_ID").credentialScope ??
-      "default";
+    // Whose credentials run the job: only they can later prove it absent.
+    credentialScope = credentialCacheScope("BIGQUERY_PROJECT_ID");
     token = await getBigQueryAccessToken({ signal: deadline });
     if (deadline.aborted) throw abortError();
   } catch (error) {
@@ -354,7 +355,19 @@ export async function runBigQueryAgentQuery(
         "The query's checks did not finish before its deadline, so nothing ran and nothing was charged. Narrow the query and ask again.",
       );
     }
-    throw error;
+    if (error instanceof BigQueryMetadataError && error.status === 404) {
+      return refused(
+        "query_invalid",
+        "A table this query names does not exist or is not visible to this connection, so nothing ran. Check the table name.",
+      );
+    }
+    console.error("[bigquery-agent] Query checks failed", {
+      errorType: error instanceof Error ? error.name : "non_error",
+    });
+    return refused(
+      "estimate_unavailable",
+      "The query's checks could not finish (credentials, table metadata, or the dry run failed), so nothing ran and nothing was charged.",
+    );
   }
 
   const reconciler = createBigQueryAgentReconciler(token, credentialScope);
@@ -407,9 +420,20 @@ export async function runBigQueryAgentQuery(
       admitted.code === "approval_required" ||
         admitted.code === "budget_required"
         ? "budget_exhausted"
-        : admitted.code,
+        : admitted.code === "admission_expired"
+          ? "budget_unavailable"
+          : admitted.code,
       admitted.message,
       admitted.budget,
+    );
+  }
+  // Admission can spend part of the deadline reconciling; a job is never sent
+  // after it, so a timeout here means nothing ran.
+  if (deadline.aborted) {
+    await settleQuietly(projectId, jobId, { kind: "rejected" });
+    return refused(
+      "query_timeout",
+      "The query's deadline passed before its job was sent, so nothing ran and nothing was charged. Ask again.",
     );
   }
   record.jobId = jobId;
@@ -450,7 +474,7 @@ export async function runBigQueryAgentQuery(
   }
   if (outcome.status === "uncertain") {
     record.cancelled = outcome.cancelRequested;
-    await markQuietly(admitted.requestId, outcome.location);
+    await markQuietly(admitted.requestId, "unknown", outcome.location);
     const message = `BigQuery job ${jobId} may still be running${outcome.cancelRequested ? " (a cancel was requested)" : ""}; up to ${formatUsd(record.reservedBytes)} stays reserved against today's budgets until its outcome is confirmed. Do not resubmit this query.`;
     return finish({
       status: "uncertain",
@@ -463,6 +487,7 @@ export async function runBigQueryAgentQuery(
     });
   }
 
+  await markQuietly(admitted.requestId, "accepted", outcome.location);
   await settleFromBigQuery(projectId, jobId, outcome.location, token, cost);
   record.billedBytes = cost.billedBytes;
   record.providerCacheHit =
@@ -559,19 +584,13 @@ async function settleFromBigQuery(
     token,
     AbortSignal.timeout(SETTLEMENT_TIMEOUT_MS),
   );
-  if (read.kind !== "found" || read.state !== "DONE") return;
-  const billedBytes = read.cacheHit === true ? 0 : read.billedBytes;
+  if (read.kind !== "found") return;
   cost.providerCacheHit = read.cacheHit;
-  if (billedBytes === null) return;
-  if (
-    await settleQuietly(projectId, jobId, {
-      kind: "billed",
-      billedBytes,
-      cacheHit: read.cacheHit,
-    })
-  ) {
-    cost.billedBytes = billedBytes;
-    cost.billedUsd = usd(billedBytes);
+  const settlement = settlementForFinishedJob(read);
+  if (settlement?.kind !== "billed") return;
+  if (await settleQuietly(projectId, jobId, settlement)) {
+    cost.billedBytes = settlement.billedBytes;
+    cost.billedUsd = usd(settlement.billedBytes);
   }
 }
 
@@ -588,9 +607,13 @@ async function settleQuietly(
   }
 }
 
-async function markQuietly(requestId: string, location: string | undefined) {
+async function markQuietly(
+  requestId: string,
+  state: "accepted" | "unknown",
+  location: string | undefined,
+) {
   try {
-    await markBigQueryAgentJobSubmission(requestId, "unknown", location);
+    await markBigQueryAgentJobSubmission(requestId, state, location);
   } catch {
     // coercion-ok: the row is already pending with its full reservation.
   }

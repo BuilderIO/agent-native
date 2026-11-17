@@ -26,6 +26,7 @@ import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-r
 import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract.js";
 import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import { getDb, schema } from "../db/index.js";
+import { OutsideAgentBigQueryRefusalError } from "./bigquery-agent-context.js";
 import {
   EXCEPTION_EVENT_NAME,
   ingestAnalyticsExceptionEvents,
@@ -2008,7 +2009,11 @@ export async function queryFirstPartyAnalyticsWithBackend(
         return { ...result, backend: "bigquery" };
       } catch (error) {
         const failure = normalizeFailure(error);
-        if (!options.signal?.aborted) {
+        // A job the outside-agent budget refused never ran, so it is no query pressure.
+        if (
+          !options.signal?.aborted &&
+          !(failure instanceof OutsideAgentBigQueryRefusalError)
+        ) {
           await recordBigQueryPressure(queryOutcomeFromError(failure));
         }
         throw failure;

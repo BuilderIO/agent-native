@@ -132,6 +132,7 @@ const { default: getHealth } =
 const { default: bigquery } = await import("./bigquery");
 
 const submissions: any[] = [];
+const duplicate = { jobId: null as string | null };
 
 function snapshot(personRemaining = OUTSIDE_AGENT_PERSON_BASE_BYTES) {
   return {
@@ -163,6 +164,7 @@ function json(data: unknown, status = 200) {
 
 beforeEach(() => {
   submissions.length = 0;
+  duplicate.jobId = null;
   journey.args.length = 0;
   budget.admit.mockReset();
   budget.admit.mockImplementation(async (_identity, request) => ({
@@ -184,7 +186,33 @@ beforeEach(() => {
       if (init?.method === "POST" && url.pathname.endsWith("/jobs")) {
         const body = JSON.parse(String(init.body));
         submissions.push(body);
+        if (duplicate.jobId === "next")
+          duplicate.jobId = body.jobReference.jobId;
+        if (body.jobReference.jobId === duplicate.jobId) {
+          return json(
+            {
+              error: {
+                code: 409,
+                message: `Already Exists: Job builder-3b0a2:US.${duplicate.jobId}`,
+                errors: [{ reason: "duplicate" }],
+              },
+            },
+            409,
+          );
+        }
         return json({ jobReference: { ...body.jobReference, location: "US" } });
+      }
+      if (
+        url.pathname.includes("/jobs/") &&
+        url.searchParams.get("fields")?.includes("configuration")
+      ) {
+        const jobId = url.pathname.split("/").pop();
+        return json({
+          jobReference: { projectId: "builder-3b0a2", jobId, location: "US" },
+          configuration: { query: { query: "SELECT 1 AS resumable" } },
+          status: { state: "RUNNING" },
+          statistics: { creationTime: String(Date.now() - 1_000) },
+        });
       }
       if (url.pathname.includes("/queries/")) {
         return json({
@@ -346,6 +374,68 @@ describe("outside-agent (MCP) jobs go through admission", () => {
     expect(error).toMatchObject({ code: "budget_required" });
     expect(submissions).toHaveLength(0);
     expect(budget.admit).not.toHaveBeenCalled();
+  });
+});
+
+describe("resumable jobs", () => {
+  const resumable = defineAction({
+    description: "A resumable read, as the onboarding journey makes.",
+    schema: z.object({}),
+    run: async () =>
+      runQuery("SELECT 1 AS resumable", {
+        maxBytesBilled: 25_000_000_000,
+        resumeAfter: new AbortController().signal,
+      }),
+  });
+
+  it("keeps the reservation on a job a 409 says already exists, and settles it from that job", async () => {
+    const { runOutsideAgentBigQueryCall } =
+      await import("../server/lib/bigquery-agent-calls");
+    duplicate.jobId = "next";
+    await runOutsideAgentBigQueryCall(
+      {
+        identity: { ownerEmail: "alice@example.com", orgId: "org-1" },
+        source: "test",
+        reservation: "full-cap",
+        leaseMs: 60_000,
+      },
+      () => resumable.run({}, { caller: "mcp" }),
+    );
+    expect(submissions).toHaveLength(1);
+    const jobId = submissions[0].jobReference.jobId;
+    expect(budget.settle).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { kind: "rejected" },
+      expect.anything(),
+    );
+    expect(budget.settle).toHaveBeenCalledWith(
+      "builder-3b0a2",
+      jobId,
+      { kind: "billed", billedBytes: 10_485_760, cacheHit: false },
+      expect.any(Date),
+    );
+  });
+
+  it("gives an outside agent's resumable job an ID no in-app job shares", async () => {
+    const { runOutsideAgentBigQueryCall } =
+      await import("../server/lib/bigquery-agent-calls");
+    await resumable.run({}, { caller: "tool" });
+    await runOutsideAgentBigQueryCall(
+      {
+        identity: { ownerEmail: "alice@example.com", orgId: "org-1" },
+        source: "test",
+        reservation: "full-cap",
+        leaseMs: 60_000,
+      },
+      () => resumable.run({}, { caller: "mcp" }),
+    );
+    expect(submissions).toHaveLength(2);
+    expect(submissions[0].jobReference.jobId).toMatch(/^agent_native_r_/);
+    expect(submissions[1].jobReference.jobId).toMatch(/^agent_native_r_/);
+    expect(submissions[1].jobReference.jobId).not.toBe(
+      submissions[0].jobReference.jobId,
+    );
   });
 });
 

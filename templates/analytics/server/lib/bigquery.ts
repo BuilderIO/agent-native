@@ -11,6 +11,7 @@ import type { BigQueryAgentReconciler } from "./bigquery-agent-budget";
 import {
   bigQueryJobGate,
   conservativeBillableEstimate,
+  OutsideAgentBigQueryRefusalError,
   type OutsideAgentBigQueryAdmission,
   type OutsideAgentBigQueryGate,
 } from "./bigquery-agent-context";
@@ -1123,9 +1124,14 @@ function resumableJobId(
   ownerEmail: string,
   maxBytesBilled: number,
   index: number,
+  outsideAgent: boolean,
 ): string {
+  // Outside agents' jobs get IDs of their own, so a budgeted call never
+  // collects, or is charged for, a job an in-app call started.
   return `agent_native_r_${createHash("sha256")
-    .update(`${cacheKey}\n${ownerEmail}\n${maxBytesBilled}\n${index}`)
+    .update(
+      `${cacheKey}\n${ownerEmail}\n${maxBytesBilled}\n${index}${outsideAgent ? "\noutside-agent" : ""}`,
+    )
     .digest("hex")}`;
 }
 
@@ -1787,6 +1793,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
             credentialContext.userEmail,
             maxBytesBilled,
             resumableIndex,
+            agentGate !== undefined,
           )
         : null;
     resumableId = nextResumableId();
@@ -1800,16 +1807,16 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
         jobId = null;
         usage = null;
         const estimateSql = cacheableSql;
+        // Whose credentials the job runs under: only they can later prove
+        // the job absent by listing their own jobs.
+        const principal = cacheScopeForContext(credentialContext);
         agentAdmission = await agentGate.admit({
           projectId,
           jobId: nextJobId,
-          credentialScope: credentialContext.credentialScope ?? "default",
+          credentialScope: principal,
           capBytes: agentGate.jobCapFor(maxBytesBilled),
           estimate: () => dryRunBillableBytes(estimateSql, signal),
-          reconciler: createBigQueryAgentReconciler(
-            token,
-            credentialContext.credentialScope ?? "default",
-          ),
+          reconciler: createBigQueryAgentReconciler(token, principal),
         });
       }
       jobId = nextJobId;
@@ -1818,6 +1825,16 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
         : Date.now();
       usage = newBigQueryJobUsage(projectId, jobId, credentialContext);
       usageStarted = await persistBigQueryJobUsage(usage);
+      // Past its lease a reconciler may release the reservation, so a job
+      // that has not been sent by then is never sent.
+      if (agentAdmission && Date.now() > agentAdmission.submitBy) {
+        jobId = null;
+        usage.submissionState = "rejected";
+        await agentGate?.rejected(agentAdmission);
+        throw new OutsideAgentBigQueryRefusalError({
+          code: "admission_expired",
+        });
+      }
       const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
       const submissionTimeoutController = new AbortController();
       const submissionTimeoutAbortSignal = submissionTimeoutController.signal;
@@ -1919,9 +1936,8 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
         jobLocation = insertedJob?.jobReference?.location;
         break;
       }
-      // BigQuery refused this insert as a duplicate, so it started nothing;
-      // the job it names is another call's, with its own accounting.
-      if (agentAdmission) await agentGate?.rejected(agentAdmission);
+      // A job with this ID exists. The reservation stays on it: a concurrent
+      // identical call may have sent it under this same admission.
       const knownLocation = duplicateJobLocation(duplicateResponse, jobId);
       let existing: Awaited<ReturnType<typeof resumableJobState>>;
       try {
@@ -1946,6 +1962,21 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       }
       usage.location = existing.location;
       await finalizeBigQueryJobUsage(usage, token, usageStarted, signal);
+      if (agentGate && agentAdmission) {
+        const admission = agentAdmission;
+        const bearer = token;
+        await agentGate.settle(admission, () =>
+          readBigQueryJobBilling(
+            {
+              projectId: admission.projectId,
+              jobId: admission.jobId,
+              location: existing.location ?? null,
+            },
+            bearer,
+            AbortSignal.timeout(AGENT_SETTLEMENT_TIMEOUT_MS),
+          ),
+        );
+      }
       resumableIndex += 1;
       resumableId = nextResumableId();
     }
@@ -2320,9 +2351,15 @@ export async function runBoundedBigQueryJob(input: {
       return uncertain("submission_unknown");
     }
     if (res.ok) {
-      const inserted = (await res.json()) as {
-        jobReference?: { jobId?: string; location?: string };
-      };
+      let inserted: { jobReference?: { jobId?: string; location?: string } };
+      try {
+        inserted = (await res.json()) as typeof inserted;
+      } catch (error) {
+        // BigQuery created the job; only its location went unread.
+        if (signal.aborted) return uncertain("timeout");
+        if (!(error instanceof Error)) throw error;
+        inserted = {};
+      }
       if (
         inserted.jobReference?.jobId !== undefined &&
         inserted.jobReference.jobId !== jobId
