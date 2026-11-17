@@ -1027,12 +1027,12 @@ async function seedDesignVersionSourceCollaboration(
   accessLevel: "editor" | "viewer",
 ): Promise<void> {
   const outcome = { callbackCompleted: false, rollbackConfirmed: false };
-  let transactionStarted = false;
+  const transactionState = { started: false };
   try {
     await withPreparedDesignVersionSourceFilesWithAccess(
       designId,
       async (prepared) => {
-        transactionStarted = true;
+        transactionState.started = true;
         return withDesignSourceMutationTransaction(
           designId,
           async (transaction) => {
@@ -1081,7 +1081,8 @@ async function seedDesignVersionSourceCollaboration(
               }
               if (!collaboration.needsSeed) continue;
 
-              const storedContent = file.content ?? "";
+              const storedContent =
+                (file.content as string | null | undefined) ?? "";
               applyTextToYDoc(lease.doc, "content", storedContent, "agent");
               try {
                 await lease.persist(transactionExec, storedContent);
@@ -1102,12 +1103,15 @@ async function seedDesignVersionSourceCollaboration(
   } catch (error) {
     if (
       error instanceof DesignVersionCheckpointChangedError &&
-      transactionStarted &&
+      transactionState.started &&
       !outcome.rollbackConfirmed
     ) {
-      throw new Error(
-        "Design collaboration seed transaction outcome is uncertain.",
-        { cause: error },
+      throw Object.defineProperty(
+        new Error(
+          "Design collaboration seed transaction outcome is uncertain.",
+        ),
+        "cause",
+        { value: error, configurable: true, writable: true },
       );
     }
     throw error;
@@ -1514,10 +1518,10 @@ async function captureDesignVersion(
     callbackCompleted: false,
     rollbackConfirmed: false,
   };
-  let transactionStarted = false;
+  const transactionState = { started: false };
   try {
     const result = await withPreparedSourceFiles(designId, (preparedFiles) => {
-      transactionStarted = true;
+      transactionState.started = true;
       return withDesignSourceMutationTransaction(
         designId,
         async (tx) => {
@@ -1540,7 +1544,7 @@ async function captureDesignVersion(
       transactionOutcome.rollbackConfirmed,
     );
     if (
-      transactionStarted &&
+      transactionState.started &&
       transactionOutcome.rollbackConfirmed &&
       error instanceof SourceWorkspaceEditConflictError &&
       error.errorCode === SOURCE_VERSION_CONFLICT_ERROR_CODE
@@ -1549,12 +1553,14 @@ async function captureDesignVersion(
     }
     if (
       error instanceof DesignVersionCheckpointChangedError &&
-      transactionStarted &&
+      transactionState.started &&
       !transactionOutcome.rollbackConfirmed
     ) {
-      throw new Error("Design checkpoint transaction outcome is uncertain.", {
-        cause: error,
-      });
+      throw Object.defineProperty(
+        new Error("Design checkpoint transaction outcome is uncertain."),
+        "cause",
+        { value: error, configurable: true, writable: true },
+      );
     }
     throw error;
   }
