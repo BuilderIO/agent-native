@@ -155,13 +155,25 @@ async function writeResource(
   if (isInsideSurrogatePair(content, end)) {
     end += end - offset === 1 ? 1 : -1;
   }
-  const header = (pageEnd: number) => {
+  const pageHeader = (pageEnd: number, note: string) => {
     const status =
       pageEnd < content.length
         ? `partial - read again with offset=${pageEnd} for the rest`
         : "end of resource";
-    return `[chars ${offset}-${pageEnd} of ${content.length}; ${status}]\n`;
+    return `[chars ${offset}-${pageEnd} of ${content.length}; ${status}${note}]\n`;
   };
+  // Each page reads the file again, so pages from before and after a save
+  // would join into a file nobody wrote, and its last revision would let the
+  // write through. A page too small for the note still comes, without it.
+  const sameRevision =
+    "; if the revision isn't your first page's, the file changed: read again from offset=0";
+  const note =
+    revisionLine &&
+    offset > 0 &&
+    pageHeader(content.length - 1, sameRevision).length < maxResultChars
+      ? sameRevision
+      : "";
+  const header = (pageEnd: number) => pageHeader(pageEnd, note);
   if (header(end).length + end - offset > maxResultChars) {
     let low = offset + 1;
     let high = Math.min(end, content.length - 1);

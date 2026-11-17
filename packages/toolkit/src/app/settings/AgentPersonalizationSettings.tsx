@@ -130,7 +130,7 @@ export function AgentPersonalizationSettings() {
   // Saves over the version the draft started from. When the agent or another
   // tab saved meanwhile, the change merges onto theirs, and only when both
   // changed the text the prompt asks which to keep.
-  const save = async (field: Field, content: string) => {
+  const saveNow = async (field: Field, content: string) => {
     const { path, resource, setDraft } = fields[field];
     setSavedField(null);
     setFailedField(null);
@@ -184,6 +184,16 @@ export function AgentPersonalizationSettings() {
     } finally {
       setSavingField(null);
     }
+  };
+
+  // One save at a time. Getting the other version back can start a save while
+  // another is still out, and that one's answer, coming back later, would
+  // replace the version this page saves over next.
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const save = (field: Field, content: string) => {
+    const next = saveQueue.current.then(() => saveNow(field, content));
+    saveQueue.current = next;
+    return next;
   };
 
   // Getting the other version back saves it, as the resource editor does.

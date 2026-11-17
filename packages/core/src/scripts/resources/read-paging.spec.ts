@@ -176,6 +176,18 @@ describe("resource-read revision line", () => {
     expect(out.slice(line.length)).toMatch(/^\[chars 0-\d+ of 500; partial/);
   });
 
+  it("asks a later page to match the first page's revision", async () => {
+    addResource({ owner, path, content: "x".repeat(50_000) });
+
+    const first = await read([], { withRevision: true });
+    const later = await read(["--offset", "40000"], { withRevision: true });
+
+    expect(first).not.toContain("first page's");
+    expect(later.split("\n")[1]).toBe(
+      "[chars 40000-50000 of 50000; end of resource; if the revision isn't your first page's, the file changed: read again from offset=0]",
+    );
+  });
+
   it("refuses a limit too small for the line", async () => {
     addResource({ owner, path, content: "# Todo" });
 

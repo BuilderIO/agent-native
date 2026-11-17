@@ -7,6 +7,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import * as React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -203,5 +204,45 @@ describe("AgentPersonalizationSettings", () => {
       expect.objectContaining({ path: "AGENTS.md", ifNotExists: true }),
     );
     expect(await screen.findByText("saveConflict.title")).toBeTruthy();
+  });
+
+  it("gets the other version back only after a save that's out comes back", async () => {
+    resources.list = [{ id: "agents-1", path: "AGENTS.md" }];
+    resources.files["agents-1"] = { content: "base", revision: "rev-1" };
+    type Saved = { content: string; revision: string };
+    let finishSave: (saved: Saved) => void = () => {};
+    resources.update
+      .mockRejectedValueOnce(conflict("theirs"))
+      .mockResolvedValueOnce({ content: "mine", revision: "rev-mine" })
+      .mockReturnValueOnce(
+        new Promise<Saved>((resolve) => {
+          finishSave = resolve;
+        }),
+      )
+      .mockResolvedValue({ content: "restored", revision: "rev-restored" });
+    render(<AgentPersonalizationSettings />);
+    await saveInstructions("mine");
+    await act(async () => {
+      screen.getByText("saveConflict.keepMine").click();
+    });
+    await screen.findByText("saveConflict.getOtherBack");
+
+    // Another edit's save is still out when the other version is asked for.
+    await saveInstructions("mine, again");
+    await act(async () => {
+      screen.getByText("saveConflict.getOtherBack").click();
+    });
+    expect(resources.update).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      finishSave({ content: "mine, again", revision: "rev-again" });
+    });
+    await waitFor(() => expect(resources.update).toHaveBeenCalledTimes(4));
+    expect(resources.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        id: "agents-1",
+        expectedRevision: "rev-again",
+      }),
+    );
   });
 });

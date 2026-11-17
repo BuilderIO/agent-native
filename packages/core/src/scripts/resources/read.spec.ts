@@ -86,10 +86,13 @@ describe("resource action paging", () => {
         expect(out.startsWith(line)).toBe(true);
         const page = out.slice(line.length);
         const match = page.match(
-          /^\[chars (\d+)-(\d+) of (\d+); (?:partial - read again with offset=(\d+) for the rest|end of resource)\]\n/,
+          /^\[chars (\d+)-(\d+) of (\d+); (?:partial - read again with offset=(\d+) for the rest|end of resource)(; if the revision isn't your first page's, the file changed: read again from offset=0)?\]\n/,
         );
         expect(match).not.toBeNull();
         if (!match) throw new Error(`Missing page header: ${page}`);
+        // Every page after the first asks for the first page's revision,
+        // unless the page is too small to say so and still hold text.
+        expect(match[5] !== undefined).toBe(offset > 0 && pageCap > 1_000);
         const end = Number(match[2]);
         expect(Number(match[1])).toBe(offset);
         expect(Number(match[3])).toBe(content.length);

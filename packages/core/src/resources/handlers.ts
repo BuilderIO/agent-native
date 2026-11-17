@@ -581,7 +581,7 @@ export async function handleCreateResource(event: any) {
           );
           if (resource) {
             setResponseStatus(event, 201);
-            return resource;
+            return withContentRevision(resource);
           }
         }
 
@@ -613,7 +613,7 @@ export async function handleCreateResource(event: any) {
         });
         if (updated) {
           setResponseStatus(event, 200);
-          return updated;
+          return withContentRevision(updated);
         }
       }
       if (!nextPath) {

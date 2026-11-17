@@ -728,7 +728,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
       expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
         1,
         "test@test.com",
@@ -772,7 +772,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(200);
-      expect(result).toEqual(updated);
+      expect(result).toEqual(withRevision(updated));
       expect(mockResourcePutIfCurrent).toHaveBeenCalledExactlyOnceWith({
         owner: "test@test.com",
         path: existing.path,
@@ -813,7 +813,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(200);
-      expect(result).toEqual(updated);
+      expect(result).toEqual(withRevision(updated));
       expect(mockResourcePutIfCurrent).toHaveBeenCalledExactlyOnceWith({
         owner: "test@test.com",
         path: existing.path,
@@ -854,7 +854,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
       expect(mockResourcePutIfCurrent).not.toHaveBeenCalled();
       expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
         2,
@@ -896,7 +896,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
       expect(mockResourcePutIfCurrent).not.toHaveBeenCalled();
       expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
         2,
@@ -943,7 +943,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(200);
-      expect(result).toEqual(updated);
+      expect(result).toEqual(withRevision(updated));
       expect(mockResourcePutIfAbsent).toHaveBeenCalledTimes(2);
       expect(mockResourcePutIfCurrent).toHaveBeenCalledTimes(2);
       expect(mockResourcePutIfCurrent).toHaveBeenLastCalledWith({
@@ -1015,7 +1015,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
       expect(mockResourcePutIfCurrent).not.toHaveBeenCalled();
       expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
         2,
@@ -1075,7 +1075,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
       expect(mockResourceGetByPath).toHaveBeenNthCalledWith(
         1,
         "__shared__",
@@ -1133,7 +1133,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(200);
-      expect(result).toEqual(updated);
+      expect(result).toEqual(withRevision(updated));
       expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
       expect(mockResourcePutIfCurrent).toHaveBeenCalledExactlyOnceWith({
         owner: "__organization__:org-1",
@@ -1212,7 +1212,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
       expect(mockResourceGetByPath).toHaveBeenCalledWith(
         "test@test.com",
         requestedPath,
@@ -1314,7 +1314,7 @@ Legacy webhook.`,
       });
 
       expect(lastStatus).toBe(201);
-      expect(result).toEqual(created);
+      expect(result).toEqual(withRevision(created));
       expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
         "__organization__:org-1",
         created.path,
