@@ -582,9 +582,7 @@ export function createFetchToolEntry(
               : undefined;
           try {
             const processed = await processWebContent({
-              // Relative links resolve against this URL, so a key substituted
-              // into its path or query would come back in every href.
-              url: redactString(resolvedUrl, secretValues),
+              url: resolvedUrl,
               body,
               contentType,
               responseMode:

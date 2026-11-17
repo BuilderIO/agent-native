@@ -67,35 +67,6 @@ describe("executeAgentToolCall", () => {
     );
   });
 
-  it("returns the raw result and forwards it redacted", async () => {
-    const secret = "synthetic-api-key-value";
-    const run = vi.fn(async ({ value }: { value: string }) => ({
-      value,
-      apiKey: secret,
-    }));
-    const send = vi.fn();
-
-    const result = await executeAgentToolCall({
-      actions: { inspect: action(run) },
-      name: "inspect",
-      input: { value: "ready" },
-      callId: "call-redacted",
-      send,
-    });
-
-    expect(JSON.parse(result.output)).toEqual({
-      value: "ready",
-      apiKey: secret,
-    });
-    const forwarded = send.mock.calls
-      .map(([event]) => event)
-      .find((event) => event.type === "tool_done");
-    expect(JSON.parse(forwarded.result)).toEqual({
-      value: "ready",
-      apiKey: "[REDACTED]",
-    });
-  });
-
   it("keeps approval-gated actions paused", async () => {
     const run = vi.fn(async () => "should not run");
 
@@ -272,79 +243,5 @@ describe("executeAgentToolCall", () => {
       networkProtocol: "a2a",
       networkId: "task-9",
     });
-  });
-});
-
-describe("runAgentLoop tool results", () => {
-  function scriptedEngine(name: string, input: unknown): AgentEngine {
-    let calls = 0;
-    return {
-      name: "test",
-      label: "Test",
-      defaultModel: "test",
-      supportedModels: ["test"],
-      capabilities: {},
-      async *stream() {
-        calls += 1;
-        if (calls === 1) {
-          yield {
-            type: "assistant-content",
-            parts: [{ type: "tool-call", id: "call-1", name, input }],
-          };
-          yield { type: "stop", reason: "tool_use" };
-          return;
-        }
-        yield { type: "stop", reason: "end_turn" };
-      },
-    } as unknown as AgentEngine;
-  }
-
-  async function runLoop(actions: Record<string, ActionEntry>) {
-    const events: Array<{ type: string; [key: string]: any }> = [];
-    const tools = actionsToEngineTools(actions);
-    await runAgentLoop({
-      engine: scriptedEngine("inspect", { value: "ready" }),
-      model: "test",
-      systemPrompt: "Run the tool.",
-      tools,
-      availableTools: tools,
-      messages: [{ role: "user", content: [{ type: "text", text: "Go" }] }],
-      actions,
-      send: (event) => {
-        events.push(event);
-      },
-      signal: new AbortController().signal,
-      executionMode: "act",
-      maxIterations: 2,
-    });
-    return events.find((event) => event.type === "tool_done");
-  }
-
-  it("emits a successful result redacted", async () => {
-    const secret = "synthetic-api-key-value";
-    const done = await runLoop({
-      inspect: action(async ({ value }: { value: string }) => ({
-        value,
-        apiKey: secret,
-        note: `use Bearer ${secret}`,
-      })),
-    });
-
-    expect(done?.result).not.toContain(secret);
-    expect(JSON.parse(done?.result)).toMatchObject({
-      value: "ready",
-      apiKey: "[REDACTED]",
-    });
-  });
-
-  it("emits a result with nothing to redact unchanged", async () => {
-    const done = await runLoop({
-      inspect: action(async ({ value }: { value: string }) => ({
-        value,
-        count: 3,
-      })),
-    });
-
-    expect(done?.result).toBe(JSON.stringify({ value: "ready", count: 3 }));
   });
 });

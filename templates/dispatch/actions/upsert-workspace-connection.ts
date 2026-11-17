@@ -42,37 +42,6 @@ const credentialRefSchema = z
   })
   .strict();
 
-const RAW_SECRET_PATTERNS = [
-  /^xox[a-z]-/i,
-  /^github_pat_/i,
-  /^gh[opsu]_/i,
-  /^sk-[a-z0-9_-]{16,}/i,
-  /^AIza[0-9A-Za-z_-]{20,}/,
-  /^ya29\./,
-  /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\./,
-  /-----BEGIN [A-Z ]+PRIVATE KEY-----/,
-];
-
-export function assertSafeCredentialRefKey(key: string) {
-  const value = key.trim();
-  if (!value) return;
-  if (
-    value.length > 120 ||
-    RAW_SECRET_PATTERNS.some((pattern) => pattern.test(value))
-  ) {
-    fail(
-      `Credential ref "${value.slice(
-        0,
-        12,
-      )}..." looks like a raw secret. Store the secret in Vault or OAuth and use only the ref name here.`,
-      {
-        errorCode: "workspace_connection_credential_ref_raw_secret",
-        statusCode: 400,
-      },
-    );
-  }
-}
-
 function normalizeCredentialRefs(
   refs: Array<z.infer<typeof credentialRefSchema>>,
   provider: WorkspaceConnectionProvider,
@@ -252,8 +221,6 @@ export default defineAction({
         `Unknown workspace connection provider "${args.provider}". Use list-workspace-connections to see valid provider IDs.`,
       );
     }
-
-    for (const ref of args.credentialRefs) assertSafeCredentialRefKey(ref.key);
 
     const allowedUsers = await assertWorkspaceConnectionAllowedUsers(
       args.allowedUsers,

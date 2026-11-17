@@ -12,7 +12,6 @@ import { z } from "zod";
 
 import { assertWorkspaceConnectionManager } from "./connection-permissions.js";
 import upsertWorkspaceConnection, {
-  assertSafeCredentialRefKey,
   assertWorkspaceConnectionAllowedUserGroups,
   assertWorkspaceConnectionAllowedUsers,
 } from "./upsert-workspace-connection.js";
@@ -34,10 +33,37 @@ const credentialRefSchema = z
   })
   .strict();
 
+const RAW_SECRET_PATTERNS = [
+  /^xox[a-z]-/i,
+  /^github_pat_/i,
+  /^gh[opsu]_/i,
+  /^sk-[a-z0-9_-]{16,}/i,
+  /^AIza[0-9A-Za-z_-]{20,}/,
+  /^ya29\./,
+  /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\./,
+  /-----BEGIN [A-Z ]+PRIVATE KEY-----/,
+];
+
 function uniqueStrings(values: string[]): string[] {
   return Array.from(
     new Set(values.map((value) => value.trim()).filter(Boolean)),
   );
+}
+
+function assertSafeCredentialRefKey(key: string) {
+  const value = key.trim();
+  if (!value) return;
+  if (
+    value.length > 120 ||
+    RAW_SECRET_PATTERNS.some((pattern) => pattern.test(value))
+  ) {
+    throw new Error(
+      `Credential ref "${value.slice(
+        0,
+        12,
+      )}..." looks like a raw secret. Store the secret in Vault or OAuth and use only the ref name here.`,
+    );
+  }
 }
 
 export default defineAction({

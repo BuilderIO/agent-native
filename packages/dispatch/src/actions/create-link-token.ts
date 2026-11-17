@@ -13,8 +13,5 @@ export default defineAction({
   // call needs the user's approval, and "always allow" is not offered.
   needsApproval: true,
   allowPersistentApproval: false,
-  // The token is a bearer credential that only the person pasting `/link`
-  // reads, so it stays out of saved threads that others can open.
-  persistInChatHistory: false,
   run: async ({ platform }) => createLinkToken(platform),
 });

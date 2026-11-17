@@ -6,7 +6,7 @@ import {
   cancelBooking,
 } from "../server/booking-service.js";
 import { getBookingByUid } from "../server/bookings-repo.js";
-import { bookingTokenMatches, currentUserEmailOrNull } from "./_helpers.js";
+import { currentUserEmailOrNull } from "./_helpers.js";
 
 export default defineAction({
   description:
@@ -50,7 +50,7 @@ async function cancelBookingAfterAccessCheck(args: {
   if (!booking) throw new Error(`Booking ${args.uid} not found`);
   const userEmail = currentUserEmailOrNull();
   const isHost = !!userEmail && userEmail === booking.hostEmail;
-  const hasToken = bookingTokenMatches(args.token, booking.cancelToken);
+  const hasToken = !!args.token && args.token === booking.cancelToken;
   if (!isHost && !hasToken) {
     throw new Error("Not authorized to cancel this booking");
   }

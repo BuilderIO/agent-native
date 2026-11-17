@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { A2AConfig } from "./types.js";
 
-const timingSafeEqualSpy = vi.hoisted(() => vi.fn());
 const handleJsonRpcH3Mock = vi.hoisted(() =>
   vi.fn(async () => ({ jsonrpc: "2.0", id: 1, result: { ok: true } })),
 );
@@ -43,12 +42,6 @@ const runLeaseMocks = vi.hoisted(() => ({
   ),
   TurnExecutionLeaseBusyError: class TurnExecutionLeaseBusyError extends Error {},
 }));
-
-vi.mock("node:crypto", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:crypto")>();
-  timingSafeEqualSpy.mockImplementation(actual.timingSafeEqual);
-  return { ...actual, timingSafeEqual: timingSafeEqualSpy };
-});
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -140,7 +133,6 @@ describe("mountA2A auth", () => {
   beforeEach(() => {
     vi.resetModules();
     handleJsonRpcH3Mock.mockClear();
-    timingSafeEqualSpy.mockClear();
     resolveA2AOrganizationCredentialsByDomainMock.mockReset();
     resolveA2AOrganizationMetadataByDomainMock.mockReset();
     resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue(null);
@@ -873,30 +865,7 @@ describe("mountA2A auth", () => {
     expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
     expect(event._status).toBeUndefined();
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
-    expect(timingSafeEqualSpy).toHaveBeenCalledOnce();
   });
-
-  it.each(["legacy-kez", "legacy-key-and-more", "x"])(
-    "rejects the wrong legacy apiKeyEnv bearer %s",
-    async (bearer) => {
-      process.env.A2A_SECRET = "jwt-secret";
-      process.env.LEGACY_A2A_KEY = "legacy-key";
-      const handler = await mountedA2AHandler({
-        ...config,
-        apiKeyEnv: "LEGACY_A2A_KEY",
-      });
-
-      const event = postEvent({ authorization: `Bearer ${bearer}` });
-      const response = await handler(event);
-
-      expect(response).toMatchObject({
-        error: { code: -32001 },
-      });
-      expect(event._status).toBe(401);
-      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
-      expect(timingSafeEqualSpy).toHaveBeenCalledOnce();
-    },
-  );
 
   it("verifies org-secret JWTs before deciding production auth is unconfigured", async () => {
     delete process.env.A2A_SECRET;

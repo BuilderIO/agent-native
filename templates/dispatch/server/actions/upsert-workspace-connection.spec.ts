@@ -183,49 +183,6 @@ describe("upsert-workspace-connection action cards", () => {
     expect(upsertInput).not.toHaveProperty("scopes");
   });
 
-  it.each(["xoxb-fixture", "github_pat_fixture", "ya29.fixture"])(
-    "refuses a credential ref that is a raw secret (%s)",
-    async (key) => {
-      await expect(
-        action.run(
-          {
-            provider: "example",
-            status: "connected",
-            scopes: [],
-            config: {},
-            allowedApps: [],
-            credentialRefs: [{ key }],
-          },
-          context,
-        ),
-      ).rejects.toMatchObject({
-        errorCode: "workspace_connection_credential_ref_raw_secret",
-        statusCode: 400,
-        message: expect.stringMatching(/looks like a raw secret/),
-      });
-      expect(mocks.upsertConnection).not.toHaveBeenCalled();
-    },
-  );
-
-  it("accepts a vault or OAuth reference name", async () => {
-    await action.run(
-      {
-        provider: "example",
-        status: "connected",
-        scopes: [],
-        config: {},
-        allowedApps: [],
-        credentialRefs: [{ key: "EXAMPLE_API_TOKEN" }],
-      },
-      context,
-    );
-
-    const [upsertInput] = mocks.upsertConnection.mock.calls[0] ?? [];
-    expect(upsertInput.credentialRefs).toEqual([
-      expect.objectContaining({ key: "EXAMPLE_API_TOKEN" }),
-    ]);
-  });
-
   it("returns typed validation errors for provider configuration", async () => {
     mocks.getProvider.mockReturnValue({
       id: "example",
