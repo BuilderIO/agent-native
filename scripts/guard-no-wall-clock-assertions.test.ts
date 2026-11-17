@@ -9,15 +9,25 @@ import {
 } from "./guard-no-wall-clock-assertions.ts";
 
 const FILE = "packages/core/src/db/example.spec.ts";
+const FLOORS = { test: 30_000, hook: 10_000 };
 
 function allLines(source: string): Set<number> {
   return new Set(source.split("\n").map((_, index) => index + 1));
 }
 
-function flaggedLines(source: string, added = allLines(source)): number[] {
-  return findWallClockAssertions(FILE, source, added).map(
-    (finding) => finding.line,
-  );
+function flaggedLines(
+  source: string,
+  added: ReadonlySet<number> | null = allLines(source),
+): number[] {
+  return findWallClockAssertions(FILE, source, added, {
+    timeoutFloors: FLOORS,
+  }).map((finding) => finding.line);
+}
+
+function flaggedKinds(source: string): [number, string][] {
+  return findWallClockAssertions(FILE, source, allLines(source), {
+    timeoutFloors: FLOORS,
+  }).map((finding) => [finding.line, finding.kind]);
 }
 
 describe("wall-clock assertion detection", () => {
@@ -449,6 +459,192 @@ describe("test file scope", () => {
     ]) {
       assert.equal(isTestFilePath(rel), false, rel);
     }
+  });
+});
+
+describe("real-time waits", () => {
+  it("flags loops that stop on a clock, not loops bounded by the test", () => {
+    const source = [
+      "async function waitForFile(file, timeoutMs = 5_000) {",
+      "  const deadline = Date.now() + timeoutMs;",
+      "  while (Date.now() < deadline) {",
+      "    if (existsSync(file)) return;",
+      "    await new Promise((resolve) => setTimeout(resolve, 10));",
+      "  }",
+      "  throw new Error(`Timed out waiting for ${file}`);",
+      "}",
+      "async function waitUntil(predicate, startedAt = performance.now()) {",
+      "  while (!predicate()) {",
+      "    if (performance.now() - startedAt > 5_000) throw new Error('late');",
+      "    await new Promise((resolve) => setTimeout(resolve, 10));",
+      "  }",
+      "}",
+      "async function waitFor(predicate, signal) {",
+      "  while (!signal.aborted) {",
+      "    if (predicate()) return;",
+      "    await new Promise((resolve) => setTimeout(resolve, 10));",
+      "  }",
+      "  throw new Error('the test timed out first');",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flaggedKinds(source), [
+      [3, "real-time deadline loop"],
+      [10, "real-time deadline loop"],
+    ]);
+  });
+
+  it("flags a poll that sleeps and gives up after a number of attempts", () => {
+    const source = [
+      "async function waitForLockWait(minimum) {",
+      "  for (let attempt = 0; attempt < 100; attempt += 1) {",
+      "    if ((await waitingCount()) >= minimum) return;",
+      "    await new Promise((resolve) => setTimeout(resolve, 10));",
+      "  }",
+      "  throw new Error('no lock wait');",
+      "}",
+      "const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));",
+      "async function waitForSpans() {",
+      "  for (let attempt = 0; attempt < 50; attempt++) {",
+      "    if (await spans()) return;",
+      "    await sleep(20);",
+      "  }",
+      "  throw new Error('no spans');",
+      "}",
+      "async function retryRead() {",
+      "  for (let attempt = 0; attempt < 3; attempt += 1) {",
+      "    const value = await read();",
+      "    if (value) return value;",
+      "  }",
+      "  throw new Error('no value');",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flaggedKinds(source), [
+      [2, "poll that gives up after a fixed number of attempts"],
+      [10, "poll that gives up after a fixed number of attempts"],
+    ]);
+  });
+
+  it("flags a race against a timer that rejects, not one that paces a poll", () => {
+    const source = [
+      "it('does not hang', async () => {",
+      "  await Promise.race([",
+      "    work(),",
+      "    new Promise((_, reject) => setTimeout(() => reject(new Error('hung')), 5000)),",
+      "  ]);",
+      "  const timeout = new Promise((_, reject) => setTimeout(reject, 1000));",
+      "  await Promise.race([work(), timeout]);",
+      "  const pollAgain = new Promise((resolve) => setTimeout(() => resolve(false), 10));",
+      "  await Promise.race([finished, pollAgain]);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedKinds(source), [
+      [2, "Promise.race against a rejecting timer"],
+      [7, "Promise.race against a rejecting timer"],
+    ]);
+  });
+
+  it("flags Vitest timeouts below the config's defaults", () => {
+    const source = [
+      "import { test as nodeTest } from 'node:test';",
+      "it('boots the database', async () => {",
+      "  await boot();",
+      "}, 6000);",
+      "it('allows more than the default', async () => {",
+      "  await boot();",
+      "}, 120_000);",
+      "test('with options', { timeout: 5_000 }, async () => {});",
+      "beforeAll(async () => { await boot(); }, 5_000);",
+      "beforeAll(async () => { await boot(); }, 60_000);",
+      "it.each([{ timeout: 1 }])('takes rows $timeout', ({ timeout }) => {});",
+      "const LIMIT = 2_000;",
+      "it('uses a constant', async () => {}, LIMIT);",
+      "nodeTest('node:test sets its own', { timeout: 100 }, () => {});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedKinds(source), [
+      [4, "timeout below the config default"],
+      [8, "timeout below the config default"],
+      [9, "timeout below the config default"],
+      [13, "timeout below the config default"],
+    ]);
+  });
+
+  it("reads each test file's defaults from its nearest vitest config", () => {
+    const source = "it('boots', async () => {}, 45_000);";
+    const kinds = (file: string) =>
+      findWallClockAssertions(file, source, null).map(
+        (finding) => finding.kind,
+      );
+
+    // templates/content's config sets 60 s; templates/slides' extends the 30 s base.
+    assert.deepEqual(kinds("templates/content/actions/example.test.ts"), [
+      "timeout below the config default",
+    ]);
+    assert.deepEqual(kinds("templates/slides/server/example.test.ts"), []);
+  });
+
+  it("skips waits whose clock and timers are faked", () => {
+    const source = [
+      "it('debounces', async () => {",
+      "  vi.useFakeTimers();",
+      "  const deadline = Date.now() + 1_000;",
+      "  while (Date.now() < deadline) await vi.advanceTimersByTimeAsync(100);",
+      "  await Promise.race([work(), new Promise((_, reject) => setTimeout(reject, 50))]);",
+      "});",
+      "it('fakes Date but not setTimeout', async () => {",
+      "  vi.useFakeTimers({ toFake: ['Date'] });",
+      "  await Promise.race([work(), new Promise((_, reject) => setTimeout(reject, 50))]);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source), [9]);
+  });
+
+  it("reports a wait when its limit changes, and an added call to a helper that waits", () => {
+    const source = [
+      "async function waitForFile(file, timeoutMs = 5_000) {",
+      "  const deadline = Date.now() + timeoutMs;",
+      "  while (Date.now() < deadline) {",
+      "    if (existsSync(file)) return;",
+      "    await new Promise((resolve) => setTimeout(resolve, 10));",
+      "  }",
+      "  throw new Error('timed out');",
+      "}",
+      "async function waitForBoth() {",
+      "  await waitForFile('a');",
+      "  await waitForFile('b');",
+      "}",
+      "it('waits', async () => {",
+      "  await waitForFile('a', 20_000);",
+      "  await waitForBoth();",
+      "  expect(existsSync('a')).toBe(true);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source, new Set([1])), [3]);
+    assert.deepEqual(flaggedLines(source, new Set([4])), []);
+    assert.deepEqual(flaggedLines(source, new Set([14])), [14]);
+    assert.deepEqual(flaggedLines(source, new Set([15])), [15]);
+    assert.deepEqual(flaggedLines(source, new Set([16])), []);
+    assert.deepEqual(flaggedLines(source, null), [3]);
+  });
+
+  it("lets an opt-out on a helper's wait cover its callers", () => {
+    const source = [
+      "async function waitForSocket() {",
+      "  const deadline = Date.now() + 5_000;",
+      "  // wall-clock-ok: the server's idle timeout is real time",
+      "  while (Date.now() < deadline) await poll();",
+      "}",
+      "it('connects', async () => {",
+      "  await waitForSocket();",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source), []);
   });
 });
 

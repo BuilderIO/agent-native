@@ -31,22 +31,41 @@
  * variable the test advances itself (`clock += 20_000`) is a fake clock, not
  * a reading.
  *
+ * It also fails on waits in tests that give up after a fixed amount of real
+ * time, which a loaded runner crosses on a correct run just as it crosses an
+ * elapsed-time bound:
+ *
+ *   - a loop whose condition, or an `if` in it that leaves it, compares a clock
+ *     reading or an elapsed time (`while (Date.now() < deadline)`);
+ *   - a loop bounded by an attempt count that sleeps on a timer each pass and
+ *     throws once it runs out
+ *     (`for (let i = 0; i < 100; i++) { ...; await sleep(10); } throw ...`);
+ *   - `Promise.race` against a promise that a timer rejects;
+ *   - a Vitest test, describe or hook timeout below the `testTimeout` or
+ *     `hookTimeout` of the nearest vitest config (or of the shared base config
+ *     it extends, or Vitest's defaults);
+ *   - and, on lines this branch adds, a call to a local helper that waits in
+ *     one of those ways.
+ *
  * An assertion counts as added when this branch added a line of it, or a line
  * that gives a variable it reads its clock or elapsed value: changing
- * `const elapsed = ...` can turn an unchanged assertion into a bound.
+ * `const elapsed = ...` can turn an unchanged assertion into a bound. A wait
+ * counts as added when this branch changed its limit: the condition and the
+ * declarations it reads, the race, the timeout value.
  *
- * An assertion that runs under fake timers is skipped: there `Date.now()` is
+ * An assertion or wait that runs under fake timers is skipped: there `Date.now()` is
  * the test's own clock and an exact elapsed value is deterministic. The guard
  * replays the switches that run before the assertion - those in a
  * `beforeEach`/`beforeAll` of an enclosing describe block or the file, then
  * those before it in its enclosing functions, including calls to local
- * helpers - and skips the assertion only when every clock it reads is fake:
+ * helpers - and skips the assertion only when every clock it reads is fake (a
+ * sleep or a timer race needs `setTimeout` faked):
  *
  *   - `vi.useFakeTimers()` (and the jest and sinon spellings) fakes `Date`,
- *     `performance` and `hrtime`, or the clocks its `toFake` lists; with
- *     `shouldAdvanceTime` or options it cannot read it fakes none;
- *   - node:test's `mock.timers.enable()` fakes `Date` only, or what `apis`
- *     lists;
+ *     `performance`, `hrtime` and `setTimeout`, or what its `toFake` lists;
+ *     with `shouldAdvanceTime` or options it cannot read it fakes none;
+ *   - node:test's `mock.timers.enable()` fakes `Date` and `setTimeout`, or
+ *     what `apis` lists;
  *   - `vi.setSystemTime()` without fake timers mocks `Date` only;
  *   - `useRealTimers()` / `mock.timers.reset()` restores them all.
  *
@@ -83,7 +102,7 @@
  * SKIPPED rather than as a pass.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -119,7 +138,7 @@ const COMPARISON_MATCHERS = new Set([
 const MATCHER_MODIFIERS = new Set(["not", "resolves", "rejects"]);
 
 export const FIX_HINT =
-  "Replace the elapsed-time bound with what it stands for:\n" +
+  "Replace an elapsed-time bound with what it stands for:\n" +
   '  - "fails fast" / "does not hang": assert the structural fact (no waiter\n' +
   "    queued, no timer scheduled, the retry or call count);\n" +
   "  - timeout, retry, debounce or backoff logic: vi.useFakeTimers() and\n" +
@@ -127,17 +146,39 @@ export const FIX_HINT =
   "  - a real performance budget: measureCpuMs from\n" +
   '    "@agent-native/core/testing/cpu-time" (CPU time, not wall time), or a\n' +
   "    scaling check (n against 4n).\n" +
+  "Replace a wait that gives up after a fixed time or number of polls:\n" +
+  "  - wait on the event or promise itself, or poll with no limit of its own\n" +
+  "    and let the test's timeout end it;\n" +
+  "  - do not race the work against a timer that rejects: a hang already\n" +
+  "    fails at the test timeout;\n" +
+  "  - do not set a test or hook timeout below the vitest config's\n" +
+  "    testTimeout / hookTimeout.\n" +
   "Do not raise the number: a loaded runner crosses any fixed bound.\n\n" +
-  "If real elapsed time really is the subject, opt out in a comment on the\n" +
-  "assertion or directly above it, with a reason of 10+ characters:\n" +
+  "If real elapsed time really is the subject, opt out in a comment on it or\n" +
+  "directly above it, with a reason of 10+ characters:\n" +
   "  // wall-clock-ok: <reason>";
+
+export type FindingKind =
+  | "elapsed-time assertion"
+  | "real-time deadline loop"
+  | "poll that gives up after a fixed number of attempts"
+  | "Promise.race against a rejecting timer"
+  | "timeout below the config default"
+  | "call to a helper that waits on a real-time deadline";
 
 export interface WallClockFinding {
   file: string;
   line: number;
+  kind: FindingKind;
   snippet: string;
   /** Set when an opt-out was present but its reason too short. */
   shortReason?: true;
+}
+
+/** The timeouts a test or hook gets when it does not set one. */
+export interface TimeoutFloors {
+  test: number;
+  hook: number;
 }
 
 export function isTestFilePath(relPath: string): boolean {
@@ -264,15 +305,19 @@ function apiName(file: TestFile, node: ts.Expression): string | undefined {
     : `${head}.${target.name.text}`;
 }
 
-type ClockKind = "date" | "performance" | "hrtime";
+/** What fake timers can replace: three clocks, and `setTimeout` (`timers`). */
+type ClockKind = "date" | "performance" | "hrtime" | "timers";
 
 const NO_CLOCKS: ReadonlySet<ClockKind> = new Set();
 const ALL_CLOCKS: ReadonlySet<ClockKind> = new Set([
   "date",
   "performance",
   "hrtime",
+  "timers",
 ]);
 const DATE_CLOCK: ReadonlySet<ClockKind> = new Set(["date"]);
+const TIMERS: ReadonlySet<ClockKind> = new Set(["timers"]);
+const NODE_TEST_MOCKS: ReadonlySet<ClockKind> = new Set(["date", "timers"]);
 
 /** Date.now(), performance.now(), process.hrtime.bigint(), new Date().getTime(). */
 function clockReadKind(
@@ -752,6 +797,7 @@ const CLOCK_TIMER_NAMES = new Map<string, ClockKind>([
   ["Date", "date"],
   ["performance", "performance"],
   ["hrtime", "hrtime"],
+  ["setTimeout", "timers"],
 ]);
 const CLOCK_OPTION_KEYS = new Set([
   "toFake",
@@ -842,7 +888,10 @@ function timerEffect(
   // node:test mocks on the imported `mock` and on a test context's `t.mock`.
   switch (propertyChain(callee)?.slice(-3).join(".")) {
     case "mock.timers.enable":
-      return { op: "install", clocks: installedClocks(options, DATE_CLOCK) };
+      return {
+        op: "install",
+        clocks: installedClocks(options, NODE_TEST_MOCKS),
+      };
     case "mock.timers.reset":
       return { op: "restore" };
     default:
@@ -997,6 +1046,659 @@ function isAssertCall(file: TestFile, call: ts.CallExpression): boolean {
   return name?.[0] === "assert" && name.length <= 2;
 }
 
+/** The module an imported identifier comes from, or undefined for a global. */
+function importModule(
+  file: TestFile,
+  identifier: ts.Identifier,
+): string | undefined {
+  let node: ts.Node | undefined =
+    file.checker.getSymbolAtLocation(identifier)?.declarations?.[0];
+  while (node && !ts.isImportDeclaration(node)) node = node.parent;
+  return node && ts.isStringLiteral(node.moduleSpecifier)
+    ? node.moduleSpecifier.text
+    : undefined;
+}
+
+/** A number written as a literal, or as `*` / `+` of literals: `60 * 1000`. */
+function literalNumber(node: ts.Expression): number | undefined {
+  const target = unwrap(node);
+  if (ts.isNumericLiteral(target)) return Number(target.text.replace(/_/g, ""));
+  if (!ts.isBinaryExpression(target)) return undefined;
+  const left = literalNumber(target.left);
+  const right = literalNumber(target.right);
+  if (left === undefined || right === undefined) return undefined;
+  switch (target.operatorToken.kind) {
+    case ts.SyntaxKind.AsteriskToken:
+      return left * right;
+    case ts.SyntaxKind.PlusToken:
+      return left + right;
+    default:
+      return undefined;
+  }
+}
+
+/** A literal number, or a local `const` that holds one. */
+function numericValue(file: TestFile, node: ts.Expression): number | undefined {
+  const target = unwrap(node);
+  if (!ts.isIdentifier(target)) return literalNumber(target);
+  const declaration = localSymbol(file, target)?.valueDeclaration;
+  return declaration &&
+    ts.isVariableDeclaration(declaration) &&
+    declaration.initializer &&
+    ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const
+    ? literalNumber(declaration.initializer)
+    : undefined;
+}
+
+const RELATIONAL_OPERATORS = new Set([
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
+]);
+
+/** Relational comparisons in `node`, outside nested functions. */
+function comparisons(node: ts.Node): ts.BinaryExpression[] {
+  const found: ts.BinaryExpression[] = [];
+  const visit = (child: ts.Node) => {
+    if (ts.isFunctionLike(child)) return;
+    if (
+      ts.isBinaryExpression(child) &&
+      RELATIONAL_OPERATORS.has(child.operatorToken.kind)
+    ) {
+      found.push(child);
+    }
+    ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return found;
+}
+
+/** The clocks that the comparisons in `node` hold a reading or an elapsed time of. */
+function comparedClocks(
+  file: TestFile,
+  node: ts.Node,
+  names: ClockNames,
+): ReadonlySet<ClockKind> {
+  return unionClocks(
+    comparisons(node).flatMap((comparison) =>
+      [comparison.left, comparison.right].flatMap((side) => {
+        const value = clockValue(file, side, names);
+        return [value.reading, value.elapsed];
+      }),
+    ),
+  );
+}
+
+type ConditionalLoop = ts.WhileStatement | ts.DoStatement | ts.ForStatement;
+
+function isConditionalLoop(node: ts.Node): node is ConditionalLoop {
+  return (
+    ts.isWhileStatement(node) ||
+    ts.isDoStatement(node) ||
+    ts.isForStatement(node)
+  );
+}
+
+/** Whether `statement` can leave the loop around it, outside nested functions. */
+function canLeaveLoop(statement: ts.Statement): boolean {
+  let leaves = false;
+  const visit = (node: ts.Node) => {
+    if (leaves || ts.isFunctionLike(node)) return;
+    if (
+      ts.isBreakStatement(node) ||
+      ts.isReturnStatement(node) ||
+      ts.isThrowStatement(node)
+    ) {
+      leaves = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(statement);
+  return leaves;
+}
+
+/** The loop's own condition, and the conditions of the ifs in it that leave it. */
+function exitConditions(loop: ConditionalLoop): ts.Expression[] {
+  const own = ts.isForStatement(loop) ? loop.condition : loop.expression;
+  const conditions = own ? [own] : [];
+  const visit = (node: ts.Node) => {
+    if (ts.isFunctionLike(node)) return;
+    if (ts.isIfStatement(node) && canLeaveLoop(node.thenStatement)) {
+      conditions.push(node.expression);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(loop.statement);
+  return conditions;
+}
+
+function nextStatement(statement: ts.Statement): ts.Statement | undefined {
+  const parent = statement.parent;
+  if (
+    !ts.isBlock(parent) &&
+    !ts.isSourceFile(parent) &&
+    !ts.isCaseOrDefaultClause(parent)
+  ) {
+    return undefined;
+  }
+  return parent.statements[parent.statements.indexOf(statement) + 1];
+}
+
+/** Whether `callback` is the parameter `symbol`, or a function that calls it. */
+function callsParameter(
+  file: TestFile,
+  callback: ts.Expression,
+  symbol: ts.Symbol | undefined,
+): boolean {
+  if (!symbol) return false;
+  const target = unwrap(callback);
+  if (ts.isIdentifier(target)) return localSymbol(file, target) === symbol;
+  if (!ts.isArrowFunction(target) && !ts.isFunctionExpression(target)) {
+    return false;
+  }
+  let calls = false;
+  const visit = (node: ts.Node) => {
+    if (calls) return;
+    const callee = ts.isCallExpression(node) && unwrap(node.expression);
+    if (
+      callee &&
+      ts.isIdentifier(callee) &&
+      localSymbol(file, callee) === symbol
+    ) {
+      calls = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(target.body);
+  return calls;
+}
+
+/**
+ * How a `new Promise(...)` around `setTimeout` settles when the timer fires:
+ * `resolve` for a sleep, `reject` for a deadline.
+ */
+function timerSettles(
+  file: TestFile,
+  node: ts.Expression,
+): "resolve" | "reject" | undefined {
+  const target = unwrap(node);
+  if (
+    !ts.isNewExpression(target) ||
+    apiName(file, target.expression) !== "Promise"
+  ) {
+    return undefined;
+  }
+  const executor = target.arguments?.[0];
+  if (
+    !executor ||
+    (!ts.isArrowFunction(executor) && !ts.isFunctionExpression(executor))
+  ) {
+    return undefined;
+  }
+  const parameter = (index: number) => {
+    const name = executor.parameters[index]?.name;
+    return name && ts.isIdentifier(name) ? localSymbol(file, name) : undefined;
+  };
+  const resolve = parameter(0);
+  const reject = parameter(1);
+  let settles: "resolve" | "reject" | undefined;
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isCallExpression(node) &&
+      apiName(file, node.expression) === "setTimeout"
+    ) {
+      const callback = node.arguments[0];
+      if (callback && callsParameter(file, callback, reject)) {
+        settles = "reject";
+      } else if (callback && callsParameter(file, callback, resolve)) {
+        settles ??= "resolve";
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(executor.body);
+  return settles;
+}
+
+const PROMISE_TIMER_MODULES = new Set([
+  "node:timers/promises",
+  "timers/promises",
+]);
+
+/**
+ * Whether `node` sleeps on a timer: a promise `setTimeout` resolves,
+ * node:timers/promises' `setTimeout(ms)` or `scheduler.wait(ms)`,
+ * Playwright's `waitForTimeout(ms)`, or a local helper that sleeps.
+ */
+function isTimerSleep(
+  file: TestFile,
+  node: ts.Expression,
+  seen: Set<ts.Node> = new Set(),
+): boolean {
+  const target = unwrap(node);
+  if (timerSettles(file, target) === "resolve") return true;
+  if (!ts.isCallExpression(target)) return false;
+  const callee = unwrap(target.expression);
+  const name = apiName(file, callee);
+  const receiver = ts.isPropertyAccessExpression(callee)
+    ? unwrap(callee.expression)
+    : callee;
+  const module = ts.isIdentifier(receiver)
+    ? importModule(file, receiver)
+    : undefined;
+  if (
+    (name === "setTimeout" || name === "scheduler.wait") &&
+    module !== undefined &&
+    PROMISE_TIMER_MODULES.has(module)
+  ) {
+    return true;
+  }
+  if (propertyChain(callee)?.at(-1) === "waitForTimeout") return true;
+  const fn = calledFunction(file, target);
+  if (!fn || seen.has(fn)) return false;
+  seen.add(fn);
+  return (
+    returnedExpressions(fn).some((returned) =>
+      isTimerSleep(file, returned, seen),
+    ) || awaitsTimerSleep(file, fn.body, seen)
+  );
+}
+
+/** Whether `node` awaits a timer sleep, outside nested functions. */
+function awaitsTimerSleep(
+  file: TestFile,
+  node: ts.Node | undefined,
+  seen: Set<ts.Node> = new Set(),
+): boolean {
+  if (!node) return false;
+  let sleeps = false;
+  const visit = (child: ts.Node) => {
+    if (sleeps || (child !== node && ts.isFunctionLike(child))) return;
+    if (
+      ts.isAwaitExpression(child) &&
+      isTimerSleep(file, child.expression, seen)
+    ) {
+      sleeps = true;
+      return;
+    }
+    ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return sleeps;
+}
+
+/** Whether `node` is a promise a timer rejects, held directly, in a const, or returned by a local helper. */
+function rejectsOnTimer(
+  file: TestFile,
+  node: ts.Expression,
+  seen: Set<ts.Node> = new Set(),
+): boolean {
+  const target = unwrap(node);
+  if (timerSettles(file, target) === "reject") return true;
+  if (ts.isIdentifier(target)) {
+    const declaration = localSymbol(file, target)?.valueDeclaration;
+    if (
+      !declaration ||
+      !ts.isVariableDeclaration(declaration) ||
+      !declaration.initializer ||
+      seen.has(declaration)
+    ) {
+      return false;
+    }
+    seen.add(declaration);
+    return rejectsOnTimer(file, declaration.initializer, seen);
+  }
+  if (!ts.isCallExpression(target)) return false;
+  const fn = calledFunction(file, target);
+  if (!fn || seen.has(fn)) return false;
+  seen.add(fn);
+  return returnedExpressions(fn).some((returned) =>
+    rejectsOnTimer(file, returned, seen),
+  );
+}
+
+const TEST_CALLS = new Set(["it", "test", "describe", "suite", "bench"]);
+const HOOK_CALLS = new Set([
+  "beforeEach",
+  "beforeAll",
+  "afterEach",
+  "afterAll",
+]);
+// `it.each(rows)` and `test.extend(fixtures)` take data, not a test.
+const NOT_TEST_CALLS = new Set(["each", "for", "extend"]);
+
+/** Whether `call` declares a Vitest test, describe block or hook. */
+function vitestCallKind(
+  file: TestFile,
+  call: ts.CallExpression,
+): "test" | "hook" | undefined {
+  if (
+    ts.isPropertyAccessExpression(call.expression) &&
+    NOT_TEST_CALLS.has(call.expression.name.text)
+  ) {
+    return undefined;
+  }
+  let root: ts.Expression = call.expression;
+  while (ts.isCallExpression(root) || ts.isPropertyAccessExpression(root)) {
+    root = root.expression;
+  }
+  if (!ts.isIdentifier(root) || localSymbol(file, root)) return undefined;
+  const module = importModule(file, root);
+  if (module !== undefined && module !== "vitest") return undefined;
+  const name = importedName(file, root);
+  if (TEST_CALLS.has(name)) return "test";
+  return HOOK_CALLS.has(name) ? "hook" : undefined;
+}
+
+function isFunctionArgument(file: TestFile, node: ts.Expression): boolean {
+  const target = unwrap(node);
+  if (ts.isArrowFunction(target) || ts.isFunctionExpression(target)) {
+    return true;
+  }
+  const symbol = ts.isIdentifier(target) && localSymbol(file, target);
+  return Boolean(symbol && localFunction(symbol));
+}
+
+/** A timeout below its floor that `call` gives a test, describe block or hook. */
+function shortTimeout(
+  file: TestFile,
+  call: ts.CallExpression,
+  floors: () => TimeoutFloors,
+): { node: ts.Expression; detail: string } | undefined {
+  const kind = vitestCallKind(file, call);
+  if (!kind) return undefined;
+  for (const [index, argument] of call.arguments.entries()) {
+    const target = unwrap(argument);
+    let value: ts.Expression | undefined;
+    if (ts.isObjectLiteralExpression(target)) {
+      const property = target.properties.find(
+        (member) =>
+          ts.isPropertyAssignment(member) &&
+          propertyNameText(member.name) === "timeout",
+      );
+      value =
+        property && ts.isPropertyAssignment(property)
+          ? property.initializer
+          : undefined;
+    } else {
+      const previous = call.arguments[index - 1];
+      value =
+        previous && isFunctionArgument(file, previous) ? argument : undefined;
+    }
+    const ms = value && numericValue(file, value);
+    if (!value || ms === undefined) continue;
+    const floor = kind === "hook" ? floors().hook : floors().test;
+    if (ms < floor) {
+      const setting = kind === "hook" ? "hookTimeout" : "testTimeout";
+      return {
+        node: value,
+        detail: `${ms} ms is below the ${floor} ms ${setting} this test file runs with`,
+      };
+    }
+  }
+  return undefined;
+}
+
+/** A wait in a test that real time can end. */
+interface Deadline {
+  kind: FindingKind;
+  /** Where it is reported and where its opt-out is read. */
+  node: ts.Node;
+  /** Code whose change counts as adding it. */
+  limits: readonly ts.Node[];
+  /** What fake timers must replace to make it deterministic; empty when nothing can. */
+  fakeable: ReadonlySet<ClockKind>;
+  detail?: string;
+}
+
+function deadlineAt(
+  file: TestFile,
+  node: ts.Node,
+  names: ClockNames,
+  floors: () => TimeoutFloors,
+): Deadline | undefined {
+  if (isConditionalLoop(node)) {
+    const timed = exitConditions(node)
+      .map((condition) => ({
+        condition,
+        clocks: comparedClocks(file, condition, names),
+      }))
+      .filter(({ clocks }) => clocks.size > 0);
+    if (timed.length > 0) {
+      return {
+        kind: "real-time deadline loop",
+        node,
+        limits: timed.map(({ condition }) => condition),
+        fakeable: unionClocks(timed.map(({ clocks }) => clocks)),
+      };
+    }
+    const own = ts.isForStatement(node) ? node.condition : node.expression;
+    const next = nextStatement(node);
+    if (
+      own &&
+      comparisons(own).length > 0 &&
+      next &&
+      ts.isThrowStatement(next) &&
+      awaitsTimerSleep(file, node.statement)
+    ) {
+      return {
+        kind: "poll that gives up after a fixed number of attempts",
+        node,
+        limits: [own, next],
+        fakeable: TIMERS,
+      };
+    }
+    return undefined;
+  }
+  if (!ts.isCallExpression(node)) return undefined;
+  if (apiName(file, node.expression) === "Promise.race") {
+    const entries = node.arguments[0] && unwrap(node.arguments[0]);
+    if (
+      entries &&
+      ts.isArrayLiteralExpression(entries) &&
+      entries.elements.some((entry) => rejectsOnTimer(file, entry))
+    ) {
+      return {
+        kind: "Promise.race against a rejecting timer",
+        node,
+        limits: [node],
+        fakeable: TIMERS,
+      };
+    }
+  }
+  const timeout = shortTimeout(file, node, floors);
+  return (
+    timeout && {
+      kind: "timeout below the config default",
+      node: timeout.node,
+      limits: [timeout.node],
+      fakeable: NO_CLOCKS,
+      detail: timeout.detail,
+    }
+  );
+}
+
+/** The function `node` sits in, when this file names it. */
+function namedFunctionAround(
+  file: TestFile,
+  node: ts.Node,
+): ts.Symbol | undefined {
+  let current = node.parent;
+  while (!ts.isFunctionLike(current) && !ts.isSourceFile(current)) {
+    current = current.parent;
+  }
+  if (ts.isFunctionDeclaration(current) && current.name) {
+    return localSymbol(file, current.name);
+  }
+  const parent = current.parent;
+  return (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) &&
+    parent &&
+    ts.isVariableDeclaration(parent) &&
+    ts.isIdentifier(parent.name)
+    ? localSymbol(file, parent.name)
+    : undefined;
+}
+
+/**
+ * Local functions that wait on a real-time deadline, directly or by calling
+ * one that does, with what fake timers must replace to make that wait
+ * deterministic.
+ */
+function deadlineHelpers(
+  file: TestFile,
+  deadlines: readonly Deadline[],
+): Map<ts.Symbol, ReadonlySet<ClockKind>> {
+  const helpers = new Map<ts.Symbol, ReadonlySet<ClockKind>>();
+  const add = (symbol: ts.Symbol, kinds: ReadonlySet<ClockKind>) => {
+    const held = helpers.get(symbol) ?? NO_CLOCKS;
+    const merged = unionClocks([held, kinds]);
+    if (merged.size === held.size && helpers.has(symbol)) return false;
+    helpers.set(symbol, merged);
+    return true;
+  };
+  for (const deadline of deadlines) {
+    const symbol = namedFunctionAround(file, deadline.node);
+    if (symbol) add(symbol, deadline.fakeable);
+  }
+  for (let changed = true; changed; ) {
+    changed = false;
+    const visit = (node: ts.Node) => {
+      const callee = ts.isCallExpression(node) && unwrap(node.expression);
+      const called =
+        callee && ts.isIdentifier(callee) && localSymbol(file, callee);
+      const kinds = called && helpers.get(called);
+      const caller = kinds && namedFunctionAround(file, node);
+      if (kinds && caller && caller !== called && add(caller, kinds)) {
+        changed = true;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(file.sourceFile);
+  }
+  return helpers;
+}
+
+/**
+ * Line ranges (1-based) of the declarations that the identifiers in `nodes`
+ * read, followed through their initializers: the `deadline` a loop compares
+ * against, the `timeoutMs` it was computed from.
+ */
+function declarationLines(
+  file: TestFile,
+  nodes: readonly ts.Node[],
+): [from: number, to: number][] {
+  const { sourceFile } = file;
+  const lineOf = (pos: number) =>
+    sourceFile.getLineAndCharacterOfPosition(pos).line + 1;
+  const ranges: [number, number][] = [];
+  const followed = new Set<ts.Node>();
+  const visit = (node: ts.Node) => {
+    if (ts.isFunctionLike(node)) return;
+    const declaration =
+      ts.isIdentifier(node) && referencedSymbol(file, node)?.valueDeclaration;
+    if (
+      declaration &&
+      !followed.has(declaration) &&
+      (ts.isVariableDeclaration(declaration) || ts.isParameter(declaration))
+    ) {
+      followed.add(declaration);
+      ranges.push([
+        lineOf(declaration.getStart(sourceFile)),
+        lineOf(declaration.end),
+      ]);
+      if (declaration.initializer) visit(declaration.initializer);
+    }
+    ts.forEachChild(node, visit);
+  };
+  nodes.forEach(visit);
+  return ranges;
+}
+
+const VITEST_CONFIG_NAMES = [
+  "vitest.config.ts",
+  "vitest.config.mts",
+  "vitest.config.js",
+  "vitest.config.mjs",
+];
+const VITEST_DEFAULT_TIMEOUTS: TimeoutFloors = { test: 5_000, hook: 10_000 };
+const BASE_VITEST_CONFIG = "packages/core/src/vitest-config.ts";
+const BASE_CONFIG_IMPORT = /(?:^|\/)vitest-config(?:\.[cm]?[jt]s)?$/;
+
+interface ConfigTimeouts {
+  test?: number;
+  hook?: number;
+  extendsBase: boolean;
+}
+
+function configTimeouts(absPath: string): ConfigTimeouts {
+  const rel = path.relative(rootDir, absPath);
+  const sourceFile = ts.createSourceFile(
+    absPath,
+    readSource(absPath, rel),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const settings: ConfigTimeouts = { extendsBase: false };
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      BASE_CONFIG_IMPORT.test(node.moduleSpecifier.text)
+    ) {
+      settings.extendsBase = true;
+    }
+    if (ts.isPropertyAssignment(node)) {
+      const value = literalNumber(node.initializer);
+      const key = propertyNameText(node.name);
+      if (value !== undefined && key === "testTimeout") settings.test = value;
+      if (value !== undefined && key === "hookTimeout") settings.hook = value;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return settings;
+}
+
+const floorsByConfig = new Map<string, TimeoutFloors>();
+
+/**
+ * The default test and hook timeouts for a test file: what its nearest vitest
+ * config sets, else what the shared base config it extends sets, else
+ * Vitest's own defaults.
+ */
+function timeoutFloorsFor(rel: string): TimeoutFloors {
+  for (let dir = path.posix.dirname(rel); ; dir = path.posix.dirname(dir)) {
+    for (const name of VITEST_CONFIG_NAMES) {
+      const config = path.join(rootDir, dir, name);
+      if (!existsSync(config)) continue;
+      const cached = floorsByConfig.get(config);
+      if (cached) return cached;
+      const settings = configTimeouts(config);
+      const inherited = settings.extendsBase
+        ? timeoutFloorsOfBase()
+        : VITEST_DEFAULT_TIMEOUTS;
+      const floors = {
+        test: settings.test ?? inherited.test,
+        hook: settings.hook ?? inherited.hook,
+      };
+      floorsByConfig.set(config, floors);
+      return floors;
+    }
+    if (dir === "." || dir === "/") return VITEST_DEFAULT_TIMEOUTS;
+  }
+}
+
+function timeoutFloorsOfBase(): TimeoutFloors {
+  const base = configTimeouts(path.join(rootDir, BASE_VITEST_CONFIG));
+  return {
+    test: base.test ?? VITEST_DEFAULT_TIMEOUTS.test,
+    hook: base.hook ?? VITEST_DEFAULT_TIMEOUTS.hook,
+  };
+}
+
 function commentRanges(sourceFile: ts.SourceFile): ts.CommentRange[] {
   const source = sourceFile.text;
   const ranges = new Map<number, ts.CommentRange>();
@@ -1083,24 +1785,65 @@ function optOutReasons(
 }
 
 /**
- * Wall-clock assertions in `source`. With `addedLines`, only assertions that
- * touch one of those lines; with null, every one (measurement mode).
+ * Wall-clock assertions and real-time waits in `source`. With `addedLines`,
+ * only those that touch one of those lines, plus added calls to helpers that
+ * wait; with null, every assertion and wait (measurement mode).
+ * `timeoutFloors` overrides the defaults read from the vitest configs.
  */
 export function findWallClockAssertions(
   file: string,
   source: string,
   addedLines: ReadonlySet<number> | null,
+  options: { timeoutFloors?: TimeoutFloors } = {},
 ): WallClockFinding[] {
   const testFile = bindTestFile(file, source);
   const { sourceFile } = testFile;
   const names = collectClockNames(testFile);
+  let floors = options.timeoutFloors;
+  const floorsOfFile = () => (floors ??= timeoutFloorsFor(file));
   let helpers: Map<ts.Symbol, TimerEffect> | undefined;
   let comments: ts.CommentRange[] | undefined;
   const findings: WallClockFinding[] = [];
   const lineOf = (pos: number) =>
     sourceFile.getLineAndCharacterOfPosition(pos).line + 1;
+  const rangeOf = (node: ts.Node): [number, number] => [
+    lineOf(node.getStart(sourceFile)),
+    lineOf(node.end),
+  ];
+  const touches = (ranges: readonly (readonly [number, number])[]) =>
+    addedLines === null ||
+    ranges.some(([from, to]) =>
+      [...addedLines].some((line) => line >= from && line <= to),
+    );
+  const faked = (node: ts.Node, kinds: ReadonlySet<ClockKind>) => {
+    if (kinds.size === 0) return false;
+    helpers ??= timerHelpers(testFile);
+    const fake = fakeStateAt(testFile, node, helpers).clocks;
+    return [...kinds].every((kind) => fake.has(kind));
+  };
+  const reasonsFor = (node: ts.Node) => {
+    comments ??= commentRanges(sourceFile);
+    return optOutReasons(sourceFile, node, comments);
+  };
+  const optedOut = (node: ts.Node) =>
+    reasonsFor(node).some((reason) => reason.length >= MIN_REASON_LENGTH);
+  const report = (kind: FindingKind, node: ts.Node, detail?: string) => {
+    const reasons = reasonsFor(node);
+    if (reasons.some((reason) => reason.length >= MIN_REASON_LENGTH)) return;
+    const text = node.getText(sourceFile).replace(/\s+/g, " ").slice(0, 120);
+    findings.push({
+      file,
+      line: lineOf(node.getStart(sourceFile)),
+      kind,
+      snippet: detail ? `${text} (${detail})` : text,
+      ...(reasons.length > 0 ? { shortReason: true as const } : {}),
+    });
+  };
 
+  const deadlines: Deadline[] = [];
   const visit = (node: ts.Node) => {
+    const deadline = deadlineAt(testFile, node, names, floorsOfFile);
+    if (deadline) deadlines.push(deadline);
     if (ts.isCallExpression(node)) {
       const checked = expectedValue(testFile, node);
       const values = checked
@@ -1112,36 +1855,11 @@ export function findWallClockAssertions(
         values.map((value) => clockValue(testFile, value, names).elapsed),
       );
       if (clocks.size > 0) {
-        const start = lineOf(node.getStart(sourceFile));
-        const end = lineOf(node.end);
-        const touched =
-          addedLines === null ||
-          [
-            [start, end] as const,
-            ...bindingLines(testFile, values, names),
-          ].some(([from, to]) =>
-            [...addedLines].some((line) => line >= from && line <= to),
-          );
-        helpers ??= timerHelpers(testFile);
-        const faked = fakeStateAt(testFile, node, helpers).clocks;
-        const underFakeTimers = [...clocks].every((kind) => faked.has(kind));
-        if (touched && !underFakeTimers) {
-          comments ??= commentRanges(sourceFile);
-          const reasons = optOutReasons(sourceFile, node, comments);
-          const accepted = reasons.some(
-            (reason) => reason.length >= MIN_REASON_LENGTH,
-          );
-          if (!accepted) {
-            findings.push({
-              file,
-              line: start,
-              snippet: node
-                .getText(sourceFile)
-                .replace(/\s+/g, " ")
-                .slice(0, 120),
-              ...(reasons.length > 0 ? { shortReason: true as const } : {}),
-            });
-          }
+        if (
+          touches([rangeOf(node), ...bindingLines(testFile, values, names)]) &&
+          !faked(node, clocks)
+        ) {
+          report("elapsed-time assertion", node);
         }
         // The matcher call contains its own expect(); do not report it twice.
         return;
@@ -1150,7 +1868,51 @@ export function findWallClockAssertions(
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  return findings;
+
+  for (const deadline of deadlines) {
+    if (
+      touches([
+        ...deadline.limits.map(rangeOf),
+        ...declarationLines(testFile, deadline.limits),
+        ...bindingLines(
+          testFile,
+          deadline.limits.filter((limit) => ts.isExpression(limit)),
+          names,
+        ),
+      ]) &&
+      !faked(deadline.node, deadline.fakeable)
+    ) {
+      report(deadline.kind, deadline.node, deadline.detail);
+    }
+  }
+
+  if (addedLines !== null) {
+    const waiting = deadlineHelpers(
+      testFile,
+      deadlines.filter(
+        (deadline) =>
+          deadline.kind !== "timeout below the config default" &&
+          !optedOut(deadline.node),
+      ),
+    );
+    const visitCalls = (node: ts.Node) => {
+      const callee = ts.isCallExpression(node) && unwrap(node.expression);
+      const symbol =
+        callee && ts.isIdentifier(callee) && localSymbol(testFile, callee);
+      const kinds = symbol && waiting.get(symbol);
+      if (kinds && touches([rangeOf(node)]) && !faked(node, kinds)) {
+        report(
+          "call to a helper that waits on a real-time deadline",
+          node,
+          `${callee.getText(sourceFile)} gives up after a fixed time or number of polls`,
+        );
+      }
+      ts.forEachChild(node, visitCalls);
+    };
+    visitCalls(sourceFile);
+  }
+
+  return findings.sort((a, b) => a.line - b.line);
 }
 
 function readSource(absPath: string, rel: string): string {
@@ -1168,7 +1930,7 @@ function formatFinding(finding: WallClockFinding): string {
   const note = finding.shortReason
     ? `  (wall-clock-ok reason is shorter than ${MIN_REASON_LENGTH} characters)`
     : "";
-  return `  ${finding.file}:${finding.line} - ${finding.snippet}${note}`;
+  return `  ${finding.file}:${finding.line} - ${finding.kind}: ${finding.snippet}${note}`;
 }
 
 function runDiffScoped(): void {
@@ -1193,7 +1955,7 @@ function runDiffScoped(): void {
   }
 
   console.error(
-    `${GUARD_NAME}: ${findings.length} assertion(s) on elapsed wall-clock time added in tests.\n` +
+    `${GUARD_NAME}: ${findings.length} assertion(s) or wait(s) that real time decides added in tests.\n` +
       "A loaded CI runner stretches real time, so these fail correct runs.\n",
   );
   for (const finding of findings) console.error(formatFinding(finding));
@@ -1221,12 +1983,17 @@ function runAll(): void {
     ),
   );
   for (const finding of findings) console.log(formatFinding(finding));
+  const byKind = new Map<FindingKind, number>();
+  for (const finding of findings) {
+    byKind.set(finding.kind, (byKind.get(finding.kind) ?? 0) + 1);
+  }
   console.log(
     `\n${GUARD_NAME} --all (measurement only, not a CI mode): ` +
-      `${findings.length} wall-clock assertion(s) in ` +
+      `${findings.length} finding(s) in ` +
       `${new Set(findings.map((finding) => finding.file)).size} of ` +
       `${files.length} test file(s).`,
   );
+  for (const [kind, count] of byKind) console.log(`  ${count} ${kind}`);
 }
 
 function main(): void {

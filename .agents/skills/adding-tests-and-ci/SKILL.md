@@ -130,7 +130,8 @@ another. With 500 slots CI plans eight lanes (`LANES` in `ci.yml`): each costs
 - **Leave headroom for work inside a test body.** Booting PGlite or
   importing a server bundle takes several times longer when every core is
   busy, and a different test crosses the limit each run. The shared config
-  allows 30 s; do not add a stricter per-block timeout.
+  allows 30 s, and `guard:no-wall-clock-assertions` rejects a test or hook
+  timeout below the config's.
 - **Give parallel workers separate databases.** A file that opens the
   database without `DATABASE_URL` gets the default directory, whose lock
   admits one process at a time. Core's Vitest setup gives each worker slot
