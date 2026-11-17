@@ -238,6 +238,11 @@ declare var __INTERACTION_MODE__: boolean;
       })
       .join(";");
   }
+  function containsFrozenAnimationTarget(root: Element) {
+    return Array.from(frozenAnimationTargets).some(function (element) {
+      return root.contains(element);
+    });
+  }
   new MutationObserver(function (records) {
     var changed = records.some(function (record) {
       var target =
@@ -256,18 +261,10 @@ declare var __INTERACTION_MODE__: boolean;
           );
         return (
           target.getAnimations({ subtree: true }).length > 0 ||
-          Array.from(frozenAnimationTargets).some(function (element) {
-            return target.contains(element);
-          })
+          containsFrozenAnimationTarget(target)
         );
       }
-      if (
-        target &&
-        Array.from(frozenAnimationTargets).some(function (element) {
-          return target.contains(element);
-        })
-      )
-        return true;
+      if (target && containsFrozenAnimationTarget(target)) return true;
       return Array.from(record.addedNodes)
         .concat(Array.from(record.removedNodes))
         .some(function (node) {

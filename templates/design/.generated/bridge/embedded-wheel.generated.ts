@@ -124,6 +124,11 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         return /^\\s*(?:-webkit-)?animation(?:-[\\w-]+)?\\s*:/.test(declaration);
       }).join(";");
     }
+    function containsFrozenAnimationTarget(root) {
+      return Array.from(frozenAnimationTargets).some(function(element) {
+        return root.contains(element);
+      });
+    }
     new MutationObserver(function(records) {
       var changed = records.some(function(record) {
         var target = record.target instanceof Element ? record.target : record.target.parentElement;
@@ -134,13 +139,9 @@ export const embeddedWheelBridgeScript: string = `"use strict";
             return false;
           if (record.attributeName === "style")
             return inlineAnimationDeclarations(record.oldValue) !== inlineAnimationDeclarations(target.getAttribute("style"));
-          return target.getAnimations({ subtree: true }).length > 0 || Array.from(frozenAnimationTargets).some(function(element) {
-            return target.contains(element);
-          });
+          return target.getAnimations({ subtree: true }).length > 0 || containsFrozenAnimationTarget(target);
         }
-        if (target && Array.from(frozenAnimationTargets).some(function(element) {
-          return target.contains(element);
-        }))
+        if (target && containsFrozenAnimationTarget(target))
           return true;
         return Array.from(record.addedNodes).concat(Array.from(record.removedNodes)).some(function(node) {
           return node instanceof Element && node !== freezeStyle && (node.matches("style") || !!node.querySelector("style") || node.getAnimations({ subtree: true }).length > 0);
