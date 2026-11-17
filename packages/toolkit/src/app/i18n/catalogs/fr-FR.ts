@@ -2480,7 +2480,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Impossible de lire ce choix enregistré. Choisissez Activé ou Désactivé pour le définir à nouveau.",
   "settingsShell.appGroup.labsSaveError":
     "Impossible de modifier {{lab}}. Réessayez.",
-  "settingsShell.appGroup.labsShowAll": "Afficher toutes les fonctionnalités Labs",
+  "settingsShell.appGroup.labsShowAll":
+    "Afficher toutes les fonctionnalités Labs",
   "settingsShell.appGroup.labsUseDefault": "Utiliser la valeur par défaut",
   "settingsShell.appGroup.mcpAbout":
     "Connectez {{app}} à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans {{app}} pour vous. Elle ne voit que ce que vous pouvez voir.",
