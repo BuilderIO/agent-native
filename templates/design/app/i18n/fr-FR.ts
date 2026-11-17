@@ -1776,6 +1776,8 @@ export default {
         "Images collées comme espaces réservés : {{count}}. {{tool}} ne copie pas les données d’image.",
       pasteImagesLinked:
         "Images toujours liées à {{tool}} : {{count}}. Elles n’ont pas pu être copiées dans votre stockage de fichiers.",
+      pasteImagesUnsaved:
+        "Images qui risquent de ne plus se charger car leur enregistrement n’a pas été confirmé : {{count}}",
       pasteNeedsEditAccess:
         "Vous avez besoin d’un accès en modification pour coller dans ce design.",
       pastePartialImport:

@@ -1685,6 +1685,8 @@ export default {
         "Images pasted as placeholders: {{count}}. {{tool}} does not copy image data.",
       pasteImagesLinked:
         "Images still linked to {{tool}}: {{count}}. They could not be copied into your file storage.",
+      pasteImagesUnsaved:
+        "Images that may stop loading because they could not be confirmed as saved: {{count}}",
       pasteNeedsEditAccess: "You need edit access to paste into this design.",
       pastePartialImport:
         "The paste failed and some screens may have been created. Check your screens.",

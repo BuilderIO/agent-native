@@ -226,6 +226,55 @@ describe("a design-tool paste that links remote images", () => {
     expect(settleImage).not.toHaveBeenCalledWith(keys[0], "delete");
   });
 
+  it("retries a release that is not confirmed, then warns the images may expire", async () => {
+    const failing = vi.fn(async (_key: string, _mode: "release" | "delete") => {
+      throw new Error("the upload was not confirmed as kept");
+    });
+    const { args } = setup(insideScreen, {
+      mirrorImage: async () => "https://files.test/a.png",
+      settleImage: failing,
+    });
+    await runImportDesignToolPasteIntoDesign(args, withImage());
+    expect(failing).toHaveBeenCalledTimes(3);
+    expect(failing).toHaveBeenCalledWith(expect.any(String), "release");
+    expect(toastWarning).toHaveBeenCalledWith(
+      "designEditor.import.warningsToast",
+      { description: "designEditor.import.pasteImagesUnsaved" },
+    );
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining("could not confirm an upload was kept"),
+      expect.any(Error),
+    );
+  });
+
+  it("keeps the uploads when a release confirms on a retry", async () => {
+    const settle = vi
+      .fn<(key: string, mode: "release" | "delete") => Promise<void>>()
+      .mockRejectedValueOnce(new Error("not yet"))
+      .mockResolvedValue(undefined);
+    const { args } = setup(insideScreen, {
+      mirrorImage: async () => "https://files.test/a.png",
+      settleImage: settle,
+    });
+    await runImportDesignToolPasteIntoDesign(args, withImage());
+    expect(settle).toHaveBeenCalledTimes(2);
+    expect(toastWarning).not.toHaveBeenCalled();
+  });
+
+  it("does not delete hosted uploads when an error comes after the layers were inserted", async () => {
+    const { args, settleImage } = setup(insideScreen, {
+      mirrorImage: async () => "https://files.test/a.png",
+    });
+    args.showPastedImagesNotice = () => {
+      throw new Error("ui failed after insert");
+    };
+    await runImportDesignToolPasteIntoDesign(args, {
+      ...withImage(),
+      unresolvedImages: 1,
+    });
+    expect(settleImage).not.toHaveBeenCalledWith(expect.anything(), "delete");
+  });
+
   it("deletes the hosted uploads when the layers cannot be inserted", async () => {
     const { args, settleImage } = setup(insideScreen, {
       mirrorImage: async () => "https://files.test/a.png",
@@ -443,6 +492,67 @@ describe("a design-tool paste with no screen to land in", () => {
         (body as { clientImportFinalBatch: boolean }).clientImportFinalBatch,
     );
     expect(finals).toEqual([false, false, true]);
+  });
+
+  it("sizes batches by the JSON that is sent, where escaping doubles a frame", async () => {
+    callAction.mockImplementation(async (_name: string, body: unknown) => ({
+      files: (body as { frames: unknown[] }).frames.map((_, i) => ({
+        id: `f${i}`,
+      })),
+    }));
+    // 1.1 MB of backslashes is 2.2 MB once JSON escapes it: two of these would
+    // fit a raw-size estimate under 3 MiB but not the real request.
+    const slashes = (title: string) => ({
+      ...layer(title),
+      content: `<!DOCTYPE html><html><body>${"\\".repeat(1_100_000)}</body></html>`,
+    });
+    const { args } = setup(noTarget);
+    await runImportDesignToolPasteIntoDesign(
+      args,
+      paste({ layers: [slashes("A"), slashes("B")] }),
+    );
+    expect(
+      callAction.mock.calls.map(
+        ([, body]) => (body as { frames: unknown[] }).frames.length,
+      ),
+    ).toEqual([1, 1]);
+  });
+
+  it("bounds a frame title taken from the copy", async () => {
+    callAction.mockResolvedValueOnce({ files: [{ id: "f1" }] });
+    const { args } = setup(noTarget);
+    await runImportDesignToolPasteIntoDesign(
+      args,
+      paste({ layers: [layer("T".repeat(5000))] }),
+    );
+    const [, body] = callAction.mock.calls[0] ?? [];
+    const title = (body as { frames: Array<{ frameTitle: string }> }).frames[0]
+      ?.frameTitle;
+    expect(title).toHaveLength(200);
+  });
+
+  it("keeps hosted uploads when screens may remain after a failed cleanup", async () => {
+    callAction
+      .mockRejectedValueOnce(new Error("import failed"))
+      .mockRejectedValueOnce(new Error("abort failed"));
+    const { args, settleImage } = setup(noTarget, {
+      mirrorImage: async () => "https://files.test/a.png",
+    });
+    await runImportDesignToolPasteIntoDesign(args, {
+      ...paste(),
+      layers: [
+        {
+          ...layer("Card"),
+          content: `<!DOCTYPE html><html><body><div style="background-image:url(&quot;https://cdn.example.test/a.png&quot;)"></div></body></html>`,
+        },
+      ],
+      remoteImages: ["https://cdn.example.test/a.png"],
+    });
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.import.errors.wonderPasteFailed",
+      { description: "designEditor.import.pastePartialImport" },
+    );
+    expect(settleImage).not.toHaveBeenCalledWith(expect.anything(), "delete");
   });
 
   it("tells the user screens may remain when clearing the batch also fails", async () => {

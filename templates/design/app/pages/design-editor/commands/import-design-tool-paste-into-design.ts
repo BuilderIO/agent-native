@@ -67,7 +67,12 @@ class ShownPasteError extends Error {}
 // body limit is 4 MiB; frames are packed under both, leaving headroom for JSON.
 const MAX_FRAMES_PER_REQUEST = 32;
 const MAX_REQUEST_BYTES = 3 * 1024 * 1024;
-const FRAME_REQUEST_OVERHEAD = 2048;
+// Separators around each frame in the request's frames array.
+const FRAME_REQUEST_SLACK = 16;
+// Frame titles are labels from the copy, so they are bounded like any input.
+const MAX_FRAME_TITLE_LENGTH = 200;
+const RELEASE_ATTEMPTS = 3;
+const RELEASE_RETRY_MS = 250;
 
 /** The batch import failed and clearing it failed too, so screens may remain. */
 class PartialImportError extends Error {
@@ -106,9 +111,23 @@ async function createScreens(
       clientImportBatchId: batchId,
       ...body,
     }) as Promise<{ error?: string; files?: Array<{ id: string }> }>;
+  const frames = layers.map((layer, index) => {
+    const position = positions[index];
+    return {
+      content: layer.content,
+      originalName: frameFilename(layer.title),
+      frameTitle: layer.title.slice(0, MAX_FRAME_TITLE_LENGTH),
+      ...(layer.width !== null ? { frameWidth: layer.width } : {}),
+      ...(layer.height !== null ? { frameHeight: layer.height } : {}),
+      ...(position ? { frameX: position.x, frameY: position.y } : {}),
+      clientImportId: `${batchId}:${index}`,
+    };
+  });
+  // Sized as the JSON that is sent, not as raw HTML: escaping control
+  // characters and backslashes can double a frame on the wire.
   const batches = packBatches(
-    layers,
-    (layer) => utf8ByteLength(layer.content) + FRAME_REQUEST_OVERHEAD,
+    frames,
+    (frame) => utf8ByteLength(JSON.stringify(frame)) + FRAME_REQUEST_SLACK,
     MAX_FRAMES_PER_REQUEST,
     MAX_REQUEST_BYTES,
   );
@@ -116,18 +135,7 @@ async function createScreens(
     for (const [batchIndex, batch] of batches.entries()) {
       const result = await importFrames({
         clientImportFinalBatch: batchIndex === batches.length - 1,
-        frames: batch.map(({ item: layer, index }) => {
-          const position = positions[index];
-          return {
-            content: layer.content,
-            originalName: frameFilename(layer.title),
-            frameTitle: layer.title,
-            ...(layer.width !== null ? { frameWidth: layer.width } : {}),
-            ...(layer.height !== null ? { frameHeight: layer.height } : {}),
-            ...(position ? { frameX: position.x, frameY: position.y } : {}),
-            clientImportId: `${batchId}:${index}`,
-          };
-        }),
+        frames: batch.map(({ item }) => item),
       });
       if (result.error) throw new Error(result.error);
       ids.push(...(result.files ?? []).map((file) => file.id));
@@ -192,17 +200,46 @@ export async function runImportDesignToolPasteIntoDesign(
   };
   const pasteId = browserImportId();
   let hostedKeys: string[] = [];
-  const settleHostedImages = (mode: "release" | "delete") =>
+  // True once screens or layers may point at the hosted images, after which
+  // deleting them would break what the paste made.
+  let referenced = false;
+  const deleteHostedImages = () =>
     Promise.all(
       hostedKeys.map((key) =>
-        settleImage(key, mode).catch((settleError: unknown) => {
+        settleImage(key, "delete").catch((settleError: unknown) => {
           console.error(
-            `[design-paste] could not ${mode} an upload:`,
+            "[design-paste] could not delete an upload:",
             settleError,
           );
         }),
       ),
     );
+  /** Keeps the hosted images, retrying; returns how many were not confirmed. */
+  const releaseHostedImages = async (): Promise<number> => {
+    const confirmed = await Promise.all(
+      hostedKeys.map(async (key) => {
+        for (let attempt = 1; attempt <= RELEASE_ATTEMPTS; attempt += 1) {
+          try {
+            await settleImage(key, "release");
+            return true;
+          } catch (releaseError) {
+            if (attempt === RELEASE_ATTEMPTS) {
+              console.error(
+                "[design-paste] could not confirm an upload was kept:",
+                releaseError,
+              );
+              return false;
+            }
+            await new Promise((resolve) =>
+              setTimeout(resolve, RELEASE_RETRY_MS * attempt),
+            );
+          }
+        }
+        return false;
+      }),
+    );
+    return confirmed.filter((ok) => !ok).length;
+  };
   try {
     let layers = pastedLayers;
     if (remoteImages.length > 0) {
@@ -232,6 +269,8 @@ export async function runImportDesignToolPasteIntoDesign(
     const plan = planFigmaPaste(layers, resolvePasteScene());
     if (plan.kind === "screens") {
       const createdIds = await createScreens(id, layers, plan.placeAt, pasteId);
+      // The server committed this batch's upload receipts with it.
+      referenced = true;
       await queryClient.invalidateQueries({ queryKey: ["action"] });
       const overviewPath = `/design/${id}?editorView=overview`;
       const firstFileId = createdIds[0];
@@ -261,10 +300,13 @@ export async function runImportDesignToolPasteIntoDesign(
     ) {
       throw new ShownPasteError(t("designEditor.toasts.primitiveInsertFailed"));
     }
-    await settleHostedImages("release");
+    referenced = true;
+    const unsaved = await releaseHostedImages();
+    if (unsaved > 0) warnings.push({ kind: "images-unsaved", count: unsaved });
     announceOutcome([fileId]);
   } catch (error) {
-    await settleHostedImages("delete");
+    if (error instanceof PartialImportError) referenced = true;
+    if (!referenced) await deleteHostedImages();
     if (error instanceof ShownPasteError) {
       failed(error.message);
       return;

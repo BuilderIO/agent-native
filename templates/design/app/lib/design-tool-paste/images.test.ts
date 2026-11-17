@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { emitFrames } from "./emit";
 import { hostRemoteImages } from "./images";
-import type { PasteFrame } from "./ir";
+import { PASTE_LIMITS, type PasteFrame } from "./ir";
 
 const frame = (...urls: string[]): PasteFrame => ({
   title: "Frame",
@@ -119,17 +119,18 @@ describe("hostRemoteImages", () => {
     expect(peak).toBeLessThanOrEqual(6);
   });
 
-  it("hosts only the first hundred images and reports the rest as kept", async () => {
+  it("hosts only the first batch of images and reports the rest as kept", async () => {
+    const limit = PASTE_LIMITS.hostedImages;
     const urls = Array.from(
-      { length: 101 },
+      { length: limit + 1 },
       (_, i) => `https://cdn.example.test/${i}.png`,
     );
     const { layers } = emitFrames([frame(...urls)], []);
     const mirror = vi.fn(async (url: string, _key: string) => `${url}.hosted`);
     const result = await hostRemoteImages(layers, urls, mirror, "p:image:");
-    expect(mirror).toHaveBeenCalledTimes(100);
-    expect(mirror.mock.calls.some(([url]) => url === urls[100])).toBe(false);
+    expect(mirror).toHaveBeenCalledTimes(limit);
+    expect(mirror.mock.calls.some(([url]) => url === urls[limit])).toBe(false);
     expect(result.kept).toBe(1);
-    expect(result.reason).toBe("only the first 100 images are copied");
+    expect(result.reason).toBe(`only the first ${limit} images are copied`);
   });
 });

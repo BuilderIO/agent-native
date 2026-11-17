@@ -1936,6 +1936,7 @@ export default {
         "以預留位置貼上的圖片：{{count}}。{{tool}} 不會複製圖片資料。",
       pasteImagesLinked:
         "仍連結至 {{tool}} 的圖片：{{count}}。無法將它們複製到你的檔案儲存空間。",
+      pasteImagesUnsaved: "因無法確認已儲存而可能無法繼續載入的圖片：{{count}}",
       pasteNeedsEditAccess: "貼到此設計需要編輯權限。",
       pastePartialImport: "貼上失敗，可能已建立部分畫面。請檢查你的畫面。",
       figmaSuccess: "已匯入 Figma 貼上內容",

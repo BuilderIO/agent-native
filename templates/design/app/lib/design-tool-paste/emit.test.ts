@@ -104,3 +104,62 @@ describe("emitted size is bounded", () => {
     expect(warnings).toEqual([]);
   });
 });
+
+describe("output accounting", () => {
+  const text = (label: string, content: string): PasteNode => ({
+    kind: "text",
+    label,
+    style: {},
+    text: content,
+  });
+
+  it("does not charge later frames for output a frame rejected", () => {
+    const warnings: PasteWarnings = [];
+    const frames: PasteFrame[] = Array.from({ length: 10 }, (_, i) =>
+      frame(
+        box({}, [
+          text(`kept${i}`, "k".repeat(1_200_000)),
+          text(`dropped${i}`, "d".repeat(1_200_000)),
+        ]),
+      ),
+    );
+    const { layers } = emitFrames(frames, warnings);
+    // Every frame keeps its first text; none is blanked by an earlier frame's
+    // rejected node.
+    expect(layers).toHaveLength(10);
+    for (const layer of layers) {
+      expect(layer.content).toContain("kkkkkkkk");
+      expect(layer.content).not.toContain("dddddddd");
+    }
+  });
+
+  it("refuses oversized text before escaping can grow it", () => {
+    const { layers, warnings } = emit(
+      box({}, [text("big", "<".repeat(PASTE_LIMITS.frameBytes + 1))]),
+    );
+    expect(layers[0]?.content.length).toBeLessThan(1000);
+    expect(warnings).toContainEqual({
+      kind: "inexact",
+      detail: `Stopped at the ${PASTE_LIMITS.frameBytes} byte limit for one frame.`,
+    });
+  });
+
+  it("keeps only the first few image fills of one layer", () => {
+    const images = Array.from({ length: 20 }, (_, i) => ({
+      url: `https://cdn.example.test/${i}.png`,
+    }));
+    const { layers, warnings, imageUrls } = emit({
+      kind: "box",
+      label: "Gallery",
+      style: {},
+      images,
+      children: [],
+    });
+    expect((layers[0]?.content.match(/url\(&quot;/g) ?? []).length).toBe(8);
+    expect(imageUrls).toHaveLength(8);
+    expect(warnings).toContainEqual({
+      kind: "inexact",
+      detail: "Kept the first 8 image fills of a layer.",
+    });
+  });
+});

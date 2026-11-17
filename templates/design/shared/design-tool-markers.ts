@@ -43,6 +43,26 @@ export function hasWonderClipboardMarker(value: string): boolean {
   return value.includes("wonder-clipboard:");
 }
 
+const WONDER_COMPLETE = /wonder-clipboard:[A-Za-z0-9+/=_-]{16,}/;
+
+/**
+ * Like `findDesignToolMarker`, for a plain-text flavor: a paste of ordinary
+ * text that merely mentions a marker must not be claimed, so Paper and Wonder
+ * copies need their whole envelope here.
+ */
+export function findCompleteDesignToolMarker(
+  value: string,
+): DesignToolMarker | null {
+  if (
+    value.includes("<paper-paste-start") &&
+    value.includes("></paper-paste-start>")
+  ) {
+    return "paper";
+  }
+  if (WONDER_COMPLETE.test(value)) return "wonder";
+  return hasFigmaClipboardMarkers(value) ? "figma" : null;
+}
+
 export function findDesignToolMarker(value: string): DesignToolMarker | null {
   if (hasPaperClipboardMarker(value)) return "paper";
   if (hasWonderClipboardMarker(value)) return "wonder";
@@ -55,9 +75,8 @@ export function designToolClipboardContent(
   data: { getData(type: string): string } | null | undefined,
 ): string {
   if (!data) return "";
-  for (const type of ["text/html", "text/plain"]) {
-    const value = data.getData(type) || "";
-    if (value && findDesignToolMarker(value)) return value;
-  }
-  return "";
+  const html = data.getData("text/html") || "";
+  if (html && findDesignToolMarker(html)) return html;
+  const text = data.getData("text/plain") || "";
+  return text && findCompleteDesignToolMarker(text) ? text : "";
 }

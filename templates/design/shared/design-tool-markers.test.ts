@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   designToolClipboardContent,
+  findCompleteDesignToolMarker,
   findDesignToolMarker,
   hasFigmaClipboardMarkers,
 } from "./design-tool-markers";
@@ -70,5 +71,45 @@ describe("designToolClipboardContent", () => {
       "",
     );
     expect(designToolClipboardContent(null)).toBe("");
+  });
+});
+
+describe("plain-text detection is stricter than HTML detection", () => {
+  const clipboard = (values: Record<string, string>) => ({
+    getData: (type: string) => values[type] ?? "",
+  });
+
+  it("does not claim ordinary text that only mentions a marker", () => {
+    for (const text of [
+      "remember to read the wonder-clipboard: docs",
+      "<paper-paste-start is the tag that wraps the data",
+      "wonder-clipboard:short",
+    ]) {
+      expect(findCompleteDesignToolMarker(text)).toBeNull();
+      expect(
+        designToolClipboardContent(clipboard({ "text/plain": text })),
+      ).toBe("");
+    }
+  });
+
+  it("claims a plain-text copy that carries the whole envelope", () => {
+    const wonder = `<!-- wonder-clipboard:${"A".repeat(40)} -->`;
+    const paper = `<!--<paper-paste-start data-embed="{}"></paper-paste-start>-->`;
+    expect(findCompleteDesignToolMarker(wonder)).toBe("wonder");
+    expect(findCompleteDesignToolMarker(paper)).toBe("paper");
+    expect(
+      designToolClipboardContent(clipboard({ "text/plain": wonder })),
+    ).toBe(wonder);
+  });
+
+  it("still lets the HTML flavor report a damaged copy", () => {
+    expect(findDesignToolMarker("<!-- wonder-clipboard:%%%% -->")).toBe(
+      "wonder",
+    );
+    expect(
+      designToolClipboardContent(
+        clipboard({ "text/html": "<!-- wonder-clipboard:%%%% -->" }),
+      ),
+    ).toBe("<!-- wonder-clipboard:%%%% -->");
   });
 });

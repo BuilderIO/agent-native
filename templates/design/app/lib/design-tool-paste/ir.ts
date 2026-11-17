@@ -22,7 +22,7 @@ export const PASTE_LIMITS = {
   /** Emitted HTML across all frames of one paste. */
   totalBytes: 16 * 1024 * 1024,
   /** Remote images hosted for one paste; the rest keep their link. */
-  hostedImages: 100,
+  hostedImages: 40,
 } as const;
 
 /**
@@ -33,7 +33,8 @@ export type PasteWarning =
   | { kind: "inexact"; detail: string }
   | { kind: "layer-type"; type: string }
   | { kind: "image-placeholders"; count: number }
-  | { kind: "images-linked"; count: number; reason: string | null };
+  | { kind: "images-linked"; count: number; reason: string | null }
+  | { kind: "images-unsaved"; count: number };
 
 export type PasteWarnings = PasteWarning[];
 

@@ -1711,6 +1711,7 @@ export default {
         "以占位符粘贴的图片：{{count}}。{{tool}} 不会复制图片数据。",
       pasteImagesLinked:
         "仍链接到 {{tool}} 的图片：{{count}}。无法将它们复制到你的文件存储。",
+      pasteImagesUnsaved: "因无法确认已保存而可能无法继续加载的图片：{{count}}",
       pasteNeedsEditAccess: "粘贴到此设计需要编辑权限。",
       pastePartialImport: "粘贴失败，可能已创建部分画面。请检查你的画面。",
       figmaSuccess: "已导入 Figma 粘贴内容",

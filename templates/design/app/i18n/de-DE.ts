@@ -1779,6 +1779,8 @@ export default {
         "Als Platzhalter eingefügte Bilder: {{count}}. {{tool}} kopiert keine Bilddaten.",
       pasteImagesLinked:
         "Weiterhin mit {{tool}} verknüpfte Bilder: {{count}}. Sie konnten nicht in deinen Dateispeicher kopiert werden.",
+      pasteImagesUnsaved:
+        "Bilder, die möglicherweise nicht mehr geladen werden, weil ihr Speichern nicht bestätigt wurde: {{count}}",
       pasteNeedsEditAccess:
         "Zum Einfügen in dieses Design brauchst du Bearbeitungszugriff.",
       pastePartialImport:

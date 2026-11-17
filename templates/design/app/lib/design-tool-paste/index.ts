@@ -1,3 +1,4 @@
+import { findCompleteDesignToolMarker } from "@shared/design-tool-markers";
 import type { FigmaPasteLayer } from "@shared/figma-paste-plan";
 
 import { detectFigma, readFigma } from "./figma";
@@ -49,8 +50,13 @@ export interface DesignToolSource {
 
 export function findDesignToolPasteHtml(
   html: string | undefined,
+  flavor: "html" | "text" = "html",
 ): DesignToolSource | null {
   if (!html) return null;
+  if (flavor === "text") {
+    const tool = findCompleteDesignToolMarker(html);
+    return tool ? { tool, html } : null;
+  }
   const adapter = ADAPTERS.find((candidate) => candidate.detect(html));
   return adapter ? { tool: adapter.tool, html } : null;
 }
@@ -62,12 +68,12 @@ export function findDesignToolPasteHtml(
 export function findDesignToolPaste(
   clipboardData: Pick<DataTransfer, "getData"> | null | undefined,
 ): DesignToolSource | null {
-  // Figma also lands in the plain-text flavor when pasted into a text field.
-  for (const type of ["text/html", "text/plain"]) {
-    const source = findDesignToolPasteHtml(clipboardData?.getData(type));
-    if (source) return source;
-  }
-  return null;
+  // A scene can also land in the plain-text flavor, which is held to the whole
+  // envelope so ordinary text that mentions a marker is left alone.
+  return (
+    findDesignToolPasteHtml(clipboardData?.getData("text/html"), "html") ??
+    findDesignToolPasteHtml(clipboardData?.getData("text/plain"), "text")
+  );
 }
 
 export async function readDesignToolSource(

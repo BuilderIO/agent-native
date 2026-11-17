@@ -931,6 +931,14 @@ export const editorChromeBridgeScript: string = `"use strict";
   function hasWonderClipboardMarker(value) {
     return value.includes("wonder-clipboard:");
   }
+  var WONDER_COMPLETE = /wonder-clipboard:[A-Za-z0-9+/=_-]{16,}/;
+  function findCompleteDesignToolMarker(value) {
+    if (value.includes("<paper-paste-start") && value.includes("></paper-paste-start>")) {
+      return "paper";
+    }
+    if (WONDER_COMPLETE.test(value)) return "wonder";
+    return hasFigmaClipboardMarkers(value) ? "figma" : null;
+  }
   function findDesignToolMarker(value) {
     if (hasPaperClipboardMarker(value)) return "paper";
     if (hasWonderClipboardMarker(value)) return "wonder";
@@ -939,11 +947,10 @@ export const editorChromeBridgeScript: string = `"use strict";
   }
   function designToolClipboardContent(data) {
     if (!data) return "";
-    for (const type of ["text/html", "text/plain"]) {
-      const value = data.getData(type) || "";
-      if (value && findDesignToolMarker(value)) return value;
-    }
-    return "";
+    const html = data.getData("text/html") || "";
+    if (html && findDesignToolMarker(html)) return html;
+    const text = data.getData("text/plain") || "";
+    return text && findCompleteDesignToolMarker(text) ? text : "";
   }
 
   // shared/export-image-source.ts

@@ -1765,6 +1765,8 @@ export default {
         "Imagens coladas como marcadores: {{count}}. O {{tool}} não copia dados de imagem.",
       pasteImagesLinked:
         "Imagens ainda vinculadas ao {{tool}}: {{count}}. Não foi possível copiá-las para o seu armazenamento de arquivos.",
+      pasteImagesUnsaved:
+        "Imagens que podem deixar de carregar porque o salvamento não foi confirmado: {{count}}",
       pasteNeedsEditAccess:
         "Você precisa de acesso de edição para colar neste design.",
       pastePartialImport:

@@ -93,6 +93,9 @@ const VALUE_GRAMMAR = /^[\w\s.,%#()/+*-]+$/;
 const RESOURCE_FUNCTION = /(?:url|expression|image-set|attr)\s*\(/i;
 // CSS drops comments before it tokenizes, so `url/**/(...)` is still a url().
 const CSS_COMMENT = /\/\*|\*\//;
+// Image fills one layer may carry; a bounded copy cannot expand into a huge
+// declaration ahead of the output budget.
+const MAX_IMAGE_FILLS = 8;
 const HTTPS_URL = /^https:\/\/[^\s"'()\\<>]+$/;
 
 export function escapeHtml(value: string): string {
@@ -224,7 +227,12 @@ function imageDeclarations(
   images: PasteImage[],
   walk: Walk,
 ): Array<string | null> {
-  const linked = images.filter((image) => {
+  if (images.length > MAX_IMAGE_FILLS) {
+    walk.warnings.push(
+      inexact(`Kept the first ${MAX_IMAGE_FILLS} image fills of a layer.`),
+    );
+  }
+  const linked = images.slice(0, MAX_IMAGE_FILLS).filter((image) => {
     if (HTTPS_URL.test(image.url)) return true;
     walk.warnings.push(inexact("Skipped an image Design cannot link to."));
     return false;
@@ -285,15 +293,33 @@ function utf8Length(text: string): number {
  * are visited. Over budget, the rest of the frame is dropped and reported.
  */
 function charge(walk: Walk, ...parts: string[]): boolean {
-  for (const part of parts) walk.bytes += utf8Length(part);
-  if (walk.bytes <= walk.byteLimit) return true;
-  if (!walk.truncated) {
-    walk.warnings.push(
-      inexact(`Stopped at the ${walk.byteLimit} byte limit for one frame.`),
-    );
-    walk.truncated = true;
+  const size = parts.reduce((total, part) => total + utf8Length(part), 0);
+  // Only output that is kept counts, so a node that does not fit cannot use up
+  // the budget that later frames of the paste still have.
+  if (walk.bytes + size <= walk.byteLimit) {
+    walk.bytes += size;
+    return true;
   }
+  truncate(walk);
   return false;
+}
+
+function truncate(walk: Walk): void {
+  if (walk.truncated) return;
+  walk.warnings.push(
+    inexact(`Stopped at the ${walk.byteLimit} byte limit for one frame.`),
+  );
+  walk.truncated = true;
+}
+
+/**
+ * True when text this long cannot fit the remaining budget even unescaped, so
+ * it is refused before escaping can grow it several-fold.
+ */
+function overBudget(walk: Walk, rawLength: number): boolean {
+  if (rawLength <= walk.byteLimit - walk.bytes) return false;
+  truncate(walk);
+  return true;
 }
 
 function nodeHtml(node: PasteNode, depth: number, walk: Walk): string {
@@ -331,6 +357,7 @@ function nodeHtml(node: PasteNode, depth: number, walk: Walk): string {
       return `${open}${inner}</svg>`;
     }
     case "text": {
+      if (overBudget(walk, node.text.length)) return "";
       const tag = allowedTag(node.tag, "span", walk);
       const open = `<${tag} data-agent-native-layer-name="${escapeHtml(node.label)}"${styleAttribute(node.style, fontDeclaration(node.font, walk), walk)}>`;
       const text = escapeHtml(node.text);

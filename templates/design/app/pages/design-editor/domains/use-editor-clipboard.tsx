@@ -943,8 +943,12 @@ export function useEditorClipboard({
       const result = (await callAction("upload-image", {
         idempotencyKey: key,
         cleanup: mode,
-      })) as { error?: string };
+      })) as { error?: string; released?: boolean };
       if (result.error) throw new Error(result.error);
+      // `released: false` means the receipt is still staged and would expire.
+      if (mode === "release" && result.released !== true) {
+        throw new Error("the upload was not confirmed as kept");
+      }
     },
     [],
   );

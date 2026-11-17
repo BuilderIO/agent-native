@@ -24,11 +24,13 @@ describe("describePasteWarnings", () => {
         { kind: "layer-type", type: "Ellipse" },
         { kind: "image-placeholders", count: 2 },
         { kind: "images-linked", count: 3, reason: "storage offline" },
+        { kind: "images-unsaved", count: 4 },
       ],
       "wonder",
       t,
     );
     expect(lines).toEqual([
+      'designEditor.import.pasteImagesUnsaved{"count":4,"tool":"Wonder"}',
       'designEditor.import.pasteImagesLinked{"count":3,"tool":"Wonder"}',
       'designEditor.import.pasteImagePlaceholders{"count":2,"tool":"Wonder"}',
       'designEditor.import.pasteLayerTypes{"count":1,"tool":"Wonder"}',

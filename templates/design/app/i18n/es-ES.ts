@@ -1773,6 +1773,8 @@ export default {
         "Imágenes pegadas como marcadores de posición: {{count}}. {{tool}} no copia los datos de imagen.",
       pasteImagesLinked:
         "Imágenes aún vinculadas a {{tool}}: {{count}}. No se pudieron copiar a tu almacenamiento de archivos.",
+      pasteImagesUnsaved:
+        "Imágenes que podrían dejar de cargarse porque no se confirmó su guardado: {{count}}",
       pasteNeedsEditAccess:
         "Necesitas acceso de edición para pegar en este diseño.",
       pastePartialImport:

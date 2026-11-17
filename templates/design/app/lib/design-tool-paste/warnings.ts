@@ -26,6 +26,7 @@ export function describePasteWarnings(
   let inexactCount = 0;
   let placeholders = 0;
   let linked = 0;
+  let unsaved = 0;
   const layerTypes = new Set<string>();
   const details: string[] = [];
   for (const warning of warnings) {
@@ -41,6 +42,9 @@ export function describePasteWarnings(
       case "image-placeholders":
         placeholders += warning.count;
         break;
+      case "images-unsaved":
+        unsaved += warning.count;
+        break;
       case "images-linked":
         linked += warning.count;
         if (warning.reason) details.push(warning.reason);
@@ -49,6 +53,14 @@ export function describePasteWarnings(
   }
   if (details.length > 0) console.warn(`[design-paste] ${label}:`, details);
   const lines: string[] = [];
+  if (unsaved > 0) {
+    lines.push(
+      t("designEditor.import.pasteImagesUnsaved", {
+        count: unsaved,
+        tool: label,
+      }),
+    );
+  }
   if (linked > 0) {
     lines.push(
       t("designEditor.import.pasteImagesLinked", {
