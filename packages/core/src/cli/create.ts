@@ -1,4 +1,9 @@
-import { execFileSync, execSync, spawnSync } from "child_process";
+import {
+  execFileSync,
+  execSync,
+  spawnSync,
+  type ExecFileSyncOptions,
+} from "child_process";
 import fs from "fs";
 import { Readable, Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -30,6 +35,7 @@ import {
   type GitHttpOptions,
 } from "./git-http.js";
 import { envProxyDispatcher } from "./http-proxy.js";
+import { shimSpawnTarget } from "./process.js";
 import {
   createAgentSymlink,
   prepareAgentSymlink,
@@ -1800,6 +1806,11 @@ function findLocalPackage(name: string): string | undefined {
   return undefined;
 }
 
+function runNpm(args: string[], options: ExecFileSyncOptions): void {
+  const [command, commandArgs, shell] = shimSpawnTarget("npm", args);
+  execFileSync(command, commandArgs, { ...options, shell });
+}
+
 function localPackageTarball(packageDir: string): string {
   const cached = localPackageTarballs.get(packageDir);
   if (cached) return cached;
@@ -1810,20 +1821,15 @@ function localPackageTarball(packageDir: string): string {
     path.join(os.tmpdir(), "agent-native-local-package-"),
   );
   const npmCacheDir = path.join(packDir, "npm-cache");
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  execFileSync(
-    npm,
-    ["pack", "--ignore-scripts", "--pack-destination", packDir],
-    {
-      cwd: packageDir,
-      env: {
-        ...process.env,
-        npm_config_cache: npmCacheDir,
-        npm_config_ignore_scripts: "true",
-      },
-      stdio: "ignore",
+  runNpm(["pack", "--ignore-scripts", "--pack-destination", packDir], {
+    cwd: packageDir,
+    env: {
+      ...process.env,
+      npm_config_cache: npmCacheDir,
+      npm_config_ignore_scripts: "true",
     },
-  );
+    stdio: "ignore",
+  });
 
   const tarballs = fs
     .readdirSync(packDir)
@@ -1849,19 +1855,15 @@ function localPackageTarball(packageDir: string): string {
     path.join(os.tmpdir(), "agent-native-local-package-repack-"),
   );
   const repackNpmCacheDir = path.join(repackDir, "npm-cache");
-  execFileSync(
-    npm,
-    ["pack", "--ignore-scripts", "--pack-destination", repackDir],
-    {
-      cwd: path.join(unpackDir, "package"),
-      env: {
-        ...process.env,
-        npm_config_cache: repackNpmCacheDir,
-        npm_config_ignore_scripts: "true",
-      },
-      stdio: "ignore",
+  runNpm(["pack", "--ignore-scripts", "--pack-destination", repackDir], {
+    cwd: path.join(unpackDir, "package"),
+    env: {
+      ...process.env,
+      npm_config_cache: repackNpmCacheDir,
+      npm_config_ignore_scripts: "true",
     },
-  );
+    stdio: "ignore",
+  });
   const repackedTarballs = fs
     .readdirSync(repackDir)
     .filter((entry) => entry.endsWith(".tgz"));
@@ -1928,12 +1930,11 @@ function ensureLocalPackageBuildOutputs(packageDir: string): void {
     );
   }
 
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   const npmCacheDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "agent-native-local-package-build-cache-"),
   );
   try {
-    execFileSync(npm, ["run", "build"], {
+    runNpm(["run", "build"], {
       cwd: packageDir,
       encoding: "utf-8",
       env: { ...process.env, npm_config_cache: npmCacheDir },

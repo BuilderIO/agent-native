@@ -2,10 +2,18 @@ import {
   deleteBlockTransaction,
   duplicateBlockTransaction,
 } from "@agent-native/toolkit/editor";
-import type { Node as ProseMirrorNode, NodeType } from "@tiptap/pm/model";
+import {
+  Fragment,
+  type Node as ProseMirrorNode,
+  type NodeType,
+} from "@tiptap/pm/model";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import { findWrapping } from "@tiptap/pm/transform";
 
+import {
+  TOGGLE_TITLE_NODE,
+  toggleTitleNode,
+} from "./extensions/NotionExtensions";
 import { isSourceComponentNode } from "./extensions/registryBlocks";
 import { isSuggestingEdits } from "./suggestions/read-only-blocks";
 
@@ -17,6 +25,10 @@ export const TURN_INTO_TARGETS = [
   "bulletedList",
   "numberedList",
   "todoList",
+  "toggle",
+  "toggleHeading1",
+  "toggleHeading2",
+  "toggleHeading3",
   "quote",
   "codeBlock",
 ] as const;
@@ -30,9 +42,29 @@ const WRAPPERS: Partial<Record<TurnIntoTarget, string>> = {
   quote: "blockquote",
 };
 
+const TOGGLE_HEADINGS: Partial<Record<TurnIntoTarget, number>> = {
+  toggleHeading1: 1,
+  toggleHeading2: 2,
+  toggleHeading3: 3,
+};
+
+const LIST_ITEMS: Record<string, string> = {
+  bulletList: "listItem",
+  orderedList: "listItem",
+  taskList: "taskItem",
+};
+
+function isTitledToggle(node: ProseMirrorNode) {
+  return node.type.name === "notionToggle" && !!toggleTitleNode(node);
+}
+
 /** Whether the block menu can turn this block into another kind. */
 export function canTurnInto(node: ProseMirrorNode) {
-  return node.type.name === "paragraph" || node.type.name === "heading";
+  return (
+    node.type.name === "paragraph" ||
+    node.type.name === "heading" ||
+    isTitledToggle(node)
+  );
 }
 
 export function currentTurnIntoTarget(
@@ -42,11 +74,16 @@ export function currentTurnIntoTarget(
   if (node.type.name === "heading" && [1, 2, 3].includes(node.attrs.level)) {
     return `heading${node.attrs.level}` as TurnIntoTarget;
   }
+  if (isTitledToggle(node)) {
+    return node.attrs.headingLevel
+      ? (`toggleHeading${node.attrs.headingLevel}` as TurnIntoTarget)
+      : "toggle";
+  }
   return null;
 }
 
 // Attributes both kinds have, such as a block colour, carry over.
-function carriedAttrs(
+export function carriedAttrs(
   from: ProseMirrorNode,
   to: NodeType,
   attrs: Record<string, unknown> = {},
@@ -59,8 +96,74 @@ function carriedAttrs(
 }
 
 /**
- * Turns the paragraph or heading at `pos` into `target`, keeping its text.
- * Returns false when it can't, after which `tr` must be dropped.
+ * A Toggle's title makes the new block, as in Notion. Its body stays under a
+ * list item or quote, which can hold it, and otherwise follows as plain blocks.
+ */
+function turnToggleInto(
+  tr: Transaction,
+  pos: number,
+  toggle: ProseMirrorNode,
+  target: TurnIntoTarget,
+): boolean {
+  const title = toggleTitleNode(toggle);
+  if (!title) return false;
+  const { schema } = tr.doc.type;
+  const headingLevel = TOGGLE_HEADINGS[target];
+  if (target === "toggle" || headingLevel) {
+    tr.setNodeAttribute(pos, "headingLevel", headingLevel ?? null);
+    return true;
+  }
+  const paragraph = schema.nodes.paragraph as NodeType | undefined;
+  if (!paragraph) return false;
+  const body = toggle.content.cut(title.nodeSize);
+  const line = (type: NodeType, attrs?: Record<string, unknown>) =>
+    type.create(carriedAttrs(toggle, type, attrs), title.content);
+  const wrapper = WRAPPERS[target];
+  let blocks: Fragment;
+  if (wrapper) {
+    const type = schema.nodes[wrapper] as NodeType | undefined;
+    const itemName = LIST_ITEMS[wrapper];
+    const item = itemName
+      ? (schema.nodes[itemName] as NodeType | undefined)
+      : undefined;
+    const lines = Fragment.from(paragraph.create(null, title.content)).append(
+      body,
+    );
+    if (!type || (itemName && !item)) return false;
+    if (!(item ?? type).validContent(lines)) return false;
+    blocks = Fragment.from(
+      type.create(null, item ? item.create(null, lines) : lines),
+    );
+  } else if (target === "codeBlock") {
+    const code = schema.nodes.codeBlock as NodeType | undefined;
+    if (!code) return false;
+    const text = title.textBetween(0, title.content.size, undefined, "\n");
+    blocks = Fragment.from(
+      code.create(null, text ? schema.text(text) : null),
+    ).append(body);
+  } else if (target === "text") {
+    blocks = Fragment.from(line(paragraph)).append(body);
+  } else {
+    const heading = schema.nodes.heading as NodeType | undefined;
+    if (!heading) return false;
+    blocks = Fragment.from(
+      line(heading, { level: Number(target.slice(-1)) }),
+    ).append(body);
+  }
+  tr.replaceWith(pos, pos + toggle.nodeSize, blocks);
+  return true;
+}
+
+/** Code holds only text and line breaks, so anything else on a line would go. */
+function fitsInCode(line: ProseMirrorNode): boolean {
+  return line.content.content.every(
+    (node) => node.isText || node.type.name === "hardBreak",
+  );
+}
+
+/**
+ * Turns the paragraph, heading or Toggle at `pos` into `target`, keeping its
+ * text. Returns false when it can't, after which `tr` must be dropped.
  */
 export function turnBlockInto(
   tr: Transaction,
@@ -69,7 +172,28 @@ export function turnBlockInto(
 ): boolean {
   const node = tr.doc.nodeAt(pos);
   if (!node || !canTurnInto(node)) return false;
+  if (target === "codeBlock" && !fitsInCode(toggleTitleNode(node) ?? node)) {
+    return false;
+  }
+  if (isTitledToggle(node)) return turnToggleInto(tr, pos, node, target);
   const { schema } = tr.doc.type;
+  if (target === "toggle" || TOGGLE_HEADINGS[target]) {
+    const toggle = schema.nodes.notionToggle as NodeType | undefined;
+    const title = schema.nodes[TOGGLE_TITLE_NODE] as NodeType | undefined;
+    if (!toggle || !title) return false;
+    tr.replaceWith(
+      pos,
+      pos + node.nodeSize,
+      toggle.create(
+        carriedAttrs(node, toggle, {
+          open: true,
+          headingLevel: TOGGLE_HEADINGS[target] ?? null,
+        }),
+        title.create(null, node.content),
+      ),
+    );
+    return true;
+  }
   const setType = (
     type: NodeType | undefined,
     attrs?: Record<string, unknown>,
@@ -147,6 +271,13 @@ export function blockTitleKey(node: ProseMirrorNode): string {
 export function blockCommentRange(node: ProseMirrorNode, pos: number) {
   if (node.isAtom || node.type.name === "table" || !node.textContent.trim()) {
     return null;
+  }
+  // A comment on a Toggle is about its own line, not everything folded in it.
+  const title = toggleTitleNode(node);
+  if (title) {
+    return title.textContent.trim()
+      ? { from: pos + 2, to: pos + title.nodeSize }
+      : null;
   }
   return { from: pos + 1, to: pos + node.nodeSize - 1 };
 }

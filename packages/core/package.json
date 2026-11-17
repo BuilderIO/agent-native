@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.228.2",
+  "version": "0.229.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -450,6 +450,10 @@
     "./testing": {
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"
+    },
+    "./testing/cpu-time": {
+      "types": "./dist/testing/cpu-time.d.ts",
+      "default": "./dist/testing/cpu-time.js"
     },
     "./router": "./dist/router/index.js",
     "./collab": "./dist/collab/index.js",

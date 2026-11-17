@@ -335,27 +335,65 @@ function uniqueIndexByKey<T>(
   return index;
 }
 
-function characterBigrams(value: string): Set<string> {
-  const normalized = value.toLocaleLowerCase().replace(/\s+/g, " ").trim();
-  if (normalized.length < 2) return new Set(normalized ? [normalized] : []);
-  const result = new Set<string>();
-  for (let index = 0; index < normalized.length - 1; index++) {
-    result.add(normalized.slice(index, index + 2));
-  }
-  return result;
+const TEXT_PIECE_LENGTH = 4;
+
+// Whitespace is left out, so the parts of a split or merge read the same as
+// the text they came from. Accented letters typed as a letter and a combining
+// mark compare the same as the single character.
+function comparableText(value: string): string {
+  return value.normalize("NFC").toLocaleLowerCase().replace(/\s+/g, "");
 }
 
-const MIN_EDIT_SIMILARITY = 0.45;
-
-function editSimilarity(left: string, right: string): number {
-  const leftBigrams = characterBigrams(left);
-  const rightBigrams = characterBigrams(right);
-  if (leftBigrams.size === 0 || rightBigrams.size === 0) return 0;
-  let shared = 0;
-  for (const bigram of leftBigrams) {
-    if (rightBigrams.has(bigram)) shared++;
+// Comparable text as counted, overlapping four-character pieces, with its
+// start and end marked.
+function textPieces(text: string): Map<string, number> {
+  const pieces = new Map<string, number>();
+  if (!text) return pieces;
+  const marked = `\u0002${text}\u0003`;
+  const last = Math.max(0, marked.length - TEXT_PIECE_LENGTH);
+  for (let index = 0; index <= last; index++) {
+    const piece = marked.slice(index, index + TEXT_PIECE_LENGTH);
+    pieces.set(piece, (pieces.get(piece) ?? 0) + 1);
   }
-  return (2 * shared) / (leftBigrams.size + rightBigrams.size);
+  return pieces;
+}
+
+const MIN_SURVIVING_TEXT = 0.5;
+
+// How many of the old text's pieces the new text still contains, out of all
+// of them.
+function survivingText(
+  oldText: string,
+  newText: string,
+): { kept: number; total: number } {
+  const oldComparable = comparableText(oldText);
+  const newComparable = comparableText(newText);
+  // One or two characters and both marks make a single piece, which any
+  // added text breaks. Text that short survives where the new text starts or
+  // ends with it.
+  if (oldComparable && oldComparable.length + 2 <= TEXT_PIECE_LENGTH) {
+    const survives =
+      newComparable.startsWith(oldComparable) ||
+      newComparable.endsWith(oldComparable);
+    return { kept: survives ? 1 : 0, total: 1 };
+  }
+  const oldPieces = textPieces(oldComparable);
+  const newPieces = textPieces(newComparable);
+  let total = 0;
+  let kept = 0;
+  for (const [piece, count] of oldPieces) {
+    total += count;
+    kept += Math.min(count, newPieces.get(piece) ?? 0);
+  }
+  return { kept, total };
+}
+
+// An edit keeps at least half of a block's text, however much it adds.
+// Unrelated prose shares common words and letter pairs, but few runs of four
+// characters.
+function keepsText(oldText: string, newText: string): boolean {
+  const { kept, total } = survivingText(oldText, newText);
+  return total > 0 && kept >= total * MIN_SURVIVING_TEXT;
 }
 
 function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
@@ -367,12 +405,6 @@ function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
 function startsWithBlock(whole: string, part: string): boolean {
   const prefix = part.trim();
   return prefix.length > 0 && whole.trimStart().startsWith(prefix);
-}
-
-// A split or merge keeps most of its text: the one block on one side reads
-// like the blocks on the other side joined together.
-function keepsText(whole: string, parts: readonly string[]): boolean {
-  return editSimilarity(whole, parts.join("\n")) >= MIN_EDIT_SIMILARITY;
 }
 
 interface PreviousSibling {
@@ -573,17 +605,19 @@ export function reconcileBlocksFieldIdentity(args: {
           if (!firstPrevious || !firstNext) continue;
           const previousMarkdown = firstPrevious.block.markdown;
           const nextMarkdown = firstNext.snapshot.markdown;
+          // A split's new blocks, joined, keep the old block's text; a
+          // merge's one new block keeps the old blocks' text.
           const split =
             !manyPrevious &&
             manyNext &&
             (previousMarkdown === EMPTY_PARAGRAPH_MARKDOWN ||
               (startsWithBlock(previousMarkdown, nextMarkdown) &&
-                keepsText(previousMarkdown, nextTexts)));
+                keepsText(previousMarkdown, nextTexts.join("\n"))));
           const merge =
             manyPrevious &&
             !manyNext &&
             startsWithBlock(nextMarkdown, previousMarkdown) &&
-            keepsText(nextMarkdown, previousTexts);
+            keepsText(previousTexts.join("\n"), nextMarkdown);
           const rewrite = allowRewrite && !manyPrevious && !manyNext;
           if (split || merge || rewrite) {
             pair(firstPrevious, firstNext.index);
@@ -632,8 +666,15 @@ export function reconcileBlocksFieldIdentity(args: {
       if (assigned.has(nextIndex)) continue;
       const snapshot = snapshots[nextIndex]!;
       if (previous.kind !== snapshot.kind) continue;
-      const score = editSimilarity(previous.markdown, snapshot.markdown);
-      if (score < MIN_EDIT_SIMILARITY) continue;
+      const { kept, total } = survivingText(
+        previous.markdown,
+        snapshot.markdown,
+      );
+      if (total === 0 || kept < total * MIN_SURVIVING_TEXT) continue;
+      // Pairs rank by how much text they share, not by the share of the old
+      // text: a short old block that a new one contains whole must not win
+      // over the longer block the new one was edited from.
+      const score = kept;
       const previousBest = bestNextForPrevious.get(previousIndex);
       if (!previousBest || score > previousBest.score) {
         bestNextForPrevious.set(previousIndex, { index: nextIndex, score });

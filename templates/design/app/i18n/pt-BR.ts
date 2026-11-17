@@ -1757,6 +1757,20 @@ export default {
       localDescription:
         "Conecte qualquer app local em execução com /visual-edit.",
       warningsToast: "Importação concluída com avisos",
+      pasteUnreadable: "Não foi possível ler as camadas copiadas.",
+      pasteInexact: "Detalhes não colados com exatidão: {{count}}",
+      pasteLayerTypes:
+        "Tipos de camada do {{tool}} colados como quadros simples: {{count}}",
+      pasteImagePlaceholders:
+        "Imagens coladas como marcadores: {{count}}. O {{tool}} não copia dados de imagem.",
+      pasteImagesLinked:
+        "Imagens ainda vinculadas ao {{tool}}: {{count}}. Não foi possível copiá-las para o seu armazenamento de arquivos.",
+      pasteImagesUnsaved:
+        "Imagens que podem deixar de carregar porque o salvamento não foi confirmado: {{count}}",
+      pasteNeedsEditAccess:
+        "Você precisa de acesso de edição para colar neste design.",
+      pastePartialImport:
+        "A colagem falhou e algumas telas podem ter sido criadas. Confira suas telas.",
       figmaSuccess: "Colagem do Figma importada",
       htmlSuccess: "HTML importado",
       uploadSuccess: "Arquivo importado",
@@ -1767,6 +1781,8 @@ export default {
         notHtml: "Cole ou escolha HTML válido para importar.",
         importFailed: "Falha ao importar",
         figmaPasteFailed: "Falha ao importar colagem do Figma",
+        paperPasteFailed: "Falha ao importar a colagem do Paper",
+        wonderPasteFailed: "Falha ao importar a colagem do Wonder",
         uploadFailed: "Falha no upload do arquivo",
         invalidFigFile: "Escolha um arquivo que termine em .fig.",
         unsupportedFileType: "Escolha um arquivo .fig, .html ou .htm.",
@@ -2097,6 +2113,9 @@ export default {
     addTweaks: "Adicionar ajustes",
     addTweakControls: "Adicionar controles de ajuste",
     closeTweaks: "Fechar ajustes",
+    showFloatingTweaks: "Mostrar ajustes flutuantes",
+    collapseTweaks: "Recolher ajustes",
+    expandTweaks: "Expandir ajustes",
     tweaksHelp:
       "Os ajustes são substituições visuais específicas de breakpoint e estado sobre o design base. Redefina um controle para voltar ao valor herdado.",
     tweaksDocs: "Saiba mais.",
@@ -2365,6 +2384,9 @@ export default {
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Os ajustes foram alterados em outro lugar. Atualize o design antes de tentar novamente.",
+      tweakBaselineUnreadable:
+        "Não foi possível ler a referência salva dos ajustes. As alterações estão pausadas até que os dados do design sejam corrigidos.",
+      resetTweakBaseline: "Redefinir referência",
       tweakSaveNotDurable:
         "Os ajustes ainda não foram salvos. Mantenha esta aba aberta e tente novamente.",
       undoSkippedConcurrentEdit: "Desfazer ignorado — outra pessoa moveu isso",
@@ -3516,6 +3538,10 @@ export default {
     markedUnread: "Marcado como não lido",
     markUnreadFailed: "Não foi possível marcar como não lido",
     attachImage: "Anexar imagem",
+    removeImage: "Remover imagem",
+    imageUploadFailed: "Não foi possível enviar a imagem",
+    editChanged:
+      "Este comentário mudou depois que você começou a editá-lo. Salve de novo para substituí-lo.",
     searching: "Pesquisando…",
     reactionFailed: "Não foi possível atualizar a reação",
     moveFailed: "Não foi possível mover o comentário",
@@ -3563,6 +3589,8 @@ export default {
       fallbackName: "IA",
       setupRequired: "Conecte um modelo de IA para usar agentes",
       startFailed: "Não foi possível iniciar o agente",
+      hostChatUnconfirmed:
+        "Não foi possível confirmar se a mensagem chegou ao chat anfitrião. Confira esse chat antes de tentar novamente.",
       cancelFailed: "Não foi possível interromper o agente",
       busy: "Um agente já está trabalhando nesta conversa",
       error: {

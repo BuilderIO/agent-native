@@ -932,6 +932,25 @@ describe("open-visual-edit", () => {
     );
   });
 
+  it("includes minimal UI in the editor route and MCP link when requested", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/"],
+      minimalUi: true,
+      navigate: false,
+    });
+
+    expect(result.urlPath).toBe(
+      "/visual-edit/design_1?editorView=overview&embedChrome=1&minimalUi=1",
+    );
+    expect(result.openUrl).toBe(
+      "agent-native://open/visual-edit/design_1?editorView=overview&embedChrome=1&minimalUi=1",
+    );
+    expect(action.link!({ args: {}, result }).url).toBe(result.openUrl);
+    expect(action.mcpApp?.resource).toBeDefined();
+  });
+
   it("returns the app link after saving an originless local visual-edit request", async () => {
     mocks.getRequestContext.mockReturnValue({
       userEmail: "owner@example.com",

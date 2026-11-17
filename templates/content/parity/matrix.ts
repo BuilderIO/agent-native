@@ -591,19 +591,19 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "sharing.agent-text-lock",
     surface: "sharing",
-    label: "Lock a page's text against agents",
+    label: "Set what agents can do on a page",
     uiEntrypoints: [
       "app/components/editor/DocumentToolbar.tsx",
       "app/components/editor/AgentsShareTab.tsx",
     ],
     durableEffect:
-      "The lock is stored on the document, and every action that writes a page's text refuses an agent's call while it is on. The exception is a GitHub folder sync an agent starts: pages following a GitHub file are view-only in Content anyway, and it doesn't name one page.",
+      "The level is stored on the document. At Can comment and Can view every action that writes a page's text or icon refuses an agent's call; at Can view agents are also refused comments, replies, reactions, suggested edits, Notion comment sync and Clip comments, and Ask AI can't answer there. The exception is a GitHub folder sync an agent starts: pages following a GitHub file are view-only in Content anyway, and it doesn't name one page.",
     uiImplementation:
-      "The Share panel's Agents tab calls the set-document-agent-text-lock Action: Can comment turns the lock on and Can edit turns it off.",
+      "The Share panel's Agents tab calls the set-document-agent-text-lock Action with the level picked: Can view, Can comment or Can edit.",
     status: "action-backed",
     actions: ["set-document-agent-text-lock"],
     exception:
-      "set-document-agent-text-lock is hidden with agentTool: false because the lock has to hold against agents, so only a person can change it.",
+      "set-document-agent-text-lock is hidden with agentTool: false because the level has to hold against agents, so only a person can change it.",
     reliabilityRisk: "none",
     spinePriority: "P1",
     testCoverage: "covered",
@@ -612,6 +612,31 @@ export const parityMatrix: ParityRow[] = [
       "actions/agent-text-lock.db.test.ts",
       "app/components/editor/AgentLevel.ui.test.tsx",
       "app/components/editor/AgentsShareTab.ui.test.tsx",
+    ],
+  },
+  {
+    id: "database.tab-freeze-rule",
+    surface: "database",
+    label: "Freeze a collection's tab while a row's status has chosen values",
+    uiEntrypoints: [
+      "app/components/editor/DocumentBlockFields.tsx",
+      "app/hooks/use-document-properties.ts",
+    ],
+    durableEffect:
+      "The rule is stored on the tab's column. While a row's status or select column has one of its values, every save to that row's tab is refused, from people and agents alike, and the tab's column and the column it keys on can't be deleted or retyped, nor a named value removed, until the rule is lifted.",
+    uiImplementation:
+      "The tab menu's Freeze while submenu calls the set-blocks-field-freeze-rule Action; the frozen tab shows a lock and a read-only note.",
+    status: "action-backed",
+    actions: ["set-blocks-field-freeze-rule"],
+    exception:
+      "set-blocks-field-freeze-rule is hidden with agentTool: false because the rule holds agents to it, so only a person with full access to the collection can set or lift one. Agents meet the rule as a COLUMN_RULE_FROZEN refusal from set-document-property and the block actions.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/column-rules.db.test.ts",
+      "shared/column-rules.test.ts",
     ],
   },
   {
@@ -897,11 +922,13 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "add-content-database-source-field-property",
+      "add-github-pull-requests",
       "attach-content-database-source",
       "bind-content-database-source-field",
       "change-content-database-source-role",
       "check-github-connection",
       "create-github-collection",
+      "create-github-pull-request-collection",
       "disconnect-content-database-source",
       "get-content-database-source",
       "link-github-folder",
@@ -920,6 +947,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/bind-content-database-source-field.db.test.ts",
       "actions/content-database-source-actions.test.ts",
+      "actions/github-pull-requests-source.db.test.ts",
       "actions/github-source.db.test.ts",
       "actions/resync-content-database-source.db.test.ts",
       "app/components/editor/database/DatabaseView.github-sources.ui.test.tsx",

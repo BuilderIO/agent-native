@@ -42,7 +42,8 @@ vi.mock("./_property-utils.js", () => ({
   listPropertiesForDocument: (...args: unknown[]) =>
     mockListProperties(...args),
 }));
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: (...conditions: unknown[]) => ({ and: conditions }),
   eq: (column: unknown, value: unknown) => ({ column, value }),
 }));

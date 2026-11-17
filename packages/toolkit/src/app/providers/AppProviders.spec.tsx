@@ -46,6 +46,7 @@ import { useLocale } from "@agent-native/core/client/i18n";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { encodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 import { SsrSessionBootstrapContext } from "@agent-native/core/shared/ssr-session-bootstrap-slot";
+import { useTheme } from "next-themes";
 import { toast } from "sonner";
 
 import { AppProviders } from "./AppProviders.js";
@@ -242,6 +243,84 @@ function LocaleControl() {
   const { locale, setPreference } = useLocale();
   return <button onClick={() => void setPreference("es-ES")}>{locale}</button>;
 }
+
+function ThemeChoice() {
+  const { theme, setTheme } = useTheme();
+  return <button onClick={() => setTheme("light")}>{theme}</button>;
+}
+
+describe("AppProviders theme storage", () => {
+  it.each([true, false])(
+    "keeps an app's theme under its own key on public=%s routes",
+    async (isPublicPath) => {
+      useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+      window.localStorage.setItem("crm:theme", "dark");
+      window.localStorage.setItem("theme", "system");
+
+      await act(async () => {
+        root.render(
+          <AppProviders
+            queryClient={new QueryClient()}
+            i18n={false}
+            sessionBypass
+            isPublicPath={isPublicPath}
+            themeStorageKey="crm:theme"
+            disableWebMcp
+            enableThemeFamily={false}
+          >
+            <ThemeChoice />
+          </AppProviders>,
+        );
+      });
+
+      const button = container.querySelector("button");
+      expect(button?.textContent).toBe("dark");
+      await act(async () => button?.click());
+      expect(window.localStorage.getItem("crm:theme")).toBe("light");
+      expect(window.localStorage.getItem("theme")).toBe("system");
+    },
+  );
+
+  it("defaults the theme key to the injected app id", async () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    const original = Object.getOwnPropertyDescriptor(
+      window,
+      "__AGENT_NATIVE_CONFIG__",
+    );
+    Object.defineProperty(window, "__AGENT_NATIVE_CONFIG__", {
+      configurable: true,
+      value: { appId: "crm" },
+    });
+    try {
+      await act(async () => {
+        root.render(
+          <AppProviders
+            queryClient={new QueryClient()}
+            i18n={false}
+            sessionBypass
+            disableWebMcp
+            enableThemeFamily={false}
+          >
+            <ThemeChoice />
+          </AppProviders>,
+        );
+      });
+
+      const button = container.querySelector("button");
+      expect(button?.textContent).toBe("system");
+      await act(async () => button?.click());
+      expect(window.localStorage.getItem("crm:theme")).toBe("light");
+      expect(window.localStorage.getItem("theme")).toBeNull();
+    } finally {
+      if (original) {
+        Object.defineProperty(window, "__AGENT_NATIVE_CONFIG__", original);
+      } else {
+        delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
+          .__AGENT_NATIVE_CONFIG__;
+      }
+    }
+  });
+});
 
 describe("AppProviders session gate", () => {
   it("shares the app locale with the custom toaster", async () => {
