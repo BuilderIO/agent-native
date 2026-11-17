@@ -78,12 +78,16 @@ function canManageRole(role: string) {
   return role === "owner" || role === "admin";
 }
 
-/** Callers whose reader is a model, which get agentReadProperty's fields. */
+/**
+ * Callers whose reader is a model, which get agentReadProperty's fields. An
+ * automation run's agent calls tools as "automation".
+ */
 const AGENT_READ_CALLERS = new Set<ActionRunContext["caller"]>([
   "tool",
   "mcp",
   "webmcp",
   "a2a",
+  "automation",
 ]);
 
 /**

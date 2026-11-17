@@ -225,21 +225,29 @@ describe("get-document agent read", () => {
     );
   });
 
-  it("keeps the whole read for the app's own callers and detail full", async () => {
+  it("gives every agent caller one trimmed read and others the whole read", async () => {
     const { row } = await seedRow("whole");
     const full = await read(row, "frontend");
     const fullProperties = JSON.stringify(full.properties);
+    const agentProperties = JSON.stringify((await read(row, "mcp")).properties);
+    expect(agentProperties).not.toBe(fullProperties);
     for (const caller of ["mcp-widget", "cli", "http", undefined] as const) {
       expect(JSON.stringify((await read(row, caller)).properties)).toBe(
         fullProperties,
       );
     }
-    for (const caller of ["mcp", "tool", "webmcp", "a2a"] as const) {
+    for (const caller of [
+      "mcp",
+      "tool",
+      "webmcp",
+      "a2a",
+      "automation",
+    ] as const) {
       expect(JSON.stringify((await read(row, caller, "full")).properties)).toBe(
         fullProperties,
       );
-      expect(JSON.stringify((await read(row, caller)).properties)).not.toBe(
-        fullProperties,
+      expect(JSON.stringify((await read(row, caller)).properties)).toBe(
+        agentProperties,
       );
     }
   });
