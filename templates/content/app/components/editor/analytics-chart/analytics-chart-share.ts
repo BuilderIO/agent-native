@@ -63,6 +63,18 @@ export function subPageChartsRead(query: SubPageChartsQuery): ChartsRead {
   return { charts: data.charts ?? [], unread: false };
 }
 
+/** How long a read of the sub-pages' charts answers the question alone. */
+export const SUB_PAGE_CHARTS_FRESH_MS = 15_000;
+
+/**
+ * Whether a click making the page public reads the sub-pages again first:
+ * the question is asked on the click and can't wait for a read, so an older
+ * answer asks while the new read is out.
+ */
+export function subPageChartsNeedReading(readAt: number, now: number) {
+  return now - readAt > SUB_PAGE_CHARTS_FRESH_MS;
+}
+
 function goingWider(to: EmbedVisibility, read: ChartsRead): ChartsGoingWider {
   if (read.unread) return { warn: [], block: [], unread: true };
   return { ...analyticsChartsWiderThan(to, read.charts), unread: false };

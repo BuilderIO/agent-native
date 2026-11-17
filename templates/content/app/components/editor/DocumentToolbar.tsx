@@ -72,14 +72,13 @@ import { ContentIcon } from "../icons/ContentIcon";
 import {
   analyticsShareAsks,
   analyticsShareCheck,
+  subPageChartsNeedReading,
   subPageChartsRead,
   type ChartsGoingWider,
   type ChartsRead,
 } from "./analytics-chart/analytics-chart-share";
 
 const NO_CHARTS: AnalyticsChartData[] = [];
-// How often an open Share dialog reads the sub-pages' charts again.
-const SUB_PAGE_CHARTS_REFRESH_MS = 10_000;
 // A widget can't make a page public when that would carry sub-pages: core
 // refuses the change and sends the person to the app.
 const WIDGET_SUB_PAGES: ChartsRead = { charts: NO_CHARTS, unread: false };
@@ -1136,13 +1135,9 @@ export function DocumentToolbar({
     {
       enabled: shareMounted && !inWidget && Boolean(documentId),
       retry: false,
-      // The question is asked on the click and can't wait for a read, so
-      // the answer is kept within seconds of it: read again while Share is
-      // open and on coming back to the tab. Tables are refused at the write
-      // whatever this says.
-      refetchInterval: SUB_PAGE_CHARTS_REFRESH_MS,
-      // request-storm-allow: one read on return to the tab, only while Share is open, so going public asks about the sub-pages as they are.
-      refetchOnWindowFocus: true,
+      // Read when Share opens, when a page changes, and on the click that
+      // makes the page public (below); not on a timer.
+      refetchOnWindowFocus: false,
     },
   );
   const subPageRead = useMemo(
@@ -1174,10 +1169,25 @@ export function DocumentToolbar({
       ),
     [analyticsCharts, chartsUnread, subPageRead],
   );
+  const { dataUpdatedAt: subPagesReadAt, refetch: readSubPagesAgain } =
+    subPageCharts;
   const confirmChartAudience = useCallback(
-    (from: EmbedVisibility, to: EmbedVisibility) =>
-      isWiderVisibility(to, from) && analyticsShareAsks(shareCheck(to)),
-    [shareCheck],
+    (from: EmbedVisibility, to: EmbedVisibility) => {
+      if (!isWiderVisibility(to, from)) return false;
+      // Going public on an older answer reads the sub-pages again and asks
+      // while that read is out; the question's text follows the read. Tables
+      // are refused when the change is saved, whatever this read says.
+      if (
+        to === "public" &&
+        !inWidget &&
+        subPageChartsNeedReading(subPagesReadAt, Date.now())
+      ) {
+        void readSubPagesAgain();
+        return true;
+      }
+      return analyticsShareAsks(shareCheck(to));
+    },
+    [inWidget, readSubPagesAgain, shareCheck, subPagesReadAt],
   );
   const chartShareDetail = useCallback(
     (to: EmbedVisibility) => {

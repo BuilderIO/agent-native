@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   analyticsShareAsks,
   analyticsShareCheck,
+  SUB_PAGE_CHARTS_FRESH_MS,
+  subPageChartsNeedReading,
   subPageChartsRead,
 } from "./analytics-chart-share";
 
@@ -114,5 +116,17 @@ describe("subPageChartsRead", () => {
     ]) {
       expect(subPageChartsRead(query)).toEqual({ charts: [], unread: true });
     }
+  });
+});
+
+describe("subPageChartsNeedReading", () => {
+  it("reads the sub-pages again before going public on an older answer", () => {
+    const readAt = 1_000_000;
+    expect(subPageChartsNeedReading(readAt, readAt + 1_000)).toBe(false);
+    expect(
+      subPageChartsNeedReading(readAt, readAt + SUB_PAGE_CHARTS_FRESH_MS + 1),
+    ).toBe(true);
+    // No answer yet.
+    expect(subPageChartsNeedReading(0, readAt)).toBe(true);
   });
 });
