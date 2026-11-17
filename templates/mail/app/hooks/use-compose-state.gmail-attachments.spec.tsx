@@ -4,7 +4,15 @@ import type { ComposeAttachment, ComposeState } from "@shared/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 
 import {
   applyDraftSaveResult,
@@ -17,7 +25,10 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
   appApiPath: (path: string) => path,
 }));
+const mocks = vi.hoisted(() => ({ callAction: vi.fn() }));
+
 vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction: mocks.callAction,
   getBrowserTabId: () => "tab",
   useActionMutation: () => ({ mutateAsync: vi.fn() }),
 }));
@@ -122,64 +133,136 @@ describe("a Gmail save that moved the draft's files", () => {
   });
 });
 
+type Ref = { gmailMessageId: string; gmailAttachmentId: string };
+
+const refsOf = (attachments: ComposeAttachment[] | undefined) =>
+  (attachments ?? []).map(
+    (file) => `${file.gmailMessageId}/${file.gmailAttachmentId}`,
+  );
+
+const unconfirmedMessage =
+  "Gmail saved the draft, but Mail couldn't confirm where its attachments moved (Backend Error). Saving the draft again finds them.";
+
 /**
  * A mounted compose hook over a Mail server whose Gmail, like the real one,
- * moves the draft's file to a new message on every save and can't read it
- * from the old one.
+ * moves the draft's file to a new message on every save. The draft holds
+ * `savedDraftId`; a mailbox save names Gmail's draft "r-draft-7" from then
+ * on. Each save answers with the next of `answers`, or "moved": "moved"
+ * finds the file, wherever the draft's refs left it, and reports its move;
+ * "unconfirmed" is a save Gmail kept without Mail learning where the file
+ * went. Mail's store holds each write, except the first `refuseStore`
+ * (all, if true): then the composer saves the text on screen through Mail's
+ * draft route instead of a sync of the stored draft.
  */
-async function mounted() {
+async function mounted({
+  savedDraftId = "r-draft-7",
+  answers = [],
+  refuseStore = false,
+}: {
+  savedDraftId?: string;
+  answers?: ("moved" | "unconfirmed")[];
+  refuseStore?: boolean | number;
+} = {}) {
+  let refusals = refuseStore === true ? Infinity : refuseStore || 0;
   let version = 1;
-  const saves: { status: number; refs: string[] }[] = [];
+  const current = (): Ref =>
+    version === 1
+      ? { gmailMessageId: "message-of-draft", gmailAttachmentId: "part-1" }
+      : {
+          gmailMessageId: `message-${version}`,
+          gmailAttachmentId: `part-${version}`,
+        };
+  let stored: ComposeState = { ...reopened([draftFile]), savedDraftId };
+  const saves: { draftId: string | undefined; refs: string[] }[] = [];
+  const writes: ComposeState[] = [];
   let hold: Promise<void> | undefined;
+  const metadata = {
+    draftId: "r-draft-7",
+    backend: "gmail",
+    accountEmail: "owner@example.com",
+  } as const;
+
+  /** Gmail's update of the draft from `sent`, and what it reports. */
+  const saveToGmail = async (sent: ComposeState) => {
+    await hold;
+    saves.push({ draftId: sent.savedDraftId, refs: refsOf(sent.attachments) });
+    const answer = answers.shift() ?? "moved";
+    const [file] = sent.attachments ?? [];
+    const from: Ref = {
+      gmailMessageId: file?.gmailMessageId ?? "",
+      gmailAttachmentId: file?.gmailAttachmentId ?? "",
+    };
+    version += 1;
+    return answer === "moved"
+      ? { moved: [{ from, to: current() }] }
+      : { moved: undefined };
+  };
+
+  mocks.callAction.mockReset();
+  mocks.callAction.mockImplementation(async (name: string) => {
+    if (name !== "sync-draft-mailbox") throw new Error(`Unexpected ${name}`);
+    const { moved } = await saveToGmail(stored);
+    stored = applyDraftSaveResult(stored, {
+      status: "saved",
+      ...metadata,
+      ...(moved ? { movedAttachments: moved } : {}),
+    });
+    return moved
+      ? {
+          status: "synced",
+          savedDraft: { ...metadata, movedAttachments: moved },
+        }
+      : {
+          status: "pending",
+          errorCode: "draft_attachments_unconfirmed",
+          message: unconfirmedMessage,
+          savedDraft: metadata,
+        };
+  });
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === "PATCH") {
-        const next = JSON.parse(String(init.body)).next;
+        if (refusals > 0) {
+          refusals -= 1;
+          return asJson({ error: "refused" }, 500);
+        }
+        const next: ComposeState = JSON.parse(String(init.body)).next;
+        writes.push(next);
+        stored = next;
         return asJson({ value: next, revision: `rev-${Date.now()}` });
       }
       if (url.endsWith("/application-state/compose")) {
-        return asJson([reopened([draftFile])]);
+        return asJson([stored]);
       }
       if (url.endsWith("/api/emails/draft")) {
-        await hold;
-        const sent: ComposeAttachment[] =
-          JSON.parse(String(init?.body)).attachments ?? [];
-        const refs = sent.map(
-          (file) => `${file.gmailMessageId}/${file.gmailAttachmentId}`,
-        );
-        const current =
-          version === 1
-            ? "message-of-draft/part-1"
-            : `message-${version}/part-${version}`;
-        if (refs[0] !== current) {
-          saves.push({ status: 400, refs });
-          return asJson(
-            { error: "One or more attachments could not be read" },
-            400,
-          );
-        }
-        saves.push({ status: 200, refs });
-        const from = current.split("/");
-        version += 1;
-        return asJson({
-          draftId: "r-draft-7",
-          backend: "gmail",
-          accountEmail: "owner@example.com",
-          updated: true,
-          movedAttachments: [
-            {
-              from: { gmailMessageId: from[0], gmailAttachmentId: from[1] },
-              to: {
-                gmailMessageId: `message-${version}`,
-                gmailAttachmentId: `part-${version}`,
-              },
-            },
-          ],
+        const sent = JSON.parse(String(init?.body));
+        const { moved } = await saveToGmail({
+          ...stored,
+          savedDraftId: sent.draftId,
+          attachments: sent.attachments,
         });
+        return moved
+          ? asJson({ ...metadata, updated: true, movedAttachments: moved })
+          : Response.json(
+              {
+                error: unconfirmedMessage,
+                errorCode: "draft_attachments_unconfirmed",
+                ...metadata,
+              },
+              { status: 502 },
+            );
       }
       throw new Error(`Unexpected request ${url}`);
     }),
+  );
+
+  const failures: string[] = [];
+  const onFailure = (event: Event) =>
+    failures.push((event as CustomEvent<{ draftId: string }>).detail.draftId);
+  window.addEventListener(DRAFT_SAVE_FAILED_EVENT, onFailure);
+  onTestFinished(() =>
+    window.removeEventListener(DRAFT_SAVE_FAILED_EVENT, onFailure),
   );
 
   const qc = new QueryClient();
@@ -198,8 +281,22 @@ async function mounted() {
     hold = new Promise<void>((resolve) => (release = resolve));
     return release;
   };
-  return { result, local, saves, holdSaves };
+  return {
+    result,
+    local,
+    saves,
+    writes,
+    failures,
+    holdSaves,
+    stored: () => stored,
+  };
 }
+
+const fileAt = (version: number) => ({
+  ...draftFile,
+  gmailMessageId: `message-${version}`,
+  gmailAttachmentId: `part-${version}`,
+});
 
 describe("useComposeState with a reopened Gmail draft's file", () => {
   beforeEach(() => {
@@ -217,24 +314,29 @@ describe("useComposeState with a reopened Gmail draft's file", () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
 
-  it("keeps the file through two saves", async () => {
-    const { result, local, saves } = await mounted();
+  it("keeps the file through two saves, without writing the draft again after each", async () => {
+    const { result, local, saves, writes, stored } = await mounted();
 
     act(() => result.current.update("reopened", { body: "First edit" }));
     await autosave();
-    await waitFor(() =>
-      expect(local()?.attachments?.[0]?.gmailMessageId).toBe("message-2"),
-    );
+    await waitFor(() => expect(local()?.attachments).toEqual([fileAt(2)]));
+    const writesAfterSync = writes.length;
+    await autosave();
+    expect(writes).toHaveLength(writesAfterSync);
+    expect(saves).toHaveLength(1);
+
     act(() => result.current.update("reopened", { body: "Second edit" }));
     await autosave();
-    await waitFor(() =>
-      expect(local()?.attachments?.[0]?.gmailMessageId).toBe("message-3"),
-    );
+    await waitFor(() => expect(local()?.attachments).toEqual([fileAt(3)]));
 
     expect(saves).toEqual([
-      { status: 200, refs: ["message-of-draft/part-1"] },
-      { status: 200, refs: ["message-2/part-2"] },
+      { draftId: "r-draft-7", refs: ["message-of-draft/part-1"] },
+      { draftId: "r-draft-7", refs: ["message-2/part-2"] },
     ]);
+    expect(refsOf(writes[writes.length - 1]?.attachments)).toEqual([
+      "message-2/part-2",
+    ]);
+    expect(stored().attachments).toEqual([fileAt(3)]);
   });
 
   it("sends the file from where a save running at send time moved it", async () => {
@@ -257,83 +359,16 @@ describe("useComposeState with a reopened Gmail draft's file", () => {
       ...staged,
       attachments: [{ ...draftFile, ...moveOfDraftFile.to }],
     });
-    expect(saves).toEqual([{ status: 200, refs: ["message-of-draft/part-1"] }]);
+    expect(saves).toEqual([
+      { draftId: "r-draft-7", refs: ["message-of-draft/part-1"] },
+    ]);
   });
 
   it("updates the same Gmail draft and finds the file after Mail lost where a save moved it", async () => {
-    const saves: { draftId?: string; refs: string[] }[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string, init?: RequestInit) => {
-        if (init?.method === "PATCH") {
-          const next = JSON.parse(String(init.body)).next;
-          return asJson({ value: next, revision: `rev-${Date.now()}` });
-        }
-        if (url.endsWith("/application-state/compose")) {
-          return asJson([
-            { ...reopened([draftFile]), savedDraftId: "message-of-draft" },
-          ]);
-        }
-        if (url.endsWith("/api/emails/draft")) {
-          const sent = JSON.parse(String(init?.body));
-          saves.push({
-            draftId: sent.draftId,
-            refs: (sent.attachments as ComposeAttachment[]).map(
-              (file) => `${file.gmailMessageId}/${file.gmailAttachmentId}`,
-            ),
-          });
-          // Gmail took the first update, then Mail couldn't read its parts.
-          if (saves.length === 1) {
-            return Response.json(
-              {
-                error:
-                  "Gmail saved the draft, but Mail couldn't confirm where its attachments moved (Backend Error). Saving the draft again finds them.",
-                errorCode: "draft_attachments_unconfirmed",
-                draftId: "r-draft-7",
-                backend: "gmail",
-                accountEmail: "owner@example.com",
-              },
-              { status: 502 },
-            );
-          }
-          // A save naming the draft finds the file in its current message.
-          if (sent.draftId !== "r-draft-7") {
-            return asJson({ error: "Saved Gmail draft was not found" }, 409);
-          }
-          return asJson({
-            draftId: "r-draft-7",
-            backend: "gmail",
-            accountEmail: "owner@example.com",
-            updated: true,
-            movedAttachments: [
-              {
-                from: moveOfDraftFile.from,
-                to: {
-                  gmailMessageId: "message-3",
-                  gmailAttachmentId: "part-3",
-                },
-              },
-            ],
-          });
-        }
-        throw new Error(`Unexpected request ${url}`);
-      }),
-    );
-    const failures: string[] = [];
-    const onFailure = (event: Event) =>
-      failures.push((event as CustomEvent<{ draftId: string }>).detail.draftId);
-    window.addEventListener(DRAFT_SAVE_FAILED_EVENT, onFailure);
-    const qc = new QueryClient();
-    const { result } = renderHook(() => useComposeState(), {
-      wrapper: ({ children }: { children: ReactNode }) => (
-        <QueryClientProvider client={qc}>{children}</QueryClientProvider>
-      ),
+    const { result, local, saves, failures } = await mounted({
+      savedDraftId: "message-of-draft",
+      answers: ["unconfirmed"],
     });
-    await waitFor(() => expect(result.current.drafts).toHaveLength(1));
-    const local = () =>
-      qc
-        .getQueryData<ComposeState[]>(["compose-drafts"])
-        ?.find((one) => one.id === "reopened");
 
     act(() => result.current.update("reopened", { body: "First edit" }));
     await autosave();
@@ -343,113 +378,39 @@ describe("useComposeState with a reopened Gmail draft's file", () => {
 
     act(() => result.current.update("reopened", { body: "Second edit" }));
     await autosave();
-    await waitFor(() =>
-      expect(local()?.attachments?.[0]?.gmailMessageId).toBe("message-3"),
-    );
-    window.removeEventListener(DRAFT_SAVE_FAILED_EVENT, onFailure);
+    await waitFor(() => expect(local()?.attachments).toEqual([fileAt(3)]));
 
     expect(saves).toEqual([
       { draftId: "message-of-draft", refs: ["message-of-draft/part-1"] },
       { draftId: "r-draft-7", refs: ["message-of-draft/part-1"] },
     ]);
-    expect(local()?.attachments).toEqual([
-      {
-        ...draftFile,
-        gmailMessageId: "message-3",
-        gmailAttachmentId: "part-3",
-      },
-    ]);
   });
 });
 
 describe("sending a draft whose last save couldn't confirm where its file moved", () => {
-  const unconfirmed = () =>
-    Response.json(
-      {
-        error:
-          "Gmail saved the draft, but Mail couldn't confirm where its attachments moved (Backend Error). Saving the draft again finds them.",
-        errorCode: "draft_attachments_unconfirmed",
-        draftId: "r-draft-7",
-        backend: "gmail",
-        accountEmail: "owner@example.com",
-      },
-      { status: 502 },
-    );
-
   /**
    * A mounted compose hook whose first mailbox save Gmail keeps without Mail
-   * learning where the file went. Each later save answers with `later` in
-   * turn: "found" heals the file's refs to message-3, "failed" fails again.
+   * learning where the file went, and whose later saves answer `later`.
    */
-  async function afterUnconfirmedSave(later: ("found" | "failed")[]) {
-    const saves: { draftId?: string; refs: string[] }[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string, init?: RequestInit) => {
-        if (init?.method === "PATCH") {
-          const next = JSON.parse(String(init.body)).next;
-          return asJson({ value: next, revision: `rev-${Date.now()}` });
-        }
-        if (url.endsWith("/application-state/compose")) {
-          return asJson([
-            { ...reopened([draftFile]), savedDraftId: "message-of-draft" },
-          ]);
-        }
-        if (url.endsWith("/api/emails/draft")) {
-          const sent = JSON.parse(String(init?.body));
-          saves.push({
-            draftId: sent.draftId,
-            refs: (sent.attachments as ComposeAttachment[]).map(
-              (file) => `${file.gmailMessageId}/${file.gmailAttachmentId}`,
-            ),
-          });
-          if (saves.length === 1) return unconfirmed();
-          if (later[saves.length - 2] !== "found") return unconfirmed();
-          return asJson({
-            draftId: "r-draft-7",
-            backend: "gmail",
-            accountEmail: "owner@example.com",
-            updated: true,
-            movedAttachments: [
-              {
-                from: moveOfDraftFile.from,
-                to: {
-                  gmailMessageId: "message-3",
-                  gmailAttachmentId: "part-3",
-                },
-              },
-            ],
-          });
-        }
-        throw new Error(`Unexpected request ${url}`);
-      }),
-    );
-    const qc = new QueryClient();
-    const { result } = renderHook(() => useComposeState(), {
-      wrapper: ({ children }: { children: ReactNode }) => (
-        <QueryClientProvider client={qc}>{children}</QueryClientProvider>
-      ),
+  async function afterUnconfirmedSave(
+    later: ("moved" | "unconfirmed")[],
+    options: { refuseStore?: boolean } = {},
+  ) {
+    const mail = await mounted({
+      savedDraftId: "message-of-draft",
+      answers: ["unconfirmed", ...later],
+      ...options,
     });
-    await waitFor(() => expect(result.current.drafts).toHaveLength(1));
-    const local = () =>
-      qc
-        .getQueryData<ComposeState[]>(["compose-drafts"])
-        ?.find((one) => one.id === "reopened");
-
-    act(() => result.current.update("reopened", { body: "Edited" }));
+    act(() => mail.result.current.update("reopened", { body: "Edited" }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    await waitFor(() => expect(local()?.savedDraftId).toBe("r-draft-7"));
-    expect(local()?.attachments).toEqual([draftFile]);
-    return { result, local, saves };
+    await waitFor(() => expect(mail.local()?.savedDraftId).toBe("r-draft-7"));
+    expect(mail.local()?.attachments).toEqual([draftFile]);
+    return mail;
   }
 
-  const healed = {
-    ...draftFile,
-    gmailMessageId: "message-3",
-    gmailAttachmentId: "part-3",
-  };
+  const healed = fileAt(3);
 
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -462,7 +423,7 @@ describe("sending a draft whose last save couldn't confirm where its file moved"
   });
 
   it("saves once more and sends the file from where that save found it", async () => {
-    const { result, local, saves } = await afterUnconfirmedSave(["found"]);
+    const { result, local, saves } = await afterUnconfirmedSave(["moved"]);
     const staged = local();
     act(() => result.current.stageForSend("reopened"));
 
@@ -477,10 +438,13 @@ describe("sending a draft whose last save couldn't confirm where its file moved"
     ]);
     expect(sendable?.attachments).toEqual([healed]);
     expect(local()?.attachments).toEqual([healed]);
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
   });
 
   it("doesn't send when that save fails too", async () => {
-    const { result, local, saves } = await afterUnconfirmedSave(["failed"]);
+    const { result, local, saves } = await afterUnconfirmedSave([
+      "unconfirmed",
+    ]);
     const staged = local();
     act(() => result.current.stageForSend("reopened"));
 
@@ -490,14 +454,15 @@ describe("sending a draft whose last save couldn't confirm where its file moved"
     });
 
     await expect(settled).rejects.toMatchObject({
-      name: "DraftSaveIncompleteError",
+      errorCode: "draft_attachments_unconfirmed",
     });
     expect(saves).toHaveLength(2);
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
     expect(local()?.attachments).toEqual([draftFile]);
   });
 
   it("sends without another save once a later save found the file", async () => {
-    const { result, local, saves } = await afterUnconfirmedSave(["found"]);
+    const { result, local, saves } = await afterUnconfirmedSave(["moved"]);
     act(() => result.current.update("reopened", { body: "Edited again" }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
@@ -513,5 +478,87 @@ describe("sending a draft whose last save couldn't confirm where its file moved"
 
     expect(saves).toHaveLength(2);
     expect(sendable?.attachments).toEqual([healed]);
+  });
+
+  it("doesn't send a draft Mail's store refused when Mail's draft route can't find the file either", async () => {
+    const { result, local, saves } = await afterUnconfirmedSave(
+      ["unconfirmed"],
+      { refuseStore: true },
+    );
+    const staged = local();
+    act(() => result.current.stageForSend("reopened"));
+
+    let settled: Promise<ComposeState> | undefined;
+    act(() => {
+      settled = staged && result.current.settleForSend(staged);
+    });
+
+    await expect(settled).rejects.toMatchObject({
+      name: "DraftSaveIncompleteError",
+    });
+    expect(saves).toEqual([
+      { draftId: "message-of-draft", refs: ["message-of-draft/part-1"] },
+      { draftId: "r-draft-7", refs: ["message-of-draft/part-1"] },
+    ]);
+    expect(mocks.callAction).not.toHaveBeenCalled();
+  });
+});
+
+describe("useComposeState when Mail's store refuses a reopened draft", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("saves the text on screen to the same Gmail draft and keeps its moved file", async () => {
+    const { result, local, saves } = await mounted({
+      savedDraftId: "message-of-draft",
+      refuseStore: true,
+    });
+
+    act(() => result.current.update("reopened", { body: "First edit" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    await waitFor(() => expect(local()?.attachments).toEqual([fileAt(2)]));
+    expect(local()?.savedDraftId).toBe("r-draft-7");
+
+    act(() => result.current.update("reopened", { body: "Second edit" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    await waitFor(() => expect(local()?.attachments).toEqual([fileAt(3)]));
+
+    expect(saves).toEqual([
+      { draftId: "message-of-draft", refs: ["message-of-draft/part-1"] },
+      { draftId: "r-draft-7", refs: ["message-2/part-2"] },
+    ]);
+    expect(mocks.callAction).not.toHaveBeenCalled();
+  });
+
+  it("stores the Gmail draft's ID from a route save whose file Mail couldn't confirm", async () => {
+    const { result, local, stored } = await mounted({
+      savedDraftId: "message-of-draft",
+      answers: ["unconfirmed"],
+      refuseStore: 1,
+    });
+
+    act(() => result.current.update("reopened", { body: "First edit" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    await waitFor(() => expect(stored().savedDraftId).toBe("r-draft-7"));
+
+    expect(stored()).toMatchObject({
+      body: "First edit",
+      attachments: [draftFile],
+    });
+    expect(local()?.savedDraftId).toBe("r-draft-7");
+    expect(mocks.callAction).not.toHaveBeenCalled();
   });
 });

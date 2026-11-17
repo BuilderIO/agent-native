@@ -15,7 +15,10 @@ import {
   moveGmailAttachments,
   type MovedGmailAttachment,
 } from "@shared/compose-attachments";
-import { DRAFT_MAILBOX_BUSY_ERROR_CODE } from "@shared/draft-mailbox";
+import {
+  DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE,
+  DRAFT_MAILBOX_BUSY_ERROR_CODE,
+} from "@shared/draft-mailbox";
 import { appendSignatureToBody } from "@shared/signature";
 import type { Alias, ComposeState, UserSettings } from "@shared/types";
 import {
@@ -84,6 +87,7 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
  * next save must update that draft, and the failure must still be reported.
  */
 export class DraftSaveIncompleteError extends Error {
+  readonly errorCode = DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE;
   constructor(
     message: string,
     readonly savedDraft: SavedDraftMetadata,
@@ -319,7 +323,9 @@ async function saveDraftToEmails(
             | (SavedDraftResponse & { error?: unknown; errorCode?: unknown })
             | undefined)
         : undefined;
-    if (body?.errorCode !== "draft_attachments_unconfirmed") throw error;
+    if (body?.errorCode !== DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE) {
+      throw error;
+    }
     throw new DraftSaveIncompleteError(
       typeof body.error === "string" ? body.error : String(error),
       savedDraftMetadata(body),
@@ -372,6 +378,7 @@ export type DraftSaveResult =
       // A sync that stopped short may still have made the draft's mailbox copy
       // and pointed Mail's copy at it.
       savedDraft?: SavedDraftMetadata;
+      idNotStored?: boolean;
     }
   // Mail no longer stores the draft, so there was nothing to copy.
   | { status: "gone" };
@@ -383,6 +390,7 @@ export type DraftSaveQueueResult =
       status: "failed";
       error: unknown;
       savedDraft?: SavedDraftMetadata;
+      idNotStored?: boolean;
     }
   | { status: "cancelled"; savedDraft?: SavedDraftMetadata }
   | { status: "gone"; savedDraft?: SavedDraftMetadata };
@@ -663,12 +671,29 @@ export async function syncDraftToMailboxBestEffort(
  * this, so it isn't a failed save to tell the person about.
  */
 export function mailboxCopyOvertaken(result: DraftSaveResult): boolean {
+  return failedWith(result, DRAFT_MAILBOX_BUSY_ERROR_CODE);
+}
+
+/**
+ * Whether Gmail kept a save whose files Mail couldn't then find: the draft's
+ * refs name a message Gmail dropped until another save finds them again.
+ */
+export function draftFilesUnconfirmed(
+  result: DraftSaveResult | DraftSaveQueueResult,
+): boolean {
+  return failedWith(result, DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE);
+}
+
+function failedWith(
+  result: DraftSaveResult | DraftSaveQueueResult,
+  errorCode: string,
+): boolean {
   return (
     result.status === "failed" &&
     typeof result.error === "object" &&
     result.error !== null &&
     "errorCode" in result.error &&
-    result.error.errorCode === DRAFT_MAILBOX_BUSY_ERROR_CODE
+    result.error.errorCode === errorCode
   );
 }
 
@@ -689,7 +714,10 @@ export async function keepMailboxCopyCurrent(
     return syncDraftToMailboxBestEffort(pendingMutations, draft.id);
   }
   const result = await saveText(draft);
-  return result.status === "saved" ? { ...result, idNotStored: true } : result;
+  return result.status === "saved" ||
+    (result.status === "failed" && result.savedDraft)
+    ? { ...result, idNotStored: true }
+    : result;
 }
 
 export function useComposeState() {
@@ -716,6 +744,14 @@ export function useComposeState() {
   // another save finds them again.
   const unconfirmedDraftFilesRef = useRef<Set<string>>(new Set());
 
+  const noteDraftFiles = useCallback((id: string, result: DraftSaveResult) => {
+    if (result.status === "saved") {
+      unconfirmedDraftFilesRef.current.delete(id);
+    } else if (draftFilesUnconfirmed(result)) {
+      unconfirmedDraftFilesRef.current.add(id);
+    }
+  }, []);
+
   const saveDraft = useCallback(
     async (draft: ComposeState): Promise<DraftSaveResult> => {
       const usesAlias = [draft.to, draft.cc, draft.bcc].some((field) =>
@@ -738,17 +774,23 @@ export function useComposeState() {
           };
         }
       }
-      if (result.status === "saved") {
-        unconfirmedDraftFilesRef.current.delete(draft.id);
-      } else if (
-        result.status === "failed" &&
-        result.error instanceof DraftSaveIncompleteError
-      ) {
-        unconfirmedDraftFilesRef.current.add(draft.id);
-      }
+      noteDraftFiles(draft.id, result);
       return result;
     },
-    [qc],
+    [qc, noteDraftFiles],
+  );
+
+  const saveMailboxCopy = useCallback(
+    async (draft: ComposeState): Promise<DraftSaveResult> => {
+      const result = await keepMailboxCopyCurrent(
+        pendingDraftMutationsRef.current,
+        draft,
+        saveDraft,
+      );
+      noteDraftFiles(draft.id, result);
+      return result;
+    },
+    [noteDraftFiles, saveDraft],
   );
 
   const reportDraftSaveResult = useCallback(
@@ -967,19 +1009,14 @@ export function useComposeState() {
             (draft) => draft.id === id,
           ),
         () => removedDraftIdsRef.current[id] !== undefined,
-        (draft) =>
-          keepMailboxCopyCurrent(
-            pendingDraftMutationsRef.current,
-            draft,
-            saveDraft,
-          ),
+        saveMailboxCopy,
       ).then((result) => {
         if (result.status === "cancelled" || result.status === "gone") return;
         reportDraftSaveResult(current, result);
         keepDraftSaveMetadata(id, result);
       });
     },
-    [qc, keepDraftSaveMetadata, reportDraftSaveResult, saveDraft],
+    [qc, keepDraftSaveMetadata, reportDraftSaveResult, saveMailboxCopy],
   );
 
   const update = useCallback(
@@ -1366,7 +1403,7 @@ export function useComposeState() {
           getLatest() ?? staged,
           getLatest,
           () => staged.id in removedDraftIdsRef.current,
-          saveDraft,
+          saveMailboxCopy,
         );
         if (result.status !== "cancelled" && result.status !== "gone") {
           reportDraftSaveResult(staged, result);
@@ -1404,7 +1441,7 @@ export function useComposeState() {
         }),
       };
     },
-    [keepDraftSaveMetadata, qc, reportDraftSaveResult, saveDraft],
+    [keepDraftSaveMetadata, qc, reportDraftSaveResult, saveMailboxCopy],
   );
 
   const flush = useCallback(
