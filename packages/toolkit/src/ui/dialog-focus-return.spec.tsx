@@ -8,7 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import * as React from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   AlertDialog,
@@ -253,6 +253,52 @@ describe("a dialog opened without a trigger returns focus to its opener", () => 
         screen.getByRole("button", { name: "Invite" }),
       ),
     );
+  });
+
+  it("does not return to an old control when code opens a dialog with focus on the body", async () => {
+    function Programmatic() {
+      const [open, setOpen] = React.useState(false);
+      return (
+        <>
+          <button type="button">Old control</button>
+          <button
+            type="button"
+            data-open
+            onFocus={() => undefined}
+            onKeyDown={() => undefined}
+            ref={(node) => {
+              if (node)
+                (window as unknown as { openIt?: () => void }).openIt = () =>
+                  setOpen(true);
+            }}
+          >
+            x
+          </button>
+          {open ? (
+            <Dialog open onOpenChange={setOpen}>
+              <DialogContent>
+                <DialogTitle>Opened by code</DialogTitle>
+              </DialogContent>
+            </Dialog>
+          ) : null}
+        </>
+      );
+    }
+    vi.useFakeTimers({ toFake: ["Date"] });
+    render(<Programmatic />);
+    screen.getByRole("button", { name: "Old control" }).focus();
+    (document.activeElement as HTMLElement).blur();
+    vi.setSystemTime(Date.now() + 10_000);
+    act(() => (window as unknown as { openIt: () => void }).openIt());
+    await screen.findByRole("dialog");
+    fireEvent.keyDown(document.activeElement ?? document.body, {
+      key: "Escape",
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).not.toBe(
+      screen.getByRole("button", { name: "Old control" }),
+    );
+    vi.useRealTimers();
   });
 
   it("returns an alert dialog to its opener on Cancel", async () => {
