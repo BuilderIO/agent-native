@@ -559,7 +559,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
     it("opens the Agents tab from the note beside Share", async () => {
       mocks.widget.inWidget = false;
       mocks.widget.write = false;
-      await renderToolbar(1040, { readOnly: false, agentTextLocked: true });
+      await renderToolbar(1040, { readOnly: false, agentLevel: "comment" });
 
       const note = byLabel<HTMLButtonElement>(
         "editor.toolbar.agentLevelNoteHint",
@@ -574,6 +574,19 @@ describe("DocumentToolbar in an MCP App widget", () => {
       expect(props.shareTabs.defaultValue).toBe("agents");
     });
 
+    it("says agents can only view when the page is set to Can view", async () => {
+      mocks.widget.inWidget = false;
+      mocks.widget.write = false;
+      await renderToolbar(1040, { readOnly: false, agentLevel: "view" });
+
+      expect(byLabel("editor.toolbar.agentLevelNoteHint")).toBeNull();
+      const note = byLabel<HTMLButtonElement>(
+        "editor.toolbar.agentLevelViewNoteHint",
+      );
+      if (!note) throw new Error("No note beside Share");
+      expect(note.textContent).toContain("editor.toolbar.agentLevelViewNote");
+    });
+
     it("shows no note while agents can edit, and none in a widget", async () => {
       mocks.widget.inWidget = false;
       mocks.widget.write = false;
@@ -581,8 +594,9 @@ describe("DocumentToolbar in an MCP App widget", () => {
       expect(byLabel("editor.toolbar.agentLevelNoteHint")).toBeNull();
 
       mocks.widget.inWidget = true;
-      await renderToolbar(1040, { agentTextLocked: true });
+      await renderToolbar(1040, { agentLevel: "view" });
       expect(byLabel("editor.toolbar.agentLevelNoteHint")).toBeNull();
+      expect(byLabel("editor.toolbar.agentLevelViewNoteHint")).toBeNull();
     });
   });
 });
