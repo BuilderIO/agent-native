@@ -437,6 +437,8 @@ Skills هي ملفات موارد Markdown ضمن مسار `skills/` (يفضل `
 | `DELETE` | `/_agent-native/resources/:id`                | حذف مورد                       |
 | `POST`   | `/_agent-native/resources/upload`             | تحميل ملف كمورد                |
 
+يأتي المورد المقروء عبر `GET /_agent-native/resources/:id` مع `revision`. أعِده بوصفه `expectedRevision` مع `content` الجديد في طلب `PUT`؛ وإذا حفظ شخص آخر محتوى مختلفًا بعد قراءتك، فلن يُكتب أي شيء: تكون الاستجابة 409 مع `errorCode: "save_conflict"`، والمحتوى الحالي في `details.current.content`، ومراجعته في `details.currentRevision`. أما طلب `PUT` بدون `expectedRevision` فما زال يكتب فوق ما هو محفوظ. لا يمكن للحفظ المتحقَّق منه أن يعيد تسمية المورد في الوقت نفسه: أرسل `path` الجديد أولًا في طلب `PUT` مستقل. يتولى `<ResourceEditor saveContent>` ذلك نيابةً عنك: إذا حفظ شخص آخر محتوى مختلفًا أثناء التعديل، فإنه يسأل أي نسخة تريد الاحتفاظ بها، ثم يعرض استعادة النسخة الأخرى.
+
 ### الإجراء API {#script-api}
 
 يستخدم الوكيل هذه actions المضمنة. يمكنك أيضًا الاتصال بهم من actions الخاص بك:

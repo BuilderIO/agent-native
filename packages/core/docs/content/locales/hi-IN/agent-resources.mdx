@@ -434,6 +434,8 @@ REST एंडपॉइंट स्वचालित रूप से मा�
 | `DELETE` | `/_agent-native/resources/:id`                | संसाधन हटाएं                                        |
 | `POST`   | `/_agent-native/resources/upload`             | फ़ाइल को संसाधन के रूप में अपलोड करें               |
 
+`GET /_agent-native/resources/:id` से पढ़े गए संसाधन के साथ एक `revision` आता है। `PUT` पर नए `content` के साथ इसे `expectedRevision` के रूप में वापस भेजें; अगर आपके पढ़ने के बाद किसी ने दूसरी सामग्री सहेजी है, तो कुछ भी नहीं लिखा जाता: जवाब `errorCode: "save_conflict"` के साथ 409 होता है, अभी मौजूद सामग्री `details.current.content` में और उसका revision `details.currentRevision` में होता है। `expectedRevision` के बिना `PUT` अब भी जो कुछ सहेजा है उसे ओवरराइट करता है। जाँचा गया सेव उसी समय संसाधन का नाम नहीं बदल सकता: पहले नया `path` अलग `PUT` में भेजें। `<ResourceEditor saveContent>` यह आपके लिए करता है: अगर संपादन के दौरान किसी और ने दूसरी सामग्री सहेजी, तो यह पूछता है कि कौन-सा संस्करण रखना है, और बाद में दूसरा संस्करण वापस लाने का विकल्प देता है।
+
 ### क्रिया API {#script-api}
 
 एजेंट इन अंतर्निहित actions का उपयोग करता है। आप उन्हें अपने actions:
