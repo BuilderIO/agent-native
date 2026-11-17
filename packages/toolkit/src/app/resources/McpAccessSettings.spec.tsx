@@ -348,6 +348,24 @@ describe("MCP client setup", () => {
     expect(container.textContent).toContain("URL del servidor");
     expect(container.textContent).not.toContain("MCP server URL");
   });
+  it.each([
+    ["claude", "Claude", true],
+    ["chatgpt", "ChatGPT", true],
+    ["cursor", "Cursor", false],
+  ] as const)(
+    "warns %s setup about a loopback server URL only for hosted connectors",
+    async (guideId, host, warns) => {
+      stubFetch({
+        ...IDENTITY,
+        appUrl: "http://localhost:3101",
+        mcpUrl: "http://localhost:3101/mcp",
+      });
+      await render({ guideId });
+      const hint = `Local address: ${host} needs a publicly reachable HTTPS server URL.`;
+      if (warns) expect(container.textContent).toContain(hint);
+      else expect(container.textContent).not.toContain("Local address:");
+    },
+  );
   it("keeps the VS Code installation transport and environment-specific server name", async () => {
     await render({ guideId: "vscode" });
     const url = link("Add to VS Code")?.getAttribute("href") ?? "";

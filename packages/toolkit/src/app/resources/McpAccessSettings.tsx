@@ -265,6 +265,9 @@ function WebHostButton({ guide }: { guide: McpGuide }) {
   );
 }
 
+const LOOPBACK_MCP_URL =
+  /^https?:\/\/(?:localhost|127(?:\.\d+){3}|\[::1\])(?=[:/])/i;
+
 function CopyValueButton({ value, label }: { value: string; label: string }) {
   const t = useT();
   const { state, copy } = useCopy(value);
@@ -426,6 +429,14 @@ function GuideSteps({
   const visibleSteps = guide.steps
     ?.map((text, index) => ({ text, index }))
     .filter(({ index }) => !guide.install || index !== guide.urlStep);
+  const localAddressHint =
+    guide.hostedConnector && LOOPBACK_MCP_URL.test(values.mcpUrl) ? (
+      <p className="text-xs leading-5 text-muted-foreground">
+        {t("settings.mcpLocalAddressHint", { host: guide.label })}
+      </p>
+    ) : null;
+  // An install link takes the URL in step 1, so the hint goes there.
+  const hintStep = guide.install ? 0 : guide.urlStep;
   return (
     <NumberedSteps className="mt-0" aria-label={t("settings.mcpSetupSteps")}>
       {visibleSteps?.map(({ text, index }, position) => {
@@ -448,18 +459,9 @@ function GuideSteps({
               ) : null}
             </div>
             {guide.urlStep === index ? (
-              <>
-                <ConnectionDetails guide={guide} values={values} />
-                {guide.action?.kind === "link" &&
-                /^https?:\/\/(?:localhost|127(?:\.\d+){3}|\[::1\])(?=[:/])/i.test(
-                  values.mcpUrl,
-                ) ? (
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {t("settings.mcpLocalAddressHint", { host: guide.label })}
-                  </p>
-                ) : null}
-              </>
+              <ConnectionDetails guide={guide} values={values} />
             ) : null}
+            {hintStep === index ? localAddressHint : null}
             {index === 0 && guide.install && guide.urlStep !== undefined ? (
               <Collapsible>
                 <CollapsibleTrigger asChild>

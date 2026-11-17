@@ -80,6 +80,8 @@ export interface McpConnectGuide {
   };
   note?: string;
   docsHref?: string;
+  /** The host connects from its own servers, so a local URL can't work. */
+  hostedConnector?: boolean;
 }
 
 export const MCP_CONNECT_MCP_URL_TEMPLATE = "{appUrl}/mcp";
@@ -87,6 +89,7 @@ export const MCP_CONNECT_MCP_URL_TEMPLATE = "{appUrl}/mcp";
 export const MCP_CONNECT_GUIDES: readonly McpConnectGuide[] = [
   {
     id: "claude",
+    hostedConnector: true,
     docsHref:
       "https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp",
     label: "Claude",
@@ -103,6 +106,7 @@ export const MCP_CONNECT_GUIDES: readonly McpConnectGuide[] = [
   },
   {
     id: "chatgpt",
+    hostedConnector: true,
     docsHref: "https://developers.openai.com/plugins/deploy/connect-chatgpt",
     label: "ChatGPT",
     urlStep: 1,
@@ -173,6 +177,7 @@ export const MCP_CONNECT_GUIDES: readonly McpConnectGuide[] = [
   },
   {
     id: "grok",
+    hostedConnector: true,
     docsHref: "https://docs.x.ai/grok/connectors",
     label: "Grok",
     urlStep: 1,
