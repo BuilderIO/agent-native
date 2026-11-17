@@ -48,4 +48,13 @@ describe("agentNativeMcpInstructions", () => {
     const text = agentNativeMcpInstructions();
     expect(text).toContain("call the app's `view-screen` tool only when");
   });
+
+  it("trusts a write's confirmation instead of asking for a read after every write", () => {
+    const text = agentNativeMcpInstructions();
+    expect(text).not.toMatch(/then read back the changed item/i);
+    expect(text).toContain("trust it instead of reading the item back");
+    expect(text).toContain(
+      "read the item again only when the result leaves the change unconfirmed",
+    );
+  });
 });

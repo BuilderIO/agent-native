@@ -3,11 +3,13 @@ import {
   runWithRequestContext,
   type RecurringSweepContext,
 } from "@agent-native/core/server";
-import { and, asc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { GITHUB_PULL_REQUESTS_SOURCE_TYPE } from "../shared/github-pull-requests.js";
 import { GITHUB_SOURCE_TYPE } from "../shared/github-source.js";
+import { refreshGitHubPullRequestsBeforeRead } from "./_github-pull-requests-freshness.js";
 import { readGitHubSourceState } from "./_github-source-metadata.js";
 import {
   syncGitHubSource,
@@ -60,6 +62,26 @@ const linkColumns = {
   metadataJson: schema.contentDatabaseSources.metadataJson,
   lastRefreshedAt: schema.contentDatabaseSources.lastRefreshedAt,
 };
+
+/** A collection follows a GitHub folder or GitHub pull requests, never both. */
+const readLinkColumns = {
+  ...linkColumns,
+  sourceType: schema.contentDatabaseSources.sourceType,
+};
+
+const githubSourceTypes = inArray(schema.contentDatabaseSources.sourceType, [
+  GITHUB_SOURCE_TYPE,
+  GITHUB_PULL_REQUESTS_SOURCE_TYPE,
+]);
+
+function syncLinkBeforeRead(
+  link: (GitHubLink & { sourceType: string }) | undefined,
+) {
+  if (link?.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE) {
+    return refreshGitHubPullRequestsBeforeRead(link);
+  }
+  return syncBeforeRead(link);
+}
 
 const sourceDatabase = eq(
   schema.contentDatabases.id,
@@ -206,31 +228,32 @@ async function syncBeforeRead(link: GitHubLink | undefined) {
 
 /**
  * Checks GitHub before a collection read when its link hasn't been checked
- * for a minute, so a push since then is in what the read returns. Never fails
- * the read. Call it after the reader's access check.
+ * for a minute, so a push or a merge since then is in what the read returns.
+ * Never fails the read. Call it after the reader's access check.
  */
 export async function refreshGitHubSourceBeforeRead(databaseId: string) {
   const [link] = await getDb()
-    .select(linkColumns)
+    .select(readLinkColumns)
     .from(schema.contentDatabaseSources)
     .innerJoin(schema.contentDatabases, sourceDatabase)
     .where(
       and(
         eq(schema.contentDatabaseSources.databaseId, databaseId),
-        eq(schema.contentDatabaseSources.sourceType, GITHUB_SOURCE_TYPE),
+        githubSourceTypes,
       ),
     )
     .limit(1);
-  return syncBeforeRead(link);
+  return syncLinkBeforeRead(link);
 }
 
 /**
- * The same check for a read of one page that follows a GitHub file. True when
- * a sync changed or may have changed rows, so the caller reads the page again.
+ * The same check for a read of one page that follows a GitHub file or pull
+ * request. True when a sync changed or may have changed rows, so the caller
+ * reads the page again.
  */
 export async function refreshGitHubPageBeforeRead(documentId: string) {
   const [link] = await getDb()
-    .select(linkColumns)
+    .select(readLinkColumns)
     .from(schema.contentDatabaseSources)
     .innerJoin(schema.contentDatabases, sourceDatabase)
     .innerJoin(
@@ -243,11 +266,11 @@ export async function refreshGitHubPageBeforeRead(documentId: string) {
     .where(
       and(
         eq(schema.contentDatabaseItems.documentId, documentId),
-        eq(schema.contentDatabaseSources.sourceType, GITHUB_SOURCE_TYPE),
+        githubSourceTypes,
       ),
     )
     .limit(1);
-  return syncBeforeRead(link);
+  return syncLinkBeforeRead(link);
 }
 
 /**

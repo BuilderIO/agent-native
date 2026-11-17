@@ -29,6 +29,7 @@ describe("resolved frame height in Chromium", () => {
               ? appendContentSizeReporter(SOURCE, mode)
               : buildInteractPreviewDocument({
                   content: SOURCE,
+                  tweakCapability: "test-capability",
                   fitBodyToFrame: mode !== "hug",
                   heightMode: mode,
                 });

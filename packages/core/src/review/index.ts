@@ -24,6 +24,7 @@ export {
   ReviewAnchorError,
   ReviewCommentEmptyError,
   ReviewCommentLinkConflictError,
+  ReviewCommentResourceConflictError,
   ReviewCommentRevisionConflictError,
   ReviewCursorError,
 } from "./errors.js";
@@ -67,6 +68,16 @@ export {
   routeReviewThread,
   sendReviewThreadToAgent,
 } from "./store.js";
+export {
+  compareMirroredReviewComments,
+  deleteMirroredReviewComments,
+  listMirroredResourceIds,
+  mirrorReviewComments,
+  type ReviewCommentCopy,
+  type ReviewMirrorComparison,
+  type ReviewMirrorDifference,
+  type ReviewMirrorResource,
+} from "./mirror.js";
 export * from "./suggestions/types.js";
 export {
   registerSuggestionAdapter,

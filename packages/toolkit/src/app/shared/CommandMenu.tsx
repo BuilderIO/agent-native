@@ -567,6 +567,8 @@ export interface CommandMenuProps<TAppContext = unknown> {
   changelogKey?: string;
   showAbout?: boolean;
   showSettingsCommand?: boolean;
+  /** Replaces the platform Settings chord, for an app with its own key sequence. */
+  settingsShortcutHint?: ReactNode;
   showSignOutCommand?: boolean;
   /** App-owned entries are additive; shortcut hints are display-only. */
   appCommandGroups?: AppCommandGroup<TAppContext>[];
@@ -612,6 +614,7 @@ export function CommandMenu<TAppContext = unknown>({
   changelogKey,
   showAbout: showAboutProp,
   showSettingsCommand = true,
+  settingsShortcutHint,
   showSignOutCommand = true,
   appCommandGroups,
   commandContext,
@@ -1123,7 +1126,8 @@ export function CommandMenu<TAppContext = unknown>({
                   />
                   <span>{settingsLabel}</span>
                   <CommandShortcutPrimitive>
-                    {getSettingsShortcutHint(isApplePlatform())}
+                    {settingsShortcutHint ??
+                      getSettingsShortcutHint(isApplePlatform())}
                   </CommandShortcutPrimitive>
                 </CommandItemPrimitive>
               ) : null}

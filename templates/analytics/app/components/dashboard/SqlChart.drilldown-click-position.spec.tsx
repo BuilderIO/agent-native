@@ -36,9 +36,9 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   isExtensionApiPath: () => false,
 }));
 
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
-import { SqlChart, type ChartDatum } from "./SqlChart";
+import { SqlChart, type ChartDatum } from "./SqlChartQuery";
 
 const CHART_SIZE = { width: 640, height: 320 };
 

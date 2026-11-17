@@ -50,6 +50,7 @@ import {
 import { reloadRunningAppPreviewFrames } from "../editor-helpers";
 import {
   removeUndoRedoOrderKind,
+  undoRedoOrderKind,
   type UndoRedoOrderKind,
 } from "../editor-state";
 import { focusAgentComposer } from "../effects/focus-agent-composer";
@@ -70,6 +71,7 @@ import {
   mergeLocalContentHistoryFallback,
   removeRecentUndoRedoOrderKinds,
 } from "../history";
+import { handleHostChatState } from "../host-chat-state";
 import { scopedLayerStateId } from "../layer-state-scope";
 import { DEFAULT_LEFT_SIDEBAR_WIDTH } from "../left-sidebar-width";
 import {
@@ -164,6 +166,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     "idle",
   );
   const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
+  const stagedHandoffStartedRef = useRef<(() => void) | undefined>(undefined);
   const [applyingViaHost, setApplyingViaHost] = useState(false);
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel | null>("file");
@@ -500,6 +503,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
         }
       }
       stagedSourceHandoffRef.current = "idle";
+      stagedHandoffStartedRef.current = undefined;
       setApplyingViaHost(false);
       if (pendingEditSessionDesignIdRef.current === id) {
         clearPendingEditSessionRecovery();
@@ -514,10 +518,14 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       pendingLiveNonStyleUndoStackRef.current = [];
       pendingLiveNonStyleRedoStackRef.current = [];
       historyOrderRef.current = historyOrderRef.current.filter(
-        (kind) => kind !== "pending-style" && kind !== "pending-live",
+        (kind) =>
+          undoRedoOrderKind(kind) !== "pending-style" &&
+          undoRedoOrderKind(kind) !== "pending-live",
       );
       redoOrderRef.current = redoOrderRef.current.filter(
-        (kind) => kind !== "pending-style" && kind !== "pending-live",
+        (kind) =>
+          undoRedoOrderKind(kind) !== "pending-style" &&
+          undoRedoOrderKind(kind) !== "pending-live",
       );
       pendingStructureRedoReplayRef.current = undefined;
       if (pendingStructureRedoReplayTimerRef.current !== undefined) {
@@ -769,26 +777,20 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       }
 
       if (data.type === "design:chatState") {
-        const next = data.data?.state;
-        if (
-          next === "generating" &&
-          stagedSourceHandoffRef.current === "awaiting-start"
-        ) {
-          stagedSourceHandoffRef.current = "running";
-          if (stagedHandoffStartTimerRef.current !== undefined) {
-            window.clearTimeout(stagedHandoffStartTimerRef.current);
-            stagedHandoffStartTimerRef.current = undefined;
-          }
-        }
-        if (hostChatGeneratingRef.current && next !== "generating") {
-          reloadRunningAppPreviewFrames();
-          if (stagedSourceHandoffRef.current === "running") {
-            stagedSourceHandoffRef.current = "idle";
-            setApplyingViaHost(false);
-            if (next === "idle") clearPendingLiveEditStateRef.current();
-          }
-        }
-        hostChatGeneratingRef.current = next === "generating";
+        handleHostChatState({
+          next: data.data?.state,
+          hostChatGeneratingRef,
+          stagedSourceHandoffRef,
+          stagedHandoffStartedRef,
+          clearStartTimer: () => {
+            if (stagedHandoffStartTimerRef.current !== undefined) {
+              window.clearTimeout(stagedHandoffStartTimerRef.current);
+              stagedHandoffStartTimerRef.current = undefined;
+            }
+          },
+          setApplyingViaHost,
+          reloadRunningAppPreviewFrames,
+        });
       }
     }
 
@@ -1260,6 +1262,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     pendingLiveNonStyleRedoStackRef,
     pendingStructureRedoReplayRef,
     stagedSourceHandoffRef,
+    stagedHandoffStartedRef,
     stagedHandoffStartTimerRef,
     applyingViaHost,
     setApplyingViaHost,

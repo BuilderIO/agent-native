@@ -3032,6 +3032,149 @@ export default {
     },
   );
 
+  it.each([
+    ["an embedded panel", "panel", 403],
+    ["a signed-in browser", "none", 200],
+    ["a signed-in browser with only an embed marker", "marker", 200],
+  ] as const)(
+    "runs a signed-in-browser action from %s in generated workers",
+    async (_caller, credential, status) => {
+      const embedded = credential === "panel";
+      vi.stubEnv("OAUTH_STATE_SECRET", randomBytes(32).toString("base64url"));
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "rotate-action.mjs");
+      fs.writeFileSync(
+        actionPath,
+        `export default {
+  requiresSignedInBrowser: true,
+  run: async () => ({ rotated: true }),
+};`,
+      );
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry(
+          [],
+          [],
+          [],
+          [{ name: "rotate-key", absPath: actionPath, method: "post" }],
+        ),
+      );
+      const headers = new Headers({ "content-type": "application/json" });
+      if (embedded) {
+        const token = signEmbedSessionToken({
+          ownerEmail: "panel-owner@example.com",
+          audienceHost: "https://app.test",
+          targetPath: "/",
+          scope: "full-app",
+        });
+        headers.set("cookie", `${EMBED_SESSION_COOKIE}=${token}`);
+      }
+      if (credential === "marker") {
+        headers.set("x-agent-native-embed-target", "/");
+      }
+      const response = await worker.fetch(
+        new Request("https://app.test/_agent-native/actions/rotate-key", {
+          method: "POST",
+          headers,
+          body: "{}",
+        }),
+        {},
+        {},
+      );
+      expect(response.status).toBe(status);
+      const body = await response.json();
+      if (embedded) {
+        expect(body).toMatchObject({ errorCode: "signed_in_browser_required" });
+      } else {
+        expect(body).toEqual({ rotated: true });
+      }
+    },
+  );
+
+  it.each([
+    ["a full-app panel with the UI capability", "full-app", true, false, true],
+    [
+      "a full-app panel without the UI capability",
+      "full-app",
+      false,
+      false,
+      false,
+    ],
+    [
+      "a full-app panel's header token from its host's origin",
+      "full-app",
+      false,
+      true,
+      true,
+    ],
+    ["a scoped widget with the UI capability", "widget", true, false, false],
+    ["a full-app panel's non-frontend request", "server", true, true, false],
+  ] as const)(
+    "gives UI-only actions the owner's UI context from %s in generated workers",
+    async (_caller, kind, withCapability, panelBearer, proven) => {
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "ui-action.mjs");
+      fs.writeFileSync(actionPath, "export default { uiOnly: true };");
+      const source = generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "save-view", absPath: actionPath, method: "post" }],
+      );
+      const fnSource = source.match(
+        /  async function getGeneratedUiActionContext\(event, embedded\) \{[\s\S]*?\n  \}\n/,
+      )?.[0];
+      expect(fnSource).toBeTruthy();
+      // The live resolver also checks origin binding and revocation in the
+      // database; here it reports the session the panel's token names.
+      const embedSession = {
+        email: "Panel-Owner@example.com",
+        scope:
+          kind === "widget"
+            ? "capability:visual-edit:design:design-1"
+            : "full-app",
+      };
+      const capabilityOwners: string[] = [];
+      const getContext = new Function(
+        "resolveGeneratedEmbedSession",
+        "GENERATED_FULL_APP_EMBED_SCOPE",
+        "presentsGeneratedFullAppEmbedToken",
+        "hasGeneratedSameOriginBrowserEvidence",
+        "hasGeneratedUiActionCapability",
+        "resolveGeneratedOrgId",
+        "getGeneratedBrowserCookieSession",
+        `${fnSource}; return getGeneratedUiActionContext;`,
+      )(
+        async () => embedSession,
+        "full-app",
+        () => panelBearer,
+        () => !panelBearer,
+        (_event: unknown, owner: string) => {
+          capabilityOwners.push(owner);
+          return withCapability;
+        },
+        async () => "org-1",
+        async () => {
+          throw new Error("A panel is not a browser-cookie session");
+        },
+      ) as (event: unknown, embedded: boolean) => Promise<unknown>;
+      const headers = new Headers(
+        kind === "server" ? {} : { "x-agent-native-frontend": "1" },
+      );
+      const context = await getContext({ req: { headers } }, true);
+      if (proven) {
+        expect(context).toEqual({
+          userEmail: "panel-owner@example.com",
+          orgId: "org-1",
+        });
+        expect(capabilityOwners).toEqual(
+          panelBearer ? [] : ["panel-owner@example.com"],
+        );
+      } else {
+        expect(context).toBeNull();
+      }
+    },
+  );
+
   it("pre-marks generated plugin slots before running async plugins", () => {
     const dir = makeTempDir();
     const agentChatPlugin = path.join(
@@ -7945,6 +8088,113 @@ describe("durable-background Netlify function emit (single-template, default-on)
     );
   });
 
+  function writeIngestionPackage(
+    directory: string,
+    source = "export {};\n",
+  ): void {
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(
+      path.join(directory, "package.json"),
+      JSON.stringify({ main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(directory, "index.js"), source);
+  }
+
+  it("accepts ingestion imports and their transitive imports shipped in the server function", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    writeIngestionPackage(
+      path.join(serverDir, "node_modules", "officeparser"),
+      'import zip from "jszip";\nexport { zip };\n',
+    );
+    writeIngestionPackage(path.join(serverDir, "node_modules", "jszip"));
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("officeparser");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("surfaces an unreadable parser manifest instead of reporting it as unshipped", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    const parserDir = path.join(serverDir, "node_modules", "officeparser");
+    writeIngestionPackage(parserDir);
+    fs.writeFileSync(path.join(parserDir, "package.json"), "{ invalid json");
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("officeparser");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      expect.objectContaining({ code: "ERR_INVALID_PACKAGE_CONFIG" }),
+    );
+  });
+
+  it("rejects a missing transitive parser import despite its parent being shipped", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    writeIngestionPackage(
+      path.join(serverDir, "node_modules", "officeparser"),
+      'import zip from "jszip";\nexport { zip };\n',
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("officeparser");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /jszip .*not shipped inside the server bundle/,
+    );
+  });
+
+  it("rejects a missing parser subpath even when the package entry is shipped", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.dirname(serverEntryPath(cwd));
+    writeIngestionPackage(path.join(serverDir, "node_modules", "pdfjs-dist"));
+    fs.writeFileSync(
+      path.join(serverDir, "parser.mjs"),
+      'export const parser = import("pdfjs-dist/legacy/build/pdf.mjs");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /pdfjs-dist\/legacy\/build\/pdf.mjs is not shipped/,
+    );
+  });
+
+  it.each(["ancestor node_modules", "symlink"])(
+    "rejects parser resolution escaping the function through %s",
+    (escape) => {
+      const cwd = setupNetlifyOutput();
+      prepareSingleTemplateNetlifyOutput(cwd);
+      const serverDir = path.dirname(serverEntryPath(cwd));
+      const outsidePackage = path.join(cwd, "node_modules", "officeparser");
+      writeIngestionPackage(outsidePackage);
+      if (escape === "symlink") {
+        const shippedModules = path.join(serverDir, "node_modules");
+        fs.mkdirSync(shippedModules, { recursive: true });
+        fs.symlinkSync(
+          outsidePackage,
+          path.join(shippedModules, "officeparser"),
+          "dir",
+        );
+      }
+      fs.writeFileSync(
+        path.join(serverDir, "parser.mjs"),
+        'export const parser = import("officeparser");\n',
+      );
+
+      expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+        /officeparser .*not shipped inside the server bundle/,
+      );
+    },
+  );
+
   it("fails deploy output with bare ingestion runtime imports", () => {
     const cwd = setupNetlifyOutput();
     prepareSingleTemplateNetlifyOutput(cwd);
@@ -8150,6 +8400,22 @@ describe("durable-background Netlify function emit (single-template, default-on)
         true,
       );
     }
+  });
+
+  it("keeps relative links inside a linked Vercel function as written", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-vercel-inner-"));
+    dirs.push(cwd);
+    const output = path.join(cwd, ".vercel", "output");
+    const base = path.join(output, "functions", "__server.func");
+    const dep = path.join(".nitro", "dep@1.0.0");
+    fs.mkdirSync(path.join(base, "node_modules", dep), { recursive: true });
+    fs.writeFileSync(path.join(base, "index.mjs"), "export {};");
+    fs.symlinkSync(dep, path.join(base, "node_modules", "dep"), "dir");
+    const linked = path.join(output, "functions", "linked.func");
+    fs.symlinkSync(base, linked, "dir");
+    prepareVercelFunctionOutputs(output, cwd);
+    expect(fs.lstatSync(linked).isSymbolicLink()).toBe(false);
+    expect(fs.readlinkSync(path.join(linked, "node_modules", "dep"))).toBe(dep);
   });
 
   it("bundles one complete Yjs runtime for every serverless consumer", async () => {
