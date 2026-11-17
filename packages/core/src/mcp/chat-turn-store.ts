@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 import { bigint, pgTable, text } from "drizzle-orm/pg-core";
 
 import { getDbExec } from "../db/client.js";
@@ -140,6 +140,20 @@ export async function mintMcpChatTurn(
   }
 }
 
+// A replayed proof is refused until it expires; keep a day of admissions, then drop them.
+const ADMISSION_RETENTION_MS = 24 * 60 * 60_000;
+
+async function pruneExpiredChatTurnAdmissions(): Promise<void> {
+  try {
+    await getDb()
+      .delete(admissions)
+      .where(lt(admissions.expiresAt, Date.now() - ADMISSION_RETENTION_MS));
+  } catch (error) {
+    // A failed prune never blocks an admission; the next one retries it.
+    console.warn("[mcp-chat-turn] could not prune expired admissions", error);
+  }
+}
+
 export async function admitMcpChatTurn(
   candidate: unknown,
   binding: {
@@ -218,6 +232,7 @@ export async function admitMcpChatTurn(
       refused("replay", appId);
       return;
     }
+    await pruneExpiredChatTurnAdmissions();
     console.info("[mcp-chat-turn] admitted", { appId });
   } catch {
     refused("storage-or-signing-unavailable", appId);

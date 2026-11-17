@@ -65,12 +65,26 @@ export function useSettingsWrite<Value>(binding: SettingsBinding<Value>) {
   const [pendingValue, setPendingValue] = useState<{ value: Value } | null>(
     null,
   );
+  const [error, setError] = useState<string | null>(null);
   const confirm: SettingsWriteConfirmation<Value> | undefined = binding.confirm;
+  // A rejected write reverts the control; the rejection's own message says why.
+  const commit = (value: Value) => {
+    setError(null);
+    void (async () => {
+      try {
+        await binding.set?.(value);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
+    })();
+  };
   return {
+    /** The last write's rejection message; cleared by the next write. */
+    error,
     write(next: Value) {
       if (!binding.set) return;
       if (confirm?.when(next)) setPendingValue({ value: next });
-      else void settle(() => binding.set?.(next));
+      else commit(next);
     },
     /** Present while the confirmation is open. */
     confirmation:
@@ -84,7 +98,7 @@ export function useSettingsWrite<Value>(binding: SettingsBinding<Value>) {
             confirm() {
               const { value } = pendingValue;
               setPendingValue(null);
-              void settle(() => binding.set?.(value));
+              commit(value);
             },
             cancel() {
               setPendingValue(null);

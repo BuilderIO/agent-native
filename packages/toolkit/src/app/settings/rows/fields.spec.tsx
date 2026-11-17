@@ -201,6 +201,36 @@ describe("settings rows: fields real settings pages needed", () => {
     expect(writes).toEqual([false, true]);
   });
 
+  it("shows why a toggle's write was rejected and clears it on the next write", async () => {
+    let fail = true;
+    const sections: SettingsSectionDefinition[] = [
+      {
+        id: "team",
+        rows: [
+          {
+            id: "settings.team.triage",
+            kind: "toggle",
+            label: "Triage",
+            binding: {
+              value: true,
+              set: async () => {
+                if (fail) throw new Error("Not allowed for this workspace");
+              },
+            },
+          },
+        ],
+      },
+    ];
+    act(() => root.render(<SettingsSections sections={sections} />));
+    await act(async () => press("settings.team.triage"));
+    expect(
+      tagged("settings.team.triage", "settings.row.error")?.textContent,
+    ).toBe("Not allowed for this workspace");
+    fail = false;
+    await act(async () => press("settings.team.triage"));
+    expect(tagged("settings.team.triage", "settings.row.error")).toBeNull();
+  });
+
   it("keeps an add form open with its values and shows the message when a submit does not save", async () => {
     const submits: unknown[] = [];
     let result: SettingsSubmitResult = { error: "That name is taken" };

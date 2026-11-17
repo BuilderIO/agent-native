@@ -81,6 +81,7 @@ import {
 import { signMcpOAuthAccessToken } from "./oauth-token.js";
 import { handleMcpRequest } from "./server.js";
 import { isMcpTurnGrantAction } from "./turn-grant-scope.js";
+import { mcpTurnGrantsStore, mintMcpTurnGrant } from "./turn-grant-store.js";
 
 const ORIGIN = "https://app.example.test";
 const OWNER = "viewer@example.test";
@@ -447,4 +448,25 @@ it("ask_app mints a chat-turn proof only for a registered app", async () => {
       mintMcpChatTurn(APP),
     ),
   ).toMatchObject({ status: "refused", reason: "not-user-call" });
+});
+
+it("drops grants that expired more than a day ago when it mints a new one", async () => {
+  await mcpTurnGrantsStore.ready();
+  const db = getDbExec();
+  const now = Date.now();
+  const insert = (hash: string, expiresAt: number) =>
+    db.execute({
+      sql: "INSERT INTO mcp_turn_grants (grant_hash, owner_email, app_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+      args: [hash, OWNER, APP, expiresAt - 1000, expiresAt],
+    });
+  await insert("stale-grant", now - 2 * 24 * 60 * 60_000);
+  await insert("recent-grant", now - 60 * 60_000);
+  await mintMcpTurnGrant(OWNER, APP);
+  const { rows } = await db.execute({
+    sql: "SELECT grant_hash FROM mcp_turn_grants WHERE grant_hash IN ('stale-grant', 'recent-grant')",
+    args: [],
+  });
+  expect(rows.map((row) => (row as { grant_hash: string }).grant_hash)).toEqual(
+    ["recent-grant"],
+  );
 });

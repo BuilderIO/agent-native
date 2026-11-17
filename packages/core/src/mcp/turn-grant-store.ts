@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { eq, lt } from "drizzle-orm";
 import { bigint, pgTable, text } from "drizzle-orm/pg-core";
 
 import { ActionContractError } from "../action.js";
@@ -52,6 +52,20 @@ function grantHash(id: string): string {
   return createHash("sha256").update(id).digest("hex");
 }
 
+// Expired grants are dead weight; keep a day of them for diagnosis, then drop them.
+const GRANT_RETENTION_MS = 24 * 60 * 60_000;
+
+async function pruneExpiredTurnGrants(now: number): Promise<void> {
+  try {
+    await getDb()
+      .delete(turnGrants)
+      .where(lt(turnGrants.expiresAt, now - GRANT_RETENTION_MS));
+  } catch (error) {
+    // A failed prune never blocks a mint; the next mint retries it.
+    console.warn("[mcp-turn-grant] could not prune expired grants", error);
+  }
+}
+
 export async function mintMcpTurnGrant(
   ownerEmail: string,
   appId: string,
@@ -72,6 +86,7 @@ export async function mintMcpTurnGrant(
   } catch {
     throw new TurnGrantUnavailableError();
   }
+  await pruneExpiredTurnGrants(createdAt);
   return { grantId };
 }
 

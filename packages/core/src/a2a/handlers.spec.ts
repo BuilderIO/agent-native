@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+import { isProviderInteractiveScope } from "../provider-api/interactive-scope.js";
 import {
   getRequestOrgId,
   getRequestContext,
@@ -32,6 +33,20 @@ const claimTaskExecutionLeaseMock = vi.hoisted(() =>
 );
 const renewTaskExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
 const releaseTurnExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
+
+const chatTurn = vi.hoisted(() => ({
+  admit: vi.fn(async (..._args: unknown[]) => {}),
+  read: vi.fn(
+    async (..._args: unknown[]): Promise<unknown> => ({
+      status: "absent",
+    }),
+  ),
+}));
+vi.mock("../mcp/chat-turn-store.js", () => ({
+  MCP_CHAT_TURN_FIELD: "__agentNativeMcpChatTurn",
+  admitMcpChatTurn: chatTurn.admit,
+  readMcpChatTurn: chatTurn.read,
+}));
 
 vi.mock("../agent/run-store.js", () => ({
   claimTaskExecutionLease: claimTaskExecutionLeaseMock,
@@ -1102,6 +1117,74 @@ describe("handleJsonRpc", () => {
     const task = result.result;
     expect(task.status.state).toBe("completed");
     expect(task.status.message.parts[0].text).toBe("custom response");
+  });
+
+  it("admits a chat-turn proof, hides it from the handler, and scopes the handler to the grant", async () => {
+    const seen: Array<{ metadata: unknown; interactive: boolean }> = [];
+    const config = {
+      ...customHandler,
+      handler: async (message: Message) => {
+        seen.push({
+          metadata: message.metadata,
+          interactive: isProviderInteractiveScope(),
+        });
+        return {
+          message: { role: "agent", parts: [{ type: "text", text: "ok" }] },
+        } as never;
+      },
+    };
+    const send = (claim?: unknown) => {
+      const event = mockEvent();
+      event.context = {
+        __a2aVerifiedEmail: "alice@example.org",
+        __a2aIdentityAssurance: "user",
+      };
+      return handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 7,
+          method: "message/send",
+          params: {
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: "hi" }],
+              ...(claim
+                ? { metadata: { __agentNativeMcpChatTurn: claim, keep: 1 } }
+                : {}),
+            },
+          },
+        },
+        event,
+        config,
+      );
+    };
+
+    await send();
+    expect(seen.at(-1)).toMatchObject({ interactive: false });
+    expect(chatTurn.admit).toHaveBeenLastCalledWith(
+      undefined,
+      expect.anything(),
+    );
+
+    chatTurn.read.mockResolvedValueOnce({
+      status: "admitted",
+      grant: {
+        owner: "alice@example.org",
+        appId: "test-app",
+        runId: "t",
+        turnId: "t",
+        expiresAt: Date.now() + 60_000,
+      },
+    });
+    await send({ v: "claim" });
+    expect(chatTurn.admit).toHaveBeenLastCalledWith(
+      { v: "claim" },
+      expect.objectContaining({
+        owner: "alice@example.org",
+        assurance: "user",
+      }),
+    );
+    expect(seen.at(-1)).toEqual({ metadata: { keep: 1 }, interactive: true });
   });
 
   it("reuses an authenticated owner's task for duplicate message/send keys", async () => {

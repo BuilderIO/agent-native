@@ -430,6 +430,15 @@ function BooleanRow({
           </ControlTag>
         }
       />
+      {write.error && !row.error ? (
+        <p
+          role="alert"
+          {...settingsTags(row.id, "settings.row.error")}
+          className="text-xs text-destructive"
+        >
+          {write.error}
+        </p>
+      ) : null}
       <WriteConfirmation
         rid={row.id}
         write={write as ReturnType<typeof useSettingsWrite<never>>}
