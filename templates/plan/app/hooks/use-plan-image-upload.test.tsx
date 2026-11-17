@@ -10,9 +10,11 @@ const mocks = vi.hoisted(() => ({
     isSuccess: false,
     refetch: vi.fn(),
   },
+  uploadEditorImage: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/uploads", () => ({
+  uploadEditorImage: mocks.uploadEditorImage,
   useFileUploadStatus: () => mocks.status,
 }));
 
@@ -101,7 +103,10 @@ describe("usePlanImageUpload", () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
-          JSON.stringify({ id: "passet_1", url: "/_agent-native/plan-asset/passet_1/diagram.png" }),
+          JSON.stringify({
+            id: "passet_1",
+            url: "/_agent-native/plan-asset/passet_1/diagram.png",
+          }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
     );
@@ -112,7 +117,10 @@ describe("usePlanImageUpload", () => {
       src: "/_agent-native/plan-asset/passet_1/diagram.png",
       alt: "diagram",
     });
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
     expect(url).toBe("/plan/_agent-native/plan-asset");
     expect(init.method).toBe("POST");
     const body = init.body as FormData;
@@ -127,7 +135,10 @@ describe("usePlanImageUpload", () => {
       vi.fn(
         async () =>
           new Response(
-            JSON.stringify({ error: "Connect storage", code: "storage_unavailable" }),
+            JSON.stringify({
+              error: "Connect storage",
+              code: "storage_unavailable",
+            }),
             { status: 503, headers: { "Content-Type": "application/json" } },
           ),
       ),
@@ -154,6 +165,47 @@ describe("usePlanImageUpload", () => {
     await expect(upload!.uploadImage(image())).rejects.toThrow(
       "Save the plan before adding images.",
     );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps one upload function, which an editor can hold while storage connects", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ url: "/_agent-native/plan-asset/passet_1/a.png" }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.status.isSuccess = true;
+    mocks.status.data = { configured: false };
+    act(() => root.render(createElement(Probe) as ReactNode));
+    const heldByEditor = upload!.uploadImage;
+
+    storageConnected();
+    act(() => root.render(createElement(Probe) as ReactNode));
+
+    expect(upload!.uploadImage).toBe(heldByEditor);
+    await expect(heldByEditor(image())).resolves.toMatchObject({
+      src: "/_agent-native/plan-asset/passet_1/a.png",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends a local folder plan's image where it went before, since no database row backs that plan", async () => {
+    storageConnected();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.uploadEditorImage.mockResolvedValue({ src: "/uploads/a.png" });
+    act(() =>
+      root.render(
+        createElement(Probe, { planId: "local-checkout" }) as ReactNode,
+      ),
+    );
+
+    await expect(upload!.uploadImage(image())).resolves.toEqual({
+      src: "/uploads/a.png",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

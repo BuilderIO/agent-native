@@ -1,5 +1,8 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import {
+  uploadEditorImage,
+  useFileUploadStatus,
+} from "@agent-native/core/client/uploads";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -31,6 +34,7 @@ export async function uploadPlanImage(
     credentials: "include",
     headers: { "X-Agent-Native-CSRF": "1" },
   });
+  // coercion-ok: a body that isn't JSON falls back to the status message below
   const body = (await response.json().catch(() => null)) as {
     url?: unknown;
     error?: unknown;
@@ -48,6 +52,14 @@ export async function uploadPlanImage(
   }
   const alt = file.name ? file.name.replace(/\.[^./\\]+$/, "") : "";
   return { src: body.url, alt };
+}
+
+/**
+ * A plan opened from a local folder has no database row for the image route
+ * to check access against.
+ */
+function isLocalFolderPlanId(planId: string): boolean {
+  return planId.startsWith("local-");
 }
 
 /**
@@ -73,6 +85,9 @@ export function usePlanImageUpload(planId: string | null | undefined) {
   const upload = useCallback(
     async (file: File) => {
       if (!planId) throw new Error("Save the plan before adding images.");
+      // A local folder plan's images keep going where they did before private
+      // storage, until the folder can hold them itself.
+      if (isLocalFolderPlanId(planId)) return uploadEditorImage(file);
       try {
         return await uploadPlanImage(file, planId);
       } catch (error) {
@@ -122,16 +137,21 @@ export function usePlanImageUpload(planId: string | null | undefined) {
     return false;
   }, [canUploadImages, isError, refetch, storageMissing]);
 
-  const uploadImage = useCallback(
-    (file: File) => {
-      if (requestUpload()) return upload(file);
+  // An editor keeps the upload it was created with, so `uploadImage` stays
+  // one function that reads the hook's current state when it runs. A stale
+  // copy would queue a file after the queue had already been drained.
+  const latestRef = useRef({ requestUpload, upload });
+  useEffect(() => {
+    latestRef.current = { requestUpload, upload };
+  });
+  const uploadImage = useCallback((file: File) => {
+    const latest = latestRef.current;
+    if (latest.requestUpload()) return latest.upload(file);
 
-      return new Promise<{ src: string; alt?: string }>((resolve, reject) => {
-        pendingUploadsRef.current.push({ file, resolve, reject });
-      });
-    },
-    [requestUpload, upload],
-  );
+    return new Promise<{ src: string; alt?: string }>((resolve, reject) => {
+      pendingUploadsRef.current.push({ file, resolve, reject });
+    });
+  }, []);
 
   const handleSetupOpenChange = useCallback(
     (open: boolean, reason?: "dismiss" | "setup" | "connected") => {

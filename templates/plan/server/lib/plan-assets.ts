@@ -5,7 +5,10 @@ import {
   deletePrivateMedia,
   putPrivateMedia,
 } from "@agent-native/core/private-media";
-import { getRequestOrgId, getRequestUserEmail } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import { and, eq, sum } from "drizzle-orm";
 
 import {
@@ -132,9 +135,7 @@ export async function storePlanAsset(input: {
       media = await putPrivateMedia({
         ownerEmail,
         orgId:
-          input.orgId === undefined
-            ? (getRequestOrgId() ?? null)
-            : input.orgId,
+          input.orgId === undefined ? (getRequestOrgId() ?? null) : input.orgId,
         data: input.data,
         mimeType: input.mimeType,
         filename: input.filename,

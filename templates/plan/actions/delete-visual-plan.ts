@@ -11,13 +11,13 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { deletePrivatePlanAssetBytes } from "../server/lib/plan-assets.js";
 import {
   isAnonymousPublicViewer,
   isGuestAuthorIdentity,
   resolvePlanAccessContext,
   resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
+import { deletePrivatePlanAssetBytes } from "../server/lib/plan-assets.js";
 import { nowIso, writeEvent } from "../server/plans.js";
 
 const hardDeleteModeSchema = z.enum(["soft", "restore", "hard"]);

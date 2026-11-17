@@ -271,7 +271,8 @@ describe("plan asset route", () => {
   });
 
   describe("upload", () => {
-    const image = () => new File(["PNGDATA"], "shot.png", { type: "image/png" });
+    const image = () =>
+      new File(["PNGDATA"], "shot.png", { type: "image/png" });
 
     it("adds an image to a plan the caller can edit", async () => {
       state.stored.mockResolvedValue({

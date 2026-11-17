@@ -85,7 +85,6 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
   beforeEach(() => {
     editorProps.mockClear();
     imageSlashAction.mockClear();
-    uploadImageMock.mockReset();
     collab.initialization = { status: "loading" };
     fileStorage.configured = false;
     fileStorage.isSuccess = true;
@@ -182,6 +181,8 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
 
   it("cancels queued image files when storage setup is dismissed", async () => {
     vi.stubEnv("DEV", false);
+    const uploadRequest = vi.fn();
+    vi.stubGlobal("fetch", uploadRequest);
     const props = { markdown: "Canonical body", onSave: vi.fn() };
     const container = document.createElement("div");
     const root = createRoot(container);
@@ -204,9 +205,10 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
     });
 
     await expect(pendingUpload).rejects.toThrow("Image upload was canceled.");
-    expect(uploadImageMock).not.toHaveBeenCalled();
+    expect(uploadRequest).not.toHaveBeenCalled();
     act(() => root.unmount());
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   it("keeps probe errors distinct and offers retry only after an upload attempt", () => {

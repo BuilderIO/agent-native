@@ -156,7 +156,7 @@ export function createPlanAssetHandler() {
     // The org lets a workspace plan's members load its images, as they can
     // open the plan.
     const ctx = resolvePlanAccessContext({
-      userEmail: session?.email,
+      ...(session ? { userEmail: session.email } : {}),
       ...(session?.orgId ? { orgId: session.orgId } : {}),
     });
     const access = await resolveAccess("plan", asset.planId, ctx).catch(
