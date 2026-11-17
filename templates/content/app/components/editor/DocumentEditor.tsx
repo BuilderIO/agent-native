@@ -438,6 +438,7 @@ import {
   type SuggestionPresentationTransition,
   type SuggestionPresentationTransitions,
 } from "./suggestions/presentation-rebase";
+import { SyncedPageBanner } from "./SyncedPageBanner";
 import {
   refreshedProposalMembers,
   reviewedAsOne,
@@ -11749,28 +11750,7 @@ function PageEditorSessionBody({
             </div>
           ) : null}
 
-          {isGitHubSourceDocument ? (
-            <div
-              className="border-b bg-muted/20 px-4 py-1.5 text-xs text-muted-foreground"
-              role="status"
-              data-github-source-read-only
-            >
-              {t("editor.githubSourceReadOnly")}
-              {document.source?.url ? (
-                <>
-                  {" "}
-                  <a
-                    href={document.source.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline underline-offset-2 hover:text-foreground"
-                  >
-                    {t("editor.githubSourceOpenFile")}
-                  </a>
-                </>
-              ) : null}
-            </div>
-          ) : null}
+          <SyncedPageBanner document={document} />
 
           {/* isolate makes the scroller its own stacking context. Safari
               misorders the layers inside a scroller that isn't one, so the

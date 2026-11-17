@@ -106,31 +106,51 @@ const database = {
   githubDetailFolder: "폴더",
   githubDetailBranch: "브랜치",
   githubDetailVersion: "버전",
-  githubDetailUpdated: "마지막 업데이트",
-  githubCheckForUpdates: "업데이트 확인",
+  sourceDetailUpdated: "마지막 업데이트",
   githubOpenFolder: "GitHub에서 열기",
-  githubUnlinkFolder: "폴더 연결 해제…",
   githubUnlinkTitle: "이 GitHub 폴더의 연결을 해제할까요?",
   githubUnlinkBodyOne:
     "페이지 1개는 여기에 남아 편집할 수 있는 일반 페이지가 됩니다. GitHub의 변경 사항은 더 이상 들어오지 않습니다. 나중에 이 폴더를 다시 연결하려면 새 컬렉션을 사용해야 합니다.",
   githubUnlinkBody:
     "페이지 {{count}}개는 여기에 남아 편집할 수 있는 일반 페이지가 됩니다. GitHub의 변경 사항은 더 이상 들어오지 않습니다. 나중에 이 폴더를 다시 연결하려면 새 컬렉션을 사용해야 합니다.",
-  githubUnlink: "연결 해제",
-  githubUnlinking: "연결 해제하는 중…",
-  githubUnlinkedToast:
+  sourceUnlinkConfirm: "연결 해제",
+  sourceUnlinking: "연결 해제하는 중…",
+  sourceUnlinkedToast:
     "연결을 해제했습니다. 페이지는 그대로 남아 있으며 이제 편집할 수 있습니다.",
-  githubUnlinkFailed: "폴더 연결을 해제하지 못했습니다",
+  sourceSyncNow: "지금 동기화",
+  sourceUnlink: "연결 해제…",
+  sourceUnlinkFailed: "연결을 해제하지 못했습니다",
+  sourceFromBuilderModel: "Builder의 {{name}} 모델에서 가져옴",
+  sourceDetailsFromBuilderModel: "Builder의 {{name}} 모델에서 가져온 세부 정보",
+  sourceDetailsFromNotionDatabase:
+    "Notion의 {{name}} 데이터베이스에서 가져온 세부 정보",
+  sourceDetailModel: "모델",
+  sourceDetailDatabase: "데이터베이스",
+  sourceUnlinkBuilderTitle: "이 Builder 모델의 연결을 해제할까요?",
+  sourceUnlinkBuilderBodyOne:
+    "페이지 1개는 여기에 남아 편집할 수 있는 일반 페이지가 됩니다. Builder의 변경 사항은 더 이상 들어오지 않습니다.",
+  sourceUnlinkBuilderBody:
+    "페이지 {{count}}개는 여기에 남아 편집할 수 있는 일반 페이지가 됩니다. Builder의 변경 사항은 더 이상 들어오지 않습니다.",
+  sourceUnlinkNotionTitle: "이 Notion 데이터베이스의 연결을 해제할까요?",
+  sourceUnlinkNotionBodyOne:
+    "페이지 1개는 여기에 남고 계속 편집할 수 있습니다. Notion의 세부 정보는 더 이상 들어오지 않습니다.",
+  sourceUnlinkNotionBody:
+    "페이지 {{count}}개는 여기에 남고 계속 편집할 수 있습니다. Notion의 세부 정보는 더 이상 들어오지 않습니다.",
+  sourceProblemNotion: "Notion에서 업데이트하지 못했습니다.",
+  sourceProblemBuilder: "Builder에서 업데이트하지 못했습니다.",
+  sourceShowingDetailsAsOf: "{{time}} 기준 세부 정보를 표시하고 있습니다.",
+  notionSyncedToast: "Notion에서 업데이트했습니다.",
   githubFromFolder: "GitHub의 {{folder}} 폴더에서 가져옴",
   githubFromRepo: "GitHub의 {{repo}}에서 가져옴",
-  githubUpdatedAgo: "{{time}} 업데이트됨",
-  githubJustNow: "방금",
-  githubNotUpdatedYet: "아직 업데이트되지 않음",
+  sourceUpdatedAgo: "{{time}} 업데이트됨",
+  sourceJustNow: "방금",
+  sourceNotUpdatedYet: "아직 업데이트되지 않음",
   githubEditOnGitHub: "GitHub에서 편집",
-  githubDetails: "세부 정보",
+  sourceDetails: "세부 정보",
   githubNotShownOne: "파일 1개 표시 안 됨",
   githubNotShown: "파일 {{count}}개 표시 안 됨",
   githubNotShownHeading: "표시되지 않음",
-  githubShowingAsOf: "{{time}} 기준 페이지를 표시하고 있습니다.",
+  sourceShowingPagesAsOf: "{{time}} 기준 페이지를 표시하고 있습니다.",
   githubSyncingProgress:
     "변경 사항을 가져오는 중: 파일 {{total}}개 중 {{done}}개",
   githubPicturesWaiting:
@@ -358,7 +378,6 @@ const database = {
   addProperty: "속성 추가",
   back: "뒤로",
   builderSpace: "Builder 공간",
-  connectNotionFirst: "먼저 Notion 연결",
   connected: "연결됨",
   builderBulkUpdateNotStaged: "Builder 대량 업데이트가 스테이징되지 않음",
   builderBulkUpdateStaged: "Builder 대량 업데이트가 스테이징됨",
@@ -366,8 +385,6 @@ const database = {
   builderWriteModeWasNotChanged: "Builder 쓰기 모드가 변경되지 않았습니다",
   closeDatabaseSettings: "컬렉션 설정 닫기",
   closeSearch: "검색 닫기",
-  databaseRowsAndLocalPropertiesWereKeptIntact:
-    "컬렉션 행과 로컬 속성은 유지되었습니다.",
   failedToAttachSource: "소스를 연결하지 못했습니다",
   failedToCreateRow: "행을 생성하지 못했습니다",
   pageCreatedCollectionRefreshFailed:
@@ -448,8 +465,6 @@ const database = {
   searchProperties: "속성 검색",
   somethingWentWrong: "문제가 발생했습니다",
   sort: "정렬",
-  sourceDisconnected: "소스 연결 해제됨",
-  sourceWasNotDisconnected: "소스 연결이 해제되지 않았습니다",
   sources: "소스",
   table: "표",
   tryAgain: "다시 시도하세요.",
@@ -699,6 +714,15 @@ const editor = {
   githubSourceReadOnly:
     "보기 전용. 이 페이지는 GitHub의 파일을 따르며 푸시할 때마다 업데이트됩니다.",
   githubSourceOpenFile: "GitHub에서 열기",
+  syncedPageBuilder: "이 페이지는 Builder의 {{name}} 모델에서 가져왔습니다.",
+  syncedPageBuilderReadOnly:
+    "여기서 편집한 내용은 Builder로 보내지지 않습니다.",
+  syncedPageBuilderStageOnly:
+    "여기서 편집한 내용은 검토 후 Builder에 저장할 수 있지만 게시되지는 않습니다.",
+  syncedPageBuilderPublish:
+    "여기서 편집한 내용은 검토 후 Builder에 게시할 수 있습니다.",
+  syncedPageNotion:
+    "이 페이지의 일부 세부 정보는 Notion의 {{name}} 데이터베이스에서 가져오며 여기서는 보기 전용입니다.",
   textColor: "텍스트 색상",
   resizeColumns: "열 너비 조절",
   backgroundColor: "배경색",
@@ -1660,7 +1684,6 @@ const overrides = {
     builderRowsLoadingBackground:
       "Builder가 백그라운드에서 행을 계속 로드하고 있습니다.",
     attachingReadOnly: "연결 중 · 읽기 전용",
-    builderRowsLoadingHitSnag: "Builder 행 로드 중 문제가 발생했습니다.",
     opening: "여는 중...",
   },
   localFiles: localFiles,

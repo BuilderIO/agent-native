@@ -108,32 +108,51 @@ const database = {
   githubDetailFolder: "Ordner",
   githubDetailBranch: "Branch",
   githubDetailVersion: "Version",
-  githubDetailUpdated: "Aktualisiert",
-  githubCheckForUpdates: "Auf Aktualisierungen prüfen",
+  sourceDetailUpdated: "Aktualisiert",
   githubOpenFolder: "In GitHub öffnen",
-  githubUnlinkFolder: "Verknüpfung mit Ordner aufheben…",
   githubUnlinkTitle: "Verknüpfung mit diesem GitHub-Ordner aufheben?",
   githubUnlinkBodyOne:
     "Die Seite bleibt hier und wird zu einer normalen Seite, die du bearbeiten kannst. Änderungen auf GitHub kommen dann nicht mehr an. Um diesen Ordner später wieder zu verknüpfen, nimmst du eine neue Sammlung.",
   githubUnlinkBody:
     "Die {{count}} Seiten bleiben hier und werden zu normalen Seiten, die du bearbeiten kannst. Änderungen auf GitHub kommen dann nicht mehr an. Um diesen Ordner später wieder zu verknüpfen, nimmst du eine neue Sammlung.",
-  githubUnlink: "Verknüpfung aufheben",
-  githubUnlinking: "Verknüpfung wird aufgehoben…",
-  githubUnlinkedToast:
+  sourceUnlinkConfirm: "Verknüpfung aufheben",
+  sourceUnlinking: "Verknüpfung wird aufgehoben…",
+  sourceUnlinkedToast:
     "Verknüpfung aufgehoben. Deine Seiten bleiben erhalten, und du kannst sie jetzt bearbeiten.",
-  githubUnlinkFailed:
-    "Die Verknüpfung mit dem Ordner konnte nicht aufgehoben werden",
+  sourceSyncNow: "Jetzt synchronisieren",
+  sourceUnlink: "Verknüpfung aufheben…",
+  sourceUnlinkFailed: "Verknüpfung konnte nicht aufgehoben werden",
+  sourceFromBuilderModel: "Aus dem Modell {{name}} in Builder",
+  sourceDetailsFromBuilderModel: "Details aus dem Modell {{name}} in Builder",
+  sourceDetailsFromNotionDatabase:
+    "Details aus der Datenbank {{name}} in Notion",
+  sourceDetailModel: "Modell",
+  sourceDetailDatabase: "Datenbank",
+  sourceUnlinkBuilderTitle: "Verknüpfung mit diesem Builder-Modell aufheben?",
+  sourceUnlinkBuilderBodyOne:
+    "Die Seite bleibt hier und wird zu einer normalen Seite, die du bearbeiten kannst. Änderungen in Builder kommen dann nicht mehr an.",
+  sourceUnlinkBuilderBody:
+    "Die {{count}} Seiten bleiben hier und werden zu normalen Seiten, die du bearbeiten kannst. Änderungen in Builder kommen dann nicht mehr an.",
+  sourceUnlinkNotionTitle: "Verknüpfung mit dieser Notion-Datenbank aufheben?",
+  sourceUnlinkNotionBodyOne:
+    "Die Seite bleibt hier, und du kannst sie weiter bearbeiten. Details aus Notion kommen dann nicht mehr an.",
+  sourceUnlinkNotionBody:
+    "Die {{count}} Seiten bleiben hier, und du kannst sie weiter bearbeiten. Details aus Notion kommen dann nicht mehr an.",
+  sourceProblemNotion: "Aktualisierung aus Notion fehlgeschlagen.",
+  sourceProblemBuilder: "Aktualisierung aus Builder fehlgeschlagen.",
+  sourceShowingDetailsAsOf: "Stand der Details: {{time}}.",
+  notionSyncedToast: "Aus Notion aktualisiert.",
   githubFromFolder: "Aus dem Ordner {{folder}} auf GitHub",
   githubFromRepo: "Aus {{repo}} auf GitHub",
-  githubUpdatedAgo: "Aktualisiert {{time}}",
-  githubJustNow: "gerade eben",
-  githubNotUpdatedYet: "Noch nicht aktualisiert",
+  sourceUpdatedAgo: "Aktualisiert {{time}}",
+  sourceJustNow: "gerade eben",
+  sourceNotUpdatedYet: "Noch nicht aktualisiert",
   githubEditOnGitHub: "Auf GitHub bearbeiten",
-  githubDetails: "Details",
+  sourceDetails: "Details",
   githubNotShownOne: "1 Datei nicht angezeigt",
   githubNotShown: "{{count}} Dateien nicht angezeigt",
   githubNotShownHeading: "Nicht angezeigt",
-  githubShowingAsOf: "Stand der Seiten: {{time}}.",
+  sourceShowingPagesAsOf: "Stand der Seiten: {{time}}.",
   githubSyncingProgress:
     "Änderungen werden geholt: {{done}} von {{total}} Dateien",
   githubPicturesWaiting:
@@ -368,7 +387,6 @@ const database = {
   addProperty: "Eigenschaft hinzufügen",
   back: "Zurück",
   builderSpace: "Builder-Bereich",
-  connectNotionFirst: "Zuerst Notion verbinden",
   connected: "Verbunden",
   builderBulkUpdateNotStaged:
     "Builder-Massenaktualisierung nicht bereitgestellt",
@@ -377,8 +395,6 @@ const database = {
   builderWriteModeWasNotChanged: "Builder-Schreibmodus wurde nicht geändert",
   closeDatabaseSettings: "Sammlungseinstellungen schließen",
   closeSearch: "Suche schließen",
-  databaseRowsAndLocalPropertiesWereKeptIntact:
-    "Sammlungszeilen und lokale Eigenschaften wurden beibehalten.",
   failedToAttachSource: "Quelle konnte nicht angehängt werden",
   failedToCreateRow: "Zeile konnte nicht erstellt werden",
   pageCreatedCollectionRefreshFailed:
@@ -464,8 +480,6 @@ const database = {
   searchProperties: "Eigenschaften suchen",
   somethingWentWrong: "Etwas ist schiefgelaufen",
   sort: "Sortieren",
-  sourceDisconnected: "Quelle getrennt",
-  sourceWasNotDisconnected: "Quelle wurde nicht getrennt",
   sources: "Quellen",
   table: "Tabelle",
   tryAgain: "Erneut versuchen.",
@@ -720,6 +734,15 @@ const editor = {
   githubSourceReadOnly:
     "Nur Ansicht. Diese Seite folgt einer Datei in GitHub und wird nach jedem Push aktualisiert.",
   githubSourceOpenFile: "In GitHub öffnen",
+  syncedPageBuilder: "Diese Seite stammt aus dem Modell {{name}} in Builder.",
+  syncedPageBuilderReadOnly:
+    "Änderungen hier werden nicht an Builder gesendet.",
+  syncedPageBuilderStageOnly:
+    "Änderungen hier können nach einer Prüfung in Builder gespeichert, aber nie veröffentlicht werden.",
+  syncedPageBuilderPublish:
+    "Änderungen hier können nach einer Prüfung in Builder veröffentlicht werden.",
+  syncedPageNotion:
+    "Einige Details auf dieser Seite stammen aus der Datenbank {{name}} in Notion und können hier nur angesehen werden.",
   textColor: "Textfarbe",
   resizeColumns: "Spaltenbreite ändern",
   backgroundColor: "Hintergrundfarbe",
@@ -1710,8 +1733,6 @@ const overrides = {
     builderRowsLoadingBackground:
       "Builder lädt weiterhin Zeilen im Hintergrund.",
     attachingReadOnly: "Wird angehängt · schreibgeschützt",
-    builderRowsLoadingHitSnag:
-      "Beim Laden der Builder-Zeilen ist ein Problem aufgetreten.",
     opening: "Wird geöffnet...",
   },
   localFiles: localFiles,

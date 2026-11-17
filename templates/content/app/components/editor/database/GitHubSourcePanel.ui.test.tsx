@@ -140,9 +140,9 @@ describe("The GitHub step in Sources", () => {
     expect(text).toContain(
       "This collection’s pages come from GitHub. Unlink the folder to use another source.",
     );
-    expect(queryButton("Check for updates")).not.toBe(null);
+    expect(queryButton("Sync now")).not.toBe(null);
 
-    await click(button("Unlink folder…"));
+    await click(button("Unlink…"));
     expect(document.body.textContent).toContain("Unlink this GitHub folder?");
     await click(button("Unlink"));
     const [variables, options] = unlink.mutate.mock.calls[0] as [
@@ -162,7 +162,7 @@ describe("The GitHub step in Sources", () => {
         onUnlinked={vi.fn()}
       />,
     );
-    expect(queryButton("Unlink folder…")).toBe(null);
-    expect(queryButton("Check for updates")).not.toBe(null);
+    expect(queryButton("Unlink…")).toBe(null);
+    expect(queryButton("Sync now")).not.toBe(null);
   });
 });

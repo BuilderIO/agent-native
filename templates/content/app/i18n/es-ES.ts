@@ -108,31 +108,52 @@ const database = {
   githubDetailFolder: "Carpeta",
   githubDetailBranch: "Rama",
   githubDetailVersion: "Versión",
-  githubDetailUpdated: "Última actualización",
-  githubCheckForUpdates: "Buscar actualizaciones",
+  sourceDetailUpdated: "Última actualización",
   githubOpenFolder: "Abrir en GitHub",
-  githubUnlinkFolder: "Desvincular carpeta…",
   githubUnlinkTitle: "¿Desvincular esta carpeta de GitHub?",
   githubUnlinkBodyOne:
     "La página se queda aquí y pasa a ser una página normal que puedes editar. Los cambios en GitHub ya no llegarán. Para volver a vincular esta carpeta más adelante, tendrás que usar una colección nueva.",
   githubUnlinkBody:
     "Las {{count}} páginas se quedan aquí y pasan a ser páginas normales que puedes editar. Los cambios en GitHub ya no llegarán. Para volver a vincular esta carpeta más adelante, tendrás que usar una colección nueva.",
-  githubUnlink: "Desvincular",
-  githubUnlinking: "Desvinculando…",
-  githubUnlinkedToast:
-    "Carpeta desvinculada. Tus páginas se conservan y ya puedes editarlas.",
-  githubUnlinkFailed: "No se pudo desvincular la carpeta",
+  sourceUnlinkConfirm: "Desvincular",
+  sourceUnlinking: "Desvinculando…",
+  sourceUnlinkedToast:
+    "Desvinculado. Tus páginas se conservan y ya puedes editarlas.",
+  sourceSyncNow: "Sincronizar ahora",
+  sourceUnlink: "Desvincular…",
+  sourceUnlinkFailed: "No se pudo desvincular",
+  sourceFromBuilderModel: "Del modelo {{name}} en Builder",
+  sourceDetailsFromBuilderModel: "Detalles del modelo {{name}} en Builder",
+  sourceDetailsFromNotionDatabase:
+    "Detalles de la base de datos {{name}} en Notion",
+  sourceDetailModel: "Modelo",
+  sourceDetailDatabase: "Base de datos",
+  sourceUnlinkBuilderTitle: "¿Desvincular este modelo de Builder?",
+  sourceUnlinkBuilderBodyOne:
+    "La página se queda aquí y pasa a ser una página normal que puedes editar. Los cambios en Builder ya no llegarán.",
+  sourceUnlinkBuilderBody:
+    "Las {{count}} páginas se quedan aquí y pasan a ser páginas normales que puedes editar. Los cambios en Builder ya no llegarán.",
+  sourceUnlinkNotionTitle: "¿Desvincular esta base de datos de Notion?",
+  sourceUnlinkNotionBodyOne:
+    "La página se queda aquí y sigue siendo tuya para editarla. Los detalles de Notion ya no llegarán.",
+  sourceUnlinkNotionBody:
+    "Las {{count}} páginas se quedan aquí y siguen siendo tuyas para editarlas. Los detalles de Notion ya no llegarán.",
+  sourceProblemNotion: "No se pudo actualizar desde Notion.",
+  sourceProblemBuilder: "No se pudo actualizar desde Builder.",
+  sourceShowingDetailsAsOf:
+    "Se muestran los detalles tal como estaban {{time}}.",
+  notionSyncedToast: "Actualizado desde Notion.",
   githubFromFolder: "De la carpeta {{folder}} en GitHub",
   githubFromRepo: "De {{repo}} en GitHub",
-  githubUpdatedAgo: "Última actualización: {{time}}",
-  githubJustNow: "hace un momento",
-  githubNotUpdatedYet: "Aún sin actualizar",
+  sourceUpdatedAgo: "Última actualización: {{time}}",
+  sourceJustNow: "hace un momento",
+  sourceNotUpdatedYet: "Aún sin actualizar",
   githubEditOnGitHub: "Editar en GitHub",
-  githubDetails: "Detalles",
+  sourceDetails: "Detalles",
   githubNotShownOne: "1 archivo no se muestra",
   githubNotShown: "{{count}} archivos no se muestran",
   githubNotShownHeading: "No se muestran",
-  githubShowingAsOf: "Se muestran las páginas tal como estaban {{time}}.",
+  sourceShowingPagesAsOf: "Se muestran las páginas tal como estaban {{time}}.",
   githubSyncingProgress: "Trayendo cambios: {{done}} de {{total}} archivos",
   githubPicturesWaiting:
     "Algunas imágenes no se mostrarán hasta que un administrador del espacio de trabajo configure el almacenamiento de archivos.",
@@ -365,7 +386,6 @@ const database = {
   addProperty: "Añadir propiedad",
   back: "Atrás",
   builderSpace: "Espacio de Builder",
-  connectNotionFirst: "Conecta Notion primero",
   connected: "Conectado",
   builderBulkUpdateNotStaged: "Actualización masiva de Builder no preparada",
   builderBulkUpdateStaged: "Actualización masiva de Builder preparada",
@@ -373,8 +393,6 @@ const database = {
   builderWriteModeWasNotChanged: "No se cambió el modo de escritura de Builder",
   closeDatabaseSettings: "Cerrar ajustes de colección",
   closeSearch: "Cerrar búsqueda",
-  databaseRowsAndLocalPropertiesWereKeptIntact:
-    "Se conservaron las filas y propiedades locales.",
   failedToAttachSource: "No se pudo adjuntar la fuente",
   failedToCreateRow: "No se pudo crear la fila",
   pageCreatedCollectionRefreshFailed:
@@ -458,8 +476,6 @@ const database = {
   searchProperties: "Buscar propiedades",
   somethingWentWrong: "Algo salió mal",
   sort: "Ordenar",
-  sourceDisconnected: "Fuente desconectada",
-  sourceWasNotDisconnected: "La fuente no se desconectó",
   sources: "Fuentes",
   table: "Tabla",
   tryAgain: "Inténtalo de nuevo.",
@@ -715,6 +731,15 @@ const editor = {
   githubSourceReadOnly:
     "Solo lectura. Esta página sigue un archivo de GitHub y se actualiza después de cada push.",
   githubSourceOpenFile: "Abrir en GitHub",
+  syncedPageBuilder: "Esta página viene del modelo {{name}} en Builder.",
+  syncedPageBuilderReadOnly:
+    "Los cambios que hagas aquí no se envían a Builder.",
+  syncedPageBuilderStageOnly:
+    "Los cambios que hagas aquí se pueden guardar en Builder después de revisarlos, pero nunca se publican.",
+  syncedPageBuilderPublish:
+    "Los cambios que hagas aquí se pueden publicar en Builder después de revisarlos.",
+  syncedPageNotion:
+    "Algunos detalles de esta página vienen de la base de datos {{name}} en Notion y aquí son de solo lectura.",
   textColor: "Color de texto",
   resizeColumns: "Cambiar el ancho de las columnas",
   backgroundColor: "Color de fondo",
@@ -1954,7 +1979,6 @@ const overrides = {
     builderRowsLoadingBackground:
       "Builder sigue cargando filas en segundo plano.",
     attachingReadOnly: "Adjuntando · solo lectura",
-    builderRowsLoadingHitSnag: "La carga de filas de Builder tuvo un problema.",
     opening: "Abriendo...",
   },
   localFiles: localFiles,
