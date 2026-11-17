@@ -2191,6 +2191,7 @@ export default {
       copyPrompt: "Copiar prompt para seu agente",
       copyAgentPrompt: "Copiar prompt do agente",
       copyFullPrompt: "Copiar o prompt completo",
+      clearEdits: "Limpar edições",
       abortPreview: "Cancelar prévia e interagir",
       agentMessage: "Aplique as edições visuais de estilo pendentes à origem.",
       sentToast: "Atualizações de design enviadas ao agente",
@@ -2205,6 +2206,9 @@ export default {
       copiedToastDescription:
         "Cole no seu agente de programação e peça para aplicar as alterações visuais.",
       abortedToast: "Prévia pendente descartada",
+      clearedToast: "Edições pendentes limpas",
+      clearFailedToast:
+        "Não foi possível limpar as edições pendentes. Tente novamente.",
       interactBlocked:
         "Aplique ou cancele as edições ao vivo pendentes antes de mudar para Interagir.",
       leaveTitle: "Aplicar as atualizações de design antes de sair?",

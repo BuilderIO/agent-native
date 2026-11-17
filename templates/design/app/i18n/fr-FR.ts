@@ -2205,6 +2205,7 @@ export default {
       copyPrompt: "Copier le prompt vers votre agent",
       copyAgentPrompt: "Copier le prompt de l’agent",
       copyFullPrompt: "Copier le prompt complet",
+      clearEdits: "Effacer les modifications",
       abortPreview: "Annuler l’aperçu et interagir",
       agentMessage:
         "Appliquez les modifications visuelles de style en attente à la source.",
@@ -2220,6 +2221,9 @@ export default {
       copiedToastDescription:
         "Collez-le dans votre agent de programmation et demandez-lui d’appliquer les modifications visuelles.",
       abortedToast: "Aperçu en attente supprimé",
+      clearedToast: "Modifications en attente effacées",
+      clearFailedToast:
+        "Impossible d’effacer les modifications en attente. Réessayez.",
       interactBlocked:
         "Appliquez ou annulez les modifications en direct en attente avant de passer à Interagir.",
       leaveTitle: "Appliquer les mises à jour avant de quitter ?",

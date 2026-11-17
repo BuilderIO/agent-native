@@ -166,6 +166,18 @@ function DesignEditor() {
     editorClipboard,
     editorLayoutAndStructure,
   });
+  const editorExportAndHandoff = useEditorExportAndHandoff({
+    editorCore,
+    editorHistory,
+    editorGenerationAndAccess,
+    editorFilesAndSaving,
+    editorActiveScreenAndGeometry,
+    editorCanvasAndScreens,
+    editorLiveEditsAndPresence,
+    editorContentAndComponents,
+    editorToolsAndVectors,
+    editorSelectionAndStyles,
+  });
   const editorModes = useEditorModes({
     editorCore,
     editorHistory,
@@ -178,18 +190,7 @@ function DesignEditor() {
     editorToolsAndVectors,
     editorLayoutAndStructure,
     editorEditCommands,
-  });
-  const editorExportAndHandoff = useEditorExportAndHandoff({
-    editorCore,
-    editorHistory,
-    editorGenerationAndAccess,
-    editorFilesAndSaving,
-    editorActiveScreenAndGeometry,
-    editorCanvasAndScreens,
-    editorLiveEditsAndPresence,
-    editorContentAndComponents,
-    editorToolsAndVectors,
-    editorSelectionAndStyles,
+    clearCodingHandoffError: editorExportAndHandoff.clearCodingHandoffError,
   });
   const editorLayerModels = useEditorLayerModels({
     editorCore,

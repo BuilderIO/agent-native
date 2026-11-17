@@ -882,6 +882,8 @@ export function useEditorFilesAndSaving({
   const {
     cssVarValues,
     flushPendingTweakSave,
+    settlePendingTweakSaves,
+    resetTweakSelectionsToSourceBaseline,
     handleTweakChange,
     setTweakSelections,
     tweakSelections,
@@ -1756,6 +1758,7 @@ export function useEditorFilesAndSaving({
       text: string;
     } | null;
     revision: number | null;
+    publisherId: string | null;
     updatedAt: string | null;
   }>(
     "get-visual-edit-pending",
@@ -2034,6 +2037,8 @@ export function useEditorFilesAndSaving({
     flushPendingFileContentSavesForBackground,
     cssVarValues,
     flushPendingTweakSave,
+    settlePendingTweakSaves,
+    resetTweakSelectionsToSourceBaseline,
     handleTweakChange,
     tweakSelections,
     tweaks,

@@ -2161,6 +2161,7 @@ export default {
       copyPrompt: "Prompt अपने agent को कॉपी करें",
       copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
       copyFullPrompt: "पूरा प्रॉम्प्ट कॉपी करें",
+      clearEdits: "बदल मिटाएँ",
       abortPreview: "Preview रोकें और interact करें",
       agentMessage: "लंबित visual style edits को source पर लागू करें।",
       sentToast: "Design updates agent को भेजे गए",
@@ -2175,6 +2176,8 @@ export default {
       copiedToastDescription:
         "इसे अपने कोडिंग एजेंट में पेस्ट करें और उससे विज़ुअल बदलाव लागू करने को कहें।",
       abortedToast: "लंबित preview हटा दिया गया",
+      clearedToast: "लंबित बदलाव मिटा दिए गए",
+      clearFailedToast: "लंबित बदलाव मिटाए नहीं जा सके। फिर से कोशिश करें।",
       interactBlocked: "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
       leaveTitle: "छोड़ने से पहले design updates लागू करें?",
       leaveDescriptionOne:
