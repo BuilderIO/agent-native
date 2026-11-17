@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DbExecInput } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { MIGRATION_DEFERRED } from "../db/migrations.js";
+import { retryOnDdlRace } from "../db/runtime-facts.js";
 import {
   assertPgVectorAvailable,
   DEFAULT_SEARCH_NAMESPACE,
@@ -148,12 +149,13 @@ describe("ensurePgVectorIndex", () => {
     await ensurePgVectorIndex(db, 3, { namespace: "brain" });
     const statements = sql();
     expect(statements).toHaveLength(6);
-    expect(statements[0]).toContain("SELECT to_regclass(?) IS NOT NULL");
+    expect(statements[0]).toContain("WHERE attrelid = to_regclass(?)");
+    expect(statements[0]).toContain("WHERE pg_index.indrelid = to_regclass(?)");
     expect(sent.at(0)?.args).toEqual([
+      "brain_vectors_3",
       "brain_vectors_3",
       "brain_vectors_3_hnsw",
       "brain_vectors_3_audience_gin",
-      "brain_vectors_3",
     ]);
     expect(placeholders(statements.at(0) ?? "")).toBe(4);
     expect(statements[1]).toBe("CREATE EXTENSION IF NOT EXISTS vector");
@@ -227,7 +229,12 @@ describe("pgVectorIndexMigration", () => {
         ? { rows: [{ present: 1 }] }
         : {},
     );
-    expect(migration).toMatchObject({ version: 7, name: "brain-vectors" });
+    // Making tables, it runs on the migration connection, not the app's.
+    expect(migration).toMatchObject({
+      version: 7,
+      name: "brain-vectors",
+      changesSchema: true,
+    });
     await expect(migration.run?.(db)).resolves.toBeUndefined();
     const tables = sql().filter((statement) =>
       statement.startsWith("CREATE TABLE"),
@@ -259,11 +266,33 @@ describe("pgVectorIndexMigration", () => {
     { code: "42501" },
   );
 
-  it("fails the release when making a table fails, so it isn't recorded", async () => {
+  it("fails the release with the database's error when making a table fails, so it isn't recorded", async () => {
     const { db } = failingExtension(refused);
     await expect(
       withMigrationRuntime(async () => migration.run?.(db)),
-    ).rejects.toThrow(PGVECTOR_REQUIRED_MESSAGE);
+    ).rejects.toBe(refused);
+  });
+
+  it("lets the runner retry when another process makes the same table at once", async () => {
+    const race = Object.assign(
+      new Error('relation "brain_vectors_4" already exists'),
+      { code: "42P07" },
+    );
+    let raced = false;
+    const { db } = recordingDb((statement) => {
+      if (statement.sql.includes("pg_available_extensions")) {
+        return { rows: [{ present: 1 }] };
+      }
+      if (!raced && statement.sql.trim().startsWith("CREATE TABLE")) {
+        raced = true;
+        return Promise.reject(race);
+      }
+      return {};
+    });
+    await expect(
+      retryOnDdlRace(async () => migration.run?.(db)),
+    ).resolves.toBeUndefined();
+    expect(raced).toBe(true);
   });
 
   it("defers at boot when the database role may not make the table", async () => {
@@ -279,9 +308,7 @@ describe("pgVectorIndexMigration", () => {
 
   it("fails at boot on anything but a refused statement", async () => {
     const { db } = failingExtension(new Error("connection reset"));
-    await expect(migration.run?.(db)).rejects.toThrow(
-      PGVECTOR_REQUIRED_MESSAGE,
-    );
+    await expect(migration.run?.(db)).rejects.toThrow("connection reset");
   });
 });
 

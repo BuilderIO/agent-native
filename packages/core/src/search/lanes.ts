@@ -171,26 +171,31 @@ export async function ensurePgVectorIndex(
   }
 }
 
-/** Whether the table has the audience column and both indexes. */
+/**
+ * Whether the table the name finds has the audience column and both indexes,
+ * all checked on that one table, wherever it is on the search path.
+ */
 async function pgVectorIndexComplete(
   db: DbExec,
   names: SearchNamespaceIdentifiers,
 ): Promise<boolean> {
   const { rows } = await db.execute({
-    sql: `SELECT to_regclass(?) IS NOT NULL
-        AND to_regclass(?) IS NOT NULL
-        AND to_regclass(?) IS NOT NULL
-        AND EXISTS (
-          SELECT 1 FROM information_schema.columns
-          WHERE table_schema = current_schema()
-            AND table_name = ?
-            AND column_name = 'audience_ids'
-        ) AS complete`,
+    sql: `SELECT EXISTS (
+          SELECT 1 FROM pg_attribute
+          WHERE attrelid = to_regclass(?)
+            AND attname = 'audience_ids'
+            AND NOT attisdropped
+        ) AND (
+          SELECT count(*) FROM pg_index
+          JOIN pg_class ON pg_class.oid = pg_index.indexrelid
+          WHERE pg_index.indrelid = to_regclass(?)
+            AND pg_class.relname IN (?, ?)
+        ) = 2 AS complete`,
     args: [
+      names.vectorTable,
       names.vectorTable,
       names.vectorIndex,
       names.vectorAudienceIndex,
-      names.vectorTable,
     ],
   });
   return rows[0]?.complete === true;
@@ -214,6 +219,7 @@ export function pgVectorIndexMigration(entry: {
     version: entry.version,
     name: entry.name,
     sql: {},
+    changesSchema: true,
     run: async (exec) => {
       const { rows } = await exec.execute(
         "SELECT 1 AS present FROM pg_available_extensions WHERE name = 'vector'",
@@ -230,18 +236,21 @@ export function pgVectorIndexMigration(entry: {
             namespace: entry.namespace,
           });
         } catch (error) {
+          const cause = error instanceof Error ? error.cause : undefined;
           // A booting server exits when a migration throws, so a statement
           // its database role may not run leaves this pending instead, and
           // search matches words alone. A release still fails.
-          const cause = error instanceof Error ? error.cause : error;
-          if (isMigrationAuthorizedRuntime() || !isPermissionError(cause)) {
-            throw error;
+          if (!isMigrationAuthorizedRuntime() && isPermissionError(cause)) {
+            console.warn(
+              `[search] The database role may not make "${entry.name}"'s vector tables, so it waits for a later boot.`,
+              cause,
+            );
+            return deferMigration();
           }
-          console.warn(
-            `[search] The database role may not make "${entry.name}"'s vector tables, so it waits for a later boot.`,
-            cause,
-          );
-          return deferMigration();
+          // The database's own error, which the runner retries when two
+          // processes make the same table at once.
+          if (cause instanceof Error) throw cause;
+          throw error;
         }
       }
     },

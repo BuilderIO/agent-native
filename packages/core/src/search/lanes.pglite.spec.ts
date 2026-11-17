@@ -84,6 +84,28 @@ describe("ensurePgVectorIndex on Postgres", () => {
     ).toEqual([]);
   });
 
+  it("checks the table its name finds, wherever it is on the search path", async () => {
+    await releaseMadeTable({ audienceColumn: true });
+    // The request's first schema has no vector table, so the name finds the
+    // release's table in public.
+    await pg.exec("CREATE SCHEMA app; SET search_path = app, public");
+    const request = execFor(pg, { refuseSchema: true });
+    await ensurePgVectorIndex(request, 3, { namespace: "test" });
+    expect(request.sent).toHaveLength(1);
+  });
+
+  it("doesn't count indexes of the same names on another schema's table", async () => {
+    await releaseMadeTable({ audienceColumn: true });
+    await pg.exec(
+      "CREATE SCHEMA app; SET search_path = app, public; CREATE TABLE app.test_vectors_3 (vector_key TEXT PRIMARY KEY, audience_ids TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[])",
+    );
+    const request = execFor(pg, { refuseSchema: true });
+    await expect(
+      ensurePgVectorIndex(request, 3, { namespace: "test" }),
+    ).rejects.toThrow(PGVECTOR_REQUIRED_MESSAGE);
+    expect(request.sent[1]).toBe("CREATE EXTENSION IF NOT EXISTS vector");
+  });
+
   it("still tries to make what an older table lacks", async () => {
     await releaseMadeTable({ audienceColumn: false });
     const request = execFor(pg, { refuseSchema: true });

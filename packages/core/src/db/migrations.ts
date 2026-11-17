@@ -217,6 +217,12 @@ export interface MigrationEntry {
   sql: MigrationSql;
   name?: string;
   run?: (exec: DbExec) => Promise<MigrationRunResult>;
+  /**
+   * Set when `run` makes or changes tables, so it runs on the migration
+   * connection as SQL does. Otherwise a migration that only runs code uses the
+   * app's own connection, which may be pooled or a role that can't.
+   */
+  changesSchema?: boolean;
 }
 
 export type MigrationSource =
@@ -341,7 +347,9 @@ export function runMigrations(
         current >= 0 &&
         !namedRowsMissing &&
         pendingFast.every(
-          (migration) => resolveMigrationSql(migration.sql) === null,
+          (migration) =>
+            resolveMigrationSql(migration.sql) === null &&
+            migration.changesSchema !== true,
         );
       const exec = runOnlyPending ? getDbExec() : await acquireMigrationExec();
 
