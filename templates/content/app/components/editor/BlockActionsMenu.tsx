@@ -17,6 +17,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -100,6 +101,7 @@ const LOCK_REASON_KEYS: Record<BlockLock, string> = {
 };
 
 const SHEET_ITEM = "data-block-sheet-item";
+const OPENS_VIEW = "data-opens-view";
 const ENABLED_ITEMS = `[role^="menuitem"]:not([data-disabled]), [${SHEET_ITEM}]:not(:disabled)`;
 
 // A touch screen has no keys to press.
@@ -190,6 +192,7 @@ export function BlockActionsMenu({
   const editorFocusRef = useRef(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const leftViewRef = useRef<SheetView | null>(null);
   const reasonId = useId();
 
   // The menu takes focus when it opens unless focus is already inside it, so
@@ -249,6 +252,22 @@ export function BlockActionsMenu({
       editor.off("transaction", redraw);
     };
   }, [editor, request]);
+
+  // Changing the sheet's view takes away the row that had focus. A view
+  // focuses its chosen option, and Back focuses the row that opened the view.
+  useLayoutEffect(() => {
+    const left = leftViewRef.current;
+    leftViewRef.current = null;
+    const content = contentRef.current;
+    if (!left || !content) return;
+    const next =
+      sheetView === "menu"
+        ? content.querySelector<HTMLElement>(`[${OPENS_VIEW}="${left}"]`)
+        : (content.querySelector<HTMLElement>(
+            '[role="radio"][aria-checked="true"]',
+          ) ?? content.querySelector<HTMLElement>('[role="radio"]'));
+    (next ?? content).focus({ preventScroll: true });
+  }, [sheetView]);
 
   if (!request) return null;
 
@@ -630,10 +649,14 @@ export function BlockActionsMenu({
       close();
     };
 
+    // A group of choices is one Tab stop, on its chosen option, and the arrow
+    // keys move between them, as in any radio group. Moving doesn't choose,
+    // though: a choice changes the block and closes the sheet.
     const sheetChoice = (
       key: string,
       label: ReactNode,
       checked: boolean,
+      tabStop: boolean,
       onSelect: () => void,
     ) => (
       <button
@@ -643,6 +666,7 @@ export function BlockActionsMenu({
         className={sheetRowClass}
         onClick={runAndClose(onSelect)}
         role="radio"
+        tabIndex={tabStop ? 0 : -1}
         type="button"
       >
         {label}
@@ -650,18 +674,48 @@ export function BlockActionsMenu({
       </button>
     );
 
-    const turnIntoChoices = (targets: readonly TurnIntoTarget[]) => (
-      <div aria-label={turnIntoLabel} role="radiogroup">
-        {targets.map((target) =>
-          sheetChoice(
-            target,
-            t(TURN_INTO[target].labelKey),
-            target === currentTarget,
-            () => turnInto(target),
-          ),
-        )}
-      </div>
-    );
+    const moveInGroup = (event: KeyboardEvent<HTMLDivElement>) => {
+      const rtl = getComputedStyle(event.currentTarget).direction === "rtl";
+      const steps: Record<string, number> = {
+        ArrowDown: 1,
+        ArrowUp: -1,
+        ArrowRight: rtl ? -1 : 1,
+        ArrowLeft: rtl ? 1 : -1,
+      };
+      const step = steps[event.key];
+      const choices = Array.from(
+        event.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]'),
+      );
+      const index = choices.indexOf(event.target as HTMLElement);
+      if (step === undefined || index < 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      choices[(index + step + choices.length) % choices.length]?.focus();
+    };
+
+    const turnIntoChoices = (targets: readonly TurnIntoTarget[]) => {
+      const stop =
+        currentTarget && targets.includes(currentTarget)
+          ? currentTarget
+          : targets[0];
+      return (
+        <div
+          aria-label={turnIntoLabel}
+          onKeyDown={moveInGroup}
+          role="radiogroup"
+        >
+          {targets.map((target) =>
+            sheetChoice(
+              target,
+              t(TURN_INTO[target].labelKey),
+              target === currentTarget,
+              target === stop,
+              () => turnInto(target),
+            ),
+          )}
+        </div>
+      );
+    };
 
     // A block has one colour, so each group's default stands for "not one of
     // mine". Search results show the colours that match; Color's own view, which
@@ -686,8 +740,16 @@ export function BlockActionsMenu({
       ).map(([group, label, choices, chosen]) => {
         const found = choices.filter((choice) => shown(choice.label));
         if (found.length === 0) return null;
+        const stop = found.some((choice) => choice.color === chosen)
+          ? chosen
+          : found[0]?.color;
         return (
-          <div key={group} aria-label={label} role="radiogroup">
+          <div
+            key={group}
+            aria-label={label}
+            onKeyDown={moveInGroup}
+            role="radiogroup"
+          >
             <p aria-hidden="true" className={sheetLabelClass}>
               {label}
             </p>
@@ -699,6 +761,7 @@ export function BlockActionsMenu({
                   {choiceLabel}
                 </>,
                 chosen === choice,
+                stop === choice,
                 () => setColor(chosenColor(color, choice)),
               ),
             )}
@@ -706,11 +769,17 @@ export function BlockActionsMenu({
         );
       });
 
+    const showView = (view: SheetView) => {
+      leftViewRef.current = sheetView;
+      setSheetView(view);
+    };
+
     const opensView = (label: string, view: Exclude<SheetView, "menu">) => (
       <button
         {...sheetItem}
+        {...{ [OPENS_VIEW]: view }}
         className={sheetRowClass}
-        onClick={() => setSheetView(view)}
+        onClick={() => showView(view)}
         type="button"
       >
         {label}
@@ -829,7 +898,7 @@ export function BlockActionsMenu({
                 <button
                   aria-label={t("database.back")}
                   className="flex size-11 shrink-0 items-center justify-center rounded-md outline-none focus-visible:bg-accent active:bg-accent"
-                  onClick={() => setSheetView("menu")}
+                  onClick={() => showView("menu")}
                   type="button"
                 >
                   <IconChevronLeft className="size-5 rtl:-scale-x-100" />

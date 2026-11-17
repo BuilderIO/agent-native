@@ -1617,6 +1617,60 @@ describe("client application-state helpers", () => {
       expect(stored.value).toEqual({ text: "abc" });
     });
 
+    it("keeps a write sent as its own request that goes ahead of a queued delete when the page hides", async () => {
+      const { fresh, listeners, fetchMock } = await hidingPage();
+      // A server that applies the write order, as above.
+      let stored: { value: unknown; writer?: string; seq?: number } = {
+        value: null,
+      };
+      const apply = (init?: RequestInit) => {
+        const headers = init?.headers as Record<string, string>;
+        const writer = headers["X-Agent-Native-App-State-Writer"];
+        const seq = Number(headers["X-Agent-Native-App-State-Seq"]);
+        if (stored.writer === writer && (stored.seq ?? 0) >= seq) return;
+        stored =
+          init?.method === "DELETE"
+            ? { value: null }
+            : { value: JSON.parse(String(init?.body)), writer, seq };
+      };
+      let commitFirst!: () => void;
+      fetchMock.mockImplementation((_url, init) => {
+        if (fetchMock.mock.calls.length === 1) {
+          return new Promise<Response>((resolve) => {
+            commitFirst = () => {
+              apply(init);
+              resolve(jsonResponse(JSON.parse(String(init?.body))));
+            };
+          });
+        }
+        apply(init);
+        return Promise.resolve(
+          jsonResponse(init?.body ? JSON.parse(String(init.body)) : null),
+        );
+      });
+
+      const first = fresh.writeClientAppState("draft", { text: "a" });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const deletion = fresh.deleteClientAppState("draft", { keepalive: true });
+      const own = fresh.writeClientAppState(
+        "draft",
+        { text: "ab" },
+        { keepalive: true, ownRequest: true },
+      );
+      await Promise.resolve();
+      for (const listener of listeners.pagehide ?? []) listener();
+      await vi.waitFor(() => expect(stored.value).toEqual({ text: "ab" }));
+
+      // The delete was made first, so its lower number has the server skip it
+      // when it lands after the newer write.
+      commitFirst();
+      await Promise.all([first, deletion, own]);
+      expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toContain(
+        "DELETE",
+      );
+      expect(stored.value).toEqual({ text: "ab" });
+    });
+
     it("doesn't send a write ahead of a compare-and-set when the page hides", async () => {
       const { fresh, listeners, fetchMock } = await hidingPage();
       let commitFirst!: () => void;

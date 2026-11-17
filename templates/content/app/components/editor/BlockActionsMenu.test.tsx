@@ -826,6 +826,47 @@ describe("BlockActionsMenu", () => {
       expect(document.querySelector('[role="dialog"]')).toBeNull();
     });
 
+    it("keeps focus in the sheet as its view changes", () => {
+      onPhone();
+      open(mount(), 0);
+
+      tap("editor.slash.turnInto");
+      expect(document.activeElement).toBe(row("editor.slash.text"));
+
+      back();
+      expect(document.activeElement).toBe(row("editor.slash.turnInto"));
+
+      tap("editor.color.label");
+      expect(document.activeElement).toBe(row("Aeditor.color.defaultText"));
+    });
+
+    it("moves through a group's choices with the arrow keys, one Tab stop each", () => {
+      onPhone();
+      open(mount(), 0);
+      const tabStops = () =>
+        rows()
+          .filter((element) => element.tabIndex === 0)
+          .map((element) => element.textContent);
+
+      tap("editor.slash.turnInto");
+      expect(tabStops()).toEqual(["editor.slash.text"]);
+      const down = press(row("editor.slash.text"), "ArrowDown");
+      expect(down.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(row("editor.heading1"));
+      press(row("editor.heading1"), "ArrowUp");
+      press(row("editor.slash.text"), "ArrowUp");
+      expect(document.activeElement).toBe(row("editor.slash.codeBlock"));
+      // Moving doesn't choose: the block stays as it was, and so does the sheet.
+      expect(rowLabels()).toContain("editor.slash.text=true");
+
+      back();
+      tap("editor.color.label");
+      expect(tabStops()).toEqual([
+        "Aeditor.color.defaultText",
+        "editor.color.defaultBackground",
+      ]);
+    });
+
     it("leaves a restyled block ready to type in once the sheet goes", async () => {
       onPhone();
       const target = mount();
