@@ -340,7 +340,8 @@ describe("createGetDb pooled transaction scoping", () => {
     }));
 
     const { createGetDb } = await import("./create-get-db.js");
-    const { getDbExec, getScopedDbExec } = await import("./client.js");
+    const { getDbExec, getEnclosingTransactionDbExec, getScopedDbExec } =
+      await import("./client.js");
     const database = await createGetDb({})();
     const otherDatabase = await createGetDb({ otherStore: true })();
     const { assertAccess } = await import("../sharing/access.js");
@@ -368,6 +369,7 @@ describe("createGetDb pooled transaction scoping", () => {
     const result = await database.transaction(async (tx: any) => {
       const parentScope = getScopedDbExec();
       expect(parentScope).toBeDefined();
+      expect(getEnclosingTransactionDbExec()).toBe(parentScope);
       const queryResult = await getDbExec().execute({
         sql: "SELECT ?::int AS id",
         args: [42],
@@ -627,6 +629,7 @@ describe("createGetDb pooled transaction scoping", () => {
       await expect(
         tx.transaction(async () => {
           expect(getScopedDbExec()).not.toBe(parentScope);
+          expect(getEnclosingTransactionDbExec()).toBe(getScopedDbExec());
           await getDbExec().execute("SELECT 1");
           throw new Error("rollback savepoint");
         }),
