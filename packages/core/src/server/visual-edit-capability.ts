@@ -40,6 +40,10 @@ export const VISUAL_EDIT_CAPABILITY_ACTIONS: Readonly<
   "update-screen-source": "designId",
 });
 
+const VISUAL_EDIT_CAPABILITY_RESOURCES = new Map(
+  Object.entries(VISUAL_EDIT_CAPABILITY_ACTIONS),
+);
+
 const VISUAL_EDIT_CAPABILITY_PREFIX = "capability:visual-edit:";
 const VISUAL_EDIT_DESIGN_CAPABILITY_PREFIX = "capability:visual-edit:design:";
 
@@ -50,7 +54,7 @@ export function isVisualEditCapability(
 }
 
 export function isVisualEditCapabilityAction(name: string): boolean {
-  return Object.hasOwn(VISUAL_EDIT_CAPABILITY_ACTIONS, name);
+  return VISUAL_EDIT_CAPABILITY_RESOURCES.has(name);
 }
 
 /**
@@ -83,10 +87,10 @@ export function allowsVisualEditCapabilityResource(
   params: Record<string, unknown>,
 ): boolean {
   if (!isVisualEditCapability(capability)) return true;
-  if (!isVisualEditCapabilityAction(actionName)) return false;
+  const resource = VISUAL_EDIT_CAPABILITY_RESOURCES.get(actionName);
+  if (!resource) return false;
   const designId = visualEditCapabilityDesignId(capability);
   if (!designId) return false;
-  const resource = VISUAL_EDIT_CAPABILITY_ACTIONS[actionName];
   if (resource === "file") {
     return typeof params.id === "string" && params.id.trim().length > 0;
   }

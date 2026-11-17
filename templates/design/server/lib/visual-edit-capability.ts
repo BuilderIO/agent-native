@@ -9,6 +9,10 @@ import { getDb, schema } from "../db/index.js";
 export const VISUAL_EDIT_BOARD_MAX_FILE_BYTES = 1024 * 1024;
 export const VISUAL_EDIT_BOARD_MAX_FILES = 40;
 
+export function firstRow<T>(rows: readonly T[]): T | undefined {
+  return rows.length > 0 ? rows[0] : undefined;
+}
+
 /**
  * The design the current request's visual-edit capability is scoped to, or
  * `null` when the request carries no visual-edit design capability.
@@ -79,11 +83,11 @@ export function assertVisualEditBoardFileSize(content: string | undefined) {
 
 export async function assertVisualEditBoardFileCount(designId: string) {
   if (requestVisualEditCapabilityDesignId() === null) return;
-  // COUNT(*) always returns exactly one row.
-  const [{ files }] = await getDb()
+  const rows = await getDb()
     .select({ files: count() })
     .from(schema.designFiles)
     .where(eq(schema.designFiles.designId, designId));
+  const files = firstRow(rows)?.files ?? 0;
   if (files >= VISUAL_EDIT_BOARD_MAX_FILES) {
     fail(
       `A signed-out board holds at most ${VISUAL_EDIT_BOARD_MAX_FILES} files. Sign in to add more.`,

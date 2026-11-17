@@ -16,6 +16,7 @@ import {
   designDataForAccessRole,
   VISUAL_EDIT_BOARD_DATA_KEY,
 } from "./design-data-access.js";
+import { firstRow } from "./visual-edit-capability.js";
 
 // Settings never reach viewers, unlike design data, so the claim hash lives
 // here and never in anything get-design or a snapshot can return.
@@ -27,10 +28,6 @@ function claimSettingKey(designId: string): string {
 
 function hashClaimSecret(secret: string): string {
   return crypto.createHash("sha256").update(secret, "utf8").digest("hex");
-}
-
-function firstRow<T>(rows: readonly T[]): T | undefined {
-  return rows.length > 0 ? rows[0] : undefined;
 }
 
 function parseDesignData(raw: string | null | undefined) {

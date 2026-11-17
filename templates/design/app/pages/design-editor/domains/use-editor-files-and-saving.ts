@@ -5,6 +5,7 @@ import {
   tryCallActionKeepalive,
   readClientAppState,
 } from "@agent-native/core/client/hooks";
+import { clearEmbedAuthToken } from "@agent-native/core/client/host";
 import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
@@ -936,6 +937,7 @@ export function useEditorFilesAndSaving({
           if (typeof copiedId !== "string" || !copiedId) {
             throw new Error("Missing copied design id");
           }
+          clearEmbedAuthToken();
           void navigate(`/design/${copiedId}${nextSearch}`, { replace: true });
         })
         .catch((error) => {
@@ -958,8 +960,9 @@ export function useEditorFilesAndSaving({
     })
       .then(() => {
         clearVisualEditBoardClaimSecret(id);
-        // A full load drops the signed-out board capability and reads the
-        // design again with the new owner's access.
+        // The board's capability is no longer this tab's identity; a full
+        // load reads the design again with the new owner's access.
+        clearEmbedAuthToken();
         window.location.replace(
           `${appBasePath()}/design/${encodeURIComponent(id)}${nextSearch}`,
         );

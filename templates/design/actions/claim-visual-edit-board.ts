@@ -20,6 +20,11 @@ export default defineAction({
         "Claim secret the opening page received from open-visual-edit.",
       ),
   }),
+  outputSchema: z.object({
+    designId: z.string(),
+    claimed: z.literal(true),
+    alreadyOwned: z.boolean(),
+  }),
   agentTool: false,
   mcpTool: false,
   run: async ({ designId, claimSecret }) => {

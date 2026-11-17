@@ -99,14 +99,14 @@ test.describe("signed-out remix board", () => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end(screenHtml("Fixture destination"));
     });
-    await new Promise<void>((resolve) =>
-      fixtureServer!.listen(0, "127.0.0.1", resolve),
+    await new Promise<void>(
+      (resolve) => fixtureServer!.listen(0, "127.0.0.1", resolve), // e2e-harness-ignore: loopback fixture app on its own port, not the Design base URL
     );
     const address = fixtureServer.address();
     if (!address || typeof address === "string") {
       throw new Error("fixture server has no port");
     }
-    fixtureUrl = `http://127.0.0.1:${address.port}`;
+    fixtureUrl = `http://127.0.0.1:${address.port}`; // e2e-harness-ignore: the loopback fixture app, not the Design base URL
   });
 
   test.afterAll(async () => {
@@ -323,12 +323,37 @@ test.describe("signed-out remix board", () => {
         visibility: "private",
         secret: null,
       });
+      // The claim moves the design row only; the board's files come along.
+      const claimedFiles = await page.evaluate(
+        async (url) =>
+          (
+            (await (
+              await fetch(url, { credentials: "same-origin" })
+            ).json()) as {
+              files?: Array<{ filename: string; content: string }>;
+            }
+          ).files?.map((file) => ({
+            filename: file.filename,
+            hasTitle: file.content.includes("Remix board"),
+          })),
+        appUrl(
+          `/_agent-native/actions/list-files?designId=${encodeURIComponent(designId)}`,
+        ),
+      );
+      expect(claimedFiles).toEqual(
+        expect.arrayContaining([
+          { filename: "__board__.html", hasTitle: true },
+          expect.objectContaining({ filename: "Remix.html" }),
+        ]),
+      );
       await expect(page.locator("[data-design-editor]")).toBeVisible({
         timeout: 30_000,
       });
       await expect(
         page.locator("button[data-screen-row]").filter({ hasText: "Remix" }),
       ).toHaveCount(1, { timeout: 30_000 });
+      // The tab is now the signed-in owner, not the board's old capability.
+      await expect(page.getByRole("link", { name: "Sign up" })).toHaveCount(0);
       await shot(page, "claimed-board");
     } finally {
       await context.close();

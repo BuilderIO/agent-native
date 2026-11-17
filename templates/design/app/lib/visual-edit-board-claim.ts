@@ -14,6 +14,7 @@ export function storeVisualEditBoardClaimSecret(
 ): void {
   try {
     window.localStorage.setItem(claimStorageKey(designId), secret);
+    // coercion-ok: storage is optional; without it sign-in copies the board instead of moving it.
   } catch {
     // Sign-in falls back to copying the board into the account.
   }
@@ -38,6 +39,7 @@ export function readVisualEditBoardClaimSecret(
 export function clearVisualEditBoardClaimSecret(designId: string): void {
   try {
     window.localStorage.removeItem(claimStorageKey(designId));
+    // coercion-ok: unavailable storage holds no secret to clear.
   } catch {
     // Nothing to clear when storage is unavailable.
   }
