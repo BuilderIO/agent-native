@@ -324,6 +324,52 @@ describe("comment AI controls", () => {
     });
   });
 
+  it("keeps an over-limit classifier active when Stop returns an ambiguous 404", async () => {
+    api.requests = [
+      request({
+        status: "classifying",
+        submittedMode: "auto",
+        scopeUnavailable: true,
+        error: null,
+        pendingSession: {
+          phase: "classification",
+          prompt: "Classify",
+          backgroundSession: {
+            operationId: "request-1:classification",
+            threadId: "classifier-thread",
+            turnId: "classifier-turn",
+            scope: { type: "content-comment-ai-classifier", id: "request-1" },
+            actionScope: {
+              kind: "content-comment-ai-classifier",
+              requestId: "request-1",
+            },
+          },
+        },
+      }),
+    ];
+    api.cancelBackgroundAgentSession.mockRejectedValue(new Error("HTTP 404"));
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    await act(async () => {
+      root.render(createElement(Probe));
+    });
+    expect(api.startBackgroundAgentSession).not.toHaveBeenCalled();
+    await expect(
+      act(async () => controller!.stop(controller!.requests[0]!)),
+    ).rejects.toThrow("HTTP 404");
+    expect(api.callAction).not.toHaveBeenCalledWith(
+      "reconcile-comment-ai-session",
+      expect.anything(),
+    );
+    expect(controller!.serverRequests[0]).toMatchObject({
+      status: "classifying",
+      scopeUnavailable: true,
+    });
+  });
+
   it("shows actionable errors and retries with the same request id", async () => {
     const failed = request();
     const onRetry = vi.fn().mockResolvedValue(undefined);

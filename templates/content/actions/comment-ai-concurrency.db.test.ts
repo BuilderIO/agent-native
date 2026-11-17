@@ -6,6 +6,7 @@ import { getDbExec } from "@agent-native/core/db";
 import {
   createThread,
   getCurrentTurnRunIdsForThread,
+  getThread,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
@@ -846,6 +847,94 @@ describe("comment AI durable action binding", () => {
     } finally {
       select.mockRestore();
     }
+  });
+
+  it("exposes a legacy over-limit classifier whose dispatch thread was never created", async () => {
+    await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+    const [origin] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    if (!origin) throw new Error("Missing origin request");
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "replied" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    let parentId = OP_A;
+    const rows = [];
+    for (let index = 1; index <= 129; index++) {
+      const id = crypto.randomUUID();
+      rows.push({
+        ...origin,
+        id,
+        status: "replied",
+        continuationOfRequestId: parentId,
+        createdAt: new Date(
+          Date.parse(origin.createdAt) + index * 1000,
+        ).toISOString(),
+      });
+      parentId = id;
+    }
+    await getDb().insert(schema.commentAiRequests).values(rows);
+    const classifierThreadId = `comment-ai-classifier-${crypto.randomUUID()}`;
+    const classifierTurnId = backgroundAgentTurnIdForReceipt(
+      classifierThreadId,
+      `${OP_B}:classification`,
+    );
+    await getDb()
+      .insert(schema.commentAiRequests)
+      .values({
+        ...origin,
+        id: OP_B,
+        status: "classifying",
+        intent: "unresolved",
+        submittedMode: "auto",
+        instructions: "Explain",
+        continuationOfRequestId: parentId,
+        classificationThreadId: classifierThreadId,
+        classificationTurnId: classifierTurnId,
+        createdAt: "2099-01-01T00:00:00.000Z",
+      });
+    const result = await asUser(() =>
+      commentAi.listCommentAiRequests(DOCUMENT_ID),
+    );
+    expect(result.requests).toContainEqual(
+      expect.objectContaining({
+        operationId: OP_B,
+        status: "classifying",
+        scopeUnavailable: true,
+        pendingSession: expect.objectContaining({
+          backgroundSession: expect.objectContaining({
+            threadId: classifierThreadId,
+            turnId: classifierTurnId,
+          }),
+        }),
+      }),
+    );
+    expect(await getThread(classifierThreadId)).toBeNull();
+    await expect(
+      asUser(() =>
+        commentAi.startCommentAiRequest({
+          requestId: OP_B,
+          documentId: DOCUMENT_ID,
+          threadId: ROOT_A,
+          rootCommentId: ROOT_A,
+          submittedMode: "auto",
+          instructions: "Explain",
+          continuationOfRequestId: parentId,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_ancestry_limit" });
+    await expect(
+      asUser(() => commentAi.startCommentAiRequest(startArgs(OP_C, ROOT_A))),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_operation_conflict" });
+    const [stored] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, OP_B));
+    expect(stored?.status).toBe("classifying");
   });
 
   it("lets a downgraded commenter continue a prior editor operation without restoring edit authority", async () => {
