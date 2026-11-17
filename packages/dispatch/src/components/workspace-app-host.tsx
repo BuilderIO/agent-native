@@ -595,7 +595,7 @@ export function WorkspaceAppFrame({
       } | null;
       if (envelope?.type !== "agentNative.submitChat") return;
       const data = envelope.data as Record<string, unknown> | null;
-      if (data?.submit !== true) return;
+      if (data?.submit !== true || data.confirmParentFrame !== true) return;
       const { submitMessageId, message, context } = data;
       if (
         typeof submitMessageId !== "string" ||

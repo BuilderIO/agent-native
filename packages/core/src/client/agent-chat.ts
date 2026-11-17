@@ -86,6 +86,8 @@ export interface AgentChatMessage {
    * {@link AGENT_CHAT_SUBMIT_RESULT_EVENT}. Auto-generated if omitted.
    */
   submitMessageId?: string;
+  /** @internal Parent-frame chat confirmation is an explicit relay opt-in. */
+  confirmParentFrame?: true;
   /** Drop a queued submit instead of handing it to chat after this time. */
   submissionExpiresAt?: number;
   usageLabel?: string;
@@ -1512,7 +1514,16 @@ function confirmAgentChatSubmit(
     );
     timer = window.setTimeout(() => finish(false, "timeout", true), timeoutMs);
     try {
-      dispatch({ ...opts, tabId, submitMessageId });
+      dispatch({
+        ...opts,
+        tabId,
+        submitMessageId,
+        ...(options?.confirmParentFrame === true &&
+        opts.chatTarget !== "local" &&
+        isInFrame()
+          ? { confirmParentFrame: true as const }
+          : {}),
+      });
     } catch {
       finish(false, "send-failed", true);
     }

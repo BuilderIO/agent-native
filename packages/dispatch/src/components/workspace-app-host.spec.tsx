@@ -745,6 +745,7 @@ describe("WorkspaceAppKeepAlive", () => {
       type: "agentNative.submitChat",
       data: {
         submitMessageId: "handoff-1",
+        confirmParentFrame: true,
         submit: true,
         message: "Review this design",
         context: "Canvas selection",
@@ -788,6 +789,7 @@ describe("WorkspaceAppKeepAlive", () => {
             type: "agentNative.submitChat",
             data: {
               submitMessageId: "large-context",
+              confirmParentFrame: true,
               submit: true,
               message: "Review this design",
               context: "x".repeat(600_000),
@@ -812,6 +814,7 @@ describe("WorkspaceAppKeepAlive", () => {
             type: "agentNative.submitChat",
             data: {
               submitMessageId: "invalid-context",
+              confirmParentFrame: true,
               submit: true,
               message: "Review this design",
               context: "x".repeat(700_001),
@@ -836,6 +839,20 @@ describe("WorkspaceAppKeepAlive", () => {
 
     clientState.sendToAgentChatAndConfirm.mockClear();
     await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.submitChat",
+            data: {
+              submitMessageId: "ordinary-submit",
+              submit: true,
+              message: "This should stay in the child",
+            },
+          },
+          origin: "https://design.example.test",
+          source: frameWindow,
+        }),
+      );
       window.dispatchEvent(
         new MessageEvent("message", {
           data: {

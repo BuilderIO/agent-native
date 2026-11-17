@@ -1455,6 +1455,7 @@ describe("sendToAgentChat", () => {
     vi.advanceTimersByTime(0);
     const payload = selfPostMessageSpy.mock.calls.at(-1)?.[0];
     expect(payload?.data?.submitMessageId).toEqual(expect.any(String));
+    expect(payload?.data?.confirmParentFrame).toBeUndefined();
     reportAgentChatSubmitResult(payload.data.submitMessageId, true);
 
     await expect(resultPromise).resolves.toMatchObject({ delivered: true });
@@ -1478,6 +1479,10 @@ describe("sendToAgentChat", () => {
       { confirmParentFrame: true, submitMessageId: "parent-review" },
     );
     expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    expect(parentPostMessageSpy.mock.calls[0]?.[0]?.data).toMatchObject({
+      confirmParentFrame: true,
+      submitMessageId: "parent-review",
+    });
     reportAgentChatSubmitResult("parent-review", true);
     await expect(confirmed).resolves.toMatchObject({ delivered: true });
   });
