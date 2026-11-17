@@ -108,20 +108,23 @@ export function useFocusReturn<T extends Element>(
   const entry = React.useRef<FocusReturn | null>(null);
   const node = React.useRef<T | null>(null);
   const attached = React.useRef(forwardedRef);
+  const release = React.useRef<(() => void) | null>(null);
   // The wrapper below keeps one identity, so React never re-runs it for a new
   // caller ref: hand the node over to the new ref here, and release the old one.
   React.useLayoutEffect(() => {
     if (attached.current === forwardedRef) return;
-    assignRef(attached.current, null);
+    release.current?.();
+    release.current = null;
     attached.current = forwardedRef;
-    assignRef(forwardedRef, node.current);
+    if (node.current) release.current = assignRef(forwardedRef, node.current);
   });
   return React.useMemo(
     () => ({
       // runs when the content node mounts, before Radix moves focus into it
       ref(next: T | null) {
         node.current = next;
-        assignRef(attached.current, next);
+        release.current?.();
+        release.current = next ? assignRef(attached.current, next) : null;
         if (next) entry.current = rememberFocusReturn(next);
       },
       close(event: Event) {
@@ -136,9 +139,20 @@ export function useFocusReturn<T extends Element>(
   );
 }
 
-function assignRef<T>(target: React.ForwardedRef<T>, value: T | null) {
-  if (typeof target === "function") target(value);
-  else if (target) target.current = value;
+/** Attaches `value` and returns how to detach it: a React 19 callback ref's own cleanup when it returns one, else a call with null. */
+function assignRef<T>(
+  target: React.ForwardedRef<T>,
+  value: T,
+): (() => void) | null {
+  if (typeof target === "function") {
+    const cleanup = (target as (v: T | null) => void | (() => void))(value);
+    return typeof cleanup === "function" ? cleanup : () => target(null);
+  }
+  if (!target) return null;
+  target.current = value;
+  return () => {
+    target.current = null;
+  };
 }
 
 /**

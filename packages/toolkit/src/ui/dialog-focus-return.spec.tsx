@@ -224,4 +224,24 @@ describe("DialogContent ref forwarding", () => {
 
     expect(seen).toEqual(["first:node", "first:null", "second:node"]);
   });
+
+  it("runs a callback ref's returned cleanup instead of calling it with null", async () => {
+    const seen: string[] = [];
+    const ref = (node: HTMLDivElement | null) => {
+      seen.push(node ? "node" : "null");
+      return () => seen.push("cleanup");
+    };
+    const view = render(
+      <Dialog open>
+        <DialogContent ref={ref}>
+          <DialogTitle>Invite people</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+    await screen.findByRole("dialog");
+    view.rerender(<Dialog open={false} />);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+    expect(seen).toEqual(["node", "cleanup"]);
+  });
 });
