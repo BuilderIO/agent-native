@@ -121,6 +121,92 @@ describe("isTransientDatabaseError", () => {
     },
   );
 
+  it("classifies the driver error a Drizzle query wrapped, not the SQL and params it carries", async () => {
+    const { DrizzleQueryError } = await import("drizzle-orm/errors");
+    const { isConnectionError, isTransientDatabaseError } =
+      await import("./errors.js");
+    const driverError = Object.assign(
+      new Error(
+        'duplicate key value violates unique constraint "thread_messages_pkey"',
+      ),
+      {
+        code: "23505",
+        stack:
+          "error: duplicate key value\n at @neondatabase/serverless/index.mjs:1:1",
+      },
+    );
+    const error = new DrizzleQueryError(
+      "insert into thread_messages (content) values ($1)",
+      ["The websocket connection closed after a statement timeout"],
+      driverError,
+    );
+    error.stack = `Error: ${error.message}\n at drizzle-orm/pg-core/session.js:41:15`;
+
+    expect(isTransientDatabaseError(error)).toBe(false);
+    expect(isConnectionError(error)).toBe(false);
+  });
+
+  it.each([
+    {
+      code: "42501",
+      message: "permission denied for table websocket_sessions",
+    },
+    {
+      code: "42703",
+      message: 'column "connection_closed_at" does not exist',
+    },
+    {
+      code: "23514",
+      message:
+        'new row for relation "runs" violates check constraint "runs_socket_hang_up_reason"',
+    },
+  ])(
+    "keeps a $code server error loud even when its text mentions a connection",
+    async ({ code, message }) => {
+      const { isConnectionError, isTransientDatabaseError } =
+        await import("./errors.js");
+      const error = Object.assign(new Error(message), {
+        code,
+        stack: `error: ${message}\n at pg-pool/index.js:45:11`,
+      });
+
+      expect(isTransientDatabaseError(error)).toBe(false);
+      expect(isTransientDatabaseError(error, { source: "database" })).toBe(
+        false,
+      );
+      expect(isConnectionError(error)).toBe(false);
+    },
+  );
+
+  it("sees a connection failure that Drizzle wrapped", async () => {
+    const { DrizzleQueryError } = await import("drizzle-orm/errors");
+    const { isConnectionError, isTransientDatabaseError } =
+      await import("./errors.js");
+    const error = new DrizzleQueryError(
+      "select id from threads where id = $1",
+      ["thread-1"],
+      new Error("Connection terminated unexpectedly"),
+    );
+
+    expect(isConnectionError(error)).toBe(true);
+    expect(isTransientDatabaseError(error)).toBe(true);
+  });
+
+  it.each(["57P03", "08006", "53300"])(
+    "still classifies a Drizzle-wrapped %s as transient",
+    async (code) => {
+      const { DrizzleQueryError } = await import("drizzle-orm/errors");
+      const { isTransientDatabaseError } = await import("./errors.js");
+      const error = new DrizzleQueryError(
+        "select 1",
+        [],
+        Object.assign(new Error("Fake outage"), { code }),
+      );
+
+      expect(isTransientDatabaseError(error)).toBe(true);
+    },
+  );
+
   it("does not classify ordinary database errors as transient", async () => {
     const { isTransientDatabaseError } = await import("./errors.js");
 
