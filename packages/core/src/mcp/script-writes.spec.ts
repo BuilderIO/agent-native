@@ -744,13 +744,19 @@ describe("recoverScriptWrites", () => {
         fence: fence as () => Promise<McpScriptFenceResult>,
       }),
     });
+    let release: (answer: McpScriptFenceResult) => void = () => {};
     const cases = [
       withFence(async () => {
         throw new Error("receipt table locked");
       }),
       withFence(async () => ({ status: "absent" })),
       withFence(async () => undefined),
-      withFence(() => new Promise(() => {})),
+      withFence(
+        () =>
+          new Promise<McpScriptFenceResult>((resolve) => {
+            release = resolve;
+          }),
+      ),
     ];
     await leavePending(0, "a");
     for (const fenced of cases) {
@@ -766,6 +772,125 @@ describe("recoverScriptWrites", () => {
     expect((await rows())[0]).toEqual(
       expect.objectContaining({ effect_status: "unknown" }),
     );
+    // Ends the fence that outlasted its sweep, so it holds no check slot.
+    release({ status: "fenced" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  it("never settles a write not-applied from its reconcile, whatever it answers", async () => {
+    const claiming = {
+      "save-thing": writeEntry({
+        reconcile: async () =>
+          ({ status: "fenced" }) as unknown as McpScriptReconcileResult,
+      }),
+    };
+    await leavePending(0, "a");
+    await expect(
+      recoverScriptWrites({
+        appId: "app-a",
+        actions: claiming,
+        now: T0 + 3 * 60_000,
+      }),
+    ).resolves.toEqual({ settled: 0, unsettled: 1 });
+  });
+
+  it("waits on a check still running from an earlier sweep instead of starting another", async () => {
+    let reconciles = 0;
+    let fences = 0;
+    let release: (answer: McpScriptReconcileResult) => void = () => {};
+    const slow = {
+      "save-thing": writeEntry({
+        reconcile: () => {
+          reconciles += 1;
+          return new Promise<McpScriptReconcileResult>((resolve) => {
+            release = resolve;
+          });
+        },
+        fence: async () => {
+          fences += 1;
+          return { status: "fenced" };
+        },
+      }),
+    };
+    await leavePending(0, "a");
+    const sweep = (now: number, deadlineAt?: number) =>
+      recoverScriptWrites({
+        appId: "app-a",
+        actions: slow,
+        now,
+        ...(deadlineAt === undefined ? {} : { deadlineAt }),
+      });
+    await expect(sweep(T0 + 3 * 60_000, Date.now() + 500)).resolves.toEqual({
+      settled: 0,
+      unsettled: 1,
+    });
+    // The reconcile still runs, so these sweeps wait on it and fence nothing,
+    // even though the write's time to fence has come.
+    for (let i = 0; i < 2; i += 1) {
+      await expect(sweep(T0 + RECOVERY_MS, Date.now() + 500)).resolves.toEqual({
+        settled: 0,
+        unsettled: 1,
+      });
+    }
+    expect({ reconciles, fences }).toEqual({ reconciles: 1, fences: 0 });
+    release({ status: "absent" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await expect(sweep(T0 + RECOVERY_MS)).resolves.toEqual({
+      settled: 1,
+      unsettled: 0,
+    });
+    expect({ reconciles, fences }).toEqual({ reconciles: 1, fences: 1 });
+    expect((await rows())[0]).toEqual(
+      expect.objectContaining({ effect_status: "not-applied" }),
+    );
+  });
+
+  it("runs at most eight checks at once, and starts more once they end", async () => {
+    const releases: Array<(answer: McpScriptFenceResult) => void> = [];
+    let open = false;
+    const stuck = {
+      "save-thing": writeEntry({
+        fence: () =>
+          open
+            ? Promise.resolve<McpScriptFenceResult>({ status: "fenced" })
+            : new Promise<McpScriptFenceResult>((resolve) => {
+                releases.push(resolve);
+              }),
+      }),
+    };
+    const writes = gate();
+    for (let seq = 0; seq < 9; seq += 1) {
+      const begun = await writes.begin(call(seq, { key: `k${seq}`, rows: 1 }));
+      if (begun.status !== "go") throw new Error("expected go");
+    }
+    const sweep = (deadlineAt?: number) =>
+      recoverScriptWrites({
+        appId: "app-a",
+        actions: stuck,
+        now: T0 + RECOVERY_MS,
+        ...(deadlineAt === undefined ? {} : { deadlineAt }),
+      });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Each sweep waits out its deadline on the first stuck fence it starts
+      // or finds, so it takes several to fill every slot.
+      for (let i = 0; i < 30 && releases.length < 8; i += 1) {
+        await sweep(Date.now() + 100);
+      }
+      expect(releases).toHaveLength(8);
+      warn.mockClear();
+      await sweep(Date.now() + 100);
+      expect(releases).toHaveLength(8);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("already running 8 checks"),
+      );
+    } finally {
+      warn.mockRestore();
+      open = true;
+      for (const release of releases) release({ status: "fenced" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    await expect(sweep()).resolves.toEqual({ settled: 9, unsettled: 0 });
   });
 
   it("reconciles and fences as the person who made the call", async () => {
