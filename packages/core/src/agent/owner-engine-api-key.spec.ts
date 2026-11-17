@@ -42,6 +42,11 @@ vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: () => "owner@example.com",
 }));
 
+vi.mock("../org/context.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../org/context.js")>()),
+  resolveOrgIdForEmail: vi.fn(async () => null),
+}));
+
 vi.mock("../server/credential-provider.js", () => ({
   canUseDeployCredentialFallbackForRequest:
     canUseDeployCredentialFallbackForRequestMock,

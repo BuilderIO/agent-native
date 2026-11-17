@@ -1298,10 +1298,7 @@ export function useEditorModes({
       await settlePendingTweakSaves();
       const result = await clearEditsMutation.mutateAsync({
         designId: id,
-        ...(clearableHandoff &&
-        revision !== null &&
-        revision !== undefined &&
-        publisherId
+        ...(clearableHandoff && revision !== undefined && publisherId
           ? { revision, publisherId }
           : {}),
       });
