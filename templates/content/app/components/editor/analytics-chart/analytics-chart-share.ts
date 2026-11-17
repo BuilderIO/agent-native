@@ -30,11 +30,13 @@ export interface AnalyticsShareCheck {
 
 /** What the share dialog has read of the sub-pages' charts. */
 export interface SubPageChartsQuery {
-  data?: {
-    charts?: readonly Chart[];
-    unreadable?: number;
-    more?: boolean;
-  };
+  data?:
+    | {
+        charts?: readonly Chart[] | undefined;
+        unreadable?: number | undefined;
+        more?: boolean | undefined;
+      }
+    | undefined;
   isError: boolean;
   isFetching: boolean;
 }
