@@ -227,8 +227,8 @@ interface RunResult {
 interface Target {
   label: string;
   spec: string;
-  /** False when npm skips this package's registry metadata. */
-  fromRegistry: boolean;
+  /** Only targets npm installs from the same source download the same files. */
+  source: "registry" | "url" | "file";
 }
 
 function isolatedEnv(runDir: string, proxyUrl: string): NodeJS.ProcessEnv {
@@ -554,9 +554,13 @@ function report(
         baseline && baseline !== results.find((r) => r.target === target)
           ? summarizePhase(baseline.runs, phase)
           : undefined;
-      const change = base
-        ? `time ${formatChange(base.ms, summary.ms)}, bytes ${formatChange(base.received + base.sent, summary.received + summary.sent)}`
-        : "";
+      const comparable =
+        phase !== "install" || target.source === baseline?.target.source;
+      const change = !base
+        ? ""
+        : comparable
+          ? `time ${formatChange(base.ms, summary.ms)}, bytes ${formatChange(base.received + base.sent, summary.received + summary.sent)}`
+          : "not comparable";
       lines.push(
         `| ${target.label} (${version}) | ${phase} | ${(summary.ms / 1000).toFixed(1)} s | ${formatBytes(summary.received)} | ${formatBytes(summary.sent)} | ${summary.connections} | ${summary.hosts} | ${change} |`,
       );
@@ -620,20 +624,20 @@ async function main(): Promise<void> {
         return {
           label: `local ${gitLabel()}`,
           spec: packLocalCore(packDir),
-          fromRegistry: false,
+          source: "file",
         };
       }
       if (/^https?:\/\//.test(spec)) {
-        return { label: spec, spec, fromRegistry: false };
+        return { label: spec, spec, source: "url" };
       }
       if (spec.endsWith(".tgz")) {
         return {
           label: path.basename(spec),
           spec: path.resolve(spec),
-          fromRegistry: false,
+          source: "file",
         };
       }
-      return { label: spec, spec, fromRegistry: true };
+      return { label: spec, spec, source: "registry" };
     });
     results = targets.map((target) => ({ target, runs: [] }));
     // Alternate targets within each round so a slow minute hits all of them.
@@ -695,9 +699,9 @@ async function main(): Promise<void> {
     `${scenario} · ${runs} run(s) per target, times are medians · Node ${process.version} · ${process.platform}\n`,
   );
   console.log(report(results, phases));
-  if (results.some(({ target }) => !target.fromRegistry)) {
+  if (results.some(({ target }) => target.source !== "registry")) {
     console.log(
-      "\nLocal, .tgz, and tarball-URL targets skip the package's own registry metadata in the install phase.",
+      "\nLocal, .tgz, and tarball-URL targets skip the package's own registry metadata in the install phase, and local and .tgz ones its tarball too, so install is compared only between targets from the same source.",
     );
   }
   console.log(`\nResults: ${outFile}`);
