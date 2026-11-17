@@ -1266,16 +1266,20 @@ export function useEditorModes({
   const clearEditsMutation = useActionMutation("clear-edits");
   const handleClearPendingVisualEdits = useCallback(async () => {
     const pending = visualEditPendingQuery.data;
-    if (!id || !pending) return;
+    if (!id) return;
+    const revision = pending?.revision;
+    const publisherId = pending?.publisherId;
     const ownsHandoff =
+      pending !== undefined &&
       pending.status !== "empty" &&
-      pending.publisherId === pendingVisualEditPublisherIdRef.current &&
-      pending.revision !== null;
+      publisherId === pendingVisualEditPublisherIdRef.current &&
+      revision !== null;
     const canClearOtherPublisher = designAccessRole === "owner";
     const clearableHandoff =
+      pending !== undefined &&
       pending.status !== "empty" &&
-      pending.revision !== null &&
-      pending.publisherId !== null &&
+      revision !== null &&
+      publisherId !== null &&
       (ownsHandoff || canClearOtherPublisher || pending.canClear);
     const hasLocalEdits =
       pendingVisualStyleEdits.length > 0 ||
@@ -1284,18 +1288,6 @@ export function useEditorModes({
     if (!hasLocalEdits && !clearableHandoff) return;
 
     try {
-      await settlePendingTweakSaves();
-      const result = await clearEditsMutation.mutateAsync({
-        designId: id,
-        ...(clearableHandoff && pending.revision !== null && pending.publisherId
-          ? { revision: pending.revision, publisherId: pending.publisherId }
-          : {}),
-      });
-      if (!result.cleared || result.stale) {
-        throw new Error(
-          "The pending edits changed before they could be cleared.",
-        );
-      }
       requestPendingVisualStyleRevert(pendingVisualStyleEdits);
       requestPendingLiveNonStyleRevert(pendingLiveNonStyleEdits);
       discardPendingLiveEditCollections({
@@ -1303,8 +1295,27 @@ export function useEditorModes({
         liveRef: pendingLiveNonStyleEditsRef,
         clearState: clearPendingLiveEditState,
       });
+      await settlePendingTweakSaves();
+      const result = await clearEditsMutation.mutateAsync({
+        designId: id,
+        ...(clearableHandoff &&
+        revision !== null &&
+        revision !== undefined &&
+        publisherId
+          ? { revision, publisherId }
+          : {}),
+      });
+      if (!result.cleared || result.stale) {
+        throw new Error(
+          "The pending edits changed before they could be cleared.",
+        );
+      }
       if (result.resetTweakSelections) resetTweakSelectionsToSourceBaseline();
-      if (result.handoffCleared || !pending || pending.status === "empty") {
+      if (
+        result.handoffCleared ||
+        result.revision === null ||
+        (pending?.status === "empty" && pending.pendingEditCount === 0)
+      ) {
         clearCodingHandoffError();
         toast.dismiss("design-visual-edit-pending-publication");
       }
