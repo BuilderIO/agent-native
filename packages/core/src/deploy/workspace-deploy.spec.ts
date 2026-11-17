@@ -1129,6 +1129,8 @@ describe("workspace deploy", () => {
     expect(headers).toContain(
       `netlify-cdn-cache-control: ${IMMUTABLE_ASSET_CACHE_CONTROL}`,
     );
+    // Panels in MCP hosts import these chunks from the host's sandbox origin.
+    expect(headers).toContain("access-control-allow-origin: *");
     expect(headers).not.toContain("/dispatch/assets/app.js\n");
     expect(fs.existsSync(path.join(tmpDir, "dist", "_routes.json"))).toBe(
       false,
@@ -1542,6 +1544,7 @@ describe("workspace deploy", () => {
       {
         src: "^(?:/dispatch/assets/app-aB12_cdE\\.js|/dispatch/assets/chunks/chunk-12345678\\.js)$",
         headers: {
+          "access-control-allow-origin": "*",
           "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -1551,6 +1554,7 @@ describe("workspace deploy", () => {
       {
         src: "^(?:/starter/assets/app-aB12_cdE\\.js|/starter/assets/chunks/chunk-12345678\\.js)$",
         headers: {
+          "access-control-allow-origin": "*",
           "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,

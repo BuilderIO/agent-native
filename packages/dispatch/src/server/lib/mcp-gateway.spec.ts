@@ -1530,6 +1530,52 @@ describe("openGrantedDispatchMcpApp", () => {
     });
   });
 
+  it("answers with the link and stops the target when it is slow to mint a session", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      let rejectCall: (error: Error) => void = () => {};
+      mocks.managerCallTool.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectCall = reject;
+          }),
+      );
+      // Stopping the client fails its pending call, as the SDK transport does.
+      mocks.managerStop.mockImplementation(async () =>
+        rejectCall(new Error("Connection closed")),
+      );
+      const pending = runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          openGrantedDispatchMcpApp({
+            app: "analytics",
+            path: "/dashboards",
+            embed: true,
+          }),
+      );
+      await vi.advanceTimersByTimeAsync(15_000);
+      const result = await pending;
+      expect(result).toMatchObject({
+        app: "analytics",
+        url: "http://localhost:8086/dashboards",
+      });
+      expect(result).not.toHaveProperty("embedStartUrl");
+      await vi.advanceTimersByTimeAsync(60_000);
+      // The abandoned request was stopped, not retried in the background.
+      expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+      expect(mocks.managerStop).toHaveBeenCalled();
+    } finally {
+      mocks.managerStop.mockReset();
+      mocks.managerStop.mockResolvedValue(undefined);
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("reads the target embed start URL when Core returns JSON text", async () => {
     mocks.managerCallTool.mockResolvedValueOnce({
       content: [

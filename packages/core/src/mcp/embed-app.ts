@@ -22,6 +22,7 @@ const MCP_APP_IMPORT =
 
 export const MCP_APP_REQUEST_ORIGIN_CSP_SOURCE = "$requestOrigin";
 const MCP_APP_WRAPPER_CHROME_HEIGHT = 44;
+const EMBED_REQUEST_FAILURES_WINDOW_KEY = "__agentNativeEmbedRequestFailures";
 const MCP_APP_INLINE_LAUNCHER_HEIGHT = 56;
 export const DEFAULT_MCP_APP_SHELL_HEIGHT = 560;
 export const DEFAULT_MCP_APP_VIEWPORT_HEIGHT =
@@ -963,6 +964,49 @@ export function embedApp(
         }
         return headers;
       }
+      // The host shows no console for this document, so read_view reports
+      // the app's failed requests and whether each carried the panel session.
+      function observedRequest(promise, method, url, headers) {
+        function note(detail) {
+          var list = window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}] ||
+            (window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}] = []);
+          var path;
+          try {
+            path = new URL(url).pathname;
+          } catch (_err) {
+            path = String(url);
+          }
+          var text = String(method || "GET").toUpperCase() + " " + path + " " + detail +
+            (headers.has("Authorization") ? "" : " (sent without the panel session)");
+          if (list.length < 5 && list.indexOf(text) < 0) list.push(text);
+        }
+        return promise.then(function(response) {
+          if (!response.ok) note("HTTP " + response.status);
+          return response;
+        }, function(error) {
+          if (!error || error.name !== "AbortError") {
+            note("failed: " + String((error && error.message) || error).slice(0, 120));
+          }
+          throw error;
+        });
+      }
+      // Vite's preload helper adds lazy-route stylesheets as CORS-mode links. The
+      // sandbox loads the document's own stylesheets without CORS, so load these
+      // the same way instead of failing the route with "Unable to preload CSS".
+      if (typeof document !== "undefined" && document.head) {
+        const originalAppendChild = document.head.appendChild.bind(document.head);
+        document.head.appendChild = function(node) {
+          if (
+            node &&
+            node.nodeName === "LINK" &&
+            String(node.rel).toLowerCase() === "stylesheet" &&
+            node.hasAttribute("crossorigin")
+          ) {
+            node.removeAttribute("crossorigin");
+          }
+          return originalAppendChild(node);
+        };
+      }
       if (typeof fetch === "function") {
         const originalFetch = fetch.bind(window);
         var pageFetch = fetch;
@@ -974,6 +1018,15 @@ export function embedApp(
             headers: authHeaders(input, init),
             credentials: "omit"
           });
+          const method = (init && init.method) || (input instanceof Request ? input.method : "GET");
+          return observedRequest(
+            sendRewritten(input, url, nextInit),
+            method,
+            url,
+            nextInit.headers
+          );
+        };
+        function sendRewritten(input, url, nextInit) {
           if (input instanceof Request) {
             const requestInit = {
               method: input.method,
@@ -1004,7 +1057,7 @@ export function embedApp(
             });
           }
           return originalFetch(url, nextInit);
-        };
+        }
         // The requests it signs go out on a transport of their own, one per
         // token. It signs only on the target's mount and with a token; its
         // other requests still omit cookies, so they go out on another
@@ -2716,6 +2769,18 @@ export function embedApp(
       return lastFrameSrc ? new URL(window.location.href) : null;
     }
 
+    // The transplanted app runs in this document, where the host shows no
+    // console; read_view is the only place its load failures surface.
+    const viewErrors = [];
+    function rememberViewError(value) {
+      const text = String(
+        (value && (value.message || (value.reason && value.reason.message) || value.reason)) || value || "",
+      ).slice(0, 300);
+      if (text && viewErrors.length < 5 && !viewErrors.includes(text)) viewErrors.push(text);
+    }
+    window.addEventListener("error", (event) => rememberViewError(event.error || event.message));
+    window.addEventListener("unhandledrejection", (event) => rememberViewError(event.reason));
+
     function readViewState() {
       // A nested app frame is cross-origin and moves on its own, so its src is
       // only the launch URL; reporting it would describe the wrong page.
@@ -2736,6 +2801,13 @@ export function embedApp(
           ? String(root.innerText || "").replace(/\\s+/g, " ").trim().slice(0, maxViewTextChars)
           : "";
       }
+      const loadError = document.body
+        ? document.body.getAttribute("data-agent-native-hydration-error")
+        : null;
+      if (loadError) rememberViewError(loadError);
+      const requestFailures = window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}];
+      if (Array.isArray(requestFailures)) requestFailures.forEach(rememberViewError);
+      if (viewErrors.length) state.errors = viewErrors.slice();
       return state;
     }
 

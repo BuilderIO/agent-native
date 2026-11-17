@@ -516,6 +516,15 @@ describe("embedApp", () => {
         this.headers.set(name.toLowerCase(), value);
       }
     }
+    const appended: Array<{ hasAttribute: (n: string) => boolean }> = [];
+    const fakeDocument = {
+      head: {
+        appendChild(node: { hasAttribute: (n: string) => boolean }) {
+          appended.push(node);
+          return node;
+        },
+      },
+    };
     const sessionStorageObject = { setItem: vi.fn() };
     const installRuntime = new Function(
       "window",
@@ -525,6 +534,7 @@ describe("embedApp", () => {
       "fetch",
       "XMLHttpRequest",
       "EventSource",
+      "document",
       `${runtimeSource}; return installExternalEmbedRuntime;`,
     )(
       windowObject,
@@ -534,6 +544,7 @@ describe("embedApp", () => {
       fetch,
       MockXMLHttpRequest,
       MockEventSource,
+      fakeDocument,
     ) as (config: Record<string, unknown>) => void;
 
     installRuntime({
@@ -653,6 +664,31 @@ describe("embedApp", () => {
         "__an_embed_token",
       ),
     ).toBe(false);
+
+    const stylesheet = {
+      nodeName: "LINK",
+      rel: "stylesheet",
+      attrs: new Set(["crossorigin"]),
+      hasAttribute(name: string) {
+        return this.attrs.has(name);
+      },
+      removeAttribute(name: string) {
+        this.attrs.delete(name);
+      },
+    };
+    fakeDocument.head.appendChild(stylesheet as never);
+    expect(appended).toContain(stylesheet);
+    expect(stylesheet.hasAttribute("crossorigin")).toBe(false);
+
+    fetch.mockResolvedValueOnce(new Response("no", { status: 502 }));
+    await installedFetch("/mail/_agent-native/actions/action");
+    forwarded.pop();
+    expect(
+      (windowObject as Record<string, unknown>)
+        .__agentNativeEmbedRequestFailures,
+    ).toEqual([
+      "GET /mail/_agent-native/actions/action HTTP 502 (sent without the panel session)",
+    ]);
 
     locationObject.pathname = "/mail/settings";
     locationObject.href = "https://host.example/mail/settings";
@@ -2361,6 +2397,7 @@ return requestFullscreenOnFirstInteraction;`;
       frameSrc?: string;
       modelContext?: unknown;
       app?: unknown;
+      windowListeners?: Record<string, Array<(event: unknown) => void>>;
     }) => {
       const resource = embedApp({ title: "Mail" });
       const html =
@@ -2376,6 +2413,10 @@ return requestFullscreenOnFirstInteraction;`;
       );
       const pushed: Array<{ state: unknown; url: string }> = [];
       const popstates: unknown[] = [];
+      const windowListeners: Record<
+        string,
+        Array<(event: unknown) => void>
+      > = options.windowListeners ?? {};
       const fakeWindow = {
         location: { href: options.href },
         history: {
@@ -2391,6 +2432,9 @@ return requestFullscreenOnFirstInteraction;`;
         },
         getSelection: () => "",
         __agentNativeWebMcp: options.pageHelper,
+        addEventListener(type: string, listener: (event: unknown) => void) {
+          (windowListeners[type] ??= []).push(listener);
+        },
       };
       const objectValue = (value: unknown) =>
         value && typeof value === "object" && !Array.isArray(value)
@@ -2546,6 +2590,24 @@ return requestFullscreenOnFirstInteraction;`;
         path: "/mail/inbox?q=acme",
         title: "Inbox",
         visibleText: "Invoice from Acme due Friday",
+      });
+    });
+
+    it("reports why the open page failed to load", async () => {
+      const windowListeners: Record<
+        string,
+        Array<(event: unknown) => void>
+      > = {};
+      const tools = viewToolsFor({
+        href: "https://app.example.com/mail/inbox",
+        windowListeners,
+      });
+      windowListeners.unhandledrejection![0]!({
+        reason: new Error("Failed to fetch dynamically imported module"),
+      });
+      const read = await tools.callViewTool({ name: "read_view" });
+      expect(read.structuredContent).toMatchObject({
+        errors: ["Failed to fetch dynamically imported module"],
       });
     });
 

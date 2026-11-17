@@ -14637,6 +14637,9 @@ export function createProductionAgentHandler(
       const requestContext = getRequestContext();
       mutableBody[AGENT_CHAT_REQUEST_CONTEXT_FIELD] = {
         requestOrigin: requestContext?.requestOrigin ?? null,
+        ...(requestContext?.timezone
+          ? { timezone: requestContext.timezone }
+          : {}),
         isLoopbackRequest:
           !dispatchToBackground && requestContext?.isLoopbackRequest === true,
         isDirectLoopbackRequest:

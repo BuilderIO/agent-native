@@ -3,6 +3,11 @@ import { IconX } from "@tabler/icons-react";
 import * as React from "react";
 
 import { cn } from "../utils.js";
+import {
+  type FocusReturn,
+  rememberFocusReturn,
+  restoreFocusReturn,
+} from "./focus-return.js";
 import { ModalLayerProvider } from "./modal-layer.js";
 
 /**
@@ -92,17 +97,43 @@ export function releaseStaleBodyLock() {
   releaseStaleFocus();
 }
 
-function Dialog({
-  open,
-  defaultOpen,
-  onOpenChange,
-  children,
-  ...props
-}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Root>) {
-  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(
-    defaultOpen ?? false,
+/**
+ * Records the opener when the content mounts and focuses it again on close (see
+ * focus-return). A caller's `onCloseAutoFocus` that prevents the default keeps
+ * the choice of where focus goes.
+ */
+export function useFocusReturn<T extends Element>(
+  forwardedRef: React.ForwardedRef<T>,
+) {
+  const entry = React.useRef<FocusReturn | null>(null);
+  const forwarded = React.useRef(forwardedRef);
+  forwarded.current = forwardedRef;
+  return React.useMemo(
+    () => ({
+      // runs when the content node mounts, before Radix moves focus into it
+      ref(node: T | null) {
+        const target = forwarded.current;
+        if (typeof target === "function") target(node);
+        else if (target) target.current = node;
+        if (node) entry.current = rememberFocusReturn(node);
+      },
+      close(event: Event) {
+        const current = entry.current;
+        entry.current = null;
+        if (event.defaultPrevented || !current?.target?.isConnected) return;
+        event.preventDefault();
+        restoreFocusReturn(current);
+      },
+    }),
+    [],
   );
-  const isOpen = open ?? uncontrolledOpen;
+}
+
+/**
+ * Clears what a closing layer can leave behind (body lock, stale focus). Shared
+ * by Dialog and AlertDialog.
+ */
+export function useDialogCloseCleanup(isOpen: boolean) {
   React.useEffect(() => {
     if (isOpen) {
       // Most callers close a dialog by unmounting it (`{open ? <Dialog .../> :
@@ -125,6 +156,20 @@ function Dialog({
     }
     return undefined;
   }, [isOpen]);
+}
+
+function Dialog({
+  open,
+  defaultOpen,
+  onOpenChange,
+  children,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Root>) {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(
+    defaultOpen ?? false,
+  );
+  const isOpen = open ?? uncontrolledOpen;
+  useDialogCloseCleanup(isOpen);
   return (
     <DialogPrimitive.Root
       {...props}
@@ -202,42 +247,50 @@ const DialogContent = React.forwardRef<
       closeDisabled,
       overlayClassName,
       overlayStyle,
+      onCloseAutoFocus,
       ...props
     },
     ref,
-  ) => (
-    <DialogPortal container={container}>
-      <DialogOverlay
-        motion={motion}
-        className={overlayClassName}
-        style={overlayStyle}
-      />
-      <DialogPrimitive.Content
-        ref={ref}
-        className={cn(
-          "fixed left-1/2 top-1/2 z-[280] grid max-h-[min(760px,calc(100vh-32px))] w-[calc(100vw-24px)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-background p-6 text-foreground shadow-lg outline-none",
-          motion === "default" &&
-            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-150 data-[state=open]:duration-200 data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-          className,
-        )}
-        {...props}
-      >
-        <ModalLayerProvider value>{children}</ModalLayerProvider>
-        {!hideClose && (
-          <DialogPrimitive.Close
-            disabled={closeDisabled}
-            className={cn(
-              "absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-              closeDisabled && "pointer-events-none opacity-50",
-            )}
-          >
-            <IconX className="h-4 w-4" />
-            <span className="sr-only">{closeLabel}</span>
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Content>
-    </DialogPortal>
-  ),
+  ) => {
+    const focusReturn = useFocusReturn(ref);
+    return (
+      <DialogPortal container={container}>
+        <DialogOverlay
+          motion={motion}
+          className={overlayClassName}
+          style={overlayStyle}
+        />
+        <DialogPrimitive.Content
+          ref={focusReturn.ref}
+          onCloseAutoFocus={(event) => {
+            onCloseAutoFocus?.(event);
+            focusReturn.close(event);
+          }}
+          className={cn(
+            "fixed left-1/2 top-1/2 z-[280] grid max-h-[min(760px,calc(100vh-32px))] w-[calc(100vw-24px)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-background p-6 text-foreground shadow-lg outline-none",
+            motion === "default" &&
+              "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-150 data-[state=open]:duration-200 data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+            className,
+          )}
+          {...props}
+        >
+          <ModalLayerProvider value>{children}</ModalLayerProvider>
+          {!hideClose && (
+            <DialogPrimitive.Close
+              disabled={closeDisabled}
+              className={cn(
+                "absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                closeDisabled && "pointer-events-none opacity-50",
+              )}
+            >
+              <IconX className="h-4 w-4" />
+              <span className="sr-only">{closeLabel}</span>
+            </DialogPrimitive.Close>
+          )}
+        </DialogPrimitive.Content>
+      </DialogPortal>
+    );
+  },
 );
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
