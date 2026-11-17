@@ -26,6 +26,9 @@ export default defineAction({
       ]),
     ),
   }),
+  // In-app only: the switch lives in Settings › Labs, and an outside agent has
+  // no reason to widen the experimental features a person opted into.
+  mcpTool: false,
   http: { method: "POST" },
   mcpAnnotations: {
     readOnlyHint: false,
