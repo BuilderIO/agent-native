@@ -155,11 +155,11 @@ const unconfirmedMessage =
  * edits, so it stores nothing and names the draft and moves for the caller
  * to record. A Gmail save naming neither "r-draft-7" nor its current message
  * makes a second draft. A sync stores where the save left the draft, then
- * waits for `afterAdopt` before answering. Mail's store holds each write
- * made from the revision it holds, answers any other with a save conflict,
- * and refuses the first `refuseStore` (all, if true): then the composer saves
- * the text on screen through Mail's draft route instead of a sync of the
- * stored draft.
+ * waits for `afterAdopt`, which may edit the stored draft as another writer,
+ * before answering. Mail's store holds each write made from the
+ * revision it holds, answers any other with a save conflict, and refuses the
+ * first `refuseStore` (all, if true): then the composer saves the text on
+ * screen through Mail's draft route instead of a sync of the stored draft.
  */
 async function mounted({
   savedDraftId = "r-draft-7",
@@ -170,7 +170,7 @@ async function mounted({
   savedDraftId?: string;
   answers?: ("moved" | "unconfirmed" | "busy")[];
   refuseStore?: boolean | number;
-  afterAdopt?: () => Promise<void>;
+  afterAdopt?: (edit: (fields: Partial<ComposeState>) => void) => Promise<void>;
 } = {}) {
   let refusals = refuseStore === true ? Infinity : refuseStore || 0;
   let version = 1;
@@ -220,7 +220,11 @@ async function mounted({
   mocks.callAction.mockImplementation(async (name: string) => {
     if (name !== "sync-draft-mailbox") throw new Error(`Unexpected ${name}`);
     const { answer, moved } = await saveToGmail(stored);
+    const edit = (fields: Partial<ComposeState>) => {
+      stored = { ...stored, ...fields };
+    };
     if (answer === "busy") {
+      await afterAdopt?.(edit);
       return {
         status: "pending",
         errorCode: "draft_mailbox_busy",
@@ -235,7 +239,7 @@ async function mounted({
       ...metadata,
       ...(moved ? { movedAttachments: moved } : {}),
     });
-    await afterAdopt?.();
+    await afterAdopt?.(edit);
     return moved
       ? {
           status: "synced",
@@ -452,6 +456,32 @@ describe("useComposeState with a reopened Gmail draft's file", () => {
       { draftId: "message-of-draft", refs: ["message-of-draft/part-1"] },
       { draftId: "r-draft-7", refs: ["message-2/part-2"] },
     ]);
+    expect(secondDrafts()).toBe(0);
+  });
+
+  it("records the Gmail draft a sync couldn't record over another writer's edit", async () => {
+    const { result, local, saves, stored, secondDrafts } = await mounted({
+      savedDraftId: "message-of-draft",
+      answers: ["busy"],
+      // The agent edits the draft while the sync runs.
+      afterAdopt: async (edit) => edit({ subject: "Agent's subject" }),
+    });
+
+    act(() => result.current.update("reopened", { body: "First edit" }));
+    await autosave();
+    await waitFor(() => expect(stored().savedDraftId).toBe("r-draft-7"));
+    expect(stored()).toMatchObject({
+      subject: "Agent's subject",
+      attachments: [fileAt(2)],
+    });
+
+    act(() => result.current.update("reopened", { body: "Second edit" }));
+    await autosave();
+    await waitFor(() => expect(local()?.attachments).toEqual([fileAt(3)]));
+    expect(saves[1]).toEqual({
+      draftId: "r-draft-7",
+      refs: ["message-2/part-2"],
+    });
     expect(secondDrafts()).toBe(0);
   });
 

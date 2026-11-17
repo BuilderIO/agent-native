@@ -141,7 +141,10 @@ const SAVED_DRAFT_METADATA = [
 
 /**
  * Merges a draft, field by field. Which mailbox draft backs it isn't something a
- * person can choose between, so the stored one wins without asking.
+ * person can choose between, so when the stored draft changed it, the stored
+ * one wins without asking. One only this copy changed is a mailbox draft the
+ * store doesn't name yet, such as the Gmail draft a sync updated but couldn't
+ * record, and the stored ID is the message Gmail replaced: that one stands.
  */
 export function mergeComposeDrafts(
   base: ComposeState,
@@ -149,7 +152,10 @@ export function mergeComposeDrafts(
   theirs: ComposeState,
 ) {
   const adopted = { ...mine };
-  if (theirs.savedDraftId) {
+  if (
+    theirs.savedDraftId &&
+    SAVED_DRAFT_METADATA.some((key) => theirs[key] !== base[key])
+  ) {
     for (const key of SAVED_DRAFT_METADATA) {
       (adopted as Record<string, unknown>)[key] = theirs[key];
     }
