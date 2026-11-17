@@ -492,13 +492,21 @@ export async function lockPreparedSourceCollaboration(
     return { hasState: false, needsSeed: true };
   }
 
-  const version = Number(row.version);
+  const rawVersion = row.version;
+  const version =
+    typeof rawVersion === "number" ||
+    (typeof rawVersion === "string" && /^\d+$/.test(rawVersion))
+      ? Number(rawVersion)
+      : Number.NaN;
   if (
     typeof row.yjs_state !== "string" ||
     typeof row.text_snapshot !== "string" ||
     !Number.isSafeInteger(version) ||
-    version !== lease.baseVersion
+    version < 0
   ) {
+    throw sourceVersionUnverifiable();
+  }
+  if (version !== lease.baseVersion) {
     throw new SourceWorkspaceEditConflictError(
       "The source file's live collaboration document changed while it was being read. Re-read the design and retry.",
     );

@@ -31,16 +31,21 @@ const captureMocks = vi.hoisted(() => ({
   forceInsertConflict: false,
   persistConcurrentInsertOnConflict: false,
   failReturningAfterInsert: false,
+  failCommitAfterCallback: false,
   sourceMutationActive: false,
   transactionRollbackMode: "confirmed" as "confirmed" | "unknown",
   collaborationVersion: 1 as number | null,
   collaborationContent: "<main>Hello</main>" as string | null,
   emptyCollaborationRow: false,
   concurrentCollaborationSeed: false,
+  onCollaborationLock: vi.fn(),
   SourceWorkspaceEditConflictError: class SourceWorkspaceEditConflictError extends Error {
     readonly statusCode = 409;
 
-    constructor(message = "Source file changed.") {
+    constructor(
+      message = "Source file changed.",
+      readonly errorCode = "source_version_conflict",
+    ) {
       super(message);
       this.name = "SourceWorkspaceEditConflictError";
     }
@@ -145,19 +150,24 @@ vi.mock("../source-workspace.js", () => ({
       _fileId: string,
       lease: { baseVersion: number | null },
     ) => {
+      await captureMocks.onCollaborationLock();
       if (
         captureMocks.concurrentCollaborationSeed &&
         lease.baseVersion === null
       ) {
         captureMocks.collaborationVersion = 1;
         captureMocks.collaborationContent = "<main>Peer content</main>";
+        captureMocks.liveSnapshot.files[0]!.content =
+          "<main>Peer content</main>";
         captureMocks.emptyCollaborationRow = false;
         throw new captureMocks.SourceWorkspaceEditConflictError(
           "The source file's live collaboration document changed while it was being read. Re-read the design and retry.",
         );
       }
       if (lease.baseVersion !== captureMocks.collaborationVersion) {
-        throw new Error("Source collaboration version changed.");
+        throw new captureMocks.SourceWorkspaceEditConflictError(
+          "Source collaboration version changed.",
+        );
       }
       const hasState =
         captureMocks.collaborationContent !== null &&
@@ -180,6 +190,10 @@ vi.mock("../source-workspace.js", () => ({
     try {
       const result = await callback(captureMocks.mutationDatabase);
       if (outcome) outcome.callbackCompleted = true;
+      if (captureMocks.failCommitAfterCallback) {
+        captureMocks.failCommitAfterCallback = false;
+        throw new Error("transaction commit outcome is unknown");
+      }
       return result;
     } catch (error) {
       if (outcome && captureMocks.transactionRollbackMode === "confirmed") {
@@ -344,6 +358,7 @@ beforeEach(() => {
   captureMocks.forceInsertConflict = false;
   captureMocks.persistConcurrentInsertOnConflict = false;
   captureMocks.failReturningAfterInsert = false;
+  captureMocks.failCommitAfterCallback = false;
   captureMocks.assertAccess.mockReset();
   captureMocks.sourceMutationActive = false;
   captureMocks.transactionRollbackMode = "confirmed";
@@ -351,6 +366,7 @@ beforeEach(() => {
   captureMocks.collaborationContent = "<main>Hello</main>";
   captureMocks.emptyCollaborationRow = false;
   captureMocks.concurrentCollaborationSeed = false;
+  captureMocks.onCollaborationLock.mockReset();
   captureMocks.hasCollabState.mockReset();
   captureMocks.hasCollabState.mockImplementation(
     async () =>
@@ -609,6 +625,43 @@ describe("createDesignVersionSnapshot", () => {
     expect(captureMocks.collaborationContent).toBe("<main>Peer content</main>");
     expect(applyTextToYDoc).not.toHaveBeenCalled();
     expect(captureMocks.revisions).toHaveLength(0);
+  });
+
+  it("recaptures a concurrent legacy seed without overwriting peer content", async () => {
+    captureMocks.collaborationVersion = null;
+    captureMocks.collaborationContent = null;
+    captureMocks.concurrentCollaborationSeed = true;
+
+    await createDesignChatBeginningSnapshot("design-1", {
+      threadId: "thread-peer-seed",
+      runId: "run-peer-seed",
+    });
+
+    expect(applyTextToYDoc).not.toHaveBeenCalled();
+    expect(captureMocks.collaborationContent).toBe("<main>Peer content</main>");
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(
+      JSON.parse(captureMocks.revisions[0]!.snapshot as string).files[0]
+        .content,
+    ).toBe("<main>Peer content</main>");
+  });
+
+  it("does not retry a legacy seed conflict without a confirmed rollback", async () => {
+    captureMocks.collaborationVersion = null;
+    captureMocks.collaborationContent = null;
+    captureMocks.concurrentCollaborationSeed = true;
+    captureMocks.transactionRollbackMode = "unknown";
+
+    await expect(
+      createDesignChatBeginningSnapshot("design-1", {
+        threadId: "thread-uncertain-seed-conflict",
+        runId: "run-uncertain-seed-conflict",
+      }),
+    ).rejects.toThrow("seed transaction outcome is uncertain");
+    expect(captureMocks.onCollaborationLock).toHaveBeenCalledOnce();
+    expect(captureMocks.collaborationContent).toBe("<main>Peer content</main>");
+    expect(applyTextToYDoc).not.toHaveBeenCalled();
+    expect(captureMocks.revisions).toEqual([]);
   });
 
   it("uses one deterministic ordering for mixed-case source file ids", async () => {
@@ -1240,6 +1293,194 @@ describe("createDesignVersionSnapshot", () => {
       JSON.parse(captureMocks.revisions[0]!.snapshot as string).blob,
     ).toEqual(blobs[1]);
     expect(await createDesignChatBeginningSnapshot("design-1", run)).toBeNull();
+  });
+
+  it("recaptures after a collaboration version changes during the transaction lock", async () => {
+    captureMocks.onCollaborationLock.mockImplementationOnce(async () => {
+      captureMocks.collaborationVersion = 2;
+      captureMocks.liveSnapshot.files[0]!.content =
+        "<main>Concurrent edit</main>";
+    });
+
+    await createDesignChatBeginningSnapshot("design-1", {
+      threadId: "thread-lock-change",
+      runId: "run-lock-change",
+    });
+
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(
+      JSON.parse(captureMocks.revisions[0]!.snapshot as string).files[0]
+        .content,
+    ).toBe("<main>Concurrent edit</main>");
+    expect(captureMocks.onCollaborationLock).toHaveBeenCalledTimes(2);
+  });
+
+  it("accepts a thread checkpoint another instance committed during a failed attempt", async () => {
+    captureMocks.liveSnapshot.files[0]!.content = "x".repeat(300 * 1024);
+    const staged = {
+      id: "staged",
+      provider: "test",
+      opaque: true,
+      encrypted: true,
+    };
+    const peerBlob = {
+      id: "peer",
+      provider: "test",
+      opaque: true,
+      encrypted: true,
+    };
+    putPrivateBlob.mockImplementation(
+      async ({ filename }: { filename: string }) => {
+        captureMocks.revisions.push({
+          id: filename.replace(/\.design-history\.json$/, ""),
+          designId: "design-1",
+          label: "Before chat",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          chatContext: JSON.stringify({
+            threadId: "thread-peer",
+            runId: "peer-run",
+            phase: "start",
+          }),
+          snapshot: JSON.stringify({ stateHash: "peer-state", blob: peerBlob }),
+        });
+        captureMocks.collaborationVersion = 2;
+        captureMocks.liveSnapshot.files[0]!.content =
+          "peer edit " + "y".repeat(300 * 1024);
+        return staged;
+      },
+    );
+    deletePrivateBlob.mockResolvedValue({ deleted: true, provider: "test" });
+
+    await expect(
+      createDesignChatBeginningSnapshot("design-1", {
+        threadId: "thread-peer",
+        runId: "run-1",
+      }),
+    ).resolves.toBeNull();
+
+    expect(putPrivateBlob).toHaveBeenCalledOnce();
+    expect(deletePrivateBlob).toHaveBeenCalledExactlyOnceWith(staged);
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(
+      JSON.parse(captureMocks.revisions[0]!.snapshot as string).blob,
+    ).toEqual(peerBlob);
+  });
+
+  it("does not retry an unreadable legacy collaboration seed", async () => {
+    captureMocks.collaborationVersion = null;
+    captureMocks.collaborationContent = null;
+    const error = new captureMocks.SourceWorkspaceEditConflictError(
+      "source unavailable",
+      "source_version_unverifiable",
+    );
+    captureMocks.onCollaborationLock.mockRejectedValue(error);
+
+    await expect(
+      createDesignChatBeginningSnapshot("design-1", {
+        threadId: "thread-unreadable",
+        runId: "run-unreadable",
+      }),
+    ).rejects.toBe(error);
+    expect(captureMocks.onCollaborationLock).toHaveBeenCalledOnce();
+    expect(captureMocks.revisions).toEqual([]);
+  });
+
+  it("fails an unreadable checkpoint lock without retrying and cleans its staged blob", async () => {
+    const blob = {
+      id: "unreadable-staged",
+      provider: "test",
+      opaque: true,
+      encrypted: true,
+    };
+    const error = new captureMocks.SourceWorkspaceEditConflictError(
+      "source unavailable",
+      "source_version_unverifiable",
+    );
+    captureMocks.liveSnapshot.files[0]!.content = "x".repeat(300 * 1024);
+    captureMocks.onCollaborationLock.mockRejectedValue(error);
+    putPrivateBlob.mockResolvedValue(blob);
+    deletePrivateBlob.mockResolvedValue({ deleted: true, provider: "test" });
+
+    await expect(
+      createDesignChatBeginningSnapshot("design-1", {
+        threadId: "thread-unreadable-lock",
+        runId: "run-unreadable-lock",
+      }),
+    ).rejects.toBe(error);
+    expect(putPrivateBlob).toHaveBeenCalledOnce();
+    expect(deletePrivateBlob).toHaveBeenCalledExactlyOnceWith(blob);
+    expect(captureMocks.revisions).toEqual([]);
+  });
+
+  it("does not retry a source lock conflict without a confirmed rollback", async () => {
+    captureMocks.transactionRollbackMode = "unknown";
+    captureMocks.onCollaborationLock.mockImplementationOnce(async () => {
+      captureMocks.collaborationVersion = 2;
+    });
+
+    await expect(
+      createDesignChatBeginningSnapshot("design-1", {
+        threadId: "thread-unknown-lock",
+        runId: "run-unknown-lock",
+      }),
+    ).rejects.toMatchObject({ errorCode: "source_version_conflict" });
+    expect(captureMocks.onCollaborationLock).toHaveBeenCalledOnce();
+    expect(captureMocks.revisions).toEqual([]);
+  });
+
+  it("does not retry an uncertain seed commit and observes the seed on a later invocation", async () => {
+    captureMocks.collaborationVersion = null;
+    captureMocks.collaborationContent = null;
+    captureMocks.transactionRollbackMode = "unknown";
+    captureMocks.failCommitAfterCallback = true;
+    const run = { threadId: "thread-unknown-seed", runId: "run-unknown-seed" };
+
+    await expect(
+      createDesignChatBeginningSnapshot("design-1", run),
+    ).rejects.toThrow("transaction commit outcome is unknown");
+    expect(captureMocks.collaborationContent).toBe("<main>Hello</main>");
+    expect(captureMocks.revisions).toEqual([]);
+    expect(captureMocks.onCollaborationLock).toHaveBeenCalledOnce();
+    await expect(
+      createDesignChatBeginningSnapshot("design-1", run),
+    ).resolves.not.toBeNull();
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(
+      JSON.parse(captureMocks.revisions[0]!.snapshot as string).files[0]
+        .content,
+    ).toBe("<main>Hello</main>");
+  });
+
+  it("retains a possibly committed blob and recognizes its checkpoint on the next invocation", async () => {
+    const blob = {
+      id: "committed-blob",
+      provider: "test",
+      opaque: true,
+      encrypted: true,
+    };
+    captureMocks.liveSnapshot.files[0]!.content = "x".repeat(300 * 1024);
+    captureMocks.failCommitAfterCallback = true;
+    captureMocks.transactionRollbackMode = "unknown";
+    putPrivateBlob.mockResolvedValue(blob);
+    const run = {
+      threadId: "thread-unknown-commit",
+      runId: "run-unknown-commit",
+    };
+
+    await expect(
+      createDesignChatBeginningSnapshot("design-1", run),
+    ).rejects.toThrow("transaction commit outcome is unknown");
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(
+      JSON.parse(captureMocks.revisions[0]!.snapshot as string).blob,
+    ).toEqual(blob);
+    expect(deletePrivateBlob).not.toHaveBeenCalled();
+    await expect(
+      createDesignChatBeginningSnapshot("design-1", run),
+    ).resolves.toBeNull();
+    expect(putPrivateBlob).toHaveBeenCalledOnce();
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(deletePrivateBlob).not.toHaveBeenCalled();
   });
 
   it("aborts and cleans the blob when source changes during upload", async () => {
