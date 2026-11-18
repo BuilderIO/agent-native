@@ -3227,16 +3227,14 @@ describe("runQuery cancellation", () => {
         );
         const deadline = new AbortController();
         const trace = newBigQueryQueryTrace();
-        const stopped = expect(
-          runQuery(sql, {
-            signal: deadline.signal,
-            resumeAfter: deadline.signal,
-            trace,
-          }),
-        ).rejects.toMatchObject({ name: "AbortError" });
+        const stopped = runQuery(sql, {
+          signal: deadline.signal,
+          resumeAfter: deadline.signal,
+          trace,
+        });
         await started;
         deadline.abort();
-        await stopped;
+        await expect(stopped).rejects.toMatchObject({ name: "AbortError" });
 
         expect(trace.stage).toBe("checking_existing_job");
         expect(trace.jobs).toEqual([{ job: "existing", slot: 1 }]);
@@ -3247,22 +3245,18 @@ describe("runQuery cancellation", () => {
         const { fetchMock } = fakeBigQuery({ complete: () => false });
         vi.stubGlobal("fetch", fetchMock);
         const holder = new AbortController();
-        const holding = expect(
-          runQuery(sql, { signal: holder.signal }),
-        ).rejects.toMatchObject({ name: "AbortError" });
+        const holding = runQuery(sql, { signal: holder.signal });
         await vi.advanceTimersByTimeAsync(0);
 
         const waiter = new AbortController();
         const trace = newBigQueryQueryTrace();
-        const waiting = expect(
-          runQuery(sql, { signal: waiter.signal, trace }),
-        ).rejects.toMatchObject({ name: "AbortError" });
+        const waiting = runQuery(sql, { signal: waiter.signal, trace });
         await vi.advanceTimersByTimeAsync(3_000);
         expect(trace.stage).toBe("waiting_for_lock");
         expect(trace.lockWaitStartedAt).not.toBeNull();
 
         waiter.abort();
-        await waiting;
+        await expect(waiting).rejects.toMatchObject({ name: "AbortError" });
         await vi.advanceTimersByTimeAsync(0);
         expect(trace).toMatchObject({
           stage: "waiting_for_lock",
@@ -3273,7 +3267,42 @@ describe("runQuery cancellation", () => {
         });
 
         holder.abort();
-        await holding;
+        await expect(holding).rejects.toMatchObject({ name: "AbortError" });
+      });
+
+      it("records a call stopped while getting its BigQuery credentials as authenticating", async () => {
+        vi.useFakeTimers();
+        const { fetchMock } = fakeBigQuery({ complete: () => false });
+        vi.stubGlobal("fetch", fetchMock);
+        let tokenRequested!: () => void;
+        const requested = new Promise<void>((resolve) => {
+          tokenRequested = resolve;
+        });
+        getBigQueryAccessToken.mockImplementationOnce(
+          (options?: { signal?: AbortSignal }) =>
+            new Promise<string>((_resolve, reject) => {
+              options?.signal?.addEventListener(
+                "abort",
+                () => reject(options.signal?.reason),
+                { once: true },
+              );
+              tokenRequested();
+            }),
+        );
+        const deadline = new AbortController();
+        const trace = newBigQueryQueryTrace();
+        const stopped = runQuery(sql, {
+          signal: deadline.signal,
+          resumeAfter: deadline.signal,
+          trace,
+        });
+        await requested;
+        deadline.abort();
+        await expect(stopped).rejects.toMatchObject({ name: "AbortError" });
+
+        expect(trace.stage).toBe("authenticating");
+        expect(trace.jobs).toEqual([]);
+        expect(submissions(fetchMock)).toEqual([]);
       });
     });
   });

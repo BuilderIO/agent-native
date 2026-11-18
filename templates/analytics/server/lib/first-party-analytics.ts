@@ -154,7 +154,6 @@ export interface AnalyticsQueryOptions {
    * being cancelled. See RunQueryOptions.resumeAfter.
    */
   resumable?: { deadline?: AbortSignal };
-  /** Updated as a BigQuery query runs, so a caller that stops awaiting can see where it was. */
   trace?: BigQueryQueryTrace;
 }
 

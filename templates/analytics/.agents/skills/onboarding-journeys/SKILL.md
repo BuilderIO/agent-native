@@ -163,10 +163,12 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   further; repeat until the note is gone. A job is collected only within an
   hour of when it started; after that, a call runs the query again. When the
   event read stopped while waiting on a BigQuery page, `stoppedPage` says
-  which step that page had reached (checking the cache, waiting while another
-  call ran it, submitting, checking an earlier job, polling or saving), how
-  long it had taken, and why any earlier job under the same name could not be
-  collected. A
+  which step that page had reached, how long it had taken, and why any earlier
+  job under the same name could not be collected. Its `stage` is one of
+  `preparing`, `checking_cache`, `waiting_for_lock` (another call was
+  running the same page), `authenticating` (getting BigQuery credentials),
+  `submitting`, `checking_existing_job`, `polling`, `saving` or
+  `finished`. A
   PostgreSQL-backed app has no jobs to collect, so a follow-up that ran out of
   its full 20 seconds gets a note to read a shorter range instead. In
   session mode the watermark pins event time but not receive time, so an event

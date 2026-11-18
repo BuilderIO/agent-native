@@ -296,7 +296,6 @@ export interface OnboardingJourneyCohorts {
    * them again.
    */
   continueWith?: { observationWatermark: string };
-  /** Present when the event read ran out of time waiting on a BigQuery page. */
   stoppedPage?: JourneyStoppedPage;
 }
 
@@ -334,7 +333,6 @@ export interface JourneyTree {
    * them again.
    */
   continueWith?: { observationWatermark: string };
-  /** Present when the event read ran out of time waiting on a BigQuery page. */
   stoppedPage?: JourneyStoppedPage;
 }
 
@@ -369,7 +367,6 @@ export interface JourneySummary {
    * them again.
    */
   continueWith?: { observationWatermark: string };
-  /** Present when the event read ran out of time waiting on a BigQuery page. */
   stoppedPage?: JourneyStoppedPage;
 }
 
@@ -619,29 +616,17 @@ interface EventRead {
     | null;
   /** Where the read ran; null when the deadline came before it was known. */
   backendSink: FirstPartyAnalyticsSink | null;
-  /** The BigQuery page the read was waiting on when its time ran out. */
   stoppedPage: JourneyStoppedPage | null;
 }
 
-/**
- * What the event page a read was waiting on had done when the read's time ran
- * out, so a stopped call says which step took the time. Times are since that
- * page's query began.
- */
 export interface JourneyStoppedPage {
-  /** Counted from 1 in read order. */
   page: number;
-  /** The step it had last started. */
   stage: BigQueryQueryStage;
   stageMs: number;
   elapsedMs: number;
-  /** Time spent waiting while another call ran the same page. */
   lockWaitMs: number;
-  /** A lock left by a call that stopped over five minutes earlier was cleared. */
   staleLockCleared: boolean;
-  /** Each BigQuery job it started or found, in order. */
   jobs: BigQueryJobAttempt[];
-  /** Times it asked BigQuery whether its job was done. */
   polls: number;
 }
 

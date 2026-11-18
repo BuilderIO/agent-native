@@ -1026,64 +1026,43 @@ export interface RunQueryOptions {
    * maxBytesBilled) instead of cancelled. Ignored on a forced refresh.
    */
   resumeAfter?: AbortSignal;
-  /** Updated as the query runs; see BigQueryQueryTrace. */
   trace?: BigQueryQueryTrace;
 }
 
-/** The step a traced query had last started. */
 export type BigQueryQueryStage =
   | "preparing"
   | "checking_cache"
   | "waiting_for_lock"
+  | "authenticating"
   | "submitting"
   | "checking_existing_job"
   | "polling"
   | "saving"
   | "finished";
 
-/** One BigQuery job a traced query tried, in the order it tried them. */
 export interface BigQueryJobAttempt {
-  /** `new` started a job; `existing` met an earlier call's job under the same ID. */
   job: "new" | "existing";
-  /** Which of the IDs named after the query it used, or null for a random one. */
   slot: number | null;
-  /**
-   * For an existing job: whether this call could collect it. Absent when the
-   * call stopped before it found out.
-   */
   collectable?: boolean;
-  /** Its BigQuery state when read. */
   state?: string | null;
   ageSeconds?: number | null;
-  /** Null when BigQuery returned no query text for it. */
   sameQuery?: boolean | null;
-  /** Where its query text first differs from this call's, with both lengths. */
   queryDifference?: {
     at: number;
     existingLength: number;
     submittedLength: number;
   };
   failureReason?: BigQueryBackendReason | null;
-  /** Not among the last hour's jobs, so too old to collect. */
   tooOld?: boolean;
-  /** Its metadata couldn't be read, so the query failed instead of starting another. */
   unreadable?: boolean;
 }
 
-/**
- * What a query has done so far. runQuery updates it as it goes, so a caller
- * that stopped awaiting can still read where the query was. It holds no job
- * IDs and no SQL. Its times are from `performance.now()`.
- */
 export interface BigQueryQueryTrace {
   stage: BigQueryQueryStage;
   startedAt: number;
   stageStartedAt: number;
-  /** Time spent waiting while another call ran the same query. */
   lockWaitMs: number;
-  /** When the wait still under way began, or null. */
   lockWaitStartedAt: number | null;
-  /** A lock left by a call that stopped over five minutes earlier was cleared. */
   staleLockCleared: boolean;
   jobs: BigQueryJobAttempt[];
   polls: number;
@@ -1772,6 +1751,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     !snapshot.hasUnresolvedCall;
   let resumableId: string | null = null;
   try {
+    traceStage(trace, "authenticating");
     token = await getBigQueryAccessToken({ signal });
     assertDateUnchanged();
     const credentialContext = requireRequestCredentialContext(
@@ -1910,7 +1890,6 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
           signal,
         );
       } catch (error) {
-        // A lookup the call itself stopped says nothing about the job.
         trace?.jobs.push(
           signal?.aborted
             ? { job: "existing", slot }
