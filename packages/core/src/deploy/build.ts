@@ -3248,6 +3248,11 @@ const SERVERLESS_EXTERNAL_SSR_PACKAGES = [
   "react-router",
   "@tanstack/react-query",
 ] as const;
+
+// url-safety.ts (Core) loads undici through this dedicated opaque specifier so
+// Core's compatible copy cannot be shadowed by a different undici the app traced
+// into the shared output. Kept in sync with url-safety.ts.
+const CORE_UNDICI_SPECIFIER = "@agent-native/core-undici";
 const SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS: Record<string, readonly string[]> =
   {
     "react-dom": [
@@ -3620,14 +3625,32 @@ export function copyInstalledBrowserRuntimePackages(
 export function copyInstalledExternalSsrPackages(
   serverDir: string | undefined,
   projectCwd = cwd,
+  targetPreset?: string,
+  coreUndiciDir: string | null = null,
 ): number {
   if (!serverDir || !fs.existsSync(serverDir)) return 0;
+
+  // The SSR package set and its pruning are serverless function-size
+  // optimisations. Node-family presets ship a normal node_modules tree, where
+  // a partial, pruned react-dom copy can break SSR. Keep those presets to the
+  // undici runtime that url-safety's opaque import needs; omitting targetPreset
+  // preserves the original full copy for every other caller.
+  const undiciOnly =
+    targetPreset !== undefined && shouldCopyOnlyUndiciForPreset(targetPreset);
 
   const packagesToCopy = new Set<string>();
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
     // Keep undici opaque to client bundlers, but copy it into the server runtime.
-    if (/(\"|'|\x60)undici\1/.test(source)) packagesToCopy.add("undici");
+    // Core's dedicated specifier is kept alongside the plain one for older
+    // bundles, so detect either form.
+    if (
+      /(\"|'|\x60)undici\1/.test(source) ||
+      source.includes(CORE_UNDICI_SPECIFIER)
+    ) {
+      packagesToCopy.add("undici");
+    }
+    if (undiciOnly) return;
     for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
       if (hasExternalSsrRuntimeReference(source, packageName)) {
         packagesToCopy.add(packageName);
@@ -3636,12 +3659,46 @@ export function copyInstalledExternalSsrPackages(
   });
   if (packagesToCopy.size === 0) return 0;
 
+  // A Node-family build can already carry an undici that Nitro traced for the
+  // app's own static imports, often at a different version than Core's. Keep
+  // that copy: overwriting server/node_modules/undici with Core's undici can
+  // break the app's imports, and Core's opaque specifier resolves to whichever
+  // undici is present in the output. Only copy Core's when none is traced.
+  const emittedUndiciDir = path.join(serverDir, "node_modules", "undici");
+  const tracedUndici =
+    undiciOnly && packagesToCopy.has("undici")
+      ? readPackageManifest(emittedUndiciDir)
+      : null;
+  const keepTracedUndici = tracedUndici?.name === "undici";
+
+  // Core's dedicated specifier must resolve to Core's own compatible undici,
+  // so its source directory is required regardless of any app-traced copy.
+  if (undiciOnly && packagesToCopy.has("undici") && !coreUndiciDir) {
+    throw new Error(
+      "[deploy] Could not resolve undici from @agent-native/core's dependencies for the Node server output.",
+    );
+  }
+
   const nodeModulesRoots = nodeModulesAncestors(projectCwd);
   const copiedPackages = new Set<string>();
   let copiedCount = 0;
   const versions: Record<string, string> = {};
   for (const packageName of packagesToCopy) {
-    const packageDir = findInstalledPackageRoot(packageName, nodeModulesRoots);
+    // Preserve an undici Nitro already traced into the emitted output at the
+    // plain path; Core still gets its own copy at the dedicated path below.
+    if (undiciOnly && packageName === "undici" && keepTracedUndici) {
+      console.log(
+        `[deploy] Kept the undici ${tracedUndici.version ?? "(version unknown)"} already traced at node_modules/undici for the app; Core uses its own copy at ${CORE_UNDICI_SPECIFIER}.`,
+      );
+      continue;
+    }
+    // url-safety.ts belongs to @agent-native/core, so its opaque "undici"
+    // specifier resolves against Core's dependency. Resolving from the app
+    // workspace (or the first .pnpm store entry) can ship a different version.
+    const packageDir =
+      undiciOnly && packageName === "undici" && coreUndiciDir
+        ? coreUndiciDir
+        : findInstalledPackageRoot(packageName, nodeModulesRoots);
     if (!packageDir) {
       if (packageName === "undici") {
         throw new Error(
@@ -3663,7 +3720,24 @@ export function copyInstalledExternalSsrPackages(
     );
   }
   for (const packageName of copiedPackages) {
+    if (undiciOnly) continue;
     pruneExternalSsrPackageArtifacts(serverDir, packageName);
+  }
+
+  // Always give Core its own compatible undici at the dedicated specifier path.
+  // This is additive: the plain node_modules/undici copy above is preserved (or
+  // skipped when the app traced its own), so both imports keep working.
+  if (undiciOnly && packagesToCopy.has("undici") && coreUndiciDir) {
+    copiedCount += copyRuntimePackageTree(
+      CORE_UNDICI_SPECIFIER,
+      coreUndiciDir,
+      serverDir,
+      nodeModulesRoots,
+      copiedPackages,
+    );
+    console.log(
+      `[deploy] Copied Core's undici to ${CORE_UNDICI_SPECIFIER} so SSRF protection keeps Core's compatible version.`,
+    );
   }
 
   if (copiedCount === 0) return 0;
@@ -4916,6 +4990,74 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
   );
 }
 
+export function shouldCopyOnlyUndiciForPreset(targetPreset: string): boolean {
+  return (
+    targetPreset === "node" ||
+    targetPreset === "node-server" ||
+    targetPreset === "koyeb" ||
+    targetPreset === "render_com"
+  );
+}
+
+export function shouldCopyExternalSsrRuntimePackages(
+  targetPreset: string,
+): boolean {
+  return (
+    shouldCopyOnlyUndiciForPreset(targetPreset) ||
+    targetPreset === "netlify" ||
+    targetPreset === "vercel" ||
+    isAwsLambdaPreset(targetPreset) ||
+    isAwsAmplifyPreset(targetPreset)
+  );
+}
+
+export function resolveCoreUndiciPackageDir(
+  resolveModule: (specifier: string) => string = (specifier) =>
+    createRequire(import.meta.url).resolve(specifier),
+): string | null {
+  for (const specifier of ["undici/package.json", "undici"]) {
+    try {
+      const resolvedPath = resolveModule(specifier);
+      const packageDir =
+        specifier === "undici/package.json"
+          ? path.dirname(resolvedPath)
+          : packageRootFromResolvedPath("undici", resolvedPath);
+      if (packageDir && readPackageManifest(packageDir)?.name === "undici") {
+        return packageDir;
+      }
+    } catch {
+      // coercion-ok: the two specifiers are alternative resolution probes, so
+      // a failure here is expected. The null return is a typed "absent" value:
+      // copyInstalledExternalSsrPackages() rejects it with an explicit error
+      // instead of silently shipping a different undici version. Try the next
+      // resolution form; a total failure is reported by the caller below.
+    }
+  }
+  return null;
+}
+
+export type DeploymentServerOutputHook = (
+  serverDir: string | undefined,
+) => void;
+
+export function createDeploymentRuntimeCopyHook(
+  preset: string,
+  projectCwd = cwd,
+  resolveCoreUndici: () => string | null = resolveCoreUndiciPackageDir,
+): DeploymentServerOutputHook | undefined {
+  // Serverless presets keep their original copy interleaved with manifest
+  // sanitising and dead-weight pruning in buildWithNitro().
+  if (!shouldCopyOnlyUndiciForPreset(preset)) return undefined;
+  return (serverDir) => {
+    copyInstalledExternalSsrPackages(
+      serverDir,
+      projectCwd,
+      preset,
+      resolveCoreUndici(),
+    );
+  };
+}
+
 const NITRO_AGENT_NATIVE_SERVER_CHUNK_RE =
   /@agent-native[\\/](?:core|creative-context)(?:[\\/]|$)/;
 
@@ -6075,6 +6217,7 @@ export interface NitroBuildPipelineOptions {
   appBasePath: string;
   cwd: string;
   includeImmutableAssetRouteRules?: boolean;
+  onServerOutputReady?: (serverDir: string | undefined) => void;
 }
 
 const DRIZZLE_MIGRATIONS_SOURCE_DIR = path.join("server", "db", "migrations");
@@ -6133,6 +6276,7 @@ export async function runNitroBuildPipeline(
     appBasePath,
     cwd,
     includeImmutableAssetRouteRules = true,
+    onServerOutputReady,
   } = opts;
   const trustedClientDirectory = path.resolve(cwd, clientDir);
   const resolvedClientDir = resolveNitroClientDirectory(cwd, clientDir);
@@ -6171,6 +6315,11 @@ export async function runNitroBuildPipeline(
   }
 
   await hooks.nitroBuild(nitro);
+
+  // The server output has been emitted. Preset-specific runtime packaging runs
+  // here, inside the deployment build pipeline, so it is part of the build
+  // itself rather than an ad-hoc post-processing call.
+  onServerOutputReady?.(nitro.options.output?.serverDir);
 
   if (hasClientBuild && usingPairedClientArtifact) {
     patchReactRouterServerManifestInOutput(
@@ -6653,6 +6802,7 @@ export default bundle;
     appBasePath,
     cwd,
     includeImmutableAssetRouteRules: !isCloudflareModulePreset(preset),
+    onServerOutputReady: createDeploymentRuntimeCopyHook(preset, cwd),
   });
 
   const drizzleMigrationFiles = copyDrizzleMigrationAssets(
