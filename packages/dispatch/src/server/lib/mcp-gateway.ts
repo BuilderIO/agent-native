@@ -16,6 +16,7 @@ import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   buildMcpToolName,
   McpClientManager,
+  mcpToolCallWasNotSent,
 } from "@agent-native/core/mcp-client";
 import { getOrgA2ASecret, getOrgDomain } from "@agent-native/core/org";
 import {
@@ -1700,6 +1701,13 @@ export async function callGrantedDispatchMcpAppAction(
       result = await manager.callTool(toolName, args);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
+      if (mcpToolCallWasNotSent(error)) {
+        fail(`The app action did not run (${reason}).`, {
+          errorCode: "app_action_not_sent",
+          statusCode:
+            (error as { statusCode?: unknown }).statusCode === 403 ? 403 : 502,
+        });
+      }
       fail(
         `The app action failed before returning a result (${reason}). Its write outcome may be unknown; inspect the app before retrying.`,
         { errorCode: "app_action_outcome_unknown", statusCode: 502 },

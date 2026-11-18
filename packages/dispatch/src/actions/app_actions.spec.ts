@@ -126,12 +126,13 @@ describe("app action tools", () => {
         },
       ],
     });
-    await expect(
-      callAppAction.run(
-        { app: "calendar", action: "create-event", args: {} } as never,
-        ctx,
-      ),
-    ).rejects.toMatchObject({ errorCode: "google_calendar_paused" });
+    const error = await callAppAction
+      .run({ app: "calendar", action: "create-event", args: {} } as never, ctx)
+      .catch((caught: Error) => caught);
+    expect(error).toMatchObject({ errorCode: "google_calendar_paused" });
+    expect((error as Error).message).toMatch(
+      /paused for this deployment\. Its write outcome may be unknown; inspect the app before retrying\.$/,
+    );
   });
 
   it("reports an approval wait as approval_required with one errorCode", async () => {
@@ -150,7 +151,12 @@ describe("app action tools", () => {
         { app: "calendar", action: "manage-event", args: {} } as never,
         ctx,
       ),
-    ).rejects.toMatchObject({ errorCode: "approval_required" });
+    ).rejects.toMatchObject({
+      errorCode: "approval_required",
+      details: {
+        approvalReview: { url: "https://app.example.test/approvals/1" },
+      },
+    });
     mocks.callAction.mockResolvedValue({
       isError: true,
       content: [

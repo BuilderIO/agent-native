@@ -40,18 +40,20 @@ export default defineAction({
     if (result.isError !== true) return result;
     const text = appActionResultText(result);
     if (result.approvalReview) {
-      fail(text, { errorCode: "approval_required", statusCode: 409 });
-    }
-    const appCode = appActionErrorCode(text);
-    if (appCode) {
-      fail(text.replace(/(\s*\(errorCode: [a-z0-9_]+\))+\s*$/i, ""), {
-        errorCode: appCode,
-        statusCode: 502,
+      fail(text, {
+        errorCode: "approval_required",
+        statusCode: 409,
+        details: { approvalReview: result.approvalReview },
       });
     }
+    const appCode = appActionErrorCode(text);
+    const message = appCode
+      ? text.replace(/(\s*\(errorCode: [a-z0-9_]+\))+\s*$/i, "")
+      : text || "The app action failed.";
+    // A failed write can still have landed part of its change in the app.
     fail(
-      `${text || "The app action failed."} Its write outcome may be unknown; inspect the app before retrying.`,
-      { errorCode: "app_action_failed", statusCode: 502 },
+      `${message} Its write outcome may be unknown; inspect the app before retrying.`,
+      { errorCode: appCode ?? "app_action_failed", statusCode: 502 },
     );
   },
 });

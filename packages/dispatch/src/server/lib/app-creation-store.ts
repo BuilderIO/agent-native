@@ -57,7 +57,10 @@ import {
   type ConnectRequiredCard,
 } from "@agent-native/core/shared";
 import { resolveAccessMany } from "@agent-native/core/sharing";
-import { resolveWorkspaceAppPaths } from "@agent-native/core/workspace-app-paths";
+import {
+  resolveScaffoldWorkspaceAppPaths,
+  resolveWorkspaceAppPaths,
+} from "@agent-native/core/workspace-app-paths";
 
 import { getDb } from "../../db/index.js";
 import { workspaceAppRoute } from "../../shared/workspace-app-route.js";
@@ -2873,8 +2876,18 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
   if (!workspaceRoot) {
     throw new Error("No agent-native workspace detected for scaffolding.");
   }
-  const { appsDir, includes } = await resolveWorkspaceAppPaths(workspaceRoot);
-  if (!includes(appId)) {
+  // `add-app` writes where agent-native.json points; discovery reads the full
+  // config, so the two must agree or the new app is never found.
+  const [{ appsDir, includes }, discovered] = await Promise.all([
+    resolveScaffoldWorkspaceAppPaths(workspaceRoot),
+    resolveWorkspaceAppPaths(workspaceRoot),
+  ]);
+  if (discovered.appsDir !== appsDir) {
+    throw new Error(
+      `The workspace's apps directory is set only in agent-native.config.ts, which add-app cannot read. Set deployment.workspace.appsDirectory in agent-native.json too.`,
+    );
+  }
+  if (!includes(appId) || !discovered.includes(appId)) {
     throw new Error(
       `App id ${appId} does not match the workspace appInclude patterns.`,
     );

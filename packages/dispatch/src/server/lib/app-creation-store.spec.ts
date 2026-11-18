@@ -3614,6 +3614,38 @@ describe("startWorkspaceAppCreation", () => {
     ).rejects.toThrow("already registered");
   });
 
+  it("refuses to scaffold when only the TS config moves the apps directory", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-workspace-"),
+    );
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    try {
+      fs.writeFileSync(
+        path.join(workspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "test-workspace",
+          "agent-native": { workspaceCore: "workspace-core" },
+        }),
+      );
+      fs.writeFileSync(
+        path.join(workspaceRoot, "agent-native.config.ts"),
+        'export default { deployment: { workspace: { appsDirectory: "templates" } } };\n',
+      );
+
+      await expect(
+        runWithRequestContext(
+          { userEmail: "dev@example.test", orgId: "org-123" },
+          () => scaffoldWorkspaceAppFromTemplate({ template: "mail" }),
+        ),
+      ).rejects.toThrow(/add-app cannot read/);
+      expect(fs.existsSync(path.join(workspaceRoot, "apps"))).toBe(false);
+      expect(fs.existsSync(path.join(workspaceRoot, "templates"))).toBe(false);
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("returns builder-error with the raw failure in detail when runBuilderAgent throws", async () => {
     stubHostedRuntime();
     stubBuilderProjectConfigured();

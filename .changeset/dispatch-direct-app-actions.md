@@ -8,3 +8,5 @@ Dispatch can now run a granted workspace app's actions directly. Set `dispatch.d
 Dispatch app discovery now honors the workspace's `deployment.workspace.appsDirectory` and `appInclude` settings, and shows the `icon` set for an app in the deployment manifest or in `.agent-native/workspace-apps.json`. Apps listed without a description no longer break MCP task discovery.
 
 `setDispatchAppActionHeaderProvider` (from `@agent-native/dispatch/server`) lets a deployment add headers to each direct app action connection, such as a per-turn grant the target app's MCP turn grant admitter recognizes. It can't replace `Authorization`.
+
+A full MCP catalog (`catalog_scope: "full"`) now honors `externalAgents.writes: "ask_app_only"`: only reads and the compact builtins stay directly callable, and writes still go through `ask_app`. `mcpToolCallWasNotSent` (from `@agent-native/core/mcp-client`) tells a refusal `callTool` raised before sending apart from a failure after the call may have run.

@@ -110,6 +110,8 @@ vi.mock("@agent-native/core/org", () => ({
 }));
 
 vi.mock("@agent-native/core/mcp-client", () => ({
+  mcpToolCallWasNotSent: (error: unknown) =>
+    error instanceof Error && error.name === "NotSentFixture",
   buildMcpToolName: (serverId: string, toolName: string) =>
     `mcp__${serverId}__${toolName}`,
   McpClientManager: class MockMcpClientManager {
@@ -420,6 +422,25 @@ describe("Dispatch direct app actions", () => {
       errorCode: "app_action_outcome_unknown",
     });
     await expect(call).rejects.toThrow(/socket hang up.*inspect the app/);
+  });
+
+  it("reports a refusal raised before sending as not run, not as an uncertain write", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    const refusal = Object.assign(new Error("Not authorized"), {
+      name: "NotSentFixture",
+      statusCode: 403,
+    });
+    mocks.managerCallTool.mockRejectedValue(refusal);
+
+    const error = await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "get-project", {}),
+    ).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      errorCode: "app_action_not_sent",
+      statusCode: 403,
+    });
+    expect((error as Error).message).toMatch(/did not run \(Not authorized\)/);
+    expect((error as Error).message).not.toMatch(/outcome may be unknown/);
   });
 });
 
