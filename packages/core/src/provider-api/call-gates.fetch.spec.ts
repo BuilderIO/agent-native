@@ -227,6 +227,35 @@ describe("fetchWithProviderCallGate", () => {
     expect(prepared).toHaveLength(4);
   });
 
+  it("runs the precheck again for a receipt past its precheck's deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const precheck = vi.fn(async () => undefined);
+      gate({ precheck });
+      const send = transport();
+      const request = input();
+
+      const fresh = await precheckGatedProviderCall(
+        request.providerId,
+        request.url,
+      );
+      await vi.advanceTimersByTimeAsync(2_000);
+      await fetchWithProviderCallGate({ ...request, prechecked: fresh }, send);
+      expect(precheck).toHaveBeenCalledOnce();
+
+      const stale = await precheckGatedProviderCall(
+        request.providerId,
+        request.url,
+      );
+      await vi.advanceTimersByTimeAsync(2_001);
+      await fetchWithProviderCallGate({ ...request, prechecked: stale }, send);
+      expect(precheck).toHaveBeenCalledTimes(3);
+      expect(send).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("refuses a caller-run precheck that outlasts the admission deadline", async () => {
     vi.useFakeTimers();
     try {

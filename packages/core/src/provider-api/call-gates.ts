@@ -294,7 +294,8 @@ export interface ProviderCallPrecheckReceipt {
   readonly url: string;
 }
 
-const precheckReceipts = new WeakSet<ProviderCallPrecheckReceipt>();
+/** Each live receipt, with the admission deadline of the precheck that issued it. */
+const precheckReceipts = new WeakMap<ProviderCallPrecheckReceipt, number>();
 
 /**
  * Run a gated request's precheck ahead of {@link fetchWithProviderCallGate},
@@ -302,19 +303,17 @@ const precheckReceipts = new WeakSet<ProviderCallPrecheckReceipt>();
  * precheck gets the same admission deadline that call enforces, so a hanging
  * gate refuses with {@link ProviderCallGateAdmissionTimeoutError}. Pass the
  * receipt as `prechecked` so the precheck does not run twice. A receipt
- * admits one fetch: the fetch that accepts it consumes it.
+ * admits one fetch, sent before its precheck's admission deadline; a later
+ * fetch runs the precheck again.
  */
 export async function precheckGatedProviderCall(
   providerId: string,
   url: string,
 ): Promise<ProviderCallPrecheckReceipt> {
-  await precheckBefore(
-    Date.now() + GATED_FETCH_ADMISSION_WAIT_MS,
-    providerId,
-    url,
-  );
+  const deadline = Date.now() + GATED_FETCH_ADMISSION_WAIT_MS;
+  await precheckBefore(deadline, providerId, url);
   const receipt = Object.freeze({ providerId, url });
-  precheckReceipts.add(receipt);
+  precheckReceipts.set(receipt, deadline);
   return receipt;
 }
 
@@ -324,7 +323,9 @@ function consumePrecheckReceiptFor(
   url: string,
 ): boolean {
   if (receipt?.providerId !== providerId || receipt.url !== url) return false;
-  return precheckReceipts.delete(receipt);
+  const deadline = precheckReceipts.get(receipt);
+  precheckReceipts.delete(receipt);
+  return deadline !== undefined && Date.now() <= deadline;
 }
 
 function syntheticRefusalResponse(refusal: ProviderCallGateRefusal): Response {
