@@ -122,7 +122,6 @@ export function useEditorModes({
     activeFileId,
     setActiveFileId,
     previewThemeStatusByScreenId,
-    pendingVisualEditPublisherIdRef,
   } = editorCore;
   const {
     pendingVisualStyleEdits,
@@ -164,7 +163,6 @@ export function useEditorModes({
     canEditDesign,
     canCommentDesign,
     design,
-    designAccessRole,
   } = editorGenerationAndAccess;
   const {
     files,
@@ -1269,18 +1267,12 @@ export function useEditorModes({
     if (!id) return;
     const revision = pending?.revision;
     const publisherId = pending?.publisherId;
-    const ownsHandoff =
-      pending !== undefined &&
-      pending.status !== "empty" &&
-      publisherId === pendingVisualEditPublisherIdRef.current &&
-      revision !== null;
-    const canClearOtherPublisher = designAccessRole === "owner";
     const clearableHandoff =
       pending !== undefined &&
       pending.status !== "empty" &&
       revision !== null &&
       publisherId !== null &&
-      (ownsHandoff || canClearOtherPublisher || pending.canClear);
+      pending.canClear;
     const hasLocalEdits =
       pendingVisualStyleEdits.length > 0 ||
       pendingLiveNonStyleEdits.length > 0 ||
@@ -1339,8 +1331,6 @@ export function useEditorModes({
     pendingLiveNonStyleEdits,
     pendingLiveNonStyleEditsRef,
     pendingTweakChanges.length,
-    pendingVisualEditPublisherIdRef,
-    designAccessRole,
     pendingVisualStyleEdits,
     pendingVisualStyleEditsRef,
     requestPendingLiveNonStyleRevert,

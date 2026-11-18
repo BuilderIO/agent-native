@@ -518,17 +518,18 @@ describe("visual-edit handoff records", () => {
           authCapability: `capability:visual-edit:design:${designId}`,
           capabilitySessionId: "b".repeat(64),
         },
-        () =>
-          clearEditsAction.run(
-            {
-              designId,
-              revision: published.revision ?? 0,
-              publisherId,
-            },
-            { caller: "frontend" },
-          ),
+        () => getPendingAction.run({ designId }, { caller: "frontend" }),
       ),
-    ).rejects.toThrow(/handoff author or design owner/);
+    ).resolves.toMatchObject({ canClear: false });
+    await expect(
+      runWithRequestContext(
+        {
+          authCapability: `capability:visual-edit:design:${designId}`,
+          capabilitySessionId: publisherSessionId,
+        },
+        () => getPendingAction.run({ designId }, { caller: "frontend" }),
+      ),
+    ).resolves.toMatchObject({ canClear: true });
     await expect(
       runWithRequestContext(
         {
