@@ -19,7 +19,7 @@ import {
 } from "./useDesignHotkeys";
 
 describe("isDesignHotkeyEditableTarget", () => {
-  it("treats Monaco-style textbox elements as editable targets", () => {
+  it("treats ARIA textbox elements as editable targets", () => {
     const root = document.createElement("div");
     root.setAttribute("data-hotkeys-scope", "text");
     const textbox = document.createElement("div");

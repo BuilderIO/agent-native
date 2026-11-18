@@ -1376,10 +1376,8 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
     "true",
   );
 
+  // oracle-change: the Monaco code editor was removed from Design, so its shortcuts section and tests are gone
   await dialog.locator('[data-shortcuts-category="edit"]').click();
-  await expect(
-    dialog.locator('[data-code-shortcut-id="workbench.save"]'),
-  ).toBeVisible();
   // oracle-change: nudge fields moved out of this dialog into their own popup, covered by the nudge amount popup test below.
 
   await page.keyboard.press("Escape");

@@ -2403,7 +2403,6 @@ export default {
         arrange: "排列",
         components: "元件",
         layout: "布局",
-        code: "程式碼",
       },
       commands: {
         showShortcuts: "鍵盤快速鍵",

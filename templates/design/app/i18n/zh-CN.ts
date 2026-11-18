@@ -1892,7 +1892,6 @@ export default {
         arrange: "排列",
         components: "组件",
         layout: "布局",
-        code: "代码",
       },
       commands: {
         showShortcuts: "键盘快捷键",

@@ -1961,7 +1961,6 @@ export default {
         arrange: "Organizar",
         components: "Componentes",
         layout: "Disposição",
-        code: "Código",
       },
       commands: {
         showShortcuts: "Atalhos de teclado",
