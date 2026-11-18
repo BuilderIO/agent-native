@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "يمكن للمشرفين فقط دعوة الآخرين. اطلب المساعدة من مشرفك لدعوة الآخرين، أو اطلب منه أن يجعلك مشرفًا أيضًا.",
   "settingsApiKeys.approvedOrigins": "المصادر المعتمدة",
   "settingsApiKeys.originsHint":
     "مصدر HTTPS محدد واحد في كل سطر. يمنع الحقل الفارغ الإرسال. يُسمح بـ HTTP المحلي.",

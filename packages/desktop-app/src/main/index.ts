@@ -285,6 +285,10 @@ import {
   isAllowedEnvironmentNavigation,
   resolveEnvironmentLaneOrigins,
 } from "./environment-navigation";
+import {
+  collectDesktopHostExtensions,
+  registerDesktopHostExtensions,
+} from "./host-extensions.js";
 import { registerAppsIpc } from "./ipc/apps";
 import {
   registerChatFirstMcpIpc,
@@ -331,6 +335,7 @@ import {
   watchOAuthSystemBrowserReturnForContents,
 } from "./oauth-popup-close";
 import { routeOAuthToBoundSession } from "./oauth-session";
+import { registerOnboardingIdentityIpc } from "./onboarding-identity.js";
 import {
   isQuickPromptActive,
   noteQuickPromptIdentity,
@@ -1474,6 +1479,26 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   return broker?.getStatus() ?? "idle";
 });
 
+function shellIdentity(): { status: string; email: string | null } | null {
+  if (!isDesktopSsoEnabled() || !desktopIdentityBroker) return null;
+  return {
+    status: desktopIdentityBroker.getStatus(),
+    email: desktopIdentityBroker.getVerifiedEmail(),
+  };
+}
+
+registerOnboardingIdentityIpc(ipcMain, {
+  isShell: isShellIdentityIpc,
+  identity: shellIdentity,
+});
+
+registerDesktopHostExtensions(
+  collectDesktopHostExtensions(
+    import.meta.glob("./host-extensions/*.ts", { eager: true }),
+  ),
+  { ipc: ipcMain, isShell: isShellIdentityIpc, identity: shellIdentity },
+);
+
 ipcMain.handle(IPC.IDENTITY_AVAILABILITY_GET, async (event) => {
   if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;
   const broker = ensureDesktopIdentityBroker();
@@ -1846,6 +1871,15 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
       noteQuickPromptIdentity(owner);
       mainShellHandoff.dropPendingOpenRequestsNotOwnedBy(owner);
       noteDesktopBuilderRelayOwner(owner);
+      if (appIsQuitting || !mainWindow || mainWindow.isDestroyed()) return;
+      try {
+        mainWindow.webContents.send(IPC.IDENTITY_ACCOUNT_CHANGED);
+      } catch (error) {
+        console.warn(
+          "[desktop-identity] account update skipped during window shutdown:",
+          error instanceof Error ? error.message : "unknown error",
+        );
+      }
     },
     onStatus: (status: DesktopIdentityStatus) => {
       if (appIsQuitting) return;
