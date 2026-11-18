@@ -2,6 +2,10 @@ import { isDeepStrictEqual } from "node:util";
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
+import {
+  inputSchemaToJsonSchema,
+  outputSchemaToJsonSchema,
+} from "./action-output-contract.js";
 import type { ActionLinkBuilder } from "./action.js";
 
 /** Keep inline work below the hosted-client budget; durable work is polled. */
@@ -237,7 +241,25 @@ export async function checkActionConformance(options: {
       fail("fixture", "Missing owned fixture; behavior is unmeasured");
       continue;
     }
-    const canonical = catalogs.get("ui")?.find((tool) => tool.name === action);
+    let declaredInput: unknown;
+    let declaredOutput: unknown;
+    try {
+      if (isStandardSchema(entry.schema))
+        declaredInput = inputSchemaToJsonSchema(entry.schema);
+      if (entry.outputSchema)
+        declaredOutput = outputSchemaToJsonSchema(entry.outputSchema);
+    } catch {
+      fail("schema-parity", "Declared action schema could not be emitted");
+    }
+    const semantic = (schema: unknown): unknown => {
+      if (!schema || typeof schema !== "object" || Array.isArray(schema))
+        return schema;
+      const { $schema: _dialect, ...contract } = schema as Record<
+        string,
+        unknown
+      >;
+      return contract;
+    };
     for (const surface of ACTION_CONFORMANCE_SURFACES) {
       const catalog = catalogs.get(surface);
       if (!catalog) continue;
@@ -264,20 +286,27 @@ export async function checkActionConformance(options: {
       if (
         !tool.inputSchema ||
         !tool.outputSchema ||
-        !canonical ||
-        !isDeepStrictEqual(tool.inputSchema, canonical.inputSchema) ||
-        !isDeepStrictEqual(tool.outputSchema, canonical.outputSchema)
+        !declaredInput ||
+        !declaredOutput ||
+        !isDeepStrictEqual(
+          semantic(tool.inputSchema),
+          semantic(declaredInput),
+        ) ||
+        !isDeepStrictEqual(
+          semantic(tool.outputSchema),
+          semantic(declaredOutput),
+        )
       ) {
         fail(
           "schema-parity",
-          "Semantic schemas differ from the UI contract",
+          "Semantic schemas differ from the declared action contract",
           surface,
         );
       }
-      let setup = false;
+      let phase: ActionConformanceFinding["check"] = "fixture";
       try {
-        await fixture.setup?.(surface);
-        setup = true;
+        await bounded(async () => fixture.setup?.(surface), timeoutMs);
+        phase = "result";
         report.calls++;
         let response = await bounded(
           (signal) =>
@@ -297,22 +326,26 @@ export async function checkActionConformance(options: {
           );
           continue;
         }
-        if (entry.outputSchema) {
-          const validated = await entry.outputSchema["~standard"].validate(
-            response.result,
+        const outputSchema = entry.outputSchema;
+        if (outputSchema) {
+          const validated = await bounded(
+            async () => outputSchema["~standard"].validate(response.result),
+            timeoutMs,
           );
           if (validated.issues)
             fail("result", "Result violates output schema", surface);
         }
         if (entry.readOnly) {
-          if (!fixture.visibleContent || !fixture.resultContent)
+          const visibleContent = fixture.visibleContent;
+          if (!visibleContent || !fixture.resultContent)
             fail(
               "fixture",
               "Read needs an independent visible-content oracle",
               surface,
             );
           else {
-            const visible = await fixture.visibleContent();
+            phase = "content";
+            const visible = await bounded(() => visibleContent(), timeoutMs);
             if (!hasContent(visible))
               fail(
                 "content",
@@ -332,6 +365,7 @@ export async function checkActionConformance(options: {
               );
           }
         }
+        phase = "link";
         const link = entry.link?.({
           args: fixture.args,
           result: response.result,
@@ -365,16 +399,18 @@ export async function checkActionConformance(options: {
         }
       } catch (error) {
         fail(
-          error instanceof DeadlineError ? "latency" : "result",
+          error instanceof DeadlineError && phase === "result"
+            ? "latency"
+            : phase,
           error instanceof DeadlineError
             ? "Client response budget exceeded"
             : "Fixture call failed; inspect the adapter's diagnostics",
           surface,
         );
       } finally {
-        if (setup && fixture.cleanup) {
+        if (fixture.cleanup) {
           try {
-            await fixture.cleanup(surface);
+            await bounded(async () => fixture.cleanup?.(surface), timeoutMs);
           } catch {
             fail("fixture", "Owned fixture cleanup failed", surface);
           }

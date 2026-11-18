@@ -39,7 +39,7 @@ function config(override?: {
         list: async () => [
           {
             name: "read-document",
-            inputSchema: z.toJSONSchema(input),
+            inputSchema: z.toJSONSchema(input, { io: "input" }),
             outputSchema: z.toJSONSchema(output),
           },
         ],
@@ -111,6 +111,49 @@ describe("action conformance", () => {
       report.failures.map((failure) => [failure.surface, failure.check]),
     ).toEqual([["chatgpt", "schema-parity"]]);
   });
+
+  it("rejects catalogs that all agree on a schema different from the declared action", async () => {
+    const options = config();
+    for (const adapter of Object.values(options.adapters)) {
+      adapter.list = async () => [
+        { name: "read-document", inputSchema: {}, outputSchema: {} },
+      ];
+    }
+    const report = await checkActionConformance(options);
+    expect(
+      report.failures.map(({ surface, check }) => [surface, check]),
+    ).toEqual(
+      ACTION_CONFORMANCE_SURFACES.map((surface) => [surface, "schema-parity"]),
+    );
+  });
+
+  it.each(["setup", "visibleContent", "cleanup"] as const)(
+    "bounds a stalled %s callback and attempts cleanup",
+    async (callback) => {
+      const options = config();
+      let cleanups = 0;
+      const report = await checkActionConformance({
+        ...options,
+        timeoutMs: 5,
+        fixtures: {
+          "read-document": {
+            ...options.fixtures["read-document"],
+            cleanup: async () => {
+              cleanups++;
+            },
+            [callback]: async () => {
+              if (callback === "cleanup") cleanups++;
+              return new Promise<never>(() => {});
+            },
+          },
+        },
+      });
+      expect(cleanups).toBe(5);
+      expect(report.failures.map(({ check }) => check)).toEqual(
+        Array(5).fill(callback === "visibleContent" ? "content" : "fixture"),
+      );
+    },
+  );
 
   it("detects an id-only result even when the schema permits it", async () => {
     const options = config({

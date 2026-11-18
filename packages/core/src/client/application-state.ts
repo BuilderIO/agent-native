@@ -118,16 +118,34 @@ export function registerBeforeAgentTurnFlush(
 export async function flushClientAppStateBeforeAgentTurn(
   signal?: AbortSignal,
 ): Promise<void> {
-  const inFlight = [...pendingTurnMutations];
-  await awaitWithAbort(
-    Promise.all([
-      ...inFlight,
-      ...[...beforeTurnFlushers].map((flush) => flush()),
-    ]),
-    signal,
+  const deadline = new AbortController();
+  const timer = setTimeout(
+    () => deadline.abort(new Error("Application state save timed out")),
+    25_000,
   );
-  while (pendingTurnMutations.size > 0) {
-    await awaitWithAbort(Promise.all([...pendingTurnMutations]), signal);
+  const boundedSignal = signal
+    ? AbortSignal.any([signal, deadline.signal])
+    : deadline.signal;
+  try {
+    boundedSignal.throwIfAborted();
+    const inFlight = [...pendingTurnMutations];
+    await awaitWithAbort(
+      Promise.all([
+        ...inFlight,
+        ...[...beforeTurnFlushers].map((flush) =>
+          Promise.resolve().then(flush),
+        ),
+      ]),
+      boundedSignal,
+    );
+    while (pendingTurnMutations.size > 0) {
+      await awaitWithAbort(
+        Promise.all([...pendingTurnMutations]),
+        boundedSignal,
+      );
+    }
+  } finally {
+    clearTimeout(timer);
   }
 }
 

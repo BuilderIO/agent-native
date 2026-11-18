@@ -1928,6 +1928,23 @@ describe("application state before an agent turn", () => {
     await Promise.all([written, flushed]);
   });
 
+  it("fails a turn within the save budget when an editor never settles", async () => {
+    vi.useFakeTimers();
+    const unregister = registerBeforeAgentTurnFlush(
+      () => new Promise<void>(() => {}),
+    );
+    try {
+      const failure = expect(
+        flushClientAppStateBeforeAgentTurn(),
+      ).rejects.toThrow("Application state save timed out");
+      await vi.advanceTimersByTimeAsync(25_000);
+      await failure;
+    } finally {
+      unregister();
+      vi.useRealTimers();
+    }
+  });
+
   it("unregisters an editor flush when its editor unmounts", async () => {
     const save = vi.fn();
     const unregister = registerBeforeAgentTurnFlush(save);

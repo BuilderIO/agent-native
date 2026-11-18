@@ -324,6 +324,43 @@ describe("route-state client helpers", () => {
     ]);
   });
 
+  it("retries a rejected navigation flush before the next turn", async () => {
+    const { fetchMock, writes } = makeAppStateFetch({});
+    let rejectWrite = true;
+    vi.stubGlobal("fetch", (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(init?.body).includes("selected-now") && rejectWrite) {
+        rejectWrite = false;
+        return Promise.reject(new Error("Transient navigation failure"));
+      }
+      return fetchMock(url, init);
+    });
+    function Harness() {
+      useSemanticNavigationState({
+        state: { view: "inbox", threadId: "selected-now" },
+        navigationKeys: ["navigation:tab-1"],
+        commandKeys: ["navigate:tab-1"],
+        commandRefetchInterval: false,
+        writeDebounceMs: 60_000,
+        onCommand: vi.fn(),
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await expect(flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
+      "Transient navigation failure",
+    );
+    await act(() => flushClientAppStateBeforeAgentTurn());
+    expect(writes.map(({ key, body }) => ({ key, body }))).toEqual([
+      {
+        key: "navigation:tab-1",
+        body: { view: "inbox", threadId: "selected-now" },
+      },
+    ]);
+  });
+
   it("writes semantic navigation state with request-source metadata", async () => {
     const { fetchMock, writes } = makeAppStateFetch({});
     vi.stubGlobal("fetch", fetchMock);
