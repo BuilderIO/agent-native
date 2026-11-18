@@ -9,14 +9,13 @@
  * The canonical tier semantics live in `DESIGN-STUDIO-PLAN.md` §5:
  *
  * - **inline** — HTML/CSS preview + controlled writes via the deterministic
- *   `replace-document-content` / `apply-tweaks` path; `previewMotion` + Tier-A
- *   `writeMotion` (managed `<style data-agent-native-motion>` block) and CSS-var
+ *   `replace-document-content` / `apply-tweaks` path; CSS-var
  *   token edits are available without a file-write bridge.
  * - **localhost** — starts read-only/preview-only; `readFile` / `applyEdit` /
  *   `writeFile` and real-app capabilities (`indexComponents`, `writeTokens`)
  *   become `available` only after bridge hardening.
  * - **fusion (Builder)** — starts preview-only; unlocks the full set
- *   (`indexComponents`, `writeTokens`, `writeMotion`, `branch`, `deploy`) once
+ *   (`indexComponents`, `writeTokens`, `branch`, `deploy`) once
  *   the bridge proves capabilities.
  *
  * The UI must never infer write ability from `sourceType` alone; it must always

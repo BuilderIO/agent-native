@@ -1,5 +1,49 @@
 # @agent-native/toolkit
 
+## 0.231.0
+
+### Minor Changes
+
+- 2755d62: Add `billing.commercialSurfaces` to `agent-native.json` (env `AGENT_NATIVE_CONFIG_BILLING_COMMERCIAL_SURFACES`). It defaults to `"show"`, which changes nothing. `"hide"` removes credit units and amounts, plan upgrades, free-credit offers and referral rewards: usage reads as dollars and tokens (a run reports its provider cost and no credits), existing credit alerts can't be listed, changed or delivered and new ones can't be created, stored credit-alert notices drop out of the inbox, the credit notice, credit-limit email and run-details credits row are left out, a credits-limit error offers only Retry in the card and the transcript, the referral action returns nothing, and the Builder connect popover, model picker and first-run setup drop the free-credit pitch. A composer host sets the Builder choice's caption with the `builder.creditsOffered` adapter. `commercialSurfacesHidden()` (from `@agent-native/core/client/app-config`) and `deploymentUsageBilling()` let an app follow the same setting, and `AgentKitRoot` takes `showRunCredits`. With `notifications.usageLimitNotices: false`, usage-limit alerts are no longer evaluated or sent on any channel.
+- 3d92e2e: Settings › Labs has a "Show all Labs features" switch that turns on every Lab the person hasn't chosen for. `set-labs-show-all` lets the agent flip it, the on/off state of each Lab is mirrored into the `labs` application state, and `assertLabEnabled` lets an action used only by a Lab refuse callers who haven't turned it on.
+
+### Patch Changes
+
+- 9f49abc: Apps in a workspace with no domain can now delegate to each other. When both apps share `A2A_SECRET`, the caller sends the person's own signed identity with no workspace claim, and the peer runs the call in that person's personal scope instead of rejecting an unsigned request. When a peer pauses the delegated task for approval, the chat shows a card that opens the peer's approval page, then continues the same task once the person approves it there. The card stays in the chat after a reload and closes once that task finishes.
+- d863c6a: The editor drag handle's app menu request has `insertAbove()`, which adds an empty paragraph above the block with the caret in it. A menu in a dialog, such as a phone's bottom sheet, now stays open when the on-screen keyboard resizes the page, as a menu with `role="menu"` already did.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.231.0
+
+## 0.230.0
+
+### Minor Changes
+
+- dce0894: Add `documentTitle(parts, workspaceName)` and `useDocumentTitle(parts, workspaceName, enabled)` to name the browser tab "<Page> - <workspace>". Small muted text in the notifications bell, runs tray and diff block now renders at full token strength so it meets 4.5:1 contrast.
+- 675f590: Search can find pages by meaning as well as by words. A search index registered with `semantic: true` and an `audience` keeps page-chunk embeddings fresh (a resource returned with `semantic: false`, such as a trashed or hidden page, isn't embedded) through a second change-feed consumer, `search-embeddings`, which an app adds with `semanticSearchMigration()`; its backfill runs in the next drain, not at boot, and adding another later embeds every page again, as a new model version needs, since an `EmbeddingFamily`'s `version` is part of its embedding set. `searchSemanticIndex()` returns the nearest pages the searcher's audiences may match, or says why it couldn't (`off`, or `unavailable` with `no-provider`, `no-vector-store` or `error`), and never throws. It drops matches below the model's `minSimilarity`, a new optional `EmbeddingFamily` field: 0.30 for Builder's model and voyage-multimodal-3.5, so a question no page answers finds nothing by meaning. Embeddings use the organization's embedding provider and record usage for every call. Meaning search is on by default; an organization admin can turn it off in Settings → Infrastructure or with `manage-service-providers` `{ semanticSearch: false }`, which deletes the organization's vectors and those of its members' pages with no organization, which its provider embeds, and turning it back on queues every page again. Vectors live in pgvector by default; `configureSemanticSearch({ vectorStore })` swaps the store, and `createMemorySearchVectorStore()` from `@agent-native/core/testing` runs the whole path in tests without pgvector. The drain stores pages after each embedding call (one page a call for a provider whose new optional `EmbeddingFamily.inputsPerRequest` is 1, as Gemini's is), and when a provider answers 429, that owner's pages not yet embedded wait out its `Retry-After` (60 seconds to 15 minutes) with no attempt counted and no more calls for them that drain, instead of being retried one page at a time, while other owners' pages carry on; embedding failures from a provider now throw `EmbeddingProviderError` with the HTTP `status` and `retryAfterMs`.
+- 2e1e77e: Saving a resource no longer silently overwrites someone else's newer save. Resource reads and writes now carry a `revision`; a `PUT /_agent-native/resources/:id` that sends it back as `expectedRevision` with new `content` is refused with a typed `save_conflict` carrying what's there now when someone saved other content after that read, and `useUpdateResource` accepts `expectedRevision`. A `PUT` without it still writes over whatever is there. Toolkit's `ResourceEditor` takes a new `saveContent` prop that saves this way, asks which version to keep on a conflict and offers the other back, and the Resources panel uses it.
+
+### Patch Changes
+
+- f6464e1: Add the shared pieces for keeping a copy of another app's resource in a page: the Analytics panel capture contract and link parser, the embed audience check, and the `SourceEmbedFrame` that frames such a copy. A capture carries the columns a panel's chart draws, its data source and time range, and the chart settings and key dates its dashboard draws them with, so the other app draws it with toolkit's `DashboardPanelChart`. `DashboardPanelChart` takes `asOf`, so a copy dashes the day its rows were read as unfinished, and fills a pivot's time range up to that day, instead of today. Share controls take a `confirmVisibility` check so a resource can ask before going public, with detail for the visibility it would save.
+- 816c571: An action can set `approvalLabel` to word its approval card's question for the arguments that will run, and `set-resource-visibility` uses it to ask with the count ("Make 5 recordings public?"). A batch change's result card repeats the count in its detail line, where a long first title can't cut it off, and a live chat draws an action's result card once, as it does after a reload.
+- 3fc2440: Dialogs and alert dialogs opened from state or a menu item return focus to their opener (or the menu's trigger) when they close, and an alert dialog clears a stale body lock like a dialog does. Enter in the composer submits a typed path that matches no slash command, and a design-system button keeps one element ref across re-renders so a popover anchored to it no longer loops.
+- dce0894: Settings: `navFooter` pins content under the settings nav, `defaultPage` picks the page for a bare `/settings`, pages can be `unlisted` or own their `nestedRoutes`, and a page's header badge renders inside its title. `saveApiKeyValue` and `removeApiKeyValue` are exported. `ShareButton` adds `stagedInvites` (email chips shared together), `roleMenu` (a per-person role menu with Remove), and `invitePlaceholder`. `CommandMenu` accepts `settingsShortcutHint`. The editor exports `createListItemWidgets`. The composer adds `enterSubmitMode="plain"`, `ComposerEnterKeyContext` for Enter-inserts-newline hosts, opt-in `richTextEnabled` with `textBlockSeparator`, measures the model menu's room on every open, and shows a readiness-check failure while keeping the typed question for retry. Chat hosts can pass `composerAttachmentsEnabled`, `showContextPicker`, `emptyStateSuggestionsLayout` and `renderEmptyStateSuggestion`.
+- dce0894: `AppProviders` keeps the theme preference under the app's own storage key, which an optional `themeStorageKey` prop can override. The error boundary reads the same key. Credential save, rotate and connect actions use the host theme's primary colors, so their labels stay readable in both light and dark themes.
+- 0794eec: Settings: pages can be described as rows instead of a component (`defineSettingsPage({ sections })`), rendered by the new `SettingsSections` row renderer and its typed row schema, model and hooks from `@agent-native/toolkit/app/settings`. `SettingsSectionsRendererProvider` lets an app replace the row markup while rows, writes and disabled state stay in the model. The shell exports `SkillsSettingsPage`, `SettingsShellProvider` and `SchemaSettingsPageDefinition`, and the settings index exports `ConnectionsSettingsContent`. A deep link to one half of an OAuth client ID/secret pair also shows the other half, and opens the secret when the ID is already saved.
+- 817593c: When Agent-Native Desktop hosts an app's chat and moves the app's sidebar to the right edge, the sidebar's collapse and expand icons now point the way the sidebar moves.
+- 6c6a245: When an open editor picks up a newer saved body, it now takes in changes to other blocks inside the same list, quote or toggle as the one being typed in, and it no longer waits for typing to pause. A change to the very block being typed in is no longer saved over: the editor keeps it pending instead of reporting a merge, so the host's next save goes out against the body its text was written on, and the editor plans the change again on the next edit or snapshot. On a live collaborative doc the whole body waits in that case, since the server marks a revision taken in whole.
+- 01e4cc6: Labs settings show a Lab the host product decides as set and read-only, instead of a switch whose choice the server wouldn't apply. After a save, a row shows what the server says it applies, rather than the choice it sent, and a failed save reads the Labs again so the row shows what was saved. A Lab with a saved choice offers Use default, which clears the choice. Keyboard focus stays on the row after a save, on its switch or its first button, instead of dropping to the page while the switch waits for the server.
+- Release all public npm packages with a patch version bump.
+- 8360101: Add an Add to Claude button to the Claude MCP setup guide that opens Claude's add-connector dialog with the app name and MCP URL filled in, with the manual steps kept under Manual setup. The Claude Code command now adds the server with `--scope user` so it works in every project, and the VS Code fallback points to Chat: Open Customizations → MCP Servers. The setup pages' connection details and test prompt use the same outlined cards as the rest of Settings, their copy buttons are icon-only with a tooltip, and long commands wrap instead of clipping.
+- f53f27f: A shareable resource type can name resources that go public with it and leave public with it, such as a page's sub-pages (`publicFollowers`, which returns the ones that are public or the ones that aren't, as asked). `set-resource-visibility` changes them in the same all-or-nothing call, up to 500 in one call, checks again after its writes for one created meanwhile, and reports `followersChanged`. A widget ticket, pinned to one resource, can take them back from public but not carry them public or give the organization more than view access to them; `list-resource-shares` returns `publicFollowers` to managers, with `publicFollowersMore` past 500, and `ShareButton` shows it through `publicFollowersLabel`.
+- d8c2381: Agent mentions in review comments leave space for the text that follows them.
+- 428b8b9: Route generic review agent comments through host chat with their thread context.
+- 5c2d0ab: Analytics' dashboard chart components now live in the toolkit. `DashboardPanelChart` (`@agent-native/toolkit/app/dashboard-charts/DashboardPanelChart`) draws a dashboard panel from rows already loaded, the way an Analytics dashboard draws it, and `DashboardPanelChartHostProvider` lets an app add its own data notes and session replay links.
+- Updated dependencies [dce0894]
+- Updated dependencies
+  - @agent-native/agentkit@0.230.0
+
 ## 0.229.0
 
 ### Minor Changes
@@ -1653,24 +1697,5 @@
 ### Patch Changes
 
 - Release all public npm packages with a patch version bump.
-
-## 0.16.9
-
-### Patch Changes
-
-- 10de7b9: Remove unused imports and unreachable declarations. Dispatch drops unused
-  imports from its layout, transactional email pages, and MCP gateway;
-  creative-context drops unused type imports and an unread `headingStyle`;
-  recap-cli drops the `node:os` import and two unread locals; skills drops the
-  unreferenced `maybeUpdateInstructions` helper; toolkit drops unused imports and
-  an unread `REALTIME_VOICE_REQUEST_SOURCE`. No runtime behavior changes.
-  `eslint/no-unused-vars` is now an oxlint error instead of a warning, so CI
-  blocks new ones.
-
-## 0.16.8
-
-### Patch Changes
-
-- 60b7e74: Pin Tiptap bubble-menu and floating-menu to 3.30.1 so npm no longer warns on optional peer mismatches when installing the CLI.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

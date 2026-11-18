@@ -53,6 +53,12 @@ export interface ChangeEvent {
   [k: string]: unknown;
 }
 
+type ChangeVisibilityTarget = Pick<
+  ChangeEvent,
+  "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+> &
+  Partial<Pick<ChangeEvent, "source" | "key">>;
+
 export interface TransactionalChange {
   persist(transaction: DbExec): Promise<ChangeEvent>;
   isPersisted(): boolean;
@@ -888,7 +894,9 @@ export class AppSyncState {
     const resourceKey = accessResourceKey(resourceType, resourceId);
     const epoch = this.accessInvalidationEpoch.get(resourceKey) ?? 0;
     let settled = false;
-    const check = retainRequestDbPoolScope(
+    // Read from inside its own body, which can settle before the assignment.
+    let check: Promise<void> | undefined;
+    check = retainRequestDbPoolScope(
       (async () => {
         try {
           const access = await this.resolveAccessFn(resourceType, resourceId, {
@@ -906,7 +914,9 @@ export class AppSyncState {
           this.setAccessCache(key, "unreadable", Date.now());
         } finally {
           settled = true;
-          this.accessInFlight.delete(key);
+          if (this.accessInFlight.get(key) === check) {
+            this.accessInFlight.delete(key);
+          }
         }
       })(),
     );
@@ -941,10 +951,7 @@ export class AppSyncState {
    * Organization membership alone does not grant access to a resource-scoped event.
    */
   canSeeChangeForUser(
-    event: Pick<
-      ChangeEvent,
-      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
-    >,
+    event: ChangeVisibilityTarget,
     userEmail: string,
     orgId: string | undefined,
   ): boolean {
@@ -974,10 +981,7 @@ export class AppSyncState {
    * means the check did not finish.
    */
   async resolveChangeVisibilityForUser(
-    event: Pick<
-      ChangeEvent,
-      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
-    >,
+    event: ChangeVisibilityTarget,
     userEmail: string,
     orgId: string | undefined,
     timeoutMs: number,
@@ -999,14 +1003,19 @@ export class AppSyncState {
   }
 
   getChangeVisibilityForUser(
-    event: Pick<
-      ChangeEvent,
-      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
-    >,
+    event: ChangeVisibilityTarget,
     userEmail: string,
     orgId: string | undefined,
   ): ChangeVisibility {
     const normalizedUserEmail = userEmail.trim().toLowerCase();
+    // Older settings notifications have no owner metadata. Their reserved user
+    // key must remain private when replayed from either memory or durable sync.
+    if (event.source === "settings" && event.key?.startsWith("u:")) {
+      const owner = /^u:([^:]+):/.exec(event.key)?.[1];
+      return owner?.trim().toLowerCase() === normalizedUserEmail
+        ? "visible"
+        : "hidden";
+    }
     if (event.visibility === "public") return "visible";
     if (!event.owner && !event.orgId && !event.resourceType) return "hidden";
     if (
@@ -1401,8 +1410,8 @@ export class AppSyncState {
         sql: `SELECT id, version, event_json, owner, org_id, resource_type, resource_id FROM sync_events
               WHERE (version > ? OR (? = TRUE AND version = ? AND id > ?))
               AND (
-                (owner IS NULL AND org_id IS NULL AND event_json::jsonb ->> 'visibility' = 'public')
-                OR owner = ?
+                event_json::jsonb ->> 'visibility' = 'public'
+                OR lower(btrim(owner)) = ?
                 OR org_id = ?
                 OR resource_type IS NOT NULL
               )
@@ -1412,7 +1421,7 @@ export class AppSyncState {
           cursor !== undefined,
           cursor?.version ?? since,
           cursor?.id ?? "",
-          userEmail,
+          userEmail.trim().toLowerCase(),
           orgId ?? null,
           DURABLE_READ_LIMIT + 1,
         ],
@@ -2116,10 +2125,7 @@ export function __resetCollabAccessCacheForTests(): void {
 }
 
 export function canSeeChangeForUser(
-  event: Pick<
-    ChangeEvent,
-    "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
-  >,
+  event: ChangeVisibilityTarget,
   userEmail: string,
   orgId: string | undefined,
 ): boolean {

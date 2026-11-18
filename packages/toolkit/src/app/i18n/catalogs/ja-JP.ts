@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "他のユーザーを招待できるのは管理者だけです。招待について管理者に相談するか、あなたも管理者にしてもらってください。",
   "settingsApiKeys.approvedOrigins": "承認済みオリジン",
   "settingsApiKeys.originsHint":
     "HTTPS オリジンを1行に1つ入力します。空欄では転送できません。ローカル HTTP は許可されます。",
@@ -1551,6 +1553,10 @@ const messages: ToolkitAgentChatTranslation = {
     "新しいメンバーを含む、{{organization}} のすべてのユーザーが、これを開いて、メッセージやファイルなどを含むすべての内容を見られるようになります。この設定は後から変更できます。",
   "share.confirmOrganizationAction": "組織と共有",
   "share.confirmOrganizationSharing": "共有しています...",
+  "share.confirmPublicTitle": "リンクを知っている全員と共有しますか？",
+  "share.confirmPublicDescription":
+    "リンクを知っている人は、組織外の人も含め、これを開いて中身をすべて見られるようになります。この設定は後で変更できます。",
+  "share.confirmPublicAction": "一般公開する",
   "status.resuming": "再開中",
   "status.stillWorking": "処理を続けています",
   "status.thinking": "思考中",
@@ -1574,6 +1580,12 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} に問い合わせ中...",
   "tool.elapsed": "{{duration}} 経過",
   "tool.askingAgentFailed": "{{agent}} への問い合わせ中にエラーが発生しました",
+  "tool.agentApprovalTitle": "{{agent}} で承認が必要です",
+  "tool.agentApprovalReview": "{{agent}} で確認",
+  "tool.agentApprovalReturn":
+    "{{agent}} で承認してから、ここで続行してください。",
+  "tool.agentApprovalContinueMessage":
+    "{{agent}} で承認しました。続けてください。",
   "tool.failedWithoutDetails": "エラーの詳細はありません。",
   "tool.input": "入力",
   "tool.inputWithLabel": "入力 - {{label}}",
@@ -2304,6 +2316,7 @@ const messages: ToolkitAgentChatTranslation = {
     "保存された設定を読み込めませんでした。オンまたはオフを選んで設定し直してください。",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} を変更できませんでした。もう一度お試しください。",
+  "settingsShell.appGroup.labsShowAll": "すべてのLabs機能を表示",
   "settingsShell.appGroup.labsUseDefault": "デフォルトを使用",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって {{app}} で作業できます。アプリが見られるのは、あなたが見られるものだけです。",

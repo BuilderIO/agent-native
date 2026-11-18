@@ -1,4 +1,6 @@
 const messages = {
+  "settingsOrg.inviteAdminExplanation":
+    "Only admins can invite others. Ask your admin for help inviting others, or have them make you an admin too.",
   "settingsApiKeys.approvedOrigins": "Approved origins",
   "settingsApiKeys.originsHint":
     "One exact HTTPS origin per line. Empty blocks forwarding. Local loopback HTTP is allowed.",
@@ -1525,6 +1527,10 @@ const messages = {
     "Everyone in {{organization}}, including new members, will be able to open this and see everything in it, including any messages, files, and other content. You can change this later.",
   "share.confirmOrganizationAction": "Share with organization",
   "share.confirmOrganizationSharing": "Sharing...",
+  "share.confirmPublicTitle": "Share with anyone who has the link?",
+  "share.confirmPublicDescription":
+    "Anyone with the link, including people outside your organization, will be able to open this and see everything in it. You can change this later.",
+  "share.confirmPublicAction": "Share publicly",
   "status.resuming": "Resuming",
   "status.stillWorking": "Still working",
   "status.thinking": "Thinking",
@@ -1548,6 +1554,11 @@ const messages = {
   "tool.askingAgent": "Asking {{agent}}...",
   "tool.elapsed": "{{duration}} elapsed",
   "tool.askingAgentFailed": "Error asking {{agent}}",
+  "tool.agentApprovalTitle": "{{agent}} needs your approval",
+  "tool.agentApprovalReview": "Review in {{agent}}",
+  "tool.agentApprovalReturn": "Approve it in {{agent}}, then continue here.",
+  "tool.agentApprovalContinueMessage":
+    "I approved it in {{agent}}. Please continue.",
   "tool.failedWithoutDetails": "No error details are available.",
   "tool.input": "Input",
   "tool.inputWithLabel": "Input - {{label}}",
@@ -2304,6 +2315,7 @@ const messages = {
   "settingsShell.appGroup.labsReadError":
     "Couldn't read this saved choice. Choose On or Off to set it again.",
   "settingsShell.appGroup.labsSaveError": "Couldn't change {{lab}}. Try again.",
+  "settingsShell.appGroup.labsShowAll": "Show all Labs features",
   "settingsShell.appGroup.labsUseDefault": "Use default",
   "settingsShell.appGroup.mcpAbout":
     "Connect {{app}} to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in {{app}} for you. It sees only what you can see.",

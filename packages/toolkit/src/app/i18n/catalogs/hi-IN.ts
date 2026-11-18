@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "केवल व्यवस्थापक ही दूसरों को आमंत्रित कर सकते हैं। दूसरों को आमंत्रित करने में अपने व्यवस्थापक से मदद माँगें या उनसे आपको भी व्यवस्थापक बनाने के लिए कहें।",
   "settingsApiKeys.approvedOrigins": "स्वीकृत मूल",
   "settingsApiKeys.originsHint":
     "प्रति पंक्ति एक सटीक HTTPS मूल। खाली रहने पर भेजना रुकता है। स्थानीय HTTP की अनुमति है।",
@@ -1501,6 +1503,10 @@ const messages: ToolkitAgentChatTranslation = {
     "{{organization}} के सभी लोग, नए सदस्यों सहित, इसे खोल सकेंगे और इसमें मौजूद सब कुछ देख सकेंगे, जिसमें संदेश, फ़ाइलें और अन्य सामग्री शामिल हैं। आप इसे बाद में बदल सकते हैं।",
   "share.confirmOrganizationAction": "संगठन के साथ साझा करें",
   "share.confirmOrganizationSharing": "साझा किया जा रहा है...",
+  "share.confirmPublicTitle": "लिंक वाले किसी भी व्यक्ति के साथ साझा करें?",
+  "share.confirmPublicDescription":
+    "लिंक वाला कोई भी व्यक्ति, आपके संगठन से बाहर के लोग भी, इसे खोल सकेगा और इसमें सब कुछ देख सकेगा। आप इसे बाद में बदल सकते हैं।",
+  "share.confirmPublicAction": "सार्वजनिक रूप से साझा करें",
   "status.resuming": "फिर से शुरू हो रहा है",
   "status.stillWorking": "अभी काम जारी है",
   "status.thinking": "सोच रहा है",
@@ -1524,6 +1530,11 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} से पूछा जा रहा है...",
   "tool.elapsed": "{{duration}} बीत चुके",
   "tool.askingAgentFailed": "{{agent}} से पूछते समय त्रुटि हुई",
+  "tool.agentApprovalTitle": "{{agent}} को आपकी अनुमति चाहिए",
+  "tool.agentApprovalReview": "{{agent}} में समीक्षा करें",
+  "tool.agentApprovalReturn": "{{agent}} में स्वीकृति दें, फिर यहाँ जारी रखें।",
+  "tool.agentApprovalContinueMessage":
+    "मैंने {{agent}} में स्वीकृति दे दी है। कृपया जारी रखें।",
   "tool.failedWithoutDetails": "त्रुटि का कोई विवरण उपलब्ध नहीं है।",
   "tool.input": "इनपुट",
   "tool.inputWithLabel": "इनपुट - {{label}}",
@@ -2261,6 +2272,7 @@ const messages: ToolkitAgentChatTranslation = {
     "इस सहेजे गए विकल्प को पढ़ा नहीं जा सका। इसे फिर से सेट करने के लिए चालू या बंद चुनें।",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} बदला नहीं जा सका। फिर से कोशिश करें।",
+  "settingsShell.appGroup.labsShowAll": "सभी Labs सुविधाएँ दिखाएँ",
   "settingsShell.appGroup.labsUseDefault": "डिफ़ॉल्ट इस्तेमाल करें",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए {{app}} में काम कर सकता है। वह केवल वही देखता है जो आप देख सकते हैं।",

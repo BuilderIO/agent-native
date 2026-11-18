@@ -70,6 +70,7 @@ import {
   configureCloudflareModuleWorkerOutput,
   copyInstalledBrowserRuntimePackages,
   copyInstalledExternalSsrPackages,
+  copyPresetRuntimePackages,
   copyDrizzleMigrationAssets,
   copyDir,
   createCloudflareModuleStubPlugin,
@@ -3032,6 +3033,149 @@ export default {
     },
   );
 
+  it.each([
+    ["an embedded panel", "panel", 403],
+    ["a signed-in browser", "none", 200],
+    ["a signed-in browser with only an embed marker", "marker", 200],
+  ] as const)(
+    "runs a signed-in-browser action from %s in generated workers",
+    async (_caller, credential, status) => {
+      const embedded = credential === "panel";
+      vi.stubEnv("OAUTH_STATE_SECRET", randomBytes(32).toString("base64url"));
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "rotate-action.mjs");
+      fs.writeFileSync(
+        actionPath,
+        `export default {
+  requiresSignedInBrowser: true,
+  run: async () => ({ rotated: true }),
+};`,
+      );
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry(
+          [],
+          [],
+          [],
+          [{ name: "rotate-key", absPath: actionPath, method: "post" }],
+        ),
+      );
+      const headers = new Headers({ "content-type": "application/json" });
+      if (embedded) {
+        const token = signEmbedSessionToken({
+          ownerEmail: "panel-owner@example.com",
+          audienceHost: "https://app.test",
+          targetPath: "/",
+          scope: "full-app",
+        });
+        headers.set("cookie", `${EMBED_SESSION_COOKIE}=${token}`);
+      }
+      if (credential === "marker") {
+        headers.set("x-agent-native-embed-target", "/");
+      }
+      const response = await worker.fetch(
+        new Request("https://app.test/_agent-native/actions/rotate-key", {
+          method: "POST",
+          headers,
+          body: "{}",
+        }),
+        {},
+        {},
+      );
+      expect(response.status).toBe(status);
+      const body = await response.json();
+      if (embedded) {
+        expect(body).toMatchObject({ errorCode: "signed_in_browser_required" });
+      } else {
+        expect(body).toEqual({ rotated: true });
+      }
+    },
+  );
+
+  it.each([
+    ["a full-app panel with the UI capability", "full-app", true, false, true],
+    [
+      "a full-app panel without the UI capability",
+      "full-app",
+      false,
+      false,
+      false,
+    ],
+    [
+      "a full-app panel's header token from its host's origin",
+      "full-app",
+      false,
+      true,
+      true,
+    ],
+    ["a scoped widget with the UI capability", "widget", true, false, false],
+    ["a full-app panel's non-frontend request", "server", true, true, false],
+  ] as const)(
+    "gives UI-only actions the owner's UI context from %s in generated workers",
+    async (_caller, kind, withCapability, panelBearer, proven) => {
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "ui-action.mjs");
+      fs.writeFileSync(actionPath, "export default { uiOnly: true };");
+      const source = generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "save-view", absPath: actionPath, method: "post" }],
+      );
+      const fnSource = source.match(
+        /  async function getGeneratedUiActionContext\(event, embedded\) \{[\s\S]*?\n  \}\n/,
+      )?.[0];
+      expect(fnSource).toBeTruthy();
+      // The live resolver also checks origin binding and revocation in the
+      // database; here it reports the session the panel's token names.
+      const embedSession = {
+        email: "Panel-Owner@example.com",
+        scope:
+          kind === "widget"
+            ? "capability:visual-edit:design:design-1"
+            : "full-app",
+      };
+      const capabilityOwners: string[] = [];
+      const getContext = new Function(
+        "resolveGeneratedEmbedSession",
+        "GENERATED_FULL_APP_EMBED_SCOPE",
+        "presentsGeneratedFullAppEmbedToken",
+        "hasGeneratedSameOriginBrowserEvidence",
+        "hasGeneratedUiActionCapability",
+        "resolveGeneratedOrgId",
+        "getGeneratedBrowserCookieSession",
+        `${fnSource}; return getGeneratedUiActionContext;`,
+      )(
+        async () => embedSession,
+        "full-app",
+        () => panelBearer,
+        () => !panelBearer,
+        (_event: unknown, owner: string) => {
+          capabilityOwners.push(owner);
+          return withCapability;
+        },
+        async () => "org-1",
+        async () => {
+          throw new Error("A panel is not a browser-cookie session");
+        },
+      ) as (event: unknown, embedded: boolean) => Promise<unknown>;
+      const headers = new Headers(
+        kind === "server" ? {} : { "x-agent-native-frontend": "1" },
+      );
+      const context = await getContext({ req: { headers } }, true);
+      if (proven) {
+        expect(context).toEqual({
+          userEmail: "panel-owner@example.com",
+          orgId: "org-1",
+        });
+        expect(capabilityOwners).toEqual(
+          panelBearer ? [] : ["panel-owner@example.com"],
+        );
+      } else {
+        expect(context).toBeNull();
+      }
+    },
+  );
+
   it("pre-marks generated plugin slots before running async plugins", () => {
     const dir = makeTempDir();
     const agentChatPlugin = path.join(
@@ -5411,6 +5555,46 @@ describe("copyInstalledExternalSsrPackages", () => {
       ),
     ).toBe(true);
   });
+});
+
+describe("Node output runtime dependencies", () => {
+  it.each(["node", "node-server"])(
+    "runs an opaque undici import from isolated %s output",
+    (preset) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "node-runtime-test-"));
+      try {
+        const project = path.join(root, "project");
+        const undici = path.join(project, "node_modules", "undici");
+        const output = path.join(root, "output");
+        fs.mkdirSync(undici, { recursive: true });
+        fs.mkdirSync(output, { recursive: true });
+        fs.writeFileSync(
+          path.join(undici, "package.json"),
+          JSON.stringify({
+            name: "undici",
+            version: "1.0.0",
+            main: "index.js",
+          }),
+        );
+        fs.writeFileSync(
+          path.join(undici, "index.js"),
+          'module.exports = "available";',
+        );
+        const entry = path.join(output, "entry.mjs");
+        fs.writeFileSync(
+          entry,
+          'const specifier = "undici"; const module = await import(specifier); console.log(module.default);',
+        );
+
+        copyPresetRuntimePackages(preset, output, project);
+        expect(
+          execFileSync(process.execPath, [entry], { encoding: "utf8" }).trim(),
+        ).toBe("available");
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("pruneServerlessFunctionDeadWeight", () => {

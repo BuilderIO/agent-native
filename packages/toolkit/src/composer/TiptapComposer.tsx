@@ -2548,11 +2548,13 @@ function ModelSelector({
                         defaultValue: "Use Builder.io",
                       })}
                 </span>
-                <span className="block agent-kit-caption-copy text-muted-foreground">
-                  {t("agentPanel.builderModelCredits", {
-                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
-                  })}
-                </span>
+                {adapters.builder?.creditsOffered?.() !== false ? (
+                  <span className="block agent-kit-caption-copy text-muted-foreground">
+                    {t("agentPanel.builderModelCredits", {
+                      defaultValue: "Free credits for Claude, OpenAI & Gemini",
+                    })}
+                  </span>
+                ) : null}
               </DropdownMenuItem>
             </BuilderConnectPopover>
             {!onConnectProvider && builderFlow.error && (
@@ -4235,7 +4237,22 @@ function TiptapComposerSurface({
           // plain text: Enter submits it and a late result changes nothing.
           const highlighted =
             pop.type === "@" ? popoverRef.current?.getSelectedMention() : null;
-          if (event.key === "Enter" && pop.type === "@" && !highlighted) {
+          // Likewise a "/" with no matching command or skill (a typed path) is
+          // plain text, so Enter submits instead of being swallowed.
+          const command =
+            pop.type === "/" ? popoverRef.current?.getSelectedCommand() : null;
+          const idx = popoverRef.current?.getSelectedIndex() ?? 0;
+          const skill =
+            pop.type === "/"
+              ? filteredSkillsRef.current[
+                  idx - filteredCommandsRef.current.length
+                ]
+              : undefined;
+          if (
+            event.key === "Enter" &&
+            (event.shiftKey ||
+              (pop.type === "@" ? !highlighted : !command && !skill))
+          ) {
             closePopover();
           } else if (event.key === "Tab" && !event.shiftKey && highlighted) {
             event.preventDefault();
@@ -4243,22 +4260,12 @@ function TiptapComposerSurface({
             return true;
           } else if (event.key === "Enter") {
             event.preventDefault();
-            const idx = popoverRef.current?.getSelectedIndex() ?? 0;
-            const currentCommands = filteredCommandsRef.current;
-            const currentSkills = filteredSkillsRef.current;
             if (pop.type === "@") {
               const item = popoverRef.current?.getSelectedMention();
               if (item) selectMention(view, pop, item);
             } else if (pop.type === "/") {
-              const cmd = popoverRef.current?.getSelectedCommand();
-              if (cmd) {
-                executeCommand(view, pop, cmd);
-              } else {
-                const skillIdx = idx - currentCommands.length;
-                if (currentSkills[skillIdx]) {
-                  selectSkill(view, pop, currentSkills[skillIdx]);
-                }
-              }
+              if (command) executeCommand(view, pop, command);
+              else if (skill) selectSkill(view, pop, skill);
             }
             return true;
           }

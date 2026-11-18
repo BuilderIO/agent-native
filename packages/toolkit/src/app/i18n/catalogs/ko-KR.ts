@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "관리자만 다른 사람을 초대할 수 있습니다. 관리자에게 초대를 도와달라고 요청하거나 나도 관리자로 지정해 달라고 요청하세요.",
   "settingsApiKeys.approvedOrigins": "승인된 출처",
   "settingsApiKeys.originsHint":
     "한 줄에 정확한 HTTPS 출처 하나씩 입력하세요. 비워 두면 전달이 차단됩니다. 로컬 HTTP는 허용됩니다.",
@@ -1522,6 +1524,10 @@ const messages: ToolkitAgentChatTranslation = {
     "새 구성원을 포함한 {{organization}}의 모든 사용자가 이 항목을 열고 메시지, 파일 등 모든 내용을 볼 수 있게 됩니다. 나중에 변경할 수 있습니다.",
   "share.confirmOrganizationAction": "조직과 공유",
   "share.confirmOrganizationSharing": "공유하는 중...",
+  "share.confirmPublicTitle": "링크가 있는 모든 사용자와 공유할까요?",
+  "share.confirmPublicDescription":
+    "조직 외부 사용자를 포함해 링크가 있는 모든 사용자가 이 항목을 열고 모든 내용을 볼 수 있습니다. 나중에 변경할 수 있습니다.",
+  "share.confirmPublicAction": "공개로 공유",
   "status.resuming": "재개 중",
   "status.stillWorking": "계속 작업 중",
   "status.thinking": "생각 중",
@@ -1545,6 +1551,11 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}}에게 요청 중...",
   "tool.elapsed": "{{duration}} 경과",
   "tool.askingAgentFailed": "{{agent}}에게 요청하는 중 오류 발생",
+  "tool.agentApprovalTitle": "{{agent}}에서 승인이 필요합니다",
+  "tool.agentApprovalReview": "{{agent}}에서 검토",
+  "tool.agentApprovalReturn": "{{agent}}에서 승인한 후 여기에서 계속하세요.",
+  "tool.agentApprovalContinueMessage":
+    "{{agent}}에서 승인했습니다. 계속해 주세요.",
   "tool.failedWithoutDetails": "오류 세부 정보가 없습니다.",
   "tool.input": "입력",
   "tool.inputWithLabel": "입력 - {{label}}",
@@ -2262,6 +2273,7 @@ const messages: ToolkitAgentChatTranslation = {
     "저장된 선택 항목을 읽을 수 없습니다. 다시 설정하려면 켜기 또는 끄기를 선택하세요.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}}을(를) 변경하지 못했습니다. 다시 시도하세요.",
+  "settingsShell.appGroup.labsShowAll": "모든 Labs 기능 표시",
   "settingsShell.appGroup.labsUseDefault": "기본값 사용",
   "settingsShell.appGroup.mcpAbout":
     "{{app}}을(를) Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 {{app}}에서 작업할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",

@@ -132,7 +132,7 @@ function dashboardBaseUrl(): string {
   );
 }
 
-function buildDashboardUrl(
+export function buildDashboardUrl(
   dashboardId: string,
   filters: Record<string, string>,
   options?: { reportSettings?: boolean },

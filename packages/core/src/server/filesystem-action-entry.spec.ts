@@ -266,6 +266,22 @@ describe("actionDefinition", () => {
     ).toBe(true);
   });
 
+  it("keeps the signed-in-browser requirement through the registry", () => {
+    const action = { tool, run, requiresSignedInBrowser: true };
+    expect(filesystemActionEntry(action).requiresSignedInBrowser).toBe(true);
+    expect(
+      loadActionsFromStaticRegistry({ rotate: { default: action } }).rotate!
+        .requiresSignedInBrowser,
+    ).toBe(true);
+    expect(
+      filesystemActionEntry({ tool, run }).requiresSignedInBrowser,
+    ).toBeUndefined();
+    expect(
+      filesystemActionEntry({ tool, run, opensAnotherAppEmbed: true })
+        .opensAnotherAppEmbed,
+    ).toBe(true);
+  });
+
   it("takes a default action when the module names none", () => {
     const action = { tool, run };
     expect(actionDefinition({ default: action })).toBe(action);

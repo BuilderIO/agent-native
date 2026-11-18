@@ -17,6 +17,12 @@ import {
 } from "../server/lib/design-versions.js";
 import { readDesignDataForUpdate } from "../server/lib/screen-frame-type-store.js";
 import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
+import {
+  assertVisualEditBoardDataSize,
+  assertVisualEditBoardFileCount,
+  assertVisualEditBoardFileSize,
+  assertVisualEditCapabilityDesign,
+} from "../server/lib/visual-edit-capability.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
@@ -149,6 +155,7 @@ export default defineAction({
         'Set "hubspot-email" only for a HubSpot marketing email HTML frame: it is placed 600px wide with no device variants and keeps email authoring rules on later edits. "web" keeps a copied screen ordinary when its HTML still carries a legacy email marker. Omit for every other screen.',
       ),
   }),
+  capabilityScopes: ["visual-edit"],
   run: async (
     {
       designId,
@@ -189,6 +196,8 @@ export default defineAction({
     }
 
     await assertAccess("design", designId, "editor");
+    assertVisualEditCapabilityDesign(designId);
+    assertVisualEditBoardFileSize(content);
 
     assertHubSpotEmailFileType({
       fileType,
@@ -497,6 +506,9 @@ export default defineAction({
 
         const createdAt =
           restoreCreatedAt === undefined ? now : restoreCreatedAt;
+        // Counted under the design's source-mutation lock, so concurrent
+        // creates cannot all see room for one more file.
+        await assertVisualEditBoardFileCount(designId, tx);
         await tx.insert(schema.designFiles).values({
           id,
           designId,
@@ -528,6 +540,9 @@ export default defineAction({
           }
         }
 
+        if (duplicateDesignData !== undefined) {
+          assertVisualEditBoardDataSize(duplicateDesignData);
+        }
         await tx
           .update(schema.designs)
           .set({
