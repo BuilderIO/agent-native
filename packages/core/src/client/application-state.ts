@@ -41,6 +41,8 @@ const beforeTurnContexts = new WeakMap<
   Map<string, BeforeTurnContext>
 >();
 const mutationRevisions = new Map<string, number>();
+const requestSessionIds = new WeakMap<object, number>();
+let nextRequestSessionId = 0;
 
 export interface ClientAppStateReadOptions {
   signal?: AbortSignal;
@@ -118,9 +120,21 @@ function browserTabHeaders(): Record<string, string> | undefined {
 // Identifies the server row a key reaches, so writes and reads through
 // `navigation` and through `navigation:<this tab>` wait on each other.
 function requestKey(key: string): string {
-  if (typeof window === "undefined") return `:${key}`;
-  const tab = getBrowserTabId();
-  return `${tab}:${TAB_SCOPED_APP_STATE_KEYS.has(key) ? `${key}:${tab}` : key}`;
+  const session = currentSessionScope();
+  let sessionId = requestSessionIds.get(session);
+  if (sessionId === undefined) {
+    sessionId = ++nextRequestSessionId;
+    requestSessionIds.set(session, sessionId);
+  }
+  const tab = typeof window === "undefined" ? null : getBrowserTabId();
+  const storageKey =
+    tab && TAB_SCOPED_APP_STATE_KEYS.has(key) ? `${key}:${tab}` : key;
+  return JSON.stringify([
+    sessionId,
+    agentNativePath("/_agent-native/application-state"),
+    tab,
+    storageKey,
+  ]);
 }
 
 function appStateTurnScope(): string {
@@ -257,6 +271,7 @@ function runClientAppStateMutation<T>(
   key: string,
   operation: () => Promise<T>,
   saved: (result: T) => boolean = () => true,
+  startedOperation?: () => Promise<T> | undefined,
 ): Promise<T> {
   const id = requestKey(key);
   const context = currentBeforeTurnContext();
@@ -271,6 +286,11 @@ function runClientAppStateMutation<T>(
   mutationRevisions.set(id, revision);
   const mutation = (async () => {
     if (previous) await previous;
+    const underway = startedOperation?.();
+    if (underway) return underway;
+    if (currentBeforeTurnContext() !== context) {
+      throw new Error("Application state scope changed before saving");
+    }
     return operation();
   })();
   pendingTurnMutations.set(mutation, context);
@@ -353,13 +373,19 @@ function runOwnRequestMutation<T>(
   keepalive: boolean,
   operation: () => Promise<T>,
 ): Promise<T> {
+  const context = currentBeforeTurnContext();
   let started: Promise<T> | undefined;
   const waiting: WaitingOwnRequest = {
     keepalive,
     barriersAhead: [...(unsettledBarriers.get(requestKey(key)) ?? [])],
     start: () => {
       waitingOwnRequests.delete(waiting);
-      return (started ??= operation());
+      return (started ??=
+        currentBeforeTurnContext() === context
+          ? operation()
+          : Promise.reject(
+              new Error("Application state scope changed before saving"),
+            ));
     },
   };
   waitingOwnRequests.add(waiting);
@@ -367,7 +393,13 @@ function runOwnRequestMutation<T>(
   const mutation = runClientAppStateMutation(
     key,
     () => waiting.start() as Promise<T>,
+    undefined,
+    () => started,
   );
+  const forget = () => {
+    waitingOwnRequests.delete(waiting);
+  };
+  mutation.then(forget, forget);
   if (pageIsHiding()) startWaitingOwnRequest(waiting);
   return mutation;
 }
