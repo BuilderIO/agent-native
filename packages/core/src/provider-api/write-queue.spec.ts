@@ -473,7 +473,9 @@ it("fences a late preparing worker before execute after another worker recovered
   });
   blockWorker = true;
   const lateWorker = drainProviderWrites(scope, { maxItems: 1 });
-  const lateRejection = expect(lateWorker).rejects.toThrow("claim was lost");
+  const lateRejection = (async () => {
+    await expect(lateWorker).rejects.toThrow("claim was lost");
+  })();
   try {
     await started;
     expect(
@@ -706,15 +708,12 @@ it.each([false, true])(
     vi.setSystemTime(11_001);
     await drainProviderWrites(scope);
     expect(execute).toHaveBeenCalledTimes(replaySafe ? 2 : 1);
-    if (replaySafe) {
-      expect(execute.mock.calls.map((call) => call[1].idempotencyKey)).toEqual([
-        queued.id,
-        queued.id,
-      ]);
-      expect(await getProviderWrite(scope, queued.id)).toMatchObject({
-        progress: { status: "completed" },
-      });
-    }
+    expect(execute.mock.calls.map((call) => call[1].idempotencyKey)).toEqual(
+      replaySafe ? [queued.id, queued.id] : [queued.id],
+    );
+    expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+      progress: { status: replaySafe ? "completed" : "uncertain" },
+    });
   },
 );
 
@@ -760,7 +759,7 @@ it.each([
     const reconcile = vi.fn(async () => value);
     register(execute, async () => {}, {
       replaySafe,
-      // Deliberately violate the adapter contract to exercise the runtime boundary.
+
       reconcile: reconcile as unknown as NonNullable<
         ProviderWriteHandler<unknown, unknown>["reconcile"]
       >,
@@ -835,6 +834,7 @@ it.each(["handler", "authorization", "read"] as const)(
       }),
     );
     register(healthyExecute);
+    const sweepScopes: unknown[] = [];
     for (const [index, operation] of (["move", "delete"] as const).entries()) {
       if (index) vi.setSystemTime(70_001);
       const { progress: healthy } = await enqueueProviderWrite({
@@ -844,12 +844,8 @@ it.each(["handler", "authorization", "read"] as const)(
         input: { operation },
       });
       const scopes = await listPendingProviderWriteScopes(scope.appId, 20);
-      if (!index) expect(scopes).toEqual([badScope, healthyScope]);
-      else
-        expect(scopes).toEqual(
-          expect.arrayContaining([badScope, healthyScope]),
-        );
-      // Match the app scheduler: one unguarded for-of, initially bad scope first.
+      sweepScopes.push(scopes);
+
       for (const pendingScope of scopes)
         await drainProviderWrites(pendingScope, { maxItems: 1 });
       expect(await getProviderWrite(healthyScope, healthy.id)).toMatchObject({
@@ -857,6 +853,10 @@ it.each(["handler", "authorization", "read"] as const)(
         result: { saved: operation },
       });
     }
+    expect(sweepScopes.at(0)).toEqual([badScope, healthyScope]);
+    expect(sweepScopes.at(1)).toEqual(
+      expect.arrayContaining([badScope, healthyScope]),
+    );
     const reason =
       failure === "handler"
         ? "handler_unavailable"
@@ -871,12 +871,18 @@ it.each(["handler", "authorization", "read"] as const)(
         )
       ).rows,
     ).toEqual([{ status: "uncertain", reason, resume_at: 130_001 }]);
-    if (failure === "authorization") {
-      await expect(reconcileProviderWrite(badScope, bad.id)).rejects.toBe(
-        denied,
-      );
-      await expect(getProviderWrite(badScope, bad.id)).rejects.toBe(denied);
-    }
+    const authorizationResults =
+      failure === "authorization"
+        ? await Promise.allSettled([
+            reconcileProviderWrite(badScope, bad.id),
+            getProviderWrite(badScope, bad.id),
+          ])
+        : [];
+    expect(
+      authorizationResults.map(
+        (result) => result.status === "rejected" && result.reason === denied,
+      ),
+    ).toEqual(failure === "authorization" ? [true, true] : []);
     expect(badExecute).toHaveBeenCalledTimes(1);
     expect(healthyExecute).toHaveBeenCalledTimes(2);
     expect(badReconcile).toHaveBeenCalledTimes(failure === "read" ? 2 : 0);
@@ -1002,7 +1008,7 @@ it("advances past a corrupt head and dispatches healthy later scopes while repor
     expect(await getProviderWrite(healthy, good.id)).toMatchObject({
       progress: { status: "completed" },
     });
-    // The corrupt scope remains recoverable and observable in a later rotation.
+
     expect(await listPendingProviderWriteScopes(scope.appId, 1)).toEqual([]);
     expect(log).toHaveBeenCalledTimes(2);
     expect(execute).toHaveBeenCalledTimes(1);
@@ -1379,32 +1385,31 @@ it.each(versionDriftCases)(
         )
       ).rows,
     ).toEqual([{ input_json: JSON.stringify(input) }]);
-    if (mode === "reorder") {
-      expect(result).toMatchObject({ status: "completed" });
-      expect(execute).toHaveBeenCalledTimes(1);
-      expect(execute.mock.calls[0]?.[0]).toEqual(input);
-    } else {
-      expect(result).toMatchObject({
-        status: "queued",
-        reason: "input_incompatible",
-        resumeAt: 70_000,
-      });
-      expect(execute).not.toHaveBeenCalled();
-      expect(
-        (await database.query("SELECT * FROM provider_connection_budgets"))
-          .rows,
-      ).toEqual([]);
+    const reordered = mode === "reorder";
+    expect(result).toMatchObject(
+      reordered
+        ? { status: "completed" }
+        : { status: "queued", reason: "input_incompatible", resumeAt: 70_000 },
+    );
+    expect(execute).toHaveBeenCalledTimes(reordered ? 1 : 0);
+    expect(execute.mock.calls.at(0)?.[0]).toEqual(
+      reordered ? input : undefined,
+    );
+    expect(
+      (await database.query("SELECT * FROM provider_connection_budgets")).rows,
+    ).toHaveLength(reordered ? 1 : 0);
+    if (!reordered) {
       unregisterOld();
       disposers.push(
         registerProviderWriteHandler(scope.appId, "versioned", handler),
       );
       vi.setSystemTime(70_001);
       await drainProviderWrites(scope);
-      expect(await getProviderWrite(scope, queued.id)).toMatchObject({
-        progress: { status: "completed" },
-      });
-      expect(execute).toHaveBeenCalledTimes(1);
     }
+    expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+      progress: { status: "completed" },
+    });
+    expect(execute).toHaveBeenCalledTimes(1);
   },
 );
 
@@ -1449,23 +1454,27 @@ it.each(versionDriftCases)(
       }),
     );
     const result = await reconcileProviderWrite(scope, queued.id);
-    if (mode === "reorder") {
-      expect(result).toMatchObject({ status: "completed" });
-      expect(reconcile).toHaveBeenCalledTimes(1);
-    } else {
-      expect(result).toMatchObject({
-        status: "uncertain",
-        reason: "input_incompatible",
-        resumeAt: 70_000,
-      });
-      expect(reconcile).not.toHaveBeenCalled();
+    const reordered = mode === "reorder";
+    expect(result).toMatchObject(
+      reordered
+        ? { status: "completed" }
+        : {
+            status: "uncertain",
+            reason: "input_incompatible",
+            resumeAt: 70_000,
+          },
+    );
+    expect(reconcile).toHaveBeenCalledTimes(reordered ? 1 : 0);
+    if (!reordered) {
       vi.setSystemTime(70_001);
       await drainProviderWrites(scope);
-      expect(await getProviderWrite(scope, queued.id)).toMatchObject({
-        progress: { status: "uncertain", reason: "input_incompatible" },
-      });
-      expect(reconcile).not.toHaveBeenCalled();
     }
+    expect(await getProviderWrite(scope, queued.id)).toMatchObject({
+      progress: reordered
+        ? { status: "completed" }
+        : { status: "uncertain", reason: "input_incompatible" },
+    });
+    expect(reconcile).toHaveBeenCalledTimes(reordered ? 1 : 0);
     expect(execute).toHaveBeenCalledTimes(1);
   },
 );
@@ -1677,7 +1686,7 @@ it("retains an unexecuted intent through a persisted budget policy mismatch and 
   });
   expect(execute).not.toHaveBeenCalled();
   expect(await drainProviderWrites(scope)).toEqual([]);
-  // Repair the persisted configuration in this isolated connection's budget.
+
   await database.query("UPDATE provider_connection_budgets SET capacity = $1", [
     policy.capacity,
   ]);
@@ -2225,7 +2234,7 @@ it("explicitly abandons an unreconcilable uncertain head without replay, then un
   expect(await getProviderWrite(scope, later.id)).toMatchObject({
     progress: { status: "completed" },
   });
-  // Retrying the original intent still resolves to its abandoned record.
+
   expect(
     await enqueueProviderWrite({
       scope,
@@ -2340,7 +2349,7 @@ it("retries a failed completion marker durably without replaying the accepted pr
       session_id: scope.principalId,
       key: "__action_change__",
     });
-    const persistedMarker = persisted.rows[0];
+    const persistedMarker = persisted.rows.at(0);
     if (!persistedMarker)
       throw new Error("Fixture completion marker is missing");
     expect(JSON.parse(persistedMarker.value)).toMatchObject({

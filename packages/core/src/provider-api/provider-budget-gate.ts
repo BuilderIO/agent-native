@@ -16,8 +16,7 @@ import {
   type ProviderPause,
 } from "./provider-budget.js";
 
-/** Shared admission for named requests, pages, retries, and gated direct transports. */
-export function registerProviderBudgetGate(options: {
+interface ProviderBudgetGateOptions {
   id: string;
   matches: (target: ProviderCallGateTarget) => boolean;
   policy: ProviderBudgetPolicy;
@@ -27,7 +26,12 @@ export function registerProviderBudgetGate(options: {
   /** Read-only switch lookup. This gate never changes an operator's setting. */
   readPause: () => Promise<ProviderPause | null>;
   cost?: (request: ProviderCallGateRequest) => number;
-}): () => void {
+}
+
+/** Shared admission for named requests, pages, retries, and gated direct transports. */
+export function registerProviderBudgetGate(
+  options: ProviderBudgetGateOptions,
+): () => void {
   const reservations = new WeakMap<
     ProviderCallGateRequest,
     {
@@ -66,7 +70,10 @@ export function registerProviderBudgetGate(options: {
       assertLive(request);
       await checkPause();
       assertLive(request);
-      if (request.accountIdError) throw request.accountIdError;
+      if (request.accountIdError)
+        throw request.accountIdError instanceof Error
+          ? request.accountIdError
+          : new Error("Provider account lookup failed.");
       const scope = await options.resolveScope(request);
       const cost = options.cost?.(request) ?? 1;
       assertLive(request);

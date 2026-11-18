@@ -119,17 +119,22 @@ it.each([
     );
     try {
       await hold.started;
-      if (cancellation === "deadline") {
-        await vi.advanceTimersByTimeAsync(2_001);
-        expect(await pending).toMatchObject({
-          error: { name: "ProviderCallGateAdmissionTimeoutError" },
-        });
-      } else controller.abort(new Error("caller left"));
+      const refusal = await (async () => {
+        if (cancellation === "deadline") {
+          await vi.advanceTimersByTimeAsync(2_001);
+          return pending;
+        }
+        controller.abort(new Error("caller left"));
+        hold.release();
+        return pending;
+      })();
       hold.release();
-      if (cancellation === "abort")
-        expect(await pending).toMatchObject({
-          error: { message: "caller left" },
-        });
+      expect(refusal).toMatchObject({
+        error:
+          cancellation === "deadline"
+            ? { name: "ProviderCallGateAdmissionTimeoutError" }
+            : { message: "caller left" },
+      });
       await expect
         .poll(
           async () =>
