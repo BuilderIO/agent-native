@@ -290,6 +290,10 @@ import {
   shouldPumpBuilderBodyHydration,
 } from "../builder-body-hydration-pump";
 import {
+  BuilderArticleAutosaveRunner,
+  BuilderArticleCellStatus,
+} from "../database-sources/BuilderArticleAutosave";
+import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
 } from "../database-sources/BuilderSourceReviewDialog";
@@ -3433,6 +3437,9 @@ function DatabaseTable({
 
   return (
     <div className={DATABASE_VIEW_CLASS_NAME}>
+      {builderSources.length > 0 ? (
+        <BuilderArticleAutosaveRunner collectionDocumentId={document.id} />
+      ) : null}
       <div
         {...(renderMode === "page" ? startupAnchor("database-tabs") : {})}
         className={DATABASE_VIEW_TABS_ROW_CLASS_NAME}
@@ -20092,6 +20099,12 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
             ) : (
               value
             )}
+            {itemProperty.definition.systemRole === "builder_status" ? (
+              <BuilderArticleCellStatus
+                collectionDocumentId={databaseDocumentId}
+                documentId={item.document.id}
+              />
+            ) : null}
             <DatabaseCellComments
               item={item}
               property={itemProperty}

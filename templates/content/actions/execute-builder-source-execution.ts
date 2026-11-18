@@ -32,6 +32,10 @@ import {
   type ExecuteBuilderSourceExecutionRequest,
 } from "../shared/api.js";
 import {
+  builderArticleAutosaveAllowsEffect,
+  builderArticleAutosaveLiveStop,
+} from "./_builder-article-autosave-rules.js";
+import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
   enqueueBuilderPrivatePayloadCleanup,
@@ -1892,9 +1896,14 @@ async function changeSetDocumentIds(
   return items.map((item) => item.documentId);
 }
 
+export interface ExecuteBuilderSourceExecutionOptions {
+  automatic?: boolean;
+}
+
 export async function executeBuilderSourceExecutionWithDeps(
   args: ExecuteBuilderSourceExecutionRequest,
   deps: ExecuteBuilderSourceExecutionDeps,
+  options: ExecuteBuilderSourceExecutionOptions = {},
 ) {
   const timing = createBuilderSourceTiming("execute_builder_source_execution");
   try {
@@ -2008,6 +2017,15 @@ export async function executeBuilderSourceExecutionWithDeps(
       publicationTransition: args.publicationTransition,
       confirmUnpublish: args.confirmUnpublish,
     });
+    if (
+      options.automatic &&
+      !builderArticleAutosaveAllowsEffect(plan.payload.effect)
+    ) {
+      fail(
+        "Automatic saves only create and save drafts; this change goes through Review Builder update.",
+        { errorCode: "builder_autosave_needs_review", statusCode: 409 },
+      );
+    }
     const storedPayload = initialStoredPayload;
     const storedRequest = recordValue(storedPayload.request) as
       | BuilderCmsExecutionPayload["request"]
@@ -2333,11 +2351,30 @@ export async function executeBuilderSourceExecutionWithDeps(
         request: plan.payload.request,
         checkedAt: now,
       });
+      const baselineValues = sourceRowForChangeSet(
+        source,
+        changeSet,
+      )?.sourceValues;
+      const automaticStop = options.automatic
+        ? builderArticleAutosaveLiveStop({ liveState, baselineValues })
+        : null;
+      if (automaticStop) {
+        await releaseClaim({
+          state: "blocked",
+          summary: `${plan.summary} Automatic save stopped before write.`,
+          payload: { ...validatedPayload, livePreflight },
+          lastError: automaticStop.message,
+        });
+        fail(automaticStop.message, {
+          errorCode: automaticStop.errorCode,
+          statusCode: 409,
+        });
+      }
       const message = livePreflightBlockMessage({
         liveState,
         baselineLastUpdated,
         baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
-        baselineValues: sourceRowForChangeSet(source, changeSet)?.sourceValues,
+        baselineValues,
         effect: plan.payload.effect,
         request: plan.payload.request,
         fieldLabel: builderSourceFieldLabel(source),
