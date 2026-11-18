@@ -86,7 +86,6 @@ import { usePendingLiveEditUnloadGuard } from "../pending-live-edit-unload-guard
 import { blurActiveDesignEditableTarget } from "../png-export-render";
 import { findDesignFileByScreenTarget } from "../screen-command-utils";
 import { nextBoldFontWeight, nextItalicFontStyle } from "../text-style-toggle";
-import { annotationHotkeyHandlers } from "../tool-state";
 import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "../types";
 import { writeVisualEditPublisherSession } from "../visual-edit-publisher-session";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
@@ -218,8 +217,6 @@ export function useEditorSourceAndSync({
     hasLocalPendingVisualEdits,
   } = editorHistory;
   const {
-    annotateLab,
-    setDrawMode,
     setPinMode,
     generationIssue,
     retryablePrompt,
@@ -286,7 +283,6 @@ export function useEditorSourceAndSync({
     handleShowAssetsPanel,
   } = editorContentAndComponents;
   const {
-    activeCodeFile,
     selectedScreenIds,
     handleMoveTool,
     handleRectTool,
@@ -375,7 +371,6 @@ export function useEditorSourceAndSync({
     codeLayerOwnerByNodeId,
     resolvedInitialRouteSelectionId,
     effectiveCodeLayerState,
-    designIsEmpty,
     selectedLayerIds,
     getSingleSelectedRenamableLayerId,
     canEditSelectedLiveLayer,
@@ -415,13 +410,11 @@ export function useEditorSourceAndSync({
       setActiveTool("frame");
       if (viewModeRef.current === "single" && activeFile) {
         setMode("edit");
-        setDrawMode(false);
         setPinMode(false);
         setSelectedElement(null);
         return;
       }
       setMode("edit");
-      setDrawMode(false);
       setPinMode(false);
       setSelectedElement(null);
       viewModeRef.current = "overview";
@@ -436,7 +429,6 @@ export function useEditorSourceAndSync({
       setActiveTool("text");
       if (viewModeRef.current === "single" && activeFile) {
         setMode("edit");
-        setDrawMode(false);
         setPinMode(false);
         setSelectedElement(null);
         return;
@@ -444,7 +436,6 @@ export function useEditorSourceAndSync({
       viewModeRef.current = "overview";
       setViewMode("overview");
       setMode("edit");
-      setDrawMode(false);
       setPinMode(false);
       setSelectedElement(null);
     });
@@ -457,7 +448,6 @@ export function useEditorSourceAndSync({
       setActiveTool("pen");
       if (viewModeRef.current === "single" && activeFile) {
         setMode("edit");
-        setDrawMode(false);
         setPinMode(false);
         setSelectedElement(null);
         return;
@@ -465,7 +455,6 @@ export function useEditorSourceAndSync({
       viewModeRef.current = "overview";
       setViewMode("overview");
       setMode("edit");
-      setDrawMode(false);
       setPinMode(false);
       setSelectedElement(null);
     });
@@ -475,7 +464,6 @@ export function useEditorSourceAndSync({
     blurActiveDesignEditableTarget();
     setActiveTool("hand");
     setMode("edit");
-    setDrawMode(false);
     setPinMode(false);
     if (viewModeRef.current === "single" && activeFile) {
       return;
@@ -489,18 +477,8 @@ export function useEditorSourceAndSync({
     blurActiveDesignEditableTarget();
     setActiveTool("scale");
     setMode("edit");
-    setDrawMode(false);
     setPinMode(false);
   }, [activeFile, canEditDesign]);
-
-  const handleDrawTool = useCallback(() => {
-    if (!activeFile || !canEditDesign || annotateLab !== "on") return;
-    setActiveTool("draw");
-    setMode("annotate");
-    setSelectedElement(null);
-    setDrawMode(true);
-    setPinMode(false);
-  }, [activeFile, annotateLab, canEditDesign]);
 
   const handleBooleanSubtractSelection = useCallback(
     () =>
@@ -631,13 +609,7 @@ export function useEditorSourceAndSync({
     onTextTool: canEditDesign ? handleTextTool : undefined,
     onPenTool: canEditDesign ? handlePenTool : undefined,
     onHandTool: handleHandTool,
-    ...annotationHotkeyHandlers({
-      canEditDesign,
-      canCommentDesign,
-      annotateLab,
-      onComment: handlePinToolToggle,
-      onDraw: handleDrawTool,
-    }),
+    onCommentTool: canCommentDesign ? handlePinToolToggle : undefined,
     onScaleTool: canEditDesign ? handleScaleTool : undefined,
     onCopy: handleCopySelection,
     onCopyAsPng:
@@ -1377,26 +1349,6 @@ export function useEditorSourceAndSync({
     setHiddenLayerIds((current) => reconcile(current, "hidden"));
   }, [codeLayerModelsByFile, files]);
 
-  const firstRunTemplatesQuery = useActionQuery(
-    "list-design-templates",
-    { includePreview: "true" },
-    { enabled: canEditDesign && designIsEmpty },
-  );
-  const firstRunTemplates = useMemo(
-    () =>
-      (firstRunTemplatesQuery.data?.templates ?? []).map((template) => ({
-        id: template.id,
-        title: template.title,
-        description: template.description,
-        category: template.category,
-        width: template.width,
-        height: template.height,
-        previewHtml: template.previewHtml,
-        designSystemId: template.designSystemId,
-        isBuiltIn: template.isBuiltIn,
-      })),
-    [firstRunTemplatesQuery.data?.templates],
-  );
   const applyTemplate = useActionMutation("create-design-from-template");
   const handleFirstRunTemplate = useCallback(
     async (templateId: string) => {
@@ -1539,8 +1491,6 @@ export function useEditorSourceAndSync({
       viewMode,
       screenId: activeFileId ?? activeFile?.id,
       leftPanel: activeLeftPanel,
-      codeFileId: activeLeftPanel === "code" ? activeCodeFile?.fileId : null,
-      codeFilename: activeLeftPanel === "code" ? activeCodeFile?.path : null,
       selectionId:
         selectedUrlSelectionId ??
         (preserveInitialRouteSelection
@@ -1591,8 +1541,6 @@ export function useEditorSourceAndSync({
   }, [
     activeFile?.id,
     activeFileId,
-    activeCodeFile?.fileId,
-    activeCodeFile?.path,
     activeLeftPanel,
     activeTool,
     codeLayerOwnerByNodeId.size,
@@ -1889,7 +1837,7 @@ export function useEditorSourceAndSync({
   );
   requestLocalhostWriteRef.current = requestLocalhostWrite;
 
-  const workbenchLocalhostConnections = useMemo(() => {
+  const localhostScreenConnections = useMemo(() => {
     const seen = new Map<
       string,
       { connectionId: string; label: string; rootPath?: string }
@@ -1923,26 +1871,6 @@ export function useEditorSourceAndSync({
     return [...seen.values()];
   }, [activeLocalhostConnectionResult?.connections, overviewScreens]);
 
-  const handleWorkbenchLocalWriteConsent = useCallback(
-    (connectionId: string, retry: () => void, filePath?: string) => {
-      if (!id || !canEditDesign) return;
-      openLocalConsent({
-        connectionId,
-        rootPath:
-          workbenchLocalhostConnections.find(
-            (connection) => connection.connectionId === connectionId,
-          )?.rootPath ??
-          workbenchLocalhostConnections.find(
-            (connection) => connection.connectionId === connectionId,
-          )?.label ??
-          connectionId,
-        files: filePath ? [filePath] : [],
-        onGranted: () => retry(),
-      });
-    },
-    [canEditDesign, id, openLocalConsent, workbenchLocalhostConnections],
-  );
-
   return {
     frameToolDraws,
     setFrameToolDraws,
@@ -1951,7 +1879,6 @@ export function useEditorSourceAndSync({
     handlePenTool,
     handleHandTool,
     handleScaleTool,
-    handleDrawTool,
     handleBooleanSubtractSelection,
     pendingVisualStyleNavigationBlocker,
     importFileInputRef,
@@ -1960,16 +1887,13 @@ export function useEditorSourceAndSync({
     skipPendingEditNavigationBlockRef,
     handleStayOnPendingVisualStyleNavigation,
     handleDiscardPendingVisualStylesAndNavigate,
-    firstRunTemplatesQuery,
-    firstRunTemplates,
     applyingTemplateId,
     handleFirstRunTemplate,
     activeLocalhostConnectionId,
     activeLocalhostConnectionResult,
     componentRuntime,
     requestLocalhostWrite,
-    workbenchLocalhostConnections,
-    handleWorkbenchLocalWriteConsent,
+    localhostScreenConnections,
     handleZoomToSelection,
   };
 }

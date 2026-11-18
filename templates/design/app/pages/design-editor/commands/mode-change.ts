@@ -7,11 +7,7 @@ import type {
   PendingLiveNonStyleEdit,
   PendingVisualStyleEdit,
 } from "@/pages/design-editor/pending-edits";
-import {
-  resolveModeChangeView,
-  resolveModeForAnnotateLab,
-  type AnnotateLabStatus,
-} from "@/pages/design-editor/tool-state";
+import { resolveModeChangeView } from "@/pages/design-editor/tool-state";
 import type {
   DesignFile,
   DesignTool,
@@ -20,7 +16,6 @@ import type {
 
 export interface ModeChangeArgs {
   activeFile: DesignFile | undefined;
-  annotateLab: AnnotateLabStatus;
   canEditDesign: boolean;
   hasPendingVisualEdits?: boolean;
   onPendingVisualEditsBlocked: () => void;
@@ -41,7 +36,6 @@ export interface ModeChangeArgs {
   ) => void;
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
-  setDrawMode: Dispatch<SetStateAction<boolean>>;
   setMode: Dispatch<SetStateAction<EditorMode>>;
   setPinMode: Dispatch<SetStateAction<boolean>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
@@ -61,7 +55,6 @@ export interface ModeChangeArgs {
 export function runModeChange(
   {
     activeFile,
-    annotateLab,
     canEditDesign,
     clearPendingLiveEditState,
     onPendingVisualEditsBlocked,
@@ -75,7 +68,6 @@ export function runModeChange(
     requestPendingVisualStyleRevert,
     setActiveFileId,
     setActiveTool,
-    setDrawMode,
     setMode,
     setPinMode,
     setSelectedElement,
@@ -98,7 +90,7 @@ export function runModeChange(
     keepInteractDevice?: boolean;
   },
 ): boolean {
-  const next = resolveModeForAnnotateLab(requested, annotateLab);
+  const next = requested;
   const interactEntry =
     next === "interact"
       ? resolveInteractEntry({
@@ -120,7 +112,6 @@ export function runModeChange(
     : options?.targetFileId
       ? files.find((file) => file.id === options.targetFileId)
       : activeFile;
-  if (!canEditDesign && next === "annotate") return false;
   if (interactEntry && !nextActiveFile) {
     toast.error(
       t(
@@ -131,7 +122,6 @@ export function runModeChange(
     );
     return false;
   }
-  if (next === "annotate" && !nextActiveFile) return false;
   if (
     next === "interact" &&
     hasPendingVisualEdits &&
@@ -194,18 +184,7 @@ export function runModeChange(
   setMode(next);
   setSelectedElement(null);
 
-  if (next === "annotate") {
-    setActiveTool("draw");
-    setDrawMode(true);
-    setPinMode(false);
-  } else if (next === "interact") {
-    setActiveTool("move");
-    setDrawMode(false);
-    setPinMode(false);
-  } else {
-    setActiveTool("move");
-    setDrawMode(false);
-    setPinMode(false);
-  }
+  setActiveTool("move");
+  setPinMode(false);
   return true;
 }

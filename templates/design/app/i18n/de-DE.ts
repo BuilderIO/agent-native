@@ -270,9 +270,6 @@ export default {
     labMotion: "Motion-Design",
     labMotionDescription:
       "Erstelle und bearbeite Keyframe-Animationen in deinen Designs.",
-    labAnnotate: "Annotieren",
-    labAnnotateDescription:
-      "Zeichne auf deine Designs und sende die Markierungen an den Agenten.",
     mcpAbout:
       "Verbinde Design mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Design für dich arbeiten: Designs erstellen und bearbeiten. Sie sieht nur, was du sehen kannst.",
   },
@@ -1890,10 +1887,8 @@ export default {
     shareEditorLinkDescription:
       "Alle mit Zugriff koennen dieses Design im Editor oeffnen.",
     modes: {
-      annotate: "Annotieren",
       comment: "Kommentar",
       edit: "Bearbeiten",
-      draw: "Zeichnen",
       interact: "Interact",
       screens: "Bildschirme",
     },
@@ -1978,7 +1973,6 @@ export default {
         arrange: "Anordnen",
         components: "Komponenten",
         layout: "Layout",
-        code: "Code",
       },
       commands: {
         showShortcuts: "Tastenkürzel",
@@ -1992,7 +1986,6 @@ export default {
         scaleTool: "Scale",
         eyedropper: "Pipette",
         commentTool: "Kommentar anheften",
-        drawTool: "Zeichnen",
         showLayers: "Ebenen",
         showAssets: "Ressourcen",
         toggleUi: "Benutzeroberfläche ein- oder ausblenden",
@@ -2111,7 +2104,6 @@ export default {
     exportPdf: "PDF exportieren",
     copyCodingHandoff: "Code-Übergabe kopieren",
     designTools: "Design-Tools",
-    drawOnCanvas: "Zeichnen Sie auf Leinwand",
     dropCommentPin: "Kommentar-Pin hinterlassen",
     presentInThisTab: "Auf dieser Registerkarte",
     presentFullscreen: "Vollbild",
@@ -2308,8 +2300,6 @@ export default {
       "agent-structural-edit": "Agent für Strukturbewegung nötig",
     },
     toasts: {
-      annotationSendError:
-        "Die Anmerkungen konnten nicht gesendet werden. Deine Zeichnung ist noch da – versuche es erneut.",
       codingHandoffError: "Code-Übergabe konnte nicht erstellt werden",
       unknownCollaborator: "Mitwirkende Person",
       supersededVisualEditSuggestion:
@@ -2691,16 +2681,6 @@ export default {
     pickAssetDescription: "Durchsuchen oder generieren Sie Bilder",
   },
   visualEditor: {
-    typeAnnotation: "Anmerkung eingeben...",
-    typeAnnotationFancy: "Anmerkung eingeben…",
-    typeAnywhere: "Geben Sie irgendwo ein",
-    typeAnywhereOnCanvas:
-      "Geben Sie eine beliebige Stelle auf der Leinwand ein",
-    clearAll: "Alles löschen",
-    exitDrawMode: "Zeichenmodus verlassen",
-    undoStroke: "Strich rückgängig machen",
-    redoStroke: "Strich wiederholen",
-    tellAgentWhatToDo: "Sagen Sie dem Agenten, was er tun soll ...",
     clickToDropCommentPin:
       "Klicken Sie auf eine beliebige Stelle, um einen Kommentar-Pin zu hinterlassen",
     editDesign: "Design bearbeiten",
@@ -2715,12 +2695,7 @@ export default {
     saveRetrying:
       "Änderungen konnten nicht gespeichert werden. Es wird automatisch erneut versucht.",
     saving: "Speichern...",
-    clearedAllAnnotations: "Alle Anmerkungen gelöscht",
-    annotationsDiscardedOnViewChange:
-      "{{count}} nicht gesendete Anmerkung(en) wurden beim Verlassen dieser Ansicht verworfen.",
-    undo: "Rückgängig",
     send: "Senden",
-    sendingDrawing: "Wird gesendet …",
     commentSent: "Kommentar gesendet",
     comment: "Kommentar",
     annotationQueue: "Anmerkungswarteschlange",

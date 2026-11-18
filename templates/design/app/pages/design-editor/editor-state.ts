@@ -140,8 +140,6 @@ export function getDesignEditorStateUrlSearch(args: {
   currentSearch: string;
   viewMode: "single" | "overview";
   screenId?: string | null;
-  codeFileId?: string | null;
-  codeFilename?: string | null;
   selectionId?: string | null;
   leftPanel?: DesignLeftPanel | null;
   zoom?: number | null;
@@ -173,16 +171,8 @@ export function getDesignEditorStateUrlSearch(args: {
   } else {
     params.delete("screen");
   }
-  if (leftPanel === "code" && args.codeFileId) {
-    params.set("fileId", args.codeFileId);
-  } else {
-    params.delete("fileId");
-  }
-  if (leftPanel === "code" && !args.codeFileId && args.codeFilename) {
-    params.set("filename", args.codeFilename);
-  } else {
-    params.delete("filename");
-  }
+  params.delete("fileId");
+  params.delete("filename");
   if (args.selectionId) {
     params.set("selection", args.selectionId);
   } else {

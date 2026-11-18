@@ -8,7 +8,6 @@ import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import { GenerationStatusCard } from "@/components/design/GenerationStatusCard";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
 import { Button } from "@/components/ui/button";
-import { DrawOverlay as SharedDrawOverlay } from "@/components/visual-editor/DrawOverlay";
 import { readSystemClipboard } from "@/lib/design-clipboard";
 import { hasExplicitOverviewZoomCommand as hasExplicitOverviewZoomCommandFromSearchParams } from "@/lib/design-editor-route";
 import { cn } from "@/lib/utils";
@@ -115,7 +114,6 @@ export function renderEditorCanvasArea({
     hostOwnsChrome,
     pendingVisualEditPublicationFailed,
     overviewInteractScreenId,
-    mode,
   } = editorCore;
   const {
     selectedLayerIdsState,
@@ -135,8 +133,6 @@ export function renderEditorCanvasArea({
     designAccessRole,
     pinMode,
     canCommentDesign,
-    drawMode,
-    annotateLab,
   } = editorGenerationAndAccess;
   const { layoutGrids, localhostPreviewTokenQuery, liveScreenSnapshotsById } =
     editorFilesAndSaving;
@@ -173,13 +169,7 @@ export function renderEditorCanvasArea({
     handleSwapInstanceMenuAction,
     handleDetachInstanceMenuAction,
   } = editorContentAndComponents;
-  const {
-    selectedScreenIds,
-    overviewAnnotationResetSignal,
-    handleExitOverviewDrawMode,
-    handleSendOverviewAnnotations,
-    overviewAnnotationSending,
-  } = editorToolsAndVectors;
+  const { selectedScreenIds } = editorToolsAndVectors;
   const {
     canvasContextMenuRef,
     canvasLayerHitCandidates,
@@ -805,26 +795,6 @@ export function renderEditorCanvasArea({
                 })}
               </>
             )}
-            {/* This overview annotation overlay is deliberately outside
-                      the overview/single subtree. Entering a focused screen
-                      hides it without unmounting it, so board-wide work is
-                      still available when the user returns. Its reset signal
-                      is separate from DesignCanvas's focused-screen batch. */}
-            <SharedDrawOverlay
-              visible={
-                viewMode === "overview" &&
-                drawMode &&
-                mode === "annotate" &&
-                annotateLab === "on"
-              }
-              clearSignal={overviewAnnotationResetSignal}
-              scopeKey="overview"
-              retainSurfaceWhenHidden
-              zoom={100}
-              onClose={handleExitOverviewDrawMode}
-              onSend={handleSendOverviewAnnotations}
-              sending={overviewAnnotationSending}
-            />
           </div>
         </div>
       ) : null}

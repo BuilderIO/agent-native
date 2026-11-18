@@ -27,17 +27,8 @@ export const DESIGN_MOTION_LAB = defineLab({
   keywords: "motion animation timeline keyframes",
 });
 
-export const ANNOTATE_LAB = defineLab({
-  key: "design.annotate",
-  defaultEnabled: false,
-  displayName: "Annotate",
-  description: "Draw on your designs and send the drawing to the agent.",
-  keywords: "annotate draw sketch markup brush",
-});
-
 export const DESIGN_LABS = defineLabs([
   FULL_APP_BUILDING_LAB,
   DESIGN_REVIEW_TOOLS_LAB,
   DESIGN_MOTION_LAB,
-  ANNOTATE_LAB,
 ]);
