@@ -1,7 +1,7 @@
 ---
 name: admin-surfaces
 description: >-
-  Use when an admin asks about feature flags and rollouts, dashboard usage stats, outside-agent BigQuery budgets, or connecting another app's database (the /agents admin home for Analytics).
+  Use when an admin asks about feature flags and rollouts, dashboard usage stats, or connecting another app's database (the /agents admin home for Analytics).
 ---
 
 # Admin Surfaces (`/agents`)
