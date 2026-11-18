@@ -665,10 +665,10 @@ function resolveEachWith(resolveAccess: AccessResolver): ManyAccessResolver {
  * Checks `resourceIds` one at a time, ACCESS_CHECKS_AT_ONCE at once, reporting
  * each group as it starts and each answer as it arrives. Each group's checks
  * all end before the next group starts, so a failed check never leaves others
- * running past the batch. A failure doesn't stop the batch, so the other
- * resources still get their answers; once every group has run, it rejects the
- * batch, and the caller re-checks the resources left unanswered. No group
- * starts once `starting` returns false.
+ * running past the batch. A failure rejects the batch once its group ends,
+ * and the caller re-checks the first few resources left unanswered on their
+ * own, so an outage costs a group and a few re-checks per read, not a check of
+ * every resource. No group starts once `starting` returns false.
  */
 async function checkEachResource(
   resourceIds: string[],
@@ -696,6 +696,7 @@ async function checkEachResource(
         }
       }),
     );
+    if (failures.length > 0) break;
   }
   if (failures.length > 0) {
     throw new Error(`${failures.length} access checks failed`, {

@@ -1141,11 +1141,14 @@ describe("AppSyncState read through other people's resources", () => {
       await vi.waitFor(() =>
         expect(resolveAccessMany).toHaveBeenCalledTimes(11),
       );
-      expect(resolveAccessMany.mock.calls.at(-1)).toEqual([
-        "design",
-        ["design-0"],
-        { userEmail: "reader@example.com" },
-      ]);
+      // The batch starts no group after the failure. Its re-checks take the
+      // failed design and the two it never reached.
+      expect(
+        resolveAccessMany.mock.calls
+          .slice(8)
+          .map(([, resourceIds]) => String(resourceIds[0]))
+          .sort(),
+      ).toEqual(["design-0", "design-8", "design-9"]);
       expect(mostRunning).toBeLessThanOrEqual(8);
     } finally {
       resolveAccessMany.mockImplementation(async () => new Map());
