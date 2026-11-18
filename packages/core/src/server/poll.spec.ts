@@ -844,6 +844,37 @@ describe("AppSyncState read through other people's resources", () => {
     ).toBe("pending");
   });
 
+  it("starts no group of a batch after one of its checks fails", async () => {
+    // Checked eight at once, the first resource's check always fails.
+    const ids = Array.from({ length: 20 }, (_, i) => `doc-${i}`);
+    const rows = durableRows(
+      ids.map((resourceId) => ({ resourceType: "document", resourceId })),
+    );
+    const resolveAccess = vi.fn(async (_type: string, resourceId: string) => {
+      if (resourceId === "doc-0") throw new Error("Builder unavailable");
+      return { role: "viewer" };
+    });
+    const state = stateReading(rows, { resolveAccess });
+
+    await state
+      .getDurableChangesSinceForUser(5, "reader@example.com", undefined, {
+        version: 5,
+        id: "",
+      })
+      .catch(() => undefined);
+    await vi.waitFor(() => expect(resolveAccess).toHaveBeenCalledTimes(16));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // The first group, then the first eight still unanswered on their own:
+    // the failed one and seven the batch never reached. The rest wait for a
+    // later read.
+    expect(resolveAccess).toHaveBeenCalledTimes(16);
+    expect(resolveAccess.mock.calls.slice(8).map(([, id]) => id)).toEqual([
+      "doc-0",
+      ...ids.slice(8, 15),
+    ]);
+  });
+
   it("counts a missed deadline for a failed batch's retry the batch never reported", async () => {
     vi.useFakeTimers();
     const rows = durableRows([
@@ -1104,17 +1135,18 @@ describe("AppSyncState read through other people's resources", () => {
     let running = 0;
     let mostRunning = 0;
     let failed = false;
-    // Builder fails the first design's check once and holds the others.
+    // Builder fails the ninth design's check once and holds the tenth, the
+    // rest of its group. The first group answers at once.
     resolveAccessMany.mockImplementation(async (_type, resourceIds) => {
       const id = String(resourceIds[0]);
       running++;
       mostRunning = Math.max(mostRunning, running);
       try {
-        if (id === "design-0" && !failed) {
+        if (id === "design-8" && !failed) {
           failed = true;
           throw new Error("Builder unavailable");
         }
-        if (id !== "design-0") await groupHeld;
+        if (id === "design-9") await groupHeld;
         return new Map([[id, viewerOf(id)]]);
       } finally {
         running--;
@@ -1130,25 +1162,22 @@ describe("AppSyncState read through other people's resources", () => {
         id: "",
       });
       await vi.waitFor(() =>
-        expect(resolveAccessMany).toHaveBeenCalledTimes(8),
+        expect(resolveAccessMany).toHaveBeenCalledTimes(10),
       );
       await new Promise((resolve) => setTimeout(resolve, 20));
-      // The rest of the first group still runs, so neither the next group
-      // nor the failed design's second check has started.
-      expect(resolveAccessMany).toHaveBeenCalledTimes(8);
+      // The rest of the second group still runs, so the failed design's
+      // second check hasn't started.
+      expect(resolveAccessMany).toHaveBeenCalledTimes(10);
 
       releaseGroup();
       await vi.waitFor(() =>
         expect(resolveAccessMany).toHaveBeenCalledTimes(11),
       );
-      // The batch starts no group after the failure. Its re-checks take the
-      // failed design and the two it never reached.
-      expect(
-        resolveAccessMany.mock.calls
-          .slice(8)
-          .map(([, resourceIds]) => String(resourceIds[0]))
-          .sort(),
-      ).toEqual(["design-0", "design-8", "design-9"]);
+      expect(resolveAccessMany.mock.calls.at(-1)).toEqual([
+        "design",
+        ["design-8"],
+        { userEmail: "reader@example.com" },
+      ]);
       expect(mostRunning).toBeLessThanOrEqual(8);
     } finally {
       resolveAccessMany.mockImplementation(async () => new Map());
