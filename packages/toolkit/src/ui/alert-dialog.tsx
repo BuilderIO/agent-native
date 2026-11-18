@@ -29,7 +29,17 @@ function AlertDialog({
   );
 }
 
-const AlertDialogTrigger = AlertDialogPrimitive.Trigger;
+const AlertDialogTrigger = React.forwardRef<
+  React.ElementRef<typeof AlertDialogPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Trigger>
+>((props, ref) => (
+  <AlertDialogPrimitive.Trigger
+    {...props}
+    data-agent-native-overlay-trigger=""
+    ref={ref}
+  />
+));
+AlertDialogTrigger.displayName = AlertDialogPrimitive.Trigger.displayName;
 
 const AlertDialogPortal = AlertDialogPrimitive.Portal;
 

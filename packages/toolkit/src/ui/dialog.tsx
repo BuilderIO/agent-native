@@ -159,7 +159,17 @@ function Dialog({
 }
 Dialog.displayName = "Dialog";
 
-const DialogTrigger = DialogPrimitive.Trigger;
+const DialogTrigger = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Trigger>
+>((props, ref) => (
+  <DialogPrimitive.Trigger
+    {...props}
+    data-agent-native-overlay-trigger=""
+    ref={ref}
+  />
+));
+DialogTrigger.displayName = DialogPrimitive.Trigger.displayName;
 
 const DialogPortal = DialogPrimitive.Portal;
 

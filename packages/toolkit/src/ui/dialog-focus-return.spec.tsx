@@ -537,3 +537,34 @@ it("returns a programmatically opened dialog to its native trigger", async () =>
     screen.getByRole("button", { name: "Open dialog" }),
   );
 });
+
+it("restores a state-driven opener that declares aria-controls without a native trigger", async () => {
+  function Fixture() {
+    const [open, setOpen] = React.useState(false);
+    return (
+      <>
+        <button
+          aria-controls="state-driven-dialog"
+          onClick={() => setOpen(true)}
+        >
+          Open accessible dialog
+        </button>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent id="state-driven-dialog" aria-describedby={undefined}>
+            <DialogTitle>Settings</DialogTitle>
+            <input aria-label="Accessible setting" />
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+  render(<Fixture />);
+  const opener = screen.getByRole("button", { name: "Open accessible dialog" });
+  opener.focus();
+  fireEvent.click(opener);
+  const field = await screen.findByLabelText("Accessible setting");
+  await waitFor(() => expect(document.activeElement).toBe(field));
+  fireEvent.keyDown(field, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(document.activeElement).toBe(opener);
+});

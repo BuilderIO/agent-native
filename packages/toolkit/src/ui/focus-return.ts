@@ -197,7 +197,12 @@ export function useFocusReturn<T extends Element>(
           event.preventDefault();
           return;
         }
-        if (nativeTarget && nativeTarget === trigger.current) return;
+        if (
+          nativeTarget &&
+          nativeTarget === trigger.current &&
+          nativeTarget.hasAttribute("data-agent-native-overlay-trigger")
+        )
+          return;
         if (!target?.isConnected) return;
         event.preventDefault();
         restoreFocusReturn({ target });

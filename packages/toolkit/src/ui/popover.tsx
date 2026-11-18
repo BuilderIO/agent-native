@@ -21,7 +21,17 @@ function Popover({
   );
 }
 
-const PopoverTrigger = PopoverPrimitive.Trigger;
+const PopoverTrigger = React.forwardRef<
+  React.ElementRef<typeof PopoverPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Trigger>
+>((props, ref) => (
+  <PopoverPrimitive.Trigger
+    {...props}
+    data-agent-native-overlay-trigger=""
+    ref={ref}
+  />
+));
+PopoverTrigger.displayName = PopoverPrimitive.Trigger.displayName;
 
 const PopoverAnchor = PopoverPrimitive.Anchor;
 
