@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 
 import type { RefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -208,7 +209,6 @@ function harness(
       };
     },
     refreshClipboardFromSystemClipboard: async () => "unchanged",
-    remapMotionTracksForClone: () => {},
     runtimeStructureInsertRevisionRef: ref(0),
     selectInsertedLayers: (screenId, _content, rootNodeIds) => {
       selections.push({ screenId, rootNodeIds });
@@ -364,9 +364,7 @@ describe("pasting copied layers with no explicit drop point", () => {
       sourceFileIdByFileId: {},
     };
     const applyLinkedComponentEdit = vi.fn();
-    const remapMotionTracksForClone = vi.fn();
     args.applyLinkedComponentEdit = applyLinkedComponentEdit;
-    args.remapMotionTracksForClone = remapMotionTracksForClone;
     args.selectionBefore = selectionBefore;
 
     args.viewModeRef.current = "single";
@@ -374,7 +372,7 @@ describe("pasting copied layers with no explicit drop point", () => {
 
     expect(writes).toEqual([]);
     expect(applyLinkedComponentEdit).toHaveBeenCalledOnce();
-    const [targetFileId, targetNodeId, edit, receivedSelection, onApplied] =
+    const [targetFileId, targetNodeId, edit, receivedSelection] =
       applyLinkedComponentEdit.mock.calls[0]!;
     expect(targetFileId).toBe("home");
     expect(targetNodeId).toBe("main");
@@ -383,15 +381,6 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(edit.after).toContain('data-agent-native-node-id="copy-');
     expect(edit.selectionNodeIds).toHaveLength(1);
     expect(receivedSelection).toEqual(selectionBefore);
-    expect(onApplied).toEqual(expect.any(Function));
-    expect(remapMotionTracksForClone).not.toHaveBeenCalled();
-
-    onApplied();
-    expect(remapMotionTracksForClone).toHaveBeenCalledOnce();
-    expect(remapMotionTracksForClone).toHaveBeenCalledWith(
-      expect.any(Map),
-      "home",
-    );
   });
 
   it("pastes directly above the source, not appended after a later sibling", async () => {

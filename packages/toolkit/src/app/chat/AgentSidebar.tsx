@@ -341,6 +341,12 @@ export interface AgentSidebarProps {
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   browserTabId?: string;
+  /**
+   * Query keys the app's agent reads from `__url__`, as exact names and
+   * `prefix*` patterns. Every other query value is redacted before it reaches
+   * the agent; the keys themselves stay visible.
+   */
+  urlQueryKeys?: readonly string[];
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
   agentPageHref?: string;
   suppressFirstRunOnboarding?: boolean;
@@ -423,6 +429,7 @@ export function AgentSidebar({
   isolateHistoryByScope = false,
   showScopeBadge,
   browserTabId,
+  urlQueryKeys,
   threadUrlSync,
   agentPageHref,
   suppressFirstRunOnboarding = false,
@@ -1989,7 +1996,12 @@ export function AgentSidebar({
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
         <SettingsReturnPathRecorder />
-        {enabled ? <URLSync browserTabId={resolvedBrowserTabId} /> : null}
+        {enabled ? (
+          <URLSync
+            browserTabId={resolvedBrowserTabId}
+            queryKeys={urlQueryKeys}
+          />
+        ) : null}
         {isResizing ? (
           <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
         ) : null}

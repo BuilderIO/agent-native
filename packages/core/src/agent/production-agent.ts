@@ -91,6 +91,7 @@ import type {
   AuditAttributionSource,
   AuditOverride,
 } from "../audit/attribution.js";
+import { scrubLocationHash } from "../client/url-scrub.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
 import {
@@ -16437,7 +16438,8 @@ export function createProductionAgentHandler(
               : null;
             if (extensionId) lines.push(`extensionId: ${extensionId}`);
             if (url.search) lines.push(`search: ${url.search}`);
-            if (url.hash) lines.push(`hash: ${url.hash}`);
+            // A tab on an older bundle still stores the hash unscrubbed.
+            if (url.hash) lines.push(`hash: ${scrubLocationHash(url.hash)}`);
             if (url.searchParams && Object.keys(url.searchParams).length > 0) {
               lines.push("searchParams:");
               for (const [k, v] of Object.entries(url.searchParams)) {

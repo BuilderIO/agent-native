@@ -9,7 +9,6 @@ import {
   isHubSpotEmailHtml,
 } from "@shared/hubspot-email";
 import type { LayoutGridById } from "@shared/layout-grid";
-import type { MotionPlaybackMode } from "@shared/motion-timeline";
 import type { InteractThemeMode } from "@shared/preview-color-scheme";
 import {
   storedScreenFrameType,
@@ -17,7 +16,6 @@ import {
 } from "@shared/screen-frame-type";
 import type { RefObject } from "react";
 
-import type { MotionDockLiveState } from "@/components/design/MotionDock";
 import type { ElementInfo } from "@/components/design/types";
 import type { ResponsiveEditScope } from "@/pages/design-editor/command-types";
 import { KEEPALIVE_ACTION_MAX_BYTES } from "@/pages/design-editor/data-operations";
@@ -178,13 +176,6 @@ export interface PublishAgentSelectionContextArgs {
   /** Already translated: tells the person to select again, since the agent may not see the selection. */
   selectionPublishFailedLabel: string;
   mode: EditorMode;
-  motionAutoKeyframeEnabled: boolean;
-  motionDockOpen: boolean;
-  motionDockLiveState: MotionDockLiveState;
-  motionDurationMs: number;
-  motionPlayhead: number;
-  motionPlaybackMode: MotionPlaybackMode;
-  motionTimelineId: string | null;
   pendingPersistedSelectionWriteRef: RefObject<{
     key: string;
     contextKey: string;
@@ -219,13 +210,6 @@ export function runPublishAgentSelectionContext({
   isSignedIn,
   selectionPublishFailedLabel,
   mode,
-  motionAutoKeyframeEnabled,
-  motionDockOpen,
-  motionDockLiveState,
-  motionDurationMs,
-  motionPlayhead,
-  motionPlaybackMode,
-  motionTimelineId,
   pendingPersistedSelectionWriteRef,
   persistedSelectionContextRef,
   persistedSelectionStateRef,
@@ -268,33 +252,6 @@ export function runPublishAgentSelectionContext({
     // The comment thread open on the canvas or highlighted in the Threads
     // panel; null when none is, so the agent never reads a closed thread.
     reviewThreadId,
-    dock: { kind: "motion" as const, open: motionDockOpen },
-    motion: {
-      previewing: motionDockLiveState.previewing,
-      playheadMs: Math.round(
-        Math.max(0, Math.min(1, motionPlayhead)) * motionDurationMs,
-      ),
-      durationMs: motionDurationMs,
-      timelineId: motionTimelineId,
-      playbackMode: motionPlaybackMode,
-      autoKeyframe: motionAutoKeyframeEnabled,
-      selectedTrackId: motionDockLiveState.selectedTrackId,
-      selectedKeyframeId:
-        motionDockLiveState.selectedKeyframeIds.length === 1
-          ? motionDockLiveState.selectedKeyframeIds[0]
-          : null,
-      selectedKeyframeIds: motionDockLiveState.selectedKeyframeIds,
-      selectedEasingSegment: motionDockLiveState.selectedEasingSegment
-        ? {
-            trackId: motionDockLiveState.selectedEasingSegment.trackId,
-            targetNodeId:
-              motionDockLiveState.selectedEasingSegment.targetNodeId,
-            property: motionDockLiveState.selectedEasingSegment.property,
-            fromT: motionDockLiveState.selectedEasingSegment.fromT,
-            toT: motionDockLiveState.selectedEasingSegment.toT,
-          }
-        : null,
-    },
     breakpoint: (activeBreakpointWidthState != null
       ? activeBreakpointWidthState < 500
         ? "mobile"
@@ -359,8 +316,6 @@ export function runPublishAgentSelectionContext({
     interact: selection.interact,
     leftPanel: selection.leftPanel,
     reviewThreadId: selection.reviewThreadId,
-    dock: selection.dock,
-    motion: selection.motion,
     breakpoint: selection.breakpoint,
     activeBreakpointId: selection.activeBreakpointId,
     responsiveEditScope: selection.responsiveEditScope,
