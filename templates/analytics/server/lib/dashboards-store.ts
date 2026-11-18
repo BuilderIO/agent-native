@@ -1763,7 +1763,7 @@ export async function assertDashboardNameIsAvailable(
     taken.has(normalizeDashboardName(candidate)),
   );
   throw nameTaken("dashboard", name.trim(), suggestion, {
-    hint: "If restoring a revision, rename or hide the conflicting dashboard first. If sharing, unhiding, or unarchiving, you can instead rename the dashboard first. The suggestion is not a reservation.",
+    hint: "A dashboard owner can rename or hide the conflicting dashboard if needed. The suggestion is not a reservation.",
   });
 }
 
