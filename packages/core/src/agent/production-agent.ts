@@ -17460,29 +17460,43 @@ export function createProductionAgentHandler(
           return stream;
         }
       } catch (error) {
+        const { QueuedSubmissionAdmissionError } =
+          await import("../chat-threads/store.js");
+        const admissionError =
+          error instanceof QueuedSubmissionAdmissionError &&
+          (error.code === "queued_message_id_conflict" ||
+            error.code === "queued_message_id_terminal")
+            ? error
+            : null;
         if (foregroundRunRowInserted) {
           const terminalized = await updateRunStatusIfRunning(runId, "errored");
           if (terminalized) {
-            await setRunTerminalReason(runId, "run_preparation_failed");
-            await setRunError(
-              runId,
-              "run_preparation_failed",
-              error instanceof Error ? error.message : String(error),
-            );
+            if (admissionError) {
+              await setRunTerminalReason(runId, `error:${admissionError.code}`);
+              await setRunError(
+                runId,
+                admissionError.code,
+                admissionError.message,
+              );
+            } else {
+              await setRunTerminalReason(runId, "run_preparation_failed");
+              await setRunError(
+                runId,
+                "run_preparation_failed",
+                error instanceof Error ? error.message : String(error),
+              );
+            }
           }
         }
         await setupResumeClaim?.release();
-        const { QueuedSubmissionAdmissionError } =
-          await import("../chat-threads/store.js");
-        if (
-          error instanceof QueuedSubmissionAdmissionError &&
-          error.code === "queued_message_id_conflict"
-        ) {
+        if (admissionError) {
           setResponseStatus(event, 409);
           return {
             error:
-              "This message ID was already used for a different submission",
-            code: "queued_message_id_conflict",
+              admissionError.code === "queued_message_id_conflict"
+                ? "This message ID was already used for a different submission"
+                : "This message ID is no longer available for submission",
+            code: admissionError.code,
             retryable: false,
           };
         }

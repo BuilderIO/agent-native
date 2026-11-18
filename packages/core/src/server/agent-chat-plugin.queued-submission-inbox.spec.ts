@@ -426,6 +426,7 @@ vi.mock("../scripts/dev/index.js", () => ({
   createDevScriptRegistry: async () => ({}),
 }));
 
+import { isRunFailureRetryable } from "../agent/run-failure-retry.js";
 import {
   AgentRunJournalUnreadableError,
   getRunById,
@@ -2105,126 +2106,163 @@ describe("queued submission inbox recurring sweep", () => {
     },
   );
 
-  it("returns a conflict when another chat POST queues the same id with different content after the run slot is claimed", async () => {
-    inboxHarness.useProductionHandler = true;
-    const threadId = `thread-${randomUUID()}`;
-    const turnId = `turn-${randomUUID()}`;
-    const messageId = `message-${randomUUID()}`;
-    const ownerEmail = "user@example.com";
-    const refusedRunId = `refused-${randomUUID()}`;
-    await createThread(ownerEmail, {
-      id: threadId,
-      source: { appId: QUEUED_TEST_APP_ID },
-    });
-    let release!: () => void;
-    let reportClaim!: (runId: string) => void;
-    const claimed = new Promise<string>((resolve) => (reportClaim = resolve));
-    const barrier = new Promise<void>((resolve) => (release = resolve));
-    inboxHarness.afterRunSlotClaim = async (runId) => {
-      reportClaim(runId);
-      await barrier;
-    };
-    inboxHarness.productionEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: false,
-      },
-      stream: async function* () {
-        yield { type: "stop" as const, reason: "end_turn" as const };
-      },
-    };
-    const app = await mountAgentChatRoutes({ durableBackgroundRuns: false });
-    const post = (text: string, submittedTurnId: string, resume = false) =>
-      runWithRequestContext({ userEmail: ownerEmail, run: {} }, () =>
-        app.fetch(
-          new Request("http://example.test/_agent-native/agent-chat", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              message: text,
-              threadId,
-              turnId: submittedTurnId,
-              agentKitMessageId: messageId,
-              submissionPayload: { id: messageId, threadId, text },
-              ...(resume
-                ? {
-                    metadata: {
-                      custom: {
-                        agentNativeResumeAfterSetup: true,
-                        agentNativeRecoveryOfRunId: refusedRunId,
-                      },
-                    },
-                  }
-                : {}),
-            }),
-          }),
-        ),
-      );
-    const first = post("First submission", turnId, true);
-    const runId = await Promise.race([
-      claimed,
-      first.then(async (response) => {
-        throw new Error(
-          `First POST returned ${response.status}: ${await response.clone().text()}`,
-        );
-      }),
-    ]);
-    let second: Response;
-    let queuedThread: Awaited<ReturnType<typeof getThread>>;
-    try {
-      expect(
-        await claimSetupResume({
-          ownerEmail,
-          threadId,
-          refusedRunId,
-          turnId: "another-turn",
-        }),
-      ).toBeNull();
-      second = await post("Conflicting submission", `turn-${randomUUID()}`);
-      queuedThread = await getThread(threadId);
-    } finally {
-      release();
-    }
-    const firstResponse = await first;
-    expect(firstResponse.status).toBe(409);
-    await expect(firstResponse.json()).resolves.toEqual({
-      error: "This message ID was already used for a different submission",
+  it.each([
+    {
+      scenario: "conflicting payload",
+      secondText: "Conflicting submission",
+      cancel: false,
       code: "queued_message_id_conflict",
-      retryable: false,
-    });
-    expect(second.status).toBe(202);
-    await expect(
-      getQueuedSubmissionReceipt(threadId, messageId),
-    ).resolves.toMatchObject({
+      error: "This message ID was already used for a different submission",
       state: "queued",
-      actor: { email: ownerEmail, anonymous: false },
-      message: { text: "Conflicting submission" },
-    });
-    const rows = await getDbExec().execute({
-      sql: `SELECT status FROM agent_runs WHERE id = ?`,
-      args: [runId],
-    });
-    expect(rows.rows).toHaveLength(1);
-    expect(["errored", "aborted"]).toContain(rows.rows[0].status);
-    expect((await getThread(threadId))?.threadData).toEqual(
-      queuedThread?.threadData,
-    );
-    const retryClaim = await claimSetupResume({
-      ownerEmail,
-      threadId,
-      refusedRunId,
-      turnId: "another-turn",
-    });
-    expect(retryClaim).not.toBeNull();
-    await retryClaim?.release();
-  });
+    },
+    {
+      scenario: "cancelled matching payload",
+      secondText: "First submission",
+      cancel: true,
+      code: "queued_message_id_terminal",
+      error: "This message ID is no longer available for submission",
+      state: "removed",
+    },
+  ])(
+    "rejects a late $scenario after the run slot is claimed",
+    async ({ secondText, cancel, code, error, state }) => {
+      inboxHarness.useProductionHandler = true;
+      const threadId = `thread-${randomUUID()}`;
+      const turnId = `turn-${randomUUID()}`;
+      const messageId = `message-${randomUUID()}`;
+      const ownerEmail = "user@example.com";
+      const refusedRunId = `refused-${randomUUID()}`;
+      await createThread(ownerEmail, {
+        id: threadId,
+        source: { appId: QUEUED_TEST_APP_ID },
+      });
+      let release!: () => void;
+      let reportClaim!: (runId: string) => void;
+      const claimed = new Promise<string>((resolve) => (reportClaim = resolve));
+      const barrier = new Promise<void>((resolve) => (release = resolve));
+      inboxHarness.afterRunSlotClaim = async (runId) => {
+        reportClaim(runId);
+        await barrier;
+      };
+      inboxHarness.productionEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        stream: async function* () {
+          yield { type: "stop" as const, reason: "end_turn" as const };
+        },
+      };
+      const app = await mountAgentChatRoutes({ durableBackgroundRuns: false });
+      const post = (text: string, submittedTurnId: string, resume = false) =>
+        runWithRequestContext({ userEmail: ownerEmail, run: {} }, () =>
+          app.fetch(
+            new Request("http://example.test/_agent-native/agent-chat", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                message: text,
+                threadId,
+                turnId: submittedTurnId,
+                agentKitMessageId: messageId,
+                submissionPayload: { id: messageId, threadId, text },
+                ...(resume
+                  ? {
+                      metadata: {
+                        custom: {
+                          agentNativeResumeAfterSetup: true,
+                          agentNativeRecoveryOfRunId: refusedRunId,
+                        },
+                      },
+                    }
+                  : {}),
+              }),
+            }),
+          ),
+        );
+      const first = post("First submission", turnId, true);
+      const runId = await Promise.race([
+        claimed,
+        first.then(async (response) => {
+          throw new Error(
+            `First POST returned ${response.status}: ${await response.clone().text()}`,
+          );
+        }),
+      ]);
+      let second: Response;
+      let queuedThread: Awaited<ReturnType<typeof getThread>>;
+      let queuedReceipt: Awaited<ReturnType<typeof getQueuedSubmissionReceipt>>;
+      try {
+        expect(
+          await claimSetupResume({
+            ownerEmail,
+            threadId,
+            refusedRunId,
+            turnId: "another-turn",
+          }),
+        ).toBeNull();
+        second = await post(secondText, `turn-${randomUUID()}`);
+        if (cancel) {
+          const result = await mutateThreadQueuedMessages(threadId, {
+            type: "cancel",
+            messageId,
+          });
+          expect(result?.receiptUpdated).toBe(true);
+        }
+        queuedThread = await getThread(threadId);
+        queuedReceipt = await getQueuedSubmissionReceipt(threadId, messageId);
+      } finally {
+        release();
+      }
+      const firstResponse = await first;
+      expect.soft(firstResponse.status).toBe(409);
+      expect.soft(await firstResponse.json()).toEqual({
+        error,
+        code,
+        retryable: false,
+      });
+      expect(second.status).toBe(202);
+      expect(queuedReceipt).toMatchObject({
+        state,
+        actor: { email: ownerEmail, anonymous: false },
+        message: { text: secondText },
+      });
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toEqual(queuedReceipt);
+      const rows = await getDbExec().execute({
+        sql: `SELECT status, terminal_reason, error_code FROM agent_runs WHERE id = ?`,
+        args: [runId],
+      });
+      expect(rows.rows).toHaveLength(1);
+      expect.soft(rows.rows[0]).toMatchObject({
+        status: "errored",
+        terminal_reason: `error:${code}`,
+        error_code: code,
+      });
+      expect
+        .soft(isRunFailureRetryable(String(rows.rows[0].terminal_reason)))
+        .toBe(false);
+      expect((await getThread(threadId))?.threadData).toEqual(
+        queuedThread?.threadData,
+      );
+      const retryClaim = await claimSetupResume({
+        ownerEmail,
+        threadId,
+        refusedRunId,
+        turnId: "another-turn",
+      });
+      expect(retryClaim).not.toBeNull();
+      await retryClaim?.release();
+    },
+  );
 
   it("blocks a non-retryable thrown admission and advances the same-thread queue", async () => {
     const threadId = `thread-${randomUUID()}`;
