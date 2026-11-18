@@ -731,7 +731,6 @@ export function renderEditorCanvasArea({
               editorModes,
               editorExportAndHandoff,
               canApplyPendingVisualEditsWithAgent,
-              canClearOtherPublisherHandoff: designAccessRole === "owner",
               belowAppBar: showFusionAppBar,
             })}
             {viewMode === "overview" ||
