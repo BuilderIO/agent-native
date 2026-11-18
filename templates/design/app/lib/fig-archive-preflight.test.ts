@@ -1,7 +1,7 @@
 import { zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 
-import { BROWSER_FIG_LIMITS } from "../../server/lib/fig-file-limits.js";
+import { BROWSER_FIG_LIMITS } from "../../shared/fig-file-limits.js";
 import { preflightFigArchive } from "./fig-archive-preflight";
 
 const MB = 1024 * 1024;

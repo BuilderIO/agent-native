@@ -1763,6 +1763,19 @@ export default {
       localDescription:
         "/visual-edit で任意の実行中ローカル app に接続します。",
       warningsToast: "警告付きでインポートが完了しました",
+      pasteUnreadable: "コピーしたレイヤーを読み取れませんでした。",
+      pasteInexact: "正確に貼り付けられなかった詳細: {{count}}",
+      pasteLayerTypes:
+        "シンプルなフレームとして貼り付けた{{tool}}のレイヤータイプ: {{count}}",
+      pasteImagePlaceholders:
+        "プレースホルダーとして貼り付けた画像: {{count}}。{{tool}}は画像データをコピーしません。",
+      pasteImagesLinked:
+        "{{tool}}にリンクされたままの画像: {{count}}。ファイルストレージにコピーできませんでした。",
+      pasteImagesUnsaved:
+        "保存を確認できず、表示されなくなる可能性のある画像: {{count}}",
+      pasteNeedsEditAccess: "このデザインに貼り付けるには編集権限が必要です。",
+      pastePartialImport:
+        "貼り付けに失敗しました。一部の画面が作成された可能性があります。画面を確認してください。",
       figmaSuccess: "Figma 貼り付けをインポートしました",
       htmlSuccess: "HTML をインポートしました",
       uploadSuccess: "ファイルをインポートしました",
@@ -1773,6 +1786,8 @@ export default {
         notHtml: "インポートする有効な HTML を貼り付けるか選択してください。",
         importFailed: "インポートに失敗しました",
         figmaPasteFailed: "Figma 貼り付けのインポートに失敗しました",
+        paperPasteFailed: "Paper 貼り付けのインポートに失敗しました",
+        wonderPasteFailed: "Wonder 貼り付けのインポートに失敗しました",
         uploadFailed: "ファイルのアップロードに失敗しました",
         invalidFigFile: ".fig で終わるファイルを選択してください。",
         unsupportedFileType: ".fig、.html、.htm ファイルを選択してください。",
@@ -2178,6 +2193,7 @@ export default {
       copyPrompt: "エージェントにプロンプトをコピー",
       copyAgentPrompt: "エージェントプロンプトをコピー",
       copyFullPrompt: "完全なプロンプトをコピー",
+      clearEdits: "編集をクリア",
       abortPreview: "プレビューを中止して操作",
       agentMessage:
         "保留中のビジュアルスタイル編集をソースに適用してください。",
@@ -2193,6 +2209,11 @@ export default {
       copiedToastDescription:
         "コーディングエージェントに貼り付けて、ビジュアルの変更を適用するよう依頼してください。",
       abortedToast: "保留中のプレビューを破棄しました",
+      clearedToast: "保留中の編集をクリアしました",
+      localPreviewsClearedToast:
+        "ローカルのプレビューを破棄しました。他の共同編集者の編集は引き続き保留中です。",
+      clearFailedToast:
+        "保留中の編集をクリアできませんでした。もう一度お試しください。",
       interactBlocked:
         "操作モードに切り替える前に、保留中のライブ編集を適用するか中止してください。",
       leaveTitle: "離れる前にデザインの更新を適用しますか？",
@@ -2356,12 +2377,16 @@ export default {
       repeatRowPickOnCanvas:
         "キャンバス上の行をダブルクリックしてテキストを編集してください",
       eyedropperUnsupported: "このブラウザではスポイトツールを使用できません",
+      claimBoardError: "このボードをアカウントに移動できませんでした",
       saveCopyError: "このデザインのコピーを保存できませんでした",
       auditRunFailed: "デザイン監査を実行できませんでした",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "調整内容が別の場所で変更されました。デザインを更新してからもう一度お試しください。",
+      tweakBaselineUnreadable:
+        "保存された調整の基準値を読み取れませんでした。デザインデータが修復されるまで調整の変更を一時停止します。",
+      resetTweakBaseline: "ベースラインをリセット",
       tweakSaveNotDurable:
         "調整内容はまだ保存されていません。このタブを開いたまま、もう一度お試しください。",
       undoSkippedConcurrentEdit:
@@ -3553,6 +3578,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "エージェントを使うには AI モデルを接続してください",
       startFailed: "エージェントを開始できませんでした",
+      hostChatUnconfirmed:
+        "メッセージがホストチャットに届いたか確認できませんでした。再試行する前にホストチャットを確認してください。",
       cancelFailed: "エージェントを停止できませんでした",
       busy: "このスレッドではすでにエージェントが作業中です",
       error: {

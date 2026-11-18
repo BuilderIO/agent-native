@@ -4,6 +4,7 @@ import { defineAction, fail } from "../../action.js";
 import { deleteApiKey } from "../api-keys.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     'Delete one saved key listed by list-api-keys. Pass its name, scope, and storedScope. Deleting an organization key (scope "org") needs an owner or admin and affects everyone in the organization. A model provider key also removes its endpoint and older key names at the same row. Keys managed by another Settings page (managedBy) and keys synced from the Dispatch Vault are refused; they are removed where they are managed. Before deleting, call preview-secret-removal with the same name and storedScope, tell the user what stops working, and get their confirmation.',
   schema: z.object({

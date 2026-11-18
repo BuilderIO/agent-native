@@ -40,7 +40,7 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 | `create-design-from-template` | Copy template; source screens stay locked |
 | `get-design-snapshot` / `get-design-template` | Inspect designs/templates |
 | `open-visual-edit` | Open localhost screens |
-| `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Share link, public previews / opt-in |
+| `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Share links and previews |
 | `update-visual-edit-preview` | Set/remove public preview URL per screen |
 | `add-localhost-screens` / `update-screen-source` | Add screens; change source mode |
 | `add-session-replay-screenshots-to-board` | Place private replay captures |
@@ -50,8 +50,9 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames |
 | `edit-design` | Adapt a design/screen |
 | `apply-visual-edit` | Apply deterministic layer edits |
+| clear-edits | Discard pending edits |
 | `move-design-element` | Move a layer between screens |
-| `get-motion-timeline` / `apply-motion-edit` / `remove-motion-timeline` | Read/edit/remove motion timelines |
+| `get-motion-timeline` / `apply-motion-edit` / `remove-motion-timeline` | Manage motion |
 | `create-design` / `generate-design` | Start design / generate screen |
 | `present-design-variants` | Generate 2–5 variants |
 | `view-screen` / `navigate` | Read current screen / move UI |
@@ -62,7 +63,7 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 | `get-native-render-contexts` / `request-native-local-export` / `get-native-local-export` | Export native PNG |
 | `generate-screens` | Plan screens |
 | `take-design-screenshot` / `export-png` | Inspect images / export PNG |
-| `export-html` / `export-hubspot-html` / `export-zip` / `export-design-as-figma-svg` | Export finished work |
+| `export-html` / `export-hubspot-html` / `export-zip` / `export-design-as-figma-svg` | Export designs |
 | `export-coding-handoff` | Export code (7-day bearer URLs); outside agents need approval |
 
 ## Core Rules

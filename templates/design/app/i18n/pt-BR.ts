@@ -1757,6 +1757,20 @@ export default {
       localDescription:
         "Conecte qualquer app local em execução com /visual-edit.",
       warningsToast: "Importação concluída com avisos",
+      pasteUnreadable: "Não foi possível ler as camadas copiadas.",
+      pasteInexact: "Detalhes não colados com exatidão: {{count}}",
+      pasteLayerTypes:
+        "Tipos de camada do {{tool}} colados como quadros simples: {{count}}",
+      pasteImagePlaceholders:
+        "Imagens coladas como marcadores: {{count}}. O {{tool}} não copia dados de imagem.",
+      pasteImagesLinked:
+        "Imagens ainda vinculadas ao {{tool}}: {{count}}. Não foi possível copiá-las para o seu armazenamento de arquivos.",
+      pasteImagesUnsaved:
+        "Imagens que podem deixar de carregar porque o salvamento não foi confirmado: {{count}}",
+      pasteNeedsEditAccess:
+        "Você precisa de acesso de edição para colar neste design.",
+      pastePartialImport:
+        "A colagem falhou e algumas telas podem ter sido criadas. Confira suas telas.",
       figmaSuccess: "Colagem do Figma importada",
       htmlSuccess: "HTML importado",
       uploadSuccess: "Arquivo importado",
@@ -1767,6 +1781,8 @@ export default {
         notHtml: "Cole ou escolha HTML válido para importar.",
         importFailed: "Falha ao importar",
         figmaPasteFailed: "Falha ao importar colagem do Figma",
+        paperPasteFailed: "Falha ao importar a colagem do Paper",
+        wonderPasteFailed: "Falha ao importar a colagem do Wonder",
         uploadFailed: "Falha no upload do arquivo",
         invalidFigFile: "Escolha um arquivo que termine em .fig.",
         unsupportedFileType: "Escolha um arquivo .fig, .html ou .htm.",
@@ -2172,6 +2188,7 @@ export default {
       copyPrompt: "Copiar prompt para seu agente",
       copyAgentPrompt: "Copiar prompt do agente",
       copyFullPrompt: "Copiar o prompt completo",
+      clearEdits: "Limpar edições",
       abortPreview: "Cancelar prévia e interagir",
       agentMessage: "Aplique as edições visuais de estilo pendentes à origem.",
       sentToast: "Atualizações de design enviadas ao agente",
@@ -2186,6 +2203,11 @@ export default {
       copiedToastDescription:
         "Cole no seu agente de programação e peça para aplicar as alterações visuais.",
       abortedToast: "Prévia pendente descartada",
+      clearedToast: "Edições pendentes limpas",
+      localPreviewsClearedToast:
+        "As prévias locais foram descartadas; as edições pendentes de outra pessoa continuam.",
+      clearFailedToast:
+        "Não foi possível limpar as edições pendentes. Tente novamente.",
       interactBlocked:
         "Aplique ou cancele as edições ao vivo pendentes antes de mudar para Interagir.",
       leaveTitle: "Aplicar as atualizações de design antes de sair?",
@@ -2359,12 +2381,16 @@ export default {
         "Clique duas vezes em uma linha na tela para editar o texto",
       eyedropperUnsupported:
         "O conta-gotas não é compatível com este navegador",
+      claimBoardError: "Nao foi possivel mover este quadro para sua conta",
       saveCopyError: "Nao foi possivel salvar uma copia deste design",
       auditRunFailed: "Nao foi possivel executar a auditoria de design",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Os ajustes foram alterados em outro lugar. Atualize o design antes de tentar novamente.",
+      tweakBaselineUnreadable:
+        "Não foi possível ler a referência salva dos ajustes. As alterações estão pausadas até que os dados do design sejam corrigidos.",
+      resetTweakBaseline: "Redefinir referência",
       tweakSaveNotDurable:
         "Os ajustes ainda não foram salvos. Mantenha esta aba aberta e tente novamente.",
       undoSkippedConcurrentEdit: "Desfazer ignorado — outra pessoa moveu isso",
@@ -3567,6 +3593,8 @@ export default {
       fallbackName: "IA",
       setupRequired: "Conecte um modelo de IA para usar agentes",
       startFailed: "Não foi possível iniciar o agente",
+      hostChatUnconfirmed:
+        "Não foi possível confirmar se a mensagem chegou ao chat anfitrião. Confira esse chat antes de tentar novamente.",
       cancelFailed: "Não foi possível interromper o agente",
       busy: "Um agente já está trabalhando nesta conversa",
       error: {

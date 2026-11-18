@@ -139,6 +139,13 @@
       "import": "./dist/dashboard/*.js",
       "default": "./dist/dashboard/*.js"
     },
+    "./app/dashboard-charts/*": {
+      "types": "./dist/app/dashboard-charts/*.d.ts",
+      "browser": "./dist/app/dashboard-charts/*.js",
+      "development": "./dist/app/dashboard-charts/*.js",
+      "import": "./dist/app/dashboard-charts/*.js",
+      "default": "./dist/app/dashboard-charts/*.js"
+    },
     "./data-grid": {
       "types": "./dist/data-grid/index.d.ts",
       "browser": "./dist/data-grid/index.js",

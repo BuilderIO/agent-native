@@ -51,6 +51,7 @@ import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { OrgInfo } from "@agent-native/core/org/types";
 import { serializeFrontmatter } from "@agent-native/core/resources/metadata";
 import { RESOURCE_PACK_MAX_BODY_BYTES } from "@agent-native/core/resources/pack-constants";
+import { isSaveConflict } from "@agent-native/core/save-conflict";
 import { PromptComposer } from "@agent-native/toolkit/composer";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
@@ -108,6 +109,7 @@ import {
   type ResourceSettingsGroupConfig,
 } from "./ResourceSettingsGroups.js";
 import { ResourceTree } from "./ResourceTree.js";
+import type { SaveResourceContent } from "./use-resource-content-save.js";
 
 const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE = "local-workspace-resource";
 
@@ -1814,13 +1816,21 @@ export function ResourcesPanel({
     [updateResource],
   );
 
-  const handleSave = useCallback(
-    (content: string) => {
-      if (!selectedResourceId) return;
-      if (selectedResourceReadOnly) return;
-      updateResource.mutate({ id: selectedResourceId, content });
+  const saveContent = useCallback<SaveResourceContent>(
+    async ({ id, content, expectedRevision }) => {
+      try {
+        return await updateResource.mutateAsync({
+          id,
+          content,
+          expectedRevision,
+        });
+      } catch (error) {
+        // A conflict isn't a failure: the editor asks which version to keep.
+        if (!isSaveConflict(error)) reportWriteFailure(error);
+        throw error;
+      }
     },
-    [updateResource, selectedResourceId, selectedResourceReadOnly],
+    [updateResource],
   );
 
   const handleUploadFiles = useCallback(
@@ -2402,7 +2412,7 @@ export function ResourcesPanel({
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
               <ResourceEditor
                 resource={resourceQuery.data}
-                onSave={handleSave}
+                saveContent={saveContent}
                 view={editorView}
                 onViewChange={setEditorView}
                 hideToolbar

@@ -31,6 +31,14 @@ function makeArgs(
         pendingEditCount: 1,
         status: "ready" as const,
         prompt: "prompt",
+        records: [
+          {
+            kind: "style" as const,
+            key: "style:s:a:1",
+            value: "v",
+            prompt: "prompt",
+          },
+        ],
       },
     },
     pendingVisualEditClearRequestedRef: { current: null },

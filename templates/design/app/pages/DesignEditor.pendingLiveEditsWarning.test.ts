@@ -1,26 +1,19 @@
-import { readFileSync } from "node:fs";
+import { describe, expect, it, vi } from "vitest";
 
-import { describe, expect, it } from "vitest";
-
+import { discardPendingLiveEditCollections } from "./design-editor/pending-edits";
 import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
 
 describe("DesignEditor pending live edits", () => {
   it("clears the pending state after Apply and explicit discard", () => {
-    const source = readDesignEditorSource();
-    const applyHandler = readFileSync(
-      new URL(
-        "./design-editor/commands/apply-pending-visual-styles-with-agent.ts",
-        import.meta.url,
-      ),
-      "utf8",
-    );
-    const discardHandler = source.slice(
-      source.indexOf("const handleAbortPendingVisualStyles"),
-      source.indexOf("const handleCopyPendingVisualStylePrompt"),
-    );
+    const stylesRef = { current: [{ id: "style-1" }, { id: "style-2" }] };
+    const liveRef = { current: [{ id: "live-1" }] };
+    const clearState = vi.fn();
 
-    expect(applyHandler).toContain("clearPendingLiveEditState()");
-    expect(discardHandler).toContain("clearPendingLiveEditState()");
+    discardPendingLiveEditCollections({ stylesRef, liveRef, clearState });
+
+    expect(stylesRef.current).toEqual([]);
+    expect(liveRef.current).toEqual([]);
+    expect(clearState).toHaveBeenCalledOnce();
   });
 
   it("keeps visual-edit sessions on copy unless a host agent can receive the handoff", () => {
@@ -40,7 +33,10 @@ describe("DesignEditor pending live edits", () => {
     const source = readDesignEditorSource();
     const publishCallIndex = source.indexOf("runPublishVisualEditPending({");
     expect(publishCallIndex).toBeGreaterThan(-1);
-    const depsStart = source.indexOf(".then(publish);", publishCallIndex);
+    const depsStart = source.indexOf(
+      "enqueueVisualEditPublication({",
+      publishCallIndex,
+    );
     expect(depsStart).toBeGreaterThan(publishCallIndex);
     const depsEnd = source.indexOf("]);", depsStart);
     const publishCall = source.slice(publishCallIndex, depsStart);
@@ -96,6 +92,6 @@ describe("DesignEditor pending live edits", () => {
     const toolbar = source.slice(toolbarStart, toolbarEnd);
     expect(toolbar).toContain("handleApplyPendingVisualStylesWithAgent");
     expect(toolbar).toContain("handleCopyPendingVisualStylePrompt");
-    expect(toolbar).toContain("handleAbortPendingVisualStyles");
+    expect(toolbar).toContain("handleClearPendingVisualEdits");
   });
 });

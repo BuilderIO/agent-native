@@ -2184,17 +2184,16 @@ async function buildA2AApiKeyAttempts(
   const globalSecret = getGlobalA2ASecret();
   const isOrgMemberDelegation =
     getRequestContext()?.a2aIdentityAssurance === "org-member";
-  if (
-    opts?.userEmail &&
-    !isOrgMemberDelegation &&
-    globalSecret &&
-    (!opts.orgId || opts.orgDomain?.trim())
-  ) {
+  // With no workspace domain the token carries no workspace claim, and the
+  // peer treats the call as the user's personal scope (see caller-auth.ts).
+  if (opts?.userEmail && !isOrgMemberDelegation && globalSecret) {
     add(
-      await signA2AToken(opts.userEmail, opts.orgDomain, undefined, {
-        preferGlobalSecret: true,
-        audience,
-      }),
+      await signA2AToken(
+        opts.userEmail,
+        opts.orgDomain?.trim() || undefined,
+        undefined,
+        { preferGlobalSecret: true, ...(audience ? { audience } : {}) },
+      ),
     );
   }
 

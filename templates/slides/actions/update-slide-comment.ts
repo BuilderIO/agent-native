@@ -1,10 +1,12 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { ensureReviewTables } from "@agent-native/core/review";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { mirrorSlideComments } from "../server/lib/slide-comment-mirror.js";
 
 export default defineAction({
   description:
@@ -69,14 +71,48 @@ export default defineAction({
       await assertAccess("deck", comment.deckId, "editor");
     }
 
+    // Sending the thread's current resolved state alone changes nothing.
+    if (args.content === undefined && nextResolved === undefined) {
+      return { ok: true };
+    }
+
     const updatedAt = new Date().toISOString();
-    const setThreadResolved = async (resolved: boolean) => {
-      await db.transaction(async (tx) => {
-        // Reply creation takes this same thread lock before checking
-        // resolution, so resolution cannot race an insert.
-        await tx
-          .select({ id: schema.slideComments.id })
-          .from(schema.slideComments)
+    await ensureReviewTables();
+    await db.transaction(async (tx) => {
+      // Adding and deleting comments lock the deck first, as does the copy
+      // into the review kit, so a reply can't land partway through resolving
+      // its thread, and the copy never waits on rows this holds.
+      await tx
+        .select({ id: schema.decks.id })
+        .from(schema.decks)
+        .where(eq(schema.decks.id, comment.deckId))
+        .for("update");
+      const changedIds = new Set<string>();
+
+      if (args.content !== undefined) {
+        const updated = await tx
+          .update(schema.slideComments)
+          .set({ content: args.content, updatedAt })
+          .where(
+            and(
+              eq(schema.slideComments.id, args.id),
+              eq(schema.slideComments.deckId, comment.deckId),
+            ),
+          )
+          .returning({ id: schema.slideComments.id });
+        if (updated.length === 0) {
+          fail(`Comment not found: ${args.id}`, {
+            errorCode: "not_found",
+            statusCode: 404,
+          });
+        }
+        changedIds.add(args.id);
+      }
+
+      if (nextResolved !== undefined) {
+        const resolvedRows = await tx
+          .update(schema.slideComments)
+          .set({ resolved: nextResolved, updatedAt })
           .where(
             and(
               eq(schema.slideComments.deckId, comment.deckId),
@@ -84,43 +120,15 @@ export default defineAction({
               eq(schema.slideComments.threadId, comment.threadId),
             ),
           )
-          .for("update");
-        await tx
-          .update(schema.slideComments)
-          .set({ resolved, updatedAt })
-          .where(
-            and(
-              eq(schema.slideComments.deckId, comment.deckId),
-              eq(schema.slideComments.slideId, comment.slideId),
-              eq(schema.slideComments.threadId, comment.threadId),
-            ),
-          );
-      });
-      return { ok: true, resolved };
-    };
-
-    if (args.content !== undefined) {
-      const content = args.content;
-      const updated = await db
-        .update(schema.slideComments)
-        .set({ content, updatedAt })
-        .where(
-          and(
-            eq(schema.slideComments.id, args.id),
-            eq(schema.slideComments.deckId, comment.deckId),
-          ),
-        )
-        .returning({ id: schema.slideComments.id });
-      if (updated.length === 0) {
-        fail(`Comment not found: ${args.id}`, {
-          errorCode: "not_found",
-          statusCode: 404,
-        });
+          .returning({ id: schema.slideComments.id });
+        for (const row of resolvedRows) changedIds.add(row.id);
       }
-    }
+
+      await mirrorSlideComments(tx, comment.deckId, [...changedIds]);
+    });
 
     if (nextResolved !== undefined) {
-      return setThreadResolved(nextResolved);
+      return { ok: true, resolved: nextResolved };
     }
 
     return { ok: true };

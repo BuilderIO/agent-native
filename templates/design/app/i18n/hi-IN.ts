@@ -1735,6 +1735,19 @@ export default {
         "जल्द आ रहा है: repository से screens और components सीधे import करें।",
       localDescription: "/visual-edit से किसी भी चल रहे local app को connect करें।",
       warningsToast: "Import warnings के साथ पूरा हुआ",
+      pasteUnreadable: "कॉपी की गई लेयर पढ़ी नहीं जा सकीं।",
+      pasteInexact: "ठीक से पेस्ट न हुए विवरण: {{count}}",
+      pasteLayerTypes:
+        "सामान्य फ़्रेम के रूप में पेस्ट किए गए {{tool}} लेयर प्रकार: {{count}}",
+      pasteImagePlaceholders:
+        "प्लेसहोल्डर के रूप में पेस्ट की गई छवियाँ: {{count}}। {{tool}} छवि डेटा कॉपी नहीं करता।",
+      pasteImagesLinked:
+        "अब भी {{tool}} से जुड़ी छवियाँ: {{count}}। उन्हें आपके फ़ाइल स्टोरेज में कॉपी नहीं किया जा सका।",
+      pasteImagesUnsaved:
+        "वे छवियाँ जो सहेजे जाने की पुष्टि न होने के कारण लोड होना बंद कर सकती हैं: {{count}}",
+      pasteNeedsEditAccess: "इस डिज़ाइन में पेस्ट करने के लिए संपादन की अनुमति चाहिए।",
+      pastePartialImport:
+        "पेस्ट विफल रहा और कुछ स्क्रीन बन गई हो सकती हैं। अपनी स्क्रीन जाँचें।",
       figmaSuccess: "Figma paste import हो गया",
       htmlSuccess: "HTML import हो गया",
       uploadSuccess: "File import हो गई",
@@ -1745,6 +1758,8 @@ export default {
         notHtml: "Import करने के लिए valid HTML paste करें या चुनें।",
         importFailed: "आयात विफल रहा",
         figmaPasteFailed: "Figma paste आयात विफल रहा",
+        paperPasteFailed: "Paper पेस्ट आयात विफल रहा",
+        wonderPasteFailed: "Wonder पेस्ट आयात विफल रहा",
         uploadFailed: "File upload विफल रहा",
         invalidFigFile: ".fig पर समाप्त होने वाली file चुनें।",
         unsupportedFileType: "कोई .fig, .html या .htm फ़ाइल चुनें।",
@@ -2143,6 +2158,7 @@ export default {
       copyPrompt: "Prompt अपने agent को कॉपी करें",
       copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
       copyFullPrompt: "पूरा प्रॉम्प्ट कॉपी करें",
+      clearEdits: "बदल मिटाएँ",
       abortPreview: "Preview रोकें और interact करें",
       agentMessage: "लंबित visual style edits को source पर लागू करें।",
       sentToast: "Design updates agent को भेजे गए",
@@ -2157,6 +2173,10 @@ export default {
       copiedToastDescription:
         "इसे अपने कोडिंग एजेंट में पेस्ट करें और उससे विज़ुअल बदलाव लागू करने को कहें।",
       abortedToast: "लंबित preview हटा दिया गया",
+      clearedToast: "लंबित बदलाव मिटा दिए गए",
+      localPreviewsClearedToast:
+        "स्थानीय प्रीव्यू हटाए गए; दूसरे सहयोगी के लंबित बदलाव अब भी बाकी हैं।",
+      clearFailedToast: "लंबित बदलाव मिटाए नहीं जा सके। फिर से कोशिश करें।",
       interactBlocked: "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
       leaveTitle: "छोड़ने से पहले design updates लागू करें?",
       leaveDescriptionOne:
@@ -2316,12 +2336,16 @@ export default {
       repeatRowPickOnCanvas:
         "टेक्स्ट बदलने के लिए कैनवास पर किसी पंक्ति पर डबल-क्लिक करें",
       eyedropperUnsupported: "इस ब्राउज़र में आई-ड्रॉपर समर्थित नहीं है",
+      claimBoardError: "इस board को आपके खाते में नहीं ले जाया जा सका",
       saveCopyError: "इस design की copy सहेजी नहीं जा सकी",
       auditRunFailed: "design audit चलाया नहीं जा सका",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "ट्वीक्स कहीं और बदल दिए गए हैं। फिर से प्रयास करने से पहले डिज़ाइन रीफ़्रेश करें।",
+      tweakBaselineUnreadable:
+        "सहेजा गया tweak baseline पढ़ा नहीं जा सका। डिज़ाइन डेटा ठीक होने तक tweak बदलाव रोक दिए गए हैं.",
+      resetTweakBaseline: "आधार रीसेट करें",
       tweakSaveNotDurable:
         "ट्वीक्स अभी सहेजे नहीं गए हैं। इस टैब को खुला रखें और फिर से प्रयास करें।",
       undoSkippedConcurrentEdit:
@@ -3494,6 +3518,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "एजेंट इस्तेमाल करने के लिए एक AI मॉडल जोड़ें",
       startFailed: "एजेंट शुरू नहीं हो सका",
+      hostChatUnconfirmed:
+        "पुष्टि नहीं हो सकी कि संदेश होस्ट चैट तक पहुँचा। दोबारा प्रयास करने से पहले होस्ट चैट देखें।",
       cancelFailed: "एजेंट को रोका नहीं जा सका",
       busy: "इस थ्रेड पर पहले से एक एजेंट काम कर रहा है",
       error: {

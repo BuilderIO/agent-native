@@ -325,6 +325,10 @@ export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   "tool_history.actor_email",
   "tool_history.owner_email",
   "agent_resource_versions.created_by",
+  // Per-turn grants, chat-turn admissions and mint counters expire within minutes; they lapse instead of rekeying.
+  "mcp_turn_grants.owner_email",
+  "mcp_chat_turn_admissions.owner",
+  "mcp_chat_turn_mints.owner",
   // Creator attribution on a Vault key, kept as written; the key is owned by its scope.
   "app_secrets.created_by",
   "agent_review_comments.created_by",

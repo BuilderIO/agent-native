@@ -445,6 +445,28 @@ export function isMcpDirectoryWidgetWriteEmbed(): boolean {
   );
 }
 
+/**
+ * Drop this tab's embed credential, for when the tab moves from a capability
+ * session to the signed-in account. The fetch interceptor otherwise keeps
+ * sending the old credential, and the server refuses it outside its target.
+ */
+export function clearEmbedAuthToken(): void {
+  const win = browserWindow();
+  if (!win) return;
+  const storageKey = currentEmbedTokenStorageKey();
+  if (storageKey === null) return;
+  const hadToken = memoryTokens.delete(storageKey);
+  renewedFromUrlToken = null;
+  try {
+    win.sessionStorage.removeItem(storageKey);
+    win.sessionStorage.removeItem(`${storageKey}:renewed-from`);
+    // coercion-ok: without session storage only the in-memory token existed, and it is gone.
+  } catch {
+    // Session storage may be unavailable; the in-memory token is gone.
+  }
+  if (hadToken && installed) announceFetchTransportChange();
+}
+
 export function isEmbedAuthActive(): boolean {
   const win = browserWindow();
   if (!win) return false;

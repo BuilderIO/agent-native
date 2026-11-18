@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+import { isProviderInteractiveScope } from "../provider-api/interactive-scope.js";
 import {
   getRequestOrgId,
   getRequestContext,
@@ -32,6 +33,22 @@ const claimTaskExecutionLeaseMock = vi.hoisted(() =>
 );
 const renewTaskExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
 const releaseTurnExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
+
+const chatTurn = vi.hoisted(() => ({
+  admit: vi.fn(
+    async (..._args: unknown[]): Promise<unknown> => ({ status: "absent" }),
+  ),
+  read: vi.fn(
+    async (..._args: unknown[]): Promise<unknown> => ({
+      status: "absent",
+    }),
+  ),
+}));
+vi.mock("../mcp/chat-turn-store.js", () => ({
+  MCP_CHAT_TURN_FIELD: "__agentNativeMcpChatTurn",
+  admitMcpChatTurn: chatTurn.admit,
+  readMcpChatTurn: chatTurn.read,
+}));
 
 vi.mock("../agent/run-store.js", () => ({
   claimTaskExecutionLease: claimTaskExecutionLeaseMock,
@@ -1104,6 +1121,175 @@ describe("handleJsonRpc", () => {
     expect(task.status.message.parts[0].text).toBe("custom response");
   });
 
+  it("admits a chat-turn proof, hides it from the handler, and scopes the handler to the grant", async () => {
+    const seen: Array<{ metadata: unknown; interactive: boolean }> = [];
+    const config = {
+      ...customHandler,
+      handler: async (message: Message) => {
+        seen.push({
+          metadata: message.metadata,
+          interactive: isProviderInteractiveScope(),
+        });
+        return {
+          message: { role: "agent", parts: [{ type: "text", text: "ok" }] },
+        } as never;
+      },
+    };
+    const send = (claim?: unknown) => {
+      const event = mockEvent();
+      event.context = {
+        __a2aVerifiedEmail: "alice@example.org",
+        __a2aIdentityAssurance: "user",
+      };
+      return handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 7,
+          method: "message/send",
+          params: {
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: "hi" }],
+              ...(claim
+                ? { metadata: { __agentNativeMcpChatTurn: claim, keep: 1 } }
+                : {}),
+            },
+          },
+        },
+        event,
+        config,
+      );
+    };
+
+    await send();
+    expect(seen.at(-1)).toMatchObject({ interactive: false });
+    expect(chatTurn.admit).toHaveBeenLastCalledWith(
+      undefined,
+      expect.anything(),
+    );
+
+    chatTurn.read.mockResolvedValueOnce({
+      status: "admitted",
+      grant: {
+        owner: "alice@example.org",
+        appId: "test-app",
+        runId: "t",
+        turnId: "t",
+        expiresAt: Date.now() + 60_000,
+      },
+    });
+    await send({ v: "claim" });
+    expect(chatTurn.admit).toHaveBeenLastCalledWith(
+      { v: "claim" },
+      expect.objectContaining({
+        owner: "alice@example.org",
+        assurance: "user",
+      }),
+    );
+    expect(seen.at(-1)).toEqual({ metadata: { keep: 1 }, interactive: true });
+  });
+
+  it("fails the task instead of running it when a chat-turn proof is refused", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const send = () => {
+      const event = mockEvent();
+      event.context = {
+        __a2aVerifiedEmail: "alice@example.org",
+        __a2aIdentityAssurance: "user",
+      };
+      return handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 8,
+          method: "message/send",
+          params: {
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: "hi" }],
+              metadata: { __agentNativeMcpChatTurn: { v: "claim" } },
+            },
+          },
+        },
+        event,
+        config,
+      );
+    };
+
+    chatTurn.admit.mockResolvedValueOnce({
+      status: "refused",
+      reason: "replay",
+    });
+    const replayed = await send();
+    expect(replayed.error?.message).toContain("replay");
+
+    chatTurn.read.mockResolvedValueOnce({
+      status: "refused",
+      reason: "durable-invalid-or-expired",
+    });
+    const unreadable = await send();
+    expect(unreadable.error?.message).toContain("durable-invalid-or-expired");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("runs an ordinary verified task when the chat-turn lookup is unavailable", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice@example.org",
+      __a2aIdentityAssurance: "user",
+    };
+    chatTurn.read.mockResolvedValueOnce({
+      status: "refused",
+      reason: "storage-or-signing-unavailable",
+    });
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 9,
+        method: "message/send",
+        params: {
+          message: { role: "user", parts: [{ type: "text", text: "hi" }] },
+        },
+      },
+      event,
+      { ...customHandler, handler },
+    );
+    expect(result.error).toBeUndefined();
+    expect(handler).toHaveBeenCalled();
+  });
+
+  it("fails a task that presented a proof when the chat-turn lookup is unavailable", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice@example.org",
+      __a2aIdentityAssurance: "user",
+    };
+    chatTurn.read.mockResolvedValueOnce({
+      status: "refused",
+      reason: "storage-or-signing-unavailable",
+    });
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 10,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+            metadata: { __agentNativeMcpChatTurn: { v: "claim" } },
+          },
+        },
+      },
+      event,
+      { ...customHandler, handler },
+    );
+    expect(result.error?.message).toContain("storage-or-signing-unavailable");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("reuses an authenticated owner's task for duplicate message/send keys", async () => {
     const handler = vi.fn(customHandler.handler!);
     const config = { ...customHandler, handler };
@@ -1935,6 +2121,38 @@ describe("handleJsonRpc", () => {
     expect(events).toHaveLength(1);
     expect(events[0].error).toMatchObject({ code: -32001 });
     expect(events[0].result).toBeUndefined();
+  });
+
+  it("never hands a streamed task a chat-turn proof", async () => {
+    const seen: unknown[] = [];
+    const event = mockEvent();
+    event.context = { __a2aVerifiedEmail: "alice@example.org" };
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 36,
+        method: "message/stream",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+            metadata: { __agentNativeMcpChatTurn: { v: "claim" }, keep: 1 },
+          },
+        },
+      },
+      event,
+      {
+        ...customHandler,
+        streaming: true,
+        handler: async (message: Message) => {
+          seen.push(message.metadata);
+          return {
+            message: { role: "agent", parts: [{ type: "text", text: "ok" }] },
+          } as never;
+        },
+      },
+    );
+    expect(seen).toEqual([{ keep: 1 }]);
   });
 
   it("preserves current submission behavior without an authenticated owner", async () => {

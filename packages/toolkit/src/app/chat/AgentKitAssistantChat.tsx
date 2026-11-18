@@ -4917,7 +4917,11 @@ const AgentKitAssistantChatBody = forwardRef<
           {...(props.className === undefined
             ? {}
             : { className: props.className })}
-          composerProps={{ attachmentsEnabled: fileStorageConfigured }}
+          composerProps={{
+            attachmentsEnabled:
+              fileStorageConfigured &&
+              props.composerAttachmentsEnabled !== false,
+          }}
           hasRenderedMessages={hasRenderedMessages}
           {...(props.transcriptLayout === undefined
             ? {}
@@ -5022,6 +5026,8 @@ function AgentKitAssistantEmptyState({ threadId }: { threadId: string }) {
             <AgentKitSuggestedPrompts
               suggestions={promptSuggestions}
               size={surface.props.emptyStateSuggestionSize}
+              layout={surface.props.emptyStateSuggestionsLayout}
+              renderSuggestion={surface.props.renderEmptyStateSuggestion}
               disabled={
                 !surface.canChat ||
                 Boolean(surface.props.composerDisabled) ||
@@ -6051,7 +6057,11 @@ function AgentKitComposerSurface({
           announcePendingSubmission={!isThinkingVisibleInTranscript}
           onSubmissionPendingChange={onComposerSubmissionPendingChange}
           contextItems={composerContextItems.visible}
-          contextMenuItems={composerContext?.menuItems}
+          contextMenuItems={
+            props.showContextPicker === false
+              ? undefined
+              : composerContext?.menuItems
+          }
           onRemoveContextItem={(key) => {
             if (providerContextKeys.has(key))
               composerContext?.onRemoveContextItem(key);
@@ -6089,8 +6099,11 @@ function AgentKitComposerSurface({
           agentOnly={props.hostedHarness}
           onAgentChange={props.onAgentChange}
           showModelSelector={props.showModelSelector}
+          enterSubmitMode={props.enterSubmitMode}
           planModeDisabled={props.planModeDisabled}
           layoutVariant={props.composerLayoutVariant}
+          richTextEnabled={props.richTextEnabled}
+          textBlockSeparator={props.textBlockSeparator}
           plusMenuMode={props.plusMenuMode}
           placeholder={composerPlaceholder({
             props,
@@ -6118,9 +6131,11 @@ function AgentKitComposerSurface({
                   </a>
                 </span>
               ) : null}
-              <AgentSelectToggle
-                reservedContextItems={composerContext?.contextItems}
-              />
+              {props.showContextPicker !== false ? (
+                <AgentSelectToggle
+                  reservedContextItems={composerContext?.contextItems}
+                />
+              ) : null}
               {props.composerToolbarSlot}
             </>
           }
@@ -6132,8 +6147,11 @@ function AgentKitComposerSurface({
             props.showModelSelector !== false &&
             props.availableModels === undefined
           }
-          attachmentsEnabled={fileStorageConfigured}
-          {...(!fileStorageConfigured
+          attachmentsEnabled={
+            fileStorageConfigured && props.composerAttachmentsEnabled !== false
+          }
+          {...(!fileStorageConfigured &&
+          props.composerAttachmentsEnabled !== false
             ? { onAttachmentRequest: requestFileStorage }
             : {})}
           contextButtonTooltipDisabled={fileStoragePromptOpen}
@@ -6221,6 +6239,7 @@ function AgentKitSuggestedPrompts({
   size = "compact",
   layout,
   variant,
+  renderSuggestion,
 }: {
   suggestions: AgentSuggestionInput[];
   disabled: boolean;
@@ -6229,6 +6248,9 @@ function AgentKitSuggestedPrompts({
   size?: "compact" | "comfortable";
   layout?: "wrap" | "single-line" | "stacked";
   variant?: "pill" | "filled";
+  renderSuggestion?: (
+    suggestion: Exclude<AgentSuggestionInput, string>,
+  ) => React.ReactNode;
 }) {
   const t = useT();
   return (
@@ -6252,6 +6274,7 @@ function AgentKitSuggestedPrompts({
       size={size}
       layout={layout}
       variant={variant}
+      renderSuggestion={renderSuggestion}
     />
   );
 }

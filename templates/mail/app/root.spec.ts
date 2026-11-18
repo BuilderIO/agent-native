@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LABELS_QUERY_KEY } from "@/hooks/use-emails";
 import { INBOX_THREADS_QUERY_KEY } from "@/hooks/use-inbox-threads";
+import { MAIL_INTEGRATION_STATUS_QUERY_KEY } from "@/lib/integration-status";
 import { shouldInvalidateMailQueryForActionEvent } from "@/lib/sync-invalidation";
 
 vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
@@ -110,6 +111,25 @@ describe("createMailSyncEventHandler", () => {
     );
     queryClient.clear();
   });
+
+  it.each(["save-integration-key", "delete-integration-key"])(
+    "refreshes integration status and data after %s in another tab",
+    async (key) => {
+      const queryClient = new QueryClient();
+      const invalidate = vi
+        .spyOn(queryClient, "invalidateQueries")
+        .mockResolvedValue(undefined);
+      const handleEvent = createMailSyncEventHandler(queryClient);
+
+      handleEvent({ source: "action", type: "action-change", key });
+      await Promise.resolve();
+
+      expect(
+        invalidate.mock.calls.map(([filters]) => filters?.queryKey),
+      ).toEqual([MAIL_INTEGRATION_STATUS_QUERY_KEY, ["integration-data"]]);
+      queryClient.clear();
+    },
+  );
 
   it("ignores unrelated action completions", async () => {
     const queryClient = new QueryClient();

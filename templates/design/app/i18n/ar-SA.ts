@@ -1728,6 +1728,16 @@ export default {
       githubDescription: "قريبا: استيراد الشاشات والمكونات مباشرة من مستودع.",
       localDescription: "وصّل أي تطبيق محلي قيد التشغيل باستخدام /visual-edit.",
       warningsToast: "اكتمل الاستيراد مع تحذيرات",
+      pasteUnreadable: "تعذّرت قراءة الطبقات المنسوخة.",
+      pasteInexact: "تفاصيل لم تُلصق بدقة: {{count}}",
+      pasteLayerTypes: "أنواع طبقات {{tool}} الملصقة كإطارات بسيطة: {{count}}",
+      pasteImagePlaceholders:
+        "الصور الملصقة كعناصر نائبة: {{count}}. لا ينسخ {{tool}} بيانات الصور.",
+      pasteImagesLinked:
+        "الصور التي ما زالت مرتبطة بـ {{tool}}: {{count}}. تعذّر نسخها إلى مساحة تخزين ملفاتك.",
+      pasteImagesUnsaved: "صور قد يتوقف تحميلها لأنه لم يتأكد حفظها: {{count}}",
+      pasteNeedsEditAccess: "تحتاج إلى صلاحية التعديل للصق في هذا التصميم.",
+      pastePartialImport: "فشل اللصق وربما أُنشئت بعض الشاشات. تحقق من شاشاتك.",
       figmaSuccess: "تم استيراد لصق Figma",
       htmlSuccess: "تم استيراد HTML",
       uploadSuccess: "تم استيراد الملف",
@@ -1737,6 +1747,8 @@ export default {
         notHtml: "الصق أو اختر HTML صالحا للاستيراد.",
         importFailed: "فشل الاستيراد",
         figmaPasteFailed: "فشل استيراد لصق Figma",
+        paperPasteFailed: "فشل استيراد لصق Paper",
+        wonderPasteFailed: "فشل استيراد لصق Wonder",
         uploadFailed: "فشل رفع الملف",
         invalidFigFile: "اختر ملفا ينتهي بـ .fig.",
         unsupportedFileType: "اختر ملف ‎.fig‎ أو ‎.html‎ أو ‎.htm‎.",
@@ -2136,6 +2148,7 @@ export default {
       copyPrompt: "نسخ الموجه إلى وكيلك",
       copyAgentPrompt: "نسخ موجه الوكيل",
       copyFullPrompt: "نسخ الموجه الكامل",
+      clearEdits: "مسح التعديلات",
       abortPreview: "إلغاء المعاينة والتفاعل",
       agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
       sentToast: "تم إرسال تحديثات التصميم إلى الوكيل",
@@ -2150,6 +2163,10 @@ export default {
       copiedToastDescription:
         "الصقه في وكيل البرمجة واطلب منه تطبيق التغييرات المرئية.",
       abortedToast: "تم تجاهل المعاينة المعلقة",
+      clearedToast: "تم مسح التعديلات المعلقة",
+      localPreviewsClearedToast:
+        "تم مسح المعاينات المحلية؛ ولا تزال تعديلات مساهم آخر معلّقة.",
+      clearFailedToast: "تعذر مسح التعديلات المعلقة. حاول مرة أخرى.",
       interactBlocked:
         "طبّق التعديلات المباشرة المعلقة أو ألغها قبل الانتقال إلى التفاعل.",
       leaveTitle: "تطبيق تحديثات التصميم قبل المغادرة؟",
@@ -2323,12 +2340,16 @@ export default {
       repeatListNotEditable: "لم يتمكن من تحديث هذه القائمة المتكررة",
       repeatRowPickOnCanvas: "انقر نقرًا مزدوجًا على صف في اللوحة لتعديل نصه",
       eyedropperUnsupported: "أداة القطارة غير مدعومة في هذا المتصفح",
+      claimBoardError: "تعذر نقل هذه اللوحة إلى حسابك",
       saveCopyError: "تعذر حفظ نسخة من هذا التصميم",
       auditRunFailed: "تعذر تشغيل تدقيق التصميم",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "تم تغيير التعديلات في مكان آخر. حدّث التصميم قبل المحاولة مرة أخرى.",
+      tweakBaselineUnreadable:
+        "تعذّرت قراءة خط الأساس المحفوظ للتعديلات. تم إيقاف تغييرات التعديلات مؤقتًا حتى إصلاح بيانات التصميم.",
+      resetTweakBaseline: "إعادة تعيين خط الأساس",
       tweakSaveNotDurable:
         "لم تُحفظ التعديلات بعد. أبقِ علامة التبويب هذه مفتوحة وحاول مرة أخرى.",
       undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
@@ -3516,6 +3537,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "اربط نموذج ذكاء اصطناعي لاستخدام الوكلاء",
       startFailed: "تعذّر تشغيل الوكيل",
+      hostChatUnconfirmed:
+        "تعذّر تأكيد وصول الرسالة إلى محادثة المضيف. تحقّق من محادثة المضيف قبل المحاولة مجددًا.",
       cancelFailed: "تعذّر إيقاف الوكيل",
       busy: "يعمل وكيل على هذه المحادثة بالفعل",
       error: {

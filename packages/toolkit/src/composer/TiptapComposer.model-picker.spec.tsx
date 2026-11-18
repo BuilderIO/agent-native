@@ -175,9 +175,13 @@ const builderGroups: Groups = [
 
 function Harness({
   withCatalog = true,
+  builder,
   ...props
 }: Partial<React.ComponentProps<typeof TiptapComposer>> & {
   withCatalog?: boolean;
+  builder?: React.ComponentProps<
+    typeof ComposerRuntimeAdaptersProvider
+  >["adapters"]["builder"];
 }) {
   const runtime = useLocalRuntime(emptyChatModelAdapter);
   const composer = (
@@ -205,7 +209,7 @@ function Harness({
       <TooltipProvider>
         {withCatalog ? (
           <ComposerRuntimeAdaptersProvider
-            adapters={{ models: { describe: describeModel } }}
+            adapters={{ models: { describe: describeModel }, builder }}
           >
             {composer}
           </ComposerRuntimeAdaptersProvider>
@@ -830,6 +834,44 @@ describe("TiptapComposer model picker", () => {
     expect(
       menu.querySelector('[data-agent-composer-model-section="effort"]'),
     ).toBeNull();
+  });
+
+  it("drops the free-credit caption from the Builder choice when the host offers no credits", async () => {
+    const renderUnconnected = (creditsOffered?: () => boolean) =>
+      act(() =>
+        root.render(
+          <Harness
+            availableModels={[
+              {
+                engine: "anthropic",
+                label: "Claude",
+                models: ["claude-sonnet-5-5"],
+                configured: false,
+              },
+            ]}
+            selectedModel="claude-sonnet-5-5"
+            selectedEngine="anthropic"
+            onConnectProvider={vi.fn()}
+            builder={{
+              BuilderConnectPopover: ({ children }) => <>{children}</>,
+              ...(creditsOffered ? { creditsOffered } : {}),
+            }}
+          />,
+        ),
+      );
+    renderUnconnected();
+    let menu = await openPicker();
+    expect(menu.textContent).toContain("Use Builder.io");
+    expect(menu.textContent).toContain(
+      "Free credits for Claude, OpenAI & Gemini",
+    );
+    act(() => root.unmount());
+    root = createRoot(container);
+
+    renderUnconnected(() => false);
+    menu = await openPicker();
+    expect(menu.textContent).toContain("Use Builder.io");
+    expect(menu.textContent).not.toMatch(/free credits/i);
   });
 
   it("shows only the setup label, with no effort, when nothing is connected", async () => {

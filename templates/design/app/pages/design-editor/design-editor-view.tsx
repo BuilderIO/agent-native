@@ -369,6 +369,7 @@ export function renderDesignEditorView({
     canvasFrameGeometryById,
     unsavedChangeCount,
     retryUnsavedChanges,
+    tweakMutationsEnabled,
   } = editorFilesAndSaving;
   const {
     responsiveEditScope,
@@ -1712,7 +1713,8 @@ export function renderDesignEditorView({
     files: documentColorFiles,
     tweaks,
     tweakValues: tweakSelections,
-    onTweakChange: canEditDesign ? handleTweakChange : undefined,
+    onTweakChange:
+      canEditDesign && tweakMutationsEnabled ? handleTweakChange : undefined,
     activeTool,
     scaleToolControls: canEditDesign ? scaleToolControls : undefined,
     onCreateScreenFromPreset: canEditDesign

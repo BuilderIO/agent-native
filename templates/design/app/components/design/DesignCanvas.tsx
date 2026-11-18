@@ -3681,6 +3681,11 @@ export function DesignCanvas({
   }, [centerInteractPreview, deviceFrame, contentKey, previewWidthPx]);
 
   const designStylesheets = useDesignStylesheets();
+  // Interact bakes only the values current when its document is built; later
+  // knob changes reach its tweaks bridge as the replayed `tweak-values`
+  // message, so they never reload the frame.
+  const latestTweakValuesRef = useRef(tweakValues);
+  latestTweakValuesRef.current = tweakValues;
   const srcdoc = useMemo(() => {
     if (rawExternalPreviewUrl) return undefined;
     // Interact runs the design as authored. Its document carries the theme and
@@ -3695,6 +3700,7 @@ export function DesignCanvas({
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
         heightMode: screenHeightMode,
+        tweakValues: latestTweakValuesRef.current,
       });
       return inlineDesignStylesheets(interactDocument, designStylesheets);
     }

@@ -1704,6 +1704,16 @@ export default {
       githubDescription: "即将推出：直接从仓库导入屏幕和组件。",
       localDescription: "使用 /visual-edit 连接任何正在运行的本地 app。",
       warningsToast: "导入完成但有警告",
+      pasteUnreadable: "无法读取复制的图层。",
+      pasteInexact: "未能精确粘贴的细节：{{count}}",
+      pasteLayerTypes: "以普通框架粘贴的 {{tool}} 图层类型：{{count}}",
+      pasteImagePlaceholders:
+        "以占位符粘贴的图片：{{count}}。{{tool}} 不会复制图片数据。",
+      pasteImagesLinked:
+        "仍链接到 {{tool}} 的图片：{{count}}。无法将它们复制到你的文件存储。",
+      pasteImagesUnsaved: "因无法确认已保存而可能无法继续加载的图片：{{count}}",
+      pasteNeedsEditAccess: "粘贴到此设计需要编辑权限。",
+      pastePartialImport: "粘贴失败，可能已创建部分画面。请检查你的画面。",
       figmaSuccess: "已导入 Figma 粘贴内容",
       htmlSuccess: "已导入 HTML",
       uploadSuccess: "已导入文件",
@@ -1713,6 +1723,8 @@ export default {
         notHtml: "请粘贴或选择有效的 HTML 进行导入。",
         importFailed: "导入失败",
         figmaPasteFailed: "Figma 粘贴导入失败",
+        paperPasteFailed: "Paper 粘贴导入失败",
+        wonderPasteFailed: "Wonder 粘贴导入失败",
         uploadFailed: "文件上传失败",
         invalidFigFile: "请选择以 .fig 结尾的文件。",
         unsupportedFileType: "请选择 .fig、.html 或 .htm 文件。",
@@ -2103,6 +2115,7 @@ export default {
       copyPrompt: "将提示复制给你的代理",
       copyAgentPrompt: "复制代理提示",
       copyFullPrompt: "复制完整提示",
+      clearEdits: "清除编辑",
       abortPreview: "中止预览并互动",
       agentMessage: "将待处理的视觉样式编辑应用到源文件。",
       sentToast: "设计更新已发送给代理",
@@ -2117,6 +2130,10 @@ export default {
       copiedToastDescription:
         "将其粘贴到你的编程代理中，并让它应用这些视觉更改。",
       abortedToast: "待处理的预览已丢弃",
+      clearedToast: "已清除待处理的编辑",
+      localPreviewsClearedToast:
+        "本地预览已清除；其他协作者的待处理编辑仍保留。",
+      clearFailedToast: "无法清除待处理的编辑，请重试。",
       interactBlocked: "请先应用或中止待处理的实时编辑，再切换到互动模式。",
       leaveTitle: "离开前应用设计更新？",
       leaveDescriptionOne:
@@ -2262,11 +2279,15 @@ export default {
       repeatListNotEditable: "无法更新此重复列表",
       repeatRowPickOnCanvas: "在画布上双击某一行以编辑其文本",
       eyedropperUnsupported: "此浏览器不支持取色器",
+      claimBoardError: "无法将此画板移到你的账户",
       saveCopyError: "无法保存此设计的副本",
       auditRunFailed: "无法运行设计审核",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict: "微调设置已在其他位置更改。请刷新设计后重试。",
+      tweakBaselineUnreadable:
+        "无法读取已保存的微调基线。修复设计数据前，微调更改已暂停。",
+      resetTweakBaseline: "重置基准",
       tweakSaveNotDurable: "微调设置尚未保存。请保持此标签页打开并重试。",
       undoSkippedConcurrentEdit: "已跳过撤消 — 其他人移动了该内容",
       redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",
@@ -3400,6 +3421,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "连接 AI 模型后才能使用智能体",
       startFailed: "无法启动智能体",
+      hostChatUnconfirmed:
+        "无法确认消息是否已送达宿主聊天。请先检查宿主聊天，再重试。",
       cancelFailed: "无法停止智能体",
       busy: "已有智能体正在处理此讨论",
       error: {

@@ -90,6 +90,7 @@ import resolveIntegrationSourceContext from "./resolve-integration-source-contex
 import restoreStarterWorkspaceResources from "./restore-starter-workspace-resources.js";
 import revokeVaultGrant from "./revoke-vault-grant.js";
 import revokeWorkspaceResourceGrant from "./revoke-workspace-resource-grant.js";
+import routeAppIntent from "./route-app-intent.js";
 import scaffoldWorkspaceApp from "./scaffold-workspace-app.js";
 import searchAgentThreads from "./search-agent-threads.js";
 import sendCodeAgentRemoteCommand from "./send-code-agent-remote-command.js";
@@ -200,6 +201,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "request-vault-secret": requestVaultSecret,
   "revoke-vault-grant": revokeVaultGrant,
   "revoke-workspace-resource-grant": revokeWorkspaceResourceGrant,
+  "route-app-intent": routeAppIntent,
   "restore-starter-workspace-resources": restoreStarterWorkspaceResources,
   "scaffold-workspace-app": scaffoldWorkspaceApp,
   "search-agent-threads": searchAgentThreads,

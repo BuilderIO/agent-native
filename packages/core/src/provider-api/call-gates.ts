@@ -1,0 +1,180 @@
+import type { ProviderApiRuntimeOptions } from "./index.js";
+
+/**
+ * Provider call gates: deployment-owned admission for provider requests.
+ *
+ * A gate claims requests by provider id or URL and can refuse them (a pause
+ * switch), debit them against a budget, or hold them for a rate limit. Every
+ * provider-api request path consults the registry: the named-provider request,
+ * custom providers, docs fetches, and pagination. With no gate registered the
+ * request path behaves exactly as without this module.
+ */
+
+/** What a gate is asked to match. */
+export interface ProviderCallGateTarget {
+  /** The provider id the caller named; absent for a bare transport request. */
+  providerId?: string | undefined;
+  /** The absolute request URL; absent for the check before the URL resolves. */
+  url?: string | undefined;
+}
+
+/** One provider request, as a gate sees it when preparing its admission. */
+export interface ProviderCallGateRequest {
+  /** The provider id the caller named, when the request came through one. */
+  providerId: string | undefined;
+  url: string;
+  method: string;
+  /** The caller's request path, or the absolute URL when there is none. */
+  path: string;
+  body: unknown;
+  /** The app the request is attributed to. */
+  appId: string;
+  accountId: string | undefined;
+  connectionId: string | null;
+  /** The provider runtime options of the request, when it came through one. */
+  runtime: ProviderApiRuntimeOptions | undefined;
+  /** Latest time an admission should wait until before refusing. */
+  deadline: number;
+  signal: AbortSignal | undefined;
+}
+
+/**
+ * Admission for one dispatch of a prepared request. Throw to refuse it. The
+ * optional returned check runs synchronously right before the request is
+ * sent, after any queue wait, and throws to refuse at the last moment.
+ */
+export type ProviderCallAdmission = () => Promise<void | (() => void)>;
+
+/** A synthetic response a refused request answers with instead of throwing. */
+export interface ProviderCallGateRefusal {
+  status: number;
+  statusText: string;
+  headers?: Record<string, string>;
+  json?: unknown;
+}
+
+export interface ProviderCallGate {
+  /** Stable id; registering a different gate under the same id throws. */
+  id: string;
+  /**
+   * Whether this gate owns a request. Called with only `providerId` before
+   * the URL resolves (for `precheck`), and with the URL for every dispatch.
+   */
+  matches(target: ProviderCallGateTarget): boolean;
+  /**
+   * Refuse a request to `providerId` before its config and credentials
+   * resolve, so a paused provider costs no credential or token lookup.
+   */
+  precheck?(providerId: string): Promise<void>;
+  /**
+   * When `admit` runs. "transport" (default): before every dispatch,
+   * including quota retries. "attempt": once per quota attempt, before the
+   * attempt waits in the provider's quota queue, so a debit is taken per
+   * attempt but never held while queued; `recheck` then runs before each
+   * dispatch instead.
+   */
+  admission?: "transport" | "attempt";
+  /**
+   * Prepare admission for one request; the returned function admits each
+   * dispatch. Called once per request, shared by its pages and retries.
+   */
+  prepare(request: ProviderCallGateRequest): ProviderCallAdmission;
+  /** For "attempt" gates: a fresh refusal check right before each dispatch. */
+  recheck?(request: ProviderCallGateRequest): Promise<void>;
+  /**
+   * Turn an error thrown by a "transport" admission into a response the
+   * caller receives instead of the error, such as a 429 with Retry-After for
+   * an exhausted budget. The quota governor never counts it as the
+   * provider's own rate limit. Return undefined to rethrow.
+   */
+  refusalResponse?(error: unknown): ProviderCallGateRefusal | undefined;
+}
+
+export interface PreparedProviderCallGate {
+  gate: ProviderCallGate;
+  request: ProviderCallGateRequest;
+  admit: ProviderCallAdmission;
+}
+
+interface ProviderCallGateRegistry {
+  gates: ProviderCallGate[];
+}
+
+const globals = globalThis as typeof globalThis & {
+  __agentNativeProviderCallGates?: ProviderCallGateRegistry;
+};
+const registry: ProviderCallGateRegistry =
+  (globals.__agentNativeProviderCallGates ??= { gates: [] });
+
+/**
+ * Register a provider call gate. Gates are consulted in registration order and
+ * the first match owns the request. Registering the same gate object again is
+ * a no-op. Returns a function that removes it.
+ */
+export function registerProviderCallGate(gate: ProviderCallGate): () => void {
+  if (!gate.id) throw new Error("A provider call gate needs an id.");
+  const existing = registry.gates.find((entry) => entry.id === gate.id);
+  if (existing && existing !== gate) {
+    throw new Error(
+      `Provider call gate "${gate.id}" is already registered by another module.`,
+    );
+  }
+  if (!existing) registry.gates.push(gate);
+  return () => {
+    const index = registry.gates.indexOf(gate);
+    if (index >= 0) registry.gates.splice(index, 1);
+  };
+}
+
+export function listProviderCallGates(): readonly ProviderCallGate[] {
+  return [...registry.gates];
+}
+
+export function clearProviderCallGatesForTests(): void {
+  registry.gates.length = 0;
+}
+
+export function findProviderCallGate(
+  target: ProviderCallGateTarget,
+): ProviderCallGate | undefined {
+  return registry.gates.find((gate) => gate.matches(target));
+}
+
+/** Run the precheck of the gate that owns a request naming `providerId`. */
+export async function precheckProviderCall(providerId: string): Promise<void> {
+  await findProviderCallGate({ providerId })?.precheck?.(providerId);
+}
+
+export function prepareProviderCallGate(
+  request: ProviderCallGateRequest,
+): PreparedProviderCallGate | undefined {
+  const gate = findProviderCallGate({
+    providerId: request.providerId,
+    url: request.url,
+  });
+  if (!gate) return undefined;
+  return { gate, request, admit: gate.prepare(request) };
+}
+
+const gateRefusals = new WeakSet<object>();
+
+/** Remember an error as a gate's own refusal, so callers pass it through unwrapped. */
+export function markProviderCallGateRefusal(error: unknown): void {
+  if (typeof error === "object" && error !== null) gateRefusals.add(error);
+}
+
+export function isProviderCallGateRefusal(error: unknown): boolean {
+  return typeof error === "object" && error !== null && gateRefusals.has(error);
+}
+
+/** Run a gate hook, marking anything it throws as the gate's refusal. */
+export async function runProviderCallGateHook<T>(
+  hook: () => T | Promise<T>,
+): Promise<T> {
+  try {
+    return await hook();
+  } catch (error) {
+    markProviderCallGateRefusal(error);
+    throw error;
+  }
+}
