@@ -1538,7 +1538,8 @@ async function appActionHeaders(
   request: DispatchAppActionRequest,
 ): Promise<Record<string, string>> {
   if (!appActionHeaderProvider) return {};
-  const headers = (await appActionHeaderProvider(request)) ?? {};
+  const headers = await appActionHeaderProvider(request);
+  if (headers === undefined) return {};
   for (const [name, value] of Object.entries(headers)) {
     if (name.toLowerCase() === "authorization" || typeof value !== "string") {
       throw new Error(
@@ -1549,14 +1550,14 @@ async function appActionHeaders(
   return headers;
 }
 
-// Runs `use` against a connected MCP client for the granted app, signed as the
-// requesting user, the way embed sessions reach the same target. Without a
+// Runs `withClient` against a connected MCP client for the granted app, signed
+// as the requesting user, the way embed sessions reach the same target. Without a
 // header provider no per-turn grant is attached, so a target action that
 // requires a user turn refuses with its own error code.
 async function withGrantedAppMcp<T>(
   app: string,
   action: string | undefined,
-  use: (manager: McpClientManager, serverId: string) => Promise<T>,
+  withClient: (manager: McpClientManager, serverId: string) => Promise<T>,
 ): Promise<T> {
   if (!dispatchDirectAppActionsEnabled()) {
     fail("Direct app actions are not enabled on this Dispatch deployment.", {
@@ -1629,7 +1630,7 @@ async function withGrantedAppMcp<T>(
       if (!manager.hasServer(serverId)) {
         throw new Error(`The ${target.id} app's actions are unavailable.`);
       }
-      return await use(manager, serverId);
+      return await withClient(manager, serverId);
     } finally {
       await manager.stop().catch((stopError: unknown) => {
         console.warn("[dispatch] Failed to stop target MCP client:", stopError);
