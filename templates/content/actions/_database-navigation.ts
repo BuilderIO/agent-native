@@ -595,7 +595,11 @@ function optionNamesById(optionsJson: string) {
       names.set(option.id, String(name));
     }
   }
-  return Object.fromEntries(names);
+  // Postgres's jsonb can't hold a NUL, so an option with one in its ID or
+  // name is left out, and its ID shows, rather than failing the query.
+  return Object.fromEntries(
+    [...names].filter(([id, text]) => !(id + text).includes("\u0000")),
+  );
 }
 
 function navigationFilterSql(args: {

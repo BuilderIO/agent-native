@@ -2879,6 +2879,71 @@ describe("Files navigation filters on stored property values", () => {
         .where(eq(schema.documentPropertyDefinitions.id, propertyId));
     }
   });
+  it("leaves out an option Postgres can't hold, rather than failing", async () => {
+    // JSON.stringify writes a NUL as \u0000, which Postgres's jsonb refuses.
+    const propertyId = "stored-nul-option";
+    await getDb()
+      .insert(schema.documentPropertyDefinitions)
+      .values({
+        id: propertyId,
+        ownerEmail: OWNER,
+        databaseId: DATABASE_ID,
+        name: "Phase",
+        type: "select",
+        optionsJson: JSON.stringify({
+          options: [
+            { id: "phase-live", name: "Li\u0000ve", color },
+            { id: "phase\u0000odd", name: "Odd", color },
+            { id: "phase-idea", name: "Idea", color },
+          ],
+        }),
+      });
+    await getDb()
+      .insert(schema.documentPropertyValues)
+      .values([
+        {
+          id: "stored-value-launch-phase",
+          ownerEmail: OWNER,
+          documentId: "stored-launch",
+          propertyId,
+          valueJson: JSON.stringify("phase-live"),
+        },
+        {
+          id: "stored-value-recap-phase",
+          ownerEmail: OWNER,
+          documentId: "stored-recap",
+          propertyId,
+          valueJson: JSON.stringify("phase-idea"),
+        },
+      ]);
+    const filter = (
+      operator: ContentDatabaseFilter["operator"],
+      value = "",
+    ): ContentDatabaseFilter => ({
+      key: propertyId,
+      label: "Phase",
+      operator,
+      value,
+    });
+    try {
+      expect(
+        await navigatedIds([filter("equals", "phase-live")], "UTC"),
+      ).toEqual(["launch"]);
+      expect(await navigatedIds([filter("equals", "Idea")], "UTC")).toEqual([
+        "recap",
+      ]);
+      expect(await navigatedIds([filter("is_empty")], "UTC")).toEqual(
+        except("launch", "recap"),
+      );
+    } finally {
+      await getDb()
+        .delete(schema.documentPropertyValues)
+        .where(eq(schema.documentPropertyValues.propertyId, propertyId));
+      await getDb()
+        .delete(schema.documentPropertyDefinitions)
+        .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+    }
+  });
 
   it("combines stored-value filters with other filters and groups", async () => {
     const cases: Array<
