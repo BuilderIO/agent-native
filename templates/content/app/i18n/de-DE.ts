@@ -767,6 +767,17 @@ const editor = {
     lockedSuggesting:
       "Vorschläge können diese Art von Block nicht hinzufügen oder entfernen.",
     lockedPage: "Diese Seite lässt diese Änderung nicht zu.",
+    lockedCollection: "Eine Sammlung bleibt auf der Seite, zu der sie gehört.",
+    moveTo: "Verschieben nach",
+    moveToTitle: "Block verschieben nach",
+    movingTo: "Wird nach {{title}} verschoben…",
+    movedTo: "Nach {{title}} verschoben",
+    copiedTo:
+      "Nach {{title}} kopiert. Der Block hat sich beim Verschieben geändert und bleibt deshalb auch hier.",
+    moveChanged:
+      "Der Block hat sich geändert, bevor er verschoben werden konnte. Nichts wurde verschoben.",
+    moveFailed: "Der Block konnte nicht nach {{title}} verschoben werden",
+    openPage: "Öffnen",
   },
   noDocumentSelected: "Kein Dokument ausgewählt",
   registryBlockLoadError:

@@ -753,6 +753,17 @@ const editor = {
       "ソースファイルのコンポーネントはここでは複製・削除できません。",
     lockedSuggesting: "提案ではこの種類のブロックを追加・削除できません。",
     lockedPage: "このページではその変更はできません。",
+    lockedCollection: "コレクションは、それが属するページに残ります。",
+    moveTo: "移動先",
+    moveToTitle: "ブロックの移動先",
+    movingTo: "{{title}} に移動しています…",
+    movedTo: "{{title}} に移動しました",
+    copiedTo:
+      "{{title}} にコピーしました。移動中にブロックが変更されたため、ここにも残っています。",
+    moveChanged:
+      "移動する前にブロックが変更されたため、何も移動しませんでした。",
+    moveFailed: "ブロックを {{title}} に移動できませんでした",
+    openPage: "開く",
   },
   noDocumentSelected: "ドキュメントが選択されていません",
   registryBlockLoadError:

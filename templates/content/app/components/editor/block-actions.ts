@@ -245,7 +245,7 @@ export function blockCommentRange(node: ProseMirrorNode, pos: number) {
 }
 
 /** Why the page refuses an action on a block, when it does. */
-export type BlockLock = "source" | "suggesting" | "page";
+export type BlockLock = "source" | "suggesting" | "page" | "collection";
 
 function refuses(state: EditorState, tr: Transaction) {
   return state.plugins.some(
@@ -255,26 +255,47 @@ function refuses(state: EditorState, tr: Transaction) {
   );
 }
 
-function containsSourceComponent(node: ProseMirrorNode) {
-  if (isSourceComponentNode(node)) return true;
+function contains(
+  node: ProseMirrorNode,
+  test: (node: ProseMirrorNode) => boolean,
+) {
+  if (test(node)) return true;
   let found = false;
   node.descendants((child) => {
-    found ||= isSourceComponentNode(child);
+    found ||= test(child);
     return !found;
   });
   return found;
 }
 
+function containsSourceComponent(node: ProseMirrorNode) {
+  return contains(node, isSourceComponentNode);
+}
+
+// An inline collection belongs to the page whose body holds it, and goes to
+// Trash when its block leaves that page.
+function isInlineCollection(node: ProseMirrorNode) {
+  return (
+    node.type.name === "registryBlock" &&
+    node.attrs.blockType === "inline-database"
+  );
+}
+
 /**
- * Whether the page would let the menu duplicate or delete the block at `pos`.
- * Asks the page's filters about the drag handle's own edits, so the menu can
- * say why before anyone tries.
+ * Whether the page would let the menu duplicate, delete or move the block at
+ * `pos`. Asks the page's filters about the drag handle's own edits, so the
+ * menu can say why before anyone tries. Moving removes the block here, so it
+ * is refused wherever deleting is.
  */
 export function blockActionLocks(
   state: EditorState,
   pos: number,
   node: ProseMirrorNode,
-): { duplicate: BlockLock | null; remove: BlockLock | null } {
+): {
+  duplicate: BlockLock | null;
+  remove: BlockLock | null;
+  move: BlockLock | null;
+} {
   const duplicate = duplicateBlockTransaction(state, pos, node);
   const remove = deleteBlockTransaction(state, pos, node);
   const lock = containsSourceComponent(node)
@@ -282,8 +303,11 @@ export function blockActionLocks(
     : isSuggestingEdits(state)
       ? "suggesting"
       : "page";
+  const removeLock = refuses(state, remove) ? lock : null;
   return {
     duplicate: !duplicate || refuses(state, duplicate) ? lock : null,
-    remove: refuses(state, remove) ? lock : null,
+    remove: removeLock,
+    move:
+      removeLock ?? (contains(node, isInlineCollection) ? "collection" : null),
   };
 }

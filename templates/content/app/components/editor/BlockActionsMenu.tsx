@@ -68,6 +68,7 @@ import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { takesBlockColor } from "./extensions/NotionFidelity";
 import { instantCloseMenuClass } from "./menu-classes";
 import { MenuSwitchItem } from "./MenuSwitchItem";
+import { useMoveBlock } from "./MoveBlockDialog";
 
 interface BlockMenuHost {
   editor: Editor;
@@ -98,6 +99,7 @@ const LOCK_REASON_KEYS: Record<BlockLock, string> = {
   source: "editor.blockMenu.lockedSource",
   suggesting: "editor.blockMenu.lockedSuggesting",
   page: "editor.blockMenu.lockedPage",
+  collection: "editor.blockMenu.lockedCollection",
 };
 
 const SHEET_ITEM = "data-block-sheet-item";
@@ -194,6 +196,7 @@ export function BlockActionsMenu({
   const searchRef = useRef<HTMLInputElement>(null);
   const leftViewRef = useRef<SheetView | null>(null);
   const reasonId = useId();
+  const moveBlock = useMoveBlock(editor, documentId);
 
   // The menu takes focus when it opens unless focus is already inside it, so
   // the search keeps it. A phone's keyboard would cover the page, though.
@@ -269,7 +272,8 @@ export function BlockActionsMenu({
     (next ?? content).focus({ preventScroll: true });
   }, [sheetView]);
 
-  if (!request) return null;
+  // Move to's page picker outlives the menu that opened it.
+  if (!request) return moveBlock.dialog;
 
   const block = request.getBlock();
   const node = block?.node ?? null;
@@ -285,7 +289,7 @@ export function BlockActionsMenu({
     onComment && block ? blockCommentRange(block.node, block.pos) : null;
   const locks = block
     ? blockActionLocks(request.view.state, block.pos, block.node)
-    : { duplicate: null, remove: null };
+    : { duplicate: null, remove: null, move: null };
   const canDuplicate = !!block && !locks.duplicate;
   const canRemove = !!block && !locks.remove;
 
@@ -577,6 +581,16 @@ export function BlockActionsMenu({
       onSelect: request.duplicate,
       lock: locks.duplicate,
       shortcut: shortcut("D"),
+    },
+    // A suggestion stays on its page, and a move writes to another one.
+    !suggesting && {
+      id: "move-to",
+      label: t("editor.blockMenu.moveTo"),
+      onSelect: () => {
+        const latest = request.getBlock();
+        if (latest) moveBlock.start(latest);
+      },
+      lock: locks.move,
     },
     {
       id: "delete",

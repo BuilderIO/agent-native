@@ -763,6 +763,16 @@ const editor = {
     lockedSuggesting:
       "Sugestões não podem adicionar nem remover este tipo de bloco.",
     lockedPage: "Esta página não permite essa alteração.",
+    lockedCollection: "Uma coleção fica na página a que pertence.",
+    moveTo: "Mover para",
+    moveToTitle: "Mover bloco para",
+    movingTo: "Movendo para {{title}}…",
+    movedTo: "Movido para {{title}}",
+    copiedTo:
+      "Copiado para {{title}}. O bloco mudou enquanto era movido, então também continua aqui.",
+    moveChanged: "O bloco mudou antes de ser movido, então nada foi movido.",
+    moveFailed: "Não foi possível mover o bloco para {{title}}",
+    openPage: "Abrir",
   },
   noDocumentSelected: "Nenhum documento selecionado",
   registryBlockLoadError:

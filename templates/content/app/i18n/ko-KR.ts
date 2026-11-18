@@ -746,6 +746,16 @@ const editor = {
     lockedSuggesting:
       "제안으로는 이 유형의 블록을 추가하거나 제거할 수 없습니다.",
     lockedPage: "이 페이지에서는 해당 변경을 할 수 없습니다.",
+    lockedCollection: "컬렉션은 속한 페이지에 남습니다.",
+    moveTo: "이동",
+    moveToTitle: "블록 이동 위치",
+    movingTo: "{{title}}(으)로 이동하는 중…",
+    movedTo: "{{title}}(으)로 이동했습니다",
+    copiedTo:
+      "{{title}}에 복사했습니다. 이동하는 동안 블록이 바뀌어 여기에도 남아 있습니다.",
+    moveChanged: "이동하기 전에 블록이 바뀌어 아무것도 이동하지 않았습니다.",
+    moveFailed: "블록을 {{title}}(으)로 이동할 수 없습니다",
+    openPage: "열기",
   },
   noDocumentSelected: "선택한 문서가 없습니다.",
   registryBlockLoadError: "{{type}} 블록을 불러올 수 없습니다: {{message}}",
