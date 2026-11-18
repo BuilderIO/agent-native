@@ -2220,6 +2220,7 @@ describe("queued submission inbox recurring sweep", () => {
       let queuedThread: Awaited<ReturnType<typeof getThread>>;
       let queuedReceipt: Awaited<ReturnType<typeof getQueuedSubmissionReceipt>>;
       let terminalSnapshot: { status: number; body: unknown } | undefined;
+      let cancelReceiptUpdated: boolean | undefined;
       const readActiveRun = () =>
         runWithRequestContext({ userEmail: ownerEmail, run: {} }, () =>
           app.fetch(
@@ -2243,7 +2244,7 @@ describe("queued submission inbox recurring sweep", () => {
             type: "cancel",
             messageId,
           });
-          expect(result?.receiptUpdated).toBe(true);
+          cancelReceiptUpdated = result?.receiptUpdated;
         }
         queuedThread = await getThread(threadId);
         queuedReceipt = await getQueuedSubmissionReceipt(threadId, messageId);
@@ -2260,6 +2261,7 @@ describe("queued submission inbox recurring sweep", () => {
         release();
       }
       const firstResponse = await first;
+      expect(cancelReceiptUpdated).toBe(cancel ? true : undefined);
       expect.soft(firstResponse.status).toBe(409);
       expect.soft(await firstResponse.json()).toEqual({
         error,
